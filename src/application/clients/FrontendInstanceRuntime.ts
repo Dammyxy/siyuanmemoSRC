@@ -8,6 +8,11 @@ import {
   shouldLogRelayCommandSubmitted,
 } from '@/application/clients/relayDiagnostics';
 import { createLogger } from '@/utils/logger';
+import {
+  incrementRuntimePerformanceCounter,
+  measureRuntimePerformance,
+  startRuntimePerformanceSpan,
+} from '@/utils/runtimePerformanceDiagnostics';
 import type { KernelBroadcastEvent } from '../../../packages/contracts/src/kernel-rpc';
 
 export interface FrontendInstanceRuntimeOptions {
@@ -396,6 +401,7 @@ export class FrontendInstanceRuntime {
     if (event.method !== 'memo.writer.command') {
       return;
     }
+    incrementRuntimePerformanceCounter('relay', 'writer-push-command-events');
     this.drainPendingWriterCommands('push:command').catch((error) => {
       this.logger.warn('[FrontendInstanceRuntime] push relay drain failed', {
         instanceId: this.instanceId,
@@ -722,15 +728,22 @@ export class FrontendInstanceRuntime {
     if (!this.started || this.mode !== 'writer' || !this.writerCommandHandler || this.drainingRelay) {
       return;
     }
+    const finishDrainSpan = startRuntimePerformanceSpan('relay', 'writer.drain-pending-commands', {
+      mode: this.mode,
+      wakeReason: reason,
+    });
+    let commandCount = 0;
+    let status = 'started';
     this.drainingRelay = true;
     try {
       for (let i = 0; i < 4; i += 1) {
-        const pulled = await this.sidecarClient.writerTakeCommand({
+        const pulled = await measureRuntimePerformance('relay', 'writer.take-command', () => this.sidecarClient.writerTakeCommand({
           instanceId: this.instanceId,
-        });
+        }), { wakeReason: reason });
         if (!pulled.command) {
           break;
         }
+        commandCount++;
         const command = pulled.command;
         if (this.processingRelayCommandIds.has(command.commandId)) {
           continue;
@@ -751,11 +764,17 @@ export class FrontendInstanceRuntime {
           });
         }
         try {
-          const result = await this.writerCommandHandler(command);
-          await this.sidecarClient.writerCompleteCommand({
+          const result = await measureRuntimePerformance('relay', 'writer.command-handler', () => this.writerCommandHandler!(command), {
+            method: command.method,
+            wakeReason: reason,
+          });
+          await measureRuntimePerformance('relay', 'writer.complete-command', () => this.sidecarClient.writerCompleteCommand({
             instanceId: this.instanceId,
             commandId: command.commandId,
             result,
+          }), {
+            method: command.method,
+            wakeReason: reason,
           });
           const completionDiagnostics = getRelayCompletionExtraDiagnostics(command.method, result);
           if (completionDiagnostics) {
@@ -775,14 +794,18 @@ export class FrontendInstanceRuntime {
             });
           }
         } catch (error) {
+          status = 'command-failed';
           const message = error instanceof Error ? error.message : String(error);
-          await this.sidecarClient.writerFailCommand({
+          await measureRuntimePerformance('relay', 'writer.fail-command', () => this.sidecarClient.writerFailCommand({
             instanceId: this.instanceId,
             commandId: command.commandId,
             error: {
               code: 'INTERNAL_ERROR',
               message,
             },
+          }), {
+            method: command.method,
+            wakeReason: reason,
           });
           this.logger.warn('[FrontendInstanceRuntime] relay command failed', {
             commandId: command.commandId,
@@ -796,7 +819,11 @@ export class FrontendInstanceRuntime {
           this.processingRelayCommandIds.delete(command.commandId);
         }
       }
+      if (status === 'started') {
+        status = 'drained';
+      }
     } catch (error) {
+      status = 'error';
       if (this.isWriterLeaseUnavailableError(error)) {
         const ownership = await this.observeCurrentLease(`${reason}:lost-writer`);
         if (!ownership.leaseHolder || ownership.leaseHolder === this.instanceId) {
@@ -812,6 +839,14 @@ export class FrontendInstanceRuntime {
       }
     } finally {
       this.drainingRelay = false;
+      finishDrainSpan({
+        commandCount,
+        status,
+        wakeReason: reason,
+      }, {
+        ok: status === 'drained',
+        errorName: status === 'drained' ? undefined : 'WriterRelayDrainError',
+      });
     }
   }
 

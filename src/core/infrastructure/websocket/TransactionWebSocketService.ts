@@ -15,6 +15,10 @@
 
 import type FSRSPlugin from '@/index';
 import { createLogger } from '@/utils/logger';
+import {
+    incrementRuntimePerformanceCounter,
+    measureRuntimePerformance,
+} from '@/utils/runtimePerformanceDiagnostics';
 import { resolveWorkspaceDir } from './runtime';
 import { parseTransactionsPayload, parseWSMessage, type Transaction } from './transaction-types';
 
@@ -162,9 +166,11 @@ export class TransactionWebSocketService {
      * 处理宿主事件总线中的 ws-main 消息
      */
     private readonly handleWorkspaceMessage = (event: unknown): void => {
-        try {
+        measureRuntimePerformance('daily-editing', 'ws-main.message', () => {
+            try {
             // 🆕 更新最后消息时间
             this.lastMessageTime = Date.now();
+            incrementRuntimePerformanceCounter('daily-editing', 'ws-main-events');
 
             const detail = this.extractWorkspaceEventDetail(event);
             if (!detail) {
@@ -181,10 +187,12 @@ export class TransactionWebSocketService {
                 return;
             }
             
+            incrementRuntimePerformanceCounter('daily-editing', 'transaction-messages');
             this.handleTransactions(parseTransactionsPayload(message.data));
-        } catch (error) {
-            logger.error('Failed to parse message:', error);
-        }
+            } catch (error) {
+                logger.error('Failed to parse message:', error);
+            }
+        }, { handlerCount: this.handlers.length });
     };
 
     private extractWorkspaceEventDetail(event: unknown): { cmd?: unknown; data?: unknown } | null {
@@ -229,16 +237,30 @@ export class TransactionWebSocketService {
         }
         
         logger.info('Transaction received, count:', data.length);
+        incrementRuntimePerformanceCounter('daily-editing', 'transactions', data.length);
         
         // 分发给所有注册的处理器
-        for (const handler of this.handlers) {
-            try {
-                handler.handle(data);
-            } catch (error) {
-                logger.error('Handler error:', handler.constructor.name, error);
-                // 继续处理其他处理器，不中断
+        measureRuntimePerformance('daily-editing', 'transactions.dispatch', () => {
+            for (const handler of this.handlers) {
+                try {
+                    measureRuntimePerformance(
+                        'daily-editing',
+                        'transactions.handler',
+                        () => handler.handle(data),
+                        {
+                            handlerName: handler.constructor.name,
+                            transactionCount: data.length,
+                        },
+                    );
+                } catch (error) {
+                    logger.error('Handler error:', handler.constructor.name, error);
+                    // 继续处理其他处理器，不中断
+                }
             }
-        }
+        }, {
+            handlerCount: this.handlers.length,
+            transactionCount: data.length,
+        });
     }
     
     /**

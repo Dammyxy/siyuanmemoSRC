@@ -1,5 +1,10 @@
 import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 import { createLogger } from '@/utils/logger';
+import {
+  incrementRuntimePerformanceCounter,
+  measureRuntimePerformance,
+  startRuntimePerformanceSpan,
+} from '@/utils/runtimePerformanceDiagnostics';
 
 const logger = createLogger('KernelTransactionActionPump');
 
@@ -111,6 +116,7 @@ export class KernelTransactionActionPump {
     if (this.pollingTimer) {
       return;
     }
+    incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-started');
     this.pollingTimer = setInterval(() => {
       void this.pollOnce();
     }, this.pollIntervalMs);
@@ -124,13 +130,22 @@ export class KernelTransactionActionPump {
   }
 
   private async pollOnce(): Promise<void> {
+    const finishPollSpan = startRuntimePerformanceSpan('daily-editing', 'kernel-action-pump.poll-once', {
+      mode: this.runtime?.getMode?.() ?? 'none',
+      writerRelayRequired: this.writerRelayRequired,
+    });
+    let actionCount = 0;
     if (this.pollingInFlight) {
+      incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-skipped-inflight');
+      finishPollSpan({ status: 'skipped-inflight' });
       return;
     }
     this.pollingInFlight = true;
     try {
       const result = await this.dequeueActions();
       const actions = result.actions || [];
+      actionCount = actions.length;
+      incrementRuntimePerformanceCounter('daily-editing', 'kernel-actions-dequeued', actions.length);
       if (actions.length === 0) {
         await this.maybeRunDeferredUpsert();
         this.maybeRunDeferredAutoCard();
@@ -183,7 +198,12 @@ export class KernelTransactionActionPump {
 
         await this.maybeRunDeferredUpsert();
 
-        this.bufferAutoCardOperations(autoCardOperations);
+        measureRuntimePerformance(
+          'daily-editing',
+          'kernel-action-pump.buffer-autocard-operations',
+          () => this.bufferAutoCardOperations(autoCardOperations),
+          { operationCount: autoCardOperations.length },
+        );
         this.maybeRunDeferredAutoCard();
       } catch (error) {
         await this.requeueActions(actions, error);
@@ -195,6 +215,11 @@ export class KernelTransactionActionPump {
       });
     } finally {
       this.pollingInFlight = false;
+      finishPollSpan({
+        actionCount,
+        pendingAutoCardBlocks: this.pendingAutoCardOpsByBlock.size,
+        pendingUpsert: this.pendingUpsert,
+      });
     }
   }
 
@@ -253,13 +278,15 @@ export class KernelTransactionActionPump {
       return;
     }
 
-    autoCardHandler.handle([{
-      doOperations: operations.map((operation) => ({
-        action: operation.action,
-        id: operation.blockId,
-      })),
-      undoOperations: null,
-    }]);
+    measureRuntimePerformance('autocard', 'kernel-action-pump.autocard-handler-handoff', () => {
+      autoCardHandler.handle([{
+        doOperations: operations.map((operation) => ({
+          action: operation.action,
+          id: operation.blockId,
+        })),
+        undoOperations: null,
+      }]);
+    }, { operationCount: operations.length });
     this.pendingAutoCardOpsByBlock.clear();
     this.nextAutoCardAt = now + this.autoCardCooldownMs;
   }
@@ -287,14 +314,14 @@ export class KernelTransactionActionPump {
         throw new Error('BACKEND_UNAVAILABLE: kernel.transaction.dequeue relay is unavailable in follower mode');
       }
       try {
-        return await this.followerCommandClient.submitAndWait(
+        return await measureRuntimePerformance('daily-editing', 'kernel-action-pump.dequeue-relay', () => this.followerCommandClient!.submitAndWait(
           {
             instanceId: this.runtime.getInstanceId(),
             method: 'kernel.transaction.dequeue',
             params,
           },
           this.relayTimeoutMs,
-        );
+        ), { maxActions: this.maxActionsPerPoll });
       } catch (error) {
         if (!this.isSelfRelaySubmissionError(error)) {
           throw error;
@@ -302,7 +329,12 @@ export class KernelTransactionActionPump {
         await this.refreshStaleWriterModeAfterSelfRelay();
       }
     }
-    return this.srsBackendClient.dequeueKernelTransactions(params);
+    return measureRuntimePerformance(
+      'daily-editing',
+      'kernel-action-pump.dequeue-local',
+      () => this.srsBackendClient.dequeueKernelTransactions(params),
+      { maxActions: this.maxActionsPerPoll },
+    );
   }
 
   private async maybeRunDeferredUpsert(): Promise<void> {
@@ -315,12 +347,16 @@ export class KernelTransactionActionPump {
     }
     const hybridSyncService = this.getHybridSyncService();
     if (typeof hybridSyncService?.handleNativeRiffUpsert === 'function') {
-      await hybridSyncService.handleNativeRiffUpsert();
+      await measureRuntimePerformance(
+        'daily-editing',
+        'kernel-action-pump.native-riff-upsert',
+        () => hybridSyncService.handleNativeRiffUpsert!(),
+      );
     } else if (typeof hybridSyncService?.incrementalSync === 'function') {
-      await hybridSyncService.incrementalSync(undefined, {
+      await measureRuntimePerformance('daily-editing', 'kernel-action-pump.native-riff-incremental-sync', () => hybridSyncService.incrementalSync!(undefined, {
         source: 'native-riff-transaction',
         persistIdleCheckpoint: false,
-      });
+      }));
     } else {
       logger.warn('Skip native-riff-upsert action because hybrid sync service is unavailable');
       return;
@@ -352,14 +388,14 @@ export class KernelTransactionActionPump {
           throw new Error('BACKEND_UNAVAILABLE: kernel.transaction.requeue relay is unavailable in follower mode');
         }
         try {
-          await this.followerCommandClient.submitAndWait(
+          await measureRuntimePerformance('daily-editing', 'kernel-action-pump.requeue-relay', () => this.followerCommandClient!.submitAndWait(
             {
               instanceId: this.runtime.getInstanceId(),
               method: 'kernel.transaction.requeue',
               params: { actions },
             },
             this.relayTimeoutMs,
-          );
+          ), { actionCount: actions.length });
         } catch (error) {
           if (!this.isSelfRelaySubmissionError(error)) {
             throw error;
@@ -369,7 +405,12 @@ export class KernelTransactionActionPump {
         }
         return;
       }
-      await this.srsBackendClient.requeueKernelTransactions({ actions });
+      await measureRuntimePerformance(
+        'daily-editing',
+        'kernel-action-pump.requeue-local',
+        () => this.srsBackendClient.requeueKernelTransactions({ actions }),
+        { actionCount: actions.length },
+      );
     } catch (requeueError) {
       logger.warn('Failed to requeue kernel transaction actions after processing error', {
         message: requeueError instanceof Error ? requeueError.message : String(requeueError || ''),

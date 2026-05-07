@@ -13,6 +13,7 @@ import {
   createQueryDataSource,
   createQueueDataSource,
 } from './utils/dataSourceFactory';
+import { measureRuntimePerformance, startRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnostics';
 
 type MutableRef<T> = {
   value: T;
@@ -102,6 +103,12 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
   async function loadData(forceRefresh = false, options: BrowserLoadDataOptions = {}): Promise<void> {
     const shouldRefreshQueueCounts = options.refreshQueueCounts ?? true;
     const origin = options.origin ?? 'default';
+    const finishLoadSpan = startRuntimePerformanceSpan('browser', 'load-data.total', {
+      forceRefresh,
+      origin,
+    });
+    let status = 'started';
+    let datasourceKind = 'none';
 
     if (loadDataAbortController) {
       loadDataAbortController.abort();
@@ -131,13 +138,14 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
       const unifiedDataSourceManager = deps.pluginUnifiedDataSourceManager.value;
 
       if (deps.activeQueueId.value) {
+        datasourceKind = 'queue';
         if (!unifiedDataSourceManager) {
           deps.logger.error('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available');
           clearBrowserRows(deps);
           return;
         }
 
-        deps.currentDataSource.value = createQueueDataSource(
+        deps.currentDataSource.value = measureRuntimePerformance('browser', 'load-data.create-queue-datasource', () => createQueueDataSource(
           deps.activeQueueId.value,
           unifiedDataSourceManager,
           {
@@ -149,7 +157,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
           },
           deps.getPlugin(),
           deps.browserAppService.value || null,
-        );
+        ), { queueId: deps.activeQueueId.value });
 
         if (!deps.currentDataSource.value) {
           deps.logger.error('[SiYuanMemo][SRSBrowser] Failed to create data source for queue:', deps.activeQueueId.value);
@@ -160,15 +168,17 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
         deps.clearNeuralSubviewData();
         const sqlStmt = deps.resolveActiveSqlStatement(deps.searchQuery.value);
         if (sqlStmt != null) {
+          datasourceKind = 'sql-query';
           const ok = await deps.ensureSqlModeConfirmed();
           if (!ok) return;
           deps.activeQueueId.value = null;
-          deps.currentDataSource.value = createQueryDataSource(sqlStmt, {
+          deps.currentDataSource.value = measureRuntimePerformance('browser', 'load-data.create-query-datasource', () => createQueryDataSource(sqlStmt, {
             manager: unifiedDataSourceManager,
             plugin: deps.getPlugin(),
             siyuanApi: deps.browserSiyuanApi.value || undefined,
-          });
+          }));
         } else {
+          datasourceKind = 'deck';
           if (!unifiedDataSourceManager) {
             deps.logger.error('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available for deck mode');
             await deps.pushErrMsg(deps.t('envNotInit', 'Environment not initialized'));
@@ -176,7 +186,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
             return;
           }
 
-          deps.currentDataSource.value = createDeckDataSource(
+          deps.currentDataSource.value = measureRuntimePerformance('browser', 'load-data.create-deck-datasource', () => createDeckDataSource(
             unifiedDataSourceManager,
             {
               docId: deps.activeDocId.value,
@@ -188,7 +198,10 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
             deps.getCurrentDocId(),
             deps.getPlugin(),
             deps.browserAppService.value || null,
-          );
+          ), {
+            activeDocId: deps.activeDocId.value,
+            hasScopeDocIds: Boolean(deps.activeScopeDocIds.value?.length),
+          });
         }
       }
 
@@ -202,25 +215,31 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
         return;
       }
 
-      deps.rebuildInfiniteDatasource(forceRefresh);
+      measureRuntimePerformance('browser', 'load-data.rebuild-infinite-datasource', () => deps.rebuildInfiniteDatasource(forceRefresh), {
+        datasourceKind,
+      });
       datasourceTriggered = true;
       const hierarchySnapshotMode = resolveBrowserHierarchySnapshotMode({
         shouldFocusDocList: deps.shouldFocusDocList.value,
         activeDocId: deps.activeDocId.value,
       });
       if (hierarchySnapshotMode === 'focus') {
-        deps.startFocusRowsSnapshot();
+        measureRuntimePerformance('browser', 'load-data.start-focus-snapshot', () => deps.startFocusRowsSnapshot());
       } else if (hierarchySnapshotMode === 'all') {
-        deps.scheduleAllRowsSnapshot(options.snapshotDelayMs);
+        measureRuntimePerformance('browser', 'load-data.schedule-all-rows-snapshot', () => deps.scheduleAllRowsSnapshot(options.snapshotDelayMs), {
+          snapshotDelayMs: options.snapshotDelayMs ?? null,
+        });
       }
       void origin;
 
       if (deps.currentQueueType.value === 'neural-roam') {
-        await deps.refreshNeuralSubviewData();
+        await measureRuntimePerformance('browser', 'load-data.refresh-neural-subview', () => deps.refreshNeuralSubviewData());
       } else {
         deps.clearNeuralSubviewData();
       }
+      status = 'loaded';
     } catch (err) {
+      status = 'error';
       deps.logger.error('[SiYuanMemo][CardBrowser] Load data error:', err);
       deps.rows.value = [];
       deps.totalRowCount.value = 0;
@@ -237,6 +256,13 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
       if (loadDataAbortController === currentController) {
         loadDataAbortController = null;
       }
+      finishLoadSpan({
+        datasourceKind,
+        status,
+      }, {
+        ok: status !== 'error',
+        errorName: status === 'error' ? 'BrowserLoadDataError' : undefined,
+      });
     }
   }
 

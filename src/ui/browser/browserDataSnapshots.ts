@@ -5,6 +5,10 @@ import type {
   SortModel,
 } from './datasource/types';
 import { isBrowserQueryableDataSource } from './datasource/types';
+import {
+  incrementRuntimePerformanceCounter,
+  measureRuntimePerformance,
+} from '@/utils/runtimePerformanceDiagnostics';
 
 export function resolveQueryableDataSource(
   dataSource: ICardDataSource | null,
@@ -19,23 +23,23 @@ export async function fetchAllRowsFromDataSource(
   dataSource: ICardDataSource,
   sortModel: SortModel[] = [],
 ): Promise<BrowserCard[]> {
-  const probe = await dataSource.fetchRows({
+  const probe = await measureRuntimePerformance('browser', 'snapshot.fetch-all.probe', () => dataSource.fetchRows({
     sortModel,
     filterModel: {},
     startRow: 0,
     endRow: 1,
-  });
+  }));
 
   if (probe.totalCount <= probe.rows.length) {
     return probe.rows;
   }
 
-  const full = await dataSource.fetchRows({
+  const full = await measureRuntimePerformance('browser', 'snapshot.fetch-all.full', () => dataSource.fetchRows({
     sortModel,
     filterModel: {},
     startRow: 0,
     endRow: probe.totalCount,
-  });
+  }), { totalCount: probe.totalCount });
   return full.rows;
 }
 
@@ -52,18 +56,19 @@ export async function loadAllRowsFromQueryableDataSource(
     return fetchAllRowsFromDataSource(dataSource, sortModel);
   }
 
-  await dataSource.fetchRows({
+  await measureRuntimePerformance('browser', 'snapshot.queryable.prime-session', () => dataSource.fetchRows({
     sortModel,
     filterModel: {},
     startRow: 0,
     endRow: 0,
-  });
+  }));
 
   if (options.shouldAbort?.()) {
     return [];
   }
 
-  const allIds = await queryable.getAllMatchedIds();
+  const allIds = await measureRuntimePerformance('browser', 'snapshot.queryable.get-all-matched-ids', () => queryable.getAllMatchedIds());
+  incrementRuntimePerformanceCounter('browser', 'snapshot-matched-ids', allIds.length);
   if (allIds.length === 0) {
     return [];
   }
@@ -76,7 +81,10 @@ export async function loadAllRowsFromQueryableDataSource(
     }
 
     const chunkIds = allIds.slice(index, index + chunkSize);
-    const hydratedRows = await queryable.getRowsByIds(chunkIds);
+    const hydratedRows = await measureRuntimePerformance('browser', 'snapshot.queryable.hydrate-chunk', () => queryable.getRowsByIds(chunkIds), {
+      chunkSize: chunkIds.length,
+      offset: index,
+    });
     if (options.shouldAbort?.()) {
       return rows;
     }

@@ -33,6 +33,12 @@ import {
   type TopBarQuickEntryActionId,
 } from '@/application/entries/TopBarQuickEntryRegistry';
 import { ensureSiyuanMenuComponentFallbacks } from '@/utils/siyuanMenuComponentFallbacks';
+import {
+  initializeRuntimePerformanceDiagnosticsFromSession,
+  installRuntimePerformanceDiagnosticsGlobal,
+  measureRuntimePerformance,
+  startRuntimePerformanceSpan,
+} from '@/utils/runtimePerformanceDiagnostics';
 import '@/index.scss';
 import '@/ui/shared/siyuanmemo-admin-skin.scss';
 
@@ -197,47 +203,69 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
 
   async onload() {
     this.logger.info('Plugin loading...');
+    installRuntimePerformanceDiagnosticsGlobal();
+    initializeRuntimePerformanceDiagnosticsFromSession();
+    const finishOnloadSpan = startRuntimePerformanceSpan('startup', 'plugin.onload');
     this.isInitialized = false;
     this.context = undefined;
     this.contextReady = createDeferredValue<ApplicationContext>();
-    this.registerCustomTabs();
+    measureRuntimePerformance('startup', 'plugin.register-custom-tabs', () => this.registerCustomTabs());
 
     const frontEnd = getFrontend();
     this.isMobile = frontEnd === 'mobile' || frontEnd === 'browser-mobile';
     this.isBrowser = frontEnd.includes('browser');
-    const patchedMenuFallbacks = ensureSiyuanMenuComponentFallbacks();
+    const patchedMenuFallbacks = measureRuntimePerformance(
+      'startup',
+      'plugin.ensure-menu-fallbacks',
+      () => ensureSiyuanMenuComponentFallbacks(),
+      { frontend: frontEnd },
+    );
     if (patchedMenuFallbacks.length > 0) {
       this.logger.info('Installed menu component fallbacks:', patchedMenuFallbacks);
     }
-    this.setupTopBar();
+    measureRuntimePerformance('startup', 'plugin.setup-topbar', () => this.setupTopBar(), { frontend: frontEnd });
     this.startMobileMenuObserver();
     this.startMobileSidebarToolbarObserver();
     this.formulaClozeAssistant = new FormulaClozeAssistant(this);
-    this.formulaClozeAssistant.start();
+    measureRuntimePerformance('startup', 'plugin.formula-cloze.start', () => this.formulaClozeAssistant?.start(), {
+      frontend: frontEnd,
+    });
 
     try {
-      this.context = await ApplicationContext.create({ plugin: this, i18n: this.i18n || {} });
+      this.context = await measureRuntimePerformance(
+        'startup',
+        'application-context.create',
+        () => ApplicationContext.create({ plugin: this, i18n: this.i18n || {} }),
+        { frontend: frontEnd },
+      );
       this.contextReady.resolve(this.getContext());
-      await this.performConfigMigrations();
+      await measureRuntimePerformance(
+        'startup',
+        'plugin.config-migrations',
+        () => this.performConfigMigrations(),
+        { frontend: frontEnd },
+      );
       this.isInitialized = true;
       
       // ✅ 只有在初始化成功后才注册事件处理器
       this.imageOcclusionHandler = new ImageOcclusionHandler(this);
       this.progressiveExcerptHotkeyHandler = new ProgressiveExcerptHotkeyHandler(this.getContext());
-      this.registerDock();
-      this.registerEventHandlers();
-      this.registerProgressiveExcerptCommand();
-      this.registerProgressiveItemCommand();
-      this.registerTopBarQuickCommands();
-      if (this.shouldExposeCoreReviewContextEntries()) {
-        this.registerCoreReviewCommands();
-      }
-      this.registerBlockToolCommands();
-      this.registerTopBarQuickSlash();
-      if (this.shouldExposeCoreReviewContextEntries()) {
-        this.registerCoreReviewSlash();
-      }
-      this.registerBlockToolSlash();
+      measureRuntimePerformance('startup', 'plugin.register-runtime-handlers', () => {
+        this.registerDock();
+        this.registerEventHandlers();
+        this.registerProgressiveExcerptCommand();
+        this.registerProgressiveItemCommand();
+        this.registerTopBarQuickCommands();
+        if (this.shouldExposeCoreReviewContextEntries()) {
+          this.registerCoreReviewCommands();
+        }
+        this.registerBlockToolCommands();
+        this.registerTopBarQuickSlash();
+        if (this.shouldExposeCoreReviewContextEntries()) {
+          this.registerCoreReviewSlash();
+        }
+        this.registerBlockToolSlash();
+      }, { frontend: frontEnd });
     } catch (err) {
       this.contextReady.reject(err);
       this.context = undefined;
@@ -248,6 +276,10 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       this.formulaClozeAssistant = null;
       this.progressiveExcerptHotkeyHandler?.stop();
       this.progressiveExcerptHotkeyHandler = null;
+      finishOnloadSpan({ frontend: frontEnd, status: 'failed' }, {
+        ok: false,
+        errorName: err instanceof Error ? err.name : 'Error',
+      });
       return;
     }
 
@@ -256,6 +288,12 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     // window.siyuanMemoPlugin = this;
     
     this.logger.info('Plugin loaded successfully');
+    finishOnloadSpan({
+      frontend: frontEnd,
+      isBrowser: this.isBrowser,
+      isMobile: this.isMobile,
+      status: 'loaded',
+    });
   }
 
   onLayoutReady(): void {

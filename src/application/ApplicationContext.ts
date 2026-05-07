@@ -118,6 +118,11 @@ import { AutoCardRiffAdapter } from '@/infrastructure/siyuan/AutoCardRiffAdapter
 import { CardCreationSiyuanAdapter } from '@/infrastructure/siyuan/CardCreationSiyuanAdapter';
 import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
+import {
+  incrementRuntimePerformanceCounter,
+  measureRuntimePerformance,
+  startRuntimePerformanceSpan,
+} from '@/utils/runtimePerformanceDiagnostics';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
 import { DEFAULT_SETTINGS } from '@/types/settings';
@@ -1006,7 +1011,7 @@ export class ApplicationContext {
   static async create(config: ApplicationConfig): Promise<ApplicationContext> {
     // 1. 初始化存储管理器
     const storageManager = new StorageManager(config.plugin.name);
-    await storageManager.init();
+    await measureRuntimePerformance('startup', 'storage-manager.init', () => storageManager.init());
     const fileService = new FileService(config.plugin as unknown as SiyuanMemoPlugin);
     const legacyPersistence = createPersistenceCallbacks(config.plugin);
     let sqlPersistence: SqlPersistenceBundle | undefined;
@@ -1014,22 +1019,24 @@ export class ApplicationContext {
     let unifiedLoad = legacyPersistence.load;
 
     try {
-      const database = new SqliteDatabaseService(fileService);
-      await database.init();
-      const unified = new SqlUnifiedStorageRepository(database);
-      const queue = new SqlQueueStateRepository(database);
-      const reviewLogs = new SqlReviewLogRepository(database);
-      const arena = new SqlArenaRepository(database);
-      const migrationService = new SqliteMigrationService(
-        database,
-        fileService,
-        { unified, queue, reviewLogs, arena },
-        legacyPersistence.load,
-      );
-      await migrationService.migrateIfNeeded();
-      sqlPersistence = { database, unified, queue, reviewLogs, arena };
-      unifiedSave = (data) => unified.saveStore(data);
-      unifiedLoad = (reason) => unified.loadStore(reason);
+      await measureRuntimePerformance('startup', 'sqlite.init-and-migrate', async () => {
+        const database = new SqliteDatabaseService(fileService);
+        await database.init();
+        const unified = new SqlUnifiedStorageRepository(database);
+        const queue = new SqlQueueStateRepository(database);
+        const reviewLogs = new SqlReviewLogRepository(database);
+        const arena = new SqlArenaRepository(database);
+        const migrationService = new SqliteMigrationService(
+          database,
+          fileService,
+          { unified, queue, reviewLogs, arena },
+          legacyPersistence.load,
+        );
+        await migrationService.migrateIfNeeded();
+        sqlPersistence = { database, unified, queue, reviewLogs, arena };
+        unifiedSave = (data) => unified.saveStore(data);
+        unifiedLoad = (reason) => unified.loadStore(reason);
+      });
       logger.info('[ApplicationContext] ✅ SQLite storage active');
     } catch (error) {
       logger.error('[ApplicationContext] SQLite migration/init failed; falling back to legacy storage:', error);
@@ -1043,7 +1050,11 @@ export class ApplicationContext {
     unifiedStorageManager.setPersistenceCallbacks(unifiedSave, unifiedLoad);
     
     // 尝试加载数据，如果文件不存在则初始化为空
-    const loadResult = await unifiedStorageManager.load();
+    const loadResult = await measureRuntimePerformance(
+      'startup',
+      'unified-storage.load',
+      () => unifiedStorageManager.load(),
+    );
     if (isErr(loadResult)) {
       logger.error('[ApplicationContext] Failed to load UnifiedStorageManager, aborting startup to protect data:', loadResult.error);
       throw new Error(`[ApplicationContext] Failed to load unified storage: ${loadResult.error.message}`);
@@ -1061,7 +1072,12 @@ export class ApplicationContext {
           migratedLegacyFSRSCount,
           normalizedMalformedScheduleCount,
         });
-        const migrationSaveResult = await unifiedStorageManager.save();
+        const migrationSaveResult = await measureRuntimePerformance(
+          'startup',
+          'unified-storage.schedule-normalization-save',
+          () => unifiedStorageManager.save(),
+          { migratedLegacyFSRSCount, normalizedMalformedScheduleCount },
+        );
         if (isErr(migrationSaveResult)) {
           logger.error('[ApplicationContext] Failed to persist scheduling normalization:', migrationSaveResult.error);
           throw new Error(`[ApplicationContext] Failed to persist scheduling normalization: ${migrationSaveResult.error.message}`);
@@ -1071,8 +1087,10 @@ export class ApplicationContext {
       // 🔧 修复：检查并创建缺失的 Xiuyuan（历史遗留数据迁移）
       const allCards = unifiedStorageManager.getAllCards();
       const orphanCards = allCards.filter(card => !card.meta?.xiuyuanID);
+      incrementRuntimePerformanceCounter('startup', 'orphan-card-count', orphanCards.length);
       
       if (orphanCards.length > 0) {
+        await measureRuntimePerformance('startup', 'unified-storage.orphan-card-repair', async () => {
         logger.warn(`[ApplicationContext] Found ${orphanCards.length} orphan cards without Xiuyuan, creating Xiuyuans...`);
         
         // 动态导入所需的类
@@ -1184,6 +1202,8 @@ export class ApplicationContext {
           // 立即保存
           await unifiedStorageManager.save();
         }
+        incrementRuntimePerformanceCounter('startup', 'orphan-card-repaired', fixedCount);
+        }, { orphanCardCount: orphanCards.length });
       }
     }
     
@@ -1191,7 +1211,11 @@ export class ApplicationContext {
     
     // 2. 自动修复无效日期（首次加载时）
     try {
-      const repairResult = await storageManager.repairInvalidDates();
+      const repairResult = await measureRuntimePerformance(
+        'startup',
+        'storage-manager.repair-invalid-dates',
+        () => storageManager.repairInvalidDates(),
+      );
       if (repairResult.fixed > 0) {
         logger.info(`[ApplicationContext] 🔧 Repaired ${repairResult.fixed}/${repairResult.total} cards with invalid dates`);
       }
@@ -1320,43 +1344,45 @@ export class ApplicationContext {
     });
     if (backendMigrationRuntimePolicy.capabilities.backendWorkerAvailable) {
       try {
-        const bridge = ApplicationContext.createWorkerPersistenceBridge(fileService);
-        const browserSiyuanApi = new BrowserSiyuanAdapter();
-        const aiNetworkProxy = new KernelAINetworkProxyAdapter(kernelSidecarClient);
-        srsBackendTransport = new BrowserSrsBackendWorkerTransport({
-          hostEffects: {
-            readBinary: (path) => bridge.readBinary(path),
-            writeBinary: (path, bytes) => bridge.writeBinary(path, bytes),
-            readJSON: <T>(path: string) => bridge.readJSON?.<T>(path) ?? Promise.resolve(null),
-            writeJSON: (path, value) => {
-              if (!bridge.writeJSON) {
-                return Promise.reject(new Error(`SrsBackendWorker JSON persistence unavailable for ${path}`));
-              }
-              return bridge.writeJSON(path, value);
+        await measureRuntimePerformance('startup', 'backend-worker.bootstrap', async () => {
+          const bridge = ApplicationContext.createWorkerPersistenceBridge(fileService);
+          const browserSiyuanApi = new BrowserSiyuanAdapter();
+          const aiNetworkProxy = new KernelAINetworkProxyAdapter(kernelSidecarClient);
+          srsBackendTransport = new BrowserSrsBackendWorkerTransport({
+            hostEffects: {
+              readBinary: (path) => bridge.readBinary(path),
+              writeBinary: (path, bytes) => bridge.writeBinary(path, bytes),
+              readJSON: <T>(path: string) => bridge.readJSON?.<T>(path) ?? Promise.resolve(null),
+              writeJSON: (path, value) => {
+                if (!bridge.writeJSON) {
+                  return Promise.reject(new Error(`SrsBackendWorker JSON persistence unavailable for ${path}`));
+                }
+                return bridge.writeJSON(path, value);
+              },
+              resolveExistingBlockIds: (blockIds: string[]) => ApplicationContext.resolveExistingBlockIdsViaSiyuan(
+                browserSiyuanApi,
+                blockIds,
+              ),
+              executeAutoCard: async (request) => {
+                if (!contextRef) {
+                  throw new Error('SrsBackendWorker autocard.execute unavailable: application context is not ready');
+                }
+                const autoCardHandler = contextRef.getAutoCardHandler();
+                if (!autoCardHandler) {
+                  throw new Error('SrsBackendWorker autocard.execute unavailable: auto-card handler is not active');
+                }
+                return autoCardHandler.executeEnvelopeFromBackend(request);
+              },
+              executeAiPrompt: async (request, context) => aiNetworkProxy.execute({
+                ...request,
+                streamId: context.streamId,
+                sessionId: context.sessionId,
+                jobId: context.jobId,
+              }),
             },
-            resolveExistingBlockIds: (blockIds: string[]) => ApplicationContext.resolveExistingBlockIdsViaSiyuan(
-              browserSiyuanApi,
-              blockIds,
-            ),
-            executeAutoCard: async (request) => {
-              if (!contextRef) {
-                throw new Error('SrsBackendWorker autocard.execute unavailable: application context is not ready');
-              }
-              const autoCardHandler = contextRef.getAutoCardHandler();
-              if (!autoCardHandler) {
-                throw new Error('SrsBackendWorker autocard.execute unavailable: auto-card handler is not active');
-              }
-              return autoCardHandler.executeEnvelopeFromBackend(request);
-            },
-            executeAiPrompt: async (request, context) => aiNetworkProxy.execute({
-              ...request,
-              streamId: context.streamId,
-              sessionId: context.sessionId,
-              jobId: context.jobId,
-            }),
-          },
+          });
+          srsBackendClient = new SrsBackendClient(srsBackendTransport);
         });
-        srsBackendClient = new SrsBackendClient(srsBackendTransport);
         logger.info('[ApplicationContext] ✅ SRS backend browser Worker transport bootstrap enabled by feature flag');
       } catch (error) {
         srsBackendTransport?.dispose?.();
@@ -1367,16 +1393,18 @@ export class ApplicationContext {
 
     if (srsBackendClient && backendMigrationRuntimePolicy.capabilities.writerRelayRuntimeEnabled) {
       try {
-        frontendInstanceRuntime = new FrontendInstanceRuntime(kernelSidecarClient, {
-          instanceId: ApplicationContext.resolveKernelWriterLeaseInstanceId(),
-          leaseTtlMs: ApplicationContext.resolveKernelWriterLeaseTtlMs(),
-          writerCommandHandler: (command) => ApplicationContext.executeWriterRelayCommand(
-            srsBackendClient!,
-            command,
-          ),
+        await measureRuntimePerformance('startup', 'frontend-instance-runtime.start', async () => {
+          frontendInstanceRuntime = new FrontendInstanceRuntime(kernelSidecarClient, {
+            instanceId: ApplicationContext.resolveKernelWriterLeaseInstanceId(),
+            leaseTtlMs: ApplicationContext.resolveKernelWriterLeaseTtlMs(),
+            writerCommandHandler: (command) => ApplicationContext.executeWriterRelayCommand(
+              srsBackendClient!,
+              command,
+            ),
+          });
+          followerCommandClient = new FollowerCommandClient(kernelSidecarClient);
+          await frontendInstanceRuntime.start();
         });
-        followerCommandClient = new FollowerCommandClient(kernelSidecarClient);
-        await frontendInstanceRuntime.start();
         logger.info('[ApplicationContext] ✅ Frontend instance runtime started for kernel writer lease', {
           instanceId: frontendInstanceRuntime.getInstanceId(),
           runtimeScopeId: frontendInstanceRuntime.getRuntimeScopeId(),
@@ -1480,7 +1508,7 @@ export class ApplicationContext {
     const settingsService = context.getSettingsService();
     settingsServiceRef = settingsService;
     // 🔧 修复：初始化 SettingsService（加载配置文件）
-    await settingsService.init();
+    await measureRuntimePerformance('startup', 'settings-service.init', () => settingsService.init());
     logger.info('[ApplicationContext] ✅ SettingsService initialized');
 
     const initializedRiffConfig = settingsService.getSettings().riffIntegration;
@@ -1503,11 +1531,19 @@ export class ApplicationContext {
     
     const queuePersistenceService = context.getQueuePersistenceService();
     // 🔧 修复：初始化 QueuePersistenceService
-    await queuePersistenceService.init();
+    await measureRuntimePerformance(
+      'startup',
+      'queue-persistence-service.init',
+      () => queuePersistenceService.init(),
+    );
     logger.info('[ApplicationContext] ✅ QueuePersistenceService initialized');
 
     const docTreeReviewScopeService = context.getDocTreeReviewScopeService();
-    await docTreeReviewScopeService.hydrate();
+    await measureRuntimePerformance(
+      'startup',
+      'doc-tree-review-scope.hydrate',
+      () => docTreeReviewScopeService.hydrate(),
+    );
     logger.info('[ApplicationContext] ✅ DocTreeReviewScopeService hydrated');
 
     context.getReviewScopeCardCreationSyncService();
@@ -1579,7 +1615,10 @@ export class ApplicationContext {
       logger.info('[ApplicationContext] EventBus subscriber count for CardDeleted:', sharedEventBus.getSubscriberCount('CardDeleted'));
       
       // 启动同步服务
-      await hybridSyncService.start();
+      await measureRuntimePerformance('startup', 'hybrid-sync-service.start', () => hybridSyncService!.start(), {
+        fullSyncEnabled: riffConfig.fullSync.enabled,
+        incrementalSyncEnabled: riffConfig.incrementalSync.enabled,
+      });
       
       // 启动全量同步定时器
       if (riffConfig.fullSync.enabled) {
@@ -1593,7 +1632,11 @@ export class ApplicationContext {
       
     }
 
-    await context.updateTransactionWebSocketService();
+    await measureRuntimePerformance(
+      'startup',
+      'transaction-websocket-service.update',
+      () => context.updateTransactionWebSocketService(),
+    );
     
     logger.info('[ApplicationContext] ✅ ApplicationContext created successfully');
     
@@ -2093,6 +2136,7 @@ export class ApplicationContext {
    * 根据当前设置刷新监听制卡事务服务
    */
   async updateTransactionWebSocketService(): Promise<void> {
+    const finishUpdateSpan = startRuntimePerformanceSpan('startup', 'transaction-websocket-service.configure');
     const settings = this.getSettingsService().getSettings();
     const quickCardEnabled = settings.quickCard?.enabled === true;
     const nativeRiffSyncEnabled = settings.riffIntegration?.incrementalSync?.enabled === true
@@ -2106,11 +2150,12 @@ export class ApplicationContext {
       || nativeRiffSyncEnabled
       || reviewSourceBlockRefreshEnabled
       || kernelTransactionIngestEnabled;
+    incrementRuntimePerformanceCounter('daily-editing', 'transaction-listener-configured', shouldEnable ? 1 : 0);
 
     if (!shouldEnable) {
       if (this.transactionWebSocketService) {
         logger.info('[ApplicationContext] Stopping TransactionWebSocketService...');
-        this.transactionWebSocketService.stop();
+        measureRuntimePerformance('startup', 'transaction-websocket-service.stop', () => this.transactionWebSocketService?.stop());
         this.autoCardHandler = undefined;
         this.kernelTransactionIngestHandler?.dispose();
         this.kernelTransactionIngestHandler = undefined;
@@ -2121,11 +2166,18 @@ export class ApplicationContext {
         this.transactionWebSocketService = undefined;
         logger.info('[ApplicationContext] ✅ TransactionWebSocketService stopped');
       }
+      finishUpdateSpan({
+        kernelTransactionIngestEnabled,
+        nativeRiffSyncEnabled,
+        quickCardEnabled,
+        reviewSourceBlockRefreshEnabled,
+        shouldEnable,
+      });
       return;
     }
 
     if (this.transactionWebSocketService) {
-      this.transactionWebSocketService.stop();
+      measureRuntimePerformance('startup', 'transaction-websocket-service.restart-stop', () => this.transactionWebSocketService?.stop());
       this.autoCardHandler = undefined;
       this.kernelTransactionIngestHandler?.dispose();
       this.kernelTransactionIngestHandler = undefined;
@@ -2145,11 +2197,21 @@ export class ApplicationContext {
 
     const { TransactionWebSocketService } = await import('@/core/infrastructure/websocket/TransactionWebSocketService');
     const transactionWebSocketService = new TransactionWebSocketService(this.config.plugin as unknown as SiyuanMemoPlugin);
-    await this.getDocTreeReviewScopeService().hydrate();
+    await measureRuntimePerformance(
+      'startup',
+      'transaction-websocket-service.scope-hydrate',
+      () => this.getDocTreeReviewScopeService().hydrate(),
+      { shouldEnable },
+    );
     transactionWebSocketService.registerHandler(this.getDocTreeReviewScopeService());
 
     if (quickCardEnabled) {
-      const autoCardHandler = await this.createAutoCardHandler();
+      const autoCardHandler = await measureRuntimePerformance(
+        'startup',
+        'transaction-websocket-service.create-autocard-handler',
+        () => this.createAutoCardHandler(),
+        { kernelTransactionIngestEnabled },
+      );
       this.autoCardHandler = autoCardHandler;
       if (kernelTransactionIngestEnabled) {
         logger.info('[ApplicationContext] AutoCardHandler wired to kernel transaction action pump (ws-main direct registration skipped)');
@@ -2186,24 +2248,41 @@ export class ApplicationContext {
       );
       transactionWebSocketService.registerHandler(kernelTransactionIngestHandler);
       this.kernelTransactionIngestHandler = kernelTransactionIngestHandler;
-      const kernelTransactionActionPump = new KernelTransactionActionPump(
-        this.srsBackendClient,
-        this.frontendInstanceRuntime,
-        this.followerCommandClient,
-        () => this.hybridSyncService,
-        () => this.autoCardHandler,
-        {
-          writerRelayRequired: runtimePolicy.capabilities.writerRelayRequiredForBackendWrites,
-        },
+      const kernelTransactionActionPump = measureRuntimePerformance(
+        'startup',
+        'transaction-websocket-service.create-kernel-action-pump',
+        () => new KernelTransactionActionPump(
+          this.srsBackendClient,
+          this.frontendInstanceRuntime,
+          this.followerCommandClient,
+          () => this.hybridSyncService,
+          () => this.autoCardHandler,
+          {
+            writerRelayRequired: runtimePolicy.capabilities.writerRelayRequiredForBackendWrites,
+          },
+        ),
+        { writerRelayRequired: runtimePolicy.capabilities.writerRelayRequiredForBackendWrites },
       );
-      kernelTransactionActionPump.start();
+      measureRuntimePerformance('startup', 'kernel-transaction-action-pump.start', () => kernelTransactionActionPump.start());
       this.kernelTransactionActionPump = kernelTransactionActionPump;
       logger.info('[ApplicationContext] ✅ KernelTransactionIngestHandler registered');
     }
 
-    transactionWebSocketService.start();
+    measureRuntimePerformance('startup', 'transaction-websocket-service.start', () => transactionWebSocketService.start(), {
+      kernelTransactionIngestEnabled,
+      nativeRiffSyncEnabled,
+      quickCardEnabled,
+      reviewSourceBlockRefreshEnabled,
+    });
     this.transactionWebSocketService = transactionWebSocketService;
     logger.info('[ApplicationContext] ✅ TransactionWebSocketService started');
+    finishUpdateSpan({
+      kernelTransactionIngestEnabled,
+      nativeRiffSyncEnabled,
+      quickCardEnabled,
+      reviewSourceBlockRefreshEnabled,
+      shouldEnable,
+    });
   }
   
   /**

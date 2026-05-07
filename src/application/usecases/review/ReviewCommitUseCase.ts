@@ -12,6 +12,7 @@ import type { ReviewLogV2 } from '@/types/review';
 import type { BackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
 import type { BackendReviewSchedulerConfig } from '../../../../packages/contracts/src/backend-rpc';
 import { createLogger } from '@/utils/logger';
+import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics';
 
 const logger = createLogger('ReviewCommitUseCase');
 
@@ -115,7 +116,11 @@ export class ReviewCommitUseCase {
       throw new Error('BACKEND_UNAVAILABLE: review.feedback requires backend-worker ownership');
     }
 
-    return this.executeViaWorkerFeedback(command, relayRuntime);
+    return measureRuntimePerformance('review', 'commit.execute', () => this.executeViaWorkerFeedback(command, relayRuntime), {
+      cardId: command.cardId,
+      rating: command.rating,
+      relayRuntimeMode: relayRuntime.mode,
+    });
   }
 
   private shouldUseWorkerFeedback(command: QueueReviewCommand): boolean {
@@ -159,7 +164,12 @@ export class ReviewCommitUseCase {
     command: QueueReviewCommand,
     relayRuntime: RelayRuntimeState,
   ): Promise<QueueReviewCommitResult> {
-    const card = await this.deps.cards.getCard(command.cardId);
+    const card = await measureRuntimePerformance(
+      'review',
+      'commit.read-card',
+      () => this.deps.cards.getCard(command.cardId),
+      { cardId: command.cardId },
+    );
     const rating = normalizeRating(command.rating);
     const context = {
       ...command.context,
@@ -190,10 +200,17 @@ export class ReviewCommitUseCase {
         throw new Error('BACKEND_UNAVAILABLE: review.feedback relay is unavailable in follower mode');
       }
       try {
-        const relayPayload = await this.deps.followerCommandClient.submitAndWait<unknown>({
+        const relayPayload = await measureRuntimePerformance('review', 'feedback.relay-submit-wait', () => this.deps.followerCommandClient!.submitAndWait<unknown>({
           instanceId: relayRuntime.instanceId,
           method: 'review.feedback',
           params: requestPayload,
+        }), {
+          cardId: command.cardId,
+          commitPolicy: workerContext.commitPolicy,
+          method: 'review.feedback',
+          queueMode: workerContext.queueMode,
+          queueType: workerContext.queueType,
+          rating,
         });
         result = normalizeRelayFeedbackResult(relayPayload);
       } catch (error) {
@@ -213,7 +230,9 @@ export class ReviewCommitUseCase {
       }
       if (this.deps.writerLeaseGuard) {
         try {
-          await this.deps.writerLeaseGuard.ensureWritable();
+          await measureRuntimePerformance('relay', 'ensure-writable.review-feedback', () => this.deps.writerLeaseGuard!.ensureWritable(), {
+            method: 'review.feedback',
+          });
         } catch (error) {
           this.logPolicyDecision('writer-unavailable', {
             error: error instanceof Error ? error.message : String(error),
@@ -221,14 +240,25 @@ export class ReviewCommitUseCase {
           throw error;
         }
       }
-      result = await this.deps.srsBackend!.reviewFeedback(requestPayload);
+      result = await measureRuntimePerformance('review', 'feedback.backend-worker', () => this.deps.srsBackend!.reviewFeedback(requestPayload), {
+        cardId: command.cardId,
+        commitPolicy: workerContext.commitPolicy,
+        queueMode: workerContext.queueMode,
+        queueType: workerContext.queueType,
+        rating,
+      });
     }
 
     const updatedCard = normalizeWorkerUpdatedCard(result.updatedCard, card);
     if (result.committed) {
-      await this.deps.onCommittedCard?.(updatedCard);
+      await measureRuntimePerformance('review', 'commit.on-committed-card', async () => {
+        await this.deps.onCommittedCard?.(updatedCard);
+      }, { cardId: command.cardId });
     }
-    await this.recordArenaReview(card, rating, context);
+    await measureRuntimePerformance('review', 'commit.record-arena-review', () => this.recordArenaReview(card, rating, context), {
+      cardId: command.cardId,
+      rating,
+    });
     return {
       card,
       updatedCard,

@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-05-06
+最后更新：2026-05-07
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -16,6 +16,7 @@
 - Progressive / Excerpt / Topic-derived item 主链路
 - AI Workbench / Capture 主链路
 - Kernel companion / backend worker / AI kernel streaming fast paths
+- Runtime performance diagnostics
 - Arena 主链路（AI 策略包竞技 + SRS 算法只读竞技，默认关闭）
 - 完整运行时文件职责地图
 - 开发边界与改动守则
@@ -105,6 +106,7 @@ flowchart TD
 - 装配 `ConfiguredCaptureStorageService` / `ReviewAIWorkbenchRegistry` / `AIWorkbenchService`
 - 装配 `KernelCompanionPort` 与 `KernelSidecarClient`，把可选内核伴生 JSON-RPC、RPC WebSocket push、kernel network proxy、private SSE 细节限制在 Siyuan integration 边界内；Settings / UI 只通过应用端口读状态，不直接调用 `/api/plugin/rpc/*`、`/ws/plugin/rpc/*` 或 private SSE endpoint
 - 装配 `SrsBackendClient` 的真实 browser Worker transport；`BackendKernel` 与 sql.js backend compute 在 `worker/bootstrap/backend-worker.entry.ts` 内运行，renderer 只通过 typed host-effect bridge 执行文件持久化、Siyuan block existence、AutoCard host side effect 与 AI kernel network proxy；发布构建把 worker bootstrap 作为 inline Worker 打进 `index.js`，保持官方插件样例的扁平 package 形态，不生成 `assets/`
+- 安装 opt-in Runtime performance diagnostics session helper：`src/utils/runtimePerformanceDiagnostics.ts` 只在当前 renderer session 内记录 bounded in-memory span/counter/longtask 摘要，默认关闭，不持久化、不上报、不记录正文内容；控制台入口为 `window.siyuanMemoRuntimePerformance.enable()/report()/copyReport()/disable()`
 - 初始化 `siyuanmemo.db` 的 sql.js 持久化层；首次启动先把旧 `unified-cards.msgpack`、`queues.msgpack`、月度 review logs 与 `arena/store.json` 迁入 SQL，迁移失败才回退旧文件存储；SQL active 后 DB 以二进制文件写入，旧 base64 envelope 只作为读取兼容与迁移备份
 - 装配 `ArenaStoreService` / `ArenaKernelService`，把 AI 策略包竞技和 SRS 只读算法竞技挂到同一个应用层内核；`arena.enabled` 默认为 `false`，关闭时不接入复习建议或 AI 策略包覆盖；开启后 Arena 数据写入 SQL
 
@@ -142,6 +144,7 @@ flowchart TD
 8. Browser surface profile 默认值由 `layoutProfile.ts` 维护；profile-scoped chrome preference 读写、legacy dialog key 迁移与 storage failure contract 由 `browserChromePreferences.ts` 维护；open-state capture、初始 open-state normalization、legacy `__lost__` 归一与 neural subview / queue-id 投影由 `browserSurfaceState.ts` 维护，`SRSBrowser.vue` 只负责把这些 projection 应用到当前 UI state 并调度加载 / 刷新副作用
 9. Browser neural 子视图的 trace/list projection、jump/focus/source/anchor/history commands、engine/navigation/bookmark/review-surface handoff commands，以及 trace refresh/enrichment/convergence/preview controller state 由 `src/ui/browser/neural/*` helpers 维护；`SRSBrowser.vue` 只持有 Browser shell、template binding 与跨 surface 依赖注入
 10. Browser grid snapshot hydration、selection scope/fingerprint/filter-summary projection、batch action label/result/reload policy、reschedule parameter dialogs、action/context/practice menu runtime、loadData datasource controller 与 toolbar Spread dialog 由 `browserDataSnapshots.ts`、`browserSelectionScope.ts`、`browserActionFeedback.ts`、`browserActionParamDialogs.ts`、`browserActionMenuRuntime.ts`、`browserLoadDataRuntime.ts`、`browserSpreadDialog.ts` 维护；`SRSBrowser.vue` 只串联 refs、datasource、dialog deps 与真实 side effects
+11. Runtime performance diagnostics 开启后会记录 Browser `loadData`、grid `getRows/successCallback/ui update`、allRows/focus snapshot hydrate、source-existence refresh/sweep 与 backend deck page/rows/stats 的耗时，用来判断打开 SRS Browser 时是否是 UI hydrate、AG Grid、后台 snapshot 或 source sweep 抢占 renderer
 
 ### 4.2 Review
 
@@ -163,7 +166,7 @@ flowchart TD
    - `UnifiedDataSourceManager`
 4. 挂载 `src/ui/review/v2/ReviewView.vue`
 5. `useReviewSession.ts` 绑定 `reviewSessionController.ts`；controller 统一驱动 `next / reveal / grade / skip / custom`，并且所有“直接把某张卡写成当前卡”的恢复/刷新入口都会先走 queue strategy 的 `hydrateCurrentItem()` 显示态补水，再更新 UI，避免外部刷新、会话恢复、AI 新卡同步等路径把原始 `FSRSCard` 直接塞回当前位后丢掉 runtime `nextDues`；当当前队列项在评分前已被删除或失效时，queue strategy 会抛出 `QueueItemUnavailableError`，controller 只重新 `queue.next()` 跳到下一张，不记录复习历史，也不把 session 误置为空完成态
-   - 评分切卡仍等待正式 `queue.onFeedback()` / backend writer 提交成功后才前进；`onReviewDetailed` / Arena 反馈后处理在下一张卡 UI commit 后异步启动，不再阻塞可见切卡。controller 会对 `feedback / next / update-state / detail` 慢阶段输出诊断，便于定位真实卡顿点。
+   - 评分切卡仍等待正式 `queue.onFeedback()` / backend writer 提交成功后才前进；`onReviewDetailed` / Arena 反馈后处理在下一张卡 UI commit 后异步启动，不再阻塞可见切卡。Runtime performance diagnostics 开启后会记录 `grade.total / feedback / next / state.to-ui-state / state.prepare-before-commit / state.commit-notify / state.fetch-auxiliary-data`，以及 `ReviewCommitUseCase` 内的 backend worker / writer relay / Arena 记录耗时。
 6. review header 的二级动作仍由 `ReviewView.vue` 编排，more-menu 的纯分组 / label / disabled projection 由 `reviewMoreMenuItems.ts` 承接，neural toolbar/menu command projection 由 `reviewNeuralCommands.ts` 承接，progressive excerpt / source / complete-piece command runtime 由 `reviewProgressiveExcerptCommands.ts` 承接，open-as 菜单命令由 `reviewOpenAsCommands.ts` 承接，standard queue switch / native titlebar / fullscreen shell runtime 由 `reviewShellCommands.ts` 承接，SRS editor dialog glue 由 `reviewSrsEditorCommands.ts` 承接，Arena conflict/advisory、current-content editor、review card action、filter/scope、data observer/doc-scope queue 与 native split runtime 分别由 `reviewArenaCommands.ts`、`reviewCurrentContentEditorRuntime.ts`、`reviewCardActionCommands.ts`、`reviewFilterCommands.ts`、`reviewDataObserverRuntime.ts`、`reviewNativeSplitRuntime.ts` 承接，source transaction refresh 队列由 `reviewSourceRefreshRuntime.ts` 承接，键盘去重与全局事件绑定由 `reviewKeyboardRuntime.ts` 承接；SFC 只注入当前状态、依赖与真实命令回调：
    - `AI 侧栏` 统一走 `reviewAICommands.ts` 组装 review-bound open options / visible-only context sync / sidecar or companion tab command，再交给 `ReviewAIWorkbenchRegistry`、`DialogManager` 或 `TabManager`
    - `更多` 菜单中的优先级编辑走 `CardEditorApplicationService.updatePriority(...)`
@@ -426,7 +429,7 @@ UI surface：
 
 Handlers / entries / helpers：
 
-- `src/application/handlers/AutoCardHandler.ts`：自动制卡、topic continuation、与 Riff / Progressive 的事件联动；当前监听制卡走“transaction 只标记候选块，300ms settled 后重读真实块状态再做 planner / Xiuyuan ensure”的语义触发模型；handler 只接收 `AutoCardSiyuanPort` / `AutoCardRiffPort`，真实 adapters 由 `ApplicationContext.createAutoCardHandler()` 在组合根创建并注入。
+- `src/application/handlers/AutoCardHandler.ts`：自动制卡、topic continuation、与 Riff / Progressive 的事件联动；当前监听制卡走“transaction 只标记候选块，300ms settled 后重读真实块状态再做 planner / Xiuyuan ensure”的语义触发模型；handler 只接收 `AutoCardSiyuanPort` / `AutoCardRiffPort`，真实 adapters 由 `ApplicationContext.createAutoCardHandler()` 在组合根创建并注入；Runtime performance diagnostics 开启后会记录 handler no-op/候选入队、settle latency、`getBlockKramdown/getBlockAttrs`、card type/source context、worker/writer decision、execute envelope 与 Xiuyuan 创建耗时。
 - `src/application/handlers/AutoCardExecutionRuntime.ts`：AutoCard app-side execute envelope 运行时，统一执行 `planner-decision` 与 `topic-derived` side effects（Xiuyuan / TopicDerived / toast），把 worker-first 决策后的执行入口从 `AutoCardHandler` 内联逻辑中收口到单一边界。
 - `src/application/handlers/ProgressiveExcerptHotkeyHandler.ts`：编辑器 / review 摘录热键入口。
 - `src/application/entries/*`：surface 级入口解析，如 block context、selection resolver、review entry registry。
@@ -470,7 +473,7 @@ Handlers / entries / helpers：
 共享能力：
 
 - `src/core/shared/domain/events/EventBus.ts`：共享事件总线。
-- `src/core/infrastructure/websocket/TransactionWebSocketService.ts`：事务级 `ws-main` 事件总线订阅与 handler 分发；当前是 AutoCard、doc tree review scope、native riff add/remove 路由、review source refresh 的唯一活跃 transaction 入口。
+- `src/core/infrastructure/websocket/TransactionWebSocketService.ts`：事务级 `ws-main` 事件总线订阅与 handler 分发；当前是 AutoCard、doc tree review scope、native riff add/remove 路由、review source refresh 的唯一活跃 transaction 入口；Runtime performance diagnostics 开启后会记录插件启用后日常编辑中的 `ws-main` 消息、transaction 数量、handler 分发耗时与 no-op 成本。
 - `src/core/infrastructure/websocket/QuickCardWebSocketService.ts`：旧快速卡 websocket；当前不在 active runtime 链路中，仅保留作历史实现参考，不应重新接回第二条监听源。
 - `src/core/siyuan/*`：核心 Siyuan API 封装；不应成为 UI / application 直连入口。
 

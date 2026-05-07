@@ -43,6 +43,11 @@ import type {
 } from '../interfaces/IBrowserApplicationService';
 import type { ICardDataSource } from '../interfaces/ICardDataSource';
 import { createLogger } from '@/utils/logger';
+import {
+  incrementRuntimePerformanceCounter,
+  measureRuntimePerformance,
+  startRuntimePerformanceSpan,
+} from '@/utils/runtimePerformanceDiagnostics';
 import { hasFilterSetter, hasRebuildAction } from './browser/filterGroupQueueContract';
 
 const EMPTY_QUEUE_COUNTS: Record<string, number> = {
@@ -177,16 +182,24 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       throw this.toBackendReadUnavailable('browser.deck.page');
     }
     try {
-      const initialPage = await this.srsBackendClient.browserDeckPage(query, page);
+      const initialPage = await measureRuntimePerformance('browser', 'backend.deck-page', () => this.srsBackendClient!.browserDeckPage(query, page), {
+        endRow: page.endRow,
+        startRow: page.startRow,
+      });
       const initialCards = initialPage.cards as FSRSCard[];
       const refreshResult = await this.refreshSourceExistenceForBackendCards(initialCards, {
         limit: SOURCE_EXISTENCE_BATCH_SIZE,
       });
       const finalPage = refreshResult.changed
-        ? await this.srsBackendClient.browserDeckPage(query, page)
+        ? await measureRuntimePerformance('browser', 'backend.deck-page-refetch-after-source-refresh', () => this.srsBackendClient!.browserDeckPage(query, page), {
+          endRow: page.endRow,
+          startRow: page.startRow,
+        })
         : initialPage;
       const finalCards = finalPage.cards as FSRSCard[];
-      const rows = await this.browserDeckQueryKernel.getBrowserCardsFromCards(finalCards, { markMissing: false });
+      const rows = await measureRuntimePerformance('browser', 'deck-page.map-browser-rows', () => this.browserDeckQueryKernel.getBrowserCardsFromCards(finalCards, { markMissing: false }), {
+        rowCount: finalCards.length,
+      });
       return {
         rows: await this.markRowsFromBackendSourceExistence(rows),
         total: finalPage.total,
@@ -212,11 +225,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       throw this.toBackendReadUnavailable('browser.deck.rowsByIds');
     }
     try {
-      const cards = await this.srsBackendClient.browserDeckRowsByIds(ids);
+      const cards = await measureRuntimePerformance('browser', 'backend.deck-rows-by-ids', () => this.srsBackendClient!.browserDeckRowsByIds(ids), {
+        idCount: ids.length,
+      });
       await this.refreshSourceExistenceForBackendCards(cards, {
         limit: SOURCE_EXISTENCE_BATCH_SIZE,
       });
-      const rows = await this.browserDeckQueryKernel.getBrowserCardsFromCards(cards, { markMissing: false });
+      const rows = await measureRuntimePerformance('browser', 'deck-rows-by-ids.map-browser-rows', () => this.browserDeckQueryKernel.getBrowserCardsFromCards(cards, { markMissing: false }), {
+        rowCount: cards.length,
+      });
       return this.markRowsFromBackendSourceExistence(rows);
     } catch (error) {
       throw this.toBackendReadUnavailable('browser.deck.rowsByIds', error);
@@ -257,7 +274,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       throw this.toBackendReadUnavailable('browser.stats');
     }
     try {
-      const stats = await this.srsBackendClient.browserStats();
+      const stats = await measureRuntimePerformance('browser', 'backend.stats', () => this.srsBackendClient!.browserStats());
       this.scheduleSourceExistenceSweepFromBackend();
       return stats;
     } catch (error) {
@@ -290,12 +307,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     try {
-      const sweep = await this.invokeBackendSourceExistenceSweepHost({
+      const sweep = await measureRuntimePerformance('source-existence', 'refresh-page-cards', () => this.invokeBackendSourceExistenceSweepHost({
         blockIds,
         limit: options.limit ?? SOURCE_EXISTENCE_BATCH_SIZE,
         staleBefore: Date.now() - SOURCE_EXISTENCE_TTL_MS,
         includeKnownMissing: true,
-      }, Date.now());
+      }, Date.now()), {
+        blockCount: blockIds.length,
+        limit: options.limit ?? SOURCE_EXISTENCE_BATCH_SIZE,
+      });
       return {
         changed: sweep.changed,
         changedToMissing: sweep.changedToMissing,
@@ -318,7 +338,12 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       if (blockIds.length === 0) {
         return rows;
       }
-      const statusByBlockId = await this.srsBackendClient.browserSourceExistenceByBlockIds(blockIds);
+      const statusByBlockId = await measureRuntimePerformance(
+        'source-existence',
+        'mark-rows.status-by-block-ids',
+        () => this.srsBackendClient!.browserSourceExistenceByBlockIds(blockIds),
+        { blockCount: blockIds.length },
+      );
       const missingBlockIds = Array.from(statusByBlockId.entries())
         .filter(([, exists]) => exists === false)
         .map(([blockId]) => blockId);
@@ -335,21 +360,46 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     this.sourceExistenceSweepInFlight = (async () => {
+      const finishSweepSpan = startRuntimePerformanceSpan('source-existence', 'background-sweep');
+      let candidateCount = 0;
+      let status = 'started';
       const request = {
         limit: SOURCE_EXISTENCE_BACKGROUND_LIMIT,
         staleBefore: Date.now() - SOURCE_EXISTENCE_TTL_MS,
         includeKnownMissing: true,
       };
-      const candidates = await this.srsBackendClient!.browserSourceExistenceRefreshCandidates(request);
-      if (candidates.length === 0) {
-        return;
-      }
+      try {
+        const candidates = await measureRuntimePerformance(
+          'source-existence',
+          'background-sweep.refresh-candidates',
+          () => this.srsBackendClient!.browserSourceExistenceRefreshCandidates(request),
+          { limit: SOURCE_EXISTENCE_BACKGROUND_LIMIT },
+        );
+        candidateCount = candidates.length;
+        incrementRuntimePerformanceCounter('source-existence', 'background-sweep-candidates', candidates.length);
+        if (candidates.length === 0) {
+          status = 'empty';
+          return;
+        }
 
-      const scopedRequest = {
-        ...request,
-        blockIds: candidates.map((candidate) => candidate.blockId),
-      };
-      await this.invokeBackendSourceExistenceSweepHost(scopedRequest, Date.now());
+        const scopedRequest = {
+          ...request,
+          blockIds: candidates.map((candidate) => candidate.blockId),
+        };
+        await this.invokeBackendSourceExistenceSweepHost(scopedRequest, Date.now());
+        status = 'swept';
+      } catch (error) {
+        status = 'error';
+        throw error;
+      } finally {
+        finishSweepSpan({
+          candidateCount,
+          status,
+        }, {
+          ok: status === 'swept' || status === 'empty',
+          errorName: status === 'error' ? 'SourceExistenceSweepError' : undefined,
+        });
+      }
     })().finally(() => {
       this.sourceExistenceSweepInFlight = null;
     });
@@ -372,13 +422,16 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       if (!this.frontendInstanceRuntime || !this.followerCommandClient) {
         throw new Error('worker relay applySweepHost is unavailable');
       }
-      const relayed = await this.followerCommandClient.submitAndWait<unknown>({
+      const relayed = await measureRuntimePerformance('source-existence', 'apply-sweep-host.relay-submit-wait', () => this.followerCommandClient!.submitAndWait<unknown>({
         instanceId: this.frontendInstanceRuntime.getInstanceId(),
         method: 'browser.sourceExistence.applySweepHost',
         params: {
           request,
           checkedAt,
         },
+      }), {
+        blockCount: request.blockIds?.length ?? 0,
+        method: 'browser.sourceExistence.applySweepHost',
       });
       if (!relayed || typeof relayed !== 'object') {
         throw new Error('worker relay applySweepHost returned invalid payload');
@@ -406,7 +459,9 @@ export class BrowserApplicationService implements IBrowserApplicationService {
 
     if (this.frontendInstanceRuntime) {
       try {
-        await this.frontendInstanceRuntime.ensureWritable();
+        await measureRuntimePerformance('relay', 'ensure-writable.source-existence-sweep', () => this.frontendInstanceRuntime!.ensureWritable(), {
+          method: 'browser.sourceExistence.applySweepHost',
+        });
       } catch (error) {
         if (
           this.frontendInstanceRuntime.getMode() === 'follower'
@@ -424,7 +479,12 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       }
     }
 
-    return this.srsBackendClient.browserSourceExistenceApplySweepHost(request, checkedAt);
+    return measureRuntimePerformance(
+      'source-existence',
+      'apply-sweep-host.local',
+      () => this.srsBackendClient!.browserSourceExistenceApplySweepHost(request, checkedAt),
+      { blockCount: request.blockIds?.length ?? 0 },
+    );
   }
 
   private normalizeQueueId(queueId: string): BrowserQueueId | null {

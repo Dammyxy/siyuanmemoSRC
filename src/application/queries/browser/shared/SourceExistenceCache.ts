@@ -1,6 +1,10 @@
 import type { BrowserDeckReadPort, SourceExistenceRefreshCandidate } from '@/application/ports/BrowserDeckReadPort';
 import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import { createLogger } from '@/utils/logger';
+import {
+  incrementRuntimePerformanceCounter,
+  measureRuntimePerformance,
+} from '@/utils/runtimePerformanceDiagnostics';
 import { markKnownMissingBlockRows } from './MissingBlockMarker';
 
 const logger = createLogger('SourceExistenceCache');
@@ -59,11 +63,14 @@ async function loadExistingBlockIds(
   const existing = new Set<string>();
   for (let index = 0; index < blockIds.length; index += SOURCE_EXISTENCE_BATCH_SIZE) {
     const batchIds = blockIds.slice(index, index + SOURCE_EXISTENCE_BATCH_SIZE);
-    const rows = await siyuanApi.sql<BlockIdRow>(`
+    const rows = await measureRuntimePerformance('source-existence', 'siyuan-sql.load-existing-block-ids', () => siyuanApi.sql<BlockIdRow>(`
       SELECT id
       FROM blocks
       WHERE id IN (${toSqlQuotedValues(batchIds)})
-    `);
+    `), {
+      batchSize: batchIds.length,
+      offset: index,
+    });
     for (const row of rows) {
       const id = normalizeBlockId(row.id);
       if (id) {
@@ -120,12 +127,16 @@ export async function refreshSourceExistenceForBlockIds(
   }
 
   try {
-    const candidates = port.getSourceExistenceRefreshCandidates({
+    const candidates = measureRuntimePerformance('source-existence', 'refresh-block-ids.load-candidates', () => port.getSourceExistenceRefreshCandidates({
       blockIds: normalizedBlockIds,
       limit: options.limit ?? SOURCE_EXISTENCE_BATCH_SIZE,
       staleBefore: options.staleBefore ?? Date.now() - SOURCE_EXISTENCE_TTL_MS,
       includeKnownMissing: options.includeKnownMissing ?? true,
+    }), {
+      blockCount: normalizedBlockIds.length,
+      limit: options.limit ?? SOURCE_EXISTENCE_BATCH_SIZE,
     });
+    incrementRuntimePerformanceCounter('source-existence', 'refresh-candidates', candidates.length);
     if (candidates.length === 0) {
       return { changed: false, changedToMissing: false };
     }
@@ -136,7 +147,9 @@ export async function refreshSourceExistenceForBlockIds(
     );
     const result = buildUpdates(candidates, existingBlockIds);
     if (result.updates.length > 0) {
-      await port.updateSourceExistence(result.updates, Date.now());
+      await measureRuntimePerformance('source-existence', 'refresh-block-ids.update-cache', () => port.updateSourceExistence(result.updates, Date.now()), {
+        updateCount: result.updates.length,
+      });
     }
     return {
       changed: result.changed,
@@ -159,11 +172,14 @@ export async function refreshSourceExistenceSweep(
 
   let candidates: SourceExistenceRefreshCandidate[];
   try {
-    candidates = port.getSourceExistenceRefreshCandidates({
+    candidates = measureRuntimePerformance('source-existence', 'background-sweep.load-candidates.local', () => port.getSourceExistenceRefreshCandidates({
       limit: options.limit ?? SOURCE_EXISTENCE_BACKGROUND_LIMIT,
       staleBefore: options.staleBefore ?? Date.now() - SOURCE_EXISTENCE_TTL_MS,
       includeKnownMissing: true,
+    }), {
+      limit: options.limit ?? SOURCE_EXISTENCE_BACKGROUND_LIMIT,
     });
+    incrementRuntimePerformanceCounter('source-existence', 'background-sweep-candidates-local', candidates.length);
   } catch (error) {
     logger.debug('Source existence sweep failed to load candidates; keeping cache fail-open', error);
     return { changed: false, changedToMissing: false };

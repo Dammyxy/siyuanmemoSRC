@@ -8,6 +8,10 @@ import type { QueueItem } from '@/core/queue/types';
 import { isNeuralRoamSessionQueue } from '@/types/unified-data-source';
 import type { InitialReviewSessionState } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
+import {
+  measureRuntimePerformance,
+  startRuntimePerformanceSpan,
+} from '@/utils/runtimePerformanceDiagnostics';
 import type {
   AdapterContext,
   IAdapter,
@@ -143,7 +147,7 @@ async function measureReviewPhase<TResult>(
 ): Promise<TResult> {
   const startedAt = Date.now();
   try {
-    return await task();
+    return await measureRuntimePerformance('review', `grade.${phase}`, task, { cardId });
   } finally {
     const durationMs = Date.now() - startedAt;
     if (durationMs >= REVIEW_GRADE_PHASE_SLOW_MS) {
@@ -457,14 +461,24 @@ export function createReviewSessionController<TItem extends QueueItem>(
     updateOptions?: { skipPrepare?: boolean },
   ): Promise<void> => {
     const seq = ++updateSeq;
-    const mainState = await adapter.toUIState(queue, currentItem.value, context.value);
+    const mainState = await measureRuntimePerformance(
+      'review',
+      'state.to-ui-state',
+      () => adapter.toUIState(queue, currentItem.value, context.value),
+      { reason },
+    );
     if (seq !== updateSeq || disposed) {
       return;
     }
     let nextState = withSessionMeta(mainState);
     if (!updateOptions?.skipPrepare && reason !== 'reveal' && options?.prepareStateBeforeCommit) {
       try {
-        nextState = withSessionMeta(await options.prepareStateBeforeCommit(nextState, reason));
+        nextState = withSessionMeta(await measureRuntimePerformance(
+          'review',
+          'state.prepare-before-commit',
+          () => options.prepareStateBeforeCommit!(nextState, reason),
+          { reason },
+        ));
       } catch (error) {
         logger.warn('Review presentation prepare failed; committing unprepared state:', {
           reason,
@@ -477,11 +491,18 @@ export function createReviewSessionController<TItem extends QueueItem>(
         return;
       }
     }
-    state.value = nextState;
-    notifySubscribers();
+    measureRuntimePerformance('review', 'state.commit-notify', () => {
+      state.value = nextState;
+      notifySubscribers();
+    }, { reason });
 
     if (reason !== 'reveal' && adapter.fetchAuxiliaryData) {
-      adapter.fetchAuxiliaryData(currentItem.value, queue, context.value)
+      measureRuntimePerformance(
+        'review',
+        'state.fetch-auxiliary-data',
+        () => adapter.fetchAuxiliaryData!(currentItem.value, queue, context.value),
+        { reason },
+      )
         .then((aux) => {
           if (seq !== updateSeq || disposed) {
             return;
@@ -656,13 +677,18 @@ export function createReviewSessionController<TItem extends QueueItem>(
   const grade = async (rating: number): Promise<void> => runSerialized(async () => {
     const previousItem = currentItem.value;
     const previousShowAnswer = context.value.showAnswer;
+    const normalized = toRatingValue(rating);
+    const finishGradeSpan = startRuntimePerformanceSpan('review', 'grade.total', {
+      rating: normalized,
+    });
     let pushedHistory = false;
+    let reviewedCardId = '';
+    let status = 'started';
     try {
       markAdvancePending('grade');
-      const normalized = toRatingValue(rating);
       const feedback: QueueFeedback = { action: 'rate', rating: normalized };
       const reviewedItem = currentItem.value;
-      const reviewedCardId = extractCardId(reviewedItem);
+      reviewedCardId = extractCardId(reviewedItem);
 
       await measureReviewPhase('feedback', reviewedCardId, () => queue.onFeedback(reviewedItem, feedback));
       if (options?.onReview && reviewedItem) {
@@ -680,6 +706,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
       currentItem.value = await measureReviewPhase('next', reviewedCardId, () => queue.next());
       context.value.showAnswer = false;
       await measureReviewPhase('update-state', reviewedCardId, () => updateState('grade'));
+      status = 'graded';
       if (options?.onReviewDetailed && reviewedItem && reviewedCardId) {
         scheduleReviewDetailedHandler({
           cardId: reviewedCardId,
@@ -694,11 +721,21 @@ export function createReviewSessionController<TItem extends QueueItem>(
         rollbackReviewHistory(context.value);
       }
       if (isQueueItemUnavailableError(error)) {
+        status = 'advanced-past-unavailable';
         await advancePastUnavailableItem('grade', error);
         return;
       }
 
+      status = 'error';
       await keepCurrentItemAfterActionError('grade', 'Failed to process review feedback:', error);
+    } finally {
+      finishGradeSpan({
+        cardId: reviewedCardId,
+        status,
+      }, {
+        ok: status !== 'error',
+        errorName: status === 'error' ? 'ReviewGradeError' : undefined,
+      });
     }
   });
 

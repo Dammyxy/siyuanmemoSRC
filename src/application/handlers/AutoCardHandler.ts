@@ -9,6 +9,12 @@ import {
 import type { SrsBackendClient } from '../clients/SrsBackendClient';
 import type { BackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
 import { createLogger } from '@/utils/logger';
+import {
+    incrementRuntimePerformanceCounter,
+    measureRuntimePerformance,
+    recordRuntimePerformanceSpan,
+    startRuntimePerformanceSpan,
+} from '@/utils/runtimePerformanceDiagnostics';
 import { ClozeDetector } from '@/utils/cloze-detector';
 import { isErr, type Result } from '@/types/result';
 import { UnifiedPostCreationPlanner } from '@/core/card/post-creation/UnifiedPostCreationPlanner';
@@ -619,10 +625,13 @@ export class AutoCardHandler implements ITransactionHandler {
                 throw new Error('BACKEND_UNAVAILABLE: autocard.execute relay is unavailable in follower mode');
             }
             try {
-                const relayResult = await followerClient.submitAndWait<unknown>({
+                const relayResult = await measureRuntimePerformance('autocard', 'execute.relay-submit-wait', () => followerClient.submitAndWait<unknown>({
                     instanceId: followerRuntime.instanceId,
                     method: 'autocard.execute',
                     params: request,
+                }), {
+                    envelopeKind: envelope.kind,
+                    method: 'autocard.execute',
                 });
                 return this.normalizeBackendExecuteResult(relayResult);
             } catch (error) {
@@ -646,7 +655,9 @@ export class AutoCardHandler implements ITransactionHandler {
         }
         if (runtime?.ensureWritable) {
             try {
-                await runtime.ensureWritable();
+                await measureRuntimePerformance('relay', 'ensure-writable.autocard-execute', () => runtime.ensureWritable!(), {
+                    method: 'autocard.execute',
+                });
             } catch (error) {
                 const refreshedRelayRuntime = this.resolveBackendRelayRuntimeState();
                 if (refreshedRelayRuntime.mode === 'follower') {
@@ -667,7 +678,10 @@ export class AutoCardHandler implements ITransactionHandler {
             }
         }
         try {
-            const result = await backendClient.executeAutoCard(request);
+            const result = await measureRuntimePerformance('autocard', 'execute.backend-worker', () => backendClient.executeAutoCard(request), {
+                envelopeKind: envelope.kind,
+                method: 'autocard.execute',
+            });
             return this.normalizeBackendExecuteResult(result);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error || '');
@@ -687,7 +701,12 @@ export class AutoCardHandler implements ITransactionHandler {
     private async executeAutoCardEnvelope(
         envelope: AutoCardExecutionEnvelope,
     ): Promise<boolean> {
-        const workerResult = await this.executeViaWorkerIfAvailable(envelope);
+        const workerResult = await measureRuntimePerformance(
+            'autocard',
+            'execute-envelope.worker-or-relay',
+            () => this.executeViaWorkerIfAvailable(envelope),
+            { envelopeKind: envelope.kind },
+        );
         return workerResult.executed;
     }
 
@@ -710,7 +729,12 @@ export class AutoCardHandler implements ITransactionHandler {
             throw new Error('autocard.execute requires named params with envelope');
         }
         const localEnvelope = this.fromBackendExecuteEnvelope(request.envelope);
-        const result = await this.executionRuntime.executeLocalWithResult(localEnvelope);
+        const result = await measureRuntimePerformance(
+            'autocard',
+            'execute-envelope.backend-local',
+            () => this.executionRuntime.executeLocalWithResult(localEnvelope),
+            { envelopeKind: localEnvelope.kind },
+        );
         return {
             executed: result.executed,
             created: result.created,
@@ -777,11 +801,15 @@ export class AutoCardHandler implements ITransactionHandler {
                     throw new Error('BACKEND_UNAVAILABLE: autocard.decision.resolve relay is unavailable in follower mode');
                 }
                 try {
-                    const relayResult = await followerClient.submitAndWait<unknown>({
+                    const relayResult = await measureRuntimePerformance('autocard', 'decision.relay-submit-wait', () => followerClient.submitAndWait<unknown>({
                         instanceId: relayRuntime.instanceId,
                         commandId: `autocard.decision.resolve:${this.hashFNV1a32(JSON.stringify(request))}`,
                         method: 'autocard.decision.resolve',
                         params: request,
+                    }), {
+                        method: 'autocard.decision.resolve',
+                        ruleScope: request.ruleScope,
+                        source: request.source,
                     });
                     decisionResult = this.normalizeBackendDecisionResolveResult(relayResult);
                 } catch (error) {
@@ -796,7 +824,11 @@ export class AutoCardHandler implements ITransactionHandler {
                 }
             } else {
                 decisionResult = this.normalizeBackendDecisionResolveResult(
-                    await backendClient.resolveAutoCardDecision(request),
+                    await measureRuntimePerformance('autocard', 'decision.backend-worker', () => backendClient.resolveAutoCardDecision(request), {
+                        method: 'autocard.decision.resolve',
+                        ruleScope: request.ruleScope,
+                        source: request.source,
+                    }),
                 );
             }
             return {
@@ -824,7 +856,10 @@ export class AutoCardHandler implements ITransactionHandler {
                 reason: 'backend-client-missing',
             });
         }
-        return this.resolveAutoCardDecisionCoreLocal(input);
+        return measureRuntimePerformance('autocard', 'decision.local-resolve', () => this.resolveAutoCardDecisionCoreLocal(input), {
+            ruleScope: input.ruleScope ?? 'all',
+            source: input.source,
+        });
     }
 
     private async resolveAutoCardDecisionCoreLocal(input: {
@@ -1161,19 +1196,20 @@ export class AutoCardHandler implements ITransactionHandler {
 
     private enqueueCandidateBlock(blockId: string, txBatchId: string, action: string, opId: string): void {
         const existingContext = this.candidateContexts.get(blockId);
+        const enqueuedAt = Date.now();
         const nextContext: CandidateBlockContext = existingContext
             ? {
                 ...existingContext,
                 txBatchId,
                 actions: [...existingContext.actions, action],
                 opIds: [...existingContext.opIds, opId],
-                enqueuedAt: Date.now(),
+                enqueuedAt,
             }
             : {
                 blockId,
                 txBatchId,
                 actions: [action],
-                enqueuedAt: Date.now(),
+                enqueuedAt,
                 opIds: [opId],
             };
 
@@ -1194,6 +1230,16 @@ export class AutoCardHandler implements ITransactionHandler {
         });
 
         const timer = setTimeout(() => {
+            recordRuntimePerformanceSpan(
+                'autocard',
+                'candidate.settle-latency',
+                Date.now() - nextContext.enqueuedAt,
+                {
+                    actionCount: nextContext.actions.length,
+                    delayMs: this.settledEvaluationDelayMs,
+                    txBatchId: nextContext.txBatchId,
+                },
+            );
             this.candidateTimers.delete(blockId);
             void this.processSettledCandidate(blockId);
         }, this.settledEvaluationDelayMs);
@@ -1223,28 +1269,38 @@ export class AutoCardHandler implements ITransactionHandler {
         decision?: CreationDecision
     ): Promise<XiuyuanCreateResult> {
         const xiuyuanAppService = await this.requireXiuyuanApplicationService();
-        return xiuyuanAppService.createFromBlocks({
+        return measureRuntimePerformance('autocard', 'xiuyuan.create-from-blocks', () => xiuyuanAppService.createFromBlocks({
             ...command,
             source: command.source ?? this.mapXiuyuanSource(source),
             duplicatePolicy: command.duplicatePolicy ?? this.getDuplicatePolicyForSource(source),
             creationRuleId: command.creationRuleId ?? decision?.id,
             creationMode: command.creationMode ?? decision?.mode,
             renderProfile: command.renderProfile ?? decision?.renderProfile,
+        }), {
+            blockCount: command.blockIds?.length ?? 0,
+            source,
+            templateId: command.templateId,
         });
     }
     
     handle(transactions: Transaction[]): void {
+        const finishHandleSpan = startRuntimePerformanceSpan('autocard', 'handler.handle', {
+            transactionCount: transactions.length,
+        });
 
         const quickCardSettings = this.settingsService.getSettings().quickCard;
         logger.debug('[SiYuanMemo][AutoCard] Quick card settings:', quickCardSettings);
         if (!quickCardSettings?.enabled) {
             logger.debug('[SiYuanMemo][AutoCard] Quick card is disabled, skipping');
+            finishHandleSpan({ quickCardEnabled: false, scheduledCount: 0 });
             return;
         }
         
         logger.debug('[SiYuanMemo][AutoCard] Quick card is enabled, processing transactions');
         const txBatchId = this.nextTraceId('txbatch');
         const relevantOperations: Array<Record<string, unknown>> = [];
+        let scheduledCount = 0;
+        let cancelledCount = 0;
         
         for (const [txIndex, tx] of transactions.entries()) {
             if (!tx.doOperations) continue;
@@ -1254,6 +1310,7 @@ export class AutoCardHandler implements ITransactionHandler {
 
                 if (op.action === 'insert' || op.action === 'update') {
                     this.enqueueCandidateBlock(blockId, txBatchId, op.action, op.id);
+                    scheduledCount++;
                     relevantOperations.push({
                         txIndex,
                         opIndex,
@@ -1267,6 +1324,7 @@ export class AutoCardHandler implements ITransactionHandler {
 
                 if (op.action === 'delete') {
                     this.cancelPendingCandidate(blockId, txBatchId, 'delete');
+                    cancelledCount++;
                     relevantOperations.push({
                         txIndex,
                         opIndex,
@@ -1294,6 +1352,15 @@ export class AutoCardHandler implements ITransactionHandler {
             txBatchId,
             pendingCandidateCount: this.candidateContexts.size,
             relevantOperations,
+        });
+        incrementRuntimePerformanceCounter('autocard', 'candidate-operations-scheduled', scheduledCount);
+        incrementRuntimePerformanceCounter('autocard', 'candidate-operations-cancelled', cancelledCount);
+        finishHandleSpan({
+            cancelledCount,
+            pendingCandidateCount: this.candidateContexts.size,
+            quickCardEnabled: true,
+            scheduledCount,
+            txBatchId,
         });
     }
 
@@ -1417,36 +1484,59 @@ export class AutoCardHandler implements ITransactionHandler {
     
     // Check a block for quick symbols and create all matched cards in one pass.
     private async checkQuickSymbols(blockId: string, options?: { force?: boolean }): Promise<void> {
+        const finishCheckSpan = startRuntimePerformanceSpan('autocard', 'check-quick-symbols', {
+            force: options?.force === true,
+        });
+        let status = 'started';
+        let blockTypeForReport = '';
+        let localCardCountForReport = 0;
+        let enabledDecisionCountForReport = 0;
+        let decisionStatusForReport: string | null = null;
         try {
             const traceContext = this.getActiveRunContext(blockId);
 
             const quickCardSettings = this.settingsService.getSettings().quickCard;
             if (!quickCardSettings) {
+                status = 'no-settings';
                 return;
             }
 
             if (!quickCardSettings.enabled && !options?.force) {
+                status = 'disabled';
                 return;
             }
             
 
-            const { kramdown } = await this.siyuanApi.getBlockKramdown(blockId);
+            const { kramdown } = await measureRuntimePerformance(
+                'autocard',
+                'siyuan.get-block-kramdown',
+                () => this.siyuanApi.getBlockKramdown(blockId),
+                { blockId },
+            );
             if (!kramdown) {
                 logger.debug('[SiYuanMemo][AutoCard] Block has no content:', blockId);
+                status = 'empty-content';
                 return;
             }
             
             logger.debug('[SiYuanMemo][AutoCard] Checking quick symbols:', blockId, 'content:', kramdown);
             
 
-            const blockInfo = await this.hostBlockQuery.getBlock(blockId);
+            const blockInfo = await measureRuntimePerformance(
+                'autocard',
+                'host-block-query.get-block',
+                () => this.hostBlockQuery.getBlock(blockId),
+                { blockId },
+            );
             
             if (!blockInfo) {
                 logger.debug('[SiYuanMemo][AutoCard] Block not found:', blockId);
+                status = 'missing-block';
                 return;
             }
             
             const blockType = typeof blockInfo.type === 'string' ? blockInfo.type : '';
+            blockTypeForReport = blockType;
             const rootId = typeof blockInfo.root_id === 'string' ? blockInfo.root_id.trim() : '';
             if (!this.isQuickSymbolSupportedBlockType(blockType)) {
                 logger.debug(
@@ -1454,12 +1544,19 @@ export class AutoCardHandler implements ITransactionHandler {
                     blockType,
                     '), skipping'
                 );
+                status = 'unsupported-block-type';
                 return;
             }
             
 
-            const attrs = await this.siyuanApi.getBlockAttrs(blockId);
+            const attrs = await measureRuntimePerformance(
+                'autocard',
+                'siyuan.get-block-attrs',
+                () => this.siyuanApi.getBlockAttrs(blockId),
+                { blockId },
+            );
             const existingCards = this.getLocalCardsByBlockId(blockId);
+            localCardCountForReport = existingCards.length;
             
             const normalizedSettings: QuickCardSettings = {
                 ...quickCardSettings,
@@ -1482,8 +1579,13 @@ export class AutoCardHandler implements ITransactionHandler {
                 },
             };
 
-            const resolvedCardType = await this.resolveDetectedCardType(blockId, blockType, kramdown);
-            const progressiveSourceContext = await resolveProgressiveSourceContext({
+            const resolvedCardType = await measureRuntimePerformance(
+                'autocard',
+                'resolve-detected-card-type',
+                () => this.resolveDetectedCardType(blockId, blockType, kramdown),
+                { blockType },
+            );
+            const progressiveSourceContext = await measureRuntimePerformance('autocard', 'resolve-progressive-source-context', () => resolveProgressiveSourceContext({
                 blockId,
                 rootId,
                 cardLookup: {
@@ -1493,8 +1595,8 @@ export class AutoCardHandler implements ITransactionHandler {
                 attrLookup: {
                     getBlockAttrs: async (candidateBlockId: string) => this.siyuanApi.getBlockAttrs(candidateBlockId),
                 },
-            });
-            const decisionCoreResult = await this.resolveAutoCardDecisionCore({
+            }), { rootKind: rootId ? 'document' : 'unknown' });
+            const decisionCoreResult = await measureRuntimePerformance('autocard', 'decision.resolve-core', () => this.resolveAutoCardDecisionCore({
                 blockId,
                 content: kramdown,
                 blockType,
@@ -1502,8 +1604,14 @@ export class AutoCardHandler implements ITransactionHandler {
                 source: 'symbol-listener',
                 quickCardSettings: normalizedSettings,
                 sourceContext: progressiveSourceContext,
+            }), {
+                blockType,
+                resolvedCardType,
+                source: 'symbol-listener',
             });
+            decisionStatusForReport = decisionCoreResult.status;
             const enabledDecisions = decisionCoreResult.enabledDecisions;
+            enabledDecisionCountForReport = enabledDecisions.length;
             const evaluationFingerprint = this.buildEvaluationFingerprint({
                 blockType,
                 content: kramdown,
@@ -1534,6 +1642,7 @@ export class AutoCardHandler implements ITransactionHandler {
             });
 
             if (previousFingerprint === evaluationFingerprint) {
+                status = 'same-fingerprint';
                 this.traceAutoCard('settledEvaluation.skipFingerprint', {
                     runId: traceContext?.runId ?? null,
                     txBatchId: traceContext?.txBatchId ?? null,
@@ -1555,6 +1664,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     blockId,
                     rootId,
                 });
+                status = 'suppressed-topic-derived-mark';
                 return;
             }
 
@@ -1563,6 +1673,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     blockId,
                     matchedRules: decisionCoreResult.matchedRuleIds,
                 });
+                status = 'no-enabled-decisions';
                 return;
             }
             if (decisionCoreResult.shouldUseTopicDerivation) {
@@ -1574,6 +1685,7 @@ export class AutoCardHandler implements ITransactionHandler {
                         blockId,
                         rootId,
                     });
+                    status = 'skip-topic-derived-bound-block';
                     return;
                 }
 
@@ -1587,7 +1699,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     envelopeKind: 'topic-derived',
                     executionOwner: executionOwnership.owner,
                 });
-                const executed = await this.executeAutoCardEnvelope({
+                const executed = await measureRuntimePerformance('autocard', 'execute-envelope.topic-derived', () => this.executeAutoCardEnvelope({
                     kind: 'topic-derived',
                     input: {
                         sourceBlockId: blockId,
@@ -1600,7 +1712,11 @@ export class AutoCardHandler implements ITransactionHandler {
                         decisions: enabledDecisions,
                         storageMode: normalizedSettings.topicDerivation?.storageMode,
                     },
+                }), {
+                    decisionStatus: decisionCoreResult.status,
+                    enabledDecisionCount: enabledDecisions.length,
                 });
+                status = executed ? 'executed-topic-derived' : 'not-executed-topic-derived';
                 this.traceAutoCard('decision.execute.end', {
                     runId: traceContext?.runId ?? null,
                     txBatchId: traceContext?.txBatchId ?? null,
@@ -1617,6 +1733,7 @@ export class AutoCardHandler implements ITransactionHandler {
 
             if (this.hasXiuyuanBinding(attrs)) {
                 logger.debug('[SiYuanMemo][AutoCard] Block is already part of a Xiuyuan card, skipping:', blockId);
+                status = 'skip-bound-block';
                 return;
             }
 
@@ -1626,6 +1743,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     existingCardCount: existingCards.length,
                     rootId,
                 });
+                status = 'skip-existing-card';
                 return;
             }
 
@@ -1648,6 +1766,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     strategy: 'semantic-first',
                     decisions: enabledDecisions.map((decision) => decision.id),
                 });
+                status = 'skip-conflict-strategy';
                 return;
             }
 
@@ -1663,13 +1782,17 @@ export class AutoCardHandler implements ITransactionHandler {
                 decisionStatus: decisionCoreResult.status,
                 envelopeKind: 'planner-decision',
             });
-            const executed = await this.executeAutoCardEnvelope({
+            const executed = await measureRuntimePerformance('autocard', 'execute-envelope.planner-decision', () => this.executeAutoCardEnvelope({
                 kind: 'planner-decision',
                 blockId,
                 content: kramdown,
                 decision: decisionCoreResult.selectedDecision,
                 source: 'symbol-listener',
+            }), {
+                decisionId: decisionCoreResult.selectedDecision.id,
+                decisionStatus: decisionCoreResult.status,
             });
+            status = executed ? 'executed-planner-decision' : 'not-executed-planner-decision';
             this.traceAutoCard('decision.execute.end', {
                 executionOwner: this.resolveExecutionOwnership({
                     kind: 'planner-decision',
@@ -1684,7 +1807,19 @@ export class AutoCardHandler implements ITransactionHandler {
                 executed,
             });
         } catch (error) {
+            status = 'error';
             logger.error('[SiYuanMemo][AutoCard] Error checking quick symbols:', blockId, error);
+        } finally {
+            finishCheckSpan({
+                blockType: blockTypeForReport,
+                decisionStatus: decisionStatusForReport,
+                enabledDecisionCount: enabledDecisionCountForReport,
+                localCardCount: localCardCountForReport,
+                status,
+            }, {
+                ok: status !== 'error',
+                errorName: status === 'error' ? 'AutoCardCheckError' : undefined,
+            });
         }
     }
 
@@ -1929,6 +2064,10 @@ export class AutoCardHandler implements ITransactionHandler {
     private async processSettledCandidate(blockId: string): Promise<void> {
         logger.debug('[SiYuanMemo][AutoCard] Processing settled candidate block:', blockId);
         const candidateContext = this.candidateContexts.get(blockId);
+        const finishCandidateSpan = startRuntimePerformanceSpan('autocard', 'candidate.process-settled', {
+            actionCount: candidateContext?.actions.length ?? 0,
+            txBatchId: candidateContext?.txBatchId,
+        });
         const runId = this.nextTraceId('run');
         const startedAt = Date.now();
         const alreadyProcessing = this.processing.has(blockId);
@@ -1960,6 +2099,11 @@ export class AutoCardHandler implements ITransactionHandler {
                 skipped: 'already-processing',
                 processingSizeAfter: this.processing.size,
             });
+            finishCandidateSpan({
+                runId,
+                skipped: 'already-processing',
+                txBatchId: traceContext.txBatchId ?? null,
+            });
             return;
         }
         
@@ -1986,6 +2130,14 @@ export class AutoCardHandler implements ITransactionHandler {
                 durationMs: Date.now() - startedAt,
                 error: errorMessage,
                 processingSizeAfter: this.processing.size,
+            });
+            finishCandidateSpan({
+                hasError: Boolean(errorMessage),
+                runId,
+                txBatchId: traceContext.txBatchId ?? null,
+            }, {
+                ok: !errorMessage,
+                errorName: errorMessage ? 'AutoCardCandidateError' : undefined,
             });
         }
     }

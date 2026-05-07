@@ -355,6 +355,12 @@ import {
   pushBrowserMsg,
 } from './browserService';
 import { PerformanceMonitor } from '@/utils/performance';
+import {
+  incrementRuntimePerformanceCounter,
+  measureRuntimePerformance,
+  printRuntimePerformanceDiagnosticsReport,
+  startRuntimePerformanceSpan,
+} from '@/utils/runtimePerformanceDiagnostics';
 import { runBrowserForceRefresh } from './forceRefreshDataPlan';
 import {
   type BrowserCard,
@@ -1396,9 +1402,18 @@ function createInfiniteDatasource(
   return {
     getRows: (params: IGetRowsParams) => {
       void (async () => {
+        const finishGetRowsSpan = startRuntimePerformanceSpan('browser', 'grid.get-rows', {
+          endRow: params.endRow,
+          startRow: params.startRow,
+          version,
+        });
+        let status = 'started';
+        let rowsForBlockCount = 0;
+        let totalCount = 0;
         try {
           const dataSource = dataSourceSnapshot;
           if (!dataSource) {
+            status = 'empty-datasource';
             if (version === datasourceVersion) {
               scheduleDatasourceUiUpdate(version, () => {
                 totalRowCount.value = 0;
@@ -1411,7 +1426,6 @@ function createInfiniteDatasource(
           }
 
           let rowsForBlock: BrowserCard[] = [];
-          let totalCount = 0;
           let requestSortRevision = sortModelRevision.value;
 
           if (randomSortRows.value) {
@@ -1427,41 +1441,59 @@ function createInfiniteDatasource(
               api: gridApi.value,
             });
             requestSortRevision = sortModelRevision.value;
-            const result = await dataSource.fetchRows({
+            const result = await measureRuntimePerformance('browser', 'grid.fetch-rows', () => dataSource.fetchRows({
               sortModel: effectiveSortModel,
               filterModel: params.filterModel || {},
               startRow: params.startRow,
               endRow: params.endRow,
+            }), {
+              endRow: params.endRow,
+              filterKeys: Object.keys(params.filterModel || {}).length,
+              sortCount: effectiveSortModel.length,
+              startRow: params.startRow,
             });
             rowsForBlock = result.rows;
             totalCount = result.totalCount;
           }
+          rowsForBlockCount = rowsForBlock.length;
 
           if (version !== datasourceVersion) {
             // Stale request from an old datasource version: resolve it explicitly
             // so AG Grid does not keep blank placeholder rows.
             params.failCallback();
+            status = 'stale-version';
             return;
           }
 
           if (requestSortRevision !== sortModelRevision.value) {
             params.failCallback();
+            status = 'stale-sort';
             return;
           }
 
-          params.successCallback(rowsForBlock, totalCount);
-          scheduleDatasourceUiUpdate(version, () => {
-            totalRowCount.value = totalCount;
-            hasFirstDataBlockLoaded.value = true;
-            rows.value = rowsForBlock;
-            if (!shouldFocusDocList.value && !activeDocId.value) {
-              rowsForFocus.value = [...rowsForBlock];
-            }
-            mergeLoadedRows(rowsForBlock);
-            applyGlobalSelectionToLoadedRows();
-            loading.value = false;
+          measureRuntimePerformance('browser', 'grid.success-callback', () => params.successCallback(rowsForBlock, totalCount), {
+            rowCount: rowsForBlock.length,
+            totalCount,
           });
+          scheduleDatasourceUiUpdate(version, () => {
+            measureRuntimePerformance('browser', 'grid.datasource-ui-update', () => {
+              totalRowCount.value = totalCount;
+              hasFirstDataBlockLoaded.value = true;
+              rows.value = rowsForBlock;
+              if (!shouldFocusDocList.value && !activeDocId.value) {
+                rowsForFocus.value = [...rowsForBlock];
+              }
+              mergeLoadedRows(rowsForBlock);
+              applyGlobalSelectionToLoadedRows();
+              loading.value = false;
+            }, {
+              rowCount: rowsForBlock.length,
+              totalCount,
+            });
+          });
+          status = 'loaded';
         } catch (error) {
+          status = 'error';
           if (version === datasourceVersion) {
             logger.error('[SiYuanMemo][SRSBrowser] Infinite datasource getRows failed:', error);
             scheduleDatasourceUiUpdate(version, () => {
@@ -1470,6 +1502,15 @@ function createInfiniteDatasource(
             });
           }
           params.failCallback();
+        } finally {
+          finishGetRowsSpan({
+            rowCount: rowsForBlockCount,
+            status,
+            totalCount,
+          }, {
+            ok: status === 'loaded' || status === 'empty-datasource',
+            errorName: status === 'error' ? 'BrowserGridGetRowsError' : undefined,
+          });
         }
       })();
     },
@@ -1491,7 +1532,7 @@ function applyPendingDatasourceToGrid(): void {
     if (!isGridApiAlive(api) || !datasource) {
       return;
     }
-    api.setGridOption?.('datasource', datasource);
+    measureRuntimePerformance('browser', 'grid.apply-datasource', () => api.setGridOption?.('datasource', datasource));
   }, 0);
 }
 
@@ -1520,28 +1561,45 @@ function startAllRowsSnapshot(): void {
   }
 
   allRowsSnapshotPromise = (async () => {
+    const finishSnapshotSpan = startRuntimePerformanceSpan('browser', 'snapshot.all-rows', {
+      taskId,
+    });
+    let status = 'started';
+    let rowCount = 0;
     try {
       const fullRows = randomSortRows.value
         ? [...randomSortRows.value]
-        : await loadAllRowsFromQueryableDataSource(dataSource, currentSortModel.value || [], {
+        : await measureRuntimePerformance('browser', 'snapshot.all-rows.load', () => loadAllRowsFromQueryableDataSource(dataSource, currentSortModel.value || [], {
           chunkSize: 500,
           shouldAbort: () => taskId !== allRowsSnapshotTaskId,
-        });
+        }));
       if (taskId !== allRowsSnapshotTaskId) {
+        status = 'stale';
         return;
       }
+      rowCount = fullRows.length;
       allRows.value = fullRows;
       allRowsSnapshotReady.value = true;
       if (!shouldFocusDocList.value && !activeDocId.value) {
         rowsForFocus.value = fullRows;
       }
+      status = 'ready';
     } catch (error) {
+      status = 'error';
       if (taskId !== allRowsSnapshotTaskId) {
         return;
       }
       logger.error('[SiYuanMemo][SRSBrowser] Failed to build allRows snapshot:', error);
       allRows.value = [];
       allRowsSnapshotReady.value = true;
+    } finally {
+      finishSnapshotSpan({
+        rowCount,
+        status,
+      }, {
+        ok: status === 'ready' || status === 'stale',
+        errorName: status === 'error' ? 'BrowserAllRowsSnapshotError' : undefined,
+      });
     }
   })();
 }
@@ -1598,21 +1656,38 @@ function startFocusRowsSnapshot(): void {
 
   const taskId = ++focusRowsTaskId;
   void (async () => {
+    const finishSnapshotSpan = startRuntimePerformanceSpan('browser', 'snapshot.focus-rows', {
+      taskId,
+    });
+    let status = 'started';
+    let rowCount = 0;
     try {
-      const focusRows = await loadAllRowsFromQueryableDataSource(focusDataSource, [], {
+      const focusRows = await measureRuntimePerformance('browser', 'snapshot.focus-rows.load', () => loadAllRowsFromQueryableDataSource(focusDataSource, [], {
         chunkSize: 500,
         shouldAbort: () => taskId !== focusRowsTaskId,
-      });
+      }));
       if (taskId !== focusRowsTaskId) {
+        status = 'stale';
         return;
       }
+      rowCount = focusRows.length;
       rowsForFocus.value = focusRows;
+      status = 'ready';
     } catch (error) {
+      status = 'error';
       if (taskId !== focusRowsTaskId) {
         return;
       }
       logger.error('[SiYuanMemo][SRSBrowser] Failed to load focus rows:', error);
       rowsForFocus.value = [];
+    } finally {
+      finishSnapshotSpan({
+        rowCount,
+        status,
+      }, {
+        ok: status === 'ready' || status === 'stale',
+        errorName: status === 'error' ? 'BrowserFocusRowsSnapshotError' : undefined,
+      });
     }
   })();
 }
@@ -2250,6 +2325,7 @@ function handleSyncComplete(type: 'incremental' | 'full') {
 // Show performance report
 function showPerformanceReport() {
   PerformanceMonitor.printReport();
+  printRuntimePerformanceDiagnosticsReport();
 
   // 显示缓存统计
   const cacheStats = getCacheStats();
@@ -2281,6 +2357,7 @@ function setupLongTaskMonitor(): void {
       const longTaskCount = entries.filter((entry) => entry.duration > 50).length;
       if (longTaskCount > 0) {
         PerformanceMonitor.incrementCounter('browser.scroll.longtask.count', longTaskCount);
+        incrementRuntimePerformanceCounter('browser', 'longtask-count', longTaskCount);
       }
     });
     longTaskObserver.observe({ entryTypes: ['longtask'] });

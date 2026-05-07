@@ -3,6 +3,11 @@ import type { KernelRelayMethod } from '../../../packages/contracts/src/kernel-r
 import type { KernelBroadcastEvent } from '../../../packages/contracts/src/kernel-rpc';
 import { createLogger } from '@/utils/logger';
 import {
+  incrementRuntimePerformanceCounter,
+  measureRuntimePerformance,
+  startRuntimePerformanceSpan,
+} from '@/utils/runtimePerformanceDiagnostics';
+import {
   getRelayCompletionExtraDiagnostics,
   shouldLogRelayCommandSubmitted,
 } from '@/application/clients/relayDiagnostics';
@@ -26,12 +31,22 @@ export class FollowerCommandClient {
   ) {}
 
   async submitAndWait<TResult>(request: FollowerCommandRequest, timeoutMs = 15_000): Promise<TResult> {
-    const submitted = await this.sidecarClient.writerSubmitCommand({
+    const finishRelaySpan = startRuntimePerformanceSpan('relay', 'submit-and-wait', {
+      method: request.method,
+      timeoutMs,
+    });
+    let status = 'started';
+    let commandId = request.commandId ?? '';
+    let pushWakeCount = 0;
+    let resultPollCount = 0;
+    try {
+    const submitted = await measureRuntimePerformance('relay', 'submit-command', () => this.sidecarClient.writerSubmitCommand({
       instanceId: request.instanceId,
       commandId: request.commandId,
       method: request.method,
       params: request.params,
-    });
+    }), { method: request.method });
+    commandId = submitted.commandId;
     if (shouldLogRelayCommandSubmitted(request.method)) {
       this.logger.info('[FollowerCommandClient] relay command submitted', {
         commandId: submitted.commandId,
@@ -50,6 +65,8 @@ export class FollowerCommandClient {
         if (!this.isMatchingCommandResultEvent(event, submitted.commandId)) {
           return;
         }
+        pushWakeCount++;
+        incrementRuntimePerformanceCounter('relay', 'push-wake');
         pushedResultCommandIds.add(submitted.commandId);
         const wake = wakePendingResultPoll;
         wakePendingResultPoll = null;
@@ -58,21 +75,23 @@ export class FollowerCommandClient {
     });
     try {
       while (Date.now() - startedAt <= timeoutMs) {
-        const result = await this.sidecarClient.writerGetCommandResult({
+        resultPollCount++;
+        const result = await measureRuntimePerformance('relay', 'get-command-result', () => this.sidecarClient.writerGetCommandResult({
           commandId: submitted.commandId,
-        });
+        }), { method: request.method });
         if (result.status === 'pending') {
-          await this.waitForResultNotificationOrPollDelay(
+          await measureRuntimePerformance('relay', 'wait-result-notification-or-poll-delay', () => this.waitForResultNotificationOrPollDelay(
             submitted.commandId,
             pushedResultCommandIds,
             (wake) => {
               wakePendingResultPoll = wake;
             },
             200,
-          );
+          ), { method: request.method });
           continue;
         }
         if (result.status === 'failed') {
+          status = 'failed';
           this.logger.warn('[FollowerCommandClient] relay command failed', {
             commandId: submitted.commandId,
             instanceId: request.instanceId,
@@ -85,6 +104,7 @@ export class FollowerCommandClient {
           throw new Error(this.formatRelayError(result.error, 'writer relay failed'));
         }
         if (result.status === 'unavailable' || result.status === 'expired') {
+          status = result.status;
           this.logger.warn('[FollowerCommandClient] relay command unavailable', {
             commandId: submitted.commandId,
             instanceId: request.instanceId,
@@ -108,6 +128,7 @@ export class FollowerCommandClient {
             ...completionDiagnostics,
           });
         }
+        status = 'completed';
         return result.result as TResult;
       }
     } finally {
@@ -120,7 +141,25 @@ export class FollowerCommandClient {
       method: request.method,
       timeoutMs,
     });
+    status = 'timeout';
     throw new Error('BACKEND_UNAVAILABLE: writer relay timeout');
+    } catch (error) {
+      if (status === 'started') {
+        status = 'error';
+      }
+      throw error;
+    } finally {
+      finishRelaySpan({
+        commandId,
+        method: request.method,
+        pushWakeCount,
+        resultPollCount,
+        status,
+      }, {
+        ok: status === 'completed',
+        errorName: status !== 'completed' ? 'FollowerRelayError' : undefined,
+      });
+    }
   }
 
   private formatRelayError(

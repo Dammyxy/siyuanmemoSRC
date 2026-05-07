@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-07 (Round 289)
+Last update: 2026-05-07 (Round 290)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-07 - runtime performance diagnostics
+
+- Task: 创建并实现 `runtime-performance-diagnostics`，诊断插件启用后的思源日常编辑、自动监听制卡、真实复习评分、SRS 浏览器打开路径性能。
+- Touched slice: Cross-cutting runtime diagnostics；`src/utils/runtimePerformanceDiagnostics.ts`、`src/index.ts`、`src/application/ApplicationContext.ts`、`TransactionWebSocketService`、`KernelTransactionActionPump`、`AutoCardHandler`、`reviewSessionController`、`ReviewCommitUseCase`、`FollowerCommandClient`、`FrontendInstanceRuntime`、`SRSBrowser.vue`、`browserLoadDataRuntime`、`browserDataSnapshots`、`BrowserApplicationService`、`SourceExistenceCache`、OpenSpec change `runtime-performance-diagnostics`。
+- Debt fixed now: 增加 disabled-by-default 的 session ring-buffer 诊断器，统一记录 span/counter/slowest/report 并脱敏 metadata；真实路径埋点覆盖启动 composition、日常 `ws-main` transaction no-op/handler dispatch、kernel action pump、AutoCard settle/read/decision/execute、review grade/backend/relay/state、Browser first page/grid/snapshot/source-existence sweep；SRS Browser 的 performance report 同步打印 runtime diagnostic report，控制台可用 `window.siyuanMemoRuntimePerformance.enable()/report()/copyReport()/disable()`。
+- Debt deferred: 还没有根据真实 trace 改 UI hydrate、AG Grid、source sweep、AutoCard retry、writer relay 或 review presentation；也没有新增设置面板按钮或只读 `/cards/query` / `/queues/status` private API。
+- Why deferred: 本轮目标是先取得真实使用时间线证据；优化和 API 面需要等 trace 指出瓶颈后再做，避免继续猜测。
+- Next safe step: 在真实 SiYuan session 中启用 diagnostics，按“日常编辑 2-3 分钟、触发一次监听制卡、做少量真实/测试复习、打开 SRS Browser”收集 report，再按 p95/max 和 longtask 归因选择第一个优化点。
+- Validation: red `pnpm vitest run src/utils/__tests__/runtimePerformanceDiagnostics.test.ts` failed on missing diagnostics module；green same command（1 file / 5 tests passed）；`pnpm run check:boundaries` passed；`pnpm build` passed（保留既有 338 个 hardcoded UI string warnings、14 个 i18n content warnings 与 Sass legacy warnings）；`git diff --check` passed for worktree and OpenSpec change（only LF/CRLF warnings in worktree）。
 
 ### 2026-05-07 - SRS Browser Worker clone-safe query payloads
 
