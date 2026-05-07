@@ -208,12 +208,41 @@ type BackendRelayRuntimeState =
     | { mode: 'unknown'; rawMode: string | null };
 
 type CandidateBlockContext = {
+    candidateId: string;
     blockId: string;
     txBatchId: string;
     actions: string[];
     enqueuedAt: number;
     opIds: string[];
+    retryAttempt: number;
+    followUpRequested?: boolean;
 };
+
+type AutoCardCheckStatus = string;
+
+type ListenerCandidateLifecycleStatus =
+    | 'accepted'
+    | 'retry-scheduled'
+    | 'created'
+    | 'skipped'
+    | 'retry-exhausted'
+    | 'failed';
+
+export interface AutoCardListenerCandidateDiagnostic {
+    candidateId: string;
+    blockId: string;
+    status: ListenerCandidateLifecycleStatus;
+    reason: string;
+    terminal: boolean;
+    txBatchId?: string;
+    actions: string[];
+    opIds: string[];
+    attempt: number;
+    delayMs?: number;
+    runId?: string;
+    createdAt: number;
+    updatedAt: number;
+}
 
 export interface AutoCardHandlerPorts {
     siyuanApi: AutoCardSiyuanPort;
@@ -243,9 +272,14 @@ export class AutoCardHandler implements ITransactionHandler {
     private readonly conceptCardEnsureInFlight = new Set<string>();
     private readonly candidateTimers = new Map<string, NodeJS.Timeout>();
     private readonly candidateContexts = new Map<string, CandidateBlockContext>();
+    private readonly listenerCandidateDiagnostics = new Map<string, AutoCardListenerCandidateDiagnostic>();
+    private readonly listenerCandidateDiagnosticOrder: string[] = [];
     private readonly lastEvaluationFingerprintByBlock = new Map<string, string>();
     private readonly suppressedTopicDerivedMarkMutations = new Map<string, number>();
     private readonly settledEvaluationDelayMs = 300;
+    private readonly candidateRetryDelaysMs = [250, 750, 1500, 3000, 6000];
+    private readonly followUpEvaluationDelayMs = 0;
+    private readonly maxListenerCandidateDiagnostics = 200;
     private traceSequence = 0;
     private readonly activeRunContexts = new Map<string, AutoCardTraceContext>();
     
@@ -1194,6 +1228,168 @@ export class AutoCardHandler implements ITransactionHandler {
         });
     }
 
+    getListenerCandidateDiagnostics(): AutoCardListenerCandidateDiagnostic[] {
+        return this.listenerCandidateDiagnosticOrder
+            .map((candidateId) => this.listenerCandidateDiagnostics.get(candidateId))
+            .filter((diagnostic): diagnostic is AutoCardListenerCandidateDiagnostic => Boolean(diagnostic))
+            .map((diagnostic) => ({
+                ...diagnostic,
+                actions: [...diagnostic.actions],
+                opIds: [...diagnostic.opIds],
+            }));
+    }
+
+    private recordListenerCandidateLifecycle(
+        context: CandidateBlockContext,
+        status: ListenerCandidateLifecycleStatus,
+        reason: string,
+        options: {
+            terminal?: boolean;
+            delayMs?: number;
+            runId?: string | null;
+            attempt?: number;
+        } = {}
+    ): void {
+        const now = Date.now();
+        const existing = this.listenerCandidateDiagnostics.get(context.candidateId);
+        if (!existing) {
+            this.listenerCandidateDiagnosticOrder.push(context.candidateId);
+        }
+        const terminal = options.terminal ?? (
+            status === 'created'
+            || status === 'skipped'
+            || status === 'retry-exhausted'
+            || status === 'failed'
+        );
+        this.listenerCandidateDiagnostics.set(context.candidateId, {
+            candidateId: context.candidateId,
+            blockId: context.blockId,
+            status,
+            reason,
+            terminal,
+            txBatchId: context.txBatchId,
+            actions: [...context.actions],
+            opIds: [...context.opIds],
+            attempt: options.attempt ?? context.retryAttempt,
+            ...(typeof options.delayMs === 'number' ? { delayMs: options.delayMs } : {}),
+            ...(options.runId ? { runId: options.runId } : {}),
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+        });
+        this.trimListenerCandidateDiagnostics();
+        this.traceAutoCard('candidate.lifecycle', {
+            candidateId: context.candidateId,
+            blockId: context.blockId,
+            status,
+            reason,
+            terminal,
+            attempt: options.attempt ?? context.retryAttempt,
+            delayMs: options.delayMs ?? null,
+            txBatchId: context.txBatchId,
+        });
+    }
+
+    private trimListenerCandidateDiagnostics(): void {
+        while (this.listenerCandidateDiagnosticOrder.length > this.maxListenerCandidateDiagnostics) {
+            const candidateId = this.listenerCandidateDiagnosticOrder.shift();
+            if (candidateId) {
+                this.listenerCandidateDiagnostics.delete(candidateId);
+            }
+        }
+    }
+
+    private scheduleCandidateTimer(
+        blockId: string,
+        delayMs: number,
+        reason: string,
+        context: CandidateBlockContext
+    ): void {
+        const existingTimer = this.candidateTimers.get(blockId);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+        }
+        const timer = setTimeout(() => {
+            recordRuntimePerformanceSpan(
+                'autocard',
+                'candidate.settle-latency',
+                Date.now() - context.enqueuedAt,
+                {
+                    actionCount: context.actions.length,
+                    delayMs,
+                    txBatchId: context.txBatchId,
+                    reason,
+                    retryAttempt: context.retryAttempt,
+                },
+            );
+            this.candidateTimers.delete(blockId);
+            void this.processSettledCandidate(blockId);
+        }, delayMs);
+
+        this.candidateTimers.set(blockId, timer);
+    }
+
+    private isTransientReadinessStatus(status: AutoCardCheckStatus): boolean {
+        return status === 'empty-content' || status === 'missing-block';
+    }
+
+    private toTerminalCandidateOutcome(status: AutoCardCheckStatus): {
+        status: ListenerCandidateLifecycleStatus;
+        reason: string;
+    } {
+        if (status === 'executed-planner-decision' || status === 'executed-topic-derived') {
+            return { status: 'created', reason: status };
+        }
+        if (status === 'error') {
+            return { status: 'failed', reason: status };
+        }
+        return { status: 'skipped', reason: status || 'unknown' };
+    }
+
+    private scheduleRetryForTransientCandidate(
+        blockId: string,
+        reason: AutoCardCheckStatus,
+        context: CandidateBlockContext
+    ): boolean {
+        const nextAttempt = context.retryAttempt + 1;
+        if (nextAttempt > this.candidateRetryDelaysMs.length) {
+            return false;
+        }
+        const delayMs = this.candidateRetryDelaysMs[nextAttempt - 1] ?? this.candidateRetryDelaysMs[this.candidateRetryDelaysMs.length - 1];
+        const nextContext: CandidateBlockContext = {
+            ...context,
+            retryAttempt: nextAttempt,
+            followUpRequested: false,
+            enqueuedAt: Date.now(),
+        };
+        this.candidateContexts.set(blockId, nextContext);
+        this.recordListenerCandidateLifecycle(nextContext, 'retry-scheduled', reason, {
+            terminal: false,
+            delayMs,
+            attempt: nextAttempt,
+        });
+        this.scheduleCandidateTimer(blockId, delayMs, 'transient-retry', nextContext);
+        return true;
+    }
+
+    private scheduleFollowUpCandidate(
+        blockId: string,
+        context: CandidateBlockContext,
+        reason: string
+    ): void {
+        const nextContext: CandidateBlockContext = {
+            ...context,
+            retryAttempt: 0,
+            followUpRequested: false,
+            enqueuedAt: Date.now(),
+        };
+        this.candidateContexts.set(blockId, nextContext);
+        this.recordListenerCandidateLifecycle(nextContext, 'retry-scheduled', reason, {
+            terminal: false,
+            delayMs: this.followUpEvaluationDelayMs,
+        });
+        this.scheduleCandidateTimer(blockId, this.followUpEvaluationDelayMs, reason, nextContext);
+    }
+
     private enqueueCandidateBlock(blockId: string, txBatchId: string, action: string, opId: string): void {
         const existingContext = this.candidateContexts.get(blockId);
         const enqueuedAt = Date.now();
@@ -1204,23 +1400,25 @@ export class AutoCardHandler implements ITransactionHandler {
                 actions: [...existingContext.actions, action],
                 opIds: [...existingContext.opIds, opId],
                 enqueuedAt,
+                retryAttempt: 0,
             }
             : {
+                candidateId: this.nextTraceId('listener-candidate'),
                 blockId,
                 txBatchId,
                 actions: [action],
                 enqueuedAt,
                 opIds: [opId],
+                retryAttempt: 0,
             };
 
         this.candidateContexts.set(blockId, nextContext);
-
-        const existingTimer = this.candidateTimers.get(blockId);
-        if (existingTimer) {
-            clearTimeout(existingTimer);
-        }
+        this.recordListenerCandidateLifecycle(nextContext, 'accepted', action, {
+            terminal: false,
+        });
 
         this.traceAutoCard('candidate.enqueue', {
+            candidateId: nextContext.candidateId,
             blockId,
             txBatchId,
             action,
@@ -1228,30 +1426,20 @@ export class AutoCardHandler implements ITransactionHandler {
             enqueueCount: nextContext.actions.length,
             delayMs: this.settledEvaluationDelayMs,
         });
-
-        const timer = setTimeout(() => {
-            recordRuntimePerformanceSpan(
-                'autocard',
-                'candidate.settle-latency',
-                Date.now() - nextContext.enqueuedAt,
-                {
-                    actionCount: nextContext.actions.length,
-                    delayMs: this.settledEvaluationDelayMs,
-                    txBatchId: nextContext.txBatchId,
-                },
-            );
-            this.candidateTimers.delete(blockId);
-            void this.processSettledCandidate(blockId);
-        }, this.settledEvaluationDelayMs);
-
-        this.candidateTimers.set(blockId, timer);
+        this.scheduleCandidateTimer(blockId, this.settledEvaluationDelayMs, 'settled-evaluation', nextContext);
     }
 
     private cancelPendingCandidate(blockId: string, txBatchId: string, reason: string): void {
+        const existingContext = this.candidateContexts.get(blockId);
         const existingTimer = this.candidateTimers.get(blockId);
         if (existingTimer) {
             clearTimeout(existingTimer);
             this.candidateTimers.delete(blockId);
+        }
+        if (existingContext) {
+            this.recordListenerCandidateLifecycle(existingContext, 'skipped', reason, {
+                terminal: true,
+            });
         }
         this.candidateContexts.delete(blockId);
         this.lastEvaluationFingerprintByBlock.delete(blockId);
@@ -1483,7 +1671,7 @@ export class AutoCardHandler implements ITransactionHandler {
     }
     
     // Check a block for quick symbols and create all matched cards in one pass.
-    private async checkQuickSymbols(blockId: string, options?: { force?: boolean }): Promise<void> {
+    private async checkQuickSymbols(blockId: string, options?: { force?: boolean }): Promise<AutoCardCheckStatus> {
         const finishCheckSpan = startRuntimePerformanceSpan('autocard', 'check-quick-symbols', {
             force: options?.force === true,
         });
@@ -1498,12 +1686,12 @@ export class AutoCardHandler implements ITransactionHandler {
             const quickCardSettings = this.settingsService.getSettings().quickCard;
             if (!quickCardSettings) {
                 status = 'no-settings';
-                return;
+                return status;
             }
 
             if (!quickCardSettings.enabled && !options?.force) {
                 status = 'disabled';
-                return;
+                return status;
             }
             
 
@@ -1516,7 +1704,7 @@ export class AutoCardHandler implements ITransactionHandler {
             if (!kramdown) {
                 logger.debug('[SiYuanMemo][AutoCard] Block has no content:', blockId);
                 status = 'empty-content';
-                return;
+                return status;
             }
             
             logger.debug('[SiYuanMemo][AutoCard] Checking quick symbols:', blockId, 'content:', kramdown);
@@ -1532,7 +1720,7 @@ export class AutoCardHandler implements ITransactionHandler {
             if (!blockInfo) {
                 logger.debug('[SiYuanMemo][AutoCard] Block not found:', blockId);
                 status = 'missing-block';
-                return;
+                return status;
             }
             
             const blockType = typeof blockInfo.type === 'string' ? blockInfo.type : '';
@@ -1545,7 +1733,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     '), skipping'
                 );
                 status = 'unsupported-block-type';
-                return;
+                return status;
             }
             
 
@@ -1649,7 +1837,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     blockId,
                     evaluationFingerprint,
                 });
-                return;
+                return status;
             }
 
             this.lastEvaluationFingerprintByBlock.set(blockId, evaluationFingerprint);
@@ -1665,7 +1853,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     rootId,
                 });
                 status = 'suppressed-topic-derived-mark';
-                return;
+                return status;
             }
 
             if (enabledDecisions.length === 0) {
@@ -1674,7 +1862,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     matchedRules: decisionCoreResult.matchedRuleIds,
                 });
                 status = 'no-enabled-decisions';
-                return;
+                return status;
             }
             if (decisionCoreResult.shouldUseTopicDerivation) {
                 const executionOwnership = this.resolveExecutionOwnership({
@@ -1686,7 +1874,7 @@ export class AutoCardHandler implements ITransactionHandler {
                         rootId,
                     });
                     status = 'skip-topic-derived-bound-block';
-                    return;
+                    return status;
                 }
 
                 this.traceAutoCard('decision.execute.begin', {
@@ -1728,13 +1916,13 @@ export class AutoCardHandler implements ITransactionHandler {
                     executionOwner: executionOwnership.owner,
                     executed,
                 });
-                return;
+                return status;
             }
 
             if (this.hasXiuyuanBinding(attrs)) {
                 logger.debug('[SiYuanMemo][AutoCard] Block is already part of a Xiuyuan card, skipping:', blockId);
                 status = 'skip-bound-block';
-                return;
+                return status;
             }
 
             if (existingCards.length > 0) {
@@ -1744,7 +1932,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     rootId,
                 });
                 status = 'skip-existing-card';
-                return;
+                return status;
             }
 
             this.traceAutoCard('checkQuickSymbols.resolution', {
@@ -1767,7 +1955,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     decisions: enabledDecisions.map((decision) => decision.id),
                 });
                 status = 'skip-conflict-strategy';
-                return;
+                return status;
             }
 
             this.traceAutoCard('decision.execute.begin', {
@@ -1809,6 +1997,7 @@ export class AutoCardHandler implements ITransactionHandler {
         } catch (error) {
             status = 'error';
             logger.error('[SiYuanMemo][AutoCard] Error checking quick symbols:', blockId, error);
+            return status;
         } finally {
             finishCheckSpan({
                 blockType: blockTypeForReport,
@@ -1821,6 +2010,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 errorName: status === 'error' ? 'AutoCardCheckError' : undefined,
             });
         }
+        return status;
     }
 
     private isDecisionEnabledBySettings(
@@ -2089,6 +2279,18 @@ export class AutoCardHandler implements ITransactionHandler {
 
         if (alreadyProcessing) {
             logger.debug('[SiYuanMemo][AutoCard] Block already processing:', blockId);
+            if (candidateContext) {
+                const nextContext: CandidateBlockContext = {
+                    ...candidateContext,
+                    followUpRequested: true,
+                };
+                this.candidateContexts.set(blockId, nextContext);
+                this.recordListenerCandidateLifecycle(nextContext, 'retry-scheduled', 'already-processing', {
+                    terminal: false,
+                    runId,
+                    delayMs: this.followUpEvaluationDelayMs,
+                });
+            }
             this.traceAutoCard('settledEvaluation.end', {
                 runId,
                 blockId,
@@ -2110,16 +2312,40 @@ export class AutoCardHandler implements ITransactionHandler {
         this.processing.add(blockId);
         this.activeRunContexts.set(blockId, traceContext);
         let errorMessage: string | null = null;
+        let checkStatus: AutoCardCheckStatus = 'started';
+        let scheduledContinuation = false;
         
         try {
-            await this.checkQuickSymbols(blockId);
+            checkStatus = await this.checkQuickSymbols(blockId);
         } catch (error) {
             errorMessage = this.getErrorMessage(error);
+            checkStatus = 'error';
             logger.error('[SiYuanMemo][AutoCard] Failed to process settled candidate block:', blockId, error);
         } finally {
             this.processing.delete(blockId);
             this.activeRunContexts.delete(blockId);
-            if (!this.candidateTimers.has(blockId)) {
+            const currentContext = this.candidateContexts.get(blockId) ?? candidateContext ?? null;
+            if (currentContext) {
+                if (!errorMessage && this.isTransientReadinessStatus(checkStatus)) {
+                    scheduledContinuation = this.scheduleRetryForTransientCandidate(blockId, checkStatus, currentContext);
+                    if (!scheduledContinuation) {
+                        this.recordListenerCandidateLifecycle(currentContext, 'retry-exhausted', checkStatus, {
+                            terminal: true,
+                            runId,
+                        });
+                    }
+                } else if (!errorMessage && currentContext.followUpRequested) {
+                    scheduledContinuation = true;
+                    this.scheduleFollowUpCandidate(blockId, currentContext, 'already-processing-follow-up');
+                } else {
+                    const terminalOutcome = this.toTerminalCandidateOutcome(checkStatus);
+                    this.recordListenerCandidateLifecycle(currentContext, terminalOutcome.status, terminalOutcome.reason, {
+                        terminal: true,
+                        runId,
+                    });
+                }
+            }
+            if (!scheduledContinuation && !this.candidateTimers.has(blockId)) {
                 this.candidateContexts.delete(blockId);
             }
             this.traceAutoCard('settledEvaluation.end', {
@@ -2129,11 +2355,15 @@ export class AutoCardHandler implements ITransactionHandler {
                 txBatchId: traceContext.txBatchId ?? null,
                 durationMs: Date.now() - startedAt,
                 error: errorMessage,
+                status: checkStatus,
+                scheduledContinuation,
                 processingSizeAfter: this.processing.size,
             });
             finishCandidateSpan({
                 hasError: Boolean(errorMessage),
                 runId,
+                status: checkStatus,
+                scheduledContinuation,
                 txBatchId: traceContext.txBatchId ?? null,
             }, {
                 ok: !errorMessage,
@@ -2931,6 +3161,8 @@ export class AutoCardHandler implements ITransactionHandler {
         }
         this.candidateTimers.clear();
         this.candidateContexts.clear();
+        this.listenerCandidateDiagnostics.clear();
+        this.listenerCandidateDiagnosticOrder.length = 0;
         this.activeRunContexts.clear();
         this.suppressedTopicDerivedMarkMutations.clear();
         this.lastEvaluationFingerprintByBlock.clear();

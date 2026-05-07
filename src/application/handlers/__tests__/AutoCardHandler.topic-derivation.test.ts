@@ -61,6 +61,26 @@ function createHandler(input: {
     saveCards: vi.fn(),
   };
 
+  let handler: AutoCardHandler;
+  const backendClient = {
+    executeAutoCard: vi.fn(async (request: unknown) => handler.executeEnvelopeFromBackend(request as never)),
+    resolveAutoCardDecision: vi.fn(),
+  };
+  const runtimePolicy = {
+    capabilities: {
+      backendWorkerAvailable: true,
+      writerRelayRuntimeEnabled: false,
+      writerRelayRequiredForBackendWrites: false,
+      reviewFeedbackWriteEnabled: true,
+      autoCardExecuteWriteEnabled: true,
+      autoCardDecisionBackendEnabled: false,
+      kernelTransactionIngestEnabled: false,
+      privateApiReadEnabled: false,
+      privateApiMutationEnabled: false,
+      aiBackendSessionEnabled: false,
+    },
+  };
+
   const plugin = {
     getContext: () => ({
       getSettingsService: () => settingsService,
@@ -69,6 +89,8 @@ function createHandler(input: {
         detectCardType: vi.fn(async () => 'item'),
       }),
       getTopicDerivedItemService: () => topicDerivedItemService,
+      getSrsBackendClient: () => backendClient,
+      getBackendMigrationRuntimePolicy: () => runtimePolicy,
     }),
   };
 
@@ -97,9 +119,48 @@ function createHandler(input: {
     addRiffCards: vi.fn(async () => ({ name: 'builtin-deck', size: 0 })),
   };
 
-  const handler = new AutoCardHandler(plugin as never, {
+  const hostBlockQuery = {
+    getBlock: vi.fn(async (blockId: string) => ({
+      id: blockId,
+      type: 'p',
+      root_id: input.rootId,
+      content: input.kramdown ?? 'Alpha >> Beta',
+      markdown: input.kramdown ?? 'Alpha >> Beta',
+    })),
+    getDocumentRootId: vi.fn(async () => input.rootId),
+    getExistingBlockIds: vi.fn(async (blockIds: string[]) => new Set(blockIds)),
+    getSubtreeBlockIds: vi.fn(async () => []),
+    getManagedBlockAttrs: vi.fn(async () => []),
+    listBlocksByRoot: vi.fn(async () => []),
+    listParagraphChildren: vi.fn(async () => []),
+    listParentIdsWithParagraphChild: vi.fn(async () => new Set<string>()),
+    getBlockType: vi.fn(async () => 'p'),
+    getParentId: vi.fn(async () => null),
+    getBlockTypeAndContent: vi.fn(async (blockId: string) => ({
+      id: blockId,
+      type: 'p',
+      content: input.kramdown ?? 'Alpha >> Beta',
+    })),
+    getBlockMarkdownAndContent: vi.fn(async () => ({
+      markdown: input.kramdown ?? 'Alpha >> Beta',
+      content: input.kramdown ?? 'Alpha >> Beta',
+    })),
+    getXiuyuanBindingAttrs: vi.fn(async () => ({})),
+    getFirstParagraphUnderParent: vi.fn(async () => null),
+    getFirstListContainerId: vi.fn(async () => null),
+    listListContainerIds: vi.fn(async () => []),
+    listListItemIdsUnderParent: vi.fn(async () => []),
+    listListItemsUnderParent: vi.fn(async () => []),
+    listDescendantParagraphs: vi.fn(async () => []),
+    listBlockTypesByIds: vi.fn(async () => new Map<string, string>()),
+    listRecursiveListItemsUnderParent: vi.fn(async () => []),
+    getBlockKramdown: vi.fn(async () => ({ kramdown: input.kramdown ?? 'Alpha >> Beta' })),
+  };
+
+  handler = new AutoCardHandler(plugin as never, {
     siyuanApi: siyuanApi as never,
     riffApi: riffApi as never,
+    hostBlockQuery: hostBlockQuery as never,
   });
 
   return {

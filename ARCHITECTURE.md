@@ -429,7 +429,7 @@ UI surface：
 
 Handlers / entries / helpers：
 
-- `src/application/handlers/AutoCardHandler.ts`：自动制卡、topic continuation、与 Riff / Progressive 的事件联动；当前监听制卡走“transaction 只标记候选块，300ms settled 后重读真实块状态再做 planner / Xiuyuan ensure”的语义触发模型；handler 只接收 `AutoCardSiyuanPort` / `AutoCardRiffPort`，真实 adapters 由 `ApplicationContext.createAutoCardHandler()` 在组合根创建并注入；Runtime performance diagnostics 开启后会记录 handler no-op/候选入队、settle latency、`getBlockKramdown/getBlockAttrs`、card type/source context、worker/writer decision、execute envelope 与 Xiuyuan 创建耗时。
+- `src/application/handlers/AutoCardHandler.ts`：自动制卡、topic continuation、与 Riff / Progressive 的事件联动；当前监听制卡走“transaction 只标记候选块，300ms settled 后重读真实块状态再做 planner / Xiuyuan ensure”的语义触发模型；listener candidate 现在有 bounded 内存诊断 ledger，按 block id 记录 accepted / retry-scheduled / created / skipped / retry-exhausted / failed 终态，`missing-block` 与空 kramdown 这类 SiYuan index/editor lag 会做短重试，同块 in-flight 更新会保留最新 context 并在当前评估完成后 follow-up；handler 只接收 `AutoCardSiyuanPort` / `AutoCardRiffPort`，真实 adapters 由 `ApplicationContext.createAutoCardHandler()` 在组合根创建并注入；Runtime performance diagnostics 开启后会记录 handler no-op/候选入队、settle/retry latency、`getBlockKramdown/getBlockAttrs`、card type/source context、worker/writer decision、execute envelope 与 Xiuyuan 创建耗时。
 - `src/application/handlers/AutoCardExecutionRuntime.ts`：AutoCard app-side execute envelope 运行时，统一执行 `planner-decision` 与 `topic-derived` side effects（Xiuyuan / TopicDerived / toast），把 worker-first 决策后的执行入口从 `AutoCardHandler` 内联逻辑中收口到单一边界。
 - `src/application/handlers/ProgressiveExcerptHotkeyHandler.ts`：编辑器 / review 摘录热键入口。
 - `src/application/entries/*`：surface 级入口解析，如 block context、selection resolver、review entry registry。

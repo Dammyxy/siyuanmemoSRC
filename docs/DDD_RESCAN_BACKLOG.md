@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-07 (Round 290)
+Last update: 2026-05-07 (Round 292)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-07 - AutoCard listener reliability
+
+- Task: Implement `autocard-listener-reliability` so AutoCard symbol-listener candidates no longer silently disappear after action-pump handoff.
+- Touched slice: Siyuan integration / AutoCard listener active path in `src/application/handlers/AutoCardHandler.ts`, `src/application/handlers/__tests__/AutoCardHandler.listener-reliability.test.ts`, topic-derived fixture `src/application/handlers/__tests__/AutoCardHandler.topic-derivation.test.ts`, `ARCHITECTURE.md`, and OpenSpec change `autocard-listener-reliability`.
+- Debt fixed now: Listener candidates now have a bounded in-memory block-id/candidate-id lifecycle ledger with accepted/retry-scheduled/created/skipped/retry-exhausted/failed outcomes; transient `missing-block` and empty kramdown are retried with 250/750/1500/3000/6000ms backoff; same-block candidates accepted while processing preserve latest context and follow up after current evaluation; duplicate checks still guard retry/follow-up paths; regression tests verify transient query/kramdown recovery, already-processing follow-up, retry exhaustion, duplicate prevention, and 10-block batch terminal outcomes by block id. After deploying the rebuilt bundle and reloading SiYuan, a live smoke inserted 10 API-appended `>>` blocks at 150ms intervals and reached 10/10 block attrs plus 10/10 cards by `block_id`.
+- Debt deferred: The earlier live storage merge-style warning remains unclassified as expected cross-window merge vs remaining un-tokened write entrance.
+- Why deferred: This change closes listener candidate loss. The merge warning belongs to storage/concurrency classification and should only be investigated if it repeats under runtime diagnostics.
+- Next safe step: Keep listener/runtime diagnostics available during future live smokes; if merge warnings recur, classify them as expected cross-window merge vs remaining un-tokened write entrance.
+- Validation: `pnpm vitest run src/application/handlers/__tests__/AutoCardHandler.listener-reliability.test.ts`; `pnpm vitest run src/application/handlers/__tests__/AutoCardHandler.listener-reliability.test.ts src/application/handlers/__tests__/KernelTransactionActionPump.test.ts src/application/handlers/__tests__/AutoCardHandler.backend-execute.test.ts src/application/handlers/__tests__/AutoCardHandler.topic-derivation.test.ts --reporter=dot`; `pnpm run check:boundaries`; `pnpm build` (passed with existing hardcoded UI string/i18n/Sass warnings); deployed `dist/*` to `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo`; `/api/ui/reloadUI` returned `code=0`; live smoke doc `20260507115548-azmrxyc` inserted 10 `>>` blocks and verified `custom-xiuyuan-id`/`custom-riff-decks`/`custom-fsrs-card-type` attrs plus 10 DB cards by block id.
+
+### 2026-05-07 - live runtime performance smoke with formal review writes
+
+- Task: 用户确认当前卡片均为测试卡后，直接在真实 SiYuan session 中运行 formal `review.feedback` 写入，并补测 AutoCard listener 与轻量 status/DB 查询耗时。
+- Touched slice: Live verification notes only；未改 production code。
+- Debt fixed now: Formal review write smoke 走 kernel writer relay 到 QuickNote writer 窗口，12/12 completed 且 `committed=true`，`review_events` 从 239 增至 251，`drill_events` 保持 4；rating 分布从全 3 扩展为 rating 1/2/4 各 3 条、rating 3 共 242 条，说明真实评分链可以写入非 3 评分。Relay 端到端 p50 125.5ms，p95/max 145.9ms。Private status 20 次 p50 4.6ms、p95 8.5ms、max 89.2ms；只读 DB snapshot 查询 20 次 p50 13.7ms、p95 20.2ms、max 53.8ms。
+- Debt deferred: AutoCard listener smoke 暴露稳定性问题：第一轮 5 个 `>>` 测试块只有 2 个被写入 SiyuanMemo cards 并标记 block attrs，第二轮 5 个测试块 0 个创建；`kernel-transaction-ingest.snapshot.json` 显示 ws-main events accepted/drained，`kernel-transaction-actions.snapshot.json` 显示 autoCard actions queued/dequeued 且无 pending，所以当前更像 AutoCard candidate/decision/execute 层漏触发或策略跳过，而不是 API 插入慢或 action pump 堵塞。新卡的 `content_text` 仍为 null，按 content_text 反查 marker 不可靠。
+- Why deferred: 本轮是 live smoke，不改业务逻辑；AutoCard 监听漏触发需要单独用 runtime diagnostics report 或 focused instrumentation trace 定位到 candidate settle、block kramdown/query、decision conflict、execute envelope 或 storage persist 的具体阶段。
+- Next safe step: 给 AutoCard listener 做一轮专门复现修复，优先用 block_id 作为核验键，打开 runtime diagnostics 后重跑插入块，若 trace 指向 settled/index lag 则在 `AutoCardHandler` settled evaluation 加 bounded retry；若 trace 指向 decision conflict/duplicate 则修正 idempotency/conflict 规则。
+- Validation: Live SiYuan `3.6.5` / plugin private status available；formal `review.feedback` 12 writes via `writer.submitCommand` passed；DB before/after verified with sql.js snapshot；AutoCard listener created test doc `20260507105936-00upmd2` and test blocks, with 2/10 listener-created cards observed; no production source change in this smoke entry.
 
 ### 2026-05-07 - runtime performance diagnostics
 
@@ -3703,7 +3723,7 @@ Do not add an entry for skill-only or docs-only work.
 | P2 | Future AI-assisted rewrite/generation surfaces still need explicit Arena scenario registration | new AI workbench/review/browser surfaces | Require each new AI surface to pass `AIArenaScenarioId + ArenaTargetKind` into the workbench open/run path instead of relying on inference |
 | P2 | AI kernel SSE fast path now exists for GET SSE relay and private stream fanout, but real POST/body provider token delta remains unsupported by the inspected SiYuan `/es/network/proxy` source and still lacks live provider smoke | `src/infrastructure/ai/KernelAINetworkProxyAdapter.ts`, `src/infrastructure/siyuan/SiyuanKernelCompanionAdapter.ts`, `kernel.js`, `specs/001-backend-migration-next/quickstart.md` | Confirm real provider streaming in SiYuan; if provider requires POST SSE, add/confirm kernel POST streaming support or design a separate safe transport before declaring token delta default-on |
 | P2 | AI Workbench stale dialog can hold a disposed `ApplicationContext` after plugin reload | `src/ui/ai`, `src/application/services/AIWorkbenchPromptRuntime.ts`, dialog lifecycle wiring | Add a reload/dispose guard that closes or rebuilds stale AI panes before submit; current workaround is refresh page and reopen AI Workbench |
-| P2 | AutoCard live smoke passed explicit `autocard.execute`, but symbol-listener insert hit one 300ms SQL index-lag miss and one merge-style storage conflict warning | `src/application/handlers/AutoCardHandler.ts`, `src/core/storage/UnifiedStorageManager.ts`, `specs/001-backend-migration-next/quickstart.md` | If repeated, add a short settled-evaluation retry when kramdown exists but host block query misses; separately classify merge warnings as expected cross-window merge vs remaining un-tokened write entrance |
+| P2 | AutoCard listener live smoke is 10/10 after bounded retry, but the earlier merge-style storage conflict warning still needs classification if it repeats | `src/application/handlers/AutoCardHandler.ts`, `src/core/storage/UnifiedStorageManager.ts`, `specs/001-backend-migration-next/quickstart.md` | Keep listener diagnostics available during future live smoke; classify merge warnings as expected cross-window merge vs remaining un-tokened write entrance only if they recur |
 | P2 | P6 broader backend-command ownership remains staged after direct SQL/helper boundary closure | `src/application/usecases/xiuyuan/*`, `src/application/services/{ProgressiveReadingService,TopicDerivedItemService}.ts`, `src/application/handlers/AutoCardHandler.ts`, `src/application/managers/{BlockMenuHandler,DialogManager}.ts` | Current owner is explicit app query boundary + writer relay; only open a follow-up if these side effects must become backend-worker commands rather than writer-relayed application commands |
 
 ## 4. Next convergence batch
