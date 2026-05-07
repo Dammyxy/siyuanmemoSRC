@@ -78,6 +78,7 @@ const QUEUE_TYPE_TO_BROWSER_KEY: Partial<Record<QueueType, BrowserQueueId>> = {
 };
 
 const logger = createLogger('BrowserApplicationService');
+const SOURCE_EXISTENCE_PAGE_REFRESH_DELAY_MS = 250;
 
 export class BrowserApplicationService implements IBrowserApplicationService {
   private readonly getBrowserCardsQueryHandler: GetBrowserCardsQueryHandler;
@@ -348,7 +349,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       void this.refreshSourceExistenceForBackendCards(cards, options).catch((error) => {
         logger.debug('Worker source existence background refresh failed; keeping cache fail-open', { error });
       });
-    }, 0);
+    }, SOURCE_EXISTENCE_PAGE_REFRESH_DELAY_MS);
   }
 
   private async markRowsFromBackendSourceExistence<TRow extends { blockId?: unknown; blockType?: string | null; meta?: unknown }>(

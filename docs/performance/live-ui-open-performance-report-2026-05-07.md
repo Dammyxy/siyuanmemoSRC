@@ -462,6 +462,57 @@ Post-build light live smoke:
 - CDP main renderer check found `window.siyuanMemoRuntimePerformance`, enabled diagnostics, and observed 7 relay/action-pump events over 1.8 seconds. Slowest spans: `daily-editing.kernel-action-pump.dequeue-relay` 28.1 ms, `daily-editing.kernel-action-pump.poll-once` 28.1 ms, `relay.submit-and-wait` 28.0 ms.
 - Private status endpoint returned `ok=true`, `runtime=siyuanmemo-kernel-private-http`; no document content was printed.
 
+## OpenSpec Low-End Jank Debt Closure
+
+Date: 2026-05-07 18:55 CST
+OpenSpec change: `optimize-low-end-editing-jank-debt`.
+
+Scope: post-final live diagnostics first, then the smallest production fix justified by the data. CDP and SiYuan API runs did not print API tokens, document body, kramdown, markdown, prompt, answer, or card content. The previously created temporary document id stored in `sessionStorage['siyuanmemo.perfTempDocId']` was removed through `/api/filetree/removeDocByID` before new diagnostics; the id was masked in command output.
+
+Pre-fix diagnostics:
+
+| Phase | Count | p50 | p95 | Max | Main-thread blocking | Sync UI blocking | Lazy-backgroundable | Evidence | Risk |
+|---|---:|---:|---:|---:|---|---|---|---|---|
+| Browser open 1x, cold-ish | 1 open / first 50 rows | first rows 579.8 ms | n/a | longtask 299 ms | TBT about 391 ms | yes | snapshots/source refresh can continue later | CDP + runtime diagnostics | yellow |
+| Browser open 1x, warm | 1 open / first 50 rows | first rows 509.7 ms | n/a | longtask 220 ms | TBT about 282 ms | yes | snapshots/source refresh can continue later | CDP + runtime diagnostics | yellow |
+| Browser search/clear 1x | 2 reloads | longtask 146 ms | 171 ms | `source-existence.refresh-page-cards` 217.3 ms | TBT about 364 ms | yes | focus snapshot/source refresh backgroundable | CDP + runtime diagnostics | yellow |
+| Browser open 4x | 1 open / first 50 rows | first rows 2388.3 ms | n/a | longtask 909 ms | heavy renderer stalls | yes | source refresh/snapshot should move later | CDP + runtime diagnostics | red |
+| Browser search/clear 4x | 2 reloads | longtask 622 ms | 784 ms | `browser.grid.get-rows` 970.3 ms | TBT about 3420 ms | yes | focus snapshot/source refresh backgroundable | CDP + runtime diagnostics | red |
+| Browser force refresh 4x | 1 refresh | total 1143.4 ms | n/a | `source-existence.refresh-page-cards` 637.9 ms | longtask max 451 ms | yes | source refresh/snapshot backgroundable | CDP + runtime diagnostics | red/yellow |
+| Ordinary typing 1x | 81 chars | longtask 53 ms | 57 ms | relay submit/wait 62.3 ms | TBT about 10 ms | minor | no | CDP temp-doc typing smoke | green/yellow |
+| No-inspectable attr noise 1x | 8 ops | dispatch 0.2 ms | relay 46.5 ms | longtask 0 ms | none observed | no | no | CDP/API temp-doc smoke | green |
+| Marker `>>` typing 4x | 3 marker lines | longtask 63 ms | 162 ms | relay submit/wait 1771.2 ms | TBT about 374 ms | partly | non-critical side effects may be scheduled | CDP temp-doc typing smoke | yellow/red |
+| API transaction storm 1x | 10 appends | dispatch 0.2 ms | relay 71.2 ms | longtask 0 ms | none observed | no | no | CDP/API temp-doc smoke | green |
+| API transaction storm 4x | 6 appends | dispatch 2.2 ms | relay 136.6 ms | longtask 78 ms | small yellow | no | no | CDP/API temp-doc smoke | yellow |
+| Batch source reads 50/200/500 | 3 batch sizes | kramdown p50 15.9-18.5 ms | 25.1-29.5 ms | wall 1181.6 ms at 500 | not directly UI-bound in this run | no current renderer block | yes, batch/background lane | SiYuan API, ids only | yellow background |
+| `source_missing` sweep | 1 sweep / 1 candidate | apply 31.8 ms | n/a | total checked 0 / updated 0 | none observed | no | already coalesced/backgroundable | backend/browser service diagnostics | green |
+
+Evidence gate result: not all phases were green. The smallest justified fix track was Browser grid/source refresh budgeting. Fresh daily-editing data did not justify changing AutoCard no-inspectable maybe-scan in this slice: ordinary typing and no-inspectable attr noise were green/yellow at 1x, and marker-heavy runs showed async relay/background pressure but did not produce reliable AutoCard no-inspectable read spans in this pass.
+
+Production change applied:
+
+- `SRSBrowser.vue` now uses `browserGridSizing.ts` for stable grid budgets. Desktop first block/page/cache block is 32 rows, max cache blocks is 6, and row buffer is 6. Mobile keeps a 120-row block with row buffer 6.
+- `BrowserApplicationService` delays the backend source-existence page refresh by 250 ms instead of the first macrotask after deck page return, preserving page-first visible rows before source refresh/relay work starts.
+
+Post-fix live smoke after build, deploy, SHA256 check, and `/api/ui/reloadUI`:
+
+| Phase | Count | p50 | p95 | Max | Main-thread blocking | Sync UI blocking | Lazy-backgroundable | Evidence | Risk |
+|---|---:|---:|---:|---:|---|---|---|---|---|
+| Browser open 1x after reload | 1 open / first 32 rows | first rows 1153.7 ms | n/a | longtask 417 ms | TBT about 466 ms | yes, cold after reload crossed 1000 ms | snapshot/source refresh can continue later | CDP + runtime diagnostics | red/yellow |
+| Browser warm open 1x | 1 open / first 32 rows | first rows 433.7 ms | n/a | source refresh outlier 1331.2 ms | longtask max 220 ms, TBT about 246 ms | first rows ok; background source outlier remains | yes | CDP + runtime diagnostics | yellow |
+| Browser open 4x | 1 open / first 32 rows | first rows 1471.1 ms | n/a | longtask 646 ms | TBT about 1482 ms | yes | snapshot/source refresh can continue later | CDP + runtime diagnostics | red/yellow, improved |
+| Browser search/clear 4x | 2 reloads / first 32 rows | `grid.get-rows` 458.1 ms | 706.2 ms | longtask 678 ms | TBT about 1857 ms | yes | focus snapshot/source refresh backgroundable | CDP + runtime diagnostics | red/yellow, improved |
+| Browser force refresh 4x | 1 refresh / first 32 rows | total 980 ms | n/a | `source-existence.refresh-page-cards` 490.7 ms | longtask max 377 ms, TBT about 594 ms | yes | focus snapshot/source refresh backgroundable | CDP + runtime diagnostics | yellow/red, improved |
+| AG Grid first-page size check | open/search/refresh | request `0..32` | n/a | rowCount 32 | smaller first commit than previous 50-row block | yes | n/a | runtime metadata | green for config, yellow for AG Grid cost |
+| Source refresh after delay | open/search/refresh | 65.5 ms at 4x open | 135.9 ms search | 490.7 ms force refresh | no longer first macrotask after page return | partly | yes | runtime spans + unit test | yellow |
+
+Before/after interpretation:
+
+- The new 32-row desktop budget is active in live metadata. Browser 4x open improved from first rows 2388.3 ms to 1471.1 ms, but still exceeds the 1000 ms low-end red line.
+- The source refresh overlap improved sharply on 4x open/search: open source refresh max went from about 1000.7 ms to 79.2 ms; search/clear source max went from 955.8 ms to 135.9 ms. Force refresh still saw delayed source refresh up to 490.7 ms.
+- AG Grid `successCallback` / `model-updated` and focus/allRows snapshots are now the next dominant Browser renderer costs, especially under 4x throttle. This slice bounds the first block and defers source refresh; it does not replace AG Grid's row model.
+- AutoCard no-inspectable maybe-scan and marker side-effect scheduling remain deferred. The evidence did not support changing those paths before the Browser grid/source bottleneck was measured and bounded.
+
 ## Code Path Evidence
 
 ### SRS Browser Open

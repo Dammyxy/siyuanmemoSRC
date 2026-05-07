@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-07 (Round 298)
+Last update: 2026-05-07 (Round 299)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-07 - Low-end Browser grid/source refresh budget
+
+- Task: Continue OpenSpec `optimize-low-end-editing-jank-debt` after post-final diagnostics showed Browser first rows no longer consistently red at 1x, but AG Grid/source refresh/snapshot overlap remained yellow/red on low-end 4x throttle.
+- Touched slice: Browser grid sizing and source-existence refresh scheduling；`src/ui/browser/SRSBrowser.vue`、`src/ui/browser/browserGridSizing.ts`、`src/ui/browser/__tests__/browserGridSizing.test.ts`、`src/application/services/BrowserApplicationService.ts`、`src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`、`ARCHITECTURE.md`、performance report、OpenSpec tasks。
+- Debt fixed now: Desktop Browser first block/cache/page size is bounded to 32 rows with rowBuffer 6 and max 6 cache blocks, while mobile keeps the larger 120-row scroll block with rowBuffer 6. Current-page source-existence refresh no longer starts in the first macrotask after deck page return; it waits 250ms so AG Grid first rows get a cleaner commit window.
+- Debt deferred: Deeper AG Grid row-object reuse/value getter caching/model-update reduction；focus/allRows snapshot throttling under 4x；AutoCard no-inspectable idle/cancellable/cache-aware maybe-scan；marker-heavy `>>` creation side-effect budgeting plus a fresh 10/10 live creation smoke.
+- Why deferred: Fresh measurements pointed first to Browser row/source overlap. No-inspectable attr noise at 1x was green, ordinary typing was only small yellow, and marker AutoCard spans were not reliable enough in this pass to justify changing creation semantics before the Browser bottleneck was bounded.
+- Next safe step: If another Browser pass is needed, target AG Grid `successCallback/model-updated` and focus/allRows snapshot scheduling under 4x; only return to AutoCard maybe-scan if new diagnostics show immediate no-inspectable block reads during ordinary edits.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/browserGridSizing.test.ts` passed；`pnpm vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts` passed（10 tests）；targeted Browser selection/toolbar/grid sizing tests passed（3 files / 16 tests）；`pnpm run check:boundaries` passed；`pnpm build` passed（existing 338 hardcoded UI string warnings, 14 i18n content warnings, Sass legacy warnings）。`dist/index.js` copied to `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo/index.js` and SHA256 matched; `dist/kernel.js` already matched; `/api/ui/reloadUI` returned 200. CDP live smoke did not print auth secrets or document content; first block metadata showed 32 rows. 4x Browser open improved from 2388.3ms to 1471.1ms and search/clear TBT improved from about 3420ms to 1857ms, but low-end Browser remains red/yellow due AG Grid model/success and snapshot work.
 
 ### 2026-05-07 - Browser source patch and daily editing jank closure
 

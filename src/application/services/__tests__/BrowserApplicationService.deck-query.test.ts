@@ -8,7 +8,7 @@ import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPor
 import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 
 async function flushBackgroundTimers(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 320));
 }
 
 function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
@@ -523,6 +523,54 @@ describe('BrowserApplicationService deck query kernel', () => {
       expect.objectContaining({ blockIds: ['block-worker-missing', 'block-worker-active'] }),
       expect.any(Number),
     );
+  });
+
+  it('does not start source-existence page refresh in the first macrotask after deck page return', async () => {
+    const card = buildCard({
+      id: 'card-worker-deferred-refresh',
+      blockId: 'block-worker-deferred-refresh',
+      meta: { content: 'Worker deferred refresh card', rootId: 'doc-worker' },
+    });
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserDeckPage'
+      | 'browserSourceExistenceApplySweepHost'
+      | 'browserSourceExistenceByBlockIds'
+    > = {
+      browserDeckPage: vi.fn(async () => ({ total: 1, cards: [card] })),
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
+        checked: 1,
+        updated: 1,
+        changed: false,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['block-worker-deferred-refresh', true],
+      ])),
+    };
+
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      {
+        sql: vi.fn(async () => [{ id: 'block-worker-deferred-refresh' }]),
+      } as never,
+      null,
+      null,
+      backendClient as SrsBackendClient,
+    );
+
+    const page = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(page.total).toBe(1);
+    expect(backendClient.browserSourceExistenceApplySweepHost).not.toHaveBeenCalled();
   });
 
   it('emits async visible-row source updates after background page refresh changes cached status', async () => {

@@ -130,7 +130,7 @@
           :animateRows="false"
           :suppressCellFocus="true"
           :suppressRowHoverHighlight="false"
-          :rowBuffer="10"
+          :rowBuffer="gridRowBuffer"
           @grid-ready="onGridReady"
           @first-data-rendered="onFirstDataRendered"
           @model-updated="onModelUpdated"
@@ -396,6 +396,7 @@ import {
   DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
   normalizeHierarchySnapshotDelayMs,
 } from './hierarchySnapshotPlan';
+import { resolveBrowserGridSizing } from './browserGridSizing';
 import { migrateExistingCards, checkMigrationNeeded } from '@/scripts/migrateToTopicItem';
 import type {
   ICardDataSource,
@@ -494,7 +495,6 @@ import type { AIWorkbenchOpenOptions } from '@/types/ai';
 // Register AG-Grid modules
 ModuleRegistry.registerModules([AllCommunityModule]);
 const logger = createLogger('SRSBrowser');
-const DESKTOP_PAGE_SIZE = 50;
 
 // Props
 type BrowserStoragePort = CardTypeMarkerStoragePort &
@@ -718,10 +718,12 @@ const {
 });
 
 const isResizing = ref(false);
+const gridSizing = computed(() => resolveBrowserGridSizing({ mobileMode: isMobileMode.value }));
 const desktopPaginationEnabled = computed(() => !isMobileMode.value);
-const desktopPageSize = computed(() => DESKTOP_PAGE_SIZE);
-const gridCacheBlockSize = computed(() => (isMobileMode.value ? 120 : DESKTOP_PAGE_SIZE));
-const gridMaxBlocksInCache = computed(() => (isMobileMode.value ? 4 : 8));
+const desktopPageSize = computed(() => gridSizing.value.pageSize);
+const gridCacheBlockSize = computed(() => gridSizing.value.cacheBlockSize);
+const gridMaxBlocksInCache = computed(() => gridSizing.value.maxBlocksInCache);
+const gridRowBuffer = computed(() => gridSizing.value.rowBuffer);
 const randomSortRows = ref<BrowserCard[] | null>(null);
 const SNAPSHOT_HYDRATE_CHUNK_SIZE = 96;
 const SNAPSHOT_FIRST_ROWS_POLL_MS = 50;
@@ -1442,7 +1444,7 @@ function applyGlobalSelectionToLoadedRows(): void {
   try {
     api.forEachNode((node) => {
       if (!isBrowserNodeInSelectionScope(api, node.rowIndex, {
-        defaultPageSize: DESKTOP_PAGE_SIZE,
+        defaultPageSize: desktopPageSize.value,
         paginationEnabled: desktopPaginationEnabled.value,
       })) {
         return;
@@ -2313,7 +2315,7 @@ function onSelectionChanged() {
   }
 
   const { visibleIds, selectedIds } = collectScopedBrowserSelectionIds(api, {
-    defaultPageSize: DESKTOP_PAGE_SIZE,
+    defaultPageSize: desktopPageSize.value,
     paginationEnabled: desktopPaginationEnabled.value,
   });
 
@@ -2475,7 +2477,7 @@ async function handleSelectCurrentPage(): Promise<void> {
   }
 
   const { visibleIds } = collectScopedBrowserSelectionIds(api, {
-    defaultPageSize: DESKTOP_PAGE_SIZE,
+    defaultPageSize: desktopPageSize.value,
     paginationEnabled: desktopPaginationEnabled.value,
   });
   if (visibleIds.length === 0) {
