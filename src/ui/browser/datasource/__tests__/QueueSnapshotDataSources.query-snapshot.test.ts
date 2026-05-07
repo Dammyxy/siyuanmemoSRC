@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { reactive } from 'vue';
 import { RetrievalDataSource } from '../RetrievalDataSource';
 import { FinalDrillDataSource } from '../FinalDrillDataSource';
 import { FilterGroupDataSource } from '../FilterGroupDataSource';
@@ -106,6 +107,56 @@ describe('queue snapshot datasource path', () => {
     await dataSource.fetchRows({ startRow: 0, endRow: 20, sortModel: [], filterModel: {} });
 
     expect(queue.getCards).toHaveBeenCalledOnce();
+  });
+
+  it('passes cloneable browserService query payloads when Vue reactive arrays reach the data source', async () => {
+    const manager = {
+      getQueue: vi.fn(() => {
+        throw new Error('legacy queue.getCards path should not run when browserService is available');
+      }),
+    } as never;
+    const browserService = {
+      getQueueQuerySnapshot: vi.fn(async (query: unknown) => {
+        expect(() => structuredClone({ query })).not.toThrow();
+        return {
+          total: 1,
+          rows: [
+            { id: 'card-1', blockId: 'block-1', fsrsCardId: 'card-1' },
+          ],
+        };
+      }),
+      getQueueRowsByIds: vi.fn(async (_queue: string, ids: string[]) => ids.map((id) => buildBrowserCard(id))),
+    };
+
+    const dataSource = new RetrievalDataSource(
+      manager,
+      {
+        preset: 'all',
+        scopeDocIds: reactive(['doc-a', 'doc-a-child']) as unknown as string[],
+        queryText: 'alpha',
+        cardType: 'item-only',
+      },
+      undefined,
+      { browserService },
+    );
+
+    const page = await dataSource.fetchRows({
+      sortModel: reactive([{ colId: 'priority', sort: 'desc' }]) as never,
+      filterModel: {},
+      startRow: 0,
+      endRow: 1,
+    });
+
+    expect(page.totalCount).toBe(1);
+    expect(browserService.getQueueQuerySnapshot).toHaveBeenCalledWith({
+      queueId: 'retrieval',
+      preset: 'all',
+      searchText: 'alpha',
+      docId: undefined,
+      scopeDocIds: ['doc-a', 'doc-a-child'],
+      cardType: 'item-only',
+      sortModel: [{ colId: 'priority', sort: 'desc' }],
+    });
   });
 
   it.each(DATA_SOURCE_CASES)('%s delete-card routes through manager.deleteCard and returns a summary', async (_queueId, DataSourceCtor) => {

@@ -1,4 +1,5 @@
 import type { SrsBackendTransport } from '@/application/clients/SrsBackendClient';
+import BackendWorker from '../../../worker/bootstrap/backend-worker.entry.ts?worker&inline';
 import type {
   BackendAiPromptExecuteRequest,
   BackendAiPromptNetworkResponse,
@@ -38,8 +39,7 @@ interface PendingBackendRequest {
 }
 
 function createDefaultBackendWorker(): Worker {
-  return new Worker(new URL('../../../worker/bootstrap/backend-worker.entry.ts', import.meta.url), {
-    type: 'module',
+  return new BackendWorker({
     name: 'SiYuanMemoBackendWorker',
   });
 }

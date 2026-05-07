@@ -45,6 +45,11 @@ import {
 import { createLogger } from '@/utils/logger';
 import { BrowserQuerySession, toLiteRowFromBrowserCard } from './session/BrowserQuerySession';
 import { resolveSubsetReviewSelection } from '../utils/subsetReviewSelection';
+import {
+  normalizeBrowserQueryIds,
+  normalizeBrowserQueryScopeDocIds,
+  normalizeBrowserQuerySortModel,
+} from './shared/browserQueryPayload';
 
 const logger = createLogger('DeckDataSource');
 
@@ -150,8 +155,8 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
 
   async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {
     try {
-      const sortModel = (params?.sortModel || []) as SortModel[];
-      this.lastSortModel = [...sortModel];
+      const sortModel = normalizeBrowserQuerySortModel(params?.sortModel as SortModel[] | undefined);
+      this.lastSortModel = sortModel;
       if (this.browserService?.getDeckPage) {
         const result = await this.browserService.getDeckPage(
           this.buildBrowserServiceQuery(sortModel),
@@ -189,14 +194,14 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
 
   async getRowsByIds(ids: string[]): Promise<BrowserCard[]> {
     if (this.browserService?.getDeckPage && this.browserService?.getDeckRowsByIds) {
-      return this.browserService.getDeckRowsByIds(ids);
+      return this.browserService.getDeckRowsByIds(normalizeBrowserQueryIds(ids));
     }
     return this.querySession.getRowsByIds(ids, this.buildSessionOptions(this.lastSortModel));
   }
 
   async getActionTargetsByIds(ids: string[]): Promise<BrowserActionTarget[]> {
     if (this.browserService?.getDeckPage && this.browserService?.getDeckRowsByIds) {
-      const rows = await this.browserService.getDeckRowsByIds(ids);
+      const rows = await this.browserService.getDeckRowsByIds(normalizeBrowserQueryIds(ids));
       return rows.map((row) => ({
         id: String(row.id || ''),
         blockId: String(row.blockId || ''),
@@ -393,10 +398,10 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     return {
       preset: this.options.preset as BrowserDeckSnapshotQuery['preset'],
       docId: this.options.currentDocId,
-      scopeDocIds: this.options.scopeDocIds,
+      scopeDocIds: normalizeBrowserQueryScopeDocIds(this.options.scopeDocIds),
       searchText: this.options.queryText,
       cardTypes,
-      sortModel,
+      sortModel: normalizeBrowserQuerySortModel(sortModel),
     };
   }
 

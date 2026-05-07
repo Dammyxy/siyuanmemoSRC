@@ -10,7 +10,7 @@ class FakeWorker {
   readonly terminated = vi.fn();
 
   postMessage(message: unknown): void {
-    this.posted.push(message);
+    this.posted.push(structuredClone(message));
   }
 
   terminate(): void {

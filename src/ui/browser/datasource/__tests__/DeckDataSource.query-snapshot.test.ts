@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { reactive } from 'vue';
 import { DeckDataSource } from '../DeckDataSource';
 import type { BrowserCard } from '../../types';
 
@@ -95,6 +96,92 @@ describe('DeckDataSource query snapshot path', () => {
     await expect(dataSource.getRowsByIds(['card-3'])).resolves.toMatchObject([{ fsrsCardId: 'card-3' }]);
     await expect(dataSource.getActionTargetsByIds(['card-2'])).resolves.toMatchObject([{ fsrsCardId: 'card-2' }]);
     expect(manager.getCards).not.toHaveBeenCalled();
+  });
+
+  it('passes cloneable browserService query payloads when Vue reactive arrays reach the data source', async () => {
+    const manager = {
+      getCards: vi.fn(() => {
+        throw new Error('legacy getCards should not be used when paged browserService is available');
+      }),
+      updateCard: vi.fn(),
+      deleteCard: vi.fn(),
+      getQueue: vi.fn(),
+    } as never;
+    const browserService = {
+      getDeckPage: vi.fn(async (query: unknown, page: unknown) => {
+        expect(() => structuredClone({ query, page })).not.toThrow();
+        return {
+          total: 1,
+          rows: [makeBrowserCard('card-1')],
+        };
+      }),
+    };
+
+    const dataSource = new DeckDataSource(
+      manager,
+      {
+        preset: 'all',
+        currentDocId: 'doc-a',
+        scopeDocIds: reactive(['doc-a', 'doc-a-child']) as unknown as string[],
+        queryText: 'alpha',
+        cardType: 'item-only',
+      },
+      undefined,
+      { browserService },
+    );
+
+    const page = await dataSource.fetchRows({
+      sortModel: reactive([{ colId: 'priority', sort: 'desc' }]) as never,
+      filterModel: {},
+      startRow: 0,
+      endRow: 1,
+    });
+
+    expect(page.totalCount).toBe(1);
+    expect(browserService.getDeckPage).toHaveBeenCalledWith({
+      preset: 'all',
+      docId: 'doc-a',
+      scopeDocIds: ['doc-a', 'doc-a-child'],
+      searchText: 'alpha',
+      cardTypes: ['item'],
+      sortModel: [{ colId: 'priority', sort: 'desc' }],
+    }, {
+      startRow: 0,
+      endRow: 1,
+    });
+  });
+
+  it('passes cloneable deck row id payloads when Vue reactive arrays reach direct hydration', async () => {
+    const manager = {
+      getCards: vi.fn(() => {
+        throw new Error('legacy getCards should not be used when paged browserService is available');
+      }),
+      updateCard: vi.fn(),
+      deleteCard: vi.fn(),
+      getQueue: vi.fn(),
+    } as never;
+    const browserService = {
+      getDeckPage: vi.fn(async () => ({
+        total: 0,
+        rows: [],
+      })),
+      getDeckRowsByIds: vi.fn(async (ids: unknown) => {
+        expect(() => structuredClone({ ids })).not.toThrow();
+        return [makeBrowserCard('card-1')];
+      }),
+    };
+
+    const dataSource = new DeckDataSource(
+      manager,
+      { preset: 'all' },
+      undefined,
+      { browserService },
+    );
+
+    const rows = await dataSource.getRowsByIds(reactive(['card-1']) as unknown as string[]);
+
+    expect(rows.map((row) => row.fsrsCardId)).toEqual(['card-1']);
+    expect(browserService.getDeckRowsByIds).toHaveBeenCalledWith(['card-1']);
   });
 
   it('fetchRows uses browserService snapshot and hydrates only the requested page', async () => {

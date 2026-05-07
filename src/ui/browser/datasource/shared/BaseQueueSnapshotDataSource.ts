@@ -11,6 +11,10 @@ import type { IBrowserApplicationService, BrowserQueueId } from '@/application/i
 import type { QueueBrowserSnapshotQuery } from '@/application/queries/browser/queue-browser-query';
 import type { IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import { BrowserQuerySession, toLiteRowFromBrowserCard } from '../session/BrowserQuerySession';
+import {
+  normalizeBrowserQueryScopeDocIds,
+  normalizeBrowserQuerySortModel,
+} from './browserQueryPayload';
 
 export type QueueSnapshotDataSourceOptions = {
   docId?: string;
@@ -54,8 +58,8 @@ implements ICardDataSource, IBrowserQueryableDataSource {
   }
 
   async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {
-    const sortModel = (params?.sortModel || []) as SortModel[];
-    this.lastSortModel = [...sortModel];
+    const sortModel = normalizeBrowserQuerySortModel(params?.sortModel as SortModel[] | undefined);
+    this.lastSortModel = sortModel;
     return this.querySession.fetchRows({
       ...this.buildSessionOptions(sortModel),
       startRow: params?.startRow,
@@ -134,9 +138,9 @@ implements ICardDataSource, IBrowserQueryableDataSource {
       preset: this.options.preset,
       searchText: this.options.queryText,
       docId: this.options.docId,
-      scopeDocIds: this.options.scopeDocIds,
+      scopeDocIds: normalizeBrowserQueryScopeDocIds(this.options.scopeDocIds),
       cardType: this.options.cardType,
-      sortModel,
+      sortModel: normalizeBrowserQuerySortModel(sortModel),
     };
   }
 }
