@@ -633,6 +633,311 @@ describe('BrowserApplicationService deck query kernel', () => {
     }]);
   });
 
+  it('reuses backend deck rows when mapped projection and source status are unchanged', async () => {
+    const card = buildCard({
+      id: 'card-worker-row-cache',
+      blockId: 'block-worker-row-cache',
+      due: Date.now() - 1000,
+      priority: 20,
+      meta: { content: 'Worker row cache card', rootId: 'doc-worker' },
+    });
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserDeckPage'
+      | 'browserSourceExistenceApplySweepHost'
+      | 'browserSourceExistenceByBlockIds'
+    > = {
+      browserDeckPage: vi.fn(async () => ({
+        total: 1,
+        cards: [{ ...card, meta: { ...card.meta } }],
+      })),
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
+        checked: 1,
+        updated: 1,
+        changed: false,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['block-worker-row-cache', true],
+      ])),
+    };
+
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      {
+        sql: vi.fn(async () => [{ id: 'block-worker-row-cache' }]),
+      } as never,
+      null,
+      null,
+      backendClient as SrsBackendClient,
+    );
+
+    const first = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
+    const second = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
+
+    expect(second.rows[0]).toBe(first.rows[0]);
+  });
+
+  it('does not reuse backend deck rows after source status marks a block missing', async () => {
+    const card = buildCard({
+      id: 'card-worker-row-cache-missing',
+      blockId: 'block-worker-row-cache-missing',
+      due: Date.now() - 1000,
+      priority: 20,
+      meta: { content: 'Worker row cache missing card', rootId: 'doc-worker' },
+    });
+    let sourceExists = true;
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserDeckPage'
+      | 'browserSourceExistenceApplySweepHost'
+      | 'browserSourceExistenceByBlockIds'
+    > = {
+      browserDeckPage: vi.fn(async () => ({
+        total: 1,
+        cards: [{ ...card, meta: { ...card.meta } }],
+      })),
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
+        checked: 1,
+        updated: 1,
+        changed: false,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['block-worker-row-cache-missing', sourceExists],
+      ])),
+    };
+
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      {
+        sql: vi.fn(async () => [{ id: 'block-worker-row-cache-missing' }]),
+      } as never,
+      null,
+      null,
+      backendClient as SrsBackendClient,
+    );
+
+    const first = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
+    sourceExists = false;
+    const second = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
+
+    expect(second.rows[0]).not.toBe(first.rows[0]);
+    expect(second.rows[0].meta?.blockType).toBe('missing');
+  });
+
+  it('coalesces delayed page source-existence refreshes for overlapping page reads', async () => {
+    const firstCard = buildCard({
+      id: 'card-worker-coalesce-1',
+      blockId: 'block-worker-coalesce-1',
+      meta: { content: 'Worker coalesce card 1', rootId: 'doc-worker' },
+    });
+    const secondCard = buildCard({
+      id: 'card-worker-coalesce-2',
+      blockId: 'block-worker-coalesce-2',
+      meta: { content: 'Worker coalesce card 2', rootId: 'doc-worker' },
+    });
+    let pageReadCount = 0;
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserDeckPage'
+      | 'browserSourceExistenceApplySweepHost'
+      | 'browserSourceExistenceByBlockIds'
+    > = {
+      browserDeckPage: vi.fn(async () => {
+        pageReadCount += 1;
+        return { total: 1, cards: [pageReadCount === 1 ? firstCard : secondCard] };
+      }),
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
+        checked: 2,
+        updated: 2,
+        changed: false,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['block-worker-coalesce-1', true],
+        ['block-worker-coalesce-2', true],
+      ])),
+    };
+
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      {
+        sql: vi.fn(async () => [{ id: 'block-worker-coalesce-1' }, { id: 'block-worker-coalesce-2' }]),
+      } as never,
+      null,
+      null,
+      backendClient as SrsBackendClient,
+    );
+
+    await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
+    await service.getDeckPage({ preset: 'all' }, { startRow: 20, endRow: 40 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(backendClient.browserSourceExistenceApplySweepHost).not.toHaveBeenCalled();
+
+    await flushBackgroundTimers();
+
+    expect(backendClient.browserSourceExistenceApplySweepHost).toHaveBeenCalledTimes(1);
+    expect(backendClient.browserSourceExistenceApplySweepHost).toHaveBeenCalledWith(
+      expect.objectContaining({ blockIds: ['block-worker-coalesce-1', 'block-worker-coalesce-2'] }),
+      expect.any(Number),
+    );
+  });
+
+  it('does not schedule page source refresh for rows-by-ids snapshot hydration', async () => {
+    const card = buildCard({
+      id: 'card-worker-rows-by-ids-no-refresh',
+      blockId: 'block-worker-rows-by-ids-no-refresh',
+      meta: { content: 'Worker rows by ids no refresh card', rootId: 'doc-worker' },
+    });
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserDeckRowsByIds'
+      | 'browserSourceExistenceApplySweepHost'
+      | 'browserSourceExistenceByBlockIds'
+    > = {
+      browserDeckRowsByIds: vi.fn(async () => [card]),
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
+        checked: 1,
+        updated: 1,
+        changed: false,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['block-worker-rows-by-ids-no-refresh', true],
+      ])),
+    };
+
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      {
+        sql: vi.fn(async () => [{ id: 'block-worker-rows-by-ids-no-refresh' }]),
+      } as never,
+      null,
+      null,
+      backendClient as SrsBackendClient,
+    );
+
+    await service.getDeckRowsByIds(['card-worker-rows-by-ids-no-refresh']);
+    await flushBackgroundTimers();
+
+    expect(backendClient.browserSourceExistenceApplySweepHost).not.toHaveBeenCalled();
+  });
+
+  it('suppresses stale source refresh results when a newer page refresh starts', async () => {
+    let resolveFirst: ((value: {
+      checked: number;
+      updated: number;
+      changed: boolean;
+      changedToMissing: boolean;
+      changedBlockIds: string[];
+    }) => void) | null = null;
+    let resolveSecond: typeof resolveFirst = null;
+    const firstSweep = new Promise<{
+      checked: number;
+      updated: number;
+      changed: boolean;
+      changedToMissing: boolean;
+      changedBlockIds: string[];
+    }>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const secondSweep = new Promise<{
+      checked: number;
+      updated: number;
+      changed: boolean;
+      changedToMissing: boolean;
+      changedBlockIds: string[];
+    }>((resolve) => {
+      resolveSecond = resolve;
+    });
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserSourceExistenceApplySweepHost'
+      | 'browserSourceExistenceByBlockIds'
+    > = {
+      browserSourceExistenceApplySweepHost: vi.fn(async (request: { blockIds?: string[] }) => {
+        if (request.blockIds?.includes('block-stale-first')) {
+          return firstSweep;
+        }
+        return secondSweep;
+      }),
+      browserSourceExistenceByBlockIds: vi.fn(async (blockIds: string[]) => new Map(
+        blockIds.map((blockId) => [blockId, false] as const),
+      )),
+    };
+
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      {} as never,
+      null,
+      null,
+      backendClient as SrsBackendClient,
+    );
+    const updates: unknown[] = [];
+    service.subscribeSourceExistenceUpdates((update) => updates.push(update));
+
+    const firstRefresh = (service as any).refreshSourceExistenceForBackendBlockIds(['block-stale-first']);
+    const secondRefresh = (service as any).refreshSourceExistenceForBackendBlockIds(['block-stale-second']);
+
+    resolveSecond?.({
+      checked: 1,
+      updated: 1,
+      changed: true,
+      changedToMissing: true,
+      changedBlockIds: ['block-stale-second'],
+    });
+    await secondRefresh;
+    resolveFirst?.({
+      checked: 1,
+      updated: 1,
+      changed: true,
+      changedToMissing: true,
+      changedBlockIds: ['block-stale-first'],
+    });
+    await firstRefresh;
+
+    expect(updates).toEqual([{
+      source: 'page-refresh',
+      statuses: [{ blockId: 'block-stale-second', exists: false }],
+    }]);
+  });
+
   it('relays source-existence sweep host mutation through follower command client when runtime is follower', async () => {
     const cards = [
       buildCard({

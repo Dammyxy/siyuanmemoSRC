@@ -14,6 +14,7 @@ const createDeckDataSourceMock = vi.fn();
 const createQueueDataSourceMock = vi.fn();
 const createQueryDataSourceMock = vi.fn();
 const createFocusDataSourceMock = vi.fn();
+const agGridAttrsSeen: Array<Record<string, unknown>> = [];
 
 function triggerDatasourceFetch(datasource: { getRows?: (params: Record<string, unknown>) => void } | null | undefined): void {
   datasource?.getRows?.({
@@ -52,7 +53,8 @@ vi.mock('ag-grid-vue3', () => ({
   AgGridVue: defineComponent({
     name: 'AgGridVue',
     emits: ['grid-ready'],
-    setup(_props, { emit }) {
+    setup(_props, { attrs, emit }) {
+      agGridAttrsSeen.push(attrs as Record<string, unknown>);
       onMounted(() => {
         emit('grid-ready', { api: createGridApi() });
       });
@@ -243,6 +245,7 @@ vi.mock('../utils/dataSourceFactory', () => ({
 }));
 
 import SRSBrowser from '../SRSBrowser.vue';
+import { DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS } from '../hierarchySnapshotPlan';
 
 function buildBrowserCard(id: string, rootId: string): BrowserCard {
   const now = new Date('2026-04-13T00:00:00.000Z');
@@ -386,6 +389,25 @@ describe('SRSBrowser hierarchy regressions', () => {
     createQueryDataSourceMock.mockReset();
     createFocusDataSourceMock.mockReset();
     createFocusDataSourceMock.mockReturnValue(null);
+    agGridAttrsSeen.length = 0;
+  });
+
+  it('passes stable row identity into AG Grid', async () => {
+    createDeckDataSourceMock.mockReturnValue(createQueryableDataSource([
+      buildBrowserCard('card-row-id', 'doc-1'),
+    ]));
+
+    const wrapper = mountBrowser();
+    await advance(0);
+
+    const getRowId = agGridAttrsSeen.find((attrs) => typeof attrs.getRowId === 'function')?.getRowId as
+      | ((params: { data?: BrowserCard | null }) => string)
+      | undefined;
+
+    expect(getRowId).toBeTypeOf('function');
+    expect(getRowId?.({ data: buildBrowserCard('card-row-id', 'doc-1') })).toBe('card-row-id');
+
+    wrapper.unmount();
   });
 
   it('upgrades the left document list from the first page to the full all-cards snapshot', async () => {
@@ -408,10 +430,17 @@ describe('SRSBrowser hierarchy regressions', () => {
 
     await advance(40);
     await advance(80);
+    expect(wrapper.text()).not.toContain('doc-3:1');
+    expect(queryable.getRowsByIds).not.toHaveBeenCalled();
+
+    await advance(DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS);
+    await advance(80);
 
     expect(wrapper.text()).toContain('doc-3:1');
     expect(queryable.getAllMatchedIds).toHaveBeenCalledTimes(1);
-    expect(queryable.getRowsByIds).toHaveBeenCalledWith(rows.map((row) => row.id));
+    expect(queryable.getRowsByIds).toHaveBeenNthCalledWith(1, rows.slice(0, 24).map((row) => row.id));
+    expect(queryable.getRowsByIds).toHaveBeenNthCalledWith(2, rows.slice(24, 48).map((row) => row.id));
+    expect(queryable.getRowsByIds).toHaveBeenNthCalledWith(3, rows.slice(48).map((row) => row.id));
   });
 
   it('switches all and suspended views without triggering duplicate reloads from watchers', async () => {

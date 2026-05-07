@@ -3737,6 +3737,16 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: 如果 review session 还要继续演进，把“设置当前卡”抽成 controller 内部单 helper/command，并让外部恢复与神经漫游跳转都只能走这一条入口。
 - Validation: `pnpm vitest run src/ui/review/v2/__tests__/useReviewSession.spec.ts src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`
 
+### 2026-05-07 - stabilize low-end Browser/editing jank guard
+
+- Task: Execute OpenSpec change `stabilize-low-end-browser-editing-jank` on the kernel-companion worktree, using live CDP/API evidence to reduce Browser open/search/refresh jank before changing deeper AutoCard editing paths.
+- Touched slice: Browser deck query/service path in `src/application/services/BrowserApplicationService.ts`; Browser shell/grid/snapshot runtime in `src/ui/browser/{SRSBrowser.vue,browserLoadDataRuntime.ts,hierarchySnapshotPlan.ts}`; live smoke utility `scripts/live-low-end-smoke.cjs`; Browser/service focused tests; `ARCHITECTURE.md`; and `docs/performance/live-ui-open-performance-report-2026-05-07.md`.
+- Debt fixed now: Added backend deck row projection reuse for unchanged visible rows, wired AG Grid stable row ids, coalesced page source-existence refreshes, suppressed stale source refresh results, stopped `getDeckRowsByIds()` snapshot hydration from scheduling page source refresh work, delayed allRows/focus snapshot warmup to the post-interaction lane, and reduced Browser snapshot hydrate chunks to 24 rows with existing yield/cancellation.
+- Debt deferred: Low-end 4x Browser remains red after source/snapshot cleanup. Final live smoke no longer shows snapshot/source overlap in search/open, but AG Grid `successCallback/model-updated/apply-datasource` and backend deck page fetch still produce large renderer stalls. Editing AutoCard maybe-scan / marker-heavy side-effect scheduling is still evidence-gated because no-inspectable attr noise stayed green and final marker/API runs did not show reliable AutoCard read spans.
+- Why deferred: Continuing to layer source/snapshot fixes would not address the remaining measured red path. The next fix needs an AG Grid first-page rendering strategy or custom first-page presentation decision, not another background-lane tweak.
+- Next safe step: Open a narrow Browser-grid follow-up that prototypes a smaller/custom first-page presentation or AG Grid row-model replacement behind tests and live smoke. Only revisit AutoCard maybe-scan if a fresh editing run shows no-inspectable or marker-heavy AutoCard kramdown/attrs reads overlapping typing.
+- Validation: `pnpm vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`; `pnpm vitest run src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts`; `pnpm vitest run src/ui/browser/__tests__/browserDataSnapshots.test.ts src/ui/browser/datasource/session/__tests__/BrowserQuerySession.test.ts src/ui/browser/utils/__tests__/browserCardIdentity.test.ts src/ui/browser/__tests__/browserGridSizing.test.ts src/ui/browser/__tests__/hierarchySnapshotPlan.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts`; `pnpm run check:boundaries`; `pnpm build`; live `node scripts/live-low-end-smoke.cjs --label post-stabilize-final-snapshot-delay`.
+
 ## 1. Re-scan summary
 
 - Build verification: `pnpm build` passed.

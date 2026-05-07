@@ -74,7 +74,7 @@ export type BrowserLoadDataRuntimeDeps = {
   searchQuery: ReadonlyRef<string>;
   selectedRows: MutableRef<BrowserCard[]>;
   shouldFocusDocList: ReadonlyRef<boolean>;
-  startFocusRowsSnapshot: () => void;
+  startFocusRowsSnapshot: (delayMs?: number) => void;
   t: BrowserTranslate;
   totalRowCount: MutableRef<number>;
 };
@@ -224,7 +224,9 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
         activeDocId: deps.activeDocId.value,
       });
       if (hierarchySnapshotMode === 'focus') {
-        measureRuntimePerformance('browser', 'load-data.start-focus-snapshot', () => deps.startFocusRowsSnapshot());
+        measureRuntimePerformance('browser', 'load-data.schedule-focus-snapshot', () => deps.startFocusRowsSnapshot(options.snapshotDelayMs), {
+          snapshotDelayMs: options.snapshotDelayMs ?? null,
+        });
       } else if (hierarchySnapshotMode === 'all') {
         measureRuntimePerformance('browser', 'load-data.schedule-all-rows-snapshot', () => deps.scheduleAllRowsSnapshot(options.snapshotDelayMs), {
           snapshotDelayMs: options.snapshotDelayMs ?? null,

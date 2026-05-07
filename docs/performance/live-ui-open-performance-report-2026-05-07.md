@@ -513,6 +513,61 @@ Before/after interpretation:
 - AG Grid `successCallback` / `model-updated` and focus/allRows snapshots are now the next dominant Browser renderer costs, especially under 4x throttle. This slice bounds the first block and defers source refresh; it does not replace AG Grid's row model.
 - AutoCard no-inspectable maybe-scan and marker side-effect scheduling remain deferred. The evidence did not support changing those paths before the Browser grid/source bottleneck was measured and bounded.
 
+## Stabilize Low-End Browser/Edit Baseline
+
+Date: 2026-05-07 20:09 CST
+OpenSpec change: `stabilize-low-end-browser-editing-jank`
+Build/deploy baseline: rebuilt `feat/kernel-companion-p0`, copied `dist` to `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo`, SHA256 checked for `index.js` and `kernel.js`, then reloaded SiYuan UI via `/api/ui/reloadUI` with code 0.
+Method: live Electron CDP on `127.0.0.1:9222` plus local SiYuan API with 4x CPU throttling. The smoke script reads the local API token but does not print it. Search text, document body, kramdown, markdown, prompt, answer, and card content were not printed. A temporary document was created for editing smoke and removed through `/api/filetree/removeDocByID` after the run.
+
+| Phase | Count | First rows / primary span | Longtask max | TBT estimate | Dominant spans | Risk |
+|---|---:|---:|---:|---:|---|---|
+| Browser open 4x cold-ish | 1 open / first 32 rows | first rows 1845.7 ms | 1121 ms | 1801 ms | shell 1093.2 ms; `snapshot.all-rows` 475.9 ms; `grid.get-rows` 415.1 ms; `success-callback` 324.4 ms | red |
+| Browser warm open 4x | 1 open / first 32 rows | first rows 2784.1 ms | 1749 ms | 3013 ms | shell 1677.6 ms; `grid.get-rows` 577.1 ms; `snapshot.all-rows` 572.3 ms; `backend.stats` 506.4 ms | red |
+| Browser search/clear 4x | 2 reload inputs | `snapshot.focus-rows` 849.9 ms | 793 ms | 1780 ms | matched ids 831.8 ms; `grid.get-rows` 359.6 ms; `model-updated` 334.1 ms | red |
+| Browser force refresh 4x | 1 refresh | `grid.get-rows` 365.7 ms | 308 ms | 452 ms | `success-callback` 301.9 ms; `model-updated` 243.5 ms; `apply-datasource` 237.2 ms | red |
+| Ordinary typing 4x | 58 inserted chars | `ws-main.message` observed | 179 ms | 130 ms | renderer longtask only; no AutoCard read span | yellow |
+| No-inspectable attr noise 4x | 8 attr ops | `ws-main.message` max 4.3 ms | 0 ms | 0 ms | no AutoCard read span | green |
+| Marker typing 4x | 51 inserted chars | `ws-main.message` observed | 74 ms | 27 ms | renderer longtask only in this run | yellow |
+| API transaction storm 4x | 8 appends | `ws-main.message` max 8.6 ms | 0 ms | 0 ms | no AutoCard read span | green |
+
+Classification:
+
+- Browser remains the primary red surface. Open/warm-open cross the 1000 ms first-row target, and open/search/refresh all produce renderer long tasks far above 50 ms.
+- Remaining Browser overlap is now clearer: AG Grid `getRows/successCallback/model-updated`, allRows/focus snapshots, and stats/background work. Source-existence refresh was not the dominant span in this particular baseline, but remains a coalescing/cancellation target from prior force-refresh evidence.
+- Editing follow-up remains evidence-gated. Ordinary and marker typing were yellow by renderer longtask max, while no-inspectable attr noise and API transaction storm were green and did not show AutoCard kramdown/attrs reads. This does not justify changing deeper AutoCard maybe-scan before Browser grid/snapshot work.
+
+## Stabilize Low-End Browser/Edit Post-Fix
+
+Date: 2026-05-07 20:46 CST
+OpenSpec change: `stabilize-low-end-browser-editing-jank`
+Build/deploy: rebuilt, copied `dist` to `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo`, SHA256 checked `index.js` and `kernel.js`, and reloaded SiYuan UI via `/api/ui/reloadUI` with code 0. One immediate post-reload smoke was discarded as startup-polluted because Browser root did not mount and spans were dominated by plugin startup.
+
+Production changes applied in this slice:
+
+- Browser deck page rows reuse stable projection objects when source status and row projection are unchanged, and AG Grid receives `getRowId` from the Browser stable id contract.
+- Source-existence page refreshes are coalesced, stale page-refresh results are suppressed, and `getDeckRowsByIds()` snapshot hydration no longer schedules page source refresh work.
+- allRows/focus snapshot warmup is delayed to `4800 ms` after first page scheduling, remains demand-driven for actions via `ensureAllRowsSnapshotReady()`, and hydrates in 24-row chunks with chunk-yield and stale task cancellation.
+
+Final settled live smoke:
+
+| Phase | Count | First rows / primary span | Longtask max | TBT estimate | Dominant spans | Risk |
+|---|---:|---:|---:|---:|---|---|
+| Browser open 4x cold-ish | 1 open / first 32 rows | DOM rows 1057.2 ms; first-row mark 4923.5 ms | 2276 ms | 3921 ms | `grid.get-rows` 1598.4 ms; `grid.fetch-rows` 1025.7 ms; `success-callback` 569.3 ms; source refresh 51.5 ms; no snapshot overlap | red |
+| Browser warm open 4x | 1 open / first 32 rows | DOM rows 1281.8 ms; first-row mark 3718 ms | 1591 ms | 3387 ms | `grid.apply-datasource` 713.8 ms; `grid.get-rows` 653.1 ms; `success-callback` 539.6 ms; source refresh 63.3 ms; no snapshot overlap | red |
+| Browser search/clear 4x | 2 reload inputs | no snapshot/source overlap | 1347 ms | 4259 ms | `grid.model-updated` 632.9 ms; `grid.get-rows` 595.2 ms; `success-callback` 565 ms | red |
+| Browser force refresh 4x | 1 refresh | `force-refresh.total` 1579.5 ms | 723 ms | 1262 ms | delayed source refresh 748.9 ms; `grid.model-updated` 639.6 ms; `grid.get-rows` 582 ms | red |
+| Ordinary typing 4x | 58 inserted chars | no AutoCard read span | 222 ms | 183 ms | renderer longtask only | yellow |
+| No-inspectable attr noise 4x | 8 attr ops | no AutoCard read span | 0 ms | 0 ms | relay submit max 93.3 ms async | green |
+| Marker typing 4x | 51 inserted chars | no renderer longtask in final run | 0 ms | 0 ms | relay submit max 961.3 ms async wait; no AutoCard read span captured | green/yellow |
+| API transaction storm 4x | 8 appends | no AutoCard read span | 78 ms | 28 ms | relay submit max 246.2 ms async | yellow |
+
+Interpretation:
+
+- The source/snapshot part of the Browser complaint improved: final open/search/refresh phases show no allRows/focus snapshot overlap, and search/clear shows no source refresh overlap. Source refresh is still visible in force refresh, but it is no longer tied to `rowsByIds()` snapshot chunks.
+- Browser is still not solved for low-end 4x: remaining red spans are AG Grid commit/model work (`successCallback`, `model-updated`, `apply-datasource`) and backend first-page fetch latency. This needs a separate AG Grid row-model strategy or a smaller/custom first-page presentation; continuing to stack source/snapshot fixes would be guesswork.
+- Editing remains evidence-gated. No-inspectable attr noise is green, API storms are yellow but not AutoCard-read driven, and the final marker run did not reproduce renderer long tasks. This slice does not justify changing AutoCard maybe-scan or marker side effects.
+
 ## Code Path Evidence
 
 ### SRS Browser Open
@@ -524,13 +579,13 @@ Observed path:
 Relevant code:
 
 - `src/application/managers/TabManager.ts:476` mounts `SRSBrowser`.
-- `src/ui/browser/SRSBrowser.vue:943` calls `loadData(... snapshotDelayMs: 120)` on open.
+- `src/ui/browser/SRSBrowser.vue` calls `loadData(... snapshotDelayMs: DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS)` on open/focus/search paths; the default is currently 4800 ms.
 - `src/ui/browser/browserLoadDataRuntime.ts:103` starts `loadData()`.
 - `src/ui/browser/browserLoadDataRuntime.ts:218` rebuilds the infinite datasource before snapshots.
 - `src/ui/browser/browserLoadDataRuntime.ts:229` schedules all-row snapshot.
 - `src/ui/browser/browserDataSnapshots.ts:59` primes queryable snapshot.
 - `src/ui/browser/browserDataSnapshots.ts:70` loads all matched ids.
-- `src/ui/browser/browserDataSnapshots.ts` hydrates rows by small chunks and yields between chunks.
+- `src/ui/browser/browserDataSnapshots.ts` hydrates rows by small chunks and yields between chunks; `SRSBrowser.vue` currently passes a 24-row Browser snapshot chunk.
 - `src/application/services/BrowserApplicationService.ts` fetches backend deck page, applies cached source status, and schedules refresh/sweep work after first rows.
 - `src/ui/browser/SRSBrowser.vue` receives source-existence update events and patches visible grid rows without reopening/requerying the current page.
 

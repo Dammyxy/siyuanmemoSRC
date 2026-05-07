@@ -1,4 +1,4 @@
-export const DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS = 120;
+export const DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS = 4800;
 
 export type BrowserHierarchySnapshotMode = 'focus' | 'all' | 'none';
 

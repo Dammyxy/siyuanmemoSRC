@@ -125,6 +125,7 @@
           :maxBlocksInCache="gridMaxBlocksInCache"
           :infiniteInitialRowCount="gridCacheBlockSize"
           :defaultColDef="defaultColDef"
+          :getRowId="getGridRowId"
           :rowSelection="rowSelection"
           :enableCellTextSelection="true"
           :animateRows="false"
@@ -725,7 +726,7 @@ const gridCacheBlockSize = computed(() => gridSizing.value.cacheBlockSize);
 const gridMaxBlocksInCache = computed(() => gridSizing.value.maxBlocksInCache);
 const gridRowBuffer = computed(() => gridSizing.value.rowBuffer);
 const randomSortRows = ref<BrowserCard[] | null>(null);
-const SNAPSHOT_HYDRATE_CHUNK_SIZE = 96;
+const SNAPSHOT_HYDRATE_CHUNK_SIZE = 24;
 const SNAPSHOT_FIRST_ROWS_POLL_MS = 50;
 
 const loadedRowsByBlockId = new Map<string, BrowserCard>();
@@ -975,7 +976,10 @@ async function applyInitialBrowserOpenState(
       }
     }
 
-    await loadData(forceRefresh, { refreshQueueCounts: false, snapshotDelayMs: 120 });
+    await loadData(forceRefresh, {
+      refreshQueueCounts: false,
+      snapshotDelayMs: DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
+    });
     await refreshQueueCounts();
     await refreshGlobalStatsAfterFirstRows(forceRefresh);
 
@@ -1083,6 +1087,9 @@ const defaultColDef: ColDef = {
   resizable: true,
   sortable: true,
 };
+
+const getGridRowId = (params: { data?: BrowserCard | null }): string =>
+  resolveBrowserCardStableId(params.data);
 
 const hasConfirmedSqlMode = ref(false);
 async function ensureSqlModeConfirmed(): Promise<boolean> {
@@ -1905,16 +1912,8 @@ function scheduleAllRowsSnapshot(delayMs?: number): void {
   backgroundSnapshotTimer = setTimeout(maybeStartSnapshot, normalizedDelay);
 }
 
-function startFocusRowsSnapshot(): void {
+function runFocusRowsSnapshot(): void {
   if (!shouldFocusDocList.value) {
-    return;
-  }
-  if (loading.value && !hasFirstDataBlockLoaded.value) {
-    clearBackgroundSnapshotTimer();
-    backgroundSnapshotTimer = setTimeout(() => {
-      backgroundSnapshotTimer = null;
-      startFocusRowsSnapshot();
-    }, SNAPSHOT_FIRST_ROWS_POLL_MS);
     return;
   }
 
@@ -1980,6 +1979,28 @@ function startFocusRowsSnapshot(): void {
   })();
 }
 
+function startFocusRowsSnapshot(delayMs?: number): void {
+  clearBackgroundSnapshotTimer();
+
+  const normalizedDelay = normalizeHierarchySnapshotDelayMs(
+    delayMs,
+    DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
+  );
+  const maybeStartSnapshot = () => {
+    backgroundSnapshotTimer = null;
+    if (!shouldFocusDocList.value) {
+      return;
+    }
+    if (loading.value && !hasFirstDataBlockLoaded.value) {
+      backgroundSnapshotTimer = setTimeout(maybeStartSnapshot, SNAPSHOT_FIRST_ROWS_POLL_MS);
+      return;
+    }
+    runFocusRowsSnapshot();
+  };
+
+  backgroundSnapshotTimer = setTimeout(maybeStartSnapshot, normalizedDelay);
+}
+
 async function ensureAllRowsSnapshotReady(): Promise<BrowserCard[]> {
   if (allRowsSnapshotReady.value) {
     return allRows.value;
@@ -2028,7 +2049,10 @@ function handleSearchInput() {
         queryLength: searchQuery.value.length,
         sqlChanged,
       });
-      void loadData(false, { refreshQueueCounts: false, snapshotDelayMs: 120 });
+      void loadData(false, {
+        refreshQueueCounts: false,
+        snapshotDelayMs: DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
+      });
     }
   }, 150);
 }
@@ -3120,7 +3144,10 @@ async function handleSelectQueue(queueId: string) {
       previousNonNeuralCardType: previousNonNeuralCardType.value,
     });
 
-    await loadData(false, { refreshQueueCounts: false, snapshotDelayMs: 120 });
+    await loadData(false, {
+      refreshQueueCounts: false,
+      snapshotDelayMs: DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
+    });
   });
 }
 
@@ -3189,7 +3216,7 @@ function handleExitFocus() {
     shouldFocusDocList.value = Boolean(activeQueueId.value);
     await loadData(false, {
       refreshQueueCounts: false,
-      snapshotDelayMs: activeQueueId.value ? 120 : DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
+      snapshotDelayMs: DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
     });
     await refreshGlobalStatsAfterFirstRows(false);
   });

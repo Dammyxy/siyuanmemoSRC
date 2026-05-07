@@ -19,6 +19,7 @@ import { applyKnownSourceExistenceToRows } from '../queries/browser/shared/Missi
 import type { SrsBackendClient } from '../clients/SrsBackendClient';
 import type { FrontendInstanceRuntime } from '../clients/FrontendInstanceRuntime';
 import type { FollowerCommandClient } from '../clients/FollowerCommandClient';
+import { resolveBrowserCardStableId, type BrowserCard } from '@/types/browser';
 import type {
   BrowserStats,
   GetBrowserCardsQuery,
@@ -48,6 +49,7 @@ import { createLogger } from '@/utils/logger';
 import {
   incrementRuntimePerformanceCounter,
   measureRuntimePerformance,
+  recordRuntimePerformanceSpan,
   startRuntimePerformanceSpan,
 } from '@/utils/runtimePerformanceDiagnostics';
 import { hasFilterSetter, hasRebuildAction } from './browser/filterGroupQueueContract';
@@ -80,6 +82,61 @@ const QUEUE_TYPE_TO_BROWSER_KEY: Partial<Record<QueueType, BrowserQueueId>> = {
 const logger = createLogger('BrowserApplicationService');
 const SOURCE_EXISTENCE_PAGE_REFRESH_DELAY_MS = 250;
 
+function normalizeSignatureValue(value: unknown): unknown {
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+  if (Array.isArray(value)) {
+    return value.map(normalizeSignatureValue);
+  }
+  if (typeof value === 'object' && value !== null) {
+    const record = value as Record<string, unknown>;
+    return Object.keys(record).sort().reduce<Record<string, unknown>>((normalized, key) => {
+      normalized[key] = normalizeSignatureValue(record[key]);
+      return normalized;
+    }, {});
+  }
+  return value;
+}
+
+function createBrowserRowProjectionSignature(row: BrowserCard): string {
+  const rowWithSourceStatus = row as BrowserCard & { blockType?: unknown };
+  return JSON.stringify(normalizeSignatureValue({
+    aFactor: row.aFactor,
+    blockId: row.blockId,
+    blockType: rowWithSourceStatus.blockType,
+    cardType: row.cardType,
+    content: row.content,
+    deckId: row.deckId,
+    difficulty: row.difficulty,
+    due: row.due,
+    dueFormatted: row.dueFormatted,
+    elapsedDays: row.elapsedDays,
+    firstReview: row.firstReview,
+    firstReviewFormatted: row.firstReviewFormatted,
+    fsrsCardId: row.fsrsCardId,
+    fullContent: row.fullContent,
+    id: row.id,
+    interval: row.interval,
+    lapses: row.lapses,
+    lastReview: row.lastReview,
+    lastReviewFormatted: row.lastReviewFormatted,
+    meta: row.meta,
+    note: row.note,
+    priority: row.priority,
+    queueIndex: row.queueIndex,
+    reps: row.reps,
+    retrievability: row.retrievability,
+    rootId: row.rootId,
+    scheduledDays: row.scheduledDays,
+    stability: row.stability,
+    state: row.state,
+    stateLabel: row.stateLabel,
+    suspended: row.suspended,
+    tags: row.tags,
+  })) || '';
+}
+
 export class BrowserApplicationService implements IBrowserApplicationService {
   private readonly getBrowserCardsQueryHandler: GetBrowserCardsQueryHandler;
   private readonly browserDeckQueryKernel: BrowserDeckQueryKernel;
@@ -91,6 +148,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private sourceExistenceSweepInFlight: Promise<unknown> | null = null;
   private readonly sourceExistenceUpdateListeners = new Set<(update: BrowserSourceExistenceUpdate) => void>();
   private static readonly QUEUE_COUNTS_CACHE_TTL_MS = 150;
+  private static readonly BROWSER_ROW_PROJECTION_CACHE_MAX_SIZE = 4096;
+  private readonly browserRowProjectionCache = new Map<string, { signature: string; row: BrowserCard }>();
+  private readonly pendingSourceExistenceRefreshBlockIds = new Set<string>();
+  private sourceExistencePageRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private sourceExistencePageRefreshLimit = SOURCE_EXISTENCE_BATCH_SIZE;
+  private sourceExistencePageRefreshCoalescedCount = 0;
+  private sourceExistencePageRefreshSeq = 0;
+  private sourceExistenceLatestRefreshSeq = 0;
+  private sourceExistenceStaleCancellationCount = 0;
 
   constructor(
     storageManager: BrowserCardStoragePort,
@@ -198,7 +264,10 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         rowCount: initialCards.length,
       });
       return {
-        rows: await this.markRowsFromBackendSourceExistence(rows),
+        rows: this.reuseBrowserRowProjections(
+          await this.markRowsFromBackendSourceExistence(rows),
+          'deck-page',
+        ),
         total: initialPage.total,
       };
     } catch (error) {
@@ -225,13 +294,13 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       const cards = await measureRuntimePerformance('browser', 'backend.deck-rows-by-ids', () => this.srsBackendClient!.browserDeckRowsByIds(ids), {
         idCount: ids.length,
       });
-      this.scheduleSourceExistenceRefreshForBackendCards(cards, {
-        limit: SOURCE_EXISTENCE_BATCH_SIZE,
-      });
       const rows = await measureRuntimePerformance('browser', 'deck-rows-by-ids.map-browser-rows', () => this.browserDeckQueryKernel.getBrowserCardsFromCards(cards, { markMissing: false }), {
         rowCount: cards.length,
       });
-      return this.markRowsFromBackendSourceExistence(rows);
+      return this.reuseBrowserRowProjections(
+        await this.markRowsFromBackendSourceExistence(rows),
+        'deck-rows-by-ids',
+      );
     } catch (error) {
       throw this.toBackendReadUnavailable('browser.deck.rowsByIds', error);
     }
@@ -297,32 +366,54 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     return new Error(`BACKEND_UNAVAILABLE: ${operation} requires backend-worker ownership`);
   }
 
-  private async refreshSourceExistenceForBackendCards(
-    cards: Array<{ blockId?: unknown }>,
-    options: { limit?: number } = {},
+  private async refreshSourceExistenceForBackendBlockIds(
+    blockIds: string[],
+    options: { limit?: number; coalescedCount?: number } = {},
   ): Promise<{ changed: boolean; changedToMissing: boolean; changedBlockIds: string[] }> {
     if (!this.srsBackendClient) {
       return { changed: false, changedToMissing: false, changedBlockIds: [] };
     }
 
-    const blockIds = Array.from(new Set(cards.map((card) => String(card.blockId || '').trim()).filter(Boolean)));
     if (blockIds.length === 0) {
       return { changed: false, changedToMissing: false, changedBlockIds: [] };
     }
 
+    const sequence = ++this.sourceExistencePageRefreshSeq;
+    this.sourceExistenceLatestRefreshSeq = sequence;
+    const limit = options.limit ?? SOURCE_EXISTENCE_BATCH_SIZE;
+    const coalescedCount = options.coalescedCount ?? 0;
     try {
       const sweep = await measureRuntimePerformance('source-existence', 'refresh-page-cards', () => this.invokeBackendSourceExistenceSweepHost({
         blockIds,
-        limit: options.limit ?? SOURCE_EXISTENCE_BATCH_SIZE,
+        limit,
         staleBefore: Date.now() - SOURCE_EXISTENCE_TTL_MS,
         includeKnownMissing: true,
       }, Date.now()), {
         blockCount: blockIds.length,
-        limit: options.limit ?? SOURCE_EXISTENCE_BATCH_SIZE,
+        coalescedCount,
+        limit,
+        sequence,
       });
       const changedBlockIds = Array.from(new Set((sweep.changedBlockIds || [])
         .map((blockId) => String(blockId || '').trim())
         .filter(Boolean)));
+      if (sequence !== this.sourceExistenceLatestRefreshSeq) {
+        this.sourceExistenceStaleCancellationCount += 1;
+        recordRuntimePerformanceSpan('source-existence', 'refresh-page-cards.stale-cancel', 0, {
+          changedBlockCount: changedBlockIds.length,
+          latestSequence: this.sourceExistenceLatestRefreshSeq,
+          sequence,
+          staleCancellationCount: this.sourceExistenceStaleCancellationCount,
+        });
+        return { changed: false, changedToMissing: false, changedBlockIds: [] };
+      }
+      recordRuntimePerformanceSpan('source-existence', 'refresh-page-cards.result', 0, {
+        blockCount: blockIds.length,
+        changedBlockCount: changedBlockIds.length,
+        coalescedCount,
+        sequence,
+        staleCancellationCount: this.sourceExistenceStaleCancellationCount,
+      });
       if (changedBlockIds.length > 0) {
         await this.emitSourceExistenceUpdateForBlockIds(changedBlockIds, 'page-refresh');
       }
@@ -345,11 +436,48 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       return;
     }
 
-    setTimeout(() => {
-      void this.refreshSourceExistenceForBackendCards(cards, options).catch((error) => {
+    const blockIds = this.normalizeSourceExistenceRefreshBlockIds(cards.map((card) => card.blockId));
+    if (blockIds.length === 0) {
+      return;
+    }
+
+    for (const blockId of blockIds) {
+      this.pendingSourceExistenceRefreshBlockIds.add(blockId);
+    }
+    this.sourceExistencePageRefreshLimit = Math.max(
+      this.sourceExistencePageRefreshLimit,
+      options.limit ?? SOURCE_EXISTENCE_BATCH_SIZE,
+    );
+
+    if (this.sourceExistencePageRefreshTimer) {
+      this.sourceExistencePageRefreshCoalescedCount += 1;
+      recordRuntimePerformanceSpan('source-existence', 'refresh-page-cards.coalesced', 0, {
+        blockCount: this.pendingSourceExistenceRefreshBlockIds.size,
+        coalescedCount: this.sourceExistencePageRefreshCoalescedCount,
+      });
+      return;
+    }
+
+    this.sourceExistencePageRefreshTimer = setTimeout(() => {
+      const pendingBlockIds = Array.from(this.pendingSourceExistenceRefreshBlockIds);
+      const limit = this.sourceExistencePageRefreshLimit;
+      const coalescedCount = this.sourceExistencePageRefreshCoalescedCount;
+      this.pendingSourceExistenceRefreshBlockIds.clear();
+      this.sourceExistencePageRefreshTimer = null;
+      this.sourceExistencePageRefreshLimit = SOURCE_EXISTENCE_BATCH_SIZE;
+      this.sourceExistencePageRefreshCoalescedCount = 0;
+
+      void this.refreshSourceExistenceForBackendBlockIds(pendingBlockIds, {
+        coalescedCount,
+        limit,
+      }).catch((error) => {
         logger.debug('Worker source existence background refresh failed; keeping cache fail-open', { error });
       });
     }, SOURCE_EXISTENCE_PAGE_REFRESH_DELAY_MS);
+  }
+
+  private normalizeSourceExistenceRefreshBlockIds(blockIds: unknown[]): string[] {
+    return Array.from(new Set(blockIds.map((blockId) => String(blockId || '').trim()).filter(Boolean)));
   }
 
   private async markRowsFromBackendSourceExistence<TRow extends { blockId?: unknown; blockType?: string | null; meta?: unknown }>(
@@ -374,6 +502,56 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     } catch (error) {
       logger.debug('Worker source existence mark failed; keeping rows fail-open', { error });
       return rows;
+    }
+  }
+
+  private reuseBrowserRowProjections(rows: BrowserCard[], reason: string): BrowserCard[] {
+    if (rows.length === 0) {
+      return rows;
+    }
+
+    let reuseHits = 0;
+    let reuseMisses = 0;
+    let changed = false;
+    const nextRows = rows.map((row) => {
+      const rowId = resolveBrowserCardStableId(row);
+      if (!rowId) {
+        reuseMisses += 1;
+        return row;
+      }
+
+      const signature = createBrowserRowProjectionSignature(row);
+      const cached = this.browserRowProjectionCache.get(rowId);
+      if (cached?.signature === signature) {
+        reuseHits += 1;
+        changed = changed || cached.row !== row;
+        return cached.row;
+      }
+
+      reuseMisses += 1;
+      this.browserRowProjectionCache.set(rowId, { signature, row });
+      return row;
+    });
+
+    this.trimBrowserRowProjectionCache();
+    recordRuntimePerformanceSpan('browser', 'row-projection-cache', 0, {
+      cacheSize: this.browserRowProjectionCache.size,
+      reason,
+      reuseHits,
+      reuseMisses,
+      rowCount: rows.length,
+    });
+
+    return changed ? nextRows : rows;
+  }
+
+  private trimBrowserRowProjectionCache(): void {
+    while (this.browserRowProjectionCache.size > BrowserApplicationService.BROWSER_ROW_PROJECTION_CACHE_MAX_SIZE) {
+      const oldestKey = this.browserRowProjectionCache.keys().next().value;
+      if (!oldestKey) {
+        break;
+      }
+      this.browserRowProjectionCache.delete(oldestKey);
     }
   }
 

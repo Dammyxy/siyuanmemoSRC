@@ -80,7 +80,7 @@ describe('browserLoadDataRuntime', () => {
 
     expect(deps.currentDataSource.value?.id).toBe('retrieval');
     expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledWith(true);
-    expect(deps.startFocusRowsSnapshot).toHaveBeenCalledTimes(1);
+    expect(deps.startFocusRowsSnapshot).toHaveBeenCalledWith(25);
     expect(deps.scheduleAllRowsSnapshot).not.toHaveBeenCalled();
     expect(deps.globalSelection.clear).not.toHaveBeenCalled();
     expect(deps.previewCard.value?.blockId).toBe('preview');
