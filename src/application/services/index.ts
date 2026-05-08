@@ -16,3 +16,4 @@ export { SelectionTopicContinuationService } from './SelectionTopicContinuationS
 export { TopicDerivedItemService } from './TopicDerivedItemService';
 export * from './external-srs/ExternalSrsAlgorithmRuntime';
 export * from './queue-projection/QueueProjectionBuilder';
+export * from './queue-projection/QueueProjectionParityDiagnostics';

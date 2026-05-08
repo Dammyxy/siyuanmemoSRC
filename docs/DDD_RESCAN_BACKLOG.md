@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-08 (Round 313)
+Last update: 2026-05-08 (Round 314)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-08 - Deferred queue rollout states
+
+- Task: Start OpenSpec `extend-queue-projection-to-deferred-queues` by inventorying deferred queue strategy paths and adding explicit rollout/unavailable diagnostics before queue-specific parity builders.
+- Touched slice: Queue / Review / Browser projection rollout；`src/application/services/UnifiedDataSourceManager.ts`、`src/types/unified-data-source.ts`、`src/core/queue/managers/UnifiedDataSourceManager.ts`、`src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts`、`ARCHITECTURE.md`、OpenSpec tasks/implementation notes。
+- Debt fixed now: Rollout diagnostics now expose the four planned states: `existing-queue-strategy`, `parity-checking`, `backend-projection`, and `projection-unavailable`. Deferred queues still default to existing strategy reads and do not call backend projection RPC. A composition-root rollout-state hook can promote a deferred queue, and promoted queues record explicit unavailable/refresh-required diagnostics when backend projection is missing, invalidated, missing policy hash, or missing generation. Added a pure parity harness that compares strategy snapshot rows/counters with projection rows/counters and reports missing/extra rows, order mismatch, row counts, totals, and counter deltas. Broad projection invalidation now includes drill cleanup, leech action policy changes, and neural session reset alongside existing day rollover, source repair, batch reschedule, corruption, and explicit repair reasons.
+- Debt deferred: Queue-specific projection builders for FilterGroup, FinalDrill, Leech, and NeuralRoam remain pending.
+- Why deferred: This pass closes the shared rollout gate first. Queue-specific builders need their own source snapshot, affected-set, and feedback semantics to avoid turning the strategy oracle into a hidden runtime fallback.
+- Next safe step: Start FilterGroup projection red tests against saved filters, temporary blacklist, manual entries, and session transfer state.
+- Validation: Red/green focused rollout diagnostics test: `pnpm vitest run src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts` passed（1 file / 7 tests）；red/green parity harness test: `pnpm vitest run src/application/services/queue-projection/__tests__/QueueProjectionParityDiagnostics.test.ts` passed（1 file / 2 tests）；red/green invalidation test: `pnpm vitest run src/application/services/queue-projection/__tests__/QueueProjectionBuilder.test.ts` passed（1 file / 4 tests）；`pnpm run check:boundaries` passed；`pnpm build` passed with postbuild SRS dist hygiene passed（保留既有 i18n hardcoded/Sass legacy warnings，阻断 0）；`openspec validate extend-queue-projection-to-deferred-queues --strict` passed；`git diff --check` passed（仅 CRLF normalization warnings）。
 
 ### 2026-05-08 - Queue projection rollout diagnostics
 

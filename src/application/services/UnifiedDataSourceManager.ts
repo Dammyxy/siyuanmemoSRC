@@ -25,6 +25,8 @@ import {
     type QueueBulkMutationResult,
     type QueueProjectionSnapshot,
     type QueueProjectionRolloutDiagnostic,
+    type QueueProjectionRolloutReason,
+    type QueueProjectionRolloutState,
 } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
 import type { DrillLogV2 } from '@/types/review';
@@ -66,6 +68,15 @@ const QUEUE_PROJECTION_BACKED_TYPES = new Set<QueueType>([
     QueueType.RetrievalPractice,
     QueueType.IncrementalLearning,
 ]);
+
+const DEFAULT_QUEUE_PROJECTION_ROLLOUT_STATES: Record<QueueType, QueueProjectionRolloutState> = {
+    [QueueType.RetrievalPractice]: 'backend-projection',
+    [QueueType.IncrementalLearning]: 'backend-projection',
+    [QueueType.FilterGroup]: 'existing-queue-strategy',
+    [QueueType.FinalDrill]: 'existing-queue-strategy',
+    [QueueType.Leech]: 'existing-queue-strategy',
+    [QueueType.NeuralRoam]: 'existing-queue-strategy',
+};
 
 const QUEUE_PROJECTION_PENDING_NEXT_STEPS: Partial<Record<QueueType, string>> = {
     [QueueType.FilterGroup]: 'Add projection parity for filter definitions, filter-session transfer, and custom-study scheduling policy.',
@@ -117,6 +128,9 @@ interface UnifiedManagerPluginContextLike {
         queueProjectionRowsByIds?: (
             request: { queueType: string; ids: string[]; policyHash?: string | null; generation?: number | null },
         ) => Promise<BackendQueueProjectionRowsByIdsResult>;
+        getQueueProjectionRolloutState?: (
+            queueType: QueueType,
+        ) => QueueProjectionRolloutState | string | null | undefined;
     } | null | undefined;
     getReviewLogService?: () => {
         addDrillLogV2?: (log: DrillLogV2) => Promise<void>;
@@ -132,6 +146,15 @@ interface UnifiedManagerPluginContextLike {
 interface UnifiedManagerPluginLike {
     getContext?: () => UnifiedManagerPluginContextLike | null | undefined;
     schedulerRouter?: unknown;
+}
+
+interface QueueProjectionUnavailableDiagnostic {
+    reason: QueueProjectionRolloutReason;
+    unavailableReason: QueueProjectionRolloutReason | string;
+    backendStatus: string | null;
+    policyHash: string | null;
+    generation: number | null;
+    checkedAt: number;
 }
 
 /**
@@ -238,6 +261,7 @@ export class UnifiedDataSourceManager {
     private pendingObserverEvents: Map<string, DataChangeEvent>;
     private pendingObserverEventOrder: string[];
     private observerFlushScheduled: boolean;
+    private queueProjectionUnavailableDiagnostics: Map<QueueType, QueueProjectionUnavailableDiagnostic>;
     
     // ========================================================================
     // 构造函数
@@ -265,6 +289,7 @@ export class UnifiedDataSourceManager {
         this.pendingObserverEvents = new Map<string, DataChangeEvent>();
         this.pendingObserverEventOrder = [];
         this.observerFlushScheduled = false;
+        this.queueProjectionUnavailableDiagnostics = new Map();
     }
     
     /**
@@ -385,21 +410,35 @@ export class UnifiedDataSourceManager {
         const backend = this.resolvePlugin()?.getContext?.()?.getSrsBackendClient?.();
         if (!backend || typeof backend.queueProjectionSnapshot !== 'function') {
             logger.debug('Queue projection snapshot backend is unavailable', { queueType });
+            this.recordQueueProjectionUnavailable(queueType, 'backend-unavailable', {
+                unavailableReason: 'backend-unavailable',
+            });
             return null;
         }
 
         try {
             const result = await backend.queueProjectionSnapshot({ queueType });
-            if (result.status !== 'ready' || !result.policyHash || !Number.isFinite(Number(result.generation))) {
+            if (
+                result.status !== 'ready'
+                || !this.isValidProjectionPolicyHash(result.policyHash)
+                || !this.isValidProjectionGeneration(result.generation)
+            ) {
                 logger.info('Queue projection snapshot is not ready', {
                     queueType,
                     status: result.status,
                     generation: result.generation,
                     forceRefresh: options.forceRefresh === true,
                 });
+                this.recordQueueProjectionUnavailable(queueType, 'refresh-required', {
+                    unavailableReason: 'refresh-required',
+                    backendStatus: typeof result.status === 'string' ? result.status : null,
+                    policyHash: this.isValidProjectionPolicyHash(result.policyHash) ? result.policyHash : null,
+                    generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
+                });
                 return null;
             }
 
+            this.clearQueueProjectionUnavailable(queueType);
             return {
                 queueType,
                 policyHash: result.policyHash,
@@ -430,6 +469,9 @@ export class UnifiedDataSourceManager {
                 queueType,
                 error: error instanceof Error ? error.message : String(error),
             });
+            this.recordQueueProjectionUnavailable(queueType, 'projection-unavailable', {
+                unavailableReason: error instanceof Error ? error.message : String(error),
+            });
             return null;
         }
     }
@@ -452,6 +494,9 @@ export class UnifiedDataSourceManager {
         const backend = this.resolvePlugin()?.getContext?.()?.getSrsBackendClient?.();
         if (!backend || typeof backend.queueProjectionRowsByIds !== 'function') {
             logger.debug('Queue projection row hydration backend is unavailable', { queueType });
+            this.recordQueueProjectionUnavailable(queueType, 'backend-unavailable', {
+                unavailableReason: 'backend-unavailable',
+            });
             return [];
         }
 
@@ -464,9 +509,16 @@ export class UnifiedDataSourceManager {
                     generation: result.generation,
                     forceRefresh: options.forceRefresh === true,
                 });
+                this.recordQueueProjectionUnavailable(queueType, 'refresh-required', {
+                    unavailableReason: 'refresh-required',
+                    backendStatus: typeof result.status === 'string' ? result.status : null,
+                    policyHash: this.isValidProjectionPolicyHash(result.policyHash) ? result.policyHash : null,
+                    generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
+                });
                 return [];
             }
 
+            this.clearQueueProjectionUnavailable(queueType);
             return (result.cards || [])
                 .filter((card): card is FSRSCard => (
                     Boolean(card)
@@ -480,6 +532,9 @@ export class UnifiedDataSourceManager {
                 queueType,
                 count: orderedIds.length,
                 error: error instanceof Error ? error.message : String(error),
+            });
+            this.recordQueueProjectionUnavailable(queueType, 'projection-unavailable', {
+                unavailableReason: error instanceof Error ? error.message : String(error),
             });
             return [];
         }
@@ -496,7 +551,7 @@ export class UnifiedDataSourceManager {
     }
 
     private isProjectionBackedQueue(queueType: QueueType): boolean {
-        return QUEUE_PROJECTION_BACKED_TYPES.has(queueType);
+        return this.getConfiguredQueueProjectionRolloutState(queueType) === 'backend-projection';
     }
 
     public getQueueProjectionRolloutDiagnostics(queueType?: QueueType): QueueProjectionRolloutDiagnostic[] {
@@ -505,16 +560,107 @@ export class UnifiedDataSourceManager {
     }
 
     private buildQueueProjectionRolloutDiagnostic(queueType: QueueType): QueueProjectionRolloutDiagnostic {
-        const projectionBacked = this.isProjectionBackedQueue(queueType);
+        const configuredState = this.getConfiguredQueueProjectionRolloutState(queueType);
+        const projectionBacked = configuredState === 'backend-projection';
+        const unavailable = projectionBacked
+            ? this.queueProjectionUnavailableDiagnostics.get(queueType)
+            : null;
+        if (unavailable) {
+            return {
+                queueType,
+                projectionBacked: true,
+                state: 'projection-unavailable',
+                readPath: 'backend-projection',
+                reason: unavailable.reason,
+                nextCoverageTask: null,
+                unavailableReason: unavailable.unavailableReason,
+                backendStatus: unavailable.backendStatus,
+                policyHash: unavailable.policyHash,
+                generation: unavailable.generation,
+                checkedAt: unavailable.checkedAt,
+            };
+        }
+
         return {
             queueType,
             projectionBacked,
+            state: configuredState,
             readPath: projectionBacked ? 'backend-projection' : 'existing-queue-strategy',
-            reason: projectionBacked ? 'rollout-enabled' : 'projection-rollout-pending',
+            reason: this.resolveQueueProjectionRolloutReason(configuredState),
             nextCoverageTask: projectionBacked
                 ? null
                 : QUEUE_PROJECTION_PENDING_NEXT_STEPS[queueType] ?? 'Add projection parity before switching this queue off strategy reads.',
         };
+    }
+
+    private getConfiguredQueueProjectionRolloutState(queueType: QueueType): QueueProjectionRolloutState {
+        const pluginState = this.resolvePlugin()
+            ?.getContext?.()
+            ?.getQueueProjectionRolloutState?.(queueType);
+        const normalizedPluginState = this.normalizeQueueProjectionRolloutState(pluginState);
+        if (normalizedPluginState) {
+            return normalizedPluginState;
+        }
+        if (QUEUE_PROJECTION_BACKED_TYPES.has(queueType)) {
+            return 'backend-projection';
+        }
+        return DEFAULT_QUEUE_PROJECTION_ROLLOUT_STATES[queueType] ?? 'existing-queue-strategy';
+    }
+
+    private normalizeQueueProjectionRolloutState(value: unknown): QueueProjectionRolloutState | null {
+        switch (value) {
+            case 'existing-queue-strategy':
+            case 'parity-checking':
+            case 'backend-projection':
+            case 'projection-unavailable':
+                return value;
+            default:
+                return null;
+        }
+    }
+
+    private resolveQueueProjectionRolloutReason(
+        state: QueueProjectionRolloutState,
+    ): QueueProjectionRolloutReason {
+        if (state === 'backend-projection') {
+            return 'rollout-enabled';
+        }
+        if (state === 'parity-checking') {
+            return 'parity-checking';
+        }
+        if (state === 'projection-unavailable') {
+            return 'projection-unavailable';
+        }
+        return 'projection-rollout-pending';
+    }
+
+    private recordQueueProjectionUnavailable(
+        queueType: QueueType,
+        reason: QueueProjectionRolloutReason,
+        details: Partial<Omit<QueueProjectionUnavailableDiagnostic, 'reason' | 'checkedAt'>> = {},
+    ): void {
+        this.queueProjectionUnavailableDiagnostics.set(queueType, {
+            reason,
+            unavailableReason: details.unavailableReason ?? reason,
+            backendStatus: details.backendStatus ?? null,
+            policyHash: details.policyHash ?? null,
+            generation: details.generation ?? null,
+            checkedAt: Date.now(),
+        });
+    }
+
+    private clearQueueProjectionUnavailable(queueType: QueueType): void {
+        this.queueProjectionUnavailableDiagnostics.delete(queueType);
+    }
+
+    private isValidProjectionPolicyHash(policyHash: unknown): policyHash is string {
+        return typeof policyHash === 'string' && policyHash.trim().length > 0;
+    }
+
+    private isValidProjectionGeneration(generation: unknown): boolean {
+        return typeof generation === 'number'
+            && Number.isFinite(generation)
+            && generation > 0;
     }
 
     public getDayStartHour(): number {

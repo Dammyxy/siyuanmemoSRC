@@ -113,15 +113,32 @@ export interface QueueProjectionSnapshot {
     counters: QueueCounterSnapshot | null;
 }
 
+export type QueueProjectionRolloutState =
+    | 'existing-queue-strategy'
+    | 'parity-checking'
+    | 'backend-projection'
+    | 'projection-unavailable';
 export type QueueProjectionReadPath = 'backend-projection' | 'existing-queue-strategy';
-export type QueueProjectionRolloutReason = 'rollout-enabled' | 'projection-rollout-pending';
+export type QueueProjectionRolloutReason =
+    | 'rollout-enabled'
+    | 'projection-rollout-pending'
+    | 'parity-checking'
+    | 'backend-unavailable'
+    | 'refresh-required'
+    | 'projection-unavailable';
 
 export interface QueueProjectionRolloutDiagnostic {
     queueType: QueueType;
     projectionBacked: boolean;
+    state: QueueProjectionRolloutState;
     readPath: QueueProjectionReadPath;
     reason: QueueProjectionRolloutReason;
     nextCoverageTask: string | null;
+    unavailableReason?: QueueProjectionRolloutReason | string | null;
+    backendStatus?: string | null;
+    policyHash?: string | null;
+    generation?: number | null;
+    checkedAt?: number | null;
 }
 
 export interface QueueReviewResult {

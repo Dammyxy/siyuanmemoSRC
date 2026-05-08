@@ -99,6 +99,9 @@ export type QueueProjectionInvalidationReason =
   | 'algorithm-disabled'
   | 'batch-reschedule'
   | 'filter-definition-changed'
+  | 'drill-cleanup'
+  | 'leech-action-policy-changed'
+  | 'neural-session-reset'
   | 'source-existence-repair'
   | 'projection-corruption'
   | 'explicit-repair'
@@ -137,6 +140,9 @@ export const BROAD_QUEUE_PROJECTION_INVALIDATION_REASONS = [
   'algorithm-disabled',
   'batch-reschedule',
   'filter-definition-changed',
+  'drill-cleanup',
+  'leech-action-policy-changed',
+  'neural-session-reset',
   'source-existence-repair',
   'projection-corruption',
   'explicit-repair',

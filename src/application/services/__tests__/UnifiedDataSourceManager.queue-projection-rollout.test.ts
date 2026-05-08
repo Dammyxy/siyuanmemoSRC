@@ -2,10 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueueType, type IDataRouter } from '@/types/unified-data-source';
 import { UnifiedDataSourceManager } from '../UnifiedDataSourceManager';
 
-function createRouterWithBackend(backend: unknown): IDataRouter {
+function createRouterWithBackend(
+  backend: unknown,
+  options: {
+    rolloutState?: (queueType: QueueType) => string | null | undefined;
+  } = {},
+): IDataRouter {
   const plugin = {
     getContext: () => ({
       getSrsBackendClient: () => backend,
+      getQueueProjectionRolloutState: options.rolloutState,
     }),
   };
 
@@ -34,12 +40,14 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     expect(diagnosticByQueue.get(QueueType.RetrievalPractice)).toMatchObject({
       queueType: QueueType.RetrievalPractice,
       projectionBacked: true,
+      state: 'backend-projection',
       readPath: 'backend-projection',
       reason: 'rollout-enabled',
     });
     expect(diagnosticByQueue.get(QueueType.IncrementalLearning)).toMatchObject({
       queueType: QueueType.IncrementalLearning,
       projectionBacked: true,
+      state: 'backend-projection',
       readPath: 'backend-projection',
       reason: 'rollout-enabled',
     });
@@ -53,6 +61,7 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
       expect(diagnosticByQueue.get(queueType)).toMatchObject({
         queueType,
         projectionBacked: false,
+        state: 'existing-queue-strategy',
         readPath: 'existing-queue-strategy',
         reason: 'projection-rollout-pending',
       });
@@ -78,8 +87,95 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
       expect.objectContaining({
         queueType: QueueType.FilterGroup,
         projectionBacked: false,
+        state: 'existing-queue-strategy',
         readPath: 'existing-queue-strategy',
         reason: 'projection-rollout-pending',
+      }),
+    ]);
+  });
+
+  it('uses backend projection reads when a deferred queue is promoted', async () => {
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        status: 'ready',
+        rows: [],
+        counters: null,
+        policyHash: 'filter-policy',
+        generation: 2,
+      })),
+    };
+    const manager = UnifiedDataSourceManager.getInstance();
+    manager.setAdvancedRouter(createRouterWithBackend(backend, {
+      rolloutState: (queueType) => queueType === QueueType.FilterGroup ? 'backend-projection' : null,
+    }));
+
+    await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup)).resolves.toMatchObject({
+      queueType: QueueType.FilterGroup,
+      policyHash: 'filter-policy',
+      generation: 2,
+      rows: [],
+      counters: null,
+    });
+
+    expect(backend.queueProjectionSnapshot).toHaveBeenCalledWith({ queueType: QueueType.FilterGroup });
+    expect(manager.getQueueProjectionRolloutDiagnostics(QueueType.FilterGroup)).toEqual([
+      expect.objectContaining({
+        queueType: QueueType.FilterGroup,
+        projectionBacked: true,
+        state: 'backend-projection',
+        readPath: 'backend-projection',
+        reason: 'rollout-enabled',
+      }),
+    ]);
+  });
+
+  it('reports projection-unavailable for a promoted deferred queue when backend is missing', async () => {
+    const manager = UnifiedDataSourceManager.getInstance();
+    manager.setAdvancedRouter(createRouterWithBackend(null, {
+      rolloutState: (queueType) => queueType === QueueType.FilterGroup ? 'backend-projection' : null,
+    }));
+
+    await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup)).resolves.toBeNull();
+
+    expect(manager.getQueueProjectionRolloutDiagnostics(QueueType.FilterGroup)).toEqual([
+      expect.objectContaining({
+        queueType: QueueType.FilterGroup,
+        projectionBacked: true,
+        state: 'projection-unavailable',
+        readPath: 'backend-projection',
+        reason: 'backend-unavailable',
+        unavailableReason: 'backend-unavailable',
+      }),
+    ]);
+  });
+
+  it.each([
+    ['missing policy hash', { status: 'ready', policyHash: null, generation: 2 }],
+    ['missing generation', { status: 'ready', policyHash: 'filter-policy', generation: null }],
+    ['invalidated status', { status: 'invalidated', policyHash: 'filter-policy', generation: 2 }],
+  ])('reports projection-unavailable for a promoted deferred queue with %s', async (_name, result) => {
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        rows: [],
+        counters: null,
+        ...result,
+      })),
+    };
+    const manager = UnifiedDataSourceManager.getInstance();
+    manager.setAdvancedRouter(createRouterWithBackend(backend, {
+      rolloutState: (queueType) => queueType === QueueType.FilterGroup ? 'backend-projection' : null,
+    }));
+
+    await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup)).resolves.toBeNull();
+
+    expect(manager.getQueueProjectionRolloutDiagnostics(QueueType.FilterGroup)).toEqual([
+      expect.objectContaining({
+        queueType: QueueType.FilterGroup,
+        projectionBacked: true,
+        state: 'projection-unavailable',
+        readPath: 'backend-projection',
+        reason: 'refresh-required',
+        unavailableReason: 'refresh-required',
       }),
     ]);
   });
