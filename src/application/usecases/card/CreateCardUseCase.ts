@@ -296,9 +296,9 @@ export class CreateCardUseCase {
    * 根据以下规则选择调度器：
    * 1. 如果显式指定了 schedulerType，直接使用（Requirement 5.5）
    * 2. Item → FSRS v6（总是有答案）
-   * 3. Topic → A-Factor（总是无答案）
+   * 3. Topic → A-Factor v2（总是无答案）
    * 4. Descriptor → FSRS v6（永远有答案）
-   * 5. Concept → 有答案 ? FSRS v6 : A-Factor
+   * 5. Concept → 有答案 ? FSRS v6 : A-Factor v2
    * 
    * 扩展点：未来可以添加新的卡片类型和调度器映射
    * 
@@ -307,7 +307,7 @@ export class CreateCardUseCase {
    * @param faces - 卡片面列表
    * @returns 调度器类型
    */
-  private selectSchedulerType(command: CreateCardCommand, faces: CardFace[]): 'fsrs-v6' | 'a-factor' | 'sm2' {
+  private selectSchedulerType(command: CreateCardCommand, faces: CardFace[]): 'fsrs-v6' | 'a-factor-v2' {
     // 1. 如果显式指定了调度器类型，直接使用（Requirement 5.5）
     if (command.schedulerType) {
       return command.schedulerType;
@@ -323,8 +323,8 @@ export class CreateCardUseCase {
         return 'fsrs-v6';
       
       case 'topic':
-        // Topic 卡总是无答案，使用 A-Factor
-        return 'a-factor';
+        // Topic 卡总是无答案，使用 A-Factor v2
+        return 'a-factor-v2';
       
       case 'descriptor':
         // Descriptor 卡永远有答案，使用 FSRS v6
@@ -332,9 +332,9 @@ export class CreateCardUseCase {
       
       case 'concept':
         // Concept 卡：检查是否有非空答案
-        // 有答案 → FSRS v6，无答案 → A-Factor
+        // 有答案 → FSRS v6，无答案 → A-Factor v2
         const hasAnswer = this.hasValidAnswer(faces);
-        return hasAnswer ? 'fsrs-v6' : 'a-factor';
+        return hasAnswer ? 'fsrs-v6' : 'a-factor-v2';
       
       default:
         // 默认使用 FSRS v6（扩展点：未来新卡片类型）

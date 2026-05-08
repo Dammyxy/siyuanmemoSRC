@@ -24,7 +24,7 @@ export type CardType = 'item' | 'topic' | 'concept' | 'descriptor';
 /**
  * 调度器类型枚举
  */
-export type SchedulerType = 'fsrs-v6' | 'a-factor' | 'sm2';
+export type SchedulerType = 'fsrs-v6' | 'a-factor-v2';
 
 /**
  * 卡片来源
@@ -151,7 +151,7 @@ export function validateCreateCardCommand(command: CreateCardCommand): string | 
 
   // 验证 schedulerType（如果提供）
   if (command.schedulerType !== undefined) {
-    const validSchedulers: SchedulerType[] = ['fsrs-v6', 'a-factor', 'sm2'];
+    const validSchedulers: SchedulerType[] = ['fsrs-v6', 'a-factor-v2'];
     if (!validSchedulers.includes(command.schedulerType)) {
       return `schedulerType must be one of: ${validSchedulers.join(', ')}`;
     }

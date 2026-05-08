@@ -144,9 +144,6 @@ function isCardType(value: unknown): value is CardType {
 
 function isSchedulerType(value: unknown): value is NonNullable<FSRSCard['schedulerType']> {
     return value === 'fsrs-v6'
-        || value === 'sm2'
-        || value === 'sm15'
-        || value === 'a-factor'
         || value === 'a-factor-v2'
         || value === 'riff';
 }
@@ -602,7 +599,7 @@ export class StorageManager {
             ...(skipUntil !== undefined && { skipUntil }),
             ...(meta && { meta }),
             
-            // 🆕 保留 SuperMemo 重新调度字段（如果存在）
+            // 保留重新调度字段（如果存在）
             ...(postponeCount !== undefined && { postponeCount }),
             ...(lastPostponeDate !== undefined && { lastPostponeDate }),
             ...(rescheduleHistory && { rescheduleHistory }),

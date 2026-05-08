@@ -98,8 +98,6 @@ export function canonicalizeSchedulingState<T extends FSRSCard>(
 
   if (schedulerType === 'a-factor-v2') {
     card = canonicalizeTopicScheduling(card, reasons);
-  } else if (schedulerType === 'sm15') {
-    card = canonicalizeSm15Scheduling(card, reasons);
   } else {
     card = canonicalizeFsrsScheduling(card, reasons, options);
   }
@@ -204,11 +202,9 @@ function canonicalizeTopicScheduling(
 ): FSRSCard & Record<string, unknown> {
   const currentMeta = isObjectRecord(card.schedulerMeta) ? card.schedulerMeta : undefined;
   const currentTopicMeta = isObjectRecord(currentMeta?.topic) ? currentMeta.topic : undefined;
-  const currentSm15Meta = isObjectRecord(currentMeta?.sm15) ? currentMeta.sm15 : undefined;
   const aFactor = clampAFactor(
     readFiniteNumber(card.aFactor)
       ?? readFiniteNumber(currentTopicMeta?.of)
-      ?? readFiniteNumber(currentSm15Meta?.of)
       ?? DEFAULT_A_FACTOR,
   );
   const topicMeta = {
@@ -225,39 +221,6 @@ function canonicalizeTopicScheduling(
     card.aFactor = aFactor;
     reasons.push('aFactor');
   }
-  if (!areJsonEqual(card.schedulerMeta, schedulerMeta)) {
-    card.schedulerMeta = schedulerMeta;
-    reasons.push('schedulerMeta');
-  }
-
-  return card;
-}
-
-function canonicalizeSm15Scheduling(
-  card: FSRSCard & Record<string, unknown>,
-  reasons: string[],
-): FSRSCard & Record<string, unknown> {
-  if (card.aFactor !== undefined) {
-    delete card.aFactor;
-    reasons.push('aFactor');
-  }
-
-  const currentMeta = isObjectRecord(card.schedulerMeta) ? card.schedulerMeta : undefined;
-  const currentSm15Meta = isObjectRecord(currentMeta?.sm15) ? currentMeta.sm15 : undefined;
-  if (!currentSm15Meta) {
-    if (card.schedulerMeta !== undefined) {
-      delete card.schedulerMeta;
-      reasons.push('schedulerMeta');
-    }
-    return card;
-  }
-
-  const sm15Meta = {
-    afs: normalizeAfs(currentSm15Meta.afs, DEFAULT_A_FACTOR),
-    of: normalizePositiveNumber(currentSm15Meta.of, DEFAULT_A_FACTOR),
-    optimumInterval: normalizePositiveInteger(currentSm15Meta.optimumInterval, 1),
-  };
-  const schedulerMeta = { sm15: sm15Meta };
   if (!areJsonEqual(card.schedulerMeta, schedulerMeta)) {
     card.schedulerMeta = schedulerMeta;
     reasons.push('schedulerMeta');
@@ -368,11 +331,6 @@ function normalizePositiveInteger(value: unknown, fallback: number): number {
     return fallback;
   }
   return Math.max(1, Math.floor(num));
-}
-
-function normalizePositiveNumber(value: unknown, fallback: number): number {
-  const num = readFiniteNumber(value);
-  return num !== undefined && num > 0 ? num : fallback;
 }
 
 function clampAFactor(value: number): number {

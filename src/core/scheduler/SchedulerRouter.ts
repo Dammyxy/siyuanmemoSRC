@@ -2,16 +2,14 @@
  * Scheduler Router - 调度器路由器
  *
  * 根据卡片类型和配置选择合适的调度器
- * 支持多种调度算法：FSRS v6, SM-15, A-Factor v2
+ * 支持内置调度算法：FSRS v6, A-Factor v2
  */
 
 import type { FSRSCard, FSRSParameters, Rating } from '@/types';
 import type { SchedulerEngineAdapter } from './types';
 import type { CardUpdatePort } from './ports';
 import { TSFSRSScheduler } from './strategies/TSFSRSScheduler';
-import { SM15Scheduler } from './strategies/SM15Scheduler';
 import { ImprovedTopicScheduler } from './strategies/ImprovedTopicScheduler';
-import { migrateCard } from './strategies/sm15/migration';
 import { normalizeSchedulerCard } from './normalizeSchedulerCard';
 import {
     getPreferredSchedulerForCardType,
@@ -75,10 +73,7 @@ export class SchedulerRouter {
 
         // FSRS v6 (使用官方 ts-fsrs 库)
         this.schedulers.set('fsrs-v6', new TSFSRSScheduler(params));
-        // SM-15
-        this.schedulers.set('sm15', new SM15Scheduler(params));
-
-        // A-Factor v2 (ImprovedTopicScheduler)
+        // A-Factor v2 (ImprovedTopicScheduler) stays internal for topic/concept rotation.
         this.schedulers.set('a-factor-v2', new ImprovedTopicScheduler(params));
     }
 
@@ -184,14 +179,7 @@ export class SchedulerRouter {
         }
 
         // 3. 转换卡片状态（如果需要）
-        const convertedCard = this._convertCardState(
-            card,
-            resolveEffectiveSchedulerTypeForCard(card, {
-                defaultScheduler: this.config.defaultScheduler,
-                schedulerOverrides: this.config.schedulerOverrides,
-            }),
-            newScheduler
-        );
+        const convertedCard = this._convertCardState(card, newScheduler);
 
         // 4. 更新调度器类型
         const normalizedCard = normalizeSchedulerCard({
@@ -263,9 +251,11 @@ export class SchedulerRouter {
     /**
      * 状态转换（使用迁移工具）
      *
-     * 处理不同调度器之间的状态转换
+     * 处理不同调度器之间的状态转换。
      *
-     * Phase 4: 使用 migration.ts 中的迁移工具
+     * Formal memory scheduling is FSRS-owned. Topic rotation keeps its internal
+     * state in the topic metadata and does not migrate unsupported stored
+     * scheduler values into another built-in algorithm.
      *
      * @param card 卡片
      * @param oldScheduler 旧调度器
@@ -274,21 +264,12 @@ export class SchedulerRouter {
      */
     private _convertCardState(
         card: FSRSCard,
-        oldScheduler: SchedulerType,
         newScheduler: SchedulerType
     ): FSRSCard {
-        if (oldScheduler === newScheduler) {
-            return { ...card };
-        }
-
-        // 🆕 Phase 4: 使用迁移工具进行状态转换
-        const migrated = migrateCard(card, newScheduler);
-
-        if (migrated === card) {
-            throw new Error(`Scheduler migration not supported: ${oldScheduler} -> ${newScheduler}`);
-        }
-
-        return migrated;
+        return {
+            ...card,
+            schedulerType: newScheduler,
+        };
     }
 
     private getPreferredSchedulerForType(cardType?: string): SchedulerType | null {

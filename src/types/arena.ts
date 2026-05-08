@@ -26,17 +26,10 @@ export const ARENA_TARGET_KINDS = [
 
 export const SRS_ARENA_CONTESTANT_IDS = [
   'fsrs-v6',
-  'sm2',
-  'sm5',
-  'sm8',
-  'sm15',
-  'sm18',
-  'sm20',
 ] as const;
 
 export const SRS_ARENA_ALGORITHM_IDS = [
   ...SRS_ARENA_CONTESTANT_IDS,
-  'sm19',
 ] as const;
 
 export const SRS_ARENA_CONTESTANT_SET_VERSION = 2;
@@ -82,72 +75,6 @@ export const SRS_ARENA_ALGORITHM_REGISTRY: SrsArenaAlgorithmRegistryEntry[] = [
     runtimeKind: 'browser',
     version: 'ts-fsrs',
     parameterHash: 'settings.fsrs',
-  },
-  {
-    id: 'sm2',
-    label: 'Arena Challenger 2',
-    enabled: true,
-    state: 'enabled',
-    runtimeKind: 'browser',
-    version: 'classic-sm2-adapter',
-    parameterHash: 'settings.fsrs.retention',
-  },
-  {
-    id: 'sm5',
-    label: 'Arena Challenger 5',
-    enabled: true,
-    state: 'enabled',
-    runtimeKind: 'browser',
-    version: 'classic-sm-family-v1',
-    parameterHash: 'settings.fsrs.retention',
-  },
-  {
-    id: 'sm8',
-    label: 'Arena Challenger 8',
-    enabled: true,
-    state: 'enabled',
-    runtimeKind: 'browser',
-    version: 'classic-sm-family-v1',
-    parameterHash: 'settings.fsrs.retention',
-  },
-  {
-    id: 'sm15',
-    label: 'Arena Challenger 15',
-    enabled: true,
-    state: 'enabled',
-    runtimeKind: 'browser',
-    version: 'sm15-adapter',
-    parameterHash: 'settings.fsrs.retention',
-  },
-  {
-    id: 'sm18',
-    label: 'Arena Challenger 18',
-    enabled: true,
-    state: 'enabled',
-    runtimeKind: 'browser',
-    version: 'classic-sm-family-v1',
-    parameterHash: 'settings.fsrs.retention',
-  },
-  {
-    id: 'sm20',
-    label: 'Arena Challenger 20',
-    enabled: true,
-    state: 'enabled',
-    runtimeKind: 'browser',
-    version: 'classic-sm-family-v1',
-    parameterHash: 'settings.fsrs.retention',
-  },
-  {
-    id: 'sm19',
-    label: 'Arena Challenger 19',
-    enabled: false,
-    state: 'official-pending',
-    runtimeKind: 'disabled',
-    version: 'official-pending',
-    parameterHash: 'official-pending',
-    metadata: {
-      reason: 'No complete official/reference implementation wired yet.',
-    },
   },
 ];
 
@@ -558,7 +485,7 @@ export const DEFAULT_ARENA_SETTINGS: ArenaSettings = {
   srs: {
     enabled: true,
     contestantSetVersion: SRS_ARENA_CONTESTANT_SET_VERSION,
-    contestantIds: ['fsrs-v6', 'sm2', 'sm5', 'sm8', 'sm15', 'sm18', 'sm20'],
+    contestantIds: ['fsrs-v6'],
     targetKinds: ['item', 'descriptor'],
     advisoryOnly: true,
     divergenceThresholdRatio: 0.5,

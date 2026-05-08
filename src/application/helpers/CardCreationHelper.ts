@@ -110,11 +110,11 @@ export class CardCreationHelper {
     // 确定调度器类型
     // 有描述符 → FSRS v6（默认），无描述符 → A-Factor（默认）
     // 可通过 useAFactor 选项覆盖
-    let schedulerType: 'fsrs-v6' | 'a-factor' | 'sm2';
+    let schedulerType: 'fsrs-v6' | 'a-factor-v2';
     if (options.useAFactor) {
-      schedulerType = 'a-factor';
+      schedulerType = 'a-factor-v2';
     } else {
-      schedulerType = options.descriptorBlockId ? 'fsrs-v6' : 'a-factor';
+      schedulerType = options.descriptorBlockId ? 'fsrs-v6' : 'a-factor-v2';
     }
 
     // 构造命令

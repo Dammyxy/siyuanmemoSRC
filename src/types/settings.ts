@@ -107,7 +107,7 @@ export interface FSRSParameters {
     dayStartHour?: number;
 }
 
-export type SchedulerEngine = 'simple-fsrs' | 'sm2' | 'sm15' | 'a-factor-v2';
+export type SchedulerEngine = 'simple-fsrs' | 'a-factor-v2';
 
 export type SrsV2FilteredReviewDefault = 'preview-only' | 'reschedule';
 
@@ -119,16 +119,11 @@ export interface SrsV2SchedulerSettings {
 
 /** 🆕 调度器配置 */
 export interface SchedulerConfig {
-    defaultScheduler: 'fsrs-v6' | 'sm15' | 'a-factor-v2';
+    defaultScheduler: 'fsrs-v6' | 'a-factor-v2';
 
     // 按卡片类型配置（可选）
     topicScheduler?: 'a-factor-v2';  // Topic 固定使用 A-Factor v2
-    itemScheduler?: 'fsrs-v6' | 'sm15';
-
-    sm15?: {
-        requestedFI: number;     // 遗忘指数 (0-100)
-        intervalBase: number;    // 基础间隔（天）
-    };
+    itemScheduler?: 'fsrs-v6';
 
     srsV2?: SrsV2SchedulerSettings;
 }
@@ -1808,10 +1803,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
         defaultScheduler: 'fsrs-v6',
         topicScheduler: 'a-factor-v2',
         itemScheduler: 'fsrs-v6',
-        sm15: {
-            requestedFI: 10,
-            intervalBase: 1,
-        },
         srsV2: {
             learningStepsMinutes: [...DEFAULT_SRS_V2_LEARNING_STEPS_MINUTES],
             relearningStepsMinutes: [...DEFAULT_SRS_V2_RELEARNING_STEPS_MINUTES],

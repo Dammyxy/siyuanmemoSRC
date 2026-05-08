@@ -71,7 +71,7 @@ const logger = createLogger('XiuyuanRepository');
 const CARD_ID_DEBUG_SAMPLE_LIMIT = 5;
 
 type XiuyuanCardType = 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
-type SchedulerType = 'fsrs-v6' | 'a-factor' | 'sm2';
+type SchedulerType = 'fsrs-v6' | 'a-factor-v2';
 type CardIdResolutionStats = {
   sourceCardIds: string[];
   resolvedCardIds: string[];

@@ -1,7 +1,7 @@
 ﻿/**
  * ImprovedTopicScheduler - 改进的 Topic 调度器
  *
- * 基于 SuperMemo A-Factor 算法，支持动态 A-Factor 更新
+ * Internal topic rotation scheduler with dynamic A-Factor updates
  *
  * 核心改进：
  * - 动态 A-Factor：根据复习表现更新 A-Factor

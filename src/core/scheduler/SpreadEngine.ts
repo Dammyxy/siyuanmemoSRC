@@ -1,5 +1,5 @@
 ﻿/**
- * SpreadEngine - 实现 SuperMemo Spread/Mercy 算法
+ * SpreadEngine - implements bounded schedule spreading
  * 
  * 功能：
  * - 收集 Collecting Period 内的卡片
@@ -15,7 +15,7 @@ import type { CardUpdatePort, RescheduleStoragePort } from './ports';
 import { BaseRescheduleEngine } from './BaseRescheduleEngine';
 
 /**
- * SpreadEngine - 实现 SuperMemo Spread/Mercy 算法
+ * SpreadEngine - implements bounded schedule spreading
  * 
  * 使用 DDD 架构：
  * - 依赖 RescheduleStoragePort 进行数据查询

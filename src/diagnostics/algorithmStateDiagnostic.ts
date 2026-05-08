@@ -451,11 +451,9 @@ function canonicalizeFsrsScheduling(card: DiagnosticCard, reasons: string[]): Di
 function canonicalizeTopicScheduling(card: DiagnosticCard, reasons: string[]): DiagnosticCard {
     const currentMeta = isObjectRecord(card.schedulerMeta) ? card.schedulerMeta : undefined;
     const currentTopicMeta = isObjectRecord(currentMeta?.topic) ? currentMeta.topic : undefined;
-    const currentSm15Meta = isObjectRecord(currentMeta?.sm15) ? currentMeta.sm15 : undefined;
     const aFactor = clampAFactor(
         readFiniteNumber(card.aFactor)
         ?? readFiniteNumber(currentTopicMeta?.of)
-        ?? readFiniteNumber(currentSm15Meta?.of)
         ?? DEFAULT_A_FACTOR,
     );
     const topicMeta = {

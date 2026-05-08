@@ -33,7 +33,7 @@ type CreateReviewArenaDialog = (options: {
 type ReviewArenaKernelLike = {
   buildSrsRecommendation?: (
     card: FSRSCard,
-    schedulerType: 'fsrs-v6' | 'sm15' | 'a-factor-v2' | null,
+    schedulerType: 'fsrs-v6' | 'a-factor-v2' | null,
     now: number,
     options: {
       ratingBasis: number;
@@ -75,7 +75,7 @@ export type ReviewArenaRuntimeOptions = {
   getCurrentCard: () => FSRSCard | null;
   getArenaKernelService: () => ReviewArenaKernelLike | null;
   getReviewService: () => ReviewArenaServiceLike | null;
-  getSchedulerTypeForCard: (card: FSRSCard | null | undefined) => 'fsrs-v6' | 'sm15' | 'a-factor-v2' | null;
+  getSchedulerTypeForCard: (card: FSRSCard | null | undefined) => 'fsrs-v6' | 'a-factor-v2' | null;
   resolveSchedulingContext: (card: FSRSCard | null | undefined) => QueueReviewSchedulingContext | null;
   now?: () => number;
 };

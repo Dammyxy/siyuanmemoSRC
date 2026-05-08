@@ -4,7 +4,6 @@ import type { ArenaKernelService } from '@/application/services/ArenaKernelServi
 import type { CardEditorSnapshot } from '@/application/services/CardEditorApplicationService';
 import { formatNextDue } from '@/application/helpers/formatNextDue';
 import {
-  replaceLegacySm15Display,
   resolveSchedulerTypeLabel,
   resolveSrsArenaContestantLabel,
 } from '@/application/helpers/srsDisplayLabels';
@@ -48,7 +47,6 @@ type BuildOptions = {
   t: Translator;
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const GRADE_ORDER: readonly Rating[] = [
   Rating.Again,
   Rating.Hard,
@@ -132,17 +130,6 @@ function buildAlgorithmFacts(
       { label: t('arenaDiscrepancy', '与正式调度偏差'), value: `${Math.round(arenaRecommendation.discrepancyRatio * 100)}%` },
     ]
     : [];
-  if (schedulerType === 'sm15') {
-    const meta = card.schedulerMeta?.sm15;
-    return [
-      { label: t('schedulerType', '调度器'), value: resolveSchedulerLabel(schedulerType, t) },
-      { label: t('oFactor', 'O-Factor'), value: formatNumber(meta?.of, 2) },
-      { label: t('optimalInterval', '最优间隔'), value: formatDaysFromMilliseconds(meta?.optimumInterval, t) },
-      { label: t('afHistory', 'AF 历史'), value: formatHistorySummary(meta?.afs, t) },
-      ...arenaFacts,
-    ];
-  }
-
   if (schedulerType === 'a-factor-v2') {
     const meta = card.schedulerMeta?.topic;
     return [
@@ -187,8 +174,6 @@ function resolvePreviewNow(now: number, context?: SrsV2SchedulingContext | null)
 
 function resolveSchedulerLabel(schedulerType: SchedulerType, t: Translator): string {
   switch (schedulerType) {
-    case 'sm15':
-      return replaceLegacySm15Display(t('schedulerSm15', resolveSchedulerTypeLabel(schedulerType)));
     case 'a-factor-v2':
       return t('schedulerAFactorV2', 'A-Factor v2');
     case 'fsrs-v6':
@@ -199,8 +184,6 @@ function resolveSchedulerLabel(schedulerType: SchedulerType, t: Translator): str
 
 function resolveSchedulerSummary(schedulerType: SchedulerType, t: Translator): string {
   switch (schedulerType) {
-    case 'sm15':
-      return replaceLegacySm15Display(t('sm15TransparencySummary', 'Arena Challenger 15 会结合 O-Factor、最优间隔和 AF 历史来决定下一次安排，适合需要更显式调度参数的卡片。'));
     case 'a-factor-v2':
       return t('aFactorTransparencySummary', 'A-Factor v2 以 A-Factor 为核心调节间隔扩张，更适合 Topic 或 Concept 一类需要渐进节奏的卡片。');
     case 'fsrs-v6':
@@ -278,12 +261,6 @@ function formatDays(value?: number | null, t?: Translator): string {
   return value == null || !Number.isFinite(value)
     ? '-'
     : `${Number(value).toFixed(1)} ${t?.('days', 'days') || 'days'}`;
-}
-
-function formatDaysFromMilliseconds(value?: number | null, t?: Translator): string {
-  return value == null || !Number.isFinite(value)
-    ? '-'
-    : formatDays(value / DAY_MS, t);
 }
 
 function formatNumber(value?: number | null, digits?: number): string {

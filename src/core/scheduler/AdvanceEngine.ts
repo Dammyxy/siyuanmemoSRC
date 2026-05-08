@@ -1,5 +1,5 @@
 ﻿/**
- * AdvanceEngine - 实现 SuperMemo Advance 算法
+ * AdvanceEngine - implements bounded schedule advance
  * 
  * 功能：
  * - 将卡片复习时间提前到指定范围内
@@ -15,7 +15,7 @@ import type { CardUpdatePort, RescheduleStoragePort } from './ports';
 import { BaseRescheduleEngine } from './BaseRescheduleEngine';
 
 /**
- * AdvanceEngine - 实现 SuperMemo Advance 算法
+ * AdvanceEngine - implements bounded schedule advance
  * 
  * 使用 DDD 架构：
  * - 依赖 RescheduleStoragePort 进行数据查询

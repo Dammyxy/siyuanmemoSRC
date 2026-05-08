@@ -342,14 +342,14 @@ type ReviewPluginContextLike = {
   getArenaKernelService?: () => {
     buildSrsRecommendation?: (
       card: FSRSCard,
-      currentSchedulerType?: 'fsrs-v6' | 'sm15' | 'a-factor-v2' | null,
+      currentSchedulerType?: 'fsrs-v6' | 'a-factor-v2' | null,
       now?: number,
       options?: { ratingBasis?: number; schedulingContext?: QueueReviewSchedulingContext | null },
     ) => Promise<SrsArenaRecommendation | null>;
-    recordSrsReview?: (input: { card: FSRSCard; rating: number; currentSchedulerType?: 'fsrs-v6' | 'sm15' | 'a-factor-v2' | null; schedulingContext?: QueueReviewSchedulingContext | null }) => Promise<unknown>;
+    recordSrsReview?: (input: { card: FSRSCard; rating: number; currentSchedulerType?: 'fsrs-v6' | 'a-factor-v2' | null; schedulingContext?: QueueReviewSchedulingContext | null }) => Promise<unknown>;
   } | undefined;
   getSchedulerRouter?: () => {
-    getSchedulerType?: (card: FSRSCard) => 'fsrs-v6' | 'sm15' | 'a-factor-v2';
+    getSchedulerType?: (card: FSRSCard) => 'fsrs-v6' | 'a-factor-v2';
   } | undefined;
   getUnifiedDataSourceManager?: () => IUnifiedDataSourceManagerFacade | null | undefined;
 };
@@ -785,7 +785,7 @@ function getArenaKernelService() {
   return contextFromProps?.getArenaKernelService?.() || contextFromWindow?.getArenaKernelService?.() || null;
 }
 
-function getSchedulerTypeForCard(card: FSRSCard | null | undefined): 'fsrs-v6' | 'sm15' | 'a-factor-v2' | null {
+function getSchedulerTypeForCard(card: FSRSCard | null | undefined): 'fsrs-v6' | 'a-factor-v2' | null {
   if (!card) {
     return null;
   }
@@ -796,7 +796,7 @@ function getSchedulerTypeForCard(card: FSRSCard | null | undefined): 'fsrs-v6' |
     return schedulerRouter.getSchedulerType(card);
   }
   const raw = String(card.schedulerType || '').trim();
-  return raw === 'sm15' || raw === 'a-factor-v2' ? raw : 'fsrs-v6';
+  return raw === 'a-factor-v2' ? raw : 'fsrs-v6';
 }
 
 function resolveActiveReviewQueueType(): string | null {

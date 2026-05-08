@@ -175,7 +175,7 @@
           <span>{{ t('postponeIncludeNonOutstanding', '包含未到期卡片 (Dilute 模式)') }}</span>
         </label>
         <p v-if="config.includeNonOutstanding" class="field-hint">
-          {{ t('postponeIncludeNonOutstandingHint', '启用后将处理所有选中的卡片，包括未到期的卡片（类似 SuperMemo 的 Dilute 操作）') }}
+          {{ t('postponeIncludeNonOutstandingHint', '启用后将处理所有选中的卡片，包括未到期的卡片。') }}
         </p>
         
         <label class="checkbox-label">

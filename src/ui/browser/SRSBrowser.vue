@@ -3340,11 +3340,11 @@ async function handleRebuildQueue() {
 
 /**
  * Open spread dialog
- * Spread collects cards automatically (SuperMemo style):
+ * Spread collects cards automatically:
  * - Default: collect Outstanding cards with due <= now
  * - considerFutureRepetitions: collect cards due <= now + collectingPeriod
  *
- * @see supermemo-reschedule-operations requirements 8.2, 10.4
+ * @see queue reschedule operations requirements 8.2, 10.4
  */
 async function handleOpenSpreadDialog() {
   await openBrowserSpreadDialog({

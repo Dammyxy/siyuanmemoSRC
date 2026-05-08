@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-08 (Round 306)
+Last update: 2026-05-08 (Round 307)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-08 - SRS legacy runtime surface removal guardrails
+
+- Task: Start OpenSpec `externalize-srs-algorithms-and-index-queues` on branch `externalize-srs-algorithms-and-index-queues`, first slice: remove bundled legacy SRS runtime surfaces and add source/dist hygiene guardrails.
+- Touched slice: Scheduler / Arena / Review worker contracts / settings and UI copy；`SchedulerRouter`、scheduler policy/state cleanliness、scheduler strategy exports、Arena SRS prediction path、settings/card/DTO/backend RPC scheduler types、worker scheduler validation、SRS transparency/display labels、browser fallback copy、i18n、hygiene scripts/tests、`ARCHITECTURE.md`、OpenSpec tasks。
+- Debt fixed now: Formal item/descriptor scheduling resolves to FSRS v6 even when old stored scheduler ids are present; Topic/Concept rotation stays internal A-Factor v2. Removed built-in SM-family scheduler implementations and SchedulerRouter/Arena construction paths, removed old scheduler settings/i18n/UI labels, and added `check:srs-runtime-hygiene` plus postbuild dist hygiene so removed runtime tokens cannot re-enter shipped source or distributable output.
+- Debt deferred: Neutral external algorithm manifest/runtime is not implemented yet; queue projection/index work is untouched; some historical `__tests__` fixtures still mention removed ids and need the 2.5 rewrite/removal pass before broad test sweeps.
+- Why deferred: This was the risk-reduction first slice: remove shipped built-in algorithm ownership and lock it with hygiene before adding a new external runtime boundary or changing queue storage semantics.
+- Next safe step: Rewrite/delete remaining old scheduler behavior fixtures, then implement the external manifest/runtime as disabled-by-default advisory-only before starting queue projection storage.
+- Validation: focused scheduler fallback test passed; hygiene test passed; `pnpm run check:srs-runtime-hygiene` passed; `pnpm run check:boundaries` passed; `pnpm build` passed with postbuild dist hygiene passed（保留既有 i18n hardcoded/Sass legacy warnings，阻断 0）。
 
 ### 2026-05-08 - Incremental review feedback read-model mirror
 

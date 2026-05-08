@@ -1642,5 +1642,5 @@ function resolveWorkerReviewSchedulerConfig(request: BackendReviewFeedbackReques
 }
 
 function isSchedulerType(value: unknown): value is SchedulerType {
-  return value === 'fsrs-v6' || value === 'sm15' || value === 'a-factor-v2';
+  return value === 'fsrs-v6' || value === 'a-factor-v2';
 }

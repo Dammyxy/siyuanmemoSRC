@@ -523,7 +523,7 @@ export interface BackendReviewFeedbackRequest {
 }
 
 export interface BackendReviewSchedulerConfig {
-  defaultScheduler?: 'fsrs-v6' | 'sm15' | 'a-factor-v2';
+  defaultScheduler?: 'fsrs-v6' | 'a-factor-v2';
   fsrsParams?: unknown;
 }
 

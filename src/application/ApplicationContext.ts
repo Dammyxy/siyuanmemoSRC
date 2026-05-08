@@ -1714,7 +1714,7 @@ export class ApplicationContext {
         sessionId?: string;
         reviewedAt?: number;
         scheduler?: {
-          defaultScheduler?: 'fsrs-v6' | 'sm15' | 'a-factor-v2';
+          defaultScheduler?: 'fsrs-v6' | 'a-factor-v2';
           fsrsParams?: Record<string, unknown>;
         };
       });

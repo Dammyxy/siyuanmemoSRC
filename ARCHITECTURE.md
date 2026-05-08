@@ -405,7 +405,7 @@ UI surface：
 - `src/application/services/AIWorkbenchSelfTestRuntime.ts`：AI self-test runtime helper；负责自测目标记忆归一化、候选卡筛选、旧插件模式草稿 payload/extract 与 appendable target 判定。
 - `src/application/services/AIWorkbenchCdfRuntime.ts`：AI CDF/write runtime helper；负责 CDF 选择状态、预览/建卡、概念文档搜索/绑定/新建，以及 assistant result 发送到思源的写入编排。
 - `src/application/services/ArenaStoreService.ts`：Arena store facade；SQL active 时写 `algorithm_registry / arena_predictions / arena_outcomes / arena_metric_bins / arena_score_snapshots / ai_arena_events / ai_card_attributions`，旧 `arena/store.json` 只作为迁移来源或 fallback；非复习 AI 动作通过 `commitBatch()` 把 match、score snapshot、card attribution 合成一次 store 提交，SQL path 只触发一次 persist，legacy JSON path 只读改写一次。
-- `src/application/services/ArenaKernelService.ts`：Arena 统一内核；负责 AI 场景池、策略包加权抽样、pin/retire/clone/challenge 管理、AI 行为评分、SRS 七选手只读 counterfactual、Universal/Calibration metric 与 delayed attribution；`recordAIEvent / applyAttributedReviewFeedback / selectAIPack` 以“一逻辑 AI 动作最多一次 persist”为边界提交。
+- `src/application/services/ArenaKernelService.ts`：Arena 统一内核；负责 AI 场景池、策略包加权抽样、pin/retire/clone/challenge 管理、AI 行为评分、SRS 内置 FSRS v6 只读 baseline/advisory、Universal/Calibration metric 与 delayed attribution；`recordAIEvent / applyAttributedReviewFeedback / selectAIPack` 以“一逻辑 AI 动作最多一次 persist”为边界提交。
 - `src/application/services/ReviewAIWorkbenchRegistry.ts`：AI 工作台会话注册中心。
 - `src/application/services/AIChatSkillRegistry.ts`：通用 AI chat Skill 注册表；负责合并内置 Skill 与 `settings.ai.userSkills[]`，并把用户 chat / structured skill 解析成统一的 runtime 描述符与 tab/section 元数据。
 - `src/application/services/AIChatToolRegistry.ts`：AI chat 工具描述符、工具组、执行策略与可见性注册。
@@ -460,9 +460,7 @@ Handlers / entries / helpers：
 - `src/core/queue/neural/*`：神经漫游引擎、历史、trace、传播相关能力。
 - `src/core/scheduler/SchedulerRouter.ts`：全局调度路由器。
 - `src/core/scheduler/AdvanceEngine.ts` / `PostponeEngine.ts` / `SpreadEngine.ts` / `rescheduleService.ts`：重排与计划引擎；浏览器 Spread 全局默认只收 due/outstanding，勾选“考虑未来复习”才纳入收集期内未来卡，队列模式用 `collectAllCards` 分摊当前队列全集。
-- `src/core/scheduler/strategies/*`：具体调度器实现。
-- `src/core/scheduler/strategies/SM2ReadOnlyScheduler.ts`：Arena 专用 SM-2 只读评估器，只参与 counterfactual，不进入正式调度路由。
-- `src/core/scheduler/strategies/ClassicSMScheduler.ts`：Arena 专用 classic SM 家族只读评估器，覆盖 `sm5 / sm8 / sm18 / sm20` 的 shadow prediction，不进入正式调度路由。
+- `src/core/scheduler/strategies/*`：具体调度器实现；运行时只内置 FSRS v6 formal memory scheduler 与 Topic/Concept 内部 A-Factor v2 rotation scheduler，旧 SM-family 只读选手不再随插件发布。
 
 存储、卡片、修远：
 
@@ -911,8 +909,8 @@ UI 层：
 - 队列通过 `QueueReviewSchedulingContext` 只声明成员资格之外的会话语义，例如 `queueType / queueMode / commitPolicy / isFiltered / customStudy`；调度写入是否发生由 SRS v2 commit policy 决定。手动 future 卡和 `FilterGroup` future 卡默认 `filtered-preview + preview-only`，只有显式重排/设置切换才 `write-schedule`
 - `FinalDrill` 是练习覆盖层，不走正式调度，只追加独立 `DrillLogV2` 月度分片；`NeuralRoam` 绑定真实卡时可提交正式 SRS，但不会因 due 窗口自动退出 session；`Leech` 只负责难点治理成员资格，正式复习仍走 SRS v2
 - 成功写正式排期时，backend worker 在 `review.feedback` 事务内追加 `ReviewLogV2` 到 `review_events`；旧月度 JSON 分片只作为 fallback/迁移来源；旧 `ReviewLog` 保留只读/兼容，`DrillLogV2` 默认不参与 FSRS 参数优化和 Arena 正式归因
-- 对不支持的调度路径显式报错，而不是静默降级
-- 对 item / descriptor 复习，Arena 开启后会在正式调度之外通过 contestant adapters 并行预估 `fsrs-v6 / sm2 / sm5 / sm8 / sm15 / sm18 / sm20` 七个只读选手，输出四按钮预测、置信度、解释、归因字段、weighted optimum、分歧幅度和领先者；`sm19` 只注册为 `official-pending` 禁用算法，`a-factor-v2` 不进入 v1 SRS contest pack
+- 对不支持的队列/调度路径显式报错；对卡片上残留的不支持 `schedulerType`，正式 item / descriptor 调度按卡型回落到 FSRS v6，不迁移为内置旧算法或外部 writer
+- 对 item / descriptor 复习，Arena 开启后只保留内置 `fsrs-v6` baseline/advisory；旧 SM-family contestant adapters 已移除，不再随插件提供 shadow prediction。外部算法 runtime 是后续独立边界，进入 writer promotion 前必须保持 advisory-only，不可接管正式 due 写入
 - SRS Arena 主评分是 Universal/Calibration metric：按 predicted retrievability 进入 0.0-1.0 十分箱，SQL 中维护 `arena_metric_bins`，快照里的 score 用负 RMS 表示“越接近 0 越好”；Brier/即时误差只做诊断信号
 - `SrsTransparencyApplicationService` / `SrsEditorDialog.vue` / `ReviewView.vue` 只展示轻量分歧提示和透明度事实；只有 `arena.srs.advisoryOnly === false` 且样本数达到 `minimumReviewsForConfidence` 时才允许进入实验写入路径，默认不接管正式 due
 
@@ -1043,7 +1041,7 @@ UI 层：
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中
 - AI Workbench / Capture 已在主路径中，并升级为通用 chat shell + Skill runtime；standalone 默认 `general-chat`，review 默认 Skill 由 `settings.ai.chatDefaults.reviewDefaultSkillId` 决定（默认 `general-chat`），review 聊天按队列级 `reviewChatKey` 复用持久化会话但 live runtime 仍按真实 review session 隔离
-- Arena 已在组合根中作为应用层内核装配，但默认关闭：启用后 AI Arena 管理显式场景池和策略包评分，SRS Arena 对 item / descriptor 通过 `fsrs-v6 / sm2 / sm5 / sm8 / sm15 / sm18 / sm20` contestant adapters 做只读建议，`sm19` 只登记为官方实现待接入；它只提供透明度、权重建议、挑战者管理和 delayed attribution，默认不接管正式模型选择或调度写回
+- Arena 已在组合根中作为应用层内核装配，但默认关闭：启用后 AI Arena 管理显式场景池和策略包评分，SRS Arena 当前只使用内置 `fsrs-v6` baseline/advisory；旧 SM-family contestants 不再发布，外部算法接入必须走后续 manifest/runtime 边界且保持 advisory-only。Arena 只提供透明度、权重建议、挑战者管理和 delayed attribution，默认不接管正式模型选择或调度写回
 - AI 设置主结构是 `providers[] + defaultModelId + chatDefaults + webSearch + toolPolicies + skillPromptOverrides + userSkills[]`；旧 `baseUrl/apiKey/model` 只作为读取兼容和迁移来源
 - AI 设置页现在区分“内置 Skill 覆盖”和“用户声明式 Skill 管理”：`concept-coach` 仍沿用 `skills.conceptCoach.baseRun` 与 `skills.conceptCoach.tabs.<tab>.{run,followUp}`，默认推荐模板已经切到 Andy 兼容语义；用户 skill 通过 `userSkills[]` 声明 Prompt、工具组、sections、renderer 和 surface hints；结构化 JSON 契约仍由系统注册表托管，不开放 JS/HTML/runtime 脚本
 - AI chat runtime 当前支持插件内读工具、网页抓取/可选搜索、变量缓存、tool timeline、树形 worldline、compact reply projection 和写工具审批卡；第一阶段不做本地文件系统/脚本执行，也不做独立图形化 world-tree 页面

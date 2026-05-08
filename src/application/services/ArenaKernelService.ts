@@ -3,10 +3,7 @@ import type { SchedulerType } from '@/core/scheduler';
 import { Rating, type FSRSCard } from '@/types/card';
 import type { AIChatRegisteredSkillDescriptor } from '@/application/services/AIChatSkillRegistry';
 import { resolveSchedulerTypeLabel, resolveSrsArenaContestantLabel } from '@/application/helpers/srsDisplayLabels';
-import { SM15Scheduler } from '@/core/scheduler/strategies/SM15Scheduler';
-import { SM2ReadOnlyScheduler } from '@/core/scheduler/strategies/SM2ReadOnlyScheduler';
 import { TSFSRSScheduler } from '@/core/scheduler/strategies/TSFSRSScheduler';
-import { ClassicSMScheduler, type ClassicSMVariant } from '@/core/scheduler/strategies/ClassicSMScheduler';
 import type {
   ArenaContestantContract,
   ArenaContestantPrediction as CoreArenaContestantPrediction,
@@ -106,8 +103,8 @@ function toIntervalDays(due: number, now: number): number {
   return Math.max(0, (Number(due) - now) / DAY_MS);
 }
 
-function toArenaAlgorithm(contestantId: SrsArenaContestantId): SrsV2AlgorithmFamily | string {
-  return contestantId === 'fsrs-v6' ? 'memory-fsrs' : 'legacy-advisory';
+function toArenaAlgorithm(_contestantId: SrsArenaContestantId): SrsV2AlgorithmFamily | string {
+  return 'memory-fsrs';
 }
 
 function nextCalibrationScore(entry: ArenaScoreEntry, predicted: number, actual: boolean): number {
@@ -458,9 +455,7 @@ export class ArenaKernelService {
     const contestants = this.buildSrsPredictions(card, settings.srs.contestantIds, snapshot.entries, weights, predictionContext);
     const weightedIntervalDays = contestants.reduce((sum, contestant) => sum + contestant.intervalDays * contestant.weight, 0);
     const weightedDue = predictionContext.reviewTime + weightedIntervalDays * DAY_MS;
-    const currentSchedulerPrediction = currentSchedulerType === 'sm15'
-      ? contestants.find((entry) => entry.contestantId === 'sm15')
-      : contestants.find((entry) => entry.contestantId === 'fsrs-v6');
+    const currentSchedulerPrediction = contestants.find((entry) => entry.contestantId === 'fsrs-v6');
     const currentSchedulerIntervalDays = currentSchedulerPrediction?.intervalDays || weightedIntervalDays;
     const discrepancyRatio = currentSchedulerIntervalDays > 0
       ? Math.abs(weightedIntervalDays - currentSchedulerIntervalDays) / Math.max(1, currentSchedulerIntervalDays)
@@ -1093,7 +1088,7 @@ export class ArenaKernelService {
         retrievability,
         advisoryOnly: true,
         source: 'srs-arena-contestant-contract',
-        parameterHash: contestantId === 'fsrs-v6' ? 'settings.fsrs' : 'settings.fsrs.retention',
+        parameterHash: 'settings.fsrs',
       },
     };
   }
@@ -1112,22 +1107,9 @@ export class ArenaKernelService {
     }));
   }
 
-  private getSrsScheduler(contestantId: SrsArenaContestantId) {
+  private getSrsScheduler(_contestantId: SrsArenaContestantId) {
     const params = this.deps.getFsrsParams();
-    switch (contestantId) {
-      case 'sm15':
-        return new SM15Scheduler(params);
-      case 'sm2':
-        return new SM2ReadOnlyScheduler(params);
-      case 'sm5':
-      case 'sm8':
-      case 'sm18':
-      case 'sm20':
-        return new ClassicSMScheduler(contestantId as ClassicSMVariant, params);
-      case 'fsrs-v6':
-      default:
-        return new TSFSRSScheduler(params);
-    }
+    return new TSFSRSScheduler(params);
   }
 
   private async applyAttributedReviewFeedback(cardId: string, pass: boolean, rating: number): Promise<void> {

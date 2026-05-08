@@ -1,6 +1,6 @@
 import { CardType, type FSRSCard } from '@/types/card';
 
-export type SchedulerType = 'fsrs-v6' | 'sm15' | 'a-factor-v2';
+export type SchedulerType = 'fsrs-v6' | 'a-factor-v2';
 
 const PREFERRED_SCHEDULER_BY_CARD_TYPE: Partial<Record<CardType | string, SchedulerType>> = {
   [CardType.Item]: 'fsrs-v6',
@@ -31,10 +31,6 @@ export function resolveStoredSchedulerType(raw: unknown): SchedulerType | null {
     return 'fsrs-v6';
   }
 
-  if (normalized === 'sm15') {
-    return 'sm15';
-  }
-
   if (normalized === 'a-factor' || normalized === 'a-factor-v2') {
     return 'a-factor-v2';
   }
@@ -51,13 +47,6 @@ export function resolveEffectiveSchedulerTypeForCard(
   } = {},
 ): SchedulerType {
   const storedScheduler = resolveStoredSchedulerType(card.schedulerType);
-  const hasUnsupportedStoredScheduler = typeof card.schedulerType === 'string'
-    && card.schedulerType.trim().length > 0
-    && !storedScheduler;
-  if (hasUnsupportedStoredScheduler && options.strict) {
-    throw new Error(`Card ${card.id} has unsupported scheduler type: ${card.schedulerType}`);
-  }
-
   const preferredScheduler = getPreferredSchedulerForCardType(card.type);
   if (preferredScheduler) {
     return preferredScheduler;
@@ -68,14 +57,8 @@ export function resolveEffectiveSchedulerTypeForCard(
     return override;
   }
 
-  if (card.schedulerType) {
-    if (storedScheduler) {
-      return storedScheduler;
-    }
-
-    if (options.strict) {
-      throw new Error(`Card ${card.id} has unsupported scheduler type: ${card.schedulerType}`);
-    }
+  if (storedScheduler) {
+    return storedScheduler;
   }
 
   return options.defaultScheduler ?? 'fsrs-v6';

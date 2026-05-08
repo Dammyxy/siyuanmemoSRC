@@ -1641,7 +1641,6 @@ const schedulerConfig = ref(createDefaultSettingsSchedulerConfig());
 // 调度器说明
 const schedulerDescriptions: Record<string, string> = {
   'fsrs-v6': '现代算法，准确预测遗忘曲线，推荐使用',
-  'sm15': 'Arena Challenger 15，完整的遗忘曲线系统',
   'a-factor-v2': '改进的 A-Factor，动态调整难度',
 };
 

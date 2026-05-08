@@ -1,5 +1,5 @@
 ﻿/**
- * PostponeEngine - 实现 SuperMemo Postpone 算法
+ * PostponeEngine - implements bounded schedule postponement
  * 
  * 功能：
  * - 根据延迟因子计算新的 due date
@@ -14,7 +14,7 @@ import type { CardUpdatePort, RescheduleStoragePort } from './ports';
 import { BaseRescheduleEngine } from './BaseRescheduleEngine';
 
 /**
- * PostponeEngine - 实现 SuperMemo Postpone 算法
+ * PostponeEngine - implements bounded schedule postponement
  * 
  * 使用 DDD 架构：
  * - 依赖 RescheduleStoragePort 进行数据查询

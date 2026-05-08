@@ -130,7 +130,7 @@ export interface CardProps {
   createdAt: number;
   updatedAt: number;
   aFactor?: number;
-  schedulerType?: 'fsrs-v6' | 'sm2' | 'sm15' | 'a-factor' | 'a-factor-v2' | 'riff';
+  schedulerType?: 'fsrs-v6' | 'a-factor-v2' | 'riff' | string;
   syncToRiff?: boolean;
   riffCardId?: string;
   schedulerMeta?: SchedulerMeta;
@@ -194,7 +194,7 @@ export class Card {
   private _aFactor?: number;
 
   // === 调度器相关 ===
-  private _schedulerType?: 'fsrs-v6' | 'sm2' | 'sm15' | 'a-factor' | 'a-factor-v2' | 'riff';
+  private _schedulerType?: 'fsrs-v6' | 'a-factor-v2' | 'riff' | string;
   private _syncToRiff?: boolean;
   private _riffCardId?: string;
   private _schedulerMeta?: SchedulerMeta;

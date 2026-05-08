@@ -75,15 +75,10 @@ export interface CardPersistenceDTO {
   aFactor?: number;
 
   // ==================== 调度器相关 ====================
-  schedulerType?: 'fsrs-v6' | 'sm2' | 'sm15' | 'a-factor' | 'a-factor-v2' | 'riff';
+  schedulerType?: 'fsrs-v6' | 'a-factor-v2' | 'riff' | string;
   syncToRiff?: boolean;
   riffCardId?: string;
   schedulerMeta?: {
-    sm15?: {
-      of: number;
-      optimumInterval: number;
-      afs: number[];
-    };
     topic?: {
       afs: number[];
       of: number;
