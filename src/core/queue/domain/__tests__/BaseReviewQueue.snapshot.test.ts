@@ -43,12 +43,13 @@ class TestQueue extends BaseReviewQueue {
   constructor(
     private sourceCards: FSRSCard[],
     managerOverrides: Record<string, unknown> = {},
+    queueType: QueueType = QueueType.RetrievalPractice,
   ) {
     super({
       notifyObservers: vi.fn(),
       updateCard: vi.fn(),
       ...managerOverrides,
-    } as never, QueueType.RetrievalPractice);
+    } as never, queueType);
   }
 
   async getCards(): Promise<FSRSCard[]> {
@@ -215,6 +216,32 @@ describe('BaseReviewQueue snapshot rows', () => {
       { forceRefresh: false },
     );
     expect(getCardsSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    QueueType.FilterGroup,
+    QueueType.FinalDrill,
+    QueueType.Leech,
+    QueueType.NeuralRoam,
+  ])('keeps %s on existing strategy snapshot reads when projection is not ready', async (queueType) => {
+    const cardA = buildCard('card-a', { riffCardId: 'riff-a' });
+    const cardB = buildCard('card-b');
+    const readProjectionSnapshot = vi.fn(async () => null);
+    const getProjectionCardsBySnapshotIds = vi.fn(async () => []);
+    const queue = new TestQueue([cardA, cardB], {
+      readQueueProjectionSnapshot: readProjectionSnapshot,
+      getQueueProjectionCardsBySnapshotIds: getProjectionCardsBySnapshotIds,
+    }, queueType);
+    const getCardsSpy = vi.spyOn(queue, 'getCards');
+
+    const rows = await queue.getSnapshotRows();
+    const cards = await queue.getCardsBySnapshotIds(['card-b', 'riff-a']);
+
+    expect(rows.map((row) => row.id)).toEqual(['riff-a', 'card-b']);
+    expect(cards.map((card) => card.id)).toEqual(['card-b', 'card-a']);
+    expect(readProjectionSnapshot).toHaveBeenCalledWith(queueType, { forceRefresh: false });
+    expect(getProjectionCardsBySnapshotIds).not.toHaveBeenCalled();
+    expect(getCardsSpy).toHaveBeenCalledTimes(1);
   });
 
   it('rebuilds snapshot rows after reorder, insertAt, clear, and force refresh', async () => {

@@ -10,6 +10,7 @@ import type {
   DataChangeEvent,
   IReviewQueue,
   QueueProjectionSnapshot,
+  QueueProjectionRolloutDiagnostic,
   QueueType,
 } from '@/types/unified-data-source';
 import type { DrillLogV2 } from '@/types/review';
@@ -59,6 +60,7 @@ export interface QueueRuntimePort {
     ids: string[],
     options?: { forceRefresh?: boolean },
   ): Promise<FSRSCard[]>;
+  getQueueProjectionRolloutDiagnostics?(queueType?: QueueType): QueueProjectionRolloutDiagnostic[];
 }
 
 export interface QueueInitialLoadAware {
@@ -93,4 +95,5 @@ export interface UnifiedDataSourceManager {
     ids: string[],
     options?: { forceRefresh?: boolean },
   ): Promise<FSRSCard[]>;
+  getQueueProjectionRolloutDiagnostics?(queueType?: QueueType): QueueProjectionRolloutDiagnostic[];
 }

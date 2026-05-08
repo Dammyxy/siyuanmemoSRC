@@ -113,6 +113,17 @@ export interface QueueProjectionSnapshot {
     counters: QueueCounterSnapshot | null;
 }
 
+export type QueueProjectionReadPath = 'backend-projection' | 'existing-queue-strategy';
+export type QueueProjectionRolloutReason = 'rollout-enabled' | 'projection-rollout-pending';
+
+export interface QueueProjectionRolloutDiagnostic {
+    queueType: QueueType;
+    projectionBacked: boolean;
+    readPath: QueueProjectionReadPath;
+    reason: QueueProjectionRolloutReason;
+    nextCoverageTask: string | null;
+}
+
 export interface QueueReviewResult {
     updatedCard: FSRSCard | null;
     removedFromQueue: boolean;
@@ -218,6 +229,7 @@ export interface IUnifiedDataSourceManagerFacade {
     getQueue(type: QueueType): IReviewQueue;
     batchAddToQueue?(type: QueueType, cards: QueueBulkAddInput[], source?: QueueAddSource): Promise<QueueBulkMutationResult>;
     batchRemoveFromQueue?(type: QueueType, cardIdsOrBlockIds: string[]): Promise<QueueBulkMutationResult>;
+    getQueueProjectionRolloutDiagnostics?(queueType?: QueueType): QueueProjectionRolloutDiagnostic[];
     getAvailableQueueTypes(): QueueType[];
     registerObserver(observer: IDataSourceObserver): void;
     unregisterObserver(observer: IDataSourceObserver): void;

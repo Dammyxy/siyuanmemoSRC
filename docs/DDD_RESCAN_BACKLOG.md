@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-08 (Round 312)
+Last update: 2026-05-08 (Round 313)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-08 - Queue projection rollout diagnostics
+
+- Task: Finish OpenSpec `externalize-srs-algorithms-and-index-queues` 9.x/10.x by adding non-rollout queue diagnostics, preserving existing strategy reads, recording later coverage notes, and closing verification.
+- Touched slice: Queue / Review / Browser / Scheduler verification；`src/application/services/UnifiedDataSourceManager.ts`、`src/types/unified-data-source.ts`、`src/core/queue/managers/UnifiedDataSourceManager.ts`、`src/core/queue/domain/__tests__/BaseReviewQueue.snapshot.test.ts`、`src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts`、`ARCHITECTURE.md`、OpenSpec design/tasks/manual-validation。
+- Debt fixed now: Added explicit queue projection rollout diagnostics so RetrievalPractice / IncrementalLearning report `backend-projection`, while FilterGroup / FinalDrill / Leech / NeuralRoam report `existing-queue-strategy` with queue-specific next coverage notes. Non-rollout snapshot reads no longer call backend projection RPC. `BaseReviewQueue` regression now protects strategy snapshot/card reads for non-rollout queues, and design docs record queue-by-queue parity gates plus boundary rules against UI direct SQL/RPC and writer bypasses.
+- Debt deferred: Projection backing for FilterGroup / FinalDrill / Leech / NeuralRoam remains deferred, and live review feedback / Browser counts / two-window writer-follower smoke was not rerun from this headless continuation.
+- Why deferred: Each remaining queue needs queue-specific parity design before sharing the projection index safely. Live two-window SiYuan smoke needs an attached desktop session and operator actions, so this pass records a manual checklist instead of claiming live evidence.
+- Next safe step: Run the operator smoke checklist in `openspec/changes/externalize-srs-algorithms-and-index-queues/manual-validation.md`, then open a focused follow-up for the first non-rollout queue projection parity slice.
+- Validation: Initial red test confirmed `getQueueProjectionRolloutDiagnostics` was missing; after implementation, focused queue rollout tests passed. `pnpm vitest run src\core\scheduler\__tests__\SchedulerRouter.fsrs-v6.test.ts src\core\scheduler\__tests__\schedulingStateCleanliness.test.ts src\types\__tests__\settings-normalization.test.ts src\application\services\external-srs\__tests__\ExternalSrsAlgorithmRuntime.test.ts src\infrastructure\services\__tests__\ExternalSrsAlgorithmFileHost.test.ts src\infrastructure\persistence\sqlite\__tests__\SqlExternalSrsAlgorithmRegistryRepository.test.ts scripts\__tests__\check-srs-runtime-hygiene.test.ts src\application\services\__tests__\UnifiedDataSourceManager.queue-projection-rollout.test.ts src\core\queue\domain\__tests__\BaseReviewQueue.snapshot.test.ts --reporter=dot` passed（9 files / 61 tests）；`pnpm run check:boundaries` passed with source SRS runtime hygiene；`pnpm build` passed with postbuild SRS dist hygiene passed（保留既有 i18n hardcoded/Sass legacy warnings，阻断 0）；`openspec validate externalize-srs-algorithms-and-index-queues --strict` passed；`openspec instructions apply --change "externalize-srs-algorithms-and-index-queues" --json` reports 63/63 tasks complete。
 
 ### 2026-05-08 - Projection-backed queue consumer routing
 

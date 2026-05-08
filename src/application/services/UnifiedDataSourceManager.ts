@@ -24,6 +24,7 @@ import {
     type QueueBulkAddInput,
     type QueueBulkMutationResult,
     type QueueProjectionSnapshot,
+    type QueueProjectionRolloutDiagnostic,
 } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
 import type { DrillLogV2 } from '@/types/review';
@@ -51,6 +52,27 @@ import type {
 } from '../../../packages/contracts/src/backend-rpc';
 
 const logger = createLogger('UnifiedDataSourceManager');
+
+const QUEUE_PROJECTION_ROLLOUT_ORDER: QueueType[] = [
+    QueueType.RetrievalPractice,
+    QueueType.IncrementalLearning,
+    QueueType.FilterGroup,
+    QueueType.FinalDrill,
+    QueueType.Leech,
+    QueueType.NeuralRoam,
+];
+
+const QUEUE_PROJECTION_BACKED_TYPES = new Set<QueueType>([
+    QueueType.RetrievalPractice,
+    QueueType.IncrementalLearning,
+]);
+
+const QUEUE_PROJECTION_PENDING_NEXT_STEPS: Partial<Record<QueueType, string>> = {
+    [QueueType.FilterGroup]: 'Add projection parity for filter definitions, filter-session transfer, and custom-study scheduling policy.',
+    [QueueType.FinalDrill]: 'Add projection parity for drill entries, drill logs, FlipElement ordering, and non-scheduling feedback.',
+    [QueueType.Leech]: 'Add projection parity for lapse/manual membership, leech action side effects, and formal review retention.',
+    [QueueType.NeuralRoam]: 'Add projection parity for neural engine session state, synthetic nodes, and associated-review cards.',
+};
 
 interface UnifiedManagerPluginContextLike {
     getScheduler?: () => unknown;
@@ -353,7 +375,10 @@ export class UnifiedDataSourceManager {
         options: { forceRefresh?: boolean } = {},
     ): Promise<QueueProjectionSnapshot | null> {
         if (!this.isProjectionBackedQueue(queueType)) {
-            logger.debug('Queue projection snapshot not enabled for queue type', { queueType });
+            logger.info('Queue projection rollout diagnostic', {
+                ...this.getQueueProjectionRolloutDiagnostics(queueType)[0],
+                forceRefresh: options.forceRefresh === true,
+            });
             return null;
         }
 
@@ -471,8 +496,25 @@ export class UnifiedDataSourceManager {
     }
 
     private isProjectionBackedQueue(queueType: QueueType): boolean {
-        return queueType === QueueType.RetrievalPractice
-            || queueType === QueueType.IncrementalLearning;
+        return QUEUE_PROJECTION_BACKED_TYPES.has(queueType);
+    }
+
+    public getQueueProjectionRolloutDiagnostics(queueType?: QueueType): QueueProjectionRolloutDiagnostic[] {
+        const queueTypes = queueType ? [queueType] : QUEUE_PROJECTION_ROLLOUT_ORDER;
+        return queueTypes.map((entry) => this.buildQueueProjectionRolloutDiagnostic(entry));
+    }
+
+    private buildQueueProjectionRolloutDiagnostic(queueType: QueueType): QueueProjectionRolloutDiagnostic {
+        const projectionBacked = this.isProjectionBackedQueue(queueType);
+        return {
+            queueType,
+            projectionBacked,
+            readPath: projectionBacked ? 'backend-projection' : 'existing-queue-strategy',
+            reason: projectionBacked ? 'rollout-enabled' : 'projection-rollout-pending',
+            nextCoverageTask: projectionBacked
+                ? null
+                : QUEUE_PROJECTION_PENDING_NEXT_STEPS[queueType] ?? 'Add projection parity before switching this queue off strategy reads.',
+        };
     }
 
     public getDayStartHour(): number {
