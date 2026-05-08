@@ -127,7 +127,7 @@ function normalizeLabel(value: string, fallback: string): string {
 }
 
 function isSensitiveMetadataKey(key: string): boolean {
-  return /(answer|body|content|html|kramdown|markdown|prompt|secret|text|token)/i.test(key);
+  return /(answer|body|content|html|kramdown|markdown|payload|prompt|secret|text|token)/i.test(key);
 }
 
 function sanitizeMetadataValue(key: string, value: unknown): JsonValue | undefined {

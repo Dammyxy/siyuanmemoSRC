@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-08 (Round 303)
+Last update: 2026-05-08 (Round 304)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-08 - Stale transaction relay backlog diagnostics
+
+- Task: Apply OpenSpec `diagnose-stale-transaction-relay-backlog-jank` to classify stale writer-relay transaction backlog jank without hiding queued work or adding local fallback writes.
+- Touched slice: Siyuan integration / writer relay diagnostics；`src/application/clients/FrontendInstanceRuntime.ts`、`src/utils/runtimePerformanceDiagnostics.ts`、focused relay/diagnostics tests、`ARCHITECTURE.md`、dated performance report、live 6x marker smoke artifacts、OpenSpec tasks。
+- Debt fixed now: Relay drain diagnostics now expose bounded transaction freshness (`freshTransactionCommandCount/staleTransactionCommandCount/transactionCommandAgeClass`), max-delay cap state, wake source, push relay state/reconnect attempts, and command age. `writer.take-command` / `writer.complete-command` spans now show queue status, command id/method/requester, pending count, age class, cap hit, and completion status. Metadata sanitization now redacts `payload` keys, and tests assert command params/result bodies are not emitted.
+- Debt deferred: No `kernel.js` queue metadata or relay scheduling change was added; live evidence points to reconnect wake stale backlog plus sidecar/client take/complete wall clock, not a pre-take kernel ownership gap. Plugin-off low-end baseline/system red rows, VM rows, and any AutoCard/Riff/Browser/bundle changes remain separate.
+- Why deferred: Changing scheduling/drop/coalesce or moving queue ownership deeper into `kernel.js` would risk writer relay order/idempotency/complete-fail contracts before the new metadata proves which latency owner is safe to change.
+- Next safe step: Use the new live metadata to choose a focused fix for sidecar `takeCommand` / `completeCommand` latency, reconnect backlog pacing, or startup contamination isolation; keep explicit unavailable/error behavior and no local fallback.
+- Validation: Focused Vitest passed (`5` files / `71` tests)；`pnpm run check:boundaries` passed；`pnpm build` passed with existing non-blocking i18n/Sass warnings；rebuilt `dist/*` deployed to `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo` and live `index.js` SHA256 matched `dist/index.js`；post-deploy visible 6x Browser-closed plugin-off/plugin-on marker smokes and warm/probe row were captured in `docs/performance/live-stale-relay-post-diagnostics-*.json`；`openspec validate diagnose-stale-transaction-relay-backlog-jank --strict` passed.
 
 ### 2026-05-08 - Marker transaction relay continuation cap
 

@@ -85,6 +85,8 @@ describe('runtimePerformanceDiagnostics', () => {
       blockId: '20260507112233-abcdefg',
       kramdown: 'secret note body',
       promptText: 'secret prompt',
+      apiToken: 'secret token',
+      cardPayload: 'secret card payload',
       nested: { value: 'not copied' },
       veryLong: 'x'.repeat(180),
     });
@@ -102,6 +104,8 @@ describe('runtimePerformanceDiagnostics', () => {
       blockId: '20260507112233-abcdefg',
       kramdown: '[redacted]',
       promptText: '[redacted]',
+      apiToken: '[redacted]',
+      cardPayload: '[redacted]',
       nested: '[object]',
     });
     expect(String(report.slowestEvents[0].metadata?.veryLong).length).toBeLessThanOrEqual(123);

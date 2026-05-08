@@ -76,6 +76,32 @@ interface FrontendOwnershipSnapshot {
   leaseObservedAt: number;
 }
 
+type RelayWakeSource = 'push' | 'reconnect' | 'watchdog' | 'continuation' | 'manual';
+
+type RelayTransactionCommandAgeClass = 'none' | 'fresh' | 'stale' | 'mixed' | 'non-transaction';
+
+interface RelayCommandDiagnosticsPayload {
+  commandAgeMs: number;
+  commandAgeClass: RelayTransactionCommandAgeClass;
+  maxDelayCapHit: boolean;
+}
+
+interface FrontendRelayCommand {
+  commandId: string;
+  requesterInstanceId: string;
+  method: string;
+  params?: unknown;
+  idempotencyKey?: string;
+  requestedAt: number;
+  expiresAt?: number;
+}
+
+interface FrontendWriterTakeCommandResult {
+  command: FrontendRelayCommand | null;
+  pendingCommandCount?: number;
+  now: number;
+}
+
 function createDefaultInstanceId(): string {
   return `memo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -831,6 +857,8 @@ export class FrontendInstanceRuntime {
     let budgetExceeded = false;
     let yieldReason: string | null = null;
     let transactionCommandCount = 0;
+    let freshTransactionCommandCount = 0;
+    let staleTransactionCommandCount = 0;
     let maxCommandAgeMs = 0;
     let continuationDelayMs = 0;
     const commandTypes = new Set<string>();
@@ -839,9 +867,7 @@ export class FrontendInstanceRuntime {
     this.drainingRelay = true;
     try {
       for (let i = 0; i < WRITER_RELAY_DRAIN_MAX_COMMANDS_PER_WAKE; i += 1) {
-        const pulled = await measureRuntimePerformance('relay', 'writer.take-command', () => this.sidecarClient.writerTakeCommand({
-          instanceId: this.instanceId,
-        }), { wakeReason: reason });
+        const pulled = await this.takeWriterRelayCommand(reason);
         pendingCommandCount = Math.max(0, Math.trunc(Number(pulled.pendingCommandCount) || 0));
         if (!pulled.command) {
           break;
@@ -849,10 +875,16 @@ export class FrontendInstanceRuntime {
         commandCount++;
         const command = pulled.command;
         commandTypes.add(command.method);
+        const commandDiagnostics = this.buildRelayCommandDiagnostics(command);
         if (this.isKernelTransactionRelayCommand(command.method)) {
           transactionCommandCount++;
+          if (commandDiagnostics.maxDelayCapHit) {
+            staleTransactionCommandCount++;
+          } else {
+            freshTransactionCommandCount++;
+          }
         }
-        maxCommandAgeMs = Math.max(maxCommandAgeMs, this.resolveRelayCommandAgeMs(command.requestedAt));
+        maxCommandAgeMs = Math.max(maxCommandAgeMs, commandDiagnostics.commandAgeMs);
         this.relayDrainCoalescedCommandIds.delete(command.commandId);
         if (handledCommandIds.has(command.commandId)) {
           incrementRuntimePerformanceCounter('relay', 'writer-drain-duplicate-taken-commands');
@@ -881,14 +913,7 @@ export class FrontendInstanceRuntime {
             method: command.method,
             wakeReason: reason,
           });
-          await measureRuntimePerformance('relay', 'writer.complete-command', () => this.sidecarClient.writerCompleteCommand({
-            instanceId: this.instanceId,
-            commandId: command.commandId,
-            result,
-          }), {
-            method: command.method,
-            wakeReason: reason,
-          });
+          await this.completeWriterRelayCommand(reason, command, result);
           const completionDiagnostics = getRelayCompletionExtraDiagnostics(command.method, result);
           if (completionDiagnostics) {
             const completionContext = {
@@ -1006,15 +1031,96 @@ export class FrontendInstanceRuntime {
         commandTypes: Array.from(commandTypes),
         commandTypeSummary: Array.from(commandTypes).join(','),
         transactionCommandCount,
+        freshTransactionCommandCount,
+        staleTransactionCommandCount,
         maxCommandAgeMs,
+        maxDelayCapHit: staleTransactionCommandCount > 0,
+        transactionCommandAgeClass: this.resolveDrainTransactionCommandAgeClass({
+          freshTransactionCommandCount,
+          staleTransactionCommandCount,
+          transactionCommandCount,
+        }),
         transactionMaxDelayMs: this.relayTransactionMaxDelayMs,
         continuationDelayMs,
         status,
         wakeReason: reason,
+        ...this.buildRelayWakeDiagnostics(reason),
       }, {
         ok: status === 'drained' || status === 'yielded',
         errorName: status === 'drained' || status === 'yielded' ? undefined : 'WriterRelayDrainError',
       });
+    }
+  }
+
+  private async takeWriterRelayCommand(reason: string): Promise<FrontendWriterTakeCommandResult> {
+    const finishTakeSpan = startRuntimePerformanceSpan('relay', 'writer.take-command', {
+      wakeReason: reason,
+      ...this.buildRelayWakeDiagnostics(reason),
+    });
+    try {
+      const pulled = await this.sidecarClient.writerTakeCommand({
+        instanceId: this.instanceId,
+      }) as FrontendWriterTakeCommandResult;
+      const pendingCommandCount = Math.max(0, Math.trunc(Number(pulled.pendingCommandCount) || 0));
+      const command = pulled.command ?? null;
+      const commandDiagnostics = command
+        ? this.buildRelayCommandDiagnostics(command)
+        : {
+            commandAgeMs: 0,
+            commandAgeClass: 'none' as const,
+            maxDelayCapHit: false,
+          };
+      finishTakeSpan({
+        queueStatus: command ? 'command' : 'empty',
+        commandId: command?.commandId ?? null,
+        method: command?.method ?? null,
+        requesterInstanceId: command?.requesterInstanceId ?? null,
+        pendingCommandCount,
+        ...commandDiagnostics,
+      });
+      return pulled;
+    } catch (error) {
+      finishTakeSpan({
+        queueStatus: 'error',
+      }, {
+        ok: false,
+        errorName: error instanceof Error ? error.name : 'Error',
+      });
+      throw error;
+    }
+  }
+
+  private async completeWriterRelayCommand(
+    reason: string,
+    command: FrontendRelayCommand,
+    result: unknown,
+  ): Promise<void> {
+    const commandDiagnostics = this.buildRelayCommandDiagnostics(command);
+    const finishCompleteSpan = startRuntimePerformanceSpan('relay', 'writer.complete-command', {
+      wakeReason: reason,
+      ...this.buildRelayWakeDiagnostics(reason),
+      commandId: command.commandId,
+      method: command.method,
+      requesterInstanceId: command.requesterInstanceId,
+      ...commandDiagnostics,
+    });
+    try {
+      await this.sidecarClient.writerCompleteCommand({
+        instanceId: this.instanceId,
+        commandId: command.commandId,
+        result,
+      });
+      finishCompleteSpan({
+        completionStatus: 'completed',
+      });
+    } catch (error) {
+      finishCompleteSpan({
+        completionStatus: 'error',
+      }, {
+        ok: false,
+        errorName: error instanceof Error ? error.name : 'Error',
+      });
+      throw error;
     }
   }
 
@@ -1045,6 +1151,76 @@ export class FrontendInstanceRuntime {
       return 0;
     }
     return Math.max(0, Date.now() - requestedAtMs);
+  }
+
+  private buildRelayCommandDiagnostics(command: Pick<FrontendRelayCommand, 'method' | 'requestedAt'>): RelayCommandDiagnosticsPayload {
+    const commandAgeMs = this.resolveRelayCommandAgeMs(command.requestedAt);
+    const maxDelayCapHit = this.isKernelTransactionRelayCommand(command.method)
+      && commandAgeMs >= this.relayTransactionMaxDelayMs;
+    return {
+      commandAgeMs,
+      commandAgeClass: this.resolveRelayCommandAgeClass(command.method, maxDelayCapHit),
+      maxDelayCapHit,
+    };
+  }
+
+  private resolveRelayCommandAgeClass(
+    method: string,
+    maxDelayCapHit: boolean,
+  ): RelayTransactionCommandAgeClass {
+    if (!this.isKernelTransactionRelayCommand(method)) {
+      return 'non-transaction';
+    }
+    return maxDelayCapHit ? 'stale' : 'fresh';
+  }
+
+  private resolveDrainTransactionCommandAgeClass(params: {
+    transactionCommandCount: number;
+    freshTransactionCommandCount: number;
+    staleTransactionCommandCount: number;
+  }): RelayTransactionCommandAgeClass {
+    if (params.transactionCommandCount <= 0) {
+      return 'none';
+    }
+    if (params.freshTransactionCommandCount > 0 && params.staleTransactionCommandCount > 0) {
+      return 'mixed';
+    }
+    if (params.staleTransactionCommandCount > 0) {
+      return 'stale';
+    }
+    return 'fresh';
+  }
+
+  private buildRelayWakeDiagnostics(reason: string): {
+    wakeSource: RelayWakeSource;
+    pushRelayState: string | null;
+    pushRelayReconnectAttempts: number | null;
+    pushRelayUnavailableReason: string | null;
+  } {
+    return {
+      wakeSource: this.resolveRelayWakeSource(reason),
+      pushRelayState: this.pushRelayDiagnostics?.state ?? null,
+      pushRelayReconnectAttempts: typeof this.pushRelayDiagnostics?.reconnectAttempts === 'number'
+        ? this.pushRelayDiagnostics.reconnectAttempts
+        : null,
+      pushRelayUnavailableReason: this.pushRelayDiagnostics?.unavailableReason ?? null,
+    };
+  }
+
+  private resolveRelayWakeSource(reason: string): RelayWakeSource {
+    if (reason === 'push:command' || reason.startsWith('push:command')) {
+      return 'push';
+    }
+    if (reason === 'push:reconnect-drain' || reason.startsWith('push:reconnect-drain')) {
+      return 'reconnect';
+    }
+    if (this.isWatchdogRelayWake(reason)) {
+      return 'watchdog';
+    }
+    if (reason.includes(':yield:') || reason.includes(':coalesced')) {
+      return 'continuation';
+    }
+    return 'manual';
   }
 
   private isKernelTransactionRelayCommand(method: string): boolean {

@@ -79,6 +79,9 @@ Raw reports:
 - `docs/performance/live-marker-relay-delay-plugin-off-6x-2026-05-08.json`
 - `docs/performance/live-marker-relay-delay-plugin-on-6x-2026-05-08.json`
 - `docs/performance/live-marker-relay-delay-plugin-on-warm-6x-2026-05-08.json`
+- `docs/performance/live-stale-relay-post-diagnostics-plugin-off-6x-2026-05-08.json`
+- `docs/performance/live-stale-relay-post-diagnostics-plugin-on-6x-2026-05-08.json`
+- `docs/performance/live-stale-relay-post-diagnostics-warm-probe-6x-2026-05-08.json`
 
 ## `main` results
 
@@ -157,6 +160,30 @@ Additional plugin-on run while the plugin was already enabled still showed plugi
 
 Interpretation: the focused fake-timer regression covers the intended fresh-burst behavior: a budget-yielded transaction relay drain keeps the deferred command pending, waits 48 ms, then completes it normally. The live rows above did not exercise that fresh under-750 ms path. Every plugin-on marker row had already-aged transaction commands, so the max-delay cap correctly chose immediate continuation instead of adding more latency. Marker rows therefore remain red/inconclusive for user-visible improvement, and the current owner is reclassified as aged writer relay reconnect/startup backlog plus slow `writer.takeCommand` / `writer.completeCommand` wall clock. The rows still do not justify AutoCard, Riff, Browser, or bundle changes inside this marker-burst fix.
 
+## Post-stale-relay diagnostics live smoke
+
+Live deployment:
+
+- Rebuilt the kernel branch and copied `dist/*` to `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo`.
+- The deployed live `index.js` SHA256 matched `dist/index.js` (`BB7143C35B1C66DD9E3B4F130D70DE979F1B2FA56064386F8300F5E7A5D60A98`).
+- The targeted code change is diagnostic/stabilization-only: relay drain, `writer.take-command`, and `writer.complete-command` now report bounded age, wake, stale/fresh, and cap metadata without recording command params or result payloads.
+
+Paired visible 6x Browser-closed marker rows after the stale-relay diagnostics change:
+
+| Action | Repeat | Off max longtask | On max longtask | Off TBT | On TBT | On-off TBT | On plugin spans | Owner | New relay evidence |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| marker typing | 1 | 2,054 ms | 1,547 ms | 4,840 ms | 2,041 ms | -2,799 ms | 5 | startup / unknown | `frontend-instance-runtime.start=5,722.1ms`; `writer.take-command=1,974.3ms`, `wakeSource=reconnect`, `commandAgeMs=2,910`, `commandAgeClass=stale`, cap hit |
+| marker typing | 2 | 1,629 ms | 1,715 ms | 2,778 ms | 1,983 ms | -795 ms | 6 | writer relay | `writer.drain-pending-commands=33,983.4ms`, `transactionCommandAgeClass=stale`, `staleTransactionCommandCount=2`, `maxCommandAgeMs=12,485`, `writer.complete-command=16,574.7ms`, cap hit |
+
+Warm relay-age probe while leaving the plugin enabled (`--plugin-state keep-on`, no `/api/petal/setPetalEnabled` toggle):
+
+| Repeat | On max longtask | On TBT | On plugin spans | Owner | New relay evidence | Classification |
+| ---: | ---: | ---: | ---: | --- | --- | --- |
+| 1 | 3,674 ms | 3,769 ms | 19 | writer relay | `writer.drain-pending-commands=9,389.5ms`, `transactionCommandAgeClass=mixed`, fresh=1/stale=2, `maxCommandAgeMs=2,793`, `complete-command=4,022.7ms/3,751.8ms` | red, stale relay confirmed |
+| 2 | 3,404 ms | 3,542 ms | 17 | writer relay | `writer.drain-pending-commands=13,721.0ms`, `transactionCommandAgeClass=mixed`, fresh=1/stale=1, `maxCommandAgeMs=12,131`, `take-command=3,924.8ms` | red, stale relay confirmed |
+
+Interpretation: the added metadata closed the attribution gap. Plugin-off rows are still red with no plugin spans, so low-end baseline/system pressure remains real. The plugin-on and warm/probe rows still show user-visible red marker jank, but now the active plugin owner is concrete: reconnect wake (`wakeSource=reconnect`, `pushRelayState=open`, reconnect attempts 0) drains already-aged transaction commands, and the expensive wall time is in sidecar/client `writer.takeCommand` / `writer.completeCommand` plus stale backlog, not AutoCard, Riff, Browser, or bundle parse. User-visible improvement is not proven by this diagnostic slice; the result is classified as stale relay confirmed and performance improvement inconclusive.
+
 Current focused first-use smoke on the restored no-chunk package:
 
 | Surface | First-use result | Duration |
@@ -182,12 +209,12 @@ The "heavy UI/framework/bundle" hypothesis is plausible for startup and first-lo
 But the current evidence does not support "it is only because the plugin ships Vue/AG Grid/sql.js" as the root cause of ordinary editor jank. There are two separate problems:
 
 1. Pre-kernel/frontend-only plugin already adds editor pressure under low CPU. This fits bundle/startup/global-runtime weight or legacy frontend-only listeners/work.
-2. Current kernel branch has a newer, more specific marker-typing problem: writer relay `kernel.transaction.ingest/dequeue` overlap during marker bursts. The transaction continuation change protects fresh bursts, but the live rows captured here are dominated by already-aged relay commands and reload/reconnect backlog.
+2. Current kernel branch has a newer, more specific marker-typing problem: writer relay `kernel.transaction.ingest/dequeue` overlap during marker bursts. The transaction continuation change protects fresh bursts, but the latest stale-relay diagnostics confirm the live red rows are dominated by reconnect wakes, already-aged transaction commands, and `writer.takeCommand` / `writer.completeCommand` wall clock.
 
 Next focused changes should stay separate:
 
 - Bundle/startup/idle split change: measure module composition, lazy-load Browser/AI/Review/AG Grid/sql.js where safe, and prove startup/idle delta improves.
-- Transaction relay marker-burst follow-up: if marker rows remain the next risk, isolate stale relay command age and `writer.takeCommand` / `writer.completeCommand` latency after plugin reload without hiding queued work or adding fallback paths.
+- Transaction relay marker-burst follow-up: use the new bounded stale/fresh wake metadata to decide whether the next safe fix belongs in sidecar `takeCommand` / `completeCommand` latency, reconnect backlog pacing, or startup contamination isolation. Do not hide queued work or add fallback local writes.
 
 ## Post-source-lazy evidence still needed
 
