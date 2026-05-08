@@ -16,6 +16,8 @@ export type BackendRpcMethod =
   | 'browser.sourceExistence.summary'
   | 'browser.sourceExistence.applySweep'
   | 'browser.sourceExistence.applySweepHost'
+  | 'queue.projection.snapshot'
+  | 'queue.projection.rowsByIds'
   | 'kernel.transaction.ingest'
   | 'kernel.transaction.dequeue'
   | 'kernel.transaction.requeue'
@@ -511,6 +513,68 @@ export interface BackendSourceExistenceSweepApplyResult {
   changedBlockIds?: string[];
 }
 
+export interface BackendQueueProjectionSnapshotRequest {
+  queueType: string;
+  policyHash?: string | null;
+  generation?: number | null;
+  limit?: number | null;
+  offset?: number | null;
+}
+
+export interface BackendQueueProjectionRowsByIdsRequest {
+  queueType: string;
+  ids: string[];
+  policyHash?: string | null;
+  generation?: number | null;
+}
+
+export interface BackendQueueProjectionSnapshotRow {
+  id: string;
+  fsrsCardId: string;
+  blockId: string;
+  deckId: string;
+  rootId: string;
+  content: string;
+  fullContent: string;
+  state: number;
+  due: number;
+  stability: number;
+  difficulty: number;
+  retrievability: number;
+  reps: number;
+  lapses: number;
+  elapsedDays: number;
+  scheduledDays: number;
+  lastReview: number | null;
+  interval: number;
+  firstReview: number | null;
+  priority: number;
+  suspended: boolean;
+  cardType?: string;
+  aFactor?: number;
+  queueIndex?: number;
+  tags: string[];
+  blockType?: string | null;
+}
+
+export interface BackendQueueProjectionSnapshotResult {
+  queueType: string;
+  policyHash: string | null;
+  generation: number | null;
+  status: 'ready' | 'invalidated' | 'rebuilding' | 'repairing' | 'unavailable' | string;
+  rows: BackendQueueProjectionSnapshotRow[];
+  counters: BackendReviewFeedbackQueueImpactCounters | null;
+}
+
+export interface BackendQueueProjectionRowsByIdsResult {
+  queueType: string;
+  policyHash: string | null;
+  generation: number | null;
+  status: BackendQueueProjectionSnapshotResult['status'];
+  rows: BackendQueueProjectionSnapshotRow[];
+  cards: unknown[];
+}
+
 export interface BackendReviewFeedbackRequest {
   cardId: string;
   rating: 1 | 2 | 3 | 4;
@@ -519,6 +583,8 @@ export interface BackendReviewFeedbackRequest {
   commitPolicy?: string;
   sessionId?: string;
   reviewedAt?: number;
+  projectionGeneration?: number;
+  projectionPolicyHash?: string;
   scheduler?: BackendReviewSchedulerConfig;
 }
 
@@ -527,12 +593,76 @@ export interface BackendReviewSchedulerConfig {
   fsrsParams?: unknown;
 }
 
+export interface BackendReviewFeedbackQueueImpactRow {
+  queueType: string;
+  rowId: string;
+  cardId: string;
+  blockId: string | null;
+  deckId: string | null;
+  membershipReason: string;
+  dueAt: number | null;
+  dueBucket: string;
+  priorityScore: number;
+  sortKey: string;
+  queueIndexHint: number | null;
+  policyHash: string;
+  sourceGeneration: number;
+  payload: Record<string, unknown>;
+  updatedAt: number;
+}
+
+export interface BackendReviewFeedbackQueueImpactCounters {
+  queueType: string;
+  policyHash: string;
+  generation: number;
+  version: number;
+  remaining: number;
+  due: number;
+  total: number;
+  buckets: Record<string, number>;
+  updatedAt: number;
+}
+
+export interface BackendReviewFeedbackQueueImpactReorderHint {
+  rowId: string;
+  cardId: string;
+  sortKey: string | null;
+  queueIndexHint: number | null;
+  previousSortKey?: string | null;
+  previousQueueIndexHint?: number | null;
+  reason: 'inserted' | 'updated' | 'removed' | 'refresh-required' | string;
+}
+
+export interface BackendReviewFeedbackQueueImpactEntry {
+  queueType: string;
+  policyHash: string | null;
+  generation: number | null;
+  requestedGeneration?: number | null;
+  currentGeneration?: number | null;
+  hotPatchable: boolean;
+  refreshRequired: boolean;
+  reason: 'review-feedback' | 'projection-unavailable' | 'generation-mismatch' | 'projection-invalidated' | string;
+  removedRowIds: string[];
+  insertedRows: BackendReviewFeedbackQueueImpactRow[];
+  updatedRows: BackendReviewFeedbackQueueImpactRow[];
+  reorderHints: BackendReviewFeedbackQueueImpactReorderHint[];
+  counterGeneration: number | null;
+  counters: BackendReviewFeedbackQueueImpactCounters | null;
+}
+
+export interface BackendReviewFeedbackQueueImpact {
+  hotPatchable: boolean;
+  refreshRequired: boolean;
+  affectedQueues: BackendReviewFeedbackQueueImpactEntry[];
+}
+
 export interface BackendReviewFeedbackResult {
   cardId: string;
   committed: boolean;
   reviewedAt: number;
   queueType: string;
   updatedCard: unknown | null;
+  queueImpact?: BackendReviewFeedbackQueueImpact | null;
 }
 
 export interface BackendAutoCardDecisionSettings {

@@ -44,6 +44,74 @@ function authorizedPrivateCapability() {
   };
 }
 
+async function seedQueueProjection(database: WorkerSqliteDatabaseService, input: {
+  queueType?: string;
+  policyHash?: string;
+  generation?: number;
+  rows: FSRSCard[];
+  updatedAt?: number;
+}): Promise<void> {
+  const queueType = input.queueType ?? 'retrieval-practice';
+  const policyHash = input.policyHash ?? 'policy-a';
+  const generation = input.generation ?? 1;
+  const updatedAt = input.updatedAt ?? 1_700_000_100_000;
+  await database.runTransaction('seed.queue-projection', (db) => {
+    db.run(
+      `INSERT OR REPLACE INTO queue_projection_generations
+        (queue_type, policy_hash, generation, status, rebuild_reason, updated_at, metadata_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [queueType, policyHash, generation, 'ready', null, updatedAt, '{}'],
+    );
+    db.run(
+      `INSERT OR REPLACE INTO queue_projection_counters
+        (queue_type, policy_hash, generation, version, remaining, due, total, buckets_json, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        queueType,
+        policyHash,
+        generation,
+        generation,
+        input.rows.length,
+        input.rows.length,
+        input.rows.length,
+        JSON.stringify({
+          all: input.rows.length,
+          item: input.rows.filter((card) => card.type === CardType.Item).length,
+          descriptor: input.rows.filter((card) => card.type === CardType.Descriptor).length,
+          topic: input.rows.filter((card) => card.type === CardType.Topic).length,
+          concept: input.rows.filter((card) => card.type === CardType.Concept).length,
+        }),
+        updatedAt,
+      ],
+    );
+    for (const [index, card] of input.rows.entries()) {
+      db.run(
+        `INSERT OR REPLACE INTO queue_projection_rows
+          (queue_type, row_id, card_id, block_id, deck_id, membership_reason, due_at, due_bucket,
+           priority_score, sort_key, queue_index_hint, policy_hash, source_generation, payload_json, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          queueType,
+          card.id,
+          card.id,
+          card.blockId,
+          null,
+          'review-due',
+          card.due,
+          card.due <= updatedAt ? 'overdue' : 'due',
+          card.priority ?? 50,
+          `${String(index + 1).padStart(9, '0')}:${card.id}`,
+          index + 1,
+          policyHash,
+          generation,
+          JSON.stringify({ cardType: card.type, rowId: card.id }),
+          updatedAt,
+        ],
+      );
+    }
+  });
+}
+
 describe('BackendKernel', () => {
   it('returns explicit unavailable when no persistence bridge is configured', async () => {
     const kernel = BackendKernel.createWithoutBridge();
@@ -527,6 +595,78 @@ describe('BackendKernel', () => {
         skipped: 1,
       },
     });
+  });
+
+  it('serves projection-backed queue snapshots and row hydration from worker projection storage', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const cardA = buildCard({
+      id: 'projection-card-a',
+      blockId: 'projection-block-a',
+      due: 1_700_000_000_000,
+      priority: 20,
+      meta: { content: 'alpha', rootId: 'doc-a', deckId: 'deck-a' },
+    });
+    const cardB = buildCard({
+      id: 'projection-card-b',
+      blockId: 'projection-block-b',
+      due: 1_700_000_100_000,
+      priority: 80,
+      meta: { content: 'beta', rootId: 'doc-a', deckId: 'deck-a' },
+    });
+    await database.upsertCards([cardA, cardB]);
+    await seedQueueProjection(database, {
+      generation: 3,
+      rows: [cardB, cardA],
+    });
+    const kernel = new BackendKernel({ database });
+
+    const snapshot = await kernel.handle({
+      id: 'projection-snapshot',
+      jsonrpc: '2.0',
+      method: 'queue.projection.snapshot' as never,
+      params: [{ queueType: 'retrieval-practice' }],
+    });
+
+    expect('result' in snapshot).toBe(true);
+    if ('result' in snapshot) {
+      expect(snapshot.result).toMatchObject({
+        queueType: 'retrieval-practice',
+        policyHash: 'policy-a',
+        generation: 3,
+        status: 'ready',
+        counters: {
+          generation: 3,
+          remaining: 2,
+        },
+      });
+      expect(snapshot.result.rows.map((row: { fsrsCardId: string; queueIndex?: number }) => ({
+        fsrsCardId: row.fsrsCardId,
+        queueIndex: row.queueIndex,
+      }))).toEqual([
+        { fsrsCardId: 'projection-card-b', queueIndex: 1 },
+        { fsrsCardId: 'projection-card-a', queueIndex: 2 },
+      ]);
+    }
+
+    const rowsByIds = await kernel.handle({
+      id: 'projection-rows-by-ids',
+      jsonrpc: '2.0',
+      method: 'queue.projection.rowsByIds' as never,
+      params: [{ queueType: 'retrieval-practice', ids: ['projection-card-a', 'projection-card-b'] }],
+    });
+
+    expect('result' in rowsByIds).toBe(true);
+    if ('result' in rowsByIds) {
+      expect(rowsByIds.result.cards.map((card: FSRSCard) => card.id)).toEqual([
+        'projection-card-a',
+        'projection-card-b',
+      ]);
+      expect(rowsByIds.result.rows.map((row: { fsrsCardId: string }) => row.fsrsCardId)).toEqual([
+        'projection-card-a',
+        'projection-card-b',
+      ]);
+    }
   });
 
   it('returns deterministic candidate identity for duplicate decision requests', async () => {
@@ -1242,6 +1382,220 @@ describe('BackendKernel', () => {
         queueType: 'retrieval-practice',
       });
       expect(response.result.updatedCard).toBeTruthy();
+    }
+  });
+
+  it('returns refresh-required queue impact when the projection generation is unavailable', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({ id: 'card-impact-unavailable', due: Date.now() - 10_000 })]);
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-projection-unavailable',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-impact-unavailable', rating: 3, queueType: 'retrieval-practice' }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        committed: true,
+        queueImpact: {
+          hotPatchable: false,
+          refreshRequired: true,
+          affectedQueues: [{
+            queueType: 'retrieval-practice',
+            reason: 'projection-unavailable',
+            refreshRequired: true,
+          }],
+        },
+      });
+    }
+  });
+
+  it('returns refresh-required queue impact when requested projection generation is stale', async () => {
+    const reviewedAt = Date.now();
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({ id: 'card-impact-generation', due: reviewedAt - 10_000 });
+    await database.upsertCards([card]);
+    await seedQueueProjection(database, {
+      generation: 5,
+      rows: [card],
+      updatedAt: reviewedAt,
+    });
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-generation-mismatch',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-impact-generation',
+        rating: 3,
+        queueType: 'retrieval-practice',
+        projectionGeneration: 4,
+        projectionPolicyHash: 'policy-a',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        committed: true,
+        queueImpact: {
+          hotPatchable: false,
+          refreshRequired: true,
+          affectedQueues: [{
+            queueType: 'retrieval-practice',
+            reason: 'generation-mismatch',
+            currentGeneration: 6,
+            requestedGeneration: 4,
+            refreshRequired: true,
+          }],
+        },
+      });
+    }
+    const counters = database.getOne<{ generation: number; version: number }>(
+      'SELECT generation, version FROM queue_projection_counters WHERE queue_type = ? AND policy_hash = ?',
+      ['retrieval-practice', 'policy-a'],
+    );
+    expect(counters).toMatchObject({ generation: 6, version: 6 });
+  });
+
+  it('updates projection rows and counter generation when reviewed card leaves retrieval queue', async () => {
+    const reviewedAt = Date.now();
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'card-impact-remove',
+      blockId: 'block-impact-remove',
+      due: reviewedAt - 10_000,
+      lastReview: reviewedAt - 86_400_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 4,
+    });
+    await database.upsertCards([card]);
+    await seedQueueProjection(database, {
+      generation: 1,
+      rows: [card],
+      updatedAt: reviewedAt,
+    });
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-impact-remove',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-impact-remove',
+        rating: 4,
+        queueType: 'retrieval-practice',
+        projectionGeneration: 1,
+        projectionPolicyHash: 'policy-a',
+        reviewedAt,
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        committed: true,
+        queueImpact: {
+          hotPatchable: true,
+          refreshRequired: false,
+          affectedQueues: [{
+            queueType: 'retrieval-practice',
+            generation: 2,
+            removedRowIds: ['card-impact-remove'],
+            counterGeneration: 2,
+            counters: {
+              version: 2,
+              remaining: 0,
+              total: 0,
+            },
+          }],
+        },
+      });
+    }
+    const remainingRow = database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM queue_projection_rows WHERE queue_type = ? AND card_id = ?',
+      ['retrieval-practice', 'card-impact-remove'],
+    );
+    expect(remainingRow?.count).toBe(0);
+  });
+
+  it('returns updated row and reorder hint when remaining retrieval row moves forward', async () => {
+    const reviewedAt = Date.now();
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'card-impact-reorder',
+      blockId: 'block-impact-reorder',
+      due: reviewedAt - 10_000,
+      lastReview: reviewedAt - 86_400_000,
+      stability: 1,
+      difficulty: 9,
+      reps: 2,
+    });
+    const peer = buildCard({
+      id: 'card-impact-reorder-peer',
+      blockId: 'block-impact-reorder-peer',
+      due: reviewedAt - 5_000,
+      priority: 30,
+    });
+    await database.upsertCards([card, peer]);
+    await seedQueueProjection(database, {
+      generation: 1,
+      rows: [card, peer],
+      updatedAt: reviewedAt,
+    });
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-impact-reorder',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-impact-reorder',
+        rating: 4,
+        queueType: 'retrieval-practice',
+        projectionGeneration: 1,
+        projectionPolicyHash: 'policy-a',
+        reviewedAt,
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        committed: true,
+        queueImpact: {
+          hotPatchable: true,
+          refreshRequired: false,
+          affectedQueues: [{
+            queueType: 'retrieval-practice',
+            generation: 2,
+            removedRowIds: ['card-impact-reorder'],
+            counterGeneration: 2,
+          }],
+        },
+      });
+      const affectedQueue = response.result.queueImpact?.affectedQueues[0];
+      expect(affectedQueue?.updatedRows).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          rowId: 'card-impact-reorder-peer',
+          cardId: 'card-impact-reorder-peer',
+        }),
+      ]));
+      expect(affectedQueue?.reorderHints).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          rowId: 'card-impact-reorder-peer',
+        }),
+      ]));
     }
   });
 

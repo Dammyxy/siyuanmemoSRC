@@ -15,3 +15,4 @@ export { SelectionExcerptService } from './SelectionExcerptService';
 export { SelectionTopicContinuationService } from './SelectionTopicContinuationService';
 export { TopicDerivedItemService } from './TopicDerivedItemService';
 export * from './external-srs/ExternalSrsAlgorithmRuntime';
+export * from './queue-projection/QueueProjectionBuilder';

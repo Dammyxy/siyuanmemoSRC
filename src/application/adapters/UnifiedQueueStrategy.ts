@@ -72,6 +72,25 @@ type FeedbackMutationContext = {
     rating?: number;
 };
 
+type ProjectionPatchOutcome = 'patched' | 'refresh-required' | 'not-applicable';
+
+type ProjectionImpactEntryLike = {
+    queueType: string;
+    hotPatchable?: boolean;
+    refreshRequired?: boolean;
+    removedRowIds?: unknown[];
+    insertedRows?: unknown[];
+    updatedRows?: unknown[];
+    counters?: unknown;
+};
+
+type ProjectionImpactRowLike = {
+    rowId: string;
+    cardId: string;
+    blockId: string | null;
+    queueIndexHint: number | null;
+};
+
 function supportsInsertAt(queue: IReviewQueue): queue is QueueWithInsertAt {
     const candidate = queue as Partial<QueueWithInsertAt>;
     return typeof candidate.insertAt === 'function';
@@ -285,6 +304,34 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 const excludeFromCurrentSession = this.shouldExcludeReviewedCardFromSession(feedback);
                 if (excludeFromCurrentSession) {
                     this.addSessionExcludedCardIdentity(activeItem);
+                }
+
+                const projectionPatchOutcome = await this.applyProjectionQueueImpactToCache(activeItem, reviewResult, {
+                    forceRemove: excludeFromCurrentSession,
+                });
+                if (projectionPatchOutcome === 'patched') {
+                    this.pendingRotateCardId = null;
+                    this.cacheValid = true;
+                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card rated with projection queueImpact patch:`, {
+                        queueType: this.queueType,
+                        cardId: activeItem.id,
+                        rating: feedback.rating,
+                    });
+                    activeTransaction = null;
+                    activeTransactionPushed = false;
+                    return;
+                }
+                if (projectionPatchOutcome === 'refresh-required') {
+                    this.pendingRotateCardId = null;
+                    this.invalidateCache();
+                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card rated with projection refresh requirement:`, {
+                        queueType: this.queueType,
+                        cardId: activeItem.id,
+                        rating: feedback.rating,
+                    });
+                    activeTransaction = null;
+                    activeTransactionPushed = false;
+                    return;
                 }
 
                 const patched = this.applyReviewResultToCache(activeItem, reviewResult, {
@@ -907,6 +954,211 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         });
 
         return true;
+    }
+
+    private async applyProjectionQueueImpactToCache(
+        reviewedCard: FSRSCard,
+        result: QueueReviewResult,
+        options: { forceRemove?: boolean } = {}
+    ): Promise<ProjectionPatchOutcome> {
+        if (!this.cacheValid) {
+            return 'not-applicable';
+        }
+
+        const entry = this.resolveProjectionImpactEntry(result.queueImpact);
+        if (!entry) {
+            return 'not-applicable';
+        }
+        if (entry.refreshRequired === true || entry.hotPatchable !== true) {
+            return 'refresh-required';
+        }
+
+        const patchRows = [
+            ...this.normalizeProjectionImpactRows(entry.updatedRows),
+            ...this.normalizeProjectionImpactRows(entry.insertedRows),
+        ];
+        const hydrateIds = Array.from(new Set(
+            patchRows
+                .map((row) => row.rowId || row.cardId)
+                .filter(Boolean),
+        ));
+        const hydratedCards = hydrateIds.length > 0
+            ? await this.queue.getCardsBySnapshotIds(hydrateIds)
+            : [];
+        if (hydrateIds.length > 0 && hydratedCards.length === 0) {
+            return 'refresh-required';
+        }
+
+        const orderHintByIdentity = this.buildProjectionOrderHintMap(patchRows);
+        const removeIds = new Set(
+            (entry.removedRowIds || [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean),
+        );
+        if (options.forceRemove) {
+            removeIds.add(reviewedCard.id);
+            if (reviewedCard.riffCardId) {
+                removeIds.add(reviewedCard.riffCardId);
+            }
+        }
+
+        const previousOrder = new Map<string, number>();
+        this.cachedCards.forEach((card, index) => {
+            previousOrder.set(this.normalizeCardId(card.id), index);
+            if (card.riffCardId) {
+                previousOrder.set(this.normalizeCardId(card.riffCardId), index);
+            }
+            if (card.blockId) {
+                previousOrder.set(this.normalizeCardId(card.blockId), index);
+            }
+        });
+
+        this.cachedCards = this.cachedCards.filter((card) => !this.matchesProjectionRemovedIdentity(card, removeIds));
+        for (const card of hydratedCards) {
+            const existingIndex = this.findCachedCardIndexByIdentity(card.id, card.blockId);
+            if (existingIndex >= 0) {
+                this.cachedCards.splice(existingIndex, 1);
+            }
+            this.cachedCards.push(this.cloneCard(card));
+        }
+
+        this.cachedCards.sort((a, b) => {
+            const hintA = this.resolveProjectionOrderHint(a, orderHintByIdentity);
+            const hintB = this.resolveProjectionOrderHint(b, orderHintByIdentity);
+            if (hintA !== null && hintB !== null && hintA !== hintB) {
+                return hintA - hintB;
+            }
+            if (hintA !== null && hintB === null) {
+                return -1;
+            }
+            if (hintA === null && hintB !== null) {
+                return 1;
+            }
+            return this.resolvePreviousOrder(a, previousOrder) - this.resolvePreviousOrder(b, previousOrder);
+        });
+
+        this.currentIndex = 0;
+        this.forwardBuffer = [];
+        this.lastCounterSnapshot = this.normalizeProjectionImpactCounterSnapshot(entry, result.counterSnapshot);
+        return 'patched';
+    }
+
+    private resolveProjectionImpactEntry(queueImpact: unknown): ProjectionImpactEntryLike | null {
+        if (!isRecord(queueImpact)) {
+            return null;
+        }
+        const affectedQueues = Array.isArray(queueImpact.affectedQueues)
+            ? queueImpact.affectedQueues
+            : [];
+        const entry = affectedQueues.find((candidate) => (
+            isRecord(candidate)
+            && String(candidate.queueType || '') === this.queueType
+        ));
+        return isRecord(entry) ? entry as ProjectionImpactEntryLike : null;
+    }
+
+    private normalizeProjectionImpactRows(rows: unknown[] | undefined): ProjectionImpactRowLike[] {
+        if (!Array.isArray(rows)) {
+            return [];
+        }
+        return rows
+            .map((row) => {
+                if (!isRecord(row)) {
+                    return null;
+                }
+                const rowId = String(row.rowId || '').trim();
+                const cardId = String(row.cardId || '').trim();
+                if (!rowId || !cardId) {
+                    return null;
+                }
+                const queueIndexHint = Number(row.queueIndexHint);
+                return {
+                    rowId,
+                    cardId,
+                    blockId: String(row.blockId || '').trim() || null,
+                    queueIndexHint: Number.isFinite(queueIndexHint) ? queueIndexHint : null,
+                };
+            })
+            .filter((row): row is ProjectionImpactRowLike => Boolean(row));
+    }
+
+    private buildProjectionOrderHintMap(rows: ProjectionImpactRowLike[]): Map<string, number> {
+        const hints = new Map<string, number>();
+        for (const row of rows) {
+            if (row.queueIndexHint === null) {
+                continue;
+            }
+            hints.set(row.rowId, row.queueIndexHint);
+            hints.set(row.cardId, row.queueIndexHint);
+            if (row.blockId) {
+                hints.set(row.blockId, row.queueIndexHint);
+            }
+        }
+        return hints;
+    }
+
+    private matchesProjectionRemovedIdentity(card: FSRSCard, removeIds: Set<string>): boolean {
+        if (removeIds.size === 0) {
+            return false;
+        }
+        return removeIds.has(this.normalizeCardId(card.id))
+            || removeIds.has(this.normalizeCardId(card.blockId))
+            || (card.riffCardId ? removeIds.has(this.normalizeCardId(card.riffCardId)) : false);
+    }
+
+    private resolveProjectionOrderHint(card: FSRSCard, hints: Map<string, number>): number | null {
+        const ids = [
+            this.normalizeCardId(card.id),
+            this.normalizeCardId(card.blockId),
+            this.normalizeCardId(card.riffCardId),
+        ].filter(Boolean);
+        for (const id of ids) {
+            const hint = hints.get(id);
+            if (Number.isFinite(hint)) {
+                return Number(hint);
+            }
+        }
+        return null;
+    }
+
+    private resolvePreviousOrder(card: FSRSCard, previousOrder: Map<string, number>): number {
+        const ids = [
+            this.normalizeCardId(card.id),
+            this.normalizeCardId(card.blockId),
+            this.normalizeCardId(card.riffCardId),
+        ].filter(Boolean);
+        for (const id of ids) {
+            const order = previousOrder.get(id);
+            if (Number.isFinite(order)) {
+                return Number(order);
+            }
+        }
+        return Number.MAX_SAFE_INTEGER;
+    }
+
+    private normalizeProjectionImpactCounterSnapshot(
+        entry: ProjectionImpactEntryLike,
+        fallback: QueueCounterSnapshot | null,
+    ): QueueCounterSnapshot | null {
+        if (!isRecord(entry.counters)) {
+            return fallback ? this.cloneCounterSnapshot(fallback) : null;
+        }
+        const counters = entry.counters;
+        const buckets = isRecord(counters.buckets) ? counters.buckets : {};
+        return {
+            version: Math.max(0, Math.floor(Number(counters.version || counters.generation || 0))),
+            remaining: Math.max(0, Math.floor(Number(counters.remaining || 0))),
+            due: Math.max(0, Math.floor(Number(counters.due || 0))),
+            total: Math.max(0, Math.floor(Number(counters.total || 0))),
+            buckets: {
+                all: Math.max(0, Math.floor(Number(buckets.all || 0))),
+                item: Math.max(0, Math.floor(Number(buckets.item || 0))),
+                descriptor: Math.max(0, Math.floor(Number(buckets.descriptor || 0))),
+                topic: Math.max(0, Math.floor(Number(buckets.topic || 0))),
+                concept: Math.max(0, Math.floor(Number(buckets.concept || 0))),
+            },
+            source: 'hot',
+        };
     }
 
     private supportsHotPatchAfterReview(): boolean {

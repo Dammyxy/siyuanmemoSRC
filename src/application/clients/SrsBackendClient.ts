@@ -26,6 +26,10 @@ import type {
   BackendKernelTransactionDequeueResult,
   BackendKernelTransactionRequeueRequest,
   BackendKernelTransactionRequeueResult,
+  BackendQueueProjectionRowsByIdsRequest,
+  BackendQueueProjectionRowsByIdsResult,
+  BackendQueueProjectionSnapshotRequest,
+  BackendQueueProjectionSnapshotResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
   P6OwnershipCommandRequest,
@@ -155,6 +159,18 @@ export class SrsBackendClient {
 
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
     return this.call<BackendReviewFeedbackResult>('review.feedback', request);
+  }
+
+  async queueProjectionSnapshot(
+    request: BackendQueueProjectionSnapshotRequest,
+  ): Promise<BackendQueueProjectionSnapshotResult> {
+    return this.call<BackendQueueProjectionSnapshotResult>('queue.projection.snapshot', request);
+  }
+
+  async queueProjectionRowsByIds(
+    request: BackendQueueProjectionRowsByIdsRequest,
+  ): Promise<BackendQueueProjectionRowsByIdsResult> {
+    return this.call<BackendQueueProjectionRowsByIdsResult>('queue.projection.rowsByIds', request);
   }
 
   async createAiSession(request: BackendAiSessionCreateRequest): Promise<BackendAiSessionResult> {

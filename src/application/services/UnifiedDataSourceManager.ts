@@ -23,6 +23,7 @@ import {
     type QueueAddSource,
     type QueueBulkAddInput,
     type QueueBulkMutationResult,
+    type QueueProjectionSnapshot,
 } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
 import type { DrillLogV2 } from '@/types/review';
@@ -43,6 +44,11 @@ import type {
 } from '@/core/queue/domain/ports';
 import { createLogger } from '@/utils/logger';
 import type { HyperspaceSettings } from '@/types/settings';
+import type {
+    BackendQueueProjectionRowsByIdsResult,
+    BackendQueueProjectionSnapshotRequest,
+    BackendQueueProjectionSnapshotResult,
+} from '../../../packages/contracts/src/backend-rpc';
 
 const logger = createLogger('UnifiedDataSourceManager');
 
@@ -81,6 +87,14 @@ interface UnifiedManagerPluginContextLike {
     } | null | undefined;
     getReviewCommitUseCase?: () => {
         execute?: (command: QueueReviewCommand) => Promise<QueueReviewCommitResult>;
+    } | null | undefined;
+    getSrsBackendClient?: () => {
+        queueProjectionSnapshot?: (
+            request: BackendQueueProjectionSnapshotRequest,
+        ) => Promise<BackendQueueProjectionSnapshotResult>;
+        queueProjectionRowsByIds?: (
+            request: { queueType: string; ids: string[]; policyHash?: string | null; generation?: number | null },
+        ) => Promise<BackendQueueProjectionRowsByIdsResult>;
     } | null | undefined;
     getReviewLogService?: () => {
         addDrillLogV2?: (log: DrillLogV2) => Promise<void>;
@@ -334,6 +348,118 @@ export class UnifiedDataSourceManager {
         return result;
     }
 
+    public async readQueueProjectionSnapshot(
+        queueType: QueueType,
+        options: { forceRefresh?: boolean } = {},
+    ): Promise<QueueProjectionSnapshot | null> {
+        if (!this.isProjectionBackedQueue(queueType)) {
+            logger.debug('Queue projection snapshot not enabled for queue type', { queueType });
+            return null;
+        }
+
+        const backend = this.resolvePlugin()?.getContext?.()?.getSrsBackendClient?.();
+        if (!backend || typeof backend.queueProjectionSnapshot !== 'function') {
+            logger.debug('Queue projection snapshot backend is unavailable', { queueType });
+            return null;
+        }
+
+        try {
+            const result = await backend.queueProjectionSnapshot({ queueType });
+            if (result.status !== 'ready' || !result.policyHash || !Number.isFinite(Number(result.generation))) {
+                logger.info('Queue projection snapshot is not ready', {
+                    queueType,
+                    status: result.status,
+                    generation: result.generation,
+                    forceRefresh: options.forceRefresh === true,
+                });
+                return null;
+            }
+
+            return {
+                queueType,
+                policyHash: result.policyHash,
+                generation: Number(result.generation),
+                rows: (result.rows || []).map((row) => ({
+                    ...row,
+                    tags: Array.isArray(row.tags) ? [...row.tags] : [],
+                })),
+                counters: result.counters
+                    ? {
+                        version: Number(result.counters.version || result.counters.generation || result.generation || 0),
+                        remaining: Math.max(0, Math.floor(Number(result.counters.remaining || 0))),
+                        due: Math.max(0, Math.floor(Number(result.counters.due || 0))),
+                        total: Math.max(0, Math.floor(Number(result.counters.total || 0))),
+                        buckets: {
+                            all: Math.max(0, Math.floor(Number(result.counters.buckets?.all || 0))),
+                            item: Math.max(0, Math.floor(Number(result.counters.buckets?.item || 0))),
+                            descriptor: Math.max(0, Math.floor(Number(result.counters.buckets?.descriptor || 0))),
+                            topic: Math.max(0, Math.floor(Number(result.counters.buckets?.topic || 0))),
+                            concept: Math.max(0, Math.floor(Number(result.counters.buckets?.concept || 0))),
+                        },
+                        source: 'reconciled',
+                    }
+                    : null,
+            };
+        } catch (error) {
+            logger.warn('Failed to read queue projection snapshot', {
+                queueType,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+        }
+    }
+
+    public async getQueueProjectionCardsBySnapshotIds(
+        queueType: QueueType,
+        ids: string[],
+        options: { forceRefresh?: boolean } = {},
+    ): Promise<FSRSCard[]> {
+        if (!this.isProjectionBackedQueue(queueType)) {
+            logger.debug('Queue projection row hydration not enabled for queue type', { queueType });
+            return [];
+        }
+
+        const orderedIds = ids.map((id) => String(id || '').trim()).filter(Boolean);
+        if (orderedIds.length === 0) {
+            return [];
+        }
+
+        const backend = this.resolvePlugin()?.getContext?.()?.getSrsBackendClient?.();
+        if (!backend || typeof backend.queueProjectionRowsByIds !== 'function') {
+            logger.debug('Queue projection row hydration backend is unavailable', { queueType });
+            return [];
+        }
+
+        try {
+            const result = await backend.queueProjectionRowsByIds({ queueType, ids: orderedIds });
+            if (result.status !== 'ready') {
+                logger.info('Queue projection row hydration is not ready', {
+                    queueType,
+                    status: result.status,
+                    generation: result.generation,
+                    forceRefresh: options.forceRefresh === true,
+                });
+                return [];
+            }
+
+            return (result.cards || [])
+                .filter((card): card is FSRSCard => (
+                    Boolean(card)
+                    && typeof card === 'object'
+                    && typeof (card as FSRSCard).id === 'string'
+                    && typeof (card as FSRSCard).blockId === 'string'
+                ))
+                .map((card) => ({ ...card }));
+        } catch (error) {
+            logger.warn('Failed to hydrate queue projection rows', {
+                queueType,
+                count: orderedIds.length,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            return [];
+        }
+    }
+
     public async appendDrillLogV2(log: DrillLogV2): Promise<void> {
         const plugin = this.resolvePlugin();
         const reviewLogs = plugin?.getContext?.()?.getReviewLogService?.();
@@ -342,6 +468,11 @@ export class UnifiedDataSourceManager {
         }
 
         await reviewLogs.addDrillLogV2(log);
+    }
+
+    private isProjectionBackedQueue(queueType: QueueType): boolean {
+        return queueType === QueueType.RetrievalPractice
+            || queueType === QueueType.IncrementalLearning;
     }
 
     public getDayStartHour(): number {

@@ -40,10 +40,14 @@ function buildCard(id: string, overrides: Partial<FSRSCard> = {}): FSRSCard {
 class TestQueue extends BaseReviewQueue {
   public name = 'TestQueue';
 
-  constructor(private sourceCards: FSRSCard[]) {
+  constructor(
+    private sourceCards: FSRSCard[],
+    managerOverrides: Record<string, unknown> = {},
+  ) {
     super({
       notifyObservers: vi.fn(),
       updateCard: vi.fn(),
+      ...managerOverrides,
     } as never, QueueType.RetrievalPractice);
   }
 
@@ -99,6 +103,118 @@ describe('BaseReviewQueue snapshot rows', () => {
     const resolved = await queue.getCardsBySnapshotIds(['card-b', 'riff-a']);
 
     expect(resolved.map((card) => card.id)).toEqual(['card-b', 'card-a']);
+  });
+
+  it('uses projection-backed snapshots and hydration for rollout queues when the manager provides them', async () => {
+    const cardA = buildCard('card-a', { riffCardId: 'row-a' });
+    const cardB = buildCard('card-b', { riffCardId: 'row-b' });
+    const projectionRows = [
+      {
+        id: 'row-b',
+        fsrsCardId: 'card-b',
+        blockId: 'block-card-b',
+        deckId: 'deck-a',
+        rootId: 'doc-a',
+        content: 'content-card-b',
+        fullContent: 'content-card-b',
+        state: CardState.Review,
+        due: cardB.due,
+        stability: 4,
+        difficulty: 5,
+        retrievability: 0.9,
+        reps: 1,
+        lapses: 0,
+        elapsedDays: 1,
+        scheduledDays: 3,
+        lastReview: cardB.lastReview,
+        interval: 3,
+        firstReview: cardB.createdAt,
+        priority: 50,
+        suspended: false,
+        cardType: CardType.Item,
+        queueIndex: 1,
+        tags: [],
+        blockType: 'paragraph',
+      },
+      {
+        id: 'row-a',
+        fsrsCardId: 'card-a',
+        blockId: 'block-card-a',
+        deckId: 'deck-a',
+        rootId: 'doc-a',
+        content: 'content-card-a',
+        fullContent: 'content-card-a',
+        state: CardState.Review,
+        due: cardA.due,
+        stability: 4,
+        difficulty: 5,
+        retrievability: 0.9,
+        reps: 1,
+        lapses: 0,
+        elapsedDays: 1,
+        scheduledDays: 3,
+        lastReview: cardA.lastReview,
+        interval: 3,
+        firstReview: cardA.createdAt,
+        priority: 50,
+        suspended: false,
+        cardType: CardType.Item,
+        queueIndex: 2,
+        tags: [],
+        blockType: 'paragraph',
+      },
+    ];
+    const readProjectionSnapshot = vi.fn(async () => ({
+      queueType: QueueType.RetrievalPractice,
+      policyHash: 'policy-a',
+      generation: 5,
+      rows: projectionRows,
+      counters: {
+        version: 5,
+        remaining: 2,
+        due: 2,
+        total: 2,
+        buckets: {
+          all: 2,
+          item: 2,
+          descriptor: 0,
+          topic: 0,
+          concept: 0,
+        },
+        source: 'reconciled' as const,
+      },
+    }));
+    const getProjectionCardsBySnapshotIds = vi.fn(async (_queueType: QueueType, ids: string[]) => {
+      const cardById = new Map([
+        ['row-a', cardA],
+        ['card-a', cardA],
+        ['row-b', cardB],
+        ['card-b', cardB],
+      ]);
+      return ids.map((id) => cardById.get(id)).filter(Boolean);
+    });
+    const queue = new TestQueue([cardA, cardB], {
+      readQueueProjectionSnapshot: readProjectionSnapshot,
+      getQueueProjectionCardsBySnapshotIds: getProjectionCardsBySnapshotIds,
+    });
+    const getCardsSpy = vi.spyOn(queue, 'getCards');
+
+    const rows = await queue.getSnapshotRows();
+    const cards = await queue.getCardsBySnapshotIds(['row-a', 'row-b']);
+    const counters = await queue.getCounterSnapshot();
+
+    expect(rows.map((row) => row.fsrsCardId)).toEqual(['card-b', 'card-a']);
+    expect(cards.map((card) => card.id)).toEqual(['card-a', 'card-b']);
+    expect(counters).toMatchObject({ version: 5, remaining: 2, due: 2, total: 2 });
+    expect(readProjectionSnapshot).toHaveBeenCalledWith(QueueType.RetrievalPractice, {
+      forceRefresh: false,
+    });
+    expect(getProjectionCardsBySnapshotIds).toHaveBeenCalledWith(
+      QueueType.RetrievalPractice,
+      ['row-a', 'row-b'],
+      { forceRefresh: false },
+    );
+    expect(getCardsSpy).not.toHaveBeenCalled();
   });
 
   it('rebuilds snapshot rows after reorder, insertAt, clear, and force refresh', async () => {

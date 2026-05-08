@@ -9,6 +9,7 @@ import type {
   CardFilter,
   DataChangeEvent,
   IReviewQueue,
+  QueueProjectionSnapshot,
   QueueType,
 } from '@/types/unified-data-source';
 import type { DrillLogV2 } from '@/types/review';
@@ -35,6 +36,7 @@ export interface QueueReviewCommitResult {
   committed: boolean;
   decision?: SchedulingDecision;
   commitResult?: ReviewCommitResult;
+  queueImpact?: unknown | null;
 }
 
 export interface QueueRuntimePort {
@@ -48,6 +50,15 @@ export interface QueueRuntimePort {
   getPriorityRandomness?(): number;
   getAutoSortEnabled?(): boolean;
   getAddToOutstandingEveryNth?(): number;
+  readQueueProjectionSnapshot?(
+    queueType: QueueType,
+    options?: { forceRefresh?: boolean },
+  ): Promise<QueueProjectionSnapshot | null>;
+  getQueueProjectionCardsBySnapshotIds?(
+    queueType: QueueType,
+    ids: string[],
+    options?: { forceRefresh?: boolean },
+  ): Promise<FSRSCard[]>;
 }
 
 export interface QueueInitialLoadAware {
@@ -73,4 +84,13 @@ export interface UnifiedDataSourceManager {
   getPriorityRandomness?(): number;
   getAutoSortEnabled?(): boolean;
   getAddToOutstandingEveryNth?(): number;
+  readQueueProjectionSnapshot?(
+    queueType: QueueType,
+    options?: { forceRefresh?: boolean },
+  ): Promise<QueueProjectionSnapshot | null>;
+  getQueueProjectionCardsBySnapshotIds?(
+    queueType: QueueType,
+    ids: string[],
+    options?: { forceRefresh?: boolean },
+  ): Promise<FSRSCard[]>;
 }

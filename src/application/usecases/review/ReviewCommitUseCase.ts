@@ -10,7 +10,10 @@ import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCle
 import type { FSRSCard, Rating } from '@/types';
 import type { ReviewLogV2 } from '@/types/review';
 import type { BackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
-import type { BackendReviewSchedulerConfig } from '../../../../packages/contracts/src/backend-rpc';
+import type {
+  BackendReviewFeedbackQueueImpact,
+  BackendReviewSchedulerConfig,
+} from '../../../../packages/contracts/src/backend-rpc';
 import { createLogger } from '@/utils/logger';
 import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics';
 
@@ -46,10 +49,13 @@ export interface ReviewCommitBackendFeedbackClient {
     commitPolicy?: string;
     sessionId?: string;
     reviewedAt?: number;
+    projectionGeneration?: number;
+    projectionPolicyHash?: string;
     scheduler?: BackendReviewSchedulerConfig;
   }): Promise<{
     committed: boolean;
     updatedCard: unknown | null;
+    queueImpact?: BackendReviewFeedbackQueueImpact | null;
   }>;
 }
 
@@ -177,6 +183,8 @@ export class ReviewCommitUseCase {
     const workerContext = resolveWorkerFeedbackContext(context);
     const reviewedAt = normalizeReviewedAt(context.reviewTime);
     const schedulerConfig = normalizeBackendReviewSchedulerConfig(this.deps.schedulerConfig);
+    const projectionGeneration = normalizeProjectionGeneration(context.projectionGeneration);
+    const projectionPolicyHash = normalizeProjectionPolicyHash(context.projectionPolicyHash);
     const requestPayload = {
       cardId: command.cardId,
       rating,
@@ -185,11 +193,14 @@ export class ReviewCommitUseCase {
       commitPolicy: workerContext.commitPolicy,
       sessionId: context.sessionId,
       reviewedAt,
+      ...(projectionGeneration !== null ? { projectionGeneration } : {}),
+      ...(projectionPolicyHash ? { projectionPolicyHash } : {}),
       ...(schedulerConfig ? { scheduler: schedulerConfig } : {}),
     };
     let result: {
       committed: boolean;
       updatedCard: unknown | null;
+      queueImpact?: BackendReviewFeedbackQueueImpact | null;
     };
     if (relayRuntime.mode === 'follower') {
       if (!this.deps.followerCommandClient) {
@@ -257,6 +268,7 @@ export class ReviewCommitUseCase {
       card,
       updatedCard,
       committed: result.committed,
+      queueImpact: result.queueImpact ?? null,
     };
   }
 
@@ -373,6 +385,7 @@ function isWriterRelayTimeoutError(error: unknown): boolean {
 function normalizeRelayFeedbackResult(payload: unknown): {
   committed: boolean;
   updatedCard: unknown | null;
+  queueImpact?: BackendReviewFeedbackQueueImpact | null;
 } {
   if (!payload || typeof payload !== 'object') {
     throw new Error('review.feedback follower relay returned invalid payload');
@@ -380,6 +393,7 @@ function normalizeRelayFeedbackResult(payload: unknown): {
   const candidate = payload as {
     committed?: unknown;
     updatedCard?: unknown;
+    queueImpact?: unknown;
   };
   if (typeof candidate.committed !== 'boolean') {
     throw new Error('review.feedback follower relay payload missing committed');
@@ -387,7 +401,29 @@ function normalizeRelayFeedbackResult(payload: unknown): {
   return {
     committed: candidate.committed,
     updatedCard: candidate.updatedCard ?? null,
+    queueImpact: normalizeRelayQueueImpact(candidate.queueImpact),
   };
+}
+
+function normalizeRelayQueueImpact(value: unknown): BackendReviewFeedbackQueueImpact | null {
+  if (value == null) {
+    return null;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('review.feedback follower relay payload has invalid queueImpact');
+  }
+  const impact = value as {
+    hotPatchable?: unknown;
+    refreshRequired?: unknown;
+    affectedQueues?: unknown;
+  };
+  if (typeof impact.hotPatchable !== 'boolean' || typeof impact.refreshRequired !== 'boolean') {
+    throw new Error('review.feedback follower relay payload has invalid queueImpact');
+  }
+  if (!Array.isArray(impact.affectedQueues)) {
+    throw new Error('review.feedback follower relay payload has invalid queueImpact');
+  }
+  return value as BackendReviewFeedbackQueueImpact;
 }
 
 function normalizeReviewedAt(value: Date | number | undefined): number | undefined {
@@ -399,6 +435,19 @@ function normalizeReviewedAt(value: Date | number | undefined): number | undefin
     return value;
   }
   return undefined;
+}
+
+function normalizeProjectionGeneration(value: unknown): number | null {
+  if (value == null || value === '') {
+    return null;
+  }
+  const generation = Math.floor(Number(value));
+  return Number.isFinite(generation) && generation >= 0 ? generation : null;
+}
+
+function normalizeProjectionPolicyHash(value: unknown): string | null {
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
 }
 
 function normalizeBackendReviewSchedulerConfig(

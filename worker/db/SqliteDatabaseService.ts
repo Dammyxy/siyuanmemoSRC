@@ -2,12 +2,17 @@ import type { Database, ParamsObject, SqlValue } from 'sql.js';
 import { SqliteDatabaseService as RuntimeSqliteDatabaseService } from '@/infrastructure/persistence/sqlite';
 import { SQLITE_DB_FILE } from '@/infrastructure/persistence/sqlite/schema';
 import { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository';
+import { SqlQueueProjectionRepository } from '@/infrastructure/persistence/sqlite/SqlQueueProjectionRepository';
 import { SchedulerRouter } from '@/core/scheduler';
 import { createReviewLogV2 } from '@/types/review';
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
-import type { FSRSCard } from '@/types/card';
+import { CardType, type FSRSCard } from '@/types/card';
 import type { SchedulerType } from '@/core/scheduler/schedulerPolicy';
+import type { QueueProjectionRow } from '@/application/ports/QueueProjectionPort';
+import { buildQueueProjectionRows } from '@/application/services/queue-projection/QueueProjectionBuilder';
+import { buildQueueSnapshotRow } from '@/core/queue/domain/queueCardProjection';
+import { QueueType } from '@/types/unified-data-source';
 import type {
   BrowserDeckCardPageResult,
   BrowserDeckPageRequest,
@@ -16,6 +21,14 @@ import type {
 import type {
   BackendAutoCardDecisionResolveRequest,
   BackendAutoCardDecisionResolveResult,
+  BackendQueueProjectionRowsByIdsRequest,
+  BackendQueueProjectionRowsByIdsResult,
+  BackendQueueProjectionSnapshotRequest,
+  BackendQueueProjectionSnapshotResult,
+  BackendQueueProjectionSnapshotRow,
+  BackendReviewFeedbackQueueImpact,
+  BackendReviewFeedbackQueueImpactEntry,
+  BackendReviewFeedbackQueueImpactReorderHint,
   BackendKernelTransactionAction,
   BackendKernelTransactionDequeueResult,
   BackendKernelTransactionIngestRequest,
@@ -75,6 +88,7 @@ export class WorkerSqliteDatabaseService {
   private readonly runtime: RuntimeSqliteDatabaseService;
   private readonly autoCardDecisionService = new AutoCardDecisionService();
   private repository: SqlUnifiedStorageRepository | null = null;
+  private queueProjection: SqlQueueProjectionRepository | null = null;
   private initialized = false;
   private readonly kernelTransactionQueue: Array<{
     source: 'kernel-sidecar' | 'ws-main';
@@ -165,6 +179,7 @@ export class WorkerSqliteDatabaseService {
     }
     await this.runtime.init();
     this.repository = new SqlUnifiedStorageRepository(this.runtime);
+    this.queueProjection = new SqlQueueProjectionRepository(this.runtime);
     await this.restoreKernelIngestQueueSnapshot();
     await this.restoreKernelActionQueueSnapshot();
     this.initialized = true;
@@ -620,6 +635,119 @@ export class WorkerSqliteDatabaseService {
     return this.repository!.getDeckCardsByIds(ids);
   }
 
+  async queueProjectionSnapshot(
+    request: BackendQueueProjectionSnapshotRequest,
+  ): Promise<BackendQueueProjectionSnapshotResult> {
+    await this.init();
+    const queueType = this.resolveProjectionQueueType(request.queueType);
+    if (!queueType || !this.queueProjection) {
+      return this.buildUnavailableProjectionSnapshotResult(request.queueType);
+    }
+
+    const generation = this.queueProjection.readGeneration(queueType);
+    if (!generation) {
+      return this.buildUnavailableProjectionSnapshotResult(queueType);
+    }
+
+    const policyHash = normalizeOptionalString(request.policyHash) ?? generation.policyHash;
+    const requestedGeneration = normalizeOptionalInteger(request.generation) ?? generation.generation;
+    const counters = this.queueProjection.readCounters(queueType, policyHash);
+    if (generation.status !== 'ready') {
+      return {
+        queueType,
+        policyHash,
+        generation: generation.generation,
+        status: generation.status,
+        rows: [],
+        counters,
+      };
+    }
+
+    const rows = this.queueProjection.readRows({
+      queueType,
+      policyHash,
+      generation: requestedGeneration,
+      limit: request.limit,
+      offset: request.offset,
+    });
+    const cards = this.repository!.getCardsByIds(rows.map((row) => row.cardId));
+    return {
+      queueType,
+      policyHash,
+      generation: requestedGeneration,
+      status: 'ready',
+      rows: this.buildProjectionSnapshotRows(rows, cards),
+      counters,
+    };
+  }
+
+  async queueProjectionRowsByIds(
+    request: BackendQueueProjectionRowsByIdsRequest,
+  ): Promise<BackendQueueProjectionRowsByIdsResult> {
+    await this.init();
+    const queueType = this.resolveProjectionQueueType(request.queueType);
+    const ids = uniqueStrings(Array.isArray(request.ids) ? request.ids : []);
+    if (!queueType || !this.queueProjection || ids.length === 0) {
+      return {
+        ...this.buildUnavailableProjectionSnapshotResult(request.queueType),
+        cards: [],
+      };
+    }
+
+    const generation = this.queueProjection.readGeneration(queueType);
+    if (!generation) {
+      return {
+        ...this.buildUnavailableProjectionSnapshotResult(queueType),
+        cards: [],
+      };
+    }
+
+    const policyHash = normalizeOptionalString(request.policyHash) ?? generation.policyHash;
+    const requestedGeneration = normalizeOptionalInteger(request.generation) ?? generation.generation;
+    if (generation.status !== 'ready') {
+      return {
+        queueType,
+        policyHash,
+        generation: generation.generation,
+        status: generation.status,
+        rows: [],
+        cards: [],
+      };
+    }
+
+    const projectionRows = this.queueProjection.readRows({
+      queueType,
+      policyHash,
+      generation: requestedGeneration,
+      limit: 5000,
+    });
+    const rowByIdentity = new Map<string, QueueProjectionRow>();
+    for (const row of projectionRows) {
+      if (row.rowId) {
+        rowByIdentity.set(row.rowId, row);
+      }
+      if (row.cardId) {
+        rowByIdentity.set(row.cardId, row);
+      }
+      if (row.blockId) {
+        rowByIdentity.set(row.blockId, row);
+      }
+    }
+
+    const orderedRows = ids
+      .map((id) => rowByIdentity.get(id))
+      .filter((row): row is QueueProjectionRow => Boolean(row));
+    const cards = this.repository!.getCardsByIds(orderedRows.map((row) => row.cardId));
+    return {
+      queueType,
+      policyHash,
+      generation: requestedGeneration,
+      status: 'ready',
+      rows: this.buildProjectionSnapshotRows(orderedRows, cards),
+      cards,
+    };
+  }
+
   async getCard(cardId: string): Promise<FSRSCard | undefined> {
     await this.init();
     return this.repository!.getCard(cardId);
@@ -858,6 +986,13 @@ export class WorkerSqliteDatabaseService {
           ],
         );
       }
+      const queueImpact = this.buildReviewFeedbackQueueImpact({
+        queueType,
+        request,
+        reviewedAt,
+        committed: commitResult.committed,
+        updatedCard: commitResult.updatedCard ?? null,
+      });
 
       return {
         cardId,
@@ -865,6 +1000,7 @@ export class WorkerSqliteDatabaseService {
         reviewedAt,
         queueType,
         updatedCard: commitResult.updatedCard ?? null,
+        queueImpact,
       };
     });
     this.reviewFeedbackTotal += 1;
@@ -874,6 +1010,246 @@ export class WorkerSqliteDatabaseService {
       this.reviewFeedbackPreviewTotal += 1;
     }
     return result;
+  }
+
+  private buildReviewFeedbackQueueImpact(input: {
+    queueType: string;
+    request: BackendReviewFeedbackRequest;
+    reviewedAt: number;
+    committed: boolean;
+    updatedCard: FSRSCard | null;
+  }): BackendReviewFeedbackQueueImpact | null {
+    if (!input.committed || !input.updatedCard) {
+      return null;
+    }
+
+    const projectionQueueType = this.resolveProjectionQueueType(input.queueType);
+    if (!projectionQueueType) {
+      return null;
+    }
+
+    if (!this.queueProjection) {
+      return this.buildRefreshRequiredQueueImpact({
+        queueType: projectionQueueType,
+        reason: 'projection-unavailable',
+        requestedGeneration: normalizeOptionalInteger(input.request.projectionGeneration),
+      });
+    }
+
+    const currentGeneration = this.queueProjection.readGeneration(projectionQueueType);
+    if (!currentGeneration) {
+      return this.buildRefreshRequiredQueueImpact({
+        queueType: projectionQueueType,
+        reason: 'projection-unavailable',
+        requestedGeneration: normalizeOptionalInteger(input.request.projectionGeneration),
+      });
+    }
+
+    if (currentGeneration.status !== 'ready') {
+      return this.buildRefreshRequiredQueueImpact({
+        queueType: projectionQueueType,
+        reason: 'projection-invalidated',
+        policyHash: currentGeneration.policyHash,
+        currentGeneration: currentGeneration.generation,
+        requestedGeneration: normalizeOptionalInteger(input.request.projectionGeneration),
+      });
+    }
+
+    const requestedGeneration = normalizeOptionalInteger(input.request.projectionGeneration);
+    const requestedPolicyHash = normalizeOptionalString(input.request.projectionPolicyHash);
+    const hasGenerationMismatch = (
+      (requestedGeneration !== null && requestedGeneration !== currentGeneration.generation)
+      || (requestedPolicyHash !== null && requestedPolicyHash !== currentGeneration.policyHash)
+    );
+
+    const policyHash = currentGeneration.policyHash;
+    const previousRows = this.queueProjection.readRows({
+      queueType: projectionQueueType,
+      policyHash,
+      limit: 5000,
+    });
+    const nextGeneration = currentGeneration.generation + 1;
+    const updatedAt = input.reviewedAt;
+    const dayEnd = getDayEndForTimestamp(
+      input.reviewedAt,
+      normalizeDayStartHour(DEFAULT_SETTINGS.fsrs.dayStartHour),
+    );
+    const baseCards = this.readProjectionSourceCards(projectionQueueType, dayEnd);
+    const buildResult = buildQueueProjectionRows({
+      queueType: projectionQueueType,
+      baseCards,
+      now: input.reviewedAt,
+      dayEnd,
+      newCardsPerDay: DEFAULT_SETTINGS.newCardsPerDay,
+      reviewsPerDay: DEFAULT_SETTINGS.reviewsPerDay,
+      priorityRandomness: DEFAULT_SETTINGS.priorityRandomness,
+      stableSalt: `${projectionQueueType}:${policyHash}`,
+      policyHash,
+      sourceGeneration: nextGeneration,
+      updatedAt,
+    });
+
+    const nextRows = buildResult.rows;
+    const delta = buildQueueProjectionDelta({
+      previousRows,
+      nextRows,
+    });
+
+    this.queueProjection.applyQueueProjectionDelta({
+      queueType: projectionQueueType,
+      policyHash,
+      generation: nextGeneration,
+      removeRowIds: delta.removedRowIds,
+      upsertRows: nextRows,
+      counters: buildResult.counters,
+      invalidation: {
+        queueType: projectionQueueType,
+        reason: 'review-feedback',
+        affectedCardIds: [input.updatedCard.id],
+        affectedBlockIds: input.updatedCard.blockId ? [input.updatedCard.blockId] : [],
+        generation: nextGeneration,
+        metadata: {
+          reviewedCardId: input.updatedCard.id,
+          hotPatchable: true,
+        },
+      },
+    });
+
+    if (hasGenerationMismatch) {
+      return this.buildRefreshRequiredQueueImpact({
+        queueType: projectionQueueType,
+        reason: 'generation-mismatch',
+        policyHash,
+        currentGeneration: nextGeneration,
+        requestedGeneration,
+      });
+    }
+
+    const affectedQueue: BackendReviewFeedbackQueueImpactEntry = {
+      queueType: projectionQueueType,
+      policyHash,
+      generation: nextGeneration,
+      currentGeneration: nextGeneration,
+      requestedGeneration: requestedGeneration ?? currentGeneration.generation,
+      hotPatchable: true,
+      refreshRequired: false,
+      reason: 'review-feedback',
+      removedRowIds: delta.removedRowIds,
+      insertedRows: delta.insertedRows,
+      updatedRows: delta.updatedRows,
+      reorderHints: delta.reorderHints,
+      counterGeneration: buildResult.counters.generation,
+      counters: buildResult.counters,
+    };
+
+    return {
+      hotPatchable: true,
+      refreshRequired: false,
+      affectedQueues: [affectedQueue],
+    };
+  }
+
+  private buildRefreshRequiredQueueImpact(input: {
+    queueType: QueueType;
+    reason: BackendReviewFeedbackQueueImpactEntry['reason'];
+    policyHash?: string | null;
+    currentGeneration?: number | null;
+    requestedGeneration?: number | null;
+  }): BackendReviewFeedbackQueueImpact {
+    return {
+      hotPatchable: false,
+      refreshRequired: true,
+      affectedQueues: [{
+        queueType: input.queueType,
+        policyHash: input.policyHash ?? null,
+        generation: input.currentGeneration ?? null,
+        currentGeneration: input.currentGeneration ?? null,
+        requestedGeneration: input.requestedGeneration ?? null,
+        hotPatchable: false,
+        refreshRequired: true,
+        reason: input.reason,
+        removedRowIds: [],
+        insertedRows: [],
+        updatedRows: [],
+        reorderHints: [],
+        counterGeneration: null,
+        counters: null,
+      }],
+    };
+  }
+
+  private resolveProjectionQueueType(queueType: string): QueueType.RetrievalPractice | QueueType.IncrementalLearning | null {
+    if (queueType === QueueType.RetrievalPractice) {
+      return QueueType.RetrievalPractice;
+    }
+    if (queueType === QueueType.IncrementalLearning) {
+      return QueueType.IncrementalLearning;
+    }
+    return null;
+  }
+
+  private buildUnavailableProjectionSnapshotResult(queueType: unknown): BackendQueueProjectionSnapshotResult {
+    return {
+      queueType: String(queueType || ''),
+      policyHash: null,
+      generation: null,
+      status: 'unavailable',
+      rows: [],
+      counters: null,
+    };
+  }
+
+  private buildProjectionSnapshotRows(
+    projectionRows: QueueProjectionRow[],
+    cards: FSRSCard[],
+  ): BackendQueueProjectionSnapshotRow[] {
+    const cardById = new Map<string, FSRSCard>();
+    for (const card of cards) {
+      cardById.set(String(card.id || ''), card);
+    }
+
+    return projectionRows
+      .map((row, index) => {
+        const card = cardById.get(row.cardId);
+        if (!card) {
+          return null;
+        }
+        const queueIndex = Number.isFinite(Number(row.queueIndexHint))
+          ? Number(row.queueIndexHint)
+          : index + 1;
+        const snapshot = buildQueueSnapshotRow(card, { queueIndex });
+        return {
+          ...snapshot,
+          id: row.rowId || snapshot.id,
+          fsrsCardId: row.cardId || snapshot.fsrsCardId,
+          blockId: row.blockId || snapshot.blockId,
+          deckId: row.deckId || snapshot.deckId,
+          queueIndex,
+          tags: [...snapshot.tags],
+        };
+      })
+      .filter((row): row is BackendQueueProjectionSnapshotRow => Boolean(row));
+  }
+
+  private readProjectionSourceCards(
+    queueType: QueueType.RetrievalPractice | QueueType.IncrementalLearning,
+    dayEnd: number,
+  ): FSRSCard[] {
+    const cardTypes = queueType === QueueType.RetrievalPractice
+      ? [CardType.Item, CardType.Descriptor]
+      : [
+        CardType.Item,
+        CardType.Descriptor,
+        CardType.Topic,
+        CardType.Concept,
+        CardType.Incremental,
+        CardType.Webpage,
+      ];
+    return this.repository!.queryCards({
+      cardTypes,
+      dueDate: { lte: dayEnd },
+      includeSuspended: false,
+    });
   }
 
   async resolveAutoCardDecision(
@@ -1613,6 +1989,124 @@ function collectKernelTransactionActions(input: {
     });
   }
   return actions;
+}
+
+function buildQueueProjectionDelta(input: {
+  previousRows: QueueProjectionRow[];
+  nextRows: QueueProjectionRow[];
+}): {
+  removedRowIds: string[];
+  insertedRows: QueueProjectionRow[];
+  updatedRows: QueueProjectionRow[];
+  reorderHints: BackendReviewFeedbackQueueImpactReorderHint[];
+} {
+  const previousByRowId = new Map(input.previousRows.map((row) => [row.rowId, row] as const));
+  const nextByRowId = new Map(input.nextRows.map((row) => [row.rowId, row] as const));
+  const removedRowIds = input.previousRows
+    .filter((row) => !nextByRowId.has(row.rowId))
+    .map((row) => row.rowId);
+  const insertedRows: QueueProjectionRow[] = [];
+  const updatedRows: QueueProjectionRow[] = [];
+  const reorderHints: BackendReviewFeedbackQueueImpactReorderHint[] = [];
+
+  for (const nextRow of input.nextRows) {
+    const previousRow = previousByRowId.get(nextRow.rowId);
+    if (!previousRow) {
+      insertedRows.push(nextRow);
+      reorderHints.push({
+        rowId: nextRow.rowId,
+        cardId: nextRow.cardId,
+        sortKey: nextRow.sortKey,
+        queueIndexHint: nextRow.queueIndexHint,
+        reason: 'inserted',
+      });
+      continue;
+    }
+
+    if (queueProjectionRowSignature(previousRow) !== queueProjectionRowSignature(nextRow)) {
+      updatedRows.push(nextRow);
+      if (
+        previousRow.sortKey !== nextRow.sortKey
+        || previousRow.queueIndexHint !== nextRow.queueIndexHint
+      ) {
+        reorderHints.push({
+          rowId: nextRow.rowId,
+          cardId: nextRow.cardId,
+          sortKey: nextRow.sortKey,
+          queueIndexHint: nextRow.queueIndexHint,
+          previousSortKey: previousRow.sortKey,
+          previousQueueIndexHint: previousRow.queueIndexHint,
+          reason: 'updated',
+        });
+      }
+    }
+  }
+
+  for (const rowId of removedRowIds) {
+    const previousRow = previousByRowId.get(rowId);
+    if (previousRow) {
+      reorderHints.push({
+        rowId,
+        cardId: previousRow.cardId,
+        sortKey: null,
+        queueIndexHint: null,
+        previousSortKey: previousRow.sortKey,
+        previousQueueIndexHint: previousRow.queueIndexHint,
+        reason: 'removed',
+      });
+    }
+  }
+
+  return {
+    removedRowIds,
+    insertedRows,
+    updatedRows,
+    reorderHints,
+  };
+}
+
+function queueProjectionRowSignature(row: QueueProjectionRow): string {
+  return JSON.stringify({
+    cardId: row.cardId,
+    blockId: row.blockId,
+    deckId: row.deckId,
+    membershipReason: row.membershipReason,
+    dueAt: row.dueAt,
+    dueBucket: row.dueBucket,
+    priorityScore: row.priorityScore,
+    sortKey: row.sortKey,
+    queueIndexHint: row.queueIndexHint,
+    payload: row.payload,
+  });
+}
+
+function getDayEndForTimestamp(timestamp: number, dayStartHour: number): number {
+  const now = new Date(timestamp);
+  const start = new Date(now);
+  if (now.getHours() < dayStartHour) {
+    start.setDate(start.getDate() - 1);
+  }
+  start.setHours(dayStartHour, 0, 0, 0);
+  start.setDate(start.getDate() + 1);
+  return start.getTime();
+}
+
+function normalizeDayStartHour(value: unknown): number {
+  const hour = Math.floor(Number(value));
+  return Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : 4;
+}
+
+function normalizeOptionalInteger(value: unknown): number | null {
+  if (value == null || value === '') {
+    return null;
+  }
+  const numeric = Math.floor(Number(value));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
 }
 
 function resolveWorkerReviewSchedulerConfig(request: BackendReviewFeedbackRequest): {

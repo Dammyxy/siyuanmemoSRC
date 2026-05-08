@@ -21,6 +21,10 @@ import {
   type BackendBrowserDeckSnapshotQuery,
   type BackendSourceExistenceSweepApplyRequest,
   type BackendSourceExistenceSweepApplyResult,
+  type BackendQueueProjectionSnapshotRequest,
+  type BackendQueueProjectionSnapshotResult,
+  type BackendQueueProjectionRowsByIdsRequest,
+  type BackendQueueProjectionRowsByIdsResult,
   type BackendKernelTransactionIngestRequest,
   type BackendKernelTransactionIngestResult,
   type BackendKernelTransactionDequeueRequest,
@@ -208,6 +212,10 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleSourceExistenceSummary(request.params));
         case 'browser.sourceExistence.applySweepHost':
           return buildSuccess(request.id, await this.handleSourceExistenceApplySweepHost(request.params));
+        case 'queue.projection.snapshot':
+          return buildSuccess(request.id, await this.handleQueueProjectionSnapshot(request.params));
+        case 'queue.projection.rowsByIds':
+          return buildSuccess(request.id, await this.handleQueueProjectionRowsByIds(request.params));
         case 'kernel.transaction.ingest':
           return buildSuccess(request.id, await this.handleKernelTransactionIngest(request.params));
         case 'kernel.transaction.dequeue':
@@ -439,6 +447,22 @@ export class BackendKernel {
       throw new Error('review.feedback requires named params');
     }
     return this.deps.database.reviewFeedback(named);
+  }
+
+  private async handleQueueProjectionSnapshot(params: unknown): Promise<BackendQueueProjectionSnapshotResult> {
+    const named = this.readNamedParams<BackendQueueProjectionSnapshotRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('queue.projection.snapshot requires named params');
+    }
+    return this.deps.database.queueProjectionSnapshot(named);
+  }
+
+  private async handleQueueProjectionRowsByIds(params: unknown): Promise<BackendQueueProjectionRowsByIdsResult> {
+    const named = this.readNamedParams<BackendQueueProjectionRowsByIdsRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('queue.projection.rowsByIds requires named params');
+    }
+    return this.deps.database.queueProjectionRowsByIds(named);
   }
 
   private handleAiSessionCreate(params: unknown): BackendAiSessionResult {

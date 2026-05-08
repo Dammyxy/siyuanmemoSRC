@@ -30,6 +30,8 @@ export interface SrsV2SchedulingContext extends SchedulerTimingOptions {
   sessionId?: string;
   elapsedMs?: number;
   reviewTime?: Date | number;
+  projectionGeneration?: number;
+  projectionPolicyHash?: string;
   isDrill?: boolean;
   isFiltered?: boolean;
   customStudy?: boolean;

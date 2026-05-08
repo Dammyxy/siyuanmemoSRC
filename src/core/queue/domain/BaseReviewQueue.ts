@@ -20,6 +20,7 @@ import {
     ReviewButtonConfig,
     QueueAddSource,
     QueueReviewSchedulingContext,
+    QueueProjectionSnapshot,
     type QueueBulkAddInput,
     type QueueBulkMutationResult,
 } from '../../../types/unified-data-source';
@@ -84,6 +85,9 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     protected snapshotRows: QueueSnapshotRow[] = [];
     protected snapshotRowsTrusted = false;
     protected snapshotCardIdByRowId = new Map<string, string>();
+    private projectionSnapshotTrusted = false;
+    private projectionPolicyHash: string | null = null;
+    private projectionGeneration: number | null = null;
 
     /**
      * 队列观察者
@@ -249,6 +253,9 @@ export abstract class BaseReviewQueue implements IReviewQueue {
 
     protected invalidateSnapshotRows(): void {
         this.snapshotRowsTrusted = false;
+        this.projectionSnapshotTrusted = false;
+        this.projectionPolicyHash = null;
+        this.projectionGeneration = null;
         this.snapshotRows = [];
         this.snapshotCardIdByRowId.clear();
     }
@@ -386,12 +393,83 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         }));
     }
 
+    private cloneSnapshotRows(rows: QueueSnapshotRow[]): QueueSnapshotRow[] {
+        return rows.map((row) => ({
+            ...row,
+            tags: [...row.tags],
+        }));
+    }
+
+    private async readProjectionSnapshot(forceRefresh = false): Promise<QueueProjectionSnapshot | null> {
+        const reader = this.manager.readQueueProjectionSnapshot;
+        if (typeof reader !== 'function') {
+            return null;
+        }
+
+        try {
+            const snapshot = await reader.call(this.manager, this.type, { forceRefresh });
+            if (!snapshot) {
+                return null;
+            }
+            this.snapshotRows = this.cloneSnapshotRows(snapshot.rows);
+            this.snapshotRowsTrusted = true;
+            this.projectionSnapshotTrusted = true;
+            this.projectionGeneration = Number(snapshot.generation);
+            this.projectionPolicyHash = String(snapshot.policyHash || '') || null;
+            this.snapshotCardIdByRowId.clear();
+            for (const row of this.snapshotRows) {
+                this.snapshotCardIdByRowId.set(row.id, row.fsrsCardId);
+                this.snapshotCardIdByRowId.set(row.fsrsCardId, row.fsrsCardId);
+            }
+            if (snapshot.counters) {
+                this.counterVersion = Math.max(this.counterVersion, Number(snapshot.counters.version) || 0);
+                this.counterSnapshot = this.cloneCounterSnapshot(snapshot.counters);
+                this.counterSnapshotDirty = false;
+            }
+            return {
+                ...snapshot,
+                rows: this.cloneSnapshotRows(this.snapshotRows),
+                counters: snapshot.counters ? this.cloneCounterSnapshot(snapshot.counters) : null,
+            };
+        } catch (error) {
+            logger.warn(`[${this.type}] Failed to read queue projection snapshot:`, error);
+            return null;
+        }
+    }
+
+    private async getProjectionCardsBySnapshotIds(ids: string[], forceRefresh = false): Promise<FSRSCard[]> {
+        if (!this.projectionSnapshotTrusted) {
+            return [];
+        }
+        const reader = this.manager.getQueueProjectionCardsBySnapshotIds;
+        if (typeof reader !== 'function') {
+            return [];
+        }
+
+        try {
+            const cards = await reader.call(this.manager, this.type, ids, { forceRefresh });
+            return normalizeToFSRSCard(cards).map((card) => ({ ...card }));
+        } catch (error) {
+            logger.warn(`[${this.type}] Failed to hydrate queue projection snapshot ids:`, error);
+            return [];
+        }
+    }
+
     public async getSnapshotRows(forceRefresh = false): Promise<QueueSnapshotRow[]> {
         await this.ensureInitialLoad();
 
         if (forceRefresh) {
             this.invalidateSnapshotRows();
             this.invalidateCachedCards();
+        }
+
+        if (!forceRefresh && this.projectionSnapshotTrusted && this.snapshotRowsTrusted) {
+            return this.cloneSnapshotRows(this.snapshotRows);
+        }
+
+        const projectionSnapshot = await this.readProjectionSnapshot(forceRefresh);
+        if (projectionSnapshot) {
+            return this.cloneSnapshotRows(this.snapshotRows);
         }
 
         if (!this.cardsTrusted || this.cards.length === 0) {
@@ -408,10 +486,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             }
         }
 
-        return this.snapshotRows.map((row) => ({
-            ...row,
-            tags: [...row.tags],
-        }));
+        return this.cloneSnapshotRows(this.snapshotRows);
     }
 
     public async getCardsBySnapshotIds(ids: string[], forceRefresh = false): Promise<FSRSCard[]> {
@@ -421,6 +496,11 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         }
 
         await this.getSnapshotRows(forceRefresh);
+        const projectionCards = await this.getProjectionCardsBySnapshotIds(orderedIds, forceRefresh);
+        if (projectionCards.length > 0) {
+            return projectionCards;
+        }
+
         const cardById = new Map<string, FSRSCard>();
         for (const card of this.cards) {
             cardById.set(card.id, card);
@@ -463,6 +543,15 @@ export abstract class BaseReviewQueue implements IReviewQueue {
 
         if (!forceRefresh && this.counterSnapshot && !this.counterSnapshotDirty) {
             return this.cloneCounterSnapshot(this.counterSnapshot);
+        }
+
+        if (forceRefresh) {
+            this.invalidateSnapshotRows();
+        }
+
+        const projectionSnapshot = await this.readProjectionSnapshot(forceRefresh);
+        if (projectionSnapshot?.counters) {
+            return this.cloneCounterSnapshot(projectionSnapshot.counters);
         }
 
         if (this.cardsTrusted) {
@@ -637,11 +726,18 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     }
 
     protected buildReviewSchedulingContext(card: FSRSCard): QueueReviewSchedulingContext {
-        return {
+        const context: QueueReviewSchedulingContext = {
             queueType: this.type,
             source: 'queue',
             ...(this.getReviewSchedulingContext(card) ?? {}),
         };
+        if (this.projectionGeneration !== null) {
+            context.projectionGeneration = this.projectionGeneration;
+        }
+        if (this.projectionPolicyHash !== null) {
+            context.projectionPolicyHash = this.projectionPolicyHash;
+        }
+        return context;
     }
 
     /**
@@ -804,6 +900,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             let updatedCard: FSRSCard;
             let schedulingCommitted = true;
             let postCommitNotificationRequired = false;
+            let queueImpact: unknown | null = null;
 
             if (typeof this.manager.commitReview === 'function') {
                 const commitResult = await this.manager.commitReview({
@@ -813,6 +910,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                 });
                 schedulingCommitted = commitResult.committed;
                 updatedCard = commitResult.updatedCard;
+                queueImpact = commitResult.queueImpact ?? null;
             } else {
                 const schedulerRouter = this.getSchedulerRouter();
                 postCommitNotificationRequired = true;
@@ -887,6 +985,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                     requiresCurrentViewReorder: false,
                     counterSnapshot,
                     version: counterSnapshot?.version ?? this.counterVersion,
+                    queueImpact,
                 };
             } else {
                 if (cachedIndex >= 0) {
@@ -911,6 +1010,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                     requiresCurrentViewReorder: false,
                     counterSnapshot,
                     version: counterSnapshot?.version ?? this.counterVersion,
+                    queueImpact,
                 };
             }
         } catch (error) {

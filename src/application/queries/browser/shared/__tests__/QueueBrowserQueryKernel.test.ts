@@ -133,6 +133,7 @@ describe('QueueBrowserQueryKernel', () => {
 
     expect(snapshot.total).toBe(2);
     expect(snapshot.rows.map((row) => row.id)).toEqual(['card-b', 'card-a']);
+    expect(snapshotRows.map((row) => row.id)).toEqual(['row-a', 'row-b', 'row-c']);
 
     const hydrated = await kernel.getQueueRowsByIds(queueId, ['card-a', 'card-b']);
     expect(hydrated.map((row) => row.fsrsCardId)).toEqual(['card-a', 'card-b']);

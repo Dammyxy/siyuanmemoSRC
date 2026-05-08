@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { isQueueItemUnavailableError } from '@/core/queue/abstraction/Strategy';
+import { buildQueueSnapshotRow } from '@/core/queue/domain/queueCardProjection';
 import { QueueType, type DataChangeEvent, type IReviewQueue, type QueueReviewResult } from '@/types/unified-data-source';
 import { CardType, type FSRSCard } from '@/types/card';
 
@@ -50,6 +51,9 @@ function createQueueStub(
   restoreRollbackSnapshot?: (snapshot: unknown) => Promise<void>;
 } {
   const liveCards = cards.map((card) => ({ ...card }));
+  const resolveLiveCardBySnapshotId = (id: string): FSRSCard | undefined => {
+    return liveCards.find((card) => card.id === id || card.riffCardId === id || card.blockId === id);
+  };
   const buildSnapshot = () => ({
     version: 1,
     remaining: liveCards.length,
@@ -70,6 +74,13 @@ function createQueueStub(
     type: queueType,
     getType: () => queueType,
     getCards: vi.fn(async () => liveCards.map((card) => ({ ...card }))),
+    getSnapshotRows: vi.fn(async () => liveCards.map((card, index) => buildQueueSnapshotRow(card, {
+      queueIndex: index + 1,
+    }))),
+    getCardsBySnapshotIds: vi.fn(async (ids: string[]) => ids
+      .map(resolveLiveCardBySnapshotId)
+      .filter((card): card is FSRSCard => Boolean(card))
+      .map((card) => ({ ...card }))),
     getAllCards: vi.fn(async () => liveCards.map((card) => ({ ...card }))),
     getNextCard: vi.fn(async () => liveCards[0] ?? null),
     addCard: vi.fn(async () => {}),
@@ -418,6 +429,197 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     await strategy.getStats();
 
     expect(getCardsSpy).toHaveBeenCalledTimes(0);
+  });
+
+  it('hot-patches projection queueImpact frontier rows without a full queue reload', async () => {
+    const firstCard = createCard({ id: 'card-1', blockId: 'block-1', priority: 10 });
+    const secondCard = createCard({ id: 'card-2', blockId: 'block-2', priority: 20 });
+    const frontierCard = createCard({ id: 'card-3', blockId: 'block-3', priority: 30 });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, secondCard], {
+      handleReview: async (cardId, _rating, liveCards) => {
+        const removedIndex = liveCards.findIndex((card) => card.id === cardId);
+        if (removedIndex >= 0) {
+          liveCards.splice(removedIndex, 1);
+        }
+        if (!liveCards.some((card) => card.id === frontierCard.id)) {
+          liveCards.push({ ...frontierCard });
+        }
+        return {
+          updatedCard: { ...firstCard, due: Date.now() + DAY_MS },
+          removedFromQueue: true,
+          remainsInQueue: false,
+          queueChanged: true,
+          requiresCurrentViewReorder: true,
+          queueImpact: {
+            hotPatchable: true,
+            refreshRequired: false,
+            affectedQueues: [{
+              queueType: QueueType.RetrievalPractice,
+              policyHash: 'policy-a',
+              generation: 2,
+              currentGeneration: 2,
+              requestedGeneration: 1,
+              hotPatchable: true,
+              refreshRequired: false,
+              reason: 'review-feedback',
+              removedRowIds: ['card-1'],
+              insertedRows: [{
+                rowId: 'card-3',
+                cardId: 'card-3',
+                queueIndexHint: 2,
+                sortKey: '000000002:card-3',
+              }],
+              updatedRows: [{
+                rowId: 'card-2',
+                cardId: 'card-2',
+                queueIndexHint: 1,
+                sortKey: '000000001:card-2',
+              }],
+              reorderHints: [],
+              counterGeneration: 2,
+              counters: {
+                version: 2,
+                remaining: 2,
+                due: 2,
+                total: 2,
+                buckets: {
+                  all: 2,
+                  item: 2,
+                  descriptor: 0,
+                  topic: 0,
+                  concept: 0,
+                },
+                source: 'reconciled',
+              },
+            }],
+          },
+        } as Partial<QueueReviewResult>;
+      },
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, [], {
+            createRollbackSnapshot: async () => ({ ok: true }),
+            restoreRollbackSnapshot: async () => {},
+          });
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async (cardId: string) => {
+        const card = [firstCard, secondCard, frontierCard].find((candidate) => candidate.id === cardId);
+        if (!card) {
+          throw new Error('card not found');
+        }
+        return { ...card };
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null
+    );
+
+    const first = await strategy.next();
+    const getCardsSpy = queue.getCards as unknown as ReturnType<typeof vi.fn>;
+    getCardsSpy.mockClear();
+
+    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    const second = await strategy.next();
+    const third = await strategy.next();
+
+    expect(second?.id).toBe('card-2');
+    expect(third?.id).toBe('card-3');
+    expect(getCardsSpy).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).toHaveBeenCalled();
+  });
+
+  it('refreshes projection-backed queues when queueImpact requires a generation refresh', async () => {
+    const firstCard = createCard({ id: 'card-refresh-1', xiuyuanID: 'xy-refresh-1', blockId: 'block-refresh-1', priority: 10 });
+    const secondCard = createCard({ id: 'card-refresh-2', xiuyuanID: 'xy-refresh-2', blockId: 'block-refresh-2', priority: 20 });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard], {
+      handleReview: async (cardId, _rating, liveCards) => {
+        const removedIndex = liveCards.findIndex((card) => card.id === cardId);
+        if (removedIndex >= 0) {
+          liveCards.splice(removedIndex, 1);
+        }
+        liveCards.push({ ...secondCard });
+        return {
+          updatedCard: { ...firstCard, due: Date.now() + DAY_MS },
+          removedFromQueue: true,
+          remainsInQueue: false,
+          queueChanged: true,
+          requiresCurrentViewReorder: true,
+          queueImpact: {
+            hotPatchable: false,
+            refreshRequired: true,
+            affectedQueues: [{
+              queueType: QueueType.RetrievalPractice,
+              policyHash: 'policy-a',
+              generation: 3,
+              currentGeneration: 3,
+              requestedGeneration: 2,
+              hotPatchable: false,
+              refreshRequired: true,
+              reason: 'generation-mismatch',
+              removedRowIds: [],
+              insertedRows: [],
+              updatedRows: [],
+              reorderHints: [],
+              counterGeneration: 3,
+            }],
+          },
+        } as Partial<QueueReviewResult>;
+      },
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, [], {
+            createRollbackSnapshot: async () => ({ ok: true }),
+            restoreRollbackSnapshot: async () => {},
+          });
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async (cardId: string) => {
+        const card = [firstCard, secondCard].find((candidate) => candidate.id === cardId);
+        if (!card) {
+          throw new Error('card not found');
+        }
+        return { ...card };
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null
+    );
+
+    const first = await strategy.next();
+    const getCardsSpy = queue.getCards as unknown as ReturnType<typeof vi.fn>;
+    getCardsSpy.mockClear();
+
+    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    expect(getCardsSpy).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
+
+    const next = await strategy.next();
+
+    expect(next?.id).toBe('card-refresh-2');
+    expect(getCardsSpy).toHaveBeenCalledTimes(1);
   });
 
   it('keeps retrieval-practice Good/Easy cards out of the current session after late queue reloads', async () => {

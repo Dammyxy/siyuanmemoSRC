@@ -105,6 +105,14 @@ export interface QueueCounterSnapshot {
     source: 'hot' | 'reconciled';
 }
 
+export interface QueueProjectionSnapshot {
+    queueType: QueueType;
+    policyHash: string;
+    generation: number;
+    rows: QueueSnapshotRow[];
+    counters: QueueCounterSnapshot | null;
+}
+
 export interface QueueReviewResult {
     updatedCard: FSRSCard | null;
     removedFromQueue: boolean;
@@ -113,6 +121,7 @@ export interface QueueReviewResult {
     requiresCurrentViewReorder: boolean;
     counterSnapshot: QueueCounterSnapshot | null;
     version: number;
+    queueImpact?: unknown | null;
 }
 
 export type BatchCardMutationResult = {
@@ -154,6 +163,8 @@ export interface QueueReviewSchedulingContext {
     source?: 'queue' | 'browser' | 'manual' | 'arena' | 'test' | string;
     sessionId?: string;
     elapsedMs?: number;
+    projectionGeneration?: number;
+    projectionPolicyHash?: string;
     isDrill?: boolean;
     isFiltered?: boolean;
     customStudy?: boolean;

@@ -144,6 +144,41 @@ describe('ReviewCommitUseCase', () => {
     }));
   });
 
+  it('passes projection snapshot identity to backend review feedback', async () => {
+    const before = createCard({ id: 'card-projection-context' });
+    const after = createCard({ id: before.id, due: before.due + 4 * 86_400_000 });
+    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after }));
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      srsBackend: { reviewFeedback },
+      writerLeaseGuard: {
+        ensureWritable: vi.fn(async () => {}),
+        getMode: () => 'writer',
+      } as never,
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        projectionGeneration: 7,
+        projectionPolicyHash: 'policy-a',
+      },
+    });
+
+    expect(reviewFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      projectionGeneration: 7,
+      projectionPolicyHash: 'policy-a',
+    }));
+  });
+
   it('fails closed when backend is disabled by runtime policy', async () => {
     const before = createCard({ id: 'card-backend-disabled' });
     const useCase = new ReviewCommitUseCase({
@@ -223,6 +258,61 @@ describe('ReviewCommitUseCase', () => {
       instanceId: 'instance-follower-1',
       method: 'review.feedback',
     }));
+    expect(reviewFeedback).not.toHaveBeenCalled();
+  });
+
+  it('keeps queue impact data when feedback is relayed from a follower window', async () => {
+    const before = createCard({ id: 'card-follower-impact' });
+    const after = createCard({ id: before.id, due: before.due + 3 * 86_400_000 });
+    const queueImpact = {
+      hotPatchable: true,
+      refreshRequired: false,
+      affectedQueues: [{
+        queueType: 'retrieval-practice',
+        policyHash: 'policy-a',
+        generation: 2,
+        removedRowIds: ['card-follower-impact'],
+        insertedRows: [],
+        updatedRows: [],
+        reorderHints: [],
+        counterGeneration: 2,
+        counters: {
+          generation: 2,
+          version: 2,
+          remaining: 0,
+          due: 0,
+          total: 0,
+        },
+      }],
+    };
+    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after, queueImpact }));
+    const submitAndWait = vi.fn(async () => ({ committed: true, updatedCard: after, queueImpact }));
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      srsBackend: { reviewFeedback },
+      writerLeaseGuard: {
+        ensureWritable: vi.fn(async () => {}),
+        getMode: () => 'follower',
+        getInstanceId: () => 'instance-follower-impact',
+      } as never,
+      followerCommandClient: { submitAndWait },
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    const result = await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect((result as { queueImpact?: unknown }).queueImpact).toEqual(queueImpact);
     expect(reviewFeedback).not.toHaveBeenCalled();
   });
 

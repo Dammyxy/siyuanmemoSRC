@@ -764,6 +764,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private async readQueueVisibleCount(
     queue: IReviewQueue | null,
     queueId: string,
+    forceRefresh = false,
   ): Promise<number> {
     if (!queue) {
       return 0;
@@ -798,7 +799,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     try {
-      const snapshot = await queue.getCounterSnapshot();
+      const snapshot = await queue.getCounterSnapshot(forceRefresh);
       return Math.max(0, Number(snapshot.remaining) || 0);
     } catch (error) {
       logger.debug('Failed to read queue counter snapshot, falling back to size methods:', {
@@ -869,7 +870,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     const queueType = QUEUE_ID_TO_TYPE[queueId];
-    const request = this.readQueueVisibleCount(manager.getQueue(queueType), queueId)
+    const request = this.readQueueVisibleCount(manager.getQueue(queueType), queueId, forceRefresh)
       .then((value) => {
         const normalized = Math.max(0, Number(value) || 0);
         this.queueCountCache.set(queueId, {
