@@ -1,0 +1,55 @@
+{
+  "label": "live-startup-source-lazy-no-chunk-first-use-smoke",
+  "generatedAt": "2026-05-08T01:53:05.767Z",
+  "pluginState": {
+    "loaded": true,
+    "hasTopbar": true,
+    "contextReady": true,
+    "error": null
+  },
+  "tempDocIds": [
+    "2026...cszy"
+  ],
+  "rows": [
+    {
+      "surface": "Browser dialog",
+      "result": "opened",
+      "durationMs": 500.2
+    },
+    {
+      "surface": "Settings dialog",
+      "result": "opened",
+      "durationMs": 181.1
+    },
+    {
+      "surface": "AI Workbench dialog",
+      "result": "opened",
+      "durationMs": 139.3
+    },
+    {
+      "surface": "Review dialog",
+      "result": "opened",
+      "durationMs": 52.4
+    },
+    {
+      "surface": "Mobile launcher dialog",
+      "result": "opened",
+      "durationMs": 11.8
+    },
+    {
+      "surface": "Progressive split dialog",
+      "result": "opened",
+      "durationMs": 24.3
+    },
+    {
+      "surface": "Template select dialog",
+      "result": "opened",
+      "durationMs": 27.5
+    },
+    {
+      "surface": "Arena manager dialog",
+      "result": "opened",
+      "durationMs": 55.4
+    }
+  ]
+}

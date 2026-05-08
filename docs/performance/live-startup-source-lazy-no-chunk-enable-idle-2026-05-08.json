@@ -1,0 +1,35 @@
+{
+  "label": "live-startup-source-lazy-no-chunk-enable-idle",
+  "generatedAt": "2026-05-08T01:48:53.860Z",
+  "disabled": {
+    "loaded": false,
+    "hasRuntimePerformance": true,
+    "hasTopbar": false,
+    "visibilityState": "visible",
+    "hidden": false,
+    "hasFocus": true
+  },
+  "loaded": {
+    "loaded": true,
+    "hasRuntimePerformance": true,
+    "hasTopbar": true,
+    "visibilityState": "visible",
+    "hidden": false,
+    "hasFocus": true
+  },
+  "enableToLoadedMs": 6553,
+  "idleWindowMs": 5000,
+  "heapBeforeUsedBytes": 1038968051,
+  "heapAfterUsedBytes": 1218082586,
+  "heapDeltaUsedBytes": 179114535,
+  "longtaskCount": 1,
+  "maxLongtaskMs": 410,
+  "totalBlockingEstimateMs": 360,
+  "slowestLongtasks": [
+    {
+      "durationMs": 410,
+      "startTime": 6405263.7,
+      "name": "self"
+    }
+  ]
+}

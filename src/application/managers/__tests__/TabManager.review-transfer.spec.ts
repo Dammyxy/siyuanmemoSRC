@@ -54,7 +54,7 @@ describe('TabManager filter-group review transfer restore', () => {
     }));
   });
 
-  it('restores a detached filter-group session queue from transfer state instead of the shared queue', () => {
+  it('restores a detached filter-group session queue from transfer state instead of the shared queue', async () => {
     const sharedFilterQueue = {
       getType: () => 'filter-group',
       subscribe: vi.fn(),
@@ -85,7 +85,7 @@ describe('TabManager filter-group review transfer restore', () => {
     tabManager.registerAll();
 
     const reviewRegistration = plugin.addTab.mock.calls[1][0];
-    reviewRegistration.init.call({
+    await reviewRegistration.init.call({
       element: document.createElement('div'),
       data: {
         providerId: 'filter-group',
@@ -147,7 +147,7 @@ describe('TabManager filter-group review transfer restore', () => {
     expect(manager.getQueue).not.toHaveBeenCalledWith('filter-group');
   });
 
-  it('restores transfer state through the direct review runtime helper used by deferred bootstrap', () => {
+  it('restores transfer state through the direct review runtime helper used by deferred bootstrap', async () => {
     const sharedFilterQueue = {
       getType: () => 'filter-group',
       subscribe: vi.fn(),
@@ -211,7 +211,7 @@ describe('TabManager filter-group review transfer restore', () => {
     };
 
     const tabManager = new TabManager(context, plugin, { siyuanApi: createSiyuanApiMock() } as never);
-    tabManager.initReviewTab(runtime as never);
+    await tabManager.initReviewTab(runtime as never);
 
     const [, props] = mocks.createApp.mock.calls[0];
     const queueStrategy = props.queue;
@@ -232,7 +232,7 @@ describe('TabManager filter-group review transfer restore', () => {
     }));
   });
 
-  it('restores review-tab runtime state for retrieval-practice tabs and keeps it writable on the runtime data', () => {
+  it('restores review-tab runtime state for retrieval-practice tabs and keeps it writable on the runtime data', async () => {
     const now = Date.now();
     const currentCard = {
       id: 'card-special',
@@ -360,7 +360,7 @@ describe('TabManager filter-group review transfer restore', () => {
     };
 
     const reviewRegistration = plugin.addTab.mock.calls[1][0];
-    reviewRegistration.init.call(runtime);
+    await reviewRegistration.init.call(runtime);
 
     const [, props] = mocks.createApp.mock.calls[0];
     expect(props.initialCurrentItem).toMatchObject({
@@ -561,7 +561,7 @@ describe('TabManager filter-group review transfer restore', () => {
     };
 
     const reviewRegistration = plugin.addTab.mock.calls[1][0];
-    reviewRegistration.init.call(runtime);
+    await reviewRegistration.init.call(runtime);
     reviewRegistration.resize.call(runtime);
     reviewRegistration.update.call(runtime);
     await vi.runAllTimersAsync();
@@ -571,7 +571,7 @@ describe('TabManager filter-group review transfer restore', () => {
     vi.useRealTimers();
   });
 
-  it('rehydrates a newly split review tab from the latest sibling runtime snapshot when native tab data is stale', () => {
+  it('rehydrates a newly split review tab from the latest sibling runtime snapshot when native tab data is stale', async () => {
     const now = Date.now();
     const currentCard = {
       id: 'card-special',
@@ -649,7 +649,7 @@ describe('TabManager filter-group review transfer restore', () => {
       },
     };
 
-    reviewRegistration.init.call(sourceRuntime);
+    await reviewRegistration.init.call(sourceRuntime);
     const [, sourceProps] = mocks.createApp.mock.calls[0];
     sourceProps.onTabRuntimeStateChange({
       version: 1,
@@ -691,7 +691,7 @@ describe('TabManager filter-group review transfer restore', () => {
       },
     };
 
-    reviewRegistration.init.call(splitRuntime);
+    await reviewRegistration.init.call(splitRuntime);
     const [, splitProps] = mocks.createApp.mock.calls[1];
 
     expect(splitProps.initialCurrentCardId).toBe('card-special');

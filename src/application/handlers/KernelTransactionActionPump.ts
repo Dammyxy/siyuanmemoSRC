@@ -44,6 +44,7 @@ interface KernelTransactionActionPumpOptions {
   relayTimeoutMs?: number;
   upsertCooldownMs?: number;
   autoCardCooldownMs?: number;
+  emptyPollBackoffMaxMs?: number;
   writerRelayRequired?: boolean;
 }
 
@@ -88,9 +89,12 @@ export class KernelTransactionActionPump {
   private readonly relayTimeoutMs: number;
   private readonly upsertCooldownMs: number;
   private readonly autoCardCooldownMs: number;
+  private readonly emptyPollBackoffMaxMs: number;
   private readonly writerRelayRequired: boolean;
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
   private pollingInFlight = false;
+  private emptyPollStreak = 0;
+  private nextEmptyPollAllowedAt = 0;
   private pendingUpsert = false;
   private upsertInFlight = false;
   private upsertTimer: ReturnType<typeof setTimeout> | null = null;
@@ -111,6 +115,7 @@ export class KernelTransactionActionPump {
     this.relayTimeoutMs = Math.max(1_000, Math.floor(options.relayTimeoutMs ?? 15_000));
     this.upsertCooldownMs = Math.max(250, Math.floor(options.upsertCooldownMs ?? 1_500));
     this.autoCardCooldownMs = Math.max(250, Math.floor(options.autoCardCooldownMs ?? 1_000));
+    this.emptyPollBackoffMaxMs = Math.max(this.pollIntervalMs, Math.floor(options.emptyPollBackoffMaxMs ?? 2_000));
     this.writerRelayRequired = options.writerRelayRequired === true;
   }
 
@@ -135,12 +140,30 @@ export class KernelTransactionActionPump {
     }
   }
 
+  notifyActivity(reason = 'external'): void {
+    incrementRuntimePerformanceCounter('daily-editing', `kernel-action-pump-wake-${reason}`);
+    if (!this.pollingTimer || this.pollingInFlight) {
+      return;
+    }
+    if (this.shouldSkipForEmptyPollBackoff()) {
+      incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-wake-bounded-by-empty-backoff');
+      return;
+    }
+    this.resetEmptyPollBackoff();
+    void this.pollOnce();
+  }
+
   private async pollOnce(): Promise<void> {
+    if (this.shouldSkipForEmptyPollBackoff()) {
+      incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-empty-backoff-skips');
+      return;
+    }
     const finishPollSpan = startRuntimePerformanceSpan('daily-editing', 'kernel-action-pump.poll-once', {
       mode: this.runtime?.getMode?.() ?? 'none',
       writerRelayRequired: this.writerRelayRequired,
     });
     let actionCount = 0;
+    let pollStatus = 'started';
     if (this.pollingInFlight) {
       incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-skipped-inflight');
       finishPollSpan({ status: 'skipped-inflight' });
@@ -155,8 +178,10 @@ export class KernelTransactionActionPump {
       if (actions.length === 0) {
         this.scheduleDeferredUpsert();
         this.maybeRunDeferredAutoCard();
+        pollStatus = 'empty';
         return;
       }
+      this.resetEmptyPollBackoff();
       const hybridSyncService = this.getHybridSyncService();
       const removeBlockIds = new Set<string>();
       const autoCardOperations: Array<{ action: AutoCardActionType; blockId: string }> = [];
@@ -217,18 +242,56 @@ export class KernelTransactionActionPump {
         throw error;
       }
     } catch (error) {
+      pollStatus = 'error';
+      this.resetEmptyPollBackoff();
       logger.warn('Kernel transaction action polling failed', {
         message: error instanceof Error ? error.message : String(error || ''),
       });
     } finally {
       this.pollingInFlight = false;
+      if (pollStatus === 'empty') {
+        this.recordEmptyPollBackoff();
+      }
       finishPollSpan({
         actionCount,
         pendingAutoCardBlocks: this.pendingAutoCardOpsByBlock.size,
         pendingUpsert: this.pendingUpsert,
         upsertInFlight: this.upsertInFlight,
+        emptyPollStreak: this.emptyPollStreak,
       });
     }
+  }
+
+  private shouldSkipForEmptyPollBackoff(): boolean {
+    if (this.hasPendingFollowUpWork()) {
+      return false;
+    }
+    return Date.now() < this.nextEmptyPollAllowedAt;
+  }
+
+  private recordEmptyPollBackoff(): void {
+    if (this.hasPendingFollowUpWork()) {
+      this.resetEmptyPollBackoff();
+      return;
+    }
+    this.emptyPollStreak += 1;
+    const delayMs = Math.min(
+      this.emptyPollBackoffMaxMs,
+      this.pollIntervalMs * (2 ** this.emptyPollStreak),
+    );
+    this.nextEmptyPollAllowedAt = Date.now() + delayMs;
+  }
+
+  private resetEmptyPollBackoff(): void {
+    this.emptyPollStreak = 0;
+    this.nextEmptyPollAllowedAt = 0;
+  }
+
+  private hasPendingFollowUpWork(): boolean {
+    return this.pendingUpsert
+      || this.upsertInFlight
+      || !!this.upsertTimer
+      || this.pendingAutoCardOpsByBlock.size > 0;
   }
 
   private bufferAutoCardOperations(

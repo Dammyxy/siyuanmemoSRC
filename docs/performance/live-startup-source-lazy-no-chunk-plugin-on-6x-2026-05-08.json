@@ -1,0 +1,700 @@
+{
+  "label": "live-startup-source-lazy-no-chunk-plugin-on-6x",
+  "generatedAt": "2026-05-08T01:50:09.140Z",
+  "environment": {
+    "cdp": "http://127.0.0.1:9222",
+    "siyuanApi": "http://127.0.0.1:6806",
+    "workspace": "H:/SiYuanXY",
+    "pluginState": "on",
+    "profileName": "developer",
+    "cpuRate": 6,
+    "browserState": "closed",
+    "vmCores": null,
+    "vmMemoryGb": null,
+    "allowHiddenRenderer": false,
+    "rendererPreparation": {
+      "before": {
+        "visibilityState": "hidden",
+        "hidden": true,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "after": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "hiddenRendererAllowed": false
+    },
+    "browserPreparation": {
+      "browserPrepared": "closed"
+    },
+    "pluginPreparation": {
+      "requestedEnabled": true,
+      "apiReturned": {
+        "name": "siyuan-plugin-siyuanmemo",
+        "enabled": true
+      },
+      "renderer": {
+        "loaded": true,
+        "hasRuntimePerformance": true,
+        "hasTopbar": true
+      }
+    },
+    "tempDocIds": [
+      "2026...ggg0",
+      "2026...4yj6"
+    ]
+  },
+  "matrixStatus": {
+    "note": "This script records one profile/browser/plugin-state row. Run matching plugin-off and plugin-on rows before assigning SiYuanMemo root cause.",
+    "noFixBeforeRootCause": true
+  },
+  "phases": [
+    {
+      "action": "plain-typing",
+      "repeatIndex": 1,
+      "profile": {
+        "name": "developer",
+        "cpuRate": 6,
+        "pluginState": "on",
+        "browserState": "closed",
+        "vmCores": null,
+        "vmMemoryGb": null
+      },
+      "actionMeta": {
+        "focused": true,
+        "typedChars": 55,
+        "docId": "2026...ggg0"
+      },
+      "eventCount": 7,
+      "pluginEventCount": 2,
+      "longtaskCount": 5,
+      "longtaskMaxMs": 258,
+      "totalBlockingEstimateMs": 276,
+      "inputDelayP95Ms": 0,
+      "inputDelayMaxMs": 0,
+      "scrollFrameGapP95Ms": 2371.5,
+      "scrollFrameGapMaxMs": 2371.5,
+      "heapBeforeUsedBytes": 1300107582,
+      "heapAfterUsedBytes": 1221799179,
+      "heapDeltaUsedBytes": -78308403,
+      "heapUsageRatio": 0.2844722892623395,
+      "risk": "red",
+      "riskReasons": [
+        "renderer-longtask-red",
+        "tbt-yellow",
+        "scroll-gap-red"
+      ],
+      "rendererStateBefore": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "rendererStateAfter": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "overlap": {
+        "owner": "unknown",
+        "firstOwner": "unknown",
+        "overlaps": [
+          {
+            "owner": "unknown",
+            "path": "startup",
+            "operation": "hybrid-sync-service.start",
+            "durationMs": 7282.5,
+            "startedAt": 1778204982060.8,
+            "endedAt": 1778204989343.3,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:0",
+              "scroll-gap:1",
+              "scroll-gap:2",
+              "scroll-gap:3",
+              "scroll-gap:4"
+            ],
+            "stallOverlapCount": 10
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.complete-command",
+            "durationMs": 4380.2,
+            "startedAt": 1778204983408.1,
+            "endedAt": 1778204987788.3,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:0",
+              "scroll-gap:1",
+              "scroll-gap:2",
+              "scroll-gap:3",
+              "scroll-gap:4"
+            ],
+            "stallOverlapCount": 10
+          }
+        ]
+      },
+      "slowestPluginEvents": [
+        {
+          "owner": "unknown",
+          "path": "startup",
+          "operation": "hybrid-sync-service.start",
+          "durationMs": 7282.5,
+          "metadata": {
+            "fullSyncEnabled": true,
+            "incrementalSyncEnabled": true
+          }
+        },
+        {
+          "owner": "writer relay",
+          "path": "relay",
+          "operation": "writer.complete-command",
+          "durationMs": 4380.2,
+          "metadata": {
+            "method": "kernel.transaction.dequeue",
+            "wakeReason": "push:reconnect-drain"
+          }
+        }
+      ]
+    },
+    {
+      "action": "marker-typing",
+      "repeatIndex": 1,
+      "profile": {
+        "name": "developer",
+        "cpuRate": 6,
+        "pluginState": "on",
+        "browserState": "closed",
+        "vmCores": null,
+        "vmMemoryGb": null
+      },
+      "actionMeta": {
+        "typedChars": 51,
+        "docId": "2026...4yj6"
+      },
+      "eventCount": 37,
+      "pluginEventCount": 27,
+      "longtaskCount": 10,
+      "longtaskMaxMs": 3283,
+      "totalBlockingEstimateMs": 3531,
+      "inputDelayP95Ms": 0,
+      "inputDelayMaxMs": 0,
+      "scrollFrameGapP95Ms": 3732,
+      "scrollFrameGapMaxMs": 3732,
+      "heapBeforeUsedBytes": 1119748253,
+      "heapAfterUsedBytes": 1121253408,
+      "heapDeltaUsedBytes": 1505155,
+      "heapUsageRatio": 0.2610621526837349,
+      "risk": "red",
+      "riskReasons": [
+        "renderer-longtask-red",
+        "tbt-red",
+        "scroll-gap-red"
+      ],
+      "rendererStateBefore": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "rendererStateAfter": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "overlap": {
+        "owner": "writer relay",
+        "firstOwner": "writer relay",
+        "overlaps": [
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.drain-pending-commands",
+            "durationMs": 19410.5,
+            "startedAt": 1778204981835.9001,
+            "endedAt": 1778205001246.4001,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:0",
+              "scroll-gap:1"
+            ],
+            "stallOverlapCount": 3
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.complete-command",
+            "durationMs": 8382.2,
+            "startedAt": 1778204992858.6,
+            "endedAt": 1778205001240.8,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:0",
+              "scroll-gap:1"
+            ],
+            "stallOverlapCount": 3
+          },
+          {
+            "owner": "KernelTransactionActionPump",
+            "path": "daily-editing",
+            "operation": "kernel-action-pump.dequeue-local",
+            "durationMs": 297.3,
+            "startedAt": 1778205004177.8,
+            "endedAt": 1778205004475.1,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:3",
+              "scroll-gap:4"
+            ],
+            "stallOverlapCount": 4
+          },
+          {
+            "owner": "KernelTransactionActionPump",
+            "path": "daily-editing",
+            "operation": "kernel-action-pump.poll-once",
+            "durationMs": 297.7,
+            "startedAt": 1778205004177.8,
+            "endedAt": 1778205004475.5,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:3",
+              "scroll-gap:4"
+            ],
+            "stallOverlapCount": 4
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.drain-pending-commands",
+            "durationMs": 4303.1,
+            "startedAt": 1778205004260.2,
+            "endedAt": 1778205008563.3,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:3",
+              "scroll-gap:4",
+              "scroll-gap:5",
+              "scroll-gap:6"
+            ],
+            "stallOverlapCount": 8
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.take-command",
+            "durationMs": 313.4,
+            "startedAt": 1778205004260.3,
+            "endedAt": 1778205004573.7,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:3",
+              "scroll-gap:4"
+            ],
+            "stallOverlapCount": 4
+          },
+          {
+            "owner": "TransactionWebSocketService",
+            "path": "daily-editing",
+            "operation": "ws-main.message",
+            "durationMs": 0.2,
+            "startedAt": 1778205004456.7,
+            "endedAt": 1778205004456.9001,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:3",
+              "scroll-gap:4"
+            ],
+            "stallOverlapCount": 4
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.command-handler",
+            "durationMs": 54.2,
+            "startedAt": 1778205004574.3,
+            "endedAt": 1778205004628.5,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:4"
+            ],
+            "stallOverlapCount": 2
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.complete-command",
+            "durationMs": 3933.7,
+            "startedAt": 1778205004628.8,
+            "endedAt": 1778205008562.5,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:4",
+              "scroll-gap:5",
+              "scroll-gap:6"
+            ],
+            "stallOverlapCount": 6
+          },
+          {
+            "owner": "KernelTransactionActionPump",
+            "path": "daily-editing",
+            "operation": "kernel-action-pump.poll-once",
+            "durationMs": 120,
+            "startedAt": 1778205008374.1,
+            "endedAt": 1778205008494.1,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:5",
+              "scroll-gap:6"
+            ],
+            "stallOverlapCount": 3
+          },
+          {
+            "owner": "KernelTransactionActionPump",
+            "path": "daily-editing",
+            "operation": "kernel-action-pump.dequeue-local",
+            "durationMs": 119.4,
+            "startedAt": 1778205008374.3,
+            "endedAt": 1778205008493.7,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:5",
+              "scroll-gap:6"
+            ],
+            "stallOverlapCount": 3
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.take-command",
+            "durationMs": 470.4,
+            "startedAt": 1778205008674.7,
+            "endedAt": 1778205009145.1,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:6",
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 4
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.drain-pending-commands",
+            "durationMs": 767.1,
+            "startedAt": 1778205008674.7,
+            "endedAt": 1778205009441.8,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:6",
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 4
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.command-handler",
+            "durationMs": 238.3,
+            "startedAt": 1778205009147.3,
+            "endedAt": 1778205009385.6,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:6",
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 4
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.complete-command",
+            "durationMs": 49.7,
+            "startedAt": 1778205009386.2,
+            "endedAt": 1778205009435.9001,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:6",
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 3
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.take-command",
+            "durationMs": 16.3,
+            "startedAt": 1778205009442.8,
+            "endedAt": 1778205009459.1,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:6",
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 3
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.drain-pending-commands",
+            "durationMs": 123.4,
+            "startedAt": 1778205009442.8,
+            "endedAt": 1778205009566.2,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:6",
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 3
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.command-handler",
+            "durationMs": 16,
+            "startedAt": 1778205009459.5,
+            "endedAt": 1778205009475.5,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:6",
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 3
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.complete-command",
+            "durationMs": 85.4,
+            "startedAt": 1778205009476.2,
+            "endedAt": 1778205009561.6,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:6",
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 3
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.drain-pending-commands",
+            "durationMs": 292.4,
+            "startedAt": 1778205009572.8,
+            "endedAt": 1778205009865.2,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:6",
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 3
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.take-command",
+            "durationMs": 70.8,
+            "startedAt": 1778205009573,
+            "endedAt": 1778205009643.8,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:6",
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 3
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.command-handler",
+            "durationMs": 139.1,
+            "startedAt": 1778205009647.8,
+            "endedAt": 1778205009786.9001,
+            "stallSources": [
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 1
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.complete-command",
+            "durationMs": 42.3,
+            "startedAt": 1778205009788.2,
+            "endedAt": 1778205009830.5,
+            "stallSources": [
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 1
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.take-command",
+            "durationMs": 32.9,
+            "startedAt": 1778205009830.9001,
+            "endedAt": 1778205009863.8,
+            "stallSources": [
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 1
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.take-command",
+            "durationMs": 47.1,
+            "startedAt": 1778205009868.8,
+            "endedAt": 1778205009915.9001,
+            "stallSources": [
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 1
+          },
+          {
+            "owner": "writer relay",
+            "path": "relay",
+            "operation": "writer.drain-pending-commands",
+            "durationMs": 49.5,
+            "startedAt": 1778205009868.8,
+            "endedAt": 1778205009918.3,
+            "stallSources": [
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 1
+          },
+          {
+            "owner": "TransactionWebSocketService",
+            "path": "daily-editing",
+            "operation": "ws-main.message",
+            "durationMs": 0.2,
+            "startedAt": 1778205010280.4001,
+            "endedAt": 1778205010280.6,
+            "stallSources": [
+              "renderer.longtask",
+              "scroll-gap:7"
+            ],
+            "stallOverlapCount": 2
+          }
+        ]
+      },
+      "slowestPluginEvents": [
+        {
+          "owner": "writer relay",
+          "path": "relay",
+          "operation": "writer.drain-pending-commands",
+          "durationMs": 19410.5,
+          "metadata": {
+            "mode": "writer",
+            "wakeReason": "push:reconnect-drain",
+            "commandLimit": 4,
+            "budgetMs": 24,
+            "commandCount": 2,
+            "pendingCommandCount": 1,
+            "budgetExceeded": true,
+            "yieldReason": "budget",
+            "coalescedWake": true,
+            "coalescedCommandCount": 2,
+            "status": "yielded"
+          }
+        },
+        {
+          "owner": "writer relay",
+          "path": "relay",
+          "operation": "writer.complete-command",
+          "durationMs": 8382.2,
+          "metadata": {
+            "method": "kernel.transaction.ingest",
+            "wakeReason": "push:reconnect-drain"
+          }
+        },
+        {
+          "owner": "writer relay",
+          "path": "relay",
+          "operation": "writer.drain-pending-commands",
+          "durationMs": 4303.1,
+          "metadata": {
+            "mode": "writer",
+            "wakeReason": "watchdog",
+            "commandLimit": 4,
+            "budgetMs": 24,
+            "commandCount": 1,
+            "pendingCommandCount": 2,
+            "budgetExceeded": true,
+            "yieldReason": "budget",
+            "coalescedWake": true,
+            "coalescedCommandCount": 3,
+            "status": "yielded"
+          }
+        },
+        {
+          "owner": "writer relay",
+          "path": "relay",
+          "operation": "writer.complete-command",
+          "durationMs": 3933.7,
+          "metadata": {
+            "method": "kernel.transaction.dequeue",
+            "wakeReason": "watchdog"
+          }
+        },
+        {
+          "owner": "writer relay",
+          "path": "relay",
+          "operation": "writer.drain-pending-commands",
+          "durationMs": 767.1,
+          "metadata": {
+            "mode": "writer",
+            "wakeReason": "watchdog:yield:budget",
+            "commandLimit": 4,
+            "budgetMs": 24,
+            "commandCount": 1,
+            "pendingCommandCount": 2,
+            "budgetExceeded": true,
+            "yieldReason": "budget",
+            "coalescedWake": true,
+            "coalescedCommandCount": 2,
+            "status": "yielded"
+          }
+        },
+        {
+          "owner": "writer relay",
+          "path": "relay",
+          "operation": "writer.take-command",
+          "durationMs": 470.4,
+          "metadata": {
+            "wakeReason": "watchdog:yield:budget"
+          }
+        },
+        {
+          "owner": "writer relay",
+          "path": "relay",
+          "operation": "writer.take-command",
+          "durationMs": 313.4,
+          "metadata": {
+            "wakeReason": "watchdog"
+          }
+        },
+        {
+          "owner": "KernelTransactionActionPump",
+          "path": "daily-editing",
+          "operation": "kernel-action-pump.poll-once",
+          "durationMs": 297.7,
+          "metadata": {
+            "mode": "writer",
+            "writerRelayRequired": true,
+            "actionCount": 0,
+            "pendingAutoCardBlocks": 0,
+            "pendingUpsert": false,
+            "upsertInFlight": false,
+            "emptyPollStreak": 2
+          }
+        }
+      ]
+    }
+  ]
+}

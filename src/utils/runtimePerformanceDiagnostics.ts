@@ -111,7 +111,7 @@ function wallClockFromPerformance(value: number): number {
   if (
     typeof performance !== 'undefined'
     && typeof performance.timeOrigin === 'number'
-    && value < 60 * 60 * 1000
+    && value < 1_000_000_000_000
   ) {
     return performance.timeOrigin + value;
   }
@@ -506,4 +506,3 @@ export function installRuntimePerformanceDiagnosticsGlobal(): void {
   }
   state.globalsInstalled = true;
 }
-

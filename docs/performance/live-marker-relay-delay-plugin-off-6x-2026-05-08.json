@@ -1,0 +1,160 @@
+{
+  "label": "post-transaction-delay-off-visible-closed-marker-6x",
+  "generatedAt": "2026-05-08T02:11:11.994Z",
+  "environment": {
+    "cdp": "http://127.0.0.1:9222",
+    "siyuanApi": "http://127.0.0.1:6806",
+    "workspace": "H:/SiYuanXY",
+    "pluginState": "off",
+    "profileName": "developer-6x",
+    "cpuRate": 6,
+    "browserState": "closed",
+    "vmCores": null,
+    "vmMemoryGb": null,
+    "allowHiddenRenderer": false,
+    "rendererPreparation": {
+      "before": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "after": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "hiddenRendererAllowed": false
+    },
+    "browserPreparation": {
+      "browserPrepared": "closed"
+    },
+    "pluginPreparation": {
+      "requestedEnabled": false,
+      "apiReturned": {
+        "name": "siyuan-plugin-siyuanmemo",
+        "enabled": false
+      },
+      "renderer": {
+        "loaded": false,
+        "hasRuntimePerformance": true,
+        "hasTopbar": false
+      }
+    },
+    "tempDocIds": [
+      "2026...v358",
+      "2026...qoja"
+    ]
+  },
+  "matrixStatus": {
+    "note": "This script records one profile/browser/plugin-state row. Run matching plugin-off and plugin-on rows before assigning SiYuanMemo root cause.",
+    "noFixBeforeRootCause": true
+  },
+  "phases": [
+    {
+      "action": "marker-typing",
+      "repeatIndex": 1,
+      "profile": {
+        "name": "developer-6x",
+        "cpuRate": 6,
+        "pluginState": "off",
+        "browserState": "closed",
+        "vmCores": null,
+        "vmMemoryGb": null
+      },
+      "actionMeta": {
+        "typedChars": 51,
+        "docId": "2026...v358"
+      },
+      "eventCount": 0,
+      "pluginEventCount": 0,
+      "longtaskCount": 0,
+      "longtaskMaxMs": 0,
+      "totalBlockingEstimateMs": 0,
+      "inputDelayP95Ms": 0,
+      "inputDelayMaxMs": 0,
+      "scrollFrameGapP95Ms": 435.5,
+      "scrollFrameGapMaxMs": 435.5,
+      "heapBeforeUsedBytes": 1318309331,
+      "heapAfterUsedBytes": 1265336646,
+      "heapDeltaUsedBytes": -52972685,
+      "heapUsageRatio": 0.2946091457270086,
+      "risk": "red",
+      "riskReasons": [
+        "scroll-gap-red"
+      ],
+      "rendererStateBefore": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "rendererStateAfter": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "overlap": {
+        "owner": "SiYuan baseline/system/unknown",
+        "firstOwner": null,
+        "overlaps": []
+      },
+      "slowestPluginEvents": []
+    },
+    {
+      "action": "marker-typing",
+      "repeatIndex": 2,
+      "profile": {
+        "name": "developer-6x",
+        "cpuRate": 6,
+        "pluginState": "off",
+        "browserState": "closed",
+        "vmCores": null,
+        "vmMemoryGb": null
+      },
+      "actionMeta": {
+        "typedChars": 51,
+        "docId": "2026...qoja"
+      },
+      "eventCount": 32,
+      "pluginEventCount": 0,
+      "longtaskCount": 32,
+      "longtaskMaxMs": 3196,
+      "totalBlockingEstimateMs": 5440,
+      "inputDelayP95Ms": 0,
+      "inputDelayMaxMs": 0,
+      "scrollFrameGapP95Ms": 1111.1,
+      "scrollFrameGapMaxMs": 3597,
+      "heapBeforeUsedBytes": 1267850978,
+      "heapAfterUsedBytes": 1266394971,
+      "heapDeltaUsedBytes": -1456007,
+      "heapUsageRatio": 0.29485555621795356,
+      "risk": "red",
+      "riskReasons": [
+        "renderer-longtask-red",
+        "tbt-red",
+        "scroll-gap-red"
+      ],
+      "rendererStateBefore": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "rendererStateAfter": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "overlap": {
+        "owner": "SiYuan baseline/system/unknown",
+        "firstOwner": null,
+        "overlaps": []
+      },
+      "slowestPluginEvents": []
+    }
+  ]
+}

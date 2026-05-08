@@ -161,7 +161,7 @@ export default defineConfig(({
             }
             return assetInfo.name
           },
-          // 禁用代码分割，确保所有代码打包到单个文件
+          // Keep official SiYuan plugin package shape: one JS entry, no chunks.
           manualChunks: undefined,
           inlineDynamicImports: true,
         },

@@ -114,7 +114,7 @@ describe('TabManager browser and review tab wiring', () => {
     });
   });
 
-  it('hydrates the browser tab component with serialized initial state on init', () => {
+  it('hydrates the browser tab component with serialized initial state on init', async () => {
     const { tabManager, plugin } = createManager();
     tabManager.registerAll();
 
@@ -129,7 +129,7 @@ describe('TabManager browser and review tab wiring', () => {
       },
     };
 
-    browserRegistration.init.call(runtime);
+    await browserRegistration.init.call(runtime);
 
     expect(mocks.createApp).toHaveBeenCalledWith(
       expect.anything(),

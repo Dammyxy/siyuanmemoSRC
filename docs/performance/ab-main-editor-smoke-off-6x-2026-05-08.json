@@ -1,0 +1,272 @@
+{
+  "label": "ab-main-off-visible-closed-plain-marker-6x",
+  "generatedAt": "2026-05-07T23:57:59.306Z",
+  "environment": {
+    "cdp": "http://127.0.0.1:9222",
+    "siyuanApi": "http://127.0.0.1:6806",
+    "workspace": "H:/SiYuanXY",
+    "pluginState": "off",
+    "profileName": "ab-main-6x",
+    "cpuRate": 6,
+    "browserState": "closed",
+    "vmCores": null,
+    "vmMemoryGb": null,
+    "allowHiddenRenderer": false,
+    "rendererPreparation": {
+      "before": {
+        "visibilityState": "hidden",
+        "hidden": true,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "after": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "hiddenRendererAllowed": false
+    },
+    "browserPreparation": {
+      "browserPrepared": "closed"
+    },
+    "pluginPreparation": {
+      "requestedEnabled": false,
+      "apiReturned": {
+        "name": "siyuan-plugin-siyuanmemo",
+        "enabled": false
+      },
+      "renderer": {
+        "loaded": false,
+        "hasRuntimePerformance": true,
+        "hasTopbar": false
+      }
+    },
+    "tempDocIds": [
+      "2026...ddxd",
+      "2026...39ca",
+      "2026...bbvv",
+      "2026...scfz"
+    ]
+  },
+  "matrixStatus": {
+    "note": "This script records one profile/browser/plugin-state row. Run matching plugin-off and plugin-on rows before assigning SiYuanMemo root cause.",
+    "noFixBeforeRootCause": true
+  },
+  "phases": [
+    {
+      "action": "plain-typing",
+      "repeatIndex": 1,
+      "profile": {
+        "name": "ab-main-6x",
+        "cpuRate": 6,
+        "pluginState": "off",
+        "browserState": "closed",
+        "vmCores": null,
+        "vmMemoryGb": null
+      },
+      "actionMeta": {
+        "focused": true,
+        "typedChars": 55,
+        "docId": "2026...ddxd"
+      },
+      "eventCount": 3,
+      "pluginEventCount": 0,
+      "longtaskCount": 3,
+      "longtaskMaxMs": 289,
+      "totalBlockingEstimateMs": 457,
+      "inputDelayP95Ms": 0,
+      "inputDelayMaxMs": 0,
+      "scrollFrameGapP95Ms": 1152.5,
+      "scrollFrameGapMaxMs": 1152.5,
+      "heapBeforeUsedBytes": 597252290,
+      "heapAfterUsedBytes": 672641002,
+      "heapDeltaUsedBytes": 75388712,
+      "heapUsageRatio": 0.1566114374436438,
+      "risk": "red",
+      "riskReasons": [
+        "renderer-longtask-red",
+        "tbt-yellow",
+        "scroll-gap-red"
+      ],
+      "rendererStateBefore": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "rendererStateAfter": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "overlap": {
+        "owner": "SiYuan baseline/system/unknown",
+        "firstOwner": null,
+        "overlaps": []
+      },
+      "slowestPluginEvents": []
+    },
+    {
+      "action": "marker-typing",
+      "repeatIndex": 1,
+      "profile": {
+        "name": "ab-main-6x",
+        "cpuRate": 6,
+        "pluginState": "off",
+        "browserState": "closed",
+        "vmCores": null,
+        "vmMemoryGb": null
+      },
+      "actionMeta": {
+        "typedChars": 51,
+        "docId": "2026...39ca"
+      },
+      "eventCount": 22,
+      "pluginEventCount": 0,
+      "longtaskCount": 22,
+      "longtaskMaxMs": 836,
+      "totalBlockingEstimateMs": 2407,
+      "inputDelayP95Ms": 0,
+      "inputDelayMaxMs": 0,
+      "scrollFrameGapP95Ms": 1145.6,
+      "scrollFrameGapMaxMs": 1145.6,
+      "heapBeforeUsedBytes": 661960969,
+      "heapAfterUsedBytes": 569114041,
+      "heapDeltaUsedBytes": -92846928,
+      "heapUsageRatio": 0.13250718847848475,
+      "risk": "red",
+      "riskReasons": [
+        "renderer-longtask-red",
+        "tbt-red",
+        "scroll-gap-red"
+      ],
+      "rendererStateBefore": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "rendererStateAfter": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "overlap": {
+        "owner": "SiYuan baseline/system/unknown",
+        "firstOwner": null,
+        "overlaps": []
+      },
+      "slowestPluginEvents": []
+    },
+    {
+      "action": "plain-typing",
+      "repeatIndex": 2,
+      "profile": {
+        "name": "ab-main-6x",
+        "cpuRate": 6,
+        "pluginState": "off",
+        "browserState": "closed",
+        "vmCores": null,
+        "vmMemoryGb": null
+      },
+      "actionMeta": {
+        "focused": true,
+        "typedChars": 55,
+        "docId": "2026...bbvv"
+      },
+      "eventCount": 5,
+      "pluginEventCount": 0,
+      "longtaskCount": 5,
+      "longtaskMaxMs": 821,
+      "totalBlockingEstimateMs": 1182,
+      "inputDelayP95Ms": 0,
+      "inputDelayMaxMs": 0,
+      "scrollFrameGapP95Ms": 1130.5,
+      "scrollFrameGapMaxMs": 1130.5,
+      "heapBeforeUsedBytes": 568219664,
+      "heapAfterUsedBytes": 569310005,
+      "heapDeltaUsedBytes": 1090341,
+      "heapUsageRatio": 0.13255281490273774,
+      "risk": "red",
+      "riskReasons": [
+        "renderer-longtask-red",
+        "tbt-red",
+        "scroll-gap-red"
+      ],
+      "rendererStateBefore": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "rendererStateAfter": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "overlap": {
+        "owner": "SiYuan baseline/system/unknown",
+        "firstOwner": null,
+        "overlaps": []
+      },
+      "slowestPluginEvents": []
+    },
+    {
+      "action": "marker-typing",
+      "repeatIndex": 2,
+      "profile": {
+        "name": "ab-main-6x",
+        "cpuRate": 6,
+        "pluginState": "off",
+        "browserState": "closed",
+        "vmCores": null,
+        "vmMemoryGb": null
+      },
+      "actionMeta": {
+        "typedChars": 51,
+        "docId": "2026...scfz"
+      },
+      "eventCount": 9,
+      "pluginEventCount": 0,
+      "longtaskCount": 9,
+      "longtaskMaxMs": 817,
+      "totalBlockingEstimateMs": 1127,
+      "inputDelayP95Ms": 0,
+      "inputDelayMaxMs": 0,
+      "scrollFrameGapP95Ms": 1115.6,
+      "scrollFrameGapMaxMs": 1115.6,
+      "heapBeforeUsedBytes": 568785968,
+      "heapAfterUsedBytes": 569709301,
+      "heapDeltaUsedBytes": 923333,
+      "heapUsageRatio": 0.13264578324742615,
+      "risk": "red",
+      "riskReasons": [
+        "renderer-longtask-red",
+        "tbt-red",
+        "scroll-gap-red"
+      ],
+      "rendererStateBefore": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "rendererStateAfter": {
+        "visibilityState": "visible",
+        "hidden": false,
+        "hasFocus": true,
+        "href": "http://127.0.0.1:58194/stage/build/app/?v=1778160575259"
+      },
+      "overlap": {
+        "owner": "SiYuan baseline/system/unknown",
+        "firstOwner": null,
+        "overlaps": []
+      },
+      "slowestPluginEvents": []
+    }
+  ]
+}

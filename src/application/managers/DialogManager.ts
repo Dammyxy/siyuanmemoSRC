@@ -15,19 +15,12 @@ import type { ApplicationContext } from '../ApplicationContext';
 import type { IDialogManager } from '../interfaces/IDialogManager';
 import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
-import { SettingsPanel } from '@/ui/settings';
-import AiWorkbenchDialog from '@/ui/ai/AiWorkbenchDialog.vue';
-import ArenaManagerDialog from '@/ui/arena/ArenaManagerDialog.vue';
-import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
-import MobileReviewLauncher from '@/ui/mobile/MobileReviewLauncher.vue';
-import { TemplateSelectDialog } from '@/ui/xiuyuan';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import {
   createUnavailableHostBlockQueryPort,
   type HostBlockQueryPort,
   type HostBlockRow,
 } from '@/application/ports/HostBlockQueryPort';
-import { createUnifiedReviewDialog } from '@/application/factories/createUnifiedReviewDialog';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
 import {
@@ -39,7 +32,6 @@ import {
   type IReviewQueue,
   type ReviewTabTransferState,
 } from '@/types/unified-data-source';
-import { ReviewView } from '@/ui/review/v2';
 import type { ReviewHeaderVariant } from '@/ui/review/v2/types';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
@@ -73,7 +65,17 @@ import {
 import type { PracticeQueueFilter } from './PracticeQueueManager';
 import type { BrowserOpenState } from '@/types/browser';
 import type { ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
-import ProgressiveSplitDialog from '@/ui/progressive/ProgressiveSplitDialog.vue';
+import {
+  loadAiWorkbenchDialogComponent,
+  loadArenaManagerDialogComponent,
+  loadCreateUnifiedReviewDialog,
+  loadMobileReviewLauncherComponent,
+  loadProgressiveSplitDialogComponent,
+  loadReviewViewComponent,
+  loadSettingsPanelComponent,
+  loadSrsBrowserComponent,
+  loadTemplateSelectDialogComponent,
+} from './lazySurfaceComponents';
 
 const logger = createLogger('DialogManager');
 
@@ -329,14 +331,14 @@ export class DialogManager implements IDialogManager {
     }
   }
 
-  private openStandardReviewEntry(options: {
+  private async openStandardReviewEntry(options: {
     queueType: QueueType;
     title: string;
     headerVariant: ReviewHeaderVariant;
     queueInstance?: IReviewQueue;
     initialSessionState?: InitialReviewSessionState;
     allowNewTab?: boolean;
-  }): void {
+  }): Promise<void> {
     const allowNewTab = options.allowNewTab !== false;
     if (allowNewTab && this.shouldOpenReviewInNewTabByDefault()) {
       const tabManager = this.context.getTabManager?.();
@@ -350,6 +352,7 @@ export class DialogManager implements IDialogManager {
       }
     }
 
+    const createUnifiedReviewDialog = await loadCreateUnifiedReviewDialog();
     this.registerCurrentReviewDialog((onClose) =>
       createUnifiedReviewDialog({
         plugin: this.plugin,
@@ -365,14 +368,14 @@ export class DialogManager implements IDialogManager {
     );
   }
 
-  openStandardReviewDialog(options: {
+  async openStandardReviewDialog(options: {
     queueType: QueueType;
     title: string;
     headerVariant: ReviewHeaderVariant;
     queueInstance?: IReviewQueue;
     initialSessionState?: InitialReviewSessionState;
-  }): void {
-    this.openStandardReviewEntry({
+  }): Promise<void> {
+    await this.openStandardReviewEntry({
       ...options,
       allowNewTab: false,
     });
@@ -393,7 +396,7 @@ export class DialogManager implements IDialogManager {
 
     this.destroyCurrentReviewDialog();
     await this.prepareQueueBeforeReview(queueType);
-    this.openStandardReviewEntry({
+    await this.openStandardReviewEntry({
       queueType,
       title: preset.title,
       headerVariant: preset.headerVariant,
@@ -452,6 +455,7 @@ export class DialogManager implements IDialogManager {
       return;
     }
 
+    const AiWorkbenchDialog = await loadAiWorkbenchDialogComponent();
     this.aiWorkbenchDialog = createVueDialog({
       title: this.context.getI18n()?.aiWorkbenchTitle || 'AI 工作台',
       component: AiWorkbenchDialog,
@@ -477,6 +481,7 @@ export class DialogManager implements IDialogManager {
     if (this.arenaManagerDialog) {
       return;
     }
+    const ArenaManagerDialog = await loadArenaManagerDialogComponent();
     this.arenaManagerDialog = createVueDialog({
       title: this.context.getI18n()?.arenaManagerTitle || 'Arena Manager',
       component: ArenaManagerDialog,
@@ -537,7 +542,8 @@ export class DialogManager implements IDialogManager {
     if (this.settingsDialog) {
       this.settingsDialog.destroy();
     }
-    
+
+    const SettingsPanel = await loadSettingsPanelComponent();
     this.settingsDialog = createVueDialog({
       title: this.context.getI18n()?.settings || '设置',
       component: SettingsPanel,
@@ -698,6 +704,7 @@ export class DialogManager implements IDialogManager {
       logger.warn('[DialogManager] Failed to load queue counts for mobile launcher:', error);
     }
 
+    const MobileReviewLauncher = await loadMobileReviewLauncherComponent();
     this.mobileQueueLauncherDialog = createVueDialog({
       hideTitle: true,
       component: MobileReviewLauncher,
@@ -743,11 +750,11 @@ export class DialogManager implements IDialogManager {
   /**
    * 打开 SRS 浏览器对话框
    */
-  openBrowserDialog(options?: {
+  async openBrowserDialog(options?: {
     initialOpenState?: BrowserOpenState | null;
     initialQueueId?: string;
     initialNeuralSubview?: 'concept-cards' | 'roam-history' | 'worldline-anchors';
-  }): void {
+  }): Promise<void> {
     if (this.srsBrowserDialog) {
       this.srsBrowserDialog.destroy();
     }
@@ -757,7 +764,8 @@ export class DialogManager implements IDialogManager {
     const browserService = this.context.getBrowserService();
     const tabApplicationService = this.context.getTabApplicationService();
     const { width, height } = this.resolveBrowserDialogSize();
-    
+
+    const SRSBrowser = await loadSrsBrowserComponent();
     this.srsBrowserDialog = createVueDialog({
       dataKey: 'srs-browser-dialog',
       title: this.context.getI18n()?.srsBrowser || 'SRS 浏览器',
@@ -847,6 +855,7 @@ export class DialogManager implements IDialogManager {
     let cancelRequested = false;
     let splitRunning = false;
 
+    const ProgressiveSplitDialog = await loadProgressiveSplitDialogComponent();
     this.progressiveSplitDialog = createVueDialog({
       title: i18n.progressiveSplitDialogTitle || '选择切割标记',
       component: ProgressiveSplitDialog,
@@ -1019,7 +1028,7 @@ export class DialogManager implements IDialogManager {
     await this.prepareQueueBeforeReview(QueueType.RetrievalPractice);
 
     try {
-      this.openStandardReviewEntry({
+      await this.openStandardReviewEntry({
         queueType: QueueType.RetrievalPractice,
         title: this.context.getI18n()?.retrievalPractice || '提取练习',
         headerVariant: 'retrieval-practice',
@@ -1041,7 +1050,7 @@ export class DialogManager implements IDialogManager {
     await this.prepareQueueBeforeReview(QueueType.IncrementalLearning);
 
     try {
-      this.openStandardReviewEntry({
+      await this.openStandardReviewEntry({
         queueType: QueueType.IncrementalLearning,
         title: this.context.getI18n()?.incrementalLearning || '渐进学习',
         headerVariant: 'incremental-learning',
@@ -1062,7 +1071,7 @@ export class DialogManager implements IDialogManager {
     this.destroyCurrentReviewDialog();
 
     try {
-      this.openStandardReviewEntry({
+      await this.openStandardReviewEntry({
         queueType: QueueType.FinalDrill,
         title: this.context.getI18n()?.finalDrill || '刻意练习',
         headerVariant: 'final-drill',
@@ -1083,7 +1092,7 @@ export class DialogManager implements IDialogManager {
     this.destroyCurrentReviewDialog();
 
     try {
-      this.openStandardReviewEntry({
+      await this.openStandardReviewEntry({
         queueType: QueueType.FilterGroup,
         title: this.context.getI18n()?.filterGroupPractice || '分组队列',
         headerVariant: 'filter-group',
@@ -1130,7 +1139,7 @@ export class DialogManager implements IDialogManager {
         }
       }
 
-      this.openStandardReviewEntry({
+      await this.openStandardReviewEntry({
         queueType: QueueType.NeuralRoam,
         title: this.context.getI18n()?.neuralReviewTitle || '神经漫游',
         headerVariant: 'neural-roam',
@@ -1162,6 +1171,7 @@ export class DialogManager implements IDialogManager {
         effects: this.leechActionEffects,
       });
 
+      const createUnifiedReviewDialog = await loadCreateUnifiedReviewDialog();
       this.registerCurrentReviewDialog((onClose) =>
         createUnifiedReviewDialog({
           plugin: this.plugin,
@@ -1209,6 +1219,7 @@ export class DialogManager implements IDialogManager {
       const titleCount = cardIds.length > 0 ? cardIds.length : ids.length;
       const title = (this.context.getI18n()?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(titleCount));
 
+      const createUnifiedReviewDialog = await loadCreateUnifiedReviewDialog();
       this.registerCurrentReviewDialog((onClose) =>
         createUnifiedReviewDialog({
           plugin: this.plugin,
@@ -1308,7 +1319,8 @@ export class DialogManager implements IDialogManager {
       });
       const { width, height } = this.resolveReviewDialogSize();
       const isMobile = this.isMobileFrontend();
-      
+
+      const ReviewView = await loadReviewViewComponent();
       this.registerCurrentReviewDialog((onClose) =>
         createVueDialog({
           title: this.context.getI18n()?.retrievalPractice || '提取练习',
@@ -1436,7 +1448,8 @@ export class DialogManager implements IDialogManager {
       });
       const { width, height } = this.resolveReviewDialogSize();
       const isMobile = this.isMobileFrontend();
-      
+
+      const ReviewView = await loadReviewViewComponent();
       this.registerCurrentReviewDialog((onClose) =>
         createVueDialog({
           title: this.context.getI18n()?.incrementalLearning || '渐进学习',
@@ -1502,6 +1515,7 @@ export class DialogManager implements IDialogManager {
       const queue = new TemporaryDrillQueue(manager, ids);
       const title = (this.context.getI18n()?.temporaryDrill || '临时练习') + ` (${ids.length} 张)`;
 
+      const createUnifiedReviewDialog = await loadCreateUnifiedReviewDialog();
       this.registerCurrentReviewDialog((onClose) =>
         createUnifiedReviewDialog({
           plugin: this.plugin,
@@ -2322,6 +2336,7 @@ export class DialogManager implements IDialogManager {
         this.templateSelectDialog.destroy();
       }
 
+      const TemplateSelectDialog = await loadTemplateSelectDialogComponent();
       // 显示模板选择对话框
       this.templateSelectDialog = createVueDialog({
         title: this.context.getI18n()?.selectCardTypeTitle || '选择卡片类型',

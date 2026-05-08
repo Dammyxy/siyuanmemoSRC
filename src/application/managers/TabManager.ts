@@ -9,9 +9,6 @@
 import type { Custom, Plugin } from 'siyuan';
 import { openTab, Constants } from 'siyuan';
 import { createApp, type App as VueApp } from 'vue';
-import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
-import AiWorkbenchPane from '@/ui/ai/AiWorkbenchPane.vue';
-import { ReviewView } from '@/ui/review/v2';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import type { IAdapter, ReviewHeaderVariant, ReviewViewTabBridge } from '@/ui/review/v2/types';
@@ -33,6 +30,11 @@ import type { BrowserOpenState } from '@/types/browser';
 import type { AIWorkbenchOpenOptions } from '@/types/ai';
 import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
 import { NOOP_QUEUE_PERSISTENCE } from '@/core/queue/domain/ports';
+import {
+  loadAiWorkbenchPaneComponent,
+  loadReviewViewComponent,
+  loadSrsBrowserComponent,
+} from './lazySurfaceComponents';
 
 const logger = createLogger('TabManager');
 
@@ -418,6 +420,7 @@ export class TabManager {
   private readonly reviewTabRuntimes = new Map<string, ReviewTabRuntimeHandle>();
   private readonly reviewTabSurfaceSnapshots = new Map<string, ReviewTabSurfaceSnapshot>();
   private readonly reviewAICompanionRuntimes = new Map<string, ReviewAICompanionRuntimeHandle>();
+  private readonly tabMountTokens = new WeakMap<TabRuntimeContext, number>();
 
   constructor(
     private context: ApplicationContext,
@@ -430,6 +433,20 @@ export class TabManager {
     this.REVIEW_AI_TAB_TYPE = this.plugin.name + '-review-ai';
   }
 
+  private beginTabMount(runtime: TabRuntimeContext): number {
+    const token = (this.tabMountTokens.get(runtime) ?? 0) + 1;
+    this.tabMountTokens.set(runtime, token);
+    return token;
+  }
+
+  private cancelTabMount(runtime: TabRuntimeContext): void {
+    this.beginTabMount(runtime);
+  }
+
+  private isCurrentTabMount(runtime: TabRuntimeContext, token: number): boolean {
+    return this.tabMountTokens.get(runtime) === token;
+  }
+
   registerAll(): void {
     if (this.tabsRegistered) {
       return;
@@ -439,7 +456,7 @@ export class TabManager {
     this.plugin.addTab({
       type: this.TAB_TYPE,
       init() {
-        self.initBrowserTab(this as unknown as TabRuntimeContext);
+        return self.initBrowserTab(this as unknown as TabRuntimeContext);
       },
       destroy() {
         self.destroyBrowserTab(this as unknown as TabRuntimeContext);
@@ -448,7 +465,7 @@ export class TabManager {
     this.plugin.addTab({
       type: this.REVIEW_TAB_TYPE,
       init() {
-        self.initReviewTab(this as unknown as TabRuntimeContext);
+        return self.initReviewTab(this as unknown as TabRuntimeContext);
       },
       destroy() {
         self.destroyReviewTab(this as unknown as TabRuntimeContext);
@@ -463,7 +480,7 @@ export class TabManager {
     this.plugin.addTab({
       type: this.REVIEW_AI_TAB_TYPE,
       init() {
-        self.initReviewAICompanionTab(this as unknown as TabRuntimeContext);
+        return self.initReviewAICompanionTab(this as unknown as TabRuntimeContext);
       },
       destroy() {
         self.destroyReviewAICompanionTab(this as unknown as TabRuntimeContext);
@@ -471,8 +488,13 @@ export class TabManager {
     });
   }
 
-  initBrowserTab(runtime: TabRuntimeContext): void {
+  async initBrowserTab(runtime: TabRuntimeContext): Promise<void> {
+    const mountToken = this.beginTabMount(runtime);
     const data = this.normalizeBrowserTabData(runtime.data);
+    const SRSBrowser = await loadSrsBrowserComponent();
+    if (!this.isCurrentTabMount(runtime, mountToken)) {
+      return;
+    }
     const app = createApp(SRSBrowser, {
       app: this.plugin.app,
       i18n: this.context.getI18n() || {},
@@ -485,11 +507,13 @@ export class TabManager {
   }
 
   destroyBrowserTab(runtime: TabRuntimeContext): void {
+    this.cancelTabMount(runtime);
     runtime.vueApp?.unmount();
     runtime.vueApp = undefined;
   }
 
-  initReviewTab(runtime: TabRuntimeContext): void {
+  async initReviewTab(runtime: TabRuntimeContext): Promise<void> {
+    const mountToken = this.beginTabMount(runtime);
     const data = this.recoverReviewTabData(
       this.normalizeReviewTabData(runtime.data),
       this.resolveReviewTabRuntimeId(runtime),
@@ -508,6 +532,10 @@ export class TabManager {
       progressiveExcerptEnabled: this.context.getSettingsService().getSettings().progressiveReading?.altXExcerptEnabled === true,
     });
 
+    const ReviewView = await loadReviewViewComponent();
+    if (!this.isCurrentTabMount(runtime, mountToken)) {
+      return;
+    }
     const app = createApp(ReviewView, {
       app: this.plugin.app,
       i18n: this.getPluginI18n(),
@@ -535,6 +563,7 @@ export class TabManager {
   }
 
   destroyReviewTab(runtime: TabRuntimeContext): void {
+    this.cancelTabMount(runtime);
     this.unregisterReviewTabRuntime(runtime);
     runtime.vueApp?.unmount();
     runtime.vueApp = undefined;
@@ -548,13 +577,22 @@ export class TabManager {
     this.refreshReviewTabRuntimeSurface(runtime, data);
   }
 
-  initReviewAICompanionTab(runtime: TabRuntimeContext): void {
+  async initReviewAICompanionTab(runtime: TabRuntimeContext): Promise<void> {
+    await this.mountReviewAICompanionTab(runtime);
+  }
+
+  private async mountReviewAICompanionTab(runtime: TabRuntimeContext): Promise<void> {
+    const mountToken = this.beginTabMount(runtime);
     const data = this.normalizeReviewAICompanionTabData(runtime.data);
     const service = this.context.getReviewAIWorkbenchRegistry().getOrCreateReviewSession(data.reviewSessionId, {
       surface: 'review-tab-companion',
       sourceReviewSessionId: data.sourceReviewSessionId,
     });
 
+    const AiWorkbenchPane = await loadAiWorkbenchPaneComponent();
+    if (!this.isCurrentTabMount(runtime, mountToken)) {
+      return;
+    }
     const app = createApp(AiWorkbenchPane, {
       service,
       i18n: this.getPluginI18n(),
@@ -566,6 +604,7 @@ export class TabManager {
   }
 
   destroyReviewAICompanionTab(runtime: TabRuntimeContext): void {
+    this.cancelTabMount(runtime);
     this.unregisterReviewAICompanionRuntime(runtime);
     runtime.vueApp?.unmount();
     runtime.vueApp = undefined;

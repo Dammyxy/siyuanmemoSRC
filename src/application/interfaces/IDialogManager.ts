@@ -110,7 +110,7 @@ export interface IDialogManager {
     initialOpenState?: BrowserOpenState | null;
     initialQueueId?: string;
     initialNeuralSubview?: 'concept-cards' | 'roam-history' | 'worldline-anchors';
-  }): void;
+  }): Promise<void>;
 
   /**
    * 打开移动端队列启动面板

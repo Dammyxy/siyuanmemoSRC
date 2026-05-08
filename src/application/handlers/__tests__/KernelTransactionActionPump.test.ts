@@ -222,6 +222,65 @@ describe('KernelTransactionActionPump', () => {
     await pump.dispose();
   });
 
+  it('wakes immediately before empty backoff is established', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [],
+      remaining: 0,
+    }));
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      null,
+      null,
+      () => undefined,
+      () => undefined,
+      { pollIntervalMs: 250, emptyPollBackoffMaxMs: 1_000 },
+    );
+    pump.start();
+
+    pump.notifyActivity('test-ingest');
+    await Promise.resolve();
+
+    expect(dequeueKernelTransactions).toHaveBeenCalledTimes(1);
+
+    await pump.dispose();
+  });
+
+  it('backs off empty queue polls and keeps activity wake bounded during empty backoff', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [],
+      remaining: 0,
+    }));
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      null,
+      null,
+      () => undefined,
+      () => undefined,
+      { pollIntervalMs: 250, emptyPollBackoffMaxMs: 1_000 },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect(dequeueKernelTransactions).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect(dequeueKernelTransactions).toHaveBeenCalledTimes(1);
+
+    pump.notifyActivity('test-ingest');
+    await Promise.resolve();
+    expect(dequeueKernelTransactions).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect(dequeueKernelTransactions).toHaveBeenCalledTimes(2);
+
+    await pump.dispose();
+  });
+
   it('dequeues locally when stale follower mode self-relay is rejected by kernel', async () => {
     const dequeueKernelTransactions = vi.fn(async () => ({
       actions: [],

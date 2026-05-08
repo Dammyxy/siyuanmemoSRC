@@ -196,16 +196,16 @@ describe('DialogManager', () => {
   });
 
   describe('SRS 浏览器对话框', () => {
-    it('应该能够打开 SRS 浏览器对话框', () => {
-      dialogManager.openBrowserDialog();
+    it('应该能够打开 SRS 浏览器对话框', async () => {
+      await dialogManager.openBrowserDialog();
       
       expect(mockContext.getStorage).toHaveBeenCalled();
       expect(mockContext.getScheduler).toHaveBeenCalled();
       expect(mockContext.getI18n).toHaveBeenCalled();
     });
 
-    it('应该能够关闭 SRS 浏览器对话框', () => {
-      dialogManager.openBrowserDialog();
+    it('应该能够关闭 SRS 浏览器对话框', async () => {
+      await dialogManager.openBrowserDialog();
       dialogManager.closeBrowserDialog();
       
       // 验证对话框已被销毁
@@ -243,7 +243,7 @@ describe('DialogManager', () => {
   describe('生命周期管理', () => {
     it('dispose 应该关闭所有对话框', async () => {
       await dialogManager.openSettingsDialog();
-      dialogManager.openBrowserDialog();
+      await dialogManager.openBrowserDialog();
       
       dialogManager.dispose();
       

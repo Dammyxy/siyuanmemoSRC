@@ -23,6 +23,7 @@ interface KernelTransactionIngestHandlerOptions {
   relayTimeoutMs?: number;
   maxAttempts?: number;
   writerRelayRequired?: boolean;
+  onIngested?: () => void;
 }
 
 type PendingBatch = {
@@ -61,6 +62,7 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
   private readonly relayTimeoutMs: number;
   private readonly maxAttempts: number;
   private readonly writerRelayRequired: boolean;
+  private readonly onIngested: (() => void) | undefined;
   private readonly pendingTransactions: Transaction[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private flushInFlight = false;
@@ -76,6 +78,7 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
     this.relayTimeoutMs = Math.max(1_000, Math.floor(options.relayTimeoutMs ?? 15_000));
     this.maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 3));
     this.writerRelayRequired = options.writerRelayRequired === true;
+    this.onIngested = options.onIngested;
   }
 
   handle(transactions: Transaction[]): void {
@@ -132,6 +135,7 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
     for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
       try {
         await this.sendBatch(batch);
+        this.onIngested?.();
         return;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error || '');

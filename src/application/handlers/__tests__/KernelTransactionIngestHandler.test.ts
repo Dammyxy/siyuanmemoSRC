@@ -48,6 +48,32 @@ describe('KernelTransactionIngestHandler', () => {
     handler.dispose();
   });
 
+  it('notifies activity after a successful local ingest batch', async () => {
+    const onIngested = vi.fn();
+    const ingestKernelTransactions = vi.fn(async () => ({
+      accepted: 1,
+      queued: 1,
+      receivedAt: Date.now(),
+      duplicate: false,
+      queueLength: 1,
+      maxQueueLength: 256,
+    }));
+    const handler = new KernelTransactionIngestHandler(
+      { ingestKernelTransactions },
+      null,
+      null,
+      { batchDebounceMs: 20, onIngested },
+    );
+
+    handler.handle([createTransaction('block-wake')]);
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+
+    expect(onIngested).toHaveBeenCalledTimes(1);
+
+    handler.dispose();
+  });
+
   it('relays ingest command through writer relay when runtime is follower', async () => {
     const ingestKernelTransactions = vi.fn();
     const submitAndWait = vi.fn(async () => ({

@@ -1400,6 +1400,9 @@ export class ApplicationContext {
             writerCommandHandler: (command) => ApplicationContext.executeWriterRelayCommand(
               srsBackendClient!,
               command,
+              {
+                onKernelTransactionIngested: () => this.kernelTransactionActionPump?.notifyActivity('relay-ingest'),
+              },
             ),
           });
           followerCommandClient = new FollowerCommandClient(kernelSidecarClient);
@@ -1700,6 +1703,9 @@ export class ApplicationContext {
       method: string;
       params?: unknown;
     },
+    hooks: {
+      onKernelTransactionIngested?: () => void;
+    } = {},
   ): Promise<unknown> {
     if (command.method === 'review.feedback') {
       if (!command.params || typeof command.params !== 'object') {
@@ -1778,12 +1784,14 @@ export class ApplicationContext {
       if (!command.params || typeof command.params !== 'object') {
         throw new Error('INVALID_REQUEST: kernel.transaction.ingest relay requires params object');
       }
-      return srsBackendClient.ingestKernelTransactions(command.params as {
+      const result = await srsBackendClient.ingestKernelTransactions(command.params as {
         source?: 'kernel-sidecar' | 'ws-main';
         transactions?: unknown[];
         receivedAt?: number;
         idempotencyKey?: string;
       });
+      hooks.onKernelTransactionIngested?.();
+      return result;
     }
     if (command.method === 'kernel.transaction.dequeue') {
       if (!command.params || typeof command.params !== 'object') {
@@ -1912,6 +1920,9 @@ export class ApplicationContext {
 
   private static resolveKernelWriterLeaseTtlMs(): number | undefined {
     const raw = ApplicationContext.readEnvValue(ApplicationContext.KERNEL_WRITER_LEASE_TTL_MS_ENV_KEY, false);
+    if (!raw) {
+      return undefined;
+    }
     const ttlMs = Number(raw);
     if (!Number.isFinite(ttlMs)) {
       return undefined;
@@ -2244,6 +2255,7 @@ export class ApplicationContext {
         this.followerCommandClient,
         {
           writerRelayRequired: runtimePolicy.capabilities.writerRelayRequiredForBackendWrites,
+          onIngested: () => this.kernelTransactionActionPump?.notifyActivity('ws-ingest'),
         },
       );
       transactionWebSocketService.registerHandler(kernelTransactionIngestHandler);

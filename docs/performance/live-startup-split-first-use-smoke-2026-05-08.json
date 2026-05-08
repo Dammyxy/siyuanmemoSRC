@@ -1,0 +1,21 @@
+{
+  "rows": [
+    {
+      "name": "settings-dialog",
+      "ok": true,
+      "durationMs": 1194.7
+    },
+    {
+      "name": "ai-workbench-dialog",
+      "ok": true,
+      "durationMs": 1010.5
+    },
+    {
+      "name": "browser-dialog",
+      "ok": true,
+      "durationMs": 1049.4
+    }
+  ],
+  "loaded": true,
+  "topbar": true
+}

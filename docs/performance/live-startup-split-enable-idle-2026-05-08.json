@@ -1,0 +1,35 @@
+{
+  "label": "post-startup-split-enable-idle",
+  "generatedAt": "2026-05-08T01:18:07.716Z",
+  "disabled": {
+    "loaded": false,
+    "hasRuntimePerformance": true,
+    "hasTopbar": false,
+    "visibilityState": "visible",
+    "hidden": false,
+    "hasFocus": true
+  },
+  "loaded": {
+    "loaded": true,
+    "hasRuntimePerformance": true,
+    "hasTopbar": true,
+    "visibilityState": "visible",
+    "hidden": false,
+    "hasFocus": true
+  },
+  "enableToLoadedMs": 7724,
+  "idleWindowMs": 5000,
+  "heapBeforeUsedBytes": 872266551,
+  "heapAfterUsedBytes": 1026722437,
+  "longtaskCount": 1,
+  "maxLongtaskMs": 376,
+  "totalBlockingEstimateMs": 326,
+  "slowestLongtasks": [
+    {
+      "durationMs": 376,
+      "startTime": 4559155.3,
+      "name": "self"
+    }
+  ],
+  "heapDeltaUsedBytes": 154455886
+}

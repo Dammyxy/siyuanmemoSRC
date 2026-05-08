@@ -49,6 +49,21 @@ describe('runtimePerformanceDiagnostics', () => {
     });
   });
 
+  it('normalizes performance.now timestamps after the renderer has been open for more than one hour', () => {
+    setRuntimePerformanceDiagnosticsEnabled(true, { reset: true });
+
+    const startedAt = 4_200_000;
+    recordRuntimePerformanceSpan('daily-editing', 'ws-main.message', 50, undefined, {
+      startedAt,
+      endedAt: startedAt + 50,
+    });
+
+    const event = getRuntimePerformanceDiagnosticsReport().events[0];
+    expect(event.startedAt).toBeGreaterThan(performance.timeOrigin);
+    expect(event.endedAt).toBeGreaterThan(performance.timeOrigin);
+    expect(event.startedAt).toBeCloseTo(performance.timeOrigin + startedAt, 0);
+  });
+
   it('measures synchronous and asynchronous work', async () => {
     setRuntimePerformanceDiagnosticsEnabled(true, { reset: true });
 

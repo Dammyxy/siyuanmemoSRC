@@ -209,7 +209,7 @@ describe('DialogManager review header variants', () => {
     expect(createUnifiedReviewDialog).not.toHaveBeenCalled();
   });
 
-  it('forces standard review surface conversions to stay in dialog mode even when new-tab default is enabled', () => {
+  it('forces standard review surface conversions to stay in dialog mode even when new-tab default is enabled', async () => {
     const { dialogManager, tabManager } = createDialogManager({
       reviewOpenInNewTabByDefault: true,
     });
@@ -224,7 +224,7 @@ describe('DialogManager review header variants', () => {
       correctCount: 3,
     };
 
-    dialogManager.openStandardReviewDialog({
+    await dialogManager.openStandardReviewDialog({
       queueType: 'retrieval-practice',
       title: '提取练习',
       headerVariant: 'retrieval-practice',

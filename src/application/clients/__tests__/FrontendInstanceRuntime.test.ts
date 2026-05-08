@@ -440,6 +440,104 @@ describe('FrontendInstanceRuntime', () => {
     await runtime.dispose();
   });
 
+  it('backs off empty watchdog drains when push relay is open and keeps push drains immediate', async () => {
+    vi.useFakeTimers();
+    const writerTakeCommand = vi.fn(async () => ({
+      command: null,
+      pendingCommandCount: 0,
+      now: Date.now(),
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      subscribeBroadcast: vi.fn(() => ({
+        close: vi.fn(),
+        getDiagnostics: () => ({ state: 'open' }),
+      })),
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'writer-1',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'scope-writer',
+        },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerTakeCommand,
+      writerCompleteCommand: vi.fn(async () => ({ ok: true, now: 2 })),
+      writerFailCommand: vi.fn(async () => ({ ok: true, now: 2 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'writer-1',
+      runtimeScopeId: 'scope-writer',
+      relayPollIntervalMs: 250,
+      relayNoCommandBackoffMaxMs: 1_000,
+      writerCommandHandler: vi.fn(async () => ({ ok: true })),
+    });
+
+    await runtime.start();
+    await (runtime as unknown as {
+      drainPendingWriterCommands: (reason?: string, commandId?: string) => Promise<void>;
+    }).drainPendingWriterCommands('watchdog');
+    await (runtime as unknown as {
+      drainPendingWriterCommands: (reason?: string, commandId?: string) => Promise<void>;
+    }).drainPendingWriterCommands('watchdog');
+    await (runtime as unknown as {
+      drainPendingWriterCommands: (reason?: string, commandId?: string) => Promise<void>;
+    }).drainPendingWriterCommands('push:command', 'cmd-push');
+
+    expect(writerTakeCommand).toHaveBeenCalledTimes(2);
+    await runtime.dispose();
+  });
+
+  it('keeps watchdog polling when push relay is unavailable', async () => {
+    vi.useFakeTimers();
+    const writerTakeCommand = vi.fn(async () => ({
+      command: null,
+      pendingCommandCount: 0,
+      now: Date.now(),
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      subscribeBroadcast: vi.fn(() => null),
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'writer-1',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'scope-writer',
+        },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerTakeCommand,
+      writerCompleteCommand: vi.fn(async () => ({ ok: true, now: 2 })),
+      writerFailCommand: vi.fn(async () => ({ ok: true, now: 2 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'writer-1',
+      runtimeScopeId: 'scope-writer',
+      relayPollIntervalMs: 250,
+      relayNoCommandBackoffMaxMs: 1_000,
+      writerCommandHandler: vi.fn(async () => ({ ok: true })),
+    });
+
+    await runtime.start();
+    await (runtime as unknown as {
+      drainPendingWriterCommands: (reason?: string) => Promise<void>;
+    }).drainPendingWriterCommands('watchdog');
+    await (runtime as unknown as {
+      drainPendingWriterCommands: (reason?: string) => Promise<void>;
+    }).drainPendingWriterCommands('watchdog');
+
+    expect(writerTakeCommand).toHaveBeenCalledTimes(2);
+    await runtime.dispose();
+  });
+
   it('ignores push relay command notifications while follower', async () => {
     let onEvent: ((event: {
       method: string;
@@ -1470,6 +1568,100 @@ describe('FrontendInstanceRuntime', () => {
       'cmd-budget-1',
       'cmd-budget-2',
     ]);
+    await runtime.dispose();
+  });
+
+  it('delays transaction relay continuation after budget yield while keeping deferred command pending', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(100);
+    setRuntimePerformanceDiagnosticsEnabled(true, { reset: true });
+    let currentNow = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => currentNow);
+    const commands = [
+      {
+        commandId: 'cmd-transaction-1',
+        requesterInstanceId: 'follower-1',
+        method: 'kernel.transaction.ingest',
+        requestedAt: 80,
+      },
+      {
+        commandId: 'cmd-transaction-2',
+        requesterInstanceId: 'follower-1',
+        method: 'kernel.transaction.dequeue',
+        requestedAt: 90,
+      },
+    ];
+    const writerTakeCommand = vi.fn()
+      .mockResolvedValueOnce({ command: commands[0], pendingCommandCount: 1, now: 1 })
+      .mockResolvedValueOnce({ command: commands[1], pendingCommandCount: 0, now: 2 })
+      .mockResolvedValueOnce({ command: null, pendingCommandCount: 0, now: 3 });
+    const writerCompleteCommand = vi.fn(async () => ({ ok: true, now: 4 }));
+    const writerCommandHandler = vi.fn(async (command) => {
+      currentNow += command.commandId === 'cmd-transaction-1' ? 25 : 1;
+      return { handled: command.commandId };
+    });
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'instance-a',
+          acquiredAt: 1,
+          expiresAt: 2,
+          lastHeartbeatAt: 1,
+        },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+      writerTakeCommand,
+      writerCompleteCommand,
+      writerFailCommand: vi.fn(async () => ({ ok: true, now: 4 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      relayDrainBudgetMs: 24,
+      writerCommandHandler,
+    });
+
+    await runtime.start();
+    await (runtime as unknown as {
+      drainPendingWriterCommands: (reason: string) => Promise<void>;
+    }).drainPendingWriterCommands('push:reconnect-drain');
+
+    expect(writerCommandHandler).toHaveBeenCalledTimes(1);
+    expect(writerCompleteCommand).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(writerCommandHandler).toHaveBeenCalledTimes(1);
+    expect(writerCompleteCommand).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(47);
+    expect(writerCommandHandler).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(writerCommandHandler.mock.calls.map(([command]) => command.commandId)).toEqual([
+      'cmd-transaction-1',
+      'cmd-transaction-2',
+    ]);
+    expect(writerCompleteCommand.mock.calls.map(([request]) => request.commandId)).toEqual([
+      'cmd-transaction-1',
+      'cmd-transaction-2',
+    ]);
+
+    const firstDrain = getRuntimePerformanceDiagnosticsReport().events.find(
+      (event) => event.operation === 'writer.drain-pending-commands',
+    );
+    expect(firstDrain?.metadata).toMatchObject({
+      wakeReason: 'push:reconnect-drain',
+      commandCount: 1,
+      pendingCommandCount: 1,
+      budgetExceeded: true,
+      yieldReason: 'budget',
+      transactionCommandCount: 1,
+      commandTypeSummary: 'kernel.transaction.ingest',
+      continuationDelayMs: 48,
+    });
+
     await runtime.dispose();
   });
 
