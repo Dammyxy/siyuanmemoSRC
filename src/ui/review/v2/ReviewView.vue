@@ -219,6 +219,7 @@ import {
 } from './reviewNeuralCommands';
 import {
   createReviewSourceRefreshRuntime,
+  getSharedReviewSourceRefreshCoordinator,
   type ReviewTransactionWebSocketServiceLike,
 } from './reviewSourceRefreshRuntime';
 import {
@@ -581,25 +582,29 @@ let initialTabSurfaceRefreshTimer: number | null = null;
 let escRepeatLatch = false;
 
 const duplicateReviewKeyGuard = createReviewDuplicateKeyGuard({ logger });
+function getReviewSourceDependencyBlockIds(): string[] {
+  const dependencyBlockIds = contentRef.value?.getDependencyBlockIds?.() || [];
+  const currentCard = state.value.content.card;
+  const fallbackDependencyBlockIds = [
+    state.value.content.id,
+    state.value.content.answerBlockID,
+    currentCard?.blockId,
+  ];
+  const normalized = new Set<string>();
+  for (const value of [...dependencyBlockIds, ...fallbackDependencyBlockIds]) {
+    const blockId = String(value || '').trim();
+    if (blockId.length > 0) {
+      normalized.add(blockId);
+    }
+  }
+  return Array.from(normalized);
+}
+
 const reviewSourceRefreshRuntime = createReviewSourceRefreshRuntime({
   isEnabled: isReviewSourceBlockRefreshEnabled,
   isAdvancePending: isReviewAdvancePending,
   getCurrentReference: getCurrentReviewCardReference,
-  getDependencyBlockIds() {
-    const dependencyBlockIds = contentRef.value?.getDependencyBlockIds?.() || [];
-    if (dependencyBlockIds.length > 0) {
-      return dependencyBlockIds;
-    }
-
-    const currentCard = state.value.content.card;
-    return [
-      state.value.content.id,
-      state.value.content.answerBlockID,
-      currentCard?.blockId,
-    ]
-      .map((value) => String(value || '').trim())
-      .filter((value) => value.length > 0);
-  },
+  getDependencyBlockIds: getReviewSourceDependencyBlockIds,
   isMainProtyleEditing() {
     const currentEditorState = editorState.value;
     return currentEditorState.renderer === 'main-protyle'
@@ -1287,11 +1292,30 @@ const reviewFilterRuntime = createReviewFilterRuntime({
 const showReviewFilterDialog = reviewFilterRuntime.dialogOpen;
 const appliedReviewFilter = reviewFilterRuntime.appliedFilter;
 const neuralNavigationState = ref<NeuralNavigationState | null>(null);
+let subscribedReviewTransactionService: ReviewTransactionWebSocketServiceLike | null = null;
+let reviewSourceRefreshSubscribed = false;
+const reviewSourceRefreshCoordinator = getSharedReviewSourceRefreshCoordinator();
+const reviewSourceRefreshSurfaceId = `review-source:${reviewSessionId.value}`;
+
+function getReviewSourceRefreshDependencySignature(): string {
+  const currentCard = state.value.content.card as FSRSCard | null;
+  return [
+    currentCard?.id,
+    state.value.content.id,
+    state.value.content.answerBlockID,
+    currentCard?.blockId,
+  ]
+    .map((value) => String(value || '').trim())
+    .join('\u0001');
+}
 
 watch(
-  () => String((state.value.content.card as FSRSCard | null)?.id || ''),
+  getReviewSourceRefreshDependencySignature,
   () => {
     reviewSourceRefreshRuntime.clearPending();
+    if (reviewSourceRefreshSubscribed) {
+      reviewSourceRefreshCoordinator.refreshSubscription(reviewSourceRefreshSurfaceId);
+    }
     reviewArenaHint.value = null;
   },
   { immediate: true },
@@ -1310,7 +1334,6 @@ const resolvedReviewSurfaceTitle = computed(() => (
     || t('reviewTitle', 'Review'),
   ).trim() || t('reviewTitle', 'Review')
 ));
-let subscribedReviewTransactionService: ReviewTransactionWebSocketServiceLike | null = null;
 const reviewDataObserverRuntime = createReviewDataObserverRuntime({
   logger,
   getManager: getUnifiedDataSourceManager,
@@ -1610,14 +1633,24 @@ function bindReviewTransactionService(): void {
   }
 
   const transactionService = getReviewTransactionWebSocketService();
+  if (!reviewSourceRefreshSubscribed) {
+    reviewSourceRefreshCoordinator.subscribe({
+      surfaceId: reviewSourceRefreshSurfaceId,
+      getDependencyBlockIds: getReviewSourceDependencyBlockIds,
+      queue: (blockIds) => reviewSourceRefreshRuntime.queue(blockIds),
+    });
+    reviewSourceRefreshSubscribed = true;
+  } else {
+    reviewSourceRefreshCoordinator.refreshSubscription(reviewSourceRefreshSurfaceId);
+  }
+
   if (transactionService === subscribedReviewTransactionService) {
+    reviewSourceRefreshCoordinator.bindTransactionService(transactionService);
     return;
   }
 
-  subscribedReviewTransactionService?.unregisterHandler?.(reviewSourceRefreshRuntime.transactionHandler);
-
   subscribedReviewTransactionService = transactionService;
-  subscribedReviewTransactionService?.registerHandler?.(reviewSourceRefreshRuntime.transactionHandler);
+  reviewSourceRefreshCoordinator.bindTransactionService(transactionService);
 }
 
 function unbindReviewDataObserver(): void {
@@ -1626,12 +1659,11 @@ function unbindReviewDataObserver(): void {
 
 function unbindReviewTransactionService(): void {
   reviewSourceRefreshRuntime.clear();
-
-  if (!subscribedReviewTransactionService) {
-    return;
+  if (reviewSourceRefreshSubscribed) {
+    reviewSourceRefreshCoordinator.unsubscribe(reviewSourceRefreshSurfaceId);
+    reviewSourceRefreshSubscribed = false;
   }
 
-  subscribedReviewTransactionService.unregisterHandler?.(reviewSourceRefreshRuntime.transactionHandler);
   subscribedReviewTransactionService = null;
 }
 

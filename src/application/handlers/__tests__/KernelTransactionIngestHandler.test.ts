@@ -1,10 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KernelTransactionIngestHandler } from '@/application/handlers/KernelTransactionIngestHandler';
 import type { Transaction } from '@/core/infrastructure/websocket/TransactionWebSocketService';
+import { classifyTransactionBatch } from '@/core/infrastructure/websocket/transaction-classifier';
 
 function createTransaction(id: string): Transaction {
   return {
     doOperations: [{ action: 'update', id, data: {} }],
+    undoOperations: null,
+  };
+}
+
+function createPlainContentTransaction(id: string): Transaction {
+  return {
+    doOperations: [{
+      action: 'update',
+      id,
+      data: {
+        new: {
+          content: 'ordinary text without SiYuanMemo markers',
+        },
+      },
+    }],
     undoOperations: null,
   };
 }
@@ -44,6 +60,34 @@ describe('KernelTransactionIngestHandler', () => {
     const secondPayload = ingestKernelTransactions.mock.calls[1]?.[0];
     expect(firstPayload.transactions).toHaveLength(2);
     expect(secondPayload.transactions).toHaveLength(1);
+
+    handler.dispose();
+  });
+
+  it('skips ordinary classified no-op batches before backend ingest or relay', async () => {
+    const ingestKernelTransactions = vi.fn(async () => ({
+      accepted: 1,
+      queued: 1,
+      receivedAt: Date.now(),
+      duplicate: false,
+      queueLength: 1,
+      maxQueueLength: 256,
+    }));
+    const transaction = createPlainContentTransaction('block-ordinary');
+    const classification = classifyTransactionBatch([transaction]);
+    const handler = new KernelTransactionIngestHandler(
+      { ingestKernelTransactions },
+      null,
+      null,
+      { batchDebounceMs: 20 },
+    );
+
+    expect(handler.shouldHandleTransactionBatch(classification)).toBe(false);
+    handler.handle([transaction], classification);
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+
+    expect(ingestKernelTransactions).not.toHaveBeenCalled();
 
     handler.dispose();
   });

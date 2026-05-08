@@ -1,4 +1,9 @@
 import type { ITransactionHandler, Transaction } from '@/core/infrastructure/websocket/TransactionWebSocketService';
+import {
+  classifyTransactionBatch,
+  shouldDispatchDocTreeReviewScope,
+  type TransactionClassification,
+} from '@/core/infrastructure/websocket/transaction-classifier';
 import type { StorageManager } from '@/core/storage';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
@@ -28,10 +33,12 @@ interface TransactionOperationLike {
   parentID?: string;
   previousID?: string;
   nextID?: string;
-  data?: {
+  data?: unknown;
+}
+
+interface TransactionOperationRecordData {
     new?: Record<string, unknown>;
     old?: Record<string, unknown>;
-  };
 }
 
 export interface DocReviewScope {
@@ -135,8 +142,17 @@ export class DocTreeReviewScopeService implements ITransactionHandler {
     };
   }
 
-  handle(transactions: Transaction[]): void {
-    if (this.shouldRefreshForTransactions(transactions)) {
+  getTransactionConsumerId(): string {
+    return 'doc-tree-review-scope';
+  }
+
+  shouldHandleTransactionBatch(classification: TransactionClassification): boolean {
+    return shouldDispatchDocTreeReviewScope(classification)
+      || classification.documentTree.touchedBlockIds.some((blockId) => this.docLocations.has(blockId));
+  }
+
+  handle(transactions: Transaction[], classification: TransactionClassification = classifyTransactionBatch(transactions)): void {
+    if (this.shouldHandleTransactionBatch(classification) || this.shouldRefreshForTransactions(transactions)) {
       this.scheduleRebuild();
     }
   }
@@ -309,7 +325,8 @@ export class DocTreeReviewScopeService implements ITransactionHandler {
   }
 
   private operationTouchesDocumentTree(operation: TransactionOperationLike): boolean {
-    if (this.isDocumentType(operation.data?.new) || this.isDocumentType(operation.data?.old)) {
+    const data = this.asRecordData(operation.data);
+    if (this.isDocumentType(data?.new) || this.isDocumentType(data?.old)) {
       return true;
     }
 
@@ -329,6 +346,13 @@ export class DocTreeReviewScopeService implements ITransactionHandler {
       return false;
     }
     return asString((value as Record<string, unknown>).type) === 'd';
+  }
+
+  private asRecordData(value: unknown): TransactionOperationRecordData | undefined {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return undefined;
+    }
+    return value as TransactionOperationRecordData;
   }
 
   private escapeSql(value: string): string {

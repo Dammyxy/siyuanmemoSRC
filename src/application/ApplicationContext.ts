@@ -1541,13 +1541,8 @@ export class ApplicationContext {
     );
     logger.info('[ApplicationContext] ✅ QueuePersistenceService initialized');
 
-    const docTreeReviewScopeService = context.getDocTreeReviewScopeService();
-    await measureRuntimePerformance(
-      'startup',
-      'doc-tree-review-scope.hydrate',
-      () => docTreeReviewScopeService.hydrate(),
-    );
-    logger.info('[ApplicationContext] ✅ DocTreeReviewScopeService hydrated');
+    context.getDocTreeReviewScopeService();
+    logger.info('[ApplicationContext] ✅ DocTreeReviewScopeService initialized lazily');
 
     context.getReviewScopeCardCreationSyncService();
     logger.info('[ApplicationContext] ✅ ReviewScopeCardCreationSyncService initialized');
@@ -1930,6 +1925,15 @@ export class ApplicationContext {
     return Math.max(3_000, Math.floor(ttlMs));
   }
 
+  private static shouldEnableKernelTransactionIngestListener(input: {
+    kernelTransactionIngestAvailable: boolean;
+    quickCardEnabled: boolean;
+    nativeRiffSyncEnabled: boolean;
+  }): boolean {
+    return input.kernelTransactionIngestAvailable
+      && (input.quickCardEnabled || input.nativeRiffSyncEnabled);
+  }
+
   private static readEnvValue(key: string, lowercase = true): string {
     const viteEnv = typeof import.meta !== 'undefined'
       && import.meta.env
@@ -2154,9 +2158,14 @@ export class ApplicationContext {
       && Boolean(this.hybridSyncService);
     const reviewSourceBlockRefreshEnabled = settings.ui?.reviewSourceBlockRefreshEnabled === true;
     const runtimePolicy = this.getBackendMigrationRuntimePolicy();
-    const kernelTransactionIngestEnabled = runtimePolicy.capabilities.kernelTransactionIngestEnabled
+    const kernelTransactionIngestAvailable = runtimePolicy.capabilities.kernelTransactionIngestEnabled
       && Boolean(this.srsBackendClient)
       && Boolean(this.frontendInstanceRuntime);
+    const kernelTransactionIngestEnabled = ApplicationContext.shouldEnableKernelTransactionIngestListener({
+      kernelTransactionIngestAvailable,
+      quickCardEnabled,
+      nativeRiffSyncEnabled,
+    });
     const shouldEnable = quickCardEnabled
       || nativeRiffSyncEnabled
       || reviewSourceBlockRefreshEnabled
@@ -2208,13 +2217,17 @@ export class ApplicationContext {
 
     const { TransactionWebSocketService } = await import('@/core/infrastructure/websocket/TransactionWebSocketService');
     const transactionWebSocketService = new TransactionWebSocketService(this.config.plugin as unknown as SiyuanMemoPlugin);
-    await measureRuntimePerformance(
-      'startup',
-      'transaction-websocket-service.scope-hydrate',
-      () => this.getDocTreeReviewScopeService().hydrate(),
-      { shouldEnable },
-    );
-    transactionWebSocketService.registerHandler(this.getDocTreeReviewScopeService());
+    if (quickCardEnabled || nativeRiffSyncEnabled || kernelTransactionIngestEnabled) {
+      await measureRuntimePerformance(
+        'startup',
+        'transaction-websocket-service.scope-hydrate',
+        () => this.getDocTreeReviewScopeService().hydrate(),
+        { shouldEnable },
+      );
+      transactionWebSocketService.registerHandler(this.getDocTreeReviewScopeService());
+    } else {
+      logger.info('[ApplicationContext] DocTreeReviewScopeService transaction consumer skipped for review-source-only ws-main listener');
+    }
 
     if (quickCardEnabled) {
       const autoCardHandler = await measureRuntimePerformance(

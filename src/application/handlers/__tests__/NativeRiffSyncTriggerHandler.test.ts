@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ATTR_RIFF_DECKS } from '@/application/services/BlockAttrContract';
 import { NativeRiffSyncTriggerHandler } from '@/application/handlers/NativeRiffSyncTriggerHandler';
+import { classifyTransactionBatch } from '@/core/infrastructure/websocket/transaction-classifier';
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -104,8 +105,7 @@ describe('NativeRiffSyncTriggerHandler', () => {
 
   it('ignores unrelated transactions', async () => {
     const { handler, incrementalSync } = createHandler();
-
-    handler.handle([{
+    const transactions = [{
       doOperations: [{
         action: 'update',
         id: 'block-1',
@@ -118,7 +118,11 @@ describe('NativeRiffSyncTriggerHandler', () => {
         },
       }],
       undoOperations: null,
-    }] as never);
+    }];
+
+    const classification = classifyTransactionBatch(transactions as never);
+    expect(handler.shouldHandleTransactionBatch(classification)).toBe(false);
+    handler.handle(transactions as never, classification);
 
     await vi.advanceTimersByTimeAsync(250);
     expect(incrementalSync).not.toHaveBeenCalled();

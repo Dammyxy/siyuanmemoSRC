@@ -86,8 +86,41 @@ describe('TransactionWebSocketService', () => {
     service.start();
     emitTransactions(transactions);
 
-    expect(handler1.handle).toHaveBeenCalledWith(transactions);
-    expect(handler2.handle).toHaveBeenCalledWith(transactions);
+    expect(handler1.handle).toHaveBeenCalledWith(transactions, expect.objectContaining({
+      transactionCount: 1,
+      changedBlockIds: ['block-1'],
+    }));
+    expect(handler2.handle).toHaveBeenCalledWith(transactions, expect.objectContaining({
+      transactionCount: 1,
+      changedBlockIds: ['block-1'],
+    }));
+  });
+
+  it('classifies once and skips handlers whose predicate does not match', () => {
+    const skippedHandler: ITransactionHandler = {
+      getTransactionConsumerId: () => 'skipped-consumer',
+      shouldHandleTransactionBatch: vi.fn(() => false),
+      handle: vi.fn(),
+    };
+    const matchedHandler: ITransactionHandler = {
+      getTransactionConsumerId: () => 'matched-consumer',
+      shouldHandleTransactionBatch: vi.fn(() => true),
+      handle: vi.fn(),
+    };
+    const transactions = [createTransaction('block-ordinary')];
+
+    service.registerHandler(skippedHandler);
+    service.registerHandler(matchedHandler);
+    service.start();
+    emitTransactions(transactions);
+
+    expect(skippedHandler.shouldHandleTransactionBatch).toHaveBeenCalledTimes(1);
+    expect(skippedHandler.handle).not.toHaveBeenCalled();
+    expect(matchedHandler.shouldHandleTransactionBatch).toHaveBeenCalledTimes(1);
+    expect(matchedHandler.handle).toHaveBeenCalledWith(transactions, expect.objectContaining({
+      transactionCount: 1,
+      changedBlockIds: ['block-ordinary'],
+    }));
   });
 
   it('keeps distributing when one handler throws', () => {
@@ -104,8 +137,12 @@ describe('TransactionWebSocketService', () => {
     service.start();
     emitTransactions(transactions);
 
-    expect(handler1.handle).toHaveBeenCalledWith(transactions);
-    expect(handler2.handle).toHaveBeenCalledWith(transactions);
+    expect(handler1.handle).toHaveBeenCalledWith(transactions, expect.objectContaining({
+      transactionCount: 1,
+    }));
+    expect(handler2.handle).toHaveBeenCalledWith(transactions, expect.objectContaining({
+      transactionCount: 1,
+    }));
   });
 
   it('does not call handlers after unregister', () => {
@@ -134,7 +171,10 @@ describe('TransactionWebSocketService', () => {
       },
     });
 
-    expect(handler.handle).toHaveBeenCalledWith(transactions);
+    expect(handler.handle).toHaveBeenCalledWith(transactions, expect.objectContaining({
+      transactionCount: 1,
+      changedBlockIds: ['block-4'],
+    }));
   });
 
   it('does not start without plugin.eventBus.on', () => {

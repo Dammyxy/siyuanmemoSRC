@@ -35,4 +35,21 @@ describe('transaction-types', () => {
       ids: ['block-3'],
     });
   });
+
+  it('preserves SiYuan string operation data for downstream classification', () => {
+    const transactions = parseTransactionsPayload([{
+      doOperations: [{
+        action: 'update',
+        id: 'block-html',
+        data: '<div data-node-id="block-html"><div contenteditable="true">ordinary line</div></div>',
+      }],
+      undoOperations: null,
+    }]);
+
+    expect(transactions[0]?.doOperations[0]).toMatchObject({
+      action: 'update',
+      id: 'block-html',
+      data: expect.stringContaining('data-node-id'),
+    });
+  });
 });

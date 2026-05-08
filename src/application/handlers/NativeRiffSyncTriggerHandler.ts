@@ -1,5 +1,10 @@
 import type { ITransactionHandler, Transaction } from '@/core/infrastructure/websocket/TransactionWebSocketService';
 import type { DoOperation } from '@/core/infrastructure/websocket/transaction-types';
+import {
+  classifyTransactionBatch,
+  shouldDispatchNativeRiffSync,
+  type TransactionClassification,
+} from '@/core/infrastructure/websocket/transaction-classifier';
 import type { IncrementalSyncOptions } from '@/application/services/XiuyuanSyncService.types';
 import type FSRSPlugin from '@/index';
 import { ATTR_IS_FLASHCARD, ATTR_RIFF_DECKS } from '@/application/services/BlockAttrContract';
@@ -104,8 +109,9 @@ function looksLikeNativeRiffUpsert(operation: DoOperation): boolean {
   if (!RELEVANT_UPSERT_ACTIONS.has(operation.action)) {
     return false;
   }
-  return containsNativeRiffMarker(operation.data?.new)
-    || containsNativeRiffMarker(operation.data?.old);
+  const data = isRecord(operation.data) ? operation.data : undefined;
+  return containsNativeRiffMarker(data?.new)
+    || containsNativeRiffMarker(data?.old);
 }
 
 function looksLikeNativeRiffAttrRemoval(operation: DoOperation): boolean {
@@ -113,8 +119,9 @@ function looksLikeNativeRiffAttrRemoval(operation: DoOperation): boolean {
     return false;
   }
 
-  const oldHasMarker = containsNativeRiffMarker(operation.data?.old);
-  const newHasMarker = containsNativeRiffMarker(operation.data?.new);
+  const data = isRecord(operation.data) ? operation.data : undefined;
+  const oldHasMarker = containsNativeRiffMarker(data?.old);
+  const newHasMarker = containsNativeRiffMarker(data?.new);
   return oldHasMarker && !newHasMarker;
 }
 
@@ -147,16 +154,23 @@ export class NativeRiffSyncTriggerHandler implements ITransactionHandler {
     this.debounceMs = Math.max(100, Math.floor(options?.debounceMs ?? 350));
   }
 
-  handle(transactions: Transaction[]): void {
+  getTransactionConsumerId(): string {
+    return 'native-riff-sync';
+  }
+
+  shouldHandleTransactionBatch(classification: TransactionClassification): boolean {
+    return shouldDispatchNativeRiffSync(classification);
+  }
+
+  handle(transactions: Transaction[], classification: TransactionClassification = classifyTransactionBatch(transactions)): void {
     if (!this.isEnabled()) {
       return;
     }
+    if (!this.shouldHandleTransactionBatch(classification)) {
+      return;
+    }
 
-    const nativeRemoveBlockIds = uniqueStrings(
-      transactions.flatMap((transaction) => (
-        (transaction.doOperations || []).flatMap((operation) => extractNativeRiffRemoveBlockIds(operation))
-      )),
-    );
+    const nativeRemoveBlockIds = classification.nativeRiff.removeBlockIds;
     if (nativeRemoveBlockIds.length > 0) {
       logger.info('[NativeRiffSyncTrigger] Routing native riff remove operations', {
         blockIds: nativeRemoveBlockIds,
@@ -164,9 +178,7 @@ export class NativeRiffSyncTriggerHandler implements ITransactionHandler {
       this.queueNativeRiffRemove(nativeRemoveBlockIds);
     }
 
-    const hasRelevantUpsert = transactions.some((transaction) => (
-      (transaction.doOperations || []).some((operation) => looksLikeNativeRiffUpsert(operation))
-    ));
+    const hasRelevantUpsert = classification.nativeRiff.upsertBlockIds.length > 0;
     if (hasRelevantUpsert) {
       logger.info('[NativeRiffSyncTrigger] Routing native riff add/update operations through incremental sync');
       this.scheduleIncrementalSync();

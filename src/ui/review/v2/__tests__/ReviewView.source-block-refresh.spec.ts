@@ -119,6 +119,8 @@ const ReviewContentStub = defineComponent({
   setup(props, { expose }) {
     expose({
       getDependencyBlockIds: () => [
+        String((props.content as { id?: string }).id || ''),
+        String((props.content as { card?: { blockId?: string } }).card?.blockId || ''),
         'concept-block',
         'descriptor-block-1',
         'descriptor-group-block',
@@ -421,5 +423,102 @@ describe('ReviewView source block refresh', () => {
 
     wrapper.unmount();
     expect(transactionService.service.unregisterHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes source subscription when visible content id changes without card id changing', async () => {
+    const initialCard = buildCard('stable-card-id', 'old-visible-block', { type: 'descriptor' });
+    const nextCard = buildCard('stable-card-id', 'new-visible-block', { type: 'descriptor' });
+    const transactionService = createTransactionService();
+
+    const queue = {
+      next: vi.fn()
+        .mockResolvedValueOnce(initialCard)
+        .mockResolvedValueOnce(nextCard),
+      onFeedback: vi.fn(async () => undefined),
+      getStats: vi.fn(async () => ({ size: 2, label: '2 due' })),
+      getCounterSnapshot: vi.fn(async () => ({
+        version: 1,
+        remaining: 2,
+        due: 2,
+        total: 2,
+        buckets: {
+          all: 2,
+          item: 0,
+          descriptor: 2,
+          topic: 0,
+          concept: 0,
+        },
+        source: 'hot' as const,
+      })),
+      getUIConfig: vi.fn(() => ({
+        statsType: 'queue-size' as const,
+        showRatingButtons: true,
+        allowSkip: true,
+      })),
+      canGoBack: vi.fn(() => false),
+    };
+    const adapter = createAdapter();
+    const manager = {
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+      getCard: vi.fn(async () => nextCard),
+    };
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        title: '自定义复习',
+        queue: queue as never,
+        adapter: adapter as never,
+        plugin: {
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => manager,
+            getTransactionWebSocketService: () => transactionService.service,
+            getStorage: () => ({
+              getSettings: () => ({
+                ui: {
+                  reviewSourceBlockRefreshEnabled: true,
+                },
+              }),
+            }),
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          AiWorkbenchPane: true,
+          LargeTextEditorDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+    expect(wrapper.get('.review-render-state').text()).toBe('stable-card-id:old-visible-block:builtin-concept-descriptor-both:0');
+
+    await wrapper.get('.review-grade-button').trigger('click');
+    await vi.advanceTimersByTimeAsync(200);
+    await flushPromises();
+    await flushPromises();
+
+    expect(wrapper.get('.review-render-state').text()).toContain('stable-card-id:new-visible-block');
+
+    transactionService.emitBlockUpdate('new-visible-block');
+    await vi.advanceTimersByTimeAsync(200);
+    await flushPromises();
+
+    expect(reviewContentRefreshVisibleContent).toHaveBeenCalledTimes(1);
+
+    transactionService.emitBlockUpdate('old-visible-block');
+    await vi.advanceTimersByTimeAsync(200);
+    await flushPromises();
+
+    expect(reviewContentRefreshVisibleContent).toHaveBeenCalledTimes(1);
+
+    wrapper.unmount();
   });
 });

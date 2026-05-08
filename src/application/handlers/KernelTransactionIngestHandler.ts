@@ -1,6 +1,12 @@
 import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 import { createLogger } from '@/utils/logger';
 import type { ITransactionHandler, Transaction } from '@/core/infrastructure/websocket/TransactionWebSocketService';
+import {
+  classifyTransactionBatch,
+  shouldDispatchKernelTransactionIngest,
+  type TransactionClassification,
+} from '@/core/infrastructure/websocket/transaction-classifier';
+import { incrementRuntimePerformanceCounter } from '@/utils/runtimePerformanceDiagnostics';
 
 const logger = createLogger('KernelTransactionIngestHandler');
 
@@ -81,10 +87,23 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
     this.onIngested = options.onIngested;
   }
 
-  handle(transactions: Transaction[]): void {
+  getTransactionConsumerId(): string {
+    return 'kernel-transaction-ingest';
+  }
+
+  shouldHandleTransactionBatch(classification: TransactionClassification): boolean {
+    return shouldDispatchKernelTransactionIngest(classification);
+  }
+
+  handle(transactions: Transaction[], classification: TransactionClassification = classifyTransactionBatch(transactions)): void {
     if (!Array.isArray(transactions) || transactions.length === 0) {
       return;
     }
+    if (!this.shouldHandleTransactionBatch(classification)) {
+      incrementRuntimePerformanceCounter('daily-editing', 'kernel-transaction-ingest-skipped');
+      return;
+    }
+    incrementRuntimePerformanceCounter('daily-editing', 'kernel-transaction-ingest-queued');
     this.pendingTransactions.push(...transactions);
     this.scheduleFlush();
   }

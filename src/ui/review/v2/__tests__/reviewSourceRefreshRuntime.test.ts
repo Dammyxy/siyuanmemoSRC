@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   collectChangedBlockIdsFromReviewTransactions,
+  createReviewSourceRefreshCoordinator,
   createReviewSourceRefreshRuntime,
 } from '../reviewSourceRefreshRuntime';
 
@@ -97,5 +98,76 @@ describe('reviewSourceRefreshRuntime', () => {
     runtime.queue(['dep-1']);
     await vi.advanceTimersByTimeAsync(20);
     expect(refreshVisibleContent).not.toHaveBeenCalled();
+  });
+
+  it('runs one dirty follow-up when matched changes arrive during an in-flight refresh', async () => {
+    let resolveRefresh: (() => void) | null = null;
+    const refreshVisibleContent = vi.fn(() => new Promise<void>((resolve) => {
+      resolveRefresh = resolve;
+    }));
+    const runtime = createReviewSourceRefreshRuntime({
+      debounceMs: 20,
+      maxWaitMs: 100,
+      isEnabled: () => true,
+      isAdvancePending: () => false,
+      getCurrentReference: () => ({ cardId: 'card-1', blockId: 'block-1' }),
+      getDependencyBlockIds: () => ['dep-1'],
+      isMainProtyleEditing: () => false,
+      refreshVisibleContent,
+    });
+
+    runtime.queue(['dep-1']);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(refreshVisibleContent).toHaveBeenCalledTimes(1);
+
+    runtime.queue(['dep-1']);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(refreshVisibleContent).toHaveBeenCalledTimes(1);
+
+    resolveRefresh?.();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(refreshVisibleContent).toHaveBeenCalledTimes(2);
+  });
+
+  it('coordinator registers one shared handler and only queues matched surfaces', () => {
+    const registerHandler = vi.fn();
+    const unregisterHandler = vi.fn();
+    const transactionService = { registerHandler, unregisterHandler };
+    const coordinator = createReviewSourceRefreshCoordinator();
+    const queueA = vi.fn();
+    const queueB = vi.fn();
+
+    coordinator.subscribe({
+      surfaceId: 'surface-a',
+      getDependencyBlockIds: () => ['dep-a'],
+      queue: queueA,
+    });
+    coordinator.subscribe({
+      surfaceId: 'surface-b',
+      getDependencyBlockIds: () => ['dep-b'],
+      queue: queueB,
+    });
+    coordinator.bindTransactionService(transactionService);
+    coordinator.bindTransactionService(transactionService);
+
+    expect(registerHandler).toHaveBeenCalledTimes(1);
+
+    coordinator.handleClassification({
+      changedBlockIds: ['dep-b'],
+    });
+
+    expect(queueA).not.toHaveBeenCalled();
+    expect(queueB).toHaveBeenCalledWith(['dep-b']);
+
+    coordinator.unsubscribe('surface-b');
+    coordinator.handleClassification({
+      changedBlockIds: ['dep-b'],
+    });
+    expect(queueB).toHaveBeenCalledTimes(1);
+
+    coordinator.unsubscribe('surface-a');
+    expect(unregisterHandler).toHaveBeenCalledTimes(1);
   });
 });

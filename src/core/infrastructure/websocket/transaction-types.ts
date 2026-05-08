@@ -7,12 +7,14 @@ export interface WSMessage {
   data?: unknown;
 }
 
-export interface DoOperationData extends JsonObject {
+export interface DoOperationRecordData extends JsonObject {
   new?: JsonObject;
   old?: JsonObject;
   blockIDs?: string[];
   ids?: string[];
 }
+
+export type DoOperationData = DoOperationRecordData | string | unknown[];
 
 export interface DoOperation {
   action: string;
@@ -57,10 +59,15 @@ function parseDoOperation(value: unknown): DoOperation | null {
   }
 
   const action = asString(value.action);
-  const data = isObject(value.data) ? (value.data as DoOperationData) : undefined;
+  const data = isObject(value.data) || typeof value.data === 'string'
+    ? (value.data as DoOperationData)
+    : undefined;
+  const recordData = isObject(data) && !Array.isArray(data)
+    ? (data as DoOperationRecordData)
+    : undefined;
   const id = asString(value.id) ?? '';
-  const blockIDs = asStringArray(value.blockIDs) ?? asStringArray(data?.blockIDs);
-  const ids = asStringArray(value.ids) ?? asStringArray(data?.ids);
+  const blockIDs = asStringArray(value.blockIDs) ?? asStringArray(recordData?.blockIDs);
+  const ids = asStringArray(value.ids) ?? asStringArray(recordData?.ids);
   if (!action || (!id && !blockIDs && !ids)) {
     return null;
   }

@@ -1,4 +1,9 @@
 ﻿import type { ITransactionHandler, Transaction } from '../../core/infrastructure/websocket/TransactionWebSocketService';
+import {
+    classifyTransactionBatch,
+    shouldDispatchAutoCard,
+    type TransactionClassification,
+} from '@/core/infrastructure/websocket/transaction-classifier';
 import type FSRSPlugin from '@/index';
 import type { AutoCardSiyuanPort } from '../ports/AutoCardSiyuanPort';
 import type { AutoCardRiffPort } from '../ports/AutoCardRiffPort';
@@ -1559,7 +1564,15 @@ export class AutoCardHandler implements ITransactionHandler {
         });
     }
     
-    handle(transactions: Transaction[]): void {
+    getTransactionConsumerId(): string {
+        return 'autocard';
+    }
+
+    shouldHandleTransactionBatch(classification: TransactionClassification): boolean {
+        return shouldDispatchAutoCard(classification);
+    }
+
+    handle(transactions: Transaction[], classification: TransactionClassification = classifyTransactionBatch(transactions)): void {
         const finishHandleSpan = startRuntimePerformanceSpan('autocard', 'handler.handle', {
             transactionCount: transactions.length,
         });
@@ -1571,75 +1584,55 @@ export class AutoCardHandler implements ITransactionHandler {
             finishHandleSpan({ quickCardEnabled: false, scheduledCount: 0 });
             return;
         }
+
+        if (!this.shouldHandleTransactionBatch(classification)) {
+            incrementRuntimePerformanceCounter('autocard', 'candidate-batches-skipped');
+            finishHandleSpan({
+                changedBlockCount: classification.changedBlockIds.length,
+                pendingCandidateCount: this.candidateContexts.size,
+                prefilteredCount: classification.autoCard.prefilteredNoOpCount,
+                quickCardEnabled: true,
+                scheduledCount: 0,
+                skippedReason: 'classifier-no-match',
+            });
+            return;
+        }
         
         logger.debug('[SiYuanMemo][AutoCard] Quick card is enabled, processing transactions');
         const txBatchId = this.nextTraceId('txbatch');
         const relevantOperations: Array<Record<string, unknown>> = [];
         let scheduledCount = 0;
         let cancelledCount = 0;
-        let prefilteredCount = 0;
-        
-        for (const [txIndex, tx] of transactions.entries()) {
-            if (!tx.doOperations) continue;
-            
-            for (const [opIndex, op] of tx.doOperations.entries()) {
-                const blockId = op.id;
+        const prefilteredCount = classification.autoCard.prefilteredNoOpCount;
 
-                if (op.action === 'insert' || op.action === 'update') {
-                    if (shouldPrefilterAutoCardOperation(op)) {
-                        prefilteredCount++;
-                        relevantOperations.push({
-                            txIndex,
-                            opIndex,
-                            action: op.action,
-                            opId: op.id,
-                            blockId,
-                            prefiltered: true,
-                            scheduled: false,
-                        });
-                        recordRuntimePerformanceSpan('autocard', 'candidate.prefilter-no-op', 0, {
-                            action: op.action,
-                            txBatchId,
-                        });
-                        continue;
-                    }
-                    this.enqueueCandidateBlock(blockId, txBatchId, op.action, op.id);
-                    scheduledCount++;
-                    relevantOperations.push({
-                        txIndex,
-                        opIndex,
-                        action: op.action,
-                        opId: op.id,
-                        blockId,
-                        scheduled: true,
-                    });
-                    continue;
-                }
+        for (const operation of classification.autoCard.candidateOperations) {
+            this.enqueueCandidateBlock(operation.blockId, txBatchId, operation.action, operation.opId);
+            scheduledCount++;
+            relevantOperations.push({
+                action: operation.action,
+                blockId: operation.blockId,
+                evidence: operation.evidence,
+                opId: operation.opId,
+                scheduled: true,
+            });
+        }
 
-                if (op.action === 'delete') {
-                    this.cancelPendingCandidate(blockId, txBatchId, 'delete');
-                    cancelledCount++;
-                    relevantOperations.push({
-                        txIndex,
-                        opIndex,
-                        action: op.action,
-                        opId: op.id,
-                        blockId,
-                        scheduled: false,
-                        cancelled: true,
-                    });
-                    continue;
-                }
+        for (const blockId of classification.autoCard.cancelBlockIds) {
+            this.cancelPendingCandidate(blockId, txBatchId, 'delete');
+            cancelledCount++;
+            relevantOperations.push({
+                action: 'delete',
+                blockId,
+                cancelled: true,
+                scheduled: false,
+            });
+        }
 
-                relevantOperations.push({
-                    txIndex,
-                    opIndex,
-                    action: op.action,
-                    opId: op.id,
-                    blockId,
-                    scheduled: false,
-                });
-            }
+        if (prefilteredCount > 0) {
+            recordRuntimePerformanceSpan('autocard', 'candidate.prefilter-no-op', 0, {
+                prefilteredCount,
+                txBatchId,
+            });
         }
 
         this.traceAutoCard('handle.transactions', {

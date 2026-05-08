@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FSRSCard } from '@/types/card';
 import { DocTreeReviewScopeService } from '@/application/services/DocTreeReviewScopeService';
+import { classifyTransactionBatch } from '@/core/infrastructure/websocket/transaction-classifier';
 
 function createFixture(options?: {
   allCards?: FSRSCard[];
@@ -186,22 +187,60 @@ describe('DocTreeReviewScopeService', () => {
       { id: 'piece-doc-1', box: 'nb', path: '/archive/piece-doc-1.sy' },
     ]);
 
-    service.handle([
+    const transactions = [
       {
         doOperations: [
           {
             action: 'move',
             id: 'piece-doc-1',
+            data: {
+              old: { type: 'd' },
+              new: { type: 'd' },
+            },
           },
         ],
         undoOperations: null,
       },
-    ]);
+    ];
+    const classification = classifyTransactionBatch(transactions as never);
+    expect(service.shouldHandleTransactionBatch(classification)).toBe(true);
+    service.handle(transactions as never, classification);
 
     await vi.advanceTimersByTimeAsync(260);
 
     expect(service.collectDocReviewScope('doc-1')?.cards.map((card) => card.id)).toEqual([
       'root-item',
     ]);
+  });
+
+  it('skips ordinary classified no-op batches without scheduling rebuild', async () => {
+    vi.useFakeTimers();
+    const { service, siyuanApi } = createFixture({
+      sqlRows: [
+        { id: 'doc-1', box: 'nb', path: '/articles/doc-1.sy' },
+      ],
+    });
+    await service.hydrate();
+    vi.mocked(siyuanApi.sql).mockClear();
+
+    const transactions = [{
+      doOperations: [{
+        action: 'update',
+        id: 'paragraph-1',
+        data: {
+          new: {
+            content: 'ordinary paragraph',
+          },
+        },
+      }],
+      undoOperations: null,
+    }];
+    const classification = classifyTransactionBatch(transactions as never);
+
+    expect(service.shouldHandleTransactionBatch(classification)).toBe(false);
+    service.handle(transactions as never, classification);
+    await vi.advanceTimersByTimeAsync(260);
+
+    expect(siyuanApi.sql).not.toHaveBeenCalled();
   });
 });

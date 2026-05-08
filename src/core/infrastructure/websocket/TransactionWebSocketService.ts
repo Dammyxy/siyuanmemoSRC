@@ -18,9 +18,11 @@ import { createLogger } from '@/utils/logger';
 import {
     incrementRuntimePerformanceCounter,
     measureRuntimePerformance,
+    recordRuntimePerformanceSpan,
 } from '@/utils/runtimePerformanceDiagnostics';
 import { resolveWorkspaceDir } from './runtime';
 import { parseTransactionsPayload, parseWSMessage, type Transaction } from './transaction-types';
+import { classifyTransactionBatch, type TransactionClassification } from './transaction-classifier';
 
 const logger = createLogger('TransactionWebSocketService');
 
@@ -36,7 +38,9 @@ export interface ITransactionHandler {
      * 处理 transactions
      * @param transactions 事务列表
      */
-    handle(transactions: Transaction[]): void;
+    handle(transactions: Transaction[], classification?: TransactionClassification): void;
+    shouldHandleTransactionBatch?(classification: TransactionClassification): boolean;
+    getTransactionConsumerId?(): string;
 }
 
 /**
@@ -238,28 +242,63 @@ export class TransactionWebSocketService {
         
         logger.info('Transaction received, count:', data.length);
         incrementRuntimePerformanceCounter('daily-editing', 'transactions', data.length);
+        const classification = classifyTransactionBatch(data);
+        incrementRuntimePerformanceCounter('daily-editing', 'transaction-batches-classified');
+        incrementRuntimePerformanceCounter('daily-editing', 'transaction-operations-classified', classification.operationCount);
         
         // 分发给所有注册的处理器
         measureRuntimePerformance('daily-editing', 'transactions.dispatch', () => {
+            let matchedHandlerCount = 0;
+            let skippedHandlerCount = 0;
             for (const handler of this.handlers) {
+                const consumerId = handler.getTransactionConsumerId?.() || handler.constructor.name;
                 try {
+                    const shouldDispatch = handler.shouldHandleTransactionBatch?.(classification) ?? true;
+                    if (!shouldDispatch) {
+                        skippedHandlerCount += 1;
+                        incrementRuntimePerformanceCounter('daily-editing', `transaction-consumer-skipped.${consumerId}`);
+                        continue;
+                    }
+                    matchedHandlerCount += 1;
+                    incrementRuntimePerformanceCounter('daily-editing', `transaction-consumer-matched.${consumerId}`);
                     measureRuntimePerformance(
                         'daily-editing',
                         'transactions.handler',
-                        () => handler.handle(data),
+                        () => handler.handle(data, classification),
                         {
-                            handlerName: handler.constructor.name,
+                            handlerName: consumerId,
                             transactionCount: data.length,
+                            operationCount: classification.operationCount,
+                            actionClasses: classification.actionClasses,
+                            changedBlockCount: classification.changedBlockIds.length,
                         },
                     );
                 } catch (error) {
-                    logger.error('Handler error:', handler.constructor.name, error);
+                    logger.error('Handler error:', consumerId, error);
                     // 继续处理其他处理器，不中断
                 }
             }
+            if (matchedHandlerCount === 0) {
+                incrementRuntimePerformanceCounter('daily-editing', 'transaction-batches-dropped');
+            }
+            recordRuntimePerformanceSpan('daily-editing', 'transactions.classified-dispatch', 0, {
+                actionClasses: classification.actionClasses,
+                changedBlockCount: classification.changedBlockIds.length,
+                documentTreeHint: classification.documentTree.hasHint,
+                handlerCount: this.handlers.length,
+                matchedHandlerCount,
+                nativeRiffSignal: classification.nativeRiff.hasSignal,
+                operationCount: classification.operationCount,
+                prefilteredNoOpCount: classification.autoCard.prefilteredNoOpCount,
+                skippedHandlerCount,
+                transactionCount: data.length,
+            });
         }, {
             handlerCount: this.handlers.length,
             transactionCount: data.length,
+            operationCount: classification.operationCount,
+            actionClasses: classification.actionClasses,
+            changedBlockCount: classification.changedBlockIds.length,
         });
     }
     

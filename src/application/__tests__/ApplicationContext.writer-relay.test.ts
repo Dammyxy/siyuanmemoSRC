@@ -2,6 +2,32 @@ import { describe, expect, it, vi } from 'vitest';
 import { ApplicationContext } from '../ApplicationContext';
 
 describe('ApplicationContext writer relay command dispatch', () => {
+  it('does not enable kernel transaction ingest listener when only review source refresh needs ws-main', () => {
+    expect((ApplicationContext as unknown as {
+      shouldEnableKernelTransactionIngestListener: (input: {
+        kernelTransactionIngestAvailable: boolean;
+        quickCardEnabled: boolean;
+        nativeRiffSyncEnabled: boolean;
+      }) => boolean;
+    }).shouldEnableKernelTransactionIngestListener({
+      kernelTransactionIngestAvailable: true,
+      quickCardEnabled: false,
+      nativeRiffSyncEnabled: false,
+    })).toBe(false);
+
+    expect((ApplicationContext as unknown as {
+      shouldEnableKernelTransactionIngestListener: (input: {
+        kernelTransactionIngestAvailable: boolean;
+        quickCardEnabled: boolean;
+        nativeRiffSyncEnabled: boolean;
+      }) => boolean;
+    }).shouldEnableKernelTransactionIngestListener({
+      kernelTransactionIngestAvailable: true,
+      quickCardEnabled: true,
+      nativeRiffSyncEnabled: false,
+    })).toBe(true);
+  });
+
   it('keeps the default writer lease TTL when no override env is configured', () => {
     const key = 'VITE_SIYUANMEMO_KERNEL_WRITER_LEASE_TTL_MS';
     const previous = process.env[key];
