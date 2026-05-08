@@ -56,11 +56,33 @@ function createManagerStub(
     reps: card.reps + 1,
   };
 
-  const route = vi.fn(async () => updatedCard);
-  const schedulerRouter = { route };
+  const commitReview = vi.fn(async (command: QueueReviewCommand) => {
+    const committed = command.context.commitPolicy !== 'preview-only'
+      && command.context.commitPolicy !== 'drill-only';
+    return {
+      card,
+      updatedCard: committed ? { ...updatedCard } : { ...card },
+      committed,
+      decision: {
+        current: { ...card },
+        queueMode: command.context.queueMode,
+        commitPolicy: command.context.commitPolicy,
+      },
+      commitResult: {
+        updatedCard: committed ? { ...updatedCard } : null,
+        committed,
+        suppressedReason: committed ? undefined : command.context.commitPolicy,
+      },
+    };
+  });
+  const schedulerRouter = {
+    answer: vi.fn(),
+    commit: vi.fn(),
+  };
   return {
     getCard: vi.fn(async () => ({ ...card })),
     getSchedulerRouter: vi.fn(() => schedulerRouter),
+    commitReview,
     onCardUpdatedFromScheduler: vi.fn(async () => {}),
     updateCard: vi.fn(async () => {}),
     getDayStartHour: vi.fn(() => 4),
@@ -121,10 +143,13 @@ describe('Dynamic queues - review removal semantics', () => {
     expect(result.removedFromQueue).toBe(false);
     expect(result.remainsInQueue).toBe(true);
     expect(queue.getTemporaryBlacklistSize()).toBe(0);
-    expect(manager.getSchedulerRouter().route).toHaveBeenCalledWith(
-      expect.objectContaining({ id: card.id }),
-      4
-    );
+    expect(manager.commitReview).toHaveBeenCalledWith({
+      cardId: card.id,
+      rating: 4,
+      context: expect.objectContaining({
+        queueType: 'retrieval-practice',
+      }),
+    });
   });
 
   it('retrieval practice removes blockId-only manual cards after review', async () => {
@@ -189,11 +214,14 @@ describe('Dynamic queues - review removal semantics', () => {
 
     await queue.handleReview(card.id, 3);
 
-    expect(manager.getSchedulerRouter().route).toHaveBeenCalledWith(
-      expect.objectContaining({ id: card.id }),
-      3,
-      { memoryStateAsOf: originalDue }
-    );
+    expect(manager.commitReview).toHaveBeenCalledWith({
+      cardId: card.id,
+      rating: 3,
+      context: expect.objectContaining({
+        queueType: 'retrieval-practice',
+        memoryStateAsOf: originalDue,
+      }),
+    });
   });
 
   it('retrieval practice submits manual future cards as preview-only on the active commit path', async () => {
@@ -275,10 +303,13 @@ describe('Dynamic queues - review removal semantics', () => {
     expect(result.removedFromQueue).toBe(false);
     expect(result.remainsInQueue).toBe(true);
     expect(queue.getTemporaryBlacklistSize()).toBe(0);
-    expect(manager.getSchedulerRouter().route).toHaveBeenCalledWith(
-      expect.objectContaining({ id: card.id }),
-      4
-    );
+    expect(manager.commitReview).toHaveBeenCalledWith({
+      cardId: card.id,
+      rating: 4,
+      context: expect.objectContaining({
+        queueType: 'incremental-learning',
+      }),
+    });
   });
 
   it('incremental learning removes blockId-only manual cards after review', async () => {
@@ -343,11 +374,14 @@ describe('Dynamic queues - review removal semantics', () => {
 
     await queue.handleReview(card.id, 3);
 
-    expect(manager.getSchedulerRouter().route).toHaveBeenCalledWith(
-      expect.objectContaining({ id: card.id }),
-      3,
-      { memoryStateAsOf: originalDue }
-    );
+    expect(manager.commitReview).toHaveBeenCalledWith({
+      cardId: card.id,
+      rating: 3,
+      context: expect.objectContaining({
+        queueType: 'incremental-learning',
+        memoryStateAsOf: originalDue,
+      }),
+    });
   });
 
   it('incremental learning submits manual future cards as preview-only on the active commit path', async () => {
@@ -468,21 +502,6 @@ describe('Dynamic queues - review removal semantics', () => {
       due: getCurrentDayEnd(4) + 5 * 86_400_000,
     });
     const manager = createManagerStub(card);
-    const decision = {
-      current: { ...card },
-      commitPolicy: 'preview-only',
-    };
-    const schedulerRouter = {
-      route: vi.fn(),
-      answer: vi.fn(() => decision),
-      commit: vi.fn(async () => ({
-        decision,
-        updatedCard: null,
-        committed: false,
-        suppressedReason: 'preview-only',
-      })),
-    };
-    manager.getSchedulerRouter.mockReturnValue(schedulerRouter as never);
     const queue = new FilterGroupQueue(
       manager as never,
       createPersistenceStub()
@@ -491,18 +510,18 @@ describe('Dynamic queues - review removal semantics', () => {
     const result = await queue.handleReview(card.id, 3);
 
     expect(result.removedFromQueue).toBe(false);
-    expect(schedulerRouter.route).not.toHaveBeenCalled();
-    expect(schedulerRouter.answer).toHaveBeenCalledWith(
-      expect.objectContaining({ id: card.id }),
-      3,
-      expect.objectContaining({
+    expect(manager.getSchedulerRouter).not.toHaveBeenCalled();
+    expect(manager.commitReview).toHaveBeenCalledWith({
+      cardId: card.id,
+      rating: 3,
+      context: expect.objectContaining({
         queueType: 'filter-group',
         queueMode: 'filtered-preview',
         commitPolicy: 'preview-only',
         isFiltered: true,
         customStudy: true,
-      })
-    );
+      }),
+    });
     expect(manager.onCardUpdatedFromScheduler).not.toHaveBeenCalled();
     expect(manager.updateCard).not.toHaveBeenCalled();
   });

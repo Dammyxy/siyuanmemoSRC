@@ -6,7 +6,12 @@ import type { SchedulingWriteSource } from './schedulingStateCleanliness';
 export interface CardUpdatePort {
   batchUpdateCardsWithoutEvents(
     cards: FSRSCard[],
-    options?: { schedulingWriteSource?: SchedulingWriteSource },
+    options?: {
+      preferIncomingScheduling?: boolean;
+      schedulingWriteSource?: SchedulingWriteSource;
+      suppressAutosave?: boolean;
+      suppressDueIndexSort?: boolean;
+    },
   ): Promise<void>;
   addReviewLogV2?(log: ReviewLogV2): Promise<void>;
 }

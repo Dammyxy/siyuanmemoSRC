@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
-import { QueueType, type DataChangeEvent, type IDataRouter, type IDataSourceObserver } from '@/types/unified-data-source';
+import { QueueType, type CardFilter, type DataChangeEvent, type IDataRouter, type IDataSourceObserver } from '@/types/unified-data-source';
 import { UnifiedDataSourceManager } from '../UnifiedDataSourceManager';
 
 function createCard(): FSRSCard {
@@ -65,7 +65,7 @@ describe('UnifiedDataSourceManager card update notifications', () => {
     await manager.updateCard(card);
     await flushMicrotasks();
 
-    expect(router.updateCard).toHaveBeenCalledWith(card);
+    expect(router.updateCard).toHaveBeenCalledWith(card, {});
     expect(events).toEqual([
       expect.objectContaining({
         type: 'card-updated',
@@ -84,6 +84,66 @@ describe('UnifiedDataSourceManager card update notifications', () => {
         queueType: QueueType.FilterGroup,
       }),
     ]);
+  });
+
+  it('mirrors committed review feedback cards into the frontend read model before queue reload', async () => {
+    const manager = UnifiedDataSourceManager.getInstance();
+    const now = Date.now();
+    const before = createCard();
+    before.due = now - 1_000;
+    const after: FSRSCard = {
+      ...before,
+      due: now + 7 * 86_400_000,
+      scheduledDays: 7,
+      reps: before.reps + 1,
+      updatedAt: now,
+    };
+    let storedCard: FSRSCard = { ...before };
+    const execute = vi.fn(async () => ({
+      card: before,
+      updatedCard: after,
+      committed: true,
+    }));
+    const router: IDataRouter & { plugin: unknown } = {
+      plugin: {
+        getContext: () => ({
+          getReviewCommitUseCase: () => ({ execute }),
+        }),
+      },
+      getCard: vi.fn(async () => ({ ...storedCard })),
+      getCards: vi.fn(async (filter?: CardFilter) => {
+        const dueLimit = filter?.dueDate?.lte instanceof Date
+          ? filter.dueDate.lte.getTime()
+          : undefined;
+        if (Number.isFinite(dueLimit) && storedCard.due > dueLimit!) {
+          return [];
+        }
+        return [{ ...storedCard }];
+      }),
+      updateCard: vi.fn(async (card: FSRSCard) => {
+        storedCard = { ...card };
+      }),
+      deleteCard: vi.fn(async () => {}),
+      getAvailableQueueTypes: vi.fn(() => []),
+    } as unknown as IDataRouter & { plugin: unknown };
+    manager.setAdvancedRouter(router);
+
+    await manager.commitReview({
+      cardId: before.id,
+      rating: 3,
+      context: {
+        queueType: QueueType.IncrementalLearning,
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(router.updateCard).toHaveBeenCalledWith(after, expect.objectContaining({
+      preferIncomingScheduling: true,
+      schedulingWriteSource: 'review-commit',
+      suppressAutosave: true,
+    }));
+    await expect(manager.getCards({ dueDate: { lte: new Date(now) } })).resolves.toEqual([]);
   });
 
   it('emits card-created and queue-changed for dynamic queues after card creation sync', async () => {

@@ -323,7 +323,15 @@ export class UnifiedDataSourceManager {
             throw new Error('ReviewCommitUseCase not available - plugin initialization failed');
         }
 
-        return useCase.execute(command);
+        const result = await useCase.execute(command);
+        if (result.committed && result.updatedCard) {
+            await this.updateCard(result.updatedCard, {
+                preferIncomingScheduling: true,
+                schedulingWriteSource: 'review-commit',
+                suppressAutosave: true,
+            });
+        }
+        return result;
     }
 
     public async appendDrillLogV2(log: DrillLogV2): Promise<void> {

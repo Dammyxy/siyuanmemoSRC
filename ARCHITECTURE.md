@@ -203,8 +203,8 @@ sequenceDiagram
   participant RCU as ReviewCommitUseCase
   participant SR as SchedulerRouter
   participant SRS as SRS v2 Kernel
-  participant LOG as ReviewLogService
-  participant SQL as SqliteDatabaseService
+  participant REV as review_events
+  participant BE as Backend Worker / SqliteDatabaseService
   participant AR as ArenaKernelService
   participant B as SRSBrowser
 
@@ -212,22 +212,24 @@ sequenceDiagram
   QS->>Q: handleReview(cardId, rating)
   Q->>UDSM: commitReview(QueueReviewCommand)
   UDSM->>RCU: execute(command)
-  RCU->>SQL: runTransaction(review.feedback)
   RCU->>UDSM: getCard(cardId)
-  RCU->>SR: answer(card, rating, QueueReviewContext)
+  RCU->>BE: review.feedback(request)
+  BE->>BE: runTransaction(review.feedback)
+  BE->>SR: answer(card, rating, QueueReviewContext)
   SR->>SRS: preview / answer
   SRS-->>SR: SchedulingDecision
-  RCU->>SR: commit(decision)
+  BE->>SR: commit(decision)
   SR->>SRS: commit policy
-  SR-->>RCU: ReviewCommitResult
-  RCU->>SQL: row-level upsert updated card
-  RCU->>LOG: append ReviewLogV2 when schedule is written
+  SR-->>BE: ReviewCommitResult
+  BE->>BE: row-level upsert updated card
+  BE->>REV: append ReviewLogV2 when schedule is written
+  BE-->>RCU: BackendReviewFeedbackResult(updatedCard)
   RCU->>AR: record SRS Arena batch when enabled
-  SQL-->>RCU: commit + one binary persist
-  RCU->>UDSM: onCardUpdatedFromScheduler(updatedCard)
-  RCU-->>Q: QueueReviewCommitResult
+  RCU-->>UDSM: QueueReviewCommitResult(updatedCard)
+  UDSM->>UDSM: updateCard(updatedCard, review-commit, suppressAutosave)
+  UDSM-->>Q: QueueReviewCommitResult
   Q->>Q: session membership / current item advance
-  UDSM-->>B: data change event
+  UDSM-->>B: card / queue change event
   B->>B: incremental grid patch
 ```
 
@@ -901,13 +903,14 @@ UI 层：
 
 当前职责：
 
-- `ReviewCommitUseCase` 是正式复习提交边界：读取当前卡 -> `SchedulerRouter.answer()` -> `commit()` -> 写 `ReviewLogV2` -> 记录 SRS Arena 批次 -> 发布队列/卡片事件；SQL active 时这条链包在 `SqliteDatabaseService.runTransaction('review.feedback')` 中，card 行级 upsert、review event、Arena batch 最终只触发一次二进制 DB persist。队列只提交 `QueueReviewCommand`，不再自己拼正式 revlog 或补丁式写 due
-- `SchedulerRouter` 是薄门面：保留旧 `preview/route` 兼容入口，负责把 SRS v2 的 `preview -> answer -> commit` 决策流转交给内核；它只持久化调度结果，不拥有正式 revlog。调度与重排写入统一经过 `UnifiedStorageCardUpdateAdapter`，批量卡片使用 `UnifiedStorageManager.batchUpdateCards()` 更新内存索引，SQL active 时同批 `SqlUnifiedStorageRepository.upsertCards()` 后一次 persist
+- `ReviewCommitUseCase` 是正式复习提交边界：读取当前卡 -> 校验 backend/writer runtime -> 提交 `review.feedback` 给 backend worker 或 writer relay -> 返回 `QueueReviewCommitResult(updatedCard)` -> 记录 SRS Arena 批次。Worker 内部把 `SchedulerRouter.answer()/commit()`、card 行级 upsert 与 `review_events` 追加包进 `SqliteDatabaseService.runTransaction('review.feedback')`，最终只触发一次二进制 DB persist。队列只提交 `QueueReviewCommand`，不再自己拼正式 revlog 或补丁式写 due
+- `UnifiedDataSourceManager.commitReview` 负责把已提交的 `updatedCard` 以 `review-commit + suppressAutosave` 镜像回前端 read model，再发卡片/队列事件；队列 reload 之后读取的是 worker 提交后的 due，而不是旧前端投影，也不会触发前端二次持久化
+- `SchedulerRouter` 是薄门面：保留旧 `preview` 兼容入口，负责把 SRS v2 的 `preview -> answer -> commit` 决策流转交给内核；它只持久化调度结果，不拥有正式 revlog。调度与重排写入统一经过 `UnifiedStorageCardUpdateAdapter`，review commit 写入必须携带 `preferIncomingScheduling + schedulingWriteSource='review-commit'`；批量卡片使用 `UnifiedStorageManager.batchUpdateCards()` 更新内存索引，SQL active 时同批 `SqlUnifiedStorageRepository.upsertCards()` 后一次 persist
 - `SrsV2Kernel` 显式建模 `SchedulingChoices / ReviewAttempt / SchedulingDecision / ReviewCommitResult`，并在同一入口处理 `reviewTime + memoryStateAsOf` 的提前复习锚点语义
 - `SrsV2QueuePolicy` 统一 `RetrievalPractice / IncrementalLearning` 的 formal 取卡顺序：Learning/Relearning 到点卡、今日 Review、每日上限内 New；同层按 `due -> priority -> stable noise -> id` 排序。Incremental 的 Topic/Concept/阅读/网页材料继续走 rotation 回访语义
 - 队列通过 `QueueReviewSchedulingContext` 只声明成员资格之外的会话语义，例如 `queueType / queueMode / commitPolicy / isFiltered / customStudy`；调度写入是否发生由 SRS v2 commit policy 决定。手动 future 卡和 `FilterGroup` future 卡默认 `filtered-preview + preview-only`，只有显式重排/设置切换才 `write-schedule`
 - `FinalDrill` 是练习覆盖层，不走正式调度，只追加独立 `DrillLogV2` 月度分片；`NeuralRoam` 绑定真实卡时可提交正式 SRS，但不会因 due 窗口自动退出 session；`Leech` 只负责难点治理成员资格，正式复习仍走 SRS v2
-- 成功写正式排期时，`ReviewCommitUseCase` 追加 `ReviewLogV2`；SQL active 时进入 `review_events`，旧月度 JSON 分片只作为 fallback/迁移来源；旧 `ReviewLog` 保留只读/兼容，`DrillLogV2` 默认不参与 FSRS 参数优化和 Arena 正式归因
+- 成功写正式排期时，backend worker 在 `review.feedback` 事务内追加 `ReviewLogV2` 到 `review_events`；旧月度 JSON 分片只作为 fallback/迁移来源；旧 `ReviewLog` 保留只读/兼容，`DrillLogV2` 默认不参与 FSRS 参数优化和 Arena 正式归因
 - 对不支持的调度路径显式报错，而不是静默降级
 - 对 item / descriptor 复习，Arena 开启后会在正式调度之外通过 contestant adapters 并行预估 `fsrs-v6 / sm2 / sm5 / sm8 / sm15 / sm18 / sm20` 七个只读选手，输出四按钮预测、置信度、解释、归因字段、weighted optimum、分歧幅度和领先者；`sm19` 只注册为 `official-pending` 禁用算法，`a-factor-v2` 不进入 v1 SRS contest pack
 - SRS Arena 主评分是 Universal/Calibration metric：按 predicted retrievability 进入 0.0-1.0 十分箱，SQL 中维护 `arena_metric_bins`，快照里的 score 用负 RMS 表示“越接近 0 越好”；Brier/即时误差只做诊断信号
@@ -1003,7 +1006,7 @@ UI 层：
 - 运行时唯一组合根是 `ApplicationContext`
 - 插件入口是 `src/index.ts`
 - Browser 与 Review 共享 `UnifiedDataSourceManager` + `SchedulerRouter`
-- 正式评分链路已切到 application 层 `ReviewCommitUseCase`：队列提交 `QueueReviewCommand`，use case 调用 `SchedulerRouter.answer()/commit()` 写正式 due 或保持 preview-only，并在正式写入时追加 `ReviewLogV2` 与发布队列/卡片事件
+- 正式评分链路已切到 application 层 `ReviewCommitUseCase` + backend worker：队列提交 `QueueReviewCommand`，use case 提交 `review.feedback`，worker 调用 `SchedulerRouter.answer()/commit()` 写正式 due 或保持 preview-only，并在正式写入时追加 `ReviewLogV2`；`UnifiedDataSourceManager.commitReview` 把 worker 返回的 `updatedCard` 以 `suppressAutosave` 镜像回前端 read model 后再发布队列/卡片事件
 - `SchedulerRouter` 保持 SRS v2 薄门面职责；`RetrievalPractice / IncrementalLearning` 的正式记忆取卡由 `SrsV2QueuePolicy` 统一日内到点、复习上限、新卡上限与稳定排序，`FinalDrill` 只写独立 `DrillLogV2`
 - Browser 共享契约已收口到 `src/types/browser.ts`；application query kernel 不再 import UI browser helper，UI-side browser service 也不再保存全局 manager/api/query 状态
 - `DialogManager` 负责 dialog surface，`TabManager` 负责 tab surface 与 surface handoff
@@ -1014,7 +1017,7 @@ UI 层：
 - `worker/` 已从同进程骨架推进到真实 browser Worker runtime：`worker/bootstrap/backend-worker.entry.ts` 在 Worker 内构造 `BackendKernel` + `WorkerSqliteDatabaseService`，通过 request id、ready/shutdown、terminal failure 与 typed host effects 接收 renderer 文件/host side effects；`ApplicationContext` 的 backend worker runtime 开启时使用 `BrowserSrsBackendWorkerTransport`，enabled production path 不再 renderer-local `new BackendKernel(...)`；发布构建通过 Vite inline Worker 把 worker bundle 内嵌到 `index.js`，避免 dist/package 出现 `assets/` 或独立 worker chunk。
 - `packages/contracts/src/backend-rpc.ts` 与 `packages/contracts/src/kernel-rpc.ts` 作为 worker/kernel envelope 契约；`src/application/clients/SrsBackendClient.ts`、`BrowserSrsBackendWorkerTransport.ts` 与 `KernelSidecarClient.ts` 作为应用层唯一调用入口，不让 UI/feature 代码直接碰 Worker postMessage、RPC、RPC WebSocket 或 private SSE 细节。
 - 后端迁移 `Phase 2` 已推进到第二批 Browser query 收口：Worker 新增 `browser.deck.page`、`browser.deck.matchedIds`、`browser.deck.rowsByIds`、`browser.count`、`browser.stats` 与 `browser.sourceExistence.*`（含 `applySweep` / `applySweepHost`）RPC；组合根支持 `VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER` feature flag 灰度注入 `SrsBackendClient`（关闭时保持 SQL read port/legacy 基线，开启时 `BrowserApplicationService` 优先走 Worker）。
-- `Phase 3` 已收口：Worker `review.feedback` 已覆盖 `retrieval-practice`、`incremental-learning`、`neural-roam`、`leech` 的 formal/write-schedule 提交，`filter-group` 的 `filtered-preview/preview-only` 与 `filtered-rescheduling/write-schedule` contract，以及 `final-drill` 的 `drill/drill-only`（suppress schedule write）contract；`ReviewCommitUseCase` 已切到 backend-worker ownership 主链（无本地 scheduler commit fallback），backend 不可用时显式返回 `BACKEND_UNAVAILABLE`（不做隐藏 fallback 双写）。Review cutover 会把 `SettingsService` 当前 `scheduler.defaultScheduler` 与 `fsrs` 参数透传到 `BackendReviewFeedbackRequest.scheduler`，worker 侧用该配置创建 `SchedulerRouter`，避免落回 `DEFAULT_SETTINGS.fsrs`。
+- `Phase 3` 已收口：Worker `review.feedback` 已覆盖 `retrieval-practice`、`incremental-learning`、`neural-roam`、`leech` 的 formal/write-schedule 提交，`filter-group` 的 `filtered-preview/preview-only` 与 `filtered-rescheduling/write-schedule` contract，以及 `final-drill` 的 `drill/drill-only`（suppress schedule write）contract；`ReviewCommitUseCase` 已切到 backend-worker ownership 主链（无本地 scheduler commit fallback），backend 不可用时显式返回 `BACKEND_UNAVAILABLE`（不做隐藏 fallback 双写）。Review cutover 会把 `SettingsService` 当前 `scheduler.defaultScheduler` 与 `fsrs` 参数透传到 `BackendReviewFeedbackRequest.scheduler`，worker 侧用该配置创建 `SchedulerRouter`，避免落回 `DEFAULT_SETTINGS.fsrs`；worker 返回的 `updatedCard` 由 `UnifiedDataSourceManager.commitReview` 以 `review-commit + suppressAutosave` 镜像到前端 read model，确保 Review/Browser 后续重载与计数读取最新 due。
 - `Phase 4` 已推进到 relay 闭环灰度：kernel companion 除 `writer.hello/getLease/acquireLease/renewLease/releaseLease` 外，新增 `writer.submitCommand/getCommandResult/takeCommand/completeCommand/failCommand`；`FrontendInstanceRuntime` 负责等待 kernel companion 进入 `running` 后再执行 hello/acquire/renew/release 生命周期，并在 writer 模式优先由 RPC WebSocket `memo.writer.command` push wake-up 后执行 relay command，watchdog 轮询只做 missed notification / reconnect recovery，避免前端插件早于 `kernel.js` RPC running 时把 writer runtime 永久置空；`FollowerCommandClient` 负责 follower 提交/等待结果，并用 `memo.writer.commandResult` push 唤醒等待中的 result confirmation；`ReviewCommitUseCase` 的 worker-first `review.feedback` 与 `BrowserApplicationService` 的 worker-side `browser.sourceExistence.applySweepHost` 写入在 follower 模式都支持 follower->writer relay；composition root relay dispatch 已覆盖当前全部 worker mutation（`review.feedback`、`browser.sourceExistence.applySweepHost/update/applySweep`、`kernel.transaction.ingest/dequeue/requeue`、`autocard.decision.resolve`、`autocard.execute`）；`packages/contracts/src/kernel-rpc.ts` 的 `KERNEL_RELAY_METHODS` runtime list 与 `KernelRelayMethod` 类型同步声明这些 relay method，避免 Browser source-existence relay 落在合同外；另外 kernel relay queue 在 writer 接管时会把未完成 pending command 重绑定到新 owner，runtime 在 relay wake/drain 遇到 lease unavailable 时会先 `writer.getLease` 观察当前 owner，再自动降级 follower，正常 active writer handover 不输出 warn，避免多窗口 handover 下命令悬挂和误报；writer relay 不可用时返回 explicit unavailable，不做隐藏 fallback 双写。直接 backend 写入路径在直写前必须刷新真实 writer lease：`ReviewCommitUseCase`、`PrivateApiClient.mutate()`、`AutoCardHandler` 的 `autocard.execute` 直写路径，以及 `BrowserApplicationService` 的 `browser.sourceExistence.applySweepHost` host mutation 都先调用 `FrontendInstanceRuntime.ensureWritable()`；若 guard 后本地已降级 follower，则改走 writer relay，否则 fail closed。每个 `FrontendInstanceRuntime` 现在有稳定 `runtimeScopeId`，并作为 kernel writer lease 的 `surfaceId` 传入；同一个 JS 运行域内再次启动 runtime 会先 dispose 前一个 runtime，避免同一窗口热重载/重复装配留下隐藏 writer。启动、mode change、relay submit/take/complete/fail/timeout 日志会输出 instanceId、runtimeScopeId、leaseSurfaceId/ownerSurfaceId、visibilityState、locationHref、commandId、method、requester/owner/status、wakeReason 等诊断，真实双窗口 smoke 可按 `ownerSurfaceId` 对回某个窗口的 `runtimeScopeId`；若 `ownerSurfaceId` 缺失或对不上当前两个窗口，说明仍有旧 bundle / 旧 runtime lease 残留，需要完整 reload 或等待 lease TTL 过期。follower 心跳先观察 active holder，已有 holder 时不再主动 acquire；writer 心跳与 writer visibility refresh 走 `writer.renewLease`，不再用 `writer.acquireLease` 反复抢同一把锁；renew/relay watchdog 发现 owner 已切到 active writer 是健康 handover，只按当前 holder 设置 writer/follower，不输出 warn；只有没有 active writer、启动/手动 acquire 异常、relay command 执行失败/超时才进入 operator-visible warning；`kernel.transaction.dequeue` 是 action pump polling 命令，空结果不输出 info，只有非空 action、失败、超时或无 active writer才进入 operator-visible 日志。
 - Phase 4 stable writer lease（2026-05-06）：writer lease 默认 TTL 统一提升到 60 秒（`FrontendInstanceRuntime`、旧 `KernelWriterLeaseGuard`、`kernel.js` capability 与 `.env.example`），降低 SiYuan 多窗口/后台 renderer 定时器节流导致的 writer 误过期；SiYuan 源码里的 `app/src/plugin/loader.ts` 会在每个 frontend renderer 执行 `plugin.onload()`，而 `getFrontend()` 通过 `toolbar` 区分 `desktop` 主界面与 `desktop-window` 文档窗口，所以 writer lease 不能把所有 `/stage/build/app` renderer 当同级普通主窗口。当前策略按 `locationHref` 分 role：`primary-app`（`/stage/build/app/` 且不是 `/window.html`）> `document-window`（`/window.html`）> auxiliary（`enhance=true` / QuickNote 等）> unknown；active `primary-app` writer 一旦成功持有 lease，即使 hidden/unfocused 也不被后开的文档窗口抢占，`primary-app` 可立即 reclaim `document-window`/auxiliary holder，`document-window` 不能反抢 `primary-app`，只在无主界面 owner 且另一个 `document-window` holder 超过 30 秒并 hidden 或 `documentHasFocus=false` 时才可 reclaim。`FrontendInstanceRuntime` 在 follower startup/manual/visibility/heartbeat refresh 都先 `writer.getLease` observe，已有别的 writer 时默认保持 follower 且不主动 `writer.acquireLease`；只有 observe 到空 lease 且窗口可见时才 acquire，或由上述 role/stale 规则触发 reclaim；窗口 `visibilitychange` / `focus` 回到可见时会立即 refresh ownership。启动新 runtime 前会释放同一 JS context registry 里的全部旧 runtime（即使 `runtimeScopeId` 不同），避免单窗口重复装配留下另一个 active writer；runtime 会把 `visibilityState`、`documentHasFocus`、`locationHref` 随 `writer.hello/acquireLease/renewLease` 上报到 kernel，并在 observe 路径保留 lease metadata 用于 stale-owner 判断；`kernel.js` 仍拒绝 hidden requester 抢空 lease，release、TTL 过期、无 active lease、同 instance renew/acquire 仍允许接任/续租。writer lease payload 带 `leaseEpoch` 与 `ownerChangedAt`；只有 holder 真实变更才递增 `leaseEpoch`，续租只更新 heartbeat/expiry，避免用相同 `acquiredAt` 误判双 writer。
 - Relay drain budget（2026-05-07）：`kernel.js` 的 `writer.takeCommand` 回传 `pendingCommandCount`，`FrontendInstanceRuntime` 的 writer relay drain 每 wake 仍保持最多 4 条命令，但新增默认 24ms 时间预算；超过预算且 kernel 仍有可派发命令时，会记录 `relay.writer.drain-pending-commands` 的 `commandCount/pendingCommandCount/budgetExceeded/yieldReason/commandLimit/budgetMs`，并调度 continuation，避免一个 relay wake 连续吞掉多个长命令而抢占 renderer。2026-05-08 起，fresh `kernel.transaction.ingest/dequeue/requeue` 预算 yield 若仍有 pending command，会默认延后 48ms 再续跑；若已处理命令 age 达到 750ms max-delay cap，则立即续跑并记录 max-delay counter，避免积压命令被继续隐藏延迟。drain diagnostics 同步记录 `commandTypeSummary/transactionCommandCount/freshTransactionCommandCount/staleTransactionCommandCount/maxCommandAgeMs/maxDelayCapHit/transactionCommandAgeClass/transactionMaxDelayMs/continuationDelayMs`；`writer.take-command` 与 `writer.complete-command` span 只记录 bounded metadata（wake reason/source、push relay state/reconnect attempts/unavailable reason、queue status、command id/method/requester、pending count、command age、fresh/stale/cap/completion status），不记录 command params 或 result payload。Push/reconnect/watchdog 期间的新 wake 会 coalesce；同一 command 正在处理或同一 wake 已处理过时不会重复执行，writer command order 仍由 kernel queue 和逐条 complete/fail 保证。2026-05-08 以后，当 RPC push relay 已 open 且 watchdog 连续拿不到 command 时，watchdog 只做 bounded no-command backoff；push command、reconnect drain、pending command、错误/不可用路径仍立即 drain 或保持显式失败语义。

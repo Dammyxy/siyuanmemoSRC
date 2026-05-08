@@ -49,6 +49,20 @@ function createRouter(fsrsParams = DEFAULT_SETTINGS.fsrs) {
   };
 }
 
+async function answerAndCommit(
+  router: SchedulerRouter,
+  card: FSRSCard,
+  rating: 1 | 2 | 3 | 4,
+  options: Parameters<SchedulerRouter['answer']>[2] = {}
+): Promise<FSRSCard> {
+  const decision = router.answer(card, rating, options);
+  const result = await router.commit(decision);
+  if (!result.updatedCard) {
+    throw new Error('Expected committed scheduler result');
+  }
+  return result.updatedCard;
+}
+
 describe('SchedulerRouter fsrs-v6 migration constraints', () => {
   it('registers only one TSFSRSScheduler instance', () => {
     const { router } = createRouter();
@@ -75,7 +89,7 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
 
   it('normalizes dirty card data before and after scheduling', async () => {
     const { router, cardUpdater } = createRouter();
-    const updatedCard = await router.route(createCard({
+    const updatedCard = await answerAndCommit(router, createCard({
       schedulerType: undefined,
       type: CardType.Item,
       state: 2,
@@ -105,7 +119,10 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
         id: updatedCard.id,
         schedulerType: 'fsrs-v6',
       }),
-    ], { schedulingWriteSource: 'review-commit' });
+    ], {
+      preferIncomingScheduling: true,
+      schedulingWriteSource: 'review-commit',
+    });
   });
 
   it('forces item cards with legacy a-factor schedulerType onto fsrs-v6', async () => {
@@ -154,7 +171,7 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
     expect(aFactorScheduler.preview).not.toHaveBeenCalled();
     expect(previews.get(3)?.schedulerType).toBe('fsrs-v6');
 
-    const reviewed = await router.route(itemCard, 3);
+    const reviewed = await answerAndCommit(router, itemCard, 3);
     expect(fsrsScheduler.review).toHaveBeenCalledWith(expect.objectContaining({
       id: 'legacy-a-factor-item',
       schedulerType: 'fsrs-v6',
@@ -212,7 +229,7 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
     }), reviewTime);
     expect(previews.get(3)?.due).toBe(reviewTime.getTime() + 35 * DAY_MS);
 
-    const reviewed = await router.route(futureCard, 3, {
+    const reviewed = await answerAndCommit(router, futureCard, 3, {
       reviewTime: reviewTime.getTime(),
       memoryStateAsOf: memoryTime.getTime(),
     });
@@ -231,7 +248,10 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
         due: reviewTime.getTime() + 33 * DAY_MS,
         lastReview: reviewTime.getTime(),
       }),
-    ], { schedulingWriteSource: 'review-commit' });
+    ], {
+      preferIncomingScheduling: true,
+      schedulingWriteSource: 'review-commit',
+    });
   });
 
   it('keeps Again minute-level for manual early reviews while preserving due-day memory interval', async () => {
@@ -267,7 +287,7 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
     expect(againDelay).toBeLessThan(60 * 60 * 1000);
     expect(hardDelay).toBeGreaterThan(20 * DAY_MS);
 
-    const reviewedAgain = await router.route(futureCard, 1, {
+    const reviewedAgain = await answerAndCommit(router, futureCard, 1, {
       reviewTime: reviewTime.getTime(),
       memoryStateAsOf: memoryTime.getTime(),
     });
@@ -279,7 +299,10 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
         due: reviewedAgain.due,
         lastReview: reviewTime.getTime(),
       }),
-    ], { schedulingWriteSource: 'review-commit' });
+    ], {
+      preferIncomingScheduling: true,
+      schedulingWriteSource: 'review-commit',
+    });
   });
 
   it('keeps filtered preview decisions out of formal persistence', async () => {

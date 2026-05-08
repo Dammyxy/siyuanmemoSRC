@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-08 (Round 305)
+Last update: 2026-05-08 (Round 306)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-08 - Incremental review feedback read-model mirror
+
+- Task: 修复渐进学习评分后队列重载仍读到旧 due，计数不动并在两张卡之间反复切换的问题。
+- Touched slice: Review / Queue / Scheduler commit path；`UnifiedDataSourceManager.commitReview`、`ReviewCommitUseCase`、`ApplicationContext` review commit wiring、`SchedulerRouter.commit`、dynamic queue tests。
+- Debt fixed now: backend `review.feedback` 成功后由 `UnifiedDataSourceManager` 把 worker 返回的 `updatedCard` 以 `review-commit` 授权、`suppressAutosave` 镜像到前端 read model，再发布队列失效，不制造前端二次持久化；`ReviewCommitUseCase` 不再保留只通知队列、不更新读模型的 `onCommittedCard` 钩子；frontend scheduler commit 也携带 `preferIncomingScheduling`，避免 storage cleanliness 保护层把调度字段回滚成旧值；队列测试桩收口到 active `commitReview` 路径。
+- Debt deferred: 没有重做完整动态队列索引；`RetrievalPractice / IncrementalLearning` 仍依赖重载投影与 per-session requery，不是统一的 `QueueSnapshotIndex`。
+- Why deferred: 本轮根因是 commit 后前端读模型 stale；大队列索引会跨 Browser / Review / SQL / queue_state 设计迁移，超出止血范围。
+- Next safe step: 单独设计 queue projection/index，把 due/count/order 建成可失效快照，但保持 cards/review_events 为唯一真相。
+- Validation: `pnpm vitest run src/application/services/__tests__/UnifiedDataSourceManager.card-update-events.test.ts src/core/scheduler/__tests__/SchedulerRouter.fsrs-v6.test.ts src/core/scheduler/adapters/__tests__/UnifiedStorageCardUpdateAdapter.test.ts src/core/queue/domain/__tests__/DynamicQueue.review-removal.test.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts --reporter=dot` passed；`pnpm run check:boundaries` passed；`pnpm build` passed（保留既有 i18n hardcoded/Sass legacy warnings，阻断 0）；`git diff --check` passed（仅 CRLF 工作区提示）。
 
 ### 2026-05-08 - Review counter and manual scheduling consistency
 

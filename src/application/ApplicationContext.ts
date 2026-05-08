@@ -559,7 +559,6 @@ export class ApplicationContext {
         writerLeaseGuard,
         followerCommandClient: context.followerCommandClient,
         runtimePolicy,
-        onCommittedCard: (card) => unifiedDataSourceManager.onCardUpdatedFromScheduler(card),
       });
     });
     

@@ -27,7 +27,12 @@ export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
 
   async batchUpdateCardsWithoutEvents(
     cards: FSRSCard[],
-    options: { schedulingWriteSource?: SchedulingWriteSource } = {},
+    options: {
+      preferIncomingScheduling?: boolean;
+      schedulingWriteSource?: SchedulingWriteSource;
+      suppressAutosave?: boolean;
+      suppressDueIndexSort?: boolean;
+    } = {},
   ): Promise<void> {
     if (!cards || cards.length === 0) {
       return;
@@ -54,7 +59,8 @@ export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
       const result = await this.storage.batchUpdateCards(cardsToPersist, {
           preferIncomingScheduling: true,
           schedulingWriteSource,
-          suppressAutosave: Boolean(this.sqlCards),
+          suppressAutosave: options.suppressAutosave ?? Boolean(this.sqlCards),
+          suppressDueIndexSort: options.suppressDueIndexSort,
           transaction,
         });
       if (isErr(result)) {

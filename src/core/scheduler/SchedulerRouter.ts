@@ -133,6 +133,7 @@ export class SchedulerRouter {
         const result = this.kernel.commit(decision);
         if (result.updatedCard) {
             await this.cardUpdater.batchUpdateCardsWithoutEvents([result.updatedCard], {
+                preferIncomingScheduling: true,
                 schedulingWriteSource: 'review-commit',
             });
         }

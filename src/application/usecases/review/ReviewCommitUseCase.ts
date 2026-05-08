@@ -76,7 +76,6 @@ export interface ReviewCommitUseCaseDependencies {
   followerCommandClient?: ReviewCommitFollowerCommandClient | null;
   schedulerConfig?: BackendReviewSchedulerConfig | null;
   runtimePolicy?: Pick<BackendMigrationRuntimePolicy, 'capabilities'> | null;
-  onCommittedCard?: (card: FSRSCard) => Promise<void> | void;
 }
 
 type ReviewPolicyDecisionReason =
@@ -250,11 +249,6 @@ export class ReviewCommitUseCase {
     }
 
     const updatedCard = normalizeWorkerUpdatedCard(result.updatedCard, card);
-    if (result.committed) {
-      await measureRuntimePerformance('review', 'commit.on-committed-card', async () => {
-        await this.deps.onCommittedCard?.(updatedCard);
-      }, { cardId: command.cardId });
-    }
     await measureRuntimePerformance('review', 'commit.record-arena-review', () => this.recordArenaReview(card, rating, context), {
       cardId: command.cardId,
       rating,

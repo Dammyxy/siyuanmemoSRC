@@ -83,7 +83,6 @@ describe('ReviewCommitUseCase', () => {
         getMode: () => 'writer',
       } as never,
       runtimePolicy: createReleasePolicy(),
-      onCommittedCard: vi.fn(async () => {}),
     });
 
     const result = await useCase.execute({
