@@ -91,7 +91,10 @@ describe('ReviewApplicationService reschedule queue membership', () => {
     });
 
     expect(updated.due).toBe(dueTimestamp);
-    expect(manager.updateCard).toHaveBeenCalledWith(expect.objectContaining({ due: dueTimestamp }));
+    expect(manager.updateCard).toHaveBeenCalledWith(expect.objectContaining({ due: dueTimestamp }), expect.objectContaining({
+      preferIncomingScheduling: true,
+      schedulingWriteSource: 'manual-reschedule',
+    }));
     expect(retrievalQueue.syncManualMembershipForScheduledCard).toHaveBeenCalledWith(
       expect.objectContaining({ id: card.id, due: dueTimestamp }),
     );
@@ -170,6 +173,9 @@ describe('ReviewApplicationService reschedule queue membership', () => {
     expect(manager.updateCard).toHaveBeenCalledWith(expect.objectContaining({
       due: dueTimestamp,
       scheduledDays: 4.3,
+    }), expect.objectContaining({
+      preferIncomingScheduling: true,
+      schedulingWriteSource: 'manual-reschedule',
     }));
   });
 

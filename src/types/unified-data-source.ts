@@ -12,6 +12,7 @@
 import { FSRSCard } from './card';
 import type { QueueSnapshotRow } from './queue-browser';
 import type { QueueItem } from '../core/queue/types';
+import type { SchedulingWriteSource } from '@/core/scheduler/schedulingStateCleanliness';
 
 // ============================================================================
 // 核心枚举类型
@@ -78,6 +79,13 @@ export interface DataChangeEvent {
     
     /** 事件发生时间戳 */
     timestamp: number;
+}
+
+export interface CardMutationOptions {
+    preferIncomingScheduling?: boolean;
+    schedulingWriteSource?: SchedulingWriteSource;
+    suppressAutosave?: boolean;
+    suppressDueIndexSort?: boolean;
 }
 
 export type QueueCounterBuckets = {
@@ -191,8 +199,8 @@ export interface IDataSourceObserver {
 export interface IUnifiedDataSourceManagerFacade {
     getCard(cardId: string, options?: { silent?: boolean }): Promise<FSRSCard>;
     getCards(filter?: CardFilter): Promise<FSRSCard[]>;
-    updateCard(card: FSRSCard): Promise<void>;
-    batchUpdateCards?(cards: FSRSCard[]): Promise<BatchCardMutationResult>;
+    updateCard(card: FSRSCard, options?: CardMutationOptions): Promise<void>;
+    batchUpdateCards?(cards: FSRSCard[], options?: CardMutationOptions): Promise<BatchCardMutationResult>;
     deleteCard?(cardId: string): Promise<void>;
     batchDeleteCards?(cardIds: string[], options?: { blockIds?: string[] }): Promise<BatchCardDeleteResult>;
     onCardsDeleted?(cardIds: string[], blockIds?: string[]): Promise<void>;
@@ -682,12 +690,12 @@ export interface IDataRouter {
      * 
      * @param card 要更新的卡片
      */
-    updateCard(card: FSRSCard): Promise<void>;
+    updateCard(card: FSRSCard, options?: CardMutationOptions): Promise<void>;
 
     /**
      * 批量更新卡片。
      */
-    batchUpdateCards?(cards: FSRSCard[]): Promise<BatchCardMutationResult>;
+    batchUpdateCards?(cards: FSRSCard[], options?: CardMutationOptions): Promise<BatchCardMutationResult>;
     
     /**
      * 删除卡片
@@ -834,7 +842,7 @@ export interface IReviewQueue {
     /**
      * 更新卡片
      */
-    updateCard(card: FSRSCard): Promise<void>;
+    updateCard(card: FSRSCard, options?: CardMutationOptions): Promise<void>;
     
     /**
      * 处理卡片复习

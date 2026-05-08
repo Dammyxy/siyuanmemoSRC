@@ -46,7 +46,7 @@ import { GetCardsQueryHandler } from '../queries/card/GetCardsQueryHandler';
 import type { ICardReadModel } from '../queries/card/ICardReadModel';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import { createLogger } from '@/utils/logger';
-import type { CardApplicationStoragePort } from '@/core/storage/ports';
+import type { CardApplicationStoragePort, CardStorageUpdateOptions } from '@/core/storage/ports';
 
 const logger = createLogger('CardApplicationService');
 
@@ -555,10 +555,13 @@ export class CardApplicationService {
     return Array.from(deduped.values());
   }
 
-  private async upsertCardWithoutEvents(card: FSRSCard): Promise<void> {
+  private async upsertCardWithoutEvents(
+    card: FSRSCard,
+    options: CardStorageUpdateOptions = {},
+  ): Promise<void> {
     const updater = this.unifiedStorage.updateCard;
     if (typeof updater === 'function') {
-      const result = await updater.call(this.unifiedStorage, card);
+      const result = await updater.call(this.unifiedStorage, card, options);
       if (
         typeof result === 'object' &&
         result !== null &&
@@ -579,6 +582,7 @@ export class CardApplicationService {
     cards: unknown[];
     context: string;
     shouldUpsert?: (card: FSRSCard) => boolean;
+    updateOptions?: CardStorageUpdateOptions;
   }): Promise<BatchUpsertWithoutEventsResult> {
     const normalizedCards = this.normalizeBatchCards(params.cards);
     let successCount = 0;
@@ -597,7 +601,7 @@ export class CardApplicationService {
       }
 
       try {
-        await this.upsertCardWithoutEvents(card);
+        await this.upsertCardWithoutEvents(card, params.updateOptions);
         successCount++;
         successCardIds.push(card.id);
       } catch (error) {
@@ -699,7 +703,10 @@ export class CardApplicationService {
    * @param cards FSRSCard 列表
    * @returns 更新结果
    */
-  async batchUpdateCardsWithoutEvents(cards: unknown[]): Promise<{ ok: true; value: BatchUpdateCardsWithoutEventsResult } | { ok: false; error: Error }> {
+  async batchUpdateCardsWithoutEvents(
+    cards: unknown[],
+    options: CardStorageUpdateOptions = {},
+  ): Promise<{ ok: true; value: BatchUpdateCardsWithoutEventsResult } | { ok: false; error: Error }> {
     if (!cards || cards.length === 0) {
       return {
         ok: true,
@@ -721,6 +728,7 @@ export class CardApplicationService {
       cards,
       context: 'batchUpdateCardsWithoutEvents',
       shouldUpsert: (card) => Boolean(this.unifiedStorage.getCard(card.id)),
+      updateOptions: options,
     });
 
     return { ok: true, value: { updatedCount, failedCount, updatedCardIds, failedCardIds } };

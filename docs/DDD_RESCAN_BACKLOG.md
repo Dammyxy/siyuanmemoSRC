@@ -4,6 +4,16 @@ Last update: 2026-05-08 (Round 305)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-08 - Review counter and manual scheduling consistency
+
+- Task: 修复渐进学习评分后调度写入被保护层吞掉、SRS 浏览器“全部闪卡”计数口径异常、神经漫游复习头部计数不随漫游数变化。
+- Touched slice: Review / Browser bounded contexts；`ReviewApplicationService`、card update facade/ports、`SRSBrowser.vue`、`ReviewHeader.vue` 及 focused regression tests。
+- Debt fixed now: 将手动重排写入沿 `ReviewApplicationService -> UnifiedDataSourceManager -> DataAccessFacade -> CardApplicationService -> UnifiedStorageManager` 传递 `manual-reschedule` 授权选项，避免 scheduling fields 被 storage cleanliness 保护回旧值；浏览器 global total 不再重复扣 lost；ReviewHeader 对 value summary 优先显示 adapter 语义计数。
+- Debt deferred: review/browser 的队列重算与热队列缓存仍是多策略组合，尚未统一成“持久状态索引 + 可失效热快照”的单一 queue projection。
+- Why deferred: 本轮先止血真实计数与调度写入问题；队列模型重构会跨 Retrieval / Incremental / Neural / Browser datasource，需要单独设计和迁移测试。
+- Next safe step: 为 queue projection 增加 `QueueSnapshotIndex`/invalidations 设计草案，再把 retrieval / incremental 的 due count 从 UI reload 口径逐步迁到同一索引。
+- Validation: targeted Vitest for reschedule membership, SRS browser hierarchy, ReviewHeader, UnifiedReviewAdapter; final `pnpm run check:boundaries`, `pnpm build`, `git diff --check`.
+
 ### 2026-05-08 - Shared transaction hot path classifier live closure
 
 - Task: Apply OpenSpec `optimize-shared-transaction-hot-path` to keep ordinary editor transactions out of kernel ingest/relay, AutoCard, native Riff, doc-tree, and per-review-surface refresh work unless a shared classifier finds relevant evidence.

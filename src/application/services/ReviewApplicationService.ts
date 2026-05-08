@@ -66,7 +66,10 @@ export class ReviewApplicationService {
       });
     }
 
-    await this.manager.updateCard(updatedCard);
+    await this.manager.updateCard(updatedCard, {
+      preferIncomingScheduling: true,
+      schedulingWriteSource: 'manual-reschedule',
+    });
     await this.reconcileQueueMembershipAfterReschedule(updatedCard);
     return updatedCard;
   }

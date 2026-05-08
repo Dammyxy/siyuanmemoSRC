@@ -481,6 +481,26 @@ describe('SRSBrowser hierarchy regressions', () => {
     expect(createDeckDataSourceMock.mock.calls[2]?.[1]).toMatchObject({ preset: 'all' });
   });
 
+  it('shows the all-flashcards total without subtracting missing-block cards', async () => {
+    const browserService = createBrowserService();
+    browserService.getStats.mockResolvedValue({
+      totalCards: 12,
+      suspendedCards: 2,
+      lostCards: 5,
+    });
+    createDeckDataSourceMock.mockImplementation(() => createQueryableDataSource([]));
+
+    const wrapper = mountBrowser({
+      browserService: browserService as never,
+    });
+
+    await advance(0);
+    await advance(0);
+    await advance(200);
+
+    expect(wrapper.get('.select-global-all').text()).toBe('All flashcards 12');
+  });
+
   it('preserves scopeDocIds across global selection changes and clears them when exiting scope', async () => {
     const rows = [
       buildBrowserCard('card-1', 'doc-1'),

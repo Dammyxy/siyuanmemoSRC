@@ -248,6 +248,38 @@ describe('ReviewHeader', () => {
     expect(neuralWrapper.findAll('.siyuanmemo-review-header__toolbar-button').length).toBeGreaterThan(4);
   });
 
+  it('shows the neural-roam roamed count from the value summary instead of queue remaining', () => {
+    const header = createHeaderState();
+    header.title = '神经漫游';
+    header.counterSummary = {
+      kind: 'value',
+      text: '42',
+      tooltip: '已漫游 42 张卡',
+      ariaLabel: '已漫游 42 张卡',
+      value: 42,
+    };
+
+    const wrapper = mount(ReviewHeader, {
+      props: {
+        header,
+        meta: {
+          transition: 'slide-left',
+          queueProgress: {
+            queueType: 'neural-roam',
+            queueLabel: 'neural-roam',
+            completed: 0,
+            remaining: 5,
+            total: 5,
+          },
+        },
+        isMobile: false,
+        mode: 'dialog',
+      },
+    });
+
+    expect(wrapper.get('.siyuanmemo-review-header__summary').text()).toBe('42');
+  });
+
   it('closes the counter popover on Escape', async () => {
     const wrapper = mount(ReviewHeader, {
       props: {

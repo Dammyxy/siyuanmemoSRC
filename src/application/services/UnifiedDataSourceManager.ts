@@ -19,6 +19,7 @@ import {
     QueueError,
     type BatchCardDeleteResult,
     type BatchCardMutationResult,
+    type CardMutationOptions,
     type QueueAddSource,
     type QueueBulkAddInput,
     type QueueBulkMutationResult,
@@ -705,11 +706,11 @@ export class UnifiedDataSourceManager {
      * @throws Error 如果更新失败
      * @see 需求 11.1, 11.2, 11.4, 15.3
      */
-    public async updateCard(card: FSRSCard): Promise<void> {
+    public async updateCard(card: FSRSCard, options: CardMutationOptions = {}): Promise<void> {
         try {
             // 1. 通过当前路由器更新卡片
             const router = this.getRouter();
-            await router.updateCard(card);
+            await router.updateCard(card, options);
             await this.onCardUpdatedFromScheduler(card);
             
             logger.debug(`Card updated: ${card.id}`);
@@ -720,7 +721,10 @@ export class UnifiedDataSourceManager {
         }
     }
 
-    public async batchUpdateCards(cards: FSRSCard[]): Promise<BatchCardMutationResult> {
+    public async batchUpdateCards(
+        cards: FSRSCard[],
+        options: CardMutationOptions = {},
+    ): Promise<BatchCardMutationResult> {
         const cardsToUpdate = this.normalizeCards(cards);
         if (cardsToUpdate.length === 0) {
             return {
@@ -737,7 +741,7 @@ export class UnifiedDataSourceManager {
                 throw new Error('Data router batchUpdateCards is unavailable');
             }
 
-            const result = await router.batchUpdateCards(cardsToUpdate);
+            const result = await router.batchUpdateCards(cardsToUpdate, options);
             const updatedIds = new Set(result.updatedCardIds);
             const updatedCards = cardsToUpdate.filter((card) => updatedIds.has(card.id));
             if (updatedCards.length > 0) {

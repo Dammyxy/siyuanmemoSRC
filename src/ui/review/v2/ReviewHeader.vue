@@ -227,6 +227,11 @@ const displayTitle = computed(() => (
 ));
 
 const visibleCounterValue = computed(() => {
+  const summaryValue = Number(counterSummary.value?.value);
+  if (Number.isFinite(summaryValue) && summaryValue >= 0) {
+    return Math.max(0, Math.trunc(summaryValue));
+  }
+
   const metaRemaining = Number(props.meta?.queueProgress?.remaining);
   if (Number.isFinite(metaRemaining) && metaRemaining >= 0) {
     return Math.max(0, Math.trunc(metaRemaining));
@@ -235,11 +240,6 @@ const visibleCounterValue = computed(() => {
   const headerRemaining = Number(props.header?.stats?.current);
   if (Number.isFinite(headerRemaining) && headerRemaining >= 0) {
     return Math.max(0, Math.trunc(headerRemaining));
-  }
-
-  const summaryValue = Number(counterSummary.value?.value);
-  if (Number.isFinite(summaryValue) && summaryValue >= 0) {
-    return Math.max(0, Math.trunc(summaryValue));
   }
 
   return 0;

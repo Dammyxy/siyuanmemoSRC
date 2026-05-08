@@ -1,6 +1,14 @@
 import type { FSRSCard } from '@/types/card';
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { Result } from '@/types/result';
+import type { SchedulingWriteSource } from '@/core/scheduler/schedulingStateCleanliness';
+
+export interface CardStorageUpdateOptions {
+  preferIncomingScheduling?: boolean;
+  schedulingWriteSource?: SchedulingWriteSource;
+  suppressAutosave?: boolean;
+  suppressDueIndexSort?: boolean;
+}
 
 /**
  * Minimal read contract for FSRS card storage consumers.
@@ -53,7 +61,7 @@ export interface DeleteFSRSCardStoragePort extends CardReadPort, CardWritePort {
 }
 
 export interface UpdateFSRSCardStoragePort extends CardReadPort, CardWritePort {
-  updateCard?(card: FSRSCard): unknown | Promise<unknown>;
+  updateCard?(card: FSRSCard, options?: CardStorageUpdateOptions): unknown | Promise<unknown>;
 }
 
 export interface CardApplicationStoragePort extends UpdateFSRSCardStoragePort, DeleteFSRSCardStoragePort {

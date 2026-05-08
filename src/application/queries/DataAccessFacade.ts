@@ -23,6 +23,7 @@ import {
     getAdvancedModeContextMenuOptions,
     type BatchCardDeleteResult,
     type BatchCardMutationResult,
+    type CardMutationOptions,
 } from '../../types/unified-data-source';
 import { FSRSCard } from '../../types/card';
 import type { Plugin } from 'siyuan';
@@ -377,9 +378,9 @@ export class DataAccessFacade implements IDataRouter {
      * @param card 要更新的卡片
      * @see 需求 3.4, 17.2, 17.3
      */
-    async updateCard(card: FSRSCard): Promise<void> {
+    async updateCard(card: FSRSCard, options: CardMutationOptions = {}): Promise<void> {
         // 通过 CardApplicationService 更新卡片
-        const result = await this.cardService.batchUpdateCardsWithoutEvents([card]);
+        const result = await this.cardService.batchUpdateCardsWithoutEvents([card], options);
 
         if (isErr(result)) {
             throw new Error(`Failed to update card ${card.id}: ${result.error}`);
@@ -400,7 +401,10 @@ export class DataAccessFacade implements IDataRouter {
         }
     }
 
-    async batchUpdateCards(cards: FSRSCard[]): Promise<BatchCardMutationResult> {
+    async batchUpdateCards(
+        cards: FSRSCard[],
+        options: CardMutationOptions = {},
+    ): Promise<BatchCardMutationResult> {
         const cardsToUpdate = this.normalizeCards(cards);
         if (cardsToUpdate.length === 0) {
             return {
@@ -411,7 +415,7 @@ export class DataAccessFacade implements IDataRouter {
             };
         }
 
-        const result = await this.cardService.batchUpdateCardsWithoutEvents(cardsToUpdate);
+        const result = await this.cardService.batchUpdateCardsWithoutEvents(cardsToUpdate, options);
         if (isErr(result)) {
             throw new Error(`Failed to batch update cards: ${result.error}`);
         }

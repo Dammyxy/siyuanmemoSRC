@@ -1495,7 +1495,7 @@ async function refreshGlobalStats(force = false): Promise<void> {
         lostCards?: number;
       };
       const lostCards = Number(normalized.lostCards) || 0;
-      globalTotalCount.value = Math.max(0, (Number(normalized.totalCards) || 0) - lostCards);
+      globalTotalCount.value = Math.max(0, Number(normalized.totalCards) || 0);
       globalLostCount.value = lostCards;
       globalDismissedCount.value = Number(normalized.suspendedCards) || 0;
       return;
