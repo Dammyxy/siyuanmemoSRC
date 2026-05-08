@@ -66,8 +66,8 @@ describe('BlockMenuHandler createListCardsByMarker route', () => {
     const { handler, dialogManager, siyuanApi } = createFixture();
     installListMarkerSqlMock(siyuanApi, { selectedType: 'i' });
     vi.mocked(siyuanApi.getBlockKramdown).mockImplementation(async (blockId: string) => {
-      if (blockId === PARENT_P) return { kramdown: 'supermemo:::' };
-      if (blockId === PARENT_I) return { kramdown: 'supermemo:::' };
+      if (blockId === PARENT_P) return { kramdown: 'concept:::' };
+      if (blockId === PARENT_I) return { kramdown: 'concept:::' };
       return { kramdown: '' };
     });
     const createListTemplateCardsSpy = vi.spyOn(handler as any, 'createListTemplateCards').mockResolvedValue(undefined);
@@ -106,7 +106,7 @@ describe('BlockMenuHandler createListCardsByMarker route', () => {
 
   it('detects marker from parent paragraph content when kramdown source has no marker', async () => {
     const { handler, dialogManager, siyuanApi } = createFixture();
-    installListMarkerSqlMock(siyuanApi, { selectedType: 'i', paragraphContent: 'supermemo:::' });
+    installListMarkerSqlMock(siyuanApi, { selectedType: 'i', paragraphContent: 'concept:::' });
     vi.mocked(siyuanApi.getBlockKramdown).mockResolvedValue({ kramdown: '' });
     const createListTemplateCardsSpy = vi.spyOn(handler as any, 'createListTemplateCards').mockResolvedValue(undefined);
 

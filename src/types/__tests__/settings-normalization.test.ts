@@ -236,46 +236,30 @@ describe('settings normalization', () => {
       'topic-auto-card',
     ]);
     expect(normalized.settings.arena.srs.contestantSetVersion).toBe(SRS_ARENA_CONTESTANT_SET_VERSION);
-    expect(normalized.settings.arena.srs.contestantIds).toEqual([
-      'fsrs-v6',
-      'sm2',
-      'sm5',
-      'sm8',
-      'sm15',
-      'sm18',
-      'sm20',
-    ]);
+    expect(normalized.settings.arena.srs.contestantIds).toEqual(['fsrs-v6']);
   });
 
-  it('upgrades legacy SRS Arena contestant subsets to the current default set', () => {
+  it('drops unsupported SRS Arena contestant subsets to the current default set', () => {
     const legacy = cloneSettings();
-    legacy.arena.srs.contestantIds = ['fsrs-v6', 'sm15', 'sm2'];
+    legacy.arena.srs.contestantIds = ['fsrs-v6', 'unsupported-a', 'unsupported-b'] as never;
     delete (legacy.arena.srs as Partial<typeof legacy.arena.srs>).contestantSetVersion;
 
     const normalized = normalizePluginSettings(legacy);
 
     expect(normalized.changed).toBe(true);
     expect(normalized.settings.arena.srs.contestantSetVersion).toBe(SRS_ARENA_CONTESTANT_SET_VERSION);
-    expect(normalized.settings.arena.srs.contestantIds).toEqual([
-      'fsrs-v6',
-      'sm15',
-      'sm2',
-      'sm5',
-      'sm8',
-      'sm18',
-      'sm20',
-    ]);
+    expect(normalized.settings.arena.srs.contestantIds).toEqual(['fsrs-v6']);
   });
 
   it('preserves current SRS Arena contestant subsets after the set migration has run', () => {
     const current = cloneSettings();
     current.arena.srs.contestantSetVersion = SRS_ARENA_CONTESTANT_SET_VERSION;
-    current.arena.srs.contestantIds = ['fsrs-v6', 'sm15'];
+    current.arena.srs.contestantIds = ['fsrs-v6'];
 
     const normalized = normalizePluginSettings(current);
 
     expect(normalized.changed).toBe(false);
-    expect(normalized.settings.arena.srs.contestantIds).toEqual(['fsrs-v6', 'sm15']);
+    expect(normalized.settings.arena.srs.contestantIds).toEqual(['fsrs-v6']);
   });
 
   it('turns off pre-migration Arena even when it was previously enabled', () => {

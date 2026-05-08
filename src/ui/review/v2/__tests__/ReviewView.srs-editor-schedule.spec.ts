@@ -120,7 +120,7 @@ function buildArenaRecommendation(overrides: Record<string, unknown> = {}) {
   return {
     poolKey: 'srs::item',
     targetKind: 'item' as const,
-    leadingContestantId: 'sm20' as const,
+    leadingContestantId: 'fsrs-v6' as const,
     ratingBasis: 2,
     schedulingContextLabel: '队列上下文',
     weightedIntervalDays: 4.3,
@@ -131,8 +131,8 @@ function buildArenaRecommendation(overrides: Record<string, unknown> = {}) {
     summary: 'Arena conflict',
     contestants: [
       {
-        contestantId: 'sm20' as const,
-        label: 'Arena Challenger 20',
+        contestantId: 'fsrs-v6' as const,
+        label: 'FSRS v6',
         score: 0,
         weight: 1,
         confidence: 0.8,

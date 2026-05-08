@@ -98,6 +98,10 @@ export function createDefaultSettingsRiffIntegrationState(): SettingsRiffIntegra
   };
 }
 
+function normalizeLoadedDefaultScheduler(value: unknown): 'fsrs-v6' | 'a-factor-v2' {
+  return value === 'a-factor-v2' ? 'a-factor-v2' : 'fsrs-v6';
+}
+
 function normalizeRiffTriggerList(
   value: unknown,
   fallback: SettingsRiffTrigger[],
@@ -129,9 +133,9 @@ export function resolveSettingsSchedulerConfig(
   }
 
   return {
-    defaultScheduler: schedulerSettings.defaultScheduler || 'fsrs-v6',
+    defaultScheduler: normalizeLoadedDefaultScheduler(schedulerSettings.defaultScheduler),
     topicScheduler: schedulerSettings.topicScheduler || 'a-factor-v2',
-    itemScheduler: schedulerSettings.itemScheduler || 'fsrs-v6',
+    itemScheduler: 'fsrs-v6',
     srsV2: {
       learningStepsMinutes: normalizeSrsV2StepList(
         schedulerSettings.srsV2?.learningStepsMinutes,

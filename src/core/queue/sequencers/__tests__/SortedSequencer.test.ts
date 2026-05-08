@@ -1,7 +1,7 @@
 ﻿/**
  * SortedSequencer Tests
  * 
- * Verifies that the SM-15 style binary search insertion works correctly
+ * Verifies that binary search insertion works correctly
  * and that items are returned in sorted order by due time.
  * 
  * Feature: architecture-optimization
@@ -11,7 +11,7 @@
  * - Basic operations: empty queue, sorted order, single item
  * - Binary search insertion: beginning, middle, end, duplicates
  * - Priority sorting: when due times are equal
- * - SM-15 workflow: simulating real answer workflows
+ * - Review workflow: simulating real answer workflows
  * - Utility methods: remove, clear, insertMany
  * - Edge cases: empty items, large datasets, same values
  */
@@ -214,8 +214,8 @@ describe('SortedSequencer', () => {
     });
   });
 
-  describe('SM-15 Style Workflow', () => {
-    it('should simulate SM-15 answer workflow: failed card rotation', async () => {
+  describe('Review Workflow', () => {
+    it('should simulate failed-card rotation', async () => {
       // Given: A queue with 3 cards in order
       const sequencer = new SortedSequencer<TestItem>({
         getDueMs: (item) => item.dueTime,

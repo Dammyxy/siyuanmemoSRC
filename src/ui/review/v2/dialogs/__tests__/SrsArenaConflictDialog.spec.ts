@@ -11,7 +11,7 @@ function buildRecommendation(): SrsArenaRecommendation {
   return {
     poolKey: 'srs::item',
     targetKind: 'item',
-    leadingContestantId: 'sm20',
+    leadingContestantId: 'fsrs-v6',
     ratingBasis: Rating.Hard,
     schedulingContextLabel: '队列上下文',
     weightedIntervalDays: 4.3,
@@ -22,8 +22,8 @@ function buildRecommendation(): SrsArenaRecommendation {
     summary: 'Arena conflict',
     contestants: [
       {
-        contestantId: 'sm20',
-        label: 'Arena Challenger 20',
+        contestantId: 'fsrs-v6',
+        label: 'FSRS v6',
         score: 0,
         weight: 1,
         confidence: 0.8,
@@ -79,7 +79,7 @@ describe('SrsArenaConflictDialog', () => {
     const hardChoice = recommendation.contestants[0]!.choices.find((choice) => choice.rating === Rating.Hard)!;
     expect(wrapper.emitted('adopt')?.[1]?.[0]).toMatchObject({
       kind: 'contestant',
-      contestantId: 'sm20',
+      contestantId: 'fsrs-v6',
       dueTimestamp: hardChoice.due,
       scheduledDays: hardChoice.intervalDays,
     });

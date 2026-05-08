@@ -10,8 +10,8 @@ function createService(content: string, options?: { cdfFusionContext?: LiveCdfDe
       html: `<p>${content}</p>`,
       parentConcept: {
         blockId: 'concept-block',
-        content: 'supermemo :: spaced repetition',
-        html: '<p>supermemo :: spaced repetition</p>',
+        content: 'memory system :: spaced repetition',
+        html: '<p>memory system :: spaced repetition</p>',
         cardTypeMarker: 'concept',
         isConceptCard: true,
       },
@@ -119,7 +119,7 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     });
 
     expect(vm).not.toBeNull();
-    expect(vm!.frontHtml).toContain('supermemo');
+    expect(vm!.frontHtml).toContain('memory system');
     expect(vm!.frontHtml).toContain('起源，作者');
     expect(vm!.frontHtml).toContain('？');
     expect(vm!.frontHtml).not.toContain('是？');
@@ -176,7 +176,7 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     expect(vm!.frontHtml).toContain('woz');
     expect(vm!.frontHtml).toContain('是谁的');
     expect(vm!.frontHtml).toContain('起源，作者');
-    expect(vm!.backHtml).toContain('supermemo');
+    expect(vm!.backHtml).toContain('memory system');
     expect(vm!.directScene?.frontMask).toEqual({
       rowKey: 'concept',
       segment: 'whole',

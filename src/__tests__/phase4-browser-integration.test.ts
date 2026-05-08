@@ -1,5 +1,5 @@
 ﻿/**
- * Phase 4: Browser Integration Tests (SM-15 Pattern)
+ * Phase 4: Browser Integration Tests (Queue Pattern)
  * 
  * Tests for browser updates to use queue instances:
  * - Browser uses queue.getAllItems() to get cards
@@ -28,7 +28,7 @@ interface MockPlugin {
   getIncrementalLearningQueue: () => MockQueue;
 }
 
-describe('Phase 4: Browser Integration (SM-15 Pattern)', () => {
+describe('Phase 4: Browser Integration (Queue Pattern)', () => {
   let mockPlugin: MockPlugin;
   let mockRetrievalQueue: MockQueue;
   let mockIncrementalQueue: MockQueue;

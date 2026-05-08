@@ -80,13 +80,13 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
   it('falls back to fsrs-v6 for unsupported stored schedulerType on formal memory cards', () => {
     const { router } = createRouter();
     const legacyCard = createCard({
-      schedulerType: 'sm2',
+      schedulerType: 'unsupported-scheduler',
       type: CardType.Item,
     });
 
     expect(router.getSchedulerType(legacyCard)).toBe('fsrs-v6');
-    expect(router.getScheduler('sm2')).toBeUndefined();
-    expect(router.hasScheduler('sm2')).toBe(false);
+    expect(router.getScheduler('unsupported-scheduler')).toBeUndefined();
+    expect(router.hasScheduler('unsupported-scheduler')).toBe(false);
   });
 
   it('normalizes dirty card data before and after scheduling', async () => {

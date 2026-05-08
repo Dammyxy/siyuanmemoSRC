@@ -42,7 +42,7 @@ describe('settingsLoadState', () => {
       schedulerSettings: {
         defaultScheduler: 'fsrs-v6',
         topicScheduler: 'a-factor-v2',
-        itemScheduler: 'sm15',
+        itemScheduler: 'unsupported-scheduler' as never,
         srsV2: {
           learningStepsMinutes: [0, 15],
           relearningStepsMinutes: ['bad', '20'] as unknown as number[],
@@ -124,6 +124,7 @@ describe('settingsLoadState', () => {
     expect(loaded.schedulerConfig.srsV2.learningStepsMinutes).toEqual([1, 15]);
     expect(loaded.schedulerConfig.srsV2.relearningStepsMinutes).toEqual([20]);
     expect(loaded.schedulerConfig.srsV2.filteredReviewDefault).toBe('reschedule');
+    expect(loaded.schedulerConfig.itemScheduler).toBe('fsrs-v6');
     expect(loaded.riffIntegrationConfig.mode).toBe('simple');
     expect(loaded.riffIntegrationConfig.incrementalSync.triggers).toEqual(['browser-open']);
     expect(loaded.riffIntegrationConfig.storageConflictResolution).toBe('prefer-remote');

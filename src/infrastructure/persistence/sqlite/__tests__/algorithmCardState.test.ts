@@ -106,7 +106,7 @@ describe('algorithmCardState codec', () => {
       schedulerType: 'fsrs-v6',
       aFactor: 4.4,
       schedulerMeta: {
-        sm15: { afs: [2], of: 2, optimumInterval: 2 },
+        staleExternal: { afs: [2], of: 2, optimumInterval: 2 } as unknown,
       },
     });
     const derived = deriveAlgorithmCardState(topic);

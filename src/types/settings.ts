@@ -27,11 +27,12 @@ function isFiniteNumberArray(value: unknown): value is number[] {
     return Array.isArray(value) && value.every(item => typeof item === 'number' && Number.isFinite(item));
 }
 
-function mapLegacySchedulerLiteral(value: unknown): unknown {
-    if (typeof value !== 'string') {
-        return value;
-    }
-    return value === LEGACY_FSRS_V5 ? ACTIVE_FSRS_VERSION : value;
+function normalizeDefaultSchedulerLiteral(value: unknown): SchedulerConfig['defaultScheduler'] {
+    return value === 'a-factor-v2' ? 'a-factor-v2' : ACTIVE_FSRS_VERSION;
+}
+
+function normalizeItemSchedulerLiteral(_value: unknown): NonNullable<SchedulerConfig['itemScheduler']> {
+    return ACTIVE_FSRS_VERSION;
 }
 
 export function normalizeFSRSWeights(weights: unknown): number[] {
@@ -797,13 +798,13 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
     }
 
     const normalizedScheduler = normalized.scheduler!;
-    const nextDefault = mapLegacySchedulerLiteral(normalizedScheduler.defaultScheduler);
+    const nextDefault = normalizeDefaultSchedulerLiteral(normalizedScheduler.defaultScheduler);
     if (nextDefault !== normalizedScheduler.defaultScheduler) {
         normalizedScheduler.defaultScheduler = nextDefault as typeof normalizedScheduler.defaultScheduler;
         changed = true;
     }
 
-    const nextItem = mapLegacySchedulerLiteral(normalizedScheduler.itemScheduler);
+    const nextItem = normalizeItemSchedulerLiteral(normalizedScheduler.itemScheduler);
     if (nextItem !== normalizedScheduler.itemScheduler) {
         normalizedScheduler.itemScheduler = nextItem as typeof normalizedScheduler.itemScheduler;
         changed = true;

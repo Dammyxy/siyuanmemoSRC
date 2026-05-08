@@ -101,11 +101,11 @@ describe('schedulingStateCleanliness', () => {
       aFactor: 99,
       scheduledDays: 4,
       schedulerMeta: {
-        sm15: {
+        staleExternal: {
           afs: [0.5, 7, 3],
           of: 3,
           optimumInterval: 8,
-        },
+        } as unknown,
       },
     });
 

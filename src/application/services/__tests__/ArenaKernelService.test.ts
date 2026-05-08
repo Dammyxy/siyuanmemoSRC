@@ -418,7 +418,7 @@ describe('ArenaKernelService', () => {
     });
   });
 
-  it('builds advisory-only SRS recommendations with the registered SRS v1 contestants', async () => {
+  it('builds advisory-only SRS recommendations with the registered FSRS baseline', async () => {
     const settings = createEnabledArenaSettings();
     const { service, store } = createKernel(settings);
     const card = buildCard({ type: CardType.Descriptor, schedulerType: 'fsrs-v6' });
@@ -426,18 +426,8 @@ describe('ArenaKernelService', () => {
     const recommendation = await service.buildSrsRecommendation(card, 'fsrs-v6', NOW);
 
     expect(recommendation?.targetKind).toBe('descriptor');
-    expect(recommendation?.contestants.map((entry) => entry.contestantId)).toEqual([
-      'fsrs-v6',
-      'sm2',
-      'sm5',
-      'sm8',
-      'sm15',
-      'sm18',
-      'sm20',
-    ]);
-    expect(recommendation?.contestants.map((entry) => entry.label)).toContain('Arena Challenger 15');
-    expect(recommendation?.contestants.map((entry) => entry.label)).toContain('Arena Challenger 20');
-    expect(recommendation?.contestants.map((entry) => entry.label).join(' ')).not.toMatch(/\bSM\b|FSRSV5|SM-\d+/i);
+    expect(recommendation?.contestants.map((entry) => entry.contestantId)).toEqual(['fsrs-v6']);
+    expect(recommendation?.contestants.map((entry) => entry.label)).toEqual(['FSRS v6']);
     expect(recommendation?.contestants.map((entry) => entry.contestantId)).not.toContain('a-factor-v2');
     expect(recommendation?.weightedIntervalDays).toBeGreaterThan(0);
     expect(recommendation?.summary).toContain('Arena 当前更偏向');

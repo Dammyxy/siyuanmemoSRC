@@ -125,7 +125,7 @@ describe('cardMigration', () => {
             expect(migrated.state).toBe(CardState.Learning);
         });
         
-        // 🆕 SuperMemo 重新调度字段迁移测试
+        // Re-scheduling field migration
         it('should add default postponeCount = 0 if undefined', () => {
             const card = createTestCard({ postponeCount: undefined });
             const migrated = migrateCard(card);

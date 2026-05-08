@@ -672,11 +672,11 @@ describe('CardMapper - FSRSCard 兼容性', () => {
         schedulerType: 'fsrs-v6',
         aFactor: 99,
         schedulerMeta: {
-          sm15: {
+          staleExternal: {
             of: 3,
             optimumInterval: 4,
             afs: [3],
-          },
+          } as unknown,
         },
         meta: {
           aFactor: 9,

@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-08 (Round 307)
+Last update: 2026-05-08 (Round 309)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-08 - Queue projection storage and port foundation
+
+- Task: Continue OpenSpec `externalize-srs-algorithms-and-index-queues`, third slice: add backend/writer-owned queue projection storage, typed ports, diagnostics, and rebuild/repair command records.
+- Touched slice: Queue / SQL persistence boundary；`src/application/ports/QueueProjectionPort.ts`、`src/infrastructure/persistence/sqlite/schema.ts`、`src/infrastructure/persistence/sqlite/SqlQueueProjectionRepository.ts`、focused storage tests、`ARCHITECTURE.md`、OpenSpec tasks。
+- Debt fixed now: SQL schema now has rebuildable `queue_projection_generations / rows / counters / invalidations / rebuilds` tables with policy hash and generation metadata. `QueueProjectionPort` defines typed reads for projection rows/counters/generation/invalidations, writer-owned replace/delta/invalidate operations, rebuild/repair command lifecycle, and diagnostics that compare projection row/counter totals with caller-supplied source-of-truth recomputation. SQLite repository tests cover row identity order, requested-order hydration, counter version advance, invalidation records, repair rebuild state, and mismatch diagnostics.
+- Debt deferred: RetrievalPractice / IncrementalLearning builders are not wired yet; `review.feedback` queue impact and Browser/UnifiedQueueStrategy projection reads remain pending; projection source-of-truth recomputation is currently caller-supplied to diagnostics rather than built into a queue builder.
+- Why deferred: This slice establishes durable storage and typed ownership before changing live queue membership/order behavior.
+- Next safe step: Implement RetrievalPractice and IncrementalLearning projection row builders, then add parity tests against current queue strategy snapshots before routing consumers.
+- Validation: Queue projection repository focused tests passed（1 file / 4 tests）；external runtime focused tests previously passed；`pnpm build` passed with postbuild SRS dist hygiene passed（保留既有 i18n hardcoded/Sass legacy warnings，阻断 0）。
+
+### 2026-05-08 - External SRS algorithm manifest/runtime boundary
+
+- Task: Continue OpenSpec `externalize-srs-algorithms-and-index-queues`, second slice: add neutral external SRS algorithm manifest discovery, registry, and advisory-only runtime boundary.
+- Touched slice: SRS external algorithm boundary；`src/application/services/external-srs/ExternalSrsAlgorithmRuntime.ts`、`src/infrastructure/services/ExternalSrsAlgorithmFileHost.ts`、`src/infrastructure/persistence/sqlite/SqlExternalSrsAlgorithmRegistryRepository.ts`、focused tests、`ARCHITECTURE.md`、OpenSpec tasks。
+- Debt fixed now: User-installed algorithms can only enter through a local manifest contract with API version, generic `external:*` id, runtime kind, entry file, capabilities, state schema version, parameter metadata, integrity metadata, and license notice. Valid manifests register disabled in `algorithm_registry`; enable/disable/unavailable/validation-error states are explicit. Runtime invocation passes only structured snapshots and parameters, strips unexpected output fields, times out, marks missing/erroring entries unavailable, and always reports `formalScheduleWrite=false` so FSRS v6 review commits stay owned by the formal scheduler.
+- Debt deferred: The first runtime adapter is an injected runner boundary, not a full worker/sidecar loader; no settings UI for installing/enabling algorithms was added; external advisory predictions are not yet wired into Arena display by default.
+- Why deferred: This slice establishes the safety/ownership contract before exposing user controls or choosing a hard sandbox/loader format.
+- Next safe step: Add queue projection storage/ports, or separately wire external advisory predictions into Arena behind an explicit opt-in after the loader/sandbox decision is made.
+- Validation: External runtime focused tests passed（3 files / 9 tests）；`pnpm run check:boundaries` passed；`pnpm build` passed with postbuild SRS dist hygiene passed（保留既有 i18n hardcoded/Sass legacy warnings，阻断 0）。
 
 ### 2026-05-08 - SRS legacy runtime surface removal guardrails
 

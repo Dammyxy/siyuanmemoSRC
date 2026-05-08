@@ -113,7 +113,7 @@ describe('settingsFormCommands', () => {
     aiSettings.value.enabled = !createDefaultAISettings().enabled;
     arenaSettings.value.enabled = !createDefaultArenaSettings().enabled;
     uiSettings.value.enableDebugLogs = !createDefaultUISettings().enableDebugLogs;
-    schedulerConfig.value.defaultScheduler = 'sm15';
+    schedulerConfig.value.defaultScheduler = 'a-factor-v2';
 
     commands.resetSettings();
 
@@ -122,6 +122,6 @@ describe('settingsFormCommands', () => {
     expect(aiSettings.value).toEqual(createDefaultAISettings());
     expect(arenaSettings.value).toEqual(createDefaultArenaSettings());
     expect(uiSettings.value).toEqual(createDefaultUISettings());
-    expect(schedulerConfig.value.defaultScheduler).toBe('sm15');
+    expect(schedulerConfig.value.defaultScheduler).toBe('a-factor-v2');
   });
 });

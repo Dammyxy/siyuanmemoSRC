@@ -65,7 +65,7 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         neuralHistorySettingsIntro: 'Path history settings live here.',
         neuralHistoryMaxEntries: 'Path history limit',
         neuralHistoryMaxEntriesHint: 'Recommended range 200-5000.',
-        hyperspaceSettingsTitle: 'Hyperspace / SuperMemo Fidelity',
+        hyperspaceSettingsTitle: 'Hyperspace Fidelity',
         learningQueueTitle: 'Learning & Queue',
         neuralSettingsIntro: 'Hyperspace settings live here.',
         hyperspaceChannelsSection: 'Propagation Channels',
@@ -255,7 +255,7 @@ describe('SettingsPanel', () => {
     const wrapper = mountPanel('neural');
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.text()).toContain('Hyperspace / SuperMemo Fidelity');
+    expect(wrapper.text()).toContain('Hyperspace Fidelity');
     expect(wrapper.text()).toContain('Path History');
 
     const formItems = wrapper.findAll('.form-item');

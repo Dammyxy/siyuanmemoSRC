@@ -219,11 +219,11 @@ describe('UnifiedStorageManager legacy scheduler migration', () => {
         type: CardType.Topic,
         aFactor: 9,
         schedulerMeta: {
-          sm15: {
+          staleExternal: {
             of: 3,
             optimumInterval: 4,
             afs: [3],
-          },
+          } as unknown,
         },
         meta: {
           nextDues: { good: 1 },

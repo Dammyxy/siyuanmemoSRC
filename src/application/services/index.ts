@@ -14,3 +14,4 @@ export { ProgressiveReadingService } from './ProgressiveReadingService';
 export { SelectionExcerptService } from './SelectionExcerptService';
 export { SelectionTopicContinuationService } from './SelectionTopicContinuationService';
 export { TopicDerivedItemService } from './TopicDerivedItemService';
+export * from './external-srs/ExternalSrsAlgorithmRuntime';

@@ -72,7 +72,7 @@ describe('CreateCardCommand', () => {
     });
 
     it('should pass validation with all supported schedulerTypes', () => {
-      const schedulerTypes: Array<'fsrs-v6' | 'a-factor' | 'sm2'> = ['fsrs-v6', 'a-factor', 'sm2'];
+      const schedulerTypes: Array<'fsrs-v6' | 'a-factor-v2'> = ['fsrs-v6', 'a-factor-v2'];
       
       for (const schedulerType of schedulerTypes) {
         const command: CreateCardCommand = {
@@ -141,7 +141,7 @@ describe('CreateCardCommand', () => {
       };
 
       const error = validateCreateCardCommand(command);
-      expect(error).toBe('schedulerType must be one of: fsrs-v6, a-factor, sm2');
+      expect(error).toBe('schedulerType must be one of: fsrs-v6, a-factor-v2');
     });
 
     it('should fail validation when faces is empty', () => {

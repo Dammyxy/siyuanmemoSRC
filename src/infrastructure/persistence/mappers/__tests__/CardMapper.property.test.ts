@@ -100,7 +100,7 @@ const cardPropsArbitrary = fc.record({
   updatedAt: fc.integer({ min: 0, max: Date.now() }),
   aFactor: fc.option(fc.double({ min: 1, max: 5, noNaN: true }), { nil: undefined }),
   schedulerType: fc.option(
-    fc.constantFrom('fsrs-v6' as const, 'sm2' as const, 'sm15' as const, 'a-factor' as const, 'a-factor-v2' as const, 'riff' as const),
+    fc.constantFrom('fsrs-v6' as const, 'a-factor-v2' as const, 'riff' as const, 'unsupported-scheduler' as const, 'external:demo' as const),
     { nil: undefined }
   ),
   syncToRiff: fc.option(fc.boolean(), { nil: undefined }),
@@ -443,7 +443,7 @@ describe('CardMapper Property Tests', () => {
       updatedAt: fc.integer({ min: 0, max: Date.now() }),
       aFactor: fc.option(fc.double({ min: 1, max: 5, noNaN: true }), { nil: undefined }),
       schedulerType: fc.option(
-        fc.constantFrom('fsrs-v6' as const, 'sm2' as const, 'sm15' as const, 'a-factor' as const, 'a-factor-v2' as const, 'riff' as const),
+        fc.constantFrom('fsrs-v6' as const, 'a-factor-v2' as const, 'riff' as const, 'unsupported-scheduler' as const, 'external:demo' as const),
         { nil: undefined }
       ),
       syncToRiff: fc.option(fc.boolean(), { nil: undefined }),
@@ -556,7 +556,7 @@ describe('CardMapper Property Tests', () => {
             updatedAt: fc.integer({ min: 0, max: Date.now() }),
             aFactor: fc.option(fc.double({ min: 1, max: 5, noNaN: true }), { nil: undefined }),
             schedulerType: fc.option(
-              fc.constantFrom('fsrs-v6' as const, 'sm2' as const, 'sm15' as const, 'a-factor' as const, 'a-factor-v2' as const, 'riff' as const),
+              fc.constantFrom('fsrs-v6' as const, 'a-factor-v2' as const, 'riff' as const, 'unsupported-scheduler' as const, 'external:demo' as const),
               { nil: undefined }
             ),
             syncToRiff: fc.option(fc.boolean(), { nil: undefined }),
@@ -648,7 +648,7 @@ describe('CardMapper Property Tests', () => {
             updatedAt: fc.integer({ min: 0, max: Date.now() }),
             aFactor: fc.option(fc.double({ min: 1, max: 5, noNaN: true }), { nil: undefined }),
             schedulerType: fc.option(
-              fc.constantFrom('fsrs-v6' as const, 'sm2' as const, 'sm15' as const, 'a-factor' as const, 'a-factor-v2' as const, 'riff' as const),
+              fc.constantFrom('fsrs-v6' as const, 'a-factor-v2' as const, 'riff' as const, 'unsupported-scheduler' as const, 'external:demo' as const),
               { nil: undefined }
             ),
             syncToRiff: fc.option(fc.boolean(), { nil: undefined }),
@@ -738,7 +738,7 @@ describe('CardMapper Property Tests', () => {
       updatedAt: fc.integer({ min: 0, max: Date.now() }),
       aFactor: fc.option(fc.double({ min: 1, max: 5, noNaN: true }), { nil: undefined }),
       schedulerType: fc.option(
-        fc.constantFrom('fsrs-v6' as const, 'sm2' as const, 'sm15' as const, 'a-factor' as const, 'a-factor-v2' as const, 'riff' as const),
+        fc.constantFrom('fsrs-v6' as const, 'a-factor-v2' as const, 'riff' as const, 'unsupported-scheduler' as const, 'external:demo' as const),
         { nil: undefined }
       ),
       syncToRiff: fc.option(fc.boolean(), { nil: undefined }),
@@ -861,7 +861,7 @@ describe('CardMapper Property Tests', () => {
             updatedAt: fc.integer({ min: 0, max: Date.now() }),
             aFactor: fc.option(fc.double({ min: 1, max: 5, noNaN: true }), { nil: undefined }),
             schedulerType: fc.option(
-              fc.constantFrom('fsrs-v6' as const, 'sm2' as const, 'sm15' as const, 'a-factor' as const, 'a-factor-v2' as const, 'riff' as const),
+              fc.constantFrom('fsrs-v6' as const, 'a-factor-v2' as const, 'riff' as const, 'unsupported-scheduler' as const, 'external:demo' as const),
               { nil: undefined }
             ),
             syncToRiff: fc.option(fc.boolean(), { nil: undefined }),
@@ -938,7 +938,7 @@ describe('CardMapper Property Tests', () => {
             updatedAt: fc.integer({ min: 0, max: Date.now() }),
             aFactor: fc.option(fc.double({ min: 1, max: 5, noNaN: true }), { nil: undefined }),
             schedulerType: fc.option(
-              fc.constantFrom('fsrs-v6' as const, 'sm2' as const, 'sm15' as const, 'a-factor' as const, 'a-factor-v2' as const, 'riff' as const),
+              fc.constantFrom('fsrs-v6' as const, 'a-factor-v2' as const, 'riff' as const, 'unsupported-scheduler' as const, 'external:demo' as const),
               { nil: undefined }
             ),
             syncToRiff: fc.option(fc.boolean(), { nil: undefined }),
@@ -1030,7 +1030,7 @@ describe('CardMapper Property Tests', () => {
       updatedAt: fc.integer({ min: 0, max: Date.now() }),
       aFactor: fc.option(fc.double({ min: 1, max: 5, noNaN: true }), { nil: undefined }),
       schedulerType: fc.option(
-        fc.constantFrom('fsrs-v6' as const, 'sm2' as const, 'sm15' as const, 'a-factor' as const, 'a-factor-v2' as const, 'riff' as const),
+        fc.constantFrom('fsrs-v6' as const, 'a-factor-v2' as const, 'riff' as const, 'unsupported-scheduler' as const, 'external:demo' as const),
         { nil: undefined }
       ),
       syncToRiff: fc.option(fc.boolean(), { nil: undefined }),
@@ -1118,7 +1118,7 @@ describe('CardMapper Property Tests', () => {
             updatedAt: fc.integer({ min: 0, max: Date.now() }),
             aFactor: fc.option(fc.double({ min: 1, max: 5, noNaN: true }), { nil: undefined }),
             schedulerType: fc.option(
-              fc.constantFrom('fsrs-v6' as const, 'sm2' as const, 'sm15' as const, 'a-factor' as const, 'a-factor-v2' as const, 'riff' as const),
+              fc.constantFrom('fsrs-v6' as const, 'a-factor-v2' as const, 'riff' as const, 'unsupported-scheduler' as const, 'external:demo' as const),
               { nil: undefined }
             ),
             syncToRiff: fc.option(fc.boolean(), { nil: undefined }),
@@ -1203,7 +1203,7 @@ describe('CardMapper Property Tests', () => {
             updatedAt: fc.integer({ min: 0, max: Date.now() }),
             aFactor: fc.option(fc.double({ min: 1, max: 5, noNaN: true }), { nil: undefined }),
             schedulerType: fc.option(
-              fc.constantFrom('fsrs-v6' as const, 'sm2' as const, 'sm15' as const, 'a-factor' as const, 'a-factor-v2' as const, 'riff' as const),
+              fc.constantFrom('fsrs-v6' as const, 'a-factor-v2' as const, 'riff' as const, 'unsupported-scheduler' as const, 'external:demo' as const),
               { nil: undefined }
             ),
             syncToRiff: fc.option(fc.boolean(), { nil: undefined }),
@@ -2032,7 +2032,7 @@ describe('CardMapper Property Tests', () => {
             updatedAt: fc.integer({ min: 0, max: Date.now() }),
             aFactor: fc.option(fc.double({ min: 1, max: 5, noNaN: true }), { nil: undefined }),
             schedulerType: fc.option(
-              fc.constantFrom('fsrs-v6' as const, 'sm2' as const, 'sm15' as const, 'a-factor' as const, 'a-factor-v2' as const, 'riff' as const),
+              fc.constantFrom('fsrs-v6' as const, 'a-factor-v2' as const, 'riff' as const, 'unsupported-scheduler' as const, 'external:demo' as const),
               { nil: undefined }
             ),
             syncToRiff: fc.option(fc.boolean(), { nil: undefined }),
@@ -2232,7 +2232,7 @@ describe('CardMapper Property Tests', () => {
             updatedAt: fc.integer({ min: 0, max: Date.now() }),
             aFactor: fc.option(fc.double({ min: 1, max: 5, noNaN: true }), { nil: undefined }),
             schedulerType: fc.option(
-              fc.constantFrom('fsrs-v6' as const, 'sm2' as const, 'sm15' as const, 'a-factor' as const, 'a-factor-v2' as const, 'riff' as const),
+              fc.constantFrom('fsrs-v6' as const, 'a-factor-v2' as const, 'riff' as const, 'unsupported-scheduler' as const, 'external:demo' as const),
               { nil: undefined }
             ),
             syncToRiff: fc.option(fc.boolean(), { nil: undefined }),
@@ -2647,7 +2647,7 @@ describe('CardMapper Property Tests', () => {
             updatedAt: fc.integer({ min: 0, max: Date.now() }),
             aFactor: fc.option(fc.double({ min: 1, max: 5, noNaN: true }), { nil: undefined }),
             schedulerType: fc.option(
-              fc.constantFrom('fsrs-v6' as const, 'sm2' as const, 'sm15' as const, 'a-factor' as const, 'a-factor-v2' as const, 'riff' as const),
+              fc.constantFrom('fsrs-v6' as const, 'a-factor-v2' as const, 'riff' as const, 'unsupported-scheduler' as const, 'external:demo' as const),
               { nil: undefined }
             ),
             syncToRiff: fc.option(fc.boolean(), { nil: undefined }),
@@ -2828,7 +2828,7 @@ describe('CardMapper Property Tests', () => {
             updatedAt: fc.integer({ min: 0, max: Date.now() }),
             aFactor: fc.option(fc.double({ min: 1, max: 5, noNaN: true }), { nil: undefined }),
             schedulerType: fc.option(
-              fc.constantFrom('fsrs-v6' as const, 'sm2' as const, 'sm15' as const, 'a-factor' as const, 'a-factor-v2' as const, 'riff' as const),
+              fc.constantFrom('fsrs-v6' as const, 'a-factor-v2' as const, 'riff' as const, 'unsupported-scheduler' as const, 'external:demo' as const),
               { nil: undefined }
             ),
             syncToRiff: fc.option(fc.boolean(), { nil: undefined }),

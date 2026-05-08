@@ -1,5 +1,5 @@
 export const SQLITE_DB_FILE = 'siyuanmemo.db';
-export const SQLITE_SCHEMA_VERSION = 3;
+export const SQLITE_SCHEMA_VERSION = 4;
 
 export const CARD_PROJECTION_COLUMNS: Array<{ name: string; definition: string }> = [
   { name: 'deck_id', definition: 'deck_id TEXT' },
@@ -106,6 +106,78 @@ export const SQL_SCHEMA_STATEMENTS = [
     value_json TEXT NOT NULL,
     updated_at INTEGER NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS queue_projection_generations (
+    queue_type TEXT PRIMARY KEY,
+    policy_hash TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    rebuild_reason TEXT,
+    updated_at INTEGER NOT NULL,
+    metadata_json TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS queue_projection_rows (
+    queue_type TEXT NOT NULL,
+    row_id TEXT NOT NULL,
+    card_id TEXT NOT NULL,
+    block_id TEXT,
+    deck_id TEXT,
+    membership_reason TEXT NOT NULL,
+    due_at INTEGER,
+    due_bucket TEXT NOT NULL,
+    priority_score REAL NOT NULL,
+    sort_key TEXT NOT NULL,
+    queue_index_hint INTEGER,
+    policy_hash TEXT NOT NULL,
+    source_generation INTEGER NOT NULL,
+    payload_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY(queue_type, row_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_queue_projection_rows_order
+    ON queue_projection_rows(queue_type, policy_hash, source_generation, sort_key, queue_index_hint, row_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_queue_projection_rows_card
+    ON queue_projection_rows(queue_type, card_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_queue_projection_rows_block
+    ON queue_projection_rows(queue_type, block_id)`,
+  `CREATE TABLE IF NOT EXISTS queue_projection_counters (
+    queue_type TEXT NOT NULL,
+    policy_hash TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    version INTEGER NOT NULL,
+    remaining INTEGER NOT NULL,
+    due INTEGER NOT NULL,
+    total INTEGER NOT NULL,
+    buckets_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY(queue_type, policy_hash)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_queue_projection_counters_generation
+    ON queue_projection_counters(queue_type, generation, version)`,
+  `CREATE TABLE IF NOT EXISTS queue_projection_invalidations (
+    id TEXT PRIMARY KEY,
+    queue_type TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    affected_card_ids_json TEXT NOT NULL,
+    affected_block_ids_json TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    metadata_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_queue_projection_invalidations_queue
+    ON queue_projection_invalidations(queue_type, created_at)`,
+  `CREATE TABLE IF NOT EXISTS queue_projection_rebuilds (
+    id TEXT PRIMARY KEY,
+    queue_type TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    policy_hash TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    completed_at INTEGER,
+    metadata_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_queue_projection_rebuilds_queue
+    ON queue_projection_rebuilds(queue_type, started_at)`,
   `CREATE TABLE IF NOT EXISTS review_events (
     id TEXT PRIMARY KEY,
     card_id TEXT,

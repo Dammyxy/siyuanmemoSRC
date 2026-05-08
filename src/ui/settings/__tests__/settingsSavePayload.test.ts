@@ -94,7 +94,7 @@ describe('settingsSavePayload', () => {
     const schedulerConfig: SettingsSchedulerConfigWithSrsV2 = {
       defaultScheduler: 'fsrs-v6',
       topicScheduler: 'a-factor-v2',
-      itemScheduler: 'sm15',
+      itemScheduler: 'fsrs-v6',
       srsV2: {
         learningStepsMinutes: [0, 50000],
         relearningStepsMinutes: ['30', 'bad'] as unknown as number[],
