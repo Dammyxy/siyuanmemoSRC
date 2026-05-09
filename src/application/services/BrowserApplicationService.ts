@@ -779,10 +779,11 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       try {
         return Math.max(0, ((queue as { getConceptBlocks: () => unknown[] }).getConceptBlocks() || []).length);
       } catch (error) {
-        logger.debug('Failed to read neural-roam concept blocks, falling back to visible counters:', {
+        logger.error('QUEUE_COUNT_UNAVAILABLE: failed to read neural-roam concept blocks:', {
           queueId,
           error,
         });
+        throw new Error(`QUEUE_COUNT_UNAVAILABLE: ${queueId} concept block count unavailable`);
       }
     }
 
@@ -794,10 +795,11 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       try {
         return Math.max(0, ((queue as { getSourceSnapshot: () => unknown[] }).getSourceSnapshot() || []).length);
       } catch (error) {
-        logger.debug('Failed to read neural-roam source snapshot, falling back to visible counters:', {
+        logger.error('QUEUE_COUNT_UNAVAILABLE: failed to read neural-roam source snapshot:', {
           queueId,
           error,
         });
+        throw new Error(`QUEUE_COUNT_UNAVAILABLE: ${queueId} source snapshot count unavailable`);
       }
     }
 
@@ -805,37 +807,17 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       const snapshot = await queue.getCounterSnapshot(forceRefresh);
       return Math.max(0, Number(snapshot.remaining) || 0);
     } catch (error) {
-      if (projectionBacked) {
-        throw new Error(
-          `QUEUE_PROJECTION_UNAVAILABLE: ${queueId} projection counter snapshot unavailable`,
-        );
-      }
-      logger.debug('Failed to read queue counter snapshot, falling back to size methods:', {
+      logger.error('QUEUE_COUNT_UNAVAILABLE: failed to read queue counter snapshot:', {
         queueId,
+        projectionBacked,
         error,
       });
+      throw new Error(
+        projectionBacked
+          ? `QUEUE_PROJECTION_UNAVAILABLE: ${queueId} projection counter snapshot unavailable`
+          : `QUEUE_COUNT_UNAVAILABLE: ${queueId} counter snapshot unavailable`,
+      );
     }
-
-    try {
-      return await queue.getRemainingSize();
-    } catch (error) {
-      logger.debug('Failed to read queue remaining size, falling back to getStats:', {
-        queueId,
-        error,
-      });
-    }
-
-    try {
-      const stats = await queue.getStats();
-      return Math.max(0, Number(stats.due) || Number(stats.total) || 0);
-    } catch (error) {
-      logger.debug('Failed to read queue stats, fallback to getSize:', {
-        queueId,
-        error,
-      });
-    }
-
-    return this.readQueueSize(queue, queueId);
   }
 
   private isProjectionBackedBrowserQueue(queueId: string): boolean {
@@ -851,15 +833,6 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         entry.queueType === queueType
         && (entry.state === 'backend-projection' || entry.readPath === 'backend-projection')
       ));
-  }
-
-  private async readQueueSize(queue: IReviewQueue, queueId: string): Promise<number> {
-    try {
-      return await queue.getSize();
-    } catch (error) {
-      logger.error('Failed to read queue size:', { queueId, error });
-      return 0;
-    }
   }
 
   private resolveAffectedBrowserQueueIds(affectedQueueTypes?: QueueType[] | null): BrowserQueueId[] {
@@ -903,16 +876,9 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         return normalized;
       })
       .catch((error) => {
-        if (this.isProjectionBackedBrowserQueue(queueId)) {
-          this.queueCountCache.delete(queueId);
-          throw error;
-        }
-        logger.error('Failed to get queue count:', { queueId, error });
-        this.queueCountCache.set(queueId, {
-          value: 0,
-          timestamp: Date.now(),
-        });
-        return 0;
+        this.queueCountCache.delete(queueId);
+        logger.error('QUEUE_COUNT_UNAVAILABLE: failed to get queue count:', { queueId, error });
+        throw error;
       })
       .finally(() => {
         this.queueCountInFlight.delete(queueId);

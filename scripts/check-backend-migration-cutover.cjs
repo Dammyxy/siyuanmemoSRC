@@ -158,7 +158,7 @@ function evaluateFallbackClassification(rootDir, options = {}) {
       const markerMatch = line.match(/backend-migration-fallback:\s*([a-z-]+)/i);
       if (!markerMatch) {
         failures.push(
-          `${file}:${index + 1}: unclassified fallback branch marker missing (add "backend-migration-fallback: <class>")`,
+          `${file}:${index + 1}: fallback classification marker missing (add "backend-migration-fallback: <class>")`,
         );
         continue;
       }

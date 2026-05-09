@@ -72,25 +72,32 @@ describe('ConceptQueryEngine.isConceptCard', () => {
     expect(api.sql).toHaveBeenCalledTimes(1);
   });
 
-  it('caches unsupported fsrs SQL errors and skips repeated SQL checks', async () => {
+  it('surfaces unsupported fsrs SQL errors and skips repeated SQL checks', async () => {
     vi.mocked(api.sql).mockRejectedValue(new Error('near "LIMIT": syntax error'));
 
-    const first = await engine.isConceptCard('concept-4');
-    const second = await engine.isConceptCard('concept-5');
+    await expect(engine.isConceptCard('concept-4')).rejects.toThrow('NEURAL_ROAM_SCHEMA_UNAVAILABLE');
+    await expect(engine.isConceptCard('concept-5')).rejects.toThrow('NEURAL_ROAM_SCHEMA_UNAVAILABLE');
 
-    expect(first).toBe(false);
-    expect(second).toBe(false);
     expect(api.sql).toHaveBeenCalledTimes(1);
   });
 
-  it('caches missing fsrs_cards table and skips repeated SQL checks', async () => {
+  it('surfaces missing fsrs_cards table and skips repeated SQL checks', async () => {
     vi.mocked(api.sql).mockRejectedValueOnce(new Error('Siyuan API Error: no such table: fsrs_cards'));
 
-    const first = await engine.isConceptCard('concept-a');
-    const second = await engine.isConceptCard('concept-b');
+    await expect(engine.isConceptCard('concept-a')).rejects.toThrow('NEURAL_ROAM_SCHEMA_UNAVAILABLE');
+    await expect(engine.isConceptCard('concept-b')).rejects.toThrow('NEURAL_ROAM_SCHEMA_UNAVAILABLE');
 
-    expect(first).toBe(false);
-    expect(second).toBe(false);
+    expect(api.sql).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not continue to syntax node typing when fsrs_cards is missing', async () => {
+    vi.mocked(api.sql).mockRejectedValueOnce(new Error('Siyuan API Error: no such table: fsrs_cards'));
+    const resolveNodeType = (engine as unknown as {
+      resolveNodeType(blockId: string): Promise<unknown>;
+    }).resolveNodeType.bind(engine);
+
+    await expect(resolveNodeType('local-node-1')).rejects.toThrow('NEURAL_ROAM_SCHEMA_UNAVAILABLE');
+
     expect(api.sql).toHaveBeenCalledTimes(1);
   });
 

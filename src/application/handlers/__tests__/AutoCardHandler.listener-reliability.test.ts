@@ -59,6 +59,7 @@ function createFixture(options?: {
   getBlockKramdown?: (blockId: string) => Promise<{ kramdown: string }>;
   getBlock?: (blockId: string) => Promise<Record<string, unknown> | null>;
   executeAutoCard?: (request: unknown, localCards: Map<string, unknown[]>) => Promise<unknown>;
+  detectCardType?: (blockId: string) => Promise<'topic' | 'item'>;
 }) {
   const localCards = new Map<string, unknown[]>();
   const hostBlockQuery = createHostBlockQuery({
@@ -109,7 +110,7 @@ function createFixture(options?: {
       saveCards: vi.fn(async () => undefined),
     }),
     getCardTypeDetectionService: () => ({
-      detectCardType: vi.fn(async () => 'item'),
+      detectCardType: vi.fn(options?.detectCardType ?? (async () => 'item')),
     }),
     getTopicDerivedItemService: () => ({
       createFromTopicSource: vi.fn(async () => ({ created: 0, skipped: 0, items: [] })),
@@ -200,6 +201,31 @@ describe('AutoCardHandler listener reliability', () => {
     expect(executeAutoCard).toHaveBeenCalledTimes(1);
     expect(latestDiagnostic(handler, 'block-marker-edit')).toEqual(expect.objectContaining({
       status: 'created',
+    }));
+  });
+
+  it('surfaces card type detection failure instead of creating an implicit item card', async () => {
+    const { handler, executeAutoCard } = createFixture({
+      detectCardType: async () => {
+        throw new Error('detector offline');
+      },
+    });
+
+    handler.handle([{
+      doOperations: [{
+        action: 'update',
+        id: 'block-detection-failure',
+        data: { new: { content: 'Prompt >> Answer' } },
+      }],
+      undoOperations: null,
+    } as never]);
+
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(executeAutoCard).not.toHaveBeenCalled();
+    expect(latestDiagnostic(handler, 'block-detection-failure')).toEqual(expect.objectContaining({
+      status: 'failed',
+      reason: 'error',
     }));
   });
 

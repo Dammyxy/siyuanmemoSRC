@@ -282,8 +282,8 @@ export class TopicDerivedItemService {
         ? 'source-child'
         : 'workbench';
     } catch (error) {
-      logger.warn('Failed to read topic derivation storage mode, falling back to workbench', error);
-      return 'workbench';
+      logger.error('TOPIC_DERIVED_SETTINGS_UNAVAILABLE: failed to read topic derivation storage mode', error);
+      throw new Error('TOPIC_DERIVED_SETTINGS_UNAVAILABLE: failed to read topic derivation storage mode');
     }
   }
 

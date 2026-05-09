@@ -64,21 +64,21 @@ function isDefinitionTemplate(templateId: string): boolean {
 
 async function getBlockAttrsSafe(
   blockId: string,
-  siyuanApi: CdfSiyuanPort,
-  queryPort: XiuyuanSharedQueryPort
+  siyuanApi: CdfSiyuanPort
 ): Promise<Record<string, string>> {
-  if (typeof siyuanApi.getBlockAttrs === 'function') {
-    try {
-      return await siyuanApi.getBlockAttrs(blockId);
-    } catch (error) {
-      logger.warn('[CreateCdfMultilineCardsUseCase] getBlockAttrs failed, fallback to SQL attributes query:', {
-        blockId,
-        error,
-      });
-    }
+  if (typeof siyuanApi.getBlockAttrs !== 'function') {
+    throw new Error(`CDF_ATTRS_UNAVAILABLE: getBlockAttrs port unavailable for block ${blockId}`);
   }
 
-  return queryPort.getXiuyuanBindingAttrs(blockId);
+  try {
+    return await siyuanApi.getBlockAttrs(blockId);
+  } catch (error) {
+    logger.error('[CreateCdfMultilineCardsUseCase] CDF_ATTRS_UNAVAILABLE: getBlockAttrs failed', {
+      blockId,
+      error,
+    });
+    throw new Error(`CDF_ATTRS_UNAVAILABLE: getBlockAttrs failed for block ${blockId}`);
+  }
 }
 
 async function getFirstParagraphIdForListItem(
@@ -96,8 +96,8 @@ async function hasXiuyuanBindingOnParagraphOrListItem(
   queryPort: XiuyuanSharedQueryPort
 ): Promise<boolean> {
   const [paragraphAttrs, listItemAttrs] = await Promise.all([
-    getBlockAttrsSafe(paragraphId, siyuanApi, queryPort),
-    getBlockAttrsSafe(listItemId, siyuanApi, queryPort),
+    getBlockAttrsSafe(paragraphId, siyuanApi),
+    getBlockAttrsSafe(listItemId, siyuanApi),
   ]);
   const paraBinding = paragraphAttrs?.['custom-xiuyuan-id'] || paragraphAttrs?.['custom-fsrs-xiuyuan-id'];
   const itemBinding = listItemAttrs?.['custom-xiuyuan-id'] || listItemAttrs?.['custom-fsrs-xiuyuan-id'];
@@ -123,10 +123,9 @@ async function ensureConceptCard(
   conceptBlockId: string,
   xiuyuanAppService: XiuyuanAppLike,
   siyuanApi: CdfSiyuanPort,
-  queryPort: XiuyuanSharedQueryPort,
   deckId?: string
 ): Promise<Result<void>> {
-  const attrs = await getBlockAttrsSafe(conceptBlockId, siyuanApi, queryPort);
+  const attrs = await getBlockAttrsSafe(conceptBlockId, siyuanApi);
   const existing = attrs?.['custom-xiuyuan-id'] || attrs?.['custom-fsrs-xiuyuan-id'];
   if (existing && existing.trim().length > 0) {
     return ok(undefined);
@@ -194,7 +193,6 @@ export class CreateCdfMultilineCardsUseCase {
         conceptBlockId,
         this.xiuyuanAppService,
         this.siyuanApi,
-        this.queryPort,
         deckId
       );
       if (isErr(ensureResult)) {

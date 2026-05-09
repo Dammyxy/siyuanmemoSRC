@@ -535,8 +535,10 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             return null;
         } catch (error) {
-            logger.warn('[AutoCard] Failed to get backend migration runtime policy from context:', error);
-            return null;
+            logger.error('[AutoCard] Failed to get backend migration runtime policy from context:', error);
+            const unavailable = new Error('BACKEND_UNAVAILABLE: autocard runtime policy is unavailable');
+            (unavailable as Error & { cause?: unknown }).cause = error;
+            throw unavailable;
         }
     }
 
@@ -1116,12 +1118,14 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             return await service.detectCardType(blockId);
         } catch (error) {
-            logger.warn('[SiYuanMemo][AutoCard] Falling back to item cardType because detection service failed', {
+            logger.error('[SiYuanMemo][AutoCard] Card type detection failed; refusing implicit item cardType continuation', {
                 blockId,
                 blockType,
                 error,
             });
-            return 'item';
+            const unavailable = new Error(`AUTOCARD_CARD_TYPE_DETECTION_UNAVAILABLE: failed to resolve card type for block ${blockId}`);
+            (unavailable as Error & { cause?: unknown }).cause = error;
+            throw unavailable;
         }
     }
 

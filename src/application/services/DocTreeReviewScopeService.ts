@@ -64,7 +64,7 @@ export class DocTreeReviewScopeService implements ITransactionHandler {
 
   constructor(
     private readonly siyuanApi: ManagerSiyuanPort,
-    private readonly storage: StorageManager,
+    _storage: StorageManager,
     private readonly cardProjectionReadPort: Pick<
       BrowserDeckReadPort,
       'getDeckCardsByIds' | 'queryCardIdsByRootIds' | 'queryRootlessCardBlockIds'
@@ -228,52 +228,35 @@ export class DocTreeReviewScopeService implements ITransactionHandler {
       return [];
     }
 
-    if (this.cardProjectionReadPort?.queryCardIdsByRootIds && this.cardProjectionReadPort.getDeckCardsByIds) {
-      try {
-        const matchedIds = this.cardProjectionReadPort.queryCardIdsByRootIds(Array.from(docIds), {
-          excludeKnownMissing: true,
-        });
-        const rootlessBlockIds = Array.from(this.blockRootIds.entries())
-          .filter(([, rootId]) => docIds.has(rootId))
-          .map(([blockId]) => blockId);
-        return this.cardProjectionReadPort.getDeckCardsByIds([...matchedIds, ...rootlessBlockIds]);
-      } catch (error) {
-        logger.debug('SQL doc-tree scope query failed; falling back to storage scan', { error });
-      }
+    if (!this.cardProjectionReadPort?.queryCardIdsByRootIds || !this.cardProjectionReadPort.getDeckCardsByIds) {
+      throw new Error('DOC_TREE_SCOPE_UNAVAILABLE: projection read port unavailable');
     }
 
-    const cardsById = new Map<string, FSRSCard>();
-    for (const card of this.storage.getAllCards()) {
-      if (!card?.id) {
-        continue;
-      }
-
-      const rootId = this.extractMetaRootId(card);
-      const resolvedRootId = rootId || this.blockRootIds.get(card.blockId);
-      if ((resolvedRootId && docIds.has(resolvedRootId)) || docIds.has(card.blockId)) {
-        cardsById.set(card.id, card);
-      }
+    try {
+      const matchedIds = this.cardProjectionReadPort.queryCardIdsByRootIds(Array.from(docIds), {
+        excludeKnownMissing: true,
+      });
+      const rootlessBlockIds = Array.from(this.blockRootIds.entries())
+        .filter(([, rootId]) => docIds.has(rootId))
+        .map(([blockId]) => blockId);
+      return this.cardProjectionReadPort.getDeckCardsByIds([...matchedIds, ...rootlessBlockIds]);
+    } catch (error) {
+      logger.error('DOC_TREE_SCOPE_UNAVAILABLE: projection scope query failed', { error });
+      throw new Error('DOC_TREE_SCOPE_UNAVAILABLE: projection scope query failed');
     }
-    return Array.from(cardsById.values());
   }
 
   private async queryCardRootIds(): Promise<Map<string, string>> {
+    if (!this.cardProjectionReadPort?.queryRootlessCardBlockIds) {
+      throw new Error('DOC_TREE_SCOPE_UNAVAILABLE: rootless card query port unavailable');
+    }
+
     let blockIds: string[];
     try {
-      blockIds = this.cardProjectionReadPort?.queryRootlessCardBlockIds
-        ? this.cardProjectionReadPort.queryRootlessCardBlockIds()
-        : Array.from(new Set(
-          this.storage.getAllCards()
-            .map((card) => String(card?.blockId || '').trim())
-            .filter((blockId) => blockId.length > 0)
-        ));
+      blockIds = this.cardProjectionReadPort.queryRootlessCardBlockIds();
     } catch (error) {
-      logger.debug('SQL rootless card query failed; falling back to storage scan', { error });
-      blockIds = Array.from(new Set(
-        this.storage.getAllCards()
-          .map((card) => String(card?.blockId || '').trim())
-          .filter((blockId) => blockId.length > 0)
-      ));
+      logger.error('DOC_TREE_SCOPE_UNAVAILABLE: rootless card query failed', { error });
+      throw new Error('DOC_TREE_SCOPE_UNAVAILABLE: rootless card query failed');
     }
 
     const result = new Map<string, string>();
@@ -301,15 +284,6 @@ export class DocTreeReviewScopeService implements ITransactionHandler {
     }
 
     return result;
-  }
-
-  private extractMetaRootId(card: FSRSCard): string | undefined {
-    const meta = card.meta as unknown;
-    if (typeof meta !== 'object' || meta === null) {
-      return undefined;
-    }
-    const metaRecord = meta as Record<string, unknown>;
-    return asString(metaRecord.rootId ?? metaRecord.rootID ?? metaRecord.root_id);
   }
 
   private shouldRefreshForTransactions(transactions: Transaction[]): boolean {

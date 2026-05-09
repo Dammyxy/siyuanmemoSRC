@@ -468,6 +468,7 @@ export class UnifiedDataSourceManager {
                     }
                     : null,
             };
+        // hidden-fallback-ok: class=explicit-unavailable owner=queue-projection reason=manager-null-contract removal=queue-projection-contract-result test=src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts
         } catch (error) {
             logger.warn('Failed to read queue projection snapshot', {
                 queueType,
@@ -531,6 +532,7 @@ export class UnifiedDataSourceManager {
                     && typeof (card as FSRSCard).blockId === 'string'
                 ))
                 .map((card) => ({ ...card }));
+        // hidden-fallback-ok: class=explicit-unavailable owner=queue-projection reason=manager-empty-contract removal=queue-projection-contract-result test=src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts
         } catch (error) {
             logger.warn('Failed to hydrate queue projection rows', {
                 queueType,

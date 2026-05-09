@@ -377,7 +377,7 @@ export class ConceptQueryEngine {
     }
 
     if (this.fsrsCardsTableAvailable === false) {
-      return false;
+      throw new Error('NEURAL_ROAM_SCHEMA_UNAVAILABLE: fsrs_cards is unavailable for concept checks');
     }
 
     try {
@@ -402,9 +402,9 @@ export class ConceptQueryEngine {
         this.fsrsCardsTableAvailable = false;
         if (!this.hasLoggedMissingFsrsCardsTable) {
           this.hasLoggedMissingFsrsCardsTable = true;
-          logger.warn('fsrs_cards SQL checks unavailable; concept checks will use injected node type resolution when available');
+          logger.error('NEURAL_ROAM_SCHEMA_UNAVAILABLE: fsrs_cards SQL checks unavailable for concept checks');
         }
-        return false;
+        throw new Error('NEURAL_ROAM_SCHEMA_UNAVAILABLE: fsrs_cards is unavailable for concept checks');
       }
       logger.error('Failed to check if concept card:', error);
       return false;
@@ -793,7 +793,7 @@ export class ConceptQueryEngine {
 
   private async resolveNodeTypeFromFsrsCards(blockId: string): Promise<NeuralRoamNodeType> {
     if (this.fsrsCardsTableAvailable === false) {
-      return 'unknown';
+      throw new Error('NEURAL_ROAM_SCHEMA_UNAVAILABLE: fsrs_cards is unavailable for local roam-node type checks');
     }
 
     try {
@@ -832,9 +832,9 @@ export class ConceptQueryEngine {
         this.fsrsCardsTableAvailable = false;
         if (!this.hasLoggedMissingFsrsCardsTable) {
           this.hasLoggedMissingFsrsCardsTable = true;
-          logger.warn('fsrs_cards SQL checks unavailable; local roam-node checks will fall back to resolver and syntax detection');
+          logger.error('NEURAL_ROAM_SCHEMA_UNAVAILABLE: fsrs_cards SQL checks unavailable for local roam-node type checks');
         }
-        return 'unknown';
+        throw new Error('NEURAL_ROAM_SCHEMA_UNAVAILABLE: fsrs_cards is unavailable for local roam-node type checks');
       }
       logger.error(`Failed to resolve local roam node type for block ${blockId}:`, error);
       return 'unknown';

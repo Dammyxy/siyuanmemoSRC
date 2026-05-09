@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-09 (Round 316)
+Last update: 2026-05-09 (Round 317)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-09 - Hidden fallback allowlist retirement
+
+- Task: User asked to clear the remaining classified hidden fallback allowlist debt instead of leaving it as deferred work.
+- Touched slice: Hidden fallback gate / Browser queue counts / DocTree review scope / Topic-derived item / Xiuyuan CDF multiline / NeuralRoam concept query；`scripts/check-hidden-fallbacks.cjs`、`scripts/hidden-fallback-allowlist.json`、`src/application/services/BrowserApplicationService.ts`、`src/application/services/DocTreeReviewScopeService.ts`、`src/application/services/TopicDerivedItemService.ts`、`src/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase.ts`、`src/core/queue/neural/ConceptQueryEngine.ts`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: `scripts/hidden-fallback-allowlist.json` now has `entries: []`, and the hidden fallback gate fails if entries are reintroduced. Browser queue counts no longer cascade through alternate count APIs or return zero after dependency failure; they surface `QUEUE_COUNT_UNAVAILABLE` / `QUEUE_PROJECTION_UNAVAILABLE`. DocTree scope no longer scans storage after projection/rootless read failure; it surfaces `DOC_TREE_SCOPE_UNAVAILABLE`. Topic-derived item creation no longer defaults settings failure to `workbench`; it surfaces `TOPIC_DERIVED_SETTINGS_UNAVAILABLE`. CDF multiline creation no longer catches `getBlockAttrs` failure and queries SQL attrs; it surfaces `CDF_ATTRS_UNAVAILABLE`. NeuralRoam no longer hides missing `fsrs_cards` behind resolver/syntax continuation; it surfaces `NEURAL_ROAM_SCHEMA_UNAVAILABLE`.
+- Debt deferred: No runtime debt remains in `scripts/hidden-fallback-allowlist.json`. Non-allowlist info-level vocabulary remains in the gate report for UI label defaults, parser normalization defaults, test/comment fixtures, and explicit inline-marked operator rollback/unavailable contracts.
+- Why deferred: N/A for allowlist runtime debt. The remaining report entries are outside this allowlist-retirement scope and are either non-runtime defaults or explicit contracts already governed by the gate.
+- Next safe step: Keep `pnpm run check:boundaries` as the default guard for runtime work; any new automatic fallback must be fixed at the active path or fail the gate.
+- Validation: Focused allowlist-retirement tests passed: `pnpm exec vitest run scripts/__tests__/check-hidden-fallbacks.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts src/application/services/__tests__/DocTreeReviewScopeService.test.ts src/application/services/__tests__/TopicDerivedItemService.test.ts src/application/usecases/xiuyuan/__tests__/CreateCdfMultilineCardsUseCase.test.ts src/core/queue/neural/__tests__/ConceptQueryEngine.isConceptCard.test.ts --reporter=dot`（6 files / 51 tests）；`node scripts/check-hidden-fallbacks.cjs` passed；old allowlist-symbol grep returned no matches in product `src`/`scripts`.
+
+### 2026-05-09 - Hidden fallback gate and P0 cleanup
+
+- Task: User requested a hard cleanup mechanism for hidden fallback/compat/degrade paths after default-on queue projection work exposed conservative rollout and soft fallback debt.
+- Touched slice: Boundary checks / backend migration active paths / storage bootstrap / AutoCard semantic routing / review tab transfer；`scripts/check-hidden-fallbacks.cjs`、`scripts/hidden-fallback-allowlist.json`、`package.json`、`src/application/ApplicationContext.ts`、`src/application/handlers/AutoCardHandler.ts`、`src/application/managers/TabManager.ts`、`src/application/services/UnifiedDataSourceManager.ts`、focused tests、`ARCHITECTURE.md`、`.agents/skills/siyuanmemo-plugin-dev/SKILL.md`。
+- Debt fixed now: Added a hard hidden-fallback gate to `pnpm run check:boundaries`, with P0/P1/P2 inventory, required classification metadata, inline `hidden-fallback-ok` markers, allowlist validation, report mode, and Vitest coverage. SQLite bootstrap failure now fails closed with `STORAGE_UNAVAILABLE` unless `VITE_SIYUANMEMO_ALLOW_STORAGE_ROLLBACK=true` is explicitly set. AutoCard card-type detection failure now surfaces `AUTOCARD_CARD_TYPE_DETECTION_UNAVAILABLE` and no longer silently creates item cards. Filter-group review tab transfer restore failure now raises `REVIEW_TRANSFER_UNAVAILABLE` instead of opening the shared queue. Queue projection manager null/empty contracts are explicitly marked as unavailable contracts and remain covered by projection rollout tests.
+- Debt deferred: None remaining after the follow-up allowlist-retirement task above. This gate pass initially exposed the allowlist entries that were then cleared by replacing each automatic continuation with explicit unavailable/error contracts.
+- Why deferred: N/A after the follow-up retirement task.
+- Next safe step: Keep the allowlist empty and let `pnpm run check:boundaries` fail if runtime fallback entries are reintroduced.
+- Validation: Hidden fallback gate and focused P0 tests passed during implementation: `pnpm exec vitest run scripts/__tests__/check-hidden-fallbacks.test.ts`; `pnpm exec vitest run src/application/handlers/__tests__/AutoCardHandler.listener-reliability.test.ts src/application/__tests__/ApplicationContext.storage-fail-closed.test.ts`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm exec vitest run src/application/handlers/__tests__/AutoCardHandler.listener-reliability.test.ts src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts`. Final full boundary/build/OpenSpec validation is recorded in the task response.
 
 ### 2026-05-09 - Queue projection defaults all-on
 
@@ -3942,7 +3962,7 @@ Do not add an entry for skill-only or docs-only work.
   - `src/ui/browser/SRSBrowser.vue`
   - `src/application/managers/DialogManager.ts`
   - `src/ui/browser/composables/useGridInteractions.ts`
-- Scheduler strictness (removed silent fallback semantics):
+- Scheduler strictness (removed implicit fallback semantics):
   - `src/core/scheduler/SchedulerRouter.ts`
   - `src/core/scheduler/index.ts`
 - Queue/neural degrade-branch removal:

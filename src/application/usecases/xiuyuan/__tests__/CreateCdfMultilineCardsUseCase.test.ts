@@ -530,7 +530,7 @@ describe('CreateCdfMultilineCardsUseCase', () => {
     );
   });
 
-  it('falls back to SQL attributes lookup when getBlockAttrs is unavailable', async () => {
+  it('fails explicitly when getBlockAttrs is unavailable instead of querying SQL attributes', async () => {
     mockedResolveCdfMultilineScan.mockResolvedValue(
       createDescriptorMultilineScanResult({
         nodes: [
@@ -576,9 +576,12 @@ describe('CreateCdfMultilineCardsUseCase', () => {
       templateId: 'builtin-list-descriptor-multiline',
     });
 
-    expect(result.ok).toBe(true);
-    expect(sql).toHaveBeenCalledWith(expect.stringContaining('FROM attributes'));
-    expect(xiuyuanAppService.createFromBlocks).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain('CDF_ATTRS_UNAVAILABLE');
+    }
+    expect(sql).not.toHaveBeenCalledWith(expect.stringContaining('FROM attributes'));
+    expect(xiuyuanAppService.createFromBlocks).not.toHaveBeenCalled();
   });
 
   it('counts skippedExistingBinding when paragraph or list-item already has xiuyuan binding', async () => {

@@ -1371,8 +1371,8 @@ export class TabManager {
       queue.restoreSessionSnapshot(transferState.filterSession);
       return queue;
     } catch (error) {
-      logger.error('Failed to restore transferred filter-group review queue, falling back to shared queue', error);
-      return null;
+      logger.error('Failed to restore transferred filter-group review queue; refusing shared queue substitution', error);
+      throw new Error('REVIEW_TRANSFER_UNAVAILABLE: failed to restore transferred filter-group review queue');
     }
   }
 

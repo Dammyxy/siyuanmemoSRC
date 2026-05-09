@@ -1,0 +1,12 @@
+{
+  "markerFormat": "hidden-fallback-ok: class=<approved-class> owner=<owner> reason=<compact-reason> removal=<condition-or-task> test=<test-file-or-manual-evidence>",
+  "approvedClasses": [
+    "explicit-unavailable",
+    "operator-rollback",
+    "migration-compat",
+    "ui-label-default",
+    "parser-normalization-default",
+    "test-fixture"
+  ],
+  "entries": []
+}

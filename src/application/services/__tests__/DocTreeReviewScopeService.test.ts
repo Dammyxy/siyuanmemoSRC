@@ -9,21 +9,40 @@ function createFixture(options?: {
   readPort?: ConstructorParameters<typeof DocTreeReviewScopeService>[2];
 }) {
   let currentRows = options?.sqlRows ?? [];
+  const allCards = options?.allCards ?? [];
 
   const siyuanApi = {
     sql: vi.fn(async () => currentRows),
   };
 
   const storage = {
-    getAllCards: vi.fn(() => options?.allCards ?? []),
+    getAllCards: vi.fn(() => allCards),
   };
 
-  const service = new DocTreeReviewScopeService(siyuanApi as any, storage as any, options?.readPort ?? null);
+  const readPort = options?.readPort ?? {
+    queryCardIdsByRootIds: vi.fn((rootIds: string[]) => allCards
+      .filter((card) => {
+        const meta = card.meta as Record<string, unknown> | undefined;
+        return rootIds.includes(String(meta?.rootId ?? meta?.rootID ?? meta?.root_id ?? ''));
+      })
+      .map((card) => card.id)),
+    queryRootlessCardBlockIds: vi.fn(() => allCards
+      .filter((card) => {
+        const meta = card.meta as Record<string, unknown> | undefined;
+        return !String(meta?.rootId ?? meta?.rootID ?? meta?.root_id ?? '').trim();
+      })
+      .map((card) => card.blockId)),
+    getDeckCardsByIds: vi.fn((ids: string[]) => allCards
+      .filter((card) => ids.includes(card.id) || ids.includes(card.blockId))),
+  };
+
+  const service = new DocTreeReviewScopeService(siyuanApi as any, storage as any, readPort);
 
   return {
     service,
     siyuanApi,
     storage,
+    readPort,
     setSqlRows: (rows: Array<Record<string, unknown>>) => {
       currentRows = rows;
     },
@@ -134,7 +153,7 @@ describe('DocTreeReviewScopeService', () => {
     expect(storage.getAllCards).not.toHaveBeenCalled();
   });
 
-  it('falls back to storage scan when SQL projection scope query fails', async () => {
+  it('fails closed when SQL projection scope query fails instead of scanning storage', async () => {
     const allCards = [
       { id: 'card-legacy', blockId: 'block-legacy', type: 'item', due: Date.now(), meta: { rootId: 'doc-1' } } as FSRSCard,
     ];
@@ -154,10 +173,9 @@ describe('DocTreeReviewScopeService', () => {
     });
 
     await service.hydrate();
-    const scope = service.collectDocReviewScope('doc-1');
 
-    expect(scope?.cards.map((card) => card.id)).toEqual(['card-legacy']);
-    expect(storage.getAllCards).toHaveBeenCalled();
+    expect(() => service.collectDocReviewScope('doc-1')).toThrow('DOC_TREE_SCOPE_UNAVAILABLE');
+    expect(storage.getAllCards).not.toHaveBeenCalled();
   });
 
   it('drops moved-out child docs after a debounced rebuild triggered by a transaction', async () => {

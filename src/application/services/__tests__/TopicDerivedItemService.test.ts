@@ -88,6 +88,14 @@ function createSettingsProvider(storageMode: 'workbench' | 'source-child' = 'wor
   };
 }
 
+function createFailingSettingsProvider(error = new Error('settings unavailable')) {
+  return {
+    getSettings: () => {
+      throw error;
+    },
+  };
+}
+
 const CLOZE_DECISION: CreationDecision = {
   id: 'InlineClozeRule',
   family: 'cloze',
@@ -372,6 +380,30 @@ describe('TopicDerivedItemService', () => {
       }),
     }));
     expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['derived-block-1']);
+  });
+
+  it('fails explicitly when topic derivation storage mode settings cannot be read', async () => {
+    const cardService = createCardServiceMock();
+    const progressiveReadingService = createProgressiveReadingServiceMock();
+    const nativeRiffApi = createNativeRiffPortMock();
+    const service = new TopicDerivedItemService(
+      cardService.service,
+      progressiveReadingService.service,
+      nativeRiffApi,
+      createFailingSettingsProvider(),
+    );
+
+    await expect(service.createFromTopicSource({
+      sourceBlockId: 'source-block-settings-1',
+      sourceDocId: 'doc-root-settings-1',
+      parentTopicCardId: 'topic-card-settings-1',
+      plannerContent: 'Alpha ==Beta==',
+      decisions: [CLOZE_DECISION],
+    })).rejects.toThrow('TOPIC_DERIVED_SETTINGS_UNAVAILABLE');
+
+    expect(progressiveReadingService.service.createChildDocFromSource).not.toHaveBeenCalled();
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
+    expect(nativeRiffApi.addRiffCards).not.toHaveBeenCalled();
   });
 
   it('skips malformed basic lines and uses a later valid basic line for derivation', async () => {

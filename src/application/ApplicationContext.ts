@@ -245,6 +245,7 @@ export interface ApplicationConfig {
 export class ApplicationContext {
   private static readonly KERNEL_WRITER_LEASE_INSTANCE_ID_ENV_KEY = 'VITE_SIYUANMEMO_KERNEL_WRITER_LEASE_INSTANCE_ID';
   private static readonly KERNEL_WRITER_LEASE_TTL_MS_ENV_KEY = 'VITE_SIYUANMEMO_KERNEL_WRITER_LEASE_TTL_MS';
+  private static readonly STORAGE_ROLLBACK_ENV_KEY = 'VITE_SIYUANMEMO_ALLOW_STORAGE_ROLLBACK';
 
   // ========================================================================
   // 核心服务
@@ -1038,7 +1039,16 @@ export class ApplicationContext {
       });
       logger.info('[ApplicationContext] ✅ SQLite storage active');
     } catch (error) {
-      logger.error('[ApplicationContext] SQLite migration/init failed; falling back to legacy storage:', error);
+      if (!ApplicationContext.isLegacyStorageRollbackEnabled()) {
+        logger.error('[ApplicationContext] SQLite migration/init failed; refusing storage continuation:', error);
+        const startupError = new Error(
+          `STORAGE_UNAVAILABLE: SQLite migration/init failed; set ${ApplicationContext.STORAGE_ROLLBACK_ENV_KEY}=true for explicit storage rollback`,
+        );
+        (startupError as Error & { cause?: unknown }).cause = error;
+        throw startupError;
+      }
+      // hidden-fallback-ok: class=operator-rollback owner=storage reason=explicit-env-rollback removal=sqlite-storage-cutover test=src/application/__tests__/ApplicationContext.storage-fail-closed.test.ts
+      logger.error('[ApplicationContext] SQLite migration/init failed; explicit legacy storage rollback enabled:', error);
       sqlPersistence = undefined;
       unifiedSave = legacyPersistence.save;
       unifiedLoad = legacyPersistence.load;
@@ -1922,6 +1932,11 @@ export class ApplicationContext {
       return undefined;
     }
     return Math.max(3_000, Math.floor(ttlMs));
+  }
+
+  private static isLegacyStorageRollbackEnabled(): boolean {
+    const value = ApplicationContext.readEnvValue(ApplicationContext.STORAGE_ROLLBACK_ENV_KEY);
+    return value === 'true' || value === '1' || value === 'yes';
   }
 
   private static shouldEnableKernelTransactionIngestListener(input: {

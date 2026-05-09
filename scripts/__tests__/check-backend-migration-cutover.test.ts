@@ -190,7 +190,7 @@ describe('check-backend-migration-cutover', () => {
     ]));
   });
 
-  it('fails on unclassified fallback branches when fallback classification mode is enabled', () => {
+  it('fails on fallback branches without classification when classification mode is enabled', () => {
     const rootDir = createFixtureRoot();
     writeFile(rootDir, 'src/application/usecases/review/ReviewCommitUseCase.ts', 'export const ok = true;\n');
     writeFile(rootDir, 'src/application/services/BrowserApplicationService.ts', `
@@ -215,7 +215,7 @@ describe('check-backend-migration-cutover', () => {
     });
 
     expect(failures).toEqual(expect.arrayContaining([
-      expect.stringContaining('unclassified fallback branch marker missing'),
+      expect.stringContaining('fallback classification marker missing'),
     ]));
   });
 });

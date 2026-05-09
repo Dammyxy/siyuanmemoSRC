@@ -187,30 +187,34 @@ describe('BrowserApplicationService queue counts', () => {
     expect(retrievalQueue.getSize).not.toHaveBeenCalled();
   });
 
-  it('falls back to getRemainingSize and getSize when snapshot reads fail', async () => {
+  it('fails closed instead of trying alternate size APIs when non-projection snapshot reads fail', async () => {
     const retrievalQueue = createQueue(1, 1, 11);
-    const finalQueue = createQueue(2, 2, 22);
+    retrievalQueue.getCounterSnapshot.mockRejectedValueOnce(new Error('boom'));
+    queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
+
+    await expect(service.getQueueCounts({
+      forceRefresh: true,
+      affectedQueueTypes: [QueueType.RetrievalPractice],
+    })).rejects.toThrow('QUEUE_COUNT_UNAVAILABLE');
+
+    expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
+    expect(retrievalQueue.getStats).not.toHaveBeenCalled();
+    expect(retrievalQueue.getSize).not.toHaveBeenCalled();
+  });
+
+  it('fails closed instead of trying visible counters when neural concept count fails', async () => {
     const neuralQueue = createQueue(3, 3, 33, {
       conceptBlocksError: new Error('neural-concepts-unavailable'),
     });
-    const filterQueue = createQueue(4, 4, 44);
-    const incrementalQueue = createQueue(5, 5, 55);
-
-    retrievalQueue.getCounterSnapshot.mockRejectedValueOnce(new Error('boom'));
-    retrievalQueue.getRemainingSize.mockResolvedValueOnce(11);
-
-    queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
-    queueByType.set(QueueType.FinalDrill, finalQueue);
     queueByType.set(QueueType.NeuralRoam, neuralQueue);
-    queueByType.set(QueueType.FilterGroup, filterQueue);
-    queueByType.set(QueueType.IncrementalLearning, incrementalQueue);
 
-    const counts = await service.getQueueCounts();
+    await expect(service.getQueueCounts({
+      forceRefresh: true,
+      affectedQueueTypes: [QueueType.NeuralRoam],
+    })).rejects.toThrow('QUEUE_COUNT_UNAVAILABLE');
 
-    expect(counts.retrieval).toBe(11);
-    expect(counts['neural-roam']).toBe(3);
-    expect(retrievalQueue.getRemainingSize).toHaveBeenCalledTimes(1);
     expect(neuralQueue.getConceptBlocks).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getCounterSnapshot).not.toHaveBeenCalled();
     expect(neuralQueue.getRemainingSize).not.toHaveBeenCalled();
   });
 
