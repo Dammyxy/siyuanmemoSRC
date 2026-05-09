@@ -1813,6 +1813,19 @@ export class ApplicationContext {
         }>;
       });
     }
+    if (command.method === 'queue.projection.replace') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: queue.projection.replace relay requires params object');
+      }
+      return srsBackendClient.queueProjectionReplace(command.params as {
+        queueType: string;
+        policyHash: string;
+        generation?: number | null;
+        reason?: string | null;
+        rows: Array<Record<string, unknown>>;
+        metadata?: Record<string, unknown> | null;
+      });
+    }
     if (command.method === 'autocard.decision.resolve') {
       if (!command.params || typeof command.params !== 'object') {
         throw new Error('INVALID_REQUEST: autocard.decision.resolve relay requires params object');

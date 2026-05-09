@@ -1173,6 +1173,7 @@ export class DialogManager implements IDialogManager {
         tagName: String(leech?.tagName || ''),
         effects: this.leechActionEffects,
       });
+      await manager.materializeQueueProjection?.(QueueType.Leech, queue);
 
       const createUnifiedReviewDialog = await loadCreateUnifiedReviewDialog();
       this.registerCurrentReviewDialog((onClose) =>

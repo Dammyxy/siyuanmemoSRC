@@ -28,6 +28,8 @@ import type {
   BackendKernelTransactionRequeueResult,
   BackendQueueProjectionRowsByIdsRequest,
   BackendQueueProjectionRowsByIdsResult,
+  BackendQueueProjectionReplaceRequest,
+  BackendQueueProjectionReplaceResult,
   BackendQueueProjectionSnapshotRequest,
   BackendQueueProjectionSnapshotResult,
   BackendReviewFeedbackRequest,
@@ -171,6 +173,12 @@ export class SrsBackendClient {
     request: BackendQueueProjectionRowsByIdsRequest,
   ): Promise<BackendQueueProjectionRowsByIdsResult> {
     return this.call<BackendQueueProjectionRowsByIdsResult>('queue.projection.rowsByIds', request);
+  }
+
+  async queueProjectionReplace(
+    request: BackendQueueProjectionReplaceRequest,
+  ): Promise<BackendQueueProjectionReplaceResult> {
+    return this.call<BackendQueueProjectionReplaceResult>('queue.projection.replace', request);
   }
 
   async createAiSession(request: BackendAiSessionCreateRequest): Promise<BackendAiSessionResult> {

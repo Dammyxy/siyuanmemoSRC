@@ -25,6 +25,8 @@ import {
   type BackendQueueProjectionSnapshotResult,
   type BackendQueueProjectionRowsByIdsRequest,
   type BackendQueueProjectionRowsByIdsResult,
+  type BackendQueueProjectionReplaceRequest,
+  type BackendQueueProjectionReplaceResult,
   type BackendKernelTransactionIngestRequest,
   type BackendKernelTransactionIngestResult,
   type BackendKernelTransactionDequeueRequest,
@@ -216,6 +218,8 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleQueueProjectionSnapshot(request.params));
         case 'queue.projection.rowsByIds':
           return buildSuccess(request.id, await this.handleQueueProjectionRowsByIds(request.params));
+        case 'queue.projection.replace':
+          return buildSuccess(request.id, await this.handleQueueProjectionReplace(request.params));
         case 'kernel.transaction.ingest':
           return buildSuccess(request.id, await this.handleKernelTransactionIngest(request.params));
         case 'kernel.transaction.dequeue':
@@ -463,6 +467,14 @@ export class BackendKernel {
       throw new Error('queue.projection.rowsByIds requires named params');
     }
     return this.deps.database.queueProjectionRowsByIds(named);
+  }
+
+  private async handleQueueProjectionReplace(params: unknown): Promise<BackendQueueProjectionReplaceResult> {
+    const named = this.readNamedParams<BackendQueueProjectionReplaceRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('queue.projection.replace requires named params');
+    }
+    return this.deps.database.replaceQueueProjection(named);
   }
 
   private handleAiSessionCreate(params: unknown): BackendAiSessionResult {

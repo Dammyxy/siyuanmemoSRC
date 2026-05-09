@@ -176,6 +176,7 @@ export const KERNEL_RELAY_METHODS = [
   'kernel.transaction.ingest',
   'kernel.transaction.dequeue',
   'kernel.transaction.requeue',
+  'queue.projection.replace',
   'ai.session.create',
   'ai.session.get',
   'ai.session.update',

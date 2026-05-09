@@ -11,6 +11,7 @@ import { CardType, type FSRSCard } from '@/types/card';
 import type { SchedulerType } from '@/core/scheduler/schedulerPolicy';
 import type {
   QueueProjectionCounters,
+  QueueProjectionDueBucket,
   QueueProjectionRow,
 } from '@/application/ports/QueueProjectionPort';
 import { buildQueueProjectionRows } from '@/application/services/queue-projection/QueueProjectionBuilder';
@@ -26,6 +27,8 @@ import type {
   BackendAutoCardDecisionResolveResult,
   BackendQueueProjectionRowsByIdsRequest,
   BackendQueueProjectionRowsByIdsResult,
+  BackendQueueProjectionReplaceRequest,
+  BackendQueueProjectionReplaceResult,
   BackendQueueProjectionSnapshotRequest,
   BackendQueueProjectionSnapshotResult,
   BackendQueueProjectionSnapshotRow,
@@ -776,6 +779,73 @@ export class WorkerSqliteDatabaseService {
     };
   }
 
+  async replaceQueueProjection(
+    request: BackendQueueProjectionReplaceRequest,
+  ): Promise<BackendQueueProjectionReplaceResult> {
+    await this.init();
+    const queueType = this.resolveProjectionQueueType(request.queueType);
+    if (!queueType || !this.queueProjection) {
+      throw new Error(`BACKEND_UNAVAILABLE: queue projection storage unavailable for ${String(request.queueType || '')}`);
+    }
+
+    const policyHash = normalizeOptionalString(request.policyHash);
+    if (!policyHash) {
+      throw new Error('INVALID_REQUEST: queue.projection.replace requires policyHash');
+    }
+
+    const previousGeneration = this.queueProjection.readGeneration(queueType);
+    const generation = normalizeOptionalInteger(request.generation)
+      ?? Math.max(1, Number(previousGeneration?.generation || 0) + 1);
+    if (!Number.isFinite(generation) || generation <= 0) {
+      throw new Error('INVALID_REQUEST: queue.projection.replace requires a positive generation');
+    }
+
+    const updatedAt = Date.now();
+    const rows = this.normalizeProjectionReplaceRows({
+      queueType,
+      policyHash,
+      generation,
+      rows: request.rows,
+      updatedAt,
+    });
+    const counters = buildQueueProjectionCountersFromRows({
+      queueType,
+      policyHash,
+      generation,
+      updatedAt,
+      now: updatedAt,
+      rows,
+    });
+    const reason = normalizeOptionalString(request.reason) ?? 'explicit-repair';
+    const metadata = request.metadata && typeof request.metadata === 'object'
+      ? { ...request.metadata }
+      : {};
+
+    await this.runtime.runTransaction('queue.projection.replace', () => {
+      this.queueProjection!.replaceQueueProjection({
+        queueType,
+        policyHash,
+        generation,
+        rows,
+        counters,
+        metadata: {
+          ...metadata,
+          reason,
+          materializedBy: 'application',
+        },
+      });
+    });
+
+    return {
+      queueType,
+      policyHash,
+      generation,
+      status: 'ready',
+      rows: rows.length,
+      counters,
+    };
+  }
+
   async getCard(cardId: string): Promise<FSRSCard | undefined> {
     await this.init();
     return this.repository!.getCard(cardId);
@@ -1349,6 +1419,61 @@ export class WorkerSqliteDatabaseService {
       rows: [],
       counters: null,
     };
+  }
+
+  private normalizeProjectionReplaceRows(input: {
+    queueType: ProjectionWorkerQueueType;
+    policyHash: string;
+    generation: number;
+    rows: unknown;
+    updatedAt: number;
+  }): QueueProjectionRow[] {
+    if (!Array.isArray(input.rows)) {
+      throw new Error('INVALID_REQUEST: queue.projection.replace requires rows array');
+    }
+
+    return input.rows.map((candidate, index) => {
+      if (!candidate || typeof candidate !== 'object') {
+        throw new Error(`INVALID_REQUEST: queue.projection.replace row ${index} must be an object`);
+      }
+      const row = candidate as Record<string, unknown>;
+      const rowId = normalizeOptionalString(row.rowId);
+      const cardId = normalizeOptionalString(row.cardId);
+      const membershipReason = normalizeOptionalString(row.membershipReason);
+      const sortKey = normalizeOptionalString(row.sortKey);
+      const dueBucket = normalizeProjectionDueBucket(row.dueBucket);
+      if (!rowId || !cardId || !membershipReason || !sortKey || !dueBucket) {
+        throw new Error(`INVALID_REQUEST: queue.projection.replace row ${index} is missing required projection fields`);
+      }
+      const priorityScore = Number(row.priorityScore);
+      if (!Number.isFinite(priorityScore)) {
+        throw new Error(`INVALID_REQUEST: queue.projection.replace row ${index} priorityScore must be finite`);
+      }
+      const payload = row.payload && typeof row.payload === 'object'
+        ? { ...(row.payload as Record<string, unknown>) }
+        : null;
+      if (!payload) {
+        throw new Error(`INVALID_REQUEST: queue.projection.replace row ${index} payload must be an object`);
+      }
+
+      return {
+        queueType: input.queueType,
+        rowId,
+        cardId,
+        blockId: normalizeOptionalString(row.blockId),
+        deckId: normalizeOptionalString(row.deckId),
+        membershipReason,
+        dueAt: normalizeOptionalInteger(row.dueAt),
+        dueBucket,
+        priorityScore,
+        sortKey,
+        queueIndexHint: normalizeOptionalInteger(row.queueIndexHint),
+        policyHash: input.policyHash,
+        sourceGeneration: input.generation,
+        payload,
+        updatedAt: normalizeOptionalInteger(row.updatedAt) ?? input.updatedAt,
+      };
+    });
   }
 
   private buildProjectionSnapshotRows(
@@ -2374,6 +2499,21 @@ function normalizeOptionalInteger(value: unknown): number | null {
 function normalizeOptionalString(value: unknown): string | null {
   const normalized = String(value ?? '').trim();
   return normalized || null;
+}
+
+function normalizeProjectionDueBucket(value: unknown): QueueProjectionDueBucket | null {
+  const normalized = normalizeOptionalString(value);
+  if (
+    normalized === 'overdue'
+    || normalized === 'due'
+    || normalized === 'future'
+    || normalized === 'new'
+    || normalized === 'manual'
+    || normalized === 'blocked'
+  ) {
+    return normalized;
+  }
+  return null;
 }
 
 function resolveWorkerReviewSchedulerConfig(request: BackendReviewFeedbackRequest): {

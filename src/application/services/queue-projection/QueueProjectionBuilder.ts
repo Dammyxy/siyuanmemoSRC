@@ -59,6 +59,18 @@ export interface QueueProjectionBuildResult {
   counters: QueueProjectionCounters;
 }
 
+export interface OrderedQueueProjectionRowsInput {
+  queueType: QueueType;
+  cards: FSRSCard[];
+  now: number;
+  policyHash: string;
+  sourceGeneration: number;
+  updatedAt?: number;
+  membershipReason?: string;
+  payload?: (card: FSRSCard, zeroBasedIndex: number) => Record<string, unknown>;
+  rowId?: (card: FSRSCard, zeroBasedIndex: number) => string | undefined;
+}
+
 export type QueueProjectionAffectedReason =
   | 'reviewed-card'
   | 'same-block'
@@ -274,6 +286,41 @@ export function buildQueueProjectionRows(input: QueueProjectionBuildInput): Queu
     rows,
     frontierRows,
     counters: buildCounters(normalized, rows),
+  };
+}
+
+export function buildOrderedQueueProjectionRows(input: OrderedQueueProjectionRowsInput): QueueProjectionBuildResult {
+  const updatedAt = input.updatedAt ?? Date.now();
+  const rows = uniqueCards(input.cards).map((card, index) => buildProjectionRowFromOrderedCard({
+    queueType: input.queueType,
+    card,
+    zeroBasedIndex: index,
+    now: input.now,
+    policyHash: input.policyHash,
+    sourceGeneration: input.sourceGeneration,
+    updatedAt,
+    membershipReason: input.membershipReason ?? 'materialized-strategy',
+    rowId: input.rowId?.(card, index),
+    payload: {
+      queueKind: input.queueType,
+      cardType: card.type,
+      state: card.state,
+      source: 'application-materialized',
+      queueIndexHint: index + 1,
+      ...(input.payload?.(card, index) ?? {}),
+    },
+  }));
+
+  return {
+    rows,
+    frontierRows: [],
+    counters: buildCountersForRows({
+      queueType: input.queueType,
+      policyHash: input.policyHash,
+      sourceGeneration: input.sourceGeneration,
+      updatedAt,
+      now: input.now,
+    }, rows),
   };
 }
 

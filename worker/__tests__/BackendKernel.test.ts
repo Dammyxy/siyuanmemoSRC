@@ -669,6 +669,101 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('replaces missing queue projection generation through explicit backend materialization', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'projection-rebuild-card',
+      blockId: 'projection-rebuild-block',
+      due: 1_700_000_000_000,
+      priority: 42,
+      meta: { content: 'projection rebuild', rootId: 'doc-rebuild', deckId: 'deck-rebuild' },
+    });
+    await database.upsertCards([card]);
+    const kernel = new BackendKernel({ database });
+
+    const before = await kernel.handle({
+      id: 'projection-replace-before',
+      jsonrpc: '2.0',
+      method: 'queue.projection.snapshot' as never,
+      params: [{ queueType: 'leech' }],
+    });
+    expect('result' in before).toBe(true);
+    if ('result' in before) {
+      expect(before.result).toMatchObject({
+        queueType: 'leech',
+        status: 'unavailable',
+        generation: null,
+      });
+    }
+
+    const replace = await kernel.handle({
+      id: 'projection-replace',
+      jsonrpc: '2.0',
+      method: 'queue.projection.replace' as never,
+      params: [{
+        queueType: 'leech',
+        policyHash: 'materialized-leech-v1',
+        generation: 1,
+        rows: [{
+          queueType: 'leech',
+          rowId: card.id,
+          cardId: card.id,
+          blockId: card.blockId,
+          deckId: 'deck-rebuild',
+          membershipReason: 'materialized-strategy',
+          dueAt: card.due,
+          dueBucket: 'overdue',
+          priorityScore: card.priority,
+          sortKey: `000000001:${card.id}`,
+          queueIndexHint: 1,
+          policyHash: 'materialized-leech-v1',
+          sourceGeneration: 1,
+          payload: { queueKind: 'leech', source: 'application-materialized' },
+          updatedAt: 1_700_000_100_000,
+        }],
+        reason: 'snapshot-refresh',
+      }],
+    });
+    expect('result' in replace).toBe(true);
+    if ('result' in replace) {
+      expect(replace.result).toMatchObject({
+        queueType: 'leech',
+        status: 'ready',
+        policyHash: 'materialized-leech-v1',
+        generation: 1,
+        rows: 1,
+        counters: {
+          remaining: 1,
+          total: 1,
+        },
+      });
+    }
+
+    const after = await kernel.handle({
+      id: 'projection-replace-after',
+      jsonrpc: '2.0',
+      method: 'queue.projection.snapshot' as never,
+      params: [{ queueType: 'leech' }],
+    });
+    expect('result' in after).toBe(true);
+    if ('result' in after) {
+      expect(after.result).toMatchObject({
+        queueType: 'leech',
+        status: 'ready',
+        policyHash: 'materialized-leech-v1',
+        generation: 1,
+        counters: {
+          remaining: 1,
+          total: 1,
+        },
+      });
+      expect(after.result.rows.map((row: { fsrsCardId: string }) => row.fsrsCardId)).toEqual([
+        'projection-rebuild-card',
+      ]);
+    }
+  });
+
   it.each([
     'filter-group',
     'final-drill',

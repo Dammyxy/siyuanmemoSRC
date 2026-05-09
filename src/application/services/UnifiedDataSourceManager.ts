@@ -30,6 +30,7 @@ import {
 } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
 import type { DrillLogV2 } from '@/types/review';
+import type { QueueSnapshotRow } from '@/types/queue-browser';
 // ✅ DDD 架构：UnifiedDataSourceManager（应用层）直接创建队列，不依赖 QueueFactory（基础设施层）
 import { RetrievalPracticeQueue } from '@/core/queue/domain/RetrievalPracticeQueue';
 import { IncrementalLearningQueue } from '@/core/queue/domain/IncrementalLearningQueue';
@@ -37,6 +38,7 @@ import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
 import { FinalDrillQueue } from '@/core/queue/domain/FinalDrillQueue';
 import { NeuralRoamQueue } from '@/core/queue/domain/NeuralRoamQueue';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
+import { buildQueueSnapshotRow } from '@/core/queue/domain/queueCardProjection';
 import type { QueueInitialLoadAware, QueueSchedulerPort } from '@/core/queue/managers/UnifiedDataSourceManager';
 import type { QueueReviewCommand, QueueReviewCommitResult } from '@/core/queue/managers/UnifiedDataSourceManager';
 import type {
@@ -45,14 +47,17 @@ import type {
     NeuralRoamNodeType,
     QueuePersistencePort,
 } from '@/core/queue/domain/ports';
+import type { QueueProjectionRow } from '@/application/ports/QueueProjectionPort';
 import { createDependencyUnavailableError } from '@/core/queue/dependencyErrors';
 import { createLogger } from '@/utils/logger';
 import type { HyperspaceSettings } from '@/types/settings';
 import type {
     BackendQueueProjectionRowsByIdsResult,
+    BackendQueueProjectionReplaceResult,
     BackendQueueProjectionSnapshotRequest,
     BackendQueueProjectionSnapshotResult,
 } from '../../../packages/contracts/src/backend-rpc';
+import { buildOrderedQueueProjectionRows } from '@/application/services/queue-projection/QueueProjectionBuilder';
 
 const logger = createLogger('UnifiedDataSourceManager');
 
@@ -126,6 +131,17 @@ interface UnifiedManagerPluginContextLike {
     getReviewCommitUseCase?: () => {
         execute?: (command: QueueReviewCommand) => Promise<QueueReviewCommitResult>;
     } | null | undefined;
+    getFrontendInstanceRuntime?: () => {
+        getMode?: () => 'writer' | 'follower' | string;
+        getInstanceId?: () => string;
+    } | null | undefined;
+    getFollowerCommandClient?: () => {
+        submitAndWait?: <TResult>(request: {
+            instanceId: string;
+            method: string;
+            params?: unknown;
+        }) => Promise<TResult>;
+    } | null | undefined;
     getSrsBackendClient?: () => {
         queueProjectionSnapshot?: (
             request: BackendQueueProjectionSnapshotRequest,
@@ -133,6 +149,9 @@ interface UnifiedManagerPluginContextLike {
         queueProjectionRowsByIds?: (
             request: { queueType: string; ids: string[]; policyHash?: string | null; generation?: number | null },
         ) => Promise<BackendQueueProjectionRowsByIdsResult>;
+        queueProjectionReplace?: (
+            request: QueueProjectionReplaceRequestLike,
+        ) => Promise<BackendQueueProjectionReplaceResult>;
         getQueueProjectionRolloutState?: (
             queueType: QueueType,
         ) => QueueProjectionRolloutState | string | null | undefined;
@@ -160,6 +179,23 @@ interface QueueProjectionUnavailableDiagnostic {
     policyHash: string | null;
     generation: number | null;
     checkedAt: number;
+}
+
+interface QueueProjectionReplaceRequestLike {
+    queueType: string;
+    policyHash: string;
+    generation?: number | null;
+    reason?: string | null;
+    rows: QueueProjectionRow[];
+    metadata?: Record<string, unknown> | null;
+}
+
+interface MaterializedQueueProjectionEcho {
+    policyHash: string;
+    generation: number;
+    snapshot: QueueProjectionSnapshot;
+    cardsByRowId: Map<string, FSRSCard>;
+    cachedAt: number;
 }
 
 /**
@@ -267,6 +303,7 @@ export class UnifiedDataSourceManager {
     private pendingObserverEventOrder: string[];
     private observerFlushScheduled: boolean;
     private queueProjectionUnavailableDiagnostics: Map<QueueType, QueueProjectionUnavailableDiagnostic>;
+    private materializedProjectionEchoes: Map<QueueType, MaterializedQueueProjectionEcho>;
     
     // ========================================================================
     // 构造函数
@@ -295,6 +332,7 @@ export class UnifiedDataSourceManager {
         this.pendingObserverEventOrder = [];
         this.observerFlushScheduled = false;
         this.queueProjectionUnavailableDiagnostics = new Map();
+        this.materializedProjectionEchoes = new Map();
     }
     
     /**
@@ -397,6 +435,12 @@ export class UnifiedDataSourceManager {
                 suppressAutosave: true,
             });
         }
+        if (result.committed) {
+            const queueType = this.normalizeQueueType(command.context?.queueType);
+            if (queueType) {
+                this.clearMaterializedProjectionEcho(queueType);
+            }
+        }
         return result;
     }
 
@@ -422,12 +466,45 @@ export class UnifiedDataSourceManager {
         }
 
         try {
-            const result = await backend.queueProjectionSnapshot({ queueType });
+            let result = await backend.queueProjectionSnapshot({ queueType });
+            let materializedEcho: MaterializedQueueProjectionEcho | null = null;
             if (
                 result.status !== 'ready'
                 || !this.isValidProjectionPolicyHash(result.policyHash)
                 || !this.isValidProjectionGeneration(result.generation)
             ) {
+                const materialized = await this.tryMaterializeQueueProjection(queueType, backend, {
+                    currentPolicyHash: result.policyHash,
+                    currentGeneration: result.generation,
+                    reason: 'snapshot-refresh',
+                });
+                if (materialized) {
+                    materializedEcho = this.getMaterializedProjectionEcho(
+                        queueType,
+                        materialized.policyHash,
+                        materialized.generation,
+                    );
+                    if (materializedEcho && this.isCurrentInstanceFollower()) {
+                        this.clearQueueProjectionUnavailable(queueType);
+                        return this.cloneQueueProjectionSnapshot(materializedEcho.snapshot);
+                    }
+                    result = await backend.queueProjectionSnapshot({
+                        queueType,
+                        policyHash: materialized.policyHash,
+                        generation: materialized.generation,
+                    });
+                }
+            }
+
+            if (
+                result.status !== 'ready'
+                || !this.isValidProjectionPolicyHash(result.policyHash)
+                || !this.isValidProjectionGeneration(result.generation)
+            ) {
+                if (materializedEcho) {
+                    this.clearQueueProjectionUnavailable(queueType);
+                    return this.cloneQueueProjectionSnapshot(materializedEcho.snapshot);
+                }
                 logger.info('Queue projection snapshot is not ready', {
                     queueType,
                     status: result.status,
@@ -444,31 +521,7 @@ export class UnifiedDataSourceManager {
             }
 
             this.clearQueueProjectionUnavailable(queueType);
-            return {
-                queueType,
-                policyHash: result.policyHash,
-                generation: Number(result.generation),
-                rows: (result.rows || []).map((row) => ({
-                    ...row,
-                    tags: Array.isArray(row.tags) ? [...row.tags] : [],
-                })),
-                counters: result.counters
-                    ? {
-                        version: Number(result.counters.version || result.counters.generation || result.generation || 0),
-                        remaining: Math.max(0, Math.floor(Number(result.counters.remaining || 0))),
-                        due: Math.max(0, Math.floor(Number(result.counters.due || 0))),
-                        total: Math.max(0, Math.floor(Number(result.counters.total || 0))),
-                        buckets: {
-                            all: Math.max(0, Math.floor(Number(result.counters.buckets?.all || 0))),
-                            item: Math.max(0, Math.floor(Number(result.counters.buckets?.item || 0))),
-                            descriptor: Math.max(0, Math.floor(Number(result.counters.buckets?.descriptor || 0))),
-                            topic: Math.max(0, Math.floor(Number(result.counters.buckets?.topic || 0))),
-                            concept: Math.max(0, Math.floor(Number(result.counters.buckets?.concept || 0))),
-                        },
-                        source: 'reconciled',
-                    }
-                    : null,
-            };
+            return this.toQueueProjectionSnapshot(queueType, result);
         } catch (error) {
             logger.warn('Failed to read queue projection snapshot', {
                 queueType,
@@ -498,6 +551,12 @@ export class UnifiedDataSourceManager {
         const orderedIds = ids.map((id) => String(id || '').trim()).filter(Boolean);
         if (orderedIds.length === 0) {
             return [];
+        }
+
+        const echoedCards = this.getMaterializedProjectionEchoCards(queueType, orderedIds);
+        if (echoedCards) {
+            this.clearQueueProjectionUnavailable(queueType);
+            return echoedCards;
         }
 
         const backend = this.resolvePlugin()?.getContext?.()?.getSrsBackendClient?.();
@@ -561,6 +620,291 @@ export class UnifiedDataSourceManager {
         }
 
         await reviewLogs.addDrillLogV2(log);
+    }
+
+    public async materializeQueueProjection(
+        queueType: QueueType,
+        queueOverride?: Pick<IReviewQueue, 'getCards'> | null,
+    ): Promise<BackendQueueProjectionReplaceResult | null> {
+        const backend = this.resolvePlugin()?.getContext?.()?.getSrsBackendClient?.();
+        return this.tryMaterializeQueueProjection(queueType, backend, {
+            queueOverride,
+            reason: 'explicit-repair',
+        });
+    }
+
+    private async tryMaterializeQueueProjection(
+        queueType: QueueType,
+        backend: UnifiedManagerPluginContextLike['getSrsBackendClient'] extends () => infer T ? T : never,
+        options: {
+            currentPolicyHash?: unknown;
+            currentGeneration?: unknown;
+            reason?: string;
+            queueOverride?: Pick<IReviewQueue, 'getCards'> | null;
+        } = {},
+    ): Promise<BackendQueueProjectionReplaceResult | null> {
+        if (!this.isProjectionBackedQueue(queueType)) {
+            return null;
+        }
+        if (!backend || typeof backend.queueProjectionReplace !== 'function') {
+            logger.debug('Queue projection replace backend is unavailable', { queueType });
+            return null;
+        }
+
+        const queue = options.queueOverride ?? this.getQueue(queueType);
+        if (!queue || typeof queue.getCards !== 'function') {
+            throw new Error(`QUEUE_PROJECTION_UNAVAILABLE: queue strategy unavailable for ${queueType}`);
+        }
+
+        const now = Date.now();
+        const currentGeneration = this.isValidProjectionGeneration(options.currentGeneration)
+            ? Number(options.currentGeneration)
+            : 0;
+        const generation = Math.max(1, currentGeneration + 1);
+        const policyHash = this.isValidProjectionPolicyHash(options.currentPolicyHash)
+            ? String(options.currentPolicyHash)
+            : this.buildMaterializedProjectionPolicyHash(queueType);
+        const cards = await queue.getCards();
+        const projection = buildOrderedQueueProjectionRows({
+            queueType,
+            cards,
+            now,
+            policyHash,
+            sourceGeneration: generation,
+            updatedAt: now,
+            membershipReason: this.resolveMaterializedProjectionMembershipReason(queueType),
+        });
+
+        const replaceRequest: QueueProjectionReplaceRequestLike = {
+            queueType,
+            policyHash,
+            generation,
+            reason: options.reason ?? 'snapshot-refresh',
+            rows: projection.rows,
+            metadata: {
+                source: 'queue-strategy-materialization',
+                cardCount: projection.rows.length,
+            },
+        };
+        const result = await this.submitQueueProjectionReplace(backend, replaceRequest);
+        this.cacheMaterializedProjectionEcho(queueType, result, cards, projection.rows);
+        return result;
+    }
+
+    private async submitQueueProjectionReplace(
+        backend: UnifiedManagerPluginContextLike['getSrsBackendClient'] extends () => infer T ? T : never,
+        request: QueueProjectionReplaceRequestLike,
+    ): Promise<BackendQueueProjectionReplaceResult> {
+        const context = this.resolvePlugin()?.getContext?.();
+        const runtime = context?.getFrontendInstanceRuntime?.();
+        if (runtime?.getMode?.() === 'follower') {
+            const follower = context?.getFollowerCommandClient?.();
+            const instanceId = String(runtime.getInstanceId?.() || '').trim();
+            if (!follower || typeof follower.submitAndWait !== 'function' || !instanceId) {
+                throw new Error('BACKEND_UNAVAILABLE: writer relay unavailable for queue projection replace');
+            }
+            return follower.submitAndWait<BackendQueueProjectionReplaceResult>({
+                instanceId,
+                method: 'queue.projection.replace',
+                params: request,
+            });
+        }
+
+        if (!backend || typeof backend.queueProjectionReplace !== 'function') {
+            throw new Error('BACKEND_UNAVAILABLE: queue projection replace backend is unavailable');
+        }
+        return backend.queueProjectionReplace(request);
+    }
+
+    private isCurrentInstanceFollower(): boolean {
+        const runtime = this.resolvePlugin()?.getContext?.()?.getFrontendInstanceRuntime?.();
+        return runtime?.getMode?.() === 'follower';
+    }
+
+    private cacheMaterializedProjectionEcho(
+        queueType: QueueType,
+        result: BackendQueueProjectionReplaceResult,
+        cards: FSRSCard[],
+        projectionRows: QueueProjectionRow[],
+    ): void {
+        if (
+            result.status !== 'ready'
+            || !this.isValidProjectionPolicyHash(result.policyHash)
+            || !this.isValidProjectionGeneration(result.generation)
+        ) {
+            this.materializedProjectionEchoes.delete(queueType);
+            return;
+        }
+
+        const cardById = new Map(cards.map((card) => [String(card.id || ''), card]));
+        const snapshotRows: QueueSnapshotRow[] = [];
+        const cardsByRowId = new Map<string, FSRSCard>();
+
+        projectionRows.forEach((projectionRow, index) => {
+            const card = cardById.get(String(projectionRow.cardId || '')) ?? cards[index];
+            if (!card || typeof card.id !== 'string') {
+                return;
+            }
+            const queueIndexHint = Number(projectionRow.queueIndexHint);
+            const queueIndex = Number.isFinite(queueIndexHint) && queueIndexHint > 0
+                ? Math.floor(queueIndexHint)
+                : index + 1;
+            const baseRow = buildQueueSnapshotRow(card, { queueIndex });
+            const row: QueueSnapshotRow = {
+                ...baseRow,
+                id: String(projectionRow.rowId || baseRow.id),
+                fsrsCardId: String(projectionRow.cardId || baseRow.fsrsCardId),
+                blockId: String(projectionRow.blockId || baseRow.blockId || ''),
+                deckId: String(projectionRow.deckId || baseRow.deckId || ''),
+                queueIndex,
+                tags: Array.isArray(baseRow.tags) ? [...baseRow.tags] : [],
+            };
+            snapshotRows.push(row);
+            const clonedCard = this.cloneFsrsCard(card);
+            cardsByRowId.set(row.id, clonedCard);
+            cardsByRowId.set(row.fsrsCardId, clonedCard);
+        });
+
+        this.materializedProjectionEchoes.set(queueType, {
+            policyHash: result.policyHash,
+            generation: Number(result.generation),
+            snapshot: {
+                queueType,
+                policyHash: result.policyHash,
+                generation: Number(result.generation),
+                rows: snapshotRows,
+                counters: this.toQueueCounterSnapshot(result.counters, result.generation),
+            },
+            cardsByRowId,
+            cachedAt: Date.now(),
+        });
+    }
+
+    private getMaterializedProjectionEcho(
+        queueType: QueueType,
+        policyHash?: string | null,
+        generation?: number | null,
+    ): MaterializedQueueProjectionEcho | null {
+        const echo = this.materializedProjectionEchoes.get(queueType) ?? null;
+        if (!echo) {
+            return null;
+        }
+        if (policyHash && echo.policyHash !== policyHash) {
+            return null;
+        }
+        if (this.isValidProjectionGeneration(generation) && echo.generation !== Number(generation)) {
+            return null;
+        }
+        return echo;
+    }
+
+    private getMaterializedProjectionEchoCards(queueType: QueueType, orderedIds: string[]): FSRSCard[] | null {
+        const echo = this.getMaterializedProjectionEcho(queueType);
+        if (!echo || orderedIds.length === 0) {
+            return null;
+        }
+        const cards: FSRSCard[] = [];
+        for (const id of orderedIds) {
+            const card = echo.cardsByRowId.get(id);
+            if (!card) {
+                return null;
+            }
+            cards.push(this.cloneFsrsCard(card));
+        }
+        return cards;
+    }
+
+    private clearMaterializedProjectionEcho(queueType: QueueType): void {
+        this.materializedProjectionEchoes.delete(queueType);
+    }
+
+    private clearMaterializedProjectionEchoes(): void {
+        this.materializedProjectionEchoes.clear();
+    }
+
+    private buildMaterializedProjectionPolicyHash(queueType: QueueType): string {
+        return `${queueType}:materialized:v1`;
+    }
+
+    private resolveMaterializedProjectionMembershipReason(queueType: QueueType): string {
+        switch (queueType) {
+            case QueueType.FilterGroup:
+                return 'due';
+            case QueueType.FinalDrill:
+                return 'final-drill';
+            case QueueType.Leech:
+                return 'leech';
+            case QueueType.NeuralRoam:
+                return 'frontier-candidate';
+            case QueueType.IncrementalLearning:
+                return 'rotation';
+            case QueueType.RetrievalPractice:
+            default:
+                return 'review-due';
+        }
+    }
+
+    private toQueueProjectionSnapshot(
+        queueType: QueueType,
+        result: BackendQueueProjectionSnapshotResult,
+    ): QueueProjectionSnapshot {
+        return {
+            queueType,
+            policyHash: String(result.policyHash || ''),
+            generation: Number(result.generation),
+            rows: (result.rows || []).map((row) => ({
+                ...row,
+                tags: Array.isArray(row.tags) ? [...row.tags] : [],
+            })),
+            counters: this.toQueueCounterSnapshot(result.counters, result.generation),
+        };
+    }
+
+    private toQueueCounterSnapshot(
+        counters: BackendQueueProjectionSnapshotResult['counters'],
+        generation: number | null | undefined,
+    ): QueueProjectionSnapshot['counters'] {
+        if (!counters) {
+            return null;
+        }
+        return {
+            version: Number(counters.version || counters.generation || generation || 0),
+            remaining: Math.max(0, Math.floor(Number(counters.remaining || 0))),
+            due: Math.max(0, Math.floor(Number(counters.due || 0))),
+            total: Math.max(0, Math.floor(Number(counters.total || 0))),
+            buckets: {
+                all: Math.max(0, Math.floor(Number(counters.buckets?.all || 0))),
+                item: Math.max(0, Math.floor(Number(counters.buckets?.item || 0))),
+                descriptor: Math.max(0, Math.floor(Number(counters.buckets?.descriptor || 0))),
+                topic: Math.max(0, Math.floor(Number(counters.buckets?.topic || 0))),
+                concept: Math.max(0, Math.floor(Number(counters.buckets?.concept || 0))),
+            },
+            source: 'reconciled',
+        };
+    }
+
+    private cloneQueueProjectionSnapshot(snapshot: QueueProjectionSnapshot): QueueProjectionSnapshot {
+        return {
+            ...snapshot,
+            rows: snapshot.rows.map((row) => ({
+                ...row,
+                tags: Array.isArray(row.tags) ? [...row.tags] : [],
+            })),
+            counters: snapshot.counters
+                ? {
+                    ...snapshot.counters,
+                    buckets: { ...snapshot.counters.buckets },
+                }
+                : null,
+        };
+    }
+
+    private cloneFsrsCard(card: FSRSCard): FSRSCard {
+        return {
+            ...card,
+            tags: Array.isArray(card.tags) ? [...card.tags] : [],
+            meta: card.meta && typeof card.meta === 'object' ? { ...card.meta } : card.meta,
+        };
     }
 
     private isProjectionBackedQueue(queueType: QueueType): boolean {
@@ -674,6 +1018,15 @@ export class UnifiedDataSourceManager {
         return typeof generation === 'number'
             && Number.isFinite(generation)
             && generation > 0;
+    }
+
+    private normalizeQueueType(queueType: unknown): QueueType | null {
+        if (typeof queueType !== 'string') {
+            return null;
+        }
+        return this.getAllQueueTypes().includes(queueType as QueueType)
+            ? queueType as QueueType
+            : null;
     }
 
     public getDayStartHour(): number {
@@ -1479,6 +1832,7 @@ export class UnifiedDataSourceManager {
      */
     public invalidateQueue(type: QueueType): void {
         this.queueInstances.delete(type);
+        this.clearMaterializedProjectionEcho(type);
         logger.debug(`Queue cache invalidated: ${type}`);
     }
 
@@ -1504,6 +1858,7 @@ export class UnifiedDataSourceManager {
      */
     public invalidateAllQueues(): void {
         this.queueInstances.clear();
+        this.clearMaterializedProjectionEchoes();
         logger.debug('All queue caches invalidated');
     }
 

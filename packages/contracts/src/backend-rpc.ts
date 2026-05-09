@@ -18,6 +18,7 @@ export type BackendRpcMethod =
   | 'browser.sourceExistence.applySweepHost'
   | 'queue.projection.snapshot'
   | 'queue.projection.rowsByIds'
+  | 'queue.projection.replace'
   | 'kernel.transaction.ingest'
   | 'kernel.transaction.dequeue'
   | 'kernel.transaction.requeue'
@@ -573,6 +574,24 @@ export interface BackendQueueProjectionRowsByIdsResult {
   status: BackendQueueProjectionSnapshotResult['status'];
   rows: BackendQueueProjectionSnapshotRow[];
   cards: unknown[];
+}
+
+export interface BackendQueueProjectionReplaceRequest {
+  queueType: string;
+  policyHash: string;
+  generation?: number | null;
+  reason?: string | null;
+  rows: BackendReviewFeedbackQueueImpactRow[];
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface BackendQueueProjectionReplaceResult {
+  queueType: string;
+  policyHash: string;
+  generation: number;
+  status: 'ready';
+  rows: number;
+  counters: BackendReviewFeedbackQueueImpactCounters;
 }
 
 export interface BackendReviewFeedbackRequest {

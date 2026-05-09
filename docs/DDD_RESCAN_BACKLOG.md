@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-09 (Round 320)
+Last update: 2026-05-09 (Round 321)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-09 - Live queue projection materialization closure
+
+- Task: Real SiYuan observation found all six default-on review queue projections missing backend generation, causing Browser/Review/Leech/NeuralRoam surfaces to fail closed with `QUEUE_PROJECTION_UNAVAILABLE`.
+- Touched slice: Queue projection materialization / backend RPC / writer relay / Leech review dialog；`packages/contracts/src/{backend-rpc.ts,kernel-rpc.ts}`、`src/application/{ApplicationContext.ts,clients/SrsBackendClient.ts,services/UnifiedDataSourceManager.ts,services/queue-projection/QueueProjectionBuilder.ts,managers/DialogManager.ts}`、`worker/{bootstrap/BackendKernel.ts,db/SqliteDatabaseService.ts}`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: Added explicit `queue.projection.replace` backend RPC and writer relay method. `UnifiedDataSourceManager` now materializes missing projection generations from the real queue `getCards()` result, writes ordered projection rows/counters to backend-owned `queue_projection_*`, and re-reads the snapshot. Follower instances relay the materialization to the writer, then use the writer materialization echo for the same generation because their local worker DB can still be stale after a writer-side replace. Leech dialog materializes from the custom Leech queue instance so threshold/action/tag settings match the visible session.
+- Debt deferred: Third-party plugin startup errors from `siyuan-plugin-keymap` / `sy-plugin-enhance` and generic SiYuan/network warnings are not SiYuanMemo code. No hidden fallback or local strategy fallback was added for SiYuanMemo projection failures.
+- Why deferred: External plugin/runtime noise is outside this product worktree; fixing it here would be speculative and could mask the SiYuanMemo queue projection contract.
+- Next safe step: After rebuild/deploy, run live smoke in SiYuan Browser/Review/Leech/NeuralRoam and confirm projection snapshots become `ready` instead of `projection-unavailable`.
+- Validation: Targeted tests passed: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/__tests__/ApplicationContext.writer-relay.test.ts src/application/managers/__tests__/DialogManager.review-header-variant.test.ts src/application/services/queue-projection/__tests__/QueueProjectionBuilder.test.ts src/application/services/queue-projection/__tests__/DeferredQueueProjectionBuilder.test.ts --reporter=dot`（7 files / 90 tests）。`pnpm run check:boundaries` passed（Boundary / No-UI-SQL / Kernel DB owner / backend migration cutover / hidden fallback / SRS runtime hygiene）。`pnpm build` passed with postbuild dist hygiene; existing i18n hardcoded/Sass legacy warnings remain non-blocking. Live smoke after copying `dist` to `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo`: main renderer as follower + QuickNote writer materialized/read/hydrated all six projections as `ready`（RetrievalPractice 23, IncrementalLearning 133 materialized / 132 current snapshot rows, FilterGroup 184, FinalDrill 31, Leech 0, NeuralRoam 1）。
 
 ### 2026-05-09 - Core dependency-empty fallback retirement
 

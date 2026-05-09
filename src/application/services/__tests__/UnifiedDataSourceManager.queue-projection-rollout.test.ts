@@ -1,17 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueueType, type IDataRouter } from '@/types/unified-data-source';
+import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { UnifiedDataSourceManager } from '../UnifiedDataSourceManager';
 
 function createRouterWithBackend(
   backend: unknown,
   options: {
     rolloutState?: (queueType: QueueType) => string | null | undefined;
+    frontendRuntime?: unknown;
+    followerCommandClient?: unknown;
   } = {},
 ): IDataRouter {
   const plugin = {
     getContext: () => ({
       getSrsBackendClient: () => backend,
       getQueueProjectionRolloutState: options.rolloutState,
+      getFrontendInstanceRuntime: () => options.frontendRuntime,
+      getFollowerCommandClient: () => options.followerCommandClient,
     }),
   };
 
@@ -23,6 +28,34 @@ function createRouterWithBackend(
     deleteCard: vi.fn(async () => {}),
     getAvailableQueueTypes: vi.fn(() => Object.values(QueueType)),
   } as unknown as IDataRouter;
+}
+
+function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
+  const now = 1_700_000_000_000;
+  return {
+    id: overrides.id ?? 'card-1',
+    xiuyuanID: overrides.xiuyuanID ?? 'xiuyuan-1',
+    blockId: overrides.blockId ?? 'block-1',
+    due: overrides.due ?? now,
+    stability: overrides.stability ?? 4,
+    difficulty: overrides.difficulty ?? 5,
+    reps: overrides.reps ?? 3,
+    lapses: overrides.lapses ?? 0,
+    state: overrides.state ?? CardState.Review,
+    lastReview: overrides.lastReview ?? now - 86_400_000,
+    elapsedDays: overrides.elapsedDays ?? 1,
+    scheduledDays: overrides.scheduledDays ?? 7,
+    priority: overrides.priority ?? 50,
+    type: overrides.type ?? CardType.Item,
+    tags: overrides.tags ?? [],
+    neuralRoamSeed: overrides.neuralRoamSeed ?? false,
+    leechCount: overrides.leechCount ?? 0,
+    isLeech: overrides.isLeech ?? false,
+    skipped: overrides.skipped ?? false,
+    createdAt: overrides.createdAt ?? now - 86_400_000,
+    updatedAt: overrides.updatedAt ?? now,
+    meta: overrides.meta ?? {},
+  };
 }
 
 describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => {
@@ -209,5 +242,281 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
         unavailableReason: 'refresh-required',
       }),
     ]);
+  });
+
+  it('materializes a missing backend projection from the real queue before returning a snapshot', async () => {
+    const card = createCard({
+      id: 'materialized-card',
+      blockId: 'materialized-block',
+      meta: { content: 'materialized queue projection', deckId: 'deck-a', rootId: 'doc-a' },
+    });
+    let replacedRows: Array<{ rowId: string; cardId: string }> = [];
+    const backend = {
+      queueProjectionSnapshot: vi.fn()
+        .mockResolvedValueOnce({
+          queueType: QueueType.FilterGroup,
+          status: 'unavailable',
+          rows: [],
+          counters: null,
+          policyHash: null,
+          generation: null,
+        })
+        .mockImplementation(async () => ({
+          queueType: QueueType.FilterGroup,
+          status: 'ready',
+          rows: replacedRows.map((row, index) => ({
+            id: row.rowId,
+            fsrsCardId: row.cardId,
+            blockId: card.blockId,
+            deckId: 'deck-a',
+            rootId: 'doc-a',
+            content: 'materialized queue projection',
+            fullContent: 'materialized queue projection',
+            state: card.state,
+            due: card.due,
+            stability: card.stability,
+            difficulty: card.difficulty,
+            retrievability: 1,
+            reps: card.reps,
+            lapses: card.lapses,
+            elapsedDays: card.elapsedDays,
+            scheduledDays: card.scheduledDays,
+            lastReview: card.lastReview,
+            interval: card.scheduledDays,
+            firstReview: null,
+            priority: card.priority,
+            suspended: false,
+            cardType: card.type,
+            queueIndex: index + 1,
+            tags: [],
+          })),
+          counters: {
+            queueType: QueueType.FilterGroup,
+            policyHash: 'filter-group:materialized:v1',
+            generation: 1,
+            version: 1,
+            remaining: 1,
+            due: 1,
+            total: 1,
+            buckets: { all: 1, item: 1, descriptor: 0, topic: 0, concept: 0 },
+            updatedAt: 1_700_000_100_000,
+          },
+          policyHash: 'filter-group:materialized:v1',
+          generation: 1,
+        })),
+      queueProjectionReplace: vi.fn(async (request: { rows: Array<{ rowId: string; cardId: string }> }) => {
+        replacedRows = request.rows;
+        return {
+          queueType: QueueType.FilterGroup,
+          status: 'ready',
+          policyHash: 'filter-group:materialized:v1',
+          generation: 1,
+          rows: request.rows.length,
+          counters: {
+            remaining: request.rows.length,
+            total: request.rows.length,
+          },
+        };
+      }),
+    };
+    const manager = UnifiedDataSourceManager.getInstance();
+    manager.setQueuePersistence({
+      get: vi.fn(() => null),
+      set: vi.fn(async () => {}),
+      delete: vi.fn(async () => {}),
+      keys: vi.fn(() => []),
+    });
+    manager.setAdvancedRouter({
+      ...createRouterWithBackend(backend),
+      getCards: vi.fn(async () => [card]),
+    } as unknown as IDataRouter);
+
+    await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup)).resolves.toMatchObject({
+      queueType: QueueType.FilterGroup,
+      policyHash: 'filter-group:materialized:v1',
+      generation: 1,
+      rows: [expect.objectContaining({ fsrsCardId: 'materialized-card' })],
+      counters: expect.objectContaining({
+        remaining: 1,
+        total: 1,
+      }),
+    });
+
+    expect(backend.queueProjectionSnapshot).toHaveBeenCalledTimes(2);
+    expect(backend.queueProjectionReplace).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.FilterGroup,
+      policyHash: 'filter-group:materialized:v1',
+      generation: 1,
+      rows: [expect.objectContaining({
+        queueType: QueueType.FilterGroup,
+        cardId: 'materialized-card',
+        blockId: 'materialized-block',
+      })],
+    }));
+  });
+
+  it('relays projection materialization through the writer when current instance is a follower', async () => {
+    const card = createCard({
+      id: 'follower-materialized-card',
+      blockId: 'follower-materialized-block',
+    });
+    const backend = {
+      queueProjectionSnapshot: vi.fn()
+        .mockResolvedValueOnce({
+          queueType: QueueType.FilterGroup,
+          status: 'unavailable',
+          rows: [],
+          counters: null,
+          policyHash: null,
+          generation: null,
+        })
+        .mockResolvedValueOnce({
+          queueType: QueueType.FilterGroup,
+          status: 'ready',
+          rows: [],
+          counters: null,
+          policyHash: 'filter-group:materialized:v1',
+          generation: 1,
+        }),
+      queueProjectionReplace: vi.fn(async () => {
+        throw new Error('local replace must not run in follower mode');
+      }),
+    };
+    const submitAndWait = vi.fn(async () => ({
+      queueType: QueueType.FilterGroup,
+      status: 'ready',
+      policyHash: 'filter-group:materialized:v1',
+      generation: 1,
+      rows: 1,
+      counters: {
+        queueType: QueueType.FilterGroup,
+        policyHash: 'filter-group:materialized:v1',
+        generation: 1,
+        version: 1,
+        remaining: 1,
+        due: 1,
+        total: 1,
+        buckets: { all: 1, item: 1, descriptor: 0, topic: 0, concept: 0 },
+        updatedAt: 1_700_000_100_000,
+      },
+    }));
+    const manager = UnifiedDataSourceManager.getInstance();
+    manager.setQueuePersistence({
+      get: vi.fn(() => null),
+      set: vi.fn(async () => {}),
+      delete: vi.fn(async () => {}),
+      keys: vi.fn(() => []),
+    });
+    manager.setAdvancedRouter({
+      ...createRouterWithBackend(backend, {
+        frontendRuntime: {
+          getMode: () => 'follower',
+          getInstanceId: () => 'memo-follower',
+        },
+        followerCommandClient: { submitAndWait },
+      }),
+      getCards: vi.fn(async () => [card]),
+    } as unknown as IDataRouter);
+
+    await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup)).resolves.toMatchObject({
+      policyHash: 'filter-group:materialized:v1',
+      generation: 1,
+    });
+
+    expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
+    expect(submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'memo-follower',
+      method: 'queue.projection.replace',
+      params: expect.objectContaining({
+        queueType: QueueType.FilterGroup,
+        rows: [expect.objectContaining({ cardId: 'follower-materialized-card' })],
+      }),
+    }));
+  });
+
+  it('uses the writer materialization echo when follower local projection storage is stale', async () => {
+    const card = createCard({
+      id: 'follower-echo-card',
+      blockId: 'follower-echo-block',
+      meta: { content: 'writer echo content', deckId: 'deck-echo', rootId: 'doc-echo' },
+    });
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.FilterGroup,
+        status: 'unavailable',
+        rows: [],
+        counters: null,
+        policyHash: null,
+        generation: null,
+      })),
+      queueProjectionRowsByIds: vi.fn(async () => ({
+        queueType: QueueType.FilterGroup,
+        status: 'unavailable',
+        rows: [],
+        cards: [],
+        policyHash: null,
+        generation: null,
+      })),
+      queueProjectionReplace: vi.fn(async () => {
+        throw new Error('local replace must not run in follower mode');
+      }),
+    };
+    const submitAndWait = vi.fn(async () => ({
+      queueType: QueueType.FilterGroup,
+      status: 'ready',
+      policyHash: 'filter-group:materialized:v1',
+      generation: 1,
+      rows: 1,
+      counters: {
+        queueType: QueueType.FilterGroup,
+        policyHash: 'filter-group:materialized:v1',
+        generation: 1,
+        version: 1,
+        remaining: 1,
+        due: 1,
+        total: 1,
+        buckets: { all: 1, item: 1, descriptor: 0, topic: 0, concept: 0 },
+        updatedAt: 1_700_000_100_000,
+      },
+    }));
+    const manager = UnifiedDataSourceManager.getInstance();
+    manager.setQueuePersistence({
+      get: vi.fn(() => null),
+      set: vi.fn(async () => {}),
+      delete: vi.fn(async () => {}),
+      keys: vi.fn(() => []),
+    });
+    manager.setAdvancedRouter({
+      ...createRouterWithBackend(backend, {
+        frontendRuntime: {
+          getMode: () => 'follower',
+          getInstanceId: () => 'memo-follower',
+        },
+        followerCommandClient: { submitAndWait },
+      }),
+      getCards: vi.fn(async () => [card]),
+    } as unknown as IDataRouter);
+
+    const snapshot = await manager.readQueueProjectionSnapshot(QueueType.FilterGroup);
+
+    expect(snapshot).toMatchObject({
+      queueType: QueueType.FilterGroup,
+      policyHash: 'filter-group:materialized:v1',
+      generation: 1,
+      rows: [expect.objectContaining({
+        fsrsCardId: 'follower-echo-card',
+        blockId: 'follower-echo-block',
+      })],
+      counters: expect.objectContaining({
+        remaining: 1,
+        total: 1,
+      }),
+    });
+
+    await expect(manager.getQueueProjectionCardsBySnapshotIds(
+      QueueType.FilterGroup,
+      snapshot?.rows.map((row) => row.id) ?? [],
+    )).resolves.toEqual([expect.objectContaining({ id: 'follower-echo-card' })]);
+    expect(backend.queueProjectionRowsByIds).not.toHaveBeenCalled();
   });
 });

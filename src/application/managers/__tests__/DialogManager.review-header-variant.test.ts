@@ -77,6 +77,7 @@ function createDialogManager(options?: {
   };
 
   const manager = {
+    materializeQueueProjection: vi.fn().mockResolvedValue(undefined),
     getQueue: vi.fn((queueType: string) => {
       if (queueType === 'filter-group') {
         return filterGroupQueue;
@@ -140,6 +141,7 @@ function createDialogManager(options?: {
       leechActionEffects: {} as any,
     }),
     filterGroupQueue,
+    manager,
     tabManager,
   };
 }
@@ -193,6 +195,15 @@ describe('DialogManager review header variants', () => {
       title: '子集复习 (2 张)',
       headerVariant: 'subset-review',
     }));
+  });
+
+  it('materializes leech projection from the dialog queue before opening leech review', async () => {
+    const { dialogManager, manager } = createDialogManager();
+
+    await dialogManager.openLeechReviewDialog();
+
+    const leechQueue = vi.mocked(createUnifiedReviewDialog).mock.calls[0]?.[0].queueInstance;
+    expect(manager.materializeQueueProjection).toHaveBeenCalledWith(QueueType.Leech, leechQueue);
   });
 
   it('opens standard desktop review entries in new tabs when configured', async () => {
