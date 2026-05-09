@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { BaseReviewQueue } from '../BaseReviewQueue';
 import { QueueType, type QueueReviewResult } from '@/types/unified-data-source';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
+import { buildQueueSnapshotRow } from '../queueCardProjection';
 
 function buildCard(id: string, overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = 1_700_000_000_000;
@@ -35,6 +36,17 @@ function buildCard(id: string, overrides: Partial<FSRSCard> = {}): FSRSCard {
       note: `note-${id}`,
     },
   };
+}
+
+function createProjectionRolloutDiagnostic(queueType: QueueType, projectionBacked: boolean) {
+  return [{
+    queueType,
+    projectionBacked,
+    state: projectionBacked ? 'backend-projection' : 'existing-queue-strategy',
+    readPath: projectionBacked ? 'backend-projection' : 'existing-queue-strategy',
+    reason: projectionBacked ? 'rollout-enabled' : 'projection-rollout-pending',
+    nextCoverageTask: projectionBacked ? null : 'explicit rollback',
+  }];
 }
 
 class TestQueue extends BaseReviewQueue {
@@ -223,7 +235,7 @@ describe('BaseReviewQueue snapshot rows', () => {
     QueueType.FinalDrill,
     QueueType.Leech,
     QueueType.NeuralRoam,
-  ])('keeps %s on existing strategy snapshot reads when projection is not ready', async (queueType) => {
+  ])('keeps %s on existing strategy snapshot reads only for explicit rollback diagnostics', async (queueType) => {
     const cardA = buildCard('card-a', { riffCardId: 'riff-a' });
     const cardB = buildCard('card-b');
     const readProjectionSnapshot = vi.fn(async () => null);
@@ -231,6 +243,7 @@ describe('BaseReviewQueue snapshot rows', () => {
     const queue = new TestQueue([cardA, cardB], {
       readQueueProjectionSnapshot: readProjectionSnapshot,
       getQueueProjectionCardsBySnapshotIds: getProjectionCardsBySnapshotIds,
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => createProjectionRolloutDiagnostic(queueType, false)),
     }, queueType);
     const getCardsSpy = vi.spyOn(queue, 'getCards');
 
@@ -242,6 +255,70 @@ describe('BaseReviewQueue snapshot rows', () => {
     expect(readProjectionSnapshot).toHaveBeenCalledWith(queueType, { forceRefresh: false });
     expect(getProjectionCardsBySnapshotIds).not.toHaveBeenCalled();
     expect(getCardsSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    QueueType.RetrievalPractice,
+    QueueType.IncrementalLearning,
+    QueueType.FilterGroup,
+    QueueType.FinalDrill,
+    QueueType.Leech,
+    QueueType.NeuralRoam,
+  ])('fails closed for %s when backend projection snapshot is unavailable', async (queueType) => {
+    const cardA = buildCard('card-a', { riffCardId: 'riff-a' });
+    const readProjectionSnapshot = vi.fn(async () => null);
+    const queue = new TestQueue([cardA], {
+      readQueueProjectionSnapshot: readProjectionSnapshot,
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => createProjectionRolloutDiagnostic(queueType, true)),
+    }, queueType);
+    const getCardsSpy = vi.spyOn(queue, 'getCards');
+
+    await expect(queue.getSnapshotRows()).rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
+    await expect(queue.getCounterSnapshot()).rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
+
+    expect(readProjectionSnapshot).toHaveBeenCalledWith(queueType, { forceRefresh: false });
+    expect(getCardsSpy).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when projection row hydration is incomplete', async () => {
+    const cardA = buildCard('card-a', { riffCardId: 'row-a' });
+    const row = buildQueueSnapshotRow(cardA, { queueIndex: 1 });
+    const readProjectionSnapshot = vi.fn(async () => ({
+      queueType: QueueType.FilterGroup,
+      policyHash: 'policy-a',
+      generation: 7,
+      rows: [row],
+      counters: {
+        version: 7,
+        remaining: 1,
+        due: 1,
+        total: 1,
+        buckets: {
+          all: 1,
+          item: 1,
+          descriptor: 0,
+          topic: 0,
+          concept: 0,
+        },
+        source: 'reconciled' as const,
+      },
+    }));
+    const getProjectionCardsBySnapshotIds = vi.fn(async () => []);
+    const queue = new TestQueue([cardA], {
+      readQueueProjectionSnapshot: readProjectionSnapshot,
+      getQueueProjectionCardsBySnapshotIds: getProjectionCardsBySnapshotIds,
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => createProjectionRolloutDiagnostic(QueueType.FilterGroup, true)),
+    }, QueueType.FilterGroup);
+    const getCardsSpy = vi.spyOn(queue, 'getCards');
+
+    await expect(queue.getCardsBySnapshotIds([row.id])).rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
+
+    expect(getProjectionCardsBySnapshotIds).toHaveBeenCalledWith(
+      QueueType.FilterGroup,
+      [row.id],
+      { forceRefresh: false },
+    );
+    expect(getCardsSpy).not.toHaveBeenCalled();
   });
 
   it('rebuilds snapshot rows after reorder, insertAt, clear, and force refresh', async () => {

@@ -67,22 +67,26 @@ const QUEUE_PROJECTION_ROLLOUT_ORDER: QueueType[] = [
 const QUEUE_PROJECTION_BACKED_TYPES = new Set<QueueType>([
     QueueType.RetrievalPractice,
     QueueType.IncrementalLearning,
+    QueueType.FilterGroup,
+    QueueType.FinalDrill,
+    QueueType.Leech,
+    QueueType.NeuralRoam,
 ]);
 
 const DEFAULT_QUEUE_PROJECTION_ROLLOUT_STATES: Record<QueueType, QueueProjectionRolloutState> = {
     [QueueType.RetrievalPractice]: 'backend-projection',
     [QueueType.IncrementalLearning]: 'backend-projection',
-    [QueueType.FilterGroup]: 'existing-queue-strategy',
-    [QueueType.FinalDrill]: 'existing-queue-strategy',
-    [QueueType.Leech]: 'existing-queue-strategy',
-    [QueueType.NeuralRoam]: 'existing-queue-strategy',
+    [QueueType.FilterGroup]: 'backend-projection',
+    [QueueType.FinalDrill]: 'backend-projection',
+    [QueueType.Leech]: 'backend-projection',
+    [QueueType.NeuralRoam]: 'backend-projection',
 };
 
 const QUEUE_PROJECTION_PENDING_NEXT_STEPS: Partial<Record<QueueType, string>> = {
-    [QueueType.FilterGroup]: 'Add projection parity for filter definitions, filter-session transfer, and custom-study scheduling policy.',
-    [QueueType.FinalDrill]: 'Add projection parity for drill entries, drill logs, FlipElement ordering, and non-scheduling feedback.',
-    [QueueType.Leech]: 'Add projection parity for lapse/manual membership, leech action side effects, and formal review retention.',
-    [QueueType.NeuralRoam]: 'Add projection parity for neural engine session state, synthetic nodes, and associated-review cards.',
+    [QueueType.FilterGroup]: 'Projection parity is implemented; existing strategy reads are now only an explicit rollback/parity-checking override.',
+    [QueueType.FinalDrill]: 'Projection parity is implemented; existing strategy reads are now only an explicit rollback/parity-checking override.',
+    [QueueType.Leech]: 'Projection parity is implemented; existing strategy reads are now only an explicit rollback/parity-checking override.',
+    [QueueType.NeuralRoam]: 'Projection parity is implemented; existing strategy reads are now only an explicit rollback/parity-checking override.',
 };
 
 interface UnifiedManagerPluginContextLike {

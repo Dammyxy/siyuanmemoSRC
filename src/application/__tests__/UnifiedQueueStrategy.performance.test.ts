@@ -227,6 +227,39 @@ function createFilterGroupLoopFixture(
 }
 
 describe('UnifiedQueueStrategy performance and rollback behavior', () => {
+  it('loads review cards from projection rows when a queue is projection-backed', async () => {
+    const cardA = createCard({ id: 'card-a', blockId: 'block-a' });
+    const cardB = createCard({ id: 'card-b', blockId: 'block-b' });
+    const queue = createQueueStub(QueueType.FilterGroup, [cardA, cardB]);
+    const getCardsSpy = queue.getCards as unknown as ReturnType<typeof vi.fn>;
+    const projectionRows = [
+      buildQueueSnapshotRow(cardB, { queueIndex: 1 }),
+      buildQueueSnapshotRow(cardA, { queueIndex: 2 }),
+    ];
+    (queue.getSnapshotRows as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(projectionRows);
+    (queue.getCardsBySnapshotIds as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([cardB, cardA]);
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      getQueueProjectionRolloutDiagnostics: vi.fn((queueType?: QueueType) => queueType === QueueType.FilterGroup ? [{
+        queueType: QueueType.FilterGroup,
+        projectionBacked: true,
+        state: 'backend-projection',
+        readPath: 'backend-projection',
+        reason: 'rollout-enabled',
+        nextCoverageTask: null,
+      }] : []),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(QueueType.FilterGroup, manager as never, eventBus as never, null);
+
+    const next = await strategy.next();
+
+    expect(next?.id).toBe('card-b');
+    expect(queue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith(projectionRows.map((row) => row.id));
+    expect(getCardsSpy).not.toHaveBeenCalled();
+  });
+
   it('recomputes nextDues for the same card id when scheduling fields change', async () => {
     const card = createCard({ id: 'cache-card', blockId: 'cache-block' });
     const changedCard = createCard({

@@ -190,7 +190,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 return card;
             }
 
-            if (this.queueType === QueueType.NeuralRoam) {
+            if (this.queueType === QueueType.NeuralRoam && !this.isProjectionBackedQueue()) {
                 const nextCard = await this.queue.getNextCard();
                 if (!nextCard) {
                     logger.info(`[SiYuanMemo][UnifiedQueueStrategy] No more cards from spreading activation`);
@@ -576,7 +576,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     async getStats(): Promise<QueueStats> {
         try {
-            if (this.queueType === QueueType.NeuralRoam) {
+            if (this.queueType === QueueType.NeuralRoam && !this.isProjectionBackedQueue()) {
                 const size = await this.queue.getSize();
                 const stats: QueueStats = {
                     size,
@@ -1526,6 +1526,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 queueType: this.queueType,
                 error: errorMessage,
             });
+            if (this.isProjectionBackedQueue()) {
+                throw error;
+            }
             return 0;
         }
     }
@@ -1883,12 +1886,34 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         return neuralContext?.isFlashcard === true;
     }
 
+    private async loadProjectionBackedCards(): Promise<FSRSCard[] | null> {
+        if (!this.isProjectionBackedQueue()) {
+            return null;
+        }
+
+        const rows = await this.queue.getSnapshotRows();
+        const rowIds = rows.map((row) => String(row.id || '')).filter(Boolean);
+        if (rowIds.length === 0) {
+            return [];
+        }
+
+        const cards = await this.queue.getCardsBySnapshotIds(rowIds);
+        if (cards.length !== rowIds.length) {
+            throw new Error(
+                `QUEUE_PROJECTION_UNAVAILABLE: ${this.queueType} projection hydration returned `
+                + `${cards.length}/${rowIds.length} cards`,
+            );
+        }
+        return cards;
+    }
+
     private async reloadCards(): Promise<void> {
         try {
             logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Reloading cards: ${this.queueType}`);
 
             const startTime = Date.now();
-            const loadedCards = await this.queue.getCards();
+            const projectionCards = await this.loadProjectionBackedCards();
+            const loadedCards = projectionCards ?? await this.queue.getCards();
             this.cachedCards = this.applySessionExclusions(loadedCards);
             this.currentIndex = 0;
             this.cacheValid = true;

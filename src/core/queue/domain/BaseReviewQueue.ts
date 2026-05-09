@@ -21,6 +21,8 @@ import {
     QueueAddSource,
     QueueReviewSchedulingContext,
     QueueProjectionSnapshot,
+    QueueProjectionRolloutDiagnostic,
+    QueueError,
     type QueueBulkAddInput,
     type QueueBulkMutationResult,
 } from '../../../types/unified-data-source';
@@ -400,6 +402,62 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         }));
     }
 
+    private getProjectionRolloutDiagnostic(): QueueProjectionRolloutDiagnostic | null {
+        const manager = this.manager as UnifiedDataSourceManager & {
+            getQueueProjectionRolloutDiagnostics?: (queueType?: QueueType) => QueueProjectionRolloutDiagnostic[];
+        };
+        const diagnostics = manager.getQueueProjectionRolloutDiagnostics?.(this.type);
+        return Array.isArray(diagnostics) ? diagnostics[0] ?? null : null;
+    }
+
+    private isProjectionReadRequired(): boolean {
+        const diagnostic = this.getProjectionRolloutDiagnostic();
+        return diagnostic?.readPath === 'backend-projection';
+    }
+
+    private createProjectionUnavailableError(operation: string): QueueError {
+        const diagnostic = this.getProjectionRolloutDiagnostic();
+        return new QueueError(
+            `QUEUE_PROJECTION_UNAVAILABLE: ${operation} for ${this.type} requires backend projection `
+            + `but projection is unavailable`
+            + ` (state=${diagnostic?.state ?? 'unknown'}, reason=${diagnostic?.reason ?? 'unknown'}, `
+            + `unavailableReason=${diagnostic?.unavailableReason ?? 'unknown'})`,
+        );
+    }
+
+    private cacheProjectionCards(cards: FSRSCard[]): FSRSCard[] {
+        const normalized = normalizeToFSRSCard(cards).map((card) => ({ ...card }));
+        this.cards = normalized;
+        this.cardsTrusted = true;
+        this.clearSizeCache();
+        return normalized;
+    }
+
+    private async readProjectionCards(forceRefresh = false): Promise<FSRSCard[] | null> {
+        const projectionSnapshot = await this.readProjectionSnapshot(forceRefresh);
+        if (!projectionSnapshot) {
+            if (this.isProjectionReadRequired()) {
+                throw this.createProjectionUnavailableError('snapshot rows');
+            }
+            return null;
+        }
+
+        const orderedIds = projectionSnapshot.rows.map((row) => row.id);
+        if (orderedIds.length === 0) {
+            return this.cacheProjectionCards([]);
+        }
+
+        const projectionCards = await this.getProjectionCardsBySnapshotIds(orderedIds, forceRefresh);
+        if (projectionCards.length !== orderedIds.length) {
+            if (this.isProjectionReadRequired()) {
+                throw this.createProjectionUnavailableError('snapshot row hydration');
+            }
+            return null;
+        }
+
+        return this.cacheProjectionCards(projectionCards);
+    }
+
     private async readProjectionSnapshot(forceRefresh = false): Promise<QueueProjectionSnapshot | null> {
         const reader = this.manager.readQueueProjectionSnapshot;
         if (typeof reader !== 'function') {
@@ -472,6 +530,10 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             return this.cloneSnapshotRows(this.snapshotRows);
         }
 
+        if (this.isProjectionReadRequired()) {
+            throw this.createProjectionUnavailableError('snapshot rows');
+        }
+
         if (!this.cardsTrusted || this.cards.length === 0) {
             await this.getAllCards();
         }
@@ -499,6 +561,10 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         const projectionCards = await this.getProjectionCardsBySnapshotIds(orderedIds, forceRefresh);
         if (projectionCards.length > 0) {
             return projectionCards;
+        }
+
+        if (this.isProjectionReadRequired()) {
+            throw this.createProjectionUnavailableError('snapshot row hydration');
         }
 
         const cardById = new Map<string, FSRSCard>();
@@ -532,6 +598,14 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public async getAllCards(): Promise<FSRSCard[]> {
         await this.ensureInitialLoad();
+        if (this.isProjectionReadRequired()) {
+            const projectionCards = await this.readProjectionCards(false);
+            if (projectionCards) {
+                validateQueueReturnType(this.name ?? this.type, 'getAllCards', projectionCards);
+                return projectionCards;
+            }
+        }
+
         const rawCards = await this.getCards();
         const cards = this.cacheResolvedCards(rawCards, 'reconciled');
         validateQueueReturnType(this.name ?? this.type, 'getAllCards', cards);
@@ -552,6 +626,10 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         const projectionSnapshot = await this.readProjectionSnapshot(forceRefresh);
         if (projectionSnapshot?.counters) {
             return this.cloneCounterSnapshot(projectionSnapshot.counters);
+        }
+
+        if (this.isProjectionReadRequired()) {
+            throw this.createProjectionUnavailableError('counter snapshot');
         }
 
         if (this.cardsTrusted) {

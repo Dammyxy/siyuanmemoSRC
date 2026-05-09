@@ -805,6 +805,11 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       const snapshot = await queue.getCounterSnapshot(forceRefresh);
       return Math.max(0, Number(snapshot.remaining) || 0);
     } catch (error) {
+      if (projectionBacked) {
+        throw new Error(
+          `QUEUE_PROJECTION_UNAVAILABLE: ${queueId} projection counter snapshot unavailable`,
+        );
+      }
       logger.debug('Failed to read queue counter snapshot, falling back to size methods:', {
         queueId,
         error,
@@ -898,6 +903,10 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         return normalized;
       })
       .catch((error) => {
+        if (this.isProjectionBackedBrowserQueue(queueId)) {
+          this.queueCountCache.delete(queueId);
+          throw error;
+        }
         logger.error('Failed to get queue count:', { queueId, error });
         this.queueCountCache.set(queueId, {
           value: 0,

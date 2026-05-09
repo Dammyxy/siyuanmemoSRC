@@ -30,29 +30,16 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     UnifiedDataSourceManager.resetInstance();
   });
 
-  it('reports projection-backed queues separately from existing strategy-read queues', () => {
+  it('reports every review queue as backend-projection by default', () => {
     const manager = UnifiedDataSourceManager.getInstance();
     manager.setAdvancedRouter(createRouterWithBackend(null));
 
     const diagnostics = manager.getQueueProjectionRolloutDiagnostics();
     const diagnosticByQueue = new Map(diagnostics.map((entry) => [entry.queueType, entry]));
 
-    expect(diagnosticByQueue.get(QueueType.RetrievalPractice)).toMatchObject({
-      queueType: QueueType.RetrievalPractice,
-      projectionBacked: true,
-      state: 'backend-projection',
-      readPath: 'backend-projection',
-      reason: 'rollout-enabled',
-    });
-    expect(diagnosticByQueue.get(QueueType.IncrementalLearning)).toMatchObject({
-      queueType: QueueType.IncrementalLearning,
-      projectionBacked: true,
-      state: 'backend-projection',
-      readPath: 'backend-projection',
-      reason: 'rollout-enabled',
-    });
-
     for (const queueType of [
+      QueueType.RetrievalPractice,
+      QueueType.IncrementalLearning,
       QueueType.FilterGroup,
       QueueType.FinalDrill,
       QueueType.Leech,
@@ -60,15 +47,15 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     ]) {
       expect(diagnosticByQueue.get(queueType)).toMatchObject({
         queueType,
-        projectionBacked: false,
-        state: 'existing-queue-strategy',
-        readPath: 'existing-queue-strategy',
-        reason: 'projection-rollout-pending',
+        projectionBacked: true,
+        state: 'backend-projection',
+        readPath: 'backend-projection',
+        reason: 'rollout-enabled',
       });
     }
   });
 
-  it('does not call backend projection RPC for queues that are still on strategy reads', async () => {
+  it('does not call backend projection RPC for queues explicitly rolled back to strategy reads', async () => {
     const backend = {
       queueProjectionSnapshot: vi.fn(async () => ({
         status: 'ready',
@@ -78,7 +65,9 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
       })),
     };
     const manager = UnifiedDataSourceManager.getInstance();
-    manager.setAdvancedRouter(createRouterWithBackend(backend));
+    manager.setAdvancedRouter(createRouterWithBackend(backend, {
+      rolloutState: (queueType) => queueType === QueueType.FilterGroup ? 'existing-queue-strategy' : null,
+    }));
 
     await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup)).resolves.toBeNull();
 
@@ -94,7 +83,7 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     ]);
   });
 
-  it('uses backend projection reads when a deferred queue is promoted', async () => {
+  it('uses backend projection reads for deferred queues by default', async () => {
     const backend = {
       queueProjectionSnapshot: vi.fn(async () => ({
         status: 'ready',
@@ -105,9 +94,7 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
       })),
     };
     const manager = UnifiedDataSourceManager.getInstance();
-    manager.setAdvancedRouter(createRouterWithBackend(backend, {
-      rolloutState: (queueType) => queueType === QueueType.FilterGroup ? 'backend-projection' : null,
-    }));
+    manager.setAdvancedRouter(createRouterWithBackend(backend));
 
     await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup)).resolves.toMatchObject({
       queueType: QueueType.FilterGroup,
@@ -131,9 +118,7 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
 
   it('reports projection-unavailable for a promoted deferred queue when backend is missing', async () => {
     const manager = UnifiedDataSourceManager.getInstance();
-    manager.setAdvancedRouter(createRouterWithBackend(null, {
-      rolloutState: (queueType) => queueType === QueueType.FilterGroup ? 'backend-projection' : null,
-    }));
+    manager.setAdvancedRouter(createRouterWithBackend(null));
 
     await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup)).resolves.toBeNull();
 
@@ -162,9 +147,7 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
       })),
     };
     const manager = UnifiedDataSourceManager.getInstance();
-    manager.setAdvancedRouter(createRouterWithBackend(backend, {
-      rolloutState: (queueType) => queueType === QueueType.FilterGroup ? 'backend-projection' : null,
-    }));
+    manager.setAdvancedRouter(createRouterWithBackend(backend));
 
     await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup)).resolves.toBeNull();
 

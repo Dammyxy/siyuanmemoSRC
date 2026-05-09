@@ -160,6 +160,33 @@ describe('BrowserApplicationService queue counts', () => {
     expect(neuralQueue.getConceptBlocks).not.toHaveBeenCalled();
   });
 
+  it('fails closed instead of falling back when a projection-backed queue count is unavailable', async () => {
+    const retrievalQueue = createQueue(1, 1, 11);
+    retrievalQueue.getCounterSnapshot.mockRejectedValueOnce(new Error('projection unavailable'));
+    manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
+      if (queueType === QueueType.RetrievalPractice) {
+        return [{
+          queueType: QueueType.RetrievalPractice,
+          projectionBacked: true,
+          state: 'backend-projection',
+          readPath: 'backend-projection',
+          reason: 'rollout-enabled',
+          nextCoverageTask: null,
+        }];
+      }
+      return [];
+    });
+    queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
+
+    await expect(service.getQueueCounts({
+      forceRefresh: true,
+      affectedQueueTypes: [QueueType.RetrievalPractice],
+    })).rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
+
+    expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
+    expect(retrievalQueue.getSize).not.toHaveBeenCalled();
+  });
+
   it('falls back to getRemainingSize and getSize when snapshot reads fail', async () => {
     const retrievalQueue = createQueue(1, 1, 11);
     const finalQueue = createQueue(2, 2, 22);
