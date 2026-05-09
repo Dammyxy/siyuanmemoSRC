@@ -215,7 +215,7 @@ describe('check-hidden-fallbacks', () => {
     ]));
   });
 
-  it('keeps non-application P2 dependency empty catches as deferred info', () => {
+  it('fails non-application P2 dependency empty catches in guarded runtime paths', () => {
     const rootDir = createFixtureRoot();
     writeFile(rootDir, 'src/core/queue/neural/QueryEngine.ts', `
       export async function fetchNeighbors(storage) {
@@ -230,12 +230,38 @@ describe('check-hidden-fallbacks', () => {
 
     const result = evaluate({ rootDir, allowEntries: [] });
 
-    expect(result.failures).toEqual([]);
+    expect(result.failures).toEqual(expect.arrayContaining([
+      expect.stringContaining('dependency-catch-empty-return'),
+    ]));
     expect(result.hits).toEqual(expect.arrayContaining([
       expect.objectContaining({
         file: 'src/core/queue/neural/QueryEngine.ts',
         kind: 'dependency-catch-empty-return',
-        status: 'info',
+        status: 'violation',
+        risk: 'P2',
+      }),
+    ]));
+  });
+
+  it('fails non-application P2 promise catches that collapse dependency errors to empty state', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/core/queue/domain/RetrievalPracticeQueue.ts', `
+      export async function resolve(manager, candidateId) {
+        const card = await manager.getCard(candidateId, { silent: true }).catch(() => null);
+        return card;
+      }
+    `);
+
+    const result = evaluate({ rootDir, allowEntries: [] });
+
+    expect(result.failures).toEqual(expect.arrayContaining([
+      expect.stringContaining('dependency-promise-empty-catch'),
+    ]));
+    expect(result.hits).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        file: 'src/core/queue/domain/RetrievalPracticeQueue.ts',
+        kind: 'dependency-promise-empty-catch',
+        status: 'violation',
         risk: 'P2',
       }),
     ]));

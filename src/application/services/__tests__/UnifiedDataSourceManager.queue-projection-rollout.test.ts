@@ -116,6 +116,54 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     ]);
   });
 
+  it('fails closed when backend projection snapshot read throws', async () => {
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => {
+        throw new Error('projection rpc down');
+      }),
+    };
+    const manager = UnifiedDataSourceManager.getInstance();
+    manager.setAdvancedRouter(createRouterWithBackend(backend));
+
+    await expect(manager.readQueueProjectionSnapshot(QueueType.FilterGroup))
+      .rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
+
+    expect(manager.getQueueProjectionRolloutDiagnostics(QueueType.FilterGroup)).toEqual([
+      expect.objectContaining({
+        queueType: QueueType.FilterGroup,
+        projectionBacked: true,
+        state: 'projection-unavailable',
+        readPath: 'backend-projection',
+        reason: 'projection-unavailable',
+        unavailableReason: 'projection rpc down',
+      }),
+    ]);
+  });
+
+  it('fails closed when backend projection row hydration throws', async () => {
+    const backend = {
+      queueProjectionRowsByIds: vi.fn(async () => {
+        throw new Error('row hydration down');
+      }),
+    };
+    const manager = UnifiedDataSourceManager.getInstance();
+    manager.setAdvancedRouter(createRouterWithBackend(backend));
+
+    await expect(manager.getQueueProjectionCardsBySnapshotIds(QueueType.FilterGroup, ['row-a']))
+      .rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
+
+    expect(manager.getQueueProjectionRolloutDiagnostics(QueueType.FilterGroup)).toEqual([
+      expect.objectContaining({
+        queueType: QueueType.FilterGroup,
+        projectionBacked: true,
+        state: 'projection-unavailable',
+        readPath: 'backend-projection',
+        reason: 'projection-unavailable',
+        unavailableReason: 'row hydration down',
+      }),
+    ]);
+  });
+
   it('reports projection-unavailable for a promoted deferred queue when backend is missing', async () => {
     const manager = UnifiedDataSourceManager.getInstance();
     manager.setAdvancedRouter(createRouterWithBackend(null));

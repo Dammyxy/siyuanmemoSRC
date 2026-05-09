@@ -30,6 +30,7 @@ import { FSRSCard } from '../../../types/card';
 import type { QueueSnapshotRow } from '../../../types/queue-browser';
 import type { QueueItem } from '../types';
 import type { QueueSchedulerPort, UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
+import { formatUnknownDependencyError } from '../dependencyErrors';
 import { normalizeToFSRSCard, resolveCardId, validateQueueReturnType } from '../../../diagnostics/type-guards';
 import { PriorityQueueService, type QueueOrderingMode } from './PriorityQueueService';
 import { buildQueueSnapshotRow } from './queueCardProjection';
@@ -415,14 +416,19 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         return diagnostic?.readPath === 'backend-projection';
     }
 
-    private createProjectionUnavailableError(operation: string): QueueError {
+    private createProjectionUnavailableError(operation: string, cause?: unknown): QueueError {
         const diagnostic = this.getProjectionRolloutDiagnostic();
-        return new QueueError(
+        const unavailable = new QueueError(
             `QUEUE_PROJECTION_UNAVAILABLE: ${operation} for ${this.type} requires backend projection `
             + `but projection is unavailable`
             + ` (state=${diagnostic?.state ?? 'unknown'}, reason=${diagnostic?.reason ?? 'unknown'}, `
             + `unavailableReason=${diagnostic?.unavailableReason ?? 'unknown'})`,
         );
+        if (cause !== undefined) {
+            unavailable.message += `: ${formatUnknownDependencyError(cause)}`;
+            (unavailable as Error & { cause?: unknown }).cause = cause;
+        }
+        return unavailable;
     }
 
     private cacheProjectionCards(cards: FSRSCard[]): FSRSCard[] {
@@ -491,7 +497,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             };
         } catch (error) {
             logger.warn(`[${this.type}] Failed to read queue projection snapshot:`, error);
-            return null;
+            throw this.createProjectionUnavailableError('snapshot rows', error);
         }
     }
 
@@ -509,7 +515,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             return normalizeToFSRSCard(cards).map((card) => ({ ...card }));
         } catch (error) {
             logger.warn(`[${this.type}] Failed to hydrate queue projection snapshot ids:`, error);
-            return [];
+            throw this.createProjectionUnavailableError('snapshot row hydration', error);
         }
     }
 

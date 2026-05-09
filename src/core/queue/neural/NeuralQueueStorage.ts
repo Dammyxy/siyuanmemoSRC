@@ -9,6 +9,7 @@
 import { NeuralQueueConfig, MissedBlock, NavigationPathNode } from './types.ts';
 import { NeuralQueueConfigManager } from './NeuralQueueConfig.ts';
 import { createLogger } from '@/utils/logger';
+import { createDependencyUnavailableError } from '../dependencyErrors';
 
 const logger = createLogger('NeuralQueueStorage');
 
@@ -123,7 +124,7 @@ export class NeuralQueueStorage {
       return state;
     } catch (error) {
       logger.error('Failed to load session state:', error);
-      return null;
+      throw createDependencyUnavailableError('NEURAL_QUEUE_STORAGE_UNAVAILABLE', 'failed to load session state', error);
     }
   }
 
@@ -412,7 +413,7 @@ export class NeuralQueueStorage {
       };
     } catch (error) {
       logger.error('Failed to load Orbit state:', error);
-      return null;
+      throw createDependencyUnavailableError('NEURAL_QUEUE_STORAGE_UNAVAILABLE', 'failed to load Orbit state', error);
     }
   }
 }

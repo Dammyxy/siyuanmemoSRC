@@ -14,6 +14,7 @@ import { ManualCardSetStrategy } from './ManualCardSetStrategy';
 import { loadQueueState, saveQueueState } from './queuePersistence';
 import { resolveCardId } from '../../../diagnostics/type-guards';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
+import { createDependencyUnavailableError } from '../dependencyErrors';
 
 interface ManualCardQueueLogger {
   info(...args: unknown[]): void;
@@ -293,14 +294,31 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
           return null;
         }
 
-        const cardById = await this.manager.getCard(cardId, { silent: true }).catch(() => null);
+        let cardById: FSRSCard | null;
+        try {
+          cardById = await this.manager.getCard(cardId, { silent: true });
+        } catch (error) {
+          throw createDependencyUnavailableError(
+            'QUEUE_CARD_LOOKUP_UNAVAILABLE',
+            `failed to resolve manual card by id ${cardId}`,
+            error,
+          );
+        }
         if (cardById) {
           return cardById;
         }
 
-        const cardByBlockId = await this.manager.getCards({ blockIds: [cardId] })
-          .then((cards) => cards[0] ?? null)
-          .catch(() => null);
+        let cardByBlockId: FSRSCard | null;
+        try {
+          const cards = await this.manager.getCards({ blockIds: [cardId] });
+          cardByBlockId = cards[0] ?? null;
+        } catch (error) {
+          throw createDependencyUnavailableError(
+            'QUEUE_CARD_LOOKUP_UNAVAILABLE',
+            `failed to resolve manual card by block id ${cardId}`,
+            error,
+          );
+        }
         if (cardByBlockId) {
           return cardByBlockId;
         }

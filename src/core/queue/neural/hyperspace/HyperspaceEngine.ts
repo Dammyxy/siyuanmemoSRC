@@ -25,6 +25,7 @@ import { createLogger } from '@/utils/logger';
 import type { BlockData } from '../ConceptQueryEngine';
 import { NeuralGraphProvider, type NeuralGraphChannel, type NeuralGraphEdge } from '../graph/NeuralGraphProvider';
 import { NeuralHistoryStore } from '../NeuralHistoryStore';
+import { createDependencyUnavailableError } from '../../dependencyErrors';
 
 const logger = createLogger('HyperspaceEngine');
 const ENGINE_MODE: NeuralEngineMode = 'hyperspace';
@@ -480,7 +481,7 @@ export class HyperspaceEngine {
       return this.consumeNextSourceRoot();
     } catch (error) {
       logger.error('Failed to resolve hyperspace next card:', error);
-      return null;
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to resolve hyperspace next card', error);
     }
   }
 

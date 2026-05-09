@@ -11,6 +11,7 @@ import * as api from '../../siyuan/api.ts';
 import { AssociationType, NeighborQueryResult, NeuralQueueConfig, NeuralBlockType } from './types.ts';
 import { createLogger } from '@/utils/logger';
 import { hasConceptDefinitionSyntax } from '@/core/xiuyuan/cardMeta';
+import { createDependencyUnavailableError } from '../dependencyErrors';
 
 const logger = createLogger('QueryEngine');
 
@@ -99,7 +100,7 @@ export class QueryEngine {
       return contentMap;
     } catch (error) {
       logger.error('Failed to fetch block contents:', error);
-      return new Map();
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to fetch block contents', error);
     }
   }
 
@@ -123,7 +124,7 @@ export class QueryEngine {
       return [];
     } catch (error) {
       logger.error('Failed to fetch neighbors:', error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to fetch neighbors', error);
     }
   }
 
@@ -167,7 +168,7 @@ export class QueryEngine {
       return uniqueNeighbors;
     } catch (error) {
       logger.error('Failed to fetch concept neighbors:', error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to fetch concept neighbors', error);
     }
   }
 
@@ -206,7 +207,7 @@ export class QueryEngine {
       return hasConceptDefinitionSyntax(content);
     } catch (error) {
       logger.error('Failed to check if concept card:', error);
-      return false;
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to check concept card ${blockId}`, error);
     }
   }
 
@@ -253,7 +254,7 @@ export class QueryEngine {
       }));
     } catch (error) {
       logger.error('Failed to fetch backlinks:', error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to fetch backlinks', error);
     }
   }
 
@@ -303,7 +304,7 @@ export class QueryEngine {
       return conceptLinks;
     } catch (error) {
       logger.error('Failed to fetch concept links:', error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to fetch concept links', error);
     }
   }
 
@@ -369,7 +370,7 @@ export class QueryEngine {
       return toNeighborResults(syntaxRows, AssociationType.DESCRIPTOR);
     } catch (error) {
       logger.error('Failed to fetch descriptor cards:', error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to fetch descriptor cards', error);
     }
   }
 
@@ -460,7 +461,7 @@ export class QueryEngine {
       ];
     } catch (error) {
       logger.error('Failed to fetch ref links:', error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to fetch ref links', error);
     }
   }
 
@@ -522,7 +523,7 @@ export class QueryEngine {
       return toNeighborResults(rows, AssociationType.HIERARCHY);
     } catch (error) {
       logger.error('Failed to fetch context cards:', error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to fetch context cards', error);
     }
   }
 
@@ -555,7 +556,7 @@ export class QueryEngine {
       return toNeighborResults(rows, AssociationType.TAG);
     } catch (error) {
       logger.error('Failed to fetch tag related cards:', error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to fetch tag related cards', error);
     }
   }
 
@@ -586,7 +587,7 @@ export class QueryEngine {
       return toNeighborResults(rows, AssociationType.SIBLING);
     } catch (error) {
       logger.error('Failed to fetch sibling cards:', error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to fetch sibling cards', error);
     }
   }
 
@@ -627,7 +628,7 @@ export class QueryEngine {
       return toNonEmptyString(syntaxRows[0]?.id);
     } catch (error) {
       logger.error('Failed to fetch random card:', error);
-      return null;
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to fetch random card', error);
     }
   }
 
@@ -673,7 +674,7 @@ export class QueryEngine {
       };
     } catch (error) {
       logger.error('Failed to fetch card data:', error);
-      return null;
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to fetch card data', error);
     }
   }
 
@@ -729,7 +730,7 @@ export class QueryEngine {
       return toNonEmptyString(rows[0]?.root_id);
     } catch (error) {
       logger.error('Failed to get root_id:', error);
-      return null;
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to get root_id for ${blockId}`, error);
     }
   }
 
@@ -747,7 +748,7 @@ export class QueryEngine {
       return toNonEmptyString(rows[0]?.parent_id);
     } catch (error) {
       logger.error('Failed to get parent_id:', error);
-      return null;
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to get parent_id for ${blockId}`, error);
     }
   }
 
@@ -772,7 +773,7 @@ export class QueryEngine {
       return tagMatches.map(tag => tag.replace(/#/g, ''));
     } catch (error) {
       logger.error('Failed to extract tags:', error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to extract tags for ${blockId}`, error);
     }
   }
 
@@ -833,7 +834,7 @@ export class QueryEngine {
         .map((id) => ({ id }));
     } catch (error) {
       logger.error(`Failed to fetch descendants for ${blockId}:`, error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to fetch descendants for ${blockId}`, error);
     }
   }
 

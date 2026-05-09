@@ -391,7 +391,7 @@ function classifyCatchBlock(relativePath, lines, index) {
     return null;
   }
   const snippet = collectCatchBlock(lines, index);
-  if (!/return\s+(null|\[\]|0)\s*;/.test(snippet)) {
+  if (!/return\s+(null|\[\]|0|new\s+Map\s*\([^)]*\))\s*;/.test(snippet)) {
     return null;
   }
   if (!/\b(backend|worker|relay|projection|writer|private|sql|storage|detect|detection|migration|init|query|unavailable|failed)\b/i.test(snippet)) {
@@ -400,7 +400,7 @@ function classifyCatchBlock(relativePath, lines, index) {
 
   const isHighRisk = /ApplicationContext|AutoCardHandler|BrowserApplicationService|ReviewCommitUseCase|UnifiedQueueStrategy|UnifiedDataSourceManager|PrivateApiClient|FollowerCommandClient/i
     .test(relativePath);
-  const requiresClassification = isHighRisk || isApplicationRuntimePath(relativePath);
+  const requiresClassification = true;
   return createHit({
     file: relativePath,
     line: index + 1,
@@ -414,12 +414,12 @@ function classifyCatchBlock(relativePath, lines, index) {
 }
 
 function classifyPromiseEmptyCatch(relativePath, line, lineNumber) {
-  if (!/\.catch\s*\(\s*\(\s*\)\s*=>\s*(null|\[\]|0|this\.lastCounterSnapshot)\s*\)/.test(line)) {
+  if (!/\.catch\s*\(\s*\(\s*\)\s*=>\s*(null|\[\]|0|new\s+Map\s*\([^)]*\)|this\.lastCounterSnapshot)\s*\)/.test(line)) {
     return null;
   }
   const isHighRisk = /ApplicationContext|AutoCardHandler|BrowserApplicationService|ReviewCommitUseCase|UnifiedQueueStrategy|UnifiedDataSourceManager|PrivateApiClient|FollowerCommandClient/i
     .test(relativePath);
-  const requiresClassification = isHighRisk || isApplicationRuntimePath(relativePath);
+  const requiresClassification = true;
   return createHit({
     file: relativePath,
     line: lineNumber,

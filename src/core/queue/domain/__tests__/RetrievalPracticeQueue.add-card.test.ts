@@ -47,7 +47,7 @@ describe('RetrievalPracticeQueue addCard', () => {
         if (id === storedCard.id) {
           return storedCard;
         }
-        throw new Error('card not found by id');
+        return null;
       }),
       getCards: vi.fn(async (filter?: Record<string, unknown>) => {
         if (Array.isArray(filter?.blockIds)) {
@@ -221,7 +221,7 @@ describe('RetrievalPracticeQueue addCard', () => {
     expect(persistence.set).not.toHaveBeenCalled();
   });
 
-  it('does not fall back to an unfiltered full-card scan when a manual card is missing', async () => {
+  it('fails closed instead of treating card lookup dependency failure as a missing manual card', async () => {
     const persistence = createPersistenceStub(['missing-manual-card']);
     const manager = {
       getCard: vi.fn(async () => {
@@ -244,9 +244,9 @@ describe('RetrievalPracticeQueue addCard', () => {
     const queue = new RetrievalPracticeQueue(manager as never, persistence);
     await queue.load();
 
-    await expect(queue.getCards()).resolves.toEqual([]);
+    await expect(queue.getCards()).rejects.toThrow('QUEUE_CARD_LOOKUP_UNAVAILABLE');
 
     expect(manager.getCards).not.toHaveBeenCalledWith();
-    expect(persistence.set).toHaveBeenCalledWith('retrievalPracticeQueue', []);
+    expect(persistence.set).not.toHaveBeenCalledWith('retrievalPracticeQueue', []);
   });
 });

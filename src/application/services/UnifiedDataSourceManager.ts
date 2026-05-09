@@ -45,6 +45,7 @@ import type {
     NeuralRoamNodeType,
     QueuePersistencePort,
 } from '@/core/queue/domain/ports';
+import { createDependencyUnavailableError } from '@/core/queue/dependencyErrors';
 import { createLogger } from '@/utils/logger';
 import type { HyperspaceSettings } from '@/types/settings';
 import type {
@@ -468,7 +469,6 @@ export class UnifiedDataSourceManager {
                     }
                     : null,
             };
-        // hidden-fallback-ok: class=explicit-unavailable owner=queue-projection reason=manager-null-contract removal=queue-projection-contract-result test=src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts
         } catch (error) {
             logger.warn('Failed to read queue projection snapshot', {
                 queueType,
@@ -477,7 +477,11 @@ export class UnifiedDataSourceManager {
             this.recordQueueProjectionUnavailable(queueType, 'projection-unavailable', {
                 unavailableReason: error instanceof Error ? error.message : String(error),
             });
-            return null;
+            throw createDependencyUnavailableError(
+                'QUEUE_PROJECTION_UNAVAILABLE',
+                `failed to read queue projection snapshot for ${queueType}`,
+                error,
+            );
         }
     }
 
@@ -532,7 +536,6 @@ export class UnifiedDataSourceManager {
                     && typeof (card as FSRSCard).blockId === 'string'
                 ))
                 .map((card) => ({ ...card }));
-        // hidden-fallback-ok: class=explicit-unavailable owner=queue-projection reason=manager-empty-contract removal=queue-projection-contract-result test=src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts
         } catch (error) {
             logger.warn('Failed to hydrate queue projection rows', {
                 queueType,
@@ -542,7 +545,11 @@ export class UnifiedDataSourceManager {
             this.recordQueueProjectionUnavailable(queueType, 'projection-unavailable', {
                 unavailableReason: error instanceof Error ? error.message : String(error),
             });
-            return [];
+            throw createDependencyUnavailableError(
+                'QUEUE_PROJECTION_UNAVAILABLE',
+                `failed to hydrate queue projection rows for ${queueType}`,
+                error,
+            );
         }
     }
 

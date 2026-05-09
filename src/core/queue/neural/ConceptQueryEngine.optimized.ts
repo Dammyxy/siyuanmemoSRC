@@ -13,6 +13,7 @@ import { createLogger } from '@/utils/logger';
 import { QueryCache } from '@/utils/queryCache';
 import { PerformanceMonitor } from '@/utils/performance';
 import { hasConceptDefinitionSyntax } from '@/core/xiuyuan/cardMeta';
+import { createDependencyUnavailableError } from '../dependencyErrors';
 
 const logger = createLogger('ConceptQueryEngine');
 
@@ -126,7 +127,7 @@ export class ConceptQueryEngineOptimized {
         return uniqueNeighbors;
       } catch (error) {
         logger.error('Failed to fetch neighbors:', error);
-        return [];
+        throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to fetch optimized neighbors for ${conceptId}`, error);
       }
     });
   }
@@ -157,14 +158,14 @@ export class ConceptQueryEngineOptimized {
 
         if (!response.ok) {
           logger.error(`API request failed: ${response.status}`);
-          return [];
+          throw new Error(`API request failed: ${response.status}`);
         }
 
         const data: unknown = await response.json();
         if (!isRecord(data) || data.code !== 0) {
           const errorMessage = isRecord(data) && typeof data.msg === 'string' ? data.msg : 'unknown error';
           logger.error(`API error: ${errorMessage}`);
-          return [];
+          throw new Error(`API error: ${errorMessage}`);
         }
 
         const backlinks = isRecord(data.data) && Array.isArray(data.data.backlinks) ? data.data.backlinks : [];
@@ -180,7 +181,7 @@ export class ConceptQueryEngineOptimized {
         return backlinkIds;
       } catch (error) {
         logger.error('Failed to fetch backlinks:', error);
-        return [];
+        throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to fetch optimized backlinks for ${conceptId}`, error);
       }
     });
   }
@@ -219,7 +220,7 @@ export class ConceptQueryEngineOptimized {
         return linkIds;
       } catch (error) {
         logger.error('Failed to fetch outgoing links:', error);
-        return [];
+        throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to fetch optimized outgoing links for ${conceptId}`, error);
       }
     });
   }
@@ -283,7 +284,7 @@ export class ConceptQueryEngineOptimized {
         return descriptorIds;
       } catch (error) {
         logger.error('Failed to fetch descriptors:', error);
-        return [];
+        throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to fetch optimized descriptors for ${conceptId}`, error);
       }
     });
   }
@@ -347,7 +348,7 @@ export class ConceptQueryEngineOptimized {
         return result;
       } catch (error) {
         logger.error('Failed to check concept cards:', error);
-        return new Map();
+        throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to check optimized concept cards', error);
       }
     });
   }
@@ -406,7 +407,7 @@ export class ConceptQueryEngineOptimized {
         return result;
       } catch (error) {
         logger.error('Failed to fetch blocks data:', error);
-        return new Map();
+        throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to fetch optimized blocks data', error);
       }
     });
   }

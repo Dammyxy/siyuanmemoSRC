@@ -36,6 +36,7 @@ import { getCurrentDayEnd } from '../../../utils/dateUtils';
 import { createLogger } from '@/utils/logger';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import { SrsV2QueuePolicy } from './SrsV2QueuePolicy';
+import { createDependencyUnavailableError } from '../dependencyErrors';
 
 const logger = createLogger('IncrementalLearningQueue');
 
@@ -394,12 +395,30 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
         card: FSRSCard | QueueItem | string
     ): Promise<{ cardId: string; existingCard: FSRSCard | null }> {
         const candidateId = resolveCardId(card);
-        const byCardId = await this.manager.getCard(candidateId, { silent: true }).catch(() => null);
+        let byCardId: FSRSCard | null;
+        try {
+            byCardId = await this.manager.getCard(candidateId, { silent: true });
+        } catch (error) {
+            throw createDependencyUnavailableError(
+                'QUEUE_CARD_LOOKUP_UNAVAILABLE',
+                `failed to resolve incremental-learning add target by card id ${candidateId}`,
+                error,
+            );
+        }
         if (byCardId) {
             return { cardId: byCardId.id, existingCard: byCardId };
         }
 
-        const byBlockId = await this.manager.getCards({ blockIds: [candidateId] }).catch(() => []);
+        let byBlockId: FSRSCard[];
+        try {
+            byBlockId = await this.manager.getCards({ blockIds: [candidateId] });
+        } catch (error) {
+            throw createDependencyUnavailableError(
+                'QUEUE_CARD_LOOKUP_UNAVAILABLE',
+                `failed to resolve incremental-learning add target by block id ${candidateId}`,
+                error,
+            );
+        }
         const existingCard = byBlockId[0] ?? null;
         if (existingCard) {
             return { cardId: existingCard.id, existingCard };

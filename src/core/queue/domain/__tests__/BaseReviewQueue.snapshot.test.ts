@@ -321,6 +321,44 @@ describe('BaseReviewQueue snapshot rows', () => {
     expect(getCardsSpy).not.toHaveBeenCalled();
   });
 
+  it('fails closed when projection snapshot dependency throws', async () => {
+    const cardA = buildCard('card-a', { riffCardId: 'row-a' });
+    const readProjectionSnapshot = vi.fn(async () => {
+      throw new Error('projection read failed');
+    });
+    const queue = new TestQueue([cardA], {
+      readQueueProjectionSnapshot: readProjectionSnapshot,
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => createProjectionRolloutDiagnostic(QueueType.FilterGroup, true)),
+    }, QueueType.FilterGroup);
+    const getCardsSpy = vi.spyOn(queue, 'getCards');
+
+    await expect(queue.getSnapshotRows()).rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
+
+    expect(getCardsSpy).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when projection hydration dependency throws', async () => {
+    const cardA = buildCard('card-a', { riffCardId: 'row-a' });
+    const row = buildQueueSnapshotRow(cardA, { queueIndex: 1 });
+    const readProjectionSnapshot = vi.fn(async () => ({
+      queueType: QueueType.FilterGroup,
+      policyHash: 'policy-a',
+      generation: 7,
+      rows: [row],
+      counters: null,
+    }));
+    const getProjectionCardsBySnapshotIds = vi.fn(async () => {
+      throw new Error('hydration failed');
+    });
+    const queue = new TestQueue([cardA], {
+      readQueueProjectionSnapshot: readProjectionSnapshot,
+      getQueueProjectionCardsBySnapshotIds: getProjectionCardsBySnapshotIds,
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => createProjectionRolloutDiagnostic(QueueType.FilterGroup, true)),
+    }, QueueType.FilterGroup);
+
+    await expect(queue.getCardsBySnapshotIds([row.id])).rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
+  });
+
   it('rebuilds snapshot rows after reorder, insertAt, clear, and force refresh', async () => {
     const cardA = buildCard('card-a');
     const cardB = buildCard('card-b');

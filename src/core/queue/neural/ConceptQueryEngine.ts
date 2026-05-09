@@ -18,6 +18,7 @@ import {
 import { createLogger } from '@/utils/logger';
 import { QueryCache } from '@/utils/queryCache';
 import type { NeuralRoamNodeType, NeuralRoamNodeTypeResolverPort } from '../domain/ports';
+import { createDependencyUnavailableError } from '../dependencyErrors';
 
 const logger = createLogger('ConceptQueryEngine');
 
@@ -120,7 +121,7 @@ export class ConceptQueryEngine {
       return uniqueNeighbors;
     } catch (error) {
       logger.error('Failed to fetch neighbors:', error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to fetch neighbors for ${conceptId}`, error);
     }
   }
 
@@ -193,7 +194,7 @@ export class ConceptQueryEngine {
       return backlinkIds;
     } catch (error) {
       logger.error('Failed to fetch backlinks:', error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to fetch backlinks for ${conceptId}`, error);
     }
   }
 
@@ -229,7 +230,7 @@ export class ConceptQueryEngine {
       return linkIds;
     } catch (error) {
       logger.error('Failed to fetch direct outgoing links:', error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to fetch direct outgoing links for ${conceptId}`, error);
     }
   }
 
@@ -277,7 +278,7 @@ export class ConceptQueryEngine {
       return linkIds;
     } catch (error) {
       logger.error('Failed to fetch indirect outgoing links:', error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to fetch indirect outgoing links for ${conceptId}`, error);
     }
   }
 
@@ -357,7 +358,7 @@ export class ConceptQueryEngine {
       return descriptorIds;
     } catch (error) {
       logger.error('Failed to fetch descriptors:', error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to fetch descriptors for ${conceptId}`, error);
     }
   }
 
@@ -407,7 +408,7 @@ export class ConceptQueryEngine {
         throw new Error('NEURAL_ROAM_SCHEMA_UNAVAILABLE: fsrs_cards is unavailable for concept checks');
       }
       logger.error('Failed to check if concept card:', error);
-      return false;
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to check concept card ${blockId}`, error);
     }
   }
 
@@ -564,7 +565,7 @@ export class ConceptQueryEngine {
       };
     } catch (error) {
       logger.warn(`Failed to read progressive excerpt attrs for ${normalizedBlockId}:`, error);
-      return {};
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to read progressive excerpt attrs for ${normalizedBlockId}`, error);
     }
   }
 
@@ -591,7 +592,7 @@ export class ConceptQueryEngine {
       return this.extractIds(rows);
     } catch (error) {
       logger.error(`Failed to fetch subtree block ids for ${normalizedBlockId}:`, error);
-      return [normalizedBlockId];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to fetch subtree block ids for ${normalizedBlockId}`, error);
     }
   }
 
@@ -673,7 +674,7 @@ export class ConceptQueryEngine {
       return this.extractIds(rows, listItemId);
     } catch (error) {
       logger.error(`Failed to resolve descendant block ids for list item ${listItemId}:`, error);
-      return [];
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to resolve descendant block ids for list item ${listItemId}`, error);
     }
   }
 
@@ -787,7 +788,7 @@ export class ConceptQueryEngine {
       return await this.options.nodeTypeResolver.resolveNodeType(blockId);
     } catch (error) {
       logger.warn(`Failed to resolve roam node type via injected resolver for ${blockId}:`, error);
-      return 'unknown';
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to resolve roam node type via injected resolver for ${blockId}`, error);
     }
   }
 
@@ -837,7 +838,7 @@ export class ConceptQueryEngine {
         throw new Error('NEURAL_ROAM_SCHEMA_UNAVAILABLE: fsrs_cards is unavailable for local roam-node type checks');
       }
       logger.error(`Failed to resolve local roam node type for block ${blockId}:`, error);
-      return 'unknown';
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to resolve local roam node type for block ${blockId}`, error);
     }
   }
 
@@ -900,7 +901,7 @@ export class ConceptQueryEngine {
       return blockData;
     } catch (error) {
       logger.error('Failed to fetch block data:', error);
-      return null;
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to fetch block data for ${blockId}`, error);
     }
   }
 

@@ -46,6 +46,7 @@ import {
   type HyperspaceSessionState,
 } from '../neural/hyperspace/HyperspaceEngine';
 import { NeuralGraphProvider } from '../neural/graph/NeuralGraphProvider';
+import { createDependencyUnavailableError } from '../dependencyErrors';
 import { resolveCardId } from '../../../diagnostics/type-guards';
 import { createLogger } from '@/utils/logger';
 import type { HyperspaceSettings } from '@/types/settings';
@@ -947,7 +948,11 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       return associatedCards;
     } catch (error) {
       logger.warn(`Failed to resolve associated review cards for virtual node ${sourceBlockId}:`, error);
-      return [];
+      throw createDependencyUnavailableError(
+        'NEURAL_ROAM_QUERY_UNAVAILABLE',
+        `failed to resolve associated review cards for virtual node ${sourceBlockId}`,
+        error,
+      );
     }
   }
 

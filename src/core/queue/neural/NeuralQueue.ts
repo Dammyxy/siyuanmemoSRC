@@ -21,6 +21,7 @@ import {
   OrbitStateV2,
 } from './types.ts';
 import { createLogger } from '@/utils/logger';
+import { createDependencyUnavailableError } from '../dependencyErrors';
 
 const logger = createLogger('NeuralQueue');
 
@@ -461,7 +462,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       return randomCard;
     } catch (error) {
       logger.error('Failed to pick random seed:', error);
-      return null;
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', 'failed to pick random seed', error);
     }
   }
 
@@ -482,7 +483,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       return cardData;
     } catch (error) {
       logger.error(`Failed to fetch card details for ${cardId}:`, error);
-      return null;
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to fetch card details for ${cardId}`, error);
     }
   }
 
