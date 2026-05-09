@@ -125,6 +125,10 @@ function nowMs(): number {
   return Date.now();
 }
 
+function formatUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function getGlobalRecord(): Record<string, unknown> | null {
   if (typeof globalThis !== 'object' || !globalThis) {
     return null;
@@ -798,7 +802,18 @@ export class FrontendInstanceRuntime {
   }
 
   private async observeCurrentLease(reason: string): Promise<FrontendOwnershipSnapshot> {
-    const lease = await this.sidecarClient.writerGetLease().catch(() => null);
+    let lease: FrontendObservedLeaseEnvelope | null;
+    try {
+      lease = await this.sidecarClient.writerGetLease();
+    } catch (error) {
+      this.logger.warn('[FrontendInstanceRuntime] writer lease observe failed', {
+        instanceId: this.instanceId,
+        runtimeScopeId: this.runtimeScopeId,
+        reason,
+        error,
+      });
+      throw new Error(`BACKEND_UNAVAILABLE: writer lease observation failed: ${formatUnknownError(error)}`);
+    }
     const ownership = this.buildOwnershipSnapshot(lease);
     this.setMode(
       ownership.leaseHolder === this.instanceId ? 'writer' : 'follower',

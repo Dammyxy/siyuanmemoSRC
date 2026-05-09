@@ -405,6 +405,42 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     expect(showMessage).toHaveBeenCalledWith('Topic created and added to today', 3000, 'info');
   });
 
+  it('fails closed when excerpt highlight preparation throws', async () => {
+    document.body.innerHTML = `
+      <div class="protyle" id="editor-root">
+        <div data-node-id="block-1">
+          <span id="target" contenteditable="true">Hello world</span>
+        </div>
+      </div>
+    `;
+
+    const root = document.getElementById('editor-root');
+    if (!root) {
+      throw new Error('Expected editor root');
+    }
+
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(root));
+    prepareProgressiveExcerptHighlight.mockImplementationOnce(() => {
+      throw new Error('highlight planner down');
+    });
+
+    const { handler, createFromSelection } = createHandler();
+    await handler.runFromEditor({
+      wysiwyg: {
+        element: root,
+      },
+    } as any);
+
+    expect(createFromSelection).not.toHaveBeenCalled();
+    expect(applyProgressiveExcerptHighlight).not.toHaveBeenCalled();
+    expect(showMessage).toHaveBeenCalledWith(
+      expect.stringContaining('PROGRESSIVE_EXCERPT_HIGHLIGHT_UNAVAILABLE: failed to prepare progressive excerpt highlight: highlight planner down'),
+      5000,
+      'error',
+    );
+  });
+
   it('adds an excerpt item to the content menu for a valid single-block editor selection', async () => {
     document.body.innerHTML = `
       <div class="protyle" id="editor-root">
@@ -838,6 +874,48 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     expect(prepareSelectionClozeMark).toHaveBeenCalledTimes(1);
     expect(applyPreparedSelectionClozeMark).toHaveBeenCalledTimes(1);
     expect(showMessage).toHaveBeenCalledWith('已将选区标记为挖空，普通卡片会按现有规则生成', 3000, 'info');
+  });
+
+  it('fails closed when plain cloze preparation throws', async () => {
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(document.body, {
+      text: 'Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+    }));
+    prepareSelectionClozeMark.mockImplementationOnce(() => {
+      throw new Error('cloze planner down');
+    });
+
+    const prepareTopicContinuation = vi.fn(() => ({
+      rootId: 'ordinary-doc-1',
+      topicContext: null,
+      normalizedContent: 'Beta',
+      plannerContent: '',
+      artifactContentDom: '',
+      decisions: [],
+      mode: null,
+      highlightTargetCount: 0,
+      available: false,
+    }));
+    const { handler } = createHandler({
+      prepareTopicContinuation,
+    });
+
+    await handler.runItemFromEditor({
+      wysiwyg: {
+        element: document.body,
+      },
+      block: {
+        rootID: 'ordinary-doc-1',
+      },
+    } as any);
+
+    expect(applyPreparedSelectionClozeMark).not.toHaveBeenCalled();
+    expect(showMessage).toHaveBeenCalledWith(
+      expect.stringContaining('PROGRESSIVE_CLOZE_MARK_UNAVAILABLE: failed to prepare selection cloze mark: cloze planner down'),
+      5000,
+      'error',
+    );
   });
 
   it('runs the new Item command after the command-panel tick and falls back to standard cloze outside topic context', async () => {

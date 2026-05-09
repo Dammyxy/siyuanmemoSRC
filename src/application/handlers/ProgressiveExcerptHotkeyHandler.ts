@@ -441,7 +441,7 @@ export class ProgressiveExcerptHotkeyHandler {
       return prepareProgressiveExcerptHighlight(selection);
     } catch (error) {
       logger.warn('Failed to prepare progressive excerpt highlight before excerpt creation', error);
-      return null;
+      throw new Error(`PROGRESSIVE_EXCERPT_HIGHLIGHT_UNAVAILABLE: failed to prepare progressive excerpt highlight: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -473,7 +473,7 @@ export class ProgressiveExcerptHotkeyHandler {
       return prepareSelectionClozeMark(selection);
     } catch (error) {
       logger.warn('Failed to prepare selection cloze mark before standard card creation fallback', error);
-      return null;
+      throw new Error(`PROGRESSIVE_CLOZE_MARK_UNAVAILABLE: failed to prepare selection cloze mark: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

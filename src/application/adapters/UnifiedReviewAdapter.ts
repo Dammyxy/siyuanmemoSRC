@@ -84,6 +84,14 @@ function t(i18n: Record<string, string> | undefined, key: string, fallback: stri
   return i18n?.[key] || fallback;
 }
 
+function formatUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function createReviewDependencyUnavailableError(code: string, message: string, error: unknown): Error {
+  return new Error(`${code}: ${message}: ${formatUnknownError(error)}`);
+}
+
 function hasQueueType(queue: unknown): queue is QueueWithType {
   return typeof queue === 'object'
     && queue !== null
@@ -108,7 +116,11 @@ function resolveUnderlyingQueue(queue: unknown): UnderlyingQueueLike | null {
       : null;
   } catch (error) {
     logger.warn('Failed to resolve underlying queue for header counts:', error);
-    return null;
+    throw createReviewDependencyUnavailableError(
+      'REVIEW_QUEUE_UNAVAILABLE',
+      'failed to resolve underlying queue for header counts',
+      error,
+    );
   }
 }
 
@@ -666,10 +678,19 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     const stats = normalizeStats(await queue.getStats?.());
     const safeContext = context ?? { showAnswer: false };
 
-    const snapshot = await queue.getCounterSnapshot?.().catch((error) => {
-      logger.warn('Failed to read live queue counter snapshot:', error);
-      return null;
-    });
+    let snapshot: QueueCounterSnapshot | null | undefined;
+    if (typeof queue.getCounterSnapshot === 'function') {
+      try {
+        snapshot = await queue.getCounterSnapshot();
+      } catch (error) {
+        logger.warn('Failed to read live queue counter snapshot:', error);
+        throw createReviewDependencyUnavailableError(
+          'REVIEW_COUNTER_UNAVAILABLE',
+          'failed to read live queue counter snapshot',
+          error,
+        );
+      }
+    }
     const overallRemaining = Math.max(0, Number(snapshot?.remaining) || stats.size);
     const overallTotal = Math.max(0, Number(snapshot?.total) || overallRemaining);
     const presentation = this.buildCounterPresentation({

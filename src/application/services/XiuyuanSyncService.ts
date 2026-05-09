@@ -505,7 +505,7 @@ export class XiuyuanSyncService {
             attrs = await this.siyuanApi.getBlockAttrs(blockId);
         } catch (error) {
             logger.debug(`Failed to load legacy Xiuyuan binding attrs for block ${blockId}`, error);
-            return null;
+            throw new Error(`XIUYUAN_BINDING_ATTRS_UNAVAILABLE: failed to load legacy Xiuyuan binding attrs for block ${blockId}: ${error instanceof Error ? error.message : String(error)}`);
         }
 
         const bindingId = this.extractXiuyuanBindingId(attrs);
@@ -1113,14 +1113,7 @@ export class XiuyuanSyncService {
                 continue;
             }
 
-            let existingXiuyuan: Xiuyuan | null = null;
-            try {
-                existingXiuyuan = await this.findExistingXiuyuanForBlock(riffCard.id);
-            } catch (error) {
-                logger.warn(`Failed to inspect existing Xiuyuan for Riff card ${riffCard.id}, skipping`, error);
-                changeSet.stats.skippedCount++;
-                continue;
-            }
+            const existingXiuyuan = await this.findExistingXiuyuanForBlock(riffCard.id);
 
             if (existingXiuyuan && !this.isManagedRiffXiuyuan(existingXiuyuan)) {
                 this.recordLocalOwnedSkip(localOwnedSkips, 'incremental', riffCard.id);
@@ -1202,14 +1195,7 @@ export class XiuyuanSyncService {
                 continue;
             }
 
-            let existingXiuyuan: Xiuyuan | null = null;
-            try {
-                existingXiuyuan = await this.findExistingXiuyuanForBlock(riffCard.id);
-            } catch (error) {
-                logger.warn(`Failed to inspect existing Xiuyuan for full sync card ${riffCard.id}, skipping`, error);
-                changeSet.stats.skippedCount++;
-                continue;
-            }
+            const existingXiuyuan = await this.findExistingXiuyuanForBlock(riffCard.id);
 
             if (existingXiuyuan && !this.isManagedRiffXiuyuan(existingXiuyuan)) {
                 this.recordLocalOwnedSkip(localOwnedSkips, 'full', riffCard.id);
@@ -1730,15 +1716,8 @@ export class XiuyuanSyncService {
             throw new Error(`Failed to create XiuyuanId: ${errorMsg}`);
         }
 
-        let priorityValue = 50;
-        try {
-            const existingXiuyuan = await this.findExistingXiuyuanForBlock(riffBlock.id);
-            if (existingXiuyuan) {
-                priorityValue = existingXiuyuan.getPriority().getValue();
-            }
-        } catch (error) {
-            logger.warn(`Failed to reuse existing Xiuyuan priority for block ${riffBlock.id}, using default`, error);
-        }
+        const existingXiuyuanForPriority = await this.findExistingXiuyuanForBlock(riffBlock.id);
+        const priorityValue = existingXiuyuanForPriority?.getPriority().getValue() ?? 50;
         const priorityResult = Priority.create(priorityValue);
         const priority = priorityResult.ok ? priorityResult.value : Priority.createDefault();
 

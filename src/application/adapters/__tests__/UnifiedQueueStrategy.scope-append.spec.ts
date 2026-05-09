@@ -126,4 +126,51 @@ describe('UnifiedQueueStrategy appendCardsToTail', () => {
 
     restored.cleanup();
   });
+
+  it('fails closed when counter snapshot read fails during remaining-size calculation', async () => {
+    const queue = {
+      getType: () => QueueType.RetrievalPractice,
+      getCards: vi.fn(async () => [createCard('card-1', 'block-1')]),
+      getCounterSnapshot: vi.fn(async () => {
+        throw new Error('counter unavailable');
+      }),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+
+    const strategy = new UnifiedQueueStrategy(
+      queue as any,
+      {} as any,
+      new EventBus(false),
+      null,
+    );
+
+    await expect(strategy.getRemainingSize()).rejects.toThrow('QUEUE_COUNT_UNAVAILABLE');
+    await expect(strategy.getStats()).rejects.toThrow('QUEUE_COUNT_UNAVAILABLE');
+
+    strategy.cleanup();
+  });
+
+  it('fails closed when reload cannot refresh the queue counter snapshot', async () => {
+    const queue = {
+      getType: () => QueueType.FilterGroup,
+      getCards: vi.fn(async () => [createCard('card-1', 'block-1')]),
+      getCounterSnapshot: vi.fn(async () => {
+        throw new Error('snapshot unavailable');
+      }),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+
+    const strategy = new UnifiedQueueStrategy(
+      queue as any,
+      {} as any,
+      new EventBus(false),
+      null,
+    );
+
+    await expect(strategy.next()).rejects.toThrow('QUEUE_COUNT_UNAVAILABLE');
+
+    strategy.cleanup();
+  });
 });

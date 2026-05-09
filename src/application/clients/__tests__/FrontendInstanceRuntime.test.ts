@@ -655,6 +655,44 @@ describe('FrontendInstanceRuntime', () => {
     expect(runtime.getMode()).toBe('follower');
   });
 
+  it('throws explicit unavailable when writer lease observation fails', async () => {
+    const warn = vi.fn();
+    const writerGetLease = vi.fn(async () => {
+      throw new Error('sidecar down');
+    });
+    const writerAcquireLease = vi.fn(async () => {
+      throw new Error('must not acquire after observation failure');
+    });
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease,
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'follower-observe-fail',
+      runtimeScopeId: 'scope-observe-fail',
+      logger: {
+        info: vi.fn(),
+        warn,
+        error: vi.fn(),
+      },
+    });
+
+    await expect((runtime as unknown as {
+      refreshOwnership: (reason: string) => Promise<{ leaseHolder: string | null }>;
+    }).refreshOwnership('manual'))
+      .rejects.toThrow('BACKEND_UNAVAILABLE: writer lease observation failed: sidecar down');
+
+    expect(writerGetLease).toHaveBeenCalledTimes(1);
+    expect(writerAcquireLease).not.toHaveBeenCalled();
+    expect(runtime.getMode()).toBe('follower');
+    expect(warn).toHaveBeenCalledWith('[FrontendInstanceRuntime] writer lease observe failed', expect.objectContaining({
+      instanceId: 'follower-observe-fail',
+      runtimeScopeId: 'scope-observe-fail',
+      reason: 'manual:observe',
+    }));
+  });
+
   it('keeps startup follower observe-only when another active writer exists', async () => {
     const writerAcquireLease = vi.fn(async () => {
       throw new Error('startup follower must not acquire while another writer is active');

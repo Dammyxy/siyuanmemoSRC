@@ -30,15 +30,19 @@ function createReleasePolicy(overrides?: {
 }
 
 function createHandler(input?: {
+  contextError?: Error;
+  backendClientError?: Error;
   backendClient?: {
     executeAutoCard?: (request: unknown) => Promise<unknown>;
     resolveAutoCardDecision?: (request: unknown) => Promise<unknown>;
   } | null;
+  relayRuntimeError?: Error;
   relayRuntime?: {
     getMode: () => string;
     getInstanceId: () => string;
     ensureWritable?: () => Promise<void>;
   } | null;
+  followerClientError?: Error;
   followerClient?: {
     submitAndWait: <TResult>(request: {
       instanceId: string;
@@ -70,7 +74,11 @@ function createHandler(input?: {
     })),
   };
   const plugin = {
-    getContext: () => ({
+    getContext: () => {
+      if (input?.contextError) {
+        throw input.contextError;
+      }
+      return ({
       getSettingsService: () => ({
         getSettings: () => ({
           quickCard: {
@@ -87,11 +95,27 @@ function createHandler(input?: {
         detectCardType: async () => 'item',
       }),
       getTopicDerivedItemService: () => topicDerivedItemService,
-      getSrsBackendClient: () => input?.backendClient ?? null,
-      getFrontendInstanceRuntime: () => input?.relayRuntime ?? null,
-      getFollowerCommandClient: () => input?.followerClient ?? null,
+      getSrsBackendClient: () => {
+        if (input?.backendClientError) {
+          throw input.backendClientError;
+        }
+        return input?.backendClient ?? null;
+      },
+      getFrontendInstanceRuntime: () => {
+        if (input?.relayRuntimeError) {
+          throw input.relayRuntimeError;
+        }
+        return input?.relayRuntime ?? null;
+      },
+      getFollowerCommandClient: () => {
+        if (input?.followerClientError) {
+          throw input.followerClientError;
+        }
+        return input?.followerClient ?? null;
+      },
       getBackendMigrationRuntimePolicy: () => input?.runtimePolicy ?? null,
-    }),
+    });
+    },
   };
 
   const handler = new AutoCardHandler(plugin as never, {
@@ -435,6 +459,53 @@ describe('AutoCardHandler backend execute routing', () => {
     expect(submitAndWait).toHaveBeenCalledTimes(2);
     expect(executeAutoCard).not.toHaveBeenCalled();
     expect(resolveAutoCardDecision).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when ApplicationContext lookup throws instead of continuing with absent dependencies', async () => {
+    const { handler } = createHandler({
+      contextError: new Error('context registry unavailable'),
+      runtimePolicy: createReleasePolicy({ autocardDecisionRelay: 'false' }),
+    });
+
+    await expect((handler as any).resolveAutoCardDecisionCore(createDecisionRequest())).rejects.toThrow(
+      'AUTOCARD_RUNTIME_UNAVAILABLE: ApplicationContext lookup failed',
+    );
+  });
+
+  it('fails closed when follower command client lookup throws instead of continuing as missing relay', async () => {
+    const executeAutoCard = vi.fn(async () => ({
+      executed: true,
+      created: 1,
+      skipped: 0,
+    }));
+    const { handler } = createHandler({
+      backendClient: { executeAutoCard },
+      relayRuntime: {
+        getMode: () => 'follower',
+        getInstanceId: () => 'instance-follower-client-fails',
+      },
+      followerClientError: new Error('follower client registry unavailable'),
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    await expect((handler as any).executeAutoCardEnvelope({
+      kind: 'planner-decision',
+      blockId: 'block-follower-client-fails',
+      content: 'Alpha <> Beta',
+      decision: {
+        id: 'BasicDirectionRule',
+        family: 'basic',
+        templateId: 'builtin-bidirectional-single',
+        cardType: 'item',
+        mode: 'multi-face',
+        executorKind: 'quick-basic',
+        priority: 50,
+        direction: 'both',
+      },
+      source: 'symbol-listener',
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: autocard follower command client is unavailable');
+
+    expect(executeAutoCard).not.toHaveBeenCalled();
   });
 
   it('fails closed when runtime mode is unknown and writer relay is required', async () => {

@@ -158,4 +158,86 @@ describe('check-hidden-fallbacks', () => {
       expect.stringContaining('dependency-catch-empty-return'),
     ]));
   });
+
+  it('fails high-risk P1 dependency catches even when the catch body has no backend keyword', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/application/handlers/AutoCardHandler.ts', `
+      export function readContext(plugin) {
+        try {
+          return plugin.getContext();
+        } catch (error) {
+          logger.warn('context lookup failed', error);
+          return null;
+        }
+      }
+    `);
+
+    const result = evaluate({ rootDir, allowEntries: [] });
+
+    expect(result.failures).toEqual(expect.arrayContaining([
+      expect.stringContaining('dependency-catch-empty-return'),
+    ]));
+  });
+
+  it('fails high-risk promise catches that collapse dependency errors to empty state', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/application/adapters/UnifiedQueueStrategy.ts', `
+      export async function refresh(queue) {
+        const snapshot = await queue.getCounterSnapshot().catch(() => null);
+        return snapshot;
+      }
+    `);
+
+    const result = evaluate({ rootDir, allowEntries: [] });
+
+    expect(result.failures).toEqual(expect.arrayContaining([
+      expect.stringContaining('dependency-promise-empty-catch'),
+    ]));
+  });
+
+  it('fails application-layer P2 dependency catches that collapse errors to empty state', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/application/handlers/ProgressiveExcerptHotkeyHandler.ts', `
+      export async function prepare(progressiveReadingService) {
+        try {
+          return await progressiveReadingService.prepareSelection();
+        } catch (error) {
+          logger.warn('Failed to prepare progressive excerpt highlight', error);
+          return null;
+        }
+      }
+    `);
+
+    const result = evaluate({ rootDir, allowEntries: [] });
+
+    expect(result.failures).toEqual(expect.arrayContaining([
+      expect.stringContaining('dependency-catch-empty-return'),
+    ]));
+  });
+
+  it('keeps non-application P2 dependency empty catches as deferred info', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/core/queue/neural/QueryEngine.ts', `
+      export async function fetchNeighbors(storage) {
+        try {
+          return await storage.queryNeighbors();
+        } catch (error) {
+          logger.error('Failed to fetch neighbors:', error);
+          return [];
+        }
+      }
+    `);
+
+    const result = evaluate({ rootDir, allowEntries: [] });
+
+    expect(result.failures).toEqual([]);
+    expect(result.hits).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        file: 'src/core/queue/neural/QueryEngine.ts',
+        kind: 'dependency-catch-empty-return',
+        status: 'info',
+        risk: 'P2',
+      }),
+    ]));
+  });
 });

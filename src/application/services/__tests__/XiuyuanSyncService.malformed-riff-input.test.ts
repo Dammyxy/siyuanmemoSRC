@@ -255,6 +255,23 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
     expect(savedXiuyuan?.getBlockIDs()[0]?.getValue()).toBe(normalizedBlockId);
   });
 
+  it('fails closed when legacy Xiuyuan binding attrs cannot be loaded', async () => {
+    const { service, xiuyuanRepository, siyuanApi } = createHarness();
+    const normalizedBlockId = '20260301190000-attrsx1';
+
+    vi.mocked(siyuanApi.getRiffNewCards).mockResolvedValue([
+      createRiffBlock({
+        id: normalizedBlockId,
+        content: 'attrs read fails',
+      }),
+    ]);
+    vi.mocked(siyuanApi.getBlockAttrs).mockRejectedValueOnce(new Error('attrs API down'));
+
+    await expect(service.incrementalSync())
+      .rejects.toThrow(`XIUYUAN_BINDING_ATTRS_UNAVAILABLE: failed to load legacy Xiuyuan binding attrs for block ${normalizedBlockId}: attrs API down`);
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet)).not.toHaveBeenCalled();
+  });
+
   it('skips unrecoverable riff records during incremental sync without creating Xiuyuans', async () => {
     const { service, xiuyuanRepository, siyuanApi } = createHarness();
 

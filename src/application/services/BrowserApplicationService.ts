@@ -756,8 +756,10 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     try {
       return this.unifiedDataSourceManager.getQueue(QUEUE_ID_TO_TYPE[normalized]);
     } catch (error) {
-      logger.error('Failed to get queue by id:', { queueId, error });
-      return null;
+      logger.error('QUEUE_UNAVAILABLE: failed to get queue by id:', { queueId, error });
+      const unavailable = new Error(`QUEUE_UNAVAILABLE: ${queueId} queue lookup failed`);
+      (unavailable as Error & { cause?: unknown }).cause = error;
+      throw unavailable;
     }
   }
 

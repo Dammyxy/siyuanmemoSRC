@@ -137,6 +137,18 @@ describe('NativeRiffSyncTriggerHandler', () => {
     expect(incrementalSync).not.toHaveBeenCalled();
   });
 
+  it('fails closed when ApplicationContext access throws', () => {
+    const plugin = {
+      getContext: () => {
+        throw new Error('context down');
+      },
+    };
+    const handler = new NativeRiffSyncTriggerHandler(plugin as never, { debounceMs: 200 });
+
+    expect(() => handler.handle(nativeRiffTransactions() as never))
+      .toThrow('NATIVE_RIFF_SYNC_UNAVAILABLE: failed to access ApplicationContext: context down');
+  });
+
   it('queues one follow-up sync when a relevant transaction arrives during an in-flight sync', async () => {
     const deferred = createDeferred<{ ok: boolean }>();
     const incrementalSync = vi.fn(() => deferred.promise);

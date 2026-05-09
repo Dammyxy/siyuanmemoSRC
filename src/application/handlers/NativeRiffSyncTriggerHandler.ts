@@ -199,7 +199,7 @@ export class NativeRiffSyncTriggerHandler implements ITransactionHandler {
       return (this.plugin?.getContext?.() as ApplicationContextLike | null) ?? null;
     } catch (error) {
       logger.warn('[NativeRiffSyncTrigger] Failed to access ApplicationContext:', error);
-      return null;
+      throw new Error(`NATIVE_RIFF_SYNC_UNAVAILABLE: failed to access ApplicationContext: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

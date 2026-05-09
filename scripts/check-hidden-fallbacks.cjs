@@ -85,6 +85,10 @@ function isGuardedSource(relativePath) {
     && !isIgnoredPath(normalized);
 }
 
+function isApplicationRuntimePath(relativePath) {
+  return normalizePath(relativePath).startsWith('src/application/');
+}
+
 function discoverGuardedFiles(rootDir) {
   const files = [];
   for (const prefix of guardedPrefixes) {
@@ -396,6 +400,7 @@ function classifyCatchBlock(relativePath, lines, index) {
 
   const isHighRisk = /ApplicationContext|AutoCardHandler|BrowserApplicationService|ReviewCommitUseCase|UnifiedQueueStrategy|UnifiedDataSourceManager|PrivateApiClient|FollowerCommandClient/i
     .test(relativePath);
+  const requiresClassification = isHighRisk || isApplicationRuntimePath(relativePath);
   return createHit({
     file: relativePath,
     line: index + 1,
@@ -404,7 +409,26 @@ function classifyCatchBlock(relativePath, lines, index) {
     risk: isHighRisk ? 'P1' : 'P2',
     inferredClass: 'explicit-unavailable',
     source: 'behavior-pattern',
-    requiresClassification: isHighRisk && /\b(BACKEND_UNAVAILABLE|QUEUE_PROJECTION_UNAVAILABLE|backend|relay|projection|writer|private)\b/i.test(snippet),
+    requiresClassification,
+  });
+}
+
+function classifyPromiseEmptyCatch(relativePath, line, lineNumber) {
+  if (!/\.catch\s*\(\s*\(\s*\)\s*=>\s*(null|\[\]|0|this\.lastCounterSnapshot)\s*\)/.test(line)) {
+    return null;
+  }
+  const isHighRisk = /ApplicationContext|AutoCardHandler|BrowserApplicationService|ReviewCommitUseCase|UnifiedQueueStrategy|UnifiedDataSourceManager|PrivateApiClient|FollowerCommandClient/i
+    .test(relativePath);
+  const requiresClassification = isHighRisk || isApplicationRuntimePath(relativePath);
+  return createHit({
+    file: relativePath,
+    line: lineNumber,
+    kind: 'dependency-promise-empty-catch',
+    symbol: line.trim(),
+    risk: isHighRisk ? 'P1' : 'P2',
+    inferredClass: 'explicit-unavailable',
+    source: 'behavior-pattern',
+    requiresClassification,
   });
 }
 
@@ -432,6 +456,10 @@ function collectHitsForFile(rootDir, relativePath) {
     const keywordHit = classifyKeywordLine(relativePath, lines[index], index + 1);
     if (keywordHit) {
       hits.push(keywordHit);
+    }
+    const promiseCatchHit = classifyPromiseEmptyCatch(relativePath, lines[index], index + 1);
+    if (promiseCatchHit) {
+      hits.push(promiseCatchHit);
     }
     const behaviorHit = classifyCatchBlock(relativePath, lines, index);
     if (behaviorHit) {

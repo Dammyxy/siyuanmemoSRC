@@ -726,6 +726,34 @@ describe('UnifiedReviewAdapter', () => {
     });
   });
 
+  it('fails closed when live counter snapshot read fails', async () => {
+    const currentItem = createCard('item-counter-fail', CardType.Item);
+    const queue = {
+      ...createQueue({ queueType: 'retrieval-practice', liveCards: [currentItem] }),
+      getCounterSnapshot: vi.fn(async () => {
+        throw new Error('counter backend down');
+      }),
+    };
+    const adapter = new UnifiedReviewAdapter({ headerVariant: 'retrieval-practice' });
+
+    await expect(adapter.fetchAuxiliaryData?.(currentItem as never, queue as never, createContext()))
+      .rejects.toThrow('REVIEW_COUNTER_UNAVAILABLE: failed to read live queue counter snapshot');
+  });
+
+  it('fails closed when neural-roam underlying queue lookup throws during header counts', async () => {
+    const currentItem = createCard('concept-underlying-fail', CardType.Concept);
+    const queue = {
+      ...createQueue({ queueType: 'neural-roam', liveCards: [currentItem] }),
+      getUnderlyingQueue: vi.fn(() => {
+        throw new Error('queue wrapper broken');
+      }),
+    };
+    const adapter = new UnifiedReviewAdapter({ headerVariant: 'neural-roam' });
+
+    await expect(adapter.fetchAuxiliaryData?.(currentItem as never, queue as never, createContext()))
+      .rejects.toThrow('REVIEW_QUEUE_UNAVAILABLE: failed to resolve underlying queue for header counts');
+  });
+
   it('maps native builtin-riff-sync cards to a same-block answer pane while keeping inline hidden reveal metadata', async () => {
     const card = createCard('riff-native-1', CardType.Item, {
       meta: createXiuyuanMeta({

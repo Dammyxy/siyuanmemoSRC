@@ -516,10 +516,13 @@ export class DialogManager implements IDialogManager {
     const configuredCaptureStorageService = this.context.getConfiguredCaptureStorageService();
     const practiceQueueManager = this.context.getPracticeQueueManager();
     const retrievalQueue = this.context.getRetrievalQueue() as QueueBufferSnapshot;
-    const captureStorageNotebooks = await configuredCaptureStorageService.listOpenNotebooks().catch((error) => {
+    let captureStorageNotebooks;
+    try {
+      captureStorageNotebooks = await configuredCaptureStorageService.listOpenNotebooks();
+    } catch (error) {
       logger.warn('[DialogManager] Failed to load configured capture notebooks:', error);
-      return [];
-    });
+      throw new Error(`CAPTURE_NOTEBOOKS_UNAVAILABLE: failed to load configured capture notebooks: ${error instanceof Error ? error.message : String(error)}`);
+    }
     const queueCount = (() => {
       try {
         const candidates = [

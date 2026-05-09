@@ -218,6 +218,14 @@ describe('BrowserApplicationService queue counts', () => {
     expect(neuralQueue.getRemainingSize).not.toHaveBeenCalled();
   });
 
+  it('fails closed when queue lookup throws instead of returning a missing queue', () => {
+    manager.getQueue.mockImplementationOnce(() => {
+      throw new Error('queue registry unavailable');
+    });
+
+    expect(() => service.getQueueById('filter-group')).toThrow('QUEUE_UNAVAILABLE');
+  });
+
   it('invalidates only affected queue caches on targeted refresh', async () => {
     const retrievalQueue = createQueue(1);
     const finalQueue = createQueue(2);

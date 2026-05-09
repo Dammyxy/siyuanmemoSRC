@@ -883,7 +883,7 @@ export class BlockMenuHandler {
       return prepareProgressiveExcerptHighlight(selection);
     } catch (error) {
       logger.warn('[BlockMenuHandler] Failed to prepare progressive excerpt highlight:', error);
-      return null;
+      throw new Error(`PROGRESSIVE_EXCERPT_HIGHLIGHT_UNAVAILABLE: failed to prepare progressive excerpt highlight: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

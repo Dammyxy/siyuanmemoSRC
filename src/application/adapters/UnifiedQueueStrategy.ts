@@ -383,7 +383,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     this.setAvoidOnceIdentity(activeItem);
                     this.currentIndex = 0;
                     this.cacheValid = false;
-                    this.lastCounterSnapshot = await this.queue.getCounterSnapshot().catch(() => this.lastCounterSnapshot);
+                    await this.refreshQueueCounterSnapshot('skip requery');
                     logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card skipped with requery-after-feedback flow:`, {
                         queueType: this.queueType,
                         cardId: activeItem.id,
@@ -396,7 +396,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     return;
                 }
                 const patched = this.applySkipToCache(activeItem.id);
-                this.lastCounterSnapshot = await this.queue.getCounterSnapshot().catch(() => this.lastCounterSnapshot);
+                await this.refreshQueueCounterSnapshot('skip');
                 if (!patched) {
                     this.invalidateCache();
                 } else {
@@ -424,7 +424,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     this.pendingRotateCardId = null;
                     this.clearAvoidOnceIdentity();
                     const patched = this.applyRemovalToCache(activeItem.id);
-                    this.lastCounterSnapshot = await this.queue.getCounterSnapshot().catch(() => this.lastCounterSnapshot);
+                    await this.refreshQueueCounterSnapshot('hide current in scope');
                     if (!patched) {
                         this.invalidateCache();
                     } else {
@@ -629,11 +629,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 error: errorMessage,
             });
 
-            return {
-                size: 0,
-                label: '0 due',
-                extra: '',
-            };
+            throw this.createQueueCountUnavailableError('stats read', error);
         }
     }
 
@@ -1450,7 +1446,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             }
 
             await this.queue.insertAt(cardId, position);
-            this.lastCounterSnapshot = await this.queue.getCounterSnapshot().catch(() => this.lastCounterSnapshot);
             this.invalidateCache();
 
             logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card inserted via queue.insertAt:`, {
@@ -1526,10 +1521,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 queueType: this.queueType,
                 error: errorMessage,
             });
-            if (this.isProjectionBackedQueue()) {
-                throw error;
-            }
-            return 0;
+            throw this.createQueueCountUnavailableError('remaining size read', error);
         }
     }
 
@@ -1550,17 +1542,38 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return null;
         }
 
+        return this.refreshQueueCounterSnapshot('counter snapshot read');
+    }
+
+    private async refreshQueueCounterSnapshot(operation: string): Promise<QueueCounterSnapshot | null> {
+        if (typeof this.queue.getCounterSnapshot !== 'function') {
+            return null;
+        }
+
         try {
             const snapshot = await this.queue.getCounterSnapshot();
             this.lastCounterSnapshot = snapshot;
-            return this.cloneCounterSnapshot(snapshot);
+            return snapshot ? this.cloneCounterSnapshot(snapshot) : null;
         } catch (error) {
-            logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Failed to read queue counter snapshot:', {
+            logger.error('[SiYuanMemo][UnifiedQueueStrategy] QUEUE_COUNT_UNAVAILABLE: failed to read queue counter snapshot:', {
                 queueType: this.queueType,
+                operation,
                 error: error instanceof Error ? error.message : String(error),
             });
-            return null;
+            throw this.createQueueCountUnavailableError(operation, error);
         }
+    }
+
+    private createQueueCountUnavailableError(operation: string, error: unknown): Error {
+        if (
+            error instanceof Error
+            && /^(QUEUE_COUNT_UNAVAILABLE|QUEUE_PROJECTION_UNAVAILABLE|QUEUE_STATS_UNAVAILABLE)/.test(error.message)
+        ) {
+            return error;
+        }
+        const unavailable = new Error(`QUEUE_COUNT_UNAVAILABLE: ${this.queueType} ${operation} unavailable`);
+        (unavailable as Error & { cause?: unknown }).cause = error;
+        return unavailable;
     }
 
     private subscribeToQueueChanges(): void {
@@ -1917,7 +1930,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             this.cachedCards = this.applySessionExclusions(loadedCards);
             this.currentIndex = 0;
             this.cacheValid = true;
-            const queueCounterSnapshot = await this.queue.getCounterSnapshot().catch(() => null);
+            const queueCounterSnapshot = await this.refreshQueueCounterSnapshot('reload cards');
             this.lastCounterSnapshot = this.hasSessionExclusions()
                 ? this.buildCounterSnapshotFromCachedCards('reconciled', queueCounterSnapshot)
                 : queueCounterSnapshot;
@@ -1988,11 +2001,14 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     });
                 }
             } catch (error) {
-                logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Failed to capture pre-review card snapshot:', {
+                logger.error('[SiYuanMemo][UnifiedQueueStrategy] QUEUE_REVIEW_SNAPSHOT_UNAVAILABLE: failed to capture pre-review card snapshot:', {
                     queueType: this.queueType,
                     cardId: currentItem.id,
                     error: error instanceof Error ? error.message : String(error),
                 });
+                const unavailable = new Error(`QUEUE_REVIEW_SNAPSHOT_UNAVAILABLE: ${this.queueType} pre-review card snapshot unavailable`);
+                (unavailable as Error & { cause?: unknown }).cause = error;
+                throw unavailable;
             }
         }
 
@@ -2015,7 +2031,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return null;
         }
 
-        const byCardId = await this.manager.getCard(currentItem.id, { silent: true }).catch(() => null);
+        const byCardId = await this.manager.getCard(currentItem.id, { silent: true });
         if (byCardId) {
             return this.cloneCard(byCardId);
         }
@@ -2025,7 +2041,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return null;
         }
 
-        const byBlockId = await this.manager.getCards({ blockIds: [blockId] }).catch(() => []);
+        const byBlockId = await this.manager.getCards({ blockIds: [blockId] });
         if (byBlockId.length > 0) {
             return this.cloneCard(byBlockId[0]);
         }

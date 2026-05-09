@@ -230,6 +230,50 @@ describe('BlockMenuHandler progressive excerpt block-menu flow', () => {
     expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已创建 Topic，已进入今日渐进学习');
   });
 
+  it('fails closed when block-menu excerpt highlight preparation throws', async () => {
+    const { handler, materializeExcerptSource, createFromSelection, siyuanApi } = createHandler();
+    const blockOne = document.createElement('div');
+    blockOne.setAttribute('data-node-id', 'block-1');
+    progressiveExcerptMocks.resolveProgressiveExcerptSnapshotFromBlocks.mockReturnValue({
+      blockId: 'block-1',
+      sourceBlockId: 'block-1',
+      sourceBlockIds: ['block-1'],
+      text: 'Alpha',
+      contentDom: '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      range: document.createRange(),
+      blockSelections: [
+        { blockId: 'block-1', mode: 'full-block', excerptHtml: '<div></div>' },
+      ],
+      commonElement: blockOne,
+      root: null,
+      protyle: null,
+    });
+    progressiveExcerptMocks.prepareProgressiveExcerptHighlight.mockImplementationOnce(() => {
+      throw new Error('highlight planner down');
+    });
+
+    const menu = { addItem: vi.fn() };
+    handler.handleBlockIconClick({
+      detail: {
+        menu,
+        blockElements: [blockOne],
+      },
+    });
+
+    const topLevelItem = menu.addItem.mock.calls[0][0];
+    const submenu = topLevelItem.submenu as Array<{ label?: string; icon?: string; click?: () => Promise<void> }>;
+    const excerptItem = submenu.find((item) => item.label === '摘录');
+
+    await excerptItem?.click?.();
+
+    expect(materializeExcerptSource).toHaveBeenCalledTimes(1);
+    expect(createFromSelection).not.toHaveBeenCalled();
+    expect(progressiveExcerptMocks.applyProgressiveExcerptHighlight).not.toHaveBeenCalled();
+    expect(siyuanApi.pushErrMsg).toHaveBeenCalledWith(
+      expect.stringContaining('PROGRESSIVE_EXCERPT_HIGHLIGHT_UNAVAILABLE: failed to prepare progressive excerpt highlight: highlight planner down'),
+    );
+  });
+
   it('shows the current-block batch fill action only when a single Topic block already contains highlights', async () => {
     const { handler, prepareCurrentBlockMarks, createFromCurrentBlockMarks, siyuanApi } = createHandler();
     const protyleContent = document.createElement('div');

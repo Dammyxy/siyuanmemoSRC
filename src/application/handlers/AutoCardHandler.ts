@@ -415,8 +415,10 @@ export class AutoCardHandler implements ITransactionHandler {
         try {
             return (this.plugin?.getContext?.() as unknown as AutoCardContextLike | null) ?? null;
         } catch (error) {
-            logger.warn('[AutoCard] Failed to get ApplicationContext:', error);
-            return null;
+            logger.error('[AutoCard] AUTOCARD_RUNTIME_UNAVAILABLE: failed to get ApplicationContext:', error);
+            const unavailable = new Error('AUTOCARD_RUNTIME_UNAVAILABLE: ApplicationContext lookup failed');
+            (unavailable as Error & { cause?: unknown }).cause = error;
+            throw unavailable;
         }
     }
 
@@ -478,15 +480,17 @@ export class AutoCardHandler implements ITransactionHandler {
     }
 
     private getSrsBackendClientOptional(): SrsBackendClient | null {
+        const context = this.getContext();
+        if (!context?.getSrsBackendClient) {
+            return null;
+        }
         try {
-            const context = this.getContext();
-            if (context?.getSrsBackendClient) {
-                return context.getSrsBackendClient() ?? null;
-            }
-            return null;
+            return context.getSrsBackendClient() ?? null;
         } catch (error) {
-            logger.warn('[AutoCard] Failed to get SrsBackendClient from context:', error);
-            return null;
+            logger.error('[AutoCard] BACKEND_UNAVAILABLE: failed to get SrsBackendClient from context:', error);
+            const unavailable = new Error('BACKEND_UNAVAILABLE: autocard backend client is unavailable');
+            (unavailable as Error & { cause?: unknown }).cause = error;
+            throw unavailable;
         }
     }
 
@@ -495,15 +499,17 @@ export class AutoCardHandler implements ITransactionHandler {
         getInstanceId: () => string;
         ensureWritable?: () => Promise<void>;
     } | null {
+        const context = this.getContext();
+        if (!context?.getFrontendInstanceRuntime) {
+            return null;
+        }
         try {
-            const context = this.getContext();
-            if (context?.getFrontendInstanceRuntime) {
-                return context.getFrontendInstanceRuntime() ?? null;
-            }
-            return null;
+            return context.getFrontendInstanceRuntime() ?? null;
         } catch (error) {
-            logger.warn('[AutoCard] Failed to get FrontendInstanceRuntime from context:', error);
-            return null;
+            logger.error('[AutoCard] BACKEND_UNAVAILABLE: failed to get FrontendInstanceRuntime from context:', error);
+            const unavailable = new Error('BACKEND_UNAVAILABLE: autocard frontend relay runtime is unavailable');
+            (unavailable as Error & { cause?: unknown }).cause = error;
+            throw unavailable;
         }
     }
 
@@ -515,25 +521,27 @@ export class AutoCardHandler implements ITransactionHandler {
             params?: unknown;
         }, timeoutMs?: number) => Promise<TResult>;
     } | null {
+        const context = this.getContext();
+        if (!context?.getFollowerCommandClient) {
+            return null;
+        }
         try {
-            const context = this.getContext();
-            if (context?.getFollowerCommandClient) {
-                return context.getFollowerCommandClient() ?? null;
-            }
-            return null;
+            return context.getFollowerCommandClient() ?? null;
         } catch (error) {
-            logger.warn('[AutoCard] Failed to get FollowerCommandClient from context:', error);
-            return null;
+            logger.error('[AutoCard] BACKEND_UNAVAILABLE: failed to get FollowerCommandClient from context:', error);
+            const unavailable = new Error('BACKEND_UNAVAILABLE: autocard follower command client is unavailable');
+            (unavailable as Error & { cause?: unknown }).cause = error;
+            throw unavailable;
         }
     }
 
     private getRuntimePolicyOptional(): Pick<BackendMigrationRuntimePolicy, 'capabilities'> | null {
-        try {
-            const context = this.getContext();
-            if (context?.getBackendMigrationRuntimePolicy) {
-                return context.getBackendMigrationRuntimePolicy() ?? null;
-            }
+        const context = this.getContext();
+        if (!context?.getBackendMigrationRuntimePolicy) {
             return null;
+        }
+        try {
+            return context.getBackendMigrationRuntimePolicy() ?? null;
         } catch (error) {
             logger.error('[AutoCard] Failed to get backend migration runtime policy from context:', error);
             const unavailable = new Error('BACKEND_UNAVAILABLE: autocard runtime policy is unavailable');
