@@ -18,6 +18,12 @@ export type ProjectionBuildQueueType =
   | QueueType.RetrievalPractice
   | QueueType.IncrementalLearning;
 
+export type DeferredProjectionBuildQueueType =
+  | QueueType.FilterGroup
+  | QueueType.FinalDrill
+  | QueueType.Leech
+  | QueueType.NeuralRoam;
+
 export type QueueProjectionMembershipReason =
   | 'learning-due'
   | 'review-due'
@@ -55,12 +61,16 @@ export interface QueueProjectionBuildResult {
 
 export type QueueProjectionAffectedReason =
   | 'reviewed-card'
+  | 'same-block'
   | 'sibling'
   | 'logical-equivalent'
   | 'manual-outstanding'
   | 'final-drill'
   | 'leech'
-  | 'frontier-candidate';
+  | 'frontier-candidate'
+  | 'neural-synthetic'
+  | 'neural-neighbor'
+  | 'neural-history-cursor';
 
 export type QueueProjectionAffectedCardRef =
   | string
@@ -68,6 +78,7 @@ export type QueueProjectionAffectedCardRef =
 
 export interface QueueProjectionAffectedSetInput {
   reviewedCard?: QueueProjectionAffectedCardRef | null;
+  sameBlockCards?: QueueProjectionAffectedCardRef[];
   siblingCards?: QueueProjectionAffectedCardRef[];
   logicalEquivalentCards?: QueueProjectionAffectedCardRef[];
   manualOutstandingCards?: QueueProjectionAffectedCardRef[];
@@ -86,6 +97,12 @@ export interface QueueProjectionAffectedSet {
   entries: QueueProjectionAffectedEntry[];
   affectedCardIds: string[];
   affectedBlockIds: string[];
+}
+
+export interface DeferredQueueProjectionAffectedSet extends QueueProjectionAffectedSet {
+  queueType: DeferredProjectionBuildQueueType;
+  refreshRequired: boolean;
+  refreshReason: QueueProjectionInvalidationReason | null;
 }
 
 export type QueueProjectionInvalidationReason =
@@ -127,6 +144,82 @@ export interface QueueProjectionInvalidationPlan {
   metadata: Record<string, unknown>;
   refreshRequired: boolean;
   fullRebuildRequired: boolean;
+}
+
+export interface FilterGroupProjectionRowsInput {
+  filteredCards: FSRSCard[];
+  manualCards?: FSRSCard[];
+  temporaryBlacklistIds?: string[];
+  customOrder?: string[];
+  filterHash: string;
+  filterId?: string | null;
+  transferSessionId?: string | null;
+  commitPolicy?: 'preview-only' | 'write-schedule' | string;
+  now: number;
+  policyHash: string;
+  sourceGeneration: number;
+  updatedAt?: number;
+}
+
+export interface FinalDrillProjectionEntry {
+  cardId: string;
+  source?: string | null;
+  timestamp?: number | null;
+  drillLogId?: string | null;
+}
+
+export interface FinalDrillProjectionRowsInput {
+  strategyCards: FSRSCard[];
+  entries?: FinalDrillProjectionEntry[];
+  expiredCardIds?: string[];
+  now: number;
+  policyHash: string;
+  sourceGeneration: number;
+  updatedAt?: number;
+}
+
+export interface LeechProjectionRowsInput {
+  cards: FSRSCard[];
+  threshold: number;
+  manualCardIds?: string[];
+  temporaryBlacklistIds?: string[];
+  action?: string | null;
+  tagName?: string | null;
+  retention?: string | null;
+  now: number;
+  policyHash: string;
+  sourceGeneration: number;
+  updatedAt?: number;
+}
+
+export interface NeuralRoamProjectionRowsInput {
+  strategyCards: FSRSCard[];
+  engineMode?: string | null;
+  navigationState?: Record<string, unknown> | null;
+  sourceNodeIds?: string[];
+  seedNodeIds?: string[];
+  anchorNodeIds?: string[];
+  historyCursor?: Record<string, unknown> | null;
+  now: number;
+  policyHash: string;
+  sourceGeneration: number;
+  updatedAt?: number;
+}
+
+export interface StableNeuralProjectionRowIdInput {
+  nodeKind: 'synthetic' | 'associated-review';
+  engineMode?: string | null;
+  nodeId?: string | null;
+  cardId?: string | null;
+}
+
+export interface DeferredQueueProjectionAffectedSetInput extends QueueProjectionAffectedSetInput {
+  queueType: DeferredProjectionBuildQueueType;
+  manualCards?: QueueProjectionAffectedCardRef[];
+  neuralSyntheticNodeIds?: string[];
+  neuralNeighborNodeIds?: string[];
+  historyCursorNodeId?: string | null;
+  broadInvalidationReason?: QueueProjectionInvalidationReason | null;
 }
 
 const DEFAULT_FRONTIER_CANDIDATE_COUNT = 16;
@@ -212,6 +305,7 @@ export function buildQueueProjectionAffectedSet(input: QueueProjectionAffectedSe
   };
 
   add(input.reviewedCard, 'reviewed-card');
+  addAll(input.sameBlockCards, 'same-block', add);
   addAll(input.siblingCards, 'sibling', add);
   addAll(input.logicalEquivalentCards, 'logical-equivalent', add);
   addAll(input.manualOutstandingCards, 'manual-outstanding', add);
@@ -224,6 +318,270 @@ export function buildQueueProjectionAffectedSet(input: QueueProjectionAffectedSe
     entries,
     affectedCardIds: entries.map((entry) => entry.cardId),
     affectedBlockIds: uniqueStrings(entries.map((entry) => entry.blockId)),
+  };
+}
+
+export function buildFilterGroupProjectionRows(input: FilterGroupProjectionRowsInput): QueueProjectionBuildResult {
+  const now = input.now;
+  const updatedAt = input.updatedAt ?? Date.now();
+  const blacklistedIds = new Set(input.temporaryBlacklistIds ?? []);
+  const filteredCards = uniqueCards(input.filteredCards)
+    .filter((card) => !blacklistedIds.has(card.id) && !blacklistedIds.has(card.blockId));
+  const filteredIds = new Set(filteredCards.flatMap((card) => [card.id, card.blockId].filter(Boolean)));
+  const manualCards = uniqueCards(input.manualCards ?? [])
+    .filter((card) => !blacklistedIds.has(card.id) && !blacklistedIds.has(card.blockId));
+  const cardsById = new Map<string, FSRSCard>();
+
+  for (const card of filteredCards) {
+    cardsById.set(card.id, card);
+  }
+  for (const card of manualCards) {
+    cardsById.set(card.id, card);
+  }
+
+  const visibleCards = applyCustomOrder([...cardsById.values()], input.customOrder ?? []);
+  const rows = visibleCards.map((card, index) => buildProjectionRowFromOrderedCard({
+    queueType: QueueType.FilterGroup,
+    card,
+    zeroBasedIndex: index,
+    now,
+    policyHash: input.policyHash,
+    sourceGeneration: input.sourceGeneration,
+    updatedAt,
+    membershipReason: filteredIds.has(card.id) || filteredIds.has(card.blockId) ? 'due' : 'manual-outstanding',
+    payload: {
+      queueKind: 'filter-group',
+      cardType: card.type,
+      state: card.state,
+      filterHash: input.filterHash,
+      filterId: input.filterId ?? null,
+      transferSessionId: input.transferSessionId ?? null,
+      commitPolicy: input.commitPolicy ?? 'preview-only',
+      membershipSource: filteredIds.has(card.id) || filteredIds.has(card.blockId) ? 'filter' : 'manual',
+      temporaryBlacklisted: false,
+      sessionTransferActive: Boolean(input.transferSessionId),
+    },
+  }));
+
+  return {
+    rows,
+    frontierRows: [],
+    counters: buildCountersForRows({
+      queueType: QueueType.FilterGroup,
+      policyHash: input.policyHash,
+      sourceGeneration: input.sourceGeneration,
+      updatedAt,
+      now,
+    }, rows),
+  };
+}
+
+export function buildFinalDrillProjectionRows(input: FinalDrillProjectionRowsInput): QueueProjectionBuildResult {
+  const updatedAt = input.updatedAt ?? Date.now();
+  const entriesByCardId = new Map((input.entries ?? []).map((entry) => [entry.cardId, entry]));
+  const expiredCardIds = new Set(input.expiredCardIds ?? []);
+  const rows = input.strategyCards.map((card, index) => {
+    const entry = entriesByCardId.get(card.id);
+    return buildProjectionRowFromOrderedCard({
+      queueType: QueueType.FinalDrill,
+      card,
+      zeroBasedIndex: index,
+      now: input.now,
+      policyHash: input.policyHash,
+      sourceGeneration: input.sourceGeneration,
+      updatedAt,
+      membershipReason: 'final-drill',
+      payload: {
+        queueKind: 'final-drill',
+        cardType: card.type,
+        state: card.state,
+        drillEntryId: entry?.cardId ?? card.id,
+        sourceType: entry?.source ?? null,
+        timestamp: entry?.timestamp ?? null,
+        drillLogId: entry?.drillLogId ?? null,
+        expired: expiredCardIds.has(card.id) || expiredCardIds.has(card.blockId),
+        flipElementOrderKey: index + 1,
+      },
+    });
+  });
+
+  return {
+    rows,
+    frontierRows: [],
+    counters: buildCountersForRows({
+      queueType: QueueType.FinalDrill,
+      policyHash: input.policyHash,
+      sourceGeneration: input.sourceGeneration,
+      updatedAt,
+      now: input.now,
+    }, rows),
+  };
+}
+
+export function buildLeechProjectionRows(input: LeechProjectionRowsInput): QueueProjectionBuildResult {
+  const updatedAt = input.updatedAt ?? Date.now();
+  const blacklistedIds = new Set(input.temporaryBlacklistIds ?? []);
+  const manualIds = new Set(input.manualCardIds ?? []);
+  const rows = uniqueCards(input.cards)
+    .filter((card) => !blacklistedIds.has(card.id) && !blacklistedIds.has(card.blockId))
+    .filter((card) => Number(card.lapses) >= input.threshold || manualIds.has(card.id) || manualIds.has(card.blockId))
+    .sort(compareLeechProjectionCards)
+    .map((card, index) => {
+      const lapseMember = Number(card.lapses) >= input.threshold;
+      const manualMember = manualIds.has(card.id) || manualIds.has(card.blockId);
+      return buildProjectionRowFromOrderedCard({
+        queueType: QueueType.Leech,
+        card,
+        zeroBasedIndex: index,
+        now: input.now,
+        policyHash: input.policyHash,
+        sourceGeneration: input.sourceGeneration,
+        updatedAt,
+        membershipReason: lapseMember ? 'leech' : 'manual-outstanding',
+        payload: {
+          queueKind: 'leech',
+          cardType: card.type,
+          state: card.state,
+          membershipSource: lapseMember && manualMember
+            ? 'lapse-and-manual'
+            : (lapseMember ? 'lapse' : 'manual'),
+          threshold: input.threshold,
+          lapses: Number(card.lapses) || 0,
+          actionState: input.action ?? null,
+          tagName: input.tagName ?? null,
+          retention: input.retention ?? null,
+        },
+      });
+    });
+
+  return {
+    rows,
+    frontierRows: [],
+    counters: buildCountersForRows({
+      queueType: QueueType.Leech,
+      policyHash: input.policyHash,
+      sourceGeneration: input.sourceGeneration,
+      updatedAt,
+      now: input.now,
+    }, rows),
+  };
+}
+
+export function buildStableNeuralProjectionRowId(input: StableNeuralProjectionRowIdInput): string {
+  const mode = normalizeProjectionIdentity(input.engineMode) || 'default';
+  if (input.nodeKind === 'associated-review') {
+    return `neural-roam:associated-review:${mode}:${normalizeProjectionIdentity(input.cardId)}`;
+  }
+  return `neural-roam:synthetic:${mode}:${normalizeProjectionIdentity(input.nodeId)}`;
+}
+
+export function buildNeuralRoamProjectionRows(input: NeuralRoamProjectionRowsInput): QueueProjectionBuildResult {
+  const updatedAt = input.updatedAt ?? Date.now();
+  const engineMode = normalizeProjectionIdentity(input.engineMode) || 'default';
+  const rows = input.strategyCards.map((card, index) => {
+    const neuralContext = readRecord(card.meta?.neuralContext);
+    const isAssociatedReview = neuralContext.nodeRole === 'associated-review' || neuralContext.isFlashcard === true;
+    const syntheticNodeId = String(card.blockId || card.id || '');
+    const rowId = buildStableNeuralProjectionRowId(isAssociatedReview
+      ? { nodeKind: 'associated-review', cardId: card.id, engineMode }
+      : { nodeKind: 'synthetic', nodeId: syntheticNodeId, engineMode });
+
+    return buildProjectionRowFromOrderedCard({
+      queueType: QueueType.NeuralRoam,
+      card,
+      zeroBasedIndex: index,
+      now: input.now,
+      policyHash: input.policyHash,
+      sourceGeneration: input.sourceGeneration,
+      updatedAt,
+      membershipReason: isAssociatedReview ? 'manual-outstanding' : 'frontier-candidate',
+      rowId,
+      payload: {
+        queueKind: 'neural-roam',
+        cardType: card.type,
+        state: card.state,
+        nodeKind: isAssociatedReview ? 'associated-review' : 'synthetic',
+        syntheticNodeId: isAssociatedReview ? null : syntheticNodeId,
+        associatedReviewCardId: isAssociatedReview ? card.id : null,
+        sourceVirtualNodeId: normalizeProjectionIdentity(neuralContext.sourceVirtualNodeId) || null,
+        associationType: normalizeProjectionIdentity(neuralContext.associationType) || null,
+        reason: normalizeProjectionIdentity(neuralContext.reason) || null,
+        engineMode,
+        navigationState: input.navigationState ?? null,
+        sourceNodeIds: uniqueStrings(input.sourceNodeIds ?? []),
+        seedNodeIds: uniqueStrings(input.seedNodeIds ?? []),
+        anchorNodeIds: uniqueStrings(input.anchorNodeIds ?? []),
+        historyCursor: input.historyCursor ?? null,
+      },
+    });
+  });
+
+  return {
+    rows,
+    frontierRows: [],
+    counters: buildCountersForRows({
+      queueType: QueueType.NeuralRoam,
+      policyHash: input.policyHash,
+      sourceGeneration: input.sourceGeneration,
+      updatedAt,
+      now: input.now,
+    }, rows),
+  };
+}
+
+export function buildDeferredQueueProjectionAffectedSet(
+  input: DeferredQueueProjectionAffectedSetInput,
+): DeferredQueueProjectionAffectedSet {
+  if (input.broadInvalidationReason && isBroadQueueProjectionInvalidationReason(input.broadInvalidationReason)) {
+    return {
+      queueType: input.queueType,
+      entries: [],
+      affectedCardIds: [],
+      affectedBlockIds: [],
+      refreshRequired: true,
+      refreshReason: input.broadInvalidationReason,
+    };
+  }
+
+  const base = buildQueueProjectionAffectedSet({
+    ...input,
+    manualOutstandingCards: [
+      ...(input.manualOutstandingCards ?? []),
+      ...(input.manualCards ?? []),
+    ],
+  });
+  const entriesByCardId = new Map(base.entries.map((entry) => [entry.cardId, { ...entry, reasons: [...entry.reasons] }]));
+
+  const addSynthetic = (cardId: string, reason: QueueProjectionAffectedReason): void => {
+    const normalized = cardId.trim();
+    if (!normalized || entriesByCardId.has(normalized)) {
+      return;
+    }
+    entriesByCardId.set(normalized, {
+      cardId: normalized,
+      blockId: null,
+      reasons: [reason],
+    });
+  };
+
+  for (const nodeId of input.neuralSyntheticNodeIds ?? []) {
+    addSynthetic(`neural:synthetic:${nodeId}`, 'neural-synthetic');
+  }
+  for (const nodeId of input.neuralNeighborNodeIds ?? []) {
+    addSynthetic(`neural:neighbor:${nodeId}`, 'neural-neighbor');
+  }
+  if (input.historyCursorNodeId) {
+    addSynthetic(`neural:history-cursor:${input.historyCursorNodeId}`, 'neural-history-cursor');
+  }
+
+  const entries = Array.from(entriesByCardId.values());
+  return {
+    queueType: input.queueType,
+    entries,
+    affectedCardIds: entries.map((entry) => entry.cardId),
+    affectedBlockIds: uniqueStrings(entries.map((entry) => entry.blockId)),
+    refreshRequired: false,
+    refreshReason: null,
   };
 }
 
@@ -353,6 +711,112 @@ function buildProjectionRow(
       formalMemoryCard,
       stableSalt: input.stableSalt,
     },
+    updatedAt: input.updatedAt,
+  };
+}
+
+function buildProjectionRowFromOrderedCard(input: {
+  queueType: QueueType;
+  card: FSRSCard;
+  zeroBasedIndex: number;
+  now: number;
+  policyHash: string;
+  sourceGeneration: number;
+  updatedAt: number;
+  membershipReason: string;
+  payload: Record<string, unknown>;
+  rowId?: string;
+}): QueueProjectionRow {
+  const queueIndex = input.zeroBasedIndex + 1;
+  const snapshot = buildQueueSnapshotRow(input.card, { queueIndex });
+  return {
+    queueType: input.queueType,
+    rowId: input.rowId ?? snapshot.id,
+    cardId: snapshot.fsrsCardId,
+    blockId: snapshot.blockId || null,
+    deckId: snapshot.deckId || null,
+    membershipReason: input.membershipReason,
+    dueAt: Number.isFinite(Number(input.card.due)) ? Number(input.card.due) : null,
+    dueBucket: resolveOrderedDueBucket(input.card, input.now, input.membershipReason),
+    priorityScore: normalizePriority(input.card.priority),
+    sortKey: buildSortKey(queueIndex, input.card),
+    queueIndexHint: queueIndex,
+    policyHash: input.policyHash,
+    sourceGeneration: input.sourceGeneration,
+    payload: {
+      rowId: input.rowId ?? snapshot.id,
+      ...input.payload,
+    },
+    updatedAt: input.updatedAt,
+  };
+}
+
+function resolveOrderedDueBucket(
+  card: FSRSCard,
+  now: number,
+  membershipReason: string,
+): QueueProjectionDueBucket {
+  if (isCardDismissed(card) || card.state === CardState.Suspended) {
+    return 'blocked';
+  }
+  if (membershipReason === 'manual-outstanding') {
+    return 'manual';
+  }
+  if (isNewCard(card)) {
+    return 'new';
+  }
+  const dueAt = Number(card.due);
+  if (!Number.isFinite(dueAt)) {
+    return 'future';
+  }
+  return dueAt <= now ? 'overdue' : 'future';
+}
+
+function buildCountersForRows(
+  input: {
+    queueType: QueueType;
+    policyHash: string;
+    sourceGeneration: number;
+    updatedAt: number;
+    now: number;
+  },
+  rows: QueueProjectionRow[],
+): QueueProjectionCounters {
+  const buckets: QueueProjectionCounterBuckets = {
+    all: 0,
+    item: 0,
+    descriptor: 0,
+    topic: 0,
+    concept: 0,
+  };
+  let due = 0;
+
+  for (const row of rows) {
+    buckets.all += 1;
+    const cardType = String(row.payload.cardType || CardType.Item);
+    if (cardType === CardType.Descriptor) {
+      buckets.descriptor += 1;
+    } else if (cardType === CardType.Topic) {
+      buckets.topic += 1;
+    } else if (cardType === CardType.Concept) {
+      buckets.concept += 1;
+    } else {
+      buckets.item += 1;
+    }
+    if (row.dueAt != null && row.dueAt <= input.now) {
+      due += 1;
+    }
+  }
+
+  return {
+    queueType: input.queueType,
+    policyHash: input.policyHash,
+    generation: input.sourceGeneration,
+    version: input.sourceGeneration,
+    remaining: rows.length,
+    due,
+    total: rows.length,
+    buckets,
     updatedAt: input.updatedAt,
   };
 }
@@ -500,6 +964,49 @@ function isNewCard(card: FSRSCard): boolean {
       && card.state !== CardState.Relearning
       && card.state !== CardState.Review
     );
+}
+
+function uniqueCards(cards: FSRSCard[]): FSRSCard[] {
+  const seen = new Set<string>();
+  const result: FSRSCard[] = [];
+  for (const card of cards) {
+    const id = String(card.id || '').trim();
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    result.push(card);
+  }
+  return result;
+}
+
+function compareLeechProjectionCards(left: FSRSCard, right: FSRSCard): number {
+  const lapseDelta = (Number(right.lapses) || 0) - (Number(left.lapses) || 0);
+  if (lapseDelta !== 0) {
+    return lapseDelta;
+  }
+
+  const dueDelta = (Number(left.due) || 0) - (Number(right.due) || 0);
+  if (dueDelta !== 0) {
+    return dueDelta;
+  }
+
+  const priorityDelta = normalizePriority(right.priority) - normalizePriority(left.priority);
+  if (priorityDelta !== 0) {
+    return priorityDelta;
+  }
+
+  return String(left.id || '').localeCompare(String(right.id || ''));
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function normalizeProjectionIdentity(value: unknown): string {
+  return String(value ?? '').trim();
 }
 
 function addAll(

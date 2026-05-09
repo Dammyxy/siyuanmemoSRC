@@ -770,8 +770,10 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       return 0;
     }
 
+    const projectionBacked = this.isProjectionBackedBrowserQueue(queueId);
     if (
-      queueId === 'neural-roam'
+      !projectionBacked
+      && queueId === 'neural-roam'
       && typeof (queue as { getConceptBlocks?: () => unknown[] }).getConceptBlocks === 'function'
     ) {
       try {
@@ -785,7 +787,8 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     if (
-      queueId === 'neural-roam'
+      !projectionBacked
+      && queueId === 'neural-roam'
       && typeof (queue as { getSourceSnapshot?: () => unknown[] }).getSourceSnapshot === 'function'
     ) {
       try {
@@ -828,6 +831,21 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     return this.readQueueSize(queue, queueId);
+  }
+
+  private isProjectionBackedBrowserQueue(queueId: string): boolean {
+    const normalized = this.normalizeQueueId(queueId);
+    if (!normalized) {
+      return false;
+    }
+    const queueType = QUEUE_ID_TO_TYPE[normalized];
+    const diagnostics = this.unifiedDataSourceManager
+      ?.getQueueProjectionRolloutDiagnostics?.(queueType);
+    return Array.isArray(diagnostics)
+      && diagnostics.some((entry) => (
+        entry.queueType === queueType
+        && (entry.state === 'backend-projection' || entry.readPath === 'backend-projection')
+      ));
   }
 
   private async readQueueSize(queue: IReviewQueue, queueId: string): Promise<number> {

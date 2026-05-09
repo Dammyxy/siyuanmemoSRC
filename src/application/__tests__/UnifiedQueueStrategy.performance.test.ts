@@ -540,6 +540,123 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(queue.getCardsBySnapshotIds).toHaveBeenCalled();
   });
 
+  it('hot-patches deferred projection queueImpact without a full queue reload', async () => {
+    const firstCard = createCard({ id: 'leech-card-1', blockId: 'leech-block-1', priority: 10 });
+    const secondCard = createCard({ id: 'leech-card-2', blockId: 'leech-block-2', priority: 20 });
+    const queue = createQueueStub(QueueType.Leech, [firstCard, secondCard], {
+      handleReview: async (cardId, _rating, liveCards) => {
+        const removedIndex = liveCards.findIndex((card) => card.id === cardId);
+        if (removedIndex >= 0) {
+          liveCards.splice(removedIndex, 1);
+        }
+        return {
+          updatedCard: null,
+          removedFromQueue: true,
+          remainsInQueue: false,
+          queueChanged: true,
+          requiresCurrentViewReorder: true,
+          queueImpact: {
+            hotPatchable: true,
+            refreshRequired: false,
+            affectedQueues: [{
+              queueType: QueueType.Leech,
+              policyHash: 'policy-leech',
+              generation: 2,
+              currentGeneration: 2,
+              requestedGeneration: 1,
+              hotPatchable: true,
+              refreshRequired: false,
+              reason: 'review-feedback',
+              removedRowIds: ['leech-card-1'],
+              insertedRows: [],
+              updatedRows: [{
+                rowId: 'leech-card-2',
+                cardId: 'leech-card-2',
+                queueIndexHint: 1,
+                sortKey: '000000001:leech-card-2',
+              }],
+              reorderHints: [],
+              counterGeneration: 2,
+              counters: {
+                version: 2,
+                remaining: 1,
+                due: 1,
+                total: 1,
+                buckets: {
+                  all: 1,
+                  item: 1,
+                  descriptor: 0,
+                  topic: 0,
+                  concept: 0,
+                },
+                source: 'reconciled',
+              },
+            }],
+          },
+        } as Partial<QueueReviewResult>;
+      },
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      getCard: vi.fn(async (cardId: string) => {
+        const card = [firstCard, secondCard].find((candidate) => candidate.id === cardId);
+        if (!card) {
+          throw new Error('card not found');
+        }
+        return { ...card };
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.Leech,
+      manager as never,
+      { subscribe: vi.fn() } as never,
+      null
+    );
+
+    const first = await strategy.next();
+    const getCardsSpy = queue.getCards as unknown as ReturnType<typeof vi.fn>;
+    getCardsSpy.mockClear();
+
+    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    const second = await strategy.next();
+
+    expect(second?.id).toBe('leech-card-2');
+    expect(getCardsSpy).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith(['leech-card-2']);
+  });
+
+  it('uses projection counters for promoted neural-roam remaining size', async () => {
+    const neuralCard = createCard({ id: 'neural-card-1', blockId: 'neural-block-1' });
+    const queue = createQueueStub(QueueType.NeuralRoam, [neuralCard]);
+    (queue.getSize as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(99);
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      getCard: vi.fn(async () => ({ ...neuralCard })),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
+        queueType: QueueType.NeuralRoam,
+        state: 'backend-projection',
+        readPath: 'backend-projection',
+        reason: 'rollout-enabled',
+      }]),
+    };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.NeuralRoam,
+      manager as never,
+      { subscribe: vi.fn() } as never,
+      null
+    );
+
+    await expect(strategy.getRemainingSize()).resolves.toBe(1);
+    expect(queue.getCounterSnapshot).toHaveBeenCalled();
+    expect(queue.getSize).not.toHaveBeenCalled();
+  });
+
   it('refreshes projection-backed queues when queueImpact requires a generation refresh', async () => {
     const firstCard = createCard({ id: 'card-refresh-1', xiuyuanID: 'xy-refresh-1', blockId: 'block-refresh-1', priority: 10 });
     const secondCard = createCard({ id: 'card-refresh-2', xiuyuanID: 'xy-refresh-2', blockId: 'block-refresh-2', priority: 20 });

@@ -74,6 +74,7 @@ describe('QueueBrowserQueryKernel', () => {
     'final-drill',
     'filter-group',
     'incremental-learning',
+    'neural-roam',
   ] as const)('builds snapshot and hydrates rows for %s', async (queueId: BrowserQueueId) => {
     const snapshotRows = [
       buildSnapshotRow('row-a', {

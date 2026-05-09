@@ -9,7 +9,10 @@ import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import { CardType, type FSRSCard } from '@/types/card';
 import type { SchedulerType } from '@/core/scheduler/schedulerPolicy';
-import type { QueueProjectionRow } from '@/application/ports/QueueProjectionPort';
+import type {
+  QueueProjectionCounters,
+  QueueProjectionRow,
+} from '@/application/ports/QueueProjectionPort';
 import { buildQueueProjectionRows } from '@/application/services/queue-projection/QueueProjectionBuilder';
 import { buildQueueSnapshotRow } from '@/core/queue/domain/queueCardProjection';
 import { QueueType } from '@/types/unified-data-source';
@@ -57,6 +60,18 @@ const KERNEL_INGEST_QUEUE_SNAPSHOT_VERSION = 1;
 const KERNEL_ACTION_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-actions.snapshot.json';
 const KERNEL_ACTION_QUEUE_SNAPSHOT_VERSION = 1;
 
+type ProjectionWorkerQueueType =
+  | QueueType.RetrievalPractice
+  | QueueType.IncrementalLearning
+  | QueueType.FilterGroup
+  | QueueType.FinalDrill
+  | QueueType.Leech
+  | QueueType.NeuralRoam;
+
+type SrsProjectionWorkerQueueType =
+  | QueueType.RetrievalPractice
+  | QueueType.IncrementalLearning;
+
 type SqliteFileServiceAdapter = {
   readJSON<T>(fileName: string): Promise<T | null>;
   writeJSON(fileName: string, data: unknown): Promise<void>;
@@ -81,6 +96,19 @@ function createSqliteFileServiceAdapter(bridge: SqlitePersistenceBridge): Sqlite
     readBinary: (fileName: string) => bridge.readBinary(fileName),
     writeBinary: (fileName: string, bytes: Uint8Array) => bridge.writeBinary(fileName, bytes),
   };
+}
+
+function isProjectionWorkerQueueType(queueType: string): queueType is ProjectionWorkerQueueType {
+  return queueType === QueueType.RetrievalPractice
+    || queueType === QueueType.IncrementalLearning
+    || queueType === QueueType.FilterGroup
+    || queueType === QueueType.FinalDrill
+    || queueType === QueueType.Leech
+    || queueType === QueueType.NeuralRoam;
+}
+
+function isSrsProjectionQueueType(queueType: ProjectionWorkerQueueType): queueType is SrsProjectionWorkerQueueType {
+  return queueType === QueueType.RetrievalPractice || queueType === QueueType.IncrementalLearning;
 }
 
 export class WorkerSqliteDatabaseService {
@@ -989,6 +1017,7 @@ export class WorkerSqliteDatabaseService {
       const queueImpact = this.buildReviewFeedbackQueueImpact({
         queueType,
         request,
+        reviewedCard: card,
         reviewedAt,
         committed: commitResult.committed,
         updatedCard: commitResult.updatedCard ?? null,
@@ -1015,16 +1044,16 @@ export class WorkerSqliteDatabaseService {
   private buildReviewFeedbackQueueImpact(input: {
     queueType: string;
     request: BackendReviewFeedbackRequest;
+    reviewedCard: FSRSCard;
     reviewedAt: number;
     committed: boolean;
     updatedCard: FSRSCard | null;
   }): BackendReviewFeedbackQueueImpact | null {
-    if (!input.committed || !input.updatedCard) {
-      return null;
-    }
-
     const projectionQueueType = this.resolveProjectionQueueType(input.queueType);
     if (!projectionQueueType) {
+      return null;
+    }
+    if (isSrsProjectionQueueType(projectionQueueType) && (!input.committed || !input.updatedCard)) {
       return null;
     }
 
@@ -1063,6 +1092,20 @@ export class WorkerSqliteDatabaseService {
     );
 
     const policyHash = currentGeneration.policyHash;
+    if (!isSrsProjectionQueueType(projectionQueueType)) {
+      return this.buildDeferredReviewFeedbackQueueImpact({
+        queueType: projectionQueueType,
+        policyHash,
+        requestedGeneration,
+        requestedCurrentGeneration: currentGeneration.generation,
+        hasGenerationMismatch,
+        request: input.request,
+        reviewedCard: input.reviewedCard,
+        committed: input.committed,
+        reviewedAt: input.reviewedAt,
+      });
+    }
+
     const previousRows = this.queueProjection.readRows({
       queueType: projectionQueueType,
       policyHash,
@@ -1149,6 +1192,118 @@ export class WorkerSqliteDatabaseService {
     };
   }
 
+  private buildDeferredReviewFeedbackQueueImpact(input: {
+    queueType: ProjectionWorkerQueueType;
+    policyHash: string;
+    requestedGeneration: number | null;
+    requestedCurrentGeneration: number;
+    hasGenerationMismatch: boolean;
+    request: BackendReviewFeedbackRequest;
+    reviewedCard: FSRSCard;
+    committed: boolean;
+    reviewedAt: number;
+  }): BackendReviewFeedbackQueueImpact {
+    if (!this.queueProjection) {
+      return this.buildRefreshRequiredQueueImpact({
+        queueType: input.queueType,
+        reason: 'projection-unavailable',
+        requestedGeneration: input.requestedGeneration,
+      });
+    }
+
+    const previousRows = this.queueProjection.readRows({
+      queueType: input.queueType,
+      policyHash: input.policyHash,
+      limit: 5000,
+    });
+    const nextGeneration = input.requestedCurrentGeneration + 1;
+    const nextRows = buildDeferredReviewFeedbackNextRows({
+      queueType: input.queueType,
+      previousRows,
+      reviewedCard: input.reviewedCard,
+      rating: Number(input.request.rating),
+      nextGeneration,
+      updatedAt: input.reviewedAt,
+    });
+    if (!nextRows) {
+      return this.buildRefreshRequiredQueueImpact({
+        queueType: input.queueType,
+        reason: 'review-feedback',
+        policyHash: input.policyHash,
+        currentGeneration: input.requestedCurrentGeneration,
+        requestedGeneration: input.requestedGeneration,
+      });
+    }
+
+    const delta = buildQueueProjectionDelta({
+      previousRows,
+      nextRows,
+    });
+    const counters = buildQueueProjectionCountersFromRows({
+      queueType: input.queueType,
+      policyHash: input.policyHash,
+      generation: nextGeneration,
+      updatedAt: input.reviewedAt,
+      now: input.reviewedAt,
+      rows: nextRows,
+    });
+
+    this.queueProjection.applyQueueProjectionDelta({
+      queueType: input.queueType,
+      policyHash: input.policyHash,
+      generation: nextGeneration,
+      removeRowIds: delta.removedRowIds,
+      upsertRows: nextRows,
+      counters,
+      invalidation: {
+        queueType: input.queueType,
+        reason: 'review-feedback',
+        affectedCardIds: [input.reviewedCard.id],
+        affectedBlockIds: input.reviewedCard.blockId ? [input.reviewedCard.blockId] : [],
+        generation: nextGeneration,
+        metadata: {
+          reviewedCardId: input.reviewedCard.id,
+          committed: input.committed,
+          commitPolicy: input.request.commitPolicy ?? null,
+          hotPatchable: true,
+        },
+      },
+    });
+
+    if (input.hasGenerationMismatch) {
+      return this.buildRefreshRequiredQueueImpact({
+        queueType: input.queueType,
+        reason: 'generation-mismatch',
+        policyHash: input.policyHash,
+        currentGeneration: nextGeneration,
+        requestedGeneration: input.requestedGeneration,
+      });
+    }
+
+    const affectedQueue: BackendReviewFeedbackQueueImpactEntry = {
+      queueType: input.queueType,
+      policyHash: input.policyHash,
+      generation: nextGeneration,
+      currentGeneration: nextGeneration,
+      requestedGeneration: input.requestedGeneration ?? input.requestedCurrentGeneration,
+      hotPatchable: true,
+      refreshRequired: false,
+      reason: 'review-feedback',
+      removedRowIds: delta.removedRowIds,
+      insertedRows: delta.insertedRows,
+      updatedRows: delta.updatedRows,
+      reorderHints: delta.reorderHints,
+      counterGeneration: counters.generation,
+      counters,
+    };
+
+    return {
+      hotPatchable: true,
+      refreshRequired: false,
+      affectedQueues: [affectedQueue],
+    };
+  }
+
   private buildRefreshRequiredQueueImpact(input: {
     queueType: QueueType;
     reason: BackendReviewFeedbackQueueImpactEntry['reason'];
@@ -1178,12 +1333,9 @@ export class WorkerSqliteDatabaseService {
     };
   }
 
-  private resolveProjectionQueueType(queueType: string): QueueType.RetrievalPractice | QueueType.IncrementalLearning | null {
-    if (queueType === QueueType.RetrievalPractice) {
-      return QueueType.RetrievalPractice;
-    }
-    if (queueType === QueueType.IncrementalLearning) {
-      return QueueType.IncrementalLearning;
+  private resolveProjectionQueueType(queueType: string): ProjectionWorkerQueueType | null {
+    if (isProjectionWorkerQueueType(queueType)) {
+      return queueType;
     }
     return null;
   }
@@ -1232,7 +1384,7 @@ export class WorkerSqliteDatabaseService {
   }
 
   private readProjectionSourceCards(
-    queueType: QueueType.RetrievalPractice | QueueType.IncrementalLearning,
+    queueType: SrsProjectionWorkerQueueType,
     dayEnd: number,
   ): FSRSCard[] {
     const cardTypes = queueType === QueueType.RetrievalPractice
@@ -2078,6 +2230,121 @@ function queueProjectionRowSignature(row: QueueProjectionRow): string {
     queueIndexHint: row.queueIndexHint,
     payload: row.payload,
   });
+}
+
+function buildDeferredReviewFeedbackNextRows(input: {
+  queueType: ProjectionWorkerQueueType;
+  previousRows: QueueProjectionRow[];
+  reviewedCard: FSRSCard;
+  rating: number;
+  nextGeneration: number;
+  updatedAt: number;
+}): QueueProjectionRow[] | null {
+  const targetRows = input.previousRows.filter((row) => rowMatchesReviewedCard(row, input.reviewedCard));
+  if (targetRows.length === 0) {
+    return null;
+  }
+
+  const remainingRows = input.previousRows.filter((row) => !rowMatchesReviewedCard(row, input.reviewedCard));
+  const shouldMoveFinalDrillToTail = input.queueType === QueueType.FinalDrill && input.rating < 4;
+  const nextRows = shouldMoveFinalDrillToTail
+    ? [...remainingRows, ...targetRows]
+    : remainingRows;
+
+  return reindexDeferredProjectionRows(nextRows, {
+    nextGeneration: input.nextGeneration,
+    updatedAt: input.updatedAt,
+  });
+}
+
+function rowMatchesReviewedCard(row: QueueProjectionRow, card: FSRSCard): boolean {
+  const identities = new Set(
+    [card.id, card.blockId, card.riffCardId]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean),
+  );
+  return identities.has(String(row.rowId || '').trim())
+    || identities.has(String(row.cardId || '').trim())
+    || identities.has(String(row.blockId || '').trim());
+}
+
+function reindexDeferredProjectionRows(
+  rows: QueueProjectionRow[],
+  input: { nextGeneration: number; updatedAt: number },
+): QueueProjectionRow[] {
+  return rows.map((row, index) => {
+    const queueIndexHint = index + 1;
+    return {
+      ...row,
+      queueIndexHint,
+      sortKey: buildProjectionSortKeyFromRow(row, queueIndexHint),
+      sourceGeneration: input.nextGeneration,
+      updatedAt: input.updatedAt,
+      payload: {
+        ...row.payload,
+        queueIndexHint,
+      },
+    };
+  });
+}
+
+function buildProjectionSortKeyFromRow(row: QueueProjectionRow, queueIndexHint: number): string {
+  const indexPart = String(queueIndexHint).padStart(9, '0');
+  const duePart = String(Math.max(0, Number(row.dueAt) || 0)).padStart(16, '0');
+  const priorityPart = String(Math.max(0, Math.min(100, Math.floor(Number(row.priorityScore) || 0)))).padStart(3, '0');
+  return `${indexPart}:${duePart}:${priorityPart}:${row.rowId || row.cardId}`;
+}
+
+function buildQueueProjectionCountersFromRows(input: {
+  queueType: QueueType;
+  policyHash: string;
+  generation: number;
+  updatedAt: number;
+  now: number;
+  rows: QueueProjectionRow[];
+}): QueueProjectionCounters {
+  const buckets = {
+    all: 0,
+    item: 0,
+    descriptor: 0,
+    topic: 0,
+    concept: 0,
+  };
+  let due = 0;
+
+  for (const row of input.rows) {
+    buckets.all += 1;
+    buckets[resolveQueueProjectionCounterBucket(row)] += 1;
+    if (row.dueAt != null && row.dueAt <= input.now) {
+      due += 1;
+    }
+  }
+
+  return {
+    queueType: input.queueType,
+    policyHash: input.policyHash,
+    generation: input.generation,
+    version: input.generation,
+    remaining: input.rows.length,
+    due,
+    total: input.rows.length,
+    buckets,
+    updatedAt: input.updatedAt,
+  };
+}
+
+function resolveQueueProjectionCounterBucket(row: QueueProjectionRow): 'item' | 'descriptor' | 'topic' | 'concept' {
+  const cardType = String(row.payload.cardType || CardType.Item);
+  if (cardType === CardType.Descriptor) {
+    return 'descriptor';
+  }
+  if (cardType === CardType.Topic) {
+    return 'topic';
+  }
+  if (cardType === CardType.Concept) {
+    return 'concept';
+  }
+  return 'item';
 }
 
 function getDayEndForTimestamp(timestamp: number, dayStartHour: number): number {

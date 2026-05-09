@@ -101,7 +101,13 @@ export function compareQueueProjectionParity(
 
 function normalizeRowIds(rows: QueueSnapshotRow[]): string[] {
   return rows
-    .map((row) => String(row.id || row.fsrsCardId || '').trim())
+    .map((row) => {
+      const projectionRow = row as QueueSnapshotRow & {
+        cardId?: string;
+        rowId?: string;
+      };
+      return String(row.id || row.fsrsCardId || projectionRow.cardId || projectionRow.rowId || '').trim();
+    })
     .filter(Boolean);
 }
 

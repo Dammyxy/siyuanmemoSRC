@@ -30,6 +30,8 @@ const QUEUE_ID_TO_TYPE: Partial<Record<BrowserQueueId, QueueType>> = {
   'final-drill': QueueTypeEnum.FinalDrill,
   'filter-group': QueueTypeEnum.FilterGroup,
   'incremental-learning': QueueTypeEnum.IncrementalLearning,
+  'neural-roam': QueueTypeEnum.NeuralRoam,
+  neural: QueueTypeEnum.NeuralRoam,
 };
 
 export class QueueBrowserQueryKernel {

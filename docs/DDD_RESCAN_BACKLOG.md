@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-08 (Round 314)
+Last update: 2026-05-08 (Round 315)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-08 - Deferred queue projection parity closure
+
+- Task: Clear deferred queue projection debt for OpenSpec `extend-queue-projection-to-deferred-queues` across FilterGroup, FinalDrill, Leech, and NeuralRoam.
+- Touched slice: Queue / Review / Browser / backend worker projection；`src/application/services/queue-projection/QueueProjectionBuilder.ts`、`src/application/services/queue-projection/QueueProjectionParityDiagnostics.ts`、`worker/db/SqliteDatabaseService.ts`、`worker/__tests__/BackendKernel.test.ts`、`src/application/adapters/UnifiedQueueStrategy.ts`、`src/application/services/BrowserApplicationService.ts`、`src/application/queries/browser/shared/QueueBrowserQueryKernel.ts`、`src/application/clients/__tests__/SrsBackendClient.test.ts`、queue projection repository tests、`ARCHITECTURE.md`、OpenSpec tasks/implementation notes。
+- Debt fixed now: Added typed projection payloads and builders for FilterGroup / FinalDrill / Leech / NeuralRoam, stable NeuralRoam row ids, deferred affected-set planning, storage preservation tests, promoted deferred snapshot/rowsByIds worker coverage, Browser queue-id/count routing, UnifiedQueueStrategy hot-patch support, and backend `review.feedback` queueImpact deltas for deferred queues. FinalDrill drill-only feedback stays non-scheduling; FilterGroup preview-only feedback does not create formal schedule writes; Leech keeps formal scheduling in the normal review writer; NeuralRoam associated/synthetic rows preserve session/history metadata.
+- Debt deferred: None in code for this OpenSpec slice.
+- Why deferred: N/A. Live two-window SiYuan smoke could not run in this headless session, so it is recorded as a release/operator environment gate rather than code debt.
+- Next safe step: Run operator smoke in a live SiYuan writer/follower pair before release sign-off: promote each deferred queue, submit feedback, compare Browser/Review counter generation, and confirm unavailable diagnostics.
+- Validation: `pnpm vitest run src/application/services/queue-projection/__tests__/DeferredQueueProjectionBuilder.test.ts src/application/services/queue-projection/__tests__/QueueProjectionBuilder.test.ts src/application/services/queue-projection/__tests__/QueueProjectionParityDiagnostics.test.ts src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts worker/__tests__/BackendKernel.test.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlQueueProjectionRepository.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts --reporter=dot` passed（11 files / 124 tests）；`pnpm run check:boundaries` passed（Boundary / No-UI-SQL / Kernel DB owner / backend migration cutover / SRS runtime hygiene）；`pnpm build` passed with postbuild SRS dist hygiene passed（保留既有 i18n hardcoded/Sass legacy warnings，阻断 0）；`openspec validate extend-queue-projection-to-deferred-queues --strict` passed。
 
 ### 2026-05-08 - Deferred queue rollout states
 

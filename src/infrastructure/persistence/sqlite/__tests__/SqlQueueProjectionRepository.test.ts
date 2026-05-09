@@ -131,6 +131,61 @@ describe('SqlQueueProjectionRepository', () => {
     ]);
   });
 
+  it.each([
+    QueueType.FilterGroup,
+    QueueType.FinalDrill,
+    QueueType.Leech,
+    QueueType.NeuralRoam,
+  ])('preserves typed deferred payload metadata for %s rows', async (queueType) => {
+    const repository = await createRepository();
+    const payload = {
+      queueKind: queueType,
+      sourceType: 'test-source',
+      nested: {
+        retained: true,
+      },
+    };
+
+    repository.replaceQueueProjection({
+      queueType,
+      policyHash: 'policy-deferred',
+      generation: 8,
+      rows: [
+        row({
+          queueType,
+          rowId: `${queueType}:row-a`,
+          cardId: `${queueType}:card-a`,
+          policyHash: 'policy-deferred',
+          sourceGeneration: 8,
+          payload,
+        }),
+      ],
+      counters: counters({
+        queueType,
+        policyHash: 'policy-deferred',
+        generation: 8,
+        version: 8,
+        remaining: 1,
+        due: 1,
+        total: 1,
+        buckets: { all: 1, item: 1, descriptor: 0, topic: 0, concept: 0 },
+      }),
+      metadata: { deferred: true },
+    });
+
+    expect(repository.readRows({ queueType })[0]).toMatchObject({
+      queueType,
+      policyHash: 'policy-deferred',
+      sourceGeneration: 8,
+      payload,
+    });
+    expect(repository.readGeneration(queueType)).toMatchObject({
+      queueType,
+      generation: 8,
+      metadata: { deferred: true },
+    });
+  });
+
   it('applies queue deltas and advances counter versions', async () => {
     const repository = await createRepository();
     repository.replaceQueueProjection({

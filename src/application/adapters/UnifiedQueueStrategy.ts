@@ -1164,7 +1164,23 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private supportsHotPatchAfterReview(): boolean {
         return this.queueType === QueueType.RetrievalPractice
             || this.queueType === QueueType.IncrementalLearning
-            || this.queueType === QueueType.FilterGroup;
+            || this.queueType === QueueType.FilterGroup
+            || this.queueType === QueueType.FinalDrill
+            || this.queueType === QueueType.Leech
+            || this.queueType === QueueType.NeuralRoam;
+    }
+
+    private isProjectionBackedQueue(): boolean {
+        const manager = this.manager as unknown as {
+            getQueueProjectionRolloutDiagnostics?: (queueType?: QueueType) => unknown[];
+        };
+        const diagnostics = manager.getQueueProjectionRolloutDiagnostics?.(this.queueType);
+        return Array.isArray(diagnostics)
+            && diagnostics.some((entry) => (
+                isRecord(entry)
+                && String(entry.queueType || '') === this.queueType
+                && (entry.state === 'backend-projection' || entry.readPath === 'backend-projection')
+            ));
     }
 
     private applyReviewResultToCache(
@@ -1489,7 +1505,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     async getRemainingSize(): Promise<number> {
         try {
-            if (this.queueType === QueueType.NeuralRoam) {
+            if (this.queueType === QueueType.NeuralRoam && !this.isProjectionBackedQueue()) {
                 return await this.queue.getSize();
             }
 

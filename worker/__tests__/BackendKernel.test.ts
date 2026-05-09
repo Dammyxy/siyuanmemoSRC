@@ -669,6 +669,87 @@ describe('BackendKernel', () => {
     }
   });
 
+  it.each([
+    'filter-group',
+    'final-drill',
+    'leech',
+    'neural-roam',
+  ])('serves deferred queue projection snapshots and row hydration from worker storage for %s', async (queueType) => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const cardA = buildCard({
+      id: `${queueType}-projection-card-a`,
+      blockId: `${queueType}-projection-block-a`,
+      due: 1_700_000_000_000,
+      priority: 20,
+      meta: { content: 'alpha', rootId: 'doc-a', deckId: 'deck-a' },
+    });
+    const cardB = buildCard({
+      id: `${queueType}-projection-card-b`,
+      blockId: `${queueType}-projection-block-b`,
+      due: 1_700_000_100_000,
+      priority: 80,
+      meta: { content: 'beta', rootId: 'doc-a', deckId: 'deck-a' },
+    });
+    await database.upsertCards([cardA, cardB]);
+    await seedQueueProjection(database, {
+      queueType,
+      generation: 7,
+      rows: [cardB, cardA],
+    });
+    const kernel = new BackendKernel({ database });
+
+    const snapshot = await kernel.handle({
+      id: `${queueType}-projection-snapshot`,
+      jsonrpc: '2.0',
+      method: 'queue.projection.snapshot' as never,
+      params: [{ queueType }],
+    });
+
+    expect('result' in snapshot).toBe(true);
+    if ('result' in snapshot) {
+      expect(snapshot.result).toMatchObject({
+        queueType,
+        policyHash: 'policy-a',
+        generation: 7,
+        status: 'ready',
+        counters: {
+          generation: 7,
+          remaining: 2,
+        },
+      });
+      expect(snapshot.result.rows.map((row: { fsrsCardId: string; queueIndex?: number }) => ({
+        fsrsCardId: row.fsrsCardId,
+        queueIndex: row.queueIndex,
+      }))).toEqual([
+        { fsrsCardId: `${queueType}-projection-card-b`, queueIndex: 1 },
+        { fsrsCardId: `${queueType}-projection-card-a`, queueIndex: 2 },
+      ]);
+    }
+
+    const rowsByIds = await kernel.handle({
+      id: `${queueType}-projection-rows-by-ids`,
+      jsonrpc: '2.0',
+      method: 'queue.projection.rowsByIds' as never,
+      params: [{
+        queueType,
+        ids: [`${queueType}-projection-card-a`, `${queueType}-projection-card-b`],
+      }],
+    });
+
+    expect('result' in rowsByIds).toBe(true);
+    if ('result' in rowsByIds) {
+      expect(rowsByIds.result.cards.map((card: FSRSCard) => card.id)).toEqual([
+        `${queueType}-projection-card-a`,
+        `${queueType}-projection-card-b`,
+      ]);
+      expect(rowsByIds.result.rows.map((row: { fsrsCardId: string }) => row.fsrsCardId)).toEqual([
+        `${queueType}-projection-card-a`,
+        `${queueType}-projection-card-b`,
+      ]);
+    }
+  });
+
   it('returns deterministic candidate identity for duplicate decision requests', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -1594,6 +1675,170 @@ describe('BackendKernel', () => {
       expect(affectedQueue?.reorderHints).toEqual(expect.arrayContaining([
         expect.objectContaining({
           rowId: 'card-impact-reorder-peer',
+        }),
+      ]));
+    }
+  });
+
+  it.each([
+    {
+      queueType: 'filter-group',
+      committed: false,
+      params: {
+        queueMode: 'filtered-preview',
+        commitPolicy: 'preview-only',
+      },
+    },
+    {
+      queueType: 'final-drill',
+      committed: false,
+      params: {
+        rating: 4,
+      },
+    },
+    {
+      queueType: 'leech',
+      committed: true,
+      params: {
+        rating: 3,
+      },
+    },
+    {
+      queueType: 'neural-roam',
+      committed: true,
+      params: {
+        rating: 3,
+      },
+    },
+  ])('returns hot-patch queue impact for deferred projection-backed $queueType feedback', async ({ queueType, committed, params }) => {
+    const reviewedAt = Date.now();
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: `card-impact-${queueType}`,
+      blockId: `block-impact-${queueType}`,
+      due: reviewedAt - 10_000,
+    });
+    const peer = buildCard({
+      id: `card-impact-${queueType}-peer`,
+      blockId: `block-impact-${queueType}-peer`,
+      due: reviewedAt - 5_000,
+    });
+    await database.upsertCards([card, peer]);
+    await seedQueueProjection(database, {
+      queueType,
+      generation: 2,
+      rows: [card, peer],
+      updatedAt: reviewedAt,
+    });
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: `review-feedback-impact-${queueType}`,
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: card.id,
+        rating: 3,
+        queueType,
+        projectionGeneration: 2,
+        projectionPolicyHash: 'policy-a',
+        reviewedAt,
+        ...params,
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        committed,
+        queueImpact: {
+          hotPatchable: true,
+          refreshRequired: false,
+          affectedQueues: [{
+            queueType,
+            generation: 3,
+            removedRowIds: [card.id],
+            counterGeneration: 3,
+            counters: {
+              version: 3,
+              remaining: 1,
+              total: 1,
+            },
+          }],
+        },
+      });
+    }
+    const removedRow = database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM queue_projection_rows WHERE queue_type = ? AND card_id = ?',
+      [queueType, card.id],
+    );
+    expect(removedRow?.count).toBe(0);
+  });
+
+  it('moves low-rated final-drill projection row to tail without schedule writes', async () => {
+    const reviewedAt = Date.now();
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'card-final-drill-impact-low',
+      blockId: 'block-final-drill-impact-low',
+      due: reviewedAt + 60_000,
+    });
+    const peer = buildCard({
+      id: 'card-final-drill-impact-peer',
+      blockId: 'block-final-drill-impact-peer',
+      due: reviewedAt + 120_000,
+    });
+    await database.upsertCards([card, peer]);
+    await seedQueueProjection(database, {
+      queueType: 'final-drill',
+      generation: 6,
+      rows: [card, peer],
+      updatedAt: reviewedAt,
+    });
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-impact-final-drill-low',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: card.id,
+        rating: 2,
+        queueType: 'final-drill',
+        projectionGeneration: 6,
+        projectionPolicyHash: 'policy-a',
+        reviewedAt,
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        committed: false,
+        updatedCard: null,
+        queueImpact: {
+          hotPatchable: true,
+          refreshRequired: false,
+          affectedQueues: [{
+            queueType: 'final-drill',
+            generation: 7,
+            removedRowIds: [],
+            counterGeneration: 7,
+            counters: {
+              remaining: 2,
+              total: 2,
+            },
+          }],
+        },
+      });
+      const affectedQueue = response.result.queueImpact?.affectedQueues[0];
+      expect(affectedQueue?.updatedRows).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          rowId: 'card-final-drill-impact-low',
+          cardId: 'card-final-drill-impact-low',
+          queueIndexHint: 2,
         }),
       ]));
     }

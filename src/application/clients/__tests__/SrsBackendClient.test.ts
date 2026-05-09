@@ -134,6 +134,43 @@ describe('SrsBackendClient', () => {
             };
           case 'review.feedback':
             return { jsonrpc: '2.0', id: request.id, error: { code: 'BACKEND_UNAVAILABLE', message: 'review not ready' } };
+          case 'queue.projection.snapshot': {
+            const [params] = request.params as [{ queueType?: string }?];
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                queueType: params?.queueType,
+                policyHash: 'policy-deferred',
+                generation: 4,
+                status: 'ready',
+                rows: [],
+                counters: {
+                  version: 4,
+                  remaining: 0,
+                  due: 0,
+                  total: 0,
+                  buckets: { all: 0, item: 0, descriptor: 0, topic: 0, concept: 0 },
+                  source: 'reconciled',
+                },
+              },
+            };
+          }
+          case 'queue.projection.rowsByIds': {
+            const [params] = request.params as [{ queueType?: string }?];
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                queueType: params?.queueType,
+                policyHash: 'policy-deferred',
+                generation: 4,
+                status: 'ready',
+                rows: [],
+                cards: [],
+              },
+            };
+          }
           case 'ai.session.create':
           case 'ai.session.get':
           case 'ai.session.update':
@@ -327,6 +364,25 @@ describe('SrsBackendClient', () => {
       queueMode: 'formal',
       commitPolicy: 'write-schedule',
     })).rejects.toThrow('BACKEND_UNAVAILABLE: review not ready');
+    await expect(client.queueProjectionSnapshot({
+      queueType: 'neural-roam',
+      generation: 4,
+      policyHash: 'policy-deferred',
+    })).resolves.toMatchObject({
+      queueType: 'neural-roam',
+      status: 'ready',
+      generation: 4,
+    });
+    await expect(client.queueProjectionRowsByIds({
+      queueType: 'filter-group',
+      ids: ['row-a'],
+      generation: 4,
+      policyHash: 'policy-deferred',
+    })).resolves.toMatchObject({
+      queueType: 'filter-group',
+      status: 'ready',
+      cards: [],
+    });
     await expect(client.createAiSession({
       sessionId: 'ai-session-1',
       surfaceId: 'standalone-dialog',
@@ -427,6 +483,8 @@ describe('SrsBackendClient', () => {
       'autocard.decision.resolve',
       'autocard.execute',
       'review.feedback',
+      'queue.projection.snapshot',
+      'queue.projection.rowsByIds',
       'ai.session.create',
       'ai.session.get',
       'ai.session.update',

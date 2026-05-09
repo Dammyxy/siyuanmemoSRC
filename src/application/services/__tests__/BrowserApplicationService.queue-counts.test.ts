@@ -58,7 +58,10 @@ function createQueue(
 
 describe('BrowserApplicationService queue counts', () => {
   let queueByType: Map<QueueType, QueueMock>;
-  let manager: { getQueue: ReturnType<typeof vi.fn> };
+  let manager: {
+    getQueue: ReturnType<typeof vi.fn>;
+    getQueueProjectionRolloutDiagnostics?: ReturnType<typeof vi.fn>;
+  };
   let service: BrowserApplicationService;
 
   beforeEach(() => {
@@ -125,6 +128,36 @@ describe('BrowserApplicationService queue counts', () => {
     expect(filterQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
     expect(incrementalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
     expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
+  });
+
+  it('uses projection counters before neural session counts when neural-roam is promoted', async () => {
+    const neuralQueue = createQueue(77, 77, 77, {
+      conceptBlocks: Array.from({ length: 5 }, (_, index) => `concept-${index}`),
+    });
+    manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
+      if (queueType === QueueType.NeuralRoam) {
+        return [{
+          queueType: QueueType.NeuralRoam,
+          state: 'backend-projection',
+          readPath: 'backend-projection',
+          reason: 'rollout-enabled',
+          checkedAt: Date.now(),
+        }];
+      }
+      return [];
+    });
+
+    queueByType.set(QueueType.RetrievalPractice, createQueue(1));
+    queueByType.set(QueueType.FinalDrill, createQueue(2));
+    queueByType.set(QueueType.NeuralRoam, neuralQueue);
+    queueByType.set(QueueType.FilterGroup, createQueue(3));
+    queueByType.set(QueueType.IncrementalLearning, createQueue(4));
+
+    const counts = await service.getQueueCounts();
+
+    expect(counts['neural-roam']).toBe(77);
+    expect(neuralQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getConceptBlocks).not.toHaveBeenCalled();
   });
 
   it('falls back to getRemainingSize and getSize when snapshot reads fail', async () => {
