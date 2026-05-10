@@ -25,7 +25,7 @@ import type { SchedulingWriteSource } from '@/core/scheduler/schedulingStateClea
  * - FinalDrill: 最终训练队列（静态，手动管理）
  * - IncrementalLearning: 渐进学习队列（动态，项目+主题卡片）
  * - FilterGroup: 过滤组队列（动态，基于过滤条件）
- * - NeuralRoam: 神经漫游队列（静态，知识图谱导航）
+ * - NeuralRoam: 神经漫游队列（backend advance，知识图谱导航）
  * 
  * @see 需求 2.1, 3.1
  */
@@ -116,11 +116,15 @@ export interface QueueProjectionSnapshot {
 export type QueueProjectionRolloutState =
     | 'existing-queue-strategy'
     | 'parity-checking'
+    | 'backend-advance'
+    | 'advance-contract-unavailable'
     | 'backend-projection'
     | 'projection-unavailable';
-export type QueueProjectionReadPath = 'backend-projection' | 'existing-queue-strategy';
+export type QueueProjectionReadPath = 'backend-projection' | 'backend-advance' | 'existing-queue-strategy';
 export type QueueProjectionRolloutReason =
     | 'rollout-enabled'
+    | 'advance-backed'
+    | 'advance-contract-unavailable'
     | 'projection-rollout-pending'
     | 'parity-checking'
     | 'backend-unavailable'

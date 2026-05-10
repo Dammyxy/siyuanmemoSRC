@@ -19,6 +19,12 @@ import { createLogger } from '@/utils/logger';
 import { QueryCache } from '@/utils/queryCache';
 import type { NeuralRoamNodeType, NeuralRoamNodeTypeResolverPort } from '../domain/ports';
 import { createDependencyUnavailableError } from '../dependencyErrors';
+import {
+  neuralGraphQueryFailed,
+  resolveNeuralGraphQuery,
+  type NeuralGraphQueryOperation,
+  type NeuralGraphQueryPort,
+} from './NeuralGraphQueryPort';
 
 const logger = createLogger('ConceptQueryEngine');
 
@@ -57,6 +63,7 @@ interface AttributeRow {
 
 export interface ConceptQueryEngineOptions {
   nodeTypeResolver?: NeuralRoamNodeTypeResolverPort;
+  graphQuery?: NeuralGraphQueryPort;
 }
 
 const SYNTAX_ITEM_REASONS = new Set([
@@ -83,6 +90,32 @@ export class ConceptQueryEngine {
 
   constructor(private readonly options: ConceptQueryEngineOptions = {}) {}
 
+  private async queryGraph<TData>(
+    operation: NeuralGraphQueryOperation,
+    blockId: string,
+    fallback: TData,
+    options?: Record<string, unknown>,
+  ): Promise<{ handled: boolean; value: TData }> {
+    const result = await resolveNeuralGraphQuery<TData>(this.options.graphQuery, {
+      operation,
+      blockId,
+      options,
+    });
+    if (!result) {
+      return { handled: false, value: fallback };
+    }
+    if (result.status === 'failed') {
+      throw neuralGraphQueryFailed(result);
+    }
+    if (result.status === 'known-missing' || result.status === 'unknown') {
+      return { handled: true, value: fallback };
+    }
+    return {
+      handled: true,
+      value: result.data == null ? fallback : result.data,
+    };
+  }
+
   /**
    * 获取概念卡的所有邻居
    * 
@@ -90,6 +123,11 @@ export class ConceptQueryEngine {
    * @returns 邻居列表（已去重）
    */
   async fetchNeighbors(conceptId: string): Promise<Neighbor[]> {
+    const graph = await this.queryGraph<Neighbor[]>('fetchNeighbors', conceptId, []);
+    if (graph.handled) {
+      return graph.value;
+    }
+
     const cached = this.neighborsCache.get(conceptId);
     if (cached !== null) {
       logger.debug(`Cache hit for neighbors: ${conceptId}`);
@@ -137,6 +175,11 @@ export class ConceptQueryEngine {
    * @returns 反链块 ID 列表
    */
   async fetchBacklinks(conceptId: string): Promise<string[]> {
+    const graph = await this.queryGraph<string[]>('fetchBacklinks', conceptId, []);
+    if (graph.handled) {
+      return graph.value;
+    }
+
     const cached = this.backlinksCache.get(conceptId);
     if (cached !== null) {
       logger.debug(`Cache hit for backlinks: ${conceptId}`);
@@ -207,6 +250,11 @@ export class ConceptQueryEngine {
    * @returns 直接出链块 ID 列表
    */
   async fetchDirectOutgoingLinks(conceptId: string): Promise<string[]> {
+    const graph = await this.queryGraph<string[]>('fetchDirectOutgoingLinks', conceptId, []);
+    if (graph.handled) {
+      return graph.value;
+    }
+
     try {
       const stmt = `
         SELECT DISTINCT r.def_block_id as id
@@ -244,6 +292,13 @@ export class ConceptQueryEngine {
    * @returns 间接出链块 ID 列表
    */
   async fetchIndirectOutgoingLinks(conceptId: string, backlinkIds?: string[]): Promise<string[]> {
+    const graph = await this.queryGraph<string[]>('fetchIndirectOutgoingLinks', conceptId, [], {
+      backlinkIds: backlinkIds ?? null,
+    });
+    if (graph.handled) {
+      return graph.value;
+    }
+
     try {
       // 1. 先获取反链块 ID
       const resolvedBacklinkIds = backlinkIds ?? await this.fetchBacklinks(conceptId);
@@ -298,6 +353,11 @@ export class ConceptQueryEngine {
    * @returns 描述符卡 ID 列表
    */
   async fetchDescriptors(conceptId: string): Promise<string[]> {
+    const graph = await this.queryGraph<string[]>('fetchDescriptors', conceptId, []);
+    if (graph.handled) {
+      return graph.value;
+    }
+
     try {
       const escapedConceptId = this.escapeSQL(conceptId);
       const descriptorScopeCte = `
@@ -372,6 +432,11 @@ export class ConceptQueryEngine {
    * @returns 是否为概念卡
    */
   async isConceptCard(blockId: string): Promise<boolean> {
+    const graph = await this.queryGraph<boolean>('isConceptCard', blockId, false);
+    if (graph.handled) {
+      return graph.value;
+    }
+
     const resolvedType = await this.resolveNodeTypeFromResolver(blockId);
     if (resolvedType !== 'unknown') {
       return resolvedType === 'concept';
@@ -570,6 +635,11 @@ export class ConceptQueryEngine {
   }
 
   async fetchSubtreeBlockIds(blockId: string): Promise<string[]> {
+    const graph = await this.queryGraph<string[]>('fetchSubtreeBlockIds', blockId, []);
+    if (graph.handled) {
+      return graph.value;
+    }
+
     const normalizedBlockId = String(blockId || '').trim();
     if (!normalizedBlockId) {
       return [];
@@ -865,6 +935,11 @@ export class ConceptQueryEngine {
    * @returns 块数据，如果不存在则返回 null
    */
   async fetchBlockData(blockId: string): Promise<BlockData | null> {
+    const graph = await this.queryGraph<BlockData | null>('fetchBlockData', blockId, null);
+    if (graph.handled) {
+      return graph.value;
+    }
+
     const cached = this.blockDataCache.get(blockId);
     if (cached !== null) {
       logger.debug(`Cache hit for block data: ${blockId}`);

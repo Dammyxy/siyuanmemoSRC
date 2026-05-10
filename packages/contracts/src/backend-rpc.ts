@@ -19,6 +19,7 @@ export type BackendRpcMethod =
   | 'queue.projection.snapshot'
   | 'queue.projection.rowsByIds'
   | 'queue.projection.replace'
+  | 'neural-roam.advance'
   | 'kernel.transaction.ingest'
   | 'kernel.transaction.dequeue'
   | 'kernel.transaction.requeue'
@@ -682,6 +683,113 @@ export interface BackendReviewFeedbackResult {
   queueType: string;
   updatedCard: unknown | null;
   queueImpact?: BackendReviewFeedbackQueueImpact | null;
+}
+
+export type BackendNeuralRoamFeedbackAction = 'rate' | 'skip' | 'custom';
+
+export interface BackendNeuralRoamFeedback {
+  action: BackendNeuralRoamFeedbackAction;
+  rating?: 1 | 2 | 3 | 4;
+  customActionId?: string | null;
+}
+
+export interface BackendNeuralRoamItem {
+  id: string;
+  cardId: string;
+  blockId: string;
+  deckId?: string | null;
+  due?: number | null;
+  type?: string | null;
+  meta?: Record<string, unknown> | null;
+  sourceKind?: 'virtual' | 'associated-review' | 'unknown';
+  payload?: Record<string, unknown> | null;
+}
+
+export interface BackendNeuralRoamAdvanceRequest {
+  queueType: 'neural-roam';
+  sessionId?: string | null;
+  currentItem?: BackendNeuralRoamItem | Record<string, unknown> | null;
+  feedback?: BackendNeuralRoamFeedback | null;
+  projectionGeneration?: number | null;
+  policyHash?: string | null;
+  reviewedAt?: number | null;
+  idempotencyKey?: string | null;
+  scheduler?: BackendReviewSchedulerConfig;
+}
+
+export type BackendNeuralRoamAdvanceUnavailableReason =
+  | 'advance-contract-unavailable'
+  | 'graph-query-unavailable'
+  | 'writer-unavailable'
+  | 'current-item-missing'
+  | 'source-block-missing'
+  | 'generation-mismatch'
+  | 'policy-mismatch'
+  | 'invalid-request'
+  | 'failed';
+
+export interface BackendNeuralRoamCounters {
+  remaining: number;
+  due: number;
+  total: number;
+  pendingAssociatedReview: number;
+  sourceNodes: number;
+}
+
+export interface BackendNeuralRoamSessionState {
+  sessionId: string | null;
+  engineMode: string | null;
+  currentNodeId: string | null;
+  currentEventId: string | null;
+  pathLength: number;
+  historyCount: number;
+  exhausted: boolean;
+  projectionGeneration: number | null;
+  policyHash: string | null;
+}
+
+export interface BackendNeuralRoamAdvanceResult {
+  queueType: 'neural-roam';
+  sessionId: string | null;
+  status: 'advanced' | 'exhausted' | 'unavailable' | 'mismatch' | 'failed';
+  nextItem: BackendNeuralRoamItem | null;
+  counters: BackendNeuralRoamCounters;
+  sessionState: BackendNeuralRoamSessionState;
+  projectionImpact: BackendReviewFeedbackQueueImpact | null;
+  unavailableReason: BackendNeuralRoamAdvanceUnavailableReason | null;
+  message?: string | null;
+}
+
+export type BackendNeuralGraphQueryOperation =
+  | 'fetchBlockData'
+  | 'fetchNeighbors'
+  | 'fetchBacklinks'
+  | 'fetchDirectOutgoingLinks'
+  | 'fetchIndirectOutgoingLinks'
+  | 'fetchOutgoingLinks'
+  | 'fetchDescriptors'
+  | 'isConceptCard'
+  | 'fetchSubtreeBlockIds'
+  | 'fetchEdges'
+  | 'fetchHyperspaceEdges'
+  | 'fetchConceptMapEdges'
+  | 'fetchElementLinkEdges'
+  | 'fetchBlockTreeEdges'
+  | 'fetchDocumentTreeEdges'
+  | 'fetchNodePriority';
+
+export interface BackendNeuralGraphQueryRequest {
+  operation: BackendNeuralGraphQueryOperation;
+  blockId: string;
+  relatedBlockIds?: string[];
+  options?: Record<string, unknown> | null;
+}
+
+export interface BackendNeuralGraphQueryResult<TData = unknown> {
+  status: 'found' | 'known-missing' | 'unknown' | 'failed';
+  blockId: string;
+  data: TData | null;
+  error?: string | null;
 }
 
 export interface BackendAutoCardDecisionSettings {

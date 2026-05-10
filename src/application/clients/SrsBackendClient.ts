@@ -26,6 +26,8 @@ import type {
   BackendKernelTransactionDequeueResult,
   BackendKernelTransactionRequeueRequest,
   BackendKernelTransactionRequeueResult,
+  BackendNeuralRoamAdvanceRequest,
+  BackendNeuralRoamAdvanceResult,
   BackendQueueProjectionRowsByIdsRequest,
   BackendQueueProjectionRowsByIdsResult,
   BackendQueueProjectionReplaceRequest,
@@ -179,6 +181,13 @@ export class SrsBackendClient {
     request: BackendQueueProjectionReplaceRequest,
   ): Promise<BackendQueueProjectionReplaceResult> {
     return this.call<BackendQueueProjectionReplaceResult>('queue.projection.replace', request);
+  }
+
+  async neuralRoamAdvance(
+    request: BackendNeuralRoamAdvanceRequest,
+  ): Promise<BackendNeuralRoamAdvanceResult> {
+    const result = await this.call<BackendNeuralRoamAdvanceResult>('neural-roam.advance', request);
+    return this.validateNeuralRoamAdvanceResult(result);
   }
 
   async createAiSession(request: BackendAiSessionCreateRequest): Promise<BackendAiSessionResult> {
@@ -340,6 +349,20 @@ export class SrsBackendClient {
       throw new Error(`${method} returned invalid payload`);
     }
     return candidate as BackendAiStreamResult;
+  }
+
+  private validateNeuralRoamAdvanceResult(payload: unknown): BackendNeuralRoamAdvanceResult {
+    const candidate = this.assertObjectResult<Record<string, unknown>>('neural-roam.advance', payload);
+    const status = String(candidate.status || '').trim();
+    const validStatus = status === 'advanced'
+      || status === 'exhausted'
+      || status === 'unavailable'
+      || status === 'mismatch'
+      || status === 'failed';
+    if (candidate.queueType !== 'neural-roam' || !validStatus || !candidate.counters || !candidate.sessionState) {
+      throw new Error('neural-roam.advance returned invalid payload');
+    }
+    return candidate as unknown as BackendNeuralRoamAdvanceResult;
   }
 
   private validateAiJobResult(payload: unknown, method: string): BackendAiJobResult {

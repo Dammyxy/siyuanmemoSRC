@@ -46,6 +46,7 @@ import {
   type HyperspaceSessionState,
 } from '../neural/hyperspace/HyperspaceEngine';
 import { NeuralGraphProvider } from '../neural/graph/NeuralGraphProvider';
+import type { NeuralGraphQueryPort } from '../neural/NeuralGraphQueryPort';
 import { createDependencyUnavailableError } from '../dependencyErrors';
 import { resolveCardId } from '../../../diagnostics/type-guards';
 import { createLogger } from '@/utils/logger';
@@ -115,6 +116,8 @@ interface NeuralRoamQueueOptions {
   nodeTypeResolver?: NeuralRoamNodeTypeResolverPort;
   getHistoryLimit?: () => number;
   getHyperspaceSettings?: () => HyperspaceSettings;
+  graphQuery?: NeuralGraphQueryPort;
+  storageKey?: string;
 }
 
 type LocalConceptStatus = 'concept' | 'non-concept' | 'unknown';
@@ -269,7 +272,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   private readonly queryEngine: ConceptQueryEngine;
   private readonly conceptQueue: ConceptNeuralQueue;
   private readonly hyperspaceEngine: HyperspaceEngine;
-  private readonly STORAGE_KEY = 'neuralRoamQueue';
+  private readonly storageKey: string;
   private readonly queuePersistence: QueuePersistencePort;
   private readonly nodeTypeResolver?: NeuralRoamNodeTypeResolverPort;
   private readonly getHistoryLimit?: () => number;
@@ -285,11 +288,13 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   ) {
     super(manager, QueueType.NeuralRoam);
     this.queuePersistence = queuePersistence;
+    this.storageKey = options.storageKey || 'neuralRoamQueue';
     this.nodeTypeResolver = options.nodeTypeResolver;
     this.getHistoryLimit = options.getHistoryLimit;
     this.getHyperspaceSettings = options.getHyperspaceSettings;
     this.queryEngine = new ConceptQueryEngine({
       nodeTypeResolver: this.nodeTypeResolver,
+      graphQuery: options.graphQuery,
     });
     this.conceptQueue = new ConceptNeuralQueue({
       queryEngine: this.queryEngine,
@@ -302,7 +307,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       },
       getHistoryLimit: this.getHistoryLimit,
     });
-    this.hyperspaceEngine = new HyperspaceEngine(new NeuralGraphProvider(this.queryEngine), {
+    this.hyperspaceEngine = new HyperspaceEngine(new NeuralGraphProvider(this.queryEngine, options.graphQuery), {
       getHistoryLimit: this.getHistoryLimit,
       getSettings: this.getHyperspaceSettings,
     });
@@ -401,7 +406,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   async load(): Promise<void> {
     const { value: rawState, fromStorage } = loadQueueState<unknown>({
       persistence: this.queuePersistence,
-      key: this.STORAGE_KEY,
+      key: this.storageKey,
       initialValue: null,
       validate: (_value: unknown): _value is unknown => true,
       logger,
@@ -558,7 +563,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
     await saveQueueState({
       persistence: this.queuePersistence,
-      key: this.STORAGE_KEY,
+      key: this.storageKey,
       value: data,
       logger,
       context: 'NeuralRoamQueue',

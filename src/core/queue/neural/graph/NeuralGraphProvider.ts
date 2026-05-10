@@ -5,6 +5,12 @@ import type {
   NeuralPropagationOrigin,
 } from '@/types/unified-data-source';
 import { ConceptQueryEngine, type BlockData } from '../ConceptQueryEngine';
+import {
+  neuralGraphQueryFailed,
+  resolveNeuralGraphQuery,
+  type NeuralGraphQueryOperation,
+  type NeuralGraphQueryPort,
+} from '../NeuralGraphQueryPort';
 
 export type NeuralGraphChannel = 'concept-map' | 'element-link' | 'block-tree' | 'document-tree' | 'source';
 
@@ -149,15 +155,50 @@ export class NeuralGraphProvider {
   private readonly documentMetaCache = new Map<string, DocumentMeta | null>();
   private readonly blockRowCache = new Map<string, BlockRow | null>();
 
-  constructor(queryEngine?: ConceptQueryEngine) {
+  constructor(queryEngine?: ConceptQueryEngine, private readonly graphQuery?: NeuralGraphQueryPort) {
     this.queryEngine = queryEngine ?? new ConceptQueryEngine();
   }
 
+  private async queryGraph<TData>(
+    operation: NeuralGraphQueryOperation,
+    nodeId: string,
+    fallback: TData,
+    options?: Record<string, unknown>,
+  ): Promise<{ handled: boolean; value: TData }> {
+    const result = await resolveNeuralGraphQuery<TData>(this.graphQuery, {
+      operation,
+      blockId: nodeId,
+      options,
+    });
+    if (!result) {
+      return { handled: false, value: fallback };
+    }
+    if (result.status === 'failed') {
+      throw neuralGraphQueryFailed(result);
+    }
+    if (result.status === 'known-missing' || result.status === 'unknown') {
+      return { handled: true, value: fallback };
+    }
+    return {
+      handled: true,
+      value: result.data == null ? fallback : result.data,
+    };
+  }
+
   async fetchBlockData(nodeId: string): Promise<BlockData | null> {
+    const graph = await this.queryGraph<BlockData | null>('fetchBlockData', nodeId, null);
+    if (graph.handled) {
+      return graph.value;
+    }
     return this.queryEngine.fetchBlockData(nodeId);
   }
 
   async isConceptCard(nodeId: string): Promise<boolean> {
+    const graph = await this.queryGraph<boolean>('isConceptCard', nodeId, false);
+    if (graph.handled) {
+      return graph.value;
+    }
+
     const normalizedNodeId = String(nodeId || '').trim();
     if (!normalizedNodeId) {
       return false;
@@ -173,6 +214,11 @@ export class NeuralGraphProvider {
   }
 
   async fetchEdges(nodeId: string): Promise<NeuralGraphEdge[]> {
+    const graph = await this.queryGraph<NeuralGraphEdge[]>('fetchEdges', nodeId, []);
+    if (graph.handled) {
+      return graph.value;
+    }
+
     const neighbors = await this.queryEngine.fetchNeighbors(nodeId);
     const targetPriority = await this.fetchNodePriority(nodeId);
     return neighbors.map((neighbor) => ({
@@ -187,6 +233,14 @@ export class NeuralGraphProvider {
   }
 
   async fetchHyperspaceEdges(nodeId: string, options: NeuralGraphFetchOptions): Promise<NeuralGraphEdge[]> {
+    const graph = await this.queryGraph<NeuralGraphEdge[]>('fetchHyperspaceEdges', nodeId, [], {
+      engineMode: options.engineMode,
+      includeTreeChannels: options.includeTreeChannels ?? null,
+    });
+    if (graph.handled) {
+      return graph.value;
+    }
+
     if (options.engineMode !== 'hyperspace') {
       return this.fetchEdges(nodeId);
     }
@@ -207,16 +261,29 @@ export class NeuralGraphProvider {
   }
 
   async fetchConceptMapEdges(nodeId: string): Promise<NeuralGraphEdge[]> {
+    const graph = await this.queryGraph<NeuralGraphEdge[]>('fetchConceptMapEdges', nodeId, []);
+    if (graph.handled) {
+      return graph.value;
+    }
     const { conceptMapEdges } = await this.fetchLinkEdgeBundle(nodeId);
     return conceptMapEdges.map((edge) => ({ ...edge }));
   }
 
   async fetchElementLinkEdges(nodeId: string): Promise<NeuralGraphEdge[]> {
+    const graph = await this.queryGraph<NeuralGraphEdge[]>('fetchElementLinkEdges', nodeId, []);
+    if (graph.handled) {
+      return graph.value;
+    }
     const { elementLinkEdges } = await this.fetchLinkEdgeBundle(nodeId);
     return elementLinkEdges.map((edge) => ({ ...edge }));
   }
 
   async fetchBlockTreeEdges(nodeId: string): Promise<NeuralGraphEdge[]> {
+    const graph = await this.queryGraph<NeuralGraphEdge[]>('fetchBlockTreeEdges', nodeId, []);
+    if (graph.handled) {
+      return graph.value;
+    }
+
     const normalizedNodeId = String(nodeId || '').trim();
     if (!normalizedNodeId) {
       return [];
@@ -313,6 +380,11 @@ export class NeuralGraphProvider {
   }
 
   async fetchDocumentTreeEdges(nodeId: string): Promise<NeuralGraphEdge[]> {
+    const graph = await this.queryGraph<NeuralGraphEdge[]>('fetchDocumentTreeEdges', nodeId, []);
+    if (graph.handled) {
+      return graph.value;
+    }
+
     const normalizedNodeId = String(nodeId || '').trim();
     if (!normalizedNodeId) {
       return [];
@@ -407,6 +479,11 @@ export class NeuralGraphProvider {
   }
 
   async fetchNodePriority(nodeId: string): Promise<number | null> {
+    const graph = await this.queryGraph<number | null>('fetchNodePriority', nodeId, null);
+    if (graph.handled) {
+      return graph.value;
+    }
+
     const normalizedNodeId = String(nodeId || '').trim();
     if (!normalizedNodeId) {
       return null;

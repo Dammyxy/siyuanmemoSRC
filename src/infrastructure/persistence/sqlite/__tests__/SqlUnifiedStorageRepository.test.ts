@@ -275,6 +275,19 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     ]));
   });
 
+  it('hydrates card ids with active-source semantics and preserves unknown fail-open behavior', async () => {
+    const { repository } = await seedRepositories();
+    await repository.updateSourceExistence([
+      { cardId: 'card-a', blockId: 'block-a', exists: true },
+      { cardId: 'card-b', blockId: 'block-b', exists: false },
+    ], 1_700_000_010_000);
+
+    expect(ids(repository.getCardsByIds(['card-a', 'card-b', 'card-c']))).toEqual([
+      'card-a',
+      'card-c',
+    ]);
+  });
+
   it('preserves source cache on same-block upsert and resets it when block id changes', async () => {
     const { repository } = await seedRepositories();
     await repository.updateSourceExistence([

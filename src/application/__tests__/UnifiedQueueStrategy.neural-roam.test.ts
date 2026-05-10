@@ -3,6 +3,10 @@ import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrateg
 import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
 import { CardType, type FSRSCard } from '@/types/card';
 import type { QueueFeedback } from '@/core/queue/abstraction/Strategy';
+import type {
+  BackendNeuralRoamAdvanceResult,
+  BackendNeuralRoamItem,
+} from '../../../packages/contracts/src/backend-rpc';
 
 function createSyntheticNeuralCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = Date.now();
@@ -98,6 +102,54 @@ function createQueueStub(): IReviewQueue {
   return queue;
 }
 
+function createAdvanceItem(card: FSRSCard): BackendNeuralRoamItem {
+  const meta = card.meta as { neuralContext?: { isFlashcard?: boolean } } | undefined;
+  return {
+    id: card.id,
+    cardId: card.id,
+    blockId: card.blockId,
+    deckId: 'neural-roam',
+    due: card.due,
+    type: card.type,
+    meta: card.meta as Record<string, unknown> | undefined,
+    sourceKind: meta?.neuralContext?.isFlashcard === true ? 'associated-review' : 'virtual',
+    payload: card as unknown as Record<string, unknown>,
+  };
+}
+
+function createAdvanceResult(
+  nextItem: BackendNeuralRoamItem | null,
+  status: BackendNeuralRoamAdvanceResult['status'] = nextItem ? 'advanced' : 'exhausted',
+): BackendNeuralRoamAdvanceResult {
+  return {
+    queueType: 'neural-roam',
+    sessionId: null,
+    status,
+    nextItem,
+    counters: {
+      remaining: nextItem ? 1 : 0,
+      due: nextItem ? 1 : 0,
+      total: nextItem ? 1 : 0,
+      pendingAssociatedReview: nextItem?.sourceKind === 'associated-review' ? 1 : 0,
+      sourceNodes: nextItem ? 1 : 0,
+    },
+    sessionState: {
+      sessionId: null,
+      engineMode: 'hyperspace',
+      currentNodeId: nextItem?.blockId ?? null,
+      currentEventId: null,
+      pathLength: nextItem ? 1 : 0,
+      historyCount: nextItem ? 1 : 0,
+      exhausted: !nextItem,
+      projectionGeneration: null,
+      policyHash: null,
+    },
+    projectionImpact: null,
+    unavailableReason: null,
+    message: null,
+  };
+}
+
 function createStrategyWithQueue(
   queue: IReviewQueue,
   schedulerRouter: { preview: ReturnType<typeof vi.fn> } | null = null,
@@ -108,6 +160,7 @@ function createStrategyWithQueue(
     getCard: ReturnType<typeof vi.fn>;
     getCards: ReturnType<typeof vi.fn>;
     updateCard: ReturnType<typeof vi.fn>;
+    neuralRoamAdvance: ReturnType<typeof vi.fn>;
   };
 } {
   const manager = {
@@ -117,6 +170,7 @@ function createStrategyWithQueue(
     }),
     getCards: vi.fn(async () => []),
     updateCard: vi.fn(async () => {}),
+    neuralRoamAdvance: vi.fn(async () => createAdvanceResult(null)),
   };
 
   const eventBus = {
@@ -143,10 +197,18 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
 
     expect(manager.getCard).not.toHaveBeenCalled();
     expect(manager.getCards).not.toHaveBeenCalled();
-    expect((queue.handleReview as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(
-      currentItem.id,
-      3
-    );
+    expect((queue.handleReview as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect(manager.neuralRoamAdvance).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: 'neural-roam',
+      currentItem: expect.objectContaining({
+        id: currentItem.id,
+        blockId: currentItem.blockId,
+      }),
+      feedback: expect.objectContaining({
+        action: 'rate',
+        rating: 3,
+      }),
+    }));
   });
 
   it('uses queue.getSize fast-path for neural stats', async () => {
@@ -195,12 +257,15 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
         },
       },
     });
-    queue.getNextCard.mockResolvedValueOnce(topicNode);
-
-    const { strategy } = createStrategyWithQueue(queue, { preview });
+    const { strategy, manager } = createStrategyWithQueue(queue, { preview });
+    manager.neuralRoamAdvance.mockResolvedValueOnce(createAdvanceResult(createAdvanceItem(topicNode)));
 
     const nextCard = await strategy.next();
-    expect(nextCard).toBe(topicNode);
+    expect(nextCard).toMatchObject({
+      id: topicNode.id,
+      blockId: topicNode.blockId,
+    });
+    expect(queue.getNextCard).not.toHaveBeenCalled();
     expect(preview).not.toHaveBeenCalled();
 
     await strategy.onFeedback(nextCard, {
@@ -212,6 +277,18 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
     expect(previous?.id).toBe(topicNode.id);
     expect(preview).not.toHaveBeenCalled();
     expect(previous && 'nextDues' in previous).toBe(false);
+  });
+
+  it('does not fall back to local queue advance when backend advance is unavailable', async () => {
+    const queue = createQueueStub() as IReviewQueue & {
+      getNextCard: ReturnType<typeof vi.fn>;
+    };
+    queue.getNextCard.mockResolvedValue(createSyntheticNeuralCard());
+    const { strategy, manager } = createStrategyWithQueue(queue);
+    (manager as unknown as { neuralRoamAdvance?: unknown }).neuralRoamAdvance = undefined;
+
+    await expect(strategy.next()).rejects.toThrow('NEURAL_ROAM_ADVANCE_UNAVAILABLE');
+    expect(queue.getNextCard).not.toHaveBeenCalled();
   });
 
   it('skips display hydration preview for non-flashcard neural nodes', async () => {

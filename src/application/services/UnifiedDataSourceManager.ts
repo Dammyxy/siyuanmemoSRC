@@ -52,6 +52,8 @@ import { createDependencyUnavailableError } from '@/core/queue/dependencyErrors'
 import { createLogger } from '@/utils/logger';
 import type { HyperspaceSettings } from '@/types/settings';
 import type {
+    BackendNeuralRoamAdvanceRequest,
+    BackendNeuralRoamAdvanceResult,
     BackendQueueProjectionRowsByIdsResult,
     BackendQueueProjectionReplaceResult,
     BackendQueueProjectionSnapshotRequest,
@@ -76,6 +78,10 @@ const QUEUE_PROJECTION_BACKED_TYPES = new Set<QueueType>([
     QueueType.FilterGroup,
     QueueType.FinalDrill,
     QueueType.Leech,
+]);
+
+const QUEUE_PROJECTION_READABLE_TYPES = new Set<QueueType>([
+    ...QUEUE_PROJECTION_BACKED_TYPES,
     QueueType.NeuralRoam,
 ]);
 
@@ -85,14 +91,14 @@ const DEFAULT_QUEUE_PROJECTION_ROLLOUT_STATES: Record<QueueType, QueueProjection
     [QueueType.FilterGroup]: 'backend-projection',
     [QueueType.FinalDrill]: 'backend-projection',
     [QueueType.Leech]: 'backend-projection',
-    [QueueType.NeuralRoam]: 'backend-projection',
+    [QueueType.NeuralRoam]: 'advance-contract-unavailable',
 };
 
 const QUEUE_PROJECTION_PENDING_NEXT_STEPS: Partial<Record<QueueType, string>> = {
     [QueueType.FilterGroup]: 'Projection parity is implemented; existing strategy reads are now only an explicit rollback/parity-checking override.',
     [QueueType.FinalDrill]: 'Projection parity is implemented; existing strategy reads are now only an explicit rollback/parity-checking override.',
     [QueueType.Leech]: 'Projection parity is implemented; existing strategy reads are now only an explicit rollback/parity-checking override.',
-    [QueueType.NeuralRoam]: 'Projection parity is implemented; existing strategy reads are now only an explicit rollback/parity-checking override.',
+    [QueueType.NeuralRoam]: 'Wire neural-roam.advance before NeuralRoam can enter review; projection is browser/count/diagnostic only.',
 };
 
 interface UnifiedManagerPluginContextLike {
@@ -152,6 +158,9 @@ interface UnifiedManagerPluginContextLike {
         queueProjectionReplace?: (
             request: QueueProjectionReplaceRequestLike,
         ) => Promise<BackendQueueProjectionReplaceResult>;
+        neuralRoamAdvance?: (
+            request: BackendNeuralRoamAdvanceRequest,
+        ) => Promise<BackendNeuralRoamAdvanceResult>;
         getQueueProjectionRolloutState?: (
             queueType: QueueType,
         ) => QueueProjectionRolloutState | string | null | undefined;
@@ -444,11 +453,94 @@ export class UnifiedDataSourceManager {
         return result;
     }
 
+    public async neuralRoamAdvance(
+        request: BackendNeuralRoamAdvanceRequest,
+    ): Promise<BackendNeuralRoamAdvanceResult> {
+        const normalizedRequest: BackendNeuralRoamAdvanceRequest = {
+            ...request,
+            queueType: 'neural-roam',
+        };
+        const context = this.resolvePlugin()?.getContext?.();
+        const runtime = context?.getFrontendInstanceRuntime?.();
+
+        if (runtime?.getMode?.() === 'follower') {
+            const follower = context?.getFollowerCommandClient?.();
+            const instanceId = String(runtime.getInstanceId?.() || '').trim();
+            if (!follower || typeof follower.submitAndWait !== 'function' || !instanceId) {
+                return this.buildUnavailableNeuralRoamAdvanceResult(
+                    normalizedRequest,
+                    'writer-unavailable',
+                    'Writer relay unavailable for neural-roam.advance',
+                );
+            }
+            try {
+                return await follower.submitAndWait<BackendNeuralRoamAdvanceResult>({
+                    instanceId,
+                    method: 'neural-roam.advance',
+                    params: normalizedRequest,
+                });
+            } catch (error) {
+                return this.buildUnavailableNeuralRoamAdvanceResult(
+                    normalizedRequest,
+                    'writer-unavailable',
+                    error instanceof Error ? error.message : String(error),
+                );
+            }
+        }
+
+        const backend = context?.getSrsBackendClient?.();
+        if (!backend || typeof backend.neuralRoamAdvance !== 'function') {
+            return this.buildUnavailableNeuralRoamAdvanceResult(
+                normalizedRequest,
+                'advance-contract-unavailable',
+                'SrsBackendClient neural-roam.advance is unavailable',
+            );
+        }
+
+        return backend.neuralRoamAdvance(normalizedRequest);
+    }
+
+    private buildUnavailableNeuralRoamAdvanceResult(
+        request: BackendNeuralRoamAdvanceRequest,
+        unavailableReason: BackendNeuralRoamAdvanceResult['unavailableReason'],
+        message: string,
+    ): BackendNeuralRoamAdvanceResult {
+        return {
+            queueType: 'neural-roam',
+            sessionId: request.sessionId ?? null,
+            status: unavailableReason === 'generation-mismatch' || unavailableReason === 'policy-mismatch'
+                ? 'mismatch'
+                : 'unavailable',
+            nextItem: null,
+            counters: {
+                remaining: 0,
+                due: 0,
+                total: 0,
+                pendingAssociatedReview: 0,
+                sourceNodes: 0,
+            },
+            sessionState: {
+                sessionId: request.sessionId ?? null,
+                engineMode: null,
+                currentNodeId: null,
+                currentEventId: null,
+                pathLength: 0,
+                historyCount: 0,
+                exhausted: false,
+                projectionGeneration: request.projectionGeneration ?? null,
+                policyHash: request.policyHash ?? null,
+            },
+            projectionImpact: null,
+            unavailableReason,
+            message,
+        };
+    }
+
     public async readQueueProjectionSnapshot(
         queueType: QueueType,
         options: { forceRefresh?: boolean } = {},
     ): Promise<QueueProjectionSnapshot | null> {
-        if (!this.isProjectionBackedQueue(queueType)) {
+        if (!this.isQueueProjectionReadable(queueType)) {
             logger.info('Queue projection rollout diagnostic', {
                 ...this.getQueueProjectionRolloutDiagnostics(queueType)[0],
                 forceRefresh: options.forceRefresh === true,
@@ -543,7 +635,7 @@ export class UnifiedDataSourceManager {
         ids: string[],
         options: { forceRefresh?: boolean } = {},
     ): Promise<FSRSCard[]> {
-        if (!this.isProjectionBackedQueue(queueType)) {
+        if (!this.isQueueProjectionReadable(queueType)) {
             logger.debug('Queue projection row hydration not enabled for queue type', { queueType });
             return [];
         }
@@ -643,7 +735,7 @@ export class UnifiedDataSourceManager {
             queueOverride?: Pick<IReviewQueue, 'getCards'> | null;
         } = {},
     ): Promise<BackendQueueProjectionReplaceResult | null> {
-        if (!this.isProjectionBackedQueue(queueType)) {
+        if (!this.isQueueProjectionReadable(queueType)) {
             return null;
         }
         if (!backend || typeof backend.queueProjectionReplace !== 'function') {
@@ -911,6 +1003,16 @@ export class UnifiedDataSourceManager {
         return this.getConfiguredQueueProjectionRolloutState(queueType) === 'backend-projection';
     }
 
+    private isQueueProjectionReadable(queueType: QueueType): boolean {
+        if (!QUEUE_PROJECTION_READABLE_TYPES.has(queueType)) {
+            return false;
+        }
+        if (queueType === QueueType.NeuralRoam) {
+            return true;
+        }
+        return this.isProjectionBackedQueue(queueType);
+    }
+
     public getQueueProjectionRolloutDiagnostics(queueType?: QueueType): QueueProjectionRolloutDiagnostic[] {
         const queueTypes = queueType ? [queueType] : QUEUE_PROJECTION_ROLLOUT_ORDER;
         return queueTypes.map((entry) => this.buildQueueProjectionRolloutDiagnostic(entry));
@@ -918,6 +1020,19 @@ export class UnifiedDataSourceManager {
 
     private buildQueueProjectionRolloutDiagnostic(queueType: QueueType): QueueProjectionRolloutDiagnostic {
         const configuredState = this.getConfiguredQueueProjectionRolloutState(queueType);
+        if (queueType === QueueType.NeuralRoam) {
+            const advanceBacked = configuredState === 'backend-advance';
+            return {
+                queueType,
+                projectionBacked: false,
+                state: configuredState,
+                readPath: advanceBacked ? 'backend-advance' : 'existing-queue-strategy',
+                reason: advanceBacked ? 'advance-backed' : 'advance-contract-unavailable',
+                nextCoverageTask: advanceBacked ? null : QUEUE_PROJECTION_PENDING_NEXT_STEPS[queueType] ?? null,
+                unavailableReason: advanceBacked ? null : 'advance-contract-unavailable',
+            };
+        }
+
         const projectionBacked = configuredState === 'backend-projection';
         const unavailable = projectionBacked
             ? this.queueProjectionUnavailableDiagnostics.get(queueType)
@@ -955,6 +1070,14 @@ export class UnifiedDataSourceManager {
             ?.getContext?.()
             ?.getQueueProjectionRolloutState?.(queueType);
         const normalizedPluginState = this.normalizeQueueProjectionRolloutState(pluginState);
+        if (queueType === QueueType.NeuralRoam) {
+            if (normalizedPluginState === 'advance-contract-unavailable') {
+                return normalizedPluginState;
+            }
+            return this.hasNeuralRoamAdvanceCapability()
+                ? 'backend-advance'
+                : 'advance-contract-unavailable';
+        }
         if (normalizedPluginState) {
             return normalizedPluginState;
         }
@@ -968,6 +1091,8 @@ export class UnifiedDataSourceManager {
         switch (value) {
             case 'existing-queue-strategy':
             case 'parity-checking':
+            case 'backend-advance':
+            case 'advance-contract-unavailable':
             case 'backend-projection':
             case 'projection-unavailable':
                 return value;
@@ -982,6 +1107,12 @@ export class UnifiedDataSourceManager {
         if (state === 'backend-projection') {
             return 'rollout-enabled';
         }
+        if (state === 'backend-advance') {
+            return 'advance-backed';
+        }
+        if (state === 'advance-contract-unavailable') {
+            return 'advance-contract-unavailable';
+        }
         if (state === 'parity-checking') {
             return 'parity-checking';
         }
@@ -989,6 +1120,17 @@ export class UnifiedDataSourceManager {
             return 'projection-unavailable';
         }
         return 'projection-rollout-pending';
+    }
+
+    private hasNeuralRoamAdvanceCapability(): boolean {
+        const context = this.resolvePlugin()?.getContext?.();
+        const runtime = context?.getFrontendInstanceRuntime?.();
+        if (runtime?.getMode?.() === 'follower') {
+            const follower = context?.getFollowerCommandClient?.();
+            return typeof follower?.submitAndWait === 'function';
+        }
+        const backend = context?.getSrsBackendClient?.();
+        return typeof backend?.neuralRoamAdvance === 'function';
     }
 
     private recordQueueProjectionUnavailable(

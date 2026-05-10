@@ -1397,6 +1397,101 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(next?.id).toBe(nextCard.id);
   });
 
+  it.each([
+    QueueType.IncrementalLearning,
+    QueueType.FilterGroup,
+  ])('converts missing-block pre-review snapshot failure into unavailable item for %s', async (queueType) => {
+    const staleCard = createCard({
+      id: `card-stale-${queueType}`,
+      xiuyuanID: `xy-stale-${queueType}`,
+      blockId: `block-stale-${queueType}`,
+    });
+    const nextCard = createCard({
+      id: `card-next-${queueType}`,
+      xiuyuanID: `xy-next-${queueType}`,
+      blockId: `block-next-${queueType}`,
+    });
+    const queue = createQueueStub(queueType, [staleCard, nextCard], {
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, [], {
+            createRollbackSnapshot: async () => ({ ok: true }),
+            restoreRollbackSnapshot: async () => {},
+          });
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async () => {
+        throw new Error(`Block not found for current source ${staleCard.blockId}: ${staleCard.id}`);
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(
+      queueType,
+      manager as never,
+      eventBus as never,
+      null,
+    );
+
+    const first = await strategy.next();
+    expect(first?.id).toBe(staleCard.id);
+
+    let caught: unknown;
+    try {
+      await strategy.onFeedback(first, { action: 'rate', rating: 3 });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(isQueueItemUnavailableError(caught)).toBe(true);
+    expect(String(caught instanceof Error ? caught.message : caught)).not.toContain('QUEUE_REVIEW_SNAPSHOT_UNAVAILABLE');
+    expect(queue.handleReview).not.toHaveBeenCalled();
+    const next = await strategy.next();
+    expect(next?.id).toBe(nextCard.id);
+  });
+
+  it('preserves generic snapshot failure for non-missing pre-review errors', async () => {
+    const currentCard = createCard({ id: 'card-snapshot-generic', blockId: 'block-snapshot-generic' });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [currentCard], {
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, [], {
+            createRollbackSnapshot: async () => ({ ok: true }),
+            restoreRollbackSnapshot: async () => {},
+          });
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async () => {
+        throw new Error('sqlite busy during snapshot read');
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null,
+    );
+
+    const first = await strategy.next();
+    await expect(strategy.onFeedback(first, { action: 'rate', rating: 3 }))
+      .rejects.toThrow('QUEUE_REVIEW_SNAPSHOT_UNAVAILABLE');
+    expect(queue.handleReview).not.toHaveBeenCalled();
+  });
+
   it('restores queue and card memory snapshots when feedback persistence fails', async () => {
     const first = createCard({ id: 'card-first', blockId: 'block-first', priority: 10 });
     const second = createCard({ id: 'card-second', blockId: 'block-second', priority: 20 });

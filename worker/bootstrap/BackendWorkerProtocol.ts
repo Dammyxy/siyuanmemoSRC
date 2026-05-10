@@ -2,6 +2,7 @@ import type {
   BackendAiPromptExecuteRequest,
   BackendAiPromptNetworkRequest,
   BackendAutoCardExecuteRequest,
+  BackendNeuralGraphQueryRequest,
   BackendRpcRequest,
   BackendRpcResponse,
 } from '../../packages/contracts/src/backend-rpc';
@@ -12,6 +13,7 @@ export type BackendWorkerHostEffect =
   | { kind: 'sqlite.readJSON'; path: string }
   | { kind: 'sqlite.writeJSON'; path: string; value: unknown }
   | { kind: 'siyuan.resolveExistingBlockIds'; blockIds: string[] }
+  | { kind: 'siyuan.neuralGraph.query'; request: BackendNeuralGraphQueryRequest }
   | { kind: 'autocard.execute'; request: BackendAutoCardExecuteRequest }
   | { kind: 'ai.prompt.execute'; request: BackendAiPromptNetworkRequest; context: BackendAiPromptExecuteRequest };
 

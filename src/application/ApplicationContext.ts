@@ -83,6 +83,7 @@ import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapt
 import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { BrowserSiyuanAdapter } from '@/infrastructure/siyuan/BrowserSiyuanAdapter';
+import { SiyuanNeuralRoamGraphQueryAdapter } from '@/infrastructure/siyuan/SiyuanNeuralRoamGraphQueryAdapter';
 import { ReviewSiyuanAdapter } from '@/infrastructure/siyuan/ReviewSiyuanAdapter';
 import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
 import { HostBlockQuerySiyuanAdapter } from '@/infrastructure/siyuan/HostBlockQuerySiyuanAdapter';
@@ -1346,6 +1347,7 @@ export class ApplicationContext {
         await measureRuntimePerformance('startup', 'backend-worker.bootstrap', async () => {
           const bridge = ApplicationContext.createWorkerPersistenceBridge(fileService);
           const browserSiyuanApi = new BrowserSiyuanAdapter();
+          const neuralRoamGraphQuery = new SiyuanNeuralRoamGraphQueryAdapter();
           const aiNetworkProxy = new KernelAINetworkProxyAdapter(kernelSidecarClient);
           srsBackendTransport = new BrowserSrsBackendWorkerTransport({
             hostEffects: {
@@ -1362,6 +1364,7 @@ export class ApplicationContext {
                 browserSiyuanApi,
                 blockIds,
               ),
+              resolveNeuralGraphQuery: (request) => neuralRoamGraphQuery.query(request),
               executeAutoCard: async (request) => {
                 if (!contextRef) {
                   throw new Error('SrsBackendWorker autocard.execute unavailable: application context is not ready');
@@ -1824,6 +1827,25 @@ export class ApplicationContext {
         reason?: string | null;
         rows: Array<Record<string, unknown>>;
         metadata?: Record<string, unknown> | null;
+      });
+    }
+    if (command.method === 'neural-roam.advance') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: neural-roam.advance relay requires params object');
+      }
+      return srsBackendClient.neuralRoamAdvance(command.params as {
+        queueType: 'neural-roam';
+        sessionId?: string | null;
+        currentItem?: Record<string, unknown> | null;
+        feedback?: {
+          action: 'rate' | 'skip' | 'custom';
+          rating?: 1 | 2 | 3 | 4;
+          customActionId?: string | null;
+        } | null;
+        projectionGeneration?: number | null;
+        policyHash?: string | null;
+        reviewedAt?: number | null;
+        idempotencyKey?: string | null;
       });
     }
     if (command.method === 'autocard.decision.resolve') {

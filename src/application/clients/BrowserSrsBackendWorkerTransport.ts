@@ -5,6 +5,8 @@ import type {
   BackendAiPromptNetworkResponse,
   BackendAutoCardExecuteRequest,
   BackendAutoCardExecuteResult,
+  BackendNeuralGraphQueryRequest,
+  BackendNeuralGraphQueryResult,
   BackendRpcRequest,
   BackendRpcResponse,
 } from '../../../packages/contracts/src/backend-rpc';
@@ -21,6 +23,9 @@ export interface BrowserSrsBackendWorkerHostEffects {
   readJSON?: <T>(path: string) => Promise<T | null>;
   writeJSON?: (path: string, value: unknown) => Promise<void>;
   resolveExistingBlockIds?: (blockIds: string[]) => Promise<string[]>;
+  resolveNeuralGraphQuery?: (
+    request: BackendNeuralGraphQueryRequest,
+  ) => Promise<BackendNeuralGraphQueryResult>;
   executeAutoCard?: (request: BackendAutoCardExecuteRequest) => Promise<BackendAutoCardExecuteResult>;
   executeAiPrompt?: (
     request: BackendAiPromptExecuteRequest['request'],
@@ -188,6 +193,11 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           throw unavailable('resolveExistingBlockIds host effect unavailable');
         }
         return this.options.hostEffects.resolveExistingBlockIds(effect.blockIds);
+      case 'siyuan.neuralGraph.query':
+        if (!this.options.hostEffects.resolveNeuralGraphQuery) {
+          throw unavailable('neural graph query host effect unavailable');
+        }
+        return this.options.hostEffects.resolveNeuralGraphQuery(effect.request);
       case 'autocard.execute':
         if (!this.options.hostEffects.executeAutoCard) {
           throw unavailable('autocard.execute host effect unavailable');

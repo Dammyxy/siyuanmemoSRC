@@ -1,9 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BackendKernel } from '../bootstrap/BackendKernel';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { createInMemorySqlitePersistenceBridge } from '../db/SqlitePersistenceBridge';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { DEFAULT_SETTINGS } from '@/types/settings';
+import type {
+  BackendNeuralGraphQueryRequest,
+  BackendNeuralGraphQueryResult,
+} from '../../packages/contracts/src/backend-rpc';
 
 function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = 1_700_000_000_000;
@@ -109,6 +113,78 @@ async function seedQueueProjection(database: WorkerSqliteDatabaseService, input:
         ],
       );
     }
+  });
+}
+
+async function seedNeuralRoamHyperspaceSource(
+  database: WorkerSqliteDatabaseService,
+  sourceId = 'neural-source-1',
+  storageKey = 'neuralRoamQueue',
+): Promise<void> {
+  await database.setQueueStateValue(storageKey, {
+    version: 8,
+    engineMode: 'hyperspace',
+    orbit: {
+      seedPool: [],
+      anchorPool: [],
+      session: {},
+    },
+    hyperspace: {
+      sourcePool: [{
+        nodeId: sourceId,
+        nodeKind: 'concept',
+        role: 'orbit-center',
+        priority: 0.9,
+        addedAt: 1_700_000_000_000,
+        visitedAt: 0,
+        nodePreview: 'Neural source',
+      }],
+      anchorPool: [],
+      session: {
+        displayPath: [],
+        displayPathEventIds: [],
+        currentPathIndex: -1,
+        navigationMode: 'source',
+        bookmarkPathIndex: null,
+        history: [],
+        currentLeadSource: null,
+        currentLeadSourceEventId: null,
+        branchRootNodeId: null,
+        currentSessionId: null,
+        visitedBlocks: [],
+        frontier: [],
+        exhaustedSources: [],
+      },
+    },
+    pendingAssociatedReviewCardIds: [],
+    seenAssociatedReviewCardIds: [],
+  });
+}
+
+function createNeuralGraphResolver(
+  dataByBlockId: Record<string, { id: string; content: string; type: string; parent_id?: string; root_id?: string }>,
+) {
+  return vi.fn(async (
+    request: BackendNeuralGraphQueryRequest,
+  ): Promise<BackendNeuralGraphQueryResult> => {
+    if (request.operation === 'fetchBlockData') {
+      const block = dataByBlockId[request.blockId];
+      return block
+        ? { status: 'found', blockId: request.blockId, data: block, error: null }
+        : { status: 'known-missing', blockId: request.blockId, data: null, error: null };
+    }
+    if (request.operation === 'isConceptCard') {
+      return {
+        status: 'found',
+        blockId: request.blockId,
+        data: request.blockId.includes('source'),
+        error: null,
+      };
+    }
+    if (request.operation === 'fetchNodePriority') {
+      return { status: 'found', blockId: request.blockId, data: 0.9, error: null };
+    }
+    return { status: 'found', blockId: request.blockId, data: [], error: null };
   });
 }
 
@@ -669,6 +745,116 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('filters known missing source rows from projection snapshot and row hydration', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const activeCard = buildCard({
+      id: 'projection-active-card',
+      blockId: 'projection-active-block',
+      due: 1_700_000_000_000,
+    });
+    const missingCard = buildCard({
+      id: 'projection-missing-card',
+      blockId: 'projection-missing-block',
+      due: 1_700_000_000_000,
+    });
+    const unknownCard = buildCard({
+      id: 'projection-unknown-card',
+      blockId: 'projection-unknown-block',
+      due: 1_700_000_000_000,
+    });
+    await database.upsertCards([activeCard, missingCard, unknownCard]);
+    await database.updateSourceExistence([
+      { blockId: activeCard.blockId, exists: true },
+      { blockId: missingCard.blockId, exists: false },
+    ], 1_700_000_100_000);
+    await seedQueueProjection(database, {
+      queueType: 'incremental-learning',
+      generation: 9,
+      rows: [activeCard, missingCard, unknownCard],
+      updatedAt: 1_700_000_100_000,
+    });
+    const kernel = new BackendKernel({ database });
+
+    const snapshot = await kernel.handle({
+      id: 'projection-active-source-snapshot',
+      jsonrpc: '2.0',
+      method: 'queue.projection.snapshot' as never,
+      params: [{ queueType: 'incremental-learning' }],
+    });
+
+    expect('result' in snapshot).toBe(true);
+    if ('result' in snapshot) {
+      expect(snapshot.result.rows.map((row: { fsrsCardId: string }) => row.fsrsCardId)).toEqual([
+        'projection-active-card',
+        'projection-unknown-card',
+      ]);
+      expect(snapshot.result.counters).toMatchObject({
+        remaining: 2,
+        total: 2,
+      });
+    }
+
+    const rowsByIds = await kernel.handle({
+      id: 'projection-active-source-rows-by-ids',
+      jsonrpc: '2.0',
+      method: 'queue.projection.rowsByIds' as never,
+      params: [{
+        queueType: 'incremental-learning',
+        ids: ['projection-active-card', 'projection-missing-card', 'projection-unknown-card'],
+      }],
+    });
+
+    expect('result' in rowsByIds).toBe(true);
+    if ('result' in rowsByIds) {
+      expect(rowsByIds.result.cards.map((card: FSRSCard) => card.id)).toEqual([
+        'projection-active-card',
+        'projection-unknown-card',
+      ]);
+      expect(rowsByIds.result.rows.map((row: { fsrsCardId: string }) => row.fsrsCardId)).toEqual([
+        'projection-active-card',
+        'projection-unknown-card',
+      ]);
+    }
+  });
+
+  it('invalidates projection generations when source existence changes', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'projection-invalidated-card',
+      blockId: 'projection-invalidated-block',
+      due: 1_700_000_000_000,
+    });
+    await database.upsertCards([card]);
+    await seedQueueProjection(database, {
+      queueType: 'final-drill',
+      generation: 3,
+      rows: [card],
+      updatedAt: 1_700_000_100_000,
+    });
+    await database.updateSourceExistence([
+      { blockId: card.blockId, exists: false },
+    ], 1_700_000_200_000);
+    const kernel = new BackendKernel({ database });
+
+    const snapshot = await kernel.handle({
+      id: 'projection-invalidated-source-change',
+      jsonrpc: '2.0',
+      method: 'queue.projection.snapshot' as never,
+      params: [{ queueType: 'final-drill' }],
+    });
+
+    expect('result' in snapshot).toBe(true);
+    if ('result' in snapshot) {
+      expect(snapshot.result).toMatchObject({
+        queueType: 'final-drill',
+        status: 'invalidated',
+        rows: [],
+      });
+    }
+  });
+
   it('replaces missing queue projection generation through explicit backend materialization', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -843,6 +1029,486 @@ describe('BackendKernel', () => {
         `${queueType}-projection-card-b`,
       ]);
     }
+  });
+
+  it('advances neural-roam through backend graph query and persisted session state', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await seedNeuralRoamHyperspaceSource(database, 'neural-source-1');
+    const resolveNeuralGraphQuery = createNeuralGraphResolver({
+      'neural-source-1': {
+        id: 'neural-source-1',
+        content: 'Neural source content',
+        type: 'p',
+        root_id: 'doc-neural',
+      },
+    });
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery,
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-success',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: null,
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        status: 'advanced',
+        nextItem: {
+          cardId: 'neural-source-1',
+          blockId: 'neural-source-1',
+          sourceKind: 'virtual',
+        },
+        counters: {
+          sourceNodes: 1,
+        },
+        sessionState: {
+          engineMode: 'hyperspace',
+          currentNodeId: 'neural-source-1',
+          exhausted: false,
+        },
+      });
+    }
+    expect(resolveNeuralGraphQuery).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'fetchBlockData',
+      blockId: 'neural-source-1',
+    }));
+  });
+
+  it('returns exhausted neural-roam advance when backend session has no graph item', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({}),
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-exhausted',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: 'empty-session',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        status: 'exhausted',
+        nextItem: null,
+        unavailableReason: null,
+        sessionState: {
+          exhausted: true,
+        },
+      });
+    }
+  });
+
+  it('returns explicit unavailable when neural-roam graph query authority is absent', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-unavailable',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: 'session-no-graph',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        status: 'unavailable',
+        nextItem: null,
+        unavailableReason: 'advance-contract-unavailable',
+      });
+    }
+  });
+
+  it('returns neural-roam generation mismatch without local advance', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await seedQueueProjection(database, {
+      queueType: 'neural-roam',
+      policyHash: 'neural-policy-current',
+      generation: 5,
+      rows: [],
+    });
+    const resolveNeuralGraphQuery = createNeuralGraphResolver({});
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery,
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-generation-mismatch',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: 'session-stale',
+        projectionGeneration: 4,
+        policyHash: 'neural-policy-current',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        status: 'mismatch',
+        nextItem: null,
+        unavailableReason: 'generation-mismatch',
+        projectionImpact: expect.objectContaining({
+          refreshRequired: true,
+        }),
+      });
+    }
+    expect(resolveNeuralGraphQuery).not.toHaveBeenCalled();
+  });
+
+  it('returns neural-roam current item unavailable when source is known missing', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const current = buildCard({
+      id: 'missing-neural-card',
+      blockId: 'missing-neural-block',
+    });
+    await database.upsertCards([current]);
+    await database.updateSourceExistence([
+      { blockId: current.blockId, exists: false },
+    ], 1_700_000_200_000);
+    await seedNeuralRoamHyperspaceSource(database, 'neural-source-after-missing');
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({
+        'neural-source-after-missing': {
+          id: 'neural-source-after-missing',
+          content: 'Next available source',
+          type: 'p',
+        },
+      }),
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-source-missing',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: null,
+        currentItem: {
+          id: current.id,
+          cardId: current.id,
+          blockId: current.blockId,
+          sourceKind: 'associated-review',
+        },
+        feedback: {
+          action: 'rate',
+          rating: 3,
+        },
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        status: 'unavailable',
+        unavailableReason: 'source-block-missing',
+        nextItem: {
+          blockId: 'neural-source-after-missing',
+        },
+      });
+    }
+  });
+
+  it('keeps neural-roam virtual item rating practice-only without formal SRS commit', async () => {
+    const reviewedAt = Date.now();
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const virtualShadow = buildCard({
+      id: 'virtual-shadow-card',
+      blockId: 'virtual-shadow-block',
+      due: reviewedAt - 10_000,
+      reps: 2,
+      lastReview: reviewedAt - 86_400_000,
+    });
+    await database.upsertCards([virtualShadow]);
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({}),
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-virtual-rating',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: 'virtual-session',
+        currentItem: {
+          id: virtualShadow.id,
+          cardId: virtualShadow.id,
+          blockId: virtualShadow.blockId,
+          sourceKind: 'virtual',
+        },
+        feedback: {
+          action: 'rate',
+          rating: 4,
+        },
+        reviewedAt,
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        status: 'exhausted',
+        projectionImpact: null,
+      });
+    }
+    const after = await database.getCard(virtualShadow.id);
+    expect(after?.reps).toBe(2);
+    expect(after?.lastReview).toBe(reviewedAt - 86_400_000);
+  });
+
+  it('commits neural-roam associated review feedback through backend review ownership', async () => {
+    const reviewedAt = Date.now();
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const associated = buildCard({
+      id: 'neural-associated-card',
+      blockId: 'neural-associated-block',
+      due: reviewedAt - 10_000,
+      reps: 1,
+      lastReview: reviewedAt - 86_400_000,
+    });
+    await database.upsertCards([associated]);
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({}),
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-associated-rating',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: 'associated-session',
+        currentItem: {
+          id: associated.id,
+          cardId: associated.id,
+          blockId: associated.blockId,
+          sourceKind: 'associated-review',
+        },
+        feedback: {
+          action: 'rate',
+          rating: 3,
+        },
+        reviewedAt,
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        status: 'exhausted',
+        projectionImpact: expect.objectContaining({
+          refreshRequired: true,
+        }),
+      });
+    }
+    const after = await database.getCard(associated.id);
+    expect(after?.reps).toBe(2);
+    expect(after?.lastReview).toBe(reviewedAt);
+  });
+
+  it('replays duplicate neural-roam advance idempotency keys without double-committing associated reviews', async () => {
+    const reviewedAt = Date.now();
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const associated = buildCard({
+      id: 'neural-associated-idempotent-card',
+      blockId: 'neural-associated-idempotent-block',
+      due: reviewedAt - 10_000,
+      reps: 1,
+      lastReview: reviewedAt - 86_400_000,
+    });
+    await database.upsertCards([associated]);
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({}),
+    });
+    const request = {
+      queueType: 'neural-roam',
+      sessionId: 'associated-idempotent-session',
+      idempotencyKey: 'neural-associated-same-key',
+      currentItem: {
+        id: associated.id,
+        cardId: associated.id,
+        blockId: associated.blockId,
+        sourceKind: 'associated-review',
+      },
+      feedback: {
+        action: 'rate',
+        rating: 3,
+      },
+      reviewedAt,
+    };
+
+    const first = await kernel.handle({
+      id: 'neural-advance-associated-idempotent-first',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [request],
+    });
+    const second = await kernel.handle({
+      id: 'neural-advance-associated-idempotent-second',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [request],
+    });
+
+    expect('result' in first).toBe(true);
+    expect('result' in second).toBe(true);
+    if ('result' in first && 'result' in second) {
+      expect(second.result).toEqual(first.result);
+    }
+    const after = await database.getCard(associated.id);
+    expect(after?.reps).toBe(2);
+  });
+
+  it('imports old neural-roam queue state into an absent backend session', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await seedNeuralRoamHyperspaceSource(database, 'legacy-neural-source', 'neuralRoamQueue');
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({
+        'legacy-neural-source': {
+          id: 'legacy-neural-source',
+          content: 'Legacy source content',
+          type: 'p',
+        },
+      }),
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-import-old-state',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: 'imported-session',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        status: 'advanced',
+        nextItem: {
+          blockId: 'legacy-neural-source',
+        },
+      });
+    }
+    const imported = await database.getQueueStateValue<{ version?: number }>('neuralRoamQueue:imported-session');
+    expect(imported?.version).toBe(8);
+  });
+
+  it('keeps existing backend neural-roam session state ahead of old default state', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await seedNeuralRoamHyperspaceSource(database, 'legacy-neural-source', 'neuralRoamQueue');
+    await seedNeuralRoamHyperspaceSource(database, 'backend-neural-source', 'neuralRoamQueue:kept-session');
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({
+        'legacy-neural-source': {
+          id: 'legacy-neural-source',
+          content: 'Legacy source content',
+          type: 'p',
+        },
+        'backend-neural-source': {
+          id: 'backend-neural-source',
+          content: 'Backend source content',
+          type: 'p',
+        },
+      }),
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-keeps-backend-state',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: 'kept-session',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        status: 'advanced',
+        nextItem: {
+          blockId: 'backend-neural-source',
+        },
+      });
+    }
+  });
+
+  it('resets corrupted old neural-roam state into v8 backend session state', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.setQueueStateValue('neuralRoamQueue', {
+      broken: true,
+      version: 'not-a-neural-roam-state',
+    });
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({}),
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-corrupted-old-state',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: 'corrupted-import-session',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        status: 'exhausted',
+        nextItem: null,
+        unavailableReason: null,
+      });
+    }
+    const imported = await database.getQueueStateValue<{ version?: number }>('neuralRoamQueue:corrupted-import-session');
+    expect(imported?.version).toBe(8);
   });
 
   it('returns deterministic candidate identity for duplicate decision requests', async () => {
@@ -1702,6 +2368,73 @@ describe('BackendKernel', () => {
       ['retrieval-practice', 'card-impact-remove'],
     );
     expect(remainingRow?.count).toBe(0);
+  });
+
+  it('rebuilds projection feedback impact from active-source cards only', async () => {
+    const reviewedAt = Date.now();
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const reviewed = buildCard({
+      id: 'card-impact-active-source',
+      blockId: 'block-impact-active-source',
+      due: reviewedAt - 10_000,
+      lastReview: reviewedAt - 86_400_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 4,
+    });
+    const staleMissing = buildCard({
+      id: 'card-impact-missing-source',
+      blockId: 'block-impact-missing-source',
+      due: reviewedAt - 5_000,
+    });
+    await database.upsertCards([reviewed, staleMissing]);
+    await database.updateSourceExistence([
+      { blockId: staleMissing.blockId, exists: false },
+    ], reviewedAt - 1_000);
+    await seedQueueProjection(database, {
+      generation: 1,
+      rows: [reviewed, staleMissing],
+      updatedAt: reviewedAt,
+    });
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-active-source-build',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: reviewed.id,
+        rating: 4,
+        queueType: 'retrieval-practice',
+        projectionGeneration: 1,
+        projectionPolicyHash: 'policy-a',
+        reviewedAt,
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      const affectedQueue = response.result.queueImpact?.affectedQueues[0];
+      expect(affectedQueue).toMatchObject({
+        queueType: 'retrieval-practice',
+        generation: 2,
+        counters: {
+          remaining: 0,
+          total: 0,
+        },
+      });
+      expect(affectedQueue?.removedRowIds).toEqual(expect.arrayContaining([
+        reviewed.id,
+        staleMissing.id,
+      ]));
+    }
+
+    const missingRow = database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM queue_projection_rows WHERE queue_type = ? AND card_id = ?',
+      ['retrieval-practice', staleMissing.id],
+    );
+    expect(missingRow?.count).toBe(0);
   });
 
   it('returns updated row and reorder hint when remaining retrieval row moves forward', async () => {

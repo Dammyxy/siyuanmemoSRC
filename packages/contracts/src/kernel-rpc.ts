@@ -177,6 +177,7 @@ export const KERNEL_RELAY_METHODS = [
   'kernel.transaction.dequeue',
   'kernel.transaction.requeue',
   'queue.projection.replace',
+  'neural-roam.advance',
   'ai.session.create',
   'ai.session.get',
   'ai.session.update',

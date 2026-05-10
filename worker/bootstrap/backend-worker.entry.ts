@@ -2,6 +2,8 @@ import {
   BACKEND_RPC_VERSION,
   type BackendAiPromptNetworkResponse,
   type BackendAutoCardExecuteResult,
+  type BackendNeuralGraphQueryRequest,
+  type BackendNeuralGraphQueryResult,
   type BackendRpcResponse,
 } from '../../packages/contracts/src/backend-rpc';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
@@ -100,6 +102,10 @@ const backendKernel = new BackendKernel({
   resolveExistingBlockIds: (blockIds) => requestHostEffect<string[]>({
     kind: 'siyuan.resolveExistingBlockIds',
     blockIds,
+  }),
+  resolveNeuralGraphQuery: (request: BackendNeuralGraphQueryRequest) => requestHostEffect<BackendNeuralGraphQueryResult>({
+    kind: 'siyuan.neuralGraph.query',
+    request,
   }),
   executeAutoCard: (request) => requestHostEffect<BackendAutoCardExecuteResult>({
     kind: 'autocard.execute',

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-09 (Round 321)
+Last update: 2026-05-10 (Round 322)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-10 - NeuralRoam backend advance and active-source projection contract
+
+- Task: Fix root queue projection contract gaps that revived missing-source cards and made NeuralRoam review advance depend on static projection rows.
+- Touched slice: Queue / Review / backend worker / projection active-source membership / NeuralRoam graph host effects；`packages/contracts/src/{backend-rpc.ts,kernel-rpc.ts}`、`src/application/{ApplicationContext.ts,adapters/UnifiedQueueStrategy.ts,clients/*,services/UnifiedDataSourceManager.ts}`、`src/core/queue/{domain/NeuralRoamQueue.ts,neural/*}`、`src/infrastructure/{siyuan,persistence/sqlite}/*`、`worker/{bootstrap,db,__tests__}`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: Added backend RPC and relay typing for `neural-roam.advance`; worker now owns NeuralRoam next-item selection, persists session state by session id, calls the existing NeuralRoam engine through a typed graph-query host effect, and returns advanced/exhausted/unavailable/mismatch results. `UnifiedQueueStrategy` no longer drives NeuralRoam by static projection cursor, and rollout diagnostics report `backend-advance` or `advance-contract-unavailable`. Projection build/read/hydrate now excludes known missing source blocks while preserving unknown source fail-open behavior. Missing card/block/source pre-review snapshot failures now become `QueueItemUnavailableError`, so Review clears/skips the local item and advances instead of surfacing generic `QUEUE_REVIEW_SNAPSHOT_UNAVAILABLE`.
+- Debt deferred: No automatic runtime fallback to the old application NeuralRoam queue path was kept. Manual SiYuan two-window smoke for the new graph advance path still needs a live plugin session after deployment.
+- Why deferred: Headless tests and build can validate contracts and runtime wiring, but live writer/follower graph traversal needs the real SiYuan host and current workspace data.
+- Next safe step: Deploy the built plugin, open NeuralRoam and another projection-backed queue in a real SiYuan session, and confirm missing-source rows stay invisible while NeuralRoam advances through graph nodes after rating.
+- Validation: Targeted vitest passed for backend/client/transport/rollout/projection/review/NeuralRoam runtime files; `node scripts/check-hidden-fallbacks.cjs` passed; `pnpm build` passed with existing non-blocking i18n hardcoded/Sass legacy warnings. Final boundary/build rerun is recorded in the task response.
 
 ### 2026-05-09 - Live queue projection materialization closure
 

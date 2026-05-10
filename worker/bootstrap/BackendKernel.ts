@@ -17,6 +17,10 @@ import {
   type BackendAutoCardExecuteResult,
   type BackendAutoCardDecisionResolveRequest,
   type BackendAutoCardDecisionResolveResult,
+  type BackendNeuralGraphQueryRequest,
+  type BackendNeuralGraphQueryResult,
+  type BackendNeuralRoamAdvanceRequest,
+  type BackendNeuralRoamAdvanceResult,
   type BackendBrowserDeckPageRequest,
   type BackendBrowserDeckSnapshotQuery,
   type BackendSourceExistenceSweepApplyRequest,
@@ -57,6 +61,7 @@ import {
 import type { StructuredCardQuery } from '@/types/card-query';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { BackendJobRuntime } from './BackendJobRuntime';
+import { WorkerNeuralRoamAdvanceService } from './WorkerNeuralRoamAdvanceService';
 import {
   createUnavailableSqlitePersistenceBridge,
   type SqlitePersistenceBridge,
@@ -65,6 +70,9 @@ import {
 interface BackendKernelDependencies {
   database: WorkerSqliteDatabaseService;
   resolveExistingBlockIds?: (blockIds: string[]) => Promise<string[]>;
+  resolveNeuralGraphQuery?: (
+    request: BackendNeuralGraphQueryRequest,
+  ) => Promise<BackendNeuralGraphQueryResult>;
   executeAutoCard?: (request: BackendAutoCardExecuteRequest) => Promise<BackendAutoCardExecuteResult>;
   executeAiPrompt?: (
     request: BackendAiPromptExecuteRequest['request'],
@@ -147,6 +155,7 @@ export class BackendKernel {
   }> = [];
   private readonly privateCommandResultsByIdempotencyKey = new Map<string, PrivateApiMutationResult>();
   private readonly aiRuntime: BackendJobRuntime;
+  private readonly neuralRoamRuntime: WorkerNeuralRoamAdvanceService;
 
   constructor(private readonly deps: BackendKernelDependencies) {
     this.aiRuntime = new BackendJobRuntime({
@@ -160,6 +169,10 @@ export class BackendKernel {
       onJobCanceled: () => this.deps.database.recordAiJobOutcome('canceled'),
       onJobTimeout: () => this.deps.database.recordAiJobOutcome('timeout'),
       onJobFailed: () => this.deps.database.recordAiJobOutcome('failed'),
+    });
+    this.neuralRoamRuntime = new WorkerNeuralRoamAdvanceService({
+      database: this.deps.database,
+      resolveNeuralGraphQuery: this.deps.resolveNeuralGraphQuery,
     });
   }
 
@@ -220,6 +233,8 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleQueueProjectionRowsByIds(request.params));
         case 'queue.projection.replace':
           return buildSuccess(request.id, await this.handleQueueProjectionReplace(request.params));
+        case 'neural-roam.advance':
+          return buildSuccess(request.id, await this.handleNeuralRoamAdvance(request.params));
         case 'kernel.transaction.ingest':
           return buildSuccess(request.id, await this.handleKernelTransactionIngest(request.params));
         case 'kernel.transaction.dequeue':
@@ -475,6 +490,14 @@ export class BackendKernel {
       throw new Error('queue.projection.replace requires named params');
     }
     return this.deps.database.replaceQueueProjection(named);
+  }
+
+  private async handleNeuralRoamAdvance(params: unknown): Promise<BackendNeuralRoamAdvanceResult> {
+    const named = this.readNamedParams<BackendNeuralRoamAdvanceRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('neural-roam.advance requires named params');
+    }
+    return this.neuralRoamRuntime.advance(named);
   }
 
   private handleAiSessionCreate(params: unknown): BackendAiSessionResult {

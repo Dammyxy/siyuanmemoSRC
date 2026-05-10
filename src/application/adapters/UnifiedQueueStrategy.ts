@@ -17,6 +17,11 @@ import { CacheManagerObserver } from '../observers/CacheManagerObserver';
 import { buildFsrsSchedulingFingerprint } from '@/core/scheduler/fsrsReviewStateRepair';
 import { resolveEffectiveSchedulerTypeForCard } from '@/core/scheduler/schedulerPolicy';
 import { createLogger } from '@/utils/logger';
+import type {
+    BackendNeuralRoamAdvanceRequest,
+    BackendNeuralRoamAdvanceResult,
+    BackendNeuralRoamItem,
+} from '../../../packages/contracts/src/backend-rpc';
 
 const logger = createLogger('UnifiedQueueStrategy');
 
@@ -91,6 +96,10 @@ type ProjectionImpactRowLike = {
     queueIndexHint: number | null;
 };
 
+type NeuralRoamAdvanceManager = UnifiedDataSourceManager & {
+    neuralRoamAdvance?: (request: BackendNeuralRoamAdvanceRequest) => Promise<BackendNeuralRoamAdvanceResult>;
+};
+
 function supportsInsertAt(queue: IReviewQueue): queue is QueueWithInsertAt {
     const candidate = queue as Partial<QueueWithInsertAt>;
     return typeof candidate.insertAt === 'function';
@@ -130,6 +139,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private readonly sessionExcludedLogicalKeys = new Set<string>();
     private feedbackMutation: FeedbackMutationContext | null = null;
     private readonly suspiciousNextDuesLogKeys = new Set<string>();
+    private pendingNeuralRoamAdvanceNext: FSRSCard | null = null;
+    private pendingNeuralRoamAdvanceNextReady = false;
 
     constructor(
         queueTypeOrQueue: QueueType | IReviewQueue,
@@ -190,20 +201,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 return card;
             }
 
-            if (this.queueType === QueueType.NeuralRoam && !this.isProjectionBackedQueue()) {
-                const nextCard = await this.queue.getNextCard();
-                if (!nextCard) {
-                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] No more cards from spreading activation`);
-                    return null;
-                }
-
-                const cardWithNextDues = await this.maybeAddNextDues(nextCard);
-                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Next card (spreading activation):`, {
-                    queueType: this.queueType,
-                    cardId: nextCard.id,
-                });
-                this.currentItem = cardWithNextDues;
-                return cardWithNextDues;
+            if (this.queueType === QueueType.NeuralRoam) {
+                return await this.nextFromNeuralRoamAdvance();
             }
 
             if (this.usesRequeryAfterFeedback()) {
@@ -271,6 +270,11 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 action: feedback.action,
                 rating: feedback.rating,
             });
+
+            if (this.queueType === QueueType.NeuralRoam) {
+                await this.handleNeuralRoamAdvanceFeedback(activeItem, feedback);
+                return;
+            }
 
             if (feedback.action === 'rate' && feedback.rating) {
                 activeTransaction = await this.createReviewTransaction(activeItem, feedback);
@@ -460,7 +464,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             const errorMessage = error instanceof Error ? error.message : String(error);
             const errorStack = error instanceof Error ? error.stack : undefined;
 
-            if (this.isUnavailableCurrentItemError(error, activeItem)) {
+            if (error instanceof QueueItemUnavailableError
+                || (isRecord(error) && error.name === 'QueueItemUnavailableError')
+                || this.isUnavailableCurrentItemError(error, activeItem)) {
                 this.clearUnavailableItemFromLocalState(activeItem);
                 logger.warn(`[SiYuanMemo][UnifiedQueueStrategy] Current queue item disappeared before feedback completed:`, {
                     queueType: this.queueType,
@@ -1162,8 +1168,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             || this.queueType === QueueType.IncrementalLearning
             || this.queueType === QueueType.FilterGroup
             || this.queueType === QueueType.FinalDrill
-            || this.queueType === QueueType.Leech
-            || this.queueType === QueueType.NeuralRoam;
+            || this.queueType === QueueType.Leech;
     }
 
     private isProjectionBackedQueue(): boolean {
@@ -1177,6 +1182,225 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 && String(entry.queueType || '') === this.queueType
                 && (entry.state === 'backend-projection' || entry.readPath === 'backend-projection')
             ));
+    }
+
+    private async nextFromNeuralRoamAdvance(): Promise<FSRSCard | null> {
+        if (this.pendingNeuralRoamAdvanceNextReady) {
+            const pending = this.pendingNeuralRoamAdvanceNext;
+            this.pendingNeuralRoamAdvanceNext = null;
+            this.pendingNeuralRoamAdvanceNextReady = false;
+            if (!pending) {
+                this.currentItem = null;
+                logger.info('[SiYuanMemo][UnifiedQueueStrategy] NeuralRoam advance queue exhausted');
+                return null;
+            }
+            const cardWithNextDues = await this.maybeAddNextDues(pending);
+            this.currentItem = cardWithNextDues;
+            return cardWithNextDues;
+        }
+
+        const result = await this.submitNeuralRoamAdvance({
+            queueType: 'neural-roam',
+            sessionId: null,
+            currentItem: this.currentItem ? this.toNeuralRoamAdvanceItem(this.currentItem) : null,
+            feedback: null,
+        });
+        return this.consumeNeuralRoamAdvanceResult(result, 'next');
+    }
+
+    private async handleNeuralRoamAdvanceFeedback(
+        activeItem: FSRSCard,
+        feedback: QueueFeedback,
+    ): Promise<void> {
+        if (feedback.action !== 'rate' && feedback.action !== 'skip') {
+            this.pushHistory(activeItem, null);
+            this.pendingNeuralRoamAdvanceNext = null;
+            this.pendingNeuralRoamAdvanceNextReady = false;
+            this.currentItem = null;
+            logger.info('[SiYuanMemo][UnifiedQueueStrategy] NeuralRoam custom feedback handled as session-only action:', {
+                queueType: this.queueType,
+                cardId: activeItem.id,
+                action: feedback.action,
+                customActionId: feedback.customActionId,
+            });
+            return;
+        }
+
+        const result = await this.submitNeuralRoamAdvance({
+            queueType: 'neural-roam',
+            sessionId: null,
+            currentItem: this.toNeuralRoamAdvanceItem(activeItem),
+            feedback: {
+                action: feedback.action,
+                rating: feedback.action === 'rate' ? feedback.rating : undefined,
+                customActionId: feedback.customActionId ?? null,
+            },
+            reviewedAt: Date.now(),
+        });
+
+        if (result.status === 'unavailable' || result.status === 'failed' || result.status === 'mismatch') {
+            if (result.unavailableReason === 'source-block-missing'
+                || result.unavailableReason === 'current-item-missing') {
+                this.clearUnavailableItemFromLocalState(activeItem);
+                throw new QueueItemUnavailableError(
+                    `Queue item is no longer available: ${activeItem.id}`,
+                    {
+                        cardId: activeItem.id,
+                        blockId: activeItem.blockId,
+                        queueType: this.queueType,
+                    },
+                );
+            }
+            throw new Error(
+                `NEURAL_ROAM_ADVANCE_UNAVAILABLE: ${result.unavailableReason || result.status}: ${result.message || 'advance failed'}`,
+            );
+        }
+
+        this.pushHistory(activeItem, null);
+        this.forwardBuffer = [];
+        this.pendingRotateCardId = null;
+        this.currentItem = null;
+        this.pendingNeuralRoamAdvanceNext = result.nextItem
+            ? this.fromNeuralRoamAdvanceItem(result.nextItem)
+            : null;
+        this.pendingNeuralRoamAdvanceNextReady = true;
+        this.lastCounterSnapshot = this.toCounterSnapshotFromNeuralRoamAdvance(result);
+
+        logger.info('[SiYuanMemo][UnifiedQueueStrategy] NeuralRoam feedback advanced through backend contract:', {
+            queueType: this.queueType,
+            cardId: activeItem.id,
+            action: feedback.action,
+            rating: feedback.rating,
+            status: result.status,
+            nextCardId: result.nextItem?.cardId ?? null,
+        });
+    }
+
+    private async submitNeuralRoamAdvance(
+        request: BackendNeuralRoamAdvanceRequest,
+    ): Promise<BackendNeuralRoamAdvanceResult> {
+        const manager = this.manager as NeuralRoamAdvanceManager;
+        if (typeof manager.neuralRoamAdvance !== 'function') {
+            throw new Error('NEURAL_ROAM_ADVANCE_UNAVAILABLE: manager neural-roam.advance contract is unavailable');
+        }
+        return manager.neuralRoamAdvance(request);
+    }
+
+    private async consumeNeuralRoamAdvanceResult(
+        result: BackendNeuralRoamAdvanceResult,
+        source: 'next' | 'pending',
+    ): Promise<FSRSCard | null> {
+        this.lastCounterSnapshot = this.toCounterSnapshotFromNeuralRoamAdvance(result);
+        if (result.status === 'exhausted') {
+            this.currentItem = null;
+            return null;
+        }
+        if (result.status !== 'advanced' || !result.nextItem) {
+            throw new Error(
+                `NEURAL_ROAM_ADVANCE_UNAVAILABLE: ${result.unavailableReason || result.status}: ${result.message || 'advance failed'}`,
+            );
+        }
+
+        const nextCard = this.fromNeuralRoamAdvanceItem(result.nextItem);
+        const cardWithNextDues = await this.maybeAddNextDues(nextCard);
+        this.currentItem = cardWithNextDues;
+        logger.info('[SiYuanMemo][UnifiedQueueStrategy] Next card (backend NeuralRoam advance):', {
+            queueType: this.queueType,
+            cardId: nextCard.id,
+            source,
+            status: result.status,
+        });
+        return cardWithNextDues;
+    }
+
+    private toNeuralRoamAdvanceItem(card: FSRSCard): BackendNeuralRoamItem {
+        const meta = isRecord(card.meta) ? card.meta : {};
+        const neuralContext = isRecord(meta.neuralContext) ? meta.neuralContext : null;
+        return {
+            id: String(card.id || card.blockId || '').trim(),
+            cardId: String(card.id || card.blockId || '').trim(),
+            blockId: String(card.blockId || card.id || '').trim(),
+            deckId: typeof (card as { deckId?: unknown }).deckId === 'string'
+                ? String((card as { deckId?: string }).deckId)
+                : null,
+            due: Number.isFinite(Number(card.due)) ? Number(card.due) : null,
+            type: String(card.type || '').trim() || null,
+            meta,
+            sourceKind: neuralContext?.isFlashcard === true ? 'associated-review' : 'virtual',
+            payload: this.cloneCard(card) as unknown as Record<string, unknown>,
+        };
+    }
+
+    private fromNeuralRoamAdvanceItem(item: BackendNeuralRoamItem): FSRSCard {
+        if (item.payload && this.isFsrsCardLike(item.payload)) {
+            return this.cloneCard(item.payload as unknown as FSRSCard);
+        }
+
+        const now = Date.now();
+        const id = String(item.cardId || item.id || item.blockId || '').trim();
+        const blockId = String(item.blockId || item.cardId || item.id || '').trim();
+        return {
+            id: id || blockId,
+            xiuyuanID: blockId || id,
+            blockId: blockId || id,
+            due: Number.isFinite(Number(item.due)) ? Number(item.due) : now,
+            stability: 0,
+            difficulty: 0,
+            reps: 0,
+            lapses: 0,
+            state: CardState.New,
+            lastReview: now,
+            elapsedDays: 0,
+            scheduledDays: 0,
+            priority: 50,
+            type: this.normalizeAdvanceItemCardType(item.type),
+            tags: [],
+            leechCount: 0,
+            isLeech: false,
+            skipped: false,
+            createdAt: now,
+            updatedAt: now,
+            meta: item.meta && typeof item.meta === 'object' ? { ...item.meta } : {},
+        };
+    }
+
+    private isFsrsCardLike(value: Record<string, unknown>): boolean {
+        return typeof value.id === 'string'
+            && typeof value.blockId === 'string'
+            && typeof value.due === 'number';
+    }
+
+    private normalizeAdvanceItemCardType(value: unknown): CardType {
+        switch (value) {
+            case CardType.Item:
+            case CardType.Topic:
+            case CardType.Concept:
+            case CardType.Descriptor:
+            case CardType.Incremental:
+            case CardType.Webpage:
+                return value;
+            default:
+                return CardType.Topic;
+        }
+    }
+
+    private toCounterSnapshotFromNeuralRoamAdvance(
+        result: BackendNeuralRoamAdvanceResult,
+    ): QueueCounterSnapshot {
+        return {
+            version: Date.now(),
+            remaining: Math.max(0, Math.floor(Number(result.counters.remaining || 0))),
+            due: Math.max(0, Math.floor(Number(result.counters.due || 0))),
+            total: Math.max(0, Math.floor(Number(result.counters.total || 0))),
+            buckets: {
+                all: Math.max(0, Math.floor(Number(result.counters.total || 0))),
+                item: Math.max(0, Math.floor(Number(result.counters.pendingAssociatedReview || 0))),
+                descriptor: 0,
+                topic: Math.max(0, Math.floor(Number(result.counters.sourceNodes || 0))),
+                concept: 0,
+            },
+            source: 'hot',
+        };
     }
 
     private applyReviewResultToCache(
@@ -1292,8 +1516,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private hasSessionExclusions(): boolean {
-        return this.supportsSessionCompletionExclusion()
-            && (this.sessionExcludedCardIds.size > 0 || this.sessionExcludedLogicalKeys.size > 0);
+        return this.sessionExcludedCardIds.size > 0 || this.sessionExcludedLogicalKeys.size > 0;
     }
 
     private addSessionExcludedCardId(cardId: string | null | undefined): boolean {
@@ -1323,6 +1546,16 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             changed = changed || this.sessionExcludedLogicalKeys.size !== previousSize;
         }
         return changed;
+    }
+
+    private addUnavailableItemSessionExclusion(card: FSRSCard): void {
+        const normalizedCardId = this.normalizeCardId(card.id);
+        if (normalizedCardId) {
+            this.sessionExcludedCardIds.add(normalizedCardId);
+        }
+        for (const logicalKey of this.buildSessionExclusionLogicalKeys(card)) {
+            this.sessionExcludedLogicalKeys.add(logicalKey);
+        }
     }
 
     private removeSessionExcludedCardIds(cardIds: Array<string | null | undefined>): number {
@@ -1659,6 +1892,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     private clearUnavailableItemFromLocalState(card: FSRSCard): void {
         const identities = this.collectCardIdentities(card);
+        this.addUnavailableItemSessionExclusion(card);
         this.removeMatchingCardsFromLocalState(identities);
         this.pendingRotateCardId = this.pendingRotateCardId && identities.has(this.pendingRotateCardId)
             ? null
@@ -1719,7 +1953,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private isUnavailableCurrentItemError(error: unknown, card: FSRSCard): boolean {
         const message = error instanceof Error ? error.message : String(error);
         const hasMissingCardSignal = message.includes('Card not found')
+            || message.includes('Block not found')
             || message.includes('获取卡片失败')
+            || message.includes('获取块失败')
             || message.includes('卡片不存在');
         if (!hasMissingCardSignal) {
             return false;
@@ -1999,8 +2235,29 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                         cardId: currentItem.id,
                         blockId: currentItem.blockId,
                     });
+                    throw new QueueItemUnavailableError(
+                        `Pre-review card snapshot missing for current queue item: ${currentItem.id}`,
+                        {
+                            cardId: currentItem.id,
+                            blockId: currentItem.blockId,
+                            queueType: this.queueType,
+                        },
+                    );
                 }
             } catch (error) {
+                if (error instanceof QueueItemUnavailableError
+                    || (isRecord(error) && error.name === 'QueueItemUnavailableError')
+                    || this.isUnavailableCurrentItemError(error, currentItem)) {
+                    throw new QueueItemUnavailableError(
+                        `Queue item is no longer available: ${currentItem.id}`,
+                        {
+                            cardId: currentItem.id,
+                            blockId: currentItem.blockId,
+                            queueType: this.queueType,
+                        },
+                        error,
+                    );
+                }
                 logger.error('[SiYuanMemo][UnifiedQueueStrategy] QUEUE_REVIEW_SNAPSHOT_UNAVAILABLE: failed to capture pre-review card snapshot:', {
                     queueType: this.queueType,
                     cardId: currentItem.id,
@@ -2257,6 +2514,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         this.currentItem = null;
         this.currentIndex = 0;
         this.cachedCards = [];
+        this.pendingNeuralRoamAdvanceNext = null;
+        this.pendingNeuralRoamAdvanceNextReady = false;
         this.lastCounterSnapshot = null;
         this.cacheManager.clear();
         this.invalidateCache();

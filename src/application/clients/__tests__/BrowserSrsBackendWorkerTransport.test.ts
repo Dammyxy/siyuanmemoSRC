@@ -132,6 +132,84 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
+  it('serves neural graph query host effects through the typed bridge', async () => {
+    const worker = new FakeWorker();
+    const resolveNeuralGraphQuery = vi.fn(async () => ({
+      status: 'known-missing' as const,
+      blockId: 'block-neural-1',
+      data: null,
+      error: null,
+    }));
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { resolveNeuralGraphQuery },
+    });
+
+    const request = {
+      operation: 'fetchBlockData',
+      blockId: 'block-neural-1',
+      options: { includeContent: true },
+    } as const;
+
+    worker.emit({ kind: 'ready' });
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-neural-1',
+      effect: {
+        kind: 'siyuan.neuralGraph.query',
+        request,
+      },
+    });
+
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+    expect(resolveNeuralGraphQuery).toHaveBeenCalledWith(request);
+    expect(worker.posted[0]).toEqual({
+      kind: 'host-effect-result',
+      effectId: 'effect-neural-1',
+      ok: true,
+      result: {
+        status: 'known-missing',
+        blockId: 'block-neural-1',
+        data: null,
+        error: null,
+      },
+    });
+    transport.dispose();
+  });
+
+  it('posts explicit unavailable when neural graph query host effect is absent', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+    });
+
+    worker.emit({ kind: 'ready' });
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-neural-missing',
+      effect: {
+        kind: 'siyuan.neuralGraph.query',
+        request: {
+          operation: 'fetchBlockData',
+          blockId: 'block-neural-1',
+        },
+      },
+    });
+
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+    expect(worker.posted[0]).toEqual({
+      kind: 'host-effect-result',
+      effectId: 'effect-neural-missing',
+      ok: false,
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'BACKEND_UNAVAILABLE: neural graph query host effect unavailable',
+      },
+    });
+    transport.dispose();
+  });
+
   it('passes AI prompt host-effect stream context to the renderer network bridge', async () => {
     const worker = new FakeWorker();
     const executeAiPrompt = vi.fn(async () => ({

@@ -63,7 +63,7 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     UnifiedDataSourceManager.resetInstance();
   });
 
-  it('reports every review queue as backend-projection by default', () => {
+  it('reports projection-backed review queues as backend-projection by default', () => {
     const manager = UnifiedDataSourceManager.getInstance();
     manager.setAdvancedRouter(createRouterWithBackend(null));
 
@@ -76,7 +76,6 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
       QueueType.FilterGroup,
       QueueType.FinalDrill,
       QueueType.Leech,
-      QueueType.NeuralRoam,
     ]) {
       expect(diagnosticByQueue.get(queueType)).toMatchObject({
         queueType,
@@ -86,6 +85,33 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
         reason: 'rollout-enabled',
       });
     }
+
+    expect(diagnosticByQueue.get(QueueType.NeuralRoam)).toMatchObject({
+      queueType: QueueType.NeuralRoam,
+      projectionBacked: false,
+      state: 'advance-contract-unavailable',
+      readPath: 'existing-queue-strategy',
+      reason: 'advance-contract-unavailable',
+      unavailableReason: 'advance-contract-unavailable',
+    });
+  });
+
+  it('reports neural-roam as advance-backed only when backend advance capability exists', () => {
+    const manager = UnifiedDataSourceManager.getInstance();
+    manager.setAdvancedRouter(createRouterWithBackend({
+      neuralRoamAdvance: vi.fn(),
+    }));
+
+    expect(manager.getQueueProjectionRolloutDiagnostics(QueueType.NeuralRoam)).toEqual([
+      expect.objectContaining({
+        queueType: QueueType.NeuralRoam,
+        projectionBacked: false,
+        state: 'backend-advance',
+        readPath: 'backend-advance',
+        reason: 'advance-backed',
+        unavailableReason: null,
+      }),
+    ]);
   });
 
   it('does not call backend projection RPC for queues explicitly rolled back to strategy reads', async () => {

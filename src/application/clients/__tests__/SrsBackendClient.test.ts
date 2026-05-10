@@ -171,6 +171,52 @@ describe('SrsBackendClient', () => {
               },
             };
           }
+          case 'neural-roam.advance':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                queueType: 'neural-roam',
+                sessionId: 'session-neural-1',
+                status: 'advanced',
+                nextItem: {
+                  id: 'node-2',
+                  cardId: 'node-2',
+                  blockId: 'node-2',
+                  deckId: 'neural-roam',
+                  due: null,
+                  type: 'topic',
+                  meta: {
+                    neuralContext: {
+                      isFlashcard: false,
+                    },
+                  },
+                  sourceKind: 'virtual',
+                  payload: null,
+                },
+                counters: {
+                  remaining: 1,
+                  due: 1,
+                  total: 1,
+                  pendingAssociatedReview: 0,
+                  sourceNodes: 1,
+                },
+                sessionState: {
+                  sessionId: 'session-neural-1',
+                  engineMode: 'hyperspace',
+                  currentNodeId: 'node-2',
+                  currentEventId: 'event-2',
+                  pathLength: 2,
+                  historyCount: 1,
+                  exhausted: false,
+                  projectionGeneration: 4,
+                  policyHash: 'policy-deferred',
+                },
+                projectionImpact: null,
+                unavailableReason: null,
+                message: null,
+              },
+            };
           case 'ai.session.create':
           case 'ai.session.get':
           case 'ai.session.update':
@@ -383,6 +429,38 @@ describe('SrsBackendClient', () => {
       status: 'ready',
       cards: [],
     });
+    await expect(client.neuralRoamAdvance({
+      queueType: 'neural-roam',
+      sessionId: 'session-neural-1',
+      currentItem: {
+        id: 'node-1',
+        cardId: 'node-1',
+        blockId: 'node-1',
+        sourceKind: 'virtual',
+      },
+      feedback: {
+        action: 'rate',
+        rating: 3,
+      },
+      projectionGeneration: 4,
+      policyHash: 'policy-deferred',
+      idempotencyKey: 'neural-advance-key-1',
+    })).resolves.toMatchObject({
+      queueType: 'neural-roam',
+      sessionId: 'session-neural-1',
+      status: 'advanced',
+      nextItem: {
+        blockId: 'node-2',
+        sourceKind: 'virtual',
+      },
+      counters: {
+        remaining: 1,
+      },
+      sessionState: {
+        projectionGeneration: 4,
+        policyHash: 'policy-deferred',
+      },
+    });
     await expect(client.createAiSession({
       sessionId: 'ai-session-1',
       surfaceId: 'standalone-dialog',
@@ -485,6 +563,7 @@ describe('SrsBackendClient', () => {
       'review.feedback',
       'queue.projection.snapshot',
       'queue.projection.rowsByIds',
+      'neural-roam.advance',
       'ai.session.create',
       'ai.session.get',
       'ai.session.update',
@@ -521,6 +600,23 @@ describe('SrsBackendClient', () => {
       queueType: 'incremental-learning',
       queueMode: 'formal',
       commitPolicy: 'write-schedule',
+    }]);
+    expect(requests[19].params).toEqual([{
+      queueType: 'neural-roam',
+      sessionId: 'session-neural-1',
+      currentItem: {
+        id: 'node-1',
+        cardId: 'node-1',
+        blockId: 'node-1',
+        sourceKind: 'virtual',
+      },
+      feedback: {
+        action: 'rate',
+        rating: 3,
+      },
+      projectionGeneration: 4,
+      policyHash: 'policy-deferred',
+      idempotencyKey: 'neural-advance-key-1',
     }]);
     expect(requests[14].params).toEqual([{
       blockId: 'block-1',
@@ -616,5 +712,25 @@ describe('SrsBackendClient', () => {
         url: 'https://example.com/chat/completions',
       },
     })).rejects.toThrow('ai.prompt.execute returned invalid payload');
+  });
+
+  it('rejects neural-roam.advance payload when semantic fields are missing', async () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          queueType: 'neural-roam',
+          status: 'advanced',
+          nextItem: null,
+        },
+      })),
+    };
+    const client = new SrsBackendClient(transport);
+
+    await expect(client.neuralRoamAdvance({
+      queueType: 'neural-roam',
+      sessionId: 'session-1',
+    })).rejects.toThrow('neural-roam.advance returned invalid payload');
   });
 });

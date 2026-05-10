@@ -3,6 +3,7 @@ import { SqliteDatabaseService as RuntimeSqliteDatabaseService } from '@/infrast
 import { SQLITE_DB_FILE } from '@/infrastructure/persistence/sqlite/schema';
 import { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository';
 import { SqlQueueProjectionRepository } from '@/infrastructure/persistence/sqlite/SqlQueueProjectionRepository';
+import { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite/SqlQueueStateRepository';
 import { SchedulerRouter } from '@/core/scheduler';
 import { createReviewLogV2 } from '@/types/review';
 import type { StructuredCardQuery } from '@/types/card-query';
@@ -12,6 +13,7 @@ import type { SchedulerType } from '@/core/scheduler/schedulerPolicy';
 import type {
   QueueProjectionCounters,
   QueueProjectionDueBucket,
+  QueueProjectionGeneration,
   QueueProjectionRow,
 } from '@/application/ports/QueueProjectionPort';
 import { buildQueueProjectionRows } from '@/application/services/queue-projection/QueueProjectionBuilder';
@@ -120,6 +122,7 @@ export class WorkerSqliteDatabaseService {
   private readonly autoCardDecisionService = new AutoCardDecisionService();
   private repository: SqlUnifiedStorageRepository | null = null;
   private queueProjection: SqlQueueProjectionRepository | null = null;
+  private queueState: SqlQueueStateRepository | null = null;
   private initialized = false;
   private readonly kernelTransactionQueue: Array<{
     source: 'kernel-sidecar' | 'ws-main';
@@ -211,6 +214,7 @@ export class WorkerSqliteDatabaseService {
     await this.runtime.init();
     this.repository = new SqlUnifiedStorageRepository(this.runtime);
     this.queueProjection = new SqlQueueProjectionRepository(this.runtime);
+    this.queueState = new SqlQueueStateRepository(this.runtime);
     await this.restoreKernelIngestQueueSnapshot();
     await this.restoreKernelActionQueueSnapshot();
     this.initialized = true;
@@ -666,6 +670,23 @@ export class WorkerSqliteDatabaseService {
     return this.repository!.getDeckCardsByIds(ids);
   }
 
+  async queryCards(query?: StructuredCardQuery): Promise<FSRSCard[]> {
+    await this.init();
+    return this.repository!.queryCards(query);
+  }
+
+  async getQueueStateValue<T>(key: string): Promise<T | null> {
+    await this.init();
+    const values = this.queueState!.loadAll();
+    return Object.prototype.hasOwnProperty.call(values, key) ? values[key] as T : null;
+  }
+
+  async setQueueStateValue(key: string, value: unknown): Promise<void> {
+    await this.init();
+    this.queueState!.set(key, value);
+    await this.queueState!.persist();
+  }
+
   async queueProjectionSnapshot(
     request: BackendQueueProjectionSnapshotRequest,
   ): Promise<BackendQueueProjectionSnapshotResult> {
@@ -702,13 +723,20 @@ export class WorkerSqliteDatabaseService {
       offset: request.offset,
     });
     const cards = this.repository!.getCardsByIds(rows.map((row) => row.cardId));
+    const snapshotRows = this.buildProjectionSnapshotRows(rows, cards);
     return {
       queueType,
       policyHash,
       generation: requestedGeneration,
       status: 'ready',
-      rows: this.buildProjectionSnapshotRows(rows, cards),
-      counters,
+      rows: snapshotRows,
+      counters: this.reconcileActiveProjectionCounters({
+        queueType,
+        policyHash,
+        generation: requestedGeneration,
+        counters,
+        rows: snapshotRows,
+      }),
     };
   }
 
@@ -769,12 +797,14 @@ export class WorkerSqliteDatabaseService {
       .map((id) => rowByIdentity.get(id))
       .filter((row): row is QueueProjectionRow => Boolean(row));
     const cards = this.repository!.getCardsByIds(orderedRows.map((row) => row.cardId));
+    const activeCardIds = new Set(cards.map((card) => String(card.id || '').trim()).filter(Boolean));
+    const activeRows = orderedRows.filter((row) => activeCardIds.has(String(row.cardId || '').trim()));
     return {
       queueType,
       policyHash,
       generation: requestedGeneration,
       status: 'ready',
-      rows: this.buildProjectionSnapshotRows(orderedRows, cards),
+      rows: this.buildProjectionSnapshotRows(activeRows, cards),
       cards,
     };
   }
@@ -878,7 +908,19 @@ export class WorkerSqliteDatabaseService {
     checkedAt?: number,
   ): Promise<void> {
     await this.init();
+    const previousStatus = this.repository!.getSourceExistenceByBlockIds(
+      updates.map((update) => update.blockId),
+    );
     await this.repository!.updateSourceExistence(updates, checkedAt);
+    const changedBlockIds = uniqueStrings(updates
+      .filter((update) => {
+        const previous = previousStatus.has(update.blockId)
+          ? previousStatus.get(update.blockId)
+          : null;
+        return previous !== update.exists;
+      })
+      .map((update) => update.blockId));
+    this.invalidateQueueProjectionsForSourceChanges(changedBlockIds, checkedAt ?? Date.now());
   }
 
   async getSourceExistenceByBlockIds(
@@ -944,6 +986,9 @@ export class WorkerSqliteDatabaseService {
     }
 
     await this.repository!.updateSourceExistence(updates, checkedAt);
+    if (changedBlockIds.length > 0) {
+      this.invalidateQueueProjectionsForSourceChanges(changedBlockIds, checkedAt);
+    }
 
     return {
       checked: candidates.length,
@@ -952,6 +997,15 @@ export class WorkerSqliteDatabaseService {
       changedToMissing,
       changedBlockIds,
     };
+  }
+
+  async getQueueProjectionGeneration(queueType: string): Promise<QueueProjectionGeneration | null> {
+    await this.init();
+    const projectionQueueType = this.resolveProjectionQueueType(queueType);
+    if (!projectionQueueType || !this.queueProjection) {
+      return null;
+    }
+    return this.queueProjection.readGeneration(projectionQueueType);
   }
 
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
@@ -1410,6 +1464,30 @@ export class WorkerSqliteDatabaseService {
     return null;
   }
 
+  private invalidateQueueProjectionsForSourceChanges(blockIds: string[], checkedAt: number): void {
+    const affectedBlockIds = uniqueStrings(blockIds);
+    if (!this.queueProjection || affectedBlockIds.length === 0) {
+      return;
+    }
+    this.queueProjection.invalidateQueues({
+      queueTypes: [
+        QueueType.RetrievalPractice,
+        QueueType.IncrementalLearning,
+        QueueType.FilterGroup,
+        QueueType.FinalDrill,
+        QueueType.Leech,
+        QueueType.NeuralRoam,
+      ],
+      reason: 'source-existence-changed',
+      affectedBlockIds,
+      generation: Math.max(1, Math.floor(Number(checkedAt) || Date.now())),
+      createdAt: checkedAt,
+      metadata: {
+        source: 'source-existence-sweep',
+      },
+    });
+  }
+
   private buildUnavailableProjectionSnapshotResult(queueType: unknown): BackendQueueProjectionSnapshotResult {
     return {
       queueType: String(queueType || ''),
@@ -1486,7 +1564,7 @@ export class WorkerSqliteDatabaseService {
     }
 
     return projectionRows
-      .map((row, index) => {
+      .map<BackendQueueProjectionSnapshotRow | null>((row, index) => {
         const card = cardById.get(row.cardId);
         if (!card) {
           return null;
@@ -1508,6 +1586,52 @@ export class WorkerSqliteDatabaseService {
       .filter((row): row is BackendQueueProjectionSnapshotRow => Boolean(row));
   }
 
+  private reconcileActiveProjectionCounters(input: {
+    queueType: ProjectionWorkerQueueType;
+    policyHash: string;
+    generation: number;
+    counters: BackendQueueProjectionSnapshotResult['counters'];
+    rows: BackendQueueProjectionSnapshotRow[];
+  }): BackendQueueProjectionSnapshotResult['counters'] {
+    const buckets = {
+      all: 0,
+      item: 0,
+      descriptor: 0,
+      topic: 0,
+      concept: 0,
+    };
+    const now = Date.now();
+    let due = 0;
+    for (const row of input.rows) {
+      buckets.all += 1;
+      const cardType = String(row.cardType || '').trim();
+      if (cardType === CardType.Descriptor) {
+        buckets.descriptor += 1;
+      } else if (cardType === CardType.Topic) {
+        buckets.topic += 1;
+      } else if (cardType === CardType.Concept) {
+        buckets.concept += 1;
+      } else {
+        buckets.item += 1;
+      }
+      if (Number(row.due) <= now) {
+        due += 1;
+      }
+    }
+
+    return {
+      queueType: input.queueType,
+      policyHash: input.policyHash,
+      generation: input.generation,
+      version: Math.max(0, Math.floor(Number(input.counters?.version || input.generation))),
+      remaining: input.rows.length,
+      due,
+      total: input.rows.length,
+      buckets,
+      updatedAt: Math.max(0, Math.floor(Number(input.counters?.updatedAt || now))),
+    };
+  }
+
   private readProjectionSourceCards(
     queueType: SrsProjectionWorkerQueueType,
     dayEnd: number,
@@ -1526,6 +1650,7 @@ export class WorkerSqliteDatabaseService {
       cardTypes,
       dueDate: { lte: dayEnd },
       includeSuspended: false,
+      sourceStatus: 'active',
     });
   }
 

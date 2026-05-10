@@ -428,7 +428,9 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     const uniqueIds = Array.from(new Set(orderedIds));
     const placeholders = uniqueIds.map(() => '?').join(', ');
     const rows = this.database.getAll<{ payload_json: string }>(
-      `SELECT payload_json FROM cards WHERE id IN (${placeholders}) OR block_id IN (${placeholders})`,
+      `SELECT payload_json FROM cards
+       WHERE (id IN (${placeholders}) OR block_id IN (${placeholders}))
+         AND (source_exists IS NULL OR source_exists = 1)`,
       [...uniqueIds, ...uniqueIds],
     );
     const cardById = new Map<string, FSRSCard>();
