@@ -37,6 +37,10 @@ function normalizeRating(value: unknown): 1 | 2 | 3 | 4 | null {
   return rating >= 1 && rating <= 4 ? rating as 1 | 2 | 3 | 4 : null;
 }
 
+function clonePlainCard(card: FSRSCard): FSRSCard {
+  return JSON.parse(JSON.stringify(card)) as FSRSCard;
+}
+
 function isAssociatedReviewItem(item: BackendNeuralRoamItem | Record<string, unknown> | null | undefined): boolean {
   const meta = isRecord(item?.meta) ? item.meta : null;
   const neuralContext = isRecord(meta?.neuralContext) ? meta.neuralContext : null;
@@ -327,21 +331,22 @@ export class WorkerNeuralRoamAdvanceService {
   }
 
   private toAdvanceItem(card: FSRSCard): BackendNeuralRoamItem {
-    const meta = isRecord(card.meta) ? card.meta : {};
+    const payload = clonePlainCard(card);
+    const meta = isRecord(payload.meta) ? payload.meta : {};
     const neuralContext = isRecord(meta.neuralContext) ? meta.neuralContext : null;
     const sourceKind = neuralContext?.isFlashcard === true
       ? 'associated-review'
       : 'virtual';
     return {
-      id: normalizeString(card.id) || normalizeString(card.blockId),
-      cardId: normalizeString(card.id) || normalizeString(card.blockId),
-      blockId: normalizeString(card.blockId) || normalizeString(card.id),
-      deckId: normalizeString((card as { deckId?: unknown }).deckId) || 'neural-roam',
-      due: Number.isFinite(Number(card.due)) ? Number(card.due) : null,
-      type: normalizeString(card.type || CardType.Topic),
+      id: normalizeString(payload.id) || normalizeString(payload.blockId),
+      cardId: normalizeString(payload.id) || normalizeString(payload.blockId),
+      blockId: normalizeString(payload.blockId) || normalizeString(payload.id),
+      deckId: normalizeString((payload as { deckId?: unknown }).deckId) || 'neural-roam',
+      due: Number.isFinite(Number(payload.due)) ? Number(payload.due) : null,
+      type: normalizeString(payload.type || CardType.Topic),
       meta,
       sourceKind,
-      payload: card as unknown as Record<string, unknown>,
+      payload: payload as unknown as Record<string, unknown>,
     };
   }
 

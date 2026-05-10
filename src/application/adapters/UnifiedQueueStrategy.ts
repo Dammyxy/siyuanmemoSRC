@@ -1314,20 +1314,21 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private toNeuralRoamAdvanceItem(card: FSRSCard): BackendNeuralRoamItem {
-        const meta = isRecord(card.meta) ? card.meta : {};
+        const payload = this.cloneCard(card) as CardWithNextDues;
+        const meta = isRecord(payload.meta) ? payload.meta : {};
         const neuralContext = isRecord(meta.neuralContext) ? meta.neuralContext : null;
         return {
-            id: String(card.id || card.blockId || '').trim(),
-            cardId: String(card.id || card.blockId || '').trim(),
-            blockId: String(card.blockId || card.id || '').trim(),
-            deckId: typeof (card as { deckId?: unknown }).deckId === 'string'
-                ? String((card as { deckId?: string }).deckId)
+            id: String(payload.id || payload.blockId || '').trim(),
+            cardId: String(payload.id || payload.blockId || '').trim(),
+            blockId: String(payload.blockId || payload.id || '').trim(),
+            deckId: typeof (payload as { deckId?: unknown }).deckId === 'string'
+                ? String((payload as { deckId?: string }).deckId)
                 : null,
-            due: Number.isFinite(Number(card.due)) ? Number(card.due) : null,
-            type: String(card.type || '').trim() || null,
+            due: Number.isFinite(Number(payload.due)) ? Number(payload.due) : null,
+            type: String(payload.type || '').trim() || null,
             meta,
             sourceKind: neuralContext?.isFlashcard === true ? 'associated-review' : 'virtual',
-            payload: this.cloneCard(card) as unknown as Record<string, unknown>,
+            payload: payload as unknown as Record<string, unknown>,
         };
     }
 
@@ -2135,18 +2136,18 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         return neuralContext?.isFlashcard === true;
     }
 
-    private async loadProjectionBackedCards(): Promise<FSRSCard[] | null> {
+    private async loadProjectionBackedCards(forceRefresh = false): Promise<FSRSCard[] | null> {
         if (!this.isProjectionBackedQueue()) {
             return null;
         }
 
-        const rows = await this.queue.getSnapshotRows();
+        const rows = await this.queue.getSnapshotRows(forceRefresh);
         const rowIds = rows.map((row) => String(row.id || '')).filter(Boolean);
         if (rowIds.length === 0) {
             return [];
         }
 
-        const cards = await this.queue.getCardsBySnapshotIds(rowIds);
+        const cards = await this.queue.getCardsBySnapshotIds(rowIds, forceRefresh);
         if (cards.length !== rowIds.length) {
             throw new Error(
                 `QUEUE_PROJECTION_UNAVAILABLE: ${this.queueType} projection hydration returned `
@@ -2161,7 +2162,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Reloading cards: ${this.queueType}`);
 
             const startTime = Date.now();
-            const projectionCards = await this.loadProjectionBackedCards();
+            const projectionCards = await this.loadProjectionBackedCards(true);
             const loadedCards = projectionCards ?? await this.queue.getCards();
             this.cachedCards = this.applySessionExclusions(loadedCards);
             this.currentIndex = 0;

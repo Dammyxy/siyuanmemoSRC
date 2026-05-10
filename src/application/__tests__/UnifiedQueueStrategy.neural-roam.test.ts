@@ -211,6 +211,31 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
     }));
   });
 
+  it('sends neural-roam advance current item as a structured-clone-safe DTO', async () => {
+    const queue = createQueueStub();
+    const { strategy, manager } = createStrategyWithQueue(queue);
+    const currentItem = createSyntheticNeuralCard({
+      meta: {
+        neuralContext: {
+          isFlashcard: true,
+        },
+        nonCloneable: () => 'must not cross worker boundary',
+      } as unknown as Record<string, unknown>,
+    });
+    manager.neuralRoamAdvance.mockImplementationOnce(async (request) => {
+      expect(() => structuredClone(request)).not.toThrow();
+      expect(request.currentItem).toMatchObject({
+        id: currentItem.id,
+        blockId: currentItem.blockId,
+      });
+      expect((request.currentItem as BackendNeuralRoamItem).meta).not.toHaveProperty('nonCloneable');
+      expect((request.currentItem as BackendNeuralRoamItem).payload).not.toHaveProperty('meta.nonCloneable');
+      return createAdvanceResult(null);
+    });
+
+    await strategy.onFeedback(currentItem, { action: 'rate', rating: 3 });
+  });
+
   it('uses queue.getSize fast-path for neural stats', async () => {
     const queue = createQueueStub() as IReviewQueue & {
       getCards: ReturnType<typeof vi.fn>;

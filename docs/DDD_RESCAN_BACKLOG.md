@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-10 (Round 322)
+Last update: 2026-05-10 (Round 324)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-10 - Projection reload and NeuralRoam graph resolver repair
+
+- Task: Fix new review feedback errors where incremental-learning reload failed with `QUEUE_PROJECTION_UNAVAILABLE: projection hydration returned 131/132 cards`, and NeuralRoam graph advance logged `NEURAL_ROAM_SCHEMA_UNAVAILABLE: fsrs_cards is unavailable for local roam-node type checks`.
+- Touched slice: Review / Queue projection reload / NeuralRoam graph host effect；`src/application/{ApplicationContext.ts,adapters/UnifiedQueueStrategy.ts,services/UnifiedDataSourceManager.ts}`、`src/core/queue/neural/ConceptQueryEngine.ts`、`src/infrastructure/siyuan/SiyuanNeuralRoamGraphQueryAdapter.ts`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: Projection-backed Review full reload now forces a fresh projection snapshot before rowsByIds hydration, so stale cached snapshot rows cannot be paired with active-source-pruned hydration results. NeuralRoam worker graph queries now receive the same application node-type resolver used by the existing NeuralRoamQueue, and formal-review neighbor filtering uses that unified resolver before touching local `fsrs_cards` schema checks.
+- Debt deferred: No fallback to static projection advance, local strategy reads, or empty graph results was added. Existing unrelated i18n/Sass build warnings remain outside this slice.
+- Why deferred: This task fixed the active contract boundary causing live review errors; i18n/Sass warnings are repo hygiene noise and do not affect queue advance semantics.
+- Next safe step: Live smoke incremental-learning rating twice after source-existence pruning and NeuralRoam rating from a concept block; confirm no `131/132` hydration error and no `fsrs_cards` graph-query error.
+- Validation: Focused red tests failed before the fix and passed after. Targeted suites passed for `UnifiedQueueStrategy.performance.test.ts`, `BaseReviewQueue.snapshot.test.ts`, `UnifiedDataSourceManager.queue-projection-rollout.test.ts`, `ConceptQueryEngine.backlinks.test.ts`, `ConceptQueryEngine.isConceptCard.test.ts`, `SiyuanNeuralRoamGraphQueryAdapter.test.ts`, `BackendKernel.test.ts`, `BrowserSrsBackendWorkerTransport.test.ts`, `SrsBackendClient.test.ts`, and `ApplicationContext.writer-relay.test.ts`. Final boundary/build validation is recorded in the task response.
+
+### 2026-05-10 - Review feedback DataClone and FSRS memory-state repair
+
+- Task: Fix NeuralRoam and other queue review errors from worker `postMessage` `DataCloneError` and ts-fsrs invalid memory state during nextDues preview.
+- Touched slice: Review / Queue / Scheduler / backend worker NeuralRoam advance DTO；`src/application/adapters/UnifiedQueueStrategy.ts`、`worker/bootstrap/WorkerNeuralRoamAdvanceService.ts`、`src/core/scheduler/fsrsReviewStateRepair.ts`、focused tests。
+- Debt fixed now: NeuralRoam advance current/next item DTOs now derive `meta` and `payload` from plain JSON card clones before crossing the Worker boundary, keeping the `neural-roam.advance` contract structured-clone-safe instead of depending on caller object shape. FSRS repair now normalizes half-initialized non-review memory state back to `difficulty=0, stability=0` before ts-fsrs sees it, so new/uninitialized cards no longer become invalid `difficulty=1, stability=0` preview/review inputs.
+- Debt deferred: No new fallback, alternate queue path, or projection/runtime downgrade was added. Existing i18n hardcoded-string and Sass legacy warnings remain unrelated and non-blocking.
+- Why deferred: This task targeted review feedback runtime errors. The i18n/Sass warnings are existing repo hygiene noise outside this slice.
+- Next safe step: Live smoke NeuralRoam rating and incremental-learning requery in SiYuan to confirm no `DataCloneError` and no `Invalid memory state` console error.
+- Validation: Focused reproduction tests passed before/after fix as expected; final targeted validation passed for `UnifiedQueueStrategy.neural-roam.test.ts`, `fsrsReviewStateRepair.test.ts`, `TSFSRSScheduler.test.ts`, `UnifiedQueueStrategy.performance.test.ts`, `BackendKernel.test.ts`, `SrsBackendClient.test.ts`, `BrowserSrsBackendWorkerTransport.test.ts`; `pnpm run check:boundaries` passed; `pnpm build` passed with existing non-blocking i18n hardcoded/Sass legacy warnings.
 
 ### 2026-05-10 - NeuralRoam backend advance and active-source projection contract
 

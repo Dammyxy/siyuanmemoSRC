@@ -1321,6 +1321,7 @@ export class ApplicationContext {
       },
       schedulerCardUpdater
     );
+    const unifiedDataSourceManager = UnifiedDataSourceManager.getInstance();
 
     let contextRef: ApplicationContext | null = null;
     let srsBackendClient: SrsBackendClient | null = null;
@@ -1347,7 +1348,11 @@ export class ApplicationContext {
         await measureRuntimePerformance('startup', 'backend-worker.bootstrap', async () => {
           const bridge = ApplicationContext.createWorkerPersistenceBridge(fileService);
           const browserSiyuanApi = new BrowserSiyuanAdapter();
-          const neuralRoamGraphQuery = new SiyuanNeuralRoamGraphQueryAdapter();
+          const neuralRoamGraphQuery = new SiyuanNeuralRoamGraphQueryAdapter({
+            nodeTypeResolver: {
+              resolveNodeType: (blockId) => unifiedDataSourceManager.resolveNeuralRoamNodeType(blockId),
+            },
+          });
           const aiNetworkProxy = new KernelAINetworkProxyAdapter(kernelSidecarClient);
           srsBackendTransport = new BrowserSrsBackendWorkerTransport({
             hostEffects: {
@@ -1427,7 +1432,6 @@ export class ApplicationContext {
     logger.info('[ApplicationContext] ✅ CardCreationHelper initialized');
     
     // 7. 初始化统一数据源管理器
-    const unifiedDataSourceManager = UnifiedDataSourceManager.getInstance();
     unifiedDataSourceManager.setLeechActionEffects(new SiyuanLeechActionEffectsAdapter());
     
     // 8. 初始化队列上下文（空的，稍后注册队列）

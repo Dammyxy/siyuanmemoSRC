@@ -256,8 +256,50 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
 
     expect(next?.id).toBe('card-b');
     expect(queue.getSnapshotRows).toHaveBeenCalledTimes(1);
-    expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith(projectionRows.map((row) => row.id));
+    expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith(projectionRows.map((row) => row.id), true);
     expect(getCardsSpy).not.toHaveBeenCalled();
+  });
+
+  it('refreshes projection snapshot before hydration so pruned active-source rows do not fail reload', async () => {
+    const staleMissingCard = createCard({ id: 'stale-card', blockId: 'missing-block' });
+    const nextCard = createCard({ id: 'next-card', blockId: 'next-block' });
+    const queue = createQueueStub(QueueType.IncrementalLearning, [nextCard]);
+    const staleRows = [
+      buildQueueSnapshotRow(staleMissingCard, { queueIndex: 1 }),
+      buildQueueSnapshotRow(nextCard, { queueIndex: 2 }),
+    ];
+    const refreshedRows = [
+      buildQueueSnapshotRow(nextCard, { queueIndex: 1 }),
+    ];
+    (queue.getSnapshotRows as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (forceRefresh?: boolean) => (
+      forceRefresh ? refreshedRows : staleRows
+    ));
+    (queue.getCardsBySnapshotIds as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (ids: string[]) => ids
+      .filter((id) => id === refreshedRows[0].id || id === nextCard.id || id === nextCard.blockId)
+      .map(() => ({ ...nextCard })));
+    const manager = {
+      getQueue: vi.fn((queueType?: QueueType) => (
+        queueType === QueueType.FinalDrill
+          ? createQueueStub(QueueType.FinalDrill, [])
+          : queue
+      )),
+      getQueueProjectionRolloutDiagnostics: vi.fn((queueType?: QueueType) => queueType === QueueType.IncrementalLearning ? [{
+        queueType: QueueType.IncrementalLearning,
+        projectionBacked: true,
+        state: 'backend-projection',
+        readPath: 'backend-projection',
+        reason: 'rollout-enabled',
+        nextCoverageTask: null,
+      }] : []),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(QueueType.IncrementalLearning, manager as never, eventBus as never, null);
+
+    const next = await strategy.next();
+
+    expect(next?.id).toBe(nextCard.id);
+    expect(queue.getSnapshotRows).toHaveBeenCalledWith(true);
+    expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith([refreshedRows[0].id], true);
   });
 
   it('recomputes nextDues for the same card id when scheduling fields change', async () => {

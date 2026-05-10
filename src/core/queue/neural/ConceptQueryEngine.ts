@@ -695,7 +695,7 @@ export class ConceptQueryEngine {
       return cached;
     }
 
-    const resolved = await this.resolveNodeTypeFromFsrsCards(normalizedBlockId);
+    const resolved = await this.resolveNodeType(normalizedBlockId);
     const isFormalReviewCard = resolved === 'item' || resolved === 'descriptor';
     this.formalReviewCardCache.set(normalizedBlockId, isFormalReviewCard);
     return isFormalReviewCard;

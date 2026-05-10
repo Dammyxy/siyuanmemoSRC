@@ -1890,7 +1890,7 @@ export class UnifiedDataSourceManager {
         return queue.removeCards(cardIdsOrBlockIds);
     }
 
-    private async resolveNeuralRoamNodeType(blockId: string): Promise<NeuralRoamNodeType> {
+    public async resolveNeuralRoamNodeType(blockId: string): Promise<NeuralRoamNodeType> {
         const normalizedBlockId = String(blockId || '').trim();
         if (!normalizedBlockId) {
             return 'unknown';

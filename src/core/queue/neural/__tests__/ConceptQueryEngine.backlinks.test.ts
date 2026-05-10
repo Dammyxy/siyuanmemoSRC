@@ -241,6 +241,32 @@ describe('ConceptQueryEngine - backlink normalization', () => {
     expect(api.sql).toHaveBeenCalledTimes(1);
   });
 
+  it('filters formal review neighbors through injected node type resolver before local fsrs SQL', async () => {
+    const resolveNodeType = vi.fn(async (blockId: string) => (
+      blockId === 'formal-review-1' ? 'item' as const : 'topic' as const
+    ));
+    engine = new ConceptQueryEngine({
+      nodeTypeResolver: { resolveNodeType },
+    });
+    vi.spyOn(engine, 'fetchBacklinks').mockResolvedValue(['formal-review-1', 'virtual-wrapper-1']);
+    vi.spyOn(engine, 'fetchDirectOutgoingLinks').mockResolvedValue([]);
+    vi.spyOn(engine, 'fetchIndirectOutgoingLinks').mockResolvedValue([]);
+    vi.mocked(api.sql).mockRejectedValue(new Error('Siyuan API Error: no such table: fsrs_cards'));
+
+    const result = await engine.fetchNeighbors('concept-1');
+
+    expect(result).toEqual([
+      {
+        id: 'virtual-wrapper-1',
+        type: 'backlink',
+        weight: 15,
+      },
+    ]);
+    expect(resolveNodeType).toHaveBeenCalledWith('formal-review-1');
+    expect(resolveNodeType).toHaveBeenCalledWith('virtual-wrapper-1');
+    expect(api.sql).not.toHaveBeenCalled();
+  });
+
   it('fetches subtree block ids including the root block and descendants', async () => {
     vi.mocked(api.sql).mockResolvedValue([
       { id: 'virtual-1' },

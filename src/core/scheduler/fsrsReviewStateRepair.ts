@@ -43,7 +43,7 @@ export function repairFsrsReviewState(
   }
 
   if (!isReviewLikeState(card.state)) {
-    return { card, repaired: false, reasons: [] };
+    return repairUninitializedMemoryState(card);
   }
 
   const now = resolveNow(options.now);
@@ -141,6 +141,27 @@ export function repairFsrsReviewState(
 
 function isReviewLikeState(state: unknown): boolean {
   return state === CardState.Review || state === CardState.Relearning;
+}
+
+function repairUninitializedMemoryState(card: FSRSCard): FsrsReviewStateRepairResult {
+  const rawStability = Number(card.stability);
+  const rawDifficulty = Number(card.difficulty);
+  const hasUninitializedStability = !Number.isFinite(rawStability) || rawStability <= 0;
+  const hasInitializedDifficulty = Number.isFinite(rawDifficulty) && rawDifficulty > 0;
+
+  if (!hasUninitializedStability || !hasInitializedDifficulty) {
+    return { card, repaired: false, reasons: [] };
+  }
+
+  return {
+    card: {
+      ...card,
+      stability: 0,
+      difficulty: 0,
+    },
+    repaired: true,
+    reasons: ['memoryState'],
+  };
 }
 
 function isFsrsV6EffectiveCard(card: FSRSCard, schedulerType: unknown): boolean {

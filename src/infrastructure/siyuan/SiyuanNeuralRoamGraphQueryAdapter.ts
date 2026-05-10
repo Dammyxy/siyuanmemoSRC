@@ -4,14 +4,26 @@ import type {
 } from '../../../packages/contracts/src/backend-rpc';
 import { ConceptQueryEngine } from '@/core/queue/neural/ConceptQueryEngine';
 import { NeuralGraphProvider } from '@/core/queue/neural/graph/NeuralGraphProvider';
+import type { NeuralRoamNodeTypeResolverPort } from '@/core/queue/domain/ports';
 import type { NeuralGraphQueryPort } from '@/core/queue/neural/NeuralGraphQueryPort';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SiyuanNeuralRoamGraphQueryAdapter');
 
+export interface SiyuanNeuralRoamGraphQueryAdapterOptions {
+  nodeTypeResolver?: NeuralRoamNodeTypeResolverPort;
+}
+
 export class SiyuanNeuralRoamGraphQueryAdapter implements NeuralGraphQueryPort {
-  private readonly queryEngine = new ConceptQueryEngine();
-  private readonly graphProvider = new NeuralGraphProvider(this.queryEngine);
+  private readonly queryEngine: ConceptQueryEngine;
+  private readonly graphProvider: NeuralGraphProvider;
+
+  constructor(options: SiyuanNeuralRoamGraphQueryAdapterOptions = {}) {
+    this.queryEngine = new ConceptQueryEngine({
+      nodeTypeResolver: options.nodeTypeResolver,
+    });
+    this.graphProvider = new NeuralGraphProvider(this.queryEngine);
+  }
 
   async query<TData = unknown>(
     request: BackendNeuralGraphQueryRequest,

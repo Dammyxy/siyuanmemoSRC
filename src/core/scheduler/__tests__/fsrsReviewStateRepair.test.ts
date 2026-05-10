@@ -100,6 +100,21 @@ describe('repairFsrsReviewState', () => {
     expect(result.card.stability).toBe(0);
   });
 
+  it('normalizes uninitialized New memory as 0/0 instead of difficulty=1 stability=0', () => {
+    const result = repairFsrsReviewState(createCard({
+      state: CardState.New,
+      stability: 0,
+      difficulty: 1,
+      scheduledDays: 0,
+      lastReview: 0,
+    }));
+
+    expect(result.repaired).toBe(true);
+    expect(result.reasons).toContain('memoryState');
+    expect(result.card.stability).toBe(0);
+    expect(result.card.difficulty).toBe(0);
+  });
+
   it('skips topic cards because their card type owns A-Factor scheduling', () => {
     const topic = createCard({
       type: CardType.Topic,
