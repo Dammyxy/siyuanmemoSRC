@@ -27,6 +27,7 @@ import {
   insertCardsIntoQueue,
   removeCardsFromQueue,
   resolveBrowserCardId,
+  resolveQueueRemovalTarget,
   setBrowserCardsPriority,
   sortBrowserRows,
 } from './DataSourceUtils';
@@ -170,9 +171,12 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
       return;
     }
 
-    const queue = this.getQueueById(this.queueId);
-
     if (actionId === 'remove-from-current-queue') {
+      const manager = this.resolveManager();
+      const queueType = this.queueId ? QUEUE_TYPE_MAP[this.queueId] : undefined;
+      const queue = manager && queueType
+        ? resolveQueueRemovalTarget(manager, queueType)
+        : this.getQueueById(this.queueId);
       if (!queue) {
         logger.error('Cannot remove: queue not found', { queueId: this.queueId });
         return { updated: 0, skipped: selectedRows.length };
@@ -190,6 +194,7 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
     }
 
     if (actionId === 'insert-at') {
+      const queue = this.getQueueById(this.queueId);
       if (!queue) {
         logger.error('Cannot insert: queue not found', { queueId: this.queueId });
         return { updated: 0, skipped: selectedRows.length };

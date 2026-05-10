@@ -22,6 +22,7 @@ import {
   applyQueueFilters,
   deleteBrowserCards,
   removeCardsFromQueue,
+  resolveQueueRemovalTarget,
   setBrowserCardsPriority,
   sortBrowserCards,
   toggleBrowserCardsSuspended,
@@ -144,10 +145,8 @@ export class IncrementalLearningDataSource
     }
 
     try {
-      const queue = this.manager.getQueue(QueueType.IncrementalLearning);
-
       if (actionId === 'remove-from-current-queue') {
-        const result = await removeCardsFromQueue(queue, selectedRows, {
+        const result = await removeCardsFromQueue(resolveQueueRemovalTarget(this.manager, QueueType.IncrementalLearning), selectedRows, {
           scope: 'IncrementalLearningDataSource',
         });
         this.invalidateQuerySession();

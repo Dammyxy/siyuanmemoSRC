@@ -13,6 +13,7 @@ import {
   applyQueueFilters,
   deleteBrowserCards,
   removeCardsFromQueue,
+  resolveQueueRemovalTarget,
   setBrowserCardsPriority,
   sortBrowserCards,
   toggleBrowserCardsSuspended,
@@ -85,10 +86,8 @@ export class FinalDrillDataSource
     }
 
     try {
-      const queue = this.manager.getQueue(QueueType.FinalDrill);
-
       if (actionId === 'remove-from-current-queue') {
-        const result = await removeCardsFromQueue(queue, selectedRows, {
+        const result = await removeCardsFromQueue(resolveQueueRemovalTarget(this.manager, QueueType.FinalDrill), selectedRows, {
           scope: 'FinalDrillDataSource',
         });
         this.invalidateQuerySession();
@@ -127,6 +126,7 @@ export class FinalDrillDataSource
       }
 
       if (actionId === 'auto-sort') {
+        const queue = this.manager.getQueue(QueueType.FinalDrill);
         const cards = await queue.getCards();
         const sorted = cards.sort((a, b) => {
           const priorityDiff = a.priority - b.priority;

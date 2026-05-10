@@ -140,4 +140,32 @@ describe('DeckDataSource set-priority regression', () => {
       preferredCardId: 'card-1',
     });
   });
+
+  it('routes queue add through manager batch command without reading the live queue first', async () => {
+    const selectedRow = {
+      id: 'row-1',
+      fsrsCardId: 'card-1',
+      blockId: 'block-1',
+      priority: 50,
+      cardType: 'item',
+    };
+    const manager = {
+      batchAddToQueue: vi.fn(async () => ({
+        attemptedCount: 1,
+        changedCount: 1,
+        failedIds: [],
+        failedItems: [],
+      })),
+      getQueue: vi.fn(() => {
+        throw new Error('live queue should not be read');
+      }),
+    };
+
+    const ds = new DeckDataSource(manager as never, { preset: 'all' });
+    const result = await ds.performAction('add-to-retrieval-queue', [selectedRow] as never[]);
+
+    expect(manager.batchAddToQueue).toHaveBeenCalledWith('retrieval-practice', ['card-1'], 'manual');
+    expect(manager.getQueue).not.toHaveBeenCalled();
+    expect(result).toEqual({ added: 1, message: '已加入 1 张卡片到提取练习队列' });
+  });
 });

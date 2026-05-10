@@ -130,6 +130,27 @@ describe('browserActionMenuRuntime', () => {
     expect(deps.pushErrMsg).not.toHaveBeenCalled();
   });
 
+  it('routes review-subset through plugin facade with exact selected card ids', async () => {
+    const openSubsetReviewDialog = vi.fn();
+    const { dataSource, deps } = createRuntimeDeps({
+      getPlugin: vi.fn(() => ({ openSubsetReviewDialog })),
+    });
+    const runtime = createBrowserActionMenuRuntime(deps);
+    const selected = [
+      { ...card('card-a'), blockId: 'shared-block' },
+      { ...card('card-b'), blockId: 'shared-block' },
+    ];
+    const anchor = { ...card('card-b'), blockId: 'shared-block' };
+
+    await runtime.handleAction('review-subset', selected, anchor);
+
+    expect(openSubsetReviewDialog).toHaveBeenCalledWith(['shared-block'], {
+      cardIds: ['card-a', 'card-b'],
+      preferredCardId: 'card-b',
+    });
+    expect(dataSource.performAction).not.toHaveBeenCalled();
+  });
+
   it('builds practice menu through dialog manager and opens at trigger rect', () => {
     const { deps, menuRecorder, openReviewDialog } = createRuntimeDeps();
     const runtime = createBrowserActionMenuRuntime(deps);

@@ -5,6 +5,8 @@ import type { QueueSnapshotRow } from '@/types/queue-browser';
 import type {
   BatchCardDeleteResult,
   BatchCardMutationResult,
+  QueueType,
+  type IUnifiedDataSourceManagerFacade,
   QueueBulkMutationResult,
 } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
@@ -204,6 +206,18 @@ export async function removeCardsFromQueue(
     failedCount: failedIds.length,
     failedIds: uniqueStrings(failedIds),
   };
+}
+
+export function resolveQueueRemovalTarget(
+  manager: IUnifiedDataSourceManagerFacade,
+  queueType: QueueType
+): QueueRemoveLike {
+  if (typeof manager.batchRemoveFromQueue === 'function') {
+    return {
+      removeCards: (cardIdsOrBlockIds: string[]) => manager.batchRemoveFromQueue!(queueType, cardIdsOrBlockIds),
+    };
+  }
+  return manager.getQueue(queueType);
 }
 
 export async function insertCardsIntoQueue(

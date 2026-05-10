@@ -13,7 +13,6 @@ import type { Plugin } from 'siyuan';
 import { reactive } from 'vue';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { IDialogManager } from '../interfaces/IDialogManager';
-import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import {
@@ -21,13 +20,9 @@ import {
   type HostBlockQueryPort,
   type HostBlockRow,
 } from '@/application/ports/HostBlockQueryPort';
-import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
-import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
 import {
   QueueType,
   isNeuralRoamSessionQueue,
-  type CardFilter,
-  type FilterGroupQueueSessionSnapshot,
   type InitialReviewSessionState,
   type IReviewQueue,
   type ReviewTabTransferState,
@@ -71,7 +66,6 @@ import {
   loadCreateUnifiedReviewDialog,
   loadMobileReviewLauncherComponent,
   loadProgressiveSplitDialogComponent,
-  loadReviewViewComponent,
   loadSettingsPanelComponent,
   loadSrsBrowserComponent,
   loadTemplateSelectDialogComponent,
@@ -114,24 +108,28 @@ interface QueueBufferSnapshot {
   buffer?: unknown[];
 }
 
-interface FilterGroupQueueLike extends IReviewQueue {
-  setFilter?: (filter: CardFilter) => void | Promise<void>;
-  clearTemporaryBlacklist?: () => void | Promise<void>;
-  serializeSessionSnapshot?: () => FilterGroupQueueSessionSnapshot;
+function normalizeIdList(values?: string[]): string[] {
+  return Array.from(new Set((values || []).map((value) => String(value || '').trim()).filter(Boolean)));
 }
 
-function hasFilterSetter(queue: IReviewQueue | null): queue is FilterGroupQueueLike {
-  return Boolean(queue && typeof (queue as FilterGroupQueueLike).setFilter === 'function');
+function normalizeOptionalId(value?: string): string | undefined {
+  const normalized = String(value || '').trim();
+  return normalized.length > 0 ? normalized : undefined;
 }
 
-function hasTemporaryBlacklistCleaner(queue: IReviewQueue | null): queue is FilterGroupQueueLike {
-  return Boolean(queue && typeof (queue as FilterGroupQueueLike).clearTemporaryBlacklist === 'function');
-}
-
-function hasFilterSessionSerializer(queue: IReviewQueue | null): queue is FilterGroupQueueLike & {
-  serializeSessionSnapshot: () => FilterGroupQueueSessionSnapshot;
-} {
-  return Boolean(queue && typeof (queue as FilterGroupQueueLike).serializeSessionSnapshot === 'function');
+function buildStaticSubsetTransferState(
+  queueType: QueueType.FilterGroup | QueueType.FinalDrill,
+  blockIds: string[],
+  cardIds: string[],
+  preferredCardId?: string,
+): ReviewTabTransferState {
+  return {
+    kind: 'static-subset-session',
+    queueType,
+    blockIds,
+    cardIds: cardIds.length > 0 ? cardIds : undefined,
+    preferredCardId: normalizeOptionalId(preferredCardId),
+  };
 }
 
 type ProgressiveSplitDialogStatus = 'config' | 'running' | 'cancelling';
@@ -336,6 +334,7 @@ export class DialogManager implements IDialogManager {
     title: string;
     headerVariant: ReviewHeaderVariant;
     queueInstance?: IReviewQueue;
+    transferState?: ReviewTabTransferState;
     initialSessionState?: InitialReviewSessionState;
     allowNewTab?: boolean;
   }): Promise<void> {
@@ -359,6 +358,7 @@ export class DialogManager implements IDialogManager {
         queueType: options.queueType,
         queueInstance: options.queueInstance,
         initialSessionState: options.initialSessionState,
+        transferState: options.transferState,
         title: options.title,
         headerVariant: options.headerVariant,
         eventBus: this.context.getEventBus(),
@@ -402,22 +402,6 @@ export class DialogManager implements IDialogManager {
       headerVariant: preset.headerVariant,
       allowNewTab: false,
     });
-  }
-
-  private buildFilterGroupTransferState(filterQueue: IReviewQueue | null): ReviewTabTransferState | undefined {
-    if (!hasFilterSessionSerializer(filterQueue)) {
-      return undefined;
-    }
-
-    try {
-      return {
-        kind: 'filter-group-session',
-        filterSession: filterQueue.serializeSessionSnapshot(),
-      };
-    } catch (error) {
-      logger.warn('[DialogManager] Failed to serialize filter-group transfer state:', error);
-      return undefined;
-    }
   }
 
   private async openQueueFromMobileLauncher(queueId: MobileLauncherQueueId): Promise<void> {
@@ -1206,8 +1190,8 @@ export class DialogManager implements IDialogManager {
   ): Promise<void> {
     this.destroyCurrentReviewDialog();
 
-    const ids = Array.from(new Set((blockIds || []).map((x) => String(x || '')).filter(Boolean)));
-    const cardIds = Array.from(new Set((options?.cardIds || []).map((x) => String(x || '').trim()).filter(Boolean)));
+    const ids = normalizeIdList(blockIds);
+    const cardIds = normalizeIdList(options?.cardIds);
     if (ids.length === 0 && cardIds.length === 0) {
       await this.siyuanApi.pushMsg(this.context.getI18n()?.drillNoCards || '当前范围内没有可练习的闪卡');
       return;
@@ -1215,13 +1199,19 @@ export class DialogManager implements IDialogManager {
 
     try {
       const manager = this.context.getUnifiedDataSourceManager();
-      const preferredCardId = String(options?.preferredCardId || '').trim();
+      const preferredCardId = normalizeOptionalId(options?.preferredCardId);
       const queue = new SubsetReviewQueue(manager, ids, {
         cardIds: cardIds.length > 0 ? cardIds : undefined,
-        preferredCardId: preferredCardId.length > 0 ? preferredCardId : undefined,
+        preferredCardId,
       });
       const titleCount = cardIds.length > 0 ? cardIds.length : ids.length;
       const title = (this.context.getI18n()?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(titleCount));
+      const transferState = buildStaticSubsetTransferState(
+        QueueType.FilterGroup,
+        ids,
+        cardIds,
+        preferredCardId,
+      );
 
       const createUnifiedReviewDialog = await loadCreateUnifiedReviewDialog();
       this.registerCurrentReviewDialog((onClose) =>
@@ -1229,6 +1219,7 @@ export class DialogManager implements IDialogManager {
           plugin: this.plugin,
           queueType: QueueType.FilterGroup,
           queueInstance: queue,
+          transferState,
           title,
           headerVariant: 'subset-review',
           eventBus: this.context.getEventBus(),
@@ -1247,10 +1238,13 @@ export class DialogManager implements IDialogManager {
    * 
    * @param options 过滤选项
    * @param options.blockIds 块 ID 列表
+   * @param options.cardIds 精确卡片 ID 列表
    * @param options.dueOnly 是否只显示到期卡片
    */
   async openRetrievalPracticeWithFilter(options: {
     blockIds: string[];
+    cardIds?: string[];
+    preferredCardId?: string;
     scopeDocIds?: string[];
     dueOnly: boolean;
   }): Promise<void> {
@@ -1259,112 +1253,39 @@ export class DialogManager implements IDialogManager {
 
     try {
       const manager = this.context.getUnifiedDataSourceManager();
-      const filterGroupQueue = manager.getQueue(QueueType.FilterGroup);
-      
-      // 设置临时过滤条件
-      const filter: CardFilter = {
-        blockIds: options.blockIds,
-        scopeDocIds: options.scopeDocIds,
-        cardType: ['item', 'descriptor'],  // 提取练习只接受实际可提取卡
-      };
-      
-      if (options.dueOnly) {
-        filter.dueDate = {
-          lte: new Date(),
-        };
+      const ids = normalizeIdList(options.blockIds);
+      const cardIds = normalizeIdList(options.cardIds);
+      if (ids.length === 0 && cardIds.length === 0) {
+        await this.siyuanApi.pushMsg(this.context.getI18n()?.drillNoCards || '当前范围内没有可练习的闪卡');
+        return;
       }
-      
-      logger.info('[DialogManager] 🔍 openRetrievalPracticeWithFilter - Setting filter:', {
+
+      const queue = new SubsetReviewQueue(manager, ids, {
+        cardIds: cardIds.length > 0 ? cardIds : undefined,
+        preferredCardId: normalizeOptionalId(options.preferredCardId),
+      });
+
+      logger.info('[DialogManager] Opening scoped retrieval practice:', {
         dueOnly: options.dueOnly,
-        blockIdsCount: options.blockIds.length,
+        blockIdsCount: ids.length,
+        cardIdsCount: cardIds.length,
         scopeDocIdsCount: options.scopeDocIds?.length ?? 0,
-        hasDueDate: !!filter.dueDate,
       });
-      
-      // 应用过滤条件
-      if (hasFilterSetter(filterGroupQueue)) {
-        await filterGroupQueue.setFilter(filter);
-      }
-      
-      // 清除临时黑名单（全部模式）
-      if (!options.dueOnly && hasTemporaryBlacklistCleaner(filterGroupQueue)) {
-        await filterGroupQueue.clearTemporaryBlacklist();
-        logger.info('[DialogManager] ✅ Cleared temporary blacklist for "all" mode');
-      }
 
-      if (this.shouldOpenReviewInNewTabByDefault()) {
-        const transferState = this.buildFilterGroupTransferState(filterGroupQueue);
-        const tabManager = this.context.getTabManager?.();
-        if (transferState && tabManager?.openReviewTabInNewTab) {
-          tabManager.openReviewTabInNewTab({
-            queue: filterGroupQueue,
-            title: this.context.getI18n()?.retrievalPractice || '提取练习',
-            headerVariant: 'retrieval-practice',
-            transferState,
-          });
-          logger.info('[DialogManager] ✅ Retrieval practice opened in new tab with filter session transfer state');
-          return;
-        }
-
-        logger.warn('[DialogManager] Review is configured to open in new tab, but filter session transfer is unavailable. Falling back to dialog.', {
-          hasTransferState: Boolean(transferState),
-          hasTabManager: Boolean(tabManager?.openReviewTabInNewTab),
-        });
-      }
-      
-      // 创建对话框（使用依赖注入）
-      const eventBus = this.context.getEventBus();
-      const schedulerRouter = this.context.getSchedulerRouter() as unknown as ISchedulerRouter;
-      const queue = new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus, schedulerRouter);
-      const adapter = new UnifiedReviewAdapter({
-        i18n: this.context.getI18n() || {},
+      await this.openStandardReviewEntry({
+        queueType: QueueType.FilterGroup,
+        queueInstance: queue,
+        transferState: buildStaticSubsetTransferState(
+          QueueType.FilterGroup,
+          ids,
+          cardIds,
+          options.preferredCardId,
+        ),
+        title: this.context.getI18n()?.retrievalPractice || '提取练习',
         headerVariant: 'retrieval-practice',
-        progressiveExcerptEnabled: this.context.getSettingsService().getSettings().progressiveReading?.altXExcerptEnabled === true,
       });
-      const { width, height } = this.resolveReviewDialogSize();
-      const isMobile = this.isMobileFrontend();
 
-      const ReviewView = await loadReviewViewComponent();
-      this.registerCurrentReviewDialog((onClose) =>
-        createVueDialog({
-          title: this.context.getI18n()?.retrievalPractice || '提取练习',
-          hideTitle: isMobile,
-          component: ReviewView,
-          dataKey: 'dialog-opencard',
-          transparent: true,
-          isReview: true,
-          isMobile,
-          visualVariant: 'workspace',
-          containerClass: 'siyuanmemo-review-shell-dialog',
-          props: {
-            app: this.plugin.app,
-            i18n: this.context.getI18n() || {},
-            mode: 'dialog',
-            title: this.context.getI18n()?.retrievalPractice || '提取练习',
-            headerVariant: 'retrieval-practice',
-            queue,
-            adapter,
-            plugin: this.plugin,
-            isMobile,
-            nativeDialogTitlebar: !isMobile,
-            startFullscreen: this.shouldStartReviewFullscreenByDefault(),
-          },
-          events: {
-            close: () => {
-              // 清除过滤条件
-              if (hasFilterSetter(filterGroupQueue)) {
-                void filterGroupQueue.setFilter({});
-              }
-              this.destroyCurrentReviewDialog();
-            },
-          },
-          width,
-          height,
-          onClose,
-        }),
-      );
-      
-      logger.info('[DialogManager] ✅ Retrieval practice opened with blockIds filter');
+      logger.info('[DialogManager] ✅ Scoped retrieval practice opened');
     } catch (err) {
       logger.error('[DialogManager] Failed to open retrieval practice dialog:', err);
       await this.siyuanApi.pushErrMsg(this.context.getI18n()?.loadFailed || '加载失败');
@@ -1376,10 +1297,13 @@ export class DialogManager implements IDialogManager {
    * 
    * @param options 过滤选项
    * @param options.blockIds 块 ID 列表
+   * @param options.cardIds 精确卡片 ID 列表
    * @param options.dueOnly 是否只显示到期卡片
    */
   async openIncrementalLearningWithFilter(options: {
     blockIds: string[];
+    cardIds?: string[];
+    preferredCardId?: string;
     scopeDocIds?: string[];
     dueOnly: boolean;
   }): Promise<void> {
@@ -1388,112 +1312,39 @@ export class DialogManager implements IDialogManager {
 
     try {
       const manager = this.context.getUnifiedDataSourceManager();
-      const filterGroupQueue = manager.getQueue(QueueType.FilterGroup);
-      
-      // 设置临时过滤条件
-      const filter: CardFilter = {
-        blockIds: options.blockIds,
-        scopeDocIds: options.scopeDocIds,
-        // 渐进学习接受所有类型（Item + Topic）
-      };
-      
-      if (options.dueOnly) {
-        filter.dueDate = {
-          lte: new Date(),
-        };
+      const ids = normalizeIdList(options.blockIds);
+      const cardIds = normalizeIdList(options.cardIds);
+      if (ids.length === 0 && cardIds.length === 0) {
+        await this.siyuanApi.pushMsg(this.context.getI18n()?.drillNoCards || '当前范围内没有可练习的闪卡');
+        return;
       }
-      
-      logger.info('[DialogManager] 🔍 openIncrementalLearningWithFilter - Setting filter:', {
+
+      const queue = new SubsetReviewQueue(manager, ids, {
+        cardIds: cardIds.length > 0 ? cardIds : undefined,
+        preferredCardId: normalizeOptionalId(options.preferredCardId),
+      });
+
+      logger.info('[DialogManager] Opening scoped incremental learning:', {
         dueOnly: options.dueOnly,
-        blockIdsCount: options.blockIds.length,
+        blockIdsCount: ids.length,
+        cardIdsCount: cardIds.length,
         scopeDocIdsCount: options.scopeDocIds?.length ?? 0,
-        hasDueDate: !!filter.dueDate,
       });
-      
-      // 应用过滤条件
-      if (hasFilterSetter(filterGroupQueue)) {
-        await filterGroupQueue.setFilter(filter);
-      }
-      
-      // 清除临时黑名单（全部模式）
-      if (!options.dueOnly && hasTemporaryBlacklistCleaner(filterGroupQueue)) {
-        await filterGroupQueue.clearTemporaryBlacklist();
-        logger.info('[DialogManager] ✅ Cleared temporary blacklist for "all" mode');
-      }
 
-      if (this.shouldOpenReviewInNewTabByDefault()) {
-        const transferState = this.buildFilterGroupTransferState(filterGroupQueue);
-        const tabManager = this.context.getTabManager?.();
-        if (transferState && tabManager?.openReviewTabInNewTab) {
-          tabManager.openReviewTabInNewTab({
-            queue: filterGroupQueue,
-            title: this.context.getI18n()?.incrementalLearning || '渐进学习',
-            headerVariant: 'incremental-learning',
-            transferState,
-          });
-          logger.info('[DialogManager] ✅ Incremental learning opened in new tab with filter session transfer state');
-          return;
-        }
-
-        logger.warn('[DialogManager] Review is configured to open in new tab, but filter session transfer is unavailable. Falling back to dialog.', {
-          hasTransferState: Boolean(transferState),
-          hasTabManager: Boolean(tabManager?.openReviewTabInNewTab),
-        });
-      }
-      
-      // 创建对话框（使用依赖注入）
-      const eventBus = this.context.getEventBus();
-      const schedulerRouter = this.context.getSchedulerRouter() as unknown as ISchedulerRouter;
-      const queue = new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus, schedulerRouter);
-      const adapter = new UnifiedReviewAdapter({
-        i18n: this.context.getI18n() || {},
+      await this.openStandardReviewEntry({
+        queueType: QueueType.FilterGroup,
+        queueInstance: queue,
+        transferState: buildStaticSubsetTransferState(
+          QueueType.FilterGroup,
+          ids,
+          cardIds,
+          options.preferredCardId,
+        ),
+        title: this.context.getI18n()?.incrementalLearning || '渐进学习',
         headerVariant: 'incremental-learning',
-        progressiveExcerptEnabled: this.context.getSettingsService().getSettings().progressiveReading?.altXExcerptEnabled === true,
       });
-      const { width, height } = this.resolveReviewDialogSize();
-      const isMobile = this.isMobileFrontend();
 
-      const ReviewView = await loadReviewViewComponent();
-      this.registerCurrentReviewDialog((onClose) =>
-        createVueDialog({
-          title: this.context.getI18n()?.incrementalLearning || '渐进学习',
-          hideTitle: isMobile,
-          component: ReviewView,
-          dataKey: 'dialog-opencard',
-          transparent: true,
-          isReview: true,
-          isMobile,
-          visualVariant: 'workspace',
-          containerClass: 'siyuanmemo-review-shell-dialog',
-          props: {
-            app: this.plugin.app,
-            i18n: this.context.getI18n() || {},
-            mode: 'dialog',
-            title: this.context.getI18n()?.incrementalLearning || '渐进学习',
-            headerVariant: 'incremental-learning',
-            queue,
-            adapter,
-            plugin: this.plugin,
-            isMobile,
-            nativeDialogTitlebar: !isMobile,
-            startFullscreen: this.shouldStartReviewFullscreenByDefault(),
-          },
-          events: {
-            close: () => {
-              // 清除过滤条件
-              if (hasFilterSetter(filterGroupQueue)) {
-                void filterGroupQueue.setFilter({});
-              }
-              this.destroyCurrentReviewDialog();
-            },
-          },
-          width,
-          height,
-          onClose,
-        }),
-      );
-      
-      logger.info('[DialogManager] ✅ Incremental learning opened with blockIds filter');
+      logger.info('[DialogManager] ✅ Scoped incremental learning opened');
     } catch (err) {
       logger.error('[DialogManager] Failed to open incremental learning dialog:', err);
       await this.siyuanApi.pushErrMsg(this.context.getI18n()?.openFailed || '打开渐进学习失败');
@@ -1505,19 +1356,36 @@ export class DialogManager implements IDialogManager {
    * 
    * @param blockIds 块 ID 列表
    */
-  async openTemporaryDrill(blockIds: string[]): Promise<void> {
+  async openTemporaryDrill(
+    blockIds: string[],
+    options?: {
+      cardIds?: string[];
+      preferredCardId?: string;
+    },
+  ): Promise<void> {
     this.destroyCurrentReviewDialog();
 
-    const ids = Array.from(new Set((blockIds || []).map((x) => String(x || '')).filter(Boolean)));
-    if (ids.length === 0) {
+    const ids = normalizeIdList(blockIds);
+    const cardIds = normalizeIdList(options?.cardIds);
+    if (ids.length === 0 && cardIds.length === 0) {
       await this.siyuanApi.pushMsg(this.context.getI18n()?.drillNoCards || '当前范围内没有可练习的闪卡');
       return;
     }
 
     try {
       const manager = this.context.getUnifiedDataSourceManager();
-      const queue = new TemporaryDrillQueue(manager, ids);
-      const title = (this.context.getI18n()?.temporaryDrill || '临时练习') + ` (${ids.length} 张)`;
+      const queue = new TemporaryDrillQueue(manager, ids, {
+        cardIds: cardIds.length > 0 ? cardIds : undefined,
+        preferredCardId: normalizeOptionalId(options?.preferredCardId),
+      });
+      const titleCount = cardIds.length > 0 ? cardIds.length : ids.length;
+      const title = (this.context.getI18n()?.temporaryDrill || '临时练习') + ` (${titleCount} 张)`;
+      const transferState = buildStaticSubsetTransferState(
+        QueueType.FinalDrill,
+        ids,
+        cardIds,
+        options?.preferredCardId,
+      );
 
       const createUnifiedReviewDialog = await loadCreateUnifiedReviewDialog();
       this.registerCurrentReviewDialog((onClose) =>
@@ -1525,6 +1393,7 @@ export class DialogManager implements IDialogManager {
           plugin: this.plugin,
           queueType: QueueType.FinalDrill,
           queueInstance: queue,
+          transferState,
           title,
           headerVariant: 'temporary-drill',
           eventBus: this.context.getEventBus(),

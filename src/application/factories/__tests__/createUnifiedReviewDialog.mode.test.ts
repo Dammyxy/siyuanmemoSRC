@@ -38,6 +38,13 @@ describe('createUnifiedReviewDialog', () => {
       answeredCount: 2,
       correctCount: 1,
     };
+    const transferState = {
+      kind: 'static-subset-session' as const,
+      queueType: QueueType.FilterGroup,
+      blockIds: ['block-1'],
+      cardIds: ['card-1'],
+      preferredCardId: 'card-1',
+    };
     const plugin = {
       app: {},
       isMobile: false,
@@ -58,6 +65,7 @@ describe('createUnifiedReviewDialog', () => {
       title: '提取练习',
       headerVariant: 'retrieval-practice',
       initialSessionState,
+      transferState,
       eventBus: { subscribe: vi.fn() } as never,
     });
 
@@ -69,6 +77,7 @@ describe('createUnifiedReviewDialog', () => {
         title: '提取练习',
         headerVariant: 'retrieval-practice',
         initialSessionState,
+        transferState,
         nativeDialogTitlebar: true,
       }),
     }));

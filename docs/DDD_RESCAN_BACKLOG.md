@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-10 (Round 324)
+Last update: 2026-05-10 (Round 325)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-10 - Frontend scoped review entry contract repair
+
+- Task: Audit and repair frontend review buttons that still used pre-projection queue interfaces after queue projection and NeuralRoam backend advance migration.
+- Touched slice: Browser / Review / Queue entrypoints；`src/application/{entries/CoreReviewEntryService.ts,factories/createUnifiedReviewDialog.ts,handlers/ImageOcclusionHandler.ts,interfaces/IDialogManager.ts,managers/{DialogManager.ts,TabManager.ts}}`、`src/core/queue/domain/TemporaryDrillQueue.ts`、`src/ui/{browser,review/v2}` focused runtime/tests、`ARCHITECTURE.md`。
+- Debt fixed now: Block menu and doc menu retrieval/incremental/temporary review now carry exact `cardIds` and `preferredCardId` instead of only block scope. `DialogManager.openRetrievalPracticeWithFilter()` and `openIncrementalLearningWithFilter()` no longer mutate the shared `FilterGroupQueue.setFilter()` session or transfer filter snapshots; they open a one-shot `SubsetReviewQueue` through the standard review surface and use `static-subset-session` transfer state so tab mode restores the same exact-card subset queue instead of a normal FilterGroup. `createUnifiedReviewDialog` / `ReviewView` now preserve that transfer state when a dialog is opened as a tab or split, so scoped sessions do not fall back to old filter-session serialization mid-review. `TemporaryDrillQueue` now accepts exact card scope, preventing same-block multi-card selections from being re-expanded incorrectly. SRS Browser selected-review runtime and deck datasource coverage now proves `openSubsetReviewDialog` receives exact selected card ids. Image Occlusion review buttons now read tracked ordered card ids from block attrs and pass exact card scope into retrieval / temporary drill entries.
+- Debt deferred: Legacy observer/view files (`SRSBrowserAdapter.fetchRows()` / `SRSBrowserQueueView`) still contain direct queue `getCards()` / `setFilter()` helpers, but active `SRSBrowser.vue` data loading uses datasource factories plus `BrowserApplicationService` queue snapshots; queue add/remove buttons still route through `UnifiedDataSourceManager.batchAddToQueue()` / `batchRemoveFromQueue()` whose current implementation delegates to queue domain mutation.
+- Why deferred: The active review-start regressions were fixed in this slice. Retiring legacy queue view exports and moving all membership mutations behind a backend/writer command contract is a broader Browser/Queue mutation cutover and needs its own focused tests to avoid breaking operator queue management.
+- Next safe step: Add a queue-membership command contract for Browser/BlockMenu add/remove actions, then retire `SRSBrowserQueueView`/`SRSBrowserAdapter.fetchRows()` legacy direct queue read/write paths once no active import uses them for data loading.
+- Validation: Focused RED tests first failed on missing exact card scope / shared FilterGroup mutation, then passed after the fix. Final boundary/build validation is recorded in the task response.
 
 ### 2026-05-10 - Projection reload and NeuralRoam graph resolver repair
 

@@ -699,6 +699,13 @@ export type ReviewTabTransferState = {
     kind: 'filter-group-session';
     filterSession: FilterGroupQueueSessionSnapshot;
     session?: InitialReviewSessionState;
+} | {
+    kind: 'static-subset-session';
+    queueType: QueueType.FilterGroup | QueueType.FinalDrill;
+    blockIds: string[];
+    cardIds?: string[];
+    preferredCardId?: string;
+    session?: InitialReviewSessionState;
 };
 
 // ============================================================================

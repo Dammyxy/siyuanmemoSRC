@@ -293,6 +293,8 @@ describe('BlockMenuHandler doc scope and concept action visibility', () => {
 
     expect(dialogManager.openIncrementalLearningWithFilter).toHaveBeenCalledWith({
       blockIds: ['block-doc-1', 'piece-doc-1', 'excerpt-doc-1'],
+      cardIds: ['item-doc-1', 'topic-piece-1', 'topic-excerpt-1'],
+      preferredCardId: 'item-doc-1',
       scopeDocIds: ['doc-1', 'piece-doc-1', 'excerpt-doc-1'],
       dueOnly: false,
     });
@@ -344,6 +346,8 @@ describe('BlockMenuHandler doc scope and concept action visibility', () => {
 
     expect(dialogManager.openIncrementalLearningWithFilter).toHaveBeenCalledWith({
       blockIds: ['block-doc-1', 'piece-doc-1', 'excerpt-doc-1'],
+      cardIds: ['item-doc-1', 'topic-piece-1', 'topic-excerpt-1'],
+      preferredCardId: 'item-doc-1',
       scopeDocIds: ['doc-1', 'piece-doc-1', 'excerpt-doc-1'],
       dueOnly: false,
     });

@@ -319,10 +319,8 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   }
 
   private async handleQueueAddAction(route: QueueAddRoute, selectedRows: BrowserActionTarget[]): Promise<unknown> {
-    const queue = this.manager.getQueue(route.queueType);
     const queueTarget = typeof this.manager.batchAddToQueue === 'function'
       ? {
-          addCard: queue?.addCard?.bind(queue),
           addCards: (
             cards: unknown[],
             source?: Parameters<NonNullable<IUnifiedDataSourceManagerFacade['batchAddToQueue']>>[2]
@@ -332,7 +330,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
             source
           ),
         }
-      : queue;
+      : this.manager.getQueue(route.queueType);
     const result = await addToQueue(queueTarget, selectedRows, route.actionType, route.source ?? 'manual');
     this.invalidateQuerySession();
     return result;

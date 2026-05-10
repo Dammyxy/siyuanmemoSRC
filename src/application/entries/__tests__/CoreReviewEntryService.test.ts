@@ -46,6 +46,8 @@ describe('CoreReviewEntryService', () => {
 
     expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledWith({
       blockIds: ['block-item-due', 'block-descriptor-due'],
+      cardIds: ['item-due', 'descriptor-due'],
+      preferredCardId: 'item-due',
       dueOnly: true,
     });
     expect(notify).not.toHaveBeenCalled();
@@ -70,6 +72,8 @@ describe('CoreReviewEntryService', () => {
 
     expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledWith({
       blockIds: ['block-item-due', 'block-descriptor-due'],
+      cardIds: ['item-due', 'descriptor-due'],
+      preferredCardId: 'item-due',
       dueOnly: false,
     });
     expect(notify).not.toHaveBeenCalled();
@@ -110,6 +114,8 @@ describe('CoreReviewEntryService', () => {
 
     expect(dialogManager.openIncrementalLearningWithFilter).toHaveBeenCalledWith({
       blockIds: ['block-item-due', 'block-topic-due'],
+      cardIds: ['item-due', 'topic-due'],
+      preferredCardId: 'item-due',
       dueOnly: true,
     });
     expect(notify).not.toHaveBeenCalled();
@@ -126,12 +132,14 @@ describe('CoreReviewEntryService', () => {
 
     expect(dialogManager.openIncrementalLearningWithFilter).toHaveBeenCalledWith({
       blockIds: ['block-item-due', 'block-topic-due', 'block-item-future'],
+      cardIds: ['item-due', 'topic-due', 'item-future'],
+      preferredCardId: 'item-due',
       dueOnly: false,
     });
     expect(notify).not.toHaveBeenCalled();
   });
 
-  it('temporary-drill passes de-duplicated block ids', async () => {
+  it('temporary-drill passes de-duplicated block ids and exact selected card ids', async () => {
     const cards: FSRSCard[] = [
       { id: 'card-1', blockId: 'same-block', type: 'item', due: now - 1 } as FSRSCard,
       { id: 'card-2', blockId: 'same-block', type: 'topic', due: now - 1 } as FSRSCard,
@@ -140,7 +148,10 @@ describe('CoreReviewEntryService', () => {
 
     await service.execute('temporary-drill', cards);
 
-    expect(dialogManager.openTemporaryDrill).toHaveBeenCalledWith(['same-block', 'other-block']);
+    expect(dialogManager.openTemporaryDrill).toHaveBeenCalledWith(['same-block', 'other-block'], {
+      cardIds: ['card-1', 'card-2', 'card-3'],
+      preferredCardId: 'card-1',
+    });
     expect(notify).not.toHaveBeenCalled();
   });
 
@@ -155,6 +166,8 @@ describe('CoreReviewEntryService', () => {
 
     expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledWith({
       blockIds: ['block-item-1'],
+      cardIds: ['item-1'],
+      preferredCardId: 'item-1',
       scopeDocIds: ['doc-1', 'doc-2'],
       dueOnly: false,
     });

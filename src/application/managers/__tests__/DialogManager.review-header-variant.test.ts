@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createVueDialog } from '@/utils/dialog';
 import { createUnifiedReviewDialog } from '@/application/factories/createUnifiedReviewDialog';
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
+import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
 import { QueueType } from '@/types/unified-data-source';
 import { DialogManager } from '../DialogManager';
 
@@ -194,6 +195,42 @@ describe('DialogManager review header variants', () => {
     expect(vi.mocked(createUnifiedReviewDialog)).toHaveBeenCalledWith(expect.objectContaining({
       title: '子集复习 (2 张)',
       headerVariant: 'subset-review',
+      transferState: {
+        kind: 'static-subset-session',
+        queueType: QueueType.FilterGroup,
+        blockIds: ['block-1'],
+        cardIds: ['card-2', 'card-3'],
+        preferredCardId: 'card-3',
+      },
+    }));
+  });
+
+  it('passes exact cardIds to temporary drill queues and counts cards in the title', async () => {
+    const { dialogManager } = createDialogManager();
+
+    await dialogManager.openTemporaryDrill(['block-1'], {
+      cardIds: ['card-2', 'card-3'],
+      preferredCardId: 'card-3',
+    });
+
+    expect(vi.mocked(TemporaryDrillQueue)).toHaveBeenCalledWith(
+      expect.anything(),
+      ['block-1'],
+      {
+        cardIds: ['card-2', 'card-3'],
+        preferredCardId: 'card-3',
+      },
+    );
+    expect(vi.mocked(createUnifiedReviewDialog)).toHaveBeenCalledWith(expect.objectContaining({
+      title: '临时练习 (2 张)',
+      headerVariant: 'temporary-drill',
+      transferState: {
+        kind: 'static-subset-session',
+        queueType: QueueType.FinalDrill,
+        blockIds: ['block-1'],
+        cardIds: ['card-2', 'card-3'],
+        preferredCardId: 'card-3',
+      },
     }));
   });
 
@@ -326,80 +363,105 @@ describe('DialogManager review header variants', () => {
     }));
   });
 
-  it('passes explicit headerVariant through filter-backed review dialogs', async () => {
+  it('opens scoped retrieval and incremental entries without mutating the shared filter-group queue', async () => {
     const { dialogManager, filterGroupQueue } = createDialogManager();
 
     await dialogManager.openRetrievalPracticeWithFilter({
       blockIds: ['block-1'],
+      cardIds: ['card-1'],
+      preferredCardId: 'card-1',
       scopeDocIds: ['doc-1'],
       dueOnly: false,
     });
     await dialogManager.openIncrementalLearningWithFilter({
       blockIds: ['block-2'],
+      cardIds: ['card-2'],
+      preferredCardId: 'card-2',
       scopeDocIds: ['doc-2'],
       dueOnly: true,
     });
 
-    expect(filterGroupQueue.setFilter).toHaveBeenCalledTimes(2);
-    expect(unifiedQueueStrategyMock).toHaveBeenCalledTimes(2);
-    expect(unifiedReviewAdapterMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
+    expect(filterGroupQueue.setFilter).not.toHaveBeenCalled();
+    expect(unifiedQueueStrategyMock).not.toHaveBeenCalled();
+    expect(unifiedReviewAdapterMock).not.toHaveBeenCalled();
+    expect(vi.mocked(SubsetReviewQueue)).toHaveBeenNthCalledWith(1, expect.anything(), ['block-1'], {
+      cardIds: ['card-1'],
+      preferredCardId: 'card-1',
+    });
+    expect(vi.mocked(SubsetReviewQueue)).toHaveBeenNthCalledWith(2, expect.anything(), ['block-2'], {
+      cardIds: ['card-2'],
+      preferredCardId: 'card-2',
+    });
+    expect(createUnifiedReviewDialog).toHaveBeenNthCalledWith(1, expect.objectContaining({
       headerVariant: 'retrieval-practice',
+      queueType: QueueType.FilterGroup,
+      transferState: {
+        kind: 'static-subset-session',
+        queueType: QueueType.FilterGroup,
+        blockIds: ['block-1'],
+        cardIds: ['card-1'],
+        preferredCardId: 'card-1',
+      },
     }));
-    expect(unifiedReviewAdapterMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
+    expect(createUnifiedReviewDialog).toHaveBeenNthCalledWith(2, expect.objectContaining({
       headerVariant: 'incremental-learning',
+      queueType: QueueType.FilterGroup,
+      transferState: {
+        kind: 'static-subset-session',
+        queueType: QueueType.FilterGroup,
+        blockIds: ['block-2'],
+        cardIds: ['card-2'],
+        preferredCardId: 'card-2',
+      },
     }));
-
-    const propsList = vi.mocked(createVueDialog).mock.calls.map(([config]) => config.props);
-    expect(propsList[0]?.headerVariant).toBe('retrieval-practice');
-    expect(propsList[0]?.mode).toBe('dialog');
-    expect(propsList[1]?.headerVariant).toBe('incremental-learning');
-    expect(propsList[1]?.mode).toBe('dialog');
-    expect(filterGroupQueue.setFilter).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      blockIds: ['block-1'],
-      scopeDocIds: ['doc-1'],
-      cardType: ['item', 'descriptor'],
-    }));
-    expect(filterGroupQueue.setFilter).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      blockIds: ['block-2'],
-      scopeDocIds: ['doc-2'],
-    }));
+    expect(createVueDialog).not.toHaveBeenCalled();
   });
 
-  it('transfers filter-backed retrieval and incremental sessions into new tabs when configured', async () => {
+  it('opens scoped retrieval and incremental sessions in new tabs with exact-card transfer state', async () => {
     const { dialogManager, tabManager, filterGroupQueue } = createDialogManager({
       reviewOpenInNewTabByDefault: true,
     });
 
     await dialogManager.openRetrievalPracticeWithFilter({
       blockIds: ['block-1'],
+      cardIds: ['card-1'],
+      preferredCardId: 'card-1',
       scopeDocIds: ['doc-1'],
       dueOnly: false,
     });
     await dialogManager.openIncrementalLearningWithFilter({
       blockIds: ['block-2'],
+      cardIds: ['card-2'],
+      preferredCardId: 'card-2',
       scopeDocIds: ['doc-2'],
       dueOnly: true,
     });
 
-    expect(filterGroupQueue.serializeSessionSnapshot).toHaveBeenCalledTimes(2);
+    expect(filterGroupQueue.setFilter).not.toHaveBeenCalled();
+    expect(filterGroupQueue.serializeSessionSnapshot).not.toHaveBeenCalled();
     expect(tabManager.openReviewTabInNewTab).toHaveBeenNthCalledWith(1, expect.objectContaining({
       title: '提取练习',
       headerVariant: 'retrieval-practice',
-      transferState: expect.objectContaining({
-        kind: 'filter-group-session',
-      }),
+      queue: expect.anything(),
+      transferState: {
+        kind: 'static-subset-session',
+        queueType: QueueType.FilterGroup,
+        blockIds: ['block-1'],
+        cardIds: ['card-1'],
+        preferredCardId: 'card-1',
+      },
     }));
     expect(tabManager.openReviewTabInNewTab).toHaveBeenNthCalledWith(2, expect.objectContaining({
       title: '渐进学习',
       headerVariant: 'incremental-learning',
-      transferState: expect.objectContaining({
-        kind: 'filter-group-session',
-      }),
-    }));
-    expect(filterGroupQueue.setFilter).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      blockIds: ['block-1'],
-      scopeDocIds: ['doc-1'],
-      cardType: ['item', 'descriptor'],
+      queue: expect.anything(),
+      transferState: {
+        kind: 'static-subset-session',
+        queueType: QueueType.FilterGroup,
+        blockIds: ['block-2'],
+        cardIds: ['card-2'],
+        preferredCardId: 'card-2',
+      },
     }));
     expect(createVueDialog).not.toHaveBeenCalled();
   });

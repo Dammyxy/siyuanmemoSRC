@@ -29,6 +29,8 @@ import { createLogger } from '@/utils/logger';
 import type { BrowserOpenState } from '@/types/browser';
 import type { AIWorkbenchOpenOptions } from '@/types/ai';
 import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
+import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
+import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
 import { NOOP_QUEUE_PERSISTENCE } from '@/core/queue/domain/ports';
 import {
   loadAiWorkbenchPaneComponent,
@@ -262,20 +264,51 @@ function normalizeFilterGroupQueueSessionSnapshot(value: unknown): FilterGroupQu
 }
 
 function normalizeReviewTabTransferState(value: unknown): ReviewTabTransferState | null {
-  if (!isRecord(value) || value.kind !== 'filter-group-session') {
+  if (!isRecord(value)) {
     return null;
   }
 
-  const filterSession = normalizeFilterGroupQueueSessionSnapshot(value.filterSession);
-  if (!filterSession) {
-    return null;
+  if (value.kind === 'filter-group-session') {
+    const filterSession = normalizeFilterGroupQueueSessionSnapshot(value.filterSession);
+    if (!filterSession) {
+      return null;
+    }
+
+    return {
+      kind: 'filter-group-session',
+      filterSession,
+      session: normalizeInitialReviewSessionState(value.session),
+    };
   }
 
-  return {
-    kind: 'filter-group-session',
-    filterSession,
-    session: normalizeInitialReviewSessionState(value.session),
-  };
+  if (value.kind === 'static-subset-session') {
+    const queueType = value.queueType === QueueType.FinalDrill
+      ? QueueType.FinalDrill
+      : value.queueType === QueueType.FilterGroup
+        ? QueueType.FilterGroup
+        : null;
+    if (!queueType) {
+      return null;
+    }
+
+    const blockIds = normalizeStringArray(value.blockIds) ?? [];
+    const cardIds = normalizeStringArray(value.cardIds);
+    if (blockIds.length === 0 && (!cardIds || cardIds.length === 0)) {
+      return null;
+    }
+
+    const preferredCardId = String(value.preferredCardId || '').trim();
+    return {
+      kind: 'static-subset-session',
+      queueType,
+      blockIds,
+      cardIds,
+      preferredCardId: preferredCardId.length > 0 ? preferredCardId : undefined,
+      session: normalizeInitialReviewSessionState(value.session),
+    };
+  }
+
+  return null;
 }
 
 function cloneSerializableValue<T>(value: T): T | null {
@@ -549,6 +582,7 @@ export class TabManager {
       plugin: this.plugin,
       reviewState: data.reviewState ?? null,
       initialSessionState: data.reviewState?.session ?? data.transferState?.session,
+      transferState: data.transferState ?? undefined,
       initialCurrentItem: data.reviewState?.queueSnapshot?.currentItem ?? null,
       initialCurrentCardId: data.reviewState?.currentCardId ?? '',
       initialShowAnswer: data.reviewState?.showAnswer === true,
@@ -1354,7 +1388,23 @@ export class TabManager {
   }
 
   private buildTransferredReviewQueue(transferState?: ReviewTabTransferState | null): IReviewQueue | null {
-    if (!transferState || transferState.kind !== 'filter-group-session') {
+    if (!transferState) {
+      return null;
+    }
+
+    if (transferState.kind === 'static-subset-session') {
+      const manager = this.context.getUnifiedDataSourceManager();
+      const options = {
+        cardIds: transferState.cardIds,
+        preferredCardId: transferState.preferredCardId,
+      };
+      if (transferState.queueType === QueueType.FinalDrill) {
+        return new TemporaryDrillQueue(manager, transferState.blockIds, options);
+      }
+      return new SubsetReviewQueue(manager, transferState.blockIds, options);
+    }
+
+    if (transferState.kind !== 'filter-group-session') {
       return null;
     }
 

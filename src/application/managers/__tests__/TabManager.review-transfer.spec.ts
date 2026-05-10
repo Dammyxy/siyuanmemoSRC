@@ -147,6 +147,78 @@ describe('TabManager filter-group review transfer restore', () => {
     expect(manager.getQueue).not.toHaveBeenCalledWith('filter-group');
   });
 
+  it('restores a detached static subset queue from exact card transfer state', async () => {
+    const sharedFilterQueue = {
+      getType: () => 'filter-group',
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+    const cardsById: Record<string, FSRSCard> = {
+      'card-a': { id: 'card-a', blockId: 'shared-block' } as FSRSCard,
+      'card-b': { id: 'card-b', blockId: 'shared-block' } as FSRSCard,
+    };
+    const manager = {
+      getQueue: vi.fn(() => sharedFilterQueue),
+      getCard: vi.fn(async (cardId: string) => cardsById[cardId]),
+      getCards: vi.fn(async () => Object.values(cardsById)),
+      notifyObservers: vi.fn(),
+    };
+    const context = {
+      getI18n: vi.fn(() => ({})),
+      getUnifiedDataSourceManager: vi.fn(() => manager),
+      getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
+      getSchedulerRouter: vi.fn(() => ({})),
+      getSettingsService: vi.fn(() => ({
+        getSettings: () => ({
+          progressiveReading: {},
+        }),
+      })),
+    } as any;
+    const plugin = {
+      name: 'test-plugin',
+      app: {},
+      addTab: vi.fn(),
+    } as any;
+
+    const tabManager = new TabManager(context, plugin, { siyuanApi: createSiyuanApiMock() } as never);
+    tabManager.registerAll();
+
+    const reviewRegistration = plugin.addTab.mock.calls[1][0];
+    await reviewRegistration.init.call({
+      element: document.createElement('div'),
+      data: {
+        providerId: 'queue-based',
+        title: '提取练习',
+        queueType: 'filter-group',
+        headerVariant: 'retrieval-practice',
+        transferState: {
+          kind: 'static-subset-session',
+          queueType: 'filter-group',
+          blockIds: ['shared-block'],
+          cardIds: ['card-b', 'card-a'],
+          preferredCardId: 'card-a',
+          session: {
+            initialTotal: 2,
+          },
+        },
+      },
+    });
+
+    const [, props] = mocks.createApp.mock.calls[0];
+    const queueStrategy = props.queue;
+    const underlyingQueue = queueStrategy.getUnderlyingQueue();
+
+    expect(props.initialSessionState).toEqual({
+      initialTotal: 2,
+    });
+    expect(underlyingQueue.getType()).toBe('filter-group');
+    await expect(underlyingQueue.getCards()).resolves.toEqual([
+      expect.objectContaining({ id: 'card-a' }),
+      expect.objectContaining({ id: 'card-b' }),
+    ]);
+    expect(manager.getQueue).not.toHaveBeenCalledWith('filter-group');
+  });
+
   it('restores transfer state through the direct review runtime helper used by deferred bootstrap', async () => {
     const sharedFilterQueue = {
       getType: () => 'filter-group',

@@ -16,6 +16,7 @@ import {
   applyQueueFilters,
   deleteBrowserCards,
   removeCardsFromQueue,
+  resolveQueueRemovalTarget,
   setBrowserCardsPriority,
   sortBrowserCards,
   toggleBrowserCardsSuspended,
@@ -94,10 +95,8 @@ export class FilterGroupDataSource
     }
 
     try {
-      const queue = this.manager.getQueue(QueueType.FilterGroup);
-
       if (actionId === 'remove-from-current-queue') {
-        const result = await removeCardsFromQueue(queue, selectedRows, {
+        const result = await removeCardsFromQueue(resolveQueueRemovalTarget(this.manager, QueueType.FilterGroup), selectedRows, {
           scope: 'FilterGroupDataSource',
         });
         this.invalidateQuerySession();

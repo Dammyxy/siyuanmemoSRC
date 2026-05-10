@@ -142,7 +142,7 @@ flowchart TD
    - `UnifiedDataSourceManager` facade
 4. Browser 在全量 / 队列 / deck 等模式下，通过 application queries、统一队列快照或 SQL deck read port 加载数据；SQL active 的 deck 主表走 `COUNT + LIMIT/OFFSET + page hydrate`，`getDeckMatchedIds()` 用 SQL 返回完整匹配 id 列表，missing-block / retrievability 等不能由当前 SQL 投影表达的条件显式回退旧 snapshot 路径。六个活跃 review 队列都有 backend projection read surface：RetrievalPractice / IncrementalLearning / FilterGroup / FinalDrill / Leech 的 Review progression 由 projection rows/counters 驱动；NeuralRoam 的 projection 只用于 Browser、计数、诊断和 repair visibility，Review progression 必须走 backend `neural-roam.advance`。Browser 排序/过滤只作用在展示副本，不改真实 projection order；队列计数 force refresh 会透传到 queue `getCounterSnapshot(forceRefresh)`，让 Browser 和 Review 共用同一 generation 的 projection counters。`getQueueProjectionRolloutState()` 只保留为显式 rollback/parity override。
 5. Browser DTO、query parser、stable row id 与排序显示契约以 `src/types/browser.ts` 为共享契约；application query kernel 只依赖 `src/application/queries/browser/shared/*` 与 `src/types/browser.ts`，不再 import UI browser module
-6. 右键批量动作通过当前数据源持有的 `UnifiedDataSourceManager` 批量入口执行：删卡走 `batchDeleteCards(cardIds, { blockIds })`，优先级/重置/暂停/恢复走 `batchUpdateCards(cards)`，加入/移除队列走 `batchAddToQueue()` / queue `addCards()` 与 `removeCards()`；`postpone/advance/spread` 走 `RescheduleService -> UnifiedStorageCardUpdateAdapter -> UnifiedStorageManager.batchUpdateCards()`，SQL active 时再一次 `cards` upsert + persist；这些入口在应用层分块 upsert / 批量删除 / 一次队列持久化后统一发布 `CardDeleted / CardsDeleted`、`card-updated` 与 `queue-changed`，单卡 API 只作为旧调用 fallback
+6. 右键批量动作通过当前数据源持有的 `UnifiedDataSourceManager` 批量入口执行：删卡走 `batchDeleteCards(cardIds, { blockIds })`，优先级/重置/暂停/恢复走 `batchUpdateCards(cards)`，加入队列优先走 `batchAddToQueue()`，从当前队列移除优先走 `batchRemoveFromQueue()`；只有 manager 缺少批量命令时才回到 queue `addCards()` / `removeCards()` 兼容路径。SRS Browser 的“选中复习”不再只传 block scope，而是通过 `plugin.openSubsetReviewDialog(blockIds, { cardIds, preferredCardId })` 把 exact card scope 交给 `DialogManager`；`postpone/advance/spread` 走 `RescheduleService -> UnifiedStorageCardUpdateAdapter -> UnifiedStorageManager.batchUpdateCards()`，SQL active 时再一次 `cards` upsert + persist；这些入口在应用层分块 upsert / 批量删除 / 一次队列持久化后统一发布 `CardDeleted / CardsDeleted`、`card-updated` 与 `queue-changed`，单卡 API 只作为旧调用 fallback
 7. UI 增量刷新由 `useBrowserAdapterSync`、`useIncrementalGridUpdates`、`useQueueBridge` 驱动；Browser SQL、文档树读取、queue block projection、preview breadcrumb 等 Siyuan 调用必须显式拿到 Browser 侧 Siyuan port，不再依赖 browser service 模块全局状态，也不从 UI 直接 import infrastructure Siyuan API
 8. Browser surface profile 默认值由 `layoutProfile.ts` 维护；profile-scoped chrome preference 读写、legacy dialog key 迁移与 storage failure contract 由 `browserChromePreferences.ts` 维护；open-state capture、初始 open-state normalization、legacy `__lost__` 归一与 neural subview / queue-id 投影由 `browserSurfaceState.ts` 维护，`SRSBrowser.vue` 只负责把这些 projection 应用到当前 UI state 并调度加载 / 刷新副作用
 9. Browser neural 子视图的 trace/list projection、jump/focus/source/anchor/history commands、engine/navigation/bookmark/review-surface handoff commands，以及 trace refresh/enrichment/convergence/preview controller state 由 `src/ui/browser/neural/*` helpers 维护；`SRSBrowser.vue` 只持有 Browser shell、template binding 与跨 surface 依赖注入
@@ -161,6 +161,7 @@ flowchart TD
 主链路：
 
 1. `DialogManager` 选择队列与 header variant，并根据 `settings.ui` 决定桌面端标准 review 入口是走 dialog 还是 `TabManager.openReviewTabInNewTab(...)`
+   - 块菜单 / 文档菜单的提取练习、渐进学习、临时练习由 `CoreReviewEntryService` 先把当前 scope 解析成 exact `cardIds` + `preferredCardId`，再交给 `DialogManager`；`DialogManager.openRetrievalPracticeWithFilter()` / `openIncrementalLearningWithFilter()` 现在创建一次性 `SubsetReviewQueue`，不再修改共享 `FilterGroupQueue.setFilter()`、不再携带 filter session transfer state。打开到 tab 时使用 `ReviewTabTransferState(kind='static-subset-session')` 序列化 `blockIds/cardIds/preferredCardId`，由 `TabManager` 恢复 detached `SubsetReviewQueue`，不会在 tab init 时退回普通 FilterGroup。dialog 内再点“打开为标签页 / 拆分”时，`ReviewView` 也优先复用传入的 `static-subset-session`，而不是重新尝试 `FilterGroupQueue.serializeSessionSnapshot()`。`openTemporaryDrill()` 同样把 exact card scope 注入 `TemporaryDrillQueue`，避免同块多卡时只靠 block id 重新扩展出错误集合；Image Occlusion 编辑器里的“提取练习 - 全部 / 临时练习”按钮会从 `custom-fsrs-image-occlusion-card-ids` 读取 ordered card ids 并传同一 exact scope。
 2. dialog 路径首次使用时加载 `createUnifiedReviewDialog(...)`；tab 路径走 `TabManager` 的 review tab handoff
 3. dialog 工厂装配：
    - `UnifiedQueueStrategy`
@@ -186,12 +187,12 @@ flowchart TD
 
 当前 review surface 路由补充：
 
-- `reviewOpenInNewTabByDefault` 只影响桌面端标准全局 review 入口：提取练习、渐进学习、刻意练习、筛选复习、神经漫游，以及 filter-backed retrieval / incremental handoff。
+- `reviewOpenInNewTabByDefault` 只影响桌面端标准全局 review 入口：提取练习、渐进学习、刻意练习、筛选复习、神经漫游，以及块/文档菜单触发的 scoped retrieval / incremental handoff。
 - `reviewOpenFullscreenByDefault` 只影响 dialog 模式的初始打开状态；一旦走 tab 路径，该设置被忽略。
 - `TabManager.openReviewTabInNewTab(...)` 不再隐式退化成右侧分屏；只有显式 `position: 'right' | 'bottom'` 才会走分屏。
-- filter-backed retrieval / incremental 在切到 tab 时，不直接复用 live queue，而是通过 `FilterGroupQueue.serializeSessionSnapshot()` -> `ReviewTabTransferState(kind='filter-group-session')` 把 filter、临时黑名单和可见顺序交给 `TabManager` 恢复。
+- scoped retrieval / incremental / subset / temporary drill 在切到 tab 或从 dialog 再打开为 tab 时携带 `static-subset-session` transfer state，并由 `TabManager` 重建 detached `SubsetReviewQueue` / `TemporaryDrillQueue`；不复用 live `FilterGroupQueue`，也不通过 `FilterGroupQueue.serializeSessionSnapshot()` 做 filter-session 恢复。
 - Browser / Review / Review AI companion 的 restore 现在统一走“提前注册 custom tab -> loading shell -> `contextReady` 后 mount runtime”主链，不再依赖 `ApplicationContext.create()` 之后才晚注册 tab。
-- `subset-review`、`temporary-drill`、`leech` 等依赖上下文/live queue 实例的会话型 review 仍保持 dialog-only，直到 tab restore parity 明确建模。
+- `subset-review`、`temporary-drill`、`leech` 等依赖上下文/live queue 实例的会话型 review 仍保持 dialog-only，直到 tab restore parity 明确建模；块/文档菜单的 scoped retrieval / incremental 是标准 review entry，允许按桌面设置打开到 tab，但其 authority 是 exact-card `SubsetReviewQueue`。
 
 评分主链：
 

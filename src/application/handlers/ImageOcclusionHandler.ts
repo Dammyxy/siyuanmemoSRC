@@ -83,6 +83,11 @@ interface SyncImageOcclusionResult {
 
 type CardServiceLike = ReturnType<ReturnType<FSRSPlugin['getContext']>['getCardService']>;
 
+interface ImageOcclusionReviewScopeOptions {
+  cardIds?: string[];
+  preferredCardId?: string;
+}
+
 function parseImageSourceFromKramdown(kramdown: string): string | null {
   if (!kramdown) return null;
 
@@ -803,15 +808,34 @@ export class ImageOcclusionHandler {
 
   private async openImageOcclusionReviewAll(blockId: string): Promise<void> {
     const dialogManager = this.plugin.getContext().getDialogManager();
+    const exactScope = await this.readImageOcclusionReviewScope(blockId);
     await dialogManager.openRetrievalPracticeWithFilter({
       blockIds: [blockId],
+      ...exactScope,
       dueOnly: false,
     });
   }
 
   private async openImageOcclusionTemporaryDrill(blockId: string): Promise<void> {
     const dialogManager = this.plugin.getContext().getDialogManager();
-    await dialogManager.openTemporaryDrill([blockId]);
+    await dialogManager.openTemporaryDrill([blockId], await this.readImageOcclusionReviewScope(blockId));
+  }
+
+  private async readImageOcclusionReviewScope(blockId: string): Promise<ImageOcclusionReviewScopeOptions | undefined> {
+    try {
+      const attrs = await getBlockAttrs(blockId);
+      const cardIds = parseTrackedCardIds(attrs[ATTR_IMAGE_OCCLUSION_CARD_IDS]);
+      if (cardIds.length === 0) {
+        return undefined;
+      }
+      return {
+        cardIds,
+        preferredCardId: cardIds[0],
+      };
+    } catch (error) {
+      logger.warn('Failed to read image occlusion review card scope:', { blockId, error });
+      return undefined;
+    }
   }
 
   private isImageOcclusionCardMeta(meta: unknown): meta is ImageOcclusionCardMeta {

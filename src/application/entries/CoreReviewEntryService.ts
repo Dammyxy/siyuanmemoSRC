@@ -119,7 +119,7 @@ export class CoreReviewEntryService {
           await this.deps.notify(this.text('drillNoCards', '当前范围内没有可练习的闪卡'));
           return;
         }
-        await this.deps.dialogManager.openTemporaryDrill(blockIds);
+        await this.deps.dialogManager.openTemporaryDrill(blockIds, this.buildExactCardOptions(cards));
         return;
       }
       default: {
@@ -142,21 +142,37 @@ export class CoreReviewEntryService {
     options?: CoreReviewScopeOptions,
   ): {
     blockIds: string[];
+    cardIds: string[];
+    preferredCardId?: string;
     scopeDocIds?: string[];
     dueOnly: boolean;
   } {
     const blockIds = Array.from(new Set(cards.map((card) => card.blockId).filter(Boolean)));
+    const exactCardOptions = this.buildExactCardOptions(cards);
     const filterOptions: {
       blockIds: string[];
+      cardIds: string[];
+      preferredCardId?: string;
       scopeDocIds?: string[];
       dueOnly: boolean;
-    } = { blockIds, dueOnly };
+    } = { blockIds, ...exactCardOptions, dueOnly };
 
     if (options?.scopeDocIds && options.scopeDocIds.length > 0) {
       filterOptions.scopeDocIds = options.scopeDocIds;
     }
 
     return filterOptions;
+  }
+
+  private buildExactCardOptions(cards: FSRSCard[]): {
+    cardIds: string[];
+    preferredCardId?: string;
+  } {
+    const cardIds = Array.from(new Set(cards.map((card) => String(card.id || '').trim()).filter(Boolean)));
+    return {
+      cardIds,
+      preferredCardId: cardIds[0],
+    };
   }
 
   private filterDueCards(cards: FSRSCard[]): FSRSCard[] {

@@ -538,6 +538,7 @@ const props = defineProps<{
   onReview?: (cardId: string, rating: number) => void; // 🆕 复习回调（用于刻意练习黑名单）
   reviewState?: ReviewTabRuntimeState | null;
   initialSessionState?: InitialReviewSessionState;
+  transferState?: ReviewTabTransferState;
   initialCurrentItem?: FSRSCard | null;
   initialCurrentCardId?: string;
   initialShowAnswer?: boolean;
@@ -919,6 +920,23 @@ function buildReviewQueueSessionSnapshot(): ReviewQueueSessionSnapshot | null {
   }
 }
 
+function withCurrentSessionTransferState(transferState: ReviewTabTransferState): ReviewTabTransferState {
+  const session = getInitialReviewSessionState();
+  if (transferState.kind === 'static-subset-session') {
+    return {
+      ...transferState,
+      blockIds: [...transferState.blockIds],
+      cardIds: transferState.cardIds ? [...transferState.cardIds] : undefined,
+      session,
+    };
+  }
+
+  return {
+    ...transferState,
+    session,
+  };
+}
+
 function buildReviewTabRuntimeState(): ReviewTabRuntimeState | null {
   if (props.mode !== 'tab') {
     return null;
@@ -938,6 +956,10 @@ function buildReviewTabRuntimeState(): ReviewTabRuntimeState | null {
 }
 
 function buildReviewTabTransferState(): ReviewTabTransferState | undefined {
+  if (props.transferState) {
+    return withCurrentSessionTransferState(props.transferState);
+  }
+
   const filterQueue = getFilterGroupQueue();
   if (!filterQueue || typeof filterQueue.serializeSessionSnapshot !== 'function') {
     return undefined;

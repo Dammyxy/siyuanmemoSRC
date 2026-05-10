@@ -336,10 +336,8 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
   }
 
   private async handleQueueAddAction(route: QueueAddRoute, selectedRows: BrowserActionTarget[]): Promise<unknown> {
-    const queue = this.manager?.getQueue(route.queueType);
     const queueTarget = this.manager && typeof this.manager.batchAddToQueue === 'function'
       ? {
-          addCard: queue?.addCard?.bind(queue),
           addCards: (
             cards: unknown[],
             source?: Parameters<NonNullable<IUnifiedDataSourceManagerFacade['batchAddToQueue']>>[2]
@@ -349,7 +347,7 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
             source
           ),
         }
-      : queue;
+      : this.manager?.getQueue(route.queueType);
     const result = await addToQueue(queueTarget, selectedRows, route.actionType, route.source ?? 'manual');
     this.invalidateQuerySession();
     return result;

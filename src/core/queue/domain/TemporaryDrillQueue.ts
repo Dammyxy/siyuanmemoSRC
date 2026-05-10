@@ -10,8 +10,15 @@ export class TemporaryDrillQueue extends OrderedStaticSubsetQueueBase {
   private readonly FLIP_LOWEST_INSERT = 3;
   private readonly FLIP_HIGHEST_INSERT = 6;
 
-  constructor(manager: UnifiedDataSourceManager, blockIds: string[]) {
-    super(manager, QueueType.FinalDrill, blockIds);
+  constructor(
+    manager: UnifiedDataSourceManager,
+    blockIds: string[],
+    options?: {
+      cardIds?: string[];
+      preferredCardId?: string;
+    },
+  ) {
+    super(manager, QueueType.FinalDrill, blockIds, options);
   }
 
   public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {

@@ -16,6 +16,7 @@ import {
   applyQueueFilters,
   deleteBrowserCards,
   removeCardsFromQueue,
+  resolveQueueRemovalTarget,
   setBrowserCardsPriority,
   sortBrowserCards,
   toggleBrowserCardsSuspended,
@@ -91,10 +92,8 @@ export class RetrievalDataSource
     }
 
     try {
-      const queue = this.manager.getQueue(QueueType.RetrievalPractice);
-
       if (actionId === 'remove-from-current-queue') {
-        const result = await removeCardsFromQueue(queue, selectedRows, {
+        const result = await removeCardsFromQueue(resolveQueueRemovalTarget(this.manager, QueueType.RetrievalPractice), selectedRows, {
           scope: 'RetrievalDataSource',
         });
         this.invalidateQuerySession();

@@ -12,7 +12,12 @@ import { createVueDialog } from '@/utils/dialog';
 import ReviewView from '@/ui/review/v2/ReviewView.vue';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
-import type { IReviewQueue, InitialReviewSessionState, QueueType } from '@/types/unified-data-source';
+import type {
+    IReviewQueue,
+    InitialReviewSessionState,
+    QueueType,
+    ReviewTabTransferState,
+} from '@/types/unified-data-source';
 import type { ReviewHeaderVariant } from '@/ui/review/v2/types';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
@@ -54,6 +59,9 @@ export interface CreateUnifiedReviewDialogOptions {
 
     /** 可选：传入会话计数状态（用于 surface 间切换时延续统计） */
     initialSessionState?: InitialReviewSessionState;
+
+    /** 可选：传入可序列化队列迁移状态（用于对话框再打开为 Tab 时保持精确子集） */
+    transferState?: ReviewTabTransferState;
     
     /** 对话框标题 */
     title: string;
@@ -93,7 +101,7 @@ export interface CreateUnifiedReviewDialogOptions {
  * @returns 对话框实例
  */
 export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOptions) {
-    const { plugin, queueType, queueInstance, initialSessionState, title, headerVariant, eventBus, startFullscreen, onClose } = options;
+    const { plugin, queueType, queueInstance, initialSessionState, transferState, title, headerVariant, eventBus, startFullscreen, onClose } = options;
     const isMobile = plugin.isMobile === true;
     
     try {
@@ -143,6 +151,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                 nativeDialogTitlebar: !isMobile,
                 startFullscreen,
                 initialSessionState,
+                transferState,
             },
             events: {
                 close: () => {

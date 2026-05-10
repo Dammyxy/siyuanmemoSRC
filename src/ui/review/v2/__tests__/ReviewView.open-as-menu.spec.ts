@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ReviewView from '../ReviewView.vue';
 import { createEmptyReviewUIState } from '../types';
 import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
+import { QueueType } from '@/types/unified-data-source';
 
 let reviewContentEditableSource:
   | {
@@ -349,6 +350,106 @@ describe('ReviewView open-as menu', () => {
           correctCount: 2,
         },
       }),
+    }));
+
+    wrapper.unmount();
+  });
+
+  it('prefers provided static subset transfer state for open-as tab actions', async () => {
+    const card = buildCard();
+    const filterQueue = {
+      serializeSessionSnapshot: vi.fn(() => {
+        throw new Error('old filter session should not be serialized');
+      }),
+    };
+    const queue = {
+      ...createQueue(card),
+      getUnderlyingQueue: vi.fn(() => filterQueue),
+    };
+    const adapter = createAdapter();
+    const tabManager = {
+      openReviewTab: vi.fn(),
+      openReviewTabInNewTab: vi.fn(),
+    };
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        queue: queue as never,
+        adapter: adapter as never,
+        title: '子集复习',
+        headerVariant: 'subset-review',
+        initialSessionState: {
+          initialTotal: 4,
+          answeredCount: 1,
+          correctCount: 1,
+        },
+        transferState: {
+          kind: 'static-subset-session',
+          queueType: QueueType.FilterGroup,
+          blockIds: ['block-1'],
+          cardIds: ['card-1'],
+          preferredCardId: 'card-1',
+        },
+        plugin: {
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => null,
+            getStorage: () => ({
+              getSettings: () => ({}),
+            }),
+            getTabManager: () => tabManager,
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    const target = document.createElement('button');
+    Object.defineProperty(target, 'getBoundingClientRect', {
+      value: () => ({ left: 10, bottom: 20 }),
+    });
+    const event = new MouseEvent('click');
+    Object.defineProperty(event, 'currentTarget', {
+      value: target,
+    });
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'sticktab', event);
+    await flushPromises();
+
+    const latestMenu = reviewViewMenuMocks.instances.at(-1);
+    const openByTabItem = latestMenu?.addItem.mock.calls
+      .map(([item]) => item)
+      .find((item) => item.id === 'openByTab');
+    expect(openByTabItem).toBeDefined();
+
+    openByTabItem?.click();
+
+    expect(filterQueue.serializeSessionSnapshot).not.toHaveBeenCalled();
+    expect(tabManager.openReviewTabInNewTab).toHaveBeenCalledWith(expect.objectContaining({
+      title: '子集复习',
+      headerVariant: 'subset-review',
+      transferState: {
+        kind: 'static-subset-session',
+        queueType: QueueType.FilterGroup,
+        blockIds: ['block-1'],
+        cardIds: ['card-1'],
+        preferredCardId: 'card-1',
+        session: {
+          initialTotal: 4,
+          answeredCount: 1,
+          correctCount: 1,
+        },
+      },
     }));
 
     wrapper.unmount();

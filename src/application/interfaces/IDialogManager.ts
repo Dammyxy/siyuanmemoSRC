@@ -51,6 +51,8 @@ export interface IDialogManager {
    */
   openRetrievalPracticeWithFilter(options: {
     blockIds: string[];
+    cardIds?: string[];
+    preferredCardId?: string;
     scopeDocIds?: string[];
     dueOnly: boolean;
   }): Promise<void>;
@@ -65,6 +67,8 @@ export interface IDialogManager {
    */
   openIncrementalLearningWithFilter(options: {
     blockIds: string[];
+    cardIds?: string[];
+    preferredCardId?: string;
     scopeDocIds?: string[];
     dueOnly: boolean;
   }): Promise<void>;
@@ -157,7 +161,13 @@ export interface IDialogManager {
    * 
    * @param blockIds - 块 ID 列表
    */
-  openTemporaryDrill(blockIds: string[]): Promise<void>;
+  openTemporaryDrill(
+    blockIds: string[],
+    options?: {
+      cardIds?: string[];
+      preferredCardId?: string;
+    },
+  ): Promise<void>;
   
   /**
    * 打开创建模板卡片对话框

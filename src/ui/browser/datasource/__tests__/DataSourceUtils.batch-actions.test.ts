@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { removeCardsFromQueue, setBrowserCardsPriority } from '../DataSourceUtils';
+import { removeCardsFromQueue, resolveQueueRemovalTarget, setBrowserCardsPriority } from '../DataSourceUtils';
 import type { FSRSCard } from '@/types/card';
 import type { BrowserCard } from '../../types';
+import { QueueType } from '@/types/unified-data-source';
 
 function makeCard(id: string, blockId: string, priority = 50): FSRSCard {
   return {
@@ -105,6 +106,35 @@ describe('DataSourceUtils batch actions', () => {
     expect(queue.removeCards).toHaveBeenCalledTimes(1);
     expect(queue.removeCards).toHaveBeenCalledWith(['card-1', 'card-2']);
     expect(queue.removeCard).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      removedCount: 2,
+      failedCount: 0,
+      failedIds: [],
+    });
+  });
+
+  it('adapts queue removal to the manager batch command without reading a live queue', async () => {
+    const manager = {
+      batchRemoveFromQueue: vi.fn(async (_queueType: QueueType, ids: string[]) => ({
+        attemptedCount: ids.length,
+        changedCount: ids.length,
+        failedIds: [],
+      })),
+      getQueue: vi.fn(() => {
+        throw new Error('live queue should not be read');
+      }),
+    };
+
+    const target = resolveQueueRemovalTarget(manager as never, QueueType.IncrementalLearning);
+    const result = await removeCardsFromQueue(target, [
+      { id: 'card-1', blockId: 'block-1' },
+      { id: 'card-2', blockId: 'block-2' },
+    ] as never[], {
+      scope: 'DataSourceUtilsTest',
+    });
+
+    expect(manager.batchRemoveFromQueue).toHaveBeenCalledWith(QueueType.IncrementalLearning, ['card-1', 'card-2']);
+    expect(manager.getQueue).not.toHaveBeenCalled();
     expect(result).toEqual({
       removedCount: 2,
       failedCount: 0,

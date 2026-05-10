@@ -171,6 +171,8 @@ describe('BlockMenuHandler core review entry integration', () => {
 
     expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledWith({
       blockIds: ['block-1'],
+      cardIds: ['item-due'],
+      preferredCardId: 'item-due',
       dueOnly: true,
     });
   });
@@ -226,7 +228,10 @@ describe('BlockMenuHandler core review entry integration', () => {
 
     await handler.runCoreEntryAction('temporary-drill', [element]);
 
-    expect(deferredDialogManager.openTemporaryDrill).toHaveBeenCalledWith(['block-1']);
+    expect(deferredDialogManager.openTemporaryDrill).toHaveBeenCalledWith(['block-1'], {
+      cardIds: ['item-due'],
+      preferredCardId: 'item-due',
+    });
   });
 
   it('passes doc scope ids through doc tree review menu actions', async () => {
@@ -266,6 +271,8 @@ describe('BlockMenuHandler core review entry integration', () => {
 
     expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledWith({
       blockIds: ['topic-block-1'],
+      cardIds: ['item-1'],
+      preferredCardId: 'item-1',
       scopeDocIds: ['doc-1', 'doc-1-child'],
       dueOnly: false,
     });
@@ -325,6 +332,8 @@ describe('BlockMenuHandler core review entry integration', () => {
 
     expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledWith({
       blockIds: ['block-item-due', 'block-descriptor-due', 'block-item-future'],
+      cardIds: ['item-due', 'descriptor-due', 'item-future'],
+      preferredCardId: 'item-due',
       scopeDocIds: ['doc-1', 'doc-1-child'],
       dueOnly: false,
     });
