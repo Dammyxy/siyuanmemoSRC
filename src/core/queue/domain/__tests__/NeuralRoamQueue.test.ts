@@ -348,6 +348,32 @@ describe('NeuralRoamQueue', () => {
     }));
   });
 
+  it('does not revive cleared history from an older backend queue snapshot', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [conceptCard('concept-a')],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    const staleBackendState = queue.exportPersistedState();
+    expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['concept-a']);
+
+    queue.clearHistory('all');
+    expect(queue.getHistorySnapshot()).toEqual([]);
+
+    await queue.syncFromBackendState(staleBackendState);
+
+    expect(queue.getHistorySnapshot()).toEqual([]);
+    expect(queue.getNavigationState().currentNodeId).toBeNull();
+  });
+
   it('reuses a cached counter snapshot during review instead of force-refreshing cards', async () => {
     const { persistence } = createPersistence(undefined);
     const manager = createManager();
@@ -814,6 +840,67 @@ describe('NeuralRoamQueue', () => {
     expect(queue.getHistoryCount()).toBe(0);
     expect(queue.getHistoryEntriesByNodeId('virtual-1')).toEqual([]);
     expect(queue.getHistoryHitCount('virtual-1')).toBe(0);
+  });
+
+  it('clears all history from both orbit and hyperspace engines', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [conceptCard('concept-orbit'), conceptCard('concept-hyperspace')],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.setCurrentFocus('concept-orbit', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['concept-orbit']);
+
+    await queue.setEngineMode('hyperspace', { carryCurrentNode: false });
+    await queue.setCurrentFocus('concept-hyperspace', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['concept-hyperspace']);
+
+    queue.clearHistory('all');
+
+    expect(queue.getHistorySnapshot()).toEqual([]);
+    await queue.setEngineMode('orbit', { carryCurrentNode: false });
+    expect(queue.getHistorySnapshot()).toEqual([]);
+  });
+
+  it('records only new history after clearing all history and continuing roam', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [conceptCard('concept-a')],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['concept-a']);
+
+    queue.clearHistory('all');
+    expect(queue.getHistorySnapshot()).toEqual([]);
+
+    const conceptQueue = (queue as any).conceptQueue;
+    conceptQueue.queryEngine.fetchNeighbors = vi.fn(async () => [
+      { id: 'neighbor-1', type: 'backlink', weight: 1 },
+    ]);
+
+    const next = await queue.getNextCard();
+
+    expect(next?.blockId).toBe('neighbor-1');
+    expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['neighbor-1']);
+    expect(queue.getHistorySnapshot().some((entry) => entry.nodeId === 'concept-a')).toBe(false);
   });
 
   it('forwards seed/anchor wrapper calls', async () => {

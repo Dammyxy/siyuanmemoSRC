@@ -112,6 +112,7 @@ flowchart TD
 - 初始化 `siyuanmemo.db` 的 sql.js 持久化层；首次启动先把旧 `unified-cards.msgpack`、`queues.msgpack`、月度 review logs 与 `arena/store.json` 迁入 SQL，迁移失败以 `STORAGE_UNAVAILABLE` fail closed，不再允许 env 触发 legacy storage rollback；SQL active 后 DB 以二进制文件写入，旧 base64 envelope 只作为读取兼容与迁移备份
 - 装配 `ArenaStoreService` / `ArenaKernelService`，把 AI 策略包竞技和 SRS 只读算法竞技挂到同一个应用层内核；`arena.enabled` 默认为 `false`，关闭时不接入复习建议或 AI 策略包覆盖；开启后 Arena 数据写入 SQL
 - 外部 SRS 算法第一版边界在 `src/application/services/external-srs/ExternalSrsAlgorithmRuntime.ts`：只从用户控制的本地算法目录发现 manifest，经校验后以 `external:*` 通用 id 写入 `algorithm_registry`，默认 `disabled`；`ExternalSrsAlgorithmRuntimeAdapter` 只传结构化快照和参数，不传数据库、思源 API、writer port 或 plugin service 对象，输出保持 advisory-only，不接管正式 FSRS v6 due 写入
+- 运行路径收口由 `scripts/check-backend-runtime-paths.cjs` 兜底：它在 `pnpm run check:boundaries` 里核对 queue projection、neural-roam.advance、review.feedback、autocard.decision.resolve/autocard.execute、private.command.execute、ai.session/job 的 contract -> worker -> client -> `ApplicationContext` -> caller 链路；External SRS 继续停留在 advisory-only foundation，只有当 `ApplicationContext` 显式接入并补齐 UI 入口后才算 active runtime
 
 这意味着：
 
@@ -984,7 +985,7 @@ UI 层：
 5. Application query/service 不从 `@/ui/browser/*` 取 Browser 契约；共享契约放在 `src/types/browser.ts` 或 application query shared helper。
 6. UI 不新增 `@/infrastructure/*` 直连；确有历史例外时需要在 `scripts/check-boundaries.cjs` allowlist 中显式说明。
 7. Kernel companion 是 Siyuan integration 的可选 RPC 能力。UI / application manager 只能通过 `KernelCompanionPort` 获取状态或调用方法；不要从 Settings、usecase、scheduler、Riff sync 或 persistence 代码直接 fetch `/api/plugin/rpc/*`。JSON-RPC 请求由 `SiyuanKernelCompanionAdapter` 统一组装；无参调用发送 `params: []`，不要发送 `params: null`，否则当前内核会返回 `-32600 Invalid Request`。
-8. Guarded runtime paths (`src/application/*`、`src/core/queue/*`、`worker/*`、`packages/contracts/src/*`) 的依赖异常不能被 catch 后变成 `null`、空集合、0、空 Map 或陈旧状态；hidden fallback gate 会把所有 dependency-empty 行为升为 failure。Review count、writer lease observe、Native Riff context、Progressive/BlockMenu preparation、Settings capture notebooks、Xiuyuan legacy attrs、queue projection reads、manual-card lookup、NeuralRoam graph/query/session/hyperspace reads 都必须返回显式 unavailable/error。
+8. Guarded runtime paths (`src/application/*`、`src/core/queue/*`、`worker/*`、`packages/contracts/src/*`) 的依赖异常不能被 catch 后变成 `null`、空集合、0、空 Map 或陈旧状态；hidden fallback gate 会把所有 dependency-empty 行为升为 failure。Review count、writer lease observe、Native Riff context、Progressive/BlockMenu preparation、Settings capture notebooks、Xiuyuan legacy attrs、queue projection reads、manual-card lookup、NeuralRoam graph/query/session/hyperspace reads 都必须返回显式 unavailable/error；`scripts/check-backend-runtime-paths.cjs` 把这些已迁移 runtime path 的 contract -> worker -> client -> composition root 链路和 External SRS deferred foundation 状态一并锁定，防止 UI/文档把 foundation 误写成 active runtime。
 9. 不要把以下路径当活跃架构基线：
    - `src/domain/queues/*`
    - `src/index.simplified.ts`

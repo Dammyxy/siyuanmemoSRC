@@ -97,6 +97,7 @@ interface NeuralRoamPersistedStateV7 {
 
 interface NeuralRoamPersistedStateV8 {
   version: 8;
+  historyClearedAt?: number;
   engineMode: NeuralEngineMode;
   orbit: {
     seedPool: FocusPoolPersistedEntry[];
@@ -291,6 +292,8 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   private engineMode: NeuralEngineMode = 'orbit';
   private pendingAssociatedReviewCards: FSRSCard[] = [];
   private readonly seenAssociatedReviewCardIds = new Set<string>();
+  private historyClearedAt = 0;
+  private readonly locallyClearedHistoryEventIds = new Set<string>();
 
   constructor(
     manager: UnifiedDataSourceManager,
@@ -432,12 +435,126 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     if (!isNeuralRoamPersistedStateV8(rawState)) {
       throw new Error('NEURAL_ROAM_QUEUE_SYNC_UNAVAILABLE: backend queue state is missing or invalid');
     }
-    await this.restorePersistedState(rawState, false);
+    await this.restorePersistedState(this.sanitizeBackendStateAfterLocalClear(rawState), false);
     this.markInitialLoadCompleted();
   }
 
   public exportPersistedState(): Record<string, unknown> {
     return this.toPersistedState() as unknown as Record<string, unknown>;
+  }
+
+  private readHistoryClearedAt(state: Partial<NeuralRoamPersistedStateV8> | null | undefined): number {
+    const clearedAt = Number(state?.historyClearedAt);
+    return Number.isFinite(clearedAt) && clearedAt > 0 ? Math.floor(clearedAt) : 0;
+  }
+
+  private rememberLocalHistoryClear(scope: 'current' | 'all'): void {
+    const entries = scope === 'all'
+      ? [
+          ...this.conceptQueue.getHistorySnapshot(),
+          ...this.hyperspaceEngine.getHistorySnapshot(),
+        ]
+      : this.getActiveEngine().getHistorySnapshot().filter((entry) => {
+          const sessionId = this.getActiveEngine().getNavigationState().sessionId;
+          return !sessionId || entry.sessionId === sessionId;
+        });
+
+    for (const entry of entries) {
+      if (entry.eventId) {
+        this.locallyClearedHistoryEventIds.add(entry.eventId);
+      }
+    }
+    this.historyClearedAt = Date.now();
+  }
+
+  private sanitizeBackendStateAfterLocalClear(
+    state: NeuralRoamPersistedStateV8,
+  ): NeuralRoamPersistedStateV8 {
+    const incomingHistoryClearedAt = this.readHistoryClearedAt(state);
+    const hasLocalClearBarrier = this.historyClearedAt > incomingHistoryClearedAt
+      || this.locallyClearedHistoryEventIds.size > 0;
+    if (!hasLocalClearBarrier) {
+      return state;
+    }
+
+    const orbitSession = this.pruneConceptSessionAfterLocalClear(state.orbit.session);
+    const hyperspaceSession = this.pruneHyperspaceSessionAfterLocalClear(state.hyperspace.session);
+
+    return {
+      ...state,
+      historyClearedAt: Math.max(incomingHistoryClearedAt, this.historyClearedAt),
+      orbit: {
+        ...state.orbit,
+        session: orbitSession,
+      },
+      hyperspace: {
+        ...state.hyperspace,
+        session: hyperspaceSession,
+      },
+      pendingAssociatedReviewCardIds: [],
+      seenAssociatedReviewCardIds: [],
+    };
+  }
+
+  private pruneConceptSessionAfterLocalClear(
+    session: ConceptNeuralSessionState,
+  ): ConceptNeuralSessionState {
+    const history = this.filterHistoryAfterLocalClear(session.history);
+    const latestEntry = history.at(-1) ?? null;
+    const latestFocusEntry = [...history]
+      .reverse()
+      .find((entry) => entry.activationKind === 'focus-root') ?? latestEntry;
+
+    return {
+      ...session,
+      displayPath: history.map((entry) => entry.nodeId),
+      displayPathEventIds: history.map((entry) => entry.eventId),
+      currentPathIndex: history.length - 1,
+      bookmarkPathIndex: null,
+      history,
+      currentFocus: latestFocusEntry?.focusId ?? latestFocusEntry?.nodeId ?? null,
+      currentFocusEventId: latestFocusEntry?.eventId ?? null,
+      branchRootNodeId: latestEntry?.branchRootNodeId ?? latestFocusEntry?.nodeId ?? null,
+      currentSessionId: latestEntry?.sessionId ?? null,
+      visitedBlocks: Array.from(new Set(history.map((entry) => entry.nodeId))),
+      exhaustedFocuses: [],
+      currentRoundStartedAt: latestFocusEntry?.visitedAt ?? null,
+    };
+  }
+
+  private pruneHyperspaceSessionAfterLocalClear(
+    session: HyperspaceSessionState,
+  ): HyperspaceSessionState {
+    const history = this.filterHistoryAfterLocalClear(session.history);
+    const latestEntry = history.at(-1) ?? null;
+    const latestSourceEntry = [...history]
+      .reverse()
+      .find((entry) => entry.sourceRole === 'activation-source' || entry.activationKind === 'focus-root') ?? latestEntry;
+
+    return {
+      ...session,
+      displayPath: history.map((entry) => entry.nodeId),
+      displayPathEventIds: history.map((entry) => entry.eventId),
+      currentPathIndex: history.length - 1,
+      bookmarkPathIndex: null,
+      history,
+      currentLeadSource: latestSourceEntry?.sourceNodeId ?? latestSourceEntry?.nodeId ?? null,
+      currentLeadSourceEventId: latestSourceEntry?.eventId ?? null,
+      branchRootNodeId: latestEntry?.branchRootNodeId ?? latestSourceEntry?.nodeId ?? null,
+      currentSessionId: latestEntry?.sessionId ?? null,
+      visitedBlocks: Array.from(new Set(history.map((entry) => entry.nodeId))),
+      exhaustedSources: [],
+    };
+  }
+
+  private filterHistoryAfterLocalClear(history: NeuralRoamHistoryEntry[]): NeuralRoamHistoryEntry[] {
+    return history.filter((entry) => {
+      if (this.locallyClearedHistoryEventIds.has(entry.eventId)) {
+        return false;
+      }
+      const visitedAt = Number(entry.visitedAt);
+      return Number.isFinite(visitedAt) && visitedAt > this.historyClearedAt;
+    });
   }
 
   private async restorePersistedState(rawState: unknown, fromStorage: boolean): Promise<void> {
@@ -449,6 +566,10 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     let persistRequired = false;
 
     if (isNeuralRoamPersistedStateV8(rawState)) {
+      this.historyClearedAt = Math.max(this.historyClearedAt, this.readHistoryClearedAt(rawState));
+      if (this.readHistoryClearedAt(rawState) >= this.historyClearedAt) {
+        this.locallyClearedHistoryEventIds.clear();
+      }
       this.engineMode = rawState.engineMode;
       this.conceptQueue.restoreSeedPoolState(rawState.orbit.seedPool);
       this.conceptQueue.restoreAnchorPoolState(rawState.orbit.anchorPool);
@@ -572,6 +693,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   private toPersistedState(): NeuralRoamPersistedStateV8 {
     return {
       version: 8,
+      historyClearedAt: this.historyClearedAt,
       engineMode: this.engineMode,
       orbit: {
         seedPool: this.conceptQueue.exportSeedPoolState(),
@@ -792,7 +914,13 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   }
 
   public clearHistory(scope: 'current' | 'all' = 'current'): void {
-    this.getActiveEngine().clearHistory(scope);
+    this.rememberLocalHistoryClear(scope);
+    if (scope === 'all') {
+      this.conceptQueue.clearHistory('all');
+      this.hyperspaceEngine.clearHistory('all');
+    } else {
+      this.getActiveEngine().clearHistory(scope);
+    }
     this.resetAssociatedReviewState();
     void this.save().catch((error) => {
       logger.warn('Failed to persist neural roam state after clearHistory:', error);

@@ -1,8 +1,38 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-12 (Round 328)
+Last update: 2026-05-12 (Round 330)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-12 - NeuralRoam stale backend history clear guard
+
+- Task: 补测试并修复神经漫游清空轨迹后，点击下一张时 backend 旧队列快照把旧历史恢复的问题。
+- Touched slice: NeuralRoam queue backend sync guard in `src/core/queue/domain/NeuralRoamQueue.ts` and focused coverage in `src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts`.
+- Debt fixed now: `NeuralRoamQueue.clearHistory()` 现在记录本地清空水位和被清掉的 history eventId；`syncFromBackendState()` 收到比本地清空更旧的 v8 backend 快照时，会裁掉清空前的 orbit/hyperspace history/session path，避免旧 `queueState` 通过 `restoreSessionState()` 复活清空前轨迹。
+- Debt deferred: backend worker 仍未提供显式 `neural-roam.clear-history` 命令来同步清空其内存队列；真实 SiYuan 前台 Playwright smoke 还没纳入自动化。
+- Why deferred: 本轮用户要先锁定“清空后下一张旧历史回来”的回归测试和最小 active-path 修复；新增 backend mutation contract 会跨 `UnifiedQueueStrategy`、worker RPC、contracts 和 writer/follower 能力，需要单独设计幂等与不可用语义。
+- Next safe step: 单独补 backend clear-history command：Review/Browser 清空动作调用 writer/backend，worker 清掉缓存队列并返回带 `historyClearedAt` 的快照；再用 Playwright 做前台清空 -> 下一张 smoke。
+- Validation: `pnpm vitest run src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts -t "does not revive cleared history from an older backend queue snapshot"`; `pnpm vitest run src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts`; `pnpm vitest run src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-12 - NeuralRoam clear history scope repair
+
+- Task: 修复神经漫游【清空轨迹历史】只清当前引擎，导致切换 orbit/hyperspace 或继续下一张后旧轨迹残留/误回来的问题。
+- Touched slice: NeuralRoam queue history runtime in `src/core/queue/domain/NeuralRoamQueue.ts` and focused coverage in `src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts`.
+- Debt fixed now: `NeuralRoamQueue.clearHistory('all')` 现在同时清空 orbit `ConceptNeuralQueue` 和 hyperspace `HyperspaceEngine` 的历史与导航状态；`clearHistory('current')` 仍只作用于当前 active engine。新增回归测试锁定跨引擎全量清空，并锁定清空后继续漫游只产生新的轨迹，不恢复清空前的旧节点。
+- Debt deferred: 没有安装或接入 Playwright UI smoke；真实 SiYuan 前台点击【清空轨迹历史】-> 下一张的浏览器自动化验证仍待单独补。
+- Why deferred: 本轮根因在队列历史所有权语义，focused domain tests 已覆盖 active runtime contract；Playwright 安装/脚本会引入依赖与 UI 自动化维护面，适合单独做 smoke harness。
+- Next safe step: 在真实 SiYuan session 里手动或 Playwright smoke：orbit 和 hyperspace 各产生历史后点击【清空轨迹历史】，确认两个模式历史都为空；再点下一张，确认只出现新轨迹。
+- Validation: `pnpm vitest run src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-12 - Backend runtime path closure
+
+- Task: 按运行路径收口，把 backend migration 中已经落地的新实现和 active composition root 对齐，避免实现文件存在但 UI/文档继续把未接入能力误判为已接入。
+- Touched slice: Runtime path guard in `scripts/check-backend-runtime-paths.cjs`, focused checker coverage in `scripts/__tests__/check-backend-runtime-paths.test.ts`, `package.json` boundary wiring, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: `pnpm run check:boundaries` 新增 backend runtime path guard，覆盖 queue projection、neural-roam.advance、review.feedback、autocard.decision.resolve/autocard.execute、private.command.execute、ai.session/job 的 contract -> worker -> client -> composition-root -> caller 锚点；External SRS foundation 现在被显式锁为 deferred，不能因为 `ExternalSrsAlgorithmRuntime.ts`、file host 或 registry repository 已存在就被当成 active runtime。
+- Debt deferred: External SRS algorithm runtime 仍是 deferred foundation，不是 active runtime；本任务没有把它接入 `ApplicationContext`、UI entrypoint 或正式调度写入。
+- Why deferred: 现有代码只证明 advisory-only foundation 可被发现、注册和本地读取；缺少组合根装配、用户入口、能力开关、运行时错误契约和端到端测试时，提前宣称 active runtime 会掩盖真实接入缺口。
+- Next safe step: 真要提升 External SRS 时，先补 `ApplicationContext` composition、UI/setting entrypoint、feature gate、unavailable contract 和 focused tests，再同步调整 `scripts/check-backend-runtime-paths.cjs` 的 deferred contract。
+- Validation: `pnpm exec vitest run scripts/__tests__/check-backend-runtime-paths.test.ts --reporter=dot`; `node scripts/check-backend-runtime-paths.cjs`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-12 - NeuralRoam backend track sync
 
