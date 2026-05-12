@@ -281,6 +281,7 @@ export type NeuralAssociationType =
     | 'outgoing-direct'
     | 'outgoing-indirect'
     | 'descriptor'
+    | 'associated-review'
     | 'focus'
     | 'path'
     | 'source'

@@ -124,7 +124,18 @@ type LocalConceptStatus = 'concept' | 'non-concept' | 'unknown';
 
 type AssociatedReviewSource = {
   sourceVirtualNodeId?: string | null;
+  sourceVirtualEventId?: string | null;
   sourceVirtualReason?: string | null;
+};
+
+type AssociatedReviewVisitRecorder = {
+  recordAssociatedReviewVisit(input: {
+    nodeId: string;
+    nodePreview?: string | null;
+    sourceNodeId?: string | null;
+    sourceEventId?: string | null;
+    reason?: string | null;
+  }): NeuralRoamHistoryEntry | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -884,9 +895,55 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   private dequeuePendingAssociatedReviewCard(): FSRSCard | null {
     const card = this.pendingAssociatedReviewCards.shift() ?? null;
     if (card) {
+      this.recordAssociatedReviewVisit(card);
       this.clearSizeCache();
     }
     return card;
+  }
+
+  private recordAssociatedReviewVisit(card: FSRSCard): void {
+    const engine = this.getActiveEngine();
+    const recorder = engine as unknown as Partial<AssociatedReviewVisitRecorder>;
+    if (typeof recorder.recordAssociatedReviewVisit !== 'function') {
+      return;
+    }
+
+    const neuralContext = this.readNeuralContext(card);
+    const sourceNodeId = typeof neuralContext?.sourceVirtualNodeId === 'string'
+      ? neuralContext.sourceVirtualNodeId
+      : null;
+    const sourceEventId = typeof neuralContext?.sourceVirtualEventId === 'string'
+      ? neuralContext.sourceVirtualEventId
+      : null;
+    const sourceReason = typeof neuralContext?.sourceVirtualReason === 'string'
+      ? neuralContext.sourceVirtualReason
+      : null;
+
+    recorder.recordAssociatedReviewVisit.call(engine, {
+      nodeId: card.blockId,
+      nodePreview: this.resolveAssociatedReviewPreview(card),
+      sourceNodeId,
+      sourceEventId,
+      reason: sourceReason,
+    });
+  }
+
+  private readNeuralContext(card: FSRSCard): Record<string, unknown> | null {
+    if (!isRecord(card.meta)) {
+      return null;
+    }
+    const neuralContext = card.meta.neuralContext;
+    return isRecord(neuralContext) ? neuralContext : null;
+  }
+
+  private resolveAssociatedReviewPreview(card: FSRSCard): string {
+    if (isRecord(card.meta)) {
+      const content = card.meta.content;
+      if (typeof content === 'string' && content.trim().length > 0) {
+        return content;
+      }
+    }
+    return card.blockId || card.id;
   }
 
   private clearPendingAssociatedReviewCards(): void {
@@ -904,8 +961,13 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   }
 
   private async enqueueAssociatedReviewCards(sourceBlockId: string, sourceReason: string): Promise<void> {
+    const navigationState = this.getActiveEngine().getNavigationState();
+    const sourceVirtualEventId = navigationState.currentNodeId === sourceBlockId
+      ? navigationState.currentEventId
+      : null;
     const associatedCards = await this.resolveAssociatedReviewCards(sourceBlockId, {
       sourceVirtualNodeId: sourceBlockId,
+      sourceVirtualEventId,
       sourceVirtualReason: sourceReason,
     });
 
@@ -1529,6 +1591,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       isFlashcard: true,
       nodeRole: 'associated-review' as const,
       sourceVirtualNodeId: source.sourceVirtualNodeId ?? null,
+      sourceVirtualEventId: source.sourceVirtualEventId ?? null,
       sourceVirtualReason: source.sourceVirtualReason ?? null,
     };
 
@@ -1555,6 +1618,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       isFlashcard: boolean;
       nodeRole: 'virtual' | 'associated-review';
       sourceVirtualNodeId?: string | null;
+      sourceVirtualEventId?: string | null;
       sourceVirtualReason?: string | null;
     },
   ): FSRSCard {

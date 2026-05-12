@@ -868,6 +868,65 @@ describe('NeuralRoamQueue', () => {
     expect(persisted?.seenAssociatedReviewCardIds).toContain('descriptor-1');
   });
 
+  it('records associated review cards in neural history when they are surfaced from the pending buffer', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [conceptCard('concept-a'), descriptorCard('descriptor-1')],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    mockNeuralEngine(queue);
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    const focusEventId = queue.getNavigationState().currentEventId;
+    const conceptQueue = (queue as any).conceptQueue;
+    await conceptQueue.activateNode('descriptor-1', {
+      associationType: 'backlink',
+      reason: '反向链接',
+      focusId: 'concept-a',
+      isVirtual: true,
+      activationKind: 'graph-edge',
+      sourceNodeId: 'concept-a',
+      sourceEventId: focusEventId,
+      branchRootNodeId: 'concept-a',
+    });
+
+    const queryEngine = (queue as any).queryEngine;
+    queryEngine.fetchSubtreeBlockIds = vi.fn(async () => ['descriptor-1']);
+    await (queue as any).enqueueAssociatedReviewCards('descriptor-1', '反向链接');
+    const associatedCard = await queue.getNextCard();
+
+    expect(associatedCard?.id).toBe('card-descriptor-1');
+    expect(associatedCard?.meta).toEqual(expect.objectContaining({
+      neuralContext: expect.objectContaining({
+        isFlashcard: true,
+        nodeRole: 'associated-review',
+        sourceVirtualNodeId: 'descriptor-1',
+      }),
+    }));
+
+    const descriptorHistory = queue.getHistoryEntriesByNodeId('descriptor-1');
+    expect(descriptorHistory).toHaveLength(2);
+    expect(descriptorHistory[1]).toEqual(expect.objectContaining({
+      nodeId: 'descriptor-1',
+      associationType: 'associated-review',
+      activationKind: 'follow-path',
+      origin: 'follow-path',
+      sourceNodeId: 'descriptor-1',
+      sourceEventId: descriptorHistory[0].eventId,
+    }));
+    expect(queue.getHistoryHitCount('descriptor-1')).toBe(2);
+    expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual([
+      'concept-a',
+      'descriptor-1',
+      'descriptor-1',
+    ]);
+  });
+
   it.each([
     { label: 'list item', blockId: 'native-list-1', blockType: 'i' as const },
     { label: 'heading', blockId: 'native-heading-1', blockType: 'h' as const },

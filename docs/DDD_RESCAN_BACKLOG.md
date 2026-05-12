@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-12 (Round 326)
+Last update: 2026-05-12 (Round 327)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-12 - Neural associated review history repair
+
+- Task: 修复 NeuralRoam pending associated-review 卡 surfaced 后没有进入双链轨道历史的问题，并复核块菜单 scoped review 入口仍走 exact-card 子集队列。
+- Touched slice: NeuralRoam queue/history runtime (`NeuralRoamQueue.ts`, `ConceptNeuralQueue.ts`, `HyperspaceEngine.ts`, `unified-data-source.ts`), neural history/review labels, focused neural/block-menu/subset tests, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: `NeuralRoamQueue.dequeuePendingAssociatedReviewCard()` 现在在返回真实 item/descriptor 卡前调用 active engine 的 `recordAssociatedReviewVisit()`；orbit/hyperspace 都会追加 `associationType='associated-review'`、`activationKind='follow-path'`、`origin='follow-path'` 的 history entry，并优先使用来源虚拟节点的 `sourceVirtualEventId` 接回 trace/source chain；Browser history、trace 和 Review neural menu 显示层也识别 `associated-review` 标签。块菜单复核确认当前分支的 retrieval/incremental/temporary scoped entries 已通过 `CoreReviewEntryService -> DialogManager -> SubsetReviewQueue` 传递 exact `cardIds/preferredCardId`，没有再修改共享 `FilterGroupQueue`。
+- Debt deferred: 本轮没有扩展 worker `neural-roam.advance` 的端到端浏览器烟测，也没有清理旧 Browser adapter/view 文件里的历史 direct-queue helper；这些属于后续 backend cutover/legacy retirement。
+- Why deferred: 用户阻塞点是 surfaced associated-review 不计入历史，以及块菜单入口是否还在旧接口上漂移；当前代码修复和 focused tests 已覆盖 active runtime path，worker/browser legacy retirement 会跨更宽 bounded context。
+- Next safe step: 做一次真实 SiYuan 手测：从概念卡启动 NeuralRoam，走到带本地 item/descriptor 的虚拟节点，确认下一张 associated-review 真实卡出现后 Browser 双链轨道同节点 hit count 增加；再从块菜单四个 scoped review 入口各开一次确认 exact card subset。
+- Validation: `pnpm vitest run src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts src/application/entries/__tests__/CoreReviewEntryService.test.ts src/application/managers/__tests__/BlockMenuHandler.core-review-entry.test.ts src/application/managers/__tests__/BlockMenuHandler.doc-scope-concept-visibility.test.ts src/application/managers/__tests__/DialogManager.review-header-variant.test.ts src/core/queue/domain/__tests__/SubsetReviewQueue.preferred-card.test.ts src/ui/review/v2/__tests__/reviewNeuralCommands.test.ts src/ui/browser/neural/__tests__/neuralTraceViewModel.test.ts src/ui/browser/neural/__tests__/NeuralHistoryList.test.ts` passed (9 files / 81 tests). Boundary/build validation pending in this task response.
 
 ### 2026-05-12 - Block-id browser multi-card hydration repair
 

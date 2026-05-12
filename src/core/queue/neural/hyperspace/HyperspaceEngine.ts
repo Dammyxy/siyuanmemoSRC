@@ -117,6 +117,14 @@ interface ActivateNodeMeta {
   conductionScore?: number | null;
 }
 
+interface AssociatedReviewVisitInput {
+  nodeId: string;
+  nodePreview?: string | null;
+  sourceNodeId?: string | null;
+  sourceEventId?: string | null;
+  reason?: string | null;
+}
+
 interface PathItemOptions {
   focusPath?: boolean;
 }
@@ -182,6 +190,8 @@ function normalizeOrigin(value: unknown, associationType?: NeuralAssociationType
           return 'source';
         case 'descriptor':
           return 'descriptor';
+        case 'associated-review':
+          return 'follow-path';
         case 'tree-child':
         case 'tree-sibling':
         case 'tree-parent':
@@ -209,6 +219,7 @@ function buildReasonText(type: NeuralAssociationType | NeuralPropagationOrigin):
     case 'concept-link': return '概念链接';
     case 'element-link': return '块链接';
     case 'descriptor': return '描述符';
+    case 'associated-review': return '关联复习卡';
     case 'tree-child': return '子节点传导';
     case 'tree-sibling': return '同级传导';
     case 'tree-parent': return '父节点传导';
@@ -541,6 +552,57 @@ export class HyperspaceEngine {
   getHistoryHitCount(nodeId: string): number {
     this.syncHistoryCapacity();
     return this.historyStore.getHitCount(nodeId);
+  }
+
+  recordAssociatedReviewVisit(input: AssociatedReviewVisitInput): NeuralRoamHistoryEntry | null {
+    const nodeId = String(input.nodeId || '').trim();
+    if (!nodeId) {
+      return null;
+    }
+
+    if (!this.currentSessionId) {
+      this.currentSessionId = createSessionId();
+    }
+
+    const explicitSourceEventId = String(input.sourceEventId || '').trim();
+    const explicitSourceEntry = explicitSourceEventId
+      ? this.findHistoryEntryByEventId(explicitSourceEventId)
+      : null;
+    const sourceNodeId = String(input.sourceNodeId || '').trim()
+      || explicitSourceEntry?.nodeId
+      || this.getCurrentPathNodeId()
+      || this.currentLeadSource
+      || null;
+    const sourceEntry = explicitSourceEntry ?? (sourceNodeId ? this.findLatestHistoryEntry(sourceNodeId) : null);
+    const sourceEventId = explicitSourceEventId
+      || sourceEntry?.eventId
+      || this.getCurrentPathEventId();
+    const sessionId = sourceEntry?.sessionId ?? this.currentSessionId;
+    const focusId = sourceEntry?.focusId ?? this.currentLeadSource;
+    const branchRootNodeId = sourceEntry?.branchRootNodeId ?? this.branchRootNodeId ?? focusId ?? nodeId;
+    const reason = String(input.reason || '').trim() || buildReasonText('associated-review');
+    const historyEntry = this.createHistoryEntry(
+      nodeId,
+      sessionId,
+      normalizePreview(String(input.nodePreview || nodeId), this.previewLength),
+      {
+        associationType: 'associated-review',
+        reason,
+        focusId,
+        isVirtual: false,
+        activationKind: 'follow-path',
+        sourceRole: null,
+        origin: 'follow-path',
+        sourceNodeId,
+        sourceEventId,
+        branchRootNodeId,
+        depth: sourceEntry?.depth == null ? null : sourceEntry.depth + 1,
+        conductionScore: null,
+      },
+    );
+
+    this.commitHistoryEntry(historyEntry);
+    return { ...historyEntry };
   }
 
   getSessionFocusStack(): NeuralRoamHistoryEntry[] {
@@ -1641,6 +1703,7 @@ export class HyperspaceEngine {
       case 'outgoing-direct':
       case 'outgoing-indirect':
       case 'descriptor':
+      case 'associated-review':
       case 'focus':
       case 'path':
       case 'source':

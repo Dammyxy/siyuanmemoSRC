@@ -92,6 +92,14 @@ interface ActivateNodeMeta {
   branchRootNodeId?: string | null;
 }
 
+interface AssociatedReviewVisitInput {
+  nodeId: string;
+  nodePreview?: string | null;
+  sourceNodeId?: string | null;
+  sourceEventId?: string | null;
+  reason?: string | null;
+}
+
 interface PathItemOptions {
   focusPath?: boolean;
 }
@@ -162,6 +170,8 @@ function resolveOrbitOrigin(value: unknown): NeuralPropagationOrigin | null {
       return 'indirect-ref';
     case 'descriptor':
       return 'descriptor';
+    case 'associated-review':
+      return 'follow-path';
     case 'focus':
       return 'source';
     case 'follow-path':
@@ -644,6 +654,64 @@ export class ConceptNeuralQueue {
   getHistoryHitCount(nodeId: string): number {
     this.syncHistoryCapacity();
     return this.historyStore.getHitCount(nodeId);
+  }
+
+  recordAssociatedReviewVisit(input: AssociatedReviewVisitInput): NeuralRoamHistoryEntry | null {
+    const nodeId = String(input.nodeId || '').trim();
+    if (!nodeId) {
+      return null;
+    }
+
+    if (!this.currentSessionId) {
+      this.currentSessionId = createSessionId();
+    }
+
+    const explicitSourceEventId = String(input.sourceEventId || '').trim();
+    const explicitSourceEntry = explicitSourceEventId
+      ? this.findHistoryEntryByEventId(explicitSourceEventId)
+      : null;
+    const sourceNodeId = String(input.sourceNodeId || '').trim()
+      || explicitSourceEntry?.nodeId
+      || this.getCurrentPathNodeId()
+      || this.currentFocus
+      || null;
+    const sourceEntry = explicitSourceEntry ?? (sourceNodeId ? this.findLatestHistoryEntry(sourceNodeId) : null);
+    const sourceEventId = explicitSourceEventId
+      || sourceEntry?.eventId
+      || this.getCurrentPathEventId();
+    const focusId = sourceEntry?.focusId ?? this.currentFocus;
+    const sessionId = sourceEntry?.sessionId ?? this.currentSessionId;
+    const branchRootNodeId = sourceEntry?.branchRootNodeId ?? this.branchRootNodeId ?? focusId ?? nodeId;
+    const nodePreview = this.compressText(String(input.nodePreview || nodeId));
+    const reason = String(input.reason || '').trim() || this.getReasonText('associated-review');
+    const historyEntry = this.createHistoryEntry(nodeId, sessionId, nodePreview, {
+      associationType: 'associated-review',
+      reason,
+      focusId,
+      isVirtual: false,
+      activationKind: 'follow-path',
+      origin: 'follow-path',
+      sourceNodeId,
+      sourceEventId,
+      branchRootNodeId,
+    });
+
+    if (this.currentPathIndex >= 0 && this.currentPathIndex < this.displayPath.length - 1) {
+      this.displayPath = this.displayPath.slice(0, this.currentPathIndex + 1);
+      this.displayPathEventIds = this.displayPathEventIds.slice(0, this.currentPathIndex + 1);
+    }
+
+    this.displayPath.push(nodeId);
+    this.displayPathEventIds.push(historyEntry.eventId);
+    this.currentPathIndex = this.displayPath.length - 1;
+    this.navigationMode = 'explore';
+    this.bookmarkPathIndex = null;
+    this.followCurrentNodeOnce = false;
+    this.visitedBlocks.add(nodeId);
+
+    this.syncHistoryCapacity();
+    this.historyStore.append(historyEntry);
+    return { ...historyEntry };
   }
 
   getActivationTrace(eventId: string): NeuralActivationTrace | null {
@@ -1279,6 +1347,7 @@ export class ConceptNeuralQueue {
       'outgoing-direct': '直接引用',
       'outgoing-indirect': '间接引用',
       descriptor: '描述符卡',
+      'associated-review': '关联复习卡',
       focus: '焦点节点',
       path: '路径节点',
     };

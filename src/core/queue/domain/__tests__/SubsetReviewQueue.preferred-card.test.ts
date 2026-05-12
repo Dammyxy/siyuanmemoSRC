@@ -40,6 +40,18 @@ function createManager(cards: FSRSCard[]) {
     cardMap.set(updated.id, updated);
     return updated;
   });
+  const commitReview = vi.fn(async ({ cardId }: { cardId: string; rating: number }) => {
+    const card = cardMap.get(cardId);
+    if (!card) {
+      throw new Error(`card not found: ${cardId}`);
+    }
+    const updatedCard = await route(card);
+    return {
+      card,
+      updatedCard,
+      committed: true,
+    };
+  });
 
   return {
     getCards: vi.fn(async () => Array.from(cardMap.values())),
@@ -56,6 +68,7 @@ function createManager(cards: FSRSCard[]) {
     onCardUpdatedFromScheduler: vi.fn(async (card: FSRSCard) => {
       cardMap.set(card.id, card);
     }),
+    commitReview,
     getSchedulerRouter: vi.fn(() => ({ route })),
     notifyObservers: vi.fn(),
   };

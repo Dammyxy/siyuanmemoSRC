@@ -138,6 +138,7 @@ function resolveAssociationTypeLabel(entry: NeuralRoamHistoryEntry, t: ReviewTra
     'outgoing-direct': t('associationOutgoingDirect', '直接引用'),
     'outgoing-indirect': t('associationOutgoingIndirect', '间接引用'),
     descriptor: t('descriptorCard', '描述符卡'),
+    'associated-review': t('associationAssociatedReview', '关联复习卡'),
     focus: t('associationFocusNode', '概念卡：轨道中心节点'),
     source: t('activationKindSourceRoot', '概念卡：激活源'),
     path: t('associationPathNode', '轨迹节点'),
