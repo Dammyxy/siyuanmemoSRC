@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-12 (Round 327)
+Last update: 2026-05-12 (Round 328)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-12 - NeuralRoam backend track sync
+
+- Task: 修复 NeuralRoam 进入下一张后 Review/Browser 的双链轨道不增长问题，尤其是 pending associated-review surfaced 之后本地轨道仍读旧 history 的情况。
+- Touched slice: NeuralRoam review/backend sync path in `src/application/adapters/UnifiedQueueStrategy.ts`, `src/core/queue/domain/NeuralRoamQueue.ts`, `worker/bootstrap/WorkerNeuralRoamAdvanceService.ts`, `packages/contracts/src/backend-rpc.ts`, `src/application/clients/SrsBackendClient.ts`, and focused neural worker/domain/client tests plus `ARCHITECTURE.md`.
+- Debt fixed now: `neural-roam.advance` 现在返回 worker 导出的 v8 `queueState` 快照；`UnifiedQueueStrategy` 在展示 next card 前显式把快照同步到本地 `NeuralRoamQueue`，而 `NeuralRoamQueue.syncFromBackendState()` 只接受当前 v8 state 并把 history/activation trace 读面同步到 renderer 本地队列。这样 Review 的“查看双链轨道”和 Browser 的 neural history/trace 都会继续读同一条轨道，而不是停在旧的 renderer cache 上。
+- Debt deferred: 真实 SiYuan 前台手测（Review 点击下一张、Browser 双链轨道按钮与浏览器 neural trace 同步）这轮还没做；同时没有把整个 SQLite/queue cache 做全局重载，因为那会扩大并发写回风险。
+- Why deferred: 这次已经把 active runtime contract、领域队列、worker RPC 和客户端校验锁死在单一同步路径上，但 live smoke 需要真实插件环境；整库 reload 不是这次最小安全修复面，且会引入更高的写回覆盖风险。
+- Next safe step: 在真实 SiYuan session 里从一个虚拟 NeuralRoam 节点走到 associated-review，再确认 Review/Browser 轨道计数和 trace 立刻更新；如果后续还要做持久化刷新，再单独拆一条 worker/database reload 任务。
+- Validation: `pnpm vitest run src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`; `pnpm vitest run src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts`; `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "neural-roam"`; `pnpm vitest run src/application/clients/__tests__/SrsBackendClient.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-12 - Neural associated review history repair
 

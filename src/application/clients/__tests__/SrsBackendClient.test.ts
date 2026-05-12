@@ -212,6 +212,10 @@ describe('SrsBackendClient', () => {
                   projectionGeneration: 4,
                   policyHash: 'policy-deferred',
                 },
+                queueState: {
+                  version: 8,
+                  engineMode: 'hyperspace',
+                },
                 projectionImpact: null,
                 unavailableReason: null,
                 message: null,

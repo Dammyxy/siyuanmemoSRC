@@ -755,6 +755,7 @@ export interface BackendNeuralRoamAdvanceResult {
   nextItem: BackendNeuralRoamItem | null;
   counters: BackendNeuralRoamCounters;
   sessionState: BackendNeuralRoamSessionState;
+  queueState: Record<string, unknown> | null;
   projectionImpact: BackendReviewFeedbackQueueImpact | null;
   unavailableReason: BackendNeuralRoamAdvanceUnavailableReason | null;
   message?: string | null;

@@ -530,6 +530,7 @@ export class UnifiedDataSourceManager {
                 projectionGeneration: request.projectionGeneration ?? null,
                 policyHash: request.policyHash ?? null,
             },
+            queueState: null,
             projectionImpact: null,
             unavailableReason,
             message,

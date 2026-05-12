@@ -362,6 +362,15 @@ export class SrsBackendClient {
     if (candidate.queueType !== 'neural-roam' || !validStatus || !candidate.counters || !candidate.sessionState) {
       throw new Error('neural-roam.advance returned invalid payload');
     }
+    const queueState = candidate.queueState;
+    const requiresQueueState = status === 'advanced' || status === 'exhausted';
+    if (requiresQueueState && (typeof queueState !== 'object' || queueState === null)) {
+      throw new Error('neural-roam.advance returned invalid payload');
+    }
+    if (!requiresQueueState && queueState !== null && queueState !== undefined
+        && (typeof queueState !== 'object')) {
+      throw new Error('neural-roam.advance returned invalid payload');
+    }
     return candidate as unknown as BackendNeuralRoamAdvanceResult;
   }
 

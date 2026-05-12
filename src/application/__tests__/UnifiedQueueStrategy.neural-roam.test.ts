@@ -89,6 +89,7 @@ function createQueueStub(): IReviewQueue {
     refresh: vi.fn(async () => {}),
     clear: vi.fn(async () => {}),
     getSize: vi.fn(async () => 0),
+    syncFromBackendState: vi.fn(async () => {}),
     sort: vi.fn(async () => {}),
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
@@ -143,6 +144,10 @@ function createAdvanceResult(
       exhausted: !nextItem,
       projectionGeneration: null,
       policyHash: null,
+    },
+    queueState: {
+      version: 8,
+      engineMode: 'hyperspace',
     },
     projectionImpact: null,
     unavailableReason: null,
@@ -302,6 +307,76 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
     expect(previous?.id).toBe(topicNode.id);
     expect(preview).not.toHaveBeenCalled();
     expect(previous && 'nextDues' in previous).toBe(false);
+  });
+
+  it('syncs the local neural queue after backend next advances the track state', async () => {
+    const queue = createQueueStub() as IReviewQueue & {
+      syncFromBackendState: ReturnType<typeof vi.fn>;
+      getNavigationState: ReturnType<typeof vi.fn>;
+    };
+    const topicNode = createSyntheticNeuralCard({
+      id: '20230209054609-track01',
+      blockId: '20230209054609-track01',
+      meta: {
+        neuralContext: {
+          isFlashcard: false,
+        },
+      },
+    });
+    let historyCount = 0;
+    queue.syncFromBackendState.mockImplementationOnce(async () => {
+      historyCount = 1;
+    });
+    queue.getNavigationState = vi.fn(() => ({
+      sessionId: null,
+      engineSessionId: null,
+      engineMode: 'hyperspace',
+      mode: 'default',
+      currentNodeId: historyCount > 0 ? topicNode.blockId : null,
+      currentEventId: historyCount > 0 ? 'event-track01' : null,
+      pathLength: historyCount,
+      historyCount,
+      hasPrevious: historyCount > 1,
+      hasNext: false,
+      canGoBack: historyCount > 1,
+      canGoForward: false,
+      isAtStart: historyCount === 0,
+      isExhausted: false,
+    }));
+
+    const { strategy, manager } = createStrategyWithQueue(queue);
+    manager.neuralRoamAdvance.mockResolvedValueOnce(createAdvanceResult(createAdvanceItem(topicNode)));
+
+    const nextCard = await strategy.next();
+
+    expect(nextCard?.blockId).toBe(topicNode.blockId);
+    expect(queue.syncFromBackendState).toHaveBeenCalledTimes(1);
+    expect(queue.syncFromBackendState).toHaveBeenCalledWith(expect.objectContaining({
+      version: 8,
+      engineMode: 'hyperspace',
+    }));
+    expect(queue.getNavigationState().historyCount).toBe(1);
+  });
+
+  it('fails explicitly when backend advance omits queue state for local track sync', async () => {
+    const queue = createQueueStub() as IReviewQueue & {
+      syncFromBackendState: ReturnType<typeof vi.fn>;
+    };
+    const topicNode = createSyntheticNeuralCard({
+      meta: {
+        neuralContext: {
+          isFlashcard: false,
+        },
+      },
+    });
+    const { strategy, manager } = createStrategyWithQueue(queue);
+    manager.neuralRoamAdvance.mockResolvedValueOnce({
+      ...createAdvanceResult(createAdvanceItem(topicNode)),
+      queueState: null,
+    });
+
+    await expect(strategy.next()).rejects.toThrow('NEURAL_ROAM_QUEUE_SYNC_UNAVAILABLE');
+    expect(queue.syncFromBackendState).not.toHaveBeenCalled();
   });
 
   it('does not fall back to local queue advance when backend advance is unavailable', async () => {

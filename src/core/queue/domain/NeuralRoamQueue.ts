@@ -424,6 +424,23 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       context: 'NeuralRoamQueue',
     });
 
+    await this.restorePersistedState(rawState, fromStorage);
+  }
+
+  public async syncFromBackendState(rawState: unknown): Promise<void> {
+    await this.ensureInitialLoad();
+    if (!isNeuralRoamPersistedStateV8(rawState)) {
+      throw new Error('NEURAL_ROAM_QUEUE_SYNC_UNAVAILABLE: backend queue state is missing or invalid');
+    }
+    await this.restorePersistedState(rawState, false);
+    this.markInitialLoadCompleted();
+  }
+
+  public exportPersistedState(): Record<string, unknown> {
+    return this.toPersistedState() as unknown as Record<string, unknown>;
+  }
+
+  private async restorePersistedState(rawState: unknown, fromStorage: boolean): Promise<void> {
     if (!rawState) {
       logger.info('No saved neural roam state found');
       return;
@@ -552,8 +569,8 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     }
   }
 
-  async save(): Promise<void> {
-    const data: NeuralRoamPersistedStateV8 = {
+  private toPersistedState(): NeuralRoamPersistedStateV8 {
+    return {
       version: 8,
       engineMode: this.engineMode,
       orbit: {
@@ -571,6 +588,10 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         .filter((blockId) => blockId.length > 0),
       seenAssociatedReviewCardIds: Array.from(this.seenAssociatedReviewCardIds.values()),
     };
+  }
+
+  async save(): Promise<void> {
+    const data = this.toPersistedState();
 
     await saveQueueState({
       persistence: this.queuePersistence,

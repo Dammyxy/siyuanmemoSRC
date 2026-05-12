@@ -100,6 +100,10 @@ type NeuralRoamAdvanceManager = UnifiedDataSourceManager & {
     neuralRoamAdvance?: (request: BackendNeuralRoamAdvanceRequest) => Promise<BackendNeuralRoamAdvanceResult>;
 };
 
+type NeuralRoamBackendStateSyncQueue = IReviewQueue & {
+    syncFromBackendState?: (state: Record<string, unknown>) => Promise<void>;
+};
+
 function supportsInsertAt(queue: IReviewQueue): queue is QueueWithInsertAt {
     const candidate = queue as Partial<QueueWithInsertAt>;
     return typeof candidate.insertAt === 'function';
@@ -1256,6 +1260,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             );
         }
 
+        await this.syncNeuralRoamQueueFromBackendState(result);
         this.pushHistory(activeItem, null);
         this.forwardBuffer = [];
         this.pendingRotateCardId = null;
@@ -1292,6 +1297,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     ): Promise<FSRSCard | null> {
         this.lastCounterSnapshot = this.toCounterSnapshotFromNeuralRoamAdvance(result);
         if (result.status === 'exhausted') {
+            await this.syncNeuralRoamQueueFromBackendState(result);
             this.currentItem = null;
             return null;
         }
@@ -1301,6 +1307,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             );
         }
 
+        await this.syncNeuralRoamQueueFromBackendState(result);
         const nextCard = this.fromNeuralRoamAdvanceItem(result.nextItem);
         const cardWithNextDues = await this.maybeAddNextDues(nextCard);
         this.currentItem = cardWithNextDues;
@@ -1402,6 +1409,17 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             },
             source: 'hot',
         };
+    }
+
+    private async syncNeuralRoamQueueFromBackendState(result: BackendNeuralRoamAdvanceResult): Promise<void> {
+        if (!result.queueState) {
+            throw new Error('NEURAL_ROAM_QUEUE_SYNC_UNAVAILABLE: backend queue state is missing');
+        }
+        const queue = this.queue as NeuralRoamBackendStateSyncQueue;
+        if (typeof queue.syncFromBackendState !== 'function') {
+            throw new Error('NEURAL_ROAM_QUEUE_SYNC_UNAVAILABLE: local NeuralRoam queue sync contract is unavailable');
+        }
+        await queue.syncFromBackendState(result.queueState);
     }
 
     private applyReviewResultToCache(

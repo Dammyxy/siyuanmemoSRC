@@ -274,6 +274,80 @@ function mockNeuralEngine(queue: NeuralRoamQueue): void {
 }
 
 describe('NeuralRoamQueue', () => {
+  it('applies backend state snapshots to local history and trace readers', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager();
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+    const historyEntry = createHistoryEntry(1, {
+      nodeId: 'backend-node-1',
+      sessionId: 'backend-session-1',
+      engineMode: 'hyperspace',
+    });
+
+    await queue.load();
+    expect(queue.getHistoryPage({ offset: 0, limit: 10 }).entries).toHaveLength(0);
+
+    await queue.syncFromBackendState({
+      version: 8,
+      engineMode: 'hyperspace',
+      orbit: {
+        seedPool: [],
+        anchorPool: [],
+        session: {
+          displayPath: [],
+          displayPathEventIds: [],
+          currentPathIndex: -1,
+          navigationMode: 'explore',
+          bookmarkPathIndex: null,
+          history: [],
+          currentFocus: null,
+          currentFocusEventId: null,
+          branchRootNodeId: null,
+          currentSessionId: null,
+          visitedBlocks: [],
+          exhaustedFocuses: [],
+          currentRoundStartedAt: null,
+        },
+      },
+      hyperspace: {
+        sourcePool: [],
+        anchorPool: [],
+        session: {
+          displayPath: ['backend-node-1'],
+          displayPathEventIds: [historyEntry.eventId],
+          currentPathIndex: 0,
+          navigationMode: 'follow',
+          bookmarkPathIndex: null,
+          history: [historyEntry],
+          currentLeadSource: 'backend-node-1',
+          currentLeadSourceEventId: historyEntry.eventId,
+          branchRootNodeId: 'backend-node-1',
+          currentSessionId: 'backend-session-1',
+          visitedBlocks: ['backend-node-1'],
+          frontier: [],
+          exhaustedSources: [],
+        },
+      },
+      pendingAssociatedReviewCardIds: [],
+      seenAssociatedReviewCardIds: [],
+    });
+
+    const navState = queue.getNavigationState();
+    expect(navState.engineMode).toBe('hyperspace');
+    expect(navState.currentNodeId).toBe('backend-node-1');
+    expect(navState.currentEventId).toBe(historyEntry.eventId);
+    expect(queue.getHistoryPage({ offset: 0, limit: 10 }).entries).toEqual([
+      expect.objectContaining({
+        eventId: historyEntry.eventId,
+        nodeId: 'backend-node-1',
+      }),
+    ]);
+    expect(queue.getActivationTrace(historyEntry.eventId)).toEqual(expect.objectContaining({
+      targetEventId: historyEntry.eventId,
+      targetNodeId: 'backend-node-1',
+    }));
+  });
+
   it('reuses a cached counter snapshot during review instead of force-refreshing cards', async () => {
     const { persistence } = createPersistence(undefined);
     const manager = createManager();

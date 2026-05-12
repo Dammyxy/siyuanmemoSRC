@@ -1076,6 +1076,19 @@ describe('BackendKernel', () => {
           currentNodeId: 'neural-source-1',
           exhausted: false,
         },
+        queueState: {
+          version: 8,
+          engineMode: 'hyperspace',
+          hyperspace: {
+            session: expect.objectContaining({
+              history: expect.arrayContaining([
+                expect.objectContaining({
+                  nodeId: 'neural-source-1',
+                }),
+              ]),
+            }),
+          },
+        },
       });
     }
     expect(resolveNeuralGraphQuery).toHaveBeenCalledWith(expect.objectContaining({
