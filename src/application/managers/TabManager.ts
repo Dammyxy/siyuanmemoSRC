@@ -98,6 +98,7 @@ interface ReviewTabSurfaceSnapshot {
   title: string;
   headerVariant: ReviewHeaderVariant;
   sharedReviewSessionId?: string | null;
+  transferStateKey: string;
   reviewState: ReviewTabRuntimeState | null;
   updatedAt: number;
 }
@@ -1007,13 +1008,36 @@ export class TabManager {
     );
   }
 
-  private buildReviewTabSurfaceSnapshotKey(data: Pick<ReviewTabData, 'providerId' | 'queueType' | 'title' | 'headerVariant' | 'sharedReviewSessionId'>): string {
+  private buildReviewTabTransferStateKey(transferState?: ReviewTabTransferState | null): string {
+    if (!transferState) {
+      return '';
+    }
+
+    if (transferState.kind === 'static-subset-session') {
+      return JSON.stringify({
+        kind: transferState.kind,
+        queueType: transferState.queueType,
+        blockIds: transferState.blockIds,
+        cardIds: transferState.cardIds ?? [],
+        preferredCardId: transferState.preferredCardId ?? '',
+      });
+    }
+
+    return JSON.stringify({
+      kind: transferState.kind,
+      filter: transferState.filterSession.filter,
+      visibleCardIds: transferState.filterSession.visibleCardIds ?? [],
+    });
+  }
+
+  private buildReviewTabSurfaceSnapshotKey(data: Pick<ReviewTabData, 'providerId' | 'queueType' | 'title' | 'headerVariant' | 'sharedReviewSessionId' | 'transferState'>): string {
     return [
       String(data.sharedReviewSessionId || '').trim(),
       String(data.providerId || '').trim(),
       String(data.queueType || '').trim(),
       String(data.headerVariant || '').trim(),
       String(data.title || '').trim(),
+      this.buildReviewTabTransferStateKey(data.transferState),
     ].join('::');
   }
 
@@ -1029,6 +1053,88 @@ export class TabManager {
     }
 
     return String(currentItem.id || '').trim().length > 0;
+  }
+
+  private isReviewStateCompatibleWithStaticSubset(
+    transferState: Extract<ReviewTabTransferState, { kind: 'static-subset-session' }>,
+    reviewState: ReviewTabRuntimeState | null | undefined,
+  ): boolean {
+    if (!this.hasRenderableReviewRuntimeState(reviewState)) {
+      return true;
+    }
+
+    const expectedCardIds = new Set((transferState.cardIds ?? []).map((id) => String(id || '').trim()).filter(Boolean));
+    const expectedBlockIds = new Set((transferState.blockIds ?? []).map((id) => String(id || '').trim()).filter(Boolean));
+    const currentCardId = String(reviewState?.currentCardId || '').trim();
+    const currentBlockId = String(reviewState?.currentBlockId || '').trim();
+    const currentItem = isRecord(reviewState?.queueSnapshot?.currentItem)
+      ? reviewState.queueSnapshot.currentItem
+      : null;
+    const currentItemCardId = String(currentItem?.id || '').trim();
+    const currentItemBlockId = String(currentItem?.blockId || '').trim();
+
+    if (expectedCardIds.size > 0) {
+      const candidateCardIds = [currentCardId, currentItemCardId].filter(Boolean);
+      if (candidateCardIds.some((id) => !expectedCardIds.has(id))) {
+        return false;
+      }
+
+      const cachedCards = Array.isArray(reviewState?.queueSnapshot?.cachedCards)
+        ? reviewState.queueSnapshot.cachedCards
+        : [];
+      return cachedCards.every((card) => {
+        if (!isRecord(card)) {
+          return true;
+        }
+        const cardId = String(card.id || '').trim();
+        return !cardId || expectedCardIds.has(cardId);
+      });
+    }
+
+    if (expectedBlockIds.size > 0) {
+      const candidateBlockIds = [currentBlockId, currentItemBlockId].filter(Boolean);
+      if (candidateBlockIds.some((id) => !expectedBlockIds.has(id))) {
+        return false;
+      }
+
+      const cachedCards = Array.isArray(reviewState?.queueSnapshot?.cachedCards)
+        ? reviewState.queueSnapshot.cachedCards
+        : [];
+      return cachedCards.every((card) => {
+        if (!isRecord(card)) {
+          return true;
+        }
+        const blockId = String(card.blockId || '').trim();
+        return !blockId || expectedBlockIds.has(blockId);
+      });
+    }
+
+    return true;
+  }
+
+  private sanitizeReviewTabDataForTransferState(data: ReviewTabData): ReviewTabData {
+    if (data.transferState?.kind !== 'static-subset-session') {
+      return data;
+    }
+
+    if (this.isReviewStateCompatibleWithStaticSubset(data.transferState, data.reviewState)) {
+      return data;
+    }
+
+    logger.warn('Dropping stale review tab state because it does not match the static subset transfer scope', {
+      queueType: data.queueType,
+      headerVariant: data.headerVariant,
+      title: data.title,
+      transferCardCount: data.transferState.cardIds?.length ?? 0,
+      transferBlockCount: data.transferState.blockIds.length,
+      currentCardId: data.reviewState?.currentCardId ?? null,
+      currentBlockId: data.reviewState?.currentBlockId ?? null,
+    });
+
+    return {
+      ...data,
+      reviewState: null,
+    };
   }
 
   private updateReviewTabSurfaceSnapshot(
@@ -1049,6 +1155,7 @@ export class TabManager {
       title: data.title,
       headerVariant: data.headerVariant,
       sharedReviewSessionId: data.sharedReviewSessionId ?? null,
+      transferStateKey: this.buildReviewTabTransferStateKey(data.transferState),
       reviewState: normalizedRuntimeState,
       updatedAt: Date.now(),
     });
@@ -1058,27 +1165,28 @@ export class TabManager {
     data: ReviewTabData,
     runtimeId?: string | null,
   ): ReviewTabData {
-    if (this.hasRenderableReviewRuntimeState(data.reviewState)) {
-      return data;
+    const sanitizedData = this.sanitizeReviewTabDataForTransferState(data);
+    if (this.hasRenderableReviewRuntimeState(sanitizedData.reviewState)) {
+      return sanitizedData;
     }
 
-    const snapshotKey = this.buildReviewTabSurfaceSnapshotKey(data);
+    const snapshotKey = this.buildReviewTabSurfaceSnapshotKey(sanitizedData);
     const snapshot = this.reviewTabSurfaceSnapshots.get(snapshotKey);
     if (!snapshot?.reviewState || !this.hasRenderableReviewRuntimeState(snapshot.reviewState)) {
-      return data;
+      return sanitizedData;
     }
 
     const normalizedRuntimeId = String(runtimeId || '').trim();
     if (normalizedRuntimeId && snapshot.customId && snapshot.customId === normalizedRuntimeId) {
-      return data;
+      return sanitizedData;
     }
 
     if (Date.now() - snapshot.updatedAt > 10 * 60 * 1000) {
-      return data;
+      return sanitizedData;
     }
 
     return {
-      ...data,
+      ...sanitizedData,
       reviewState: snapshot.reviewState,
     };
   }

@@ -219,6 +219,244 @@ describe('TabManager filter-group review transfer restore', () => {
     expect(manager.getQueue).not.toHaveBeenCalledWith('filter-group');
   });
 
+  it('does not recover a previous static subset review state for a new scoped incremental tab', async () => {
+    const now = Date.now();
+    const previousCard = {
+      id: 'card-previous',
+      blockId: 'block-previous',
+      due: now,
+    } as FSRSCard;
+    const nextCard = {
+      id: 'card-next',
+      blockId: 'block-next',
+      due: now,
+    } as FSRSCard;
+    const cardsById: Record<string, FSRSCard> = {
+      [previousCard.id]: previousCard,
+      [nextCard.id]: nextCard,
+    };
+    const manager = {
+      getCard: vi.fn(async (cardId: string) => cardsById[cardId]),
+      getCards: vi.fn(async () => Object.values(cardsById)),
+      notifyObservers: vi.fn(),
+    };
+    const context = {
+      getI18n: vi.fn(() => ({})),
+      getUnifiedDataSourceManager: vi.fn(() => manager),
+      getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
+      getSchedulerRouter: vi.fn(() => ({})),
+      getSettingsService: vi.fn(() => ({
+        getSettings: () => ({
+          progressiveReading: {},
+        }),
+      })),
+    } as any;
+    const plugin = {
+      name: 'test-plugin',
+      app: {},
+      addTab: vi.fn(),
+    } as any;
+
+    const tabManager = new TabManager(context, plugin, { siyuanApi: createSiyuanApiMock() } as never);
+    tabManager.registerAll();
+
+    const reviewRegistration = plugin.addTab.mock.calls[1][0];
+    await reviewRegistration.init.call({
+      id: 'previous-incremental-tab',
+      element: document.createElement('div'),
+      data: {
+        providerId: 'queue-based',
+        title: '渐进学习',
+        queueType: 'filter-group',
+        headerVariant: 'incremental-learning',
+        transferState: {
+          kind: 'static-subset-session',
+          queueType: 'filter-group',
+          blockIds: ['block-previous'],
+          cardIds: ['card-previous'],
+          preferredCardId: 'card-previous',
+        },
+      },
+      tab: {
+        id: 'previous-incremental-tab',
+        headElement: document.createElement('button'),
+        model: {
+          data: null,
+        },
+        parent: {
+          switchTab: vi.fn(),
+        },
+      },
+    });
+
+    const [, previousProps] = mocks.createApp.mock.calls[0];
+    previousProps.onTabRuntimeStateChange({
+      version: 1,
+      showAnswer: false,
+      currentCardId: 'card-previous',
+      currentBlockId: 'block-previous',
+      queueSnapshot: {
+        version: 1,
+        queueType: 'filter-group',
+        cacheValid: true,
+        currentIndex: 0,
+        cachedCards: [previousCard],
+        currentItem: previousCard,
+        forwardBuffer: [],
+        pendingRotateCardId: null,
+        lastCounterSnapshot: null,
+      },
+    });
+
+    await reviewRegistration.init.call({
+      id: 'next-incremental-tab',
+      element: document.createElement('div'),
+      data: {
+        providerId: 'queue-based',
+        title: '渐进学习',
+        queueType: 'filter-group',
+        headerVariant: 'incremental-learning',
+        transferState: {
+          kind: 'static-subset-session',
+          queueType: 'filter-group',
+          blockIds: ['block-next'],
+          cardIds: ['card-next'],
+          preferredCardId: 'card-next',
+        },
+      },
+      tab: {
+        id: 'next-incremental-tab',
+        headElement: document.createElement('button'),
+        model: {
+          data: null,
+        },
+        parent: {
+          switchTab: vi.fn(),
+        },
+      },
+    });
+
+    const [, nextProps] = mocks.createApp.mock.calls[1];
+    const nextUnderlyingQueue = nextProps.queue.getUnderlyingQueue();
+
+    expect(nextProps.initialCurrentCardId).toBe('');
+    expect(nextProps.initialCurrentItem).toBeNull();
+    await expect(nextUnderlyingQueue.getCards()).resolves.toEqual([
+      expect.objectContaining({ id: 'card-next' }),
+    ]);
+  });
+
+  it('drops stale native review state when a new static subset incremental tab carries a different exact scope', async () => {
+    const now = Date.now();
+    const previousCard = {
+      id: 'card-previous',
+      blockId: 'block-previous',
+      due: now,
+    } as FSRSCard;
+    const nextCard = {
+      id: 'card-next',
+      blockId: 'block-next',
+      due: now,
+    } as FSRSCard;
+    const cardsById: Record<string, FSRSCard> = {
+      [previousCard.id]: previousCard,
+      [nextCard.id]: nextCard,
+    };
+    const manager = {
+      getCard: vi.fn(async (cardId: string) => cardsById[cardId]),
+      getCards: vi.fn(async () => Object.values(cardsById)),
+      notifyObservers: vi.fn(),
+    };
+    const context = {
+      getI18n: vi.fn(() => ({})),
+      getUnifiedDataSourceManager: vi.fn(() => manager),
+      getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
+      getSchedulerRouter: vi.fn(() => ({})),
+      getSettingsService: vi.fn(() => ({
+        getSettings: () => ({
+          progressiveReading: {},
+        }),
+      })),
+    } as any;
+    const plugin = {
+      name: 'test-plugin',
+      app: {},
+      addTab: vi.fn(),
+    } as any;
+
+    const tabManager = new TabManager(context, plugin, { siyuanApi: createSiyuanApiMock() } as never);
+    tabManager.registerAll();
+
+    const reviewRegistration = plugin.addTab.mock.calls[1][0];
+    await reviewRegistration.init.call({
+      id: 'next-incremental-tab',
+      element: document.createElement('div'),
+      data: {
+        providerId: 'queue-based',
+        title: '渐进学习',
+        queueType: 'filter-group',
+        headerVariant: 'incremental-learning',
+        transferState: {
+          kind: 'static-subset-session',
+          queueType: 'filter-group',
+          blockIds: ['block-next'],
+          cardIds: ['card-next'],
+          preferredCardId: 'card-next',
+        },
+        reviewState: {
+          version: 1,
+          showAnswer: false,
+          currentCardId: 'card-previous',
+          currentBlockId: 'block-previous',
+          queueSnapshot: {
+            version: 1,
+            queueType: 'filter-group',
+            cacheValid: true,
+            currentIndex: 0,
+            cachedCards: [previousCard],
+            currentItem: previousCard,
+            forwardBuffer: [],
+            pendingRotateCardId: null,
+            lastCounterSnapshot: {
+              version: 1,
+              remaining: 2,
+              due: 0,
+              total: 2,
+              buckets: {
+                all: 2,
+                item: 2,
+                descriptor: 0,
+                topic: 0,
+                concept: 0,
+              },
+              source: 'hot' as const,
+            },
+          },
+        },
+      },
+      tab: {
+        id: 'next-incremental-tab',
+        headElement: document.createElement('button'),
+        model: {
+          data: null,
+        },
+        parent: {
+          switchTab: vi.fn(),
+        },
+      },
+    });
+
+    const [, props] = mocks.createApp.mock.calls[0];
+    const underlyingQueue = props.queue.getUnderlyingQueue();
+
+    expect(props.initialCurrentCardId).toBe('');
+    expect(props.initialCurrentItem).toBeNull();
+    expect(props.reviewState).toBeNull();
+    await expect(underlyingQueue.getCards()).resolves.toEqual([
+      expect.objectContaining({ id: 'card-next' }),
+    ]);
+  });
+
   it('restores transfer state through the direct review runtime helper used by deferred bootstrap', async () => {
     const sharedFilterQueue = {
       getType: () => 'filter-group',

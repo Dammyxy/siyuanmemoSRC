@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-13 (Round 333)
+Last update: 2026-05-13 (Round 334)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-13 - Static scoped review tab snapshot isolation
+
+- Task: 修复文档树右键文档块进入渐进学习时，复习 tab 可能显示上一次静态范围闪卡，而不是当前文档树范围的问题。
+- Touched slice: Review tab runtime restore；`src/application/managers/TabManager.ts`、`src/application/managers/__tests__/TabManager.review-transfer.spec.ts`。
+- Debt fixed now: review tab 表面快照恢复 key 现在包含 transferState 的范围指纹；静态 subset 会按 `queueType`、`blockIds`、`cardIds`、`preferredCardId` 区分，不再只用 `queueType/headerVariant/title` 复用旧 `reviewState.queueSnapshot`。此外，若 SiYuan native tab data 自身携带旧 `reviewState`，TabManager 会校验 current/cached card 是否属于当前静态 `cardIds` / `blockIds`，不匹配则丢弃旧状态。新增回归测试覆盖两个同名“渐进学习”静态范围连续打开，以及新范围 tab data 自带旧 exact scope reviewState 两种场景。
+- Debt deferred: 未新增真实 SiYuan UI 点击自动化；未重命名渐进学习 tab 标题。
+- Why deferred: 根因在 tab runtime snapshot 恢复 key 过粗；自动化单测已复现并锁定真实数据流。标题重命名不是必要修复，且会改变现有 UI 语义。
+- Next safe step: 在真实 SiYuan 中用两个不同文档树文档连续右键进入“渐进学习”，确认第二次显示当前文档及子文档范围；若仍异常，检查是否有旧 tab 未刷新或运行实例未加载新构建。
+- Validation: `pnpm exec vitest run src/application/managers/__tests__/TabManager.review-transfer.spec.ts -t "does not recover a previous static subset review state"`; `pnpm exec vitest run src/application/managers/__tests__/TabManager.review-transfer.spec.ts -t "drops stale native review state"`; `pnpm exec vitest run src/application/managers/__tests__/TabManager.review-transfer.spec.ts src/application/managers/__tests__/DialogManager.review-header-variant.test.ts src/application/managers/__tests__/BlockMenuHandler.core-review-entry.test.ts src/application/entries/__tests__/CoreReviewEntryService.test.ts src/application/adapters/__tests__/UnifiedQueueStrategy.static-subset-projection.spec.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-13 - Incremental scoped entry keyword repair
 
