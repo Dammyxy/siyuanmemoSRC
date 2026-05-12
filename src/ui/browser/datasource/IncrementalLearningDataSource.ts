@@ -33,6 +33,7 @@ import {
   BaseQueueSnapshotDataSource,
   type QueueSnapshotDataSourceDeps,
 } from './shared/BaseQueueSnapshotDataSource';
+import { isQueueProjectionNotReadyError } from '../utils/projectionReadiness';
 
 const logger = createLogger('IncrementalLearningDataSource');
 
@@ -112,6 +113,12 @@ export class IncrementalLearningDataSource
 
       return paged;
     } catch (error) {
+      if (isQueueProjectionNotReadyError(error)) {
+        logger.info('Queue projection is still refreshing', {
+          durationMs: Date.now() - startTime,
+        });
+        throw error;
+      }
       logger.error('Failed to fetch rows', {
         error,
         durationMs: Date.now() - startTime,

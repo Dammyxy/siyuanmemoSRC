@@ -1302,6 +1302,18 @@ export class QueueError extends DataSourceError {
 }
 
 /**
+ * Queue projection is temporarily not ready.
+ *
+ * This is distinct from a hard projection/backend outage: callers may retry
+ * after the backend projection finishes rebuilding or materialization.
+ */
+export class QueueProjectionNotReadyError extends DataSourceError {
+    constructor(message: string) {
+        super(message, 'QUEUE_PROJECTION_NOT_READY');
+    }
+}
+
+/**
  * 同步错误
  * 
  * 当数据同步失败时抛出。

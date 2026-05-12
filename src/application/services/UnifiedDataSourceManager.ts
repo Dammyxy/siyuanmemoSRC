@@ -668,6 +668,18 @@ export class UnifiedDataSourceManager {
         try {
             const result = await backend.queueProjectionRowsByIds({ queueType, ids: orderedIds });
             if (result.status !== 'ready') {
+                const materialized = await this.tryMaterializeQueueProjection(queueType, backend, {
+                    currentPolicyHash: result.policyHash,
+                    currentGeneration: result.generation,
+                    reason: 'row-hydration-refresh',
+                });
+                if (materialized) {
+                    const materializedCards = this.getMaterializedProjectionEchoCards(queueType, orderedIds);
+                    if (materializedCards) {
+                        this.clearQueueProjectionUnavailable(queueType);
+                        return materializedCards;
+                    }
+                }
                 logger.info('Queue projection row hydration is not ready', {
                     queueType,
                     status: result.status,

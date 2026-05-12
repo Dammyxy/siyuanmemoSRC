@@ -21,6 +21,7 @@ import {
     DataSourceError,
     ModeError,
     QueueError,
+    QueueProjectionNotReadyError,
     SyncError,
     isDynamicQueueType,
     isStaticQueueType,
@@ -111,6 +112,13 @@ describe('Unified Data Source Types', () => {
             const error = new QueueError('Queue operation failed');
             expect(error.message).toBe('Queue operation failed');
             expect(error.code).toBe('QUEUE_ERROR');
+            expect(error.name).toBe('DataSourceError');
+        });
+
+        it('should create QueueProjectionNotReadyError', () => {
+            const error = new QueueProjectionNotReadyError('Projection is refreshing');
+            expect(error.message).toBe('Projection is refreshing');
+            expect(error.code).toBe('QUEUE_PROJECTION_NOT_READY');
             expect(error.name).toBe('DataSourceError');
         });
 

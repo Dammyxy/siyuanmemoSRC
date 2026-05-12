@@ -23,6 +23,7 @@ import {
     QueueProjectionSnapshot,
     QueueProjectionRolloutDiagnostic,
     QueueError,
+    QueueProjectionNotReadyError,
     type QueueBulkAddInput,
     type QueueBulkMutationResult,
 } from '../../../types/unified-data-source';
@@ -460,14 +461,24 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         return card.state === CardState.Learning || card.state === CardState.Relearning;
     }
 
-    private createProjectionUnavailableError(operation: string, cause?: unknown): QueueError {
+    private createProjectionUnavailableError(operation: string, cause?: unknown): Error {
         const diagnostic = this.getProjectionRolloutDiagnostic();
-        const unavailable = new QueueError(
-            `QUEUE_PROJECTION_UNAVAILABLE: ${operation} for ${this.type} requires backend projection `
-            + `but projection is unavailable`
-            + ` (state=${diagnostic?.state ?? 'unknown'}, reason=${diagnostic?.reason ?? 'unknown'}, `
-            + `unavailableReason=${diagnostic?.unavailableReason ?? 'unknown'})`,
-        );
+        const isRefreshRequired = diagnostic?.reason === 'refresh-required'
+            || diagnostic?.unavailableReason === 'refresh-required';
+        const code = isRefreshRequired ? 'QUEUE_PROJECTION_NOT_READY' : 'QUEUE_PROJECTION_UNAVAILABLE';
+        const unavailable = isRefreshRequired
+            ? new QueueProjectionNotReadyError(
+                `${code}: ${operation} for ${this.type} requires backend projection `
+                + `but projection is still refreshing`
+                + ` (state=${diagnostic?.state ?? 'unknown'}, reason=${diagnostic?.reason ?? 'unknown'}, `
+                + `unavailableReason=${diagnostic?.unavailableReason ?? 'unknown'})`,
+            )
+            : new QueueError(
+                `${code}: ${operation} for ${this.type} requires backend projection `
+                + `but projection is unavailable`
+                + ` (state=${diagnostic?.state ?? 'unknown'}, reason=${diagnostic?.reason ?? 'unknown'}, `
+                + `unavailableReason=${diagnostic?.unavailableReason ?? 'unknown'})`,
+            );
         if (cause !== undefined) {
             unavailable.message += `: ${formatUnknownDependencyError(cause)}`;
             (unavailable as Error & { cause?: unknown }).cause = cause;

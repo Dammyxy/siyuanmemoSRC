@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-13 (Round 334)
+Last update: 2026-05-13 (Round 336)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-13 - Queue projection readiness contract
+
+- Task: 把首次打开 Browser 时 backend projection `invalidated/refresh-required` 的短暂状态从硬错误改成明确 transient readiness，并让 AG-Grid 行加载等待/重试。
+- Touched slice: Browser queue projection readiness；`src/types/unified-data-source.ts`、`src/core/queue/domain/BaseReviewQueue.ts`、`src/ui/browser/SRSBrowser.vue`、`src/ui/browser/utils/projectionReadiness.ts`、`src/ui/browser/datasource/IncrementalLearningDataSource.ts` 及相关 tests。
+- Debt fixed now: 新增 `QueueProjectionNotReadyError` / `QUEUE_PROJECTION_NOT_READY`，`BaseReviewQueue` 在 projection diagnostic 为 `refresh-required` 时不再抛硬 `QUEUE_PROJECTION_UNAVAILABLE`；Browser infinite datasource 对该 transient code 做 bounded retry，并避免把首次 warm-up 打成 error log；Incremental datasource 对同类状态降为 info。
+- Debt deferred: 还没有把 backend RPC 返回类型扩成显式 `ready | refreshing | unavailable` union；真实 SiYuan 首次打开 Browser 的 UI smoke 仍需加载新构建后验证。
+- Why deferred: 当前修复先收口 active frontend contract 和日志噪声；RPC contract 扩型会跨 `packages/contracts`、worker、client 和 manager，适合单独做一条后端契约迁移。
+- Next safe step: 部署本 worktree 构建产物后，冷启动/首次打开 Browser，直接切 incremental-learning/retrieval/final-drill/filter-group，确认不再出现 `Infinite datasource getRows failed`，最多只有短暂 loading 或 info 级 `Queue projection is still refreshing`。
+- Validation: `pnpm exec vitest run src/ui/browser/utils/__tests__/projectionReadiness.test.ts src/types/__tests__/unified-data-source.test.ts src/core/queue/domain/__tests__/BaseReviewQueue.snapshot.test.ts src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts src/ui/browser/datasource/__tests__/QueueSnapshotDataSources.query-snapshot.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-13 - Queue projection row hydration refresh
+
+- Task: 修复切换 retrieval / incremental-learning / final-drill / filter-group 时，后端队列投影已 invalidated 导致 Browser 行 hydrate 抛 `QUEUE_PROJECTION_UNAVAILABLE` 的问题。
+- Touched slice: Browser queue projection hydration；`src/application/services/UnifiedDataSourceManager.ts`、`src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts`。
+- Debt fixed now: `getQueueProjectionCardsBySnapshotIds()` 现在在 backend `queue.projection.rowsByIds` 返回非 ready 状态时，复用已有 `tryMaterializeQueueProjection()` 主路径刷新投影，并用 materialized echo 直接 hydrate 当前 snapshot ids；避免 stale trusted snapshot rows 后接 invalidated row hydration 时把可修复的 refresh-required 暴露给 SRSBrowser。
+- Debt deferred: 未新增真实 SiYuan AG-Grid 点击 smoke；未重构 BrowserQuerySession 对 projection refresh 的显式重试协议。
+- Why deferred: 根因在 application manager 的 row hydration 刷新缺口，focused tests 已覆盖 active Browser -> Queue hydrate 依赖链；真实 UI smoke 需要运行实例加载本 worktree 构建产物，BrowserQuerySession 重试协议则会扩大 UI/application 契约。
+- Next safe step: 部署本 worktree 构建产物后，在真实 SiYuan 中连续切换 retrieval / incremental-learning / final-drill / filter-group，确认不再出现 `Queue projection row hydration is not ready` 后接 `QUEUE_PROJECTION_UNAVAILABLE` 的行加载失败。
+- Validation: `pnpm exec vitest run src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts`; `pnpm exec vitest run src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts src/ui/browser/datasource/__tests__/QueueSnapshotDataSources.query-snapshot.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-13 - SM-style queue availability and Learn Ahead
 

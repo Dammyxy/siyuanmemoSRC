@@ -545,4 +545,75 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     )).resolves.toEqual([expect.objectContaining({ id: 'follower-echo-card' })]);
     expect(backend.queueProjectionRowsByIds).not.toHaveBeenCalled();
   });
+
+  it('materializes stale projection before returning rows by snapshot ids', async () => {
+    const card = createCard({
+      id: 'stale-row-card',
+      blockId: 'stale-row-block',
+      meta: { content: 'stale row projection', deckId: 'deck-a', rootId: 'doc-a' },
+    });
+    const backend = {
+      queueProjectionRowsByIds: vi.fn(async () => ({
+        queueType: QueueType.FilterGroup,
+        status: 'invalidated',
+        rows: [],
+        cards: [],
+        policyHash: 'filter-policy',
+        generation: 2,
+      })),
+      queueProjectionReplace: vi.fn(async (request: { rows: Array<{ rowId: string; cardId: string }> }) => ({
+        queueType: QueueType.FilterGroup,
+        status: 'ready',
+        policyHash: 'filter-policy',
+        generation: 3,
+        rows: request.rows.length,
+        counters: {
+          queueType: QueueType.FilterGroup,
+          policyHash: 'filter-policy',
+          generation: 3,
+          version: 3,
+          remaining: request.rows.length,
+          due: request.rows.length,
+          total: request.rows.length,
+          buckets: { all: request.rows.length, item: request.rows.length, descriptor: 0, topic: 0, concept: 0 },
+          updatedAt: 1_700_000_100_000,
+        },
+      })),
+    };
+    const manager = UnifiedDataSourceManager.getInstance();
+    manager.setQueuePersistence({
+      get: vi.fn(() => null),
+      set: vi.fn(async () => {}),
+      delete: vi.fn(async () => {}),
+      keys: vi.fn(() => []),
+    });
+    manager.setAdvancedRouter({
+      ...createRouterWithBackend(backend),
+      getCards: vi.fn(async () => [card]),
+    } as unknown as IDataRouter);
+
+    await expect(manager.getQueueProjectionCardsBySnapshotIds(
+      QueueType.FilterGroup,
+      ['stale-row-card'],
+    )).resolves.toEqual([expect.objectContaining({ id: 'stale-row-card' })]);
+
+    expect(backend.queueProjectionReplace).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.FilterGroup,
+      policyHash: 'filter-policy',
+      generation: 3,
+      rows: [expect.objectContaining({
+        cardId: 'stale-row-card',
+        blockId: 'stale-row-block',
+      })],
+    }));
+    expect(manager.getQueueProjectionRolloutDiagnostics(QueueType.FilterGroup)).toEqual([
+      expect.objectContaining({
+        queueType: QueueType.FilterGroup,
+        projectionBacked: true,
+        state: 'backend-projection',
+        readPath: 'backend-projection',
+        reason: 'rollout-enabled',
+      }),
+    ]);
+  });
 });

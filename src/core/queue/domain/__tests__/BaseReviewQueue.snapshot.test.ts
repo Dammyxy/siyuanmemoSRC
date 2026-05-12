@@ -49,6 +49,18 @@ function createProjectionRolloutDiagnostic(queueType: QueueType, projectionBacke
   }];
 }
 
+function createProjectionRefreshRequiredDiagnostic(queueType: QueueType) {
+  return [{
+    queueType,
+    projectionBacked: true,
+    state: 'projection-unavailable',
+    readPath: 'backend-projection',
+    reason: 'refresh-required',
+    unavailableReason: 'refresh-required',
+    nextCoverageTask: null,
+  }];
+}
+
 class TestQueue extends BaseReviewQueue {
   public name = 'TestQueue';
 
@@ -319,6 +331,29 @@ describe('BaseReviewQueue snapshot rows', () => {
       { forceRefresh: false },
     );
     expect(getCardsSpy).not.toHaveBeenCalled();
+  });
+
+  it('marks refresh-required projection hydration as transient not-ready', async () => {
+    const cardA = buildCard('card-a', { riffCardId: 'row-a' });
+    const row = buildQueueSnapshotRow(cardA, { queueIndex: 1 });
+    const readProjectionSnapshot = vi.fn(async () => ({
+      queueType: QueueType.IncrementalLearning,
+      policyHash: 'policy-a',
+      generation: 7,
+      rows: [row],
+      counters: null,
+    }));
+    const getProjectionCardsBySnapshotIds = vi.fn(async () => []);
+    const queue = new TestQueue([cardA], {
+      readQueueProjectionSnapshot: readProjectionSnapshot,
+      getQueueProjectionCardsBySnapshotIds: getProjectionCardsBySnapshotIds,
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => createProjectionRefreshRequiredDiagnostic(QueueType.IncrementalLearning)),
+    }, QueueType.IncrementalLearning);
+
+    await expect(queue.getCardsBySnapshotIds([row.id])).rejects.toMatchObject({
+      code: 'QUEUE_PROJECTION_NOT_READY',
+      message: expect.stringContaining('QUEUE_PROJECTION_NOT_READY'),
+    });
   });
 
   it('fails closed when projection snapshot dependency throws', async () => {

@@ -442,6 +442,7 @@ import {
 } from './utils/browserCardIdentity';
 import { extractBlockIds } from './utils/helpers';
 import { mergeExplicitSelectionByPage } from './utils/paginatedSelection';
+import { fetchRowsWithProjectionReadinessRetry, isQueueProjectionNotReadyError } from './utils/projectionReadiness';
 import { resolveEffectiveSortModel } from './utils/sortModel';
 import {
   fetchAllRowsFromDataSource,
@@ -1718,12 +1719,17 @@ function createInfiniteDatasource(
               api: gridApi.value,
             });
             requestSortRevision = sortModelRevision.value;
-            const result = await measureRuntimePerformance('browser', 'grid.fetch-rows', () => dataSource.fetchRows({
+            const fetchOptions = {
               sortModel: effectiveSortModel,
               filterModel: params.filterModel || {},
               startRow: params.startRow,
               endRow: params.endRow,
-            }), {
+            };
+            const result = await measureRuntimePerformance('browser', 'grid.fetch-rows', () => fetchRowsWithProjectionReadinessRetry(
+              dataSource,
+              fetchOptions,
+              () => version === datasourceVersion,
+            ), {
               endRow: params.endRow,
               filterKeys: Object.keys(params.filterModel || {}).length,
               sortCount: effectiveSortModel.length,
@@ -1778,6 +1784,17 @@ function createInfiniteDatasource(
           status = 'loaded';
         } catch (error) {
           status = 'error';
+          if (isQueueProjectionNotReadyError(error)) {
+            status = 'projection-not-ready';
+            if (version === datasourceVersion) {
+              logger.info('[SiYuanMemo][SRSBrowser] Queue projection is still refreshing; grid request will fail without error noise:', error);
+              scheduleDatasourceUiUpdate(version, () => {
+                loading.value = false;
+              });
+            }
+            params.failCallback();
+            return;
+          }
           if (version === datasourceVersion) {
             logger.error('[SiYuanMemo][SRSBrowser] Infinite datasource getRows failed:', error);
             scheduleDatasourceUiUpdate(version, () => {
@@ -1793,7 +1810,7 @@ function createInfiniteDatasource(
             status,
             totalCount,
           }, {
-            ok: status === 'loaded' || status === 'empty-datasource',
+            ok: status === 'loaded' || status === 'empty-datasource' || status === 'projection-not-ready',
             errorName: status === 'error' ? 'BrowserGridGetRowsError' : undefined,
           });
         }
