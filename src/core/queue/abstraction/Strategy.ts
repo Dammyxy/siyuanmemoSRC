@@ -117,6 +117,11 @@ export interface IQueueStrategy<TItem extends import('../types').QueueItem = imp
   getCounterSnapshot?(): Promise<QueueCounterSnapshot | null>;
 
   /**
+   * Explicitly start a bounded learn-ahead session after the normal queue is empty.
+   */
+  learnAhead?(): Promise<boolean>;
+
+  /**
    * Reorder items in the queue (optional)
    */
   reorder?(orderedItems: TItem[]): Promise<boolean>;

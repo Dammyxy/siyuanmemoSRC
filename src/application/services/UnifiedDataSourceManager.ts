@@ -114,6 +114,10 @@ interface UnifiedManagerPluginContextLike {
             scheduler?: {
                 srsV2?: {
                     filteredReviewDefault?: unknown;
+                    learnAhead?: {
+                        windowMinutes?: unknown;
+                        maxCards?: unknown;
+                    };
                 };
             };
             queues?: {
@@ -965,6 +969,11 @@ export class UnifiedDataSourceManager {
             remaining: Math.max(0, Math.floor(Number(counters.remaining || 0))),
             due: Math.max(0, Math.floor(Number(counters.due || 0))),
             total: Math.max(0, Math.floor(Number(counters.total || 0))),
+            currentLearningDue: Math.max(0, Math.floor(Number(counters.currentLearningDue || 0))),
+            todayReviewDue: Math.max(0, Math.floor(Number(counters.todayReviewDue || 0))),
+            allowedNew: Math.max(0, Math.floor(Number(counters.allowedNew || 0))),
+            learnAheadAvailable: Math.max(0, Math.floor(Number(counters.learnAheadAvailable || 0))),
+            scheduledTotal: Math.max(0, Math.floor(Number(counters.scheduledTotal || counters.total || 0))),
             buckets: {
                 all: Math.max(0, Math.floor(Number(counters.buckets?.all || 0))),
                 item: Math.max(0, Math.floor(Number(counters.buckets?.item || 0))),
@@ -1249,6 +1258,36 @@ export class UnifiedDataSourceManager {
         }
 
         return 'preview-only';
+    }
+
+    public getLearnAheadWindowMinutes(): number {
+        try {
+            const plugin = this.resolvePlugin();
+            const settingsService = plugin?.getContext?.()?.getSettingsService?.();
+            const value = Number(settingsService?.getSettings?.()?.scheduler?.srsV2?.learnAhead?.windowMinutes);
+            if (Number.isFinite(value)) {
+                return Math.max(0, Math.floor(value));
+            }
+        } catch (error) {
+            logger.warn('Failed to resolve scheduler.srsV2.learnAhead.windowMinutes from settings service:', error);
+        }
+
+        return 20;
+    }
+
+    public getLearnAheadMaxCards(): number {
+        try {
+            const plugin = this.resolvePlugin();
+            const settingsService = plugin?.getContext?.()?.getSettingsService?.();
+            const value = Number(settingsService?.getSettings?.()?.scheduler?.srsV2?.learnAhead?.maxCards);
+            if (Number.isFinite(value)) {
+                return Math.max(0, Math.floor(value));
+            }
+        } catch (error) {
+            logger.warn('Failed to resolve scheduler.srsV2.learnAhead.maxCards from settings service:', error);
+        }
+
+        return 20;
     }
 
     public getAutoSortEnabled(): boolean {

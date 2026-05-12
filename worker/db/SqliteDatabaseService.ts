@@ -1250,6 +1250,9 @@ export class WorkerSqliteDatabaseService {
       newCardsPerDay: DEFAULT_SETTINGS.newCardsPerDay,
       reviewsPerDay: DEFAULT_SETTINGS.reviewsPerDay,
       priorityRandomness: DEFAULT_SETTINGS.priorityRandomness,
+      learnAheadWindowEnd: input.reviewedAt
+        + DEFAULT_SETTINGS.scheduler.srsV2.learnAhead.windowMinutes * 60 * 1000,
+      learnAheadMaxCards: DEFAULT_SETTINGS.scheduler.srsV2.learnAhead.maxCards,
       stableSalt: `${projectionQueueType}:${policyHash}`,
       policyHash,
       sourceGeneration: nextGeneration,
@@ -2560,13 +2563,19 @@ function buildQueueProjectionCountersFromRows(input: {
     topic: 0,
     concept: 0,
   };
-  let due = 0;
+  let currentLearningDue = 0;
+  let todayReviewDue = 0;
+  let allowedNew = 0;
 
   for (const row of input.rows) {
     buckets.all += 1;
     buckets[resolveQueueProjectionCounterBucket(row)] += 1;
-    if (row.dueAt != null && row.dueAt <= input.now) {
-      due += 1;
+    if (row.membershipReason === 'learning-due') {
+      currentLearningDue += 1;
+    } else if (row.membershipReason === 'review-due') {
+      todayReviewDue += 1;
+    } else if (row.membershipReason === 'new') {
+      allowedNew += 1;
     }
   }
 
@@ -2576,8 +2585,12 @@ function buildQueueProjectionCountersFromRows(input: {
     generation: input.generation,
     version: input.generation,
     remaining: input.rows.length,
-    due,
+    due: input.rows.length,
     total: input.rows.length,
+    currentLearningDue,
+    todayReviewDue,
+    allowedNew,
+    scheduledTotal: input.rows.length,
     buckets,
     updatedAt: input.updatedAt,
   };

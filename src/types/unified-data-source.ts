@@ -101,6 +101,11 @@ export interface QueueCounterSnapshot {
     remaining: number;
     due: number;
     total: number | null;
+    currentLearningDue?: number;
+    todayReviewDue?: number;
+    allowedNew?: number;
+    learnAheadAvailable?: number;
+    scheduledTotal?: number;
     buckets: QueueCounterBuckets;
     source: 'hot' | 'reconciled';
 }
@@ -942,6 +947,11 @@ export interface IReviewQueue {
      * 仅在必要时才回退到权威重建。
      */
     getCounterSnapshot(forceRefresh?: boolean): Promise<QueueCounterSnapshot>;
+
+    /**
+     * 显式提前学习候选。普通队列为空时才应由 UI 暴露。
+     */
+    getLearnAheadCards?(): Promise<FSRSCard[]>;
 
     /**
      * 获取当前队列剩余可见数量

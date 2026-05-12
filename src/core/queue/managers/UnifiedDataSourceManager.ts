@@ -49,6 +49,8 @@ export interface QueueRuntimePort {
   getNewCardsPerDay?(): number;
   getReviewsPerDay?(): number;
   getFilteredReviewDefault?(): 'preview-only' | 'reschedule';
+  getLearnAheadWindowMinutes?(): number;
+  getLearnAheadMaxCards?(): number;
   getPriorityRandomness?(): number;
   getAutoSortEnabled?(): boolean;
   getAddToOutstandingEveryNth?(): number;
@@ -85,6 +87,8 @@ export interface UnifiedDataSourceManager {
   getNewCardsPerDay?(): number;
   getReviewsPerDay?(): number;
   getFilteredReviewDefault?(): 'preview-only' | 'reschedule';
+  getLearnAheadWindowMinutes?(): number;
+  getLearnAheadMaxCards?(): number;
   getPriorityRandomness?(): number;
   getAutoSortEnabled?(): boolean;
   getAddToOutstandingEveryNth?(): number;

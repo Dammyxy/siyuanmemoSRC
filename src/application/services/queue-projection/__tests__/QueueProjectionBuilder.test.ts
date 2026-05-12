@@ -114,25 +114,60 @@ describe('QueueProjectionBuilder', () => {
 
     expect(projection.rows.map((entry) => entry.cardId)).toEqual(existingOrder);
     expect(projection.rows.map((entry) => entry.sortKey)).toEqual([...projection.rows.map((entry) => entry.sortKey)].sort());
-    expect(projection.rows.map((entry) => entry.queueIndexHint)).toEqual([1, 2, 3, 4]);
+    expect(projection.rows.map((entry) => entry.queueIndexHint)).toEqual([1, 2, 3]);
     expect(projection.rows.find((entry) => entry.cardId === 'manual-future')).toMatchObject({
       membershipReason: 'manual-outstanding',
       dueBucket: 'manual',
     });
     expect(projection.frontierRows.map((entry) => entry.cardId)).toEqual([
       'review-later-frontier',
-      'new-frontier',
     ]);
     expect(projection.frontierRows.every((entry) => entry.membershipReason === 'frontier-candidate')).toBe(true);
     expect(projection.counters).toMatchObject({
       queueType: QueueType.RetrievalPractice,
       generation: 7,
-      remaining: 4,
-      total: 4,
+      remaining: 3,
+      due: 3,
+      total: 3,
+      currentLearningDue: 1,
+      todayReviewDue: 1,
+      allowedNew: 0,
       buckets: {
-        all: 4,
-        item: 4,
+        all: 3,
+        item: 3,
       },
+    });
+  });
+
+  it('counts learn-ahead candidates without adding them to the normal projection rows', () => {
+    const dueLearning = card('learning-now', {
+      state: CardState.Learning,
+      due: NOW,
+    });
+    const futureLearning = card('learning-future', {
+      state: CardState.Learning,
+      due: NOW + 6 * 60_000,
+    });
+    const futureReview = card('review-future', {
+      state: CardState.Review,
+      due: NOW + 6 * 60_000,
+    });
+    const input = {
+      ...baseBuildInput(QueueType.IncrementalLearning, [futureReview, futureLearning, dueLearning]),
+      learnAheadWindowEnd: NOW + 20 * 60_000,
+      learnAheadMaxCards: 10,
+    };
+
+    const projection = buildQueueProjectionRows(input);
+
+    expect(projection.rows.map((entry) => entry.cardId)).toEqual(['learning-now', 'review-future']);
+    expect(projection.counters).toMatchObject({
+      remaining: 2,
+      due: 2,
+      currentLearningDue: 1,
+      todayReviewDue: 1,
+      learnAheadAvailable: 1,
+      scheduledTotal: 3,
     });
   });
 

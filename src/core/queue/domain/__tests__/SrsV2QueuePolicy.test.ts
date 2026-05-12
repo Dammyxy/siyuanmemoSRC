@@ -47,7 +47,7 @@ function baseInput(baseCards: FSRSCard[], manualCards: FSRSCard[] = []) {
 }
 
 describe('SrsV2QueuePolicy', () => {
-  it('orders retrieval as due learning, capped reviews, capped new, then manual future preview items', () => {
+  it('orders retrieval as due learning, capped same-day reviews, then manual future preview items', () => {
     const learning = card('learning', {
       state: CardState.Learning,
       due: NOW - 60_000,
@@ -88,9 +88,100 @@ describe('SrsV2QueuePolicy', () => {
     expect(result.map((item) => item.id)).toEqual([
       'learning',
       'review-early',
-      'new-a',
       'manual-future',
     ]);
+  });
+
+  it('keeps incremental new cards within the daily cap', () => {
+    const newA = card('new-a', {
+      state: CardState.New,
+      reps: 0,
+      due: NOW,
+      priority: 5,
+    });
+    const newB = card('new-b', {
+      state: CardState.New,
+      reps: 0,
+      due: NOW,
+      priority: 10,
+    });
+
+    const result = SrsV2QueuePolicy.buildIncrementalLearningQueue(baseInput([newB, newA]));
+
+    expect(result.map((item) => item.id)).toEqual(['new-a']);
+  });
+
+  it('holds future learning steps out of the normal queue until their exact due time', () => {
+    const dueNow = card('learning-now', {
+      state: CardState.Learning,
+      due: NOW,
+    });
+    const dueInSixMinutes = card('learning-six-minutes', {
+      state: CardState.Learning,
+      due: NOW + 6 * 60_000,
+    });
+    const reviewLaterToday = card('review-later-today', {
+      state: CardState.Review,
+      due: NOW + 6 * 60_000,
+    });
+
+    const result = SrsV2QueuePolicy.buildIncrementalLearningQueue(baseInput([
+      dueInSixMinutes,
+      reviewLaterToday,
+      dueNow,
+    ]));
+
+    expect(result.map((item) => item.id)).toEqual(['learning-now', 'review-later-today']);
+  });
+
+  it('learn ahead selects only future learning steps within both window and card cap', () => {
+    const dueInSixMinutes = card('learning-six-minutes', {
+      state: CardState.Learning,
+      due: NOW + 6 * 60_000,
+    });
+    const relearningInTenMinutes = card('relearning-ten-minutes', {
+      state: CardState.Relearning,
+      due: NOW + 10 * 60_000,
+    });
+    const dueInThirtyMinutes = card('learning-thirty-minutes', {
+      state: CardState.Learning,
+      due: NOW + 30 * 60_000,
+    });
+    const reviewInSixMinutes = card('review-six-minutes', {
+      state: CardState.Review,
+      due: NOW + 6 * 60_000,
+    });
+
+    const result = SrsV2QueuePolicy.buildLearnAheadQueue({
+      ...baseInput([
+        reviewInSixMinutes,
+        dueInThirtyMinutes,
+        relearningInTenMinutes,
+        dueInSixMinutes,
+      ]),
+      windowEnd: NOW + 20 * 60_000,
+      maxCards: 1,
+    });
+
+    expect(result.map((item) => item.id)).toEqual(['learning-six-minutes']);
+  });
+
+  it('includes review cards through the review-day boundary but excludes cards after rollover', () => {
+    const reviewAtDayEnd = card('review-day-end', {
+      state: CardState.Review,
+      due: NOW + DAY,
+    });
+    const reviewAfterRollover = card('review-after-rollover', {
+      state: CardState.Review,
+      due: NOW + DAY + 1,
+    });
+
+    const result = SrsV2QueuePolicy.buildIncrementalLearningQueue({
+      ...baseInput([reviewAfterRollover, reviewAtDayEnd]),
+      reviewsPerDay: 0,
+    });
+
+    expect(result.map((item) => item.id)).toEqual(['review-day-end']);
   });
 
   it('keeps incremental rotation materials after formal memory cards', () => {

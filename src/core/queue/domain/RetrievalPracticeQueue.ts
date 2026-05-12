@@ -313,7 +313,43 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
             return false;
         }
 
-        return Number(card.due) <= this.getCurrentDayEnd(this.getDayStartHour(), now);
+        const due = Number(card.due);
+        if (this.isSrsLearningStep(card)) {
+            return due <= now;
+        }
+
+        return due <= this.getCurrentDayEnd(this.getDayStartHour(), now);
+    }
+
+    public async getLearnAheadCards(): Promise<FSRSCard[]> {
+        const now = Date.now();
+        const windowMinutes = this.getLearnAheadWindowMinutes();
+        const maxCards = this.getLearnAheadMaxCards();
+        const windowEnd = now + windowMinutes * 60 * 1000;
+        if (windowMinutes <= 0 || maxCards <= 0) {
+            return [];
+        }
+
+        const baseCards = await this.manager.getCards({
+            cardType: ['item', 'descriptor'],
+            dueDate: { lte: new Date(windowEnd) },
+            includeSuspended: false,
+        });
+
+        return SrsV2QueuePolicy.buildLearnAheadQueue({
+            baseCards,
+            manualCards: [],
+            now,
+            dayEnd: this.getCurrentDayEnd(this.getDayStartHour(), now),
+            windowEnd,
+            maxCards,
+            newCardsPerDay: this.getNewCardsPerDay(),
+            reviewsPerDay: this.getReviewsPerDay(),
+            priorityRandomness: this.getPriorityRandomness(),
+            stableSalt: `${this.type}:learn-ahead:${windowEnd}`,
+            isBlacklisted: (card) => this.temporaryBlacklist.has(card.id) || this.temporaryBlacklist.has(card.blockId),
+            isDismissed: isCardDismissed,
+        });
     }
 
     private isManualCard(card: Pick<FSRSCard, 'id' | 'blockId'>): boolean {

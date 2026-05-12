@@ -26,7 +26,7 @@ import {
     type QueueBulkAddInput,
     type QueueBulkMutationResult,
 } from '../../../types/unified-data-source';
-import { FSRSCard } from '../../../types/card';
+import { CardState, FSRSCard } from '../../../types/card';
 import type { QueueSnapshotRow } from '../../../types/queue-browser';
 import type { QueueItem } from '../types';
 import type { QueueSchedulerPort, UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -185,21 +185,31 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     protected buildCounterSnapshot(cards: FSRSCard[]): QueueCounterSnapshot {
         const now = Date.now();
         const buckets = this.createEmptyCounterBuckets();
-        let due = 0;
+        let currentLearningDue = 0;
+        let todayReviewDue = 0;
+        let allowedNew = 0;
 
         for (const card of cards) {
             buckets.all += 1;
             buckets[this.getCounterBucket(card)] += 1;
-            if (Number(card.due) <= now) {
-                due += 1;
+            if (this.isSrsLearningStep(card) && Number(card.due) <= now) {
+                currentLearningDue += 1;
+            } else if (card.state === CardState.Review) {
+                todayReviewDue += 1;
+            } else if (card.state === CardState.New || Number(card.reps) === 0) {
+                allowedNew += 1;
             }
         }
 
         return {
             version: this.counterVersion,
             remaining: cards.length,
-            due,
+            due: cards.length,
             total: cards.length,
+            currentLearningDue,
+            todayReviewDue,
+            allowedNew,
+            scheduledTotal: cards.length,
             buckets,
             source: 'reconciled',
         };
@@ -418,6 +428,36 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         }
         const diagnostic = this.getProjectionRolloutDiagnostic();
         return diagnostic?.readPath === 'backend-projection';
+    }
+
+    protected getLearnAheadWindowMinutes(): number {
+        const runtime = this.manager as UnifiedDataSourceManager & {
+            getLearnAheadWindowMinutes?: () => number;
+        };
+
+        const configured = runtime.getLearnAheadWindowMinutes?.();
+        if (!Number.isFinite(configured)) {
+            return 20;
+        }
+
+        return Math.max(0, Math.floor(Number(configured)));
+    }
+
+    protected getLearnAheadMaxCards(): number {
+        const runtime = this.manager as UnifiedDataSourceManager & {
+            getLearnAheadMaxCards?: () => number;
+        };
+
+        const configured = runtime.getLearnAheadMaxCards?.();
+        if (!Number.isFinite(configured)) {
+            return 20;
+        }
+
+        return Math.max(0, Math.floor(Number(configured)));
+    }
+
+    protected isSrsLearningStep(card: Pick<FSRSCard, 'state'>): boolean {
+        return card.state === CardState.Learning || card.state === CardState.Relearning;
     }
 
     private createProjectionUnavailableError(operation: string, cause?: unknown): QueueError {

@@ -165,6 +165,36 @@
         </div>
 
         <div class="form-item">
+          <label>{{ t('srsV2LearnAheadWindow', '提前学习窗口（分钟）') }}</label>
+          <div class="form-control">
+            <input
+              type="number"
+              min="0"
+              max="1440"
+              step="1"
+              v-model.number="schedulerConfig.srsV2.learnAhead.windowMinutes"
+            >
+            <span class="form-unit">{{ t('minutesUnit', '分钟') }}</span>
+          </div>
+          <p class="form-hint">{{ t('srsV2LearnAheadWindowHint', '普通队列清空后，允许显式提前学习这个窗口内的 Learning/Relearning 卡。') }}</p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('srsV2LearnAheadMaxCards', '提前学习最多卡数') }}</label>
+          <div class="form-control">
+            <input
+              type="number"
+              min="0"
+              max="500"
+              step="1"
+              v-model.number="schedulerConfig.srsV2.learnAhead.maxCards"
+            >
+            <span class="form-unit">{{ t('cardsUnit', '张') }}</span>
+          </div>
+          <p class="form-hint">{{ t('srsV2LearnAheadMaxCardsHint', '提前学习同时受分钟窗口和最大卡数限制，0 表示不提供提前学习。') }}</p>
+        </div>
+
+        <div class="form-item">
           <label>{{ t('newCardsPerDay', '每日新卡上限') }}</label>
           <div class="form-control">
             <input type="number" min="0" max="9999" step="1" v-model.number="settings.newCardsPerDay">

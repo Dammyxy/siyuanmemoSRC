@@ -780,6 +780,16 @@ export function createReviewSessionController<TItem extends QueueItem>(
         return;
       }
 
+      if (id === 'learn-ahead' && typeof queue.learnAhead === 'function') {
+        const startedLearnAhead = await queue.learnAhead();
+        if (startedLearnAhead) {
+          currentItem.value = await queue.next();
+          context.value.showAnswer = false;
+        }
+        await updateState('custom');
+        return;
+      }
+
       markAdvancePending('custom');
       await queue.onFeedback(currentItem.value, { action: 'custom', customActionId: id });
       pushReviewHistory(context.value, {

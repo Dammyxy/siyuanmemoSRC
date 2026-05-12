@@ -50,6 +50,8 @@ export function normalizeFSRSWeights(weights: unknown): number[] {
 
 const DEFAULT_SRS_V2_LEARNING_STEPS_MINUTES = [1, 10];
 const DEFAULT_SRS_V2_RELEARNING_STEPS_MINUTES = [10];
+const DEFAULT_SRS_V2_LEARN_AHEAD_WINDOW_MINUTES = 20;
+const DEFAULT_SRS_V2_LEARN_AHEAD_MAX_CARDS = 20;
 
 function normalizeStepMinutes(value: unknown, fallback: number[]): number[] {
     const source = Array.isArray(value) ? value : fallback;
@@ -62,6 +64,22 @@ function normalizeStepMinutes(value: unknown, fallback: number[]): number[] {
 
 function normalizeFilteredReviewDefault(value: unknown): SrsV2FilteredReviewDefault {
     return value === 'reschedule' ? 'reschedule' : 'preview-only';
+}
+
+function normalizeSrsV2LearnAheadSettings(value: unknown): SrsV2LearnAheadSettings {
+    const source = typeof value === 'object' && value !== null
+        ? value as Partial<SrsV2LearnAheadSettings>
+        : {};
+    const windowMinutes = Number(source.windowMinutes);
+    const maxCards = Number(source.maxCards);
+    return {
+        windowMinutes: Number.isFinite(windowMinutes)
+            ? Math.max(0, Math.min(24 * 60, Math.floor(windowMinutes)))
+            : DEFAULT_SRS_V2_LEARN_AHEAD_WINDOW_MINUTES,
+        maxCards: Number.isFinite(maxCards)
+            ? Math.max(0, Math.min(500, Math.floor(maxCards)))
+            : DEFAULT_SRS_V2_LEARN_AHEAD_MAX_CARDS,
+    };
 }
 
 function normalizeSrsV2SchedulerSettings(value: unknown): SrsV2SchedulerSettings {
@@ -78,6 +96,7 @@ function normalizeSrsV2SchedulerSettings(value: unknown): SrsV2SchedulerSettings
             DEFAULT_SRS_V2_RELEARNING_STEPS_MINUTES
         ),
         filteredReviewDefault: normalizeFilteredReviewDefault(source.filteredReviewDefault),
+        learnAhead: normalizeSrsV2LearnAheadSettings(source.learnAhead),
     };
 }
 
@@ -112,10 +131,16 @@ export type SchedulerEngine = 'simple-fsrs' | 'a-factor-v2';
 
 export type SrsV2FilteredReviewDefault = 'preview-only' | 'reschedule';
 
+export interface SrsV2LearnAheadSettings {
+    windowMinutes: number;
+    maxCards: number;
+}
+
 export interface SrsV2SchedulerSettings {
     learningStepsMinutes: number[];
     relearningStepsMinutes: number[];
     filteredReviewDefault: SrsV2FilteredReviewDefault;
+    learnAhead: SrsV2LearnAheadSettings;
 }
 
 /** 🆕 调度器配置 */
@@ -817,6 +842,8 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         || sourceSrsV2.filteredReviewDefault !== normalizedSrsV2.filteredReviewDefault
         || JSON.stringify(sourceSrsV2.learningStepsMinutes) !== JSON.stringify(normalizedSrsV2.learningStepsMinutes)
         || JSON.stringify(sourceSrsV2.relearningStepsMinutes) !== JSON.stringify(normalizedSrsV2.relearningStepsMinutes)
+        || sourceSrsV2.learnAhead?.windowMinutes !== normalizedSrsV2.learnAhead.windowMinutes
+        || sourceSrsV2.learnAhead?.maxCards !== normalizedSrsV2.learnAhead.maxCards
     ) {
         changed = true;
     }
@@ -1808,6 +1835,10 @@ export const DEFAULT_SETTINGS: PluginSettings = {
             learningStepsMinutes: [...DEFAULT_SRS_V2_LEARNING_STEPS_MINUTES],
             relearningStepsMinutes: [...DEFAULT_SRS_V2_RELEARNING_STEPS_MINUTES],
             filteredReviewDefault: 'preview-only',
+            learnAhead: {
+                windowMinutes: DEFAULT_SRS_V2_LEARN_AHEAD_WINDOW_MINUTES,
+                maxCards: DEFAULT_SRS_V2_LEARN_AHEAD_MAX_CARDS,
+            },
         },
     },
     riffIntegration: DEFAULT_RIFF_CONFIG,

@@ -639,6 +639,11 @@ export interface BackendReviewFeedbackQueueImpactCounters {
   remaining: number;
   due: number;
   total: number;
+  currentLearningDue?: number;
+  todayReviewDue?: number;
+  allowedNew?: number;
+  learnAheadAvailable?: number;
+  scheduledTotal?: number;
   buckets: Record<string, number>;
   updatedAt: number;
 }

@@ -1,6 +1,6 @@
 # 活跃队列运行规范
 
-最后更新：2026-04-22
+最后更新：2026-05-13
 
 本文是当前活跃队列语义的专题事实源，只覆盖运行时已注册的 6 个主队列：
 
@@ -40,8 +40,8 @@
 
 | 队列 | 成员资格 / 窗口 | 默认顺序 | 复习后留队规则 |
 | --- | --- | --- | --- |
-| `RetrievalPractice` | `due <= currentDayEnd`；只收提取练习卡型；允许 outstanding/manual 插入 | 基础顺序 `due -> priority -> id`；outstanding/manual 在基础顺序之后按 `everyNth` 稀疏插入 | 手动插入卡复习后必出队；普通卡仅当复习后仍 `due <= currentDayEnd` 时留队；评分 `<3` 自动升级到 `FinalDrill` |
-| `IncrementalLearning` | `due <= currentDayEnd`；覆盖渐进学习允许的卡型；允许 outstanding/manual 插入 | 与 `RetrievalPractice` 相同 | 与 `RetrievalPractice` 相同 |
+| `RetrievalPractice` | 学习/重学卡 `due <= now`；Review 卡 `due <= currentDayEnd`；默认不引入 New；允许 outstanding/manual 插入 | 基础顺序 `learning/relearning -> review -> manual`，各段内为 `due -> priority -> stable id`；outstanding/manual 在基础顺序之后 | 手动插入卡复习后必出队；Learning/Relearning 只有复习后 `due <= now` 才留队，Review 复习后 `due <= currentDayEnd` 留队；评分 `<3` 自动升级到 `FinalDrill` |
+| `IncrementalLearning` | 混合 SRS 队列：学习/重学卡 `due <= now`；Review 卡 `due <= currentDayEnd`；New 卡按每日上限引入；rotation 材料按 review day | 基础顺序 `learning/relearning -> review -> new -> rotation -> manual`，各段内为 `due -> priority -> stable id` | 手动插入卡复习后必出队；Learning/Relearning 只有复习后 `due <= now` 才留队，Review/New/rotation 按 review day；评分 `<3` 自动升级到 `FinalDrill` |
 | `FilterGroup` | 成员资格由持久化 `filter` 决定，并强制附加 `includeSuspended=false`；再叠加非黑名单、非 dismissed | `due -> priority -> id`；手动加入卡先合并去重，再走同一稳定排序 | 复习后只要仍匹配当前 `filter` 且未被显式移除 / 拉黑，就留队；评分 `<3` 自动升级到 `FinalDrill` |
 | `FinalDrill` | 静态成员队列，无 today-window | 持久化条目顺序为主；默认比较器是 `priority -> due -> id`；展示时允许 `FlipElement` 做局部扰动，但不改写持久化顺序语义 | 不走调度器；评分 `4` 出队，评分 `1/2/3` 移到队尾并留队 |
 | `NeuralRoam` | 成员资格由当前引擎 session 的可见节点与关联复习缓冲决定，无 today-window | 由 roam engine 路径顺序决定，不受浏览器排序影响 | 永不因“窗口”自动出队；有本地卡 backing 的节点可走 scheduler，但复习后仍留在 session；无 backing 的节点保持纯练习语义 |
@@ -51,8 +51,10 @@
 
 ### RetrievalPractice / IncrementalLearning
 
-- 这两个队列都是 today-window 队列，不是 `due now` 队列。
-- outstanding/manual 卡的稀疏插入发生在基础顺序之后，再由显式 `customOrder` 覆盖。
+- 这两个队列都采用 SM-style availability：Learning/Relearning 使用精确时间，Review 使用当前 review day。
+- `RetrievalPractice` 是 review-oriented 队列，默认排除 New；`IncrementalLearning` 是 Mixed SRS Queue，负责按每日上限引入 New。
+- `Learn Ahead` 是普通队列清空后的显式动作，只查询未来 Learning/Relearning，默认窗口 20 分钟、最多 20 张；它不会把未来 Review 或 New 伪装成当前 due。
+- outstanding/manual 卡发生在基础顺序之后，再由显式 `customOrder` 覆盖。
 - 用户手动 `remove` 会写临时黑名单；评分导致的自然出队不会写临时黑名单。
 
 ### FilterGroup

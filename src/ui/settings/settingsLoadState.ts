@@ -16,6 +16,8 @@ import {
   normalizeDailyLimit,
   normalizeOutstandingEveryNth,
   normalizePriorityRandomness,
+  normalizeSrsV2LearnAheadMaxCards,
+  normalizeSrsV2LearnAheadWindowMinutes,
   normalizeSrsV2StepList,
   type SettingsFormState,
   type SettingsRiffIntegrationState,
@@ -72,6 +74,9 @@ export function createDefaultSettingsSchedulerConfig(): SettingsSchedulerConfigW
       learningStepsMinutes: [...DEFAULT_SETTINGS.scheduler!.srsV2!.learningStepsMinutes],
       relearningStepsMinutes: [...DEFAULT_SETTINGS.scheduler!.srsV2!.relearningStepsMinutes],
       filteredReviewDefault: DEFAULT_SETTINGS.scheduler!.srsV2!.filteredReviewDefault,
+      learnAhead: {
+        ...DEFAULT_SETTINGS.scheduler!.srsV2!.learnAhead,
+      },
     },
   };
 }
@@ -148,6 +153,14 @@ export function resolveSettingsSchedulerConfig(
       filteredReviewDefault: schedulerSettings.srsV2?.filteredReviewDefault === 'reschedule'
         ? 'reschedule'
         : 'preview-only',
+      learnAhead: {
+        windowMinutes: normalizeSrsV2LearnAheadWindowMinutes(
+          schedulerSettings.srsV2?.learnAhead?.windowMinutes,
+        ),
+        maxCards: normalizeSrsV2LearnAheadMaxCards(
+          schedulerSettings.srsV2?.learnAhead?.maxCards,
+        ),
+      },
     },
   };
 }

@@ -63,8 +63,17 @@
           @openMenu="handleOpenMenu"
         />
 
-        <div v-if="showCompletedEmptyStateExit" class="fsrs-review-v2__empty-footer">
+        <div v-if="showCompletedEmptyStateExit || showLearnAheadAction" class="fsrs-review-v2__empty-footer">
           <button
+            v-if="showLearnAheadAction"
+            type="button"
+            class="b3-button b3-button--text fsrs-review-v2__empty-learn-ahead"
+            @click="hook.executeCommand('learn-ahead')"
+          >
+            {{ t('learnAhead', '提前学习') }}
+          </button>
+          <button
+            v-if="showCompletedEmptyStateExit"
             type="button"
             class="b3-button b3-button--outline fsrs-review-v2__empty-exit"
             @click="closeCurrentReviewSurface"
@@ -396,6 +405,10 @@ type QueueStrategyWithTailAppend = {
 
 type QueueStrategyWithSessionSnapshot = {
   serializeSessionSnapshot?: () => ReviewQueueSessionSnapshot;
+};
+
+type QueueStrategyWithLearnAhead = {
+  learnAhead?: () => Promise<boolean>;
 };
 
 type CommandLike = {
@@ -1394,6 +1407,12 @@ const isEmptyReviewContent = computed(() => state.value.content.type === 'empty'
 const showCompletedEmptyStateExit = computed(() => (
   isEmptyReviewContent.value
   && state.value.meta.emptyStateMode === 'completed'
+));
+
+const showLearnAheadAction = computed(() => (
+  isEmptyReviewContent.value
+  && state.value.meta.emptyStateMode === 'completed'
+  && typeof (props.queue as QueueStrategyWithLearnAhead | null | undefined)?.learnAhead === 'function'
 ));
 
 function getReviewActionErrorMessage(payload: ReviewSessionActionError<ActiveReviewItem>): string {

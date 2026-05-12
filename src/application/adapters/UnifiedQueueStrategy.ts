@@ -146,6 +146,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private readonly suspiciousNextDuesLogKeys = new Set<string>();
     private pendingNeuralRoamAdvanceNext: FSRSCard | null = null;
     private pendingNeuralRoamAdvanceNextReady = false;
+    private learnAheadSession = false;
 
     constructor(
         queueTypeOrQueue: QueueType | IReviewQueue,
@@ -210,7 +211,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 return await this.nextFromNeuralRoamAdvance();
             }
 
-            if (this.usesRequeryAfterFeedback()) {
+            if (this.usesRequeryAfterFeedback() && !this.learnAheadSession) {
                 return await this.nextFromRequeryQueue();
             }
 
@@ -292,6 +293,25 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     this.lastCounterSnapshot = reviewResult.counterSnapshot;
                 } else {
                     this.lastCounterSnapshot = null;
+                }
+
+                if (this.learnAheadSession) {
+                    this.pendingRotateCardId = null;
+                    this.applyRemovalToCache(activeItem.id);
+                    this.cacheValid = true;
+                    if (this.currentIndex >= this.cachedCards.length) {
+                        this.learnAheadSession = false;
+                    }
+                    this.refreshLocalCounterSnapshot('hot', reviewResult.counterSnapshot);
+                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card rated in learn-ahead session:`, {
+                        queueType: this.queueType,
+                        cardId: activeItem.id,
+                        rating: feedback.rating,
+                        remaining: this.cachedCards.length,
+                    });
+                    activeTransaction = null;
+                    activeTransactionPushed = false;
+                    return;
                 }
 
                 if (this.usesRequeryAfterFeedback()) {
@@ -605,10 +625,18 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
             const counterSnapshot = await this.getCounterSnapshot();
             if (counterSnapshot) {
+                const extraParts = [
+                    counterSnapshot.currentLearningDue != null ? `${counterSnapshot.currentLearningDue} learning now` : null,
+                    counterSnapshot.todayReviewDue != null ? `${counterSnapshot.todayReviewDue} review today` : null,
+                    counterSnapshot.allowedNew != null ? `${counterSnapshot.allowedNew} new` : null,
+                    counterSnapshot.learnAheadAvailable ? `${counterSnapshot.learnAheadAvailable} learn ahead` : null,
+                ].filter(Boolean);
                 const stats: QueueStats = {
                     size: counterSnapshot.remaining,
                     label: `${counterSnapshot.due} due`,
-                    extra: `${counterSnapshot.total ?? counterSnapshot.remaining} total`,
+                    extra: extraParts.length > 0
+                        ? extraParts.join(' · ')
+                        : `${counterSnapshot.total ?? counterSnapshot.remaining} total`,
                 };
 
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
@@ -669,8 +697,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             topic: 0,
             concept: 0,
         };
-        let due = 0;
         const now = Date.now();
+        let currentLearningDue = 0;
+        let todayReviewDue = 0;
+        let allowedNew = 0;
 
         for (const card of this.cachedCards) {
             buckets.all += 1;
@@ -685,8 +715,12 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 buckets.concept += 1;
             }
 
-            if (Number(card.due) <= now) {
-                due += 1;
+            if ((card.state === CardState.Learning || card.state === CardState.Relearning) && Number(card.due) <= now) {
+                currentLearningDue += 1;
+            } else if (card.state === CardState.Review) {
+                todayReviewDue += 1;
+            } else if (card.state === CardState.New || Number(card.reps) === 0) {
+                allowedNew += 1;
             }
         }
 
@@ -696,8 +730,13 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 Number(this.lastCounterSnapshot?.version) || 0,
             ) + 1,
             remaining: this.cachedCards.length,
-            due,
+            due: this.cachedCards.length,
             total: this.cachedCards.length,
+            currentLearningDue,
+            todayReviewDue,
+            allowedNew,
+            learnAheadAvailable: baseSnapshot?.learnAheadAvailable,
+            scheduledTotal: this.cachedCards.length + Math.max(0, Number(baseSnapshot?.learnAheadAvailable || 0)),
             buckets,
             source,
         };
@@ -1161,6 +1200,11 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             remaining: Math.max(0, Math.floor(Number(counters.remaining || 0))),
             due: Math.max(0, Math.floor(Number(counters.due || 0))),
             total: Math.max(0, Math.floor(Number(counters.total || 0))),
+            currentLearningDue: Math.max(0, Math.floor(Number(counters.currentLearningDue || 0))),
+            todayReviewDue: Math.max(0, Math.floor(Number(counters.todayReviewDue || 0))),
+            allowedNew: Math.max(0, Math.floor(Number(counters.allowedNew || 0))),
+            learnAheadAvailable: Math.max(0, Math.floor(Number(counters.learnAheadAvailable || 0))),
+            scheduledTotal: Math.max(0, Math.floor(Number(counters.scheduledTotal || counters.total || 0))),
             buckets: {
                 all: Math.max(0, Math.floor(Number(buckets.all || 0))),
                 item: Math.max(0, Math.floor(Number(buckets.item || 0))),
@@ -1418,6 +1462,40 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             },
             source: 'hot',
         };
+    }
+
+    async learnAhead(): Promise<boolean> {
+        const queue = this.queue as IReviewQueue & {
+            getLearnAheadCards?: () => Promise<FSRSCard[]>;
+        };
+        if (typeof queue.getLearnAheadCards !== 'function') {
+            return false;
+        }
+
+        const normalRemaining = await this.queue.getRemainingSize();
+        if (normalRemaining > 0) {
+            return false;
+        }
+
+        const cards = await queue.getLearnAheadCards();
+        if (cards.length === 0) {
+            return false;
+        }
+
+        this.cachedCards = [...cards];
+        this.currentIndex = 0;
+        this.cacheValid = true;
+        this.learnAheadSession = true;
+        this.currentItem = null;
+        this.pendingRotateCardId = null;
+        this.clearAvoidOnceIdentity();
+        this.refreshLocalCounterSnapshot('hot', null);
+
+        logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Learn-ahead session started:`, {
+            queueType: this.queueType,
+            cardCount: cards.length,
+        });
+        return true;
     }
 
     private async syncNeuralRoamQueueFromBackendState(result: BackendNeuralRoamAdvanceResult): Promise<void> {

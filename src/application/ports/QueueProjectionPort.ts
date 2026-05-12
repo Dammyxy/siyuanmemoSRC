@@ -38,6 +38,11 @@ export interface QueueProjectionCounters {
   remaining: number;
   due: number;
   total: number;
+  currentLearningDue?: number;
+  todayReviewDue?: number;
+  allowedNew?: number;
+  learnAheadAvailable?: number;
+  scheduledTotal?: number;
   buckets: QueueProjectionCounterBuckets;
   updatedAt: number;
 }

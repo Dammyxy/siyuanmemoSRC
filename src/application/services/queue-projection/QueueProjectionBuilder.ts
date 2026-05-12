@@ -50,6 +50,8 @@ export interface QueueProjectionBuildInput {
   temporaryBlacklistIds?: string[];
   customOrder?: string[];
   frontierCandidateCount?: number;
+  learnAheadWindowEnd?: number | null;
+  learnAheadMaxCards?: number;
   isDismissed?: (card: FSRSCard) => boolean;
 }
 
@@ -281,11 +283,26 @@ export function buildQueueProjectionRows(input: QueueProjectionBuildInput): Queu
     rows.length + index,
     true,
   ));
+  const learnAheadAvailable = SrsV2QueuePolicy.buildLearnAheadQueue({
+    baseCards: normalized.baseCards,
+    manualCards: [],
+    now: normalized.now,
+    dayEnd: normalized.dayEnd,
+    windowEnd: normalized.learnAheadWindowEnd ?? normalized.now,
+    maxCards: normalized.learnAheadMaxCards,
+    newCardsPerDay: normalized.newCardsPerDay,
+    reviewsPerDay: normalized.reviewsPerDay,
+    priorityRandomness: normalized.priorityRandomness,
+    stableSalt: normalized.stableSalt,
+    isBlacklisted: (card) => normalized.temporaryBlacklistIds.includes(card.id)
+      || normalized.temporaryBlacklistIds.includes(card.blockId),
+    isDismissed: normalized.isDismissed,
+  }).filter((card) => !visibleCardIds.has(card.id)).length;
 
   return {
     rows,
     frontierRows,
-    counters: buildCounters(normalized, rows),
+    counters: buildCounters(normalized, rows, learnAheadAvailable),
   };
 }
 
@@ -659,6 +676,8 @@ interface NormalizedQueueProjectionBuildInput extends QueueProjectionBuildInput 
   updatedAt: number;
   customOrder: string[];
   frontierCandidateCount: number;
+  learnAheadWindowEnd: number | null;
+  learnAheadMaxCards: number;
   temporaryBlacklistIds: string[];
   isDismissed: (card: FSRSCard) => boolean;
 }
@@ -671,6 +690,10 @@ function normalizeBuildInput(input: QueueProjectionBuildInput): NormalizedQueueP
     updatedAt: input.updatedAt ?? Date.now(),
     customOrder: input.customOrder ?? [],
     frontierCandidateCount: Math.max(0, Math.floor(input.frontierCandidateCount ?? DEFAULT_FRONTIER_CANDIDATE_COUNT)),
+    learnAheadWindowEnd: Number.isFinite(Number(input.learnAheadWindowEnd))
+      ? Number(input.learnAheadWindowEnd)
+      : null,
+    learnAheadMaxCards: Math.max(0, Math.floor(Number(input.learnAheadMaxCards ?? 0))),
     temporaryBlacklistIds: input.temporaryBlacklistIds ?? [],
     isDismissed: input.isDismissed ?? isCardDismissed,
   };
@@ -943,6 +966,7 @@ function resolveDueBucket(
 function buildCounters(
   input: NormalizedQueueProjectionBuildInput,
   rows: QueueProjectionRow[],
+  learnAheadAvailable = 0,
 ): QueueProjectionCounters {
   const buckets: QueueProjectionCounterBuckets = {
     all: 0,
@@ -951,7 +975,9 @@ function buildCounters(
     topic: 0,
     concept: 0,
   };
-  let due = 0;
+  let currentLearningDue = 0;
+  let todayReviewDue = 0;
+  let allowedNew = 0;
 
   for (const row of rows) {
     buckets.all += 1;
@@ -966,8 +992,12 @@ function buildCounters(
       buckets.item += 1;
     }
 
-    if (row.dueAt != null && row.dueAt <= input.now) {
-      due += 1;
+    if (row.membershipReason === 'learning-due') {
+      currentLearningDue += 1;
+    } else if (row.membershipReason === 'review-due') {
+      todayReviewDue += 1;
+    } else if (row.membershipReason === 'new') {
+      allowedNew += 1;
     }
   }
 
@@ -977,8 +1007,13 @@ function buildCounters(
     generation: input.sourceGeneration,
     version: input.sourceGeneration,
     remaining: rows.length,
-    due,
+    due: rows.length,
     total: rows.length,
+    currentLearningDue,
+    todayReviewDue,
+    allowedNew,
+    learnAheadAvailable,
+    scheduledTotal: rows.length + learnAheadAvailable,
     buckets,
     updatedAt: input.updatedAt,
   };

@@ -126,6 +126,22 @@ export function normalizeSrsV2StepList(value: unknown, fallback: number[]): numb
   return normalized.length > 0 ? normalized : [...fallback];
 }
 
+export function normalizeSrsV2LearnAheadWindowMinutes(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return DEFAULT_SETTINGS.scheduler!.srsV2!.learnAhead.windowMinutes;
+  }
+  return Math.max(0, Math.min(24 * 60, Math.floor(numeric)));
+}
+
+export function normalizeSrsV2LearnAheadMaxCards(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return DEFAULT_SETTINGS.scheduler!.srsV2!.learnAhead.maxCards;
+  }
+  return Math.max(0, Math.min(500, Math.floor(numeric)));
+}
+
 export function parseSrsV2StepList(value: string, fallback: number[]): number[] {
   return normalizeSrsV2StepList(
     value.split(',').map((part) => part.trim()).filter(Boolean),
@@ -242,6 +258,14 @@ export function buildSettingsSavePayload(input: {
           DEFAULT_SETTINGS.scheduler!.srsV2!.relearningStepsMinutes,
         ),
         filteredReviewDefault: input.schedulerConfig.srsV2.filteredReviewDefault,
+        learnAhead: {
+          windowMinutes: normalizeSrsV2LearnAheadWindowMinutes(
+            input.schedulerConfig.srsV2.learnAhead?.windowMinutes,
+          ),
+          maxCards: normalizeSrsV2LearnAheadMaxCards(
+            input.schedulerConfig.srsV2.learnAhead?.maxCards,
+          ),
+        },
       },
     },
     riffIntegration: {

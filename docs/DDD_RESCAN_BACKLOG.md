@@ -4,6 +4,16 @@ Last update: 2026-05-13 (Round 334)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-13 - SM-style queue availability and Learn Ahead
+
+- Task: Align SRS queue availability with SM-style semantics and add explicit Learn Ahead after normal queues are empty.
+- Touched slice: Queue policy/runtime/projection/settings/review UI; `SrsV2QueuePolicy`, `RetrievalPracticeQueue`, `IncrementalLearningQueue`, `BaseReviewQueue`, queue projection counters, Review v2 empty-state action, SRS v2 settings, i18n, and related contracts/tests.
+- Debt fixed now: Learning/Relearning membership and post-review retention now use exact `due <= now`; Review cards remain day-based via review-day end; `RetrievalPractice` excludes New by default, while `IncrementalLearning` remains the mixed SRS queue that introduces New by daily limit. Explicit Learn Ahead is bounded by both minutes and max cards and only returns future Learning/Relearning cards after the normal queue is empty.
+- Debt deferred: Learn Ahead availability is exposed as an empty-state action rather than a richer candidate preview panel; backend projection persistence still stores legacy aggregate counter columns and only carries the new detailed counters while building/transporting snapshots.
+- Why deferred: The root behavior needed policy-level membership and review-flow correctness first. A candidate preview UI and counter schema migration are larger product/DB changes and should be designed separately if needed.
+- Next safe step: If users need visibility before clicking, add a small empty-state badge from `learnAheadAvailable` and persist the detailed projection counters through a schema migration.
+- Validation: `pnpm vitest run src/core/queue/domain/__tests__/SrsV2QueuePolicy.test.ts src/application/services/queue-projection/__tests__/QueueProjectionBuilder.test.ts`; `pnpm build`.
+
 ### 2026-05-13 - Static scoped review tab snapshot isolation
 
 - Task: 修复文档树右键文档块进入渐进学习时，复习 tab 可能显示上一次静态范围闪卡，而不是当前文档树范围的问题。

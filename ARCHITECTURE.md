@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-05-10
+最后更新：2026-05-13
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -113,6 +113,7 @@ flowchart TD
 - 装配 `ArenaStoreService` / `ArenaKernelService`，把 AI 策略包竞技和 SRS 只读算法竞技挂到同一个应用层内核；`arena.enabled` 默认为 `false`，关闭时不接入复习建议或 AI 策略包覆盖；开启后 Arena 数据写入 SQL
 - 外部 SRS 算法第一版边界在 `src/application/services/external-srs/ExternalSrsAlgorithmRuntime.ts`：只从用户控制的本地算法目录发现 manifest，经校验后以 `external:*` 通用 id 写入 `algorithm_registry`，默认 `disabled`；`ExternalSrsAlgorithmRuntimeAdapter` 只传结构化快照和参数，不传数据库、思源 API、writer port 或 plugin service 对象，输出保持 advisory-only，不接管正式 FSRS v6 due 写入
 - 运行路径收口由 `scripts/check-backend-runtime-paths.cjs` 兜底：它在 `pnpm run check:boundaries` 里核对 queue projection、neural-roam.advance、review.feedback、autocard.decision.resolve/autocard.execute、private.command.execute、ai.session/job 的 contract -> worker -> client -> `ApplicationContext` -> caller 链路；External SRS 继续停留在 advisory-only foundation，只有当 `ApplicationContext` 显式接入并补齐 UI 入口后才算 active runtime
+- SRS v2 队列策略集中在 `src/core/queue/domain/SrsV2QueuePolicy.ts`：`IncrementalLearning` 是 Mixed SRS Queue，Learning/Relearning 按精确 `now` 到期，Review 按 `fsrs.dayStartHour` 派生的 review day 到期，New 只在该队列按每日上限引入；`RetrievalPractice` 是 review-oriented 队列，默认不引入 New。普通队列清空后，Review UI 可触发显式 `Learn Ahead`，只取未来 Learning/Relearning，受 `scheduler.srsV2.learnAhead.windowMinutes` 与 `maxCards` 双重限制。
 
 这意味着：
 

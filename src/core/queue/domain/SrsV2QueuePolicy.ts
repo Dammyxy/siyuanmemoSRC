@@ -19,6 +19,11 @@ export interface SrsV2QueueBuildInput extends SrsV2QueuePolicyOptions {
   warnInvalidBlockId?: (cards: FSRSCard[]) => void;
 }
 
+export interface SrsV2LearnAheadInput extends SrsV2QueueBuildInput {
+  windowEnd: number;
+  maxCards: number;
+}
+
 export class SrsV2QueuePolicy {
   static buildRetrievalPracticeQueue(input: SrsV2QueueBuildInput): FSRSCard[] {
     const { baseCards, manualCards, warnInvalidBlockId } = input;
@@ -29,7 +34,7 @@ export class SrsV2QueuePolicy {
 
     warnInvalidBlockId?.([...filteredBase, ...manualOutstanding]);
 
-    const formal = selectFormalMemoryCards(filteredBase, input);
+    const formal = selectFormalMemoryCards(filteredBase, input, { includeNewCards: false });
     return [...formal, ...sortByDuePriorityStable(manualOutstanding, input)];
   }
 
@@ -44,7 +49,7 @@ export class SrsV2QueuePolicy {
 
     const formalCandidates = filteredBase.filter(isFormalMemoryCard);
     const rotationCandidates = filteredBase.filter((card) => !isFormalMemoryCard(card));
-    const formal = selectFormalMemoryCards(formalCandidates, input);
+    const formal = selectFormalMemoryCards(formalCandidates, input, { includeNewCards: true });
     const rotation = selectRotationCards(rotationCandidates, input);
 
     return [
@@ -53,13 +58,34 @@ export class SrsV2QueuePolicy {
       ...sortByDuePriorityStable(manualOutstanding, input),
     ];
   }
+
+  static buildLearnAheadQueue(input: SrsV2LearnAheadInput): FSRSCard[] {
+    if (!Number.isFinite(input.windowEnd) || input.windowEnd <= input.now || input.maxCards <= 0) {
+      return [];
+    }
+
+    const filteredBase = filterVisible(input.baseCards, input).filter(isFormalMemoryCard);
+    const futureLearning = filteredBase.filter((card) => {
+      const due = Number(card.due);
+      return (card.state === CardState.Learning || card.state === CardState.Relearning)
+        && Number.isFinite(due)
+        && due > input.now
+        && due <= input.windowEnd;
+    });
+
+    return sortByDuePriorityStable(futureLearning, input).slice(0, Math.floor(input.maxCards));
+  }
 }
 
 function filterVisible(cards: FSRSCard[], input: SrsV2QueueBuildInput): FSRSCard[] {
   return cards.filter((card) => !input.isBlacklisted(card) && !input.isDismissed(card));
 }
 
-function selectFormalMemoryCards(cards: FSRSCard[], input: SrsV2QueuePolicyOptions): FSRSCard[] {
+function selectFormalMemoryCards(
+  cards: FSRSCard[],
+  input: SrsV2QueuePolicyOptions,
+  options: { includeNewCards: boolean },
+): FSRSCard[] {
   const learning = cards.filter((card) =>
     (card.state === CardState.Learning || card.state === CardState.Relearning)
     && Number(card.due) <= input.now
@@ -68,10 +94,12 @@ function selectFormalMemoryCards(cards: FSRSCard[], input: SrsV2QueuePolicyOptio
     card.state === CardState.Review
     && Number(card.due) <= input.dayEnd
   );
-  const newCards = cards.filter((card) =>
-    isNewCard(card)
-    && Number(card.due) <= input.dayEnd
-  );
+  const newCards = options.includeNewCards
+    ? cards.filter((card) =>
+      isNewCard(card)
+      && Number(card.due) <= input.dayEnd
+    )
+    : [];
 
   const cappedReviews = input.reviewsPerDay > 0
     ? sortByDuePriorityStable(reviews, input).slice(0, input.reviewsPerDay)
