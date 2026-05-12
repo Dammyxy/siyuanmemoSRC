@@ -1048,6 +1048,8 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             let schedulingCommitted = true;
             let postCommitNotificationRequired = false;
             let queueImpact: unknown | null = null;
+            let projectionAction: QueueReviewResult['projectionAction'] = null;
+            let projectionImpactEntry: unknown | null = null;
 
             if (typeof this.manager.commitReview === 'function') {
                 const commitResult = await this.manager.commitReview({
@@ -1058,6 +1060,8 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                 schedulingCommitted = commitResult.committed;
                 updatedCard = commitResult.updatedCard;
                 queueImpact = commitResult.queueImpact ?? null;
+                projectionAction = commitResult.projectionAction ?? null;
+                projectionImpactEntry = commitResult.projectionImpactEntry ?? null;
             } else {
                 const schedulerRouter = this.getSchedulerRouter();
                 postCommitNotificationRequired = true;
@@ -1133,6 +1137,8 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                     counterSnapshot,
                     version: counterSnapshot?.version ?? this.counterVersion,
                     queueImpact,
+                    projectionAction,
+                    projectionImpactEntry,
                 };
             } else {
                 if (cachedIndex >= 0) {
@@ -1158,6 +1164,8 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                     counterSnapshot,
                     version: counterSnapshot?.version ?? this.counterVersion,
                     queueImpact,
+                    projectionAction,
+                    projectionImpactEntry,
                 };
             }
         } catch (error) {

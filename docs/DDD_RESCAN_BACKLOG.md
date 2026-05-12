@@ -1,8 +1,38 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-13 (Round 336)
+Last update: 2026-05-13 (Round 338)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-13 - Review Attempt Kernel deep module
+
+- Task: Implement OpenSpec change `deepen-review-attempt-kernel` so one review attempt has a small application-level kernel instead of spreading backend feedback and projection interpretation across queue/session code.
+- Touched slice: Review feedback / Queue projection outcome; `src/application/usecases/review/ReviewAttemptKernel.ts`, `src/application/ApplicationContext.ts`, `src/application/services/UnifiedDataSourceManager.ts`, `src/core/queue/domain/BaseReviewQueue.ts`, `src/application/adapters/UnifiedQueueStrategy.ts`, review attempt/queue strategy tests, and `ARCHITECTURE.md`.
+- Debt fixed now: `UnifiedDataSourceManager.commitReview()` now routes review feedback through `ReviewAttemptKernel`; the kernel wraps backend-authoritative `ReviewCommitUseCase`, normalizes backend `queueImpact` into `projectionAction` (`patch-applied`, `refresh-required`, `generation-mismatch`, `not-applicable`, `unavailable`), and returns diagnostics plus the matching projection impact entry. `BaseReviewQueue` carries that outcome upward, and `UnifiedQueueStrategy` consumes the normalized action instead of re-parsing `queueImpact.affectedQueues`.
+- Debt deferred:
+  - `ReviewCommitUseCase` is still the backend worker / writer relay adapter under the kernel; later cleanup can narrow it after the kernel Interface settles.
+  - `UnifiedQueueStrategy` still owns local session cache hot patch / refresh mechanics; extracting a separate Review Session Projection Applier remains future work.
+  - Browser/projection first-open readiness is not redesigned here; that stays with the Queue Projection Readiness Module debt.
+  - SM-15-style scheduler state graphs, learning curve evidence, and content payload seams remain outside this change.
+- Why deferred: The change already crosses Review, Queue, backend feedback, writer relay, and projection state. Keeping DB ownership and projection storage unchanged makes this a low-risk deepening step instead of a full architecture rewrite.
+- Next safe step: If continuing tomorrow, grill either `Queue Projection Readiness Module` or `Review Session Projection Applier`; do not widen `ReviewAttemptKernel` into Browser grid lifecycle or adaptive algorithm state.
+- Manual smoke follow-up: after deploying the new build, run a two-window writer/follower review smoke: writer opens retrieval/incremental queue, follower submits one formal review through writer relay, then both windows reload Browser/Review projection and confirm no local fallback write, no stale projection patch, and no duplicate review event.
+- Validation: Focused ReviewAttemptKernel, ReviewCommitUseCase, UnifiedDataSourceManager card-update, SrsBackendClient, FollowerCommandClient, UnifiedQueueStrategy performance/static projection tests; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`. `service-access.integration.test.ts` remains blocked by the existing Node test environment URL issue (`/api/file/getFile` has no base URL).
+
+### 2026-05-13 - SM-15-inspired architecture debt staging
+
+- Task: 在提出 `deepen-review-attempt-kernel` OpenSpec 后，把剩余 SM-15 启发的架构候选先登记为后续债务，避免当前变更膨胀成全架构重写。
+- Touched slice: Architecture planning only；OpenSpec change `openspec/changes/deepen-review-attempt-kernel/` and this backlog.
+- Debt fixed now: 当前 OpenSpec 只收敛到 **Review Attempt Kernel**，用一个深 module 接管一次评分的提交/预览/队列影响/projection 后续动作；不把 browser grid、algorithm-state、projection readiness、content payload seam 一起塞进同一变更。
+- Debt deferred: 
+  - Queue Projection Readiness Module：把 `ready | refreshing | unavailable`、materialized echo、retry policy、RPC readiness union 收进一个更深 module。
+  - Browser Queue View Module：把 select queue -> prepare projection -> attach datasource -> first rows visible 从 `SRSBrowser.vue` 抽成可测 lifecycle。
+  - Scheduler State Snapshot：建立可序列化算法状态图，为未来 SM-style adaptive curve/evidence experiment 留出正路。
+  - Memory Item vs Content Payload Seam：明确 MemoryItemSnapshot、SourceContentProjection、BrowserRowProjection 三层，避免 block/content/scheduling 互相渗透。
+  - Learning Curve Evidence Module：从 revlog 生成曲线证据/参数建议，先 advisory-only，不接正式调度写入。
+- Why deferred: `deepen-review-attempt-kernel` 已跨 Review、Queue、Scheduler、backend feedback、projection；继续扩 scope 会破坏 OpenSpec 的可实施性和验证边界。
+- Next safe step: 明天从上述债务中选一条重新 grill；推荐优先 Queue Projection Readiness Module，因为最近首次打开 Browser 的 projection warm-up 报错已经暴露 readiness contract 过浅。
+- Validation: Planning-only；created OpenSpec artifacts and updated backlog, no runtime code change.
 
 ### 2026-05-13 - Queue projection readiness contract
 

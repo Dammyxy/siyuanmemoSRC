@@ -107,7 +107,7 @@ describe('UnifiedDataSourceManager card update notifications', () => {
     const router: IDataRouter & { plugin: unknown } = {
       plugin: {
         getContext: () => ({
-          getReviewCommitUseCase: () => ({ execute }),
+          getReviewAttemptKernel: () => ({ execute }),
         }),
       },
       getCard: vi.fn(async () => ({ ...storedCard })),

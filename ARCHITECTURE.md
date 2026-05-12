@@ -172,7 +172,7 @@ flowchart TD
    - `UnifiedDataSourceManager`
 4. 挂载 `src/ui/review/v2/ReviewView.vue`
 5. `useReviewSession.ts` 绑定 `reviewSessionController.ts`；controller 统一驱动 `next / reveal / grade / skip / custom`，并且所有“直接把某张卡写成当前卡”的恢复/刷新入口都会先走 queue strategy 的 `hydrateCurrentItem()` 显示态补水，再更新 UI，避免外部刷新、会话恢复、AI 新卡同步等路径把原始 `FSRSCard` 直接塞回当前位后丢掉 runtime `nextDues`；当当前队列项在评分前已被删除或失效时，queue strategy 会抛出 `QueueItemUnavailableError`，controller 只重新 `queue.next()` 跳到下一张，不记录复习历史，也不把 session 误置为空完成态
-   - 评分切卡仍等待正式 `queue.onFeedback()` / backend writer 提交成功后才前进；RetrievalPractice / IncrementalLearning / FilterGroup / FinalDrill / Leech 默认 projection-backed，`BaseReviewQueue` 会优先读 backend projection snapshot，复习提交时把 projection generation / policy hash 传给 `ReviewCommitUseCase`，backend 返回普通 `queueImpact` 时 `UnifiedQueueStrategy` 热补丁本地 session cache，返回 refresh-required 或 generation mismatch 时失效缓存并从 projection 重新读取；需要完整 reload 时会强制刷新 projection snapshot 再 hydrate rows，避免 stale snapshot rows 与 active-source hydrate 结果行数不一致。NeuralRoam 不再用静态 projection cursor 作为切卡权威：初始 next、rate、skip 与后续 next 都调用 `neural-roam.advance`，worker 内运行现有 NeuralRoam 引擎并通过 typed SiYuan graph host effect 查询图事实；advance result 必须携带 worker 导出的 v8 `queueState`，`UnifiedQueueStrategy` 在展示 `nextItem` 前同步到 renderer 本地 `NeuralRoamQueue`，供 Review “查看双链轨道”与 Browser neural history/trace 继续读取同一轨道状态；该 host effect 注入应用侧 node-type resolver，ConceptQueryEngine 的 formal-review neighbor 过滤走同一 resolver 后才会触碰 local SQL schema。FinalDrill 的 drill-only feedback 不写正式 schedule；FilterGroup preview-only feedback 只更新队列投影/计数。`onReviewDetailed` / Arena 反馈后处理在下一张卡 UI commit 后异步启动，不再阻塞可见切卡。Runtime performance diagnostics 开启后会记录 `grade.total / feedback / next / state.to-ui-state / state.prepare-before-commit / state.commit-notify / state.fetch-auxiliary-data`，以及 `ReviewCommitUseCase` / `neural-roam.advance` 内的 backend worker / writer relay / Arena 记录耗时。
+   - 评分切卡仍等待正式 `queue.onFeedback()` / backend writer 提交成功后才前进；RetrievalPractice / IncrementalLearning / FilterGroup / FinalDrill / Leech 默认 projection-backed，`BaseReviewQueue` 会优先读 backend projection snapshot，复习提交时把 projection generation / policy hash 传给 `ReviewAttemptKernel -> ReviewCommitUseCase`，kernel 把 backend `queueImpact` 归一成 `projectionAction`，`UnifiedQueueStrategy` 只按 `patch-applied` 热补丁本地 session cache，按 `refresh-required` / `generation-mismatch` 失效缓存并从 projection 重新读取；需要完整 reload 时会强制刷新 projection snapshot 再 hydrate rows，避免 stale snapshot rows 与 active-source hydrate 结果行数不一致。NeuralRoam 不再用静态 projection cursor 作为切卡权威：初始 next、rate、skip 与后续 next 都调用 `neural-roam.advance`，worker 内运行现有 NeuralRoam 引擎并通过 typed SiYuan graph host effect 查询图事实；advance result 必须携带 worker 导出的 v8 `queueState`，`UnifiedQueueStrategy` 在展示 `nextItem` 前同步到 renderer 本地 `NeuralRoamQueue`，供 Review “查看双链轨道”与 Browser neural history/trace 继续读取同一轨道状态；该 host effect 注入应用侧 node-type resolver，ConceptQueryEngine 的 formal-review neighbor 过滤走同一 resolver 后才会触碰 local SQL schema。FinalDrill 的 drill-only feedback 不写正式 schedule；FilterGroup preview-only feedback 只更新队列投影/计数。`onReviewDetailed` / Arena 反馈后处理在下一张卡 UI commit 后异步启动，不再阻塞可见切卡。Runtime performance diagnostics 开启后会记录 `grade.total / feedback / next / state.to-ui-state / state.prepare-before-commit / state.commit-notify / state.fetch-auxiliary-data`，以及 `ReviewAttemptKernel` / `ReviewCommitUseCase` / `neural-roam.advance` 内的 backend worker / writer relay / Arena 记录耗时。
 6. review header 的二级动作仍由 `ReviewView.vue` 编排，more-menu 的纯分组 / label / disabled projection 由 `reviewMoreMenuItems.ts` 承接，neural toolbar/menu command projection 由 `reviewNeuralCommands.ts` 承接，progressive excerpt / source / complete-piece command runtime 由 `reviewProgressiveExcerptCommands.ts` 承接，open-as 菜单命令由 `reviewOpenAsCommands.ts` 承接，standard queue switch / native titlebar / fullscreen shell runtime 由 `reviewShellCommands.ts` 承接，SRS editor dialog glue 由 `reviewSrsEditorCommands.ts` 承接，Arena conflict/advisory、current-content editor、review card action、filter/scope、data observer/doc-scope queue 与 native split runtime 分别由 `reviewArenaCommands.ts`、`reviewCurrentContentEditorRuntime.ts`、`reviewCardActionCommands.ts`、`reviewFilterCommands.ts`、`reviewDataObserverRuntime.ts`、`reviewNativeSplitRuntime.ts` 承接，source transaction refresh 队列由 `reviewSourceRefreshRuntime.ts` 承接，键盘去重与全局事件绑定由 `reviewKeyboardRuntime.ts` 承接；SFC 只注入当前状态、依赖与真实命令回调：
    - `AI 侧栏` 统一走 `reviewAICommands.ts` 组装 review-bound open options / visible-only context sync / sidecar or companion tab command，再交给 `ReviewAIWorkbenchRegistry`、`DialogManager` 或 `TabManager`
    - `更多` 菜单中的优先级编辑走 `CardEditorApplicationService.updatePriority(...)`
@@ -204,6 +204,7 @@ sequenceDiagram
   participant QS as UnifiedQueueStrategy
   participant Q as QueueDomain
   participant UDSM as UnifiedDataSourceManager
+  participant RAK as ReviewAttemptKernel
   participant RCU as ReviewCommitUseCase
   participant SR as SchedulerRouter
   participant SRS as SRS v2 Kernel
@@ -215,7 +216,8 @@ sequenceDiagram
   UI->>QS: onFeedback(rate)
   QS->>Q: handleReview(cardId, rating)
   Q->>UDSM: commitReview(QueueReviewCommand)
-  UDSM->>RCU: execute(command)
+  UDSM->>RAK: execute(command)
+  RAK->>RCU: execute(command)
   RCU->>UDSM: getCard(cardId)
   RCU->>BE: review.feedback(request)
   BE->>BE: runTransaction(review.feedback)
@@ -230,10 +232,14 @@ sequenceDiagram
   BE->>BE: update queue_projection_* delta / counters
   BE-->>RCU: BackendReviewFeedbackResult(updatedCard, queueImpact)
   RCU->>AR: record SRS Arena batch when enabled
-  RCU-->>UDSM: QueueReviewCommitResult(updatedCard, queueImpact)
+  RCU-->>RAK: QueueReviewCommitResult(updatedCard, queueImpact)
+  RAK->>RAK: normalize projectionAction / diagnostics
+  RAK-->>UDSM: ReviewAttemptOutcome(updatedCard, queueImpact, projectionAction)
   UDSM->>UDSM: updateCard(updatedCard, review-commit, suppressAutosave)
-  UDSM-->>Q: QueueReviewCommitResult
+  UDSM-->>Q: ReviewAttemptOutcome
   Q->>Q: session membership / current item advance
+  Q-->>QS: projectionAction / projectionImpactEntry
+  QS->>QS: hot patch or refresh from normalized action
   UDSM-->>B: card / queue change event
   B->>B: incremental grid patch
 ```
@@ -242,6 +248,12 @@ sequenceDiagram
 
 - `QueueItemUnavailableError` 只表示当前卡评分前已消失，继续沿用“清理 stale item -> 下一张”的专用路径，不写 review history，也不套普通补偿
 - 其他 feedback 失败，尤其是 SQL persist 失败，`UnifiedQueueStrategy` 会丢弃刚压入的失败 history，恢复 queue rollback snapshot、session 排除、当前项、计数/cache，并通过 `UnifiedDataSourceManager.restoreCardSnapshotForFailedFeedback()` 用 `suppressAutosave` 恢复评分前 card 内存态；补偿本身不再触发第二次落盘
+
+Review Attempt Kernel 边界：
+
+- `ReviewAttemptKernel` 位于 `src/application/usecases/review`，是一次评分/预览/drill attempt 的应用层深 module；它保持 `ReviewCommitUseCase` 作为 backend-worker / writer-relay authority adapter，不接管 DB 写入，也不把 fallback local schedule write 带回复习路径。
+- kernel 输出统一 `projectionAction`：`patch-applied`、`refresh-required`、`generation-mismatch`、`not-applicable`、`unavailable`。`BaseReviewQueue` 只透传 outcome，`UnifiedQueueStrategy` 只消费 action 做本地 session cache hot patch 或强制刷新，不再独立解析 backend `queueImpact.affectedQueues` 来决定投影后续动作。
+- `ReviewCommitUseCase` 仍负责 runtime policy、backend `review.feedback`、writer relay 与 Arena 批次记录；后续若继续瘦身，应先保持 `ReviewAttemptKernel` Interface 不变，再把旧 usecase 内部收窄成 adapter。
 
 ### 4.3 Progressive / Excerpt / Topic-derived item
 
@@ -913,8 +925,9 @@ UI 层：
 
 当前职责：
 
-- `ReviewCommitUseCase` 是正式复习提交边界：读取当前卡 -> 校验 backend/writer runtime -> 提交 `review.feedback` 给 backend worker 或 writer relay -> 返回 `QueueReviewCommitResult(updatedCard, queueImpact)` -> 记录 SRS Arena 批次。Worker 内部把 `SchedulerRouter.answer()/commit()`、card 行级 upsert、`review_events` 追加与 projection-backed queue 的 `queue_projection_*` delta/counter/generation 写入包进 `SqliteDatabaseService.runTransaction('review.feedback')`；RetrievalPractice / IncrementalLearning 会从当前 `cards` 状态重算 projection，promoted deferred queues 基于既有 projection rows 做 queue-specific delta，最终只触发一次二进制 DB persist。队列只提交 `QueueReviewCommand`，不再自己拼正式 revlog 或补丁式写 due
-- `UnifiedDataSourceManager.commitReview` 负责把已提交的 `updatedCard` 以 `review-commit + suppressAutosave` 镜像回前端 read model，再发卡片/队列事件；队列 reload 之后读取的是 worker 提交后的 due，而不是旧前端投影，也不会触发前端二次持久化
+- `ReviewAttemptKernel` 是 review caller 面向的一次 attempt 边界：接收 `QueueReviewCommand`，调用 backend-authoritative `ReviewCommitUseCase`，并把 `queueImpact` 归一成 `projectionAction + projectionImpactEntry + diagnostics`。它不写 DB，不构造 local scheduler fallback；backend/writer 不可用时沿用显式 unavailable/error。
+- `ReviewCommitUseCase` 是正式复习提交 adapter：读取当前卡 -> 校验 backend/writer runtime -> 提交 `review.feedback` 给 backend worker 或 writer relay -> 返回 `QueueReviewCommitResult(updatedCard, queueImpact)` -> 记录 SRS Arena 批次。Worker 内部把 `SchedulerRouter.answer()/commit()`、card 行级 upsert、`review_events` 追加与 projection-backed queue 的 `queue_projection_*` delta/counter/generation 写入包进 `SqliteDatabaseService.runTransaction('review.feedback')`；RetrievalPractice / IncrementalLearning 会从当前 `cards` 状态重算 projection，promoted deferred queues 基于既有 projection rows 做 queue-specific delta，最终只触发一次二进制 DB persist。队列只提交 `QueueReviewCommand`，不再自己拼正式 revlog 或补丁式写 due
+- `UnifiedDataSourceManager.commitReview` 负责通过 `ReviewAttemptKernel` 提交 attempt，并把已提交的 `updatedCard` 以 `review-commit + suppressAutosave` 镜像回前端 read model，再发卡片/队列事件；队列 reload 之后读取的是 worker 提交后的 due，而不是旧前端投影，也不会触发前端二次持久化
 - `SchedulerRouter` 是薄门面：保留旧 `preview` 兼容入口，负责把 SRS v2 的 `preview -> answer -> commit` 决策流转交给内核；它只持久化调度结果，不拥有正式 revlog。调度与重排写入统一经过 `UnifiedStorageCardUpdateAdapter`，review commit 写入必须携带 `preferIncomingScheduling + schedulingWriteSource='review-commit'`；批量卡片使用 `UnifiedStorageManager.batchUpdateCards()` 更新内存索引，SQL active 时同批 `SqlUnifiedStorageRepository.upsertCards()` 后一次 persist
 - `SrsV2Kernel` 显式建模 `SchedulingChoices / ReviewAttempt / SchedulingDecision / ReviewCommitResult`，并在同一入口处理 `reviewTime + memoryStateAsOf` 的提前复习锚点语义
 - `SrsV2QueuePolicy` 统一 `RetrievalPractice / IncrementalLearning` 的 formal 取卡顺序：Learning/Relearning 到点卡、今日 Review、每日上限内 New；同层按 `due -> priority -> stable noise -> id` 排序。Incremental 的 Topic/Concept/阅读/网页材料继续走 rotation 回访语义

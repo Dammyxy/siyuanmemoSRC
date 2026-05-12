@@ -39,6 +39,16 @@ export interface QueueReviewCommitResult {
   decision?: SchedulingDecision;
   commitResult?: ReviewCommitResult;
   queueImpact?: unknown | null;
+  projectionAction?: QueueReviewProjectionAction | null;
+  projectionImpactEntry?: unknown | null;
+}
+
+export interface QueueReviewProjectionAction {
+  status: 'patch-applied' | 'refresh-required' | 'generation-mismatch' | 'not-applicable' | 'unavailable' | string;
+  queueType: string | null;
+  generation: number | null;
+  policyHash: string | null;
+  reason: string | null;
 }
 
 export interface QueueRuntimePort {

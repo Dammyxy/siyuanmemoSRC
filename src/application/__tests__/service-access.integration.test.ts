@@ -14,6 +14,7 @@ import type { Plugin } from 'siyuan';
 import { CardApplicationService } from '../services/CardApplicationService';
 import { ReviewLogService } from '../services/ReviewLogService';
 import { ReviewCommitUseCase } from '../usecases/review/ReviewCommitUseCase';
+import { ReviewAttemptKernel } from '../usecases/review/ReviewAttemptKernel';
 
 describe('服务访问集成测试', () => {
   let context: ApplicationContext;
@@ -216,11 +217,14 @@ describe('服务访问集成测试', () => {
     it('应该在启动期预接好复习日志服务并懒加载复习提交用例', () => {
       const reviewLogService = context.getReviewLogService();
       const reviewCommitUseCase = context.getReviewCommitUseCase();
+      const reviewAttemptKernel = context.getReviewAttemptKernel();
 
       expect(reviewLogService).toBeInstanceOf(ReviewLogService);
       expect(reviewCommitUseCase).toBeInstanceOf(ReviewCommitUseCase);
+      expect(reviewAttemptKernel).toBeInstanceOf(ReviewAttemptKernel);
       expect(context.isServiceCreated('reviewLogService')).toBe(true);
       expect(context.isServiceCreated('reviewCommitUseCase')).toBe(true);
+      expect(context.isServiceCreated('reviewAttemptKernel')).toBe(true);
     });
   });
 

@@ -138,7 +138,7 @@ interface UnifiedManagerPluginContextLike {
             priorityRandomness?: unknown;
         };
     } | null | undefined;
-    getReviewCommitUseCase?: () => {
+    getReviewAttemptKernel?: () => {
         execute?: (command: QueueReviewCommand) => Promise<QueueReviewCommitResult>;
     } | null | undefined;
     getFrontendInstanceRuntime?: () => {
@@ -435,12 +435,12 @@ export class UnifiedDataSourceManager {
 
     public async commitReview(command: QueueReviewCommand): Promise<QueueReviewCommitResult> {
         const plugin = this.resolvePlugin();
-        const useCase = plugin?.getContext?.()?.getReviewCommitUseCase?.();
-        if (!useCase || typeof useCase.execute !== 'function') {
-            throw new Error('ReviewCommitUseCase not available - plugin initialization failed');
+        const kernel = plugin?.getContext?.()?.getReviewAttemptKernel?.();
+        if (!kernel || typeof kernel.execute !== 'function') {
+            throw new Error('ReviewAttemptKernel not available - plugin initialization failed');
         }
 
-        const result = await useCase.execute(command);
+        const result = await kernel.execute(command);
         if (result.committed && result.updatedCard) {
             await this.updateCard(result.updatedCard, {
                 preferIncomingScheduling: true,

@@ -46,6 +46,7 @@ import { DeleteCardsUseCase } from '@/application/usecases/card/DeleteCardsUseCa
 import { DeleteFSRSCardUseCase } from '@/application/usecases/card/DeleteFSRSCardUseCase';
 import { UpdateCardUseCase } from '@/application/usecases/card/UpdateCardUseCase';
 import { ReviewCommitUseCase } from '@/application/usecases/review/ReviewCommitUseCase';
+import { ReviewAttemptKernel } from '@/application/usecases/review/ReviewAttemptKernel';
 import { CardApplicationService } from '@/application/services/CardApplicationService';
 import { CardReadModel } from '@/infrastructure/queries/CardReadModel';
 import { SqlCardReadModel } from '@/infrastructure/queries/SqlCardReadModel';
@@ -164,6 +165,7 @@ interface ApplicationServiceRegistry {
   reviewQueuePreparationService: ReviewQueuePreparationService;
   reviewLogService: ReviewLogService;
   reviewCommitUseCase: ReviewCommitUseCase;
+  reviewAttemptKernel: ReviewAttemptKernel;
   riffBlacklistService: RiffBlacklistService;
   cardTypeDetectionService: CardTypeDetectionService;
   docTreeReviewScopeService: DocTreeReviewScopeService;
@@ -560,6 +562,12 @@ export class ApplicationContext {
         writerLeaseGuard,
         followerCommandClient: context.followerCommandClient,
         runtimePolicy,
+      });
+    });
+
+    this.registerServiceFactory('reviewAttemptKernel', (context) => {
+      return new ReviewAttemptKernel({
+        reviewCommitter: context.getReviewCommitUseCase(),
       });
     });
     
@@ -2614,6 +2622,10 @@ export class ApplicationContext {
 
   getReviewCommitUseCase(): ReviewCommitUseCase {
     return this.getService('reviewCommitUseCase');
+  }
+
+  getReviewAttemptKernel(): ReviewAttemptKernel {
+    return this.getService('reviewAttemptKernel');
   }
   
   /**

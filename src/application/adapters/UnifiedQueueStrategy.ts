@@ -5,7 +5,7 @@ import {
 } from '@/core/queue/abstraction/Strategy';
 import type { QueueStats, QueueUIConfig } from '@/core/queue/types';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
-import type { DataChangeEvent, IDataSourceObserver, IReviewQueue, QueueCounterSnapshot, QueueReviewResult, QueueReviewSchedulingContext } from '@/types/unified-data-source';
+import type { DataChangeEvent, IDataSourceObserver, IReviewQueue, QueueCounterSnapshot, QueueReviewProjectionAction, QueueReviewResult, QueueReviewSchedulingContext } from '@/types/unified-data-source';
 import type { ReviewQueueSessionSnapshot } from '@/types/review-tab';
 import { QueueType, isDynamicQueueType } from '@/types/unified-data-source';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
@@ -99,6 +99,11 @@ type ProjectionImpactRowLike = {
 
 type NeuralRoamAdvanceManager = UnifiedDataSourceManager & {
     neuralRoamAdvance?: (request: BackendNeuralRoamAdvanceRequest) => Promise<BackendNeuralRoamAdvanceResult>;
+};
+
+type QueueReviewResultWithProjection = QueueReviewResult & {
+    projectionAction?: QueueReviewProjectionAction | null;
+    projectionImpactEntry?: unknown | null;
 };
 
 type NeuralRoamBackendStateSyncQueue = IReviewQueue & {
@@ -1004,7 +1009,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     private async applyProjectionQueueImpactToCache(
         reviewedCard: FSRSCard,
-        result: QueueReviewResult,
+        result: QueueReviewResultWithProjection,
         options: { forceRemove?: boolean } = {}
     ): Promise<ProjectionPatchOutcome> {
         if (shouldReadQueueLocally(this.queue)) {
@@ -1015,11 +1020,25 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return 'not-applicable';
         }
 
-        const entry = this.resolveProjectionImpactEntry(result.queueImpact);
-        if (!entry) {
+        const projectionAction = result.projectionAction ?? null;
+        if (!projectionAction || projectionAction.status === 'not-applicable') {
             return 'not-applicable';
         }
-        if (entry.refreshRequired === true || entry.hotPatchable !== true) {
+        if (
+            projectionAction.status === 'refresh-required'
+            || projectionAction.status === 'generation-mismatch'
+            || projectionAction.status === 'unavailable'
+        ) {
+            return 'refresh-required';
+        }
+        if (projectionAction.status !== 'patch-applied') {
+            return 'not-applicable';
+        }
+
+        const entry = isRecord(result.projectionImpactEntry)
+            ? result.projectionImpactEntry as ProjectionImpactEntryLike
+            : null;
+        if (!entry) {
             return 'refresh-required';
         }
 
@@ -1091,20 +1110,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         this.forwardBuffer = [];
         this.lastCounterSnapshot = this.normalizeProjectionImpactCounterSnapshot(entry, result.counterSnapshot);
         return 'patched';
-    }
-
-    private resolveProjectionImpactEntry(queueImpact: unknown): ProjectionImpactEntryLike | null {
-        if (!isRecord(queueImpact)) {
-            return null;
-        }
-        const affectedQueues = Array.isArray(queueImpact.affectedQueues)
-            ? queueImpact.affectedQueues
-            : [];
-        const entry = affectedQueues.find((candidate) => (
-            isRecord(candidate)
-            && String(candidate.queueType || '') === this.queueType
-        ));
-        return isRecord(entry) ? entry as ProjectionImpactEntryLike : null;
     }
 
     private normalizeProjectionImpactRows(rows: unknown[] | undefined): ProjectionImpactRowLike[] {

@@ -512,6 +512,45 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const frontierCard = createCard({ id: 'card-3', blockId: 'block-3', priority: 30 });
     const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, secondCard], {
       handleReview: async (cardId, _rating, liveCards) => {
+        const projectionImpactEntry = {
+          queueType: QueueType.RetrievalPractice,
+          policyHash: 'policy-a',
+          generation: 2,
+          currentGeneration: 2,
+          requestedGeneration: 1,
+          hotPatchable: true,
+          refreshRequired: false,
+          reason: 'review-feedback',
+          removedRowIds: ['card-1'],
+          insertedRows: [{
+            rowId: 'card-3',
+            cardId: 'card-3',
+            queueIndexHint: 2,
+            sortKey: '000000002:card-3',
+          }],
+          updatedRows: [{
+            rowId: 'card-2',
+            cardId: 'card-2',
+            queueIndexHint: 1,
+            sortKey: '000000001:card-2',
+          }],
+          reorderHints: [],
+          counterGeneration: 2,
+          counters: {
+            version: 2,
+            remaining: 2,
+            due: 2,
+            total: 2,
+            buckets: {
+              all: 2,
+              item: 2,
+              descriptor: 0,
+              topic: 0,
+              concept: 0,
+            },
+            source: 'reconciled',
+          },
+        };
         const removedIndex = liveCards.findIndex((card) => card.id === cardId);
         if (removedIndex >= 0) {
           liveCards.splice(removedIndex, 1);
@@ -528,46 +567,16 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
           queueImpact: {
             hotPatchable: true,
             refreshRequired: false,
-            affectedQueues: [{
-              queueType: QueueType.RetrievalPractice,
-              policyHash: 'policy-a',
-              generation: 2,
-              currentGeneration: 2,
-              requestedGeneration: 1,
-              hotPatchable: true,
-              refreshRequired: false,
-              reason: 'review-feedback',
-              removedRowIds: ['card-1'],
-              insertedRows: [{
-                rowId: 'card-3',
-                cardId: 'card-3',
-                queueIndexHint: 2,
-                sortKey: '000000002:card-3',
-              }],
-              updatedRows: [{
-                rowId: 'card-2',
-                cardId: 'card-2',
-                queueIndexHint: 1,
-                sortKey: '000000001:card-2',
-              }],
-              reorderHints: [],
-              counterGeneration: 2,
-              counters: {
-                version: 2,
-                remaining: 2,
-                due: 2,
-                total: 2,
-                buckets: {
-                  all: 2,
-                  item: 2,
-                  descriptor: 0,
-                  topic: 0,
-                  concept: 0,
-                },
-                source: 'reconciled',
-              },
-            }],
+            affectedQueues: [projectionImpactEntry],
           },
+          projectionAction: {
+            status: 'patch-applied',
+            queueType: QueueType.RetrievalPractice,
+            generation: 2,
+            policyHash: 'policy-a',
+            reason: 'review-feedback',
+          },
+          projectionImpactEntry,
         } as Partial<QueueReviewResult>;
       },
       createRollbackSnapshot: async () => ({ ok: true }),
@@ -620,6 +629,40 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const secondCard = createCard({ id: 'leech-card-2', blockId: 'leech-block-2', priority: 20 });
     const queue = createQueueStub(QueueType.Leech, [firstCard, secondCard], {
       handleReview: async (cardId, _rating, liveCards) => {
+        const projectionImpactEntry = {
+          queueType: QueueType.Leech,
+          policyHash: 'policy-leech',
+          generation: 2,
+          currentGeneration: 2,
+          requestedGeneration: 1,
+          hotPatchable: true,
+          refreshRequired: false,
+          reason: 'review-feedback',
+          removedRowIds: ['leech-card-1'],
+          insertedRows: [],
+          updatedRows: [{
+            rowId: 'leech-card-2',
+            cardId: 'leech-card-2',
+            queueIndexHint: 1,
+            sortKey: '000000001:leech-card-2',
+          }],
+          reorderHints: [],
+          counterGeneration: 2,
+          counters: {
+            version: 2,
+            remaining: 1,
+            due: 1,
+            total: 1,
+            buckets: {
+              all: 1,
+              item: 1,
+              descriptor: 0,
+              topic: 0,
+              concept: 0,
+            },
+            source: 'reconciled',
+          },
+        };
         const removedIndex = liveCards.findIndex((card) => card.id === cardId);
         if (removedIndex >= 0) {
           liveCards.splice(removedIndex, 1);
@@ -633,41 +676,16 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
           queueImpact: {
             hotPatchable: true,
             refreshRequired: false,
-            affectedQueues: [{
-              queueType: QueueType.Leech,
-              policyHash: 'policy-leech',
-              generation: 2,
-              currentGeneration: 2,
-              requestedGeneration: 1,
-              hotPatchable: true,
-              refreshRequired: false,
-              reason: 'review-feedback',
-              removedRowIds: ['leech-card-1'],
-              insertedRows: [],
-              updatedRows: [{
-                rowId: 'leech-card-2',
-                cardId: 'leech-card-2',
-                queueIndexHint: 1,
-                sortKey: '000000001:leech-card-2',
-              }],
-              reorderHints: [],
-              counterGeneration: 2,
-              counters: {
-                version: 2,
-                remaining: 1,
-                due: 1,
-                total: 1,
-                buckets: {
-                  all: 1,
-                  item: 1,
-                  descriptor: 0,
-                  topic: 0,
-                  concept: 0,
-                },
-                source: 'reconciled',
-              },
-            }],
+            affectedQueues: [projectionImpactEntry],
           },
+          projectionAction: {
+            status: 'patch-applied',
+            queueType: QueueType.Leech,
+            generation: 2,
+            policyHash: 'policy-leech',
+            reason: 'review-feedback',
+          },
+          projectionImpactEntry,
         } as Partial<QueueReviewResult>;
       },
       createRollbackSnapshot: async () => ({ ok: true }),
@@ -737,6 +755,21 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const secondCard = createCard({ id: 'card-refresh-2', xiuyuanID: 'xy-refresh-2', blockId: 'block-refresh-2', priority: 20 });
     const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard], {
       handleReview: async (cardId, _rating, liveCards) => {
+        const projectionImpactEntry = {
+          queueType: QueueType.RetrievalPractice,
+          policyHash: 'policy-a',
+          generation: 3,
+          currentGeneration: 3,
+          requestedGeneration: 2,
+          hotPatchable: false,
+          refreshRequired: true,
+          reason: 'generation-mismatch',
+          removedRowIds: [],
+          insertedRows: [],
+          updatedRows: [],
+          reorderHints: [],
+          counterGeneration: 3,
+        };
         const removedIndex = liveCards.findIndex((card) => card.id === cardId);
         if (removedIndex >= 0) {
           liveCards.splice(removedIndex, 1);
@@ -751,22 +784,16 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
           queueImpact: {
             hotPatchable: false,
             refreshRequired: true,
-            affectedQueues: [{
-              queueType: QueueType.RetrievalPractice,
-              policyHash: 'policy-a',
-              generation: 3,
-              currentGeneration: 3,
-              requestedGeneration: 2,
-              hotPatchable: false,
-              refreshRequired: true,
-              reason: 'generation-mismatch',
-              removedRowIds: [],
-              insertedRows: [],
-              updatedRows: [],
-              reorderHints: [],
-              counterGeneration: 3,
-            }],
+            affectedQueues: [projectionImpactEntry],
           },
+          projectionAction: {
+            status: 'generation-mismatch',
+            queueType: QueueType.RetrievalPractice,
+            generation: 3,
+            policyHash: 'policy-a',
+            reason: 'generation-mismatch',
+          },
+          projectionImpactEntry,
         } as Partial<QueueReviewResult>;
       },
       createRollbackSnapshot: async () => ({ ok: true }),
