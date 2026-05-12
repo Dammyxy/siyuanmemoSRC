@@ -156,6 +156,10 @@ export class WorkerNeuralRoamAdvanceService {
         }
       }
 
+      if (request.feedback?.action === 'rate' || request.feedback?.action === 'skip') {
+        await this.ensureVirtualCurrentItemSession(queue, request.currentItem);
+      }
+
       const nextItem = await this.readNextItem(queue);
       return this.rememberIdempotentResult(idempotencyKey, await this.buildResult(request, queue, nextItem ? 'advanced' : 'exhausted', {
         nextItem,
@@ -328,6 +332,36 @@ export class WorkerNeuralRoamAdvanceService {
       return null;
     }
     return this.toAdvanceItem(card);
+  }
+
+  private async ensureVirtualCurrentItemSession(
+    queue: NeuralRoamQueue,
+    item: BackendNeuralRoamItem | Record<string, unknown> | null | undefined,
+  ): Promise<void> {
+    if (!item || isAssociatedReviewItem(item)) {
+      return;
+    }
+
+    const blockId = normalizeString(item.blockId)
+      || normalizeString(item.cardId)
+      || normalizeString(item.id);
+    if (!blockId) {
+      return;
+    }
+
+    if (queue.getSourceSnapshot().length === 0) {
+      return;
+    }
+
+    const navigation = queue.getNavigationState();
+    if (normalizeString(navigation.currentNodeId) === blockId) {
+      return;
+    }
+
+    await queue.startRoamingFromFocus(blockId, {
+      includeFocusAsFirst: true,
+      resetHistory: false,
+    });
   }
 
   private toAdvanceItem(card: FSRSCard): BackendNeuralRoamItem {

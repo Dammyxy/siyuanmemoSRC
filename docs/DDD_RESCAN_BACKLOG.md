@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-12 (Round 330)
+Last update: 2026-05-12 (Round 331)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-12 - NeuralRoam virtual current session repair
+
+- Task: 诊断并修复真实 SiYuan 中神经漫游有概念卡，但点击下一张后显示“没有到期卡片”的问题。
+- Touched slice: NeuralRoam backend advance path in `worker/bootstrap/WorkerNeuralRoamAdvanceService.ts` and focused worker coverage in `worker/__tests__/BackendKernel.test.ts`.
+- Debt fixed now: `neural-roam.advance` 现在会在 rate/skip virtual current item 时用请求里的可见节点修复丢失的 backend hyperspace current session，再读取下一张；associated-review 仍只走正式 SRS feedback，不被误当成 virtual 节点重启漫游。
+- Debt deferred: Review 空态文案仍复用通用“没有到期卡片”，没有按 NeuralRoam virtual exhausted/不可用场景拆成更精确提示；真实 SiYuan 插件目录还未从本 worktree 重建部署后做二次 live smoke。
+- Why deferred: 本轮根因在 worker 队列 session 状态丢失，不在 UI 文案；live smoke 需要先把当前 worktree 构建产物部署到正在运行的 SiYuan 插件目录，不能把旧插件实例当成修复后验证。
+- Next safe step: 部署本 worktree 的构建产物到 `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo` 后，用 Playwright 再跑一次概念卡 -> 下一张 smoke，并单独评估 NeuralRoam 空态文案。
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "continues neural-roam from request current virtual item"`; `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "neural-roam"`; `pnpm vitest run src/core/queue/neural/hyperspace/__tests__/HyperspaceEngine.test.ts src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`; boundary/build validation recorded in the task response.
 
 ### 2026-05-12 - NeuralRoam stale backend history clear guard
 

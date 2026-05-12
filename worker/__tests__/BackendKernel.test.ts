@@ -1097,6 +1097,117 @@ describe('BackendKernel', () => {
     }));
   });
 
+  it('continues neural-roam from request current virtual item when persisted session lost current path', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await seedNeuralRoamHyperspaceSource(database, 'neural-source-1');
+    const resolveNeuralGraphQuery = vi.fn(async (
+      request: BackendNeuralGraphQueryRequest,
+    ): Promise<BackendNeuralGraphQueryResult> => {
+      if (request.operation === 'fetchBlockData') {
+        return {
+          status: 'found',
+          blockId: request.blockId,
+          data: {
+            id: request.blockId,
+            content: request.blockId === 'neural-source-1' ? 'Neural source content' : 'Neighbor content',
+            type: 'p',
+            root_id: 'doc-neural',
+          },
+          error: null,
+        };
+      }
+      if (request.operation === 'isConceptCard') {
+        return {
+          status: 'found',
+          blockId: request.blockId,
+          data: request.blockId === 'neural-source-1',
+          error: null,
+        };
+      }
+      if (request.operation === 'fetchNodePriority') {
+        return {
+          status: 'found',
+          blockId: request.blockId,
+          data: request.blockId === 'neural-neighbor-1' ? 0.7 : 0.9,
+          error: null,
+        };
+      }
+      if (request.operation === 'fetchHyperspaceEdges') {
+        return {
+          status: 'found',
+          blockId: request.blockId,
+          data: request.blockId === 'neural-source-1'
+            ? [{
+              nodeId: 'neural-neighbor-1',
+              associationType: 'concept-link',
+              weight: 12,
+              channel: 'concept-map',
+              origin: 'backlink',
+              distance: 1,
+              sourcePriority: 0.9,
+              targetPriority: 0.7,
+              rootId: 'doc-neural',
+            }]
+            : [],
+          error: null,
+        };
+      }
+      return { status: 'found', blockId: request.blockId, data: [], error: null };
+    });
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery,
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-current-virtual-repair',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: null,
+        currentItem: {
+          id: 'neural-source-1',
+          cardId: 'neural-source-1',
+          blockId: 'neural-source-1',
+          sourceKind: 'virtual',
+        },
+        feedback: {
+          action: 'rate',
+          rating: 3,
+        },
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        status: 'advanced',
+        nextItem: {
+          blockId: 'neural-neighbor-1',
+          sourceKind: 'virtual',
+        },
+        sessionState: {
+          engineMode: 'hyperspace',
+          currentNodeId: 'neural-neighbor-1',
+          exhausted: false,
+        },
+      });
+      expect(response.result.queueState).toMatchObject({
+        hyperspace: {
+          session: expect.objectContaining({
+            history: expect.arrayContaining([
+              expect.objectContaining({ nodeId: 'neural-source-1' }),
+              expect.objectContaining({ nodeId: 'neural-neighbor-1' }),
+            ]),
+          }),
+        },
+      });
+    }
+  });
+
   it('returns exhausted neural-roam advance when backend session has no graph item', async () => {
     const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
     const kernel = new BackendKernel({
