@@ -37,7 +37,7 @@ export const TOPBAR_QUICK_ENTRY_DEFINITIONS: TopBarQuickEntryDefinition[] = [
     commandLangKey: 'startIncrementalLearning',
     fallbackLabel: '开始渐进学习',
     slashId: 'siyuanmemo-topbar-start-incremental-learning',
-    slashFilters: ['siyuanmemo', 'start incremental', 'incremental learning', '开始渐进学习', '渐进学习'],
+    slashFilters: ['siyuanmemo', 'start incremental', 'start incremental learning', '开始渐进学习'],
     requiresDocContext: false,
   },
   {

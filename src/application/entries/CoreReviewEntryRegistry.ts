@@ -45,7 +45,7 @@ export const CORE_REVIEW_ENTRY_DEFINITIONS: CoreReviewEntryDefinition[] = [
     commandLangKey: 'coreReviewIncrementalAll',
     fallbackLabel: 'SiYuanMemo: 渐进学习 - 全部',
     slashId: 'siyuanmemo-core-review-incremental-all',
-    slashFilters: ['siyuanmemo', 'incremental all', '渐进 全部'],
+    slashFilters: ['siyuanmemo', 'incremental all', 'incremental learning', '渐进学习', '渐进复习', '渐进 全部'],
   },
   {
     id: 'temporary-drill',

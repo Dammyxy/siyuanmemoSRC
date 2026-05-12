@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-12 (Round 332)
+Last update: 2026-05-13 (Round 333)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-13 - Incremental scoped entry keyword repair
+
+- Task: 修复块内/文档树范围复习中“渐进学习/渐进复习”可能打开全局渐进学习入口的问题，并确认文档树右键文档块的复习范围语义。
+- Touched slice: Review entry routing / BlockMenu doc-tree scope；`src/application/entries/{TopBarQuickEntryRegistry,CoreReviewEntryRegistry}.ts`、`src/application/entries/__tests__/TopBarQuickEntryRegistry.test.ts`、`src/application/managers/__tests__/BlockMenuHandler.core-review-entry.test.ts`。
+- Debt fixed now: 裸 `渐进学习` / `渐进复习` slash keywords 不再解析到全局 topbar “开始渐进学习”；它们现在指向 scoped core `incremental-all` 入口。全局 topbar 渐进学习仍可通过显式 “开始渐进学习” / `start incremental learning` 触发。新增文档树回归测试，覆盖 incremental due/all 会透传 exact `cardIds`、`preferredCardId` 和递归 `scopeDocIds`。
+- Debt deferred: 未改现有菜单标签；本轮未做真实 SiYuan UI 点击 smoke。
+- Why deferred: 实际右键菜单路径已经走 scoped exact card scope；本轮问题源于编辑器命令关键词歧义。真实 UI smoke 需要运行中的 SiYuan 插件实例刷新到本 worktree 构建产物后再测。
+- Next safe step: 在真实 SiYuan 中分别验证两个入口：文档树右键文档 -> 练习 -> 渐进学习；块内输入/选择 `渐进学习`，确认都打开当前块/当前文档递归范围。
+- Validation: `pnpm exec vitest run src/application/entries/__tests__/TopBarQuickEntryRegistry.test.ts src/application/entries/__tests__/CoreReviewEntryService.test.ts src/application/managers/__tests__/BlockMenuHandler.core-review-entry.test.ts src/application/managers/__tests__/DialogManager.review-header-variant.test.ts src/application/adapters/__tests__/UnifiedQueueStrategy.static-subset-projection.spec.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-12 - Static scoped review projection opt-out
 

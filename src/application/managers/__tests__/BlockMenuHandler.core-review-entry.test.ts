@@ -287,6 +287,58 @@ describe('BlockMenuHandler core review entry integration', () => {
     });
   });
 
+  it('opens doc tree incremental review from the current doc and child docs exact scope', async () => {
+    const dayEnd = getCurrentDayEnd(4);
+    const scopeCards: FSRSCard[] = [
+      { id: 'root-item', blockId: 'root-block', type: 'item', due: dayEnd - 1, meta: { rootId: 'doc-1' } } as FSRSCard,
+      { id: 'child-topic', blockId: 'child-topic-block', type: 'topic', due: dayEnd - 1, meta: { rootId: 'doc-1-child' } } as FSRSCard,
+      { id: 'future-item', blockId: 'future-block', type: 'item', due: dayEnd + 1, meta: { rootId: 'doc-1-child' } } as FSRSCard,
+    ];
+    const { handler, dialogManager } = createFixture({}, {
+      docScope: {
+        cards: scopeCards,
+        docIds: ['doc-1', 'doc-1-child'],
+      },
+      hasDoc: true,
+    });
+
+    const menu = { addItem: vi.fn() };
+    const element = document.createElement('div');
+    element.setAttribute('data-node-id', 'doc-1');
+
+    handler.handleDocTreeMenu({
+      detail: {
+        menu,
+        elements: [element],
+      },
+    });
+
+    const submenu = menu.addItem.mock.calls[0][0].submenu as Array<{
+      label?: string;
+      submenu?: Array<{ label?: string; click?: () => Promise<void> }>;
+    }>;
+    const practiceGroup = findMenuGroup(submenu, '练习');
+    const practiceItems = practiceGroup?.submenu || [];
+
+    await practiceItems[3]?.click?.();
+    expect(dialogManager.openIncrementalLearningWithFilter).toHaveBeenLastCalledWith({
+      blockIds: ['root-block', 'child-topic-block'],
+      cardIds: ['root-item', 'child-topic'],
+      preferredCardId: 'root-item',
+      scopeDocIds: ['doc-1', 'doc-1-child'],
+      dueOnly: true,
+    });
+
+    await practiceItems[4]?.click?.();
+    expect(dialogManager.openIncrementalLearningWithFilter).toHaveBeenLastCalledWith({
+      blockIds: ['root-block', 'child-topic-block', 'future-block'],
+      cardIds: ['root-item', 'child-topic', 'future-item'],
+      preferredCardId: 'root-item',
+      scopeDocIds: ['doc-1', 'doc-1-child'],
+      dueOnly: false,
+    });
+  });
+
   it('aligns doc tree retrieval counts with the actual retrieval filter queue', async () => {
     const dayEnd = getCurrentDayEnd(4);
     const scopeCards: FSRSCard[] = [

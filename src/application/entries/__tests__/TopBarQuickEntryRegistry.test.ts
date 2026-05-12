@@ -3,6 +3,9 @@ import {
   TOPBAR_QUICK_ENTRY_DEFINITIONS,
   getTopBarQuickEntryDefinition,
 } from '@/application/entries/TopBarQuickEntryRegistry';
+import {
+  getCoreReviewEntryDefinition,
+} from '@/application/entries/CoreReviewEntryRegistry';
 
 describe('TopBarQuickEntryRegistry', () => {
   it('keeps top bar quick action order aligned with top bar menu', () => {
@@ -27,5 +30,19 @@ describe('TopBarQuickEntryRegistry', () => {
 
     expect(cancel?.slashId).toBe('siyuanmemo-one-click-cancel-cards');
     expect(cancel?.requiresDocContext).toBe(true);
+  });
+
+  it('keeps bare incremental slash keywords on the scoped core review entry', () => {
+    const globalIncremental = getTopBarQuickEntryDefinition('start-incremental-learning');
+    const scopedIncrementalAll = getCoreReviewEntryDefinition('incremental-all');
+
+    expect(globalIncremental?.slashFilters).toContain('开始渐进学习');
+    expect(globalIncremental?.slashFilters).not.toContain('渐进学习');
+    expect(globalIncremental?.slashFilters).not.toContain('渐进复习');
+    expect(scopedIncrementalAll?.slashFilters).toEqual(expect.arrayContaining([
+      '渐进学习',
+      '渐进复习',
+      'incremental learning',
+    ]));
   });
 });
