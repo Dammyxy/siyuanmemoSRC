@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-12 (Round 331)
+Last update: 2026-05-12 (Round 332)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-12 - Static scoped review projection opt-out
+
+- Task: 修复块菜单/文档菜单/浏览器选中/Image Occlusion 等静态范围复习入口在 FilterGroup backend projection 启用后打开成全局复习的问题。
+- Touched slice: Review / Queue scoped review runtime；`src/types/unified-data-source.ts`、`src/core/queue/domain/{OrderedStaticSubsetQueueBase,BaseReviewQueue,queueProjectionReadPolicy.ts}`、`src/application/adapters/UnifiedQueueStrategy.ts`、`src/application/adapters/__tests__/UnifiedQueueStrategy.static-subset-projection.spec.ts`。
+- Debt fixed now: `SubsetReviewQueue` 和 `TemporaryDrillQueue` 通过队列实例能力声明 `local-queue` 投影读取策略；`BaseReviewQueue` 与 `UnifiedQueueStrategy` 在读取 projection snapshot、hydration rows、projection-backed reload 和 queueImpact 热补丁前都尊重该实例策略。这样静态 scoped review 即使 `QueueType.FilterGroup` 或 `QueueType.FinalDrill` 的全局 rollout 是 backend-projection，也只读取打开时圈定的 exact card scope；正式评分仍走 `commitReview`，评分后当前 scoped session 按本地 review result 移除已完成卡片。
+- Debt deferred: 没有为静态 scoped review 增加 backend session projection 或新的 public `QueueType`；UI 标题/空态文案也未改。
+- Why deferred: 用户决策要求保留现有 QueueType，并以队列实例能力覆盖全局投影 rollout；静态范围复习是打开时冻结的 exact subset，会话级 backend projection 属于更大迁移设计，不应在本 bugfix 中引入双路径。
+- Next safe step: 若后续要让静态范围复习也具备 backend session projection，应单独设计 session identity、exact-card snapshot、评分后移除语义和 writer/follower 不可用契约。
+- Validation: `pnpm exec vitest run src/application/adapters/__tests__/UnifiedQueueStrategy.static-subset-projection.spec.ts`; `pnpm exec vitest run src/application/adapters/__tests__/UnifiedQueueStrategy.static-subset-projection.spec.ts src/core/queue/domain/__tests__/SubsetReviewQueue.preferred-card.test.ts src/core/queue/domain/__tests__/BaseReviewQueue.snapshot.test.ts src/application/managers/__tests__/DialogManager.review-header-variant.test.ts src/ui/review/v2/__tests__/ReviewView.open-as-menu.spec.ts src/application/handlers/__tests__/ImageOcclusionHandler.review-entry.test.ts src/application/managers/__tests__/BlockMenuHandler.core-review-entry.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-12 - NeuralRoam virtual current session repair
 

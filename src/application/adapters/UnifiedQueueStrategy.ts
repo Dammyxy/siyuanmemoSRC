@@ -11,6 +11,7 @@ import { QueueType, isDynamicQueueType } from '@/types/unified-data-source';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import { isHideCurrentInScopeCommandId } from '@/core/queue/abstraction/customActionIds';
+import { shouldReadQueueLocally } from '@/core/queue/domain/queueProjectionReadPolicy';
 import { formatNextDue } from '@/application/helpers/formatNextDue';
 import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
 import { CacheManagerObserver } from '../observers/CacheManagerObserver';
@@ -967,6 +968,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         result: QueueReviewResult,
         options: { forceRemove?: boolean } = {}
     ): Promise<ProjectionPatchOutcome> {
+        if (shouldReadQueueLocally(this.queue)) {
+            return 'not-applicable';
+        }
+
         if (!this.cacheValid) {
             return 'not-applicable';
         }
@@ -1176,6 +1181,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private isProjectionBackedQueue(): boolean {
+        if (shouldReadQueueLocally(this.queue)) {
+            return false;
+        }
+
         const manager = this.manager as unknown as {
             getQueueProjectionRolloutDiagnostics?: (queueType?: QueueType) => unknown[];
         };

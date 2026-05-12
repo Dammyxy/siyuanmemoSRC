@@ -121,6 +121,7 @@ export type QueueProjectionRolloutState =
     | 'backend-projection'
     | 'projection-unavailable';
 export type QueueProjectionReadPath = 'backend-projection' | 'backend-advance' | 'existing-queue-strategy';
+export type QueueProjectionReadMode = 'backend-projection' | 'local-queue';
 export type QueueProjectionRolloutReason =
     | 'rollout-enabled'
     | 'advance-backed'
@@ -844,6 +845,14 @@ export interface IReviewQueue {
      * 只能在快照副本上做 view-only 排序。
      */
     getSnapshotRows(forceRefresh?: boolean): Promise<QueueSnapshotRow[]>;
+
+    /**
+     * Queue-specific projection read policy.
+     *
+     * `backend-projection` keeps the queue on backend-owned projection reads.
+     * `local-queue` forces the queue to read its own live cards instead.
+     */
+    getProjectionReadMode?(): QueueProjectionReadMode;
 
     /**
      * 按 snapshot row id 定位并返回对应的 FSRS 卡片。

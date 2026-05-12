@@ -1,4 +1,4 @@
-import type { QueueType } from '../../../types/unified-data-source';
+import type { QueueProjectionReadMode, QueueType } from '../../../types/unified-data-source';
 import type { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -38,6 +38,10 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
 
   public isDynamic(): boolean {
     return false;
+  }
+
+  public getProjectionReadMode(): QueueProjectionReadMode {
+    return 'local-queue';
   }
 
   public async getCards(): Promise<FSRSCard[]> {

@@ -34,6 +34,7 @@ import { formatUnknownDependencyError } from '../dependencyErrors';
 import { normalizeToFSRSCard, resolveCardId, validateQueueReturnType } from '../../../diagnostics/type-guards';
 import { PriorityQueueService, type QueueOrderingMode } from './PriorityQueueService';
 import { buildQueueSnapshotRow } from './queueCardProjection';
+import { shouldReadQueueLocally } from './queueProjectionReadPolicy';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('BaseReviewQueue');
@@ -412,6 +413,9 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     }
 
     private isProjectionReadRequired(): boolean {
+        if (shouldReadQueueLocally(this)) {
+            return false;
+        }
         const diagnostic = this.getProjectionRolloutDiagnostic();
         return diagnostic?.readPath === 'backend-projection';
     }
@@ -465,6 +469,10 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     }
 
     private async readProjectionSnapshot(forceRefresh = false): Promise<QueueProjectionSnapshot | null> {
+        if (shouldReadQueueLocally(this)) {
+            return null;
+        }
+
         const reader = this.manager.readQueueProjectionSnapshot;
         if (typeof reader !== 'function') {
             return null;
@@ -502,6 +510,10 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     }
 
     private async getProjectionCardsBySnapshotIds(ids: string[], forceRefresh = false): Promise<FSRSCard[]> {
+        if (shouldReadQueueLocally(this)) {
+            return [];
+        }
+
         if (!this.projectionSnapshotTrusted) {
             return [];
         }
