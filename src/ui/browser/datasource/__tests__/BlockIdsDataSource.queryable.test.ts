@@ -93,6 +93,37 @@ describe('BlockIdsDataSource queryable path', () => {
     expect(loadBrowserCardsByBlockIdsMock).toHaveBeenCalledWith(['block-b', 'block-c'], { applyQueryFilter: false });
   });
 
+  it('preserves multiple cards that share the same blockId during page hydration', async () => {
+    const rows = [
+      makeProjection('card-a', 'same-block', { fsrsCardId: 'fsrs-a' }),
+      makeProjection('card-b', 'same-block', { fsrsCardId: 'fsrs-b' }),
+      makeProjection('card-c', 'same-block', { fsrsCardId: 'fsrs-c' }),
+    ];
+    loadBrowserCardProjectionsByBlockIdsMock.mockResolvedValue(rows);
+    loadBrowserCardsByBlockIdsMock.mockResolvedValue(rows);
+
+    const dataSource = new BlockIdsDataSource({
+      id: 'neural-roam',
+      label: 'Neural Roam',
+      blockIds: ['same-block'],
+      queueId: 'neural-roam',
+    });
+
+    const result = await dataSource.fetchRows({
+      startRow: 0,
+      endRow: 3,
+      sortModel: [],
+      filterModel: {},
+    });
+
+    expect(result.totalCount).toBe(3);
+    expect(result.rows.map((row) => row.fsrsCardId)).toEqual(['fsrs-a', 'fsrs-b', 'fsrs-c']);
+    expect(loadBrowserCardsByBlockIdsMock).toHaveBeenCalledWith(
+      ['same-block'],
+      { applyQueryFilter: false },
+    );
+  });
+
   it('getAllMatchedIds and getActionTargetsByIds reuse lite rows without hydrating cards', async () => {
     loadBrowserCardProjectionsByBlockIdsMock.mockResolvedValue([
       makeProjection('card-a', 'block-a', { priority: 12 }),

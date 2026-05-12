@@ -203,6 +203,40 @@ function toUniqueBlockIds(blockIds: string[]): string[] {
     return Array.from(new Set((blockIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
 }
 
+function groupBrowserCardsByBlockId(cards: BrowserCard[]): Map<string, BrowserCard[]> {
+    const blockIdMap = new Map<string, BrowserCard[]>();
+    for (const card of cards) {
+        const blockId = String(card?.blockId || '').trim();
+        if (!blockId) {
+            continue;
+        }
+        const group = blockIdMap.get(blockId);
+        if (group) {
+            group.push(card);
+        } else {
+            blockIdMap.set(blockId, [card]);
+        }
+    }
+    return blockIdMap;
+}
+
+function groupFsrsCardsByBlockId(cards: FSRSCard[], targetBlockIds: Set<string>): Map<string, FSRSCard[]> {
+    const blockIdMap = new Map<string, FSRSCard[]>();
+    for (const card of cards) {
+        const blockId = String(card?.blockId || '').trim();
+        if (!targetBlockIds.has(blockId)) {
+            continue;
+        }
+        const group = blockIdMap.get(blockId);
+        if (group) {
+            group.push(card);
+        } else {
+            blockIdMap.set(blockId, [card]);
+        }
+    }
+    return blockIdMap;
+}
+
 async function loadFsrsCardsByBlockIds(
     blockIds: string[],
     manager: Pick<UnifiedDataSourceManager, 'getCards'>
@@ -267,7 +301,7 @@ interface CacheEntry {
     cards: BrowserCard[];
     timestamp: number;
     blockIdSet: Set<string>;
-    blockIdMap: Map<string, BrowserCard>;
+    blockIdMap: Map<string, BrowserCard[]>;
     isComplete: boolean;
 }
 
@@ -299,7 +333,7 @@ class CardCacheManager {
             return result;
         }
         for (const blockId of blockIds) {
-            const card = this.cache.blockIdMap.get(blockId);
+            const card = this.cache.blockIdMap.get(blockId)?.[0];
             if (card) {
                 result.set(blockId, card);
             }
@@ -307,13 +341,22 @@ class CardCacheManager {
         return result;
     }
 
-    set(cards: BrowserCard[], isComplete = true): void {
-        const blockIdMap = new Map<string, BrowserCard>();
-        for (const card of cards) {
-            if (card?.blockId) {
-                blockIdMap.set(card.blockId, card);
+    getGroupsByBlockIds(blockIds: string[]): Map<string, BrowserCard[]> {
+        const result = new Map<string, BrowserCard[]>();
+        if (!this.cache || !this.isCacheValid()) {
+            return result;
+        }
+        for (const blockId of blockIds) {
+            const cards = this.cache.blockIdMap.get(blockId);
+            if (cards && cards.length > 0) {
+                result.set(blockId, [...cards]);
             }
         }
+        return result;
+    }
+
+    set(cards: BrowserCard[], isComplete = true): void {
+        const blockIdMap = groupBrowserCardsByBlockId(cards);
         this.cache = {
             cards,
             timestamp: Date.now(),
@@ -333,9 +376,11 @@ class CardCacheManager {
     updateCard(blockId: string, updates: Partial<BrowserCard>): void {
         if (!this.cache) return;
         
-        const card = this.cache.blockIdMap.get(blockId);
-        if (card) {
-            Object.assign(card, updates);
+        const cards = this.cache.blockIdMap.get(blockId);
+        if (cards && cards.length > 0) {
+            for (const card of cards) {
+                Object.assign(card, updates);
+            }
             this.cache.timestamp = Date.now();
         }
     }
@@ -349,7 +394,7 @@ class CardCacheManager {
         const blockIdSet = new Set(blockIds);
         this.cache.cards = this.cache.cards.filter(c => !blockIdSet.has(c.blockId));
         this.cache.blockIdSet = new Set(this.cache.cards.map(c => c.blockId));
-        this.cache.blockIdMap = new Map(this.cache.cards.map(c => [c.blockId, c]));
+        this.cache.blockIdMap = groupBrowserCardsByBlockId(this.cache.cards);
         this.cache.timestamp = Date.now();
     }
 
@@ -1136,18 +1181,14 @@ async function buildBrowserCardsByBlockIds(
     try {
         const cachedCards = cardCache.get();
         if (cachedCards) {
-            const cachedByBlockId = cardCache.getByBlockIds(ids);
+            const cachedByBlockId = cardCache.getGroupsByBlockIds(ids);
             if (cachedByBlockId.size === ids.length) {
-                let cards = ids
-                    .map((id) => cachedByBlockId.get(id))
-                    .filter(Boolean) as BrowserCard[];
+                let cards = ids.flatMap((id) => cachedByBlockId.get(id) ?? []);
 
                 if (normalizedQueryText) {
                     cards = applyParsedQuery(cards, parseQuery(normalizedQueryText));
                 }
-
-                const byBlockId = new Map(cards.map((card) => [card.blockId, card]));
-                return ids.map((id) => byBlockId.get(id)).filter(Boolean) as BrowserCard[];
+                return cards;
             }
         }
 
@@ -1158,15 +1199,15 @@ async function buildBrowserCardsByBlockIds(
         }
         const attrKeys = getAttrKeys(siyuanApi);
         const scopedCards = await loadFsrsCardsByBlockIds(ids, manager);
-        const cardMap = new Map(scopedCards.map((card) => [card.blockId, card]));
+        const cardMap = groupFsrsCardsByBlockId(scopedCards, new Set(ids));
         const { attrsMap, rootIdMap, tagsMap, contentMap } = await fetchBlockInfoBatched(ids, siyuanApi);
         const parsed = normalizedQueryText ? parseQuery(normalizedQueryText) : null;
         const cards: BrowserCard[] = [];
 
         for (const id of ids) {
-            const card = cardMap.get(id);
+            const blockCards = cardMap.get(id) ?? [];
 
-            if (!card) {
+            if (blockCards.length === 0) {
                 const customAttrs = attrsMap.get(id) || {};
                 const parsedPriority = Number(customAttrs[attrKeys.priority]);
                 const dbContent = contentMap.get(id) || '';
@@ -1210,20 +1251,22 @@ async function buildBrowserCardsByBlockIds(
                 continue;
             }
 
-            const customAttrs = attrsMap.get(card.blockId) || {};
-            const browserCard = transformFSRSCard(card, customAttrs, attrKeys);
-            browserCard.rootId = rootIdMap.get(card.blockId) || browserCard.rootId || '';
-            browserCard.tags = tagsMap.get(card.blockId) || [];
+            for (const card of blockCards) {
+                const customAttrs = attrsMap.get(card.blockId) || {};
+                const browserCard = transformFSRSCard(card, customAttrs, attrKeys);
+                browserCard.rootId = rootIdMap.get(card.blockId) || browserCard.rootId || '';
+                browserCard.tags = tagsMap.get(card.blockId) || [];
 
-            const currentContent = (browserCard.fullContent || '').replace(/[\s\u200B]/g, '');
-            const dbContent = contentMap.get(card.blockId);
-            if (!currentContent && dbContent) {
-                browserCard.fullContent = dbContent;
-                browserCard.content = truncateContent(dbContent, 100);
-            }
+                const currentContent = (browserCard.fullContent || '').replace(/[\s\u200B]/g, '');
+                const dbContent = contentMap.get(card.blockId);
+                if (!currentContent && dbContent) {
+                    browserCard.fullContent = dbContent;
+                    browserCard.content = truncateContent(dbContent, 100);
+                }
 
-            if (!parsed || matchesParsedQuery(browserCard, parsed)) {
-                cards.push(browserCard);
+                if (!parsed || matchesParsedQuery(browserCard, parsed)) {
+                    cards.push(browserCard);
+                }
             }
         }
 

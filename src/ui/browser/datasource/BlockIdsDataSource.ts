@@ -288,9 +288,9 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
         });
       },
       hydrateRows: async (ids: string[]) => {
-        const blockIds = ids
+        const blockIds = Array.from(new Set(ids
           .map((id) => this.liteRowBlockIdById.get(id))
-          .filter((blockId): blockId is string => Boolean(blockId));
+          .filter((blockId): blockId is string => Boolean(blockId))));
         const options: Parameters<typeof loadBrowserCardsByBlockIds>[1] = {
           applyQueryFilter: false,
         };
@@ -302,12 +302,9 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
           options.siyuanApi = this.siyuanApi;
         }
         const rows = await loadBrowserCardsByBlockIds(blockIds, options);
-        const rowByBlockId = new Map(rows.map((row) => [row.blockId, row]));
+        const rowByStableId = new Map(rows.map((row) => [resolveBrowserCardStableId(row), row]));
         return ids
-          .map((id) => {
-            const blockId = this.liteRowBlockIdById.get(id);
-            return blockId ? rowByBlockId.get(blockId) : undefined;
-          })
+          .map((id) => rowByStableId.get(id))
           .filter((row): row is BrowserCard => Boolean(row));
       },
     };

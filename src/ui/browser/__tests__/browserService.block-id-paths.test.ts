@@ -3,6 +3,7 @@ import {
   batchSuspend,
   batchDelete,
   invalidateCardCache,
+  loadBrowserCardsByBlockIds,
   loadQueueCards,
 } from '../browserService';
 
@@ -64,6 +65,27 @@ describe('browserService block-id paths', () => {
     expect(manager.getCards).toHaveBeenCalledWith({ blockIds: ['block-a'] });
     expect(rows).toHaveLength(1);
     expect(rows[0]?.blockId).toBe('block-a');
+  });
+
+  it('loadBrowserCardsByBlockIds preserves multiple cards from the same block', async () => {
+    const siyuanApi = createSiyuanApi();
+    const manager = {
+      getCards: vi.fn().mockResolvedValue([
+        makeFsrsCard('card-a', 'block-a'),
+        makeFsrsCard('card-b', 'block-a'),
+      ]),
+    };
+
+    const rows = await loadBrowserCardsByBlockIds(['block-a'], {
+      manager: manager as any,
+      siyuanApi: siyuanApi as any,
+      applyQueryFilter: false,
+    });
+
+    expect(manager.getCards).toHaveBeenCalledWith({ blockIds: ['block-a'] });
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.fsrsCardId)).toEqual(['card-a', 'card-b']);
+    expect(rows.every((row) => row.blockId === 'block-a')).toBe(true);
   });
 
   it('batchDelete builds block card map with scoped manager.getCards', async () => {

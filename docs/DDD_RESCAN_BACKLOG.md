@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-10 (Round 325)
+Last update: 2026-05-12 (Round 326)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-12 - Block-id browser multi-card hydration repair
+
+- Task: Roll back the interrupted DeepSeek fix line to `9007f2f` for stabilization, then repair the remaining Browser block-id path that collapsed multiple cards sharing one block into one hydrated row.
+- Touched slice: Browser block-id datasource and browser card loader; `src/ui/browser/browserService.ts`, `src/ui/browser/datasource/BlockIdsDataSource.ts`, `src/ui/browser/__tests__/browserService.block-id-paths.test.ts`, and `src/ui/browser/datasource/__tests__/BlockIdsDataSource.queryable.test.ts`.
+- Debt fixed now: `BlockIdsDataSource` now hydrates requested rows by stable card identity instead of `blockId`, and deduplicates block-id fetch input without losing same-block cards. `browserService` cache and block-id loader now group cards by block id instead of storing one card per block, so one source block can return all matching browser rows in order. Regression coverage now proves both the datasource hydration and the lower browser loader preserve same-block multi-card rows.
+- Debt deferred: The old unreachable `loadQueueCards` code after the active `buildBrowserCardsByBlockIds()` return still contains legacy one-card-per-block assumptions, but it is not on the active runtime path.
+- Why deferred: This task targeted the active Browser block-id path after the rollback. Removing unreachable legacy code is safe cleanup, but unrelated to the live collapse and should be done only if a follow-up retires the surrounding historical branch.
+- Next safe step: Audit the remaining browser datasource variants for any direct `Map<blockId, row>` hydration code and remove the unreachable legacy `loadQueueCards` branch in a small cleanup.
+- Validation: `pnpm vitest run src/ui/browser/datasource/__tests__/BlockIdsDataSource.queryable.test.ts src/ui/browser/__tests__/browserService.block-id-paths.test.ts src/ui/browser/datasource/session/__tests__/BrowserQuerySession.test.ts`; `pnpm run check:boundaries`; `pnpm build` passed with existing non-blocking i18n hardcoded-string and Sass legacy API warnings.
 
 ### 2026-05-10 - Frontend scoped review entry contract repair
 
