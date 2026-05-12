@@ -75,8 +75,6 @@ describe('ReviewCommitUseCase', () => {
 
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
-      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
       srsBackend: { reviewFeedback },
       writerLeaseGuard: {
         ensureWritable,
@@ -112,12 +110,10 @@ describe('ReviewCommitUseCase', () => {
 
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
       schedulerConfig: {
         defaultScheduler: 'fsrs-v6',
         fsrsParams: customFsrs,
       },
-      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
       srsBackend: { reviewFeedback },
       writerLeaseGuard: {
         ensureWritable: vi.fn(async () => {}),
@@ -151,8 +147,6 @@ describe('ReviewCommitUseCase', () => {
 
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
-      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
       srsBackend: { reviewFeedback },
       writerLeaseGuard: {
         ensureWritable: vi.fn(async () => {}),
@@ -183,8 +177,6 @@ describe('ReviewCommitUseCase', () => {
     const before = createCard({ id: 'card-backend-disabled' });
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
-      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
       srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
       runtimePolicy: createReleasePolicy({ backendWorker: 'false', writerLeaseGuard: 'false' }),
     });
@@ -205,8 +197,6 @@ describe('ReviewCommitUseCase', () => {
     const before = createCard({ id: 'card-backend-only' });
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
-      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
       srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
       runtimePolicy: createReleasePolicy({ backendWorker: 'true', writerLeaseGuard: 'false' }),
     });
@@ -231,8 +221,6 @@ describe('ReviewCommitUseCase', () => {
 
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
-      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
       srsBackend: { reviewFeedback },
       writerLeaseGuard: {
         ensureWritable: vi.fn(async () => {}),
@@ -290,8 +278,6 @@ describe('ReviewCommitUseCase', () => {
 
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
-      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
       srsBackend: { reviewFeedback },
       writerLeaseGuard: {
         ensureWritable: vi.fn(async () => {}),
@@ -320,8 +306,6 @@ describe('ReviewCommitUseCase', () => {
     const before = createCard({ id: 'card-partial-di' });
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
-      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
       srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
       writerLeaseGuard: {
         ensureWritable: vi.fn(async () => {}),
@@ -346,8 +330,6 @@ describe('ReviewCommitUseCase', () => {
     const writerError = new Error('BACKEND_UNAVAILABLE: writer lease not owned by current instance');
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
-      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
       srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
       writerLeaseGuard: {
         ensureWritable: vi.fn(async () => {
@@ -379,8 +361,6 @@ describe('ReviewCommitUseCase', () => {
     const relayTimeout = new Error('BACKEND_UNAVAILABLE: writer relay timeout');
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
-      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
       srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
       writerLeaseGuard: {
         ensureWritable: vi.fn(async () => {}),
@@ -415,8 +395,6 @@ describe('ReviewCommitUseCase', () => {
     const before = createCard();
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
-      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
     });
 
     await expect(useCase.execute({

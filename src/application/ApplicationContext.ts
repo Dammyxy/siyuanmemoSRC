@@ -546,17 +546,10 @@ export class ApplicationContext {
       const schedulerSettings = context.getSettingsService().getSettings();
       return new ReviewCommitUseCase({
         cards: unifiedDataSourceManager,
-        scheduler: context.getScheduler(),
         schedulerConfig: {
           defaultScheduler: schedulerSettings.scheduler?.defaultScheduler || 'fsrs-v6',
           fsrsParams: schedulerSettings.fsrs,
         },
-        reviewLogs: context.getReviewLogService(),
-        transactionRunner: context.sqlPersistence
-          ? {
-              runTransaction: (label, operation) => context.sqlPersistence!.database.runTransaction(label, () => operation()),
-            }
-          : null,
         arena: context.getArenaKernelService(),
         srsBackend: context.srsBackendClient,
         writerLeaseGuard,

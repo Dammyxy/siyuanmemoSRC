@@ -253,7 +253,8 @@ Review Attempt Kernel 边界：
 
 - `ReviewAttemptKernel` 位于 `src/application/usecases/review`，是一次评分/预览/drill attempt 的应用层深 module；它保持 `ReviewCommitUseCase` 作为 backend-worker / writer-relay authority adapter，不接管 DB 写入，也不把 fallback local schedule write 带回复习路径。
 - kernel 输出统一 `projectionAction`：`patch-applied`、`refresh-required`、`generation-mismatch`、`not-applicable`、`unavailable`。`BaseReviewQueue` 只透传 outcome，`UnifiedQueueStrategy` 只消费 action 做本地 session cache hot patch 或强制刷新，不再独立解析 backend `queueImpact.affectedQueues` 来决定投影后续动作。
-- `ReviewCommitUseCase` 仍负责 runtime policy、backend `review.feedback`、writer relay 与 Arena 批次记录；后续若继续瘦身，应先保持 `ReviewAttemptKernel` Interface 不变，再把旧 usecase 内部收窄成 adapter。
+- `ReviewCommitUseCase` 是 kernel 下层的 backend feedback adapter，只保留 card read、runtime policy、backend `review.feedback`、writer relay、scheduler config 与 Arena 批次记录依赖；旧本地 scheduler / review log / transaction runner 构造依赖已移除。
+- `ReviewSessionProjectionApplier` 是 review session cache 的 projection action consumer：它接收 `projectionAction + projectionImpactEntry + cached session state`，返回 `patched / refresh-required / not-applicable` 和新的 session state。`UnifiedQueueStrategy` 只负责调用 applier、应用返回 state、或触发 reload。
 
 ### 4.3 Progressive / Excerpt / Topic-derived item
 
@@ -926,7 +927,7 @@ UI 层：
 当前职责：
 
 - `ReviewAttemptKernel` 是 review caller 面向的一次 attempt 边界：接收 `QueueReviewCommand`，调用 backend-authoritative `ReviewCommitUseCase`，并把 `queueImpact` 归一成 `projectionAction + projectionImpactEntry + diagnostics`。它不写 DB，不构造 local scheduler fallback；backend/writer 不可用时沿用显式 unavailable/error。
-- `ReviewCommitUseCase` 是正式复习提交 adapter：读取当前卡 -> 校验 backend/writer runtime -> 提交 `review.feedback` 给 backend worker 或 writer relay -> 返回 `QueueReviewCommitResult(updatedCard, queueImpact)` -> 记录 SRS Arena 批次。Worker 内部把 `SchedulerRouter.answer()/commit()`、card 行级 upsert、`review_events` 追加与 projection-backed queue 的 `queue_projection_*` delta/counter/generation 写入包进 `SqliteDatabaseService.runTransaction('review.feedback')`；RetrievalPractice / IncrementalLearning 会从当前 `cards` 状态重算 projection，promoted deferred queues 基于既有 projection rows 做 queue-specific delta，最终只触发一次二进制 DB persist。队列只提交 `QueueReviewCommand`，不再自己拼正式 revlog 或补丁式写 due
+- `ReviewCommitUseCase` 是正式复习提交 adapter：读取当前卡 -> 校验 backend/writer runtime -> 提交 `review.feedback` 给 backend worker 或 writer relay -> 返回 `QueueReviewCommitResult(updatedCard, queueImpact)` -> 记录 SRS Arena 批次。它不再接收本地 scheduler、review log writer 或 transaction runner；正式 scheduling / review_events / projection delta 全部由 worker `review.feedback` 事务处理。Worker 内部把 `SchedulerRouter.answer()/commit()`、card 行级 upsert、`review_events` 追加与 projection-backed queue 的 `queue_projection_*` delta/counter/generation 写入包进 `SqliteDatabaseService.runTransaction('review.feedback')`；RetrievalPractice / IncrementalLearning 会从当前 `cards` 状态重算 projection，promoted deferred queues 基于既有 projection rows 做 queue-specific delta，最终只触发一次二进制 DB persist。队列只提交 `QueueReviewCommand`，不再自己拼正式 revlog 或补丁式写 due
 - `UnifiedDataSourceManager.commitReview` 负责通过 `ReviewAttemptKernel` 提交 attempt，并把已提交的 `updatedCard` 以 `review-commit + suppressAutosave` 镜像回前端 read model，再发卡片/队列事件；队列 reload 之后读取的是 worker 提交后的 due，而不是旧前端投影，也不会触发前端二次持久化
 - `SchedulerRouter` 是薄门面：保留旧 `preview` 兼容入口，负责把 SRS v2 的 `preview -> answer -> commit` 决策流转交给内核；它只持久化调度结果，不拥有正式 revlog。调度与重排写入统一经过 `UnifiedStorageCardUpdateAdapter`，review commit 写入必须携带 `preferIncomingScheduling + schedulingWriteSource='review-commit'`；批量卡片使用 `UnifiedStorageManager.batchUpdateCards()` 更新内存索引，SQL active 时同批 `SqlUnifiedStorageRepository.upsertCards()` 后一次 persist
 - `SrsV2Kernel` 显式建模 `SchedulingChoices / ReviewAttempt / SchedulingDecision / ReviewCommitResult`，并在同一入口处理 `reviewTime + memoryStateAsOf` 的提前复习锚点语义

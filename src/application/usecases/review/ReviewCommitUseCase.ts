@@ -1,4 +1,3 @@
-import type { SchedulerRouter } from '@/core/scheduler';
 import type { SchedulerType } from '@/core/scheduler/schedulerPolicy';
 import { resolveEffectiveSchedulerTypeForCard } from '@/core/scheduler/schedulerPolicy';
 import type {
@@ -8,7 +7,6 @@ import type {
 import type { SrsV2SchedulingContext } from '@/core/scheduler/srs-v2';
 import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 import type { FSRSCard, Rating } from '@/types';
-import type { ReviewLogV2 } from '@/types/review';
 import type { BackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
 import type {
   BackendReviewFeedbackQueueImpact,
@@ -21,14 +19,6 @@ const logger = createLogger('ReviewCommitUseCase');
 
 export interface ReviewCommitCardReader {
   getCard(cardId: string, options?: { silent?: boolean }): Promise<FSRSCard>;
-}
-
-export interface ReviewCommitLogWriter {
-  addReviewLogV2(log: ReviewLogV2): Promise<void>;
-}
-
-export interface ReviewCommitTransactionRunner {
-  runTransaction<T>(label: string, operation: () => Promise<T> | T): Promise<T>;
 }
 
 export interface ReviewCommitArenaRecorder {
@@ -73,9 +63,6 @@ export interface ReviewCommitFollowerCommandClient {
 
 export interface ReviewCommitUseCaseDependencies {
   cards: ReviewCommitCardReader;
-  scheduler: Pick<SchedulerRouter, 'answer' | 'commit'>;
-  reviewLogs: ReviewCommitLogWriter;
-  transactionRunner?: ReviewCommitTransactionRunner | null;
   arena?: ReviewCommitArenaRecorder | null;
   srsBackend?: ReviewCommitBackendFeedbackClient | null;
   writerLeaseGuard?: ReviewCommitWriterLeaseGuard | null;
