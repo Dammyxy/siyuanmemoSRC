@@ -13,6 +13,10 @@ import { FSRSCard } from './card';
 import type { QueueSnapshotRow } from './queue-browser';
 import type { QueueItem } from '../core/queue/types';
 import type { SchedulingWriteSource } from '@/core/scheduler/schedulingStateCleanliness';
+import type {
+    QueueProjectionReadiness,
+    QueueProjectionReadinessRequest,
+} from '../../packages/contracts/src/backend-rpc';
 
 // ============================================================================
 // 核心枚举类型
@@ -267,6 +271,7 @@ export interface IUnifiedDataSourceManagerFacade {
     batchAddToQueue?(type: QueueType, cards: QueueBulkAddInput[], source?: QueueAddSource): Promise<QueueBulkMutationResult>;
     batchRemoveFromQueue?(type: QueueType, cardIdsOrBlockIds: string[]): Promise<QueueBulkMutationResult>;
     getQueueProjectionRolloutDiagnostics?(queueType?: QueueType): QueueProjectionRolloutDiagnostic[];
+    ensureQueueProjectionReady?(request: QueueProjectionReadinessRequest): Promise<QueueProjectionReadiness>;
     getAvailableQueueTypes(): QueueType[];
     registerObserver(observer: IDataSourceObserver): void;
     unregisterObserver(observer: IDataSourceObserver): void;

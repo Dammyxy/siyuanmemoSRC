@@ -122,4 +122,65 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.totalRowCount.value).toBe(0);
     expect(deps.loading.value).toBe(false);
   });
+
+  it('keeps queue view preparing instead of attaching datasource or emptying rows while projection refreshes', async () => {
+    vi.useFakeTimers();
+    const manager = {
+      ...createManager(),
+      ensureQueueProjectionReady: vi.fn(async () => ({
+        status: 'refreshing',
+        queueId: 'retrieval-practice',
+        policyId: 'policy-a',
+        cause: 'materialization_in_progress',
+        retryAfterMs: 300,
+      })),
+    };
+    const deps = createDeps({
+      activeQueueId: ref('retrieval'),
+      currentQueueType: ref('retrieval-practice'),
+      pluginUnifiedDataSourceManager: ref(manager as any),
+      rows: ref([{ id: 'existing', blockId: 'existing' } as BrowserCard]),
+      totalRowCount: ref(1),
+    });
+    const runtime = createBrowserLoadDataRuntime(deps);
+
+    await runtime.loadData();
+
+    expect(deps.currentDataSource.value).toBeNull();
+    expect(deps.rebuildInfiniteDatasource).not.toHaveBeenCalled();
+    expect(deps.rows.value).toEqual([{ id: 'existing', blockId: 'existing' }]);
+    expect(deps.totalRowCount.value).toBe(1);
+    expect(deps.loading.value).toBe(true);
+
+    vi.useRealTimers();
+  });
+
+  it('maps terminal projection unavailable to an explicit error state', async () => {
+    const manager = {
+      ...createManager(),
+      ensureQueueProjectionReady: vi.fn(async () => ({
+        status: 'unavailable',
+        queueId: 'retrieval-practice',
+        policyId: 'policy-a',
+        cause: 'contract_mismatch',
+        reason: 'bad contract',
+        recoverable: false,
+      })),
+    };
+    const deps = createDeps({
+      activeQueueId: ref('retrieval'),
+      currentQueueType: ref('retrieval-practice'),
+      pluginUnifiedDataSourceManager: ref(manager as any),
+      rows: ref([{ id: 'existing', blockId: 'existing' } as BrowserCard]),
+      totalRowCount: ref(1),
+    });
+    const runtime = createBrowserLoadDataRuntime(deps);
+
+    await runtime.loadData();
+
+    expect(deps.pushErrMsg).toHaveBeenCalledWith('Queue projection contract mismatch');
+    expect(deps.currentDataSource.value).toBeNull();
+    expect(deps.rows.value).toEqual([]);
+    expect(deps.totalRowCount.value).toBe(0);
+  });
 });

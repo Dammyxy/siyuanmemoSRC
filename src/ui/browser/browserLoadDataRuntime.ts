@@ -4,6 +4,7 @@ import type {
   BrowserCardTypeFilter,
   IUnifiedDataSourceManagerFacade,
 } from '@/types/unified-data-source';
+import { QueueType } from '@/types/unified-data-source';
 import type { BrowserCard, CardTypeFilter } from './types';
 import type { ICardDataSource } from './datasource/types';
 import type { PresetFilter } from '@/application/queries/browser/GetBrowserCardsQuery';
@@ -90,8 +91,40 @@ function getCardType(deps: BrowserLoadDataRuntimeDeps): BrowserCardTypeFilter {
   return deps.currentCardType.value as BrowserCardTypeFilter;
 }
 
+const QUEUE_ID_TO_TYPE: Record<string, QueueType> = {
+  retrieval: QueueType.RetrievalPractice,
+  'final-drill': QueueType.FinalDrill,
+  'incremental-learning': QueueType.IncrementalLearning,
+  'filter-group': QueueType.FilterGroup,
+  'neural-roam': QueueType.NeuralRoam,
+  neural: QueueType.NeuralRoam,
+};
+
+function resolveQueueTypeForReadiness(queueId: string | null, currentQueueType: string): QueueType | null {
+  if (currentQueueType && Object.values(QueueType).includes(currentQueueType as QueueType)) {
+    return currentQueueType as QueueType;
+  }
+  return queueId ? QUEUE_ID_TO_TYPE[queueId] ?? null : null;
+}
+
+function mapReadinessUnavailableMessage(cause: string): string {
+  switch (cause) {
+    case 'writer_unavailable':
+      return 'Queue projection writer is unavailable';
+    case 'backend_unavailable':
+      return 'Queue projection backend is unavailable';
+    case 'invalid_queue':
+      return 'Queue projection is not available for this queue';
+    case 'contract_mismatch':
+      return 'Queue projection contract mismatch';
+    default:
+      return 'Queue projection is unavailable';
+  }
+}
+
 export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
   let loadDataAbortController: AbortController | null = null;
+  const readinessRetryAttempts = new Map<string, number>();
 
   function abortLoadData(): void {
     if (loadDataAbortController) {
@@ -143,6 +176,45 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
           deps.logger.error('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available');
           clearBrowserRows(deps);
           return;
+        }
+
+        const activeQueueId = deps.activeQueueId.value;
+        const queueType = resolveQueueTypeForReadiness(activeQueueId, deps.currentQueueType.value);
+        if (queueType && typeof unifiedDataSourceManager.ensureQueueProjectionReady === 'function') {
+          const readiness = await unifiedDataSourceManager.ensureQueueProjectionReady({
+            queueType,
+            preset: deps.currentPreset.value,
+            searchText: deps.searchQuery.value,
+            docId: deps.activeDocId.value,
+            scopeDocIds: deps.activeScopeDocIds.value,
+            cardType: String(getCardType(deps)),
+            source: 'browser',
+          });
+          if (readiness.status === 'refreshing') {
+            datasourceTriggered = true;
+            deps.currentDataSource.value = null;
+            const attempts = readinessRetryAttempts.get(queueType) ?? 0;
+            if (attempts < 4 && !currentController.signal.aborted) {
+              readinessRetryAttempts.set(queueType, attempts + 1);
+              const delayMs = readiness.retryAfterMs ?? 300;
+              setTimeout(() => {
+                if (!currentController.signal.aborted) {
+                  void loadData(forceRefresh, { ...options, origin: 'queue-sync' });
+                }
+              }, delayMs);
+            } else {
+              deps.loading.value = false;
+            }
+            deps.logger.info('[SiYuanMemo][SRSBrowser] Queue projection is preparing', readiness);
+            return;
+          }
+          readinessRetryAttempts.delete(queueType);
+          if (readiness.status === 'unavailable') {
+            deps.currentDataSource.value = null;
+            await deps.pushErrMsg(mapReadinessUnavailableMessage(readiness.cause));
+            clearBrowserRows(deps);
+            return;
+          }
         }
 
         deps.currentDataSource.value = measureRuntimePerformance('browser', 'load-data.create-queue-datasource', () => createQueueDataSource(

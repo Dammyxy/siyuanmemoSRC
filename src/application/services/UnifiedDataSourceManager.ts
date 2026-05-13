@@ -58,8 +58,11 @@ import type {
     BackendQueueProjectionReplaceResult,
     BackendQueueProjectionSnapshotRequest,
     BackendQueueProjectionSnapshotResult,
+    type QueueProjectionReadiness,
+    type QueueProjectionReadinessRequest,
 } from '../../../packages/contracts/src/backend-rpc';
 import { buildOrderedQueueProjectionRows } from '@/application/services/queue-projection/QueueProjectionBuilder';
+import { QueueProjectionReadinessService } from '@/application/services/queue-projection/QueueProjectionReadinessService';
 
 const logger = createLogger('UnifiedDataSourceManager');
 
@@ -317,6 +320,7 @@ export class UnifiedDataSourceManager {
     private observerFlushScheduled: boolean;
     private queueProjectionUnavailableDiagnostics: Map<QueueType, QueueProjectionUnavailableDiagnostic>;
     private materializedProjectionEchoes: Map<QueueType, MaterializedQueueProjectionEcho>;
+    private readonly queueProjectionReadiness: QueueProjectionReadinessService;
     
     // ========================================================================
     // 构造函数
@@ -346,6 +350,21 @@ export class UnifiedDataSourceManager {
         this.observerFlushScheduled = false;
         this.queueProjectionUnavailableDiagnostics = new Map();
         this.materializedProjectionEchoes = new Map();
+        this.queueProjectionReadiness = new QueueProjectionReadinessService({
+            readSnapshot: async (request) => this.readRawQueueProjectionSnapshot(request),
+            materialize: async (request) => {
+                const queueType = this.normalizeQueueType(request.queueType);
+                if (!queueType) {
+                    return null;
+                }
+                const backend = this.resolvePlugin()?.getContext?.()?.getSrsBackendClient?.();
+                return this.tryMaterializeQueueProjection(queueType, backend, {
+                    currentPolicyHash: request.currentPolicyHash,
+                    currentGeneration: request.currentGeneration,
+                    reason: 'ensure-ready',
+                });
+            },
+        });
     }
     
     /**
@@ -633,6 +652,66 @@ export class UnifiedDataSourceManager {
                 error,
             );
         }
+    }
+
+    public async ensureQueueProjectionReady(
+        request: QueueProjectionReadinessRequest,
+    ): Promise<QueueProjectionReadiness> {
+        const queueType = this.normalizeQueueType(request.queueType);
+        if (!queueType || !this.isQueueProjectionReadable(queueType)) {
+            return {
+                status: 'unavailable',
+                queueId: String(request.queueType || ''),
+                policyId: '',
+                cause: 'invalid_queue',
+                reason: `queue projection is not readable for ${String(request.queueType || '')}`,
+                recoverable: false,
+            };
+        }
+
+        const readiness = await this.queueProjectionReadiness.ensureReady({
+            ...request,
+            queueType,
+        });
+        if (readiness.status === 'ready') {
+            this.clearQueueProjectionUnavailable(queueType);
+            return readiness;
+        }
+        if (readiness.status === 'refreshing') {
+            this.recordQueueProjectionUnavailable(queueType, 'refresh-required', {
+                unavailableReason: readiness.cause,
+                backendStatus: readiness.status,
+                policyHash: readiness.policyId,
+                generation: null,
+            });
+            return readiness;
+        }
+
+        this.recordQueueProjectionUnavailable(queueType, readiness.recoverable ? 'refresh-required' : 'projection-unavailable', {
+            unavailableReason: readiness.cause,
+            backendStatus: readiness.status,
+            policyHash: readiness.policyId || null,
+            generation: null,
+        });
+        return readiness;
+    }
+
+    private async readRawQueueProjectionSnapshot(
+        request: { queueType: string; policyHash?: string | null; generation?: number | null },
+    ): Promise<BackendQueueProjectionSnapshotResult | null> {
+        const queueType = this.normalizeQueueType(request.queueType);
+        if (!queueType || !this.isQueueProjectionReadable(queueType)) {
+            return null;
+        }
+        const backend = this.resolvePlugin()?.getContext?.()?.getSrsBackendClient?.();
+        if (!backend || typeof backend.queueProjectionSnapshot !== 'function') {
+            throw new Error('backend unavailable for queue projection readiness');
+        }
+        return backend.queueProjectionSnapshot({
+            queueType,
+            policyHash: request.policyHash,
+            generation: request.generation,
+        });
     }
 
     public async getQueueProjectionCardsBySnapshotIds(

@@ -40,6 +40,10 @@ _Avoid_: early review, forced due, unlimited advance
 The subset of review cards due within the current **Review Day**.
 _Avoid_: current due
 
+**Queue Projection Readiness**:
+A shared availability state for a queue projection that tells callers whether a projection is readable, preparing, or unavailable, including its projection identity when readable.
+_Avoid_: generic projection unavailable, Browser retry state, fallback readiness
+
 ## Relationships
 
 - A **Mixed SRS Queue** may contain **Learning Steps**, **Review Cards**, and new cards.
@@ -48,6 +52,7 @@ _Avoid_: current due
 - **SM-style Review Availability** makes a **Review Card** available when it is **Today Review Due**.
 - New cards enter a **Mixed SRS Queue** through daily limits before becoming **Learning Steps**.
 - **Learn Ahead** may serve only future **Learning Steps**, bounded by both a time window and a maximum card count.
+- **Queue Projection Readiness** is consumed by Browser views and owned by application/backend coordination, not by UI retry logic.
 
 ## Example Dialogue
 
@@ -60,3 +65,4 @@ _Avoid_: current due
 - `IncrementalLearning` and `RetrievalPractice` were described as today-window queues. Resolved for `IncrementalLearning`: it is a **Mixed SRS Queue**, not a single today-window queue.
 - `RetrievalPractice` was considered for the same new-card semantics as `IncrementalLearning`. Resolved: it is review-oriented and does not introduce new cards by default.
 - `Learn Ahead` was considered as a card-count-only setting. Resolved: it follows Anki-style time-window semantics with an additional maximum-card limit for user experience control.
+- Queue projection "not ready" was used for normal preparation, transient infrastructure unavailability, and terminal projection failures. Resolved: **Queue Projection Readiness** separates readable, preparing, and unavailable states.

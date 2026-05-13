@@ -114,6 +114,65 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     ]);
   });
 
+  it('returns typed readiness from backend projection snapshot', async () => {
+    const manager = UnifiedDataSourceManager.getInstance();
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.RetrievalPractice,
+        policyHash: 'policy-ready',
+        generation: 3,
+        status: 'ready',
+        rows: [],
+        counters: null,
+      })),
+    };
+    manager.setAdvancedRouter(createRouterWithBackend(backend));
+
+    await expect(manager.ensureQueueProjectionReady({
+      queueType: QueueType.RetrievalPractice,
+      source: 'browser',
+    })).resolves.toEqual({
+      status: 'ready',
+      queueId: QueueType.RetrievalPractice,
+      policyId: 'policy-ready',
+      generation: 3,
+    });
+  });
+
+  it('returns typed refreshing readiness while projection materialization is in flight', async () => {
+    const manager = UnifiedDataSourceManager.getInstance();
+    manager.setQueuePersistence({
+      get: vi.fn(() => null),
+      set: vi.fn(async () => {}),
+      delete: vi.fn(async () => {}),
+      keys: vi.fn(() => []),
+    });
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.FilterGroup,
+        policyHash: null,
+        generation: null,
+        status: 'unavailable',
+        rows: [],
+        counters: null,
+      })),
+      queueProjectionReplace: vi.fn(() => new Promise(() => {})),
+    };
+    manager.setAdvancedRouter({
+      ...createRouterWithBackend(backend),
+      getCards: vi.fn(async () => [createCard()]),
+    } as unknown as IDataRouter);
+
+    await expect(manager.ensureQueueProjectionReady({
+      queueType: QueueType.FilterGroup,
+      source: 'browser',
+    })).resolves.toMatchObject({
+      status: 'refreshing',
+      queueId: QueueType.FilterGroup,
+      cause: 'materialization_in_progress',
+    });
+  });
+
   it('does not call backend projection RPC for queues explicitly rolled back to strategy reads', async () => {
     const backend = {
       queueProjectionSnapshot: vi.fn(async () => ({

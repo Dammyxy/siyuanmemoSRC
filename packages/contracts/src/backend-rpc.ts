@@ -523,6 +523,58 @@ export interface BackendQueueProjectionSnapshotRequest {
   offset?: number | null;
 }
 
+export type QueueProjectionReadinessCause =
+  | 'projection_stale'
+  | 'materialization_in_progress'
+  | 'backend_busy'
+  | 'backend_unavailable'
+  | 'writer_unavailable'
+  | 'contract_mismatch'
+  | 'invalid_queue'
+  | 'projection_unavailable'
+  | 'materialization_failed';
+
+export interface QueueProjectionReadinessRequest {
+  queueType: string;
+  preset?: string | null;
+  searchText?: string | null;
+  docId?: string | null;
+  scopeDocIds?: string[] | null;
+  cardType?: string | null;
+  source?: string | null;
+}
+
+export interface QueueProjectionReady {
+  status: 'ready';
+  queueId: string;
+  policyId: string;
+  generation: number;
+  stale?: boolean;
+}
+
+export interface QueueProjectionRefreshing {
+  status: 'refreshing';
+  queueId: string;
+  policyId: string;
+  cause: QueueProjectionReadinessCause;
+  retryAfterMs?: number;
+}
+
+export interface QueueProjectionUnavailable {
+  status: 'unavailable';
+  queueId: string;
+  policyId: string;
+  cause: QueueProjectionReadinessCause;
+  reason: string;
+  recoverable: boolean;
+  retryAfterMs?: number;
+}
+
+export type QueueProjectionReadiness =
+  | QueueProjectionReady
+  | QueueProjectionRefreshing
+  | QueueProjectionUnavailable;
+
 export interface BackendQueueProjectionRowsByIdsRequest {
   queueType: string;
   ids: string[];

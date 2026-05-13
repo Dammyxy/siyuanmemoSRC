@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-13 (Round 338)
+Last update: 2026-05-13 (Round 339)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-13 - Queue projection readiness shared contract
+
+- Task: Implement OpenSpec change `define-queue-projection-readiness-contract` so Browser, manager, and backend projection status share an explicit `ready | refreshing | unavailable` vocabulary before datasource attach.
+- Touched slice: Queue projection readiness / Browser queue load; `packages/contracts/src/backend-rpc.ts`, `src/application/services/queue-projection/QueueProjectionReadinessService.ts`, `src/application/services/UnifiedDataSourceManager.ts`, `src/types/unified-data-source.ts`, `src/ui/browser/browserLoadDataRuntime.ts`, focused tests, `ARCHITECTURE.md`, and OpenSpec tasks.
+- Debt fixed now: Added shared readiness request/result/cause types; added an application-owned `ensureReady()` module that canonicalizes queue readiness requests, single-flights same-identity materialization, only returns `generation` from committed snapshot/materialization, short-awaits before returning `refreshing + retryAfterMs`, and maps expected backend/materialization failures to typed unavailable. `UnifiedDataSourceManager.ensureQueueProjectionReady()` now exposes the contract to Browser and records diagnostics without adding UI SQL or kernel DB writes. Browser queue load consumes readiness before datasource attach: `ready` continues to attach, `refreshing` keeps preparing/loading and retries, and `unavailable` shows an explicit cause-derived error instead of falling through to empty state or legacy reads.
+- Debt deferred: Soft-stale push identity events are not a separate live event stream yet; current Browser path reattaches through the normal load cycle after a ready identity is observed. The older `queue-projection-progressive-readiness` OpenSpec still exists as historical planning and contains strategy-fallback wording that should not be treated as the active contract.
+- Why deferred: This slice needed to establish shared contract and active Browser consumption first. A live identity-change event bus would widen into Browser Queue View Module lifecycle work, and rewriting older OpenSpec artifacts risks confusing archived/planning evidence with runtime source truth.
+- Next safe step: Implement the Browser Queue View Module only after this readiness contract is stable; if soft-stale background refresh needs live UX, add an application readiness identity event and make Browser reattach through that event without mutating old datasource rows.
+- Validation: `pnpm vitest run packages/contracts/src/__tests__/backend-rpc.test.ts src/application/services/queue-projection/__tests__/QueueProjectionReadinessService.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts --reporter=verbose`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`. Full `pnpm exec tsc --noEmit --pretty false` remains blocked by pre-existing repo-wide TypeScript errors unrelated to this slice.
 
 ### 2026-05-13 - Review Attempt Kernel deep module
 
