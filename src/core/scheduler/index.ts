@@ -13,6 +13,7 @@ export * from './rescheduleService';
 export * from './SchedulerRouter';
 export * from './fsrsReviewStateRepair';
 export * from './schedulerStateSnapshot';
+export * from './learningCurveEvidence';
 export * from './schedulerPolicy';
 export * from './srs-v2';
 

@@ -4,6 +4,16 @@ Last update: 2026-05-13 (Round 345)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-13 - Learning curve evidence module
+
+- Task: Implement OpenSpec change `define-learning-curve-evidence-module` so scheduler snapshots and review history can produce advisory-only learning-curve evidence.
+- Touched slice: Scheduler read model / review-history normalization; `src/core/scheduler/learningCurveEvidence.ts`, `src/core/scheduler/index.ts`, focused scheduler evidence tests, `ARCHITECTURE.md`, and OpenSpec tasks.
+- Debt fixed now: Added a pure JSON-safe learning-curve evidence module that consumes `SchedulerStateSnapshot` plus normalized history records, computes sample size, observation window, observed recall, expected retention, calibration gap, confidence, drift direction, data-quality diagnostics, and confidence-tagged advisory suggestions. Added a `ReviewLogV2`-like structural mapper without importing `ReviewLogService`, SQL repository, monthly JSON, UI, queue projection, backend, or kernel paths.
+- Debt deferred: No SRS transparency or Arena consumer is wired yet; no formal scheduler algorithm change, automatic parameter write, due write, queue projection mutation, DB migration, backend/kernel RPC contract, or UI redesign was added.
+- Why deferred: This change establishes the bounded evidence contract first. Surfacing evidence in transparency/Arena needs history retrieval and presentation ownership decisions, and formal adaptive writes require a separate scheduler policy/change.
+- Next safe step: Add an application read consumer only after choosing where review-history retrieval lives, preferably as a compact SRS transparency or diagnostics field that still treats suggestions as display-only.
+- Validation: Focused learning-curve evidence and scheduler snapshot tests passed; hidden fallback, boundary, build, and strict OpenSpec validation are recorded with the implementation task.
+
 ### 2026-05-13 - Scheduler state snapshot
 
 - Task: Implement OpenSpec change `define-scheduler-state-snapshot` so Scheduler consumers share one serializable scheduling-state read model and preview identity.
