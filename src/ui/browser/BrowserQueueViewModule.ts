@@ -1,9 +1,9 @@
 import type { IBrowserApplicationService } from '@/application/interfaces/IBrowserApplicationService';
 import {
-  QueueType,
   type BrowserCardTypeFilter,
   type IUnifiedDataSourceManagerFacade,
 } from '@/types/unified-data-source';
+import { normalizeBrowserQueueId, resolveQueueTypeForBrowserQueueId } from '@/types/browser-queue-identity';
 import type { QueueProjectionReadinessRequest } from '../../../packages/contracts/src/backend-rpc';
 import type { ICardDataSource } from './datasource/types';
 import type { PresetFilter } from '@/application/queries/browser/GetBrowserCardsQuery';
@@ -46,20 +46,8 @@ export type BrowserQueueViewPrepareResult =
       queueId: string;
     };
 
-const QUEUE_ID_TO_TYPE: Record<string, QueueType> = {
-  retrieval: QueueType.RetrievalPractice,
-  'final-drill': QueueType.FinalDrill,
-  'incremental-learning': QueueType.IncrementalLearning,
-  'filter-group': QueueType.FilterGroup,
-  'neural-roam': QueueType.NeuralRoam,
-  neural: QueueType.NeuralRoam,
-};
-
-export function resolveQueueTypeForBrowserQueueView(queueId: string | null, currentQueueType: string): QueueType | null {
-  if (currentQueueType && Object.values(QueueType).includes(currentQueueType as QueueType)) {
-    return currentQueueType as QueueType;
-  }
-  return queueId ? QUEUE_ID_TO_TYPE[queueId] ?? null : null;
+export function resolveQueueTypeForBrowserQueueView(queueId: string | null, _currentQueueType: string) {
+  return resolveQueueTypeForBrowserQueueId(queueId);
 }
 
 function mapReadinessUnavailableMessage(cause: string): string {
@@ -101,6 +89,7 @@ export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
     manager: IUnifiedDataSourceManagerFacade,
     request: BrowserQueueViewPrepareRequest,
   ): Promise<BrowserQueueViewPrepareResult> {
+    const canonicalQueueId = normalizeBrowserQueueId(request.activeQueueId);
     const queueType = resolveQueueTypeForBrowserQueueView(request.activeQueueId, request.currentQueueType);
     const readinessRequest: QueueProjectionReadinessRequest | null = queueType
       ? {
@@ -141,7 +130,7 @@ export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
     }
 
     const datasource = createQueueDataSource(
-      request.activeQueueId,
+      canonicalQueueId ?? request.activeQueueId,
       manager,
       {
         docId: request.activeDocId,
@@ -157,7 +146,7 @@ export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
     if (!datasource) {
       return {
         status: 'missing-datasource',
-        queueId: request.activeQueueId,
+        queueId: canonicalQueueId ?? request.activeQueueId,
       };
     }
 

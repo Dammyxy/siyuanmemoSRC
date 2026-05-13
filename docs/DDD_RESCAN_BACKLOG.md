@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-13 (Round 342)
+Last update: 2026-05-13 (Round 343)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-13 - Browser queue identity module
+
+- Task: Implement OpenSpec change `extract-browser-queue-identity-module` so Browser queue id, alias, and `QueueType` mapping have one shared source of truth.
+- Touched slice: Browser / Queue identity; new `src/types/browser-queue-identity.ts`, Browser queue view/data source/state/card-type consumers, `BrowserApplicationService`, `QueueBrowserQueryKernel`, `BlockIdsDataSource`, focused tests, this backlog, and OpenSpec tasks.
+- Debt fixed now: Canonical Browser queue ids now live in a pure shared type module; supported aliases `neural -> neural-roam` and `retrieval-practice -> retrieval` are normalized at explicit boundaries; local `QUEUE_ID_TO_TYPE` / `QUEUE_TYPE_MAP` copies were removed from the touched Browser queue path; Browser readiness, datasource creation, open-state restore, card-type policy, queue counts, snapshot queries, and block-id actions now resolve identity through the shared contract without defaulting to another queue.
+- Debt deferred: Review header variants, top-bar command ids, dialog presentation labels, and broader non-Browser queue labels still use their own review-oriented identifiers. `ARCHITECTURE.md` was not changed because runtime ownership and composition roots did not move.
+- Why deferred: This change is a Browser queue identity extraction. Review presentation identifiers are a separate Review UI semantic concern and widening into them would mix Browser identity with review header copy/routing.
+- Next safe step: Archive this OpenSpec change after validation, or start the next debt slice around Memory Item vs Content Payload if Browser row payload identity remains the sharpest queue/browser boundary.
+- Validation: Focused identity, Browser card-type, Browser state, Browser queue view, Browser load runtime, Browser application queue counts/query, queue browser kernel, and BlockIds datasource tests; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-13 - Review session queue advancement module
 

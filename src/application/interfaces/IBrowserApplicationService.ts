@@ -39,15 +39,8 @@ import type {
   IUnifiedDataSourceManagerFacade,
   QueueType,
 } from '@/types/unified-data-source';
+export type { BrowserQueueId } from '@/types/browser-queue-identity';
 import type { BrowserSiyuanPort } from '../ports/BrowserSiyuanPort';
-
-export type BrowserQueueId =
-  | 'retrieval'
-  | 'final-drill'
-  | 'incremental-learning'
-  | 'filter-group'
-  | 'neural-roam'
-  | 'neural';
 
 export interface BrowserQueueCountsRequest {
   forceRefresh?: boolean;

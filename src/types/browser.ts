@@ -1,5 +1,10 @@
 import type { CardFilter } from './unified-data-source';
 import { CardState } from './card';
+import {
+  isNeuralBrowserQueue,
+  isRetrievalBrowserQueue,
+  normalizeBrowserQueueId,
+} from './browser-queue-identity';
 
 export { CardState };
 
@@ -112,7 +117,8 @@ export function getAvailableCardTypeFilters(
   queueId: string | null,
   _context?: { docId?: string | null },
 ): Array<{ value: CardTypeFilter; i18nKey: string; label: string }> {
-  if (queueId === 'retrieval' || queueId === 'final-drill') {
+  const normalizedQueueId = normalizeBrowserQueueId(queueId);
+  if (isRetrievalBrowserQueue(normalizedQueueId) || normalizedQueueId === 'final-drill') {
     return [
       { value: 'all', i18nKey: 'cardTypeAll', label: '所有类型' },
       { value: 'item-only', i18nKey: 'cardTypeItemOnly', label: '仅 Item' },
@@ -120,7 +126,7 @@ export function getAvailableCardTypeFilters(
     ];
   }
 
-  if (queueId === 'neural' || queueId === 'neural-roam') {
+  if (isNeuralBrowserQueue(normalizedQueueId)) {
     return [
       { value: 'concept-only', i18nKey: 'cardTypeConceptOnly', label: '仅 Concept' },
     ];

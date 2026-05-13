@@ -35,9 +35,11 @@ function createRequest(overrides: Record<string, unknown> = {}) {
 describe('BrowserQueueViewModule', () => {
   it('resolves browser queue ids to active queue types', () => {
     expect(resolveQueueTypeForBrowserQueueView('retrieval', '')).toBe(QueueType.RetrievalPractice);
+    expect(resolveQueueTypeForBrowserQueueView('retrieval-practice', '')).toBe(QueueType.RetrievalPractice);
     expect(resolveQueueTypeForBrowserQueueView('incremental-learning', '')).toBe(QueueType.IncrementalLearning);
     expect(resolveQueueTypeForBrowserQueueView('neural', '')).toBe(QueueType.NeuralRoam);
-    expect(resolveQueueTypeForBrowserQueueView('unknown', QueueType.FinalDrill)).toBe(QueueType.FinalDrill);
+    expect(resolveQueueTypeForBrowserQueueView('unknown', QueueType.FinalDrill)).toBeNull();
+    expect(resolveQueueTypeForBrowserQueueView('', QueueType.FinalDrill)).toBeNull();
   });
 
   it('returns a datasource only after readiness is ready', async () => {
@@ -57,6 +59,27 @@ describe('BrowserQueueViewModule', () => {
     }));
     expect(result.status).toBe('ready');
     expect(result.status === 'ready' ? result.datasource.id : null).toBe('retrieval');
+  });
+
+  it('normalizes queue aliases before readiness and datasource creation', async () => {
+    const manager = createManager([{
+      status: 'ready',
+      queueId: QueueType.NeuralRoam,
+      policyId: 'policy-neural',
+      generation: 1,
+    }]);
+    const module = createBrowserQueueViewModule({ logger: { info: vi.fn() } });
+
+    const result = await module.prepareQueueView(manager, createRequest({
+      activeQueueId: 'neural',
+      currentQueueType: '',
+    }));
+
+    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.NeuralRoam,
+    }));
+    expect(result.status).toBe('ready');
+    expect(result.status === 'ready' ? result.datasource.id : null).toBe('neural-roam');
   });
 
   it('bounds refreshing retries and resets them after ready', async () => {

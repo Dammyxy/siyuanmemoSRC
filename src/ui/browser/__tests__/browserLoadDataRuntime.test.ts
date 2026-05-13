@@ -86,6 +86,18 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.previewCard.value?.blockId).toBe('preview');
   });
 
+  it('canonicalizes browser queue aliases before attaching queue datasource', async () => {
+    const deps = createDeps({
+      activeQueueId: ref('retrieval-practice'),
+      currentQueueType: ref('retrieval-practice'),
+    });
+    const runtime = createBrowserLoadDataRuntime(deps);
+
+    await runtime.loadData(true);
+
+    expect(deps.currentDataSource.value?.id).toBe('retrieval');
+  });
+
   it('creates SQL datasource after confirmation and schedules all-row snapshot', async () => {
     const deps = createDeps({
       resolveActiveSqlStatement: vi.fn(() => 'select * from blocks'),

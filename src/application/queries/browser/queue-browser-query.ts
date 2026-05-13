@@ -1,4 +1,4 @@
-import type { BrowserQueueId } from '@/application/interfaces/IBrowserApplicationService';
+import type { BrowserQueueId } from '@/types/browser-queue-identity';
 import type { BrowserActionTarget, SortModel } from '@/application/interfaces/ICardDataSource';
 
 export interface QueueBrowserSnapshotQuery {

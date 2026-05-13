@@ -484,6 +484,7 @@ import type {
   BrowserSourceExistenceUpdate,
   IBrowserApplicationService,
 } from '@/application/interfaces/IBrowserApplicationService';
+import { resolveQueueTypeForBrowserQueueId } from '@/types/browser-queue-identity';
 import { applyKnownSourceExistenceToRows } from '@/application/queries/browser/shared/MissingBlockMarker';
 import type { BrowserPreviewSiyuanPort } from '@/application/ports/BrowserPreviewSiyuanPort';
 import type { PresetFilter } from '@/application/queries/browser/GetBrowserCardsQuery';
@@ -1030,46 +1031,24 @@ const isDevMode = String(process.env.DEV_MODE) === 'true';
 const columnDefs = ref<ColDef[]>(createColumnDefs(t));
 
 const isQueueMode = computed(() => {
-  const qid = String(activeQueueId.value || '');
-  return qid === 'final-drill'
-    || qid === 'retrieval'
-    || qid === 'filter-group'
-    || qid === 'neural-roam'
-    || qid === 'neural'
-    || qid === 'incremental-learning';
+  return Boolean(normalizeBrowserQueueId(activeQueueId.value));
 });
 
 // Current queue type (filter-group-queue-ui)
 const currentQueueType = computed(() => {
-  const qid = String(activeQueueId.value || '');
+  const qid = normalizeBrowserQueueId(activeQueueId.value);
   if (isDevMode) {
     logger.info('[SiYuanMemo][SRSBrowser] currentQueueType computed:', {
       activeQueueId: activeQueueId.value,
       qid,
     });
   }
-  if (qid === 'filter-group') return 'filter-group';
-  if (qid === 'final-drill') return 'final-drill';
-  if (qid === 'retrieval') return 'retrieval-practice';
-  if (qid === 'incremental-learning') return 'incremental-learning';
-  if (qid === 'neural-roam' || qid === 'neural') return 'neural-roam';
-  return '';
+  return resolveQueueTypeForBrowserQueueId(qid) || '';
 });
 
 const isNeuralRoamQueueActive = computed(() => currentQueueType.value === 'neural-roam');
 const activeQueueTypeForRefresh = computed<QueueType | null>(() => {
-  const queueType = currentQueueType.value;
-  if (
-    queueType === 'retrieval-practice'
-    || queueType === 'final-drill'
-    || queueType === 'incremental-learning'
-    || queueType === 'filter-group'
-    || queueType === 'neural-roam'
-    || queueType === 'leech'
-  ) {
-    return queueType;
-  }
-  return null;
+  return resolveQueueTypeForBrowserQueueId(activeQueueId.value);
 });
 const showNeuralCustomSubview = computed(() =>
   isNeuralRoamQueueActive.value

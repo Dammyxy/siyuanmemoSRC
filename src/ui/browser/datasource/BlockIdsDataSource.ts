@@ -19,10 +19,13 @@ import {
   type PluginLike as MenuActionPluginLike,
 } from './MenuActions';
 import {
-  QueueType,
   type IReviewQueue,
   type IUnifiedDataSourceManagerFacade,
 } from '@/types/unified-data-source';
+import {
+  isNeuralBrowserQueue,
+  resolveQueueTypeForBrowserQueueId,
+} from '@/types/browser-queue-identity';
 import {
   insertCardsIntoQueue,
   removeCardsFromQueue,
@@ -59,14 +62,6 @@ type ManagerContextLike = {
 };
 
 type RescheduleActionId = Parameters<typeof adjustTime>[2];
-
-const QUEUE_TYPE_MAP: Record<string, QueueType> = {
-  retrieval: QueueType.RetrievalPractice,
-  'final-drill': QueueType.FinalDrill,
-  'neural-roam': QueueType.NeuralRoam,
-  'filter-group': QueueType.FilterGroup,
-  'incremental-learning': QueueType.IncrementalLearning,
-};
 
 function isObjectLike(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -145,7 +140,7 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
   }
 
   getSupportedActions(): CardBrowserAction[] {
-    if (this.queueId === 'neural-roam') {
+    if (isNeuralBrowserQueue(this.queueId)) {
       return buildQueueActions({
         withInsert: false,
         withSort: false,
@@ -173,7 +168,7 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
 
     if (actionId === 'remove-from-current-queue') {
       const manager = this.resolveManager();
-      const queueType = this.queueId ? QUEUE_TYPE_MAP[this.queueId] : undefined;
+      const queueType = resolveQueueTypeForBrowserQueueId(this.queueId);
       const queue = manager && queueType
         ? resolveQueueRemovalTarget(manager, queueType)
         : this.getQueueById(this.queueId);
@@ -185,7 +180,7 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
       const result = await removeCardsFromQueue(queue, selectedRows, {
         scope: 'BlockIdsDataSource',
         resolveId:
-          this.queueId === 'neural-roam'
+          isNeuralBrowserQueue(this.queueId)
             ? (row) => String(row.blockId || resolveBrowserCardId(row))
             : undefined,
       });
@@ -332,7 +327,7 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
       return null;
     }
 
-    if (queueId === 'neural-roam' && this.plugin?.neuralQueue) {
+    if (isNeuralBrowserQueue(queueId) && this.plugin?.neuralQueue) {
       return this.plugin.neuralQueue;
     }
 
@@ -342,7 +337,7 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
       return null;
     }
 
-    const queueType = QUEUE_TYPE_MAP[queueId];
+    const queueType = resolveQueueTypeForBrowserQueueId(queueId);
     if (!queueType) {
       logger.warn('Queue type mapping not found', { queueId });
       return null;

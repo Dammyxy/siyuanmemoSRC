@@ -226,6 +226,19 @@ describe('BrowserApplicationService queue counts', () => {
     expect(() => service.getQueueById('filter-group')).toThrow('QUEUE_UNAVAILABLE');
   });
 
+  it('normalizes browser queue aliases at service lookup boundary', () => {
+    const retrievalQueue = createQueue(1);
+    const neuralQueue = createQueue(2);
+    queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
+    queueByType.set(QueueType.NeuralRoam, neuralQueue);
+
+    expect(service.getQueueById('retrieval-practice')).toBe(retrievalQueue);
+    expect(service.getQueueById('neural')).toBe(neuralQueue);
+    expect(service.getQueueById('missing-queue')).toBeNull();
+    expect(manager.getQueue).toHaveBeenCalledWith(QueueType.RetrievalPractice);
+    expect(manager.getQueue).toHaveBeenCalledWith(QueueType.NeuralRoam);
+  });
+
   it('invalidates only affected queue caches on targeted refresh', async () => {
     const retrievalQueue = createQueue(1);
     const finalQueue = createQueue(2);

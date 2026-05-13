@@ -2,7 +2,15 @@ import type { BrowserCardStoragePort } from '@/core/storage/ports';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
-import { QueueType, type CardFilter, type IReviewQueue, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
+import type { CardFilter, IReviewQueue, IUnifiedDataSourceManagerFacade, QueueType } from '@/types/unified-data-source';
+import {
+  getCanonicalBrowserQueueIds,
+  isNeuralBrowserQueue,
+  normalizeBrowserQueueId,
+  resolveBrowserQueueIdForQueueType,
+  resolveQueueTypeForBrowserQueueId,
+  type BrowserQueueId,
+} from '@/types/browser-queue-identity';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
@@ -42,7 +50,6 @@ import type {
   BrowserSourceExistenceUpdate,
   BrowserDataSourceFactory,
   DataSourceOptions,
-  BrowserQueueId,
 } from '../interfaces/IBrowserApplicationService';
 import type { ICardDataSource } from '../interfaces/ICardDataSource';
 import { createLogger } from '@/utils/logger';
@@ -54,30 +61,9 @@ import {
 } from '@/utils/runtimePerformanceDiagnostics';
 import { hasFilterSetter, hasRebuildAction } from './browser/filterGroupQueueContract';
 
-const EMPTY_QUEUE_COUNTS: Record<string, number> = {
-  retrieval: 0,
-  'final-drill': 0,
-  'neural-roam': 0,
-  'filter-group': 0,
-  'incremental-learning': 0,
-};
-
-const QUEUE_ID_TO_TYPE: Record<BrowserQueueId, QueueType> = {
-  retrieval: QueueType.RetrievalPractice,
-  'final-drill': QueueType.FinalDrill,
-  'incremental-learning': QueueType.IncrementalLearning,
-  'filter-group': QueueType.FilterGroup,
-  'neural-roam': QueueType.NeuralRoam,
-  neural: QueueType.NeuralRoam,
-};
-
-const QUEUE_TYPE_TO_BROWSER_KEY: Partial<Record<QueueType, BrowserQueueId>> = {
-  [QueueType.RetrievalPractice]: 'retrieval',
-  [QueueType.FinalDrill]: 'final-drill',
-  [QueueType.IncrementalLearning]: 'incremental-learning',
-  [QueueType.FilterGroup]: 'filter-group',
-  [QueueType.NeuralRoam]: 'neural-roam',
-};
+const EMPTY_QUEUE_COUNTS: Record<string, number> = Object.fromEntries(
+  getCanonicalBrowserQueueIds().map((queueId) => [queueId, 0]),
+);
 
 const logger = createLogger('BrowserApplicationService');
 const SOURCE_EXISTENCE_PAGE_REFRESH_DELAY_MS = 250;
@@ -738,23 +724,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     );
   }
 
-  private normalizeQueueId(queueId: string): BrowserQueueId | null {
-    const normalized = String(queueId || '').trim();
-    if (!normalized) return null;
-
-    if (normalized === 'neural') return 'neural';
-    if (normalized in QUEUE_ID_TO_TYPE) return normalized as BrowserQueueId;
-    return null;
-  }
-
   getQueueById(queueId: string): IReviewQueue | null {
     if (!this.unifiedDataSourceManager) return null;
 
-    const normalized = this.normalizeQueueId(queueId);
+    const normalized = normalizeBrowserQueueId(queueId);
     if (!normalized) return null;
 
     try {
-      return this.unifiedDataSourceManager.getQueue(QUEUE_ID_TO_TYPE[normalized]);
+      const queueType = resolveQueueTypeForBrowserQueueId(normalized);
+      return queueType ? this.unifiedDataSourceManager.getQueue(queueType) : null;
     } catch (error) {
       logger.error('QUEUE_UNAVAILABLE: failed to get queue by id:', { queueId, error });
       const unavailable = new Error(`QUEUE_UNAVAILABLE: ${queueId} queue lookup failed`);
@@ -775,7 +753,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     const projectionBacked = this.isProjectionBackedBrowserQueue(queueId);
     if (
       !projectionBacked
-      && queueId === 'neural-roam'
+      && isNeuralBrowserQueue(queueId)
       && typeof (queue as { getConceptBlocks?: () => unknown[] }).getConceptBlocks === 'function'
     ) {
       try {
@@ -791,7 +769,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
 
     if (
       !projectionBacked
-      && queueId === 'neural-roam'
+      && isNeuralBrowserQueue(queueId)
       && typeof (queue as { getSourceSnapshot?: () => unknown[] }).getSourceSnapshot === 'function'
     ) {
       try {
@@ -823,11 +801,8 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   private isProjectionBackedBrowserQueue(queueId: string): boolean {
-    const normalized = this.normalizeQueueId(queueId);
-    if (!normalized) {
-      return false;
-    }
-    const queueType = QUEUE_ID_TO_TYPE[normalized];
+    const queueType = resolveQueueTypeForBrowserQueueId(queueId);
+    if (!queueType) return false;
     const diagnostics = this.unifiedDataSourceManager
       ?.getQueueProjectionRolloutDiagnostics?.(queueType);
     return Array.isArray(diagnostics)
@@ -839,14 +814,12 @@ export class BrowserApplicationService implements IBrowserApplicationService {
 
   private resolveAffectedBrowserQueueIds(affectedQueueTypes?: QueueType[] | null): BrowserQueueId[] {
     if (!affectedQueueTypes || affectedQueueTypes.length === 0) {
-      return Object.keys(QUEUE_ID_TO_TYPE)
-        .filter((id) => id !== 'neural')
-        .map((id) => id as BrowserQueueId);
+      return getCanonicalBrowserQueueIds();
     }
 
     return Array.from(new Set(
       affectedQueueTypes
-        .map((queueType) => QUEUE_TYPE_TO_BROWSER_KEY[queueType])
+        .map((queueType) => resolveBrowserQueueIdForQueueType(queueType))
         .filter((queueId): queueId is BrowserQueueId => Boolean(queueId)),
     ));
   }
@@ -867,7 +840,10 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       return inFlight;
     }
 
-    const queueType = QUEUE_ID_TO_TYPE[queueId];
+    const queueType = resolveQueueTypeForBrowserQueueId(queueId);
+    if (!queueType) {
+      throw new Error(`QUEUE_UNAVAILABLE: ${queueId} queue identity unsupported`);
+    }
     const request = this.readQueueVisibleCount(manager.getQueue(queueType), queueId, forceRefresh)
       .then((value) => {
         const normalized = Math.max(0, Number(value) || 0);

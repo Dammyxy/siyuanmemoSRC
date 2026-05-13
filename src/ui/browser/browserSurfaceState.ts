@@ -96,16 +96,17 @@ export function normalizeBrowserNeuralSubview(
 }
 
 export function captureBrowserOpenState(input: CaptureBrowserOpenStateInput): BrowserOpenState {
+  const queueId = normalizeBrowserQueueId(input.queueId);
   return {
-    queueId: input.queueId,
+    queueId,
     globalScope: input.globalScope,
     scopeDocIds: input.scopeDocIds ? [...input.scopeDocIds] : null,
     docId: input.docId,
     queryText: input.queryText,
     preset: input.preset,
     cardType: input.cardType,
-    filter: input.queueId === 'filter-group' ? cloneBrowserCardFilter(input.filter) : null,
-    neuralSubview: isNeuralQueueId(input.queueId)
+    filter: queueId === 'filter-group' ? cloneBrowserCardFilter(input.filter) : null,
+    neuralSubview: isNeuralQueueId(queueId)
       ? normalizeBrowserNeuralSubview(input.neuralSubview)
       : null,
   };

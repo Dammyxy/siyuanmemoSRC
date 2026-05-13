@@ -1,5 +1,9 @@
 import type { CardTypeFilter } from '../types';
 import { getAvailableCardTypeFilters } from '../types';
+import {
+  isNeuralBrowserQueue,
+  normalizeBrowserQueueId as normalizeSharedBrowserQueueId,
+} from '@/types/browser-queue-identity';
 
 const FALLBACK_CARD_TYPE: CardTypeFilter = 'all';
 const NEURAL_DEFAULT_CARD_TYPE: CardTypeFilter = 'concept-only';
@@ -19,14 +23,7 @@ export interface QueueCardTypeTransitionResult {
 }
 
 export function normalizeBrowserQueueId(queueId: QueueIdLike): string | null {
-  const normalized = String(queueId || '').trim();
-  if (!normalized) {
-    return null;
-  }
-  if (normalized === 'neural') {
-    return 'neural-roam';
-  }
-  return normalized;
+  return normalizeSharedBrowserQueueId(queueId);
 }
 
 function isNeuralCardType(cardType: CardTypeFilter): boolean {
@@ -34,8 +31,7 @@ function isNeuralCardType(cardType: CardTypeFilter): boolean {
 }
 
 export function isNeuralQueueId(queueId: QueueIdLike): boolean {
-  const normalized = normalizeBrowserQueueId(queueId);
-  return normalized === 'neural-roam';
+  return isNeuralBrowserQueue(queueId);
 }
 
 export function normalizeCardTypeForQueue(

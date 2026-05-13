@@ -149,4 +149,18 @@ describe('BlockIdsDataSource queryable path', () => {
     ]);
     expect(loadBrowserCardsByBlockIdsMock).not.toHaveBeenCalled();
   });
+
+  it('applies neural queue action policy through legacy alias', () => {
+    const dataSource = new BlockIdsDataSource({
+      id: 'neural-roam',
+      label: 'Neural Roam',
+      blockIds: [],
+      queueId: 'neural',
+    });
+
+    const actionIds = dataSource.getSupportedActions().map((action) => action.id);
+    expect(actionIds).toContain('remove-from-current-queue');
+    expect(actionIds).not.toContain('insert-at');
+    expect(actionIds).not.toContain('set-priority');
+  });
 });

@@ -13,10 +13,10 @@ import { QueryDataSource, type QueryDataSourceOptions } from '../datasource/Quer
 import { BlockIdsDataSource } from '../datasource/BlockIdsDataSource';
 import { IncrementalLearningDataSource } from '../datasource/IncrementalLearningDataSource';
 import {
-  QueueType,
   type BrowserCardTypeFilter,
   type IUnifiedDataSourceManagerFacade,
 } from '@/types/unified-data-source';
+import { resolveBrowserQueueIdentity } from '@/types/browser-queue-identity';
 import { createLogger } from '@/utils/logger';
 import type { IBrowserApplicationService } from '@/application/interfaces/IBrowserApplicationService';
 
@@ -106,9 +106,14 @@ export function createQueueDataSource(
   browserService?: IBrowserApplicationService | null
 ): ICardDataSource | null {
   const { docId, scopeDocIds, preset, queryText, cardType } = options;
+  const identity = resolveBrowserQueueIdentity(queueId);
+  if (!identity.ok) {
+    return null;
+  }
+  const canonicalQueueId = identity.queueId;
 
   // ✅ 所有队列都使用新架构数据源
-  switch (queueId) {
+  switch (canonicalQueueId) {
     case 'final-drill':
       return new FinalDrillDataSource(manager, {
         docId,
@@ -148,7 +153,7 @@ export function createQueueDataSource(
     case 'neural-roam':
       // 神经漫游队列：使用 BlockIds 数据源
       // 使用动态获取函数，确保每次都获取最新的概念池列表
-      const neuralQueue = manager.getQueue(QueueType.NeuralRoam);
+      const neuralQueue = manager.getQueue(identity.queueType);
       return new BlockIdsDataSource({
         id: 'neural-roam',
         label: resolveI18nLabel(plugin, 'neuralRoam', 'Neural Roam'),
@@ -262,9 +267,11 @@ export function createFocusDataSource(
   browserService?: IBrowserApplicationService | null
 ): ICardDataSource | null {
   const { preset, queryText, cardType, scopeDocIds } = options;
+  const identity = resolveBrowserQueueIdentity(queueId);
+  const canonicalQueueId = identity.ok ? identity.queueId : null;
 
   // 队列模式：创建不含文档筛选的队列数据源
-  if (queueId === 'final-drill') {
+  if (canonicalQueueId === 'final-drill') {
     return new FinalDrillDataSource(manager, {
       scopeDocIds,
       preset,
@@ -273,7 +280,7 @@ export function createFocusDataSource(
     }, asQueueDataSourcePlugin(plugin), { browserService });
   }
 
-  if (queueId === 'retrieval') {
+  if (canonicalQueueId === 'retrieval') {
     return new RetrievalDataSource(manager, {
       scopeDocIds,
       preset,
@@ -282,7 +289,7 @@ export function createFocusDataSource(
     }, asRetrievalDataSourcePlugin(plugin), { browserService });
   }
 
-  if (queueId === 'filter-group') {
+  if (canonicalQueueId === 'filter-group') {
     return new FilterGroupDataSource(manager, {
       scopeDocIds,
       preset,
@@ -292,7 +299,7 @@ export function createFocusDataSource(
   }
 
   // ✅ 新增：渐进学习队列
-  if (queueId === 'incremental-learning') {
+  if (canonicalQueueId === 'incremental-learning') {
     return new IncrementalLearningDataSource(manager, {
       scopeDocIds,
       preset,
@@ -302,8 +309,8 @@ export function createFocusDataSource(
   }
 
   // 神经漫游队列：使用 BlockIds，支持动态获取
-  if (queueId === 'neural-roam') {
-    const neuralQueue = manager.getQueue(QueueType.NeuralRoam);
+  if (canonicalQueueId === 'neural-roam' && identity.ok) {
+    const neuralQueue = manager.getQueue(identity.queueType);
     return new BlockIdsDataSource({
       id: 'neural-roam',
       label: resolveI18nLabel(plugin, 'neuralRoam', 'Neural Roam'),

@@ -52,6 +52,7 @@ describe('queueCardTypePolicy', () => {
   });
 
   it('normalizes non-neural queue card type by allowed options', () => {
+    expect(normalizeCardTypeForQueue('retrieval-practice', 'topic-only', 'all')).toBe('all');
     expect(normalizeCardTypeForQueue('retrieval', 'concept-only', 'all')).toBe('all');
     expect(normalizeCardTypeForQueue('retrieval', 'item-only', 'all')).toBe('item-only');
   });

@@ -1,9 +1,12 @@
-import type { BrowserQueueId } from '@/application/interfaces/IBrowserApplicationService';
 import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
 import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
-import type { IUnifiedDataSourceManagerFacade, QueueType } from '@/types/unified-data-source';
+import type { IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
+import {
+  isRetrievalBrowserQueue,
+  resolveBrowserQueueIdentity,
+  type BrowserQueueId,
+} from '@/types/browser-queue-identity';
 import type { QueueSnapshotRow } from '@/types/queue-browser';
-import { QueueType as QueueTypeEnum } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 import { resolveBrowserCardStableId, type BrowserCard } from '@/types/browser';
 import {
@@ -24,15 +27,6 @@ import {
 } from './SourceExistenceCache';
 
 const logger = createLogger('QueueBrowserQueryKernel');
-
-const QUEUE_ID_TO_TYPE: Partial<Record<BrowserQueueId, QueueType>> = {
-  retrieval: QueueTypeEnum.RetrievalPractice,
-  'final-drill': QueueTypeEnum.FinalDrill,
-  'filter-group': QueueTypeEnum.FilterGroup,
-  'incremental-learning': QueueTypeEnum.IncrementalLearning,
-  'neural-roam': QueueTypeEnum.NeuralRoam,
-  neural: QueueTypeEnum.NeuralRoam,
-};
 
 export class QueueBrowserQueryKernel {
   constructor(
@@ -96,7 +90,7 @@ export class QueueBrowserQueryKernel {
     const browserRows = cards.map((card) => {
       const snapshotRow = rowById.get(String(card.riffCardId || card.id || '').trim());
       return mapQueueFsrsCardToBrowserCard(card, {
-        firstReviewMode: queueId === 'retrieval' ? 'created-or-last' : 'last-review',
+        firstReviewMode: isRetrievalBrowserQueue(queueId) ? 'created-or-last' : 'last-review',
         queueIndex: snapshotRow?.queueIndex,
         blockType: snapshotRow?.blockType,
       });
@@ -113,12 +107,12 @@ export class QueueBrowserQueryKernel {
   }
 
   private resolveQueue(queueId: BrowserQueueId) {
-    const queueType = QUEUE_ID_TO_TYPE[queueId];
-    if (!queueType) {
+    const identity = resolveBrowserQueueIdentity(queueId);
+    if (!identity.ok) {
       throw new Error(`Queue snapshot kernel does not support queueId=${queueId}`);
     }
 
-    return this.manager.getQueue(queueType);
+    return this.manager.getQueue(identity.queueType);
   }
 
   private resolveQuerySecondaryField(queueId: BrowserQueueId): QuerySecondaryField {
