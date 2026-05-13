@@ -442,8 +442,9 @@ import {
 } from './utils/browserCardIdentity';
 import { extractBlockIds } from './utils/helpers';
 import { mergeExplicitSelectionByPage } from './utils/paginatedSelection';
-import { fetchRowsWithProjectionReadinessRetry, isQueueProjectionNotReadyError } from './utils/projectionReadiness';
+import { fetchRowsWithProjectionReadinessRetry } from './utils/projectionReadiness';
 import { resolveEffectiveSortModel } from './utils/sortModel';
+import { createBrowserGridFirstRowsLifecycle } from './BrowserGridFirstRowsLifecycle';
 import {
   fetchAllRowsFromDataSource,
   loadAllRowsFromQueryableDataSource,
@@ -1666,6 +1667,23 @@ function recordGridModelUpdate(operation: string, metadata: Record<string, unkno
   }
 }
 
+const gridFirstRowsLifecycle = createBrowserGridFirstRowsLifecycle({
+  activeDocId,
+  applyGlobalSelectionToLoadedRows,
+  hasFirstDataBlockLoaded,
+  loading,
+  logger,
+  measureUiUpdate: (operation, metadata) => measureRuntimePerformance('browser', 'grid.datasource-ui-update', operation, metadata),
+  mergeLoadedRows,
+  nextTick: (callback) => void nextTick(callback),
+  recordFirstRowsVisible: recordBrowserFirstRowsVisible,
+  rows,
+  rowsForFocus,
+  scheduleUiUpdate: scheduleDatasourceUiUpdate,
+  shouldFocusDocList,
+  totalRowCount,
+});
+
 function createInfiniteDatasource(
   version: number,
   dataSourceSnapshot: ICardDataSource | null
@@ -1684,22 +1702,11 @@ function createInfiniteDatasource(
         try {
           const dataSource = dataSourceSnapshot;
           if (!dataSource) {
-            status = 'empty-datasource';
-            if (version === datasourceVersion) {
-              scheduleDatasourceUiUpdate(version, () => {
-                totalRowCount.value = 0;
-                hasFirstDataBlockLoaded.value = true;
-                loading.value = false;
-                void nextTick(() => recordBrowserFirstRowsVisible({
-                  empty: true,
-                  rowCount: 0,
-                  source: 'empty-datasource',
-                  totalCount: 0,
-                  version,
-                }));
-              });
-            }
-            params.successCallback([], 0);
+            status = gridFirstRowsLifecycle.applyEmptyDatasource({
+              isCurrentVersion: () => version === datasourceVersion,
+              successCallback: params.successCallback,
+              version,
+            });
             return;
           }
 
@@ -1754,55 +1761,23 @@ function createInfiniteDatasource(
             return;
           }
 
-          measureRuntimePerformance('browser', 'grid.success-callback', () => params.successCallback(rowsForBlock, totalCount), {
+          status = measureRuntimePerformance('browser', 'grid.success-callback', () => gridFirstRowsLifecycle.applyLoadedRows({
+            isCurrentVersion: () => version === datasourceVersion,
+            rowsForBlock,
+            successCallback: params.successCallback,
+            totalCount,
+            version,
+          }), {
             rowCount: rowsForBlock.length,
             totalCount,
           });
-          scheduleDatasourceUiUpdate(version, () => {
-            measureRuntimePerformance('browser', 'grid.datasource-ui-update', () => {
-              totalRowCount.value = totalCount;
-              hasFirstDataBlockLoaded.value = true;
-              rows.value = rowsForBlock;
-              if (!shouldFocusDocList.value && !activeDocId.value) {
-                rowsForFocus.value = [...rowsForBlock];
-              }
-              mergeLoadedRows(rowsForBlock);
-              applyGlobalSelectionToLoadedRows();
-              loading.value = false;
-              void nextTick(() => recordBrowserFirstRowsVisible({
-                empty: totalCount === 0,
-                rowCount: rowsForBlock.length,
-                source: 'datasource-ui-update',
-                totalCount,
-                version,
-              }));
-            }, {
-              rowCount: rowsForBlock.length,
-              totalCount,
-            });
-          });
-          status = 'loaded';
         } catch (error) {
-          status = 'error';
-          if (isQueueProjectionNotReadyError(error)) {
-            status = 'projection-not-ready';
-            if (version === datasourceVersion) {
-              logger.info('[SiYuanMemo][SRSBrowser] Queue projection is still refreshing; grid request will fail without error noise:', error);
-              scheduleDatasourceUiUpdate(version, () => {
-                loading.value = false;
-              });
-            }
-            params.failCallback();
-            return;
-          }
-          if (version === datasourceVersion) {
-            logger.error('[SiYuanMemo][SRSBrowser] Infinite datasource getRows failed:', error);
-            scheduleDatasourceUiUpdate(version, () => {
-              hasFirstDataBlockLoaded.value = true;
-              loading.value = false;
-            });
-          }
-          params.failCallback();
+          status = gridFirstRowsLifecycle.applyRowsError({
+            error,
+            failCallback: params.failCallback,
+            isCurrentVersion: () => version === datasourceVersion,
+            version,
+          });
         } finally {
           finishGetRowsSpan({
             firstRowsLoaded: hasFirstDataBlockLoaded.value,

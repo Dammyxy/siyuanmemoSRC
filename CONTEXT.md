@@ -44,6 +44,10 @@ _Avoid_: current due
 A shared availability state for a queue projection that tells callers whether a projection is readable, preparing, or unavailable, including its projection identity when readable.
 _Avoid_: generic projection unavailable, Browser retry state, fallback readiness
 
+**Browser Queue View Lifecycle**:
+The Browser surface flow that prepares a selected queue, consumes **Queue Projection Readiness**, creates the queue datasource, and hands it to the grid for first-row rendering.
+_Avoid_: scattered queue load glue, UI projection repair
+
 ## Relationships
 
 - A **Mixed SRS Queue** may contain **Learning Steps**, **Review Cards**, and new cards.
@@ -53,6 +57,7 @@ _Avoid_: generic projection unavailable, Browser retry state, fallback readiness
 - New cards enter a **Mixed SRS Queue** through daily limits before becoming **Learning Steps**.
 - **Learn Ahead** may serve only future **Learning Steps**, bounded by both a time window and a maximum card count.
 - **Queue Projection Readiness** is consumed by Browser views and owned by application/backend coordination, not by UI retry logic.
+- **Browser Queue View Lifecycle** consumes **Queue Projection Readiness** and owns Browser-side retry/attach decisions, but does not materialize queue projections.
 
 ## Example Dialogue
 
@@ -66,3 +71,4 @@ _Avoid_: generic projection unavailable, Browser retry state, fallback readiness
 - `RetrievalPractice` was considered for the same new-card semantics as `IncrementalLearning`. Resolved: it is review-oriented and does not introduce new cards by default.
 - `Learn Ahead` was considered as a card-count-only setting. Resolved: it follows Anki-style time-window semantics with an additional maximum-card limit for user experience control.
 - Queue projection "not ready" was used for normal preparation, transient infrastructure unavailability, and terminal projection failures. Resolved: **Queue Projection Readiness** separates readable, preparing, and unavailable states.
+- Browser queue loading mixed readiness, retry, datasource creation, and attach decisions. Resolved: **Browser Queue View Lifecycle** owns Browser-side queue preparation before grid attach.

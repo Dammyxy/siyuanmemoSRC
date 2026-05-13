@@ -125,6 +125,7 @@ describe('browserLoadDataRuntime', () => {
 
   it('keeps queue view preparing instead of attaching datasource or emptying rows while projection refreshes', async () => {
     vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
     const manager = {
       ...createManager(),
       ensureQueueProjectionReady: vi.fn(async () => ({
@@ -151,7 +152,9 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.rows.value).toEqual([{ id: 'existing', blockId: 'existing' }]);
     expect(deps.totalRowCount.value).toBe(1);
     expect(deps.loading.value).toBe(true);
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 300);
 
+    setTimeoutSpy.mockRestore();
     vi.useRealTimers();
   });
 

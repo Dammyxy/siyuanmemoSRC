@@ -4,7 +4,6 @@ import type {
   BrowserCardTypeFilter,
   IUnifiedDataSourceManagerFacade,
 } from '@/types/unified-data-source';
-import { QueueType } from '@/types/unified-data-source';
 import type { BrowserCard, CardTypeFilter } from './types';
 import type { ICardDataSource } from './datasource/types';
 import type { PresetFilter } from '@/application/queries/browser/GetBrowserCardsQuery';
@@ -12,8 +11,8 @@ import { resolveBrowserHierarchySnapshotMode } from './hierarchySnapshotPlan';
 import {
   createDeckDataSource,
   createQueryDataSource,
-  createQueueDataSource,
 } from './utils/dataSourceFactory';
+import { createBrowserQueueViewModule } from './BrowserQueueViewModule';
 import { measureRuntimePerformance, startRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnostics';
 
 type MutableRef<T> = {
@@ -91,40 +90,9 @@ function getCardType(deps: BrowserLoadDataRuntimeDeps): BrowserCardTypeFilter {
   return deps.currentCardType.value as BrowserCardTypeFilter;
 }
 
-const QUEUE_ID_TO_TYPE: Record<string, QueueType> = {
-  retrieval: QueueType.RetrievalPractice,
-  'final-drill': QueueType.FinalDrill,
-  'incremental-learning': QueueType.IncrementalLearning,
-  'filter-group': QueueType.FilterGroup,
-  'neural-roam': QueueType.NeuralRoam,
-  neural: QueueType.NeuralRoam,
-};
-
-function resolveQueueTypeForReadiness(queueId: string | null, currentQueueType: string): QueueType | null {
-  if (currentQueueType && Object.values(QueueType).includes(currentQueueType as QueueType)) {
-    return currentQueueType as QueueType;
-  }
-  return queueId ? QUEUE_ID_TO_TYPE[queueId] ?? null : null;
-}
-
-function mapReadinessUnavailableMessage(cause: string): string {
-  switch (cause) {
-    case 'writer_unavailable':
-      return 'Queue projection writer is unavailable';
-    case 'backend_unavailable':
-      return 'Queue projection backend is unavailable';
-    case 'invalid_queue':
-      return 'Queue projection is not available for this queue';
-    case 'contract_mismatch':
-      return 'Queue projection contract mismatch';
-    default:
-      return 'Queue projection is unavailable';
-  }
-}
-
 export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
   let loadDataAbortController: AbortController | null = null;
-  const readinessRetryAttempts = new Map<string, number>();
+  const queueViewModule = createBrowserQueueViewModule({ logger: deps.logger });
 
   function abortLoadData(): void {
     if (loadDataAbortController) {
@@ -179,63 +147,51 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
         }
 
         const activeQueueId = deps.activeQueueId.value;
-        const queueType = resolveQueueTypeForReadiness(activeQueueId, deps.currentQueueType.value);
-        if (queueType && typeof unifiedDataSourceManager.ensureQueueProjectionReady === 'function') {
-          const readiness = await unifiedDataSourceManager.ensureQueueProjectionReady({
-            queueType,
-            preset: deps.currentPreset.value,
-            searchText: deps.searchQuery.value,
-            docId: deps.activeDocId.value,
-            scopeDocIds: deps.activeScopeDocIds.value,
-            cardType: String(getCardType(deps)),
-            source: 'browser',
-          });
-          if (readiness.status === 'refreshing') {
-            datasourceTriggered = true;
-            deps.currentDataSource.value = null;
-            const attempts = readinessRetryAttempts.get(queueType) ?? 0;
-            if (attempts < 4 && !currentController.signal.aborted) {
-              readinessRetryAttempts.set(queueType, attempts + 1);
-              const delayMs = readiness.retryAfterMs ?? 300;
-              setTimeout(() => {
-                if (!currentController.signal.aborted) {
-                  void loadData(forceRefresh, { ...options, origin: 'queue-sync' });
-                }
-              }, delayMs);
-            } else {
-              deps.loading.value = false;
-            }
-            deps.logger.info('[SiYuanMemo][SRSBrowser] Queue projection is preparing', readiness);
-            return;
-          }
-          readinessRetryAttempts.delete(queueType);
-          if (readiness.status === 'unavailable') {
-            deps.currentDataSource.value = null;
-            await deps.pushErrMsg(mapReadinessUnavailableMessage(readiness.cause));
-            clearBrowserRows(deps);
-            return;
-          }
-        }
-
-        deps.currentDataSource.value = measureRuntimePerformance('browser', 'load-data.create-queue-datasource', () => createQueueDataSource(
-          deps.activeQueueId.value,
+        const queueView = await measureRuntimePerformance('browser', 'load-data.prepare-queue-view', () => queueViewModule.prepareQueueView(
           unifiedDataSourceManager,
           {
-            docId: deps.activeDocId.value,
-            scopeDocIds: deps.activeScopeDocIds.value,
-            preset: deps.currentPreset.value,
-            queryText: deps.searchQuery.value,
+            activeDocId: deps.activeDocId.value,
+            activeQueueId,
+            activeScopeDocIds: deps.activeScopeDocIds.value,
+            browserAppService: deps.browserAppService.value || null,
             cardType: getCardType(deps),
+            currentPreset: deps.currentPreset.value,
+            currentQueueType: deps.currentQueueType.value,
+            forceRefresh,
+            plugin: deps.getPlugin(),
+            searchText: deps.searchQuery.value,
           },
-          deps.getPlugin(),
-          deps.browserAppService.value || null,
-        ), { queueId: deps.activeQueueId.value });
+        ), { queueId: activeQueueId });
 
-        if (!deps.currentDataSource.value) {
-          deps.logger.error('[SiYuanMemo][SRSBrowser] Failed to create data source for queue:', deps.activeQueueId.value);
+        if (queueView.status === 'refreshing') {
+          datasourceTriggered = true;
+          deps.currentDataSource.value = null;
+          if (queueView.keepLoading && queueView.retryDelayMs != null && !currentController.signal.aborted) {
+            setTimeout(() => {
+              if (!currentController.signal.aborted) {
+                void loadData(forceRefresh, { ...options, origin: 'queue-sync' });
+              }
+            }, queueView.retryDelayMs);
+          } else {
+            deps.loading.value = false;
+          }
+          return;
+        }
+
+        if (queueView.status === 'unavailable') {
+          deps.currentDataSource.value = null;
+          await deps.pushErrMsg(queueView.message);
           clearBrowserRows(deps);
           return;
         }
+
+        if (queueView.status === 'missing-datasource') {
+          deps.logger.error('[SiYuanMemo][SRSBrowser] Failed to create data source for queue:', queueView.queueId);
+          clearBrowserRows(deps);
+          return;
+        }
+
+        deps.currentDataSource.value = queueView.datasource;
       } else {
         deps.clearNeuralSubviewData();
         const sqlStmt = deps.resolveActiveSqlStatement(deps.searchQuery.value);

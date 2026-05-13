@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-13 (Round 339)
+Last update: 2026-05-13 (Round 340)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-13 - Browser Queue View Lifecycle module
+
+- Task: Implement the handoff debt **Browser Queue View Module** after queue projection readiness became a shared contract.
+- Touched slice: Browser queue lifecycle; `src/ui/browser/BrowserQueueViewModule.ts`, `src/ui/browser/BrowserGridFirstRowsLifecycle.ts`, `src/ui/browser/browserLoadDataRuntime.ts`, `src/ui/browser/SRSBrowser.vue`, Browser lifecycle tests, `CONTEXT.md`, `ARCHITECTURE.md`, and OpenSpec change `deepen-browser-queue-view-module`.
+- Debt fixed now: Queue-mode load preparation now routes through a Browser Queue View Lifecycle module. The module owns browser queue id to `QueueType` resolution, readiness consumption, bounded retry state keyed by readiness identity, unavailable cause message mapping, and queue datasource creation. `browserLoadDataRuntime.ts` now applies explicit lifecycle results instead of interpreting readiness and building queue datasources inline; deck/query paths remain unchanged. The first-row UI application path is also extracted to `BrowserGridFirstRowsLifecycle`, covering empty datasource, loaded rows, projection-not-ready, and hard getRows errors while preserving `grid.datasource-ui-update` diagnostics.
+- Debt deferred: AG Grid datasource construction, `getRows` fetch orchestration, sort/filter stale checks, and soft-stale live identity event bus remain deferred.
+- Why deferred: Queue preparation and first-row state application were safe Browser-local deepening steps. Moving AG Grid datasource construction or adding live identity events would widen into grid integration details and application event contracts.
+- Next safe step: If continuing this debt, extract AG Grid datasource command planning only after deciding the public helper interface for sort/filter stale behavior; add live identity events only after Browser attach model needs push-driven reattach.
+- Validation: `openspec validate deepen-browser-queue-view-module --strict`; `pnpm vitest run --root H:\project-F\flashcard\.worktrees\siyuan-plugin-siyuanmemo\kernel-companion-p0 src/ui/browser/__tests__/BrowserGridFirstRowsLifecycle.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts --reporter=verbose`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`. Full `pnpm exec tsc --noEmit --pretty false --skipLibCheck` remains blocked by pre-existing repo-wide TypeScript errors unrelated to this slice.
 
 ### 2026-05-13 - Queue projection readiness shared contract
 
