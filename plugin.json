@@ -4,14 +4,19 @@
   "url": "https://github.com/Dammyxy/siyuan-plugin-siyuanmemo",
   "version": "0.2.1",
   "disabledInPublish": true,
-  "minAppVersion": "3.2.1",
+  "minAppVersion": "3.6.4",
   "backends": [
     "all"
   ],
   "kernels": [
     "windows",
     "linux",
-    "darwin"
+    "darwin",
+    "ios",
+    "android",
+    "harmony",
+    "docker",
+    "all"
   ],
   "frontends": [
     "all"

@@ -114,6 +114,137 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     ]);
   });
 
+  it('reacquires writer lease before relaying neural-roam advance from stale follower mode', async () => {
+    const manager = UnifiedDataSourceManager.getInstance();
+    const backendResult = {
+      queueType: 'neural-roam',
+      sessionId: null,
+      status: 'exhausted',
+      nextItem: null,
+      counters: {
+        remaining: 0,
+        due: 0,
+        total: 0,
+        pendingAssociatedReview: 0,
+        sourceNodes: 0,
+      },
+      sessionState: {
+        sessionId: null,
+        engineMode: null,
+        currentNodeId: null,
+        currentEventId: null,
+        pathLength: 0,
+        visitedCount: 0,
+        policyHash: null,
+        generation: null,
+      },
+      queueState: {
+        sessionId: null,
+        engineMode: null,
+        currentNodeId: null,
+        currentEventId: null,
+        path: [],
+        visitedNodeIds: [],
+        counters: {
+          remaining: 0,
+          due: 0,
+          total: 0,
+          pendingAssociatedReview: 0,
+          sourceNodes: 0,
+        },
+        policyHash: null,
+        generation: null,
+      },
+    };
+    const backend = {
+      neuralRoamAdvance: vi.fn(async () => backendResult),
+    };
+    let mode = 'follower';
+    const runtime = {
+      getMode: vi.fn(() => mode),
+      getInstanceId: vi.fn(() => 'instance-a'),
+      ensureWritable: vi.fn(async () => {
+        mode = 'writer';
+      }),
+    };
+    const followerCommandClient = {
+      submitAndWait: vi.fn(),
+    };
+    manager.setAdvancedRouter(createRouterWithBackend(backend, {
+      frontendRuntime: runtime,
+      followerCommandClient,
+    }));
+
+    await expect(manager.neuralRoamAdvance({
+      queueType: 'neural-roam',
+      sessionId: null,
+      currentItem: null,
+      feedback: null,
+    })).resolves.toBe(backendResult);
+
+    expect(runtime.ensureWritable).toHaveBeenCalledTimes(1);
+    expect(backend.neuralRoamAdvance).toHaveBeenCalledTimes(1);
+    expect(followerCommandClient.submitAndWait).not.toHaveBeenCalled();
+  });
+
+  it('keeps follower relay when writer lease reacquire still leaves runtime as follower', async () => {
+    const manager = UnifiedDataSourceManager.getInstance();
+    const relayResult = {
+      queueType: 'neural-roam',
+      sessionId: null,
+      status: 'unavailable',
+      nextItem: null,
+      counters: {
+        remaining: 0,
+        due: 0,
+        total: 0,
+        pendingAssociatedReview: 0,
+        sourceNodes: 0,
+      },
+      sessionState: {
+        sessionId: null,
+        engineMode: null,
+        currentNodeId: null,
+        currentEventId: null,
+        pathLength: 0,
+        visitedCount: 0,
+        policyHash: null,
+        generation: null,
+      },
+      queueState: null,
+      unavailableReason: 'writer-unavailable',
+      message: 'writer unavailable',
+    };
+    const backend = {
+      neuralRoamAdvance: vi.fn(),
+    };
+    const runtime = {
+      getMode: vi.fn(() => 'follower'),
+      getInstanceId: vi.fn(() => 'instance-a'),
+      ensureWritable: vi.fn(async () => {
+        throw new Error('BACKEND_UNAVAILABLE: writer lease held by another instance');
+      }),
+    };
+    const followerCommandClient = {
+      submitAndWait: vi.fn(async () => relayResult),
+    };
+    manager.setAdvancedRouter(createRouterWithBackend(backend, {
+      frontendRuntime: runtime,
+      followerCommandClient,
+    }));
+
+    await expect(manager.neuralRoamAdvance({
+      queueType: 'neural-roam',
+      sessionId: null,
+      currentItem: null,
+      feedback: null,
+    })).resolves.toBe(relayResult);
+
+    expect(runtime.ensureWritable).toHaveBeenCalledTimes(1);
+    expect(followerCommandClient.submitAndWait).toHaveBeenCalledTimes(1);
+    expect(backend.neuralRoamAdvance).not.toHaveBeenCalled();
+  });
+
   it('returns typed readiness from backend projection snapshot', async () => {
     const manager = UnifiedDataSourceManager.getInstance();
     const backend = {

@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-13 (Round 345)
+Last update: 2026-05-13 (Round 347)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-13 - Kernel companion sample-style build
+
+- Task: Align SiYuanMemo kernel companion packaging with the official backend-plugin sample by moving the kernel script into typed source, adding a webpack kernel build, and expanding manifest platform support.
+- Touched slice: Kernel companion build/source boundary; `src/kernel.ts`, `webpack.kernel.config.cjs`, `vite.config.ts`, `package.json`, `plugin.json`, `scripts/check-no-kernel-db-owner.cjs`, `docs/KERNEL_PLUGIN_SYSTEM_RESEARCH.md`, and `ARCHITECTURE.md`.
+- Debt fixed now: The packaged `kernel.js` is now generated from `src/kernel.ts` with `/// <reference types="siyuan/kernel" />` and `siyuan@1.2.2-alpha.0`, instead of maintaining a root hand-written build artifact. The app build depends on `build:kernel`, static copy reads `build/kernel/kernel.js`, and the no-kernel-DB-owner guard now checks source instead of a root artifact. Kernel bundling now follows the sample's webpack + esbuild-loader + output-module shape.
+- Debt deferred: The kernel companion logic is still the P0 relay/coordinator shape; RPC lifecycle unbind cleanup, cross-end writer strategy, and kernel-as-unique-writer migration remain separate runtime design work.
+- Why deferred: This task was packaging/source alignment with the sample. Changing writer ownership or kernel lifecycle semantics would widen into runtime authority, Review/Queue contracts, and cross-device policy.
+- Next safe step: After testing on a SiYuan build with backend plugins enabled, add live smoke notes for desktop/mobile/docker kernel load and RPC behavior before changing writer election.
+- Validation: `pnpm install`; `pnpm run build:kernel`; `node scripts/check-no-kernel-db-owner.cjs`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-13 - NeuralRoam writer lease reacquire
+
+- Task: Fix NeuralRoam review feedback getting stuck when the frontend runtime has dropped from writer to follower while the kernel reports no active writer lease.
+- Touched slice: Review / Queue backend advance relay; `src/application/services/UnifiedDataSourceManager.ts` and focused manager tests.
+- Debt fixed now: `neuralRoamAdvance()` now asks a follower runtime to `ensureWritable()` before submitting a relay command. If the current visible instance can reacquire the writer lease, it executes the backend `neural-roam.advance` contract directly; if another writer still owns the lease or reacquire fails, it keeps the existing follower relay/unavailable path. This preserves single-writer authority without adding local queue advance fallback.
+- Debt deferred: Review UI still reports writer-unavailable as an action error on the current card rather than showing a dedicated backend-offline banner or retry button. Relay command expiry and sleep/wake diagnostics remain kernel/runtime observability work.
+- Why deferred: The root stuck path was stale follower mode with no active writer. UI affordances and broader relay observability are separate Review/runtime presentation concerns.
+- Next safe step: Add a small Review action-error mapper for writer-unavailable so the review surface can show an explicit retry/reopen hint without changing queue semantics.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-13 - Learning curve evidence module
 

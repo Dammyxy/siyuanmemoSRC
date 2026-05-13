@@ -10,7 +10,7 @@
 
 推荐 P0：
 
-1. `plugin.json` 增加 `kernels` 字段，先启用桌面平台。
+1. `plugin.json` 增加 `kernels` 字段，跟随官方 sample 声明桌面、移动、Docker/Harmony 与 `all`，但真实跨端 writer 策略仍需单独设计。
 2. 新增 `kernel.js` 构建产物，启动后绑定 `health` / `version` / `listRiffDecks` / `auditNativeRiff` 等 RPC。
 3. 前端新增 `KernelPluginPort` 与 `KernelPluginRpcAdapter`，保持 `ui -> application -> infrastructure` 边界。
 4. kernel companion 只调用思源 kernel REST/Riff API 和自身 `siyuan.storage`，不直接读写 SiYuanMemo 主 SQLite 文件。
@@ -74,7 +74,7 @@
 
 ```json
 {
-  "kernels": ["windows", "linux", "darwin"]
+  "kernels": ["windows", "linux", "darwin", "ios", "android", "harmony", "docker", "all"]
 }
 ```
 
@@ -98,7 +98,7 @@
 6. 依次调用 `onload`、`onloaded`、`onrunning`。
 7. 禁用/关闭时调用 `onunload`，清理 RPC methods、sockets、runtime。
 
-当前 SiYuanMemo 的 `plugin.json` 只有 `backends` / `frontends`，没有 `kernels`，因此在新内核中不会作为 kernel plugin 启动。
+当前 SiYuanMemo 的 `plugin.json` 已声明 `kernels`，新内核可按平台兼容性加载 `kernel.js`。
 
 ## Runtime 能力面
 
@@ -266,7 +266,7 @@ export interface KernelPluginPort {
 ```text
 src/application/ports/KernelPluginPort.ts
 src/infrastructure/siyuan/KernelPluginRpcAdapter.ts
-src/kernel/index.ts
+src/kernel.ts
 ```
 
 调用方向：
@@ -392,19 +392,21 @@ RPC methods：
 
 ### 平台与发布
 
-`kernels: ["all"]` 最方便，但移动端/容器限制未充分验证。
+`kernels` 已按官方 sample 扩到桌面、移动、Docker/Harmony 与 `all`，用于让 kernel companion 在支持后端插件系统的平台上可被加载；移动端/容器上的 writer 归属、资源限制与跨端 relay 仍未验证，不能仅凭 manifest 视为跨端 writer 已完成。
 
-结论：先用 `["windows", "linux", "darwin"]`。桌面稳定后再评估 `docker/android/ios/all`。
+结论：manifest 先跟随官方 sample 覆盖 `windows/linux/darwin/ios/android/harmony/docker/all`；桌面多窗口 writer 稳定性与跨端 writer 策略分别验证，不能把平台声明等同于跨端单 writer 完成。
 
 ### Build 复杂度
 
-当前 Vite 只构建前端 `src/index.ts` 到 `index.js`，并复制静态文件。新增 `kernel.js` 需要：
+当前构建拆成 webpack kernel entry + Vite app entry：
 
-- 新 entry
-- 或独立 build script
-- 或 checked-in lightweight kernel source
+- `build:kernel` 使用 `webpack.kernel.config.cjs` 把 `src/kernel.ts` 构建为 `build/kernel/kernel.js`。
+- `build:app` 使用 `vite.config.ts` 构建前端 `src/index.ts` 到 `index.js`，并把 `build/kernel/kernel.js` 复制到发布包根目录。
+- `build` 通过 `run-s build:kernel build:app` 保证 packaged `kernel.js` 先生成再复制。
 
-结论：P0 可先用手写轻量 `kernel.js` 或独立 `src/kernel/index.ts` build，避免扰动前端 bundle。
+`src/kernel.ts` 使用 `/// <reference types="siyuan/kernel" />` 和 `siyuan@1.2.2-alpha.0` 的 kernel 类型。Kernel entry 保持独立，不 import browser-only dependency，不直接读写 `siyuanmemo.db`。
+
+结论：P0 已从根目录手写 `kernel.js` 收口为 typed source + sample-style webpack kernel build，仍保持前端 bundle 不被 kernel runtime 依赖污染。
 
 ## 建议实施切片
 
@@ -413,8 +415,8 @@ RPC methods：
 改动：
 
 - `plugin.json` 添加 `kernels`。
-- 新增 `kernel.js` 最小脚本。
-- Vite static copy 包含 `kernel.js`。
+- 新增 `src/kernel.ts` 最小 kernel companion source。
+- 新增 `webpack.kernel.config.cjs`，Vite static copy 包含 `build/kernel/kernel.js`。
 
 RPC：
 
@@ -537,7 +539,7 @@ siyuan.plugin.lifecycle.onunload = async () => {
 
 在用户已编译安装的本地思源版本中，需要逐项验证：
 
-- `plugin.json.kernels` 桌面平台匹配后能启动。
+- `plugin.json.kernels` 在桌面、移动、Docker/Harmony 与 `all` 声明匹配后能启动；跨端 writer smoke 仍需另行验证。
 - `kernel.js` 热更新/禁用/启用生命周期表现。
 - `/api/plugin/listLoadedPlugins` 与 `/api/plugin/getLoadedPlugin` 返回结构。
 - `POST /api/plugin/rpc/:name` 已确认使用完整 JSON-RPC 2.0 envelope；升级内核分支时继续复核 endpoint shape 与 `params` 校验。

@@ -91,7 +91,7 @@ flowchart TD
 4. `ApplicationContext.create()` 完成后 resolve `contextReady`，由 `TabManager` runtime helper 真正 mount Vue tab surface
 5. `src/index.ts` 再注册顶栏、Dock、事件处理器、Slash 命令、移动端入口等外层 UI 胶水
 
-启动期只同步建立插件 shell、命令、topbar / menu / custom tab 注册与应用组合根。Browser、Review、AI Workbench、Settings、Arena、Mobile launcher、Progressive split、Template select 这些可见 surface，以及统一 Review dialog 工厂，都通过 `src/application/managers/lazySurfaceComponents.ts` 的 cached dynamic import 在首次打开时加载。`TabManager` 的 custom tab init 允许异步 mount，并用 runtime mount token 防止异步组件返回后挂载到已销毁的 tab runtime。发布构建遵守思源官方插件样例的扁平包形态：`vite.config.ts` 保持 `inlineDynamicImports: true`，输出单个 `index.js`、`index.css`、`kernel.js` 与静态资源，不生成 `chunks/*` 或额外入口 loader。这里的 dynamic import 只是源码级生命周期边界，用来避免 manager 静态导入可见 surface；release 包仍是单 JS 文件。新增 startup lazy boundary test 保护 `DialogManager` / `TabManager` 不再静态导入 Browser / Review / AI surface 组件，并保护 Vite 不重新打开 chunk 输出。
+启动期只同步建立插件 shell、命令、topbar / menu / custom tab 注册与应用组合根。Browser、Review、AI Workbench、Settings、Arena、Mobile launcher、Progressive split、Template select 这些可见 surface，以及统一 Review dialog 工厂，都通过 `src/application/managers/lazySurfaceComponents.ts` 的 cached dynamic import 在首次打开时加载。`TabManager` 的 custom tab init 允许异步 mount，并用 runtime mount token 防止异步组件返回后挂载到已销毁的 tab runtime。发布构建遵守思源官方插件样例的扁平包形态：`vite.config.ts` 保持 `inlineDynamicImports: true`，输出单个 `index.js`、`index.css`、`kernel.js` 与静态资源，不生成 `chunks/*` 或额外入口 loader；其中 packaged `kernel.js` 由 `src/kernel.ts` 经 `webpack.kernel.config.cjs` 独立构建到 `build/kernel/kernel.js` 后复制进包根。这里的 dynamic import 只是源码级生命周期边界，用来避免 manager 静态导入可见 surface；release 包仍是单 JS 文件。新增 startup lazy boundary test 保护 `DialogManager` / `TabManager` 不再静态导入 Browser / Review / AI surface 组件，并保护 Vite 不重新打开 chunk 输出。
 
 `ApplicationContext` 是当前唯一组合根。它负责：
 

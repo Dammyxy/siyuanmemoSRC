@@ -1,3 +1,5 @@
+/// <reference types="siyuan/kernel" />
+
 const startedAt = Date.now();
 const WRITER_LEASE_DEFAULT_TTL_MS = 60_000;
 const WRITER_LEASE_MIN_TTL_MS = 3_000;

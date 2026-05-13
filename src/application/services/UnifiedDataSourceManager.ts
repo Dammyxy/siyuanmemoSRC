@@ -103,6 +103,7 @@ interface UnifiedManagerPluginContextLike {
     getFrontendInstanceRuntime?: () => {
         getMode?: () => 'writer' | 'follower' | string;
         getInstanceId?: () => string;
+        ensureWritable?: () => Promise<void>;
     } | null | undefined;
     getFollowerCommandClient?: () => {
         submitAndWait?: <TResult>(request: {
@@ -415,6 +416,13 @@ export class UnifiedDataSourceManager {
         };
         const context = this.resolvePlugin()?.getContext?.();
         const runtime = context?.getFrontendInstanceRuntime?.();
+        if (runtime?.getMode?.() === 'follower' && typeof runtime.ensureWritable === 'function') {
+            try {
+                await runtime.ensureWritable();
+            } catch {
+                // Keep explicit follower relay/unavailable handling below.
+            }
+        }
 
         if (runtime?.getMode?.() === 'follower') {
             const follower = context?.getFollowerCommandClient?.();

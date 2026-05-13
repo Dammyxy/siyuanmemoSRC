@@ -6,9 +6,13 @@
   "author": "Dammyxy",
   "license": "AGPL-3.0",
   "scripts": {
-    "dev": "vite build --watch",
+    "dev": "run-p dev:kernel dev:app",
+    "dev:app": "vite build --watch",
+    "dev:kernel": "webpack --config webpack.kernel.config.cjs --mode development",
     "prebuild": "node check-i18n.cjs",
-    "build": "vite build",
+    "build": "run-s build:kernel build:app",
+    "build:app": "vite build",
+    "build:kernel": "webpack --config webpack.kernel.config.cjs --mode production",
     "postbuild": "pnpm run check:srs-dist-hygiene",
     "test": "vitest",
     "test:ui": "vitest --ui",
@@ -54,12 +58,16 @@
     "minimist": "^1.2.8",
     "rollup-plugin-livereload": "^2.0.5",
     "sass": "^1.62.1",
-    "siyuan": "1.1.0",
+    "esbuild-loader": "^4.4.3",
+    "npm-run-all": "^4.1.5",
+    "siyuan": "1.2.2-alpha.0",
     "ts-node": "^10.9.1",
     "typescript": "^5.0.4",
     "vite": "^5.4.0",
     "vite-plugin-static-copy": "^1.0.0",
     "vite-plugin-zip-pack": "^1.0.5",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "webpack": "^5.106.2",
+    "webpack-cli": "^7.0.2"
   }
 }

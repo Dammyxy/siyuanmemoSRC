@@ -74,7 +74,7 @@ export default defineConfig(({
             dest: "./",
           },
           {
-            src: "./kernel.js",
+            src: "./build/kernel/kernel.js",
             dest: "./",
           },
           {
@@ -132,7 +132,9 @@ export default defineConfig(({
                       "src/i18n/*.json",
                       "./README*.md",
                       "./plugin.json",
-                      "./kernel.js",
+                      "./build/kernel/kernel.js",
+                      "./src/kernel.ts",
+                      "./webpack.kernel.config.cjs",
                     ])
                     for (const file of files) {
                       this.addWatchFile(file)

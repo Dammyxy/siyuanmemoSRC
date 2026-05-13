@@ -2,10 +2,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const kernelFile = path.join(root, 'kernel.js');
+const kernelFile = path.join(root, 'src', 'kernel.ts');
 
 if (!fs.existsSync(kernelFile)) {
-  console.error('Kernel DB owner check failed: kernel.js is missing');
+  console.error('Kernel DB owner check failed: src/kernel.ts is missing');
   process.exit(1);
 }
 
