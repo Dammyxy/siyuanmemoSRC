@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-13 (Round 343)
+Last update: 2026-05-13 (Round 344)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-13 - Memory/content payload seam
+
+- Task: Implement OpenSpec change `deepen-memory-content-payload-seam` so Browser rows and queue rows compose memory state and source content through one seam.
+- Touched slice: Browser / Queue payload projection; `src/types/memory-content-payload-seam.ts`, `src/ui/browser/browserService.ts`, `src/ui/browser/datasource/QueryDataSource.ts`, focused seam/browser/query/queue tests, `ARCHITECTURE.md`, and OpenSpec tasks.
+- Debt fixed now: Added explicit virtual Browser block row helper for no-card source blocks and template-backed Browser query row helper for SQL query rows; migrated browserService virtual rows and QueryDataSource template-backed row composition away from hand-built schedule/source/display field mixes; tightened tests for memory-only/source-only ownership, virtual rows, template-backed rows, queue snapshot rows, and Browser query rows.
+- Debt deferred: Broader `BrowserCard` / `BrowserRowProjection` public type rename and non-Browser queue/review presentation identity cleanup remain deferred; Scheduler State Snapshot and Learning Curve Evidence remain separate architecture debt.
+- Why deferred: This change was a bounded payload seam deepening; public DTO renames and adaptive scheduler/evidence modules would widen beyond Browser/Queue row composition and risk unrelated runtime contracts.
+- Next safe step: If Browser row identity remains noisy, map remaining direct `BrowserCard` meta/signature consumers through smaller read helpers before considering public DTO rename.
+- Validation: `pnpm exec vitest run src/types/__tests__/memory-content-payload-seam.test.ts src/ui/browser/__tests__/browserService.block-id-paths.test.ts src/ui/browser/datasource/__tests__/QueryDataSource.queryable.test.ts src/core/queue/domain/__tests__/queueCardProjection.seam.test.ts --reporter=verbose`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-13 - Browser queue identity module
 

@@ -88,6 +88,41 @@ describe('browserService block-id paths', () => {
     expect(rows.every((row) => row.blockId === 'block-a')).toBe(true);
   });
 
+  it('loadBrowserCardsByBlockIds creates explicit virtual rows for source blocks without cards', async () => {
+    const siyuanApi = createSiyuanApi();
+    const manager = {
+      getCards: vi.fn().mockResolvedValue([]),
+    };
+
+    const rows = await loadBrowserCardsByBlockIds(['block-a'], {
+      manager: manager as any,
+      siyuanApi: siyuanApi as any,
+      applyQueryFilter: false,
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: 'block-a',
+      fsrsCardId: 'block-a',
+      blockId: 'block-a',
+      rootId: 'doc-a',
+      content: 'Alpha block',
+      fullContent: 'Alpha block',
+      dueFormatted: '-',
+      stability: 0,
+      difficulty: 0,
+      reps: 0,
+      lapses: 0,
+      scheduledDays: 0,
+      priority: 50,
+      cardType: 'concept',
+    });
+    expect(rows[0]?.meta).toMatchObject({
+      content: 'Alpha block',
+      rootId: 'doc-a',
+    });
+  });
+
   it('batchDelete builds block card map with scoped manager.getCards', async () => {
     const manager = {
       getCards: vi.fn().mockResolvedValue([

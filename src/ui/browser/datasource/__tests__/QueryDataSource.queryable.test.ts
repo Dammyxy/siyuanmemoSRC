@@ -233,6 +233,72 @@ describe('QueryDataSource queryable path', () => {
     );
   });
 
+  it('builds template-backed rows with card schedule state and template source content', async () => {
+    runBrowserSqlMock.mockResolvedValue([
+      { id: 'block-a', content: 'Alpha', root_id: 'doc-a' },
+    ]);
+    loadBrowserCardProjectionsByBlockIdsMock.mockResolvedValue([
+      makeProjection('card-a', 'block-a', {
+        deckId: 'deck-template',
+        rootId: 'doc-template',
+        content: 'Template source',
+        fullContent: '<p>Template source</p>',
+        priority: 77,
+        suspended: true,
+        tags: ['template-tag'],
+        aFactor: 2.8,
+      }),
+    ]);
+    const due = 1_700_432_000_000;
+    const manager = createManager([
+      makeFsrsCard('card-a', 'block-a', {
+        due,
+        stability: 9,
+        difficulty: 3,
+        reps: 6,
+        lapses: 2,
+        scheduledDays: 11,
+        priority: 0,
+        tags: ['card-tag'],
+        aFactor: 2.4,
+        meta: {
+          content: '',
+          deckId: '',
+          rootId: '',
+        },
+      }),
+    ]);
+
+    const dataSource = new QueryDataSource('select * from blocks', { manager: manager as never, siyuanApi: testSiyuanApi });
+    const result = await dataSource.fetchRows({
+      startRow: 0,
+      endRow: 1,
+      sortModel: [],
+      filterModel: {},
+    });
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      id: 'card-a',
+      fsrsCardId: 'card-a',
+      blockId: 'block-a',
+      deckId: 'deck-template',
+      rootId: 'doc-template',
+      content: 'Template source',
+      fullContent: '<p>Template source</p>',
+      due: new Date(due),
+      stability: 9,
+      difficulty: 3,
+      reps: 6,
+      lapses: 2,
+      scheduledDays: 11,
+      priority: 0,
+      suspended: true,
+      tags: ['card-tag'],
+      aFactor: 2.4,
+    });
+  });
+
   it('filters out cards that disappear or mismatch before hydration', async () => {
     runBrowserSqlMock.mockResolvedValue([
       { id: 'block-a', content: 'Alpha', root_id: 'doc-a' },

@@ -78,6 +78,33 @@ export interface BrowserCardPayloadOptions {
   meta?: BrowserCardMeta | Record<string, unknown>;
 }
 
+export interface VirtualBrowserCardPayloadInput {
+  blockId: string;
+  source: SourceContentProjection;
+  now?: number;
+  priority?: number;
+  cardType?: CardType | BrowserCardType;
+  aFactor?: number;
+  suspended?: boolean;
+}
+
+export interface TemplateBackedBrowserRowInput {
+  card: FSRSCard;
+  template?: (Partial<BrowserRowProjection> & { blockType?: string | null }) | null;
+  now?: number;
+  firstReviewMode?: QueueCardFirstReviewMode;
+  suspended?: boolean;
+  aFactor?: number;
+  priority?: number;
+  cardType?: CardType | BrowserCardType;
+  blockId?: string;
+  deckId?: string;
+  rootId?: string;
+  fullContent?: string;
+  tags?: string[];
+  blockType?: string | null;
+}
+
 function readString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
@@ -315,5 +342,76 @@ export function buildQueueSnapshotRowFromPayload(
     queueIndex: memory.queueIndex,
     tags: [...source.tags],
     blockType: source.blockType,
+  };
+}
+
+export function buildVirtualBrowserCardFromSource(
+  input: VirtualBrowserCardPayloadInput,
+): BrowserCard {
+  const now = input.now ?? Date.now();
+  const priority = input.priority ?? 50;
+  const memory: MemoryItemSnapshot = {
+    id: input.blockId,
+    fsrsCardId: input.blockId,
+    blockId: input.blockId,
+    state: CardState.New,
+    due: now,
+    stability: 0,
+    difficulty: 0,
+    retrievability: 0,
+    reps: 0,
+    lapses: 0,
+    elapsedDays: 0,
+    scheduledDays: 0,
+    lastReview: null,
+    interval: 0,
+    firstReview: null,
+    priority,
+    suspended: input.suspended ?? false,
+    cardType: input.cardType as CardType | undefined,
+    aFactor: input.aFactor,
+  };
+  const card = buildBrowserCardFromPayload(memory, input.source);
+  return {
+    ...card,
+    dueFormatted: '-',
+    lastReviewFormatted: '-',
+    firstReviewFormatted: '-',
+  };
+}
+
+export function buildTemplateBackedBrowserRowFromCard(
+  input: TemplateBackedBrowserRowInput,
+): BrowserRowProjection {
+  const card = input.card;
+  const template = input.template ?? null;
+  const meta = card.meta || {};
+  const templateFullContent = readString(template?.fullContent || template?.content);
+  const fullContent = input.fullContent ?? (readString(meta.content) || templateFullContent);
+  const blockId = input.blockId ?? card.blockId;
+  const memory = buildMemoryItemSnapshot(card, {
+    firstReviewMode: input.firstReviewMode ?? 'created-or-last',
+    now: input.now,
+    suspended: input.suspended ?? template?.suspended,
+    aFactor: input.aFactor ?? card.aFactor ?? template?.aFactor,
+    cardType: (input.cardType ?? card.type) as CardType | undefined,
+  });
+  const source = buildSourceContentProjectionFromCard(card, {
+    blockId,
+    deckId: input.deckId ?? (readString(meta.deckId) || template?.deckId || ''),
+    rootId: input.rootId ?? (readString(meta.rootId) || template?.rootId || ''),
+    fullContent,
+    tags: input.tags ?? [...(card.tags || template?.tags || [])],
+    blockType: input.blockType ?? template?.blockType ?? null,
+  });
+  const row = buildBrowserRowProjection(memory, source);
+
+  return {
+    ...row,
+    id: card.id,
+    fsrsCardId: card.id,
+    priority: input.priority ?? card.priority ?? template?.priority ?? row.priority,
+    cardType: (input.cardType ?? card.type ?? template?.cardType) as BrowserCardType | undefined,
+    aFactor: input.aFactor ?? card.aFactor ?? template?.aFactor,
   };
 }

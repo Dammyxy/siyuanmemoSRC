@@ -35,9 +35,7 @@ import {
 import type { IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
 import {
-  buildBrowserRowProjection,
-  buildMemoryItemSnapshot,
-  buildSourceContentProjectionFromCard,
+  buildTemplateBackedBrowserRowFromCard,
 } from '@/types/memory-content-payload-seam';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import { createLogger } from '@/utils/logger';
@@ -484,30 +482,20 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
     const fullContent = readOptionalString(meta.content) || templateContent;
     const priority = readNumber(card.priority, template?.priority ?? 50);
     const skipUntil = readNumber(card.skipUntil);
-    const memory = buildMemoryItemSnapshot(card, {
-      firstReviewMode: 'created-or-last',
+    return buildTemplateBackedBrowserRowFromCard({
+      card,
+      template,
       now,
       suspended: Boolean(card.skipped || (skipUntil > 0 && skipUntil > now) || template?.suspended),
       aFactor: card.aFactor ?? template?.aFactor,
-    });
-    const source = buildSourceContentProjectionFromCard(card, {
       blockId: readString(card.blockId).trim(),
       deckId: readOptionalString(meta.deckId) || template?.deckId || '',
       rootId: readOptionalString(meta.rootId) || template?.rootId || '',
       fullContent,
       tags: readTags(card.tags, template?.tags),
-    });
-    const row = buildBrowserRowProjection(memory, source);
-
-    return {
-      ...row,
-      id: readString(card.id).trim(),
-      fsrsCardId: readString(card.id).trim(),
-      stateLabel: row.stateLabel || template?.stateLabel || '未知',
       priority,
       cardType: readCardType(card.type) || template?.cardType,
-      aFactor: card.aFactor ?? template?.aFactor,
-    };
+    });
   }
 
   private async buildOrderedRows(sortModel: SortModel[]): Promise<BrowserCardProjection[]> {

@@ -445,6 +445,7 @@ Browser UI runtime helpers：
 - `src/ui/browser/BrowserGridFirstRowsLifecycle.ts`：Browser grid first-row lifecycle helper；负责 empty datasource、loaded rows、projection-not-ready、hard getRows error 四类首行状态的 UI 应用，更新 `loading / hasFirstDataBlockLoaded / rows / rowsForFocus / totalRowCount`，记录 first-row milestone，并保留 `grid.datasource-ui-update` runtime performance span。
 - `src/ui/browser/BrowserGridDatasourceLifecycle.ts`：Browser grid datasource lifecycle helper；负责 AG Grid `IDatasource` 构造、`getRows` fetch orchestration、random-sort rows 分页、datasource version / sort revision stale 检查、pending datasource 延迟 attach，并把 projection-not-ready / hard error 继续委托给 `BrowserGridFirstRowsLifecycle`。它保留 `grid.get-rows`、`grid.fetch-rows`、`grid.success-callback`、`grid.apply-datasource` performance spans；`SRSBrowser.vue` 只保留 shell state、grid api、load-data 入口和真实 side effects wiring。
 - `src/ui/browser/browserLoadDataRuntime.ts`：Browser load runtime；负责全量 / deck / SQL / queue 模式调度、加载取消、selection/preview 清理、调用 Browser Queue View Module、应用 datasource 到 grid 前的通用 snapshot 调度。
+- `src/types/memory-content-payload-seam.ts`：Browser / Queue 共用的 memory/content payload seam；`MemoryItemSnapshot` 只承载调度与学习状态，`SourceContentProjection` 只承载 source block 内容、deck/root、tags、note、blockType 与 existence，`BrowserRowProjection` / `BrowserCard` / `QueueSnapshotRow` 由该 seam 统一组合。`browserService` 的 no-card block virtual rows 与 `QueryDataSource` 的 template-backed SQL rows 都通过这里构造，不在 Browser datasource 内手工混合 schedule/source/display 字段。
 
 适配器、工厂、查询、用例：
 
@@ -695,6 +696,7 @@ Browser 核心职责：
 Browser 分层边界：
 
 - `src/types/browser.ts` 是 Browser surface 与 application query 共用的 DTO / open state / query parser / row identity / sort display contract 来源。
+- `src/types/memory-content-payload-seam.ts` 是 Browser row 与 Queue snapshot row 的 payload ownership seam：memory state、source content、Browser presentation composition 分开维护；Browser block-id virtual rows 和 SQL query template-backed rows 也走同一 composition helper，不再在 Browser caller 手工拼整张 `BrowserCard`。
 - `src/application/queries/browser/shared/*` 承载 application 可复用的 row projection、filter 与排序逻辑；`BrowserApplicationService`、`BrowserDeckQueryKernel`、`QueueBrowserQueryKernel` 不从 `src/ui/browser/*` 导入契约或 helper。
 - SQL active 的 Browser deck 主表读取由 `BrowserDeckReadPort` 承接：`DeckDataSource.fetchRows()` 调 `BrowserApplicationService.getDeckPage()`，repository 做 `COUNT + LIMIT/OFFSET` 后只 hydrate 当前页；选择“全部匹配”调 `getDeckMatchedIds()` 取完整有序 id 列表，批量动作再按 id hydrate。
 - Source existence 以 SiYuan `blocks` 为真源、SQLite 为懒刷新缓存：正常 deck 查询排除 known missing 且 unknown fail-open，`__lost__` / `missing-block-only` 读取 known missing；stats 先返回 SQL 当前统计并后台刷新 stale/unknown；`QueueBrowserQueryKernel` 只用 SQL source cache 标记 missing，不物化队列 membership/order。

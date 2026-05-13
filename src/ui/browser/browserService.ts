@@ -24,11 +24,11 @@ import {
     buildMemoryItemSnapshot,
     buildSourceContentProjection,
     buildSourceContentProjectionFromCard,
+    buildVirtualBrowserCardFromSource,
 } from '@/types/memory-content-payload-seam';
 import {
     type BrowserCard,
     CardState,
-    STATE_LABELS,
     checkNumberCondition,
     matchesParsedQuery,
     parseQuery,
@@ -990,38 +990,18 @@ export async function loadQueueCards(
                 const rootId = rootIdMap.get(id) || '';
                 const tags = tagsMap.get(id) || [];
                 
-                // 创建虚拟卡片（用于神经漫游等场景）
-                const virtualCard: BrowserCard = {
-                    id: id,
-                    fsrsCardId: id,
+                const source = buildSourceContentProjection({
                     blockId: id,
-                    deckId: '',
-                    content: truncateContent(dbContent, 100),
+                    rootId,
                     fullContent: dbContent,
-                    rootId: rootId,
-                    state: 0,  // New
-                    stateLabel: '新卡',
-                    due: new Date(),
-                    dueFormatted: '-',
-                    stability: 0,
-                    difficulty: 0,
-                    retrievability: 0,
-                    reps: 0,
-                    lapses: 0,
-                    elapsedDays: 0,
-                    scheduledDays: 0,
-                    lastReview: null,
-                    lastReviewFormatted: '-',
-                    interval: 0,
-                    firstReview: null,
-                    firstReviewFormatted: '-',
+                    tags,
+                });
+                const virtualCard = buildVirtualBrowserCardFromSource({
+                    blockId: id,
+                    source,
                     priority: Number.isFinite(parsedPriority) ? parsedPriority : 50,
-                    suspended: false,
-                    tags: tags,
-                    note: '',
-                    cardType: toBrowserCardType(customAttrs[attrKeys.cardType]) || 'concept',  // 默认为概念卡
-                    aFactor: undefined,
-                };
+                    cardType: toBrowserCardType(customAttrs[attrKeys.cardType]) || 'concept',
+                });
                 
                 // 🔧 只在有查询文本时才应用筛选
                 if (!queryText || matchesParsedQuery(virtualCard, parsed)) {
@@ -1162,37 +1142,12 @@ async function buildBrowserCardsByBlockIds(
                     fullContent: dbContent,
                     tags,
                 });
-                const virtualCard: BrowserCard = {
-                    id,
-                    fsrsCardId: id,
-                    blockId: source.blockId,
-                    deckId: source.deckId,
-                    content: source.content,
-                    fullContent: source.fullContent,
-                    rootId: source.rootId,
-                    state: 0,
-                    stateLabel: STATE_LABELS[CardState.New] || 'New',
-                    due: new Date(),
-                    dueFormatted: '-',
-                    stability: 0,
-                    difficulty: 0,
-                    retrievability: 0,
-                    reps: 0,
-                    lapses: 0,
-                    elapsedDays: 0,
-                    scheduledDays: 0,
-                    lastReview: null,
-                    lastReviewFormatted: '-',
-                    interval: 0,
-                    firstReview: null,
-                    firstReviewFormatted: '-',
+                const virtualCard = buildVirtualBrowserCardFromSource({
+                    blockId: id,
+                    source,
                     priority: Number.isFinite(parsedPriority) ? parsedPriority : 50,
-                    suspended: false,
-                    tags: source.tags,
-                    note: '',
                     cardType: toBrowserCardType(customAttrs[attrKeys.cardType]) || 'concept',
-                    aFactor: undefined,
-                };
+                });
 
                 if (!parsed || matchesParsedQuery(virtualCard, parsed)) {
                     cards.push(virtualCard);
