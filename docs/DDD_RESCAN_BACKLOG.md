@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-13 (Round 341)
+Last update: 2026-05-13 (Round 342)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-13 - Review session queue advancement module
+
+- Task: Implement OpenSpec change `extract-review-session-queue-advancement-module` so `UnifiedQueueStrategy` keeps its public Review adapter contract while delegating session advancement policy.
+- Touched slice: Review / Queue advancement; `src/application/adapters/UnifiedQueueStrategy.ts`, new `src/application/adapters/review-session/*` policy modules, focused policy tests, existing projection/static-subset/performance/NeuralRoam/session tests, `ARCHITECTURE.md`, this backlog, and OpenSpec tasks.
+- Debt fixed now: Projection patch/refresh decisions now route through `ReviewSessionProjectionAdvancePolicy`; failed-feedback cleanup order is explicit in `ReviewFeedbackCompensationPolicy`; IncrementalLearning avoid-once visible identity, candidate preference, reset, and snapshot compatibility moved to `IncrementalRequeryAdvancePolicy`; Learn Ahead enter/exit/supersede checks moved to `ReviewLearnAheadAdvancePolicy`; NeuralRoam advance status normalization moved to `NeuralRoamAdvanceOutcomePolicy` while preserving backend `neural-roam.advance` authority.
+- Debt deferred: `UnifiedQueueStrategy` still applies side effects, logging, cache mutation, queue snapshot restore, and manager card restore because those operations need live adapter dependencies. NeuralRoam DTO conversion and queue-state sync remain in the strategy until a broader NeuralRoam adapter extraction is justified.
+- Why deferred: This change is a bounded advancement-policy extraction. Moving side effects or NeuralRoam DTO mapping would widen into queue adapter ownership and backend contract wiring beyond the current OpenSpec.
+- Next safe step: If this slice needs more deepening, extract a small side-effect executor for compensation only after deciding how to expose queue snapshot/card restore ports without weakening explicit unavailable behavior.
+- Validation: Focused new review-session policy tests; `ReviewSessionProjectionApplier` and static subset projection tests; `UnifiedQueueStrategy.performance`; `UnifiedQueueStrategy.neural-roam`; `useReviewSession`; final hidden fallback, boundary, OpenSpec, and build validation recorded with the implementation task.
 
 ### 2026-05-13 - Queue Projection Runtime module
 

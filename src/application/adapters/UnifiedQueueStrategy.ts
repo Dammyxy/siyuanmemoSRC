@@ -16,10 +16,16 @@ import { formatNextDue } from '@/application/helpers/formatNextDue';
 import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
 import { CacheManagerObserver } from '../observers/CacheManagerObserver';
 import {
-    ReviewSessionProjectionApplier,
     type ProjectionPatchOutcome,
     type QueueReviewResultWithProjection,
 } from './ReviewSessionProjectionApplier';
+import {
+    IncrementalRequeryAdvancePolicy,
+    NeuralRoamAdvanceOutcomePolicy,
+    ReviewFeedbackCompensationPolicy,
+    ReviewLearnAheadAdvancePolicy,
+    ReviewSessionProjectionAdvancePolicy,
+} from './review-session';
 import { buildFsrsSchedulingFingerprint } from '@/core/scheduler/fsrsReviewStateRepair';
 import { resolveEffectiveSchedulerTypeForCard } from '@/core/scheduler/schedulerPolicy';
 import { createLogger } from '@/utils/logger';
@@ -133,6 +139,11 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private pendingNeuralRoamAdvanceNext: FSRSCard | null = null;
     private pendingNeuralRoamAdvanceNextReady = false;
     private learnAheadSession = false;
+    private readonly projectionAdvancePolicy: ReviewSessionProjectionAdvancePolicy;
+    private readonly feedbackCompensationPolicy = new ReviewFeedbackCompensationPolicy();
+    private readonly incrementalRequeryPolicy = new IncrementalRequeryAdvancePolicy();
+    private readonly learnAheadAdvancePolicy = new ReviewLearnAheadAdvancePolicy();
+    private readonly neuralRoamAdvanceOutcomePolicy = new NeuralRoamAdvanceOutcomePolicy();
 
     constructor(
         queueTypeOrQueue: QueueType | IReviewQueue,
@@ -156,6 +167,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             cardTypeCacheSize: 50,
             formattedDataCacheSize: 50,
             debugMode: false,
+        });
+        this.projectionAdvancePolicy = new ReviewSessionProjectionAdvancePolicy({
+            shouldReadLocally: () => shouldReadQueueLocally(this.queue),
+            hydrateCardsBySnapshotIds: (rowIds) => this.queue.getCardsBySnapshotIds(rowIds),
         });
 
         this.queue.subscribe(this.cacheManager);
@@ -285,7 +300,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     this.pendingRotateCardId = null;
                     this.applyRemovalToCache(activeItem.id);
                     this.cacheValid = true;
-                    if (this.currentIndex >= this.cachedCards.length) {
+                    if (this.learnAheadAdvancePolicy.shouldExitAfterFeedback({
+                        currentIndex: this.currentIndex,
+                        cachedCardsLength: this.cachedCards.length,
+                    })) {
                         this.learnAheadSession = false;
                     }
                     this.refreshLocalCounterSnapshot('hot', reviewResult.counterSnapshot);
@@ -506,7 +524,12 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 stack: errorStack,
             });
 
-            if (activeTransactionPushed && activeTransaction) {
+            const compensationPlan = this.feedbackCompensationPolicy.plan({
+                hasFailedHistoryEntry: activeTransactionPushed && Boolean(activeTransaction),
+                hasTransaction: Boolean(activeTransaction),
+                hasCardSnapshot: Boolean(activeTransaction?.cardBefore),
+            });
+            if (compensationPlan.includes('discard-failed-history-entry') && activeTransaction) {
                 this.discardFailedHistoryEntry(activeItem, activeTransaction);
             }
             await this.compensateFailedFeedback(activeItem, activeTransaction);
@@ -761,18 +784,21 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return null;
         }
 
-        const selectedIndex = this.resolveRequeryNextIndex();
-        if (selectedIndex === -1) {
+        const selection = this.incrementalRequeryPolicy.selectNext(this.cachedCards, {
+            cardId: this.avoidOnceCardId,
+            blockId: this.avoidOnceBlockId,
+        });
+        if (selection.index === -1) {
             this.clearAvoidOnceIdentity();
             this.currentItem = null;
             logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue exhausted after requery: ${this.queueType}`);
             return null;
         }
 
-        const card = this.cachedCards[selectedIndex];
+        const card = this.cachedCards[selection.index];
         const avoidedCardId = this.avoidOnceCardId;
         const avoidedBlockId = this.avoidOnceBlockId;
-        this.currentIndex = Math.min(this.cachedCards.length, selectedIndex + 1);
+        this.currentIndex = Math.min(this.cachedCards.length, selection.index + 1);
         this.pendingRotateCardId = null;
         this.clearAvoidOnceIdentity();
         const cardWithNextDues = await this.maybeAddNextDues(card);
@@ -783,7 +809,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             selectedBlockId: card.blockId,
             avoidedCardId,
             avoidedBlockId,
-            index: selectedIndex,
+            index: selection.index,
+            mode: selection.mode,
             total: this.cachedCards.length,
             due: new Date(card.due).toISOString(),
             now: new Date(Date.now()).toISOString(),
@@ -791,34 +818,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
         this.currentItem = cardWithNextDues;
         return cardWithNextDues;
-    }
-
-    private resolveRequeryNextIndex(): number {
-        const avoidCardId = String(this.avoidOnceCardId || '').trim();
-        const avoidBlockId = String(this.avoidOnceBlockId || '').trim();
-        if (!avoidCardId && !avoidBlockId) {
-            return this.cachedCards.length > 0 ? 0 : -1;
-        }
-
-        const differentBlockIndex = this.cachedCards.findIndex((card) => (
-            !this.matchesAvoidedCard(card, avoidCardId)
-            && !this.matchesAvoidedBlock(card, avoidBlockId)
-        ));
-        if (differentBlockIndex >= 0) {
-            this.logRequeryAvoidanceIfNeeded(differentBlockIndex, 'different-block');
-            return differentBlockIndex;
-        }
-
-        const differentCardIndex = this.cachedCards.findIndex((card) => (
-            !this.matchesAvoidedCard(card, avoidCardId)
-        ));
-        if (differentCardIndex >= 0) {
-            this.logRequeryAvoidanceIfNeeded(differentCardIndex, 'same-block-different-card');
-            return differentCardIndex;
-        }
-
-        this.logRequeryAvoidanceIfNeeded(0, 'same-visible-card-fallback');
-        return this.cachedCards.length > 0 ? 0 : -1;
     }
 
     private applyRequeryStateAfterReview(
@@ -853,56 +852,14 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private setAvoidOnceIdentity(card: FSRSCard | null): void {
-        const cardId = String(card?.id || '').trim();
-        const blockId = String(card?.blockId || '').trim();
-        this.avoidOnceCardId = cardId || null;
-        this.avoidOnceBlockId = blockId || null;
+        const identity = this.incrementalRequeryPolicy.captureVisibleIdentity(card);
+        this.avoidOnceCardId = identity.cardId;
+        this.avoidOnceBlockId = identity.blockId;
     }
 
     private clearAvoidOnceIdentity(): void {
         this.avoidOnceCardId = null;
         this.avoidOnceBlockId = null;
-    }
-
-    private matchesAvoidedCard(card: FSRSCard, avoidCardId: string): boolean {
-        if (!avoidCardId) {
-            return false;
-        }
-        return String(card.id || '').trim() === avoidCardId;
-    }
-
-    private matchesAvoidedBlock(card: FSRSCard, avoidBlockId: string): boolean {
-        if (!avoidBlockId) {
-            return false;
-        }
-        return String(card.blockId || '').trim() === avoidBlockId;
-    }
-
-    private logRequeryAvoidanceIfNeeded(selectedIndex: number, mode: 'different-block' | 'same-block-different-card' | 'same-visible-card-fallback'): void {
-        const avoidCardId = String(this.avoidOnceCardId || '').trim();
-        const avoidBlockId = String(this.avoidOnceBlockId || '').trim();
-        if (!avoidCardId && !avoidBlockId) {
-            return;
-        }
-
-        const skippedSameBlockCount = avoidBlockId
-            ? this.cachedCards
-                .slice(0, Math.max(0, selectedIndex))
-                .filter((card) => this.matchesAvoidedBlock(card, avoidBlockId))
-                .length
-            : 0;
-
-        logger.info('[SiYuanMemo][UnifiedQueueStrategy] Requery next-card avoidance:', {
-            queueType: this.queueType,
-            mode,
-            avoidedCardId: avoidCardId || null,
-            avoidedBlockId: avoidBlockId || null,
-            selectedIndex,
-            selectedCardId: this.cachedCards[selectedIndex]?.id,
-            selectedBlockId: this.cachedCards[selectedIndex]?.blockId,
-            skippedSameBlockCount,
-            total: this.cachedCards.length,
-        });
     }
 
     private shouldRotateAfterLowRating(feedback: QueueFeedback): boolean {
@@ -993,10 +950,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         result: QueueReviewResultWithProjection,
         options: { forceRemove?: boolean } = {}
     ): Promise<ProjectionPatchOutcome> {
-        const applyResult = await new ReviewSessionProjectionApplier({
-            shouldReadLocally: () => shouldReadQueueLocally(this.queue),
-            hydrateCardsBySnapshotIds: (rowIds) => this.queue.getCardsBySnapshotIds(rowIds),
-        }).apply({
+        const applyResult = await this.projectionAdvancePolicy.advance({
             reviewedCard,
             result,
             forceRemove: options.forceRemove,
@@ -1097,9 +1051,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             reviewedAt: Date.now(),
         });
 
-        if (result.status === 'unavailable' || result.status === 'failed' || result.status === 'mismatch') {
-            if (result.unavailableReason === 'source-block-missing'
-                || result.unavailableReason === 'current-item-missing') {
+        const outcome = this.neuralRoamAdvanceOutcomePolicy.consume(result);
+        if (outcome.kind === 'item-unavailable' || outcome.kind === 'unavailable') {
+            if (outcome.kind === 'item-unavailable') {
                 this.clearUnavailableItemFromLocalState(activeItem);
                 throw new QueueItemUnavailableError(
                     `Queue item is no longer available: ${activeItem.id}`,
@@ -1111,7 +1065,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 );
             }
             throw new Error(
-                `NEURAL_ROAM_ADVANCE_UNAVAILABLE: ${result.unavailableReason || result.status}: ${result.message || 'advance failed'}`,
+                `NEURAL_ROAM_ADVANCE_UNAVAILABLE: ${outcome.reason}: ${outcome.message}`,
             );
         }
 
@@ -1151,14 +1105,15 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         source: 'next' | 'pending',
     ): Promise<FSRSCard | null> {
         this.lastCounterSnapshot = this.toCounterSnapshotFromNeuralRoamAdvance(result);
-        if (result.status === 'exhausted') {
+        const outcome = this.neuralRoamAdvanceOutcomePolicy.consume(result);
+        if (outcome.kind === 'exhausted') {
             await this.syncNeuralRoamQueueFromBackendState(result);
             this.currentItem = null;
             return null;
         }
-        if (result.status !== 'advanced' || !result.nextItem) {
+        if (outcome.kind !== 'next' || !result.nextItem) {
             throw new Error(
-                `NEURAL_ROAM_ADVANCE_UNAVAILABLE: ${result.unavailableReason || result.status}: ${result.message || 'advance failed'}`,
+                `NEURAL_ROAM_ADVANCE_UNAVAILABLE: ${outcome.kind === 'unavailable' ? outcome.reason : outcome.reason || result.status}: ${outcome.kind === 'unavailable' ? outcome.message : result.message || 'advance failed'}`,
             );
         }
 
@@ -1274,17 +1229,15 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return false;
         }
 
-        const normalRemaining = await this.queue.getRemainingSize();
-        if (normalRemaining > 0) {
+        const result = await this.learnAheadAdvancePolicy.startAfterNormalExhaustion({
+            getNormalRemaining: () => this.queue.getRemainingSize(),
+            getLearnAheadCards: () => queue.getLearnAheadCards!(),
+        });
+        if (!result.started) {
             return false;
         }
 
-        const cards = await queue.getLearnAheadCards();
-        if (cards.length === 0) {
-            return false;
-        }
-
-        this.cachedCards = [...cards];
+        this.cachedCards = [...result.cards];
         this.currentIndex = 0;
         this.cacheValid = true;
         this.learnAheadSession = true;
@@ -1295,7 +1248,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
         logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Learn-ahead session started:`, {
             queueType: this.queueType,
-            cardCount: cards.length,
+            cardCount: result.cards.length,
         });
         return true;
     }
@@ -2072,6 +2025,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             const projectionCards = await this.loadProjectionBackedCards(true);
             const loadedCards = projectionCards ?? await this.queue.getCards();
             this.cachedCards = this.applySessionExclusions(loadedCards);
+            if (this.learnAheadSession && this.learnAheadAdvancePolicy.shouldSupersedeWithNormalQueue(this.cachedCards.length)) {
+                this.learnAheadSession = false;
+            }
             this.currentIndex = 0;
             this.cacheValid = true;
             const queueCounterSnapshot = await this.refreshQueueCounterSnapshot('reload cards');
@@ -2337,6 +2293,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     serializeSessionSnapshot(): ReviewQueueSessionSnapshot {
+        const requerySnapshot = this.incrementalRequeryPolicy.serialize({
+            cardId: this.avoidOnceCardId,
+            blockId: this.avoidOnceBlockId,
+        });
         return {
             version: 1,
             queueType: this.queueType,
@@ -2348,9 +2308,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             pendingRotateCardId: this.pendingRotateCardId,
             // Legacy readers may still look at deferOnceCardId; keep it in sync with
             // the card-level part of the visible identity.
-            deferOnceCardId: this.avoidOnceCardId,
-            avoidOnceCardId: this.avoidOnceCardId,
-            avoidOnceBlockId: this.avoidOnceBlockId,
+            deferOnceCardId: requerySnapshot.deferOnceCardId,
+            avoidOnceCardId: requerySnapshot.avoidOnceCardId,
+            avoidOnceBlockId: requerySnapshot.avoidOnceBlockId,
             sessionExcludedCardIds: Array.from(this.sessionExcludedCardIds),
             sessionExcludedLogicalKeys: Array.from(this.sessionExcludedLogicalKeys),
             lastCounterSnapshot: this.lastCounterSnapshot
@@ -2382,14 +2342,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         this.pendingRotateCardId = typeof snapshot.pendingRotateCardId === 'string'
             ? snapshot.pendingRotateCardId
             : null;
-        this.avoidOnceCardId = typeof snapshot.avoidOnceCardId === 'string'
-            ? snapshot.avoidOnceCardId
-            : typeof snapshot.deferOnceCardId === 'string'
-                ? snapshot.deferOnceCardId
-                : null;
-        this.avoidOnceBlockId = typeof snapshot.avoidOnceBlockId === 'string'
-            ? snapshot.avoidOnceBlockId
-            : null;
+        const requeryIdentity = this.incrementalRequeryPolicy.restore(snapshot);
+        this.avoidOnceCardId = requeryIdentity.cardId;
+        this.avoidOnceBlockId = requeryIdentity.blockId;
         this.lastCounterSnapshot = snapshot.lastCounterSnapshot
             ? this.cloneCounterSnapshot(snapshot.lastCounterSnapshot)
             : null;
