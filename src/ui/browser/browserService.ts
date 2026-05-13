@@ -13,19 +13,22 @@ import type { Plugin } from 'siyuan';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { FSRSCard } from '@/types';
-import { applyDismissState, isCardDismissed } from '@/core/card/domain/services/dismissState';
+import { applyDismissState } from '@/core/card/domain/services/dismissState';
 import { PerformanceMonitor } from '@/utils/performance';
 import { getCurrentDayEnd } from '@/utils/dateUtils';
 import { getDayStartHour } from '@/utils/configUtils';
 import { createLogger } from '@/utils/logger';
 import { batchDetectCardType, initializeAFactor } from '@/core/card-builder';
 import {
+    buildBrowserCardFromPayload,
+    buildMemoryItemSnapshot,
+    buildSourceContentProjection,
+    buildSourceContentProjectionFromCard,
+} from '@/types/memory-content-payload-seam';
+import {
     type BrowserCard,
     CardState,
     STATE_LABELS,
-    calculateRetrievability,
-    formatDueDate,
-    formatHistoryDate,
     checkNumberCondition,
     matchesParsedQuery,
     parseQuery,
@@ -439,38 +442,6 @@ function transformFSRSCard(
     customAttrs: Record<string, string>,
     attrKeys?: BrowserAttrKeys
 ): BrowserCard {
-    // 🆕 优化：使用常量避免重复计算
-    const now = Date.now();
-    const MS_PER_DAY = 86400000;  // 1000 * 60 * 60 * 24
-    
-    // 🆕 优化：直接除以毫秒数，避免多次乘法
-    const elapsedDays = card.lastReview 
-        ? Math.floor((now - card.lastReview) / MS_PER_DAY)
-        : 0;
-    
-    // 计算 Retrievability
-    const retrievability = calculateRetrievability(card.stability, elapsedDays);
-    
-    // 转换卡片状态
-    const state = card.state as CardState;
-    
-    // 🆕 优化：只创建一次 Date 对象
-    const dueDate = new Date(card.due);
-    const lastReviewDate = card.lastReview ? new Date(card.lastReview) : null;
-    
-    // 格式化日期
-    const dueFormatted = formatDueDate(dueDate);
-    const lastReviewFormatted = lastReviewDate ? formatHistoryDate(lastReviewDate) : '';
-    const firstReviewFormatted = lastReviewDate ? formatHistoryDate(lastReviewDate) : '';
-    
-    // 从 meta 字段获取内容
-    const fullContent = (card.meta?.content as string) || '';
-    const content = truncateContent(fullContent, 100);
-    
-    // 从 meta 字段获取 deckId 和 rootId
-    const deckId = (card.meta?.deckId as string) || '';
-    const rootId = (card.meta?.rootId as string) || '';
-    
     // 转换 CardType
     const cardType = card.type as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined;
     
@@ -481,45 +452,17 @@ function transformFSRSCard(
       : undefined;
     const finalCardType = cardType
       || (attrCardType as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined);
-    
+
+    const memory = buildMemoryItemSnapshot(card);
+    const source = buildSourceContentProjectionFromCard(card, { tags: [] });
+    const browserCard = buildBrowserCardFromPayload(memory, source, { meta: card.meta });
+
     return {
+        ...browserCard,
         id: card.id,
         fsrsCardId: card.id,
-        blockId: card.blockId,
-        deckId,
-        rootId,
-        content,
-        fullContent,
-        
-        state,
-        stateLabel: STATE_LABELS[state] || '未知',
-        due: dueDate,
-        dueFormatted,
-        stability: card.stability,
-        difficulty: card.difficulty,
-        retrievability,
-        reps: card.reps,
-        lapses: card.lapses,
-        elapsedDays,
-        scheduledDays: card.scheduledDays || 0,
-        lastReview: lastReviewDate,
-        lastReviewFormatted,
-        
-        interval: card.scheduledDays || 0,
-        firstReview: lastReviewDate,
-        firstReviewFormatted,
-        
-        // ✅ 优先级从 FSRSCard 读取，不再使用块属性
-        priority: card.priority,
-        suspended: isCardDismissed(card),
-        
         cardType: finalCardType,
-        aFactor: card.aFactor,  // 🔧 修复：从卡片数据读取，不再从块属性读取
-        
-        tags: [],  // 将在后续步骤中填充
-        
-        // 🆕 传递完整的 meta 字段（用于 Xiuyuan 卡片识别）
-        meta: card.meta,
+        tags: [],
     };
 }
 
@@ -1213,14 +1156,20 @@ async function buildBrowserCardsByBlockIds(
                 const dbContent = contentMap.get(id) || '';
                 const rootId = rootIdMap.get(id) || '';
                 const tags = tagsMap.get(id) || [];
+                const source = buildSourceContentProjection({
+                    blockId: id,
+                    rootId,
+                    fullContent: dbContent,
+                    tags,
+                });
                 const virtualCard: BrowserCard = {
                     id,
                     fsrsCardId: id,
-                    blockId: id,
-                    deckId: '',
-                    content: truncateContent(dbContent, 100),
-                    fullContent: dbContent,
-                    rootId,
+                    blockId: source.blockId,
+                    deckId: source.deckId,
+                    content: source.content,
+                    fullContent: source.fullContent,
+                    rootId: source.rootId,
                     state: 0,
                     stateLabel: STATE_LABELS[CardState.New] || 'New',
                     due: new Date(),
@@ -1239,7 +1188,7 @@ async function buildBrowserCardsByBlockIds(
                     firstReviewFormatted: '-',
                     priority: Number.isFinite(parsedPriority) ? parsedPriority : 50,
                     suspended: false,
-                    tags,
+                    tags: source.tags,
                     note: '',
                     cardType: toBrowserCardType(customAttrs[attrKeys.cardType]) || 'concept',
                     aFactor: undefined,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DeckDataSource } from '../DeckDataSource';
 import { mapQueueFsrsCardToBrowserCard } from '../QueueBrowserCardMapper';
+import { CardState, CardType } from '@/types/card';
 import type { BrowserCard } from '../../types';
 import type { FSRSCard } from '@/types/card';
 import type { IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
@@ -43,6 +44,53 @@ describe('priority mapping consistency', () => {
   it('keeps priority=0 in QueueBrowserCardMapper', () => {
     const mapped = mapQueueFsrsCardToBrowserCard(buildFsrsCard({ priority: 0 }));
     expect(mapped.priority).toBe(0);
+  });
+
+  it('preserves queue browser metadata, queue index, and first-review policy', () => {
+    const createdAt = 1_700_000_000_000 - 604_800_000;
+    const lastReview = 1_700_000_000_000 - 86_400_000;
+    const mapped = mapQueueFsrsCardToBrowserCard(
+      buildFsrsCard({
+        id: 'fsrs-1',
+        riffCardId: 'riff-1',
+        state: CardState.Review,
+        reps: 1,
+        createdAt,
+        lastReview,
+        type: CardType.Descriptor,
+        tags: ['queue'],
+        meta: {
+          content: '<p>Browser source</p>',
+          deckId: 'deck-1',
+          rootId: 'root-1',
+          note: 'browser note',
+        },
+      }),
+      { firstReviewMode: 'created-or-last', queueIndex: 4 },
+    );
+
+    expect(mapped).toMatchObject({
+      id: 'riff-1',
+      fsrsCardId: 'fsrs-1',
+      content: 'Browser source',
+      fullContent: '<p>Browser source</p>',
+      stateLabel: '复习',
+      queueIndex: 4,
+      note: 'browser note',
+      cardType: CardType.Descriptor,
+      tags: ['queue'],
+    });
+    expect(mapped.firstReview?.getTime()).toBe(createdAt);
+  });
+
+  it('preserves missing-source state in QueueBrowserCardMapper', () => {
+    const mapped = mapQueueFsrsCardToBrowserCard(
+      buildFsrsCard({ meta: { content: 'missing card' } }),
+      { blockType: 'missing' },
+    ) as BrowserCard & { blockType?: string };
+
+    expect(mapped.blockType).toBe('missing');
+    expect(mapped.meta).toMatchObject({ blockType: 'missing' });
   });
 
   it('keeps priority=0 in DeckDataSource mapper', () => {

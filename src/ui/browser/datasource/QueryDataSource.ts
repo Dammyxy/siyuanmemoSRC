@@ -1,13 +1,5 @@
 import type { BrowserCard } from '../types';
 import {
-  CardState,
-  STATE_LABELS,
-  calculateRetrievability,
-  formatDueDate,
-  formatHistoryDate,
-  truncateContent,
-} from '../types';
-import {
   batchReset,
   batchSuspend,
   invalidateCardCache,
@@ -42,6 +34,11 @@ import {
 } from './MenuActions';
 import type { IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
+import {
+  buildBrowserRowProjection,
+  buildMemoryItemSnapshot,
+  buildSourceContentProjectionFromCard,
+} from '@/types/memory-content-payload-seam';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import { createLogger } from '@/utils/logger';
 
@@ -482,54 +479,32 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
     template?: BrowserCardProjection
   ): BrowserCardProjection {
     const now = Date.now();
-    const lastReviewTimestamp = readNumber(card.lastReview);
-    const lastReview = lastReviewTimestamp > 0 ? new Date(lastReviewTimestamp) : null;
-    const elapsedDays = lastReview
-      ? Math.floor((now - lastReview.getTime()) / 86400000)
-      : readNumber(card.elapsedDays);
-    const due = new Date(readNumber(card.due, now));
-    const stability = readNumber(card.stability);
-    const state = readNumber(card.state, CardState.New) as CardState;
-    const scheduledDays = readNumber(card.scheduledDays);
-    const firstReviewTimestamp = readNumber(card.createdAt);
-    const firstReview = readNumber(card.reps) > 0
-      ? firstReviewTimestamp > 0
-        ? new Date(firstReviewTimestamp)
-        : lastReview
-      : null;
     const meta = isObjectLike(card.meta) ? card.meta : {};
     const templateContent = readString(template?.fullContent || template?.content);
     const fullContent = readOptionalString(meta.content) || templateContent;
     const priority = readNumber(card.priority, template?.priority ?? 50);
     const skipUntil = readNumber(card.skipUntil);
-
-    return {
-      id: readString(card.id).trim(),
-      fsrsCardId: readString(card.id).trim(),
+    const memory = buildMemoryItemSnapshot(card, {
+      firstReviewMode: 'created-or-last',
+      now,
+      suspended: Boolean(card.skipped || (skipUntil > 0 && skipUntil > now) || template?.suspended),
+      aFactor: card.aFactor ?? template?.aFactor,
+    });
+    const source = buildSourceContentProjectionFromCard(card, {
       blockId: readString(card.blockId).trim(),
       deckId: readOptionalString(meta.deckId) || template?.deckId || '',
-      content: truncateContent(fullContent, 100),
-      fullContent,
       rootId: readOptionalString(meta.rootId) || template?.rootId || '',
-      state,
-      stateLabel: STATE_LABELS[state] || template?.stateLabel || '未知',
-      due,
-      dueFormatted: formatDueDate(due),
-      stability,
-      difficulty: readNumber(card.difficulty),
-      retrievability: calculateRetrievability(stability, elapsedDays),
-      reps: readNumber(card.reps),
-      lapses: readNumber(card.lapses),
-      elapsedDays,
-      scheduledDays,
-      lastReview,
-      lastReviewFormatted: formatHistoryDate(lastReview),
-      interval: scheduledDays,
-      firstReview,
-      firstReviewFormatted: formatHistoryDate(firstReview),
-      priority,
-      suspended: Boolean(card.skipped || (skipUntil > 0 && skipUntil > now) || template?.suspended),
+      fullContent,
       tags: readTags(card.tags, template?.tags),
+    });
+    const row = buildBrowserRowProjection(memory, source);
+
+    return {
+      ...row,
+      id: readString(card.id).trim(),
+      fsrsCardId: readString(card.id).trim(),
+      stateLabel: row.stateLabel || template?.stateLabel || '未知',
+      priority,
       cardType: readCardType(card.type) || template?.cardType,
       aFactor: card.aFactor ?? template?.aFactor,
     };
