@@ -1,8 +1,35 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-13 (Round 340)
+Last update: 2026-05-13 (Round 341)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-13 - Queue Projection Runtime module
+
+- Task: Implement OpenSpec change `extract-queue-projection-runtime-module` after the handoff/scan debt queue identified queue projection readiness, materialization echo, row hydration, and diagnostics as one application runtime concern.
+- Touched slice: Queue projection runtime; `src/application/services/queue-projection/QueueProjectionRuntime.ts`, `src/application/services/UnifiedDataSourceManager.ts`, focused runtime/manager tests, `ARCHITECTURE.md`, this backlog, and OpenSpec change `extract-queue-projection-runtime-module`.
+- Debt fixed now: Projection-readable queue checks, rollout state normalization, readiness service composition, snapshot reads, row hydration, explicit materialization, writer-relay replace, materialized echo cache, unavailable diagnostic recording/clearing, and rollout diagnostic construction now live in `QueueProjectionRuntime`. `UnifiedDataSourceManager` keeps the public Browser/Review method names but delegates projection behavior and clears runtime echo explicitly on review commit, queue invalidation, and full invalidation.
+- Debt deferred: Soft-stale live identity events remain deferred; no push-driven Browser reattach event bus was added. Settings helpers and general queue creation/observer wiring remain manager-owned. Backend projection RPC contract shape is unchanged.
+- Why deferred: The runtime extraction was the narrow safe slice. Live identity events would change Browser/application contracts, and moving manager settings/queue composition would widen beyond projection runtime ownership.
+- Next safe step: Archive this OpenSpec change after validation, then choose the next consolidated debt from the backlog. Recommended next implementation slice is Review Session Queue Advancement Module, because `UnifiedQueueStrategy` still owns patch/refresh progression, rollback compensation, and requery-after-feedback policy.
+- Validation: `pnpm vitest run --root H:\project-F\flashcard\.worktrees\siyuan-plugin-siyuanmemo\kernel-companion-p0 src\application\services\queue-projection\__tests__\QueueProjectionRuntime.test.ts src\application\services\__tests__\UnifiedDataSourceManager.queue-projection-rollout.test.ts --reporter=verbose`; Browser lifecycle tests; Review projection tests; hidden fallback, boundary, OpenSpec, and build validation recorded with the implementation task. Full `pnpm exec tsc --noEmit --pretty false --skipLibCheck` remains blocked by pre-existing repo-wide TypeScript test errors unrelated to this slice.
+
+### 2026-05-13 - Architecture debt queue merged from handoff and scan
+
+- Task: Merge `docs/SM15_ARCHITECTURE_DEBT_HANDOFF_2026-05-14.md` with the latest `improve-codebase-architecture` scan so follow-up work can proceed as focused OpenSpec changes instead of re-opening the full `deepen-review-attempt-kernel` scope.
+- Touched slice: Planning only; this backlog and the active architecture debt queue. No runtime code changed.
+- Debt fixed now: Browser Queue View Lifecycle and Browser Grid Datasource Lifecycle are now marked as completed follow-ups of the handoff Browser debt. The remaining architecture queue is consolidated and deduplicated:
+  1. Queue Projection Runtime Module: merge Queue Projection Readiness Module, materialized echo, row hydration, diagnostics, and soft-stale readiness identity/event decisions behind one application-level module.
+  2. Review Session Queue Advancement Module: deepen `UnifiedQueueStrategy` by moving review-session advancement policy for projection patch/refresh, rollback compensation, requery-after-feedback, and Learn Ahead state into focused modules.
+  3. Browser Queue Identity Module: canonicalize browser queue id, `QueueType`, datasource selection, query kernel identity, focus datasource behavior, and NeuralRoam alias/special handling.
+  4. Memory Item vs Content Payload Seam: clarify `MemoryItemSnapshot`, `SourceContentProjection`, and `BrowserRowProjection` so scheduling state, source content, and Browser row shape do not leak into each other.
+  5. Scheduler State Snapshot: add a serializable scheduler-state/evidence snapshot module for future SM-style adaptive experiments without coupling UI or queue projections.
+  6. Learning Curve Evidence Module: advisory-only revlog/history evidence module that can produce diagnostics or parameter suggestions without formal schedule writes.
+  7. Review Presentation Semantics Module: deepen `UnifiedReviewAdapter` internals by separating Review content semantics from header/counter presentation.
+- Debt deferred: No implementation started in this merge entry. Soft-stale live identity events remain deferred until Queue Projection Runtime Module scope decides whether Browser needs push-driven reattach.
+- Why deferred: The handoff explicitly warned against a mega-proposal. The merged queue keeps each item as a small OpenSpec candidate with a narrow validation surface.
+- Next safe step: Start with Queue Projection Runtime Module because it is the shared readiness/hydration source for Browser and Review and because the current remaining Browser debt depends on the same projection identity vocabulary.
+- Validation: Planning-only cross-check against `docs/SM15_ARCHITECTURE_DEBT_HANDOFF_2026-05-14.md`, `CONTEXT.md`, `ARCHITECTURE.md`, and recent Browser lifecycle backlog entries.
 
 ### 2026-05-13 - Browser Grid Datasource Lifecycle module
 
