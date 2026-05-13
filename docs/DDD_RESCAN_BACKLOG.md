@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-13 (Round 344)
+Last update: 2026-05-13 (Round 345)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-13 - Scheduler state snapshot
+
+- Task: Implement OpenSpec change `define-scheduler-state-snapshot` so Scheduler consumers share one serializable scheduling-state read model and preview identity.
+- Touched slice: Scheduler / Review preview identity; `src/core/scheduler/schedulerStateSnapshot.ts`, `src/core/scheduler/strategies/TSFSRSScheduler.ts`, `src/application/adapters/UnifiedQueueStrategy.ts`, focused scheduler/router/transparency tests, `ARCHITECTURE.md`, and OpenSpec tasks.
+- Debt fixed now: Added a JSON-safe `SchedulerStateSnapshot` builder with effective/stored scheduler identity, FSRS memory fields, learning step, review timing context, topic/A-Factor state, deterministic snapshot key, raw scheduling-state key, and explicit dirty/repaired diagnostics; routed TS-FSRS preview cache and Review nextDues cache keys through the snapshot helper instead of duplicating scheduler field fingerprints in callers.
+- Debt deferred: Learning Curve Evidence remains advisory-only future work; formal scheduler algorithm changes, DB schema migration, UI redesign, and backend/kernel RPC contracts remain out of scope.
+- Why deferred: This change defines the scheduler-state read seam and preview identity only. Evidence scoring and adaptive parameter suggestions need their own policy, data, and validation surface, and formal schedule writes must stay owned by review commit/manual reschedule/scheduler migration paths.
+- Next safe step: Use `SchedulerStateSnapshot` as the input contract for a separate Learning Curve Evidence module that reads revlog/history and produces advisory diagnostics without formal due writes.
+- Validation: `pnpm exec vitest run src/core/scheduler/__tests__/schedulerStateSnapshot.test.ts src/core/scheduler/__tests__/SchedulerRouter.fsrs-v6.test.ts src/core/scheduler/strategies/__tests__/TSFSRSScheduler.test.ts src/core/scheduler/strategies/__tests__/TSFSRSScheduler.shortterm.test.ts src/application/services/__tests__/SrsTransparencyApplicationService.test.ts --reporter=verbose`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate define-scheduler-state-snapshot --strict`.
 
 ### 2026-05-13 - Memory/content payload seam
 

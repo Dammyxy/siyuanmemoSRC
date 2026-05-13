@@ -12,6 +12,7 @@ export * from './strategies/ImprovedTopicScheduler';
 export * from './rescheduleService';
 export * from './SchedulerRouter';
 export * from './fsrsReviewStateRepair';
+export * from './schedulerStateSnapshot';
 export * from './schedulerPolicy';
 export * from './srs-v2';
 

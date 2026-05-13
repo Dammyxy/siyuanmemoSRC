@@ -24,7 +24,8 @@ import {
 } from 'ts-fsrs';
 import { CardState, type FSRSCard, type FSRSParameters, type Rating } from '@/types';
 import type { SchedulerEngineAdapter } from '../types';
-import { buildFsrsSchedulingFingerprint, repairFsrsReviewState } from '../fsrsReviewStateRepair';
+import { repairFsrsReviewState } from '../fsrsReviewStateRepair';
+import { buildSchedulerPreviewSnapshotKey } from '../schedulerStateSnapshot';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('TSFSRSScheduler');
@@ -139,7 +140,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
      * 
      * 性能优化：
      * - 使用缓存避免重复计算相同卡片的预览结果
-     * - 缓存键基于卡片 ID、调度指纹和当前时间（精确到分钟）
+     * - 缓存键基于卡片调度状态快照和当前预览时间
      * - 缓存有效期为 5 分钟，过期自动失效
      * 
      * @param card - 要预览的卡片
@@ -257,20 +258,17 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
     /**
      * 生成预览缓存键
      *
-     * 缓存键格式：{cardId}:{minuteTimestamp}:{schedulingFingerprint}
-     * - cardId: 卡片唯一标识
-     * - minuteTimestamp: 时间戳精确到分钟（忽略秒和毫秒）
-     *
-     * 这样同一张卡片在同一分钟内的相同调度状态会命中缓存。
+     * 缓存键来自 scheduler-state snapshot，避免本地重复拼装调度字段。
      *
      * @param card - 卡片
      * @param now - 当前时间
      * @returns 缓存键
      */
     private generatePreviewCacheKey(card: FSRSCard, now: Date): string {
-        // 将时间精确到分钟（忽略秒和毫秒）
-        const minuteTimestamp = Math.floor(now.getTime() / 60000);
-        return `${card.id}:${minuteTimestamp}:${buildFsrsSchedulingFingerprint(card)}`;
+        return buildSchedulerPreviewSnapshotKey(card, {
+            source: 'ts-fsrs-preview',
+            reviewTime: now,
+        });
     }
 
     /**

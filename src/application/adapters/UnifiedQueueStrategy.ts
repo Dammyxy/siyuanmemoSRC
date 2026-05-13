@@ -26,8 +26,8 @@ import {
     ReviewLearnAheadAdvancePolicy,
     ReviewSessionProjectionAdvancePolicy,
 } from './review-session';
-import { buildFsrsSchedulingFingerprint } from '@/core/scheduler/fsrsReviewStateRepair';
 import { resolveEffectiveSchedulerTypeForCard } from '@/core/scheduler/schedulerPolicy';
+import { buildSchedulerPreviewSnapshotKey } from '@/core/scheduler/schedulerStateSnapshot';
 import { createLogger } from '@/utils/logger';
 import type {
     BackendNeuralRoamAdvanceRequest,
@@ -1854,7 +1854,11 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             const schedulingContext = this.getReviewSchedulingContext(card);
             const reviewTime = this.normalizeReviewTime(schedulingContext?.reviewTime);
             const memoryStateAsOf = this.normalizeReviewTime(schedulingContext?.memoryStateAsOf);
-            const cacheKey = `${card.id}-${buildFsrsSchedulingFingerprint(card)}-reviewTime=${reviewTime ?? 'now'}-memoryStateAsOf=${memoryStateAsOf ?? 'none'}`;
+            const cacheKey = buildSchedulerPreviewSnapshotKey(card, {
+                source: 'review-next-dues',
+                reviewTime,
+                memoryStateAsOf,
+            });
             const cache = this.cacheManager.getNextDuesCache();
 
             const cached = cache.get(cacheKey);
@@ -1956,7 +1960,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return;
         }
 
-        const fingerprint = buildFsrsSchedulingFingerprint(card);
+        const fingerprint = buildSchedulerPreviewSnapshotKey(card, { source: 'review-next-dues-log' });
         const logKey = `${card.id}:${fingerprint}`;
         if (this.suspiciousNextDuesLogKeys.has(logKey)) {
             return;
