@@ -4,6 +4,16 @@ Last update: 2026-05-13 (Round 340)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-13 - Browser Grid Datasource Lifecycle module
+
+- Task: Implement OpenSpec change `extract-browser-grid-datasource-lifecycle` and finish the remaining Browser Queue View grid datasource debt.
+- Touched slice: Browser grid datasource lifecycle; `src/ui/browser/BrowserGridDatasourceLifecycle.ts`, `src/ui/browser/SRSBrowser.vue`, Browser datasource lifecycle tests, `ARCHITECTURE.md`, this backlog, and OpenSpec change `extract-browser-grid-datasource-lifecycle`.
+- Debt fixed now: AG Grid datasource construction, `getRows` fetch orchestration, random-sort rows paging, datasource version stale checks, sort revision stale checks, pending datasource attach, and projection-not-ready / hard-error callback routing now live in `BrowserGridDatasourceLifecycle`. First-row UI state remains delegated to `BrowserGridFirstRowsLifecycle`, and the existing `grid.get-rows`, `grid.fetch-rows`, `grid.success-callback`, and `grid.apply-datasource` diagnostics are preserved.
+- Debt deferred: Soft-stale live identity event bus is still deferred. AG Grid component ownership, column definitions, selection state, and visible shell wiring remain in `SRSBrowser.vue` by design.
+- Why deferred: The event bus changes the application/browser contract and should only be added when push-driven queue identity reattach is needed. The component-level wiring still owns real AG Grid api lifetime and user interaction state, so moving it would widen beyond datasource lifecycle.
+- Next safe step: Archive the completed Browser lifecycle OpenSpec changes, or design a separate soft-stale identity event change if Browser needs live projection reattach without user-triggered reload.
+- Validation: `pnpm vitest run --root H:\project-F\flashcard\.worktrees\siyuan-plugin-siyuanmemo\kernel-companion-p0 src/ui/browser/__tests__/BrowserGridDatasourceLifecycle.test.ts src/ui/browser/__tests__/BrowserGridFirstRowsLifecycle.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts --reporter=verbose`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`.
+
 ### 2026-05-13 - Browser Queue View Lifecycle module
 
 - Task: Implement the handoff debt **Browser Queue View Module** after queue projection readiness became a shared contract.

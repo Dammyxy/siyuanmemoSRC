@@ -442,7 +442,8 @@ UI surface：
 Browser UI runtime helpers：
 
 - `src/ui/browser/BrowserQueueViewModule.ts`：Browser Queue View Lifecycle 深 module；负责 browser queue id 到 `QueueType` 的解析、消费 `QueueProjectionReadiness`、维护 Browser-side bounded retry、把 unavailable cause 映射成用户可见错误、创建 queue datasource，并返回 `ready / refreshing / unavailable / missing-datasource` 生命周期结果。它只消费 application/backend readiness contract，不生成 policy identity、不 materialize projection、不读 SQL、不做 legacy strategy fallback。
-- `src/ui/browser/BrowserGridFirstRowsLifecycle.ts`：Browser grid first-row lifecycle helper；负责 empty datasource、loaded rows、projection-not-ready、hard getRows error 四类首行状态的 UI 应用，更新 `loading / hasFirstDataBlockLoaded / rows / rowsForFocus / totalRowCount`，记录 first-row milestone，并保留 `grid.datasource-ui-update` runtime performance span。AG Grid datasource 创建、`getRows` 取数、sort/filter stale 判断仍在 `SRSBrowser.vue`，避免一次性重写 grid 交互边界。
+- `src/ui/browser/BrowserGridFirstRowsLifecycle.ts`：Browser grid first-row lifecycle helper；负责 empty datasource、loaded rows、projection-not-ready、hard getRows error 四类首行状态的 UI 应用，更新 `loading / hasFirstDataBlockLoaded / rows / rowsForFocus / totalRowCount`，记录 first-row milestone，并保留 `grid.datasource-ui-update` runtime performance span。
+- `src/ui/browser/BrowserGridDatasourceLifecycle.ts`：Browser grid datasource lifecycle helper；负责 AG Grid `IDatasource` 构造、`getRows` fetch orchestration、random-sort rows 分页、datasource version / sort revision stale 检查、pending datasource 延迟 attach，并把 projection-not-ready / hard error 继续委托给 `BrowserGridFirstRowsLifecycle`。它保留 `grid.get-rows`、`grid.fetch-rows`、`grid.success-callback`、`grid.apply-datasource` performance spans；`SRSBrowser.vue` 只保留 shell state、grid api、load-data 入口和真实 side effects wiring。
 - `src/ui/browser/browserLoadDataRuntime.ts`：Browser load runtime；负责全量 / deck / SQL / queue 模式调度、加载取消、selection/preview 清理、调用 Browser Queue View Module、应用 datasource 到 grid 前的通用 snapshot 调度。
 
 适配器、工厂、查询、用例：

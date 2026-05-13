@@ -339,8 +339,6 @@ import type {
   CellContextMenuEvent,
   DisplayedColumnsChangedEvent,
   GridReadyEvent,
-  IDatasource,
-  IGetRowsParams,
   PaginationChangedEvent,
   RowClickedEvent,
   RowDoubleClickedEvent,
@@ -442,9 +440,9 @@ import {
 } from './utils/browserCardIdentity';
 import { extractBlockIds } from './utils/helpers';
 import { mergeExplicitSelectionByPage } from './utils/paginatedSelection';
-import { fetchRowsWithProjectionReadinessRetry } from './utils/projectionReadiness';
 import { resolveEffectiveSortModel } from './utils/sortModel';
 import { createBrowserGridFirstRowsLifecycle } from './BrowserGridFirstRowsLifecycle';
+import { createBrowserGridDatasourceLifecycle } from './BrowserGridDatasourceLifecycle';
 import {
   fetchAllRowsFromDataSource,
   loadAllRowsFromQueryableDataSource,
@@ -733,8 +731,6 @@ const SNAPSHOT_FIRST_ROWS_POLL_MS = 50;
 
 const loadedRowsByBlockId = new Map<string, BrowserCard>();
 let datasourceVersion = 0;
-let pendingGridDatasource: IDatasource | null = null;
-let gridDatasourceApplyTimer: ReturnType<typeof setTimeout> | null = null;
 let allRowsSnapshotTaskId = 0;
 let allRowsSnapshotPromise: Promise<void> | null = null;
 let focusRowsTaskId = 0;
@@ -1684,135 +1680,20 @@ const gridFirstRowsLifecycle = createBrowserGridFirstRowsLifecycle({
   totalRowCount,
 });
 
-function createInfiniteDatasource(
-  version: number,
-  dataSourceSnapshot: ICardDataSource | null
-): IDatasource {
-  return {
-    getRows: (params: IGetRowsParams) => {
-      void (async () => {
-        const finishGetRowsSpan = startRuntimePerformanceSpan('browser', 'grid.get-rows', {
-          endRow: params.endRow,
-          startRow: params.startRow,
-          version,
-        });
-        let status = 'started';
-        let rowsForBlockCount = 0;
-        let totalCount = 0;
-        try {
-          const dataSource = dataSourceSnapshot;
-          if (!dataSource) {
-            status = gridFirstRowsLifecycle.applyEmptyDatasource({
-              isCurrentVersion: () => version === datasourceVersion,
-              successCallback: params.successCallback,
-              version,
-            });
-            return;
-          }
-
-          let rowsForBlock: BrowserCard[] = [];
-          let requestSortRevision = sortModelRevision.value;
-
-          if (randomSortRows.value) {
-            const fullRows = randomSortRows.value;
-            totalCount = fullRows.length;
-            const start = Math.max(0, Math.min(params.startRow, totalCount));
-            const end = Math.max(start, Math.min(params.endRow, totalCount));
-            rowsForBlock = fullRows.slice(start, end);
-          } else {
-            const effectiveSortModel = resolveEffectiveSortModel({
-              requestSortModel: (params.sortModel || []) as SortModel[],
-              currentSortModel: currentSortModel.value,
-              api: gridApi.value,
-            });
-            requestSortRevision = sortModelRevision.value;
-            const fetchOptions = {
-              sortModel: effectiveSortModel,
-              filterModel: params.filterModel || {},
-              startRow: params.startRow,
-              endRow: params.endRow,
-            };
-            const result = await measureRuntimePerformance('browser', 'grid.fetch-rows', () => fetchRowsWithProjectionReadinessRetry(
-              dataSource,
-              fetchOptions,
-              () => version === datasourceVersion,
-            ), {
-              endRow: params.endRow,
-              filterKeys: Object.keys(params.filterModel || {}).length,
-              sortCount: effectiveSortModel.length,
-              startRow: params.startRow,
-            });
-            rowsForBlock = result.rows;
-            totalCount = result.totalCount;
-          }
-          rowsForBlockCount = rowsForBlock.length;
-
-          if (version !== datasourceVersion) {
-            // Stale request from an old datasource version: resolve it explicitly
-            // so AG Grid does not keep blank placeholder rows.
-            params.failCallback();
-            status = 'stale-version';
-            return;
-          }
-
-          if (requestSortRevision !== sortModelRevision.value) {
-            params.failCallback();
-            status = 'stale-sort';
-            return;
-          }
-
-          status = measureRuntimePerformance('browser', 'grid.success-callback', () => gridFirstRowsLifecycle.applyLoadedRows({
-            isCurrentVersion: () => version === datasourceVersion,
-            rowsForBlock,
-            successCallback: params.successCallback,
-            totalCount,
-            version,
-          }), {
-            rowCount: rowsForBlock.length,
-            totalCount,
-          });
-        } catch (error) {
-          status = gridFirstRowsLifecycle.applyRowsError({
-            error,
-            failCallback: params.failCallback,
-            isCurrentVersion: () => version === datasourceVersion,
-            version,
-          });
-        } finally {
-          finishGetRowsSpan({
-            firstRowsLoaded: hasFirstDataBlockLoaded.value,
-            rowCount: rowsForBlockCount,
-            status,
-            totalCount,
-          }, {
-            ok: status === 'loaded' || status === 'empty-datasource' || status === 'projection-not-ready',
-            errorName: status === 'error' ? 'BrowserGridGetRowsError' : undefined,
-          });
-        }
-      })();
-    },
-  };
-}
-
-function applyPendingDatasourceToGrid(): void {
-  if (!isGridApiAlive(gridApi.value) || !pendingGridDatasource) {
-    return;
-  }
-  if (gridDatasourceApplyTimer) {
-    clearTimeout(gridDatasourceApplyTimer);
-    gridDatasourceApplyTimer = null;
-  }
-  const datasource = pendingGridDatasource;
-  gridDatasourceApplyTimer = setTimeout(() => {
-    gridDatasourceApplyTimer = null;
-    const api = gridApi.value;
-    if (!isGridApiAlive(api) || !datasource) {
-      return;
-    }
-    startGridModelUpdate('apply-datasource', { version: datasourceVersion });
-    measureRuntimePerformance('browser', 'grid.apply-datasource', () => api.setGridOption?.('datasource', datasource));
-  }, 0);
-}
+const gridDatasourceLifecycle = createBrowserGridDatasourceLifecycle({
+  currentSortModel,
+  firstRowsLifecycle: gridFirstRowsLifecycle,
+  getCurrentVersion: () => datasourceVersion,
+  getFirstRowsLoaded: () => hasFirstDataBlockLoaded.value,
+  getGridApi: () => gridApi.value,
+  getSortRevision: () => sortModelRevision.value,
+  isGridApiAlive,
+  measureRuntimePerformance,
+  randomSortRows,
+  sortModelRevision,
+  startGridModelUpdate,
+  startRuntimePerformanceSpan,
+});
 
 function rebuildInfiniteDatasource(forceRefresh = false): void {
   void forceRefresh;
@@ -1820,9 +1701,11 @@ function rebuildInfiniteDatasource(forceRefresh = false): void {
   loading.value = true;
   hasFirstDataBlockLoaded.value = false;
   clearLoadedRowsCache();
-  totalRowCount.value = randomSortRows.value?.length || 0;
-  pendingGridDatasource = createInfiniteDatasource(version, currentDataSource.value);
-  applyPendingDatasourceToGrid();
+  gridDatasourceLifecycle.rebuildInfiniteDatasource({
+    currentDataSource: currentDataSource.value,
+    totalRowCount,
+    version,
+  });
 }
 
 function startAllRowsSnapshot(): void {
@@ -2171,8 +2054,8 @@ const rowSelection = ref<RowSelectionOptions>({
 // Grid events
 function onGridReady(params: GridReadyEvent<BrowserCard>) {
   gridApi.value = params.api;
-  applyPendingDatasourceToGrid();
-  if (!pendingGridDatasource && currentDataSource.value) {
+  gridDatasourceLifecycle.applyPendingDatasourceToGrid();
+  if (!gridDatasourceLifecycle.hasPendingDatasource() && currentDataSource.value) {
     rebuildInfiniteDatasource(false);
   }
   applyGlobalSelectionToLoadedRows();
@@ -2762,13 +2645,8 @@ onBeforeUnmount(() => {
 
   abortLoadData();
   datasourceVersion += 1;
-  pendingGridDatasource = null;
   currentDataSource.value = null;
-
-  if (gridDatasourceApplyTimer) {
-    clearTimeout(gridDatasourceApplyTimer);
-    gridDatasourceApplyTimer = null;
-  }
+  gridDatasourceLifecycle.clearPendingDatasource();
   clearBackgroundSnapshotTimer();
   clearGlobalStatsAfterFirstRowsTimer();
   if (searchDebounceTimer) {
