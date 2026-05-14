@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-14 (Round 350)
+Last update: 2026-05-14 (Round 351)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-14 - Queue projection live identity events
+
+- Task: Implement OpenSpec change `add-queue-projection-live-identity-events` so soft-stale/readable projection identity changes can refresh the visible Browser queue through the normal readiness path.
+- Touched slice: Queue projection runtime and Browser queue/grid lifecycle; `src/types/queue-projection-live-identity.ts`, `QueueProjectionRuntime`, `UnifiedDataSourceManager`, `BrowserQueueViewModule`, `browserLoadDataRuntime`, `SRSBrowser.vue`, `BrowserGridDatasourceLifecycle` tests, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Queue projection ready identity events are now typed, content-free, runtime-owned, and manager-exposed by subscription; materialized/refreshed events only publish readable queue/policy/generation identity, invalidated/echo-cleared events only request a bounded recheck, and Browser accepts only visible matching newer identity before scheduling a queue-sync reload through existing readiness/load/datasource attach. Grid stale datasource version/sort protection remains the guard that prevents old generation row requests from updating visible rows.
+- Debt deferred: Cross-window/kernel broadcast, backend push transport, AG Grid row-model replacement, custom first-page renderer, Review commit semantics, scheduler writes, backend DB ownership changes, and UI SQL/local projection repair remain out of scope.
+- Why deferred: This slice closes local runtime-to-visible-Browser projection identity observability. Broadcast transport, row model replacement, and write policy changes have separate ownership, live-smoke risk, and broader validation surfaces.
+- Next safe step: If follower windows still miss projection refreshes in live use, propose a separate kernel/backend projection broadcast change with explicit writer/follower delivery semantics and Browser smoke coverage.
+- Validation: Focused queue projection live identity, runtime, manager, Browser queue lifecycle, browser load runtime, and grid datasource tests passed; full hidden-fallback, boundary, build, and OpenSpec validation are recorded with the implementation task.
 
 ### 2026-05-14 - Review presentation semantics module
 

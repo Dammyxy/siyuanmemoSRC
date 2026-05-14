@@ -27,6 +27,7 @@ import {
     type QueueProjectionRolloutDiagnostic,
     type QueueProjectionRolloutState,
 } from '@/types/unified-data-source';
+import type { QueueProjectionLiveIdentityListener } from '@/types/queue-projection-live-identity';
 import type { FSRSCard } from '@/types/card';
 import type { DrillLogV2 } from '@/types/review';
 // ✅ DDD 架构：UnifiedDataSourceManager（应用层）直接创建队列，不依赖 QueueFactory（基础设施层）
@@ -509,6 +510,12 @@ export class UnifiedDataSourceManager {
         request: QueueProjectionReadinessRequest,
     ): Promise<QueueProjectionReadiness> {
         return this.queueProjectionRuntime.ensureReady(request);
+    }
+
+    public subscribeQueueProjectionLiveIdentityEvents(
+        listener: QueueProjectionLiveIdentityListener,
+    ): () => void {
+        return this.queueProjectionRuntime.subscribeLiveIdentityEvents(listener);
     }
 
     public async getQueueProjectionCardsBySnapshotIds(

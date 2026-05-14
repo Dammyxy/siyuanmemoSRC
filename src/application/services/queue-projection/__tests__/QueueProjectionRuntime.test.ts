@@ -238,6 +238,97 @@ describe('QueueProjectionRuntime', () => {
     expect(backend.queueProjectionRowsByIds).toHaveBeenCalledTimes(1);
   });
 
+  it('emits content-free live identity events for materialized and invalidated projections', async () => {
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.FilterGroup,
+        status: 'invalidated',
+        policyHash: null,
+        generation: null,
+        rows: [],
+        counters: null,
+      })),
+      queueProjectionReplace: vi.fn(async () => ({
+        queueType: QueueType.FilterGroup,
+        status: 'ready',
+        policyHash: 'filter-policy',
+        generation: 1,
+        rows: 1,
+        counters: {
+          queueType: QueueType.FilterGroup,
+          policyHash: 'filter-policy',
+          generation: 1,
+          version: 1,
+          remaining: 1,
+          due: 1,
+          total: 1,
+          buckets: { all: 1, item: 1, descriptor: 0, topic: 0, concept: 0 },
+          updatedAt: 1,
+        },
+      })),
+    };
+    const { runtime } = createRuntime({ backend, queueCards: [createCard({ id: 'event-card' })] });
+    const events: unknown[] = [];
+    runtime.subscribeLiveIdentityEvents((event) => events.push(event));
+
+    await runtime.readSnapshot(QueueType.FilterGroup);
+    runtime.clearMaterializedProjectionEcho(QueueType.FilterGroup);
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'queue-projection-live-identity',
+        queueId: QueueType.FilterGroup,
+        queueType: QueueType.FilterGroup,
+        policyId: 'filter-policy',
+        generation: 1,
+        reason: 'materialized',
+        source: 'backend',
+      }),
+      expect.objectContaining({
+        type: 'queue-projection-live-identity',
+        queueId: QueueType.FilterGroup,
+        queueType: QueueType.FilterGroup,
+        policyId: null,
+        generation: null,
+        reason: 'echo-cleared',
+        source: 'runtime',
+      }),
+    ]);
+    expect(JSON.stringify(events)).not.toContain('event-card');
+  });
+
+  it('emits refreshed live identity once and suppresses unavailable ready events', async () => {
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.RetrievalPractice,
+        status: 'ready',
+        policyHash: 'policy-ready',
+        generation: 4,
+        rows: [],
+        counters: null,
+      })),
+    };
+    const { runtime } = createRuntime({ backend });
+    const events: unknown[] = [];
+    runtime.subscribeLiveIdentityEvents((event) => events.push(event));
+
+    await runtime.ensureReady({ queueType: QueueType.RetrievalPractice, source: 'browser' });
+    await runtime.ensureReady({ queueType: QueueType.RetrievalPractice, source: 'browser' });
+    await createRuntime({ backend: null }).runtime.ensureReady({
+      queueType: 'missing-queue',
+      source: 'browser',
+    });
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        queueType: QueueType.RetrievalPractice,
+        policyId: 'policy-ready',
+        generation: 4,
+        reason: 'refreshed',
+      }),
+    ]);
+  });
+
   it('clones snapshots and hydrates backend rows in requested order', async () => {
     const rows = [
       { id: 'row-a', fsrsCardId: 'card-a', blockId: 'block-a', deckId: '', tags: ['a'] },

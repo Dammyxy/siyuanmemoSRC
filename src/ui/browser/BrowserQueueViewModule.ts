@@ -2,9 +2,15 @@ import type { IBrowserApplicationService } from '@/application/interfaces/IBrows
 import {
   type BrowserCardTypeFilter,
   type IUnifiedDataSourceManagerFacade,
+  QueueType,
 } from '@/types/unified-data-source';
 import { normalizeBrowserQueueId, resolveQueueTypeForBrowserQueueId } from '@/types/browser-queue-identity';
 import type { QueueProjectionReadinessRequest } from '../../../packages/contracts/src/backend-rpc';
+import {
+  compareQueueProjectionLiveIdentity,
+  type QueueProjectionIdentity,
+  type QueueProjectionLiveIdentityEvent,
+} from '@/types/queue-projection-live-identity';
 import type { ICardDataSource } from './datasource/types';
 import type { PresetFilter } from '@/application/queries/browser/GetBrowserCardsQuery';
 import { createQueueDataSource } from './utils/dataSourceFactory';
@@ -31,6 +37,7 @@ export type BrowserQueueViewPrepareResult =
       status: 'ready';
       datasource: ICardDataSource;
       datasourceKind: 'queue';
+      projectionIdentity: QueueProjectionIdentity | null;
     }
   | {
       status: 'refreshing';
@@ -48,6 +55,48 @@ export type BrowserQueueViewPrepareResult =
 
 export function resolveQueueTypeForBrowserQueueView(queueId: string | null, _currentQueueType: string) {
   return resolveQueueTypeForBrowserQueueId(queueId);
+}
+
+export type BrowserQueueLiveIdentityPlanRequest = {
+  activeQueueId: string | null;
+  currentQueueType: string;
+  currentProjectionIdentity: QueueProjectionIdentity | null;
+  event: QueueProjectionLiveIdentityEvent;
+  visible: boolean;
+};
+
+export type BrowserQueueLiveIdentityPlan =
+  | {
+      action: 'ignore';
+      reason:
+        | 'hidden-browser-mode'
+        | 'missing-event-identity'
+        | 'missing-attached-identity'
+        | 'queue-mismatch'
+        | 'policy-mismatch'
+        | 'not-newer';
+    }
+  | { action: 'recheck'; reason: 'identity-invalidated' }
+  | { action: 'reattach'; identity: QueueProjectionIdentity };
+
+export function planQueueProjectionLiveIdentityForBrowserQueueView(
+  request: BrowserQueueLiveIdentityPlanRequest,
+): BrowserQueueLiveIdentityPlan {
+  const queueType = resolveQueueTypeForBrowserQueueView(request.activeQueueId, request.currentQueueType);
+  if (!request.visible || !queueType || !normalizeBrowserQueueId(request.activeQueueId)) {
+    return { action: 'ignore', reason: 'hidden-browser-mode' };
+  }
+  const decision = compareQueueProjectionLiveIdentity(request.event, request.currentProjectionIdentity);
+  if (decision.action === 'ignore') {
+    return decision;
+  }
+  if (decision.action === 'recheck') {
+    return decision;
+  }
+  if (decision.identity.queueType !== queueType) {
+    return { action: 'ignore', reason: 'queue-mismatch' };
+  }
+  return decision;
 }
 
 function mapReadinessUnavailableMessage(cause: string): string {
@@ -91,6 +140,7 @@ export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
   ): Promise<BrowserQueueViewPrepareResult> {
     const canonicalQueueId = normalizeBrowserQueueId(request.activeQueueId);
     const queueType = resolveQueueTypeForBrowserQueueView(request.activeQueueId, request.currentQueueType);
+    let projectionIdentity: QueueProjectionIdentity | null = null;
     const readinessRequest: QueueProjectionReadinessRequest | null = queueType
       ? {
           queueType,
@@ -127,6 +177,23 @@ export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
           message: mapReadinessUnavailableMessage(readiness.cause),
         };
       }
+      if (readiness.status === 'ready') {
+        const generation = Number(readiness.generation);
+        const policyId = String(readiness.policyId || '').trim();
+        if (
+          Object.values(QueueType).includes(queueType as QueueType)
+          && policyId
+          && Number.isFinite(generation)
+          && generation > 0
+        ) {
+          projectionIdentity = {
+            queueId: queueType,
+            queueType: queueType as QueueType,
+            policyId,
+            generation: Math.floor(generation),
+          };
+        }
+      }
     }
 
     const datasource = createQueueDataSource(
@@ -154,6 +221,7 @@ export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
       status: 'ready',
       datasource,
       datasourceKind: 'queue',
+      projectionIdentity,
     };
   }
 

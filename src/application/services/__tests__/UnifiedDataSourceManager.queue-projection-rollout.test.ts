@@ -806,4 +806,38 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
       }),
     ]);
   });
+
+  it('exposes queue projection live identity subscription through the manager facade', async () => {
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.FilterGroup,
+        status: 'ready',
+        policyHash: 'filter-policy',
+        generation: 7,
+        rows: [],
+        counters: null,
+      })),
+    };
+    const manager = UnifiedDataSourceManager.getInstance();
+    manager.setAdvancedRouter(createRouterWithBackend(backend));
+    const events: unknown[] = [];
+    const unsubscribe = manager.subscribeQueueProjectionLiveIdentityEvents((event) => events.push(event));
+
+    await manager.ensureQueueProjectionReady({
+      queueType: QueueType.FilterGroup,
+      source: 'browser',
+    });
+    unsubscribe();
+    manager.invalidateQueue(QueueType.FilterGroup);
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'queue-projection-live-identity',
+        queueType: QueueType.FilterGroup,
+        policyId: 'filter-policy',
+        generation: 7,
+        reason: 'refreshed',
+      }),
+    ]);
+  });
 });

@@ -12,8 +12,15 @@ import {
   createDeckDataSource,
   createQueryDataSource,
 } from './utils/dataSourceFactory';
-import { createBrowserQueueViewModule } from './BrowserQueueViewModule';
+import {
+  createBrowserQueueViewModule,
+  planQueueProjectionLiveIdentityForBrowserQueueView,
+} from './BrowserQueueViewModule';
 import { measureRuntimePerformance, startRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnostics';
+import type {
+  QueueProjectionIdentity,
+  QueueProjectionLiveIdentityEvent,
+} from '@/types/queue-projection-live-identity';
 
 type MutableRef<T> = {
   value: T;
@@ -51,6 +58,7 @@ export type BrowserLoadDataRuntimeDeps = {
   currentCardType: ReadonlyRef<CardTypeFilter>;
   currentDataSource: MutableRef<ICardDataSource | null>;
   currentPreset: ReadonlyRef<PresetFilter>;
+  currentProjectionIdentity: MutableRef<QueueProjectionIdentity | null>;
   currentQueueType: ReadonlyRef<string>;
   ensureSqlModeConfirmed: () => Promise<boolean>;
   getCurrentDocId: () => string | null;
@@ -92,6 +100,7 @@ function getCardType(deps: BrowserLoadDataRuntimeDeps): BrowserCardTypeFilter {
 
 export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
   let loadDataAbortController: AbortController | null = null;
+  let liveIdentityReloadTimer: ReturnType<typeof setTimeout> | null = null;
   const queueViewModule = createBrowserQueueViewModule({ logger: deps.logger });
 
   function abortLoadData(): void {
@@ -99,6 +108,38 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
       loadDataAbortController.abort();
       loadDataAbortController = null;
     }
+    if (liveIdentityReloadTimer) {
+      clearTimeout(liveIdentityReloadTimer);
+      liveIdentityReloadTimer = null;
+    }
+  }
+
+  function handleQueueProjectionLiveIdentityEvent(event: QueueProjectionLiveIdentityEvent): 'ignored' | 'scheduled' {
+    const plan = planQueueProjectionLiveIdentityForBrowserQueueView({
+      activeQueueId: deps.activeQueueId.value,
+      currentQueueType: deps.currentQueueType.value,
+      currentProjectionIdentity: deps.currentProjectionIdentity.value,
+      event,
+      visible: Boolean(deps.activeQueueId.value),
+    });
+    if (plan.action === 'ignore') {
+      deps.logger.info('[SiYuanMemo][SRSBrowser] Ignored queue projection live identity event', {
+        event,
+        reason: plan.reason,
+      });
+      return 'ignored';
+    }
+    if (liveIdentityReloadTimer) {
+      return 'scheduled';
+    }
+    liveIdentityReloadTimer = setTimeout(() => {
+      liveIdentityReloadTimer = null;
+      void loadData(false, {
+        origin: 'queue-sync',
+        refreshQueueCounts: false,
+      });
+    }, 0);
+    return 'scheduled';
   }
 
   async function loadData(forceRefresh = false, options: BrowserLoadDataOptions = {}): Promise<void> {
@@ -180,6 +221,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
 
         if (queueView.status === 'unavailable') {
           deps.currentDataSource.value = null;
+          deps.currentProjectionIdentity.value = null;
           await deps.pushErrMsg(queueView.message);
           clearBrowserRows(deps);
           return;
@@ -187,13 +229,16 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
 
         if (queueView.status === 'missing-datasource') {
           deps.logger.error('[SiYuanMemo][SRSBrowser] Failed to create data source for queue:', queueView.queueId);
+          deps.currentProjectionIdentity.value = null;
           clearBrowserRows(deps);
           return;
         }
 
         deps.currentDataSource.value = queueView.datasource;
+        deps.currentProjectionIdentity.value = queueView.projectionIdentity;
       } else {
         deps.clearNeuralSubviewData();
+        deps.currentProjectionIdentity.value = null;
         const sqlStmt = deps.resolveActiveSqlStatement(deps.searchQuery.value);
         if (sqlStmt != null) {
           datasourceKind = 'sql-query';
@@ -234,6 +279,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
       }
 
       if (!deps.currentDataSource.value) {
+        deps.currentProjectionIdentity.value = null;
         clearBrowserRows(deps);
         return;
       }
@@ -298,6 +344,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
 
   return {
     abortLoadData,
+    handleQueueProjectionLiveIdentityEvent,
     loadData,
   };
 }

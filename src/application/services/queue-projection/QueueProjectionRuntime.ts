@@ -6,6 +6,12 @@ import {
   type QueueProjectionRolloutState,
   type QueueProjectionSnapshot,
 } from '@/types/unified-data-source';
+import type {
+  QueueProjectionLiveIdentityEvent,
+  QueueProjectionLiveIdentityListener,
+  QueueProjectionLiveIdentityReason,
+  QueueProjectionLiveIdentitySource,
+} from '@/types/queue-projection-live-identity';
 import type { CardType, FSRSCard } from '@/types/card';
 import type { QueueSnapshotRow } from '@/types/queue-browser';
 import { buildQueueSnapshotRow } from '@/core/queue/domain/queueCardProjection';
@@ -135,6 +141,8 @@ export class QueueProjectionRuntime {
   private readonly materializedProjectionEchoes = new Map<QueueType, MaterializedQueueProjectionEcho>();
   private readonly queueProjectionReadiness: QueueProjectionReadinessService;
   private readonly queueProjectionUnavailableDiagnostics = new Map<QueueType, QueueProjectionUnavailableDiagnostic>();
+  private readonly liveIdentityListeners = new Set<QueueProjectionLiveIdentityListener>();
+  private readonly publishedReadyIdentities = new Map<QueueType, string>();
 
   constructor(private readonly deps: QueueProjectionRuntimeDeps) {
     this.queueProjectionReadiness = new QueueProjectionReadinessService({
@@ -172,6 +180,12 @@ export class QueueProjectionRuntime {
     });
     if (readiness.status === 'ready') {
       this.clearQueueProjectionUnavailable(queueType);
+      this.emitReadyLiveIdentity(queueType, {
+        policyHash: readiness.policyId,
+        generation: readiness.generation,
+        reason: 'refreshed',
+        source: 'runtime',
+      });
       return readiness;
     }
     if (readiness.status === 'refreshing') {
@@ -388,11 +402,22 @@ export class QueueProjectionRuntime {
     return queueTypes.map((entry) => this.buildQueueProjectionRolloutDiagnostic(entry));
   }
 
+  subscribeLiveIdentityEvents(listener: QueueProjectionLiveIdentityListener): () => void {
+    this.liveIdentityListeners.add(listener);
+    return () => {
+      this.liveIdentityListeners.delete(listener);
+    };
+  }
+
   clearMaterializedProjectionEcho(queueType: QueueType): void {
     this.materializedProjectionEchoes.delete(queueType);
+    this.emitInvalidatedLiveIdentity(queueType, 'echo-cleared');
   }
 
   clearMaterializedProjectionEchoes(): void {
+    for (const queueType of this.materializedProjectionEchoes.keys()) {
+      this.emitInvalidatedLiveIdentity(queueType, 'echo-cleared');
+    }
     this.materializedProjectionEchoes.clear();
   }
 
@@ -469,6 +494,12 @@ export class QueueProjectionRuntime {
     };
     const result = await this.submitQueueProjectionReplace(backend, replaceRequest);
     this.cacheMaterializedProjectionEcho(queueType, result, cards, projection.rows);
+    this.emitReadyLiveIdentity(queueType, {
+      policyHash: result.policyHash,
+      generation: result.generation,
+      reason: 'materialized',
+      source: this.isCurrentInstanceFollower() ? 'writer-relay' : 'backend',
+    });
     return result;
   }
 
@@ -829,6 +860,77 @@ export class QueueProjectionRuntime {
 
   private clearQueueProjectionUnavailable(queueType: QueueType): void {
     this.queueProjectionUnavailableDiagnostics.delete(queueType);
+  }
+
+  private emitReadyLiveIdentity(
+    queueType: QueueType,
+    details: {
+      policyHash?: string | null;
+      generation?: number | null;
+      reason: QueueProjectionLiveIdentityReason;
+      source: QueueProjectionLiveIdentitySource;
+    },
+  ): void {
+    if (
+      !this.isValidProjectionPolicyHash(details.policyHash)
+      || !this.isValidProjectionGeneration(details.generation)
+    ) {
+      return;
+    }
+    const generation = Number(details.generation);
+    const policyHash = String(details.policyHash);
+    const identityKey = `${policyHash}:${generation}`;
+    if (this.publishedReadyIdentities.get(queueType) === identityKey) {
+      return;
+    }
+    this.publishedReadyIdentities.set(queueType, identityKey);
+    this.emitLiveIdentityEvent({
+      type: 'queue-projection-live-identity',
+      queueId: queueType,
+      queueType,
+      policyId: policyHash,
+      generation,
+      reason: details.reason,
+      source: details.source,
+      timestamp: Date.now(),
+    });
+  }
+
+  private emitInvalidatedLiveIdentity(
+    queueType: QueueType,
+    reason: Extract<QueueProjectionLiveIdentityReason, 'invalidated' | 'echo-cleared'>,
+  ): void {
+    if (!this.isQueueProjectionReadable(queueType)) {
+      return;
+    }
+    this.publishedReadyIdentities.delete(queueType);
+    this.emitLiveIdentityEvent({
+      type: 'queue-projection-live-identity',
+      queueId: queueType,
+      queueType,
+      policyId: null,
+      generation: null,
+      reason,
+      source: 'runtime',
+      timestamp: Date.now(),
+    });
+  }
+
+  private emitLiveIdentityEvent(event: QueueProjectionLiveIdentityEvent): void {
+    const diagnosticEventId = `${event.queueType}:${event.policyId ?? 'none'}:${event.generation ?? 'none'}:${event.reason}:${event.timestamp}`;
+    const normalized = { ...event, diagnosticEventId };
+    for (const listener of this.liveIdentityListeners) {
+      try {
+        listener(normalized);
+      } catch (error) {
+        this.deps.logger.warn('Queue projection live identity listener failed', {
+          queueType: event.queueType,
+          generation: event.generation,
+          reason: event.reason,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
   }
 
   private isValidProjectionPolicyHash(policyHash: unknown): policyHash is string {

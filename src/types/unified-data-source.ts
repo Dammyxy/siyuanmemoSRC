@@ -17,6 +17,9 @@ import type {
     QueueProjectionReadiness,
     QueueProjectionReadinessRequest,
 } from '../../packages/contracts/src/backend-rpc';
+import type {
+    QueueProjectionLiveIdentityListener,
+} from './queue-projection-live-identity';
 
 // ============================================================================
 // 核心枚举类型
@@ -272,6 +275,7 @@ export interface IUnifiedDataSourceManagerFacade {
     batchRemoveFromQueue?(type: QueueType, cardIdsOrBlockIds: string[]): Promise<QueueBulkMutationResult>;
     getQueueProjectionRolloutDiagnostics?(queueType?: QueueType): QueueProjectionRolloutDiagnostic[];
     ensureQueueProjectionReady?(request: QueueProjectionReadinessRequest): Promise<QueueProjectionReadiness>;
+    subscribeQueueProjectionLiveIdentityEvents?(listener: QueueProjectionLiveIdentityListener): () => void;
     getAvailableQueueTypes(): QueueType[];
     registerObserver(observer: IDataSourceObserver): void;
     unregisterObserver(observer: IDataSourceObserver): void;

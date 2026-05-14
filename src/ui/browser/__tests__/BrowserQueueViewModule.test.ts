@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createBrowserQueueViewModule, resolveQueueTypeForBrowserQueueView } from '../BrowserQueueViewModule';
+import {
+  createBrowserQueueViewModule,
+  planQueueProjectionLiveIdentityForBrowserQueueView,
+  resolveQueueTypeForBrowserQueueView,
+} from '../BrowserQueueViewModule';
 import { QueueType } from '@/types/unified-data-source';
 
 function createManager(readinessResults: unknown[]) {
@@ -59,6 +63,12 @@ describe('BrowserQueueViewModule', () => {
     }));
     expect(result.status).toBe('ready');
     expect(result.status === 'ready' ? result.datasource.id : null).toBe('retrieval');
+    expect(result.status === 'ready' ? result.projectionIdentity : null).toEqual({
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-a',
+      generation: 7,
+    });
   });
 
   it('normalizes queue aliases before readiness and datasource creation', async () => {
@@ -146,5 +156,79 @@ describe('BrowserQueueViewModule', () => {
       status: 'unavailable',
       message: 'Queue projection backend is unavailable',
     });
+  });
+
+  it('plans live identity reattach only for newer visible matching queue events', () => {
+    const currentProjectionIdentity = {
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-a',
+      generation: 2,
+    };
+    const event = {
+      type: 'queue-projection-live-identity' as const,
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-a',
+      generation: 3,
+      reason: 'refreshed' as const,
+      source: 'runtime' as const,
+      timestamp: 1,
+    };
+
+    expect(planQueueProjectionLiveIdentityForBrowserQueueView({
+      activeQueueId: 'retrieval',
+      currentQueueType: QueueType.RetrievalPractice,
+      currentProjectionIdentity,
+      event,
+      visible: true,
+    })).toEqual({
+      action: 'reattach',
+      identity: {
+        queueId: QueueType.RetrievalPractice,
+        queueType: QueueType.RetrievalPractice,
+        policyId: 'policy-a',
+        generation: 3,
+      },
+    });
+
+    expect(planQueueProjectionLiveIdentityForBrowserQueueView({
+      activeQueueId: 'retrieval',
+      currentQueueType: QueueType.RetrievalPractice,
+      currentProjectionIdentity,
+      event: { ...event, generation: 2 },
+      visible: true,
+    })).toEqual({ action: 'ignore', reason: 'not-newer' });
+    expect(planQueueProjectionLiveIdentityForBrowserQueueView({
+      activeQueueId: null,
+      currentQueueType: '',
+      currentProjectionIdentity,
+      event,
+      visible: false,
+    })).toEqual({ action: 'ignore', reason: 'hidden-browser-mode' });
+  });
+
+  it('plans invalidation events as bounded readiness rechecks', () => {
+    expect(planQueueProjectionLiveIdentityForBrowserQueueView({
+      activeQueueId: 'retrieval',
+      currentQueueType: QueueType.RetrievalPractice,
+      currentProjectionIdentity: {
+        queueId: QueueType.RetrievalPractice,
+        queueType: QueueType.RetrievalPractice,
+        policyId: 'policy-a',
+        generation: 2,
+      },
+      event: {
+        type: 'queue-projection-live-identity',
+        queueId: QueueType.RetrievalPractice,
+        queueType: QueueType.RetrievalPractice,
+        policyId: null,
+        generation: null,
+        reason: 'invalidated',
+        source: 'runtime',
+        timestamp: 1,
+      },
+      visible: true,
+    })).toEqual({ action: 'recheck', reason: 'identity-invalidated' });
   });
 });

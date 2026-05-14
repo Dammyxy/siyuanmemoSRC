@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BrowserCard } from '../types';
 import type { ICardDataSource } from '../datasource/types';
 import { createBrowserLoadDataRuntime, type BrowserLoadDataRuntimeDeps } from '../browserLoadDataRuntime';
+import { QueueType } from '@/types/unified-data-source';
 
 function ref<T>(value: T): { value: T } {
   return { value };
@@ -19,6 +20,12 @@ function createManager() {
     getQueue: vi.fn(() => ({
       getConceptBlocks: vi.fn(() => []),
     })),
+    ensureQueueProjectionReady: vi.fn(async () => ({
+      status: 'ready',
+      queueId: QueueType.RetrievalPractice,
+      policyId: 'policy-a',
+      generation: 1,
+    })),
   };
 }
 
@@ -34,6 +41,7 @@ function createDeps(overrides: Partial<BrowserLoadDataRuntimeDeps> = {}): Browse
     currentCardType: ref('all' as any),
     currentDataSource: ref<ICardDataSource | null>(null),
     currentPreset: ref('all' as any),
+    currentProjectionIdentity: ref(null),
     currentQueueType: ref(''),
     ensureSqlModeConfirmed: vi.fn(async () => true),
     getCurrentDocId: vi.fn(() => null),
@@ -79,6 +87,12 @@ describe('browserLoadDataRuntime', () => {
     await runtime.loadData(true, { origin: 'queue-sync', snapshotDelayMs: 25 });
 
     expect(deps.currentDataSource.value?.id).toBe('retrieval');
+    expect(deps.currentProjectionIdentity.value).toEqual({
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-a',
+      generation: 1,
+    });
     expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledWith(true);
     expect(deps.startFocusRowsSnapshot).toHaveBeenCalledWith(25);
     expect(deps.scheduleAllRowsSnapshot).not.toHaveBeenCalled();
@@ -197,5 +211,90 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.currentDataSource.value).toBeNull();
     expect(deps.rows.value).toEqual([]);
     expect(deps.totalRowCount.value).toBe(0);
+  });
+
+  it('schedules one queue-sync reload for matching live identity events', async () => {
+    vi.useFakeTimers();
+    const manager = {
+      ...createManager(),
+      ensureQueueProjectionReady: vi.fn(async () => ({
+        status: 'ready',
+        queueId: QueueType.RetrievalPractice,
+        policyId: 'policy-a',
+        generation: 3,
+      })),
+    };
+    const deps = createDeps({
+      activeQueueId: ref('retrieval'),
+      currentQueueType: ref('retrieval-practice'),
+      currentProjectionIdentity: ref({
+        queueId: QueueType.RetrievalPractice,
+        queueType: QueueType.RetrievalPractice,
+        policyId: 'policy-a',
+        generation: 2,
+      }),
+      pluginUnifiedDataSourceManager: ref(manager as any),
+    });
+    const runtime = createBrowserLoadDataRuntime(deps);
+
+    expect(runtime.handleQueueProjectionLiveIdentityEvent({
+      type: 'queue-projection-live-identity',
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-a',
+      generation: 3,
+      reason: 'refreshed',
+      source: 'runtime',
+      timestamp: 1,
+    })).toBe('scheduled');
+    expect(runtime.handleQueueProjectionLiveIdentityEvent({
+      type: 'queue-projection-live-identity',
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-a',
+      generation: 4,
+      reason: 'refreshed',
+      source: 'runtime',
+      timestamp: 2,
+    })).toBe('scheduled');
+
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(1);
+    expect(deps.globalSelection.clear).not.toHaveBeenCalled();
+    expect(deps.currentProjectionIdentity.value).toEqual({
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-a',
+      generation: 3,
+    });
+    vi.useRealTimers();
+  });
+
+  it('ignores live identity events outside the visible queue identity', () => {
+    const deps = createDeps({
+      activeQueueId: ref('retrieval'),
+      currentQueueType: ref('retrieval-practice'),
+      currentProjectionIdentity: ref({
+        queueId: QueueType.RetrievalPractice,
+        queueType: QueueType.RetrievalPractice,
+        policyId: 'policy-a',
+        generation: 2,
+      }),
+    });
+    const runtime = createBrowserLoadDataRuntime(deps);
+
+    expect(runtime.handleQueueProjectionLiveIdentityEvent({
+      type: 'queue-projection-live-identity',
+      queueId: QueueType.FilterGroup,
+      queueType: QueueType.FilterGroup,
+      policyId: 'policy-a',
+      generation: 3,
+      reason: 'refreshed',
+      source: 'runtime',
+      timestamp: 1,
+    })).toBe('ignored');
+
+    expect(deps.rebuildInfiniteDatasource).not.toHaveBeenCalled();
   });
 });

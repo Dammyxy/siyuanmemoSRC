@@ -425,6 +425,7 @@ import type {
   NeuralEngineMode,
   QueueType,
 } from '@/types/unified-data-source';
+import type { QueueProjectionIdentity } from '@/types/queue-projection-live-identity';
 import { filterService } from './services/FilterService';
 import type { NeuralSubview } from './neural/types';
 import {
@@ -727,6 +728,7 @@ const gridCacheBlockSize = computed(() => gridSizing.value.cacheBlockSize);
 const gridMaxBlocksInCache = computed(() => gridSizing.value.maxBlocksInCache);
 const gridRowBuffer = computed(() => gridSizing.value.rowBuffer);
 const randomSortRows = ref<BrowserCard[] | null>(null);
+const currentProjectionIdentity = ref<QueueProjectionIdentity | null>(null);
 const SNAPSHOT_HYDRATE_CHUNK_SIZE = 24;
 const SNAPSHOT_FIRST_ROWS_POLL_MS = 50;
 
@@ -2617,6 +2619,7 @@ function setupLongTaskMonitor(): void {
 // Cleanup
 let unsubscribe: (() => void) | null = null;
 let unsubscribeSourceExistence: (() => void) | null = null;
+let unsubscribeQueueProjectionLiveIdentity: (() => void) | null = null;
 
 onBeforeUnmount(() => {
   disposeIncrementalGridUpdates();
@@ -2646,6 +2649,10 @@ onBeforeUnmount(() => {
     unsubscribeSourceExistence();
     unsubscribeSourceExistence = null;
   }
+  if (unsubscribeQueueProjectionLiveIdentity) {
+    unsubscribeQueueProjectionLiveIdentity();
+    unsubscribeQueueProjectionLiveIdentity = null;
+  }
 
   browserRootResizeObserver?.disconnect();
   browserRootResizeObserver = null;
@@ -2660,6 +2667,8 @@ onMounted(() => {
   initBrowserAdapter();
   setupLongTaskMonitor();
   unsubscribeSourceExistence = browserAppServiceRef.value?.subscribeSourceExistenceUpdates?.(handleSourceExistenceUpdate) ?? null;
+  unsubscribeQueueProjectionLiveIdentity = pluginUnifiedDataSourceManager.value
+    ?.subscribeQueueProjectionLiveIdentityEvents?.(browserLoadDataRuntime.handleQueueProjectionLiveIdentityEvent) ?? null;
 
   // Subscribe to incremental updates
   unsubscribe = subscribeCacheUpdate((cards, isComplete) => {
@@ -2865,6 +2874,7 @@ const browserLoadDataRuntime = createBrowserLoadDataRuntime({
   currentCardType,
   currentDataSource,
   currentPreset,
+  currentProjectionIdentity,
   currentQueueType,
   ensureSqlModeConfirmed,
   getCurrentDocId: () => props.currentDocId || null,

@@ -132,6 +132,31 @@ describe('BrowserGridDatasourceLifecycle', () => {
     expect(firstRowsLifecycle.applyLoadedRows).not.toHaveBeenCalled();
   });
 
+  it('fails old generation row requests after live identity reattach advances datasource version', async () => {
+    let resolveFetch: ((value: { rows: BrowserCard[]; totalCount: number }) => void) | null = null;
+    const dataSource = {
+      fetchRows: vi.fn(() => new Promise((resolve) => {
+        resolveFetch = resolve;
+      })),
+    } as unknown as ICardDataSource;
+    const { currentVersion, firstRowsLifecycle, lifecycle } = createHarness({ currentVersion: 1 });
+    const oldDatasource = lifecycle.createInfiniteDatasource(1, dataSource);
+    const params = createParams();
+
+    oldDatasource.getRows!(params);
+    currentVersion.value = 2;
+    lifecycle.rebuildInfiniteDatasource({
+      currentDataSource: dataSource,
+      totalRowCount: ref(0),
+      version: 2,
+    });
+    resolveFetch?.({ rows: [{ id: 'old', blockId: 'old' }] as BrowserCard[], totalCount: 1 });
+    await flush();
+
+    expect(params.failCallback).toHaveBeenCalledTimes(1);
+    expect(firstRowsLifecycle.applyLoadedRows).not.toHaveBeenCalled();
+  });
+
   it('fails stale sort revision without applying rows', async () => {
     const sortRevision = ref(0);
     const dataSource = {
