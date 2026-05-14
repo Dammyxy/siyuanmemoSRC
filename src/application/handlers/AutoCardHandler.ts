@@ -225,6 +225,18 @@ type CandidateBlockContext = {
 
 type AutoCardCheckStatus = string;
 
+type AutoCardListenerBusinessIdentity = {
+    key: string;
+    sourceBlockId: string;
+    symbolRangeFingerprint: string;
+    resolvedCardType: 'topic' | 'item';
+    envelopeKind: AutoCardExecutionEnvelope['kind'];
+    targetTopicContainerId: string | null;
+    selectedDecisionId: string | null;
+    enabledDecisionIds: string[];
+    matchedRuleIds: string[];
+};
+
 type ListenerCandidateLifecycleStatus =
     | 'accepted'
     | 'retry-scheduled'
@@ -245,6 +257,7 @@ export interface AutoCardListenerCandidateDiagnostic {
     attempt: number;
     delayMs?: number;
     runId?: string;
+    businessIdentity?: AutoCardListenerBusinessIdentity;
     createdAt: number;
     updatedAt: number;
 }
@@ -368,6 +381,8 @@ export class AutoCardHandler implements ITransactionHandler {
     private readonly listenerCandidateDiagnostics = new Map<string, AutoCardListenerCandidateDiagnostic>();
     private readonly listenerCandidateDiagnosticOrder: string[] = [];
     private readonly lastEvaluationFingerprintByBlock = new Map<string, string>();
+    private readonly symbolListenerBusinessInFlight = new Set<string>();
+    private readonly listenerBusinessIdentityByBlock = new Map<string, AutoCardListenerBusinessIdentity>();
     private readonly suppressedTopicDerivedMarkMutations = new Map<string, number>();
     private readonly settledEvaluationDelayMs = 300;
     private readonly candidateRetryDelaysMs = [250, 750, 1500, 3000, 6000];
@@ -699,6 +714,80 @@ export class AutoCardHandler implements ITransactionHandler {
             hash = Math.imul(hash, 0x01000193);
         }
         return (hash >>> 0).toString(16).padStart(8, '0');
+    }
+
+    private buildSymbolListenerBusinessIdentity(input: {
+        sourceBlockId: string;
+        content: string;
+        resolvedCardType: 'topic' | 'item';
+        envelopeKind: AutoCardExecutionEnvelope['kind'];
+        targetTopicContainerId?: string | null;
+        selectedDecision: CreationDecision | null;
+        enabledDecisions: CreationDecision[];
+        matchedRuleIds: string[];
+    }): AutoCardListenerBusinessIdentity {
+        const enabledDecisionIds = input.enabledDecisions.map((decision) => decision.id).sort();
+        const matchedRuleIds = [...input.matchedRuleIds].sort();
+        const symbolRangeFingerprint = this.hashFNV1a32(JSON.stringify({
+            content: input.content,
+            enabledDecisionIds,
+            matchedRuleIds,
+            selectedDecisionId: input.selectedDecision?.id ?? null,
+            selectedDecisionDirection: input.selectedDecision?.direction ?? null,
+        }));
+        const targetTopicContainerId = input.targetTopicContainerId?.trim() || null;
+        const keyPayload = {
+            sourceBlockId: input.sourceBlockId,
+            symbolRangeFingerprint,
+            resolvedCardType: input.resolvedCardType,
+            envelopeKind: input.envelopeKind,
+            targetTopicContainerId,
+            selectedDecisionId: input.selectedDecision?.id ?? null,
+            enabledDecisionIds,
+        };
+        return {
+            key: `symbol-listener-business:${this.hashFNV1a32(JSON.stringify(keyPayload))}`,
+            sourceBlockId: input.sourceBlockId,
+            symbolRangeFingerprint,
+            resolvedCardType: input.resolvedCardType,
+            envelopeKind: input.envelopeKind,
+            targetTopicContainerId,
+            selectedDecisionId: input.selectedDecision?.id ?? null,
+            enabledDecisionIds,
+            matchedRuleIds,
+        };
+    }
+
+    private tryAcquireSymbolListenerBusinessIdentity(identity: AutoCardListenerBusinessIdentity): boolean {
+        if (this.symbolListenerBusinessInFlight.has(identity.key)) {
+            this.traceAutoCard('businessIdentity.inFlightDuplicate', {
+                key: identity.key,
+                sourceBlockId: identity.sourceBlockId,
+                envelopeKind: identity.envelopeKind,
+                targetTopicContainerId: identity.targetTopicContainerId,
+                selectedDecisionId: identity.selectedDecisionId,
+            });
+            return false;
+        }
+        this.symbolListenerBusinessInFlight.add(identity.key);
+        this.traceAutoCard('businessIdentity.acquire', {
+            key: identity.key,
+            sourceBlockId: identity.sourceBlockId,
+            envelopeKind: identity.envelopeKind,
+            targetTopicContainerId: identity.targetTopicContainerId,
+            selectedDecisionId: identity.selectedDecisionId,
+        });
+        return true;
+    }
+
+    private releaseSymbolListenerBusinessIdentity(identity: AutoCardListenerBusinessIdentity): void {
+        if (this.symbolListenerBusinessInFlight.delete(identity.key)) {
+            this.traceAutoCard('businessIdentity.release', {
+                key: identity.key,
+                sourceBlockId: identity.sourceBlockId,
+                envelopeKind: identity.envelopeKind,
+            });
+        }
     }
 
     private buildLocalCandidateId(input: {
@@ -1341,6 +1430,13 @@ export class AutoCardHandler implements ITransactionHandler {
                 ...diagnostic,
                 actions: [...diagnostic.actions],
                 opIds: [...diagnostic.opIds],
+                ...(diagnostic.businessIdentity ? {
+                    businessIdentity: {
+                        ...diagnostic.businessIdentity,
+                        enabledDecisionIds: [...diagnostic.businessIdentity.enabledDecisionIds],
+                        matchedRuleIds: [...diagnostic.businessIdentity.matchedRuleIds],
+                    },
+                } : {}),
             }));
     }
 
@@ -1366,6 +1462,7 @@ export class AutoCardHandler implements ITransactionHandler {
             || status === 'retry-exhausted'
             || status === 'failed'
         );
+        const businessIdentity = this.listenerBusinessIdentityByBlock.get(context.blockId);
         this.listenerCandidateDiagnostics.set(context.candidateId, {
             candidateId: context.candidateId,
             blockId: context.blockId,
@@ -1378,6 +1475,7 @@ export class AutoCardHandler implements ITransactionHandler {
             attempt: options.attempt ?? context.retryAttempt,
             ...(typeof options.delayMs === 'number' ? { delayMs: options.delayMs } : {}),
             ...(options.runId ? { runId: options.runId } : {}),
+            ...(businessIdentity ? { businessIdentity } : {}),
             createdAt: existing?.createdAt ?? now,
             updatedAt: now,
         });
@@ -1391,6 +1489,7 @@ export class AutoCardHandler implements ITransactionHandler {
             attempt: options.attempt ?? context.retryAttempt,
             delayMs: options.delayMs ?? null,
             txBatchId: context.txBatchId,
+            businessIdentityKey: businessIdentity?.key ?? null,
         });
     }
 
@@ -1446,6 +1545,9 @@ export class AutoCardHandler implements ITransactionHandler {
         }
         if (status === 'error') {
             return { status: 'failed', reason: status };
+        }
+        if (status === 'skip-in-flight-duplicate') {
+            return { status: 'skipped', reason: 'in-flight duplicate skipped' };
         }
         return { status: 'skipped', reason: status || 'unknown' };
     }
@@ -1913,6 +2015,20 @@ export class AutoCardHandler implements ITransactionHandler {
             decisionStatusForReport = decisionCoreResult.status;
             const enabledDecisions = decisionCoreResult.enabledDecisions;
             enabledDecisionCountForReport = enabledDecisions.length;
+            const envelopeKind: AutoCardExecutionEnvelope['kind'] = decisionCoreResult.shouldUseTopicDerivation
+                ? 'topic-derived'
+                : 'planner-decision';
+            const businessIdentity = this.buildSymbolListenerBusinessIdentity({
+                sourceBlockId: blockId,
+                content: kramdown,
+                resolvedCardType,
+                envelopeKind,
+                targetTopicContainerId: progressiveSourceContext.parentTopicCardId ?? null,
+                selectedDecision: decisionCoreResult.selectedDecision,
+                enabledDecisions,
+                matchedRuleIds: decisionCoreResult.matchedRuleIds,
+            });
+            this.listenerBusinessIdentityByBlock.set(blockId, businessIdentity);
             const evaluationFingerprint = this.buildEvaluationFingerprint({
                 blockType,
                 content: kramdown,
@@ -1933,6 +2049,17 @@ export class AutoCardHandler implements ITransactionHandler {
                 localCardCount: existingCards.length,
                 matchedRuleIds: decisionCoreResult.matchedRuleIds,
                 enabledDecisions: enabledDecisions.map((decision) => this.summarizeDecision(decision)),
+                businessIdentityKey: businessIdentity.key,
+                businessIdentity: {
+                    sourceBlockId: businessIdentity.sourceBlockId,
+                    symbolRangeFingerprint: businessIdentity.symbolRangeFingerprint,
+                    resolvedCardType: businessIdentity.resolvedCardType,
+                    envelopeKind: businessIdentity.envelopeKind,
+                    targetTopicContainerId: businessIdentity.targetTopicContainerId,
+                    selectedDecisionId: businessIdentity.selectedDecisionId,
+                    enabledDecisionIds: businessIdentity.enabledDecisionIds,
+                    matchedRuleIds: businessIdentity.matchedRuleIds,
+                },
                 hasBidirectionalBasicDecision: enabledDecisions.some((decision) => (
                     decision.id === 'BasicDirectionRule' && decision.direction === 'both'
                 )),
@@ -1941,6 +2068,18 @@ export class AutoCardHandler implements ITransactionHandler {
                 trigger: traceContext?.trigger ?? null,
                 nextBlockId: traceContext?.nextBlockId ?? null,
             });
+
+            if (this.symbolListenerBusinessInFlight.has(businessIdentity.key)) {
+                status = 'skip-in-flight-duplicate';
+                this.traceAutoCard('settledEvaluation.skipBusinessInFlightDuplicate', {
+                    runId: traceContext?.runId ?? null,
+                    txBatchId: traceContext?.txBatchId ?? null,
+                    blockId,
+                    businessIdentityKey: businessIdentity.key,
+                    reason: 'in-flight duplicate skipped',
+                });
+                return status;
+            }
 
             if (previousFingerprint === evaluationFingerprint) {
                 status = 'same-fingerprint';
@@ -2000,23 +2139,32 @@ export class AutoCardHandler implements ITransactionHandler {
                     envelopeKind: 'topic-derived',
                     executionOwner: executionOwnership.owner,
                 });
-                const executed = await measureRuntimePerformance('autocard', 'execute-envelope.topic-derived', () => this.executeAutoCardEnvelope({
-                    kind: 'topic-derived',
-                    input: {
-                        sourceBlockId: blockId,
-                        sourceDocId: progressiveSourceContext.sourceDocId,
-                        parentTopicCardId: progressiveSourceContext.parentTopicCardId!,
-                        parentExcerptId: progressiveSourceContext.parentExcerptId,
-                        sourceRootKind: progressiveSourceContext.rootKind,
-                        plannerContent: kramdown,
-                        mode: 'planner-derived',
-                        decisions: enabledDecisions,
-                        storageMode: normalizedSettings.topicDerivation?.storageMode,
-                    },
-                }), {
-                    decisionStatus: decisionCoreResult.status,
-                    enabledDecisionCount: enabledDecisions.length,
-                });
+                if (!this.tryAcquireSymbolListenerBusinessIdentity(businessIdentity)) {
+                    status = 'skip-in-flight-duplicate';
+                    return status;
+                }
+                let executed = false;
+                try {
+                    executed = await measureRuntimePerformance('autocard', 'execute-envelope.topic-derived', () => this.executeAutoCardEnvelope({
+                        kind: 'topic-derived',
+                        input: {
+                            sourceBlockId: blockId,
+                            sourceDocId: progressiveSourceContext.sourceDocId,
+                            parentTopicCardId: progressiveSourceContext.parentTopicCardId!,
+                            parentExcerptId: progressiveSourceContext.parentExcerptId,
+                            sourceRootKind: progressiveSourceContext.rootKind,
+                            plannerContent: kramdown,
+                            mode: 'planner-derived',
+                            decisions: enabledDecisions,
+                            storageMode: normalizedSettings.topicDerivation?.storageMode,
+                        },
+                    }), {
+                        decisionStatus: decisionCoreResult.status,
+                        enabledDecisionCount: enabledDecisions.length,
+                    });
+                } finally {
+                    this.releaseSymbolListenerBusinessIdentity(businessIdentity);
+                }
                 status = executed ? 'executed-topic-derived' : 'not-executed-topic-derived';
                 this.traceAutoCard('decision.execute.end', {
                     runId: traceContext?.runId ?? null,
@@ -2083,16 +2231,25 @@ export class AutoCardHandler implements ITransactionHandler {
                 decisionStatus: decisionCoreResult.status,
                 envelopeKind: 'planner-decision',
             });
-            const executed = await measureRuntimePerformance('autocard', 'execute-envelope.planner-decision', () => this.executeAutoCardEnvelope({
-                kind: 'planner-decision',
-                blockId,
-                content: kramdown,
-                decision: decisionCoreResult.selectedDecision,
-                source: 'symbol-listener',
-            }), {
-                decisionId: decisionCoreResult.selectedDecision.id,
-                decisionStatus: decisionCoreResult.status,
-            });
+            if (!this.tryAcquireSymbolListenerBusinessIdentity(businessIdentity)) {
+                status = 'skip-in-flight-duplicate';
+                return status;
+            }
+            let executed = false;
+            try {
+                executed = await measureRuntimePerformance('autocard', 'execute-envelope.planner-decision', () => this.executeAutoCardEnvelope({
+                    kind: 'planner-decision',
+                    blockId,
+                    content: kramdown,
+                    decision: decisionCoreResult.selectedDecision,
+                    source: 'symbol-listener',
+                }), {
+                    decisionId: decisionCoreResult.selectedDecision.id,
+                    decisionStatus: decisionCoreResult.status,
+                });
+            } finally {
+                this.releaseSymbolListenerBusinessIdentity(businessIdentity);
+            }
             status = executed ? 'executed-planner-decision' : 'not-executed-planner-decision';
             this.traceAutoCard('decision.execute.end', {
                 executionOwner: this.resolveExecutionOwnership({
@@ -2460,6 +2617,7 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             if (!scheduledContinuation && !this.candidateTimers.has(blockId)) {
                 this.candidateContexts.delete(blockId);
+                this.listenerBusinessIdentityByBlock.delete(blockId);
             }
             this.traceAutoCard('settledEvaluation.end', {
                 runId,

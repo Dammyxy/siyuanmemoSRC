@@ -362,7 +362,70 @@ describe('AutoCardHandler listener reliability', () => {
     expect(latestDiagnostic(handler, 'block-duplicate')).toEqual(expect.objectContaining({
       status: 'skipped',
       reason: 'skip-existing-card',
+      businessIdentity: expect.objectContaining({
+        sourceBlockId: 'block-duplicate',
+        resolvedCardType: 'item',
+        envelopeKind: 'planner-decision',
+        targetTopicContainerId: null,
+        selectedDecisionId: 'BasicDirectionRule',
+        enabledDecisionIds: ['BasicDirectionRule'],
+        matchedRuleIds: ['BasicDirectionRule'],
+      }),
     }));
+  });
+
+  it('skips a concurrent duplicate business identity before creating a second card', async () => {
+    let releaseExecute: (() => void) | null = null;
+    const { handler, executeAutoCard } = createFixture({
+      executeAutoCard: async (request, localCards) => {
+        await new Promise<void>((resolve) => {
+          releaseExecute = resolve;
+        });
+        const blockId = String((request as { envelope?: { blockId?: string } }).envelope?.blockId || '');
+        localCards.set(blockId, [{ id: `card-${blockId}`, blockId }]);
+        return { executed: true, created: 1, skipped: 0 };
+      },
+    });
+
+    const first = (handler as any).checkQuickSymbols('block-business-inflight');
+    await vi.waitFor(() => {
+      expect(executeAutoCard).toHaveBeenCalledTimes(1);
+    });
+
+    await expect((handler as any).checkQuickSymbols('block-business-inflight')).resolves.toBe('skip-in-flight-duplicate');
+    expect(executeAutoCard).toHaveBeenCalledTimes(1);
+
+    releaseExecute?.();
+    await expect(first).resolves.toBe('executed-planner-decision');
+    expect(executeAutoCard).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps source, symbol range, card type, and Topic Container identities distinct', () => {
+    const { handler } = createFixture();
+    const buildIdentity = (overrides: Record<string, unknown> = {}) => (handler as any).buildSymbolListenerBusinessIdentity({
+      sourceBlockId: 'block-identity',
+      content: 'Prompt >> Answer',
+      resolvedCardType: 'item',
+      envelopeKind: 'planner-decision',
+      targetTopicContainerId: null,
+      selectedDecision: basicDecision,
+      enabledDecisions: [basicDecision],
+      matchedRuleIds: ['BasicDirectionRule'],
+      ...overrides,
+    });
+
+    const baseline = buildIdentity();
+    const identities = [
+      buildIdentity({ sourceBlockId: 'block-identity-other' }),
+      buildIdentity({ content: 'Other prompt >> Other answer' }),
+      buildIdentity({ resolvedCardType: 'topic' }),
+      buildIdentity({
+        envelopeKind: 'topic-derived',
+        targetTopicContainerId: 'topic-container-card',
+      }),
+    ];
+
+    expect(new Set([baseline.key, ...identities.map((identity: { key: string }) => identity.key)]).size).toBe(5);
   });
 
   it('records retry-exhausted when transient readiness never resolves', async () => {
@@ -396,12 +459,20 @@ describe('AutoCardHandler listener reliability', () => {
 
     expect(executeAutoCard).toHaveBeenCalledTimes(10);
     const diagnostics = (handler as any).getListenerCandidateDiagnostics();
+    const businessIdentityKeys = new Set<string>();
     for (const blockId of blockIds) {
       expect(diagnostics).toContainEqual(expect.objectContaining({
         blockId,
         status: 'created',
         reason: 'executed-planner-decision',
+        businessIdentity: expect.objectContaining({
+          sourceBlockId: blockId,
+          envelopeKind: 'planner-decision',
+        }),
       }));
+      const diagnostic = diagnostics.find((item: { blockId: string }) => item.blockId === blockId);
+      businessIdentityKeys.add(diagnostic.businessIdentity.key);
     }
+    expect(businessIdentityKeys.size).toBe(blockIds.length);
   });
 });

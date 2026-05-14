@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-15 (Round 355)
+Last update: 2026-05-15 (Round 356)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-15 - Symbol listener business idempotency
+
+- Task: Implement OpenSpec change `harden-symbol-listener-business-idempotency` so repeated quick-symbol listener/editor events create at most one card for the same business identity.
+- Touched slice: AutoCard symbol-listener creation path; `src/application/handlers/AutoCardHandler.ts` and focused listener reliability/idempotency tests.
+- Debt fixed now: Symbol-listener execution now builds a normalized business identity from source block, content/rule fingerprint, resolved card type, execution kind, selected/enabled decisions, and Topic Container id when present. In-flight duplicate identities skip before card creation side effects with diagnostic reason `in-flight duplicate skipped`; durable duplicate checks through local cards and Xiuyuan attrs remain the final authority after the guard. Listener diagnostics now expose identity fields without full card content or transient tx/op/timestamp ids.
+- Debt deferred: Cross-window/process-wide idempotency and durable database idempotency records remain out of scope.
+- Why deferred: This slice is intentionally in-memory and application-side; the current bug report concerns duplicate events racing the same frontend creation path, while durable cross-process guarantees would require a backend/kernel contract change.
+- Next safe step: Run live SiYuan smoke with YeGui enabled: trigger repeated quick-symbol events on the same block, confirm only one card is created, then repeat in a Topic Container and confirm distinct Topic Container identity still works.
+- Validation: `pnpm vitest run src\application\handlers\__tests__\AutoCardHandler.listener-reliability.test.ts`, `node scripts\check-hidden-fallbacks.cjs`, `pnpm run check:boundaries`, and `pnpm build` passed. Live YeGui/SiYuan smoke was documented but not run in this terminal session.
 
 ### 2026-05-15 - Topic Container shortcut Item creation
 
