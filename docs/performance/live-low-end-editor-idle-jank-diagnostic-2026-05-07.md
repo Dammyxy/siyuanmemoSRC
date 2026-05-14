@@ -141,6 +141,24 @@ Discarded evidence:
 - Red/yellow rows need repeat runs before distinguishing a reproducible low-end problem from noise or one bad renderer state.
 - Existing earlier reports remain useful context, but they cannot close this change because they mixed Browser-first work with editor smoke and did not include low-memory VM profiles.
 
+## 2026-05-14 Closure Pass
+
+OpenSpec change: `close-runtime-smoke-and-archive-stale-changes`
+
+The closure pass attempted to resume the remaining live matrix. SiYuan API `127.0.0.1:6806` was reachable, but CDP `127.0.0.1:9222` was not reachable. `node scripts\siyuan-plugin-state.cjs status` failed with `fetch failed`, consistent with missing renderer debug access. Because the live editor smoke tool depends on CDP to activate the renderer, apply CPU throttling, and collect renderer metrics, the remaining host rows were closed as explicit environment blockers rather than rerun.
+
+VM rows also remain environment-blocked: no 2 core / 4GB or 2 core / 8GB VM profile was available in this session.
+
+Validation retained for the smoke tooling itself:
+
+```powershell
+pnpm vitest run scripts/__tests__/live-low-end-editor-smoke-utils.test.ts --reporter=dot
+```
+
+Result: 1 file, 7 tests passed.
+
+Closure decision: this diagnostic change is archive-ready after recording the CDP and VM blockers. No new production behavior change is justified by this closure pass; future low-end editor work still requires fresh plugin-off/plugin-on live rows from a CDP-enabled renderer or explicit VM setup.
+
 ## 2026-05-08 Update: Visible Renderer And Writer Lease Evidence
 
 The smoke tool now activates the main SiYuan renderer before editor phases and records `rendererStateBefore` / `rendererStateAfter`. Hidden-renderer runs are no longer accepted as ordinary editor evidence by default because the live app can report `document.visibilityState = hidden` while CDP still dispatches input. Those hidden rows can create follower-mode writer relay errors that do not represent normal visible editor use.

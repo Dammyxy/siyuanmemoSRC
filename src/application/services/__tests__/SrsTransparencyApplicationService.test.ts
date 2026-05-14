@@ -159,4 +159,114 @@ describe('SrsTransparencyApplicationService', () => {
     expect(model.algorithmFacts).toContainEqual({ label: 'Arena 当前领先', value: 'FSRS v6' });
     expect(model.algorithmFacts).toContainEqual({ label: 'Arena 调度上下文', value: '默认上下文' });
   });
+
+  it('surfaces advisory learning-curve evidence from bounded review history', async () => {
+    const now = 1_700_000_000_000;
+    const router = {
+      getSchedulerType: vi.fn(() => 'fsrs-v6' as const),
+      preview: vi.fn(() => new Map([
+        [Rating.Again, buildCard({ due: now + 30_000 })],
+        [Rating.Hard, buildCard({ due: now + 3_600_000 })],
+        [Rating.Good, buildCard({ due: now + 86_400_000 })],
+        [Rating.Easy, buildCard({ due: now + 3 * 86_400_000 })],
+      ])),
+    };
+    const evidenceReader = {
+      readRecentReviewLogs: vi.fn(async () => [
+        {
+          rating: Rating.Again,
+          reviewedAt: now - 86_400_000,
+          commitPolicy: 'write-schedule',
+          queueMode: 'formal',
+          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
+        },
+        {
+          rating: Rating.Again,
+          reviewedAt: now - 2 * 86_400_000,
+          commitPolicy: 'write-schedule',
+          queueMode: 'formal',
+          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
+        },
+        {
+          rating: Rating.Again,
+          reviewedAt: now - 3 * 86_400_000,
+          commitPolicy: 'write-schedule',
+          queueMode: 'formal',
+          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
+        },
+      ]),
+    };
+
+    const service = new SrsTransparencyApplicationService(router, null, evidenceReader);
+    const model = await service.build(buildSnapshot(), { now, t: createTranslator() });
+
+    expect(evidenceReader.readRecentReviewLogs).toHaveBeenCalledWith({
+      cardId: 'card-1',
+      now,
+    });
+    expect(model.learningCurveEvidence).toMatchObject({
+      status: 'ready',
+      advisory: true,
+      sampleSize: 3,
+      usableSampleSize: 3,
+      driftDirection: 'weaker-than-expected',
+    });
+    expect(model.learningCurveEvidence?.suggestions[0]?.advisory).toBe(true);
+    expect(model.algorithmFacts).toContainEqual({ label: '学习曲线', value: '偏弱（3 样本，50% 置信）' });
+    expect(model.algorithmFacts).toContainEqual({ label: '学习曲线建议', value: '建议提前复习（仅诊断）' });
+  });
+
+  it('reports insufficient or unavailable learning-curve evidence without fabricated suggestions', async () => {
+    const router = {
+      getSchedulerType: vi.fn(() => 'fsrs-v6' as const),
+      preview: vi.fn(() => new Map([
+        [Rating.Again, buildCard()],
+        [Rating.Hard, buildCard()],
+        [Rating.Good, buildCard()],
+        [Rating.Easy, buildCard()],
+      ])),
+    };
+    const insufficientReader = {
+      readRecentReviewLogs: vi.fn(async () => [
+        {
+          rating: Rating.Good,
+          reviewedAt: 1_700_000_000_000,
+          commitPolicy: 'write-schedule',
+          queueMode: 'formal',
+          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
+        },
+      ]),
+    };
+    const unavailableReader = {
+      readRecentReviewLogs: vi.fn(async () => {
+        throw new Error('review history offline');
+      }),
+    };
+
+    const insufficient = await new SrsTransparencyApplicationService(
+      router,
+      null,
+      insufficientReader,
+    ).build(buildSnapshot(), { now: 1_700_000_000_000, t: createTranslator() });
+    const unavailable = await new SrsTransparencyApplicationService(
+      router,
+      null,
+      unavailableReader,
+    ).build(buildSnapshot(), { now: 1_700_000_000_000, t: createTranslator() });
+
+    expect(insufficient.learningCurveEvidence).toMatchObject({
+      status: 'insufficient-data',
+      advisory: true,
+      sampleSize: 1,
+      suggestions: [],
+    });
+    expect(insufficient.algorithmFacts).toContainEqual({ label: '学习曲线', value: '数据不足（1 样本）' });
+    expect(unavailable.learningCurveEvidence).toMatchObject({
+      status: 'unavailable',
+      advisory: true,
+      diagnostics: ['evidence-history-unavailable'],
+      suggestions: [],
+    });
+    expect(unavailable.algorithmFacts).toContainEqual({ label: '学习曲线', value: '历史不可用' });
+  });
 });

@@ -1,7 +1,15 @@
 import type { SchedulerRouter, SchedulerType } from '@/core/scheduler';
 import type { SrsV2SchedulingContext } from '@/core/scheduler/srs-v2';
+import {
+  buildLearningCurveEvidence,
+  mapReviewLogV2ToLearningCurveHistory,
+  type LearningCurveEvidenceResult,
+  type LearningCurveEvidenceSuggestion,
+} from '@/core/scheduler/learningCurveEvidence';
+import { buildSchedulerStateSnapshot } from '@/core/scheduler/schedulerStateSnapshot';
 import type { ArenaKernelService } from '@/application/services/ArenaKernelService';
 import type { CardEditorSnapshot } from '@/application/services/CardEditorApplicationService';
+import type { SrsTransparencyEvidenceReader } from '@/application/services/SrsTransparencyEvidenceReader';
 import { formatNextDue } from '@/application/helpers/formatNextDue';
 import {
   resolveSchedulerTypeLabel,
@@ -36,10 +44,26 @@ export interface SrsTransparencyViewModel {
   gradePreviews: SrsTransparencyGradePreview[];
   stateFacts: SrsTransparencyFact[];
   algorithmFacts: SrsTransparencyFact[];
+  learningCurveEvidence: SrsTransparencyLearningCurveEvidence | null;
   reviewPreviewContextLabel: string | null;
   arenaRecommendation: SrsArenaRecommendation | null;
   arenaHint: string | null;
 }
+
+export type SrsTransparencyLearningCurveEvidence =
+  | LearningCurveEvidenceResult
+  | {
+      status: 'unavailable';
+      advisory: true;
+      snapshotKey: string;
+      cardId: string;
+      sampleSize: 0;
+      usableSampleSize: 0;
+      confidence: 0;
+      driftDirection: 'unknown';
+      diagnostics: string[];
+      suggestions: [];
+    };
 
 type BuildOptions = {
   now?: number;
@@ -57,7 +81,8 @@ const GRADE_ORDER: readonly Rating[] = [
 export class SrsTransparencyApplicationService {
   constructor(
     private readonly schedulerRouter: SchedulerRouterLike,
-    private readonly arenaKernel?: Pick<ArenaKernelService, 'buildSrsRecommendation'>,
+    private readonly arenaKernel?: Pick<ArenaKernelService, 'buildSrsRecommendation'> | null,
+    private readonly evidenceReader?: SrsTransparencyEvidenceReader | null,
   ) {}
 
   async build(snapshot: CardEditorSnapshot, options: BuildOptions): Promise<SrsTransparencyViewModel> {
@@ -73,6 +98,7 @@ export class SrsTransparencyApplicationService {
     const arenaRecommendation = await this.arenaKernel?.buildSrsRecommendation?.(card, schedulerType, now, {
       schedulingContext: previewContext,
     }) || null;
+    const learningCurveEvidence = await this.buildLearningCurveEvidence(card, now, previewContext);
 
     return {
       schedulerType,
@@ -102,11 +128,53 @@ export class SrsTransparencyApplicationService {
           value: formatDateTime(blockInfo.updatedAt ?? card.updatedAt, t('pending', 'Pending')),
         },
       ],
-      algorithmFacts: buildAlgorithmFacts(card, schedulerType, t, arenaRecommendation),
+      algorithmFacts: buildAlgorithmFacts(card, schedulerType, t, arenaRecommendation, learningCurveEvidence),
+      learningCurveEvidence,
       reviewPreviewContextLabel: arenaRecommendation?.schedulingContextLabel || (previewContext ? t('queueSchedulingContext', '队列上下文') : null),
       arenaRecommendation,
       arenaHint: buildArenaHint(arenaRecommendation, t),
     };
+  }
+
+  private async buildLearningCurveEvidence(
+    card: FSRSCard,
+    now: number,
+    previewContext?: SrsV2SchedulingContext,
+  ): Promise<SrsTransparencyLearningCurveEvidence | null> {
+    if (!this.evidenceReader) {
+      return null;
+    }
+
+    const snapshot = buildSchedulerStateSnapshot(card, {
+      now,
+      source: 'diagnostic',
+      reviewTime: previewContext?.reviewTime ?? null,
+      memoryStateAsOf: previewContext?.memoryStateAsOf ?? null,
+    });
+    try {
+      const logs = await this.evidenceReader.readRecentReviewLogs({
+        cardId: card.id,
+        now,
+      });
+      return buildLearningCurveEvidence(
+        snapshot,
+        mapReviewLogV2ToLearningCurveHistory(logs),
+        { now },
+      );
+    } catch {
+      return {
+        status: 'unavailable',
+        advisory: true,
+        snapshotKey: snapshot.snapshotKey,
+        cardId: snapshot.cardId,
+        sampleSize: 0,
+        usableSampleSize: 0,
+        confidence: 0,
+        driftDirection: 'unknown',
+        diagnostics: ['evidence-history-unavailable'],
+        suggestions: [],
+      };
+    }
   }
 }
 
@@ -115,6 +183,7 @@ function buildAlgorithmFacts(
   schedulerType: SchedulerType,
   t: Translator,
   arenaRecommendation: SrsArenaRecommendation | null,
+  learningCurveEvidence: SrsTransparencyLearningCurveEvidence | null,
 ): SrsTransparencyFact[] {
   const arenaFacts: SrsTransparencyFact[] = arenaRecommendation
     ? [
@@ -139,6 +208,7 @@ function buildAlgorithmFacts(
       { label: t('optimalInterval', '最优间隔'), value: formatDays(meta?.optimalInterval, t) },
       { label: t('afHistory', 'AF 历史'), value: formatHistorySummary(meta?.afs, t) },
       ...arenaFacts,
+      ...buildLearningCurveEvidenceFacts(learningCurveEvidence, t),
     ];
   }
 
@@ -146,7 +216,86 @@ function buildAlgorithmFacts(
     { label: t('schedulerType', '调度器'), value: resolveSchedulerLabel(schedulerType, t) },
     { label: t('algorithmBasis', '调度依据'), value: t('fsrsTransparencyBasis', '根据稳定度与难度预测间隔扩张，并对不同评分给出不同增长幅度。') },
     ...arenaFacts,
+    ...buildLearningCurveEvidenceFacts(learningCurveEvidence, t),
   ];
+}
+
+function buildLearningCurveEvidenceFacts(
+  evidence: SrsTransparencyLearningCurveEvidence | null,
+  t: Translator,
+): SrsTransparencyFact[] {
+  if (!evidence) {
+    return [];
+  }
+
+  const label = t('learningCurveEvidence', '学习曲线');
+  if (evidence.status === 'unavailable') {
+    return [{ label, value: t('learningCurveEvidenceUnavailable', '历史不可用') }];
+  }
+
+  if (evidence.status === 'insufficient-data') {
+    return [{
+      label,
+      value: t('learningCurveEvidenceInsufficient', `数据不足（${evidence.sampleSize} 样本）`)
+        .replace('{sampleSize}', String(evidence.sampleSize)),
+    }];
+  }
+
+  if (evidence.status === 'low-quality-data') {
+    return [{
+      label,
+      value: t('learningCurveEvidenceLowQuality', `数据质量不足（${evidence.sampleSize} 样本）`)
+        .replace('{sampleSize}', String(evidence.sampleSize)),
+    }];
+  }
+
+  return [
+    {
+      label,
+      value: t(
+        'learningCurveEvidenceReady',
+        `${resolveLearningCurveDriftLabel(evidence.driftDirection, t)}（${evidence.usableSampleSize} 样本，${formatPercent(evidence.confidence)} 置信）`,
+      )
+        .replace('{drift}', resolveLearningCurveDriftLabel(evidence.driftDirection, t))
+        .replace('{usableSampleSize}', String(evidence.usableSampleSize))
+        .replace('{confidence}', formatPercent(evidence.confidence)),
+    },
+    ...evidence.suggestions.slice(0, 1).map((suggestion) => ({
+      label: t('learningCurveEvidenceSuggestion', '学习曲线建议'),
+      value: formatLearningCurveSuggestion(suggestion, t),
+    })),
+  ];
+}
+
+function resolveLearningCurveDriftLabel(
+  direction: SrsTransparencyLearningCurveEvidence['driftDirection'],
+  t: Translator,
+): string {
+  switch (direction) {
+    case 'weaker-than-expected':
+      return t('learningCurveWeakerThanExpected', '偏弱');
+    case 'stronger-than-expected':
+      return t('learningCurveStrongerThanExpected', '偏强');
+    case 'stable':
+      return t('learningCurveStable', '稳定');
+    case 'unknown':
+    default:
+      return t('learningCurveUnknown', '未知');
+  }
+}
+
+function formatLearningCurveSuggestion(
+  suggestion: LearningCurveEvidenceSuggestion,
+  t: Translator,
+): string {
+  switch (suggestion.kind) {
+    case 'review-sooner-advisory':
+      return t('learningCurveReviewSoonerAdvisory', '建议提前复习（仅诊断）');
+    case 'review-later-advisory':
+      return t('learningCurveReviewLaterAdvisory', '建议延后复习（仅诊断）');
+    default:
+      return t('learningCurveAdvisoryOnly', '仅诊断');
+  }
 }
 
 function buildArenaHint(
@@ -261,6 +410,14 @@ function formatDays(value?: number | null, t?: Translator): string {
   return value == null || !Number.isFinite(value)
     ? '-'
     : `${Number(value).toFixed(1)} ${t?.('days', 'days') || 'days'}`;
+}
+
+function formatPercent(value?: number | null): string {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return '0%';
+  }
+  return `${Math.round(Math.max(0, Math.min(1, numeric)) * 100)}%`;
 }
 
 function formatNumber(value?: number | null, digits?: number): string {

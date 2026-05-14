@@ -58,6 +58,7 @@ import { BrowserApplicationService } from '@/application/services/BrowserApplica
 import { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
 import { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import { SrsTransparencyApplicationService } from '@/application/services/SrsTransparencyApplicationService';
+import { ReviewLogLearningCurveEvidenceReader } from '@/application/services/SrsTransparencyEvidenceReader';
 import {
   createReviewRenderServices as createInjectedReviewRenderServices,
   type ReviewRenderServices,
@@ -848,6 +849,7 @@ export class ApplicationContext {
       return new SrsTransparencyApplicationService(
         context.getScheduler(),
         context.getArenaKernelService(),
+        new ReviewLogLearningCurveEvidenceReader(context.getReviewLogService()),
       );
     });
     

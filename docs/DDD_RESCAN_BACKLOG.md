@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-13 (Round 347)
+Last update: 2026-05-14 (Round 349)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-14 - Runtime smoke closure and stale change archive readiness
+
+- Task: Implement OpenSpec change `close-runtime-smoke-and-archive-stale-changes` as a docs/evidence-only closure pass for stale runtime validation tasks.
+- Touched slice: Runtime smoke evidence / OpenSpec task closure; `docs/runtime-smoke-closure-2026-05-14.md`, `docs/performance/live-low-end-editor-idle-jank-diagnostic-2026-05-07.md`, and stale OpenSpec task files.
+- Debt fixed now: Recorded bounded evidence and explicit blockers for the remaining Browser backend-migration smoke, kernel writer/AI streaming smoke, and low-end editor diagnostic matrix. `retire-ui-legacy-backend-migration-interfaces`, `kernel-performance-fast-paths`, and `diagnose-low-end-editor-idle-jank` are now archive-ready after strict validation.
+- Debt deferred: True live UI smoke remains dependent on launching SiYuan with CDP `127.0.0.1:9222`; low-memory 2 core / 4GB and 2 core / 8GB evidence remains dependent on available VM profiles; AI streaming live smoke remains dependent on a safe configured provider/stream target.
+- Why deferred: The closure pass is not allowed to change production runtime behavior or invent fallback evidence. Missing renderer debug access and VM/provider setup are environment blockers, not implementation blockers.
+- Next safe step: Archive the validated stale changes when ready, or rerun live smoke later from a CDP-enabled SiYuan session if manual evidence is needed before archive review.
+- Validation: Backend migration performance smoke passed; Browser action/service focused tests passed; kernel relay/AI focused tests passed; low-end smoke utility tests passed; strict OpenSpec validation passed for touched stale changes and the closure change.
+
+### 2026-05-14 - SRS transparency learning-curve evidence consumer
+
+- Task: Implement OpenSpec change `surface-learning-curve-evidence` so existing learning-curve evidence is consumed by SRS transparency through an application-owned bounded history reader.
+- Touched slice: Scheduler transparency / review-history read model; `src/application/services/SrsTransparencyApplicationService.ts`, `src/application/services/SrsTransparencyEvidenceReader.ts`, focused transparency/evidence-reader tests, `src/application/ApplicationContext.ts`, and `ARCHITECTURE.md`.
+- Debt fixed now: Added `ReviewLogLearningCurveEvidenceReader` as a bounded application reader over existing `ReviewLogService.getReviewLogsV2()`; `SrsTransparencyApplicationService` now builds `SchedulerStateSnapshot`, maps bounded `ReviewLogV2` card history into normalized evidence, and surfaces advisory learning-curve status/facts for ready, insufficient, low-quality, and unavailable history without making the core evidence module depend on storage or UI.
+- Debt deferred: Arena evidence consumer, formal adaptive scheduler writes, persisted evidence storage, DB migration, backend/kernel RPC contracts, and UI redesign remain out of scope.
+- Why deferred: This change closes the smallest active consumer gap first. Adaptive writes and Arena consumption need separate policy, confidence thresholds, ownership, and rollback design; new UI or persistence would widen beyond SRS transparency read-model ownership.
+- Next safe step: If evidence proves useful in transparency, design a separate Arena/diagnostics consumer or adaptive-scheduler policy proposal that keeps formal write ownership explicit.
+- Validation: Focused SRS transparency and evidence-reader tests passed. Full hidden-fallback, boundary, build, and OpenSpec validation are recorded with the implementation task.
 
 ### 2026-05-13 - Writer profile detector enforcement
 
