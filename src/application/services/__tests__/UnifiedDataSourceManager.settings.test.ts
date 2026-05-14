@@ -29,6 +29,23 @@ function createRouterWithSettings(settings: unknown): IDataRouter {
   } as unknown as IDataRouter;
 }
 
+function createRouterWithPendingContext(): IDataRouter {
+  const plugin = {
+    getContext: () => {
+      throw new Error('ApplicationContext is not ready');
+    },
+  };
+
+  return {
+    plugin,
+    getCard: vi.fn(),
+    getCards: vi.fn().mockResolvedValue([]),
+    updateCard: vi.fn(),
+    deleteCard: vi.fn(),
+    getAvailableQueueTypes: vi.fn(() => [QueueType.Leech]),
+  } as unknown as IDataRouter;
+}
+
 function setupManager(settings: unknown): UnifiedDataSourceManager {
   UnifiedDataSourceManager.resetInstance();
   const manager = UnifiedDataSourceManager.getInstance();
@@ -56,6 +73,13 @@ describe('UnifiedDataSourceManager settings accessors', () => {
     manager.setLeechActionEffects(effects);
 
     expect(manager.getQueue(QueueType.Leech).name).toBe('LeechReviewQueue');
+  });
+
+  it('allows router injection while the plugin context is still being composed', () => {
+    const manager = UnifiedDataSourceManager.getInstance();
+
+    expect(() => manager.setAdvancedRouter(createRouterWithPendingContext())).not.toThrow();
+    expect(manager.getAvailableQueueTypes()).toEqual([QueueType.Leech]);
   });
 
   it('prefers fsrs.dayStartHour and falls back to queues.dayStartHour', () => {

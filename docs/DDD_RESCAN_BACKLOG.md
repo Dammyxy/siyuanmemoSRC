@@ -4384,6 +4384,16 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: <smallest safe follow-up>
 - Validation: <build, diagnostics, targeted tests, or manual checks>
 
+### 2026-05-14 - startup-safe queue projection identity lookup
+
+- Task: 修复真实 SiYuan reload 暴露的启动顺序问题：组合根先注入 Leech action effects，再注入 AdvancedDataRouter 时，Leech 队列失效会触发 projection identity lookup 并提前读取 router。
+- Touched slice: `UnifiedDataSourceManager` 内部 plugin lookup；queue projection startup invalidation path；settings/accessor regression test。
+- Debt fixed now: `resolvePlugin()` 不再复用公开 `getRouter()` 的严格运行时契约；内部 optional dependency/context lookup 在 router 尚未装配或 plugin context 尚未 ready 时返回 `null`，避免启动期把“组合根未完成”升级为插件初始化失败。
+- Debt deferred: queue projection runtime 仍通过 manager deps 间接读取 plugin/context，未拆成显式 composition-ready lifecycle。
+- Why deferred: 本轮只修真实启动阻断；重塑 projection runtime lifecycle 会扩大到 backend projection rollout 和 identity broadcast 订阅面。
+- Next safe step: 如果 projection startup 继续出现顺序债，把 queue projection runtime 加一层显式 `attachPluginRuntime()`/`detachPluginRuntime()` 生命周期，而不是继续从 manager 私有状态懒读。
+- Validation: `pnpm exec vitest run src/application/services/__tests__/UnifiedDataSourceManager.settings.test.ts --reporter=verbose`
+
 ### 2026-04-21 - review current-item hydration unification
 
 - Task: 统一修复 review 当前卡在会话恢复、外部刷新、AI 新卡同步后丢失按钮 `nextDues` 预览的问题。

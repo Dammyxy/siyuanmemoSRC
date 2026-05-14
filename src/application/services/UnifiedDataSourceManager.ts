@@ -295,16 +295,15 @@ export class UnifiedDataSourceManager {
         this.observerFlushScheduled = false;
         this.unsubscribeQueueProjectionIdentityBroadcasts = null;
         this.queueProjectionRuntime = new QueueProjectionRuntime({
-            getBackendClient: () => this.resolvePlugin()?.getContext?.()?.getSrsBackendClient?.(),
-            getFollowerCommandClient: () => this.resolvePlugin()?.getContext?.()?.getFollowerCommandClient?.(),
-            getFrontendRuntime: () => this.resolvePlugin()?.getContext?.()?.getFrontendInstanceRuntime?.(),
+            getBackendClient: () => this.resolvePluginContext()?.getSrsBackendClient?.(),
+            getFollowerCommandClient: () => this.resolvePluginContext()?.getFollowerCommandClient?.(),
+            getFrontendRuntime: () => this.resolvePluginContext()?.getFrontendInstanceRuntime?.(),
             getQueue: (queueType) => this.getQueue(queueType),
             getQueueProjectionRolloutState: (queueType) => (
-                this.resolvePlugin()?.getContext?.()?.getQueueProjectionRolloutState?.(queueType)
+                this.resolvePluginContext()?.getQueueProjectionRolloutState?.(queueType)
             ),
             publishQueueProjectionIdentityBroadcast: (event) => (
-                this.resolvePlugin()
-                    ?.getContext?.()
+                this.resolvePluginContext()
                     ?.getFrontendInstanceRuntime?.()
                     ?.publishQueueProjectionIdentityBroadcast?.(event)
             ),
@@ -371,11 +370,26 @@ export class UnifiedDataSourceManager {
     }
 
     private resolvePlugin(): UnifiedManagerPluginLike | null {
-        const router = this.getRouter() as IDataRouter & { plugin?: unknown };
+        if (!this.advancedRouter) {
+            return null;
+        }
+        const router = this.advancedRouter as IDataRouter & { plugin?: unknown };
         if (!router.plugin || typeof router.plugin !== 'object') {
             return null;
         }
         return router.plugin as UnifiedManagerPluginLike;
+    }
+
+    private resolvePluginContext(): UnifiedManagerPluginContextLike | null {
+        const plugin = this.resolvePlugin();
+        try {
+            return plugin?.getContext?.() ?? null;
+        } catch (error) {
+            if (error instanceof Error && error.message === 'ApplicationContext is not ready') {
+                return null;
+            }
+            throw error;
+        }
     }
 
     private isQueueSchedulerPort(candidate: unknown): candidate is QueueSchedulerPort {
@@ -535,7 +549,7 @@ export class UnifiedDataSourceManager {
     private refreshQueueProjectionIdentityBroadcastSubscription(): void {
         this.unsubscribeQueueProjectionIdentityBroadcasts?.();
         this.unsubscribeQueueProjectionIdentityBroadcasts = null;
-        const runtime = this.resolvePlugin()?.getContext?.()?.getFrontendInstanceRuntime?.();
+        const runtime = this.resolvePluginContext()?.getFrontendInstanceRuntime?.();
         if (typeof runtime?.subscribeQueueProjectionIdentityBroadcasts !== 'function') {
             return;
         }
