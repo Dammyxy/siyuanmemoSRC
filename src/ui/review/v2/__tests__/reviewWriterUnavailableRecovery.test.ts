@@ -39,6 +39,17 @@ describe('resolveReviewWriterUnavailableRecovery', () => {
     expect(notice.title).toBe('后端暂不可用');
   });
 
+  it('maps writer relay timeout to writer relay recovery notice', () => {
+    const notice = resolveReviewWriterUnavailableRecovery({
+      reason: 'skip',
+      error: new Error('BACKEND_UNAVAILABLE: writer relay timeout'),
+      t: (_key, fallback) => fallback,
+    });
+
+    expect(notice.kind).toBe('writer-relay-unavailable');
+    expect(notice.title).toBe('写入窗口不可用');
+  });
+
   it('keeps unrelated errors on the generic path', () => {
     const notice = resolveReviewWriterUnavailableRecovery({
       reason: 'grade',

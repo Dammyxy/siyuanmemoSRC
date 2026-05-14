@@ -222,6 +222,54 @@ describe('KernelTransactionActionPump', () => {
     await pump.dispose();
   });
 
+  it('reports follower dequeue relay timeout without local dequeue fallback', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [],
+      remaining: 0,
+    }));
+    const onWriterUnavailable = vi.fn();
+    const timeout = Object.assign(new Error('BACKEND_UNAVAILABLE: writer relay timeout'), {
+      commandId: 'cmd-dequeue-timeout',
+      method: 'kernel.transaction.dequeue',
+      timeoutMs: 1200,
+    });
+    const submitAndWait = vi.fn(async () => {
+      throw timeout;
+    });
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      {
+        getMode: () => 'follower',
+        getInstanceId: () => 'runtime-1',
+      },
+      { submitAndWait },
+      () => undefined,
+      () => undefined,
+      {
+        pollIntervalMs: 250,
+        relayTimeoutMs: 1200,
+        onWriterUnavailable,
+      },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+
+    expect(dequeueKernelTransactions).not.toHaveBeenCalled();
+    expect(onWriterUnavailable).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'kernel.transaction.dequeue',
+      message: 'BACKEND_UNAVAILABLE: writer relay timeout',
+      runtimeMode: 'follower',
+      instanceId: 'runtime-1',
+      commandId: 'cmd-dequeue-timeout',
+      timeoutMs: 1200,
+    }));
+
+    await pump.dispose();
+  });
+
   it('wakes immediately before empty backoff is established', async () => {
     const dequeueKernelTransactions = vi.fn(async () => ({
       actions: [],

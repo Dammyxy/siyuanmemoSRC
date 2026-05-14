@@ -30,6 +30,7 @@ import { XiuyuanSyncService } from '@/application/services/XiuyuanSyncService';
 import { TransactionWebSocketService } from '@/core/infrastructure/websocket/TransactionWebSocketService';
 import type { AutoCardHandler } from '@/application/handlers/AutoCardHandler';
 import type { KernelTransactionActionPump } from '@/application/handlers/KernelTransactionActionPump';
+import { dispatchKernelTransactionWriterUnavailableEvent } from '@/application/handlers/KernelTransactionWriterUnavailableEvent';
 import type { KernelTransactionIngestHandler } from '@/application/handlers/KernelTransactionIngestHandler';
 import type { NativeRiffSyncTriggerHandler } from '@/application/handlers/NativeRiffSyncTriggerHandler';
 import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
@@ -2352,6 +2353,7 @@ export class ApplicationContext {
           () => this.autoCardHandler,
           {
             writerRelayRequired: runtimePolicy.capabilities.writerRelayRequiredForBackendWrites,
+            onWriterUnavailable: dispatchKernelTransactionWriterUnavailableEvent,
           },
         ),
         { writerRelayRequired: runtimePolicy.capabilities.writerRelayRequiredForBackendWrites },

@@ -257,6 +257,10 @@ import {
   type ReviewWriterUnavailableRecoveryNotice,
 } from './reviewWriterUnavailableRecovery';
 import {
+  createReviewKernelTransactionWriterActionTracker,
+  resolveReviewActionForKernelTransactionWriterUnavailable,
+} from './reviewKernelTransactionWriterUnavailable';
+import {
   consumeRecentlyModifiedReviewHotkey,
   getForwardedReviewHotkey,
   hasReviewKeyboardModifier,
@@ -298,6 +302,10 @@ import {
   REVIEW_SET_PRIORITY_REQUEST_EVENT,
   REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT,
 } from '@/application/handlers/ReviewCommandRequestEvents';
+import {
+  KERNEL_TRANSACTION_WRITER_UNAVAILABLE_EVENT,
+  readKernelTransactionWriterUnavailableDetail,
+} from '@/application/handlers/KernelTransactionWriterUnavailableEvent';
 import {
   getReviewProgressiveReadingService,
   handleProgressiveCompletePiece as handleProgressiveCompletePieceCommand,
@@ -1215,6 +1223,7 @@ onMounted(() => {
     { target: window, type: REVIEW_SET_PRIORITY_REQUEST_EVENT, listener: handleReviewSetPriorityCommandRequest as EventListener },
     { target: window, type: REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT, listener: handleReviewSuspendCurrentCardCommandRequest as EventListener },
     { target: window, type: REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT, listener: handleReviewDeleteCurrentCardCommandRequest as EventListener },
+    { target: window, type: KERNEL_TRANSACTION_WRITER_UNAVAILABLE_EVENT, listener: handleKernelTransactionWriterUnavailable as EventListener },
   ]);
   logger.debug('[SiYuanMemo][ReviewView] Keyboard event listener added');
 
@@ -1361,6 +1370,10 @@ const state = hook.state;
 const app = props.app;
 const reviewWriterUnavailableNotice = ref<ReviewWriterUnavailableRecoveryNotice | null>(null);
 const lastReviewWriterRecoveryAction = ref<ReviewSessionRetryAction | null>(null);
+const kernelTransactionWriterActionTracker = createReviewKernelTransactionWriterActionTracker(
+  reviewSessionId.value,
+  30_000,
+);
 const reviewFilterRuntime = createReviewFilterRuntime({
   t,
   showMessage,
@@ -1485,6 +1498,29 @@ function handleReviewSessionActionError(payload: ReviewSessionActionError<Active
   }
 
   showMessage(getReviewActionErrorMessage(payload), 5000, 'error');
+}
+
+function handleKernelTransactionWriterUnavailable(event: Event): void {
+  const detail = readKernelTransactionWriterUnavailableDetail(event);
+  const action = resolveReviewActionForKernelTransactionWriterUnavailable({
+    detail,
+    currentSessionId: reviewSessionId.value,
+    recentAction: kernelTransactionWriterActionTracker.getRecentAction(),
+  });
+  if (!action) {
+    return;
+  }
+  const notice = resolveReviewWriterUnavailableRecovery({
+    reason: action.type,
+    error: new Error(detail?.message || 'BACKEND_UNAVAILABLE: writer relay timeout'),
+    t,
+  });
+  if (notice.kind === 'generic-error') {
+    return;
+  }
+  reviewWriterUnavailableNotice.value = notice;
+  lastReviewWriterRecoveryAction.value = action;
+  notifyReviewMessage(`${notice.title}: ${notice.message}`, 5000, 'warning');
 }
 
 function dismissReviewWriterRecoveryNotice(): void {
@@ -2029,11 +2065,16 @@ function handleReveal(): void {
 
 function handleGrade(rating: number): void {
   escRepeatLatch = false;
+  kernelTransactionWriterActionTracker.record({
+    type: 'grade',
+    rating: Math.max(1, Math.min(4, Math.floor(rating))) as 1 | 2 | 3 | 4,
+  });
   void hook.grade(rating);
 }
 
 function handleSkip(): void {
   escRepeatLatch = false;
+  kernelTransactionWriterActionTracker.record({ type: 'skip' });
   void hook.skip();
 }
 

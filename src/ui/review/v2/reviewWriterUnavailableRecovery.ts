@@ -52,6 +52,7 @@ function classifyReviewWriterUnavailableError(error: unknown): ReviewWriterUnava
 
   if (includesAny(message, [
     'writer relay unavailable',
+    'writer relay timeout',
     'relay is unavailable in follower mode',
     'writer command unavailable',
     'writer command failed',

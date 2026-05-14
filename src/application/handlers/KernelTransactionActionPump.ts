@@ -5,6 +5,7 @@ import {
   measureRuntimePerformance,
   startRuntimePerformanceSpan,
 } from '@/utils/runtimePerformanceDiagnostics';
+import type { KernelTransactionWriterUnavailableDetail } from '@/application/handlers/KernelTransactionWriterUnavailableEvent';
 
 const logger = createLogger('KernelTransactionActionPump');
 
@@ -46,6 +47,7 @@ interface KernelTransactionActionPumpOptions {
   autoCardCooldownMs?: number;
   emptyPollBackoffMaxMs?: number;
   writerRelayRequired?: boolean;
+  onWriterUnavailable?: (detail: KernelTransactionWriterUnavailableDetail) => void;
 }
 
 type AutoCardActionType = 'insert' | 'update' | 'delete';
@@ -91,6 +93,7 @@ export class KernelTransactionActionPump {
   private readonly autoCardCooldownMs: number;
   private readonly emptyPollBackoffMaxMs: number;
   private readonly writerRelayRequired: boolean;
+  private readonly onWriterUnavailable?: (detail: KernelTransactionWriterUnavailableDetail) => void;
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
   private pollingInFlight = false;
   private emptyPollStreak = 0;
@@ -117,6 +120,7 @@ export class KernelTransactionActionPump {
     this.autoCardCooldownMs = Math.max(250, Math.floor(options.autoCardCooldownMs ?? 1_000));
     this.emptyPollBackoffMaxMs = Math.max(this.pollIntervalMs, Math.floor(options.emptyPollBackoffMaxMs ?? 2_000));
     this.writerRelayRequired = options.writerRelayRequired === true;
+    this.onWriterUnavailable = options.onWriterUnavailable;
   }
 
   start(): void {
@@ -395,6 +399,7 @@ export class KernelTransactionActionPump {
         ), { maxActions: this.maxActionsPerPoll });
       } catch (error) {
         if (!this.isSelfRelaySubmissionError(error)) {
+          this.reportDequeueWriterUnavailable(error);
           throw error;
         }
         await this.refreshStaleWriterModeAfterSelfRelay();
@@ -406,6 +411,43 @@ export class KernelTransactionActionPump {
       () => this.srsBackendClient.dequeueKernelTransactions(params),
       { maxActions: this.maxActionsPerPoll },
     );
+  }
+
+  private reportDequeueWriterUnavailable(error: unknown): void {
+    if (!this.onWriterUnavailable || !this.isWriterUnavailableError(error)) {
+      return;
+    }
+    const instanceId = this.runtime?.getInstanceId?.();
+    this.onWriterUnavailable({
+      method: 'kernel.transaction.dequeue',
+      message: error instanceof Error ? error.message : String(error || ''),
+      runtimeMode: this.runtime?.getMode?.() ?? 'none',
+      ...(instanceId ? { instanceId } : {}),
+      ...this.readRelayErrorDiagnostics(error),
+      occurredAt: Date.now(),
+    });
+  }
+
+  private isWriterUnavailableError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error || '');
+    return message.startsWith('BACKEND_UNAVAILABLE:')
+      && (
+        message.includes('writer relay timeout')
+        || message.includes('writer relay unavailable')
+        || message.includes('writer unavailable')
+        || message.includes('writer lease')
+      );
+  }
+
+  private readRelayErrorDiagnostics(error: unknown): Partial<KernelTransactionWriterUnavailableDetail> {
+    if (!error || typeof error !== 'object') {
+      return {};
+    }
+    const record = error as { commandId?: unknown; timeoutMs?: unknown };
+    return {
+      ...(typeof record.commandId === 'string' && record.commandId.trim() ? { commandId: record.commandId.trim() } : {}),
+      ...(typeof record.timeoutMs === 'number' && Number.isFinite(record.timeoutMs) ? { timeoutMs: record.timeoutMs } : {}),
+    };
   }
 
   private scheduleDeferredUpsert(): void {

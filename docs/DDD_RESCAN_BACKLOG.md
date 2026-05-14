@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-14 (Round 353)
+Last update: 2026-05-14 (Round 354)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-14 - Kernel transaction writer timeout recovery
+
+- Task: Implement OpenSpec change `surface-kernel-transaction-writer-timeout` so Review-owned `kernel.transaction.dequeue` writer relay timeout surfaces through Review writer recovery.
+- Touched slice: Review + kernel relay unavailable surface; `src/application/clients/FollowerCommandClient.ts`, `src/application/handlers/KernelTransactionActionPump.ts`, `src/application/handlers/KernelTransactionWriterUnavailableEvent.ts`, `src/application/ApplicationContext.ts`, `src/ui/review/v2/reviewKernelTransactionWriterUnavailable.ts`, `src/ui/review/v2/reviewWriterUnavailableRecovery.ts`, `src/ui/review/v2/ReviewView.vue`, focused relay/pump/Review tests, OpenSpec tasks/spec cleanup, and this backlog.
+- Debt fixed now: Follower relay timeout now carries command diagnostics, the action pump reports dequeue writer-unavailable as a narrow application event without local dequeue fallback, and Review consumes that event only when a recent active Review action owns the bounded recovery window. `BACKEND_UNAVAILABLE: writer relay timeout` now maps to the existing writer relay recovery notice with retry current action, refresh Review, and dismiss controls.
+- Debt deferred: Stronger non-heuristic action-to-dequeue correlation and broader relay expiry diagnostics remain out of scope.
+- Why deferred: The current runtime action payload does not carry Review session identity, so this slice uses bounded recent-action correlation rather than widening kernel transaction contracts.
+- Next safe step: If false positives appear in real multi-window use, add explicit Review action identity to the application-side pump correlation before touching kernel payload contracts.
+- Validation: Focused `FollowerCommandClient`, `KernelTransactionActionPump`, `reviewWriterUnavailableRecovery`, and `reviewKernelTransactionWriterUnavailable` tests passed. `node scripts/check-hidden-fallbacks.cjs`, `pnpm run check:boundaries`, and `pnpm build` passed. Live SiYuan CDP smoke with fake writer lease and visible Retrieval Practice skip showed the writer recovery notice for `BACKEND_UNAVAILABLE: writer relay timeout`, then real writer lease restored after fake release.
 
 ### 2026-05-14 - Review writer unavailable recovery surface
 

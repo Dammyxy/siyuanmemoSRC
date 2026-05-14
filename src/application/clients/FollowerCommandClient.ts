@@ -142,7 +142,11 @@ export class FollowerCommandClient {
       timeoutMs,
     });
     status = 'timeout';
-    throw new Error('BACKEND_UNAVAILABLE: writer relay timeout');
+    throw Object.assign(new Error('BACKEND_UNAVAILABLE: writer relay timeout'), {
+      commandId: submitted.commandId,
+      method: request.method,
+      timeoutMs,
+    });
     } catch (error) {
       if (status === 'started') {
         status = 'error';

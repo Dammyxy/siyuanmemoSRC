@@ -230,6 +230,42 @@ describe('FollowerCommandClient', () => {
     }, 50)).rejects.toThrow('BACKEND_UNAVAILABLE: writer relay timeout');
   });
 
+  it('attaches relay timeout diagnostics to timeout errors', async () => {
+    const client = new FollowerCommandClient({
+      writerSubmitCommand: vi.fn(async () => ({
+        commandId: 'cmd-timeout',
+        ownerInstanceId: 'writer-1',
+        status: 'queued',
+        now: 1,
+      })),
+      writerGetCommandResult: vi.fn(async () => ({
+        commandId: 'cmd-timeout',
+        status: 'pending',
+        ownerInstanceId: 'writer-1',
+        now: Date.now(),
+      })),
+    } as unknown as KernelSidecarClient);
+
+    let captured: unknown;
+    try {
+      await client.submitAndWait({
+        instanceId: 'follower-1',
+        method: 'kernel.transaction.dequeue',
+        params: { maxActions: 8 },
+      }, 50);
+    } catch (error) {
+      captured = error;
+    }
+
+    expect(captured).toBeInstanceOf(Error);
+    expect(captured).toMatchObject({
+      message: 'BACKEND_UNAVAILABLE: writer relay timeout',
+      commandId: 'cmd-timeout',
+      method: 'kernel.transaction.dequeue',
+      timeoutMs: 50,
+    });
+  });
+
   it('passes relay metadata for deterministic command identity', async () => {
     const writerSubmitCommand = vi.fn(async () => ({
       commandId: 'cmd-fixed',
