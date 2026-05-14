@@ -41,6 +41,8 @@ import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('QueryDataSource');
+const CARD_UNIVERSE_UNAVAILABLE_MESSAGE = 'SRS_BROWSER_CARD_UNIVERSE_UNAVAILABLE: UnifiedDataSourceManager required for SQL card-universe scoping';
+const SQL_BACKEND_UNAVAILABLE_MESSAGE = 'BACKEND_UNAVAILABLE: Browser Siyuan API required for SQL mode';
 
 type SqlRowLike = {
   id?: unknown;
@@ -424,8 +426,8 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
     }
 
     if (!this.manager) {
-      logger.warn('SQL browser query skipped because UnifiedDataSourceManager is unavailable');
-      return [];
+      logger.warn('SQL browser query unavailable because UnifiedDataSourceManager is unavailable');
+      throw new Error(CARD_UNIVERSE_UNAVAILABLE_MESSAGE);
     }
 
     return this.manager.getCards({ blockIds: uniqueBlockIds });
@@ -502,13 +504,27 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
     const siyuanApi = this.resolveSiyuanApi();
     if (!siyuanApi) {
       logger.error('QueryDataSource requires BrowserSiyuanPort for SQL mode');
-      return [];
+      throw new Error(SQL_BACKEND_UNAVAILABLE_MESSAGE);
+    }
+    if (!this.manager) {
+      logger.warn('SQL browser query unavailable because Browser Card Universe resolver is unavailable');
+      throw new Error(CARD_UNIVERSE_UNAVAILABLE_MESSAGE);
     }
     const rawRows = toSqlRows(await runBrowserSql(this.stmt, siyuanApi));
     const sqlBlockIds = rawRows.map(readBlockId).filter(Boolean);
     const realCards = await this.loadRealCardsByBlockIds(sqlBlockIds);
     const cardsByBlockId = groupCardsByBlockId(realCards);
     const realBlockIds = Array.from(cardsByBlockId.keys());
+    const uniqueSqlBlockCount = uniqueStrings(sqlBlockIds).length;
+    const excludedBlockCount = Math.max(0, uniqueSqlBlockCount - realBlockIds.length);
+    if (excludedBlockCount > 0) {
+      logger.info('SQL browser query scoped to Browser Card Universe', {
+        candidateBlockCount: uniqueSqlBlockCount,
+        retainedBlockCount: realBlockIds.length,
+        retainedCardCount: realCards.length,
+        excludedBlockCount,
+      });
+    }
     const templatesByBlockId = await this.loadProjectionTemplatesByBlockId(realBlockIds, siyuanApi);
 
     const rows: BrowserCardProjection[] = [];

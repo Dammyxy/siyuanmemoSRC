@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-15 (Round 356)
+Last update: 2026-05-15 (Round 357)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-15 - SRS Browser SQL card universe scope
+
+- Task: Implement OpenSpec change `scope-srs-browser-sql-filter-to-card-universe` so SRS Browser SQL-mode search treats SQL rows as block candidates and only exposes plugin-manageable Browser cards.
+- Touched slice: Browser SQL datasource/query session path; `src/ui/browser/datasource/QueryDataSource.ts` and focused SQL queryable datasource tests.
+- Debt fixed now: SQL-mode rows now require the Browser Card Universe read seam through `UnifiedDataSourceManager`, preserve retained candidate order unless Browser sorting is active, exclude arbitrary `blocks` rows and native/non-managed rows from grid rows, counts, select-all ids, and action targets, and emit content-free scoped-count diagnostics when candidates are skipped. Missing manager or Browser Siyuan API now fails closed with explicit unavailable/backend errors instead of returning a silent empty result.
+- Debt deferred: #19 native/plugin count parity and native flashcard count UI remain out of scope; live SiYuan mixed SQL smoke was not run from this terminal session.
+- Why deferred: This change only scopes retained Browser rows after SQL candidate lookup. Native count parity needs a separate read contract and UI semantics.
+- Next safe step: In live SiYuan Browser SQL mode, run a mixed `blocks` query that matches one managed SRS card block plus one ordinary block, then confirm the grid count, select-all count, and bulk action targets include only the managed card.
+- Validation: Focused `pnpm vitest run src/ui/browser/datasource/__tests__/QueryDataSource.queryable.test.ts --reporter=verbose` passed; full hidden-fallback, boundary, build, and OpenSpec validation are recorded with the implementation task.
 
 ### 2026-05-15 - Symbol listener business idempotency
 

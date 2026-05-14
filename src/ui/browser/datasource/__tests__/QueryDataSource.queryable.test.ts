@@ -207,6 +207,33 @@ describe('QueryDataSource queryable path', () => {
     expect(loadBrowserCardsByBlockIdsMock).not.toHaveBeenCalled();
   });
 
+  it('fails closed when SQL candidates cannot be resolved through the Browser card universe', async () => {
+    runBrowserSqlMock.mockResolvedValue([
+      { id: 'block-a', content: 'Alpha', root_id: 'doc-a' },
+    ]);
+
+    const dataSource = new QueryDataSource('select * from blocks', { siyuanApi: testSiyuanApi });
+
+    await expect(dataSource.fetchRows({
+      startRow: 0,
+      endRow: 100,
+      sortModel: [],
+      filterModel: {},
+    })).rejects.toThrow('SRS_BROWSER_CARD_UNIVERSE_UNAVAILABLE');
+    expect(runBrowserSqlMock).not.toHaveBeenCalled();
+    expect(loadBrowserCardProjectionsByBlockIdsMock).not.toHaveBeenCalled();
+    expect(loadBrowserCardsByBlockIdsMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when SQL mode has no explicit Browser Siyuan API', async () => {
+    const manager = createManager([makeFsrsCard('card-a', 'block-a')]);
+    const dataSource = new QueryDataSource('select * from blocks', { manager: manager as never });
+
+    await expect(dataSource.getAllMatchedIds()).rejects.toThrow('BACKEND_UNAVAILABLE');
+    expect(runBrowserSqlMock).not.toHaveBeenCalled();
+    expect(manager.getCards).not.toHaveBeenCalled();
+  });
+
   it('returns every real card under a matched block and deduplicates repeated SQL hits', async () => {
     runBrowserSqlMock.mockResolvedValue([
       { id: 'block-a', content: 'Alpha', root_id: 'doc-a' },
