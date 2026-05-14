@@ -81,12 +81,36 @@ function readProgressiveAttr(attrs: Record<string, string> | null | undefined, a
 export function resolveProgressiveTopicContext(input: {
   blockId: string;
   rootId?: string;
+  topicContainerId?: string;
+  topicContainerIds?: string[];
   cardLookup: ProgressiveCardLookup;
 }): ProgressiveTopicContext | null {
   const blockId = String(input.blockId || '').trim();
   const rootId = String(input.rootId || '').trim();
+  const topicContainerId = String(input.topicContainerId || '').trim();
   if (!blockId) {
     return null;
+  }
+
+  const topicContainerIds = [
+    ...(
+      Array.isArray(input.topicContainerIds)
+        ? input.topicContainerIds.map((id) => String(id || '').trim())
+        : []
+    ),
+    topicContainerId,
+  ].filter((id, index, values) => id && id !== blockId && id !== rootId && values.indexOf(id) === index);
+
+  for (const candidateTopicContainerId of topicContainerIds) {
+    const containerTopicCard = getLocalCardsByBlockId(input.cardLookup, candidateTopicContainerId).find((card) => isTopicLikeLocalCard(card));
+    if (containerTopicCard && isTopicLikeLocalCard(containerTopicCard)) {
+      return {
+        topicCardId: containerTopicCard.id,
+        topicBlockId: candidateTopicContainerId,
+        sourceDocId: rootId || blockId,
+        scope: 'block',
+      };
+    }
   }
 
   const blockTopicCard = getLocalCardsByBlockId(input.cardLookup, blockId).find((card) => isTopicLikeLocalCard(card));
@@ -119,6 +143,8 @@ export function resolveProgressiveTopicContext(input: {
 export async function resolveProgressiveSourceContext(input: {
   blockId: string;
   rootId?: string;
+  topicContainerId?: string;
+  topicContainerIds?: string[];
   cardLookup: ProgressiveCardLookup;
   attrLookup: ProgressiveAttrLookup;
 }): Promise<ProgressiveSourceContext> {
@@ -127,6 +153,8 @@ export async function resolveProgressiveSourceContext(input: {
   const topicContext = resolveProgressiveTopicContext({
     blockId,
     rootId: rootDocId,
+    topicContainerId: input.topicContainerId,
+    topicContainerIds: input.topicContainerIds,
     cardLookup: input.cardLookup,
   });
 

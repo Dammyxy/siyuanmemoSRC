@@ -13,6 +13,7 @@ import type {
 import { TopicDerivedItemService } from '@/application/services/TopicDerivedItemService';
 import { UnifiedPostCreationPlanner } from '@/core/card/post-creation/UnifiedPostCreationPlanner';
 import type { CreationDecision } from '@/core/card/post-creation/contracts';
+import { createLogger } from '@/utils/logger';
 import {
   MARK_DATA_TYPE_SELECTOR,
   createTokenizedMarkHtml,
@@ -25,6 +26,8 @@ import {
 export interface SelectionTopicContinuationInput {
   sourceBlockId: string;
   sourceBlockIds?: string[];
+  topicContainerId?: string;
+  topicContainerIds?: string[];
   selectedText: string;
   contentDom?: string;
   blockSelections?: ProgressiveExcerptBlockSelectionSnapshot[];
@@ -87,6 +90,8 @@ const DIRECT_CLOZE_DECISION: CreationDecision = {
   executorKind: 'quick-cloze',
   priority: 1000,
 };
+
+const logger = createLogger('SelectionTopicContinuationService');
 
 function isProgressiveTopicDecision(decision: CreationDecision): boolean {
   return (
@@ -558,9 +563,12 @@ export class SelectionTopicContinuationService {
     const topicContext = resolveProgressiveTopicContext({
       blockId: sourceBlockId,
       rootId,
+      topicContainerId: input.topicContainerId,
+      topicContainerIds: input.topicContainerIds,
       cardLookup: this.cardService,
     });
     if (!topicContext) {
+      this.logRejectedTopicContainerCandidates(input, rootId, sourceBlockId);
       return {
         rootId,
         topicContext: null,
@@ -696,6 +704,8 @@ export class SelectionTopicContinuationService {
     const sourceContext = await resolveProgressiveSourceContext({
       blockId: sourceBlockId,
       rootId: resolvedRootId,
+      topicContainerId: input.topicContainerId,
+      topicContainerIds: input.topicContainerIds,
       cardLookup: this.cardService,
       attrLookup: this.siyuanApi,
     });
@@ -806,6 +816,31 @@ export class SelectionTopicContinuationService {
       rootId: String(row.root_id || '').trim(),
       blockType: String(row.type || '').trim(),
     };
+  }
+
+  private logRejectedTopicContainerCandidates(
+    input: SelectionTopicContinuationInput,
+    rootId: string | undefined,
+    sourceBlockId: string,
+  ): void {
+    const candidates = [
+      ...(
+        Array.isArray(input.topicContainerIds)
+          ? input.topicContainerIds.map((id) => String(id || '').trim())
+          : []
+      ),
+      String(input.topicContainerId || '').trim(),
+    ].filter((id, index, values) => id && id !== sourceBlockId && id !== rootId && values.indexOf(id) === index);
+    if (candidates.length === 0) {
+      return;
+    }
+
+    logger.warn('Rejected non-document Topic Container candidates for shortcut item creation', {
+      sourceBlockId,
+      rootId: rootId || null,
+      topicContainerIds: candidates,
+      reason: 'no-topic-card-identity',
+    });
   }
 
   private escapeSql(value: string): string {

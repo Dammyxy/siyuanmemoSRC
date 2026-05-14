@@ -265,6 +265,75 @@ describe('SelectionTopicContinuationService', () => {
     }));
   });
 
+  it('creates manual cloze items under a non-document Topic Container', async () => {
+    const topicDerivedItemService = {
+      createFromTopicSource: vi.fn(async () => ({
+        created: 1,
+        skipped: 0,
+        items: [],
+      })),
+    };
+    const service = new SelectionTopicContinuationService(
+      createSiyuanPortMock({
+        sql: vi.fn(async () => [{ root_id: 'ordinary-doc-root-1', type: 'p' }]),
+      }),
+      createCardServiceMock({
+        sourceBlockId: 'topic-super-block-1',
+        rootId: 'ordinary-doc-root-1',
+        currentBlockCards: [{ id: 'topic-card-super-1', type: 'topic' }],
+        rootBlockCards: [],
+      }),
+      topicDerivedItemService as any,
+    );
+
+    const preparation = service.prepareSelection({
+      sourceBlockId: 'source-block-1',
+      topicContainerId: 'topic-super-block-1',
+      rootId: 'ordinary-doc-root-1',
+      selectedText: 'Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+      blockSelections: [{
+        blockId: 'source-block-1',
+        mode: 'range',
+        excerptHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+        beforeHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha </div></div>',
+        afterHtml: '<div data-type="NodeParagraph"><div contenteditable="true"> Gamma</div></div>',
+      }],
+    });
+
+    expect(preparation.available).toBe(true);
+    expect(preparation.topicContext).toEqual(expect.objectContaining({
+      topicCardId: 'topic-card-super-1',
+      topicBlockId: 'topic-super-block-1',
+      sourceDocId: 'ordinary-doc-root-1',
+      scope: 'block',
+    }));
+    expect(preparation.mode).toBe('manual-cloze');
+
+    await service.createFromSelection({
+      sourceBlockId: 'source-block-1',
+      topicContainerId: 'topic-super-block-1',
+      rootId: 'ordinary-doc-root-1',
+      selectedText: 'Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+      blockSelections: [{
+        blockId: 'source-block-1',
+        mode: 'range',
+        excerptHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+        beforeHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha </div></div>',
+        afterHtml: '<div data-type="NodeParagraph"><div contenteditable="true"> Gamma</div></div>',
+      }],
+    }, preparation);
+
+    expect(topicDerivedItemService.createFromTopicSource).toHaveBeenCalledWith(expect.objectContaining({
+      sourceBlockId: 'source-block-1',
+      sourceDocId: 'ordinary-doc-root-1',
+      parentTopicCardId: 'topic-card-super-1',
+      sourceRootKind: 'ordinary-doc',
+      mode: 'manual-cloze',
+    }));
+  });
+
   it('preserves block-ref anchor text in manual cloze artifact DOM', () => {
     const service = new SelectionTopicContinuationService(
       createSiyuanPortMock(),

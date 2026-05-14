@@ -876,6 +876,151 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     expect(showMessage).toHaveBeenCalledWith('已将选区标记为挖空，普通卡片会按现有规则生成', 3000, 'info');
   });
 
+  it('passes a non-document Topic Container from the editor DOM to the continuation service', async () => {
+    document.body.innerHTML = `
+      <div class="protyle" id="editor-root">
+        <div data-node-id="topic-super-block-1" data-type="NodeSuperBlock">
+          <div data-node-id="block-1">
+            <span id="target" contenteditable="true">Beta</span>
+          </div>
+        </div>
+      </div>
+    `;
+    const root = document.getElementById('editor-root');
+    if (!root) {
+      throw new Error('Expected editor root');
+    }
+
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(root, {
+      protyle: {
+        wysiwyg: { element: root },
+        block: { rootID: 'ordinary-doc-root-1' },
+      },
+      text: 'Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+      blockSelections: [{
+        blockId: 'block-1',
+        mode: 'range',
+        excerptHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+        beforeHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha </div></div>',
+        afterHtml: '<div data-type="NodeParagraph"><div contenteditable="true"> Gamma</div></div>',
+      }],
+    }));
+
+    const preparation = {
+      rootId: 'ordinary-doc-root-1',
+      topicContext: {
+        topicCardId: 'topic-card-super-1',
+        topicBlockId: 'topic-super-block-1',
+        sourceDocId: 'ordinary-doc-root-1',
+        scope: 'block' as const,
+      },
+      normalizedContent: 'Beta',
+      plannerContent: 'Alpha ==Beta== Gamma',
+      artifactContentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span> Gamma</div></div>',
+      answerFingerprint: 'block-1::ManualSelectionClozeRule::Alpha::Beta::Gamma',
+      decisions: [{ id: 'ManualSelectionClozeRule', family: 'cloze' }],
+      mode: 'manual-cloze' as const,
+      highlightTargetCount: 0,
+      available: true,
+    };
+    const prepareTopicContinuation = vi.fn(() => preparation);
+    const createTopicContinuation = vi.fn(async () => ({
+      created: 1,
+      skipped: 0,
+      items: [],
+    }));
+    const { handler } = createHandler({
+      prepareTopicContinuation,
+      createTopicContinuation,
+    });
+
+    await handler.runItemFromEditor({
+      wysiwyg: {
+        element: root,
+      },
+      block: {
+        rootID: 'ordinary-doc-root-1',
+      },
+    } as any);
+
+    expect(prepareTopicContinuation).toHaveBeenCalledWith(expect.objectContaining({
+      sourceBlockId: 'block-1',
+      rootId: 'ordinary-doc-root-1',
+      topicContainerId: 'topic-super-block-1',
+    }));
+    expect(createTopicContinuation).toHaveBeenCalledWith(expect.objectContaining({
+      sourceBlockId: 'block-1',
+      topicContainerId: 'topic-super-block-1',
+      rootId: 'ordinary-doc-root-1',
+    }), preparation);
+    expect(showMessage).toHaveBeenCalledWith('已在当前 Topic 下新增 1 个 Item', 3000, 'info');
+  });
+
+  it('rolls back a manual Topic cloze mark when Item creation fails', async () => {
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(document.body, {
+      protyle: {
+        wysiwyg: { element: document.body },
+        block: { rootID: 'topic-doc-root-1' },
+      },
+      text: 'Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+      blockSelections: [{
+        blockId: 'block-1',
+        mode: 'range',
+        excerptHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+        beforeHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha </div></div>',
+        afterHtml: '<div data-type="NodeParagraph"><div contenteditable="true"> Gamma</div></div>',
+      }],
+    }));
+
+    const preparation = {
+      rootId: 'topic-doc-root-1',
+      topicContext: {
+        topicCardId: 'topic-card-1',
+        topicBlockId: 'topic-doc-root-1',
+        sourceDocId: 'topic-doc-root-1',
+        scope: 'doc-root' as const,
+      },
+      normalizedContent: 'Beta',
+      plannerContent: 'Alpha ==Beta== Gamma',
+      artifactContentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span> Gamma</div></div>',
+      answerFingerprint: 'block-1::ManualSelectionClozeRule::Alpha::Beta::Gamma',
+      decisions: [{ id: 'ManualSelectionClozeRule', family: 'cloze' }],
+      mode: 'manual-cloze' as const,
+      highlightTargetCount: 0,
+      available: true,
+    };
+    const createTopicContinuation = vi.fn(async () => {
+      throw new Error('writer unavailable');
+    });
+    const { handler, updateSourceBlockDom } = createHandler({
+      prepareTopicContinuation: vi.fn(() => preparation),
+      createTopicContinuation,
+    });
+
+    await handler.runItemFromEditor({
+      wysiwyg: {
+        element: document.body,
+      },
+      block: {
+        rootID: 'topic-doc-root-1',
+      },
+    } as any);
+
+    expect(applyPreparedSelectionClozeMark).toHaveBeenCalledTimes(1);
+    expect(updateSourceBlockDom).toHaveBeenCalledTimes(1);
+    expect(updateSourceBlockDom).toHaveBeenNthCalledWith(
+      1,
+      'block-1',
+      '<div data-node-id="block-1">Hello</div>',
+    );
+    expect(showMessage).toHaveBeenCalledWith('在 Topic 下创建 Item 失败：writer unavailable', 5000, 'error');
+    expect(showMessage).not.toHaveBeenCalledWith('已将选区标记为挖空，普通卡片会按现有规则生成', 3000, 'info');
+  });
+
   it('fails closed when plain cloze preparation throws', async () => {
     isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
     resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(document.body, {

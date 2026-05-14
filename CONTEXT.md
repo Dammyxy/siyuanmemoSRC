@@ -48,6 +48,18 @@ _Avoid_: generic projection unavailable, Browser retry state, fallback readiness
 The Browser surface flow that prepares a selected queue, consumes **Queue Projection Readiness**, creates the queue datasource, and hands it to the grid for first-row rendering.
 _Avoid_: scattered queue load glue, UI projection repair
 
+**Topic Container**:
+A block that owns Topic-derived item creation. A document block and a non-document block such as a super block can both be valid **Topic Containers**.
+_Avoid_: document-only Topic, assuming Topic means document block
+
+**SRS Browser Card Universe**:
+The set of SRS cards that SiYuanMemo can manage through its card identity and browser projection. Arbitrary SQL block results are candidates only after intersecting with this card universe.
+_Avoid_: treating all matching `blocks` rows as SRS Browser cards
+
+**Custom Review Surface**:
+A SiYuanMemo-owned review UI that renders card content outside SiYuan's native block renderer. It must explicitly preserve supported link and reference behavior because native rendering is not automatically available.
+_Avoid_: assuming temporary or deliberate practice cannot render links by nature
+
 ## Relationships
 
 - A **Mixed SRS Queue** may contain **Learning Steps**, **Review Cards**, and new cards.
@@ -58,6 +70,9 @@ _Avoid_: scattered queue load glue, UI projection repair
 - **Learn Ahead** may serve only future **Learning Steps**, bounded by both a time window and a maximum card count.
 - **Queue Projection Readiness** is consumed by Browser views and owned by application/backend coordination, not by UI retry logic.
 - **Browser Queue View Lifecycle** consumes **Queue Projection Readiness** and owns Browser-side retry/attach decisions, but does not materialize queue projections.
+- **Topic Container** identity must not depend on whether the owning block is a document block.
+- **SRS Browser Card Universe** scopes Browser filters, SQL searches, counts, and bulk operations to cards managed by SiYuanMemo.
+- **Custom Review Surfaces** share review rendering requirements with native-like review surfaces, including supported link and reference behavior.
 
 ## Example Dialogue
 
@@ -72,3 +87,6 @@ _Avoid_: scattered queue load glue, UI projection repair
 - `Learn Ahead` was considered as a card-count-only setting. Resolved: it follows Anki-style time-window semantics with an additional maximum-card limit for user experience control.
 - Queue projection "not ready" was used for normal preparation, transient infrastructure unavailability, and terminal projection failures. Resolved: **Queue Projection Readiness** separates readable, preparing, and unavailable states.
 - Browser queue loading mixed readiness, retry, datasource creation, and attach decisions. Resolved: **Browser Queue View Lifecycle** owns Browser-side queue preparation before grid attach.
+- Topic was implicitly treated as document-block-only in some creation flows. Resolved: **Topic Container** includes non-document blocks such as super blocks when they own Topic-derived item creation.
+- SRS Browser filtering was ambiguous between arbitrary block SQL and plugin-managed cards. Resolved: **SRS Browser Card Universe** is the outer scope; SQL results are intersected with it.
+- Temporary and deliberate practice were described as unable to render links. Resolved: the issue belongs to **Custom Review Surface** rendering, not to those practice modes as domain concepts.

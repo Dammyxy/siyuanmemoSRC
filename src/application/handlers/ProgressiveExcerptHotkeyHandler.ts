@@ -12,6 +12,7 @@ import {
 } from '@/application/entries/ProgressiveExcerptHighlight';
 import {
   applyPreparedSelectionClozeMark,
+  type PreparedSelectionClozeMark,
   type PreparedSelectionClozeMarkApplyResult,
   prepareSelectionClozeMark,
 } from '@/application/entries/SelectionClozeMarker';
@@ -97,6 +98,8 @@ export class ProgressiveExcerptHotkeyHandler {
     const topicContinuationPreparation = this.context.getSelectionTopicContinuationService().prepareSelection({
       sourceBlockId: selection.sourceBlockId,
       sourceBlockIds: selection.sourceBlockIds,
+      topicContainerId: this.resolveTopicContainerId(selection),
+      topicContainerIds: this.resolveTopicContainerIds(selection),
       selectedText: selection.text,
       contentDom: selection.contentDom,
       blockSelections: selection.blockSelections,
@@ -174,6 +177,8 @@ export class ProgressiveExcerptHotkeyHandler {
     const topicContinuationPreparation = this.context.getSelectionTopicContinuationService().prepareSelection({
       sourceBlockId: selection.sourceBlockId,
       sourceBlockIds: selection.sourceBlockIds,
+      topicContainerId: this.resolveTopicContainerId(selection),
+      topicContainerIds: this.resolveTopicContainerIds(selection),
       selectedText: selection.text,
       contentDom: selection.contentDom,
       blockSelections: selection.blockSelections,
@@ -246,6 +251,7 @@ export class ProgressiveExcerptHotkeyHandler {
     selection: ProgressiveExcerptSelectionSnapshot,
     preparation?: SelectionTopicContinuationPreparation,
   ): Promise<void> {
+    let appliedManualMark: PreparedSelectionClozeMark | null = null;
     try {
       const rejectionMessage = this.getTopicContinuationRejectionMessage(selection, preparation);
       if (rejectionMessage) {
@@ -270,11 +276,14 @@ export class ProgressiveExcerptHotkeyHandler {
           stage: 'topic-manual-cloze',
           sourceBlockId: selection.sourceBlockId,
         });
+        appliedManualMark = preparedMark;
       }
 
       const result = await this.context.getSelectionTopicContinuationService().createFromSelection({
         sourceBlockId: selection.sourceBlockId,
         sourceBlockIds: selection.sourceBlockIds,
+        topicContainerId: this.resolveTopicContainerId(selection),
+        topicContainerIds: this.resolveTopicContainerIds(selection),
         selectedText: selection.text,
         contentDom: selection.contentDom,
         blockSelections: selection.blockSelections,
@@ -287,6 +296,7 @@ export class ProgressiveExcerptHotkeyHandler {
         'info',
       );
     } catch (error) {
+      await this.tryRollbackSelectionClozeMark(appliedManualMark);
       logger.error('Failed to create derived items from excerpt selection', error);
       showMessage(
         this.translate('progressiveExcerptContinuationFailed', '在 Topic 下创建 Item 失败：{message}')
@@ -500,6 +510,88 @@ export class ProgressiveExcerptHotkeyHandler {
       return rootId;
     }
     return fallbackBlockId ? String(fallbackBlockId).trim() || undefined : undefined;
+  }
+
+  private resolveTopicContainerId(selection: ProgressiveExcerptSelectionSnapshot): string | undefined {
+    return this.resolveTopicContainerIds(selection)[0];
+  }
+
+  private resolveTopicContainerIds(selection: ProgressiveExcerptSelectionSnapshot): string[] {
+    const sourceBlockId = String(selection.sourceBlockId || '').trim();
+    const rootId = this.resolveProtyleRootId(selection.protyle, sourceBlockId);
+    const root = selection.root || selection.protyle?.wysiwyg?.element || null;
+    if (!root || !sourceBlockId) {
+      return [];
+    }
+
+    const sourceBlock = Array.from(root.querySelectorAll<HTMLElement>('[data-node-id]'))
+      .find((candidate) => candidate.getAttribute('data-node-id') === sourceBlockId);
+    const topicContainerIds: string[] = [];
+    let current = sourceBlock?.parentElement || null;
+    while (current && current !== root) {
+      const candidateId = String(current.getAttribute('data-node-id') || '').trim();
+      if (candidateId && candidateId !== sourceBlockId && candidateId !== rootId) {
+        topicContainerIds.push(candidateId);
+      }
+      current = current.parentElement;
+    }
+    return topicContainerIds;
+  }
+
+  private async tryRollbackSelectionClozeMark(prepared: PreparedSelectionClozeMark | null): Promise<void> {
+    if (!prepared || prepared.alreadyApplied) {
+      return;
+    }
+
+    const mutations = prepared.blockMutations
+      .filter((mutation) => !mutation.alreadyApplied && mutation.previousBlockHtml !== mutation.nextBlockHtml);
+    if (mutations.length === 0) {
+      return;
+    }
+
+    try {
+      for (const mutation of mutations) {
+        await this.context.getSelectionExcerptService().updateSourceBlockDom(
+          mutation.blockId,
+          mutation.previousBlockHtml,
+        );
+      }
+      this.restoreLiveSelectionBlocks(prepared);
+    } catch (rollbackError) {
+      logger.warn('Failed to rollback topic manual cloze mark after item creation failure', {
+        blockIds: mutations.map((mutation) => mutation.blockId),
+        error: rollbackError,
+      });
+    }
+  }
+
+  private restoreLiveSelectionBlocks(prepared: PreparedSelectionClozeMark): void {
+    const root = prepared.root || prepared.protyle?.wysiwyg?.element || null;
+    if (!root) {
+      return;
+    }
+
+    for (const mutation of prepared.blockMutations) {
+      const liveBlock = Array.from(root.querySelectorAll<HTMLElement>('[data-node-id]'))
+        .find((candidate) => candidate.getAttribute('data-node-id') === mutation.blockId);
+      if (!liveBlock) {
+        continue;
+      }
+
+      const template = document.createElement('template');
+      template.innerHTML = mutation.previousBlockHtml.trim();
+      const previousBlock = template.content.firstElementChild;
+      if (previousBlock instanceof HTMLElement) {
+        liveBlock.replaceWith(previousBlock);
+      }
+    }
+
+    const instance = typeof prepared.protyle?.getInstance === 'function'
+      ? prepared.protyle.getInstance()
+      : null;
+    if (typeof instance?.reload === 'function') {
+      instance.reload(false);
+    }
   }
 
   private formatTopicContinuationMessage(result: SelectionTopicContinuationResult): string {

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-14 (Round 354)
+Last update: 2026-05-15 (Round 355)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-15 - Topic Container shortcut Item creation
+
+- Task: Implement OpenSpec change `fix-topic-container-shortcut-item-creation` so shortcut Item creation works inside valid non-document Topic Containers.
+- Touched slice: Progressive / Excerpt + Topic-derived item; `src/application/handlers/ProgressiveExcerptHotkeyHandler.ts`, `src/application/services/SelectionTopicContinuationService.ts`, `src/application/services/ProgressiveSourceContextResolver.ts`, and focused handler/service tests.
+- Debt fixed now: Shortcut Item creation no longer assumes the Topic owner must be the document root. The editor handler forwards non-document Topic Container ancestor candidates from the live DOM, Topic context resolution accepts the first candidate with Topic card identity, ordinary outside-Topic selections still use the existing plain cloze fallback, and invalid container candidates log a narrow rejection reason. Manual Topic cloze creation now rolls back the applied mark when Item creation fails and reports Topic Item creation failure instead of plain fallback success.
+- Debt deferred: Live SiYuan smoke for an actual super-block Topic Container was not run in this session.
+- Why deferred: No runnable SiYuan UI/plugin surface was exercised from this terminal session; code and tests cover the active handler/service path only.
+- Next safe step: In SiYuan, create or open a super-block with Topic card identity, select text in a child block, trigger shortcut Item creation, and confirm the Item appears under that Topic without the plain cloze fallback toast.
+- Validation: Targeted `pnpm vitest run src\application\services\__tests__\SelectionTopicContinuationService.test.ts src\application\handlers\__tests__\ProgressiveExcerptHotkeyHandler.test.ts`, `node scripts\check-hidden-fallbacks.cjs`, `pnpm run check:boundaries`, `pnpm build`, and `openspec validate "fix-topic-container-shortcut-item-creation" --strict` passed.
 
 ### 2026-05-14 - Kernel transaction writer timeout recovery
 
