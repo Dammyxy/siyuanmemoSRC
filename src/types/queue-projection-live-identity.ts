@@ -1,4 +1,5 @@
 import { QueueType } from './unified-data-source';
+import type { QueueProjectionIdentityBroadcastPayload } from '../../packages/contracts/src/kernel-rpc';
 
 export type QueueProjectionLiveIdentityReason =
   | 'materialized'
@@ -36,6 +37,80 @@ export type QueueProjectionLiveIdentityDecision =
   | { action: 'reattach'; identity: QueueProjectionIdentity };
 
 export type QueueProjectionLiveIdentityListener = (event: QueueProjectionLiveIdentityEvent) => void;
+
+export function mapQueueProjectionLiveIdentityToBroadcast(
+  event: QueueProjectionLiveIdentityEvent,
+  options: {
+    sourceInstanceId: string;
+    sourceSurfaceId?: string | null;
+    sourceMode?: string | null;
+  },
+): QueueProjectionIdentityBroadcastPayload | null {
+  const identity = normalizeQueueProjectionIdentity({
+    queueId: event.queueId,
+    queueType: event.queueType,
+    policyId: event.policyId || undefined,
+    generation: event.generation || undefined,
+  });
+  const sourceInstanceId = String(options.sourceInstanceId || '').trim();
+  if (!identity || !sourceInstanceId) {
+    return null;
+  }
+  if (event.reason !== 'materialized' && event.reason !== 'refreshed') {
+    return null;
+  }
+  return {
+    ...identity,
+    reason: event.reason,
+    source: event.source,
+    sourceInstanceId,
+    sourceSurfaceId: String(options.sourceSurfaceId || '').trim() || undefined,
+    sourceMode: String(options.sourceMode || '').trim() || undefined,
+    timestamp: Number.isFinite(Number(event.timestamp)) ? Number(event.timestamp) : Date.now(),
+    diagnosticEventId: String(event.diagnosticEventId || '').trim()
+      || `queue-projection:${identity.queueType}:${identity.policyId}:${identity.generation}:${sourceInstanceId}`,
+  };
+}
+
+export function mapQueueProjectionBroadcastToLiveIdentity(
+  broadcast: QueueProjectionIdentityBroadcastPayload | null | undefined,
+): QueueProjectionLiveIdentityEvent | null {
+  const identity = normalizeQueueProjectionIdentity({
+    queueId: broadcast?.queueId,
+    queueType: broadcast?.queueType as QueueType,
+    policyId: broadcast?.policyId,
+    generation: broadcast?.generation,
+  });
+  if (!broadcast || !identity) {
+    return null;
+  }
+  if (broadcast.reason !== 'materialized' && broadcast.reason !== 'refreshed') {
+    return null;
+  }
+  return {
+    type: 'queue-projection-live-identity',
+    queueId: identity.queueId,
+    queueType: identity.queueType,
+    policyId: identity.policyId,
+    generation: identity.generation,
+    reason: broadcast.reason,
+    source: broadcast.source,
+    timestamp: Number.isFinite(Number(broadcast.timestamp)) ? Number(broadcast.timestamp) : Date.now(),
+    diagnosticEventId: String(broadcast.diagnosticEventId || '').trim() || undefined,
+  };
+}
+
+export function getQueueProjectionBroadcastDedupeKey(
+  broadcast: Pick<QueueProjectionIdentityBroadcastPayload, 'queueId' | 'queueType' | 'policyId' | 'generation' | 'sourceInstanceId'>,
+): string {
+  return [
+    String(broadcast.sourceInstanceId || '').trim(),
+    String(broadcast.queueType || '').trim(),
+    String(broadcast.queueId || '').trim(),
+    String(broadcast.policyId || '').trim(),
+    Math.floor(Number(broadcast.generation) || 0),
+  ].join(':');
+}
 
 export function normalizeQueueProjectionIdentity(
   input: Partial<QueueProjectionIdentity> | null | undefined,

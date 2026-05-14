@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { QueueType } from '../unified-data-source';
 import {
   compareQueueProjectionLiveIdentity,
+  getQueueProjectionBroadcastDedupeKey,
+  mapQueueProjectionBroadcastToLiveIdentity,
+  mapQueueProjectionLiveIdentityToBroadcast,
   type QueueProjectionLiveIdentityEvent,
 } from '../queue-projection-live-identity';
 
@@ -81,5 +84,68 @@ describe('queue projection live identity comparison', () => {
       action: 'recheck',
       reason: 'identity-invalidated',
     });
+  });
+
+  it('maps ready live identities to content-free kernel broadcasts', () => {
+    const broadcast = mapQueueProjectionLiveIdentityToBroadcast(event({
+      queueId: QueueType.FilterGroup,
+      queueType: QueueType.FilterGroup,
+      policyId: 'policy-b',
+      generation: 7,
+      diagnosticEventId: 'event-b',
+    }), {
+      sourceInstanceId: 'writer-a',
+      sourceSurfaceId: 'surface-a',
+      sourceMode: 'writer',
+    });
+
+    expect(broadcast).toEqual({
+      queueId: QueueType.FilterGroup,
+      queueType: QueueType.FilterGroup,
+      policyId: 'policy-b',
+      generation: 7,
+      reason: 'refreshed',
+      source: 'runtime',
+      sourceInstanceId: 'writer-a',
+      sourceSurfaceId: 'surface-a',
+      sourceMode: 'writer',
+      timestamp: 1,
+      diagnosticEventId: 'event-b',
+    });
+    expect(JSON.stringify(broadcast)).not.toContain('rows');
+  });
+
+  it('maps accepted kernel broadcasts back to local live identity events', () => {
+    expect(mapQueueProjectionBroadcastToLiveIdentity({
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-c',
+      generation: 8,
+      reason: 'materialized',
+      source: 'backend',
+      sourceInstanceId: 'writer-a',
+      timestamp: 11,
+      diagnosticEventId: 'event-c',
+    })).toEqual({
+      type: 'queue-projection-live-identity',
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-c',
+      generation: 8,
+      reason: 'materialized',
+      source: 'backend',
+      timestamp: 11,
+      diagnosticEventId: 'event-c',
+    });
+  });
+
+  it('builds stable broadcast dedupe keys from source and identity only', () => {
+    expect(getQueueProjectionBroadcastDedupeKey({
+      queueId: QueueType.FilterGroup,
+      queueType: QueueType.FilterGroup,
+      policyId: 'policy-d',
+      generation: 4.8,
+      sourceInstanceId: 'writer-a',
+    })).toBe('writer-a:filter-group:filter-group:policy-d:4');
   });
 });

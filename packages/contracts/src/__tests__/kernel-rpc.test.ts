@@ -3,6 +3,8 @@ import {
   KERNEL_AI_STREAM_EVENT_TYPES,
   KERNEL_FAST_PATH_CAPABILITY_KEYS,
   KERNEL_RELAY_METHODS,
+  type KernelBroadcastEvent,
+  type QueueProjectionIdentityBroadcastPayload,
 } from '../kernel-rpc';
 
 describe('kernel relay contract', () => {
@@ -41,5 +43,26 @@ describe('kernel relay contract', () => {
       'timeout',
       'close',
     ]);
+  });
+
+  it('declares queue projection identity broadcasts as identity-only kernel push events', () => {
+    const payload: QueueProjectionIdentityBroadcastPayload = {
+      queueId: 'filter-group',
+      queueType: 'filter-group',
+      policyId: 'policy-a',
+      generation: 3,
+      reason: 'refreshed',
+      source: 'runtime',
+      sourceInstanceId: 'writer-a',
+      timestamp: 10,
+      diagnosticEventId: 'event-a',
+    };
+    const event: KernelBroadcastEvent = {
+      method: 'memo.queueProjection.identityChanged',
+      params: payload,
+    };
+
+    expect(event.params).toEqual(payload);
+    expect(JSON.stringify(event)).not.toContain('rows');
   });
 });

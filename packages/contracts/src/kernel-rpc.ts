@@ -231,6 +231,38 @@ export const KERNEL_RELAY_METHODS = [
 
 export type KernelRelayMethod = typeof KERNEL_RELAY_METHODS[number];
 
+export type QueueProjectionIdentityQueueType =
+  | 'retrieval-practice'
+  | 'incremental-learning'
+  | 'filter-group'
+  | 'final-drill'
+  | 'leech'
+  | 'neural-roam';
+
+export type QueueProjectionIdentityReason =
+  | 'materialized'
+  | 'refreshed';
+
+export interface QueueProjectionIdentityBroadcastPayload {
+  queueId: string;
+  queueType: QueueProjectionIdentityQueueType;
+  policyId: string;
+  generation: number;
+  reason: QueueProjectionIdentityReason;
+  sourceInstanceId: string;
+  sourceSurfaceId?: string;
+  sourceMode?: 'writer' | 'follower' | string;
+  source: 'backend' | 'writer-relay' | 'runtime';
+  timestamp: number;
+  diagnosticEventId: string;
+}
+
+export interface QueueProjectionIdentityPublishEnvelope {
+  ok: true;
+  broadcast: QueueProjectionIdentityBroadcastPayload;
+  now: number;
+}
+
 export interface WriterRelayCommandResultPayload {
   commandId: string;
   requesterInstanceId: string;
@@ -379,4 +411,5 @@ export type KernelBroadcastEvent =
   | { method: 'memo.writer.leaseChanged'; params: WriterLeasePayload | null }
   | { method: 'memo.writer.command'; params: WriterRelayCommandPayload }
   | { method: 'memo.writer.commandResult'; params: WriterRelayCommandResultPayload }
+  | { method: 'memo.queueProjection.identityChanged'; params: QueueProjectionIdentityBroadcastPayload }
   | { method: 'memo.ai.stream'; params: KernelAiStreamEvent };

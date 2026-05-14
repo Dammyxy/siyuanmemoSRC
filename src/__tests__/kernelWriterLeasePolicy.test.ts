@@ -7,6 +7,7 @@ type RpcHandler = (params?: unknown) => unknown | Promise<unknown>;
 
 interface KernelHarness {
   handlers: Record<string, RpcHandler>;
+  broadcasts: Array<{ method: string; params: unknown }>;
 }
 
 const primaryProfile = {
@@ -41,6 +42,7 @@ const browserProfile = {
 
 async function loadKernelHarness(): Promise<KernelHarness> {
   const handlers: Record<string, RpcHandler> = {};
+  const broadcasts: Array<{ method: string; params: unknown }> = [];
   const siyuan = {
     logger: {
       info: vi.fn(async () => undefined),
@@ -56,7 +58,9 @@ async function loadKernelHarness(): Promise<KernelHarness> {
       bind: vi.fn(async (name: string, handler: RpcHandler) => {
         handlers[name] = handler;
       }),
-      broadcast: vi.fn(async () => undefined),
+      broadcast: vi.fn(async (method: string, params: unknown) => {
+        broadcasts.push({ method, params });
+      }),
     },
     server: {
       private: {
@@ -83,7 +87,7 @@ async function loadKernelHarness(): Promise<KernelHarness> {
   const source = readFileSync(resolve(process.cwd(), 'src/kernel.ts'), 'utf8');
   new Script(source, { filename: 'src/kernel.ts' }).runInContext(context);
   await siyuan.plugin.lifecycle.onload();
-  return { handlers };
+  return { handlers, broadcasts };
 }
 
 describe('kernel writer lease profile policy', () => {
@@ -106,6 +110,45 @@ describe('kernel writer lease profile policy', () => {
         },
       },
     });
+  });
+
+  it('relays queue projection identity broadcasts without rows or DB ownership', async () => {
+    const { handlers, broadcasts } = await loadKernelHarness();
+
+    await expect(handlers['queueProjection.publishIdentityChanged']({
+      queueId: 'filter-group',
+      queueType: 'filter-group',
+      policyId: 'policy-a',
+      generation: 3,
+      reason: 'refreshed',
+      source: 'runtime',
+      sourceInstanceId: 'writer-a',
+      sourceSurfaceId: 'surface-a',
+      sourceMode: 'writer',
+      timestamp: 10,
+      diagnosticEventId: 'event-a',
+    })).resolves.toMatchObject({
+      ok: true,
+      broadcast: {
+        queueType: 'filter-group',
+        policyId: 'policy-a',
+        generation: 3,
+        sourceInstanceId: 'writer-a',
+      },
+    });
+    expect(broadcasts).toEqual([
+      {
+        method: 'memo.queueProjection.identityChanged',
+        params: expect.objectContaining({
+          queueId: 'filter-group',
+          queueType: 'filter-group',
+          policyId: 'policy-a',
+          generation: 3,
+          sourceInstanceId: 'writer-a',
+        }),
+      },
+    ]);
+    expect(JSON.stringify(broadcasts)).not.toContain('rows');
   });
 
   it('fails closed when a desktop document window tries to acquire with no primary writer observed', async () => {

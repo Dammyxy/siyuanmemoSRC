@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-14 (Round 351)
+Last update: 2026-05-14 (Round 352)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-14 - Cross-window queue projection refresh broadcast
+
+- Task: Implement OpenSpec change `add-cross-window-projection-refresh-broadcast` so one window's readable queue projection refresh can wake other windows through the kernel push relay.
+- Touched slice: Queue projection identity relay; `packages/contracts/src/kernel-rpc.ts`, `src/kernel.ts`, `KernelSidecarClient`, `FrontendInstanceRuntime`, `src/types/queue-projection-live-identity.ts`, `QueueProjectionRuntime`, `UnifiedDataSourceManager`, focused runtime/browser tests, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Queue projection materialized/refreshed identities now have a typed identity-only kernel broadcast. The kernel remains a relay only: it validates and fans out queue/policy/generation/source instance fields, with no rows/cards, no DB write, and no projection materialization ownership. Frontend runtime filters local echo and duplicate remote identities before passing accepted broadcasts back into the existing local `QueueProjectionLiveIdentityEvent` path, so Browser reloads visible matching newer generations through readiness/load/datasource attach.
+- Debt deferred: AG Grid row-model replacement, custom first-page renderer, adaptive scheduler writes, Review commit semantics, backend DB ownership changes, UI SQL/local projection repair, and durable exactly-once kernel event logs remain out of scope.
+- Why deferred: This slice only closes cross-window observability for already-readable projection identity. Row rendering, scheduler policy, review write semantics, and durable transport guarantees have different owners and larger live-smoke blast radius.
+- Next safe step: If Browser first-open/render jank remains the next pain, propose the narrow AG Grid first-page/row-model change separately; if projection misses still appear in live two-window smoke, add runtime diagnostics around rejected broadcast identity keys before widening transport semantics.
+- Validation: Focused queue projection identity, kernel contract, sidecar, frontend runtime, runtime integration, and Browser live identity/load lifecycle tests passed; full hidden-fallback, boundary, build, and OpenSpec validation are recorded with the implementation task.
 
 ### 2026-05-14 - Queue projection live identity events
 

@@ -28,6 +28,7 @@ import {
     type QueueProjectionRolloutState,
 } from '@/types/unified-data-source';
 import type { QueueProjectionLiveIdentityListener } from '@/types/queue-projection-live-identity';
+import type { QueueProjectionLiveIdentityEvent } from '@/types/queue-projection-live-identity';
 import type { FSRSCard } from '@/types/card';
 import type { DrillLogV2 } from '@/types/review';
 // ✅ DDD 架构：UnifiedDataSourceManager（应用层）直接创建队列，不依赖 QueueFactory（基础设施层）
@@ -105,6 +106,10 @@ interface UnifiedManagerPluginContextLike {
         getMode?: () => 'writer' | 'follower' | string;
         getInstanceId?: () => string;
         ensureWritable?: () => Promise<void>;
+        publishQueueProjectionIdentityBroadcast?: (event: QueueProjectionLiveIdentityEvent) => Promise<void> | void;
+        subscribeQueueProjectionIdentityBroadcasts?: (
+            listener: QueueProjectionLiveIdentityListener,
+        ) => () => void;
     } | null | undefined;
     getFollowerCommandClient?: () => {
         submitAndWait?: <TResult>(request: {
@@ -260,6 +265,7 @@ export class UnifiedDataSourceManager {
     private pendingObserverEventOrder: string[];
     private observerFlushScheduled: boolean;
     private readonly queueProjectionRuntime: QueueProjectionRuntime;
+    private unsubscribeQueueProjectionIdentityBroadcasts: (() => void) | null;
     
     // ========================================================================
     // 构造函数
@@ -287,6 +293,7 @@ export class UnifiedDataSourceManager {
         this.pendingObserverEvents = new Map<string, DataChangeEvent>();
         this.pendingObserverEventOrder = [];
         this.observerFlushScheduled = false;
+        this.unsubscribeQueueProjectionIdentityBroadcasts = null;
         this.queueProjectionRuntime = new QueueProjectionRuntime({
             getBackendClient: () => this.resolvePlugin()?.getContext?.()?.getSrsBackendClient?.(),
             getFollowerCommandClient: () => this.resolvePlugin()?.getContext?.()?.getFollowerCommandClient?.(),
@@ -294,6 +301,12 @@ export class UnifiedDataSourceManager {
             getQueue: (queueType) => this.getQueue(queueType),
             getQueueProjectionRolloutState: (queueType) => (
                 this.resolvePlugin()?.getContext?.()?.getQueueProjectionRolloutState?.(queueType)
+            ),
+            publishQueueProjectionIdentityBroadcast: (event) => (
+                this.resolvePlugin()
+                    ?.getContext?.()
+                    ?.getFrontendInstanceRuntime?.()
+                    ?.publishQueueProjectionIdentityBroadcast?.(event)
             ),
             logger,
         });
@@ -334,6 +347,7 @@ export class UnifiedDataSourceManager {
      */
     public setAdvancedRouter(advancedRouter: IDataRouter): void {
         this.advancedRouter = advancedRouter;
+        this.refreshQueueProjectionIdentityBroadcastSubscription();
     }
     
     // ========================================================================
@@ -516,6 +530,18 @@ export class UnifiedDataSourceManager {
         listener: QueueProjectionLiveIdentityListener,
     ): () => void {
         return this.queueProjectionRuntime.subscribeLiveIdentityEvents(listener);
+    }
+
+    private refreshQueueProjectionIdentityBroadcastSubscription(): void {
+        this.unsubscribeQueueProjectionIdentityBroadcasts?.();
+        this.unsubscribeQueueProjectionIdentityBroadcasts = null;
+        const runtime = this.resolvePlugin()?.getContext?.()?.getFrontendInstanceRuntime?.();
+        if (typeof runtime?.subscribeQueueProjectionIdentityBroadcasts !== 'function') {
+            return;
+        }
+        this.unsubscribeQueueProjectionIdentityBroadcasts = runtime.subscribeQueueProjectionIdentityBroadcasts((event) => {
+            this.queueProjectionRuntime.acceptRemoteLiveIdentityEvent(event);
+        });
     }
 
     public async getQueueProjectionCardsBySnapshotIds(

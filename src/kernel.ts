@@ -12,6 +12,14 @@ const PRIVATE_COMMAND_WAIT_TIMEOUT_MS = 30_000;
 const PRIVATE_COMMAND_POLL_INTERVAL_MS = 250;
 const AI_STREAM_TTL_MS = 300_000;
 const AI_STREAM_BUFFER_LIMIT = 256;
+const QUEUE_PROJECTION_IDENTITY_QUEUE_TYPES = new Set([
+  'retrieval-practice',
+  'incremental-learning',
+  'filter-group',
+  'final-drill',
+  'leech',
+  'neural-roam',
+]);
 let writerLease = null;
 let writerLeaseEpoch = 0;
 const writerCommandsPending = new Map();
@@ -118,6 +126,39 @@ function normalizeStreamId(value) {
     throw new Error('ai stream requires safe non-empty streamId');
   }
   return streamId;
+}
+
+function normalizeQueueProjectionIdentityBroadcast(params) {
+  const named = toObjectParams(params);
+  const queueType = String(named.queueType || '').trim();
+  const queueId = String(named.queueId || queueType).trim();
+  const policyId = String(named.policyId || '').trim();
+  const sourceInstanceId = String(named.sourceInstanceId || '').trim();
+  const generation = Math.floor(Number(named.generation));
+  if (!QUEUE_PROJECTION_IDENTITY_QUEUE_TYPES.has(queueType)) {
+    throw new Error('queueProjection.publishIdentityChanged requires supported queueType');
+  }
+  if (!queueId || !policyId || !Number.isFinite(generation) || generation <= 0 || !sourceInstanceId) {
+    throw new Error('queueProjection.publishIdentityChanged requires identity and sourceInstanceId');
+  }
+  const reason = named.reason === 'materialized' ? 'materialized' : 'refreshed';
+  const source = ['backend', 'writer-relay', 'runtime'].includes(named.source) ? named.source : 'runtime';
+  const timestamp = Number.isFinite(Number(named.timestamp)) ? Number(named.timestamp) : nowMs();
+  const diagnosticEventId = String(named.diagnosticEventId || '').trim()
+    || `queue-projection:${queueType}:${policyId}:${generation}:${sourceInstanceId}`;
+  return {
+    queueId,
+    queueType,
+    policyId,
+    generation,
+    reason,
+    source,
+    sourceInstanceId,
+    sourceSurfaceId: normalizeOptionalString(named.sourceSurfaceId, 128),
+    sourceMode: normalizeOptionalString(named.sourceMode, 64),
+    timestamp,
+    diagnosticEventId,
+  };
 }
 
 function buildPrivateAiStreamPath(streamId) {
@@ -558,6 +599,21 @@ async function broadcastAiStreamEvent(event) {
   } catch (error) {
     await siyuan.logger.warn('[SiYuanMemo kernel] failed to broadcast AI stream event', String(error));
   }
+}
+
+async function broadcastQueueProjectionIdentityChanged(event) {
+  try {
+    await siyuan.rpc.broadcast('memo.queueProjection.identityChanged', event);
+  } catch (error) {
+    await siyuan.logger.warn('[SiYuanMemo kernel] failed to broadcast queue projection identity', String(error));
+  }
+}
+
+async function queueProjectionPublishIdentityChanged(params) {
+  const at = nowMs();
+  const broadcast = normalizeQueueProjectionIdentityBroadcast(params);
+  await broadcastQueueProjectionIdentityChanged(broadcast);
+  return buildOkEnvelope({ broadcast }, at);
 }
 
 function cleanupAiStreams(at = nowMs()) {
@@ -1545,6 +1601,7 @@ siyuan.plugin.lifecycle.onload = async () => {
   await siyuan.rpc.bind('writer.failCommand', async (params) => writerFailCommand(params), 'Submit failed writer command result from active writer instance.');
   await siyuan.rpc.bind('writer.getCommandResult', async (params) => writerGetCommandResult(params), 'Poll writer command relay result.');
   await siyuan.rpc.bind('writer.takeCommand', async (params) => writerTakeCommand(params), 'Poll next pending writer relay command for active writer instance.');
+  await siyuan.rpc.bind('queueProjection.publishIdentityChanged', async (params) => queueProjectionPublishIdentityChanged(params), 'Relay queue projection identity changes to active frontend instances.');
   await siyuan.rpc.bind('network.fetchExternal', async (params) => networkFetchExternal(params), 'Fetch external HTTP endpoint through kernel network proxy.');
   await siyuan.rpc.bind('network.streamExternal', async (params) => networkStreamExternal(params), 'Stream external SSE endpoint through kernel network proxy.');
   if (siyuan.server?.private?.http) {

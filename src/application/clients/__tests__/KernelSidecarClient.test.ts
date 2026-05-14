@@ -191,4 +191,32 @@ describe('KernelSidecarClient', () => {
       timeoutMs: 10_000,
     });
   });
+
+  it('publishes queue projection identity broadcasts through the kernel relay', async () => {
+    const request = {
+      queueId: 'filter-group',
+      queueType: 'filter-group' as const,
+      policyId: 'policy-a',
+      generation: 2,
+      reason: 'refreshed' as const,
+      source: 'runtime' as const,
+      sourceInstanceId: 'writer-a',
+      sourceSurfaceId: 'surface-a',
+      sourceMode: 'writer',
+      timestamp: 10,
+      diagnosticEventId: 'event-a',
+    };
+    const call = vi.fn(async () => ({ ok: true, broadcast: request, now: 11 }));
+    const client = new KernelSidecarClient({
+      getStatus: vi.fn(),
+      call,
+    });
+
+    await expect(client.queueProjectionPublishIdentityChanged(request)).resolves.toEqual({
+      ok: true,
+      broadcast: request,
+      now: 11,
+    });
+    expect(call).toHaveBeenCalledWith('queueProjection.publishIdentityChanged', request);
+  });
 });

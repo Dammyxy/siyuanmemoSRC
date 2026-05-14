@@ -12,6 +12,7 @@ import type {
   QueueProjectionLiveIdentityReason,
   QueueProjectionLiveIdentitySource,
 } from '@/types/queue-projection-live-identity';
+import { normalizeQueueProjectionIdentity } from '@/types/queue-projection-live-identity';
 import type { CardType, FSRSCard } from '@/types/card';
 import type { QueueSnapshotRow } from '@/types/queue-browser';
 import { buildQueueSnapshotRow } from '@/core/queue/domain/queueCardProjection';
@@ -96,6 +97,7 @@ export type QueueProjectionRuntimeDeps = {
   getFrontendRuntime: () => FrontendRuntimeLike | null | undefined;
   getQueue: (queueType: QueueType) => IReviewQueue;
   getQueueProjectionRolloutState: (queueType: QueueType) => QueueProjectionRolloutState | string | null | undefined;
+  publishQueueProjectionIdentityBroadcast?: (event: QueueProjectionLiveIdentityEvent) => void | Promise<void>;
   logger: QueueProjectionRuntimeLogger;
 };
 
@@ -407,6 +409,30 @@ export class QueueProjectionRuntime {
     return () => {
       this.liveIdentityListeners.delete(listener);
     };
+  }
+
+  acceptRemoteLiveIdentityEvent(event: QueueProjectionLiveIdentityEvent): boolean {
+    const identity = normalizeQueueProjectionIdentity({
+      queueId: event.queueId,
+      queueType: event.queueType,
+      policyId: event.policyId || undefined,
+      generation: event.generation || undefined,
+    });
+    if (!identity || (event.reason !== 'materialized' && event.reason !== 'refreshed')) {
+      return false;
+    }
+    if (!this.isQueueProjectionReadable(identity.queueType)) {
+      return false;
+    }
+    return this.emitReadyLiveIdentity(identity.queueType, {
+      policyHash: identity.policyId,
+      generation: identity.generation,
+      reason: event.reason,
+      source: event.source,
+      diagnosticEventId: event.diagnosticEventId,
+      timestamp: event.timestamp,
+      broadcast: false,
+    });
   }
 
   clearMaterializedProjectionEcho(queueType: QueueType): void {
@@ -869,19 +895,22 @@ export class QueueProjectionRuntime {
       generation?: number | null;
       reason: QueueProjectionLiveIdentityReason;
       source: QueueProjectionLiveIdentitySource;
+      diagnosticEventId?: string;
+      timestamp?: number;
+      broadcast?: boolean;
     },
-  ): void {
+  ): boolean {
     if (
       !this.isValidProjectionPolicyHash(details.policyHash)
       || !this.isValidProjectionGeneration(details.generation)
     ) {
-      return;
+      return false;
     }
     const generation = Number(details.generation);
     const policyHash = String(details.policyHash);
     const identityKey = `${policyHash}:${generation}`;
     if (this.publishedReadyIdentities.get(queueType) === identityKey) {
-      return;
+      return false;
     }
     this.publishedReadyIdentities.set(queueType, identityKey);
     this.emitLiveIdentityEvent({
@@ -892,8 +921,10 @@ export class QueueProjectionRuntime {
       generation,
       reason: details.reason,
       source: details.source,
-      timestamp: Date.now(),
-    });
+      timestamp: Number.isFinite(Number(details.timestamp)) ? Number(details.timestamp) : Date.now(),
+      diagnosticEventId: details.diagnosticEventId,
+    }, { broadcast: details.broadcast !== false });
+    return true;
   }
 
   private emitInvalidatedLiveIdentity(
@@ -913,11 +944,15 @@ export class QueueProjectionRuntime {
       reason,
       source: 'runtime',
       timestamp: Date.now(),
-    });
+    }, { broadcast: false });
   }
 
-  private emitLiveIdentityEvent(event: QueueProjectionLiveIdentityEvent): void {
-    const diagnosticEventId = `${event.queueType}:${event.policyId ?? 'none'}:${event.generation ?? 'none'}:${event.reason}:${event.timestamp}`;
+  private emitLiveIdentityEvent(
+    event: QueueProjectionLiveIdentityEvent,
+    options: { broadcast?: boolean } = {},
+  ): void {
+    const diagnosticEventId = event.diagnosticEventId
+      || `${event.queueType}:${event.policyId ?? 'none'}:${event.generation ?? 'none'}:${event.reason}:${event.timestamp}`;
     const normalized = { ...event, diagnosticEventId };
     for (const listener of this.liveIdentityListeners) {
       try {
@@ -930,6 +965,16 @@ export class QueueProjectionRuntime {
           error: error instanceof Error ? error.message : String(error),
         });
       }
+    }
+    if (options.broadcast === true) {
+      Promise.resolve(this.deps.publishQueueProjectionIdentityBroadcast?.(normalized)).catch((error) => {
+        this.deps.logger.warn('Queue projection identity broadcast publish failed', {
+          queueType: event.queueType,
+          generation: event.generation,
+          reason: event.reason,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     }
   }
 

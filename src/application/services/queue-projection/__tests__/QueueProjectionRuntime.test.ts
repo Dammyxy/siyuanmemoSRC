@@ -37,6 +37,7 @@ function createRuntime(options: {
   frontendRuntime?: any;
   queueCards?: FSRSCard[];
   rolloutState?: (queueType: QueueType) => string | null | undefined;
+  publishQueueProjectionIdentityBroadcast?: any;
 } = {}) {
   const queueCards = options.queueCards ?? [createCard()];
   const queue = {
@@ -48,6 +49,7 @@ function createRuntime(options: {
     getFrontendRuntime: () => options.frontendRuntime,
     getQueue: () => queue,
     getQueueProjectionRolloutState: (queueType) => options.rolloutState?.(queueType) ?? null,
+    publishQueueProjectionIdentityBroadcast: options.publishQueueProjectionIdentityBroadcast,
     logger: {
       debug: vi.fn(),
       info: vi.fn(),
@@ -327,6 +329,62 @@ describe('QueueProjectionRuntime', () => {
         reason: 'refreshed',
       }),
     ]);
+  });
+
+  it('broadcasts local ready identities and accepts remote identities without projection writes', async () => {
+    const publishQueueProjectionIdentityBroadcast = vi.fn();
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.RetrievalPractice,
+        status: 'ready',
+        policyHash: 'policy-ready',
+        generation: 4,
+        rows: [],
+        counters: null,
+      })),
+      queueProjectionReplace: vi.fn(),
+    };
+    const { runtime } = createRuntime({ backend, publishQueueProjectionIdentityBroadcast });
+    const events: unknown[] = [];
+    runtime.subscribeLiveIdentityEvents((event) => events.push(event));
+
+    await runtime.ensureReady({ queueType: QueueType.RetrievalPractice, source: 'browser' });
+    const accepted = runtime.acceptRemoteLiveIdentityEvent({
+      type: 'queue-projection-live-identity',
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-ready',
+      generation: 5,
+      reason: 'refreshed',
+      source: 'runtime',
+      timestamp: 20,
+      diagnosticEventId: 'remote-event',
+    });
+    const duplicate = runtime.acceptRemoteLiveIdentityEvent({
+      type: 'queue-projection-live-identity',
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-ready',
+      generation: 5,
+      reason: 'refreshed',
+      source: 'runtime',
+      timestamp: 21,
+      diagnosticEventId: 'remote-event-duplicate',
+    });
+
+    expect(publishQueueProjectionIdentityBroadcast).toHaveBeenCalledTimes(1);
+    expect(publishQueueProjectionIdentityBroadcast).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-ready',
+      generation: 4,
+    }));
+    expect(accepted).toBe(true);
+    expect(duplicate).toBe(false);
+    expect(events).toEqual([
+      expect.objectContaining({ generation: 4 }),
+      expect.objectContaining({ generation: 5, diagnosticEventId: 'remote-event' }),
+    ]);
+    expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
   });
 
   it('clones snapshots and hydrates backend rows in requested order', async () => {

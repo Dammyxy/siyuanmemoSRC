@@ -373,6 +373,121 @@ describe('FrontendInstanceRuntime', () => {
     await runtime.dispose();
   });
 
+  it('publishes queue projection identity broadcasts with runtime identity metadata', async () => {
+    const queueProjectionPublishIdentityChanged = vi.fn(async (request: unknown) => ({
+      ok: true,
+      broadcast: request,
+      now: 2,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      queueProjectionPublishIdentityChanged,
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'writer-1',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'scope-writer',
+        },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'writer-1',
+      runtimeScopeId: 'scope-writer',
+    });
+
+    await runtime.start();
+    await runtime.publishQueueProjectionIdentityBroadcast({
+      type: 'queue-projection-live-identity',
+      queueId: 'filter-group' as any,
+      queueType: 'filter-group' as any,
+      policyId: 'policy-a',
+      generation: 3,
+      reason: 'refreshed',
+      source: 'runtime',
+      timestamp: 10,
+      diagnosticEventId: 'event-a',
+    });
+
+    expect(queueProjectionPublishIdentityChanged).toHaveBeenCalledWith(expect.objectContaining({
+      queueId: 'filter-group',
+      policyId: 'policy-a',
+      generation: 3,
+      sourceInstanceId: 'writer-1',
+      sourceSurfaceId: 'scope-writer',
+      sourceMode: 'writer',
+      diagnosticEventId: 'event-a',
+    }));
+    await runtime.dispose();
+  });
+
+  it('accepts remote queue projection identity broadcasts and dedupes local echoes', async () => {
+    let onEvent: ((event: any) => void) | null = null;
+    const subscribeBroadcast = vi.fn((handlers: { onEvent: typeof onEvent }) => {
+      onEvent = handlers.onEvent;
+      return {
+        close: vi.fn(),
+        getDiagnostics: () => ({ state: 'open' }),
+      };
+    });
+    const runtime = new FrontendInstanceRuntime({
+      subscribeBroadcast,
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: false,
+        error: { code: 'BACKEND_UNAVAILABLE', message: 'writer held' },
+        lease: { instanceId: 'writer-1' },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: { instanceId: 'writer-1' }, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'follower-1',
+      runtimeScopeId: 'scope-follower',
+    });
+    const accepted: unknown[] = [];
+
+    await runtime.start();
+    runtime.subscribeQueueProjectionIdentityBroadcasts((event) => accepted.push(event));
+    const remoteEvent = {
+      method: 'memo.queueProjection.identityChanged',
+      params: {
+        queueId: 'filter-group',
+        queueType: 'filter-group',
+        policyId: 'policy-a',
+        generation: 4,
+        reason: 'refreshed',
+        source: 'runtime',
+        sourceInstanceId: 'writer-1',
+        timestamp: 10,
+        diagnosticEventId: 'event-a',
+      },
+    };
+    onEvent?.(remoteEvent);
+    onEvent?.(remoteEvent);
+    onEvent?.({
+      ...remoteEvent,
+      params: {
+        ...remoteEvent.params,
+        sourceInstanceId: 'follower-1',
+        diagnosticEventId: 'local-echo',
+      },
+    });
+
+    expect(accepted).toEqual([
+      expect.objectContaining({
+        queueId: 'filter-group',
+        policyId: 'policy-a',
+        generation: 4,
+      }),
+    ]);
+    await runtime.dispose();
+  });
+
   it('deduplicates duplicate push command notifications while a command is in flight', async () => {
     let onEvent: ((event: {
       method: string;

@@ -25,6 +25,8 @@ import type {
   KernelNetworkFetchExternalResult,
   KernelNetworkStreamExternalRequest,
   KernelNetworkStreamExternalResult,
+  QueueProjectionIdentityBroadcastPayload,
+  QueueProjectionIdentityPublishEnvelope,
 } from '../../../packages/contracts/src/kernel-rpc';
 
 export class KernelSidecarClient {
@@ -166,6 +168,19 @@ export class KernelSidecarClient {
       throw new Error('Kernel companion network.streamExternal returned invalid state');
     }
     return candidate;
+  }
+
+  async queueProjectionPublishIdentityChanged(
+    request: QueueProjectionIdentityBroadcastPayload,
+  ): Promise<QueueProjectionIdentityPublishEnvelope> {
+    const result = await this.call<QueueProjectionIdentityPublishEnvelope>(
+      'queueProjection.publishIdentityChanged',
+      request,
+    );
+    if (!result || typeof result !== 'object' || result.ok !== true || !result.broadcast) {
+      throw new Error('Kernel companion queueProjection.publishIdentityChanged returned invalid response envelope');
+    }
+    return result;
   }
 
   private unwrapWriterLeaseEnvelope(

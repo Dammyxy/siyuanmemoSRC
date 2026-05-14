@@ -14,6 +14,12 @@ import {
   startRuntimePerformanceSpan,
 } from '@/utils/runtimePerformanceDiagnostics';
 import type { KernelBroadcastEvent } from '../../../packages/contracts/src/kernel-rpc';
+import type { QueueProjectionLiveIdentityEvent } from '@/types/queue-projection-live-identity';
+import {
+  getQueueProjectionBroadcastDedupeKey,
+  mapQueueProjectionBroadcastToLiveIdentity,
+  mapQueueProjectionLiveIdentityToBroadcast,
+} from '@/types/queue-projection-live-identity';
 import {
   detectWriterProfile,
   type WriterProfileDetection,
@@ -268,6 +274,7 @@ function getSiyuanAppSurfaceRole(locationHref: string | null): SiyuanAppSurfaceR
 }
 
 type FrontendInstanceMode = 'writer' | 'follower';
+type QueueProjectionIdentityBroadcastListener = (event: QueueProjectionLiveIdentityEvent) => void;
 
 export class FrontendInstanceRuntime {
   private readonly instanceId: string;
@@ -302,6 +309,8 @@ export class FrontendInstanceRuntime {
   private lastWriterUnavailableReason: string | null = null;
   private readonly relayDrainCoalescedCommandIds = new Set<string>();
   private readonly processingRelayCommandIds = new Set<string>();
+  private readonly queueProjectionIdentityListeners = new Set<QueueProjectionIdentityBroadcastListener>();
+  private readonly acceptedQueueProjectionBroadcastKeys = new Set<string>();
 
   constructor(
     private readonly sidecarClient: KernelSidecarClient,
@@ -351,6 +360,35 @@ export class FrontendInstanceRuntime {
 
   getMode(): FrontendInstanceMode {
     return this.mode;
+  }
+
+  subscribeQueueProjectionIdentityBroadcasts(listener: QueueProjectionIdentityBroadcastListener): () => void {
+    this.queueProjectionIdentityListeners.add(listener);
+    this.startPushRelay();
+    return () => {
+      this.queueProjectionIdentityListeners.delete(listener);
+    };
+  }
+
+  async publishQueueProjectionIdentityBroadcast(event: QueueProjectionLiveIdentityEvent): Promise<void> {
+    const broadcast = mapQueueProjectionLiveIdentityToBroadcast(event, {
+      sourceInstanceId: this.instanceId,
+      sourceSurfaceId: this.runtimeScopeId,
+      sourceMode: this.mode,
+    });
+    if (!broadcast) {
+      return;
+    }
+    try {
+      await this.sidecarClient.queueProjectionPublishIdentityChanged(broadcast);
+    } catch (error) {
+      this.logger.warn('[FrontendInstanceRuntime] queue projection identity broadcast failed', {
+        instanceId: this.instanceId,
+        runtimeScopeId: this.runtimeScopeId,
+        diagnosticEventId: broadcast.diagnosticEventId,
+        error,
+      });
+    }
   }
 
   async start(): Promise<void> {
@@ -495,7 +533,10 @@ export class FrontendInstanceRuntime {
 
   private startPushRelay(): void {
     this.stopPushRelay();
-    if (!this.writerCommandHandler) {
+    if (!this.started) {
+      return;
+    }
+    if (!this.writerCommandHandler && this.queueProjectionIdentityListeners.size === 0) {
       return;
     }
     const subscription = this.sidecarClient.subscribeBroadcast?.({
@@ -539,7 +580,11 @@ export class FrontendInstanceRuntime {
   }
 
   private handleKernelBroadcastEvent(event: KernelBroadcastEvent): void {
-    if (event.method !== 'memo.writer.command') {
+    if (event.method === 'memo.queueProjection.identityChanged') {
+      this.handleQueueProjectionIdentityBroadcast(event);
+      return;
+    }
+    if (event.method !== 'memo.writer.command' || this.mode !== 'writer' || !this.writerCommandHandler) {
       return;
     }
     incrementRuntimePerformanceCounter('relay', 'writer-push-command-events');
@@ -555,6 +600,38 @@ export class FrontendInstanceRuntime {
         error,
       });
     });
+  }
+
+  private handleQueueProjectionIdentityBroadcast(event: Extract<KernelBroadcastEvent, { method: 'memo.queueProjection.identityChanged' }>): void {
+    if (event.params.sourceInstanceId === this.instanceId) {
+      return;
+    }
+    const key = getQueueProjectionBroadcastDedupeKey(event.params);
+    if (this.acceptedQueueProjectionBroadcastKeys.has(key)) {
+      return;
+    }
+    const liveEvent = mapQueueProjectionBroadcastToLiveIdentity(event.params);
+    if (!liveEvent) {
+      return;
+    }
+    this.acceptedQueueProjectionBroadcastKeys.add(key);
+    if (this.acceptedQueueProjectionBroadcastKeys.size > 256) {
+      const oldestKey = this.acceptedQueueProjectionBroadcastKeys.values().next().value;
+      if (oldestKey) {
+        this.acceptedQueueProjectionBroadcastKeys.delete(oldestKey);
+      }
+    }
+    for (const listener of this.queueProjectionIdentityListeners) {
+      try {
+        listener(liveEvent);
+      } catch (error) {
+        this.logger.warn('[FrontendInstanceRuntime] queue projection identity listener failed', {
+          instanceId: this.instanceId,
+          runtimeScopeId: this.runtimeScopeId,
+          error,
+        });
+      }
+    }
   }
 
   private startVisibilityRefresh(): void {
