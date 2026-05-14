@@ -99,13 +99,13 @@
       </div> -->
 
       <!-- Loading state -->
-      <div v-if="!showNeuralCustomSubview && loading && !currentDataSource" class="card-browser__loading">
+      <div v-if="firstPageState.showShellLoading" class="card-browser__loading">
         <div class="fn__loading"></div>
       </div>
 
       <!-- Empty state -->
       <div
-        v-else-if="!showNeuralCustomSubview && !loading && hasFirstDataBlockLoaded && totalRowCount === 0"
+        v-else-if="firstPageState.showEmptyState"
         class="card-browser__empty"
       >
         <div>📭</div>
@@ -113,7 +113,7 @@
       </div>
 
       <!-- AG-Grid table -->
-      <div v-else-if="!showNeuralCustomSubview" class="card-browser__grid">
+      <div v-else-if="firstPageState.showGrid" class="card-browser__grid">
         <ag-grid-vue
           class="ag-theme-balham card-browser-grid"
           style="width: 100%; height: 100%;"
@@ -144,6 +144,13 @@
           @row-double-clicked="onRowDoubleClicked"
           @cell-context-menu="onCellContextMenu"
         />
+        <div
+          v-if="firstPageState.overlayKind"
+          class="card-browser__grid-first-page-overlay"
+          :class="`card-browser__grid-first-page-overlay--${firstPageState.overlayKind}`"
+        >
+          <div class="fn__loading"></div>
+        </div>
       </div>
 
       <div
@@ -443,7 +450,9 @@ import { extractBlockIds } from './utils/helpers';
 import { mergeExplicitSelectionByPage } from './utils/paginatedSelection';
 import { resolveEffectiveSortModel } from './utils/sortModel';
 import { createBrowserGridFirstRowsLifecycle } from './BrowserGridFirstRowsLifecycle';
+import type { BrowserGridRowsLifecycleStatus } from './BrowserGridFirstRowsLifecycle';
 import { createBrowserGridDatasourceLifecycle } from './BrowserGridDatasourceLifecycle';
+import { resolveBrowserGridFirstPageState } from './browserGridFirstPageState';
 import {
   fetchAllRowsFromDataSource,
   loadAllRowsFromQueryableDataSource,
@@ -613,6 +622,7 @@ const allRows = ref<BrowserCard[]>([]);
 const totalRowCount = ref(0);
 const allRowsSnapshotReady = ref(false);
 const hasFirstDataBlockLoaded = ref(false);
+const firstRowsStatus = ref<BrowserGridRowsLifecycleStatus | 'pending'>('pending');
 const globalTotalCount = ref<number | null>(null);
 const globalLostCount = ref<number | null>(null);
 const globalDismissedCount = ref<number | null>(null);
@@ -1055,6 +1065,14 @@ const activeQueueTypeForRefresh = computed<QueueType | null>(() => {
 const showNeuralCustomSubview = computed(() =>
   isNeuralRoamQueueActive.value
 );
+const firstPageState = computed(() => resolveBrowserGridFirstPageState({
+  currentDataSourceReady: Boolean(currentDataSource.value),
+  firstRowsStatus: firstRowsStatus.value,
+  hasFirstDataBlockLoaded: hasFirstDataBlockLoaded.value,
+  loading: loading.value,
+  showNeuralCustomSubview: showNeuralCustomSubview.value,
+  totalRowCount: totalRowCount.value,
+}));
 const neuralSubviewTabs = computed(() => ([
   { id: 'concept-cards' as const, label: resolveNeuralSourceLabels().sectionTitle },
   { id: 'roam-history' as const, label: t('roamHistory', '双链轨道') },
@@ -1653,6 +1671,9 @@ const gridFirstRowsLifecycle = createBrowserGridFirstRowsLifecycle({
   measureUiUpdate: (operation, metadata) => measureRuntimePerformance('browser', 'grid.datasource-ui-update', operation, metadata),
   mergeLoadedRows,
   nextTick: (callback) => void nextTick(callback),
+  onStatusChange: (status) => {
+    firstRowsStatus.value = status;
+  },
   recordFirstRowsVisible: recordBrowserFirstRowsVisible,
   rows,
   rowsForFocus,
@@ -1681,6 +1702,7 @@ function rebuildInfiniteDatasource(forceRefresh = false): void {
   const version = ++datasourceVersion;
   loading.value = true;
   hasFirstDataBlockLoaded.value = false;
+  firstRowsStatus.value = 'pending';
   clearLoadedRowsCache();
   gridDatasourceLifecycle.rebuildInfiniteDatasource({
     currentDataSource: currentDataSource.value,

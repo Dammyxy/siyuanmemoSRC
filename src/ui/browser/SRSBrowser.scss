@@ -245,6 +245,22 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  position: relative;
+}
+
+.card-browser__grid-first-page-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--b3-theme-background) 72%, transparent);
+}
+
+.card-browser__grid-first-page-overlay--projection-refreshing {
+  background: color-mix(in srgb, var(--b3-theme-background) 60%, transparent);
 }
 
 /* 拖拽分隔条 - Dialog 模式（垂直线） */

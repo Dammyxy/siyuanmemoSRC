@@ -4,6 +4,16 @@ Last update: 2026-05-14 (Round 352)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-14 - Browser grid first-page rendering state
+
+- Task: Implement OpenSpec change `harden-browser-grid-first-page-rendering` so Browser first-page loading/empty/grid/refreshing state is resolved by one pure UI contract.
+- Touched slice: Browser first-page grid rendering; `src/ui/browser/browserGridFirstPageState.ts`, `BrowserGridFirstRowsLifecycle`, `SRSBrowser.vue`, `SRSBrowser.scss`, focused Browser first-page tests, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: First-page Browser grid state no longer depends on scattered template booleans. When a datasource exists but first rows are still pending, the grid stays mounted with a bounded loading overlay; when projection readiness reports `projection-not-ready`, Browser shows a quiet refreshing overlay instead of confirming empty state or exposing a blank grid. The resolver is pure and cannot materialize projection rows, issue UI SQL, repair projection storage, or switch datasource paths.
+- Debt deferred: AG Grid package/row-model replacement, custom row renderer, backend projection readiness semantics, durable exactly-once cross-window delivery, and live SiYuan visual smoke remain out of scope.
+- Why deferred: This slice only closes first-page render-state ambiguity after the existing datasource/readiness/lifecycle work. Row-model replacement and backend transport changes have different owners and larger runtime smoke surfaces.
+- Next safe step: Run live Browser smoke with cold first-open and cross-window projection refresh; if rows still render late after overlay disappears, capture AG Grid model/update diagnostics before considering row-model replacement.
+- Validation: `pnpm exec vitest run src/ui/browser/__tests__/browserGridFirstPageState.test.ts src/ui/browser/__tests__/BrowserGridFirstRowsLifecycle.test.ts src/ui/browser/__tests__/BrowserGridDatasourceLifecycle.test.ts --reporter=verbose`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate harden-browser-grid-first-page-rendering --strict`.
+
 ### 2026-05-14 - Cross-window queue projection refresh broadcast
 
 - Task: Implement OpenSpec change `add-cross-window-projection-refresh-broadcast` so one window's readable queue projection refresh can wake other windows through the kernel push relay.

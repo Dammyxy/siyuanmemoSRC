@@ -23,6 +23,7 @@ type BrowserGridFirstRowsLifecycleDeps = {
   measureUiUpdate?: (operation: () => void, metadata: Record<string, unknown>) => void;
   mergeLoadedRows: (rows: BrowserCard[]) => void;
   nextTick: (callback: () => void) => void;
+  onStatusChange?: (status: BrowserGridRowsLifecycleStatus) => void;
   recordFirstRowsVisible: (metadata: Record<string, unknown>) => void;
   rows: MutableRef<BrowserCard[]>;
   rowsForFocus: MutableRef<BrowserCard[]>;
@@ -46,6 +47,7 @@ export function createBrowserGridFirstRowsLifecycle(deps: BrowserGridFirstRowsLi
     successCallback: GridSuccessCallback;
     version: number;
   }): BrowserGridRowsLifecycleStatus {
+    deps.onStatusChange?.('empty-datasource');
     if (params.isCurrentVersion()) {
       deps.scheduleUiUpdate(params.version, () => {
         deps.totalRowCount.value = 0;
@@ -71,6 +73,7 @@ export function createBrowserGridFirstRowsLifecycle(deps: BrowserGridFirstRowsLi
     totalCount: number;
     version: number;
   }): BrowserGridRowsLifecycleStatus {
+    deps.onStatusChange?.('loaded');
     params.successCallback(params.rowsForBlock, params.totalCount);
     deps.scheduleUiUpdate(params.version, () => {
       if (!params.isCurrentVersion()) {
@@ -114,6 +117,7 @@ export function createBrowserGridFirstRowsLifecycle(deps: BrowserGridFirstRowsLi
     version: number;
   }): BrowserGridRowsLifecycleStatus {
     if (isQueueProjectionNotReadyError(params.error)) {
+      deps.onStatusChange?.('projection-not-ready');
       if (params.isCurrentVersion()) {
         deps.logger.info('[SiYuanMemo][SRSBrowser] Queue projection is still refreshing; grid request will fail without error noise:', params.error);
         deps.scheduleUiUpdate(params.version, () => {
@@ -125,6 +129,7 @@ export function createBrowserGridFirstRowsLifecycle(deps: BrowserGridFirstRowsLi
     }
 
     if (params.isCurrentVersion()) {
+      deps.onStatusChange?.('error');
       deps.logger.error('[SiYuanMemo][SRSBrowser] Infinite datasource getRows failed:', params.error);
       deps.scheduleUiUpdate(params.version, () => {
         deps.hasFirstDataBlockLoaded.value = true;
