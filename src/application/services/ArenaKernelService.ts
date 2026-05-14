@@ -2,7 +2,14 @@ import type { FSRSParameters } from '@/types/settings';
 import type { SchedulerType } from '@/core/scheduler';
 import { Rating, type FSRSCard } from '@/types/card';
 import type { AIChatRegisteredSkillDescriptor } from '@/application/services/AIChatSkillRegistry';
+import type { SrsTransparencyEvidenceReader } from '@/application/services/SrsTransparencyEvidenceReader';
 import { resolveSchedulerTypeLabel, resolveSrsArenaContestantLabel } from '@/application/helpers/srsDisplayLabels';
+import {
+  buildLearningCurveEvidence,
+  mapReviewLogV2ToLearningCurveHistory,
+  type LearningCurveEvidenceResult,
+} from '@/core/scheduler/learningCurveEvidence';
+import { buildSchedulerStateSnapshot } from '@/core/scheduler/schedulerStateSnapshot';
 import { TSFSRSScheduler } from '@/core/scheduler/strategies/TSFSRSScheduler';
 import type {
   ArenaContestantContract,
@@ -34,6 +41,7 @@ import {
   type ArenaSettings,
   type ArenaTargetKind,
   type ArenaMatchRecord,
+  type SrsArenaLearningEvidenceDiagnostic,
   type SrsArenaContestantId,
   type SrsArenaContestantPrediction,
   type SrsArenaRecommendation,
@@ -63,6 +71,7 @@ type ArenaKernelDeps = {
   getFsrsParams: () => FSRSParameters;
   arenaStore: ArenaStoreService;
   random?: () => number;
+  evidenceReader?: SrsTransparencyEvidenceReader | null;
 };
 
 type AIPackEventInput = {
@@ -142,6 +151,43 @@ function toQualityDelta(label: ArenaOutcomeLabel): number {
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function toSrsArenaLearningEvidenceDiagnostic(
+  evidence: LearningCurveEvidenceResult,
+): SrsArenaLearningEvidenceDiagnostic {
+  return {
+    status: toSrsArenaLearningEvidenceStatus(evidence.status),
+    advisory: true,
+    snapshotKey: evidence.snapshotKey,
+    cardId: evidence.cardId,
+    sampleSize: evidence.sampleSize,
+    usableSampleSize: evidence.usableSampleSize,
+    observedRecallRate: evidence.observedRecallRate,
+    expectedRetention: evidence.expectedRetention,
+    calibrationGap: evidence.calibrationGap,
+    confidence: evidence.confidence,
+    driftDirection: evidence.driftDirection,
+    diagnostics: evidence.diagnostics.slice(),
+    suggestions: evidence.suggestions.map((suggestion) => ({
+      advisory: true,
+      kind: suggestion.kind,
+      confidence: suggestion.confidence,
+      reasons: suggestion.reasons.slice(),
+    })),
+  };
+}
+
+function toSrsArenaLearningEvidenceStatus(status: LearningCurveEvidenceResult['status']): SrsArenaLearningEvidenceDiagnostic['status'] {
+  switch (status) {
+    case 'insufficient-data':
+      return 'insufficient-history';
+    case 'low-quality-data':
+      return 'low-quality-history';
+    case 'ready':
+    default:
+      return 'ready';
+  }
 }
 
 export class ArenaKernelService {
@@ -466,6 +512,11 @@ export class ArenaKernelService {
     const sampleCount = snapshot.entries.reduce((sum, entry) => sum + Math.max(0, Number(entry.sampleCount) || 0), 0);
     const minimumReviewsMet = sampleCount >= settings.srs.minimumReviewsForConfidence;
     const writeEnabled = settings.srs.advisoryOnly === false && minimumReviewsMet;
+    const learningCurveEvidence = await this.buildSrsLearningEvidenceDiagnostic(
+      card,
+      now,
+      predictionContext.schedulingContext,
+    );
     return {
       poolKey,
       targetKind,
@@ -479,9 +530,56 @@ export class ArenaKernelService {
       shouldHighlight: discrepancyRatio >= settings.srs.divergenceThresholdRatio && discrepancyDays >= 1,
       writeEnabled,
       minimumReviewsMet,
+      learningCurveEvidence,
       summary: `Arena 当前更偏向 ${leadingLabel}，按${this.resolveRatingLabel(predictionContext.ratingBasis)}综合建议 ${weightedIntervalDays.toFixed(1)} 天；当前正式调度 ${currentSchedulerLabel} 约 ${currentSchedulerIntervalDays.toFixed(1)} 天。`,
       contestants,
     };
+  }
+
+  private async buildSrsLearningEvidenceDiagnostic(
+    card: FSRSCard,
+    now: number,
+    schedulingContext?: SrsV2SchedulingContext | null,
+  ): Promise<SrsArenaLearningEvidenceDiagnostic> {
+    const snapshot = buildSchedulerStateSnapshot(card, {
+      now,
+      source: 'diagnostic',
+      reviewTime: schedulingContext?.reviewTime ?? null,
+      memoryStateAsOf: schedulingContext?.memoryStateAsOf ?? null,
+    });
+    const unavailable = (diagnostics: string[]): SrsArenaLearningEvidenceDiagnostic => ({
+      status: 'unavailable',
+      advisory: true,
+      snapshotKey: snapshot.snapshotKey,
+      cardId: snapshot.cardId,
+      sampleSize: 0,
+      usableSampleSize: 0,
+      observedRecallRate: null,
+      expectedRetention: null,
+      calibrationGap: null,
+      confidence: 0,
+      driftDirection: 'unknown',
+      diagnostics,
+      suggestions: [],
+    });
+
+    if (!this.deps.evidenceReader) {
+      return unavailable(['evidence-reader-unavailable']);
+    }
+
+    try {
+      const logs = await this.deps.evidenceReader.readRecentReviewLogs({
+        cardId: card.id,
+        now,
+      });
+      return toSrsArenaLearningEvidenceDiagnostic(buildLearningCurveEvidence(
+        snapshot,
+        mapReviewLogV2ToLearningCurveHistory(logs),
+        { now },
+      ));
+    } catch {
+      return unavailable(['evidence-history-unavailable']);
+    }
   }
 
   async recordSrsReview(input: {

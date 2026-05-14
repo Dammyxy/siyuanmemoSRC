@@ -239,6 +239,33 @@ export interface SrsArenaContestantPrediction {
   attribution?: Record<string, unknown>;
 }
 
+export type SrsArenaLearningEvidenceStatus =
+  | 'ready'
+  | 'insufficient-history'
+  | 'low-quality-history'
+  | 'unavailable';
+
+export interface SrsArenaLearningEvidenceDiagnostic {
+  status: SrsArenaLearningEvidenceStatus;
+  advisory: true;
+  snapshotKey: string;
+  cardId: string;
+  sampleSize: number;
+  usableSampleSize: number;
+  observedRecallRate: number | null;
+  expectedRetention: number | null;
+  calibrationGap: number | null;
+  confidence: number;
+  driftDirection: 'weaker-than-expected' | 'stronger-than-expected' | 'stable' | 'unknown';
+  diagnostics: string[];
+  suggestions: Array<{
+    advisory: true;
+    kind: 'review-sooner-advisory' | 'review-later-advisory';
+    confidence: number;
+    reasons: string[];
+  }>;
+}
+
 export interface SrsArenaRecommendation {
   poolKey: string;
   targetKind: Extract<ArenaTargetKind, 'item' | 'descriptor'>;
@@ -252,6 +279,7 @@ export interface SrsArenaRecommendation {
   shouldHighlight: boolean;
   writeEnabled?: boolean;
   minimumReviewsMet?: boolean;
+  learningCurveEvidence?: SrsArenaLearningEvidenceDiagnostic;
   summary: string;
   contestants: SrsArenaContestantPrediction[];
 }

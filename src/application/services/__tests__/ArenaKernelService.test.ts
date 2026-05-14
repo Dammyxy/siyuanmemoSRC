@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ArenaKernelService } from '@/application/services/ArenaKernelService';
 import type { ArenaStoreBatchInput, ArenaStoreService, SrsArenaReviewBatchInput } from '@/application/services/ArenaStoreService';
 import { CardState, CardType, Rating, type FSRSCard } from '@/types/card';
+import type { SrsTransparencyEvidenceReader } from '@/application/services/SrsTransparencyEvidenceReader';
 import {
   DEFAULT_ARENA_SETTINGS,
   buildArenaPoolKey,
@@ -171,6 +172,7 @@ function createKernel(
   settings: ArenaSettings,
   store = createMemoryArenaStore(),
   random = vi.fn(() => 0),
+  evidenceReader?: SrsTransparencyEvidenceReader | null,
 ) {
   let currentSettings = clone(settings);
   const service = new ArenaKernelService({
@@ -181,6 +183,7 @@ function createKernel(
     getFsrsParams: () => clone(DEFAULT_SETTINGS.fsrs),
     arenaStore: store as unknown as ArenaStoreService,
     random,
+    evidenceReader,
   });
   return {
     service,
@@ -433,6 +436,170 @@ describe('ArenaKernelService', () => {
     expect(recommendation?.summary).toContain('Arena 当前更偏向');
     expect(card.due).toBe(NOW + 7 * 86_400_000);
     expect(await store.getLatestScoreSnapshot('srs', 'srs::descriptor')).not.toBeNull();
+  });
+
+  it('attaches advisory learning evidence diagnostics to SRS recommendations without changing interval outputs', async () => {
+    const settings = createEnabledArenaSettings();
+    settings.srs.contestantIds = ['fsrs-v6'];
+    const evidenceReader = {
+      readRecentReviewLogs: vi.fn(async () => [
+        {
+          rating: Rating.Again,
+          reviewedAt: NOW - 86_400_000,
+          commitPolicy: 'write-schedule',
+          queueMode: 'formal',
+          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
+        },
+        {
+          rating: Rating.Again,
+          reviewedAt: NOW - 2 * 86_400_000,
+          commitPolicy: 'write-schedule',
+          queueMode: 'formal',
+          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
+        },
+        {
+          rating: Rating.Again,
+          reviewedAt: NOW - 3 * 86_400_000,
+          commitPolicy: 'write-schedule',
+          queueMode: 'formal',
+          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
+        },
+      ]),
+    };
+    const { service } = createKernel(settings, createMemoryArenaStore(), vi.fn(() => 0), evidenceReader);
+    const card = buildCard({ type: CardType.Item, schedulerType: 'fsrs-v6' });
+
+    const recommendation = await service.buildSrsRecommendation(card, 'fsrs-v6', NOW, {
+      ratingBasis: Rating.Good,
+    });
+
+    expect(evidenceReader.readRecentReviewLogs).toHaveBeenCalledWith({ cardId: card.id, now: NOW });
+    expect(recommendation?.learningCurveEvidence).toMatchObject({
+      status: 'ready',
+      advisory: true,
+      sampleSize: 3,
+      usableSampleSize: 3,
+      driftDirection: 'weaker-than-expected',
+    });
+    expect(recommendation?.learningCurveEvidence?.suggestions[0]?.advisory).toBe(true);
+    expect(recommendation?.weightedIntervalDays).toBeGreaterThan(0);
+    expect(recommendation?.weightedDue).toBeGreaterThan(NOW);
+    expect(card.due).toBe(NOW + 7 * 86_400_000);
+  });
+
+  it('reports insufficient, low-quality, and unavailable learning evidence states explicitly', async () => {
+    const settings = createEnabledArenaSettings();
+    settings.srs.contestantIds = ['fsrs-v6'];
+    const insufficientReader = {
+      readRecentReviewLogs: vi.fn(async () => [
+        {
+          rating: Rating.Good,
+          reviewedAt: NOW,
+          commitPolicy: 'write-schedule',
+          queueMode: 'formal',
+          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
+        },
+      ]),
+    };
+    const lowQualityReader = {
+      readRecentReviewLogs: vi.fn(async () => [
+        { rating: Rating.Good, reviewedAt: NOW - 86_400_000, commitPolicy: 'write-schedule', queueMode: 'formal' },
+        { rating: Rating.Good, reviewedAt: NOW - 2 * 86_400_000, commitPolicy: 'write-schedule', queueMode: 'formal' },
+        { rating: Rating.Good, reviewedAt: NOW - 3 * 86_400_000, commitPolicy: 'write-schedule', queueMode: 'formal' },
+      ]),
+    };
+    const unavailableReader = {
+      readRecentReviewLogs: vi.fn(async () => {
+        throw new Error('history unavailable');
+      }),
+    };
+
+    const insufficient = await createKernel(settings, createMemoryArenaStore(), vi.fn(() => 0), insufficientReader)
+      .service.buildSrsRecommendation(buildCard(), 'fsrs-v6', NOW);
+    const lowQuality = await createKernel(settings, createMemoryArenaStore(), vi.fn(() => 0), lowQualityReader)
+      .service.buildSrsRecommendation(buildCard(), 'fsrs-v6', NOW);
+    const unavailable = await createKernel(settings, createMemoryArenaStore(), vi.fn(() => 0), unavailableReader)
+      .service.buildSrsRecommendation(buildCard(), 'fsrs-v6', NOW);
+    const absent = await createKernel(settings)
+      .service.buildSrsRecommendation(buildCard(), 'fsrs-v6', NOW);
+
+    expect(insufficient?.learningCurveEvidence).toMatchObject({
+      status: 'insufficient-history',
+      advisory: true,
+      sampleSize: 1,
+      suggestions: [],
+    });
+    expect(lowQuality?.learningCurveEvidence).toMatchObject({
+      status: 'low-quality-history',
+      advisory: true,
+      sampleSize: 3,
+      usableSampleSize: 0,
+      suggestions: [],
+    });
+    expect(unavailable?.learningCurveEvidence).toMatchObject({
+      status: 'unavailable',
+      advisory: true,
+      diagnostics: ['evidence-history-unavailable'],
+      suggestions: [],
+    });
+    expect(absent?.learningCurveEvidence).toMatchObject({
+      status: 'unavailable',
+      advisory: true,
+      diagnostics: ['evidence-reader-unavailable'],
+      suggestions: [],
+    });
+  });
+
+  it('does not let learning evidence activate Arena or mutate SRS Arena review writes', async () => {
+    const disabledSettings = clone(DEFAULT_ARENA_SETTINGS);
+    const disabledReader = { readRecentReviewLogs: vi.fn(async () => []) };
+    const disabled = createKernel(disabledSettings, createMemoryArenaStore(), vi.fn(() => 0), disabledReader);
+
+    const disabledRecommendation = await disabled.service.buildSrsRecommendation(buildCard(), 'fsrs-v6', NOW);
+
+    expect(disabledRecommendation).toBeNull();
+    expect(disabledReader.readRecentReviewLogs).not.toHaveBeenCalled();
+
+    const settings = createEnabledArenaSettings();
+    settings.srs.contestantIds = ['fsrs-v6'];
+    const reviewNow = Date.now();
+    const readyReader = {
+      readRecentReviewLogs: vi.fn(async () => [
+        {
+          rating: Rating.Again,
+          reviewedAt: reviewNow - 86_400_000,
+          commitPolicy: 'write-schedule',
+          queueMode: 'formal',
+          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
+        },
+        {
+          rating: Rating.Again,
+          reviewedAt: reviewNow - 2 * 86_400_000,
+          commitPolicy: 'write-schedule',
+          queueMode: 'formal',
+          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
+        },
+        {
+          rating: Rating.Again,
+          reviewedAt: reviewNow - 3 * 86_400_000,
+          commitPolicy: 'write-schedule',
+          queueMode: 'formal',
+          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
+        },
+      ]),
+    };
+    const { service, store } = createKernel(settings, createMemoryArenaStore(), vi.fn(() => 0), readyReader);
+
+    const recommendation = await service.recordSrsReview({
+      card: buildCard({ type: CardType.Item }),
+      rating: Rating.Good,
+      currentSchedulerType: 'fsrs-v6',
+    });
+
+    expect(recommendation?.learningCurveEvidence?.status).toBe('ready');
+    expect(store.data.matches[0]?.srs).not.toHaveProperty('learningCurveEvidence');
+    expect(store.data.matches[0]?.srs?.weightedIntervalDays).toBe(recommendation?.weightedIntervalDays);
+    expect(store.data.matches[0]?.srs?.discrepancyRatio).toBe(recommendation?.discrepancyRatio);
   });
 
   it('seeds SRS manager pools from configured target kinds and shows all configured contestants', async () => {

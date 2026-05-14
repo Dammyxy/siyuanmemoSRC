@@ -4,6 +4,16 @@ Last update: 2026-05-14 (Round 349)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-14 - Arena learning-curve evidence diagnostics
+
+- Task: Implement OpenSpec change `surface-learning-evidence-in-arena-diagnostics` so SRS Arena recommendations expose existing learning-curve evidence as read-only diagnostics.
+- Touched slice: Arena / Scheduler transparency read model; `src/application/services/ArenaKernelService.ts`, `src/types/arena.ts`, `src/application/ApplicationContext.ts`, focused Arena tests, and `ARCHITECTURE.md`.
+- Debt fixed now: `ArenaKernelService.buildSrsRecommendation()` now consumes the application-owned `ReviewLogLearningCurveEvidenceReader`, builds a scheduler snapshot, maps bounded `ReviewLogV2` card history into learning evidence, and attaches compact advisory diagnostics to `SrsArenaRecommendation` for `ready / insufficient-history / low-quality-history / unavailable`. Arena disabled/default-off paths do not call the reader, and review feedback writes do not persist evidence fields into Arena match payloads.
+- Debt deferred: Formal adaptive scheduler weighting, persisted evidence storage, DB migration, backend/kernel RPC contracts, queue projection events, richer Arena Manager analytics, and UI redesign remain out of scope.
+- Why deferred: This slice closes the Arena read-consumer gap only. Turning evidence into write policy needs separate thresholds, rollback semantics, and ownership checks so advisory diagnostics do not become hidden scheduler behavior.
+- Next safe step: If Arena evidence proves useful, propose a separate adaptive-scheduler policy change or persisted-evidence storage change with explicit write gates.
+- Validation: Focused Arena tests passed; full hidden-fallback, boundary, build, and OpenSpec validation are recorded with the implementation task.
+
 ### 2026-05-14 - Runtime smoke closure and stale change archive readiness
 
 - Task: Implement OpenSpec change `close-runtime-smoke-and-archive-stale-changes` as a docs/evidence-only closure pass for stale runtime validation tasks.

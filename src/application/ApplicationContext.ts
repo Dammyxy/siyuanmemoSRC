@@ -598,6 +598,7 @@ export class ApplicationContext {
         },
         getFsrsParams: () => context.getSettingsService().getSettings().fsrs,
         arenaStore: context.getArenaStoreService(),
+        evidenceReader: new ReviewLogLearningCurveEvidenceReader(context.getReviewLogService()),
       });
     });
 
