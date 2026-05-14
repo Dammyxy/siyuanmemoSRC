@@ -161,7 +161,6 @@ import {
   type ReviewSessionUpdateReason,
 } from './useReviewSession';
 import {
-  resolveReviewHeaderVariant,
   type RefreshCurrentItemOptions,
   type ReviewEditableSource,
   type ReviewHeaderVariant,
@@ -169,6 +168,10 @@ import {
   type ReviewUIState,
   type ReviewViewTabBridge,
 } from './types';
+import {
+  resolveCurrentMainReviewQueueType,
+  resolveReviewPresentationHeaderVariant,
+} from '@/types/review-presentation-semantics';
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
@@ -295,14 +298,6 @@ import { createReviewDataObserverRuntime } from './reviewDataObserverRuntime';
 import { createReviewNativeSplitRuntime } from './reviewNativeSplitRuntime';
 
 const logger = createLogger('ReviewView');
-
-const STANDARD_REVIEW_DIALOG_VARIANT_BY_QUEUE_TYPE: Partial<Record<QueueType, ReviewHeaderVariant>> = {
-  [QueueType.RetrievalPractice]: 'retrieval-practice',
-  [QueueType.IncrementalLearning]: 'incremental-learning',
-  [QueueType.FinalDrill]: 'final-drill',
-  [QueueType.FilterGroup]: 'filter-group',
-  [QueueType.NeuralRoam]: 'neural-roam',
-};
 
 type ReviewPluginContextLike = {
   getDialogManager?: () =>
@@ -1061,12 +1056,12 @@ function resolveStandardReviewDialogTarget(): { queueType: QueueType; headerVari
   }
 
   const queueType = activeQueueType as QueueType;
-  const expectedHeaderVariant = STANDARD_REVIEW_DIALOG_VARIANT_BY_QUEUE_TYPE[queueType];
-  if (!expectedHeaderVariant) {
+  if (!resolveCurrentMainReviewQueueType({ activeQueueType: queueType })) {
     return null;
   }
 
-  const activeHeaderVariant = props.headerVariant ?? resolveReviewHeaderVariant(queueType);
+  const expectedHeaderVariant = resolveReviewPresentationHeaderVariant(queueType);
+  const activeHeaderVariant = props.headerVariant ?? resolveReviewPresentationHeaderVariant(queueType);
   if (activeHeaderVariant !== expectedHeaderVariant) {
     return null;
   }

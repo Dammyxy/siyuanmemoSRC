@@ -28,6 +28,7 @@ import {
   type ReviewTabTransferState,
 } from '@/types/unified-data-source';
 import type { ReviewHeaderVariant } from '@/ui/review/v2/types';
+import { resolveReviewPresentation } from '@/types/review-presentation-semantics';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
 import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
@@ -296,37 +297,14 @@ export class DialogManager implements IDialogManager {
     title: string;
     headerVariant: ReviewHeaderVariant;
   } | null {
-    const i18n = this.context.getI18n?.() || {};
-
-    switch (queueType) {
-      case QueueType.RetrievalPractice:
-        return {
-          title: i18n.retrievalPractice || '提取练习',
-          headerVariant: 'retrieval-practice',
-        };
-      case QueueType.IncrementalLearning:
-        return {
-          title: i18n.incrementalLearning || '渐进学习',
-          headerVariant: 'incremental-learning',
-        };
-      case QueueType.FinalDrill:
-        return {
-          title: i18n.finalDrill || '刻意练习',
-          headerVariant: 'final-drill',
-        };
-      case QueueType.FilterGroup:
-        return {
-          title: i18n.filterGroupPractice || '分组队列',
-          headerVariant: 'filter-group',
-        };
-      case QueueType.NeuralRoam:
-        return {
-          title: i18n.neuralReviewTitle || '神经漫游',
-          headerVariant: 'neural-roam',
-        };
-      default:
-        return null;
-    }
+    const presentation = resolveReviewPresentation({
+      queueType,
+      i18n: this.context.getI18n?.() || {},
+      surfaceKind: 'dialog',
+    });
+    return presentation.ok
+      ? { title: presentation.title, headerVariant: presentation.headerVariant }
+      : null;
   }
 
   private async openStandardReviewEntry(options: {

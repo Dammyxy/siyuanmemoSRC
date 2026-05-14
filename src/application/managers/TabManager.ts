@@ -24,7 +24,11 @@ import {
 } from '@/types/unified-data-source';
 import type { ReviewQueueSessionSnapshot, ReviewTabRuntimeState } from '@/types/review-tab';
 import type { ISchedulerRouter } from '@/application/interfaces/ISchedulerRouter';
-import { resolveReviewHeaderVariant } from '@/ui/review/v2/types';
+import {
+  buildReviewPresentationSnapshotKeyParts,
+  resolveReviewPresentation,
+  resolveReviewPresentationHeaderVariant,
+} from '@/types/review-presentation-semantics';
 import { createLogger } from '@/utils/logger';
 import type { BrowserOpenState } from '@/types/browser';
 import type { AIWorkbenchOpenOptions } from '@/types/ai';
@@ -839,37 +843,14 @@ export class TabManager {
     title: string;
     headerVariant: ReviewHeaderVariant;
   } | null {
-    const i18n = this.getPluginI18n();
-
-    switch (queueType) {
-      case QueueType.RetrievalPractice:
-        return {
-          title: i18n.retrievalPractice || '提取练习',
-          headerVariant: 'retrieval-practice',
-        };
-      case QueueType.IncrementalLearning:
-        return {
-          title: i18n.incrementalLearning || '渐进学习',
-          headerVariant: 'incremental-learning',
-        };
-      case QueueType.FinalDrill:
-        return {
-          title: i18n.finalDrill || '刻意练习',
-          headerVariant: 'final-drill',
-        };
-      case QueueType.FilterGroup:
-        return {
-          title: i18n.filterGroupPractice || '分组队列',
-          headerVariant: 'filter-group',
-        };
-      case QueueType.NeuralRoam:
-        return {
-          title: i18n.neuralReviewTitle || '神经漫游',
-          headerVariant: 'neural-roam',
-        };
-      default:
-        return null;
-    }
+    const presentation = resolveReviewPresentation({
+      queueType,
+      i18n: this.getPluginI18n(),
+      surfaceKind: 'tab',
+    });
+    return presentation.ok
+      ? { title: presentation.title, headerVariant: presentation.headerVariant }
+      : null;
   }
 
   private buildCustomModelType(tabType: string): string {
@@ -1031,13 +1012,17 @@ export class TabManager {
   }
 
   private buildReviewTabSurfaceSnapshotKey(data: Pick<ReviewTabData, 'providerId' | 'queueType' | 'title' | 'headerVariant' | 'sharedReviewSessionId' | 'transferState'>): string {
+    const presentationKeyParts = buildReviewPresentationSnapshotKeyParts({
+      surfaceKind: 'tab',
+      queueType: data.queueType,
+      headerVariant: data.headerVariant,
+      title: data.title,
+      scopeFingerprint: this.buildReviewTabTransferStateKey(data.transferState),
+    });
     return [
       String(data.sharedReviewSessionId || '').trim(),
       String(data.providerId || '').trim(),
-      String(data.queueType || '').trim(),
-      String(data.headerVariant || '').trim(),
-      String(data.title || '').trim(),
-      this.buildReviewTabTransferStateKey(data.transferState),
+      ...presentationKeyParts,
     ].join('::');
   }
 
@@ -1405,7 +1390,7 @@ export class TabManager {
       providerId: this.resolveProviderId(options),
       title: String(options.title || this.getDefaultReviewTitle()),
       queueType,
-      headerVariant: options.headerVariant || resolveReviewHeaderVariant(queueType),
+      headerVariant: options.headerVariant || resolveReviewPresentationHeaderVariant(queueType),
       sharedReviewSessionId: normalizeSharedReviewSessionId(
         options.sharedReviewSessionId ?? reviewState?.sharedReviewSessionId,
       ),
@@ -1430,7 +1415,7 @@ export class TabManager {
       queueType,
       headerVariant: typeof data?.headerVariant === 'string'
         ? data.headerVariant
-        : resolveReviewHeaderVariant(queueType),
+        : resolveReviewPresentationHeaderVariant(queueType),
       sharedReviewSessionId: normalizeSharedReviewSessionId(
         data?.sharedReviewSessionId ?? reviewState?.sharedReviewSessionId,
       ),

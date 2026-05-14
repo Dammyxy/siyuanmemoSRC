@@ -1,4 +1,8 @@
 import { Menu } from 'siyuan';
+import {
+  buildStandardReviewQueueSwitchPresets as buildSharedStandardReviewQueueSwitchPresets,
+  resolveCurrentMainReviewQueueType,
+} from '@/types/review-presentation-semantics';
 import { QueueType } from '@/types/unified-data-source';
 import type { ReviewHeaderVariant } from './types';
 
@@ -50,71 +54,23 @@ export type ReviewFullscreenOptions = {
   logger?: ReviewShellLogger;
 };
 
-const MAIN_REVIEW_QUEUE_SWITCH_ORDER: QueueType[] = [
-  QueueType.RetrievalPractice,
-  QueueType.IncrementalLearning,
-  QueueType.FinalDrill,
-  QueueType.FilterGroup,
-  QueueType.NeuralRoam,
-];
-
-const MAIN_REVIEW_QUEUE_BY_HEADER_VARIANT: Partial<Record<ReviewHeaderVariant, QueueType>> = {
-  'retrieval-practice': QueueType.RetrievalPractice,
-  'incremental-learning': QueueType.IncrementalLearning,
-  'final-drill': QueueType.FinalDrill,
-  'filter-group': QueueType.FilterGroup,
-  'neural-roam': QueueType.NeuralRoam,
-};
-
 export function buildStandardReviewQueueSwitchPresets(
   t: ReviewShellTranslate,
 ): StandardReviewQueueSwitchPreset[] {
-  return [
-    {
-      queueType: QueueType.RetrievalPractice,
-      headerVariant: 'retrieval-practice',
-      title: t('retrievalPractice', '提取练习'),
-    },
-    {
-      queueType: QueueType.IncrementalLearning,
-      headerVariant: 'incremental-learning',
-      title: t('incrementalLearning', '渐进学习'),
-    },
-    {
-      queueType: QueueType.FinalDrill,
-      headerVariant: 'final-drill',
-      title: t('finalDrill', '刻意练习'),
-    },
-    {
-      queueType: QueueType.FilterGroup,
-      headerVariant: 'filter-group',
-      title: t('filterGroupPractice', '分组队列'),
-    },
-    {
-      queueType: QueueType.NeuralRoam,
-      headerVariant: 'neural-roam',
-      title: t('neuralReviewTitle', t('neuralRoam', '神经漫游')),
-    },
-  ];
+  return buildSharedStandardReviewQueueSwitchPresets({
+    retrievalPractice: t('retrievalPractice', '提取练习'),
+    incrementalLearning: t('incrementalLearning', '渐进学习'),
+    finalDrill: t('finalDrill', '刻意练习'),
+    filterGroupPractice: t('filterGroupPractice', '分组队列'),
+    neuralReviewTitle: t('neuralReviewTitle', t('neuralRoam', '神经漫游')),
+  });
 }
 
 export function resolveCurrentMainQueueSwitchType(input: {
   headerVariant?: ReviewHeaderVariant;
   activeQueueType?: string | null;
 }): QueueType | null {
-  const variantQueueType = input.headerVariant
-    ? MAIN_REVIEW_QUEUE_BY_HEADER_VARIANT[input.headerVariant]
-    : null;
-  if (variantQueueType) {
-    return variantQueueType;
-  }
-
-  const activeQueueType = input.activeQueueType;
-  if ((MAIN_REVIEW_QUEUE_SWITCH_ORDER as string[]).includes(String(activeQueueType || ''))) {
-    return activeQueueType as QueueType;
-  }
-
-  return null;
+  return resolveCurrentMainReviewQueueType(input);
 }
 
 export function resolveMenuAnchor(target: EventTarget | null): HTMLElement | null {

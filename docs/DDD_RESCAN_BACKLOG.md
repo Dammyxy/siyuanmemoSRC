@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-14 (Round 349)
+Last update: 2026-05-14 (Round 350)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-14 - Review presentation semantics module
+
+- Task: Implement OpenSpec change `unify-review-presentation-semantics` so Review queue/header/title/command/tab presentation identity is resolved by one pure module.
+- Touched slice: Review presentation semantics; `src/types/review-presentation-semantics.ts`, `UnifiedReviewAdapter`, `DialogManager`, `TabManager`, `ReviewView.vue`, `reviewShellCommands.ts`, focused Review presentation/adapter/manager/UI helper tests, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Standard Review queue/header/title maps now live in one pure resolver; `UnifiedReviewAdapter`, dialog/tab standard presets, Review queue switch command metadata, and Review tab snapshot presentation key parts consume the shared presentation identity. Same-title scoped review tabs still include scope fingerprint in the key, and Review-only variants remain distinct from Browser datasource identity.
+- Debt deferred: Public `BrowserCard` / `BrowserRowProjection` DTO rename, soft-stale queue projection events, Browser push-driven reattach, `UnifiedQueueStrategy` side-effect executor, adaptive scheduler writes, persisted evidence storage, DB migrations, and backend/kernel RPC contracts remain out of scope.
+- Why deferred: This slice closes presentation identity locality only. Runtime event contracts, queue mutation policy, scheduler write policy, and public DTO rename have different ownership and wider validation surfaces.
+- Next safe step: If presentation naming remains noisy, route remaining non-standard Review labels through the same resolver or propose a separate Browser DTO rename after active row consumers are inventoried.
+- Validation: Focused Review presentation/adapter/manager/UI helper tests passed; full hidden fallback, boundary, build, and OpenSpec validation are recorded with the implementation task.
 
 ### 2026-05-14 - Arena learning-curve evidence diagnostics
 

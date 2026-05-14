@@ -7,6 +7,11 @@ import {
 } from '@/core/xiuyuan/cardMeta';
 import type { FSRSCard } from '@/types/card';
 import {
+  resolveReviewPresentationHeaderVariant,
+  resolveReviewQueueLabel,
+  resolveReviewSurfaceTitle,
+} from '@/types/review-presentation-semantics';
+import {
   isNeuralRoamSessionQueue,
   type QueueCounterSnapshot,
   type ReviewQueueProgressSnapshot,
@@ -18,7 +23,6 @@ import {
   type ReviewHeaderPriorityBadge,
   type ReviewHeaderVariant,
   type ReviewUIState,
-  resolveReviewHeaderVariant,
 } from '@/ui/review/v2/types';
 import {
   type ReviewHeaderCounterBadgeInput,
@@ -364,50 +368,6 @@ function normalizeStats(stats: QueueStats | undefined): { size: number; label: s
   };
 }
 
-function resolveQueueLabel(i18n: Record<string, string> | undefined, queueType: string): string {
-  switch (queueType) {
-    case 'retrieval-practice':
-      return t(i18n, 'retrievalPractice', '提取练习');
-    case 'incremental-learning':
-      return t(i18n, 'incrementalLearning', '渐进学习');
-    case 'final-drill':
-      return t(i18n, 'finalDrill', '刻意练习');
-    case 'filter-group':
-      return t(i18n, 'filterGroup', '筛选组');
-    case 'neural-roam':
-      return t(i18n, 'neuralRoam', '神经漫游');
-    default:
-      return t(i18n, 'unifiedQueue', '统一队列');
-  }
-}
-
-function resolveSurfaceTitle(
-  i18n: Record<string, string> | undefined,
-  queueType: string,
-  headerVariant?: ReviewHeaderVariant,
-): string {
-  switch (headerVariant) {
-    case 'subset-review':
-      return t(i18n, 'reviewSubsetTitle', '子集复习');
-    case 'temporary-drill':
-      return t(i18n, 'temporaryDrill', '临时练习');
-    case 'leech':
-      return t(i18n, 'startLeechPractice', '难点攻坚');
-    case 'filter-group':
-      return t(i18n, 'filterGroupPractice', '筛选复习');
-    case 'neural-roam':
-      return t(i18n, 'neuralReviewTitle', '神经漫游');
-    case 'retrieval-practice':
-      return t(i18n, 'retrievalPractice', '提取练习');
-    case 'incremental-learning':
-      return t(i18n, 'incrementalLearning', '渐进学习');
-    case 'final-drill':
-      return t(i18n, 'finalDrill', '刻意练习');
-    default:
-      return resolveQueueLabel(i18n, queueType);
-  }
-}
-
 function buildQueueProgressSnapshot(
   i18n: Record<string, string> | undefined,
   queueType: string,
@@ -419,7 +379,7 @@ function buildQueueProgressSnapshot(
   const completed = total !== null ? Math.max(0, total - remaining) : 0;
   return {
     queueType: queueType || null,
-    queueLabel: resolveQueueLabel(i18n, queueType),
+    queueLabel: resolveReviewQueueLabel(i18n, queueType),
     completed,
     remaining,
     total,
@@ -500,7 +460,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     context: AdapterContext,
   ): Promise<ReviewUIState> {
     const queueType = hasQueueType(queue) ? queue.getType() : '';
-    const headerVariant = this.headerVariant || resolveReviewHeaderVariant(queueType);
+    const headerVariant = this.headerVariant || resolveReviewPresentationHeaderVariant(queueType);
     const { stats, counterSummary, counterBadges, queueSize, remainingSize, queueProgress } = this.resolveHeaderPlaceholder(
       queueType,
       headerVariant,
@@ -543,7 +503,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     if (!item) {
       return {
         header: {
-          title: resolveSurfaceTitle(this.i18n, queueType, headerVariant),
+          title: resolveReviewSurfaceTitle({ i18n: this.i18n, queueType, headerVariant }),
           stats,
           counterSummary,
           counterBadges,
@@ -612,7 +572,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
 
     return {
       header: {
-        title: resolveSurfaceTitle(this.i18n, queueType, headerVariant),
+        title: resolveReviewSurfaceTitle({ i18n: this.i18n, queueType, headerVariant }),
         stats,
         counterSummary,
         counterBadges,
@@ -674,7 +634,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     }
 
     const queueType = hasQueueType(queue) ? queue.getType() : '';
-    const headerVariant = this.headerVariant || resolveReviewHeaderVariant(queueType);
+    const headerVariant = this.headerVariant || resolveReviewPresentationHeaderVariant(queueType);
     const stats = normalizeStats(await queue.getStats?.());
     const safeContext = context ?? { showAnswer: false };
 
@@ -699,7 +659,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       snapshot,
       context: safeContext,
     });
-    const surfaceTitle = resolveSurfaceTitle(this.i18n, queueType, headerVariant);
+    const surfaceTitle = resolveReviewSurfaceTitle({ i18n: this.i18n, queueType, headerVariant });
     const label = snapshot
       ? `${Math.max(0, Number(snapshot.due) || 0)} due · ${overallRemaining} remaining`
       : (stats.label || `${overallRemaining} due`);
@@ -744,7 +704,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     const answeredCount = Math.max(0, Number(context.session?.answeredCount) || 0);
     const remainingSize = Math.max(0, initialTotal - answeredCount);
     const queueSize = Math.max(initialTotal, remainingSize);
-    const surfaceTitle = resolveSurfaceTitle(this.i18n, queueType, headerVariant);
+    const surfaceTitle = resolveReviewSurfaceTitle({ i18n: this.i18n, queueType, headerVariant });
 
     return {
       stats: {
