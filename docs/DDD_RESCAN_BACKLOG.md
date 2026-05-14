@@ -4,6 +4,16 @@ Last update: 2026-05-13 (Round 347)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-13 - Writer profile detector enforcement
+
+- Task: Implement OpenSpec change `stabilize-writer-profile-detector` so desktop primary app is the canonical writer and desktop document windows fail closed instead of taking writer ownership.
+- Touched slice: Kernel companion writer lease/profile boundary; `src/application/clients/writerProfileDetector.ts`, `FrontendInstanceRuntime`, `ApplicationContext`, `src/index.ts`, `src/kernel.ts`, `packages/contracts/src/kernel-rpc.ts`, focused detector/runtime/kernel tests, `ARCHITECTURE.md`, and `docs/ADR-003-kernel-sidecar-coordinator.md`.
+- Debt fixed now: Added a pure bounded writer profile detector with backend container, frontend kind, surface role, writer eligibility, confidence, reason, and sanitized URL/runtime diagnostics. Frontend runtime now reports profile fields through writer lease calls; kernel lease policy rejects follower-only/unavailable runtimes when no active writer exists, blocks document-window reclaim over primary-app owners, allows primary-app reclaim from provisional active-frontend owners, and preserves `writesSiyuanMemoDb=false`.
+- Debt deferred: Docker backend and mobile WebView writer behavior remain provisional because official install/runtime payloads were not available for validation. Browser frontend evidence is currently from a web frontend connected to the desktop `std` backend, not Docker evidence.
+- Why deferred: Promoting Docker/mobile policy without real backend/container/WebView payloads would turn unvalidated environment assumptions into writer election behavior.
+- Next safe step: When Docker/mobile packages are available, capture the same bounded profile payloads and add explicit backend-specific policy tests before changing active-frontend promotion rules.
+- Validation: Focused detector, runtime, and VM-loaded kernel lease policy tests were added and pass; full boundary/build validation is recorded with the OpenSpec implementation task.
+
 ### 2026-05-13 - Kernel companion sample-style build
 
 - Task: Align SiYuanMemo kernel companion packaging with the official backend-plugin sample by moving the kernel script into typed source, adding a webpack kernel build, and expanding manifest platform support.

@@ -213,6 +213,33 @@ function normalizeDocumentHasFocus(value) {
   return undefined;
 }
 
+function normalizeWriterProfile(value) {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const backendContainer = normalizeOptionalString(value.backendContainer, 32);
+  const frontendKind = normalizeOptionalString(value.frontendKind, 32);
+  const surfaceRole = normalizeOptionalString(value.surfaceRole, 32);
+  const writerEligibility = normalizeOptionalString(value.writerEligibility, 32);
+  const confidence = normalizeOptionalString(value.confidence, 16);
+  const reason = normalizeOptionalString(value.reason, 256);
+  const sanitizedLocationHref = value.sanitizedLocationHref === null
+    ? null
+    : normalizeOptionalString(value.sanitizedLocationHref, 512);
+  if (!backendContainer || !frontendKind || !surfaceRole || !writerEligibility || !confidence || !reason) {
+    return undefined;
+  }
+  return {
+    backendContainer,
+    frontendKind,
+    surfaceRole,
+    writerEligibility,
+    confidence,
+    reason,
+    sanitizedLocationHref,
+  };
+}
+
 function createCommandId() {
   return `cmd-${nowMs().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -242,6 +269,7 @@ function cloneLease(lease) {
     visibilityState: lease.visibilityState,
     documentHasFocus: lease.documentHasFocus,
     locationHref: lease.locationHref,
+    writerProfile: lease.writerProfile,
     leaseEpoch: lease.leaseEpoch,
     ownerChangedAt: lease.ownerChangedAt,
   };
@@ -266,12 +294,14 @@ function buildLeaseClientState(named, activeLease = null) {
   const visibilityState = normalizeOptionalString(named.visibilityState, 32) ?? activeLease?.visibilityState;
   const documentHasFocus = normalizeDocumentHasFocus(named.documentHasFocus);
   const locationHref = normalizeOptionalString(named.locationHref, 512) ?? activeLease?.locationHref;
+  const writerProfile = normalizeWriterProfile(named.writerProfile) ?? activeLease?.writerProfile;
   return {
     visibilityState,
     documentHasFocus: typeof documentHasFocus === 'boolean'
       ? documentHasFocus
       : activeLease?.documentHasFocus,
     locationHref,
+    writerProfile,
   };
 }
 
@@ -291,6 +321,15 @@ function isAuxiliarySiyuanSurface(locationHref) {
 }
 
 function getSiyuanAppSurfaceRole(state) {
+  const profileRole = normalizeOptionalString(state?.writerProfile?.surfaceRole, 32);
+  if (
+    profileRole === 'primary-app'
+    || profileRole === 'document-window'
+    || profileRole === 'active-frontend'
+    || profileRole === 'auxiliary'
+  ) {
+    return profileRole;
+  }
   const locationHref = normalizeOptionalString(state?.locationHref, 512);
   if (!locationHref) {
     return 'unknown';
@@ -308,6 +347,30 @@ function getSiyuanAppSurfaceRole(state) {
   return 'primary-app';
 }
 
+function getWriterEligibility(state) {
+  const eligibility = normalizeOptionalString(state?.writerProfile?.writerEligibility, 32);
+  if (
+    eligibility === 'canonical'
+    || eligibility === 'follower-only'
+    || eligibility === 'provisional-candidate'
+    || eligibility === 'never'
+    || eligibility === 'unavailable'
+  ) {
+    return eligibility;
+  }
+  const role = getSiyuanAppSurfaceRole(state);
+  if (role === 'primary-app') {
+    return 'canonical';
+  }
+  if (role === 'document-window') {
+    return 'follower-only';
+  }
+  if (role === 'auxiliary') {
+    return 'never';
+  }
+  return 'unknown';
+}
+
 function isNormalSiyuanAppSurface(state) {
   const role = getSiyuanAppSurfaceRole(state);
   return role === 'primary-app' || role === 'document-window';
@@ -320,6 +383,9 @@ function getWriterLeaseSurfaceScore(state) {
   }
   if (role === 'document-window') {
     return 25;
+  }
+  if (role === 'active-frontend') {
+    return 22;
   }
   if (role === 'auxiliary') {
     return 20;
@@ -364,6 +430,10 @@ function isLeaseReclaimableByVisibleRequester(activeLease, named, at) {
   if (!activeLease || !isRequesterVisible(named)) {
     return false;
   }
+  const requesterEligibility = getWriterEligibility(named);
+  if (requesterEligibility === 'follower-only' || requesterEligibility === 'never' || requesterEligibility === 'unavailable') {
+    return false;
+  }
   const requesterRole = getSiyuanAppSurfaceRole(named);
   const ownerRole = getSiyuanAppSurfaceRole(activeLease);
   const requesterIsNormalApp = requesterRole === 'primary-app' || requesterRole === 'document-window';
@@ -383,6 +453,20 @@ function isLeaseReclaimableByVisibleRequester(activeLease, named, at) {
     return true;
   }
   return getWriterLeaseForegroundScore(named) > getWriterLeaseForegroundScore(activeLease);
+}
+
+function getWriterIneligibleReason(named) {
+  const eligibility = getWriterEligibility(named);
+  if (eligibility === 'follower-only') {
+    return 'writer unavailable: current runtime profile is follower-only';
+  }
+  if (eligibility === 'never') {
+    return 'writer unavailable: current runtime profile is never eligible';
+  }
+  if (eligibility === 'unavailable') {
+    return 'writer unavailable: current runtime profile is unavailable';
+  }
+  return null;
 }
 
 function buildWriterLeaseOwnerMetadata(activeLease, instanceId, at) {
@@ -720,6 +804,17 @@ async function writerAcquireLease(params) {
       return buildUnavailableEnvelope(
         `writer lease held by another instance: ${activeLease.instanceId}`,
         activeLease,
+        at,
+      );
+    }
+  }
+
+  if (!activeLease) {
+    const ineligibleReason = getWriterIneligibleReason(named);
+    if (ineligibleReason) {
+      return buildUnavailableEnvelope(
+        ineligibleReason,
+        null,
         at,
       );
     }

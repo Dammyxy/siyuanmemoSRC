@@ -14,10 +14,18 @@ import {
   startRuntimePerformanceSpan,
 } from '@/utils/runtimePerformanceDiagnostics';
 import type { KernelBroadcastEvent } from '../../../packages/contracts/src/kernel-rpc';
+import {
+  detectWriterProfile,
+  type WriterProfileDetection,
+} from './writerProfileDetector';
 
 export interface FrontendInstanceRuntimeOptions {
   instanceId?: string;
   runtimeScopeId?: string;
+  backendContainer?: string;
+  frontendKind?: string;
+  isBrowser?: boolean;
+  isMobile?: boolean;
   leaseTtlMs?: number;
   relayPollIntervalMs?: number;
   relayDrainBudgetMs?: number;
@@ -197,6 +205,31 @@ function resolveWindowLocationHref(): string | null {
   }
 }
 
+function resolveDocumentBodyClass(): string | null {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+  try {
+    return typeof document.body?.className === 'string' ? document.body.className : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveUserAgentFamily(): 'electron' | 'browser' | 'mobile' | 'unknown' {
+  if (typeof navigator === 'undefined' || typeof navigator.userAgent !== 'string') {
+    return 'unknown';
+  }
+  const userAgent = navigator.userAgent;
+  if (userAgent.includes('Electron')) {
+    return 'electron';
+  }
+  if (userAgent.includes('Mobile')) {
+    return 'mobile';
+  }
+  return 'browser';
+}
+
 function normalizeObservedString(value: unknown): string | null {
   const text = String(value || '').trim();
   return text ? text : null;
@@ -249,6 +282,10 @@ export class FrontendInstanceRuntime {
   private readonly startupMaxWaitMs: number;
   private readonly logger: FrontendRuntimeDiagnosticsLogger;
   private readonly writerCommandHandler: FrontendInstanceRuntimeOptions['writerCommandHandler'];
+  private readonly backendContainer: string;
+  private readonly frontendKind: string;
+  private readonly isBrowser: boolean | null;
+  private readonly isMobile: boolean | null;
   private mode: FrontendInstanceMode = 'follower';
   private started = false;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -262,6 +299,7 @@ export class FrontendInstanceRuntime {
   private relayDrainContinuationTimer: ReturnType<typeof setTimeout> | null = null;
   private relayNoCommandStreak = 0;
   private nextRelayWatchdogAllowedAt = 0;
+  private lastWriterUnavailableReason: string | null = null;
   private readonly relayDrainCoalescedCommandIds = new Set<string>();
   private readonly processingRelayCommandIds = new Set<string>();
 
@@ -297,6 +335,10 @@ export class FrontendInstanceRuntime {
       : 5_000;
     this.logger = options.logger ?? createLogger('FrontendInstanceRuntime');
     this.writerCommandHandler = options.writerCommandHandler;
+    this.backendContainer = String(options.backendContainer || '').trim() || 'unknown';
+    this.frontendKind = String(options.frontendKind || '').trim() || 'unknown';
+    this.isBrowser = typeof options.isBrowser === 'boolean' ? options.isBrowser : null;
+    this.isMobile = typeof options.isMobile === 'boolean' ? options.isMobile : null;
   }
 
   getInstanceId(): string {
@@ -362,7 +404,7 @@ export class FrontendInstanceRuntime {
   async ensureWritable(): Promise<void> {
     await this.refreshOwnership();
     if (this.mode !== 'writer') {
-      throw new Error('BACKEND_UNAVAILABLE: writer lease held by another instance');
+      throw new Error(this.lastWriterUnavailableReason || 'BACKEND_UNAVAILABLE: writer lease held by another instance');
     }
   }
 
@@ -640,6 +682,9 @@ export class FrontendInstanceRuntime {
   ): void {
     const previousMode = this.mode;
     this.mode = nextMode;
+    if (nextMode === 'writer') {
+      this.lastWriterUnavailableReason = null;
+    }
     if (previousMode !== nextMode) {
       this.logger.info('[FrontendInstanceRuntime] mode changed', {
         instanceId: this.instanceId,
@@ -685,6 +730,15 @@ export class FrontendInstanceRuntime {
       return false;
     }
     if (!ownership.leaseHolder) {
+      const currentProfile = this.buildCurrentWriterProfile();
+      if (
+        currentProfile?.writerEligibility === 'follower-only'
+        || currentProfile?.writerEligibility === 'never'
+        || currentProfile?.writerEligibility === 'unavailable'
+      ) {
+        this.lastWriterUnavailableReason = `BACKEND_UNAVAILABLE: writer unavailable: ${currentProfile.reason}`;
+        return false;
+      }
       return true;
     }
     if (ownership.leaseHolder === this.instanceId || reason === 'heartbeat') {
@@ -790,15 +844,40 @@ export class FrontendInstanceRuntime {
     visibilityState?: string;
     documentHasFocus?: boolean;
     locationHref?: string;
+    writerProfile?: WriterProfileDetection;
   } {
     const visibilityState = resolveDocumentVisibilityState();
     const documentHasFocus = resolveDocumentHasFocus();
     const locationHref = resolveWindowLocationHref();
+    const writerProfile = this.buildCurrentWriterProfile() ?? undefined;
     return {
       ...(visibilityState ? { visibilityState } : {}),
       ...(typeof documentHasFocus === 'boolean' ? { documentHasFocus } : {}),
       ...(locationHref ? { locationHref } : {}),
+      ...(writerProfile ? { writerProfile } : {}),
     };
+  }
+
+  private buildCurrentWriterProfile(): WriterProfileDetection | null {
+    if (!this.shouldSendWriterProfile()) {
+      return null;
+    }
+    return detectWriterProfile({
+      backendContainer: this.backendContainer,
+      frontendKind: this.frontendKind,
+      isBrowser: this.isBrowser,
+      isMobile: this.isMobile,
+      userAgentFamily: resolveUserAgentFamily(),
+      locationHref: resolveWindowLocationHref(),
+      bodyClass: resolveDocumentBodyClass(),
+    });
+  }
+
+  private shouldSendWriterProfile(): boolean {
+    return this.backendContainer !== 'unknown'
+      || this.frontendKind !== 'unknown'
+      || this.isBrowser !== null
+      || this.isMobile !== null;
   }
 
   private async observeCurrentLease(reason: string): Promise<FrontendOwnershipSnapshot> {

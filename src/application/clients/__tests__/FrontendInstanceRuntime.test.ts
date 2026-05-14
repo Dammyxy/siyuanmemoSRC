@@ -195,6 +195,71 @@ describe('FrontendInstanceRuntime', () => {
     await runtime.dispose();
   });
 
+  it('passes bounded writer profile diagnostics through writer lease calls', async () => {
+    vi.stubGlobal('document', {
+      visibilityState: 'visible',
+      hasFocus: vi.fn(() => true),
+      body: { className: 'fn__flex-column body--toolbar-hide body--win32' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 SiYuan/3.6.5 Chrome/146 Electron/41 Safari/537.36',
+      platform: 'Win32',
+    });
+    vi.stubGlobal('window', {
+      location: { href: 'http://127.0.0.1:61082/stage/build/app/?v=1778023002402' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const writerHello = vi.fn(async () => ({ ok: true, lease: null, now: 1 }));
+    const writerAcquireLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'instance-a',
+        acquiredAt: 1,
+        expiresAt: 61_000,
+        lastHeartbeatAt: 1,
+        surfaceId: 'scope-a',
+      },
+      now: 1,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello,
+      writerAcquireLease,
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      runtimeScopeId: 'scope-a',
+      backendContainer: 'std',
+      frontendKind: 'desktop',
+      isBrowser: false,
+      isMobile: false,
+    });
+
+    await runtime.start();
+
+    expect(writerHello).toHaveBeenCalledWith(expect.objectContaining({
+      writerProfile: expect.objectContaining({
+        backendContainer: 'std',
+        frontendKind: 'desktop',
+        surfaceRole: 'primary-app',
+        writerEligibility: 'canonical',
+        sanitizedLocationHref: 'http://127.0.0.1:61082/stage/build/app/?v=<redacted>',
+      }),
+    }));
+    expect(writerAcquireLease).toHaveBeenCalledWith(expect.objectContaining({
+      writerProfile: expect.objectContaining({
+        backendContainer: 'std',
+        frontendKind: 'desktop',
+        surfaceRole: 'primary-app',
+        writerEligibility: 'canonical',
+      }),
+    }));
+    await runtime.dispose();
+  });
+
   it('uses a longer default writer lease ttl for background-throttled windows', async () => {
     const writerAcquireLease = vi.fn(async () => ({
       ok: true,
@@ -1401,6 +1466,55 @@ describe('FrontendInstanceRuntime', () => {
       refreshOwnership: (reason: string) => Promise<{ leaseHolder: string | null }>;
     }).refreshOwnership('manual');
 
+    expect(writerAcquireLease).not.toHaveBeenCalled();
+    expect(runtime.getMode()).toBe('follower');
+  });
+
+  it('desktop document-window fails closed when no primary app writer is observed', async () => {
+    vi.stubGlobal('document', {
+      visibilityState: 'visible',
+      hasFocus: vi.fn(() => true),
+      body: { className: 'fn__flex-column body--window body--win32' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 SiYuan/3.6.5 Chrome/146 Electron/41 Safari/537.36',
+      platform: 'Win32',
+    });
+    vi.stubGlobal('window', {
+      location: { href: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const writerAcquireLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'document-window-instance',
+        acquiredAt: 2,
+        expiresAt: 62_000,
+        lastHeartbeatAt: 2,
+        surfaceId: 'document-window-scope',
+      },
+      now: 2,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 3 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'document-window-instance',
+      runtimeScopeId: 'document-window-scope',
+      backendContainer: 'std',
+      frontendKind: 'desktop-window',
+      isBrowser: true,
+      isMobile: false,
+    });
+
+    await expect(runtime.ensureWritable()).rejects.toThrow(
+      'BACKEND_UNAVAILABLE: writer unavailable: desktop Electron document window is follower-only',
+    );
     expect(writerAcquireLease).not.toHaveBeenCalled();
     expect(runtime.getMode()).toBe('follower');
   });

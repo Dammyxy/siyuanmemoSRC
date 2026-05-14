@@ -55,6 +55,46 @@ export interface KernelFastPathCapability {
 
 export type KernelFastPathCapabilities = Record<KernelFastPathCapabilityKey, KernelFastPathCapability>;
 
+export type WriterBackendContainer =
+  | 'std'
+  | 'docker'
+  | 'android'
+  | 'ios'
+  | 'harmony'
+  | 'unknown';
+
+export type WriterFrontendKind =
+  | 'desktop'
+  | 'desktop-window'
+  | 'browser-desktop'
+  | 'browser-mobile'
+  | 'mobile'
+  | 'unknown';
+
+export type WriterSurfaceRole =
+  | 'primary-app'
+  | 'document-window'
+  | 'active-frontend'
+  | 'auxiliary'
+  | 'unknown';
+
+export type WriterEligibility =
+  | 'canonical'
+  | 'follower-only'
+  | 'provisional-candidate'
+  | 'never'
+  | 'unavailable';
+
+export interface WriterProfilePayload {
+  backendContainer: WriterBackendContainer;
+  frontendKind: WriterFrontendKind;
+  surfaceRole: WriterSurfaceRole;
+  writerEligibility: WriterEligibility;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+  sanitizedLocationHref: string | null;
+}
+
 export interface WriterLeasePayload {
   instanceId: string;
   acquiredAt: number;
@@ -65,6 +105,7 @@ export interface WriterLeasePayload {
   visibilityState?: string;
   documentHasFocus?: boolean;
   locationHref?: string;
+  writerProfile?: WriterProfilePayload;
   leaseEpoch?: number;
   ownerChangedAt?: number;
 }
@@ -99,6 +140,7 @@ export interface KernelWriterHelloRequest {
   visibilityState?: string;
   documentHasFocus?: boolean;
   locationHref?: string;
+  writerProfile?: WriterProfilePayload;
 }
 
 export interface KernelWriterAcquireLeaseRequest {
@@ -109,6 +151,7 @@ export interface KernelWriterAcquireLeaseRequest {
   visibilityState?: string;
   documentHasFocus?: boolean;
   locationHref?: string;
+  writerProfile?: WriterProfilePayload;
 }
 
 export interface KernelWriterRenewLeaseRequest {
@@ -119,6 +162,7 @@ export interface KernelWriterRenewLeaseRequest {
   visibilityState?: string;
   documentHasFocus?: boolean;
   locationHref?: string;
+  writerProfile?: WriterProfilePayload;
 }
 
 export interface KernelWriterReleaseLeaseRequest {

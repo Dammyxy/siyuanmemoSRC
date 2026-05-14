@@ -223,6 +223,8 @@ export interface ApplicationConfig {
   plugin: Plugin;
   /** 国际化资源 */
   i18n: I18nDictionary;
+  /** SiYuan frontend kind from getFrontend() */
+  frontendKind?: string;
 }
 
 /**
@@ -1405,6 +1407,10 @@ export class ApplicationContext {
           frontendInstanceRuntime = new FrontendInstanceRuntime(kernelSidecarClient, {
             instanceId: ApplicationContext.resolveKernelWriterLeaseInstanceId(),
             leaseTtlMs: ApplicationContext.resolveKernelWriterLeaseTtlMs(),
+            backendContainer: ApplicationContext.resolveSiyuanBackendContainer(),
+            frontendKind: config.frontendKind,
+            isBrowser: (config.plugin as unknown as { isBrowser?: boolean }).isBrowser,
+            isMobile: (config.plugin as unknown as { isMobile?: boolean }).isMobile,
             writerCommandHandler: (command) => ApplicationContext.executeWriterRelayCommand(
               srsBackendClient!,
               command,
@@ -1962,6 +1968,26 @@ export class ApplicationContext {
       return undefined;
     }
     return Math.max(3_000, Math.floor(ttlMs));
+  }
+
+  private static resolveSiyuanBackendContainer(): string {
+    try {
+      const system = (globalThis as unknown as {
+        window?: {
+          siyuan?: {
+            config?: {
+              system?: {
+                container?: unknown;
+              };
+            };
+          };
+        };
+      }).window?.siyuan?.config?.system;
+      const container = String(system?.container || '').trim();
+      return container || 'unknown';
+    } catch {
+      return 'unknown';
+    }
   }
 
   private static shouldEnableKernelTransactionIngestListener(input: {

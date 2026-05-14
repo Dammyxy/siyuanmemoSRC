@@ -20,7 +20,7 @@ Writer ownership follows runtime profile:
 1. Desktop Electron uses a Primary-App Writer profile: the main SiYuan app renderer is the canonical writer, and document windows are followers rather than peer writers.
 2. If a desktop document window observes no primary-app writer lease while kernel/RPC is still alive, it must fail closed with explicit writer-unavailable diagnostics instead of silently taking over.
 3. Docker/browser and mobile WebView do not have Electron main-window semantics; they require a separate Active-Frontend Writer profile rather than inheriting desktop document-window rules.
-4. Profile detector work starts with diagnostics only: collect bounded runtime observations for desktop main window, desktop document window, Docker/browser, and mobile WebView before changing writer election behavior.
+4. The profile detector now changes desktop lease behavior only for validated desktop profiles: primary app can be canonical writer, desktop document windows fail closed as follower-only, and browser/mobile/Docker remain provisional until backend-specific evidence exists.
 
 ## Consequences
 
@@ -38,4 +38,4 @@ Writer ownership follows runtime profile:
 - Document window renderer: `/stage/build/app/window.html?enWindowTitle=<redacted>&enhance=<redacted>`, `system.container=std`, Electron user-agent family, plugin `isBrowser=true`, plugin `isMobile=false`, writer runtime mode `follower`, observed active lease still points to main renderer.
 - Browser frontend against the same desktop backend: `/stage/build/desktop/?r=<redacted>`, `system.container=std`, browser user-agent family, plugin `isBrowser=true`, plugin `isMobile=false`, runtime mode `follower`. One observation saw the lease pointing at the desktop document window during handover, then the main renderer reclaimed writer on the next CDP probe. Treat this as evidence that browser frontend probing can reveal lease transitions, but should not be used as Docker-backend evidence.
 
-This supports using plugin/runtime profile signals together with sanitized URL role signals for desktop detection. Docker/browser and mobile WebView still need their own captured payloads before detector behavior changes.
+This supports using plugin/runtime profile signals together with sanitized URL role signals for desktop detection. Desktop primary-app/document-window behavior is now enforced through the writer profile detector and kernel lease policy. Docker backend and mobile WebView still need their own captured payloads before their provisional active-frontend behavior can be promoted.

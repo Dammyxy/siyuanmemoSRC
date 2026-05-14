@@ -235,7 +235,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       this.context = await measureRuntimePerformance(
         'startup',
         'application-context.create',
-        () => ApplicationContext.create({ plugin: this, i18n: this.i18n || {} }),
+        () => ApplicationContext.create({ plugin: this, i18n: this.i18n || {}, frontendKind: frontEnd }),
         { frontend: frontEnd },
       );
       this.contextReady.resolve(this.getContext());
