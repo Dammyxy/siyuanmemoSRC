@@ -189,6 +189,38 @@ watch(
   margin: 0.4em 0;
 }
 
+.multi-cloze-card-renderer__body :deep(.siyuanmemo-multi-cloze__placeholder) {
+  display: inline-block;
+  min-width: var(--siyuanmemo-multi-cloze-blank-width, 4ch);
+  max-width: 28ch;
+  padding: 0 0.28em;
+  border-bottom: 2px solid var(--b3-theme-primary);
+  border-radius: 4px 4px 2px 2px;
+  color: transparent;
+  background: color-mix(in srgb, var(--b3-theme-primary) 9%, transparent);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  vertical-align: baseline;
+}
+
+.multi-cloze-card-renderer__body :deep(.siyuanmemo-multi-cloze__answer) {
+  border-radius: 4px;
+  padding: 0 0.16em;
+}
+
+.multi-cloze-card-renderer__body :deep(.siyuanmemo-multi-cloze__answer--current) {
+  color: var(--b3-theme-primary);
+  background: color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
+  font-weight: 600;
+}
+
+.multi-cloze-card-renderer__body :deep(.siyuanmemo-multi-cloze__answer--context) {
+  color: var(--b3-theme-on-surface);
+  opacity: 0.72;
+  background: color-mix(in srgb, var(--b3-theme-surface-lighter) 70%, transparent);
+}
+
 @media screen and (max-width: 768px) {
   .multi-cloze-card-renderer__card {
     --siyuanmemo-multi-cloze-font-size: var(--siyuanmemo-review-font-title, 1.125em);

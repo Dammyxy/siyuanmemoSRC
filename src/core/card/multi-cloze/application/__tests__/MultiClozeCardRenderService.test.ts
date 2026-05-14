@@ -35,12 +35,40 @@ describe('MultiClozeCardRenderService', () => {
     });
 
     expect(vm.frontHtml).toBe(
-      '<rich>**Alpha** <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder">[...]</span> and Gamma</rich>',
+      '<rich>**Alpha** <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder" style="--siyuanmemo-multi-cloze-blank-width: 4ch">[...]</span> and <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--context">Gamma</span></rich>',
     );
     expect(vm.frontHtml).not.toContain('==[...]==');
     expect(vm.backHtml).toBe(
-      '<rich>**Alpha** <span data-type="mark" class="siyuanmemo-multi-cloze__answer">Beta</span> and Gamma</rich>',
+      '<rich>**Alpha** <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--current">Beta</span> and <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--context">Gamma</span></rich>',
     );
+  });
+
+  it('adds bounded placeholder width for text and complex source answers', async () => {
+    const service = new TestableMultiClozeCardRenderService('Short {{answer}} and formula {{$E=mc^2$}}');
+
+    const textVm = await service.prepareViewModel({
+      blockId: '20260215000000-width-text',
+      meta: {
+        faceIndex: 0,
+        faces: [
+          { question: 'Short <mark>[...]</mark> and formula $E=mc^2$', answer: 'answer' },
+          { question: 'Short answer and formula <mark>[...]</mark>', answer: '$E=mc^2$' },
+        ],
+      },
+    });
+    const complexVm = await service.prepareViewModel({
+      blockId: '20260215000000-width-complex',
+      meta: {
+        faceIndex: 1,
+        faces: [
+          { question: 'Short <mark>[...]</mark> and formula $E=mc^2$', answer: 'answer' },
+          { question: 'Short answer and formula <mark>[...]</mark>', answer: '$E=mc^2$' },
+        ],
+      },
+    });
+
+    expect(textVm.frontHtml).toContain('style="--siyuanmemo-multi-cloze-blank-width: 6ch"');
+    expect(complexVm.frontHtml).toContain('style="--siyuanmemo-multi-cloze-blank-width: 12ch"');
   });
 
   it('strips trailing block attribute lines from source kramdown before rendering', async () => {
@@ -61,10 +89,10 @@ describe('MultiClozeCardRenderService', () => {
     });
 
     expect(vm.frontHtml).toBe(
-      '<rich>Alpha <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder">[...]</span> gamma</rich>',
+      '<rich>Alpha <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder" style="--siyuanmemo-multi-cloze-blank-width: 4ch">[...]</span> gamma</rich>',
     );
     expect(vm.backHtml).toBe(
-      '<rich>Alpha <span data-type="mark" class="siyuanmemo-multi-cloze__answer">Beta</span> gamma</rich>',
+      '<rich>Alpha <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--current">Beta</span> gamma</rich>',
     );
   });
 
@@ -83,10 +111,10 @@ describe('MultiClozeCardRenderService', () => {
     });
 
     expect(vm.frontHtml).toBe(
-      '<rich>**Danger** unit should have <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder">[...]</span> conditions and [link](siyuan://blocks/block-1)</rich>',
+      '<rich>**Danger** unit should have <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder" style="--siyuanmemo-multi-cloze-blank-width: 4ch">[...]</span> conditions and [link](siyuan://blocks/block-1)</rich>',
     );
     expect(vm.backHtml).toBe(
-      '<rich>**Danger** unit should have <span data-type="mark" class="siyuanmemo-multi-cloze__answer">safe</span> conditions and [link](siyuan://blocks/block-1)</rich>',
+      '<rich>**Danger** unit should have <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--current">safe</span> conditions and [link](siyuan://blocks/block-1)</rich>',
     );
   });
 
@@ -105,10 +133,10 @@ describe('MultiClozeCardRenderService', () => {
     });
 
     expect(vm.frontHtml).toBe(
-      '<rich>Alpha Beta <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder">[...]</span></rich>',
+      '<rich>Alpha Beta <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder" style="--siyuanmemo-multi-cloze-blank-width: 5ch">[...]</span></rich>',
     );
     expect(vm.backHtml).toBe(
-      '<rich>Alpha Beta <span data-type="mark" class="siyuanmemo-multi-cloze__answer">Gamma</span></rich>',
+      '<rich>Alpha Beta <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--current">Gamma</span></rich>',
     );
   });
 });

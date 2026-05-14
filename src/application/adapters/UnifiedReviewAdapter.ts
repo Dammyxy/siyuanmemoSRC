@@ -345,7 +345,7 @@ function isNativeInlineHiddenCard(card: UnifiedReviewItem): boolean {
   const meta = readCardMeta(card);
   if (isXiuyuanCard(card)) {
     if (isOrdinaryMultiClozeMeta(meta)) {
-      return true;
+      return false;
     }
 
     if (card.meta.templateID === 'builtin-riff-sync') {

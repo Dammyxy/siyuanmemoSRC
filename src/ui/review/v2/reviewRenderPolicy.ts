@@ -155,6 +155,27 @@ export function isInlineFormulaMultiClozeCard(
     );
 }
 
+export function isOrdinaryMultiClozeReviewCard(
+  card?: FSRSCard | null,
+  profile?: ReviewRenderProfile,
+): boolean {
+  const meta = card?.meta as Record<string, unknown> | undefined;
+  if (!meta) {
+    return false;
+  }
+
+  const templateId = typeof meta.templateID === 'string' ? meta.templateID : '';
+  const clozeRenderMode = typeof meta.clozeRenderMode === 'string' ? meta.clozeRenderMode : '';
+  const requestedProfile = profile ?? (typeof meta.renderProfile === 'string' ? meta.renderProfile : null);
+  const faces = meta.faces;
+
+  return templateId === 'builtin-multi-cloze'
+    && clozeRenderMode !== 'inline-formula-cloze'
+    && requestedProfile !== 'quick-inline-formula'
+    && Array.isArray(faces)
+    && faces.length > 0;
+}
+
 export function isImageOcclusionReviewCard(card?: FSRSCard | null): boolean {
   const meta = card?.meta as Record<string, unknown> | undefined;
   if (!meta) {
@@ -301,6 +322,10 @@ export function resolveReviewSpecialRendererKind(input: ReviewSpecialRendererInp
 
   const profile = input.renderProfile;
   if (isInlineFormulaMultiClozeCard(card, profile)) {
+    return 'multi-cloze';
+  }
+
+  if (isOrdinaryMultiClozeReviewCard(card, profile)) {
     return 'multi-cloze';
   }
 

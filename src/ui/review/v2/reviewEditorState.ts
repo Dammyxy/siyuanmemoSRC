@@ -1,4 +1,4 @@
-export type ReviewEditorRenderer = 'main-protyle' | 'special' | 'html' | 'empty';
+export type ReviewEditorRenderer = 'main-protyle' | 'multi-cloze' | 'special' | 'html' | 'empty';
 
 export type ReviewEditorState = {
   renderer: ReviewEditorRenderer;

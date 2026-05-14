@@ -46,10 +46,14 @@ interface MultiClozeCardRenderResult {
 
 const logger = createLogger('MultiClozeCardRenderService');
 const CLOZE_PLACEHOLDER_TOKEN = 'SIYUANMEMO_MULTI_CLOZE_PLACEHOLDER_TOKEN';
-const CLOZE_ANSWER_START_TOKEN = 'SIYUANMEMO_MULTI_CLOZE_ANSWER_START_TOKEN';
+const CLOZE_PLACEHOLDER_START_TOKEN = 'SIYUANMEMO_MULTI_CLOZE_PLACEHOLDER_START_TOKEN';
+const CLOZE_PLACEHOLDER_END_TOKEN = 'SIYUANMEMO_MULTI_CLOZE_PLACEHOLDER_END_TOKEN';
+const CLOZE_CURRENT_ANSWER_START_TOKEN = 'SIYUANMEMO_MULTI_CLOZE_CURRENT_ANSWER_START_TOKEN';
+const CLOZE_CONTEXT_ANSWER_START_TOKEN = 'SIYUANMEMO_MULTI_CLOZE_CONTEXT_ANSWER_START_TOKEN';
 const CLOZE_ANSWER_END_TOKEN = 'SIYUANMEMO_MULTI_CLOZE_ANSWER_END_TOKEN';
-const CLOZE_PLACEHOLDER_HTML =
-  '<span data-type="mark" class="siyuanmemo-multi-cloze__placeholder">[...]</span>';
+const MIN_TEXT_BLANK_WIDTH_CH = 4;
+const MAX_TEXT_BLANK_WIDTH_CH = 28;
+const COMPLEX_BLANK_WIDTH_CH = 12;
 
 export class MultiClozeCardRenderService extends BaseCardRenderService {
   private readonly kramdownGateway = new SiyuanKramdownGateway(logger);
@@ -216,11 +220,11 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
 
     const frontKramdown = this.replaceFirstPlaceholderOutsideMath(
       normalizedQuestion,
-      CLOZE_PLACEHOLDER_TOKEN,
+      this.createPlaceholderToken(normalizedAnswer),
     );
     const backKramdown = this.restoreAnswerIntoPlaceholder(
       frontKramdown,
-      `${CLOZE_ANSWER_START_TOKEN}${normalizedAnswer}${CLOZE_ANSWER_END_TOKEN}`,
+      this.createCurrentAnswerToken(normalizedAnswer),
     );
     return {
       frontHtml: this.finalizeRichHtml(frontKramdown),
@@ -317,21 +321,24 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
       && cloze.type === currentCloze.type;
 
     if (!isCurrent) {
-      return cloze.text;
+      if (renderMode === FORMULA_CLOZE_RENDER_MODE_INLINE) {
+        return cloze.text;
+      }
+      return this.createContextAnswerToken(cloze.text);
     }
 
     if (revealCurrent) {
       if (renderMode === FORMULA_CLOZE_RENDER_MODE_INLINE && cloze.type === 'latex') {
         return createFormulaClozeAnswerExpression(cloze.text);
       }
-      return `${CLOZE_ANSWER_START_TOKEN}${cloze.text}${CLOZE_ANSWER_END_TOKEN}`;
+      return this.createCurrentAnswerToken(cloze.text);
     }
 
     if (renderMode === FORMULA_CLOZE_RENDER_MODE_INLINE && cloze.type === 'latex') {
       return createFormulaClozePlaceholderExpression();
     }
 
-    return CLOZE_PLACEHOLDER_TOKEN;
+    return this.createPlaceholderToken(cloze.text);
   }
 
   private stripMarkTags(text: string): string {
@@ -430,6 +437,10 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
 
   private replaceFirstPlaceholder(text: string, replacement: string): string {
     const patterns = [
+      new RegExp(
+        `${this.escapeRegExp(CLOZE_PLACEHOLDER_START_TOKEN)}\\d+${this.escapeRegExp(CLOZE_PLACEHOLDER_END_TOKEN)}`,
+        'i',
+      ),
       new RegExp(this.escapeRegExp(CLOZE_PLACEHOLDER_TOKEN), 'i'),
       /<mark>\s*\[\.\.\.]\s*<\/mark>/i,
       /<span[^>]*data-type=(["'])mark\1[^>]*>\s*\[\.\.\.]\s*<\/span>/i,
@@ -478,22 +489,78 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
       return html;
     }
 
-    const answerPattern = new RegExp(
-      `${this.escapeRegExp(CLOZE_ANSWER_START_TOKEN)}([\\s\\S]*?)${this.escapeRegExp(CLOZE_ANSWER_END_TOKEN)}`,
+    const currentAnswerPattern = new RegExp(
+      `${this.escapeRegExp(CLOZE_CURRENT_ANSWER_START_TOKEN)}([\\s\\S]*?)${this.escapeRegExp(CLOZE_ANSWER_END_TOKEN)}`,
+      'g',
+    );
+    const contextAnswerPattern = new RegExp(
+      `${this.escapeRegExp(CLOZE_CONTEXT_ANSWER_START_TOKEN)}([\\s\\S]*?)${this.escapeRegExp(CLOZE_ANSWER_END_TOKEN)}`,
+      'g',
+    );
+    const placeholderPattern = new RegExp(
+      `${this.escapeRegExp(CLOZE_PLACEHOLDER_START_TOKEN)}(\\d+)${this.escapeRegExp(CLOZE_PLACEHOLDER_END_TOKEN)}`,
       'g',
     );
 
     return html
       .split(CLOZE_PLACEHOLDER_TOKEN)
-      .join(CLOZE_PLACEHOLDER_HTML)
-      .replace(answerPattern, (_match, innerHtml: string) => this.wrapAnswerHtml(innerHtml));
+      .join(this.wrapPlaceholderHtml(MIN_TEXT_BLANK_WIDTH_CH))
+      .replace(placeholderPattern, (_match, width: string) => this.wrapPlaceholderHtml(readBoundedWidth(width)))
+      .replace(currentAnswerPattern, (_match, innerHtml: string) => this.wrapAnswerHtml(innerHtml, 'current'))
+      .replace(contextAnswerPattern, (_match, innerHtml: string) => this.wrapAnswerHtml(innerHtml, 'context'));
   }
 
-  private wrapAnswerHtml(innerHtml: string): string {
-    return `<span data-type="mark" class="siyuanmemo-multi-cloze__answer">${innerHtml}</span>`;
+  private createPlaceholderToken(answer: string): string {
+    return `${CLOZE_PLACEHOLDER_START_TOKEN}${this.resolveBlankWidth(answer)}${CLOZE_PLACEHOLDER_END_TOKEN}`;
+  }
+
+  private createCurrentAnswerToken(answer: string): string {
+    return `${CLOZE_CURRENT_ANSWER_START_TOKEN}${answer}${CLOZE_ANSWER_END_TOKEN}`;
+  }
+
+  private createContextAnswerToken(answer: string): string {
+    return `${CLOZE_CONTEXT_ANSWER_START_TOKEN}${answer}${CLOZE_ANSWER_END_TOKEN}`;
+  }
+
+  private wrapPlaceholderHtml(widthCh: number): string {
+    return `<span data-type="mark" class="siyuanmemo-multi-cloze__placeholder" style="--siyuanmemo-multi-cloze-blank-width: ${widthCh}ch">[...]</span>`;
+  }
+
+  private wrapAnswerHtml(innerHtml: string, role: 'current' | 'context'): string {
+    return `<span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--${role}">${innerHtml}</span>`;
+  }
+
+  private resolveBlankWidth(answer: string): number {
+    if (this.isComplexAnswerShape(answer)) {
+      return COMPLEX_BLANK_WIDTH_CH;
+    }
+    const visibleText = this.toVisibleText(answer);
+    const length = Array.from(visibleText).length;
+    return Math.min(MAX_TEXT_BLANK_WIDTH_CH, Math.max(MIN_TEXT_BLANK_WIDTH_CH, length));
+  }
+
+  private isComplexAnswerShape(answer: string): boolean {
+    return /<[^>]+>|!\[[^\]]*]\([^)]+\)|\$\$?[\s\S]+?\$\$?|\\[a-zA-Z]+/.test(answer);
+  }
+
+  private toVisibleText(answer: string): string {
+    return answer
+      .replace(/<[^>]+>/g, '')
+      .replace(/!\[[^\]]*]\([^)]+\)/g, '')
+      .replace(/\[([^\]]*)]\([^)]+\)/g, (_match, label: string) => label || '')
+      .replace(/[*_`~#>\[\](){}]/g, '')
+      .trim();
   }
 
   private escapeRegExp(text: string): string {
     return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
+}
+
+function readBoundedWidth(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return MIN_TEXT_BLANK_WIDTH_CH;
+  }
+  return Math.min(MAX_TEXT_BLANK_WIDTH_CH, Math.max(MIN_TEXT_BLANK_WIDTH_CH, Math.floor(parsed)));
 }

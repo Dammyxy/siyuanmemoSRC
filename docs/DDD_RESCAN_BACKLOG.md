@@ -4454,6 +4454,16 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: Open a narrow Browser-grid follow-up that prototypes a smaller/custom first-page presentation or AG Grid row-model replacement behind tests and live smoke. Only revisit AutoCard maybe-scan if a fresh editing run shows no-inspectable or marker-heavy AutoCard kramdown/attrs reads overlapping typing.
 - Validation: `pnpm vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`; `pnpm vitest run src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts`; `pnpm vitest run src/ui/browser/__tests__/browserDataSnapshots.test.ts src/ui/browser/datasource/session/__tests__/BrowserQuerySession.test.ts src/ui/browser/utils/__tests__/browserCardIdentity.test.ts src/ui/browser/__tests__/browserGridSizing.test.ts src/ui/browser/__tests__/hierarchySnapshotPlan.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts`; `pnpm run check:boundaries`; `pnpm build`; live `node scripts/live-low-end-smoke.cjs --label post-stabilize-final-snapshot-delay`.
 
+### 2026-05-15 - ordinary multi-cloze review focus rendering
+
+- Task: Execute OpenSpec change `fix-multicloze-review-rendering` for GitHub issue #63 so ordinary multi-cloze review focuses exactly one cloze per card.
+- Touched slice: Review rendering bounded context; `UnifiedReviewAdapter`, `reviewRenderPolicy`, `ReviewContent`, `reviewEditorState`, `MultiClozeCardRenderer`, `MultiClozeCardRenderService`, and focused Review/multi-cloze tests.
+- Debt fixed now: Ordinary `builtin-multi-cloze` cards no longer opt into broad native hidden-content metadata/classes. Review now routes them through the dedicated multi-cloze renderer, hides/reveals only the current cloze, shows non-current clozes as de-emphasized context answers, and gives current blanks bounded width hints derived from answer shape.
+- Debt deferred: #61 formula cloze parser/KaTeX repair remains separate; live SiYuan smoke for a real two-cloze card was not run in this command-only pass.
+- Why deferred: This change deliberately stayed inside ordinary multi-cloze Review rendering; formula-internal cloze parsing can affect card creation and KaTeX input normalization, and live smoke requires an inspectable SiYuan runtime session.
+- Next safe step: Run a live Review smoke in SiYuan with an ordinary two-cloze card and then handle #61 as a separate OpenSpec change if formula cloze still passes plugin markers into KaTeX.
+- Validation: `pnpm run test:run -- src/core/card/multi-cloze/application/__tests__/MultiClozeCardRenderService.test.ts src/core/card/multi-cloze/application/__tests__/MultiClozeCardRenderService.inline-formula.test.ts src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts src/ui/review/v2/__tests__/reviewRenderPolicy.test.ts src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/ui/review/v2/__tests__/ReviewContent.render-profile-routing.test.ts src/ui/review/v2/__tests__/reviewPresentationPreparer.test.ts --reporter=verbose`; hidden-fallback/boundary/build/OpenSpec validation run in the implementation checklist.
+
 ## 1. Re-scan summary
 
 - Build verification: `pnpm build` passed.

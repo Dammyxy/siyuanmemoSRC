@@ -870,11 +870,11 @@ describe('ReviewContent editor state', () => {
     await settleReviewContent();
     expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
       blockId: 'block-multi-cloze',
-      rendererKind: 'main-protyle',
+      rendererKind: 'multi-cloze',
     }));
     expect(exposed.getNativeSplitGuardState()).toEqual({
-      rendererKind: 'main-protyle',
-      blockNativeTabSplit: false,
+      rendererKind: 'multi-cloze',
+      blockNativeTabSplit: true,
     });
 
     await wrapper.setProps({
@@ -1479,7 +1479,7 @@ describe('ReviewContent editor state', () => {
     wrapper.unmount();
   });
 
-  it('keeps builtin multi-cloze item cards on the native Protyle path', async () => {
+  it('routes builtin multi-cloze item cards to the dedicated renderer', async () => {
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
       props: {
@@ -1513,18 +1513,18 @@ describe('ReviewContent editor state', () => {
 
     await settleReviewContent();
 
-    expect(reviewContentMocks.instances).toHaveLength(1);
+    expect(reviewContentMocks.instances).toHaveLength(0);
     expect(getEditorStates(wrapper).at(-1)).toEqual({
-      renderer: 'main-protyle',
+      renderer: 'multi-cloze',
       supportsNativeEdit: true,
       isEditing: false,
     });
-    expect(wrapper.find('multi-cloze-card-renderer-stub').exists()).toBe(false);
+    expect(wrapper.find('multi-cloze-card-renderer-stub').exists()).toBe(true);
 
     wrapper.unmount();
   });
 
-  it('hides native mark spans for ordinary multi-cloze cards on the main Protyle path', async () => {
+  it('keeps broad native hide classes off ordinary multi-cloze cards', async () => {
     setBlockFixture(
       'block-multi-cloze',
       '<div data-node-id="block-multi-cloze">危险化学品单位应 <span data-type="mark">具备安全条件</span></div>',
@@ -1561,14 +1561,12 @@ describe('ReviewContent editor state', () => {
       },
     });
 
-    await settleProtyleInit();
+    await settleReviewContent();
 
-    const host = wrapper.find('.fsrs-review-v2-content__protyle-host').element as HTMLDivElement;
-    const protyle = reviewContentMocks.instances[0];
     expect(wrapper.find('quick-card-renderer-stub').exists()).toBe(false);
-    expect(wrapper.find('multi-cloze-card-renderer-stub').exists()).toBe(false);
-    expect(host.classList.contains('siyuanmemo-review-card__block--hidemark')).toBe(true);
-    expect(host.classList.contains('card__block--hidemark')).toBe(false);
+    expect(wrapper.find('multi-cloze-card-renderer-stub').exists()).toBe(true);
+    expect(reviewContentMocks.instances).toHaveLength(0);
+    expect(wrapper.find('.fsrs-review-v2-content__protyle-host').exists()).toBe(false);
 
     await wrapper.setProps({
       showAnswer: false,
@@ -1576,8 +1574,8 @@ describe('ReviewContent editor state', () => {
     });
     await settleReviewContent();
 
-    expect(host.classList.contains('siyuanmemo-review-card__block--hidemark')).toBe(false);
-    expect(protyle.destroyCallCount).toBe(0);
+    expect(wrapper.find('multi-cloze-card-renderer-stub').exists()).toBe(true);
+    expect(reviewContentMocks.instances).toHaveLength(0);
 
     wrapper.unmount();
   });

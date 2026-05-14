@@ -272,7 +272,7 @@ describe('reviewRenderPolicy', () => {
     })).toBe('multi-cloze');
   });
 
-  it('keeps ordinary multi-cloze cards on the native Protyle path', () => {
+  it('routes ordinary multi-cloze cards to the multi-cloze renderer', () => {
     const card = createCard({
       meta: {
         templateID: 'builtin-multi-cloze',
@@ -287,7 +287,7 @@ describe('reviewRenderPolicy', () => {
       card,
       contentType: 'protyle',
       renderProfile: null,
-    })).toBeNull();
+    })).toBe('multi-cloze');
   });
 
   it('routes image occlusion cards before custom prepared renderers', () => {

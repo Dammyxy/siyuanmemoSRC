@@ -181,6 +181,7 @@ import {
   buildReviewRenderWatchKey,
   isProgressiveDerivedItemCard,
   isNeuralRoamNonFlashcard,
+  isOrdinaryMultiClozeReviewCard,
   resolveReviewSpecialRendererKind,
   shouldPreferStableQuickForcePath,
   shouldBypassSemanticFallback,
@@ -591,8 +592,8 @@ const specialRendererKind = computed(() => resolveReviewSpecialRendererKind({
   isQuickCard: detectedQuickForCurrentContent.value,
 }));
 
-// Formula cloze keeps the dedicated renderer; ordinary mark/brace cloze uses
-// the main Protyle path so Siyuan's native hidden-content CSS can apply.
+// Multi-cloze review is owned by the dedicated renderer so each generated card
+// can focus exactly one cloze instead of hiding all source marks together.
 const shouldUseMultiClozeRenderer = computed(() => (
   isPreparedRenderer('multi-cloze') || specialRendererKind.value === 'multi-cloze'
 ));
@@ -637,6 +638,12 @@ const shouldUseDescriptorCardRenderer = computed(() => (
 
 const shouldUseQuickCardRenderer = computed(() => (
   isPreparedRenderer('quick') || specialRendererKind.value === 'quick'
+));
+
+const shouldExposeOrdinaryMultiClozeEditorState = computed(() => (
+  props.content.type === 'protyle'
+  && shouldUseMultiClozeRenderer.value
+  && isOrdinaryMultiClozeReviewCard(props.content.card, resolvedRenderProfile.value)
 ));
 
 const shouldUseDirectCdfDisplay = computed(() => (
@@ -685,6 +692,9 @@ const currentRendererKind = computed<ReviewEditorState['renderer']>(() => {
   }
   if (props.content.type === 'html') {
     return 'html';
+  }
+  if (shouldExposeOrdinaryMultiClozeEditorState.value) {
+    return 'multi-cloze';
   }
   if (
     (props.content.isXiuyuanListTemplate && !!props.content.xiuyuanMeta)
@@ -2306,7 +2316,9 @@ watch(
 
     destroyMainProtyle({ invalidatePending: true });
     destroyAnswerProtyle({ invalidatePending: true });
-    emitEditorState(createReviewEditorState(renderer));
+    emitEditorState(createReviewEditorState(renderer, renderer === 'multi-cloze'
+      ? { supportsNativeEdit: true, isEditing: false }
+      : undefined));
   },
   { immediate: true },
 );

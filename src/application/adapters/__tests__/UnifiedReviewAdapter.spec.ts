@@ -838,7 +838,7 @@ describe('UnifiedReviewAdapter', () => {
     expect(ui.content.answerBlockID).toBe('');
   });
 
-  it('marks ordinary multi-cloze item cards as native inline hidden candidates', async () => {
+  it('keeps ordinary multi-cloze item cards off broad native hidden metadata', async () => {
     const card = createCard('ordinary-cloze-1', CardType.Item, {
       meta: createXiuyuanMeta({
         templateID: 'builtin-multi-cloze',
@@ -857,7 +857,7 @@ describe('UnifiedReviewAdapter', () => {
 
     expect(ui.content.id).toBe('ordinary-cloze-block');
     expect(ui.content.answerBlockID).toBe('');
-    expect(ui.meta.hasHiddenContent).toBe(true);
+    expect(ui.meta.hasHiddenContent).toBe(false);
   });
 
   it('keeps formula multi-cloze cards on the dedicated renderer path without native hide metadata', async () => {
