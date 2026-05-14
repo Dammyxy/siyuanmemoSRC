@@ -30,6 +30,48 @@
           {{ reviewArenaHint }}
         </div>
 
+        <div
+          v-if="reviewWriterUnavailableNotice"
+          class="fsrs-review-v2__writer-recovery"
+          role="status"
+        >
+          <div class="fsrs-review-v2__writer-recovery-main">
+            <div class="fsrs-review-v2__writer-recovery-title">
+              {{ reviewWriterUnavailableNotice.title }}
+            </div>
+            <div class="fsrs-review-v2__writer-recovery-message">
+              {{ reviewWriterUnavailableNotice.message }}
+            </div>
+            <div v-if="reviewWriterUnavailableNotice.detail" class="fsrs-review-v2__writer-recovery-detail">
+              {{ reviewWriterUnavailableNotice.detail }}
+            </div>
+          </div>
+          <div class="fsrs-review-v2__writer-recovery-actions">
+            <button
+              v-if="lastReviewWriterRecoveryAction"
+              type="button"
+              class="b3-button b3-button--text"
+              @click="retryReviewWriterRecoveryAction"
+            >
+              {{ reviewWriterUnavailableNotice.retryLabel }}
+            </button>
+            <button
+              type="button"
+              class="b3-button b3-button--outline"
+              @click="reloadReviewWriterRecoverySurface"
+            >
+              {{ reviewWriterUnavailableNotice.reopenLabel }}
+            </button>
+            <button
+              type="button"
+              class="b3-button b3-button--cancel"
+              @click="dismissReviewWriterRecoveryNotice"
+            >
+              {{ reviewWriterUnavailableNotice.dismissLabel }}
+            </button>
+          </div>
+        </div>
+
         <ReviewContent
           ref="contentRef"
           :app="app"
@@ -158,6 +200,7 @@ import {
   useReviewSession,
   type ReviewSessionActionError,
   type ReviewSessionController,
+  type ReviewSessionRetryAction,
   type ReviewSessionUpdateReason,
 } from './useReviewSession';
 import {
@@ -209,6 +252,10 @@ import {
   type ReviewAISurface,
 } from './reviewAICommands';
 import { resolveReviewKeyAction } from './reviewKeyActionResolver';
+import {
+  resolveReviewWriterUnavailableRecovery,
+  type ReviewWriterUnavailableRecoveryNotice,
+} from './reviewWriterUnavailableRecovery';
 import {
   consumeRecentlyModifiedReviewHotkey,
   getForwardedReviewHotkey,
@@ -1312,6 +1359,8 @@ const hook = useReviewSession(
 );
 const state = hook.state;
 const app = props.app;
+const reviewWriterUnavailableNotice = ref<ReviewWriterUnavailableRecoveryNotice | null>(null);
+const lastReviewWriterRecoveryAction = ref<ReviewSessionRetryAction | null>(null);
 const reviewFilterRuntime = createReviewFilterRuntime({
   t,
   showMessage,
@@ -1423,7 +1472,45 @@ function getReviewActionErrorMessage(payload: ReviewSessionActionError<ActiveRev
 }
 
 function handleReviewSessionActionError(payload: ReviewSessionActionError<ActiveReviewItem>): void {
+  const notice = resolveReviewWriterUnavailableRecovery({
+    reason: payload.reason,
+    error: payload.error,
+    t,
+  });
+  if (notice.kind !== 'generic-error') {
+    reviewWriterUnavailableNotice.value = notice;
+    lastReviewWriterRecoveryAction.value = payload.action ?? null;
+    notifyReviewMessage(`${notice.title}: ${notice.message}`, 5000, 'warning');
+    return;
+  }
+
   showMessage(getReviewActionErrorMessage(payload), 5000, 'error');
+}
+
+function dismissReviewWriterRecoveryNotice(): void {
+  reviewWriterUnavailableNotice.value = null;
+}
+
+async function retryReviewWriterRecoveryAction(): Promise<void> {
+  const action = lastReviewWriterRecoveryAction.value;
+  if (!action) {
+    return;
+  }
+  reviewWriterUnavailableNotice.value = null;
+  if (action.type === 'grade') {
+    await hook.grade(action.rating);
+    return;
+  }
+  if (action.type === 'skip') {
+    await hook.skip();
+    return;
+  }
+  await hook.executeCommand(action.commandId);
+}
+
+async function reloadReviewWriterRecoverySurface(): Promise<void> {
+  reviewWriterUnavailableNotice.value = null;
+  await hook.reload();
 }
 
 async function prepareReviewStateBeforeCommit(
@@ -2890,6 +2977,54 @@ watch(
   color: var(--b3-theme-on-surface);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.fsrs-review-v2__writer-recovery {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 16px 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--b3-theme-warning) 36%, var(--b3-border-color) 64%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--b3-theme-warning-light) 26%, var(--b3-theme-background) 74%);
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.fsrs-review-v2__writer-recovery-main {
+  min-width: 0;
+}
+
+.fsrs-review-v2__writer-recovery-title {
+  font-weight: 600;
+}
+
+.fsrs-review-v2__writer-recovery-message,
+.fsrs-review-v2__writer-recovery-detail {
+  overflow-wrap: anywhere;
+}
+
+.fsrs-review-v2__writer-recovery-detail {
+  margin-top: 2px;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.fsrs-review-v2__writer-recovery-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.fsrs-review-v2--mobile .fsrs-review-v2__writer-recovery {
+  flex-direction: column;
+}
+
+.fsrs-review-v2--mobile .fsrs-review-v2__writer-recovery-actions {
+  width: 100%;
+  flex-wrap: wrap;
 }
 
 .fsrs-review-v2__workspace--with-ai .fsrs-review-v2__content-wrapper {

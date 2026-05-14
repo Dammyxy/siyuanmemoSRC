@@ -57,5 +57,6 @@ export {
   type ReviewSessionActionError,
   type ReviewSessionController,
   type ReviewSessionControllerSnapshot,
+  type ReviewSessionRetryAction,
   type ReviewSessionUpdateReason,
 } from './reviewSessionController';

@@ -363,6 +363,7 @@ describe('useReviewSession', () => {
     expect(actionError).toHaveBeenCalledWith(expect.objectContaining({
       reason: 'grade',
       message: 'Failed to process review feedback:',
+      action: { type: 'grade', rating: 3 },
       item: expect.objectContaining({ id: 'card-1' }),
     }));
 

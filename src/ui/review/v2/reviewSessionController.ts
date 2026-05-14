@@ -72,11 +72,17 @@ type SessionUpdateReason = ReviewSessionUpdateReason;
 
 type ReviewActionErrorReason = Extract<SessionUpdateReason, 'grade' | 'skip' | 'custom'>;
 
+export type ReviewSessionRetryAction =
+  | { type: 'grade'; rating: RatingValue }
+  | { type: 'skip' }
+  | { type: 'custom'; commandId: string };
+
 export interface ReviewSessionActionError<TItem extends QueueItem = QueueItem> {
   reason: ReviewActionErrorReason;
   message: string;
   error: unknown;
   item: TItem | null;
+  action?: ReviewSessionRetryAction;
 }
 
 export interface ReviewSessionControllerSnapshot<TItem extends QueueItem = QueueItem> {
@@ -621,7 +627,12 @@ export function createReviewSessionController<TItem extends QueueItem>(
     await updateState(reason, { skipPrepare: true });
   };
 
-  const keepCurrentItemAfterActionError = async (reason: ReviewActionErrorReason, message: string, error: unknown): Promise<void> => {
+  const keepCurrentItemAfterActionError = async (
+    reason: ReviewActionErrorReason,
+    message: string,
+    error: unknown,
+    action?: ReviewSessionRetryAction,
+  ): Promise<void> => {
     logger.error(message, error);
     try {
       options?.onActionError?.({
@@ -629,6 +640,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
         message,
         error,
         item: currentItem.value,
+        action,
       });
     } catch (listenerError) {
       logger.warn('Review action error listener failed:', listenerError);
@@ -727,7 +739,10 @@ export function createReviewSessionController<TItem extends QueueItem>(
       }
 
       status = 'error';
-      await keepCurrentItemAfterActionError('grade', 'Failed to process review feedback:', error);
+      await keepCurrentItemAfterActionError('grade', 'Failed to process review feedback:', error, {
+        type: 'grade',
+        rating: normalized,
+      });
     } finally {
       finishGradeSpan({
         cardId: reviewedCardId,
@@ -766,7 +781,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
         return;
       }
 
-      await keepCurrentItemAfterActionError('skip', 'Failed to skip card:', error);
+      await keepCurrentItemAfterActionError('skip', 'Failed to skip card:', error, { type: 'skip' });
     }
   });
 
@@ -812,7 +827,10 @@ export function createReviewSessionController<TItem extends QueueItem>(
         return;
       }
 
-      await keepCurrentItemAfterActionError('custom', 'Failed to execute command:', error);
+      await keepCurrentItemAfterActionError('custom', 'Failed to execute command:', error, {
+        type: 'custom',
+        commandId: String(cmdId || ''),
+      });
     }
   });
 

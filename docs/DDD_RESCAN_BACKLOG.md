@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-14 (Round 352)
+Last update: 2026-05-14 (Round 353)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-14 - Review writer unavailable recovery surface
+
+- Task: Implement OpenSpec change `surface-review-writer-unavailable-recovery` so Review action failures from writer relay, no active writer, or backend unavailable show explicit recovery guidance.
+- Touched slice: Review action-error presentation; `src/ui/review/v2/reviewWriterUnavailableRecovery.ts`, `reviewSessionController.ts`, `ReviewView.vue`, Review i18n, focused Review recovery/session tests, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Review no longer collapses writer/backend unavailable commit failures into only generic toast text. The controller keeps current-card fail-closed restoration and carries retry metadata for the original grade/skip/custom action; the UI maps active backend/writer/relay error vocabulary to a compact notice with retry, refresh Review, and dismiss actions. Retry reuses existing Review hooks, refresh reuses `hook.reload()`, and no local schedule write or alternate queue commit path was added.
+- Debt deferred: Live two-window writer/follower smoke, relay command expiry diagnostics, sleep/wake recovery instrumentation, and broader kernel/backend observability remain out of scope.
+- Why deferred: This slice closes Review presentation and recovery affordance only. Writer election, relay transport, and backend diagnostics have different owners and require live runtime evidence.
+- Next safe step: Run a two-window smoke after deploying this build: force follower review commit while writer is absent/stale, confirm notice appears, then open/focus writer-capable window and retry through the same Review action path.
+- Validation: Focused Review recovery mapper and session tests passed; hidden fallback, boundary, build, and OpenSpec strict validation are recorded with the implementation task.
 
 ### 2026-05-14 - Browser grid first-page rendering state
 
