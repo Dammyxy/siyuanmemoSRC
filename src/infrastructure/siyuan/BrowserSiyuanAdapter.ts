@@ -8,6 +8,7 @@ import {
   ATTR_PRIORITY,
   ATTR_SUSPENDED,
 } from '@/core/siyuan/block';
+import { BUILTIN_DECK_ID, getRiffCards, type RiffBlock } from '@/core/siyuan/riff';
 
 export class BrowserSiyuanAdapter implements BrowserSiyuanPort, BrowserPreviewSiyuanPort {
   readonly ATTR_CARD_ID = ATTR_CARD_ID;
@@ -15,6 +16,7 @@ export class BrowserSiyuanAdapter implements BrowserSiyuanPort, BrowserPreviewSi
   readonly ATTR_SUSPENDED = ATTR_SUSPENDED;
   readonly ATTR_CARD_TYPE = ATTR_CARD_TYPE;
   readonly ATTR_A_FACTOR = ATTR_A_FACTOR;
+  readonly BUILTIN_DECK_ID = BUILTIN_DECK_ID;
 
   async sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
     return sql<TRow>(stmt);
@@ -26,6 +28,10 @@ export class BrowserSiyuanAdapter implements BrowserSiyuanPort, BrowserPreviewSi
 
   async getDocInfo(docId: string): Promise<BrowserPreviewDocInfo | null> {
     return getDocInfo(docId);
+  }
+
+  async getRiffCards(deckID: string, options?: { includeNew?: boolean }): Promise<RiffBlock[]> {
+    return getRiffCards(deckID, options) as Promise<RiffBlock[]>;
   }
 
   async listNotebooks(): Promise<BrowserPreviewNotebookSummary[]> {

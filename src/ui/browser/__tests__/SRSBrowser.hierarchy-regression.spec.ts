@@ -410,6 +410,42 @@ describe('SRSBrowser hierarchy regressions', () => {
     wrapper.unmount();
   });
 
+  it('renders count-difference diagnostics without changing browser row scope', async () => {
+    const rows = [buildBrowserCard('browser-card-1', 'doc-1')];
+    createDeckDataSourceMock.mockReturnValue(createQueryableDataSource(rows));
+    const browserService = {
+      ...createBrowserService(),
+      getBrowserCountDifferenceDiagnostic: vi.fn(async () => ({
+        status: 'difference',
+        nativeTotal: 3,
+        browserManageableTotal: 1,
+        browserOperationalTotal: 1,
+        differenceTotal: 2,
+        groups: [{
+          reason: 'missing-plugin-index',
+          count: 2,
+          sampleIds: ['native-block-1'],
+        }],
+        unavailable: [],
+      })),
+    };
+
+    const wrapper = mountBrowser({ browserService: browserService as never });
+    await advance(0);
+    await advance(0);
+    await advance(80);
+
+    expect(browserService.getBrowserCountDifferenceDiagnostic).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).toContain('Native Riff: 3');
+    expect(wrapper.text()).toContain('Browser: 1');
+    expect(wrapper.text()).toContain('Difference: 2');
+    expect(wrapper.text()).toContain('Missing plugin index: 2');
+    expect(wrapper.text()).toContain('native-block-1');
+    expect(wrapper.text()).toContain('doc-1:1');
+
+    wrapper.unmount();
+  });
+
   it('upgrades the left document list from the first page to the full all-cards snapshot', async () => {
     const rows = [
       ...Array.from({ length: 25 }, (_, index) => buildBrowserCard(`card-a-${index}`, 'doc-1')),

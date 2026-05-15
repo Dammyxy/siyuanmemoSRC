@@ -1061,6 +1061,97 @@ describe('BrowserApplicationService deck query kernel', () => {
     expect(backendClient.browserSourceExistenceApplySweepHost).not.toHaveBeenCalled();
   });
 
+  it('exposes count-difference diagnostics without changing deck page totals', async () => {
+    const cards = [
+      buildCard({ id: 'card-1', blockId: 'block-1', type: CardType.Item }),
+      buildCard({ id: 'card-2', blockId: 'block-2', type: CardType.Concept }),
+    ];
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserDeckPage'
+      | 'browserDeckMatchedIds'
+      | 'browserDeckRowsByIds'
+      | 'browserStats'
+      | 'browserSourceExistenceRefreshCandidates'
+      | 'browserSourceExistenceApplySweepHost'
+      | 'browserSourceExistenceByBlockIds'
+    > = {
+      browserDeckPage: vi.fn(async () => ({ total: 2, cards })),
+      browserDeckMatchedIds: vi.fn(async () => ['card-1', 'card-2']),
+      browserDeckRowsByIds: vi.fn(async () => cards),
+      browserStats: vi.fn(async () => ({
+        totalCards: 2,
+        dueCards: 0,
+        newCards: 0,
+        learningCards: 0,
+        reviewCards: 2,
+        suspendedCards: 0,
+        lostCards: 0,
+      })),
+      browserSourceExistenceRefreshCandidates: vi.fn(async () => []),
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
+        checked: 0,
+        updated: 0,
+        changed: false,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['block-1', true],
+        ['block-2', true],
+      ])),
+    };
+    const siyuanApi = {
+      ATTR_CARD_ID: 'custom-fsrs-card-id',
+      ATTR_PRIORITY: 'custom-fsrs-priority',
+      ATTR_SUSPENDED: 'custom-fsrs-suspended',
+      ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+      ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+      BUILTIN_DECK_ID: 'builtin-deck',
+      getRiffCards: vi.fn(async () => [
+        { id: 'block-1', type: 'p', riffCard: { id: 'riff-1', blockID: 'block-1' } },
+        { id: 'block-2', type: 'p', riffCard: { id: 'riff-2', blockID: 'block-2' } },
+        { id: 'block-3', type: 'p', riffCard: { id: 'riff-3', blockID: 'block-3' } },
+      ]),
+      sql: vi.fn(async () => []),
+      setBlockAttrs: vi.fn(),
+      pushMsg: vi.fn(),
+      pushErrMsg: vi.fn(),
+    };
+
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      siyuanApi as never,
+      null,
+      null,
+      backendClient as SrsBackendClient,
+    );
+
+    const page = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
+    const diagnostic = await service.getBrowserCountDifferenceDiagnostic();
+
+    expect(page.total).toBe(2);
+    expect(diagnostic).toMatchObject({
+      status: 'difference',
+      nativeTotal: 3,
+      browserManageableTotal: 2,
+      browserOperationalTotal: 2,
+      differenceTotal: 1,
+    });
+    expect(diagnostic.groups).toEqual([{
+      reason: 'missing-plugin-index',
+      count: 1,
+      sampleIds: ['block-3'],
+    }]);
+    expect(siyuanApi.getRiffCards).toHaveBeenCalledWith('builtin-deck', { includeNew: true });
+  });
+
   it('refreshes writer lease before direct source-existence sweep host mutation', async () => {
     const ensureWritable = vi.fn(async () => undefined);
     const applySweepHost = vi.fn(async () => ({

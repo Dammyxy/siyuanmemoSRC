@@ -41,6 +41,7 @@ import type {
 } from '@/types/unified-data-source';
 export type { BrowserQueueId } from '@/types/browser-queue-identity';
 import type { BrowserSiyuanPort } from '../ports/BrowserSiyuanPort';
+import type { BrowserCountDifferenceDiagnostic } from '../services/BrowserCountDifferenceDiagnostics';
 
 export interface BrowserQueueCountsRequest {
   forceRefresh?: boolean;
@@ -126,6 +127,12 @@ export interface IBrowserApplicationService {
    * @returns 统计信息
    */
   getStats(): Promise<unknown>;
+
+  /**
+   * Explain native Riff count vs Browser-manageable count differences without
+   * changing Browser row totals or action scopes.
+   */
+  getBrowserCountDifferenceDiagnostic(): Promise<BrowserCountDifferenceDiagnostic>;
 
   /**
    * Subscribe to async source-existence refreshes so the Browser can patch

@@ -76,6 +76,43 @@
         @clearSelection="handleClearSelection"
       />
 
+      <section
+        v-if="showCountDifferenceDiagnostic"
+        class="card-browser__count-diagnostic"
+        aria-live="polite"
+      >
+        <div class="count-diagnostic__summary">
+          <span>{{ t('nativeRiffCount', 'Native Riff') }}: {{ countDifferenceDiagnostic?.nativeTotal ?? '-' }}</span>
+          <span>{{ t('browserManageableCount', 'Browser') }}: {{ countDifferenceDiagnostic?.browserManageableTotal ?? '-' }}</span>
+          <span v-if="countDifferenceDiagnostic?.differenceTotal !== null">
+            {{ t('countDifference', 'Difference') }}: {{ countDifferenceDiagnostic?.differenceTotal }}
+          </span>
+          <span v-else>{{ t('countEvidenceUnavailable', 'Count evidence unavailable') }}</span>
+        </div>
+        <details v-if="countDifferenceDiagnostic?.groups.length" class="count-diagnostic__details">
+          <summary>{{ t('countDifferenceReasons', 'Reasons') }}</summary>
+          <div class="count-diagnostic__groups">
+            <div
+              v-for="group in countDifferenceDiagnostic.groups"
+              :key="group.reason"
+              class="count-diagnostic__group"
+            >
+              <span>{{ countDifferenceReasonLabel(group.reason) }}: {{ group.count }}</span>
+              <code v-if="group.sampleIds.length">{{ group.sampleIds.join(', ') }}</code>
+            </div>
+          </div>
+        </details>
+        <div v-else-if="countDifferenceDiagnostic?.unavailable.length" class="count-diagnostic__groups">
+          <div
+            v-for="entry in countDifferenceDiagnostic.unavailable"
+            :key="entry.source"
+            class="count-diagnostic__group"
+          >
+            <span>{{ entry.source }}: {{ entry.reason }}</span>
+          </div>
+        </div>
+      </section>
+
       <!-- Sync status indicator (advanced mode only) -->
       <SyncStatusIndicator
         v-if="showSyncIndicator"
@@ -502,6 +539,10 @@ import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
 import type { SortField, SortOrder } from '@/core/card/domain/services/CardSortService';
 import type { WsSyncEvent } from '@/application/services/XiuyuanSyncService.types';
+import type {
+  BrowserCountDifferenceDiagnostic,
+  BrowserCountDifferenceReason,
+} from '@/application/services/BrowserCountDifferenceDiagnostics';
 import type { AIWorkbenchOpenOptions } from '@/types/ai';
 
 // Register AG-Grid modules
@@ -610,6 +651,11 @@ const showSyncIndicator = computed(() => {
   return !!riffConfig && !!hybridSyncService.value;
 });
 
+const showCountDifferenceDiagnostic = computed(() => {
+  const diagnostic = countDifferenceDiagnostic.value;
+  return diagnostic?.status === 'difference' || diagnostic?.status === 'unavailable';
+});
+
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'convertToTab', state: BrowserOpenState): void;
@@ -626,6 +672,8 @@ const firstRowsStatus = ref<BrowserGridRowsLifecycleStatus | 'pending'>('pending
 const globalTotalCount = ref<number | null>(null);
 const globalLostCount = ref<number | null>(null);
 const globalDismissedCount = ref<number | null>(null);
+const countDifferenceDiagnostic = ref<BrowserCountDifferenceDiagnostic | null>(null);
+let countDifferenceDiagnosticTaskId = 0;
 const currentDataSource = ref<ICardDataSource | null>(null);
 const currentPreset = ref<PresetFilter>('all');
 const currentCardType = ref<CardTypeFilter>('all');
@@ -1562,6 +1610,7 @@ async function refreshGlobalStatsAfterFirstRows(force = false): Promise<void> {
 
   if (!loading.value || hasFirstDataBlockLoaded.value) {
     await refreshGlobalStats(force);
+    void refreshCountDifferenceDiagnostic();
     return;
   }
 
@@ -1583,6 +1632,51 @@ async function refreshGlobalStatsAfterFirstRows(force = false): Promise<void> {
     return;
   }
   await refreshGlobalStats(force);
+  void refreshCountDifferenceDiagnostic();
+}
+
+async function refreshCountDifferenceDiagnostic(): Promise<void> {
+  const browserService = browserAppServiceRef.value;
+  if (!browserService?.getBrowserCountDifferenceDiagnostic || activeQueueId.value || activeDocId.value || hasActiveScopeDocIds.value) {
+    countDifferenceDiagnostic.value = null;
+    return;
+  }
+
+  const taskId = ++countDifferenceDiagnosticTaskId;
+  try {
+    const diagnostic = await browserService.getBrowserCountDifferenceDiagnostic();
+    if (taskId !== countDifferenceDiagnosticTaskId) {
+      return;
+    }
+    countDifferenceDiagnostic.value = diagnostic;
+  } catch (error) {
+    if (taskId !== countDifferenceDiagnosticTaskId) {
+      return;
+    }
+    countDifferenceDiagnostic.value = {
+      status: 'unavailable',
+      nativeTotal: null,
+      browserManageableTotal: null,
+      browserOperationalTotal: null,
+      differenceTotal: null,
+      groups: [],
+      unavailable: [{
+        source: 'browser',
+        reason: error instanceof Error ? error.message : String(error || 'count-diagnostic-unavailable'),
+      }],
+    };
+  }
+}
+
+function countDifferenceReasonLabel(reason: BrowserCountDifferenceReason): string {
+  const labels: Record<BrowserCountDifferenceReason, string> = {
+    'missing-plugin-index': t('countReasonMissingPluginIndex', 'Missing plugin index'),
+    'missing-source-block': t('countReasonMissingSourceBlock', 'Missing source block'),
+    'unsupported-card-shape': t('countReasonUnsupportedCardShape', 'Unsupported card shape'),
+    'sync-projection-not-complete': t('countReasonSyncProjectionPending', 'Sync/projection pending'),
+    'unresolved-difference': t('countReasonUnresolved', 'Unresolved'),
+  };
+  return labels[reason];
 }
 
 function browserPerfNow(): number {

@@ -516,11 +516,11 @@ function createEditableListTemplateContent() {
   };
 }
 
-function createHtmlContent() {
+function createHtmlContent(data = '<p>hello</p>') {
   return {
     type: 'html' as const,
     id: 'html-1',
-    data: '<p>hello</p>',
+    data,
   };
 }
 
@@ -794,6 +794,59 @@ describe('ReviewContent editor state', () => {
       supportsNativeEdit: false,
       isEditing: false,
     });
+
+    wrapper.unmount();
+  });
+
+  it('forwards custom html block links through the existing tab open service', async () => {
+    const openBlockTab = vi.fn(async () => undefined);
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        renderServices: createRenderServicesStub(),
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+            getTabApplicationService: () => ({
+              openBlockTab,
+            }),
+          }),
+        },
+        content: createHtmlContent(
+          '<p><span data-type="block-ref" data-id="20260401010101-abcdefg">概念</span> <a href="siyuan://blocks/20260402020202-bcdefgh">链接</a></p>',
+        ),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    const blockRef = wrapper.element.querySelector('[data-type="block-ref"]') as HTMLElement;
+    blockRef.click();
+    await flushPromises();
+    expect(openBlockTab).toHaveBeenCalledWith({ blockId: '20260401010101-abcdefg' });
+
+    const anchor = wrapper.element.querySelector('a[href^="siyuan://blocks/"]') as HTMLAnchorElement;
+    anchor.click();
+    await flushPromises();
+    expect(openBlockTab).toHaveBeenCalledWith({ blockId: '20260402020202-bcdefgh' });
 
     wrapper.unmount();
   });

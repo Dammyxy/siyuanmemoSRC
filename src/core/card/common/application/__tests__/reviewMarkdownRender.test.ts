@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { renderReviewMarkdown } from '../reviewMarkdownRender';
+import { renderReviewMarkdown, renderReviewMarkdownFragment } from '../reviewMarkdownRender';
 
 describe('reviewMarkdownRender', () => {
   afterEach(() => {
@@ -40,6 +40,31 @@ describe('reviewMarkdownRender', () => {
 
     expect(rendered.html).toContain('第一段');
     expect(rendered.html).not.toContain('{:');
+  });
+
+  it('renders supported review links when Lute is unavailable', () => {
+    vi.stubGlobal('window', {});
+
+    const rendered = renderReviewMarkdownFragment(
+      'See [概念](siyuan://blocks/20260401010101-abcdefg), [asset](assets/audio.mp3), and ((20260402020202-bcdefgh "块引用"))',
+    );
+
+    expect(rendered.html).toContain('<a href="siyuan://blocks/20260401010101-abcdefg"');
+    expect(rendered.html).toContain('>概念</a>');
+    expect(rendered.html).toContain('<a href="assets/audio.mp3"');
+    expect(rendered.html).toContain('>asset</a>');
+    expect(rendered.html).toContain('data-type="block-ref"');
+    expect(rendered.html).toContain('data-id="20260402020202-bcdefgh"');
+    expect(rendered.html).toContain('>块引用</span>');
+  });
+
+  it('keeps unsafe fallback links escaped and inert', () => {
+    vi.stubGlobal('window', {});
+
+    const rendered = renderReviewMarkdownFragment('[bad](javascript:alert(1))');
+
+    expect(rendered.html).not.toContain('href="javascript:');
+    expect(rendered.html).toContain('[bad](javascript:alert(1))');
   });
 
   it('auto-detects multi-paragraph content as block-flow', () => {

@@ -12,11 +12,11 @@ These issues are selected first because they look like correctness bugs, data in
 |---|---|---|---|
 | [#64](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/64) | Topic/item creation | Shortcut item creation succeeds when Topic is a document block, but not when Topic is a non-document block such as a super block. UI reports success, no card is created. | Decided: non-document Topic containers must support shortcut item card creation. |
 | [#63](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/63) | Cloze review/rendering | Cloze blank length should reflect hidden text length. Multi-cloze cards are created, but review hides/shows all blanks together, and first generated card can fail rendering. | Implemented: `fix-multicloze-review-rendering` routes ordinary multi-cloze review to the dedicated renderer; live SiYuan smoke still pending. |
-| [#61](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/61) | Formula cloze | Formula card using `\cloze` can produce KaTeX error: `Expected 'EOF', got '#' at position 1: #2`. | Implemented: `fix-formula-cloze-katex-marker-rendering`; live SiYuan smoke still pending. |
-| [#55](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/55) | Temporary / deliberate practice rendering | Temporary and deliberate practice surfaces do not render links. User also asks about language-learning cards with audio timestamp, original text, and translation. | Pending |
+| [#61](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/61) | Formula cloze | Formula card using `\cloze` can produce KaTeX error: `Expected 'EOF', got '#' at position 1: #2`. | Implemented: `fix-formula-cloze-katex-marker-rendering`; live temporary-card Review smoke passed and was cleaned up. |
+| [#55](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/55) | Temporary / deliberate practice rendering | Temporary and deliberate practice surfaces do not render links. User also asks about language-learning cards with audio timestamp, original text, and translation. | Implemented: `render-custom-review-surface-links` renders common custom Review links and forwards block navigation through existing open-block behavior; language-learning card workflow remains separate. |
 | [#52](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/52) | SRS Browser SQL filter | SRS Browser right-top filter should stay scoped to SRS Browser cards even for SQL search such as `select * from blocks where box = ...`. | Pending |
 | [#20](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/20) | Symbol listener duplicate creation | Symbol listener card creation can create duplicate cards when YeGui plugin is also enabled. Reports multiple console errors. | Pending |
-| [#19](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/19) | SRS Browser card count | SiYuan native flashcard manager shows more cards than SRS Browser. SRS Browser total can vary and document plugin card count can also be short. | Pending |
+| [#19](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/19) | SRS Browser card count | SiYuan native flashcard manager shows more cards than SRS Browser. SRS Browser total can vary and document plugin card count can also be short. | Implemented: `explain-srs-browser-count-differences` adds read-only native-vs-Browser count diagnostics without changing Browser row/action scope. |
 
 ## Proposed Order
 
@@ -61,6 +61,8 @@ Open terms to sharpen:
 - SRS Browser count parity with SiYuan native flashcard manager should be explainable, not blindly forced. Show plugin-manageable card count and native card count separately when they differ.
 - Count differences should be diagnosable by reason, such as missing plugin index, unsupported card type, missing source block, or sync/projection not complete.
 - Count diagnostics should first ship as grouped reasons with expandable sample IDs. Each group shows its count and up to a bounded sample list, such as the first 20 card or block IDs.
+- #19 implementation keeps Browser grid `totalCount`, select-all, and bulk actions scoped to plugin-manageable Browser rows. Native-only samples are diagnostics only and never become action targets.
+- Native and Browser evidence failures are explicit unavailable states. They are not treated as zero-card evidence.
 
 ### #63 Decisions
 

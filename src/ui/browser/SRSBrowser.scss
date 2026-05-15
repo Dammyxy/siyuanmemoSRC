@@ -68,6 +68,46 @@
   overflow-y: visible;
 }
 
+.card-browser__count-diagnostic {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  line-height: 1.45;
+  flex-shrink: 0;
+}
+
+.count-diagnostic__summary,
+.count-diagnostic__groups,
+.count-diagnostic__group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.count-diagnostic__summary,
+.count-diagnostic__groups {
+  flex-wrap: wrap;
+}
+
+.count-diagnostic__details summary {
+  cursor: pointer;
+  color: var(--b3-theme-primary);
+}
+
+.count-diagnostic__group code {
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--b3-theme-on-surface-light);
+}
+
 .toolbar__left {
   grid-area: left;
   display: flex;

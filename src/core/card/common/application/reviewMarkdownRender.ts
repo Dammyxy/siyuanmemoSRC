@@ -37,6 +37,56 @@ function escapeHtml(source: string): string {
     .replace(/'/g, '&#39;');
 }
 
+function escapeAttribute(source: string): string {
+  return escapeHtml(source);
+}
+
+function isAllowedFallbackHref(href: string): boolean {
+  const normalized = href.trim();
+  if (!normalized) {
+    return false;
+  }
+
+  return /^(?:https?:\/\/|siyuan:\/\/|(?:\.{0,2}\/)?assets\/|\/assets\/)/iu.test(normalized);
+}
+
+function renderFallbackInline(source: string): string {
+  const tokenPattern = /\[([^\]\n]+)\]\(([^)\s]+)\)|\(\(([0-9]{14}-[a-z0-9]{7})(?:\s+"([^"]*)")?\)\)/giu;
+  let html = '';
+  let cursor = 0;
+
+  for (const match of source.matchAll(tokenPattern)) {
+    const start = match.index ?? 0;
+    html += escapeHtml(source.slice(cursor, start));
+
+    const markdownLabel = match[1];
+    const markdownHref = match[2];
+    const blockId = match[3];
+    const blockLabel = match[4];
+
+    if (typeof markdownLabel === 'string' && typeof markdownHref === 'string') {
+      const href = markdownHref.trim();
+      if (isAllowedFallbackHref(href)) {
+        html += `<a href="${escapeAttribute(href)}">${escapeHtml(markdownLabel)}</a>`;
+      } else {
+        html += escapeHtml(match[0]);
+      }
+    } else if (typeof blockId === 'string') {
+      const label = typeof blockLabel === 'string' && blockLabel.trim().length > 0
+        ? blockLabel.trim()
+        : '*';
+      html += `<span data-type="block-ref" data-id="${escapeAttribute(blockId)}">${escapeHtml(label)}</span>`;
+    } else {
+      html += escapeHtml(match[0]);
+    }
+
+    cursor = start + match[0].length;
+  }
+
+  html += escapeHtml(source.slice(cursor));
+  return html;
+}
+
 function normalizeReviewMarkdown(kramdown: string): string {
   return stripSiyuanBlockAttributeArtifacts(String(kramdown || ''))
     .replace(/\n{3,}/g, '\n\n')
@@ -90,14 +140,15 @@ function renderFallbackHtml(
     .filter((paragraph) => paragraph.length > 0);
 
   if (renderKind === 'fragment') {
-    const fragmentText = escapeHtml(
-      paragraphs.length > 0 ? paragraphs.join(' ') : normalizedKramdown,
-    );
+    const fragmentText = renderFallbackInline(paragraphs.length > 0 ? paragraphs.join(' ') : normalizedKramdown);
     return `<p>${fragmentText}</p>`;
   }
 
   const html = (paragraphs.length > 0 ? paragraphs : [normalizedKramdown])
-    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br>')}</p>`)
+    .map((paragraph) => `<p>${paragraph
+      .split(/\n/u)
+      .map((line) => renderFallbackInline(line))
+      .join('<br>')}</p>`)
     .join('');
   return html;
 }

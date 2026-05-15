@@ -7,7 +7,12 @@
           <div class="fsrs-review-v2-content__empty-title">{{ t('noDueCard', 'No due cards') }}</div>
         </div>
 
-        <div v-else-if="content.type === 'html'" class="fsrs-review-v2-content__html" v-html="content.data"></div>
+        <div
+          v-else-if="content.type === 'html'"
+          class="fsrs-review-v2-content__html"
+          v-html="content.data"
+          @click="handleCustomHtmlContentClick"
+        ></div>
 
         <!-- Xiuyuan 列表模版卡：自定义渲染 -->
         <div v-else-if="content.isXiuyuanListTemplate && content.xiuyuanMeta" class="fsrs-review-v2-content__xiuyuan">
@@ -219,8 +224,12 @@ type ReviewContentSiyuanApi = Pick<
 type ReviewContentReviewServiceLike = {
   getSiyuanApi?: () => ReviewContentSiyuanApi | undefined;
 };
+type ReviewContentTabApplicationServiceLike = {
+  openBlockTab?: (options: { blockId: string }) => Promise<void> | void;
+};
 type ReviewContentPluginContextLike = {
   getReviewService?: () => ReviewContentReviewServiceLike | undefined;
+  getTabApplicationService?: () => ReviewContentTabApplicationServiceLike | undefined;
 };
 type ReviewContentPluginLike = {
   getContext?: () => ReviewContentPluginContextLike | undefined;
@@ -233,6 +242,59 @@ function t(key: string, fallback: string): string {
 function getReviewSiyuanApi(): ReviewContentSiyuanApi | undefined {
   const plugin = props.plugin as ReviewContentPluginLike | undefined;
   return plugin?.getContext?.()?.getReviewService?.()?.getSiyuanApi?.();
+}
+
+function getReviewTabApplicationService(): ReviewContentTabApplicationServiceLike | undefined {
+  const plugin = props.plugin as ReviewContentPluginLike | undefined;
+  return plugin?.getContext?.()?.getTabApplicationService?.();
+}
+
+function resolveSiyuanBlockIdFromHref(href: string): string {
+  const match = /^siyuan:\/\/blocks\/([^/?#]+)/iu.exec(href.trim());
+  return match?.[1]?.trim() ?? '';
+}
+
+function resolveCustomHtmlBlockTarget(target: EventTarget | null): string {
+  if (!(target instanceof Element)) {
+    return '';
+  }
+
+  const element = target.closest('[data-type~="block-ref"][data-id], a[href]');
+  if (!(element instanceof HTMLElement)) {
+    return '';
+  }
+
+  const dataType = element.getAttribute('data-type') || '';
+  if (dataType.split(/\s+/u).includes('block-ref')) {
+    return (element.getAttribute('data-id') || '').trim();
+  }
+
+  if (element instanceof HTMLAnchorElement) {
+    return resolveSiyuanBlockIdFromHref(element.getAttribute('href') || '');
+  }
+
+  return '';
+}
+
+function handleCustomHtmlContentClick(event: MouseEvent): void {
+  const blockId = resolveCustomHtmlBlockTarget(event.target);
+  if (!blockId) {
+    return;
+  }
+
+  const tabApplicationService = getReviewTabApplicationService();
+  if (typeof tabApplicationService?.openBlockTab !== 'function') {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  Promise.resolve(tabApplicationService.openBlockTab({ blockId })).catch(error => {
+    logger.warn('[ReviewContent] Failed to open custom review link target', {
+      blockId,
+      error,
+    });
+  });
 }
 
 function normalizeDependencyBlockIds(values: Iterable<unknown>): string[] {

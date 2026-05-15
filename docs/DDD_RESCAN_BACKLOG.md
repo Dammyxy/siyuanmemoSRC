@@ -1,18 +1,38 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-15 (Round 357)
+Last update: 2026-05-15 (Round 358)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-15 - Custom Review surface link rendering
+
+- Task: Implement OpenSpec change `render-custom-review-surface-links` so #55 temporary and deliberate practice custom Review surfaces render common links and can open block targets.
+- Touched slice: Review markdown fallback rendering and Review v2 HTML custom surface activation; `src/core/card/common/application/reviewMarkdownRender.ts`, `src/ui/review/v2/ReviewContent.vue`, focused renderer/ReviewContent tests, OpenSpec docs, and issue triage notes.
+- Debt fixed now: Lute-unavailable review markdown fallback now renders supported Markdown links, asset links, and common SiYuan block references while keeping unsafe hrefs inert. Review v2 HTML custom surfaces now delegate clicks for `data-type~="block-ref"` and `siyuan://blocks/<id>` anchors to the existing tab open-block service, without changing normal external/asset anchor behavior.
+- Debt deferred: Full SiYuan editor/native rendering parity, language-learning card schema/workflow, audio timestamp/original/translation fields, and any review queue/grading/card creation/storage/backend ownership changes remain out of scope.
+- Why deferred: #55 is a custom Review rendering/navigation gap; language-learning cards and full native render parity are separate product/workflow decisions with larger data-model and UI surfaces.
+- Next safe step: If real SiYuan content exposes more supported reference syntax, add focused parser cases to the fallback renderer instead of widening Review queue or card creation behavior.
+- Validation: Focused renderer and ReviewContent tests passed. Hidden-fallback, boundary, build, and OpenSpec strict validation passed. Build retained only existing i18n hardcoded-string warnings and Sass legacy JS API warnings.
+
+### 2026-05-15 - SRS Browser native count difference diagnostics
+
+- Task: Implement OpenSpec change `explain-srs-browser-count-differences` so #19 native-vs-Browser card count mismatch is explained instead of forcing parity.
+- Touched slice: Browser read model/service/UI diagnostics; `BrowserCountDifferenceDiagnostics`, `BrowserApplicationService`, Browser Siyuan Riff read port, `SRSBrowser.vue`, and focused Browser service/grid/UI tests.
+- Debt fixed now: Browser now exposes a read-only count-difference diagnostic with native Riff total, Browser-manageable total, difference total, grouped reason counts, and bounded content-free sample block/card IDs. Browser grid row totals, `successCallback(rows,totalCount)`, select-all, and bulk action targets remain scoped to the SRS Browser Card Universe from #52.
+- Debt deferred: Native/plugin count repair, automatic sync creation, migration/repair writes, queue scheduling changes, and review grading changes remain out of scope.
+- Why deferred: #19 is a transparency problem unless the user explicitly chooses a repair/sync policy. Changing card creation/repair would widen into native Riff sync ownership and data mutation.
+- Next safe step: Use the grouped live samples to decide whether a separate repair/sync proposal is needed; keep any mutation policy outside this read-only diagnostic change.
+- Validation: Focused diagnostic model/service tests and Browser grid/UI regression tests passed. Hidden-fallback, boundary, build, OpenSpec strict validation, and live SiYuan CDP smoke passed. Live smoke confirmed `ApplicationContext` ready, Browser diagnostic method available, native total 385, Browser-manageable total 251, difference 134, with bounded `missing-plugin-index` and `sync-projection-not-complete` sample ids and no diagnostic error.
 
 ### 2026-05-15 - Formula cloze KaTeX-safe marker rendering
 
 - Task: Implement OpenSpec change `fix-formula-cloze-katex-marker-rendering` so formula-internal plugin cloze markers are parsed before Review math rendering and never reach KaTeX as answer text.
 - Touched slice: Formula cloze parse/render path; `src/utils/formula-cloze-parser.ts`, `ClozeDetector`, multi-cloze Review render service, formula cloze detection helpers, and focused formula/review tests.
 - Debt fixed now: Formula cloze now has one shared balanced-brace parser for numbered `\cloze{c1}{...}` / `\cloze{#2}{...}` targets and historical one-argument targets. Review formula mode replaces only the current target with a valid placeholder/answer fragment, renders non-current targets as plain formula fragments, normalizes stored raw formula faces before KaTeX, and fails closed with content-free diagnostics when malformed plugin syntax cannot be safely parsed.
-- Debt deferred: Live SiYuan formula cloze Review smoke was not run from this terminal session.
-- Why deferred: This pass validates the active TypeScript parser/render/routing path only; no CDP-attached SiYuan Review UI was exercised.
-- Next safe step: In live SiYuan Review, create formula cloze cards containing `\cloze{#2}{mc^2}` and `\cloze{c3}{x}`, then confirm only the current fragment hides/reveals and no KaTeX `Expected EOF, got #` error appears.
-- Validation: Focused parser/render, Review routing/presentation, ordinary multi-cloze, hidden-fallback, boundary, build, and OpenSpec strict validation are recorded with the implementation task.
+- Debt deferred: None for #61 formula marker leak; broader formula authoring UX remains separate issue scope.
+- Why deferred: Not applicable for this bounded fix.
+- Next safe step: Watch future formula authoring reports for syntax variants not covered by the balanced-brace parser.
+- Validation: Focused parser/render, Review routing/presentation, ordinary multi-cloze, hidden-fallback, boundary, build, OpenSpec strict validation, live SiYuan CDP renderer smoke, and live temporary-card Review smoke passed. The live temporary-card pass created block `20260515124406-s97gk41`, produced two `builtin-multi-cloze` cards with `inline-formula-cloze` metadata, opened subset Review, confirmed question and revealed answer had no raw `\cloze`, no `#2`/`c3` marker leakage, and no `.katex-error`, then removed the local cards, Riff card, Review dialog, and temporary document.
 
 ### 2026-05-15 - SRS Browser SQL card universe scope
 
