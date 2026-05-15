@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-16 (Round 363)
+Last update: 2026-05-16 (Round 365)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-16 - Semantic Activation DB owner persistence
+
+- Task: Continue OpenSpec change `add-semantic-activation-roam-engine` through tasks 2.1-2.2.
+- Touched slice: Semantic Activation persistence boundary; `src/infrastructure/persistence/sqlite/schema.ts`, `SqlSemanticActivationRepository`, `SemanticActivationPersistencePort`, focused SQLite persistence test, and OpenSpec task ledger.
+- Debt fixed now: Added owner-controlled SQLite tables and repository methods for Semantic sessions, append-only events, node/path stations, accepted/rejected relations, and projection cache. The repository implements an application port so future commands can depend on a port instead of direct SQL.
+- Debt deferred: Writer-owned Semantic command RPC, follower relay routing, unavailable command results, projection rebuild logic, UI entry, and live two-window smoke remain pending.
+- Why deferred: The next task changes backend RPC, `ApplicationContext`, and writer relay method ownership. That hits a hard pause gate and needs a separate acceptance checklist before wiring runtime commands.
+- Next safe step: Start task 2.3 with tests for writer-mode direct backend command execution, follower relay submission, and writer-unavailable no-local-mutation behavior.
+- Validation: `pnpm vitest run src\infrastructure\persistence\sqlite\__tests__\SqlSemanticActivationRepository.test.ts src\core\semantic\__tests__\semanticActivationTypes.test.ts`.
+
+### 2026-05-16 - Semantic Activation runtime contracts
+
+- Task: Continue OpenSpec change `add-semantic-activation-roam-engine` from tasks 1.1-1.4.
+- Touched slice: Semantic Activation contract foundation and active Review/NeuralRoam/Browser/backend/writer-relay path trace; `src/core/semantic/semanticActivationTypes.ts`, focused Semantic contract test, and OpenSpec task ledger.
+- Debt fixed now: Added a separate Semantic Activation runtime identity, domain types, unavailable result contract, command result shape, and controller/queue contract without adding Semantic state to Orbit/Hyperspace `NeuralRoamQueue`.
+- Debt deferred: No DB persistence, writer-owned command routing, projection builder, candidate provider, Review shell UI, mode picker, i18n, or AI path analysis yet.
+- Why deferred: Tasks 1.1-1.4 are the boundary/contract slice. Persistence and runtime behavior start at task 2.1 and need their own writer/DB TDD loop.
+- Next safe step: Start task 2.1 by designing Semantic tables/repository boundaries under the existing `siyuanmemo.db` owner path and adding writer/unavailable tests before implementation.
+- Validation: `pnpm vitest run src\core\semantic\__tests__\semanticActivationTypes.test.ts`.
 
 ### 2026-05-16 - Review Concept roam backend focus start
 

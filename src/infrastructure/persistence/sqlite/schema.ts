@@ -316,4 +316,74 @@ export const SQL_SCHEMA_STATEMENTS = [
     payload_json TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ai_card_attributions_pack ON ai_card_attributions(source_pack_id, updated_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS semantic_sessions (
+    session_id TEXT PRIMARY KEY,
+    root_focus_node_id TEXT NOT NULL,
+    current_node_id TEXT NOT NULL,
+    active_lens TEXT NOT NULL,
+    narrative_path_json TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    payload_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_sessions_root
+    ON semantic_sessions(root_focus_node_id, started_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_sessions_updated
+    ON semantic_sessions(updated_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS semantic_events (
+    event_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    node_id TEXT,
+    from_node_id TEXT,
+    to_node_id TEXT,
+    lens TEXT,
+    occurred_at INTEGER NOT NULL,
+    payload_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_events_session
+    ON semantic_events(session_id, occurred_at ASC, event_id ASC)`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_events_node
+    ON semantic_events(node_id, occurred_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS semantic_stations (
+    station_id TEXT PRIMARY KEY,
+    station_type TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    node_id TEXT,
+    path_json TEXT NOT NULL,
+    lens_history_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    payload_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_stations_session
+    ON semantic_stations(session_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_stations_node
+    ON semantic_stations(node_id, created_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS semantic_relations (
+    relation_id TEXT PRIMARY KEY,
+    from_node_id TEXT NOT NULL,
+    to_node_id TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    source TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    reason TEXT,
+    decided_at INTEGER NOT NULL,
+    payload_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_relations_from
+    ON semantic_relations(from_node_id, decision, decided_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_relations_to
+    ON semantic_relations(to_node_id, decision, decided_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS semantic_projection_cache (
+    projection_key TEXT PRIMARY KEY,
+    version INTEGER NOT NULL,
+    session_id TEXT,
+    node_memory_json TEXT NOT NULL,
+    edge_memory_json TEXT NOT NULL,
+    rebuilt_at INTEGER NOT NULL,
+    payload_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_projection_session
+    ON semantic_projection_cache(session_id, rebuilt_at DESC)`,
 ];
