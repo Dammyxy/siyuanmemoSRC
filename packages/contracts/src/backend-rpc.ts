@@ -750,6 +750,13 @@ export interface BackendNeuralRoamFeedback {
   customActionId?: string | null;
 }
 
+export interface BackendNeuralRoamStartFromFocusRequest {
+  blockId: string;
+  includeFocusAsFirst?: boolean;
+  resetHistory?: boolean;
+  startNewSession?: boolean;
+}
+
 export interface BackendNeuralRoamItem {
   id: string;
   cardId: string;
@@ -772,6 +779,7 @@ export interface BackendNeuralRoamAdvanceRequest {
   reviewedAt?: number | null;
   idempotencyKey?: string | null;
   scheduler?: BackendReviewSchedulerConfig;
+  startFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
 }
 
 export type BackendNeuralRoamAdvanceUnavailableReason =

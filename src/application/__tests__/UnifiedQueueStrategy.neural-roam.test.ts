@@ -193,6 +193,38 @@ function createStrategyWithQueue(
 }
 
 describe('UnifiedQueueStrategy neural-roam snapshot', () => {
+  it('sends one-shot focus start intent on the first neural-roam advance', async () => {
+    const queue = createQueueStub();
+    const focusCard = createSyntheticNeuralCard({
+      id: 'concept-focus',
+      blockId: 'concept-focus',
+      type: CardType.Concept,
+    });
+    const { strategy, manager } = createStrategyWithQueue(queue);
+    manager.neuralRoamAdvance.mockResolvedValueOnce(createAdvanceResult(createAdvanceItem(focusCard)));
+
+    strategy.startNeuralRoamFromFocusOnNextAdvance({
+      blockId: 'concept-focus',
+      includeFocusAsFirst: true,
+      startNewSession: true,
+    });
+
+    const next = await strategy.next();
+
+    expect(next?.blockId).toBe('concept-focus');
+    expect(manager.neuralRoamAdvance).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: 'neural-roam',
+      currentItem: null,
+      feedback: null,
+      startFromFocus: {
+        blockId: 'concept-focus',
+        includeFocusAsFirst: true,
+        resetHistory: false,
+        startNewSession: true,
+      },
+    }));
+  });
+
   it('does not query card storage snapshot for synthetic neural cards', async () => {
     const queue = createQueueStub();
     const { strategy, manager } = createStrategyWithQueue(queue);

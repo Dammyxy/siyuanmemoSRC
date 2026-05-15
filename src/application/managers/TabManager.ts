@@ -32,6 +32,7 @@ import {
 import { createLogger } from '@/utils/logger';
 import type { BrowserOpenState } from '@/types/browser';
 import type { AIWorkbenchOpenOptions } from '@/types/ai';
+import type { BackendNeuralRoamStartFromFocusRequest } from '../../../packages/contracts/src/backend-rpc';
 import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
 import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
@@ -60,6 +61,8 @@ interface ReviewTabData {
   sharedReviewSessionId?: string | null;
   transferState?: ReviewTabTransferState | null;
   reviewState?: ReviewTabRuntimeState | null;
+  suppressSnapshotRecovery?: boolean;
+  neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
 }
 
 interface BrowserTabData {
@@ -387,6 +390,22 @@ function normalizeSharedReviewSessionId(value: unknown): string | null {
   return normalized || null;
 }
 
+function normalizeNeuralRoamStartFromFocus(value: unknown): BackendNeuralRoamStartFromFocusRequest | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const blockId = String(value.blockId || '').trim();
+  if (!blockId) {
+    return null;
+  }
+  return {
+    blockId,
+    includeFocusAsFirst: value.includeFocusAsFirst !== false,
+    resetHistory: value.resetHistory === true,
+    startNewSession: value.startNewSession === true,
+  };
+}
+
 function normalizeReviewTabRuntimeState(value: unknown): ReviewTabRuntimeState | null {
   if (!isRecord(value) || Number(value.version) !== 1) {
     return null;
@@ -436,6 +455,8 @@ export interface ReviewTabOptions {
   sharedReviewSessionId?: string | null;
   transferState?: ReviewTabTransferState;
   reviewState?: ReviewTabRuntimeState | null;
+  suppressSnapshotRecovery?: boolean;
+  neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
 }
 
 interface ReviewTabOpenOptions {
@@ -1154,6 +1175,9 @@ export class TabManager {
     if (this.hasRenderableReviewRuntimeState(sanitizedData.reviewState)) {
       return sanitizedData;
     }
+    if (sanitizedData.suppressSnapshotRecovery === true) {
+      return sanitizedData;
+    }
 
     const snapshotKey = this.buildReviewTabSurfaceSnapshotKey(sanitizedData);
     const snapshot = this.reviewTabSurfaceSnapshots.get(snapshotKey);
@@ -1396,6 +1420,8 @@ export class TabManager {
       ),
       transferState: normalizeReviewTabTransferState(options.transferState),
       reviewState,
+      suppressSnapshotRecovery: options.suppressSnapshotRecovery === true,
+      neuralRoamStartFromFocus: normalizeNeuralRoamStartFromFocus(options.neuralRoamStartFromFocus),
     };
   }
 
@@ -1421,6 +1447,8 @@ export class TabManager {
       ),
       transferState: normalizeReviewTabTransferState(data?.transferState),
       reviewState,
+      suppressSnapshotRecovery: data?.suppressSnapshotRecovery === true,
+      neuralRoamStartFromFocus: normalizeNeuralRoamStartFromFocus(data?.neuralRoamStartFromFocus),
     };
   }
 
@@ -1477,6 +1505,7 @@ export class TabManager {
       this.context.getSchedulerRouter() as unknown as ISchedulerRouter,
     );
     strategy.restoreSessionSnapshot?.(data.reviewState?.queueSnapshot);
+    strategy.startNeuralRoamFromFocusOnNextAdvance?.(data.neuralRoamStartFromFocus);
     return strategy;
   }
 

@@ -28,6 +28,7 @@ import {
   type ReviewTabTransferState,
 } from '@/types/unified-data-source';
 import type { ReviewHeaderVariant } from '@/ui/review/v2/types';
+import type { BackendNeuralRoamStartFromFocusRequest } from '../../../packages/contracts/src/backend-rpc';
 import { resolveReviewPresentation } from '@/types/review-presentation-semantics';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
@@ -279,17 +280,23 @@ export class DialogManager implements IDialogManager {
     headerVariant: ReviewHeaderVariant;
     queueInstance?: IReviewQueue;
     transferState?: ReviewTabTransferState;
+    suppressSnapshotRecovery?: boolean;
+    neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
   }): {
     queue: IReviewQueue;
     title: string;
     headerVariant: ReviewHeaderVariant;
     transferState?: ReviewTabTransferState;
+    suppressSnapshotRecovery?: boolean;
+    neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
   } {
     return {
       queue: options.queueInstance ?? this.context.getUnifiedDataSourceManager().getQueue(options.queueType),
       title: options.title,
       headerVariant: options.headerVariant,
       transferState: options.transferState,
+      suppressSnapshotRecovery: options.suppressSnapshotRecovery,
+      neuralRoamStartFromFocus: options.neuralRoamStartFromFocus,
     };
   }
 
@@ -315,6 +322,8 @@ export class DialogManager implements IDialogManager {
     transferState?: ReviewTabTransferState;
     initialSessionState?: InitialReviewSessionState;
     allowNewTab?: boolean;
+    suppressSnapshotRecovery?: boolean;
+    neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
   }): Promise<void> {
     const allowNewTab = options.allowNewTab !== false;
     if (allowNewTab && this.shouldOpenReviewInNewTabByDefault()) {
@@ -337,6 +346,7 @@ export class DialogManager implements IDialogManager {
         queueInstance: options.queueInstance,
         initialSessionState: options.initialSessionState,
         transferState: options.transferState,
+        neuralRoamStartFromFocus: options.neuralRoamStartFromFocus,
         title: options.title,
         headerVariant: options.headerVariant,
         eventBus: this.context.getEventBus(),
@@ -1090,13 +1100,12 @@ export class DialogManager implements IDialogManager {
 
     try {
       const neuralQueue = this.context.getUnifiedDataSourceManager().getQueue(QueueType.NeuralRoam);
+      const focusBlockId = options?.focusBlockId;
+      const includeFocusAsFirst = options?.includeFocusAsFirst ?? true;
+      const resetHistory = options?.resetHistory === true;
+      const startNewSession = options?.startNewSession === true;
 
       if (isNeuralRoamSessionQueue(neuralQueue)) {
-        const focusBlockId = options?.focusBlockId;
-        const includeFocusAsFirst = options?.includeFocusAsFirst ?? true;
-        const resetHistory = options?.resetHistory === true;
-        const startNewSession = options?.startNewSession === true;
-
         if (focusBlockId) {
           await neuralQueue.startRoamingFromFocus(focusBlockId, {
             includeFocusAsFirst,
@@ -1112,6 +1121,13 @@ export class DialogManager implements IDialogManager {
         queueType: QueueType.NeuralRoam,
         title: this.context.getI18n()?.neuralReviewTitle || '神经漫游',
         headerVariant: 'neural-roam',
+        suppressSnapshotRecovery: Boolean(options?.focusBlockId || options?.resetHistory || options?.startNewSession),
+        neuralRoamStartFromFocus: focusBlockId ? {
+          blockId: focusBlockId,
+          includeFocusAsFirst,
+          resetHistory,
+          startNewSession,
+        } : null,
       });
 
       logger.info('[DialogManager] ✅ Neural roam opened');

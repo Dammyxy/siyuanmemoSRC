@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-16 (Round 361)
+Last update: 2026-05-16 (Round 363)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-16 - Review Concept roam backend focus start
+
+- Task: Fix `从概念漫游` still showing the previous Neural Roam path even after the new tab opened with `queueType: neural-roam`.
+- Touched slice: Review/Dialog neural-roam start options, TabManager review-tab restore payload, UnifiedQueueStrategy backend advance request, `neural-roam.advance` worker contract, and focused application/worker tests.
+- Debt fixed now: Concept-roam starts now carry a one-shot `startFromFocus` intent into the first backend `neural-roam.advance` call. The worker applies `NeuralRoamQueue.startRoamingFromFocus()` against its cached queue before returning the first card, so the displayed card/path starts at the requested Concept instead of an older worker-resident neural session.
+- Debt deferred: Live SiYuan click smoke is still manual; broader Neural Roam session ownership simplification remains separate.
+- Why deferred: The latest captured log showed the UI opened the correct queue, but backend advance returned the old card id from worker cache. That made this a backend focus-start contract gap, not another header/tab routing issue.
+- Next safe step: Rebuild/reload plugin, click `从概念漫游` from a Concept card, and confirm the first `Next card (backend NeuralRoam advance)` log reports the Concept block id rather than the previous neural-roam card id.
+- Validation: Focused DialogManager, TabManager, ReviewView concept-roam, UnifiedQueueStrategy neural-roam, and BackendKernel tests passed. Boundary and production build passed.
+
+### 2026-05-16 - Review Concept roam tab snapshot isolation
+
+- Task: Fix Review-side `从概念漫游` opening Neural Roam in a new tab with the previous neural-roam current card/path instead of the requested Concept focus.
+- Touched slice: DialogManager neural-roam tab open options and TabManager review-state recovery.
+- Debt fixed now: Concept-roam starts now mark the new neural-roam tab with `suppressSnapshotRecovery`, so TabManager does not rehydrate the previous same-title neural-roam `reviewState.queueSnapshot` over the freshly started queue session.
+- Debt deferred: Live SiYuan click smoke is still manual; broader Neural Roam engine/session redesign remains separate from the small Review entry fix.
+- Why deferred: The captured logs matched deterministic stale tab snapshot recovery, not Concept focus resolution or engine activation failure.
+- Next safe step: Rebuild/reload plugin, click `从概念漫游` from a Concept card, and confirm the first card/path starts from that Concept rather than the previous neural-roam card.
+- Validation: Focused DialogManager, TabManager, ReviewView concept-roam, and NeuralRoamQueue tests passed. Boundary and production build passed.
 
 ### 2026-05-16 - Filter-group due review backend feedback mode
 

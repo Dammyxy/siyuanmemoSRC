@@ -32,6 +32,7 @@ import { createLogger } from '@/utils/logger';
 import type {
     BackendNeuralRoamAdvanceRequest,
     BackendNeuralRoamAdvanceResult,
+    BackendNeuralRoamStartFromFocusRequest,
     BackendNeuralRoamItem,
 } from '../../../packages/contracts/src/backend-rpc';
 
@@ -138,6 +139,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private readonly suspiciousNextDuesLogKeys = new Set<string>();
     private pendingNeuralRoamAdvanceNext: FSRSCard | null = null;
     private pendingNeuralRoamAdvanceNextReady = false;
+    private pendingNeuralRoamStartFromFocus: BackendNeuralRoamStartFromFocusRequest | null = null;
     private learnAheadSession = false;
     private readonly projectionAdvancePolicy: ReviewSessionProjectionAdvancePolicy;
     private readonly feedbackCompensationPolicy = new ReviewFeedbackCompensationPolicy();
@@ -1012,13 +1014,34 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return cardWithNextDues;
         }
 
+        const startFromFocus = this.pendingNeuralRoamStartFromFocus;
+        this.pendingNeuralRoamStartFromFocus = null;
         const result = await this.submitNeuralRoamAdvance({
             queueType: 'neural-roam',
             sessionId: null,
             currentItem: this.currentItem ? this.toNeuralRoamAdvanceItem(this.currentItem) : null,
             feedback: null,
+            startFromFocus,
         });
         return this.consumeNeuralRoamAdvanceResult(result, 'next');
+    }
+
+    public startNeuralRoamFromFocusOnNextAdvance(request: BackendNeuralRoamStartFromFocusRequest | null | undefined): void {
+        const blockId = String(request?.blockId || '').trim();
+        if (!blockId) {
+            this.pendingNeuralRoamStartFromFocus = null;
+            return;
+        }
+        this.pendingNeuralRoamStartFromFocus = {
+            blockId,
+            includeFocusAsFirst: request?.includeFocusAsFirst !== false,
+            resetHistory: request?.resetHistory === true,
+            startNewSession: request?.startNewSession === true,
+        };
+        this.currentItem = null;
+        this.pendingNeuralRoamAdvanceNext = null;
+        this.pendingNeuralRoamAdvanceNextReady = false;
+        this.forwardBuffer = [];
     }
 
     private async handleNeuralRoamAdvanceFeedback(

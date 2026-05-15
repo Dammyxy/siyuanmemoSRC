@@ -176,6 +176,29 @@ describe('DialogManager review header variants', () => {
     ]);
   });
 
+  it('suppresses stale tab snapshot recovery when concept roam starts a fresh neural session', async () => {
+    const { dialogManager, tabManager } = createDialogManager({
+      reviewOpenInNewTabByDefault: true,
+    });
+
+    await dialogManager.openNeuralRoamDialog({
+      focusBlockId: 'concept-block',
+      includeFocusAsFirst: true,
+      startNewSession: true,
+    });
+
+    expect(tabManager.openReviewTabInNewTab).toHaveBeenCalledWith(expect.objectContaining({
+      headerVariant: 'neural-roam',
+      suppressSnapshotRecovery: true,
+      neuralRoamStartFromFocus: {
+        blockId: 'concept-block',
+        includeFocusAsFirst: true,
+        resetHistory: false,
+        startNewSession: true,
+      },
+    }));
+  });
+
   it('passes exact cardIds to subset review queues and counts cards in the title', async () => {
     const { dialogManager } = createDialogManager();
 

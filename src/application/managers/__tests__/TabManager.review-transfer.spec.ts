@@ -1009,6 +1009,81 @@ describe('TabManager filter-group review transfer restore', () => {
       id: 'card-special',
       blockId: 'block-special',
     });
+
+    const freshNeuralRuntime = {
+      id: 'review-runtime-fresh-neural',
+      element: document.createElement('div'),
+      data: {
+        providerId: 'queue-based',
+        title: '神经漫游',
+        queueType: 'neural-roam',
+        headerVariant: 'neural-roam',
+        reviewState: null,
+        suppressSnapshotRecovery: true,
+      },
+      tab: {
+        id: 'review-runtime-fresh-neural',
+        headElement: document.createElement('button'),
+        model: {
+          data: null,
+        },
+        parent: {
+          switchTab: vi.fn(),
+        },
+      },
+    };
+
+    const neuralCurrentCard = {
+      ...currentCard,
+      id: 'old-neural-card',
+      blockId: 'old-neural-block',
+    } as FSRSCard;
+    const neuralSourceRuntime = {
+      id: 'review-runtime-neural-source',
+      element: document.createElement('div'),
+      data: {
+        providerId: 'queue-based',
+        title: '神经漫游',
+        queueType: 'neural-roam',
+        headerVariant: 'neural-roam',
+      },
+      tab: {
+        id: 'review-runtime-neural-source',
+        headElement: document.createElement('button'),
+        model: {
+          data: null,
+        },
+        parent: {
+          switchTab: vi.fn(),
+        },
+      },
+    };
+
+    await reviewRegistration.init.call(neuralSourceRuntime);
+    const [, neuralSourceProps] = mocks.createApp.mock.calls[2];
+    neuralSourceProps.onTabRuntimeStateChange({
+      version: 1,
+      showAnswer: false,
+      currentCardId: 'old-neural-card',
+      currentBlockId: 'old-neural-block',
+      queueSnapshot: {
+        version: 1,
+        queueType: 'neural-roam',
+        cacheValid: true,
+        currentIndex: 1,
+        cachedCards: [neuralCurrentCard],
+        currentItem: neuralCurrentCard,
+        forwardBuffer: [],
+        pendingRotateCardId: null,
+        lastCounterSnapshot: null,
+      },
+    });
+
+    await reviewRegistration.init.call(freshNeuralRuntime);
+    const [, freshNeuralProps] = mocks.createApp.mock.calls[3];
+
+    expect(freshNeuralProps.initialCurrentCardId).toBe('');
+    expect(freshNeuralProps.initialCurrentItem).toBeNull();
   });
 
   it('replaces the current review tab when quick-switching to another standard queue', async () => {

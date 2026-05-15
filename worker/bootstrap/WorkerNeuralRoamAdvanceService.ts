@@ -120,6 +120,23 @@ export class WorkerNeuralRoamAdvanceService {
 
       const queue = await this.getQueue(request.sessionId ?? null);
       let projectionImpact: BackendReviewFeedbackQueueImpact | null = null;
+      const focusStart = await this.applyStartFromFocusRequest(queue, request);
+      if (focusStart.applied && focusStart.nextItem) {
+        return this.rememberIdempotentResult(idempotencyKey, await this.buildResult(request, queue, 'advanced', {
+          nextItem: focusStart.nextItem,
+          projectionImpact,
+          unavailableReason: null,
+          message: null,
+        }));
+      }
+      if (focusStart.applied && focusStart.unavailableReason) {
+        return this.rememberIdempotentResult(idempotencyKey, await this.buildResult(request, queue, 'unavailable', {
+          nextItem: null,
+          projectionImpact,
+          unavailableReason: focusStart.unavailableReason,
+          message: focusStart.message,
+        }));
+      }
       const missingReason = await this.resolveKnownMissingCurrentItemReason(request.currentItem);
       if (missingReason) {
         const nextItem = await this.readNextItem(queue);
@@ -217,6 +234,44 @@ export class WorkerNeuralRoamAdvanceService {
       this.loadPromises.delete(storageKey);
     }
     return queue;
+  }
+
+  private async applyStartFromFocusRequest(
+    queue: NeuralRoamQueue,
+    request: BackendNeuralRoamAdvanceRequest,
+  ): Promise<{
+    applied: boolean;
+    nextItem: BackendNeuralRoamItem | null;
+    unavailableReason: BackendNeuralRoamAdvanceUnavailableReason | null;
+    message: string | null;
+  }> {
+    const blockId = normalizeString(request.startFromFocus?.blockId);
+    if (!blockId) {
+      return { applied: false, nextItem: null, unavailableReason: null, message: null };
+    }
+    if (request.feedback || request.currentItem) {
+      throw new Error('INVALID_REQUEST: neural-roam startFromFocus cannot be combined with current item feedback');
+    }
+
+    const includeFocusAsFirst = request.startFromFocus?.includeFocusAsFirst !== false;
+    await queue.startRoamingFromFocus(blockId, {
+      includeFocusAsFirst,
+      resetHistory: request.startFromFocus?.resetHistory === true,
+      startNewSession: request.startFromFocus?.startNewSession === true,
+    });
+
+    if (!includeFocusAsFirst) {
+      return { applied: true, nextItem: null, unavailableReason: null, message: null };
+    }
+    const focusItem = await queue.getPathItemByNodeId(blockId);
+    return focusItem
+      ? { applied: true, nextItem: this.toAdvanceItem(focusItem), unavailableReason: null, message: null }
+      : {
+        applied: true,
+        nextItem: null,
+        unavailableReason: 'source-block-missing',
+        message: `NeuralRoam focus source is unavailable: ${blockId}`,
+      };
   }
 
   private async createLoadedQueuePersistence(storageKey: string): Promise<QueuePersistencePort> {

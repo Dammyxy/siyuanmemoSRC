@@ -1239,6 +1239,57 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('starts backend neural-roam advance from requested concept focus', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const resolveNeuralGraphQuery = createNeuralGraphResolver({
+      'concept-source-1': {
+        id: 'concept-source-1',
+        content: 'Concept source',
+        type: 'p',
+      },
+      'old-source-1': {
+        id: 'old-source-1',
+        content: 'Old source',
+        type: 'p',
+      },
+    });
+    await seedNeuralRoamHyperspaceSource(database, 'old-source-1');
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery,
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-start-focus',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: null,
+        startFromFocus: {
+          blockId: 'concept-source-1',
+          includeFocusAsFirst: true,
+          startNewSession: true,
+        },
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        status: 'advanced',
+        nextItem: {
+          blockId: 'concept-source-1',
+        },
+        sessionState: {
+          currentNodeId: 'concept-source-1',
+          pathLength: 1,
+        },
+      });
+    }
+  });
+
   it('returns explicit unavailable when neural-roam graph query authority is absent', async () => {
     const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
     const kernel = new BackendKernel({ database });

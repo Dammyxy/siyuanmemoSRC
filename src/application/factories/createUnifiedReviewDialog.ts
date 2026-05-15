@@ -22,6 +22,7 @@ import type { ReviewHeaderVariant } from '@/ui/review/v2/types';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { ISchedulerRouter } from '@/application/interfaces/ISchedulerRouter';
+import type { BackendNeuralRoamStartFromFocusRequest } from '../../../packages/contracts/src/backend-rpc';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('createUnifiedReviewDialog');
@@ -62,6 +63,9 @@ export interface CreateUnifiedReviewDialogOptions {
 
     /** 可选：传入可序列化队列迁移状态（用于对话框再打开为 Tab 时保持精确子集） */
     transferState?: ReviewTabTransferState;
+
+    /** 可选：神经漫游后端首次 advance 的起点 */
+    neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
     
     /** 对话框标题 */
     title: string;
@@ -101,7 +105,7 @@ export interface CreateUnifiedReviewDialogOptions {
  * @returns 对话框实例
  */
 export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOptions) {
-    const { plugin, queueType, queueInstance, initialSessionState, transferState, title, headerVariant, eventBus, startFullscreen, onClose } = options;
+    const { plugin, queueType, queueInstance, initialSessionState, transferState, neuralRoamStartFromFocus, title, headerVariant, eventBus, startFullscreen, onClose } = options;
     const isMobile = plugin.isMobile === true;
     
     try {
@@ -119,6 +123,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
         // 创建统一队列策略（使用依赖注入）
         const schedulerRouter = context.getSchedulerRouter();
         const queue = new UnifiedQueueStrategy(queueInstance ?? queueType, manager, eventBus, schedulerRouter);
+        queue.startNeuralRoamFromFocusOnNextAdvance(neuralRoamStartFromFocus);
         
         // 创建统一复习适配器
         const adapter = new UnifiedReviewAdapter({
