@@ -17,10 +17,12 @@ import type {
   SortModel,
 } from './types';
 import {
+  adjustBrowserCardsPriorityRelative,
   deleteBrowserCards,
   setBrowserCardsPriority,
   sortBrowserRows,
 } from './DataSourceUtils';
+import { getRelativePriorityDelta } from '../browserActionFeedback';
 import { BrowserQuerySession } from './session/BrowserQuerySession';
 import { resolveBrowserCardStableId } from '../utils/browserCardIdentity';
 import {
@@ -245,6 +247,8 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
 
     actions.push(
       baseActions.setPriority,
+      baseActions.priorityPlus10,
+      baseActions.priorityMinus10,
       baseActions.postpone,
       baseActions.advance,
       baseActions.spread,
@@ -278,6 +282,11 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
 
     if (actionId === 'set-priority') {
       return this.handleSetPriority(selectedRows, context);
+    }
+
+    const relativePriorityDelta = getRelativePriorityDelta(actionId);
+    if (relativePriorityDelta != null) {
+      return this.handleAdjustPriorityRelative(selectedRows, relativePriorityDelta);
     }
 
     if (actionId === 'reset') {
@@ -358,6 +367,20 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
     invalidateCardCache();
     this.invalidateQuerySession();
     return result;
+  }
+
+  private async handleAdjustPriorityRelative(selectedRows: BrowserActionTarget[], delta: number): Promise<unknown> {
+    const result = await adjustBrowserCardsPriorityRelative(this.manager!, selectedRows, delta, {
+      scope: 'QueryDataSource',
+    });
+
+    invalidateCardCache();
+    this.invalidateQuerySession();
+    return {
+      ...result,
+      updated: result.updated.length,
+      skipped: result.skipped.length,
+    };
   }
 
   private resolvePriority(priority: unknown): number {

@@ -547,6 +547,37 @@
   background: rgba(var(--b3-theme-primary-rgb), 0.12) !important;
 }
 
+.card-browser-grid :deep(.card-browser-grid__row--suspended) {
+  color: var(--b3-theme-on-surface-light);
+  background: color-mix(in srgb, var(--b3-theme-surface) 84%, var(--b3-card-warning-background) 16%) !important;
+}
+
+.card-browser-grid :deep(.card-browser-grid__row--suspended .ag-cell) {
+  opacity: 0.86;
+}
+
+.card-browser-grid :deep(.card-browser-grid__state-label) {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.card-browser-grid :deep(.card-browser-grid__suspended-badge) {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  margin-left: 5px;
+  padding: 0 5px;
+  border: 1px solid color-mix(in srgb, var(--b3-card-warning-color) 42%, var(--b3-border-color) 58%);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--b3-card-warning-background) 82%, var(--b3-theme-background) 18%);
+  color: var(--b3-card-warning-color);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 /* 单元格样式 */
 .card-browser-grid :deep(.ag-cell) {
   line-height: 32px;

@@ -18,6 +18,10 @@ import {
 } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 import { resolveBrowserCardActionId } from '../utils/browserCardIdentity';
+import {
+  PRIORITY_DECREASE_ACTION_ID,
+  PRIORITY_INCREASE_ACTION_ID,
+} from '../browserActionFeedback';
 
 const logger = createLogger('MenuActions');
 
@@ -46,6 +50,8 @@ export function getBaseActions(t?: (key: string, fallback: string) => string) {
     } as CardBrowserAction,
     insertAt: { id: 'insert-at', label: translate('insertAt', '插入到位置'), icon: 'iconAlignLeft' } as CardBrowserAction,
     setPriority: { id: 'set-priority', label: translate('setPriority', '设置优先级'), icon: 'iconMark' } as CardBrowserAction,
+    priorityPlus10: { id: PRIORITY_INCREASE_ACTION_ID, label: translate('priorityPlus10', '优先级 +10'), icon: 'iconUp' } as CardBrowserAction,
+    priorityMinus10: { id: PRIORITY_DECREASE_ACTION_ID, label: translate('priorityMinus10', '优先级 -10'), icon: 'iconDown' } as CardBrowserAction,
     autoSort: { id: 'auto-sort', label: translate('autoSortQueue', '自动排序'), icon: 'iconSort' } as CardBrowserAction,
     postpone: { id: 'postpone', label: translate('postpone', '推迟'), icon: 'iconCalendar' } as CardBrowserAction,
     advance: { id: 'advance', label: translate('advance', '提前'), icon: 'iconCalendar' } as CardBrowserAction,
@@ -185,6 +191,8 @@ export function buildQueueActions(
   // }
   if (options.withPriority) {
     actions.push(BASE.setPriority);
+    actions.push(BASE.priorityPlus10);
+    actions.push(BASE.priorityMinus10);
   }
   if (options.withSuspend) {
     actions.push(options.preset === 'suspended' ? BASE.unsuspend : BASE.suspend);

@@ -164,6 +164,7 @@
           :defaultColDef="defaultColDef"
           :getRowId="getGridRowId"
           :rowSelection="rowSelection"
+          :getRowClass="getBrowserRowClass"
           :enableCellTextSelection="true"
           :animateRows="false"
           :suppressCellFocus="true"
@@ -460,7 +461,7 @@ import FilterDialog from './dialogs/FilterDialog.vue';
 import SyncStatusIndicator from '../components/SyncStatusIndicator.vue';  // 🆕 导入同步状指示器
 import { useCardTypeDetection } from './composables/useCardTypeDetection';
 import type { RescheduleStoragePort } from '@/core/scheduler/ports';
-import { createColumnDefs } from './config';
+import { createColumnDefs, getBrowserRowClass } from './config';
 import { getNeuralSourceLabelSet } from '@/ui/shared/neuralRoamLabels';
 import type {
   BrowserCardTypeFilter,

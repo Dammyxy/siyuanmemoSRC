@@ -30,6 +30,7 @@ import type { RescheduleService } from '@/core/scheduler/rescheduleService';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import type { FSRSCard } from '@/types/card';
 import {
+  adjustBrowserCardsPriorityRelative,
   applyCardTypeFilter,
   applyDocFilter,
   applyLegacyPresetFilter,
@@ -38,6 +39,7 @@ import {
   setBrowserCardsPriority,
   sortBrowserCards,
 } from './DataSourceUtils';
+import { getRelativePriorityDelta } from '../browserActionFeedback';
 import {
   reconcileBrowserCardTypes,
   type CardTypeConsistencyDependencies,
@@ -230,6 +232,8 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
 
     actions.push(
       baseActions.setPriority,
+      baseActions.priorityPlus10,
+      baseActions.priorityMinus10,
       baseActions.postpone,
       baseActions.advance,
       baseActions.spread,
@@ -268,6 +272,11 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
 
     if (actionId === 'set-priority') {
       return this.handleSetPriority(selectedRows, context);
+    }
+
+    const relativePriorityDelta = getRelativePriorityDelta(actionId);
+    if (relativePriorityDelta != null) {
+      return this.handleAdjustPriorityRelative(selectedRows, relativePriorityDelta);
     }
 
     if (actionId === 'reset') {
@@ -358,6 +367,20 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     invalidateCardCache();
     this.invalidateQuerySession();
     return result;
+  }
+
+  private async handleAdjustPriorityRelative(selectedRows: BrowserActionTarget[], delta: number): Promise<unknown> {
+    const result = await adjustBrowserCardsPriorityRelative(this.manager, selectedRows, delta, {
+      scope: 'DeckDataSource',
+    });
+
+    invalidateCardCache();
+    this.invalidateQuerySession();
+    return {
+      ...result,
+      updated: result.updated.length,
+      skipped: result.skipped.length,
+    };
   }
 
   private resolvePriority(priority: unknown): number {

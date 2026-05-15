@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const setBrowserCardsPriorityMock = vi.fn();
+const adjustBrowserCardsPriorityRelativeMock = vi.fn();
 const invalidateCardCacheMock = vi.fn();
 const batchSuspendMock = vi.fn();
 const deleteBrowserCardsMock = vi.fn();
@@ -10,6 +11,7 @@ vi.mock('../DataSourceUtils', () => ({
   applyDocFilter: (rows: unknown[]) => rows,
   applyLegacyPresetFilter: (rows: unknown[]) => rows,
   applySimpleQueryFilter: (rows: unknown[]) => rows,
+  adjustBrowserCardsPriorityRelative: (...args: unknown[]) => adjustBrowserCardsPriorityRelativeMock(...args),
   deleteBrowserCards: (...args: unknown[]) => deleteBrowserCardsMock(...args),
   setBrowserCardsPriority: (...args: unknown[]) => setBrowserCardsPriorityMock(...args),
   sortBrowserCards: (rows: unknown[]) => rows,
@@ -25,6 +27,7 @@ import { DeckDataSource } from '../DeckDataSource';
 
 describe('DeckDataSource set-priority regression', () => {
   beforeEach(() => {
+    adjustBrowserCardsPriorityRelativeMock.mockReset();
     deleteBrowserCardsMock.mockReset();
     setBrowserCardsPriorityMock.mockReset();
     invalidateCardCacheMock.mockReset();
@@ -52,6 +55,43 @@ describe('DeckDataSource set-priority regression', () => {
       { scope: 'DeckDataSource' },
     );
     expect(invalidateCardCacheMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('exposes and routes relative priority actions without opening the absolute priority path', async () => {
+    const selectedRow = {
+      id: 'row-1',
+      fsrsCardId: 'card-1',
+      blockId: 'block-1',
+      priority: 50,
+    };
+    const manager = {} as never;
+    adjustBrowserCardsPriorityRelativeMock.mockResolvedValue({
+      delta: 10,
+      lowerBoundReached: false,
+      skipped: [],
+      updated: [selectedRow],
+      upperBoundReached: true,
+    });
+
+    const ds = new DeckDataSource(manager, { preset: 'all' });
+    const actions = ds.getSupportedActions().map((action) => action.id);
+    const result = await ds.performAction('priority-plus-10', [selectedRow] as never[], { priority: 12 });
+
+    expect(actions).toEqual(expect.arrayContaining(['set-priority', 'priority-plus-10', 'priority-minus-10']));
+    expect(setBrowserCardsPriorityMock).not.toHaveBeenCalled();
+    expect(adjustBrowserCardsPriorityRelativeMock).toHaveBeenCalledWith(
+      manager,
+      [selectedRow],
+      10,
+      { scope: 'DeckDataSource' },
+    );
+    expect(result).toEqual({
+      delta: 10,
+      lowerBoundReached: false,
+      skipped: 0,
+      updated: 1,
+      upperBoundReached: true,
+    });
   });
 
   it('routes delete-card through the unified manager and returns update summary', async () => {

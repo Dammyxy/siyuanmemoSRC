@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { removeCardsFromQueue, resolveQueueRemovalTarget, setBrowserCardsPriority } from '../DataSourceUtils';
+import {
+  adjustBrowserCardsPriorityRelative,
+  removeCardsFromQueue,
+  resolveQueueRemovalTarget,
+  setBrowserCardsPriority,
+} from '../DataSourceUtils';
 import type { FSRSCard } from '@/types/card';
 import type { BrowserCard } from '../../types';
 import { QueueType } from '@/types/unified-data-source';
@@ -82,6 +87,42 @@ describe('DataSourceUtils batch actions', () => {
     expect(result.updated).toHaveLength(1000);
     expect(result.skipped).toHaveLength(0);
     expect(rows.every((row) => row.priority === 17)).toBe(true);
+  });
+
+  it('adjusts relative priority through one batchUpdateCards call and clamps bounds', async () => {
+    const rows = [makeBrowserRow(1), makeBrowserRow(2)];
+    rows[0].priority = 20;
+    rows[1].priority = 95;
+    const manager = {
+      getCard: vi.fn(async (cardId: string) => (
+        cardId === 'card-1'
+          ? makeCard(cardId, 'block-1', 20)
+          : makeCard(cardId, 'block-2', 95)
+      )),
+      updateCard: vi.fn(),
+      batchUpdateCards: vi.fn(async (cards: FSRSCard[]) => ({
+        attemptedCount: cards.length,
+        updatedCount: cards.length,
+        updatedCardIds: cards.map((card) => card.id),
+        failedCardIds: [],
+      })),
+    };
+
+    const result = await adjustBrowserCardsPriorityRelative(manager, rows, 10, {
+      scope: 'DataSourceUtilsTest',
+    });
+
+    expect(manager.getCard).toHaveBeenCalledTimes(2);
+    expect(manager.batchUpdateCards).toHaveBeenCalledTimes(1);
+    expect(manager.batchUpdateCards.mock.calls[0]?.[0].map((card) => card.priority)).toEqual([30, 100]);
+    expect(manager.updateCard).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      delta: 10,
+      lowerBoundReached: false,
+      upperBoundReached: true,
+    });
+    expect(result.updated).toHaveLength(2);
+    expect(rows.map((row) => row.priority)).toEqual([30, 100]);
   });
 
   it('removes selected queue rows through one removeCards call', async () => {

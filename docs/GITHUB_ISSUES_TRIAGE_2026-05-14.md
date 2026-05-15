@@ -82,6 +82,16 @@ GitHub CLI was unavailable in this environment, so the refresh used the GitHub R
 - #56 adds `定位当前复习卡原块` as a user-configurable command with no default hotkey. It applies only to the active Review current card, reuses existing source-block location behavior, and must not grade, reveal, skip, advance, reload, or infer a card from Browser/recent-card state.
 - Implementation scope is tracked by OpenSpec change `add-review-command-hotkeys-and-doc-scope-review`.
 
+### #57 / #16 Decisions
+
+- #57 is a Browser presentation change only: suspended rows show a localized badge in the existing state/type column and a subtle row treatment.
+- #57 badge truth is only `BrowserCard.suspended`, produced by the unified plugin card state/read model. The Browser UI must not read legacy block attributes, card metadata, source content, or SQL attributes to decide badge visibility.
+- #57 does not change suspended preset membership, sorting, filters, queue mutation, scheduling writes, or suspend/restore actions.
+- #16 keeps absolute `set-priority` available and adds two fixed relative actions: `优先级 +10` and `优先级 -10`. Labels describe numeric value changes because lower numeric priority means higher scheduling priority.
+- #16 relative actions clamp each selected card independently to `0..100`, persist through the existing unified card update path, and refresh through existing Browser post-action handling.
+- #16 does not add undo, settings, queue reorder, scheduler recomputation, configurable step size, or new storage ownership.
+- Implementation scope is tracked by OpenSpec changes `show-suspended-card-badge-in-browser` and `add-relative-priority-actions-in-browser`.
+
 ## First Batch
 
 These issues are selected first because they look like correctness bugs, data integrity risks, or high-friction creation/review failures.

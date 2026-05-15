@@ -27,6 +27,7 @@ import {
   resolveQueueTypeForBrowserQueueId,
 } from '@/types/browser-queue-identity';
 import {
+  adjustBrowserCardsPriorityRelative,
   insertCardsIntoQueue,
   removeCardsFromQueue,
   resolveBrowserCardId,
@@ -34,6 +35,7 @@ import {
   setBrowserCardsPriority,
   sortBrowserRows,
 } from './DataSourceUtils';
+import { getRelativePriorityDelta } from '../browserActionFeedback';
 import { createLogger } from '@/utils/logger';
 import { BrowserQuerySession } from './session/BrowserQuerySession';
 import { resolveBrowserCardStableId } from '../utils/browserCardIdentity';
@@ -214,6 +216,23 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
       });
       this.invalidateQuerySession();
       return result;
+    }
+
+    const relativePriorityDelta = getRelativePriorityDelta(actionId);
+    if (relativePriorityDelta != null) {
+      const manager = this.resolveManager();
+      if (!manager) {
+        throw new Error(`${actionId} requires UnifiedDataSourceManager`);
+      }
+      const result = await adjustBrowserCardsPriorityRelative(manager, selectedRows, relativePriorityDelta, {
+        scope: 'BlockIdsDataSource',
+      });
+      this.invalidateQuerySession();
+      return {
+        ...result,
+        updated: result.updated.length,
+        skipped: result.skipped.length,
+      };
     }
 
     if (isRescheduleAction(actionId)) {

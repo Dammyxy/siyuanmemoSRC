@@ -105,6 +105,14 @@ export type QueueCardActionResult = {
   skipped: BrowserActionTarget[];
 };
 
+export type RelativePriorityActionResult = {
+  delta: number;
+  lowerBoundReached: boolean;
+  skipped: BrowserActionTarget[];
+  updated: BrowserActionTarget[];
+  upperBoundReached: boolean;
+};
+
 export type QueueRemovalResult = {
   removedCount: number;
   failedCount: number;
@@ -358,6 +366,118 @@ export async function setBrowserCardsPriority(
   }
 
   return { updated, skipped };
+}
+
+export async function adjustBrowserCardsPriorityRelative(
+  manager: UnifiedCardManagerLike,
+  selectedRows: BrowserActionTarget[],
+  delta: number,
+  options?: { scope?: string }
+): Promise<RelativePriorityActionResult> {
+  const scope = options?.scope || 'DataSource';
+  const normalizedDelta = Math.trunc(Number(delta) || 0);
+  const updated: BrowserActionTarget[] = [];
+  const skipped: BrowserActionTarget[] = [];
+  const rowsByCardId = new Map<string, BrowserActionTarget[]>();
+  const nextPriorityByCardId = new Map<string, number>();
+  let lowerBoundReached = false;
+  let upperBoundReached = false;
+
+  for (const row of selectedRows || []) {
+    const cardId = resolveBrowserCardId(row);
+    if (!cardId) {
+      skipped.push(row);
+      continue;
+    }
+    const rows = rowsByCardId.get(cardId);
+    if (rows) {
+      rows.push(row);
+    } else {
+      rowsByCardId.set(cardId, [row]);
+    }
+  }
+
+  const cardsToUpdate: FSRSCard[] = [];
+  const loadFailedIds = new Set<string>();
+
+  for (const cardId of rowsByCardId.keys()) {
+    try {
+      const card = await manager.getCard(cardId);
+      const currentPriority = Number.isFinite(Number(card.priority)) ? Number(card.priority) : 50;
+      const nextPriority = Math.max(0, Math.min(100, Math.floor(currentPriority + normalizedDelta)));
+      lowerBoundReached = lowerBoundReached || nextPriority === 0;
+      upperBoundReached = upperBoundReached || nextPriority === 100;
+      nextPriorityByCardId.set(cardId, nextPriority);
+      cardsToUpdate.push({
+        ...card,
+        priority: nextPriority,
+      });
+    } catch (error) {
+      loadFailedIds.add(cardId);
+      skipped.push(...(rowsByCardId.get(cardId) || []));
+      logger.error(`[${scope}] Failed to load card ${cardId} before relative priority batch`, error);
+    }
+  }
+
+  if (cardsToUpdate.length === 0) {
+    return { delta: normalizedDelta, lowerBoundReached, skipped, updated, upperBoundReached };
+  }
+
+  if (typeof manager.batchUpdateCards === 'function') {
+    try {
+      const result = await manager.batchUpdateCards(cardsToUpdate);
+      const failedIds = new Set((result.failedCardIds || []).map((id) => String(id || '').trim()).filter(Boolean));
+      const updatedIds = (result.updatedCardIds?.length ? result.updatedCardIds : cardsToUpdate.map((card) => card.id))
+        .map((id) => String(id || '').trim())
+        .filter(Boolean);
+      const updatedIdSet = new Set(updatedIds);
+
+      for (const cardId of rowsByCardId.keys()) {
+        if (loadFailedIds.has(cardId)) {
+          continue;
+        }
+        const rows = rowsByCardId.get(cardId) || [];
+        const nextPriority = nextPriorityByCardId.get(cardId);
+        if (failedIds.has(cardId) || !updatedIdSet.has(cardId) || nextPriority == null) {
+          skipped.push(...rows);
+          continue;
+        }
+        for (const row of rows) {
+          row.priority = nextPriority;
+          updated.push(row);
+        }
+      }
+    } catch (error) {
+      skipped.push(
+        ...Array.from(rowsByCardId.entries())
+          .filter(([cardId]) => !loadFailedIds.has(cardId))
+          .flatMap(([, rows]) => rows)
+      );
+      logger.error(`[${scope}] Failed to bulk adjust relative priority`, error);
+    }
+
+    return { delta: normalizedDelta, lowerBoundReached, skipped, updated, upperBoundReached };
+  }
+
+  for (const card of cardsToUpdate) {
+    const cardId = String(card.id || '').trim();
+    const rows = rowsByCardId.get(cardId) || [];
+    try {
+      await manager.updateCard(card);
+      const nextPriority = nextPriorityByCardId.get(cardId);
+      for (const row of rows) {
+        if (nextPriority != null) {
+          row.priority = nextPriority;
+        }
+        updated.push(row);
+      }
+    } catch (error) {
+      skipped.push(...rows);
+      logger.error(`[${scope}] Failed to adjust relative priority for card ${cardId}`, error);
+    }
+  }
+
+  return { delta: normalizedDelta, lowerBoundReached, skipped, updated, upperBoundReached };
 }
 
 export async function toggleBrowserCardsSuspended(

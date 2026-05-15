@@ -4,7 +4,7 @@
  * SuperMemo 风格的列配置
  */
 
-import type { ColDef, ValueGetterParams } from 'ag-grid-community';
+import type { ColDef, ICellRendererParams, RowClassParams, ValueGetterParams } from 'ag-grid-community';
 import type { BrowserCard } from '../types';
 import { formatSortContractDisplayValue } from './sortDisplayContract';
 import { getCardVisualColor } from '@/ui/shared/cardVisualTokens';
@@ -27,6 +27,74 @@ export const STATE_COLORS: Record<string, string> = {
   'Learning': 'var(--b3-card-warning-color)',
   'Review': 'var(--b3-card-success-color)',
 };
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export function getBrowserRowClass(params: RowClassParams<BrowserCard>): string {
+  return params.data?.suspended === true ? 'card-browser-grid__row--suspended' : '';
+}
+
+export function getBrowserStateLabel(
+  card: BrowserCard | undefined,
+  translate: (key: string, fallback: string) => string,
+): string {
+  if (!card) {
+    return '';
+  }
+  if (card.state === 0) return translate('stateNew', '新卡');
+  if (card.state === 1) return translate('stateLearning', '学习中');
+  if (card.state === 2) return translate('stateReview', '复习');
+  if (card.state === 3) return translate('stateRelearning', '重学');
+  return translate('stateUnknown', '未知');
+}
+
+export function renderBrowserStateCell(
+  card: BrowserCard | undefined,
+  translate: (key: string, fallback: string) => string,
+): string {
+  if (!card) {
+    return '';
+  }
+
+  const stateLabel = getBrowserStateLabel(card, translate);
+
+  const label = `<span class="card-browser-grid__state-label">${escapeHtml(stateLabel)}</span>`;
+  if (card.suspended !== true) {
+    return label;
+  }
+
+  const badge = escapeHtml(translate('suspendedBadge', '已暂停'));
+  return `${label}<span class="card-browser-grid__suspended-badge">${badge}</span>`;
+}
+
+function resolveBrowserCardFromCellParams(params: ICellRendererParams<BrowserCard>): BrowserCard | undefined {
+  return params.data || params.node?.data;
+}
+
+function resolveBrowserCardFromValueGetterParams(params: ValueGetterParams<BrowserCard>): BrowserCard | undefined {
+  return params.data || params.node?.data;
+}
+
+function renderBrowserStateCellElement(
+  card: BrowserCard | undefined,
+  translate: (key: string, fallback: string) => string,
+): HTMLElement | string {
+  const html = renderBrowserStateCell(card, translate);
+  if (typeof document === 'undefined') {
+    return html;
+  }
+  const wrapper = document.createElement('span');
+  wrapper.className = 'card-browser-grid__state-cell';
+  wrapper.innerHTML = html;
+  return wrapper;
+}
 
 /**
  * 创建列定义
@@ -118,13 +186,12 @@ export function createColumnDefs(t?: (key: string, fallback: string) => string):
       field: 'stateLabel',
       headerName: 'Type',
       width: 65,
+      valueGetter: (params: ValueGetterParams<BrowserCard>) => (
+        getBrowserStateLabel(resolveBrowserCardFromValueGetterParams(params), translate)
+      ),
+      cellRenderer: (params) => renderBrowserStateCellElement(resolveBrowserCardFromCellParams(params), translate),
       valueFormatter: (params) => {
-        const state = params.data?.state;
-        if (state === 0) return translate('stateNew', '新卡');
-        if (state === 1) return translate('stateLearning', '学习中');
-        if (state === 2) return translate('stateReview', '复习');
-        if (state === 3) return translate('stateRelearning', '重学');
-        return translate('stateUnknown', '未知');
+        return String(params.value || '');
       },
       cellStyle: (params) => ({
         color: params.data ? (STATE_COLORS[String(params.data.state)] || '') : '',

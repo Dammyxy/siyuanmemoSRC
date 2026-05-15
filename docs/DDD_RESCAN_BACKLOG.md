@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-15 (Round 359)
+Last update: 2026-05-15 (Round 360)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-15 - Browser suspended badge and relative priority actions
+
+- Task: Implement OpenSpec changes `show-suspended-card-badge-in-browser` for #57 and `add-relative-priority-actions-in-browser` for #16.
+- Touched slice: SRS Browser grid state/type rendering, row styling, Browser action feedback/runtime, shared menu actions, Browser datasource priority mutation paths, i18n, and focused Browser tests.
+- Debt fixed now: Suspended Browser rows now show a compact localized badge and subtle row treatment from the unified `BrowserCard.suspended` flag only. Browser priority menus now keep absolute `set-priority` and add numeric `优先级 +10` / `优先级 -10` actions. Relative actions persist per-card clamped priorities through the existing unified card update path, refresh through existing Browser post-action handling, and report updated counts plus 0/100 bound feedback.
+- Debt deferred: Live visual smoke in SiYuan Browser, undo support, user-configurable relative step size, queue reorder controls, direct scheduler recomputation, and any legacy block-attribute truth source remain out of scope.
+- Why deferred: #57 is a Browser presentation gap, while #16 asks for fixed relative adjustment actions. Undo/configurable step/queue ordering/scheduler writes would widen the contract and storage ownership.
+- Next safe step: In live SiYuan, open SRS Browser with a suspended card, confirm badge/row treatment in all-cards and suspended preset, then run `优先级 +10` / `优先级 -10` on one row and a multi-selection containing boundary priorities.
+- Validation: Focused Browser column/action/runtime/datasource tests passed. Hidden-fallback, boundary, build, and OpenSpec strict validation passed.
 
 ### 2026-05-15 - Review command hotkeys and current-document scope
 

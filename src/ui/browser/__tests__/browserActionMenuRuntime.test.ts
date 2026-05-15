@@ -120,6 +120,37 @@ describe('browserActionMenuRuntime', () => {
     expect(deps.pushMsg).toHaveBeenCalledWith('Success');
   });
 
+  it('reports relative priority results and reloads the current view', async () => {
+    const { dataSource, deps } = createRuntimeDeps({
+      t: (key: string, fallback: string) => {
+        const messages: Record<string, string> = {
+          priorityRelativeIncreased: '已调整 {count} 张卡片优先级数值',
+          priorityReachedUpperBound: '部分已到 100',
+          priorityBoundSuffix: '，{bounds}',
+        };
+        return messages[key] || fallback;
+      },
+    });
+    dataSource.performAction = vi.fn(async () => ({
+      delta: 10,
+      lowerBoundReached: false,
+      skipped: 0,
+      updated: 2,
+      upperBoundReached: true,
+    })) as never;
+    const runtime = createBrowserActionMenuRuntime(deps);
+
+    await runtime.handleAction('priority-plus-10', [card('a'), card('b')]);
+
+    expect(dataSource.performAction).toHaveBeenCalledWith(
+      'priority-plus-10',
+      [expect.objectContaining({ blockId: 'block-a' }), expect.objectContaining({ blockId: 'block-b' })],
+      expect.objectContaining({ refresh: expect.any(Function) }),
+    );
+    expect(deps.loadData).toHaveBeenCalledWith(false);
+    expect(deps.pushMsg).toHaveBeenCalledWith('已调整 2 张卡片优先级数值，部分已到 100');
+  });
+
   it('routes open action through tab bridge without requiring a data source', async () => {
     const { deps } = createRuntimeDeps({ currentDataSource: ref<ICardDataSource | null>(null) });
     const runtime = createBrowserActionMenuRuntime(deps);

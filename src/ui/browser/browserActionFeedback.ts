@@ -15,6 +15,26 @@ export type BrowserAddToQueueResult = {
   message: string;
 };
 
+export type BrowserRelativePriorityResult = {
+  delta: number;
+  lowerBoundReached: boolean;
+  updated: number;
+  upperBoundReached: boolean;
+};
+
+export const PRIORITY_INCREASE_ACTION_ID = 'priority-plus-10';
+export const PRIORITY_DECREASE_ACTION_ID = 'priority-minus-10';
+
+export function isRelativePriorityAction(actionId: string): boolean {
+  return actionId === PRIORITY_INCREASE_ACTION_ID || actionId === PRIORITY_DECREASE_ACTION_ID;
+}
+
+export function getRelativePriorityDelta(actionId: string): number | null {
+  if (actionId === PRIORITY_INCREASE_ACTION_ID) return 10;
+  if (actionId === PRIORITY_DECREASE_ACTION_ID) return -10;
+  return null;
+}
+
 const ACTION_LABELS: Record<string, { fallback: string; key: string }> = {
   'review-subset': { key: 'reviewSubset', fallback: 'Review Subset' },
   open: { key: 'openInTab', fallback: 'Open' },
@@ -37,6 +57,8 @@ const ACTION_LABELS: Record<string, { fallback: string; key: string }> = {
   'add-to-neural-roam-queue': { key: 'addToNeuralRoamQueue', fallback: '神经漫游' },
   'insert-at': { key: 'insertAt', fallback: 'Insert at' },
   'set-priority': { key: 'setPriority', fallback: 'Set Priority' },
+  [PRIORITY_INCREASE_ACTION_ID]: { key: 'priorityPlus10', fallback: 'Priority +10' },
+  [PRIORITY_DECREASE_ACTION_ID]: { key: 'priorityMinus10', fallback: 'Priority -10' },
   'auto-sort': { key: 'autoSortQueue', fallback: 'Auto Sort' },
 };
 
@@ -46,6 +68,8 @@ const ACTIONS_REQUIRING_RELOAD = new Set([
   'delete-card',
   'insert-at',
   'set-priority',
+  PRIORITY_INCREASE_ACTION_ID,
+  PRIORITY_DECREASE_ACTION_ID,
   'spread',
   'auto-sort',
   'reset',
@@ -93,6 +117,39 @@ export function parseBrowserAddToQueueResult(actionId: string, result: unknown):
   return {
     added,
     message: typeof addResult.message === 'string' ? addResult.message : '',
+  };
+}
+
+export function parseBrowserRelativePriorityResult(
+  actionId: string,
+  result: unknown,
+): BrowserRelativePriorityResult | null {
+  if (!isRelativePriorityAction(actionId) || typeof result !== 'object' || result === null) {
+    return null;
+  }
+
+  const candidate = result as {
+    delta?: unknown;
+    lowerBoundReached?: unknown;
+    updated?: unknown;
+    upperBoundReached?: unknown;
+  };
+  const updated = Number(
+    typeof candidate.updated === 'number'
+      ? candidate.updated
+      : Array.isArray(candidate.updated)
+        ? candidate.updated.length
+        : Number.NaN,
+  );
+  if (!Number.isFinite(updated)) {
+    return null;
+  }
+
+  return {
+    delta: Number(candidate.delta) || 0,
+    lowerBoundReached: candidate.lowerBoundReached === true,
+    updated,
+    upperBoundReached: candidate.upperBoundReached === true,
   };
 }
 

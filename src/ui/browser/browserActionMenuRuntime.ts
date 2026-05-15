@@ -10,6 +10,7 @@ import {
   getBrowserActionErrorMessage,
   getBrowserActionLabel,
   parseBrowserAddToQueueResult,
+  parseBrowserRelativePriorityResult,
   shouldForceRefreshAfterBrowserAction,
   shouldReloadAfterBrowserAction,
   summarizeBrowserActionResult,
@@ -331,6 +332,7 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
       deps.logger.debug('performAction result:', { actionId, res: result });
       let handledActionMessage = false;
       const addToQueueResult = parseBrowserAddToQueueResult(actionId, result);
+      const relativePriorityResult = parseBrowserRelativePriorityResult(actionId, result);
 
       if (addToQueueResult) {
         handledActionMessage = true;
@@ -343,6 +345,24 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
         }
 
         await deps.pushMsg(addToQueueResult.message || deps.t('actionSuccess', 'Success'));
+      }
+
+      if (relativePriorityResult) {
+        handledActionMessage = true;
+        const key = relativePriorityResult.delta >= 0 ? 'priorityRelativeIncreased' : 'priorityRelativeDecreased';
+        let message = deps.t(key, 'Updated priority value for {count} cards')
+          .replace('{count}', String(relativePriorityResult.updated));
+        const boundParts: string[] = [];
+        if (relativePriorityResult.upperBoundReached) {
+          boundParts.push(deps.t('priorityReachedUpperBound', 'some reached 100'));
+        }
+        if (relativePriorityResult.lowerBoundReached) {
+          boundParts.push(deps.t('priorityReachedLowerBound', 'some reached 0'));
+        }
+        if (boundParts.length > 0) {
+          message += deps.t('priorityBoundSuffix', ', {bounds}').replace('{bounds}', boundParts.join(', '));
+        }
+        await deps.pushMsg(message);
       }
 
       const { updated, skipped } = summarizeBrowserActionResult(result);

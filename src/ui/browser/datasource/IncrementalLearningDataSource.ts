@@ -19,6 +19,7 @@ import {
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import { validateConsumerCardType } from '../../../diagnostics/type-guards';
 import {
+  adjustBrowserCardsPriorityRelative,
   applyQueueFilters,
   deleteBrowserCards,
   removeCardsFromQueue,
@@ -27,6 +28,7 @@ import {
   sortBrowserCards,
   toggleBrowserCardsSuspended,
 } from './DataSourceUtils';
+import { getRelativePriorityDelta } from '../browserActionFeedback';
 import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import { createLogger } from '@/utils/logger';
 import {
@@ -177,6 +179,19 @@ export class IncrementalLearningDataSource
         });
         this.invalidateQuerySession();
         return result;
+      }
+
+      const relativePriorityDelta = getRelativePriorityDelta(actionId);
+      if (relativePriorityDelta != null) {
+        const result = await adjustBrowserCardsPriorityRelative(this.manager, selectedRows, relativePriorityDelta, {
+          scope: 'IncrementalLearningDataSource',
+        });
+        this.invalidateQuerySession();
+        return {
+          ...result,
+          updated: result.updated.length,
+          skipped: result.skipped.length,
+        };
       }
 
       if (actionId === 'suspend' || actionId === 'unsuspend') {

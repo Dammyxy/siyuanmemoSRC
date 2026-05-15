@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   getBrowserActionErrorMessage,
   getBrowserActionLabel,
+  parseBrowserRelativePriorityResult,
+  PRIORITY_INCREASE_ACTION_ID,
   parseBrowserAddToQueueResult,
   shouldForceRefreshAfterBrowserAction,
   shouldReloadAfterBrowserAction,
@@ -14,6 +16,8 @@ describe('browserActionFeedback', () => {
 
     expect(getBrowserActionLabel({ id: 'delete-card', label: '' }, t))
       .toBe('deleteCard:取消闪卡');
+    expect(getBrowserActionLabel({ id: PRIORITY_INCREASE_ACTION_ID, label: '' }, t))
+      .toBe('priorityPlus10:Priority +10');
     expect(getBrowserActionLabel({ id: 'custom-action', label: 'Custom' }, t))
       .toBe('Custom');
   });
@@ -39,8 +43,33 @@ describe('browserActionFeedback', () => {
     expect(summarizeBrowserActionResult(undefined)).toEqual({ updated: 0, skipped: 0 });
   });
 
+  it('parses relative priority results only for relative priority actions', () => {
+    expect(parseBrowserRelativePriorityResult(PRIORITY_INCREASE_ACTION_ID, {
+      delta: 10,
+      updated: 2,
+      upperBoundReached: true,
+    })).toEqual({
+      delta: 10,
+      lowerBoundReached: false,
+      updated: 2,
+      upperBoundReached: true,
+    });
+    expect(parseBrowserRelativePriorityResult('priority-minus-10', {
+      delta: -10,
+      lowerBoundReached: true,
+      updated: ['card-1'],
+    })).toEqual({
+      delta: -10,
+      lowerBoundReached: true,
+      updated: 1,
+      upperBoundReached: false,
+    });
+    expect(parseBrowserRelativePriorityResult('set-priority', { updated: 1 })).toBeNull();
+  });
+
   it('keeps reload and force-refresh policy explicit', () => {
     expect(shouldReloadAfterBrowserAction('delete-card')).toBe(true);
+    expect(shouldReloadAfterBrowserAction(PRIORITY_INCREASE_ACTION_ID)).toBe(true);
     expect(shouldReloadAfterBrowserAction('open')).toBe(false);
     expect(shouldForceRefreshAfterBrowserAction('postpone')).toBe(true);
     expect(shouldForceRefreshAfterBrowserAction('reset')).toBe(false);
