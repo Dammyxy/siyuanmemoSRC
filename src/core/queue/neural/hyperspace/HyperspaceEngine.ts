@@ -462,6 +462,7 @@ export class HyperspaceEngine {
     options: {
       includeFocusAsFirst?: boolean;
       resetHistory?: boolean;
+      startNewSession?: boolean;
     } = {},
   ): Promise<void> {
     await this.setCurrentFocus(focusId, {

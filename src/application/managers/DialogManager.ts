@@ -1077,11 +1077,13 @@ export class DialogManager implements IDialogManager {
    * @param options.focusBlockId 焦点块 ID
    * @param options.includeFocusAsFirst 是否将焦点块作为第一张卡片
    * @param options.resetHistory 是否重置历史记录
+   * @param options.startNewSession 是否新建独立漫游路径并保留旧历史
    */
   async openNeuralRoamDialog(options?: { 
     focusBlockId?: string;
     includeFocusAsFirst?: boolean;
-    resetHistory?: boolean 
+    resetHistory?: boolean;
+    startNewSession?: boolean;
   }): Promise<void> {
     if (!(await this.checkInitialized())) return;
     this.destroyCurrentReviewDialog();
@@ -1093,11 +1095,13 @@ export class DialogManager implements IDialogManager {
         const focusBlockId = options?.focusBlockId;
         const includeFocusAsFirst = options?.includeFocusAsFirst ?? true;
         const resetHistory = options?.resetHistory === true;
+        const startNewSession = options?.startNewSession === true;
 
         if (focusBlockId) {
           await neuralQueue.startRoamingFromFocus(focusBlockId, {
             includeFocusAsFirst,
             resetHistory,
+            startNewSession,
           });
         } else if (resetHistory) {
           neuralQueue.clearHistory('all');

@@ -500,6 +500,7 @@ export class ConceptNeuralQueue {
     options: {
       includeFocusAsFirst?: boolean;
       resetHistory?: boolean;
+      startNewSession?: boolean;
     } = {}
   ): Promise<void> {
     this.invalidatePreload();
@@ -510,6 +511,8 @@ export class ConceptNeuralQueue {
 
     if (options.resetHistory) {
       this.clearHistory('all');
+    } else if (options.startNewSession) {
+      this.resetNavigationState();
     }
 
     if (!this.currentSessionId) {

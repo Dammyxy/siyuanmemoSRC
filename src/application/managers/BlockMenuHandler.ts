@@ -113,7 +113,7 @@ export interface BlockMenuHandlerDeps {
   i18n: Record<string, string>;
   dialogManager: DialogManager;
   openCreateTemplateCardDialog: (blockIds: string[]) => Promise<void>;
-  openNeuralReviewDialog: (options?: { focusBlockId?: string; includeFocusAsFirst?: boolean; resetHistory?: boolean }) => Promise<void>;
+  openNeuralReviewDialog: (options?: { focusBlockId?: string; includeFocusAsFirst?: boolean; resetHistory?: boolean; startNewSession?: boolean }) => Promise<void>;
   applicationContext: ApplicationContext;  // ✅ 必需：用于访问所有 DDD 架构服务
   cardCreationHelper: CardCreationHelper;  // ✅ 卡片创建辅助类
   siyuanApi: ManagerSiyuanPort;

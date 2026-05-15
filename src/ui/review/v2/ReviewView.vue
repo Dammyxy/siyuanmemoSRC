@@ -85,6 +85,7 @@
           :render-epoch="renderEpoch"
           :render-services="reviewRenderServices"
           @editor-state-change="handleEditorStateChange"
+          @concept-roam="handleConceptRoam"
         />
 
         <ReviewActions
@@ -362,6 +363,12 @@ type ReviewPluginContextLike = {
           initialQueueId?: string;
           initialNeuralSubview?: 'concept-cards' | 'roam-history' | 'worldline-anchors';
         }) => void;
+        openNeuralRoamDialog?: (options?: {
+          focusBlockId?: string;
+          includeFocusAsFirst?: boolean;
+          resetHistory?: boolean;
+          startNewSession?: boolean;
+        }) => Promise<void> | void;
         openAiWorkbenchDialog?: (options?: AIWorkbenchOpenOptions) => Promise<void> | void;
         switchStandardReviewDialogQueue?: (queueType: QueueType) => Promise<void> | void;
       })
@@ -1579,6 +1586,33 @@ function t(key: string, fallback: string): string {
 function notifyReviewMessage(message: string, timeout = 3000, type: 'info' | 'error' | 'warning' = 'info'): void {
   if (typeof showMessage === 'function') {
     showMessage(message, timeout, type);
+  }
+}
+
+async function handleConceptRoam(focusBlockId: string): Promise<void> {
+  const normalizedFocusBlockId = String(focusBlockId || '').trim();
+  if (!normalizedFocusBlockId) {
+    return;
+  }
+
+  const dialogManager = getDialogManager();
+  if (typeof dialogManager?.openNeuralRoamDialog !== 'function') {
+    showMessage(t('reviewConceptRoamFailed', '无法从当前概念开始漫游'), 3000, 'error');
+    return;
+  }
+
+  try {
+    await dialogManager.openNeuralRoamDialog({
+      focusBlockId: normalizedFocusBlockId,
+      includeFocusAsFirst: true,
+      startNewSession: true,
+    });
+  } catch (error) {
+    logger.error('[ReviewView] Failed to start concept roam from Review content', {
+      focusBlockId: normalizedFocusBlockId,
+      error,
+    });
+    showMessage(t('reviewConceptRoamFailed', '无法从当前概念开始漫游'), 3000, 'error');
   }
 }
 

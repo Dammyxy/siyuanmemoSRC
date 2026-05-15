@@ -1349,10 +1349,11 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     options: {
       includeFocusAsFirst?: boolean;
       resetHistory?: boolean;
+      startNewSession?: boolean;
     } = {}
   ): Promise<void> {
     await this.ensureInitialLoad();
-    if (options.resetHistory === true) {
+    if (options.resetHistory === true || options.startNewSession === true) {
       this.resetAssociatedReviewState();
     } else {
       this.clearPendingAssociatedReviewCards();

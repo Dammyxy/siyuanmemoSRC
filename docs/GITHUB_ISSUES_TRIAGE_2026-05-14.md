@@ -92,6 +92,16 @@ GitHub CLI was unavailable in this environment, so the refresh used the GitHub R
 - #16 does not add undo, settings, queue reorder, scheduler recomputation, configurable step size, or new storage ownership.
 - Implementation scope is tracked by OpenSpec changes `show-suspended-card-badge-in-browser` and `add-relative-priority-actions-in-browser`.
 
+### #54 Decisions
+
+- #54 adds a compact Review content-near action labeled `从概念漫游` for active Concept-related cards only.
+- Eligible cards are Concept, Concept Definition, and Descriptor. Concept cards roam from the current Concept block; Concept Definition cards roam from the bound/referenced Concept block; Descriptor cards roam from the parent/bound Concept block.
+- If the active card cannot resolve a stable Concept focus from its own metadata/card-face evidence, the action is hidden. It must not infer from Browser selection, recent Review history, breadcrumbs, or arbitrary DOM context.
+- Clicking the action starts Neural Roam through the existing `DialogManager.openNeuralRoamDialog()` path with the resolved focus as the first item.
+- The Review action creates a new independent Neural Roam session/path and preserves older Neural Roam history. It must not use broad `resetHistory: true` clearing for this entry.
+- The action must not grade, reveal, skip, advance, hide, suspend, delete, reschedule, or submit Review feedback for the active card.
+- Implementation scope is tracked by OpenSpec change `add-concept-review-roam-entry`.
+
 ## First Batch
 
 These issues are selected first because they look like correctness bugs, data integrity risks, or high-friction creation/review failures.

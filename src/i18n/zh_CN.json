@@ -333,6 +333,8 @@
   "filterItemOnly": "仅 Item",
   "neuralReviewTitle": "神经漫游",
   "neuralReviewFailed": "神经漫游启动失败",
+  "reviewRoamFromConcept": "从概念漫游",
+  "reviewConceptRoamFailed": "无法从当前概念开始漫游",
   "startDrill": "刻意练习",
   "leechPractice": "难点攻坚",
   "quickMakeCard": "一键制卡",

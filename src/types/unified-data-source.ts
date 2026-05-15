@@ -527,6 +527,7 @@ export interface NeuralRoamSessionQueue {
         options?: {
             includeFocusAsFirst?: boolean;
             resetHistory?: boolean;
+            startNewSession?: boolean;
         }
     ): Promise<void>;
     getHistoryCount(sessionId?: string | null): number;

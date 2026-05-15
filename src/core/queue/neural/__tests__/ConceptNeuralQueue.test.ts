@@ -287,6 +287,39 @@ describe('ConceptNeuralQueue', () => {
     expect(history[0].nodeId).toBe('concept-b');
   });
 
+  it('starts a new independent session without deleting previous history', async () => {
+    mockQueryEngine.isConceptCard = vi.fn().mockResolvedValue(true);
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+
+    await queue.startRoamingFromFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    const firstSessionId = queue.getNavigationState().sessionId;
+
+    await queue.startRoamingFromFocus('concept-b', {
+      includeFocusAsFirst: true,
+      startNewSession: true,
+    });
+    const secondSessionId = queue.getNavigationState().sessionId;
+
+    expect(firstSessionId).toBeTruthy();
+    expect(secondSessionId).toBeTruthy();
+    expect(secondSessionId).not.toBe(firstSessionId);
+    expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['concept-a', 'concept-b']);
+    expect(queue.getHistoryCount(firstSessionId)).toBe(1);
+    expect(queue.getHistoryCount(secondSessionId)).toBe(1);
+    expect(queue.getNavigationState().currentNodeId).toBe('concept-b');
+
+    await expect(queue.jumpToHistoryNode('concept-a')).resolves.toBe(true);
+    expect(queue.getNavigationState().sessionId).toBe(firstSessionId);
+    expect(queue.getNavigationState().currentNodeId).toBe('concept-a');
+  });
+
   it('builds session focus stack from focus nodes instead of full roam nodes', async () => {
     mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
     mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({

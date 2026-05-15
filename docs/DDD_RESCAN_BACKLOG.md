@@ -4,6 +4,16 @@ Last update: 2026-05-15 (Round 360)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-16 - Review Concept roam entry
+
+- Task: Implement OpenSpec change `add-concept-review-roam-entry` for #54 Review-side `从概念漫游`.
+- Touched slice: Review v2 content/action surface, Concept/Definition/Descriptor focus resolver, Review-to-DialogManager handoff, Neural Roam session contract, i18n, and focused Review/Neural Roam tests.
+- Debt fixed now: Review now resolves Concept roam focus from current-card metadata only and hides the action when unresolved. The action emits a narrow Review-side navigation event instead of entering the Review feedback command path. Neural Roam now supports `startNewSession` so Review can start a fresh active path while preserving older history.
+- Debt deferred: Live SiYuan visual smoke, broader semantic activation engine, Topic-card roam entry, shortcut/menu entry, and deeper Concept relationship inference remain out of scope.
+- Why deferred: #54 is a small Review affordance and handoff contract. New semantic activation/ranking behavior needs a separate engine proposal and product discussion.
+- Next safe step: In live SiYuan, open Concept, Concept Definition, and Descriptor cards in Review, click `从概念漫游`, and confirm Neural Roam opens on a fresh active path while older paths remain reachable.
+- Validation: Focused resolver, ReviewContent, ReviewView handoff, and ConceptNeuralQueue session tests passed. Hidden-fallback, boundary, build, and OpenSpec validation are recorded with the implementation task.
+
 ### 2026-05-15 - Browser suspended badge and relative priority actions
 
 - Task: Implement OpenSpec changes `show-suspended-card-badge-in-browser` for #57 and `add-relative-priority-actions-in-browser` for #16.

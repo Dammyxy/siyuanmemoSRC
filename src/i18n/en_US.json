@@ -319,6 +319,8 @@
   "startNeuralReviewFromHere": "Start Neural Roam from Here",
   "neuralReviewTitle": "Neural Roam",
   "neuralReviewFailed": "Failed to start neural roam",
+  "reviewRoamFromConcept": "Roam from concept",
+  "reviewConceptRoamFailed": "Failed to roam from the current concept",
   "startDrill": "Mechanical Drill",
   "quickMakeCard": "Quick Make Cards",
   "makeCardFromSelection": "Make Card from Selection",

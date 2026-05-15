@@ -2465,4 +2465,120 @@ describe('ReviewContent editor state', () => {
 
     wrapper.unmount();
   });
+
+  it('shows Concept roam action near Review content and emits the resolved focus', async () => {
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        renderServices: createRenderServicesStub(),
+        content: {
+          ...createProtyleContent('concept-block', 'concept-card'),
+          card: {
+            ...createProtyleContent('concept-block', 'concept-card').card,
+            type: 'concept',
+          },
+        },
+        i18n: {
+          reviewRoamFromConcept: '从概念漫游',
+        },
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+    const button = wrapper.get('.fsrs-review-v2-content__concept-roam');
+    expect(button.text()).toBe('从概念漫游');
+
+    await button.trigger('click');
+
+    expect(wrapper.emitted('concept-roam')).toEqual([['concept-block']]);
+    wrapper.unmount();
+  });
+
+  it('keeps Concept roam action visible after answer reveal', async () => {
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        renderServices: createRenderServicesStub(),
+        content: {
+          ...createProtyleContent('concept-block', 'concept-card'),
+          card: {
+            ...createProtyleContent('concept-block', 'concept-card').card,
+            type: 'concept',
+          },
+        },
+        showAnswer: false,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+    expect(wrapper.find('.fsrs-review-v2-content__concept-roam').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('hides Concept roam action when no Concept focus resolves', async () => {
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        renderServices: createRenderServicesStub(),
+        content: createProtyleContent('item-block', 'item-card'),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+    expect(wrapper.find('.fsrs-review-v2-content__concept-roam').exists()).toBe(false);
+    wrapper.unmount();
+  });
 });

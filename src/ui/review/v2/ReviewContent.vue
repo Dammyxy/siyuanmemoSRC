@@ -7,8 +7,18 @@
           <div class="fsrs-review-v2-content__empty-title">{{ t('noDueCard', 'No due cards') }}</div>
         </div>
 
+        <div v-if="content.type !== 'empty' && conceptRoamFocus" class="fsrs-review-v2-content__surface-actions">
+          <button
+            type="button"
+            class="b3-button b3-button--outline fsrs-review-v2-content__concept-roam"
+            @click.stop="emit('concept-roam', conceptRoamFocus.focusBlockId)"
+          >
+            {{ t('reviewRoamFromConcept', '从概念漫游') }}
+          </button>
+        </div>
+
         <div
-          v-else-if="content.type === 'html'"
+          v-if="content.type === 'html'"
           class="fsrs-review-v2-content__html"
           v-html="content.data"
           @click="handleCustomHtmlContentClick"
@@ -159,6 +169,7 @@ import * as siyuan from 'siyuan';
 import type { ReviewEditableSource, ReviewNativeSplitGuardState, ReviewUIState } from './types';
 import { createReviewEditorState, type ReviewEditorState } from './reviewEditorState';
 import { OVERLAY_REGISTRY } from './overlays/index';
+import { resolveReviewConceptRoamFocus } from './reviewConceptRoam';
 import XiuyuanListTemplateCard from './components/XiuyuanListTemplateCard.vue';
 import MultiClozeCardRenderer from '../components/MultiClozeCardRenderer.vue';
 import ImageOcclusionCardRenderer from '../components/ImageOcclusionCardRenderer.vue';
@@ -209,6 +220,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   (e: 'editor-state-change', state: ReviewEditorState): void;
+  (e: 'concept-roam', focusBlockId: string): void;
 }>();
 
 const logger = createLogger('ReviewContent');
@@ -2431,6 +2443,7 @@ onUnmounted(() => {
 
 const overlay = computed(() => props.overlay);
 const content = computed(() => props.content);
+const conceptRoamFocus = computed(() => resolveReviewConceptRoamFocus(props.content));
 </script>
 
 <style scoped>
@@ -2487,6 +2500,21 @@ const content = computed(() => props.content);
 .fsrs-review-v2-content__empty-subtitle {
   font-size: var(--siyuanmemo-review-font-small);
   color: var(--b3-theme-on-surface-light);
+}
+
+.fsrs-review-v2-content__surface-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  padding: 2px 8px 6px;
+  border-bottom: 1px solid var(--b3-border-color);
+}
+
+.fsrs-review-v2-content__concept-roam {
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--siyuanmemo-review-font-xs);
+  line-height: 24px;
 }
 
 .fsrs-review-v2-content__render-error {
