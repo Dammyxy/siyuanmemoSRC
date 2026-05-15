@@ -1,4 +1,5 @@
 import { hasTokenizedMarkSpan } from '@/utils/markDataType';
+import { hasFormulaClozeMarkerTargets } from '@/utils/formula-cloze-parser';
 
 export const BLOCK_REF_PATTERN = /\(\((\d{14}-[a-z0-9]{7})[^\)]*\)\)/i;
 export const WIKI_LINK_PATTERN = /\[\[[^\]]+\]\]/;
@@ -158,7 +159,7 @@ export function resolveDescriptorDirection(content: string): 'forward' | 'backwa
 }
 
 export function hasNumberedLatexCloze(content: string): boolean {
-  return /\\+cloze\{c\d+\}\{/i.test(content);
+  return hasFormulaClozeMarkerTargets(content);
 }
 
 const BRACE_CLOZE_PATTERN = /(^|[^{}])\{\{(?!\{)[\s\S]*?\}\}(?!\})/;

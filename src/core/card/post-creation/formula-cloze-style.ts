@@ -4,6 +4,13 @@ export const FORMULA_CLOZE_RENDER_MODE_INLINE = 'inline-formula-cloze' as const;
 export const FORMULA_CLOZE_SUCCESS_TEXT_COLOR = '#166534';
 export const FORMULA_CLOZE_PLACEHOLDER = '[...]';
 
+export { parseFormulaClozeTargets } from '@/utils/formula-cloze-parser';
+export type {
+  FormulaClozeMalformed,
+  FormulaClozeParseResult,
+  FormulaClozeTarget,
+} from '@/utils/formula-cloze-parser';
+
 export function createFormulaClozePlaceholderExpression(): string {
   return `{\\color{${FORMULA_CLOZE_SUCCESS_TEXT_COLOR}}\\boxed{\\text{${FORMULA_CLOZE_PLACEHOLDER}}}}`;
 }

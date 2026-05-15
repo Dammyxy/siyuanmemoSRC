@@ -46,6 +46,7 @@ import { repairFsrsReviewState } from '@/core/scheduler/fsrsReviewStateRepair';
 import { createLogger } from '@/utils/logger';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { ClozeDetector } from '@/utils/cloze-detector';
+import { hasFormulaClozeMarkerTargets } from '@/utils/formula-cloze-parser';
 import { ClozeCardGenerator } from '@/core/xiuyuan/domain/services/ClozeCardGenerator';
 import { normalizeBlockId } from '@/core/siyuan/riff/normalizers';
 import {
@@ -880,7 +881,7 @@ export class XiuyuanSyncService {
     }
 
     private hasNumberedLatexCloze(content: string): boolean {
-        return /\\cloze\{c\d+\}\{/.test(String(content || ''));
+        return hasFormulaClozeMarkerTargets(content);
     }
 
     private buildQuickRenderHintMeta(

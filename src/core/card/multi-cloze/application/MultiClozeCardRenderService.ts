@@ -7,6 +7,7 @@ import {
   createFormulaClozePlaceholderExpression,
   ensureDisplayMathDelimiters,
   hasMathDelimiters,
+  parseFormulaClozeTargets,
 } from '@/core/card/post-creation/formula-cloze-style';
 import { stripSiyuanBlockAttributeArtifacts } from '@/core/card/common/utils/stripSiyuanBlockAttributeArtifacts';
 import { type ClozeInfo, ClozeDetector } from '@/utils/cloze-detector';
@@ -199,6 +200,25 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
       'stored',
     ) ?? 0;
     const currentFaceRaw = faces[effectiveFaceIndex] || { question: '', answer: '' };
+    if (renderMode === FORMULA_CLOZE_RENDER_MODE_INLINE) {
+      const normalizedQuestion = this.normalizeStoredFormulaFace(
+        currentFaceRaw.question,
+        effectiveFaceIndex,
+        false,
+      );
+      const normalizedAnswer = this.normalizeStoredFormulaFace(
+        currentFaceRaw.answer,
+        effectiveFaceIndex,
+        true,
+      );
+      return {
+        frontHtml: normalizedQuestion,
+        backHtml: normalizedAnswer,
+        faceIndex: effectiveFaceIndex,
+        requestedFaceIndex: effectiveFaceIndex === requestedFaceIndex ? undefined : requestedFaceIndex,
+      };
+    }
+
     const normalizedQuestion = this.normalizeQuestionForMath(
       this.stripAttributeArtifacts(currentFaceRaw.question),
       renderMode,
@@ -208,15 +228,6 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
       normalizedQuestion,
       renderMode,
     );
-
-    if (renderMode === FORMULA_CLOZE_RENDER_MODE_INLINE) {
-      return {
-        frontHtml: normalizedQuestion,
-        backHtml: normalizedAnswer,
-        faceIndex: effectiveFaceIndex,
-        requestedFaceIndex: effectiveFaceIndex === requestedFaceIndex ? undefined : requestedFaceIndex,
-      };
-    }
 
     const frontKramdown = this.replaceFirstPlaceholderOutsideMath(
       normalizedQuestion,
@@ -307,6 +318,40 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
     }
 
     return processedKramdown;
+  }
+
+  private normalizeStoredFormulaFace(
+    rawFormula: string,
+    faceIndex: number,
+    revealCurrent: boolean,
+  ): string {
+    const cleaned = this.stripAttributeArtifacts(this.stripMarkTags(rawFormula));
+    if (!this.containsFormulaClozeCommand(cleaned)) {
+      return this.normalizeQuestionForMath(cleaned, FORMULA_CLOZE_RENDER_MODE_INLINE);
+    }
+
+    const parsed = parseFormulaClozeTargets(cleaned);
+    if (parsed.targets.length === 0) {
+      logger.warn('[MultiClozeCardRenderService] Stored formula cloze face could not be safely parsed', {
+        clozeTargetCount: 0,
+        malformedCount: parsed.malformed.length,
+      });
+      return '';
+    }
+
+    const effectiveTargetIndex = Math.min(Math.max(faceIndex, 0), parsed.targets.length - 1);
+    let renderedFormula = cleaned;
+    for (let index = parsed.targets.length - 1; index >= 0; index -= 1) {
+      const target = parsed.targets[index];
+      const replacement = index === effectiveTargetIndex
+        ? (revealCurrent
+            ? createFormulaClozeAnswerExpression(target.text)
+            : createFormulaClozePlaceholderExpression())
+        : target.text;
+      renderedFormula = renderedFormula.slice(0, target.start) + replacement + renderedFormula.slice(target.end);
+    }
+
+    return this.normalizeQuestionForMath(renderedFormula, FORMULA_CLOZE_RENDER_MODE_INLINE);
   }
 
   private resolveSourceReplacement(
@@ -411,6 +456,10 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
 
   private containsFormulaMathToken(text: string): boolean {
     return /\\(?:color|textcolor|boxed|cloze|frac|sqrt|left|right|begin|end)\b/.test(text);
+  }
+
+  private containsFormulaClozeCommand(text: string): boolean {
+    return /\\+cloze\b/.test(text);
   }
 
   private restoreAnswerIntoPlaceholder(question: string, answer: string): string {

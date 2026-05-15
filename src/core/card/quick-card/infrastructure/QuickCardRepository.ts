@@ -14,6 +14,7 @@ import type { IQuickCardConfigProvider } from './QuickCardConfigProvider';
 import { DefaultQuickCardConfigProvider } from './QuickCardConfigProvider';
 import type { ICardStorage } from '../../../../application/interfaces/ICardStorage';
 import { createLogger } from '@/utils/logger';
+import { hasFormulaClozeMarkerTargets } from '@/utils/formula-cloze-parser';
 
 const logger = createLogger('QuickCardRepository');
 
@@ -332,7 +333,7 @@ export class QuickCardRepository {
     if (content.match(/==[^=]+==/)) {
       return { type: 'cloze', symbol: '==' };
     }
-    if (content.match(/\\cloze\{c\d+\}\{/)) {
+    if (hasFormulaClozeMarkerTargets(content)) {
       return { type: 'cloze', symbol: '\\cloze' };
     }
 

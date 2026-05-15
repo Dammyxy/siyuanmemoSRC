@@ -7,6 +7,11 @@ describe('detectionRules', () => {
     expect(reason).toBe('cloze-latex-numbered');
   });
 
+  it('detects hash-marker latex cloze syntax as item answer syntax', () => {
+    const reason = detectAnswerSyntax('\\cloze{#2}{x+y}', '', 'basic');
+    expect(reason).toBe('cloze-latex-numbered');
+  });
+
   it('does not detect one-argument latex cloze syntax', () => {
     const reason = detectAnswerSyntax('\\cloze{x+y}', '', 'extended');
     expect(reason).toBeNull();

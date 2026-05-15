@@ -1,4 +1,5 @@
 import { hasTokenizedMarkSpan } from '@/utils/markDataType';
+import { hasFormulaClozeMarkerTargets } from '@/utils/formula-cloze-parser';
 
 export type CardType = 'topic' | 'item';
 export type NativeFlashcardKind = 'mark' | 'list' | 'heading' | 'superBlock';
@@ -31,7 +32,7 @@ export function detectAnswerSyntaxReasons(
     reasons.push('separator-colon');
   }
 
-  if (/\\cloze\{c\d+\}\{/.test(markdownText) || /\\cloze\{c\d+\}\{/.test(contentText)) {
+  if (hasFormulaClozeMarkerTargets(markdownText) || hasFormulaClozeMarkerTargets(contentText)) {
     reasons.push('cloze-latex-numbered');
   }
 

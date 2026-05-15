@@ -3,6 +3,7 @@
  */
 
 import { getTokenizedMarkSpanRegex, hasDataTypeToken } from '@/utils/markDataType';
+import { parseFormulaClozeTargets } from '@/utils/formula-cloze-parser';
 
 export interface ClozeInfo {
   text: string;
@@ -59,87 +60,14 @@ export class ClozeDetector {
   }
 
   private static extractLatexClozes(content: string, output: ClozeInfo[]): void {
-    const commandRegex = /\\+cloze/g;
-    let cursor = 0;
-
-    while (cursor < content.length) {
-      commandRegex.lastIndex = cursor;
-      const match = commandRegex.exec(content);
-      if (!match) {
-        break;
-      }
-
-      const start = match.index;
-      const commandEnd = start + match[0].length;
-      const firstArg = this.parseBracedArgument(content, commandEnd);
-      if (!firstArg) {
-        cursor = commandEnd;
-        continue;
-      }
-
-      const firstArgText = firstArg.content.trim();
-      const isNumberedLatexCloze = /^c\d+$/i.test(firstArgText);
-      const secondArg = this.parseBracedArgument(content, firstArg.nextIndex);
-      const hasSecondArgForNumberedCloze = isNumberedLatexCloze && !!secondArg;
-      const targetArg = hasSecondArgForNumberedCloze && secondArg ? secondArg : firstArg;
-      const end = hasSecondArgForNumberedCloze && secondArg ? secondArg.nextIndex : firstArg.nextIndex;
-      const text = targetArg.content.trim();
-
-      if (text.length > 0) {
-        output.push({
-          text,
-          start,
-          end,
-          type: 'latex',
-        });
-      }
-
-      cursor = end;
+    for (const target of parseFormulaClozeTargets(content).targets) {
+      output.push({
+        text: target.text,
+        start: target.start,
+        end: target.end,
+        type: 'latex',
+      });
     }
-  }
-
-  private static parseBracedArgument(
-    source: string,
-    fromIndex: number
-  ): { content: string; nextIndex: number } | null {
-    let index = fromIndex;
-
-    while (index < source.length && /\s/.test(source[index])) {
-      index += 1;
-    }
-
-    if (source[index] !== '{') {
-      return null;
-    }
-
-    const contentStart = index + 1;
-    let depth = 1;
-
-    for (let i = contentStart; i < source.length; i += 1) {
-      const char = source[i];
-
-      if (char === '\\') {
-        i += 1;
-        continue;
-      }
-
-      if (char === '{') {
-        depth += 1;
-        continue;
-      }
-
-      if (char === '}') {
-        depth -= 1;
-        if (depth === 0) {
-          return {
-            content: source.slice(contentStart, i),
-            nextIndex: i + 1,
-          };
-        }
-      }
-    }
-
-    return null;
   }
 
   private static resolveOverlappingClozes(clozes: ClozeInfo[]): ClozeInfo[] {

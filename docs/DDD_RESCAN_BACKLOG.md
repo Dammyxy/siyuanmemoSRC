@@ -4,6 +4,16 @@ Last update: 2026-05-15 (Round 357)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-15 - Formula cloze KaTeX-safe marker rendering
+
+- Task: Implement OpenSpec change `fix-formula-cloze-katex-marker-rendering` so formula-internal plugin cloze markers are parsed before Review math rendering and never reach KaTeX as answer text.
+- Touched slice: Formula cloze parse/render path; `src/utils/formula-cloze-parser.ts`, `ClozeDetector`, multi-cloze Review render service, formula cloze detection helpers, and focused formula/review tests.
+- Debt fixed now: Formula cloze now has one shared balanced-brace parser for numbered `\cloze{c1}{...}` / `\cloze{#2}{...}` targets and historical one-argument targets. Review formula mode replaces only the current target with a valid placeholder/answer fragment, renders non-current targets as plain formula fragments, normalizes stored raw formula faces before KaTeX, and fails closed with content-free diagnostics when malformed plugin syntax cannot be safely parsed.
+- Debt deferred: Live SiYuan formula cloze Review smoke was not run from this terminal session.
+- Why deferred: This pass validates the active TypeScript parser/render/routing path only; no CDP-attached SiYuan Review UI was exercised.
+- Next safe step: In live SiYuan Review, create formula cloze cards containing `\cloze{#2}{mc^2}` and `\cloze{c3}{x}`, then confirm only the current fragment hides/reveals and no KaTeX `Expected EOF, got #` error appears.
+- Validation: Focused parser/render, Review routing/presentation, ordinary multi-cloze, hidden-fallback, boundary, build, and OpenSpec strict validation are recorded with the implementation task.
+
 ### 2026-05-15 - SRS Browser SQL card universe scope
 
 - Task: Implement OpenSpec change `scope-srs-browser-sql-filter-to-card-universe` so SRS Browser SQL-mode search treats SQL rows as block candidates and only exposes plugin-manageable Browser cards.
