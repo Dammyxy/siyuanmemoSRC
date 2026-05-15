@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-15 (Round 360)
+Last update: 2026-05-16 (Round 361)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-16 - Filter-group due review backend feedback mode
+
+- Task: Fix live filter-group Review failure `BACKEND_UNAVAILABLE: review.feedback requires backend-worker ownership` when a due card is rated from the filtered review queue.
+- Touched slice: Filter Group Queue review scheduling context and focused dynamic queue review-removal tests.
+- Debt fixed now: Filter-group due cards no longer emit `queueMode: formal` into the backend-owned `review.feedback` path. They now keep filter-group ownership explicit with `filtered-rescheduling/write-schedule`, matching the worker contract that already supports filter-group rescheduling transactions.
+- Debt deferred: No live SiYuan click smoke was run after build; broader worker availability/election diagnostics remain separate from this queue-mode mismatch.
+- Why deferred: The reported stack pointed to a deterministic queue context/backend contract mismatch. Worker lifecycle and multi-window writer diagnostics were not needed for this bounded fix.
+- Next safe step: In live SiYuan, reopen the filter-group Review showing `1 due`, rate the same card, and confirm no backend-worker ownership error appears.
+- Validation: Focused dynamic queue, ReviewCommitUseCase, and BackendKernel tests passed. Hidden-fallback, boundary, source/dist SRS hygiene, and production build passed.
 
 ### 2026-05-16 - Review Concept roam entry
 

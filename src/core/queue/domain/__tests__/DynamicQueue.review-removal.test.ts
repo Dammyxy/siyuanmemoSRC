@@ -526,6 +526,31 @@ describe('Dynamic queues - review removal semantics', () => {
     expect(manager.updateCard).not.toHaveBeenCalled();
   });
 
+  it('filter group due-card review uses filtered rescheduling worker context', async () => {
+    const card = createCard({
+      id: 'filter-due',
+      due: getCurrentDayEnd(4) - 60_000,
+    });
+    const manager = createManagerStub(card);
+    const queue = new FilterGroupQueue(
+      manager as never,
+      createPersistenceStub()
+    );
+
+    await queue.handleReview(card.id, 3);
+
+    expect(manager.commitReview).toHaveBeenCalledWith({
+      cardId: card.id,
+      rating: 3,
+      context: expect.objectContaining({
+        queueType: 'filter-group',
+        queueMode: 'filtered-rescheduling',
+        commitPolicy: 'write-schedule',
+        isFiltered: true,
+      }),
+    });
+  });
+
   it('filter group explicit remove keeps card hidden until rebuild clears temporary blacklist', async () => {
     const card = createCard();
     const manager = createManagerStub(card, { cards: [card] });

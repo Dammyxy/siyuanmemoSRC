@@ -21,6 +21,7 @@ import {
     CardFilter,
     type QueueBulkAddInput,
     type QueueBulkMutationResult,
+    type QueueProjectionReadMode,
     QueueReviewResult,
     type FilterGroupQueueSessionSnapshot,
     type QueueReviewSchedulingContext,
@@ -207,6 +208,10 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
     public isDynamic(): boolean {
         return true;
     }
+
+    public getProjectionReadMode(): QueueProjectionReadMode {
+        return 'local-queue';
+    }
     
     /**
      * 获取队列中的所有卡片
@@ -308,6 +313,7 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
      * - 使用调度器更新卡片状态
      * - 评分 < 3 自动添加到最终训练
      * - 复习后是否留队，按当前 filter 镜像判断，而不是按 today-window 启发式
+     * - backend review.feedback 对 filter-group 只接受 filtered-* 模式；到期卡仍是筛选队列写入
      * 
      * 使用基类的 handleReviewWithScheduler() 方法处理调度器集成。
      * 
@@ -330,7 +336,7 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
         const isDue = Number.isFinite(due) && due <= this.getCurrentDayEnd(this.getDayStartHour());
         if (isDue) {
             return {
-                queueMode: 'formal',
+                queueMode: 'filtered-rescheduling',
                 commitPolicy: 'write-schedule',
                 isFiltered: true,
             };

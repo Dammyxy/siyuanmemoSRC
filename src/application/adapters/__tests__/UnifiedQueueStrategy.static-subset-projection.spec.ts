@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UnifiedQueueStrategy } from '../UnifiedQueueStrategy';
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
+import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
+import { NOOP_QUEUE_PERSISTENCE } from '@/core/queue/domain/ports';
 import { buildQueueSnapshotRow } from '@/core/queue/domain/queueCardProjection';
 import { CardType, type FSRSCard } from '@/types/card';
 import { QueueType, type QueueCounterSnapshot } from '@/types/unified-data-source';
 
-function createCard(id: string, blockId: string): FSRSCard {
+function createCard(id: string, blockId: string, type: CardType = CardType.Item): FSRSCard {
   const now = Date.now();
   return {
     id,
@@ -21,7 +23,7 @@ function createCard(id: string, blockId: string): FSRSCard {
     elapsedDays: 1,
     scheduledDays: 1,
     priority: 50,
-    type: CardType.Item,
+    type,
     tags: [],
     leechCount: 0,
     isLeech: false,
@@ -32,6 +34,8 @@ function createCard(id: string, blockId: string): FSRSCard {
 }
 
 function createCounterSnapshot(cards: FSRSCard[]): QueueCounterSnapshot {
+  const item = cards.filter((card) => card.type === CardType.Item).length;
+  const concept = cards.filter((card) => card.type === CardType.Concept).length;
   return {
     version: 1,
     remaining: cards.length,
@@ -39,10 +43,10 @@ function createCounterSnapshot(cards: FSRSCard[]): QueueCounterSnapshot {
     total: cards.length,
     buckets: {
       all: cards.length,
-      item: cards.length,
+      item,
       descriptor: 0,
       topic: 0,
-      concept: 0,
+      concept,
     },
     source: 'reconciled',
   };
@@ -86,6 +90,13 @@ function createProjectionBackedManager(scopedCard: FSRSCard, projectedCard: FSRS
       const blockIds = Array.isArray(filter?.blockIds) ? filter.blockIds : [];
       if (blockIds.includes(scopedCard.blockId)) {
         return [{ ...scopedCard }];
+      }
+      const cardType = (filter as { cardType?: CardType | CardType[] } | undefined)?.cardType;
+      const cardTypes = Array.isArray(cardType) ? cardType : cardType ? [cardType] : [];
+      if (cardTypes.length > 0) {
+        return [projectedCard, scopedCard]
+          .filter((card) => cardTypes.includes(card.type))
+          .map((card) => ({ ...card }));
       }
       return [{ ...projectedCard }, { ...scopedCard }];
     }),
@@ -138,6 +149,38 @@ function createProjectionBackedManager(scopedCard: FSRSCard, projectedCard: FSRS
 }
 
 describe('UnifiedQueueStrategy static subset projection policy', () => {
+  it('keeps mutable filter-group review on the live filtered queue instead of stale projection rows', async () => {
+    const projectedItem = createCard('projected-item', 'projected-block', CardType.Item);
+    const filteredConcept = createCard('filtered-concept', 'concept-block', CardType.Concept);
+    const manager = createProjectionBackedManager(filteredConcept, projectedItem);
+    const queue = new FilterGroupQueue(
+      manager as never,
+      NOOP_QUEUE_PERSISTENCE,
+      {
+        cardType: CardType.Concept,
+        cardStatus: ['new', 'learning', 'review', 'relearning'],
+      },
+    );
+    const strategy = new UnifiedQueueStrategy(
+      queue,
+      manager as never,
+      { subscribe: vi.fn(), unsubscribe: vi.fn() } as never,
+      null,
+    );
+
+    const next = await strategy.next();
+
+    expect(next?.id).toBe(filteredConcept.id);
+    expect(manager.getCards).toHaveBeenCalledWith(expect.objectContaining({
+      cardType: CardType.Concept,
+      includeSuspended: false,
+    }));
+    expect(manager.readQueueProjectionSnapshot).not.toHaveBeenCalled();
+    expect(manager.getQueueProjectionCardsBySnapshotIds).not.toHaveBeenCalled();
+
+    strategy.cleanup();
+  });
+
   it('keeps a static subset review on its exact card scope when filter-group is projection-backed', async () => {
     const scopedCard = createCard('scoped-card', 'scoped-block');
     const projectedCard = createCard('projected-card', 'projected-block');
