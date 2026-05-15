@@ -19,6 +19,7 @@ import { ProgressiveExcerptHotkeyHandler } from '@/application/handlers/Progress
 import {
   dispatchReviewCommandRequest,
   REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT,
+  REVIEW_LOCATE_CURRENT_SOURCE_REQUEST_EVENT,
   REVIEW_SET_PRIORITY_REQUEST_EVENT,
   REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT,
 } from '@/application/handlers/ReviewCommandRequestEvents';
@@ -256,6 +257,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
         this.registerProgressiveExcerptCommand();
         this.registerProgressiveItemCommand();
         this.registerTopBarQuickCommands();
+        this.registerDocTreeReviewCommands();
         if (this.shouldExposeCoreReviewContextEntries()) {
           this.registerCoreReviewCommands();
         }
@@ -451,15 +453,47 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     for (const definition of TOPBAR_QUICK_ENTRY_DEFINITIONS) {
       this.addCommand({
         langKey: definition.commandLangKey,
-        hotkey: '',
+        hotkey: definition.id === 'start-review' ? 'Alt+R' : '',
         callback: () => {
+          if (definition.id === 'start-review') {
+            this.getContext().getDialogManager()?.openReviewDialog();
+            return;
+          }
           void this.runTopBarQuickEntryAction(definition.id);
         },
         editorCallback: (protyle: IProtyle) => {
+          if (definition.id === 'start-review') {
+            this.getContext().getDialogManager()?.openReviewDialog();
+            return;
+          }
           void this.runTopBarQuickEntryAction(definition.id, { protyle });
         },
       });
     }
+  }
+
+  private registerDocTreeReviewCommands(): void {
+    this.addCommand({
+      langKey: 'reviewCurrentDocTreeDueCommand',
+      hotkey: '',
+      callback: () => {
+        void this.runCurrentDocTreeDueReviewAction();
+      },
+      editorCallback: (protyle: IProtyle) => {
+        void this.runCurrentDocTreeDueReviewAction({ protyle });
+      },
+    });
+
+    this.addCommand({
+      langKey: 'temporaryDrillCurrentDocTreeAllCommand',
+      hotkey: '',
+      callback: () => {
+        void this.runCurrentDocTreeTemporaryDrillAction();
+      },
+      editorCallback: (protyle: IProtyle) => {
+        void this.runCurrentDocTreeTemporaryDrillAction({ protyle });
+      },
+    });
   }
 
   private registerCoreReviewCommands(): void {
@@ -521,6 +555,14 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       hotkey: '',
       callback: () => {
         this.runReviewSurfaceCommandRequest(REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT);
+      },
+    });
+
+    this.addCommand({
+      langKey: 'locateCurrentReviewSourceCommand',
+      hotkey: '',
+      callback: () => {
+        this.runReviewSurfaceCommandRequest(REVIEW_LOCATE_CURRENT_SOURCE_REQUEST_EVENT);
       },
     });
   }
@@ -684,12 +726,39 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     await this.getContext().getMenuManager().runTopBarQuickEntryAction(actionId, { docId });
   }
 
+  private async runCurrentDocTreeDueReviewAction(
+    input?: { protyle?: unknown },
+  ): Promise<void> {
+    const docId = this.extractDocIdFromProtyle(input?.protyle);
+    const menuManager = this.getContext().getMenuManager();
+    if (docId) {
+      await menuManager.runCurrentDocTreeDueReviewByDocId(docId);
+      return;
+    }
+
+    await menuManager.runCurrentDocTreeDueReviewForCurrentDoc();
+  }
+
+  private async runCurrentDocTreeTemporaryDrillAction(
+    input?: { protyle?: unknown },
+  ): Promise<void> {
+    const docId = this.extractDocIdFromProtyle(input?.protyle);
+    const menuManager = this.getContext().getMenuManager();
+    if (docId) {
+      await menuManager.runCurrentDocTreeTemporaryDrillByDocId(docId);
+      return;
+    }
+
+    await menuManager.runCurrentDocTreeTemporaryDrillForCurrentDoc();
+  }
+
   private runReviewSurfaceCommandRequest(eventName: string): void {
     const handled = dispatchReviewCommandRequest(
       eventName as
         | typeof REVIEW_SET_PRIORITY_REQUEST_EVENT
         | typeof REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT
-        | typeof REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT,
+        | typeof REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT
+        | typeof REVIEW_LOCATE_CURRENT_SOURCE_REQUEST_EVENT,
     );
     if (handled) {
       return;

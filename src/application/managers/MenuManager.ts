@@ -29,6 +29,7 @@ import {
   TOPBAR_QUICK_ENTRY_DEFINITIONS,
   type TopBarQuickEntryActionId,
 } from '@/application/entries/TopBarQuickEntryRegistry';
+import { CoreReviewEntryService, type CoreReviewEntryActionId } from '@/application/entries/CoreReviewEntryService';
 
 const logger = createLogger('MenuManager');
 type BlockIdSqlRow = { id?: unknown; root_id?: unknown };
@@ -279,6 +280,34 @@ export class MenuManager {
     const rootDocId = await this.resolveDocumentRootId(normalizedDocId);
     await this.runOneClickCancelCards(rootDocId);
   }
+
+  public async runCurrentDocTreeDueReviewForCurrentDoc(): Promise<void> {
+    const docId = this.getCurrentDocId();
+    if (!docId) {
+      showMessage(this.i18n?.docTreeReviewNoCurrentDoc || '无法定位当前文档');
+      return;
+    }
+
+    await this.runCurrentDocTreeDueReviewByDocId(docId);
+  }
+
+  public async runCurrentDocTreeDueReviewByDocId(docId: string | null | undefined): Promise<void> {
+    await this.runCurrentDocTreeReviewActionByDocId('retrieval-due', docId);
+  }
+
+  public async runCurrentDocTreeTemporaryDrillForCurrentDoc(): Promise<void> {
+    const docId = this.getCurrentDocId();
+    if (!docId) {
+      showMessage(this.i18n?.docTreeReviewNoCurrentDoc || '无法定位当前文档');
+      return;
+    }
+
+    await this.runCurrentDocTreeTemporaryDrillByDocId(docId);
+  }
+
+  public async runCurrentDocTreeTemporaryDrillByDocId(docId: string | null | undefined): Promise<void> {
+    await this.runCurrentDocTreeReviewActionByDocId('temporary-drill', docId);
+  }
   
   // ========================================================================
   // 块右键菜单
@@ -380,7 +409,7 @@ export class MenuManager {
     this.dialogManager.openSettingsDialog();
   }
 
-  private getCurrentDocId(): string | null {
+  public getCurrentDocId(): string | null {
     const mobileDocId = document
       .querySelector('#editor .protyle-content .protyle-background[data-node-id]')
       ?.getAttribute('data-node-id');
@@ -410,6 +439,47 @@ export class MenuManager {
       .querySelector('span.protyle-breadcrumb__item--active[data-node-id]')
       ?.getAttribute('data-node-id');
     return breadcrumbDocId || null;
+  }
+
+  private createCoreReviewEntryService(): CoreReviewEntryService {
+    return new CoreReviewEntryService({
+      i18n: this.i18n,
+      dialogManager: this.dialogManager,
+      notify: async (message) => {
+        showMessage(message);
+      },
+      getDayStartHour: () => this.context.getUnifiedDataSourceManager().getDayStartHour(),
+    });
+  }
+
+  private async runCurrentDocTreeReviewActionByDocId(
+    actionId: CoreReviewEntryActionId,
+    docId: string | null | undefined,
+  ): Promise<void> {
+    const normalizedDocId = typeof docId === 'string' ? docId.trim() : '';
+    if (!normalizedDocId) {
+      showMessage(this.i18n?.docTreeReviewNoCurrentDoc || '无法定位当前文档');
+      return;
+    }
+
+    const docTreeReviewScopeService = this.context.getDocTreeReviewScopeService();
+    let scope = docTreeReviewScopeService.collectDocReviewScope(normalizedDocId);
+    if (!scope) {
+      await docTreeReviewScopeService.hydrate();
+      scope = docTreeReviewScopeService.collectDocReviewScope(normalizedDocId);
+    }
+    if (!scope) {
+      showMessage(this.i18n?.docTreeReviewOpenFailed || '打开当前文档复习失败');
+      return;
+    }
+
+    await this.createCoreReviewEntryService().execute(actionId, scope.cards, {
+      scopeDocIds: scope.docIds,
+      emptyMessages: {
+        noDueCards: this.i18n?.docTreeReviewNoDueCards || '当前文档及子文档内没有到期卡片',
+        noPracticeableCards: this.i18n?.docTreeReviewNoPracticeableCards || '当前文档及子文档内没有可练习卡片',
+      },
+    });
   }
 
   private async runOneClickSymbolCardCreation(docId: string): Promise<void> {

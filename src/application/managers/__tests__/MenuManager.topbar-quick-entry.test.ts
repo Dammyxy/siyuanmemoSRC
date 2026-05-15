@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MenuManager } from '@/application/managers/MenuManager';
+import { showMessage } from 'siyuan';
 
 vi.mock('siyuan', () => ({
   Menu: vi.fn().mockImplementation(() => ({
@@ -10,7 +11,12 @@ vi.mock('siyuan', () => ({
   showMessage: vi.fn(),
 }));
 
-function createFixture() {
+function createFixture(options?: {
+  docScope?: {
+    docIds: string[];
+    cards: Array<{ id: string; blockId: string; type: string; due: number; skipped?: boolean }>;
+  } | null;
+}) {
   const autoCardSummary = {
     rootId: 'doc-1',
     scanned: 3,
@@ -31,8 +37,10 @@ function createFixture() {
   };
   const dialogManager = {
     openReviewDialog: vi.fn().mockResolvedValue(undefined),
+    openRetrievalPracticeWithFilter: vi.fn().mockResolvedValue(undefined),
     openIncrementalLearningDialog: vi.fn().mockResolvedValue(undefined),
     openFinalDrillDialog: vi.fn().mockResolvedValue(undefined),
+    openTemporaryDrill: vi.fn().mockResolvedValue(undefined),
     openNeuralRoamDialog: vi.fn().mockResolvedValue(undefined),
     openFilterGroupPracticeDialog: vi.fn().mockResolvedValue(undefined),
     openBrowserDialog: vi.fn(),
@@ -48,6 +56,19 @@ function createFixture() {
     }),
     getAutoCardHandler: vi.fn().mockReturnValue(null),
     createAutoCardHandler: vi.fn().mockResolvedValue(tempAutoCardHandler),
+    getUnifiedDataSourceManager: vi.fn().mockReturnValue({
+      getDayStartHour: vi.fn(() => 4),
+    }),
+    getDocTreeReviewScopeService: vi.fn().mockReturnValue({
+      collectDocReviewScope: vi.fn(() => options?.docScope ?? ({
+        docIds: ['doc-1', 'doc-child-1'],
+        cards: [
+          { id: 'due-card', blockId: 'due-block', type: 'item', due: Date.now() - 1, skipped: false },
+          { id: 'future-card', blockId: 'future-block', type: 'item', due: Date.now() + 86400000, skipped: false },
+        ],
+      })),
+      hydrate: vi.fn().mockResolvedValue(undefined),
+    }),
   } as any;
 
   const menuManager = new MenuManager(
@@ -67,6 +88,7 @@ function createFixture() {
 describe('MenuManager top bar quick entry actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    document.body.innerHTML = '';
   });
 
   it('delegates start-review to openReviewDialog', async () => {
@@ -148,5 +170,75 @@ describe('MenuManager top bar quick entry actions', () => {
 
     expect(byDocSpy).not.toHaveBeenCalled();
     expect(currentSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens current document tree due review with only due cards and descendant doc scope', async () => {
+    const { menuManager, dialogManager } = createFixture();
+
+    await menuManager.runCurrentDocTreeDueReviewByDocId('doc-1');
+
+    expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledWith({
+      blockIds: ['due-block'],
+      cardIds: ['due-card'],
+      preferredCardId: 'due-card',
+      scopeDocIds: ['doc-1', 'doc-child-1'],
+      dueOnly: true,
+    });
+    expect(dialogManager.openReviewDialog).not.toHaveBeenCalled();
+    expect(dialogManager.openTemporaryDrill).not.toHaveBeenCalled();
+  });
+
+  it('opens current document tree temporary drill with all scoped cards', async () => {
+    const { menuManager, dialogManager } = createFixture();
+
+    await menuManager.runCurrentDocTreeTemporaryDrillByDocId('doc-1');
+
+    expect(dialogManager.openTemporaryDrill).toHaveBeenCalledWith(['due-block', 'future-block'], {
+      cardIds: ['due-card', 'future-card'],
+      preferredCardId: 'due-card',
+    });
+    expect(dialogManager.openReviewDialog).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to global review when current document is unavailable', async () => {
+    const { menuManager, dialogManager } = createFixture();
+
+    await menuManager.runCurrentDocTreeDueReviewForCurrentDoc();
+
+    expect(showMessage).toHaveBeenCalledWith('无法定位当前文档');
+    expect(dialogManager.openReviewDialog).not.toHaveBeenCalled();
+    expect(dialogManager.openRetrievalPracticeWithFilter).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back when current document tree has no due cards', async () => {
+    const { menuManager, dialogManager } = createFixture({
+      docScope: {
+        docIds: ['doc-1'],
+        cards: [
+          { id: 'future-card', blockId: 'future-block', type: 'item', due: Date.now() + 86400000, skipped: false },
+        ],
+      },
+    });
+
+    await menuManager.runCurrentDocTreeDueReviewByDocId('doc-1');
+
+    expect(showMessage).toHaveBeenCalledWith('当前文档及子文档内没有到期卡片');
+    expect(dialogManager.openReviewDialog).not.toHaveBeenCalled();
+    expect(dialogManager.openRetrievalPracticeWithFilter).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back when current document tree has no practiceable cards', async () => {
+    const { menuManager, dialogManager } = createFixture({
+      docScope: {
+        docIds: ['doc-1'],
+        cards: [],
+      },
+    });
+
+    await menuManager.runCurrentDocTreeTemporaryDrillByDocId('doc-1');
+
+    expect(showMessage).toHaveBeenCalledWith('当前文档及子文档内没有可练习卡片');
+    expect(dialogManager.openReviewDialog).not.toHaveBeenCalled();
+    expect(dialogManager.openTemporaryDrill).not.toHaveBeenCalled();
   });
 });

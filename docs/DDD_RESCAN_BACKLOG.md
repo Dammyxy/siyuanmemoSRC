@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-15 (Round 358)
+Last update: 2026-05-15 (Round 359)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-15 - Review command hotkeys and current-document scope
+
+- Task: Implement OpenSpec change `add-review-command-hotkeys-and-doc-scope-review` for #65 current-document tree Review shortcuts, #60 global standard Review shortcut behavior, and #56 current Review source-location command.
+- Touched slice: active plugin command registration, MenuManager current-document tree Review entry, `CoreReviewEntryService` empty scoped messages, Review command request events, Review v2 source-location handling, i18n, and focused command/Review tests.
+- Debt fixed now: `打开复习界面` is registered on the active runtime path with default `Alt+R` and opens standard Review without document context. Current-document tree due Review and temporary drill are registered without default hotkeys, use the current document plus descendants, and fail closed without global fallback. `定位当前复习卡原块` is registered without a default hotkey and reuses the active Review current-card source-location path without changing Review state.
+- Debt deferred: Plugin-managed shortcut configuration UI, menu entries, temporary-drill tab restore parity, broader Review source inference outside the active card, and physical-key OS/Electron accelerator proof remain out of scope for this slice.
+- Why deferred: The issues ask for commands that users can bind manually and for active Review source location. Adding shortcut UI/menu surfaces or inferred card lookup would widen behavior beyond the requested command contracts.
+- Next safe step: In live SiYuan, bind the two current-document commands and the locate-source command manually, then smoke scoped due/temp drill from a document with child cards and source location from an active Review card.
+- Validation: Focused command registration, MenuManager scoped Review entry, and ReviewView source-location tests passed. Hidden-fallback, boundary, build, and OpenSpec validation passed. Post-restart live CDP smoke confirmed plugin loaded in SiYuan, command registry had `startReview` default `Alt+R` and the three new commands with empty hotkeys, visible renderer `startReview` command callback reached `DialogManager.openReviewDialog()`, current-document scoped commands did not call global Review when the active document scope had zero cards, and locate-source command dispatched the Review locate event. CDP `Input.dispatchKeyEvent` did not trigger SiYuan/Electron accelerator dispatch even on a visible focused renderer, so physical `Alt+R` remains manual evidence.
 
 ### 2026-05-15 - Custom Review surface link rendering
 

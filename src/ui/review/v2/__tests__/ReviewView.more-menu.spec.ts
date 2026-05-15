@@ -7,9 +7,11 @@ import ReviewView from '../ReviewView.vue';
 import { createEmptyReviewUIState } from '../types';
 import {
   REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT,
+  REVIEW_LOCATE_CURRENT_SOURCE_REQUEST_EVENT,
   REVIEW_SET_PRIORITY_REQUEST_EVENT,
   REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT,
 } from '@/application/handlers/ReviewCommandRequestEvents';
+import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
 
 let reviewContentEditableSource:
   | {
@@ -888,6 +890,29 @@ describe('ReviewView more menu', () => {
     await flushPromises();
     expect(deleteEvent.defaultPrevented).toBe(true);
     expect(cardService.deleteCard).toHaveBeenCalledWith({ cardId: 'card-2' });
+
+    wrapper.unmount();
+  });
+
+  it('locates the current review source through review command requests', async () => {
+    reviewContentEditableSource = {
+      blockId: 'source-block-1',
+      title: 'Source',
+      sourceKind: 'block-markdown',
+      rendererKind: 'main-protyle',
+    };
+    const { wrapper } = mountReviewView({ attachInDialog: true });
+    await flushPromises();
+
+    const locateEvent = new CustomEvent(REVIEW_LOCATE_CURRENT_SOURCE_REQUEST_EVENT, { cancelable: true });
+    window.dispatchEvent(locateEvent);
+    await flushPromises();
+
+    expect(locateEvent.defaultPrevented).toBe(true);
+    expect(openReviewBlockAtSource).toHaveBeenCalledWith({
+      app: {},
+      blockId: 'source-block-1',
+    });
 
     wrapper.unmount();
   });

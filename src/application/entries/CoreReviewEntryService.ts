@@ -20,6 +20,10 @@ export interface CoreReviewMenuAction {
 
 export interface CoreReviewScopeOptions {
   scopeDocIds?: string[];
+  emptyMessages?: {
+    noDueCards?: string;
+    noPracticeableCards?: string;
+  };
 }
 
 export class CoreReviewEntryService {
@@ -69,7 +73,7 @@ export class CoreReviewEntryService {
       case 'retrieval-due': {
         const dueRetrievalCards = this.filterDueCards(this.toRetrievalCards(cards));
         if (dueRetrievalCards.length === 0) {
-          await this.deps.notify(this.text('noDueCards', '当前范围内没有到期的闪卡'));
+          await this.deps.notify(options?.emptyMessages?.noDueCards || this.text('noDueCards', '当前范围内没有到期的闪卡'));
           return;
         }
         await this.deps.dialogManager.openRetrievalPracticeWithFilter(
@@ -80,7 +84,7 @@ export class CoreReviewEntryService {
       case 'retrieval-all': {
         const retrievalCards = this.toRetrievalCards(cards);
         if (retrievalCards.length === 0) {
-          await this.deps.notify(this.text('drillNoCards', '当前范围内没有可练习的闪卡'));
+          await this.deps.notify(options?.emptyMessages?.noPracticeableCards || this.text('drillNoCards', '当前范围内没有可练习的闪卡'));
           return;
         }
         await this.deps.dialogManager.openRetrievalPracticeWithFilter(
@@ -91,7 +95,7 @@ export class CoreReviewEntryService {
       case 'incremental-due': {
         const dueAllCards = this.filterDueCards(cards);
         if (dueAllCards.length === 0) {
-          await this.deps.notify(this.text('noDueCards', '当前范围内没有到期的闪卡'));
+          await this.deps.notify(options?.emptyMessages?.noDueCards || this.text('noDueCards', '当前范围内没有到期的闪卡'));
           return;
         }
         await this.deps.dialogManager.openIncrementalLearningWithFilter(
@@ -101,7 +105,7 @@ export class CoreReviewEntryService {
       }
       case 'incremental-all': {
         if (cards.length === 0) {
-          await this.deps.notify(this.text('drillNoCards', '当前范围内没有可练习的闪卡'));
+          await this.deps.notify(options?.emptyMessages?.noPracticeableCards || this.text('drillNoCards', '当前范围内没有可练习的闪卡'));
           return;
         }
         await this.deps.dialogManager.openIncrementalLearningWithFilter(
@@ -111,12 +115,12 @@ export class CoreReviewEntryService {
       }
       case 'temporary-drill': {
         if (cards.length === 0) {
-          await this.deps.notify(this.text('drillNoCards', '当前范围内没有可练习的闪卡'));
+          await this.deps.notify(options?.emptyMessages?.noPracticeableCards || this.text('drillNoCards', '当前范围内没有可练习的闪卡'));
           return;
         }
         const blockIds = Array.from(new Set(cards.map((card) => card.blockId).filter(Boolean)));
         if (blockIds.length === 0) {
-          await this.deps.notify(this.text('drillNoCards', '当前范围内没有可练习的闪卡'));
+          await this.deps.notify(options?.emptyMessages?.noPracticeableCards || this.text('drillNoCards', '当前范围内没有可练习的闪卡'));
           return;
         }
         await this.deps.dialogManager.openTemporaryDrill(blockIds, this.buildExactCardOptions(cards));

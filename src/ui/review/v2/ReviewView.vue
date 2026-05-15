@@ -299,6 +299,7 @@ import { resolveProgressiveExcerptSelectionSnapshot } from '@/application/entrie
 import { PROGRESSIVE_EXCERPT_REQUEST_EVENT } from '@/application/handlers/ProgressiveExcerptHotkeyHandler';
 import {
   REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT,
+  REVIEW_LOCATE_CURRENT_SOURCE_REQUEST_EVENT,
   REVIEW_SET_PRIORITY_REQUEST_EVENT,
   REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT,
 } from '@/application/handlers/ReviewCommandRequestEvents';
@@ -1223,6 +1224,7 @@ onMounted(() => {
     { target: window, type: REVIEW_SET_PRIORITY_REQUEST_EVENT, listener: handleReviewSetPriorityCommandRequest as EventListener },
     { target: window, type: REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT, listener: handleReviewSuspendCurrentCardCommandRequest as EventListener },
     { target: window, type: REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT, listener: handleReviewDeleteCurrentCardCommandRequest as EventListener },
+    { target: window, type: REVIEW_LOCATE_CURRENT_SOURCE_REQUEST_EVENT, listener: handleReviewLocateCurrentSourceCommandRequest as EventListener },
     { target: window, type: KERNEL_TRANSACTION_WRITER_UNAVAILABLE_EVENT, listener: handleKernelTransactionWriterUnavailable as EventListener },
   ]);
   logger.debug('[SiYuanMemo][ReviewView] Keyboard event listener added');
@@ -1877,6 +1879,29 @@ function handleReviewSuspendCurrentCardCommandRequest(event: Event): void {
 
 function handleReviewDeleteCurrentCardCommandRequest(event: Event): void {
   handleReviewCommandRequest(event, handleDeleteCurrentCard);
+}
+
+function handleReviewLocateCurrentSourceCommandRequest(event: Event): void {
+  handleReviewCommandRequest(event, async () => {
+    const blockId = resolveCurrentReviewSourceBlockId();
+    if (!props.app || !blockId) {
+      showMessage(t('reviewLocateNoCurrentCard', '当前没有可定位的复习卡片'), 3000, 'info');
+      return;
+    }
+
+    try {
+      await openReviewBlockAtSource({
+        app: props.app,
+        blockId,
+      });
+    } catch (error) {
+      logger.warn('[SiYuanMemo][ReviewView] Failed to locate current review source block:', {
+        blockId,
+        error,
+      });
+      showMessage(t('reviewLocateSourceFailed', '定位当前复习卡原块失败'), 3000, 'error');
+    }
+  });
 }
 
 function maybeHandleReviewEscape(event: KeyboardEvent): boolean {

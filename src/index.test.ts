@@ -180,6 +180,8 @@ function createContext(plugin: any) {
     openSettingsDialog: vi.fn(),
     openBrowserDialog: vi.fn(),
     openReviewDialog: vi.fn(),
+    openRetrievalPracticeWithFilter: vi.fn(async () => undefined),
+    openTemporaryDrill: vi.fn(async () => undefined),
     openMobileQueueLauncherDialog: vi.fn(async () => undefined),
     openSubsetReviewDialog: vi.fn(async () => undefined),
   };
@@ -342,5 +344,51 @@ describe('FSRSPlugin deferred custom tab bootstrap', () => {
     expect(registeredLangKeys).toContain('progressiveItemSelection');
     expect(registeredLangKeys).not.toContain('imageOcclusionCardCurrentBlock');
     expect(registeredLangKeys).not.toContain('syncRiffNow');
+  });
+
+  it('registers review command hotkeys with scoped document commands left user-configurable', async () => {
+    const { default: FSRSPlugin } = await import('./index');
+    const plugin = new FSRSPlugin();
+    const context = createContext(plugin);
+    mocks.applicationContextCreate.mockResolvedValueOnce(context);
+
+    await plugin.onload();
+
+    const commands = mocks.addCommand.mock.calls.map(([config]) => config);
+    expect(commands).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        langKey: 'startReview',
+        hotkey: 'Alt+R',
+      }),
+      expect.objectContaining({
+        langKey: 'reviewCurrentDocTreeDueCommand',
+        hotkey: '',
+      }),
+      expect.objectContaining({
+        langKey: 'temporaryDrillCurrentDocTreeAllCommand',
+        hotkey: '',
+      }),
+      expect.objectContaining({
+        langKey: 'locateCurrentReviewSourceCommand',
+        hotkey: '',
+      }),
+    ]));
+  });
+
+  it('standard review command delegates globally without document context', async () => {
+    const { default: FSRSPlugin } = await import('./index');
+    const plugin = new FSRSPlugin();
+    const context = createContext(plugin);
+    mocks.applicationContextCreate.mockResolvedValueOnce(context);
+
+    await plugin.onload();
+
+    const startReviewCommand = mocks.addCommand.mock.calls
+      .map(([config]) => config)
+      .find((config) => config?.langKey === 'startReview');
+
+    startReviewCommand?.callback?.();
+
+    expect(context.getDialogManager().openReviewDialog).toHaveBeenCalledTimes(1);
   });
 });

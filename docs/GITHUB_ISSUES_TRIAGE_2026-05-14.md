@@ -4,6 +4,84 @@ Source repo: https://github.com/Dammyxy/siyuan-plugin-siyuanmemo
 
 This document is a discussion queue for GitHub issues. It is not an implementation spec yet.
 
+## Live Refresh - 2026-05-15
+
+Source: GitHub API `Dammyxy/siyuan-plugin-siyuanmemo/issues?state=open&per_page=100`
+
+Observed open issues: 40.
+
+GitHub CLI was unavailable in this environment, so the refresh used the GitHub REST API.
+
+### Newly Observed / Needs Triage
+
+| Issue | Title | URL | Updated |
+|---|---|---|---|
+| #65 | 功能请求：新增当前文档（及其子文档）内闪卡一键复习的快捷键。类思源本体的ALT+F。 | https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/65 | 2026-05-15T06:10:16Z |
+
+### Current Open Issue Titles
+
+| Issue | Title |
+|---|---|
+| #65 | 功能请求：新增当前文档（及其子文档）内闪卡一键复习的快捷键。类思源本体的ALT+F。 |
+| #64 | 非文档块的topic下的快捷键item制卡不成功 |
+| #63 | 有关填空题闪卡的问题 |
+| #61 | 求助公式制卡一直报错是为啥 |
+| #60 | 打开复习界面的快捷键应当全局适用（含思源主页） |
+| #59 | 摘录：已摘录的文本内容，应当考虑做出标记（如背景变色） |
+| #58 | 摘录，其*引用，应置于第一个块的末尾。 |
+| #57 | 已经暂停的卡片在卡片浏览器中没有标识 |
+| #56 | 为定位到原块位置提供可自定义设置的快捷键 |
+| #55 | bug：临时、刻意练习界面 无法渲染链接 |
+| #54 | 复习界面，建议概念卡concept提供立即漫游的入口 |
+| #53 | 面包屑最好隐藏，鼠标滑动到上面的时候再显示，否则面包屑会泄露答案 |
+| #52 | SRS浏览器右上角的过滤，应存在默认限定条件为SRS浏览器中的卡片。（即使是SQL的搜索） |
+| #51 | 笔记本右键，增加插件的相应功能调用 |
+| #49 | 细节优化：搜索过滤的命名应更新，形成统一。如图。 |
+| #48 | 新增功能：由用户手动触发，对全局进行扫描，实现全局性的符号制卡 |
+| #47 | 文档块标右键菜单：新增在SRS浏览器中打开该文档及子文档内的卡片 |
+| #46 | 摘录制卡：摘录制卡不应当导致链接的灭失。 |
+| #42 | 对于快速制卡，考虑将其逻辑变更为：取消已有闪卡->重新快速制卡。 |
+| #41 | 针对于未找到id块的闪卡，提供一次全部检索及批量处理的方式。 |
+| #40 | 闪卡复习界面，多行挖空，其卡片应当符合markdown渲染，而非纯文本样式。 |
+| #39 | 在复习界面编辑时，其文档路径会隐去。应当予以保留。 |
+| #38 | 制作Item（挖空），但原Topic（摘录）是否保留——应当增设配置项，由使用者决定是否开启这一功能。 |
+| #36 | 关于卡片调度器 |
+| #35 | 申请两个css：1. 调整卡片复习时的按钮高度 2. 去除卡片复习时，按钮上的图片 |
+| #32 | SRS浏览器似乎不支持按tag搜索 |
+| #31 | 概念多行阅读卡编辑无法刷新 |
+| #30 | “No Cards”时按钮应该显示退出，而非“显示答案” |
+| #29 | 概念卡+标准渲染，未能显示文档标题 |
+| #28 | 概念卡的内容如何显示 |
+| #26 | 多填空卡片复习时观感问题 |
+| #25 | 只读模式无法切换 |
+| #23 | 概念描述符卡渲染中，无法点击链接和引用 |
+| #22 | 神经漫游界面没有显示文档块标题 |
+| #21 | 插入到队列指定位置，建议增加一个队列的滑动条，可以滑动调整 |
+| #20 | 重复间隔插件开启监听符号制卡后，制卡会出现多个相同闪卡，排查后发现会与叶归插件发生冲突。 |
+| #19 | 🐛 SRS浏览器中统计到的闪卡缺失 |
+| #18 | 建议更改复习界面顶部卡片数量的样式，体现当前卡片是什么类型的卡 |
+| #16 | 建议SRS浏览器中优先级设置提供相对加减模式 |
+| #15 | 建议SRS浏览器中，点击左侧文档，显示文档下所有闪卡，包括文档内闪卡以及子文档闪卡 |
+| #13 | 能否支持一键将文档内超级块制卡？ |
+| #10 | 🤔将渐进阅读划分为 6 个动作：导入、阅读、改写、摘录、挖空、回忆。插件实现哪些呢 |
+| #6 | 能否在顶栏显示要复习的数量？ |
+
+### Refresh Decision
+
+- First-batch implementation evidence now covers #64, #63, #61, #55, #52, #20, and #19 via completed OpenSpec changes or implemented triage status.
+- The next triage candidate should start with newly observed #65, then #60 if #65 is deferred.
+- #65 and #60 are likely related to review-entry hotkeys and should be triaged together before implementation to avoid overlapping shortcut behavior.
+
+### #65 / #60 / #56 Decisions
+
+- #60 keeps the standard `打开复习界面` command as the global Review entry with default `Alt+R`. It opens the normal Review dialog and must not require a current document context, including on the SiYuan home surface.
+- #65 adds two user-configurable commands with no default hotkey: `复习当前文档及子文档的到期卡片` and `临时练习当前文档及子文档的全部卡片`.
+- #65 command scope is the current open document root plus all descendant documents. If the current document cannot be resolved, or the scoped set has no matching cards, the command fails closed with a message and does not fall back to global Review.
+- The #65 due Review command opens only due/reviewable cards through the existing scoped Review entry path. It must not mix future cards into the due queue.
+- The #65 temporary drill command opens all practiceable scoped cards through the existing temporary drill dialog path. It does not need tab restore parity for this slice.
+- #56 adds `定位当前复习卡原块` as a user-configurable command with no default hotkey. It applies only to the active Review current card, reuses existing source-block location behavior, and must not grade, reveal, skip, advance, reload, or infer a card from Browser/recent-card state.
+- Implementation scope is tracked by OpenSpec change `add-review-command-hotkeys-and-doc-scope-review`.
+
 ## First Batch
 
 These issues are selected first because they look like correctness bugs, data integrity risks, or high-friction creation/review failures.
