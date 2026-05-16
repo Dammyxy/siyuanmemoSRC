@@ -58,6 +58,8 @@
         :can-select-all-matching="canSelectAllMatching"
         :show-navigator-toggle="showNavigatorToggle"
         :navigator-open="navigatorOpen"
+        :can-start-semantic="canStartBrowserSemantic"
+        :semantic-active="showBrowserSemanticWorkbench"
         @exitFocus="handleExitFocus"
         @openPracticeMenu="openPracticeMenu"
         @applySortToQueue="handleApplySortToQueue"
@@ -70,6 +72,7 @@
         @openFilterDialog="showFilterDialog = true"
         @openSpreadDialog="handleOpenSpreadDialog"
         @openAiWorkbench="handleOpenAiWorkbench"
+        @startSemantic="handleStartBrowserSemantic"
         @rebuildQueue="handleRebuildQueue"
         @selectCurrentPage="handleSelectCurrentPage"
         @selectAllMatching="handleSelectAllMatching"
@@ -126,6 +129,35 @@
         v-model="neuralSubview"
         :tabs="neuralSubviewTabs"
       />
+
+      <section
+        v-if="showBrowserSemanticWorkbench"
+        class="card-browser__semantic-workbench"
+        aria-label="Browser Semantic Workbench"
+      >
+        <BrowserSemanticNavigator
+          v-if="browserSemanticState.model"
+          :model="browserSemanticState.model"
+          :i18n="props.i18n"
+          :pending="browserSemanticPending"
+          :unavailable="browserSemanticState.unavailable"
+          @follow="handleBrowserSemanticFollow"
+          @create-station="handleBrowserSemanticCreateStation"
+          @archive-station="handleBrowserSemanticArchiveStation"
+          @open-node-station="handleBrowserSemanticOpenNodeStation"
+          @restore-path-station="handleBrowserSemanticRestorePathStation"
+          @open-review="handleBrowserSemanticOpenInReview"
+          @end-session="handleBrowserSemanticEndSession"
+        />
+        <div
+          v-else
+          class="card-browser__semantic-unavailable"
+          role="alert"
+        >
+          <strong>{{ t('browserSemanticUnavailable', 'Semantic Workbench unavailable') }}</strong>
+          <span>{{ browserSemanticState.unavailable?.message || t('browserSemanticNoSession', 'Select a Concept card and start Semantic.') }}</span>
+        </div>
+      </section>
 
       <!-- Detection status hint (disabled) -->
       <!-- <div
@@ -450,6 +482,16 @@ import { hasQuerySessionInvalidation, isBrowserQueryableDataSource } from './dat
 import BrowserHierarchy from './BrowserHierarchy.vue';
 import BrowserPreview from './BrowserPreview.vue';
 import BrowserToolbar from './BrowserToolbar.vue';
+import BrowserSemanticNavigator from './semantic/BrowserSemanticNavigator.vue';
+import { BrowserSemanticBackendReadAdapter } from './semantic/BrowserSemanticBackendReadAdapter';
+import { BrowserSemanticEntryController } from './semantic/BrowserSemanticEntryController';
+import {
+  BrowserSemanticStateController,
+  type BrowserSemanticReviewHandoff,
+  type BrowserSemanticWorkbenchState,
+} from './semantic/BrowserSemanticStateController';
+import { SemanticActivationSessionController } from '@/application/services/SemanticActivationSessionController';
+import { isBrowserSemanticConceptCard } from './semantic/browserSemanticFocus';
 import NeuralAnchorList from './neural/NeuralAnchorList.vue';
 import NeuralActivationTracePanel from './neural/NeuralActivationTracePanel.vue';
 import NeuralFocusList from './neural/NeuralFocusList.vue';
@@ -545,6 +587,9 @@ import type {
   BrowserCountDifferenceReason,
 } from '@/application/services/BrowserCountDifferenceDiagnostics';
 import type { AIWorkbenchOpenOptions } from '@/types/ai';
+import type { SemanticActivationCommandClient } from '@/application/clients/SemanticActivationCommandClient';
+import type { SemanticActivationBrowserReadClient } from '@/application/clients/SemanticActivationBrowserReadClient';
+import type { BackendSemanticLens, BackendSemanticStationType } from '../../../packages/contracts/src/backend-rpc';
 
 // Register AG-Grid modules
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -564,6 +609,8 @@ type BrowserPluginContext = {
   getHybridSyncService?: () => unknown;
   getDialogManager?: () => BrowserDialogManagerPort | null;
   getTabManager?: () => BrowserTabManagerPort | null;
+  getSemanticActivationCommandClient?: () => SemanticActivationCommandClient | null;
+  getSemanticActivationBrowserReadClient?: () => SemanticActivationBrowserReadClient | null;
 };
 
 type BrowserPluginPort = IPluginFacade & {
@@ -576,7 +623,12 @@ type BrowserTabApplicationServicePort = {
 };
 
 type BrowserDialogManagerPort = {
-  openNeuralRoamDialog?: () => Promise<void> | void;
+  openNeuralRoamDialog?: (options?: {
+    focusBlockId?: string;
+    includeFocusAsFirst?: boolean;
+    resetHistory?: boolean;
+    startNewSession?: boolean;
+  }) => Promise<void> | void;
   openAiWorkbenchDialog?: (options?: AIWorkbenchOpenOptions) => Promise<void> | void;
 };
 
@@ -715,6 +767,14 @@ let pendingGridModelUpdate: {
 
 const showPreview = ref(resolveDefaultBrowserShowPreview(layoutProfile.value));
 const previewCard = ref<BrowserCard | null>(null);
+const browserSemanticState = ref<BrowserSemanticWorkbenchState>({
+  status: 'idle',
+  activeSessionId: null,
+  model: null,
+  unavailable: null,
+  pendingCommand: null,
+});
+const browserSemanticController = ref<BrowserSemanticStateController | null>(null);
 
 const {
   neuralSourceEntries,
@@ -861,6 +921,12 @@ const showNavigatorDrawer = computed(() =>
 const showNarrowRoamLayout = computed(() =>
   layoutProfile.value === 'tab-narrow' && !isMobileMode.value
 );
+const browserSemanticTargetCard = computed(() => selectedRows.value[0] ?? previewCard.value ?? null);
+const canStartBrowserSemantic = computed(() =>
+  Boolean(browserSemanticTargetCard.value) && !loading.value
+);
+const showBrowserSemanticWorkbench = computed(() => browserSemanticState.value.status !== 'idle');
+const browserSemanticPending = computed(() => browserSemanticState.value.status === 'pending');
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
@@ -2939,6 +3005,129 @@ async function handleOpenAiWorkbench(): Promise<void> {
     arenaScenarioId: 'candidate-card-generation',
     arenaTargetKind: 'note',
   });
+}
+
+function setBrowserSemanticUnavailable(message: string): BrowserSemanticWorkbenchState {
+  const nextState: BrowserSemanticWorkbenchState = {
+    status: 'unavailable',
+    activeSessionId: browserSemanticState.value.activeSessionId,
+    model: browserSemanticState.value.model,
+    unavailable: {
+      status: 'unavailable',
+      reason: 'session-unavailable',
+      message,
+    },
+    pendingCommand: null,
+  };
+  browserSemanticState.value = nextState;
+  return nextState;
+}
+
+function ensureBrowserSemanticController(): BrowserSemanticStateController | null {
+  if (browserSemanticController.value) {
+    return browserSemanticController.value;
+  }
+
+  const commandClient = pluginContext.value?.getSemanticActivationCommandClient?.() ?? null;
+  const readClient = pluginContext.value?.getSemanticActivationBrowserReadClient?.() ?? null;
+  if (!commandClient || !readClient) {
+    return null;
+  }
+
+  const readAdapter = new BrowserSemanticBackendReadAdapter({ readClient });
+  const entryController = new BrowserSemanticEntryController({
+    createSemanticController: (activeSessionId) => new SemanticActivationSessionController({
+      commandClient,
+      activeSessionId,
+    }),
+    findActiveSessionByRoot: (rootFocusNodeId) => readAdapter.findActiveSessionByRoot(rootFocusNodeId),
+    loadReadModel: (sessionId) => readAdapter.loadReadModel(sessionId),
+  });
+
+  browserSemanticController.value = new BrowserSemanticStateController({
+    entryController,
+    openReviewSession: handleBrowserSemanticReviewHandoff,
+  });
+  return browserSemanticController.value;
+}
+
+async function handleStartBrowserSemantic(): Promise<void> {
+  const targetCard = browserSemanticTargetCard.value;
+  if (!targetCard) {
+    setBrowserSemanticUnavailable(t('browserSemanticNoSelection', 'Select a Concept card before starting Semantic.'));
+    return;
+  }
+
+  if (!isBrowserSemanticConceptCard(targetCard)) {
+    browserSemanticState.value = {
+      status: 'unavailable',
+      activeSessionId: null,
+      model: null,
+      unavailable: {
+        status: 'unavailable',
+        reason: 'focus-unavailable',
+        message: t('browserSemanticConceptRequired', 'Browser Semantic requires a Concept card selection.'),
+      },
+      pendingCommand: null,
+    };
+    return;
+  }
+
+  const controller = ensureBrowserSemanticController();
+  if (!controller) {
+    setBrowserSemanticUnavailable(t('browserSemanticRuntimeUnavailable', 'Semantic runtime is unavailable in Browser.'));
+    return;
+  }
+
+  browserSemanticState.value = await controller.start(targetCard);
+}
+
+async function runBrowserSemanticAction(
+  action: (controller: BrowserSemanticStateController) => Promise<BrowserSemanticWorkbenchState>,
+): Promise<void> {
+  const controller = ensureBrowserSemanticController();
+  if (!controller) {
+    setBrowserSemanticUnavailable(t('browserSemanticRuntimeUnavailable', 'Semantic runtime is unavailable in Browser.'));
+    return;
+  }
+  browserSemanticState.value = await action(controller);
+}
+
+async function handleBrowserSemanticFollow(candidateId: string, lens: BackendSemanticLens): Promise<void> {
+  await runBrowserSemanticAction((controller) => controller.followCandidate(candidateId, lens));
+}
+
+async function handleBrowserSemanticCreateStation(stationType: BackendSemanticStationType): Promise<void> {
+  await runBrowserSemanticAction((controller) => controller.createStation(stationType));
+}
+
+async function handleBrowserSemanticArchiveStation(stationId: string): Promise<void> {
+  await runBrowserSemanticAction((controller) => controller.archiveStation(stationId));
+}
+
+async function handleBrowserSemanticOpenNodeStation(nodeId: string): Promise<void> {
+  await runBrowserSemanticAction((controller) => controller.openNodeStation(nodeId));
+}
+
+async function handleBrowserSemanticRestorePathStation(stationId: string): Promise<void> {
+  await runBrowserSemanticAction((controller) => controller.restorePathStation(stationId));
+}
+
+async function handleBrowserSemanticEndSession(): Promise<void> {
+  await runBrowserSemanticAction((controller) => controller.endSession());
+}
+
+async function handleBrowserSemanticOpenInReview(): Promise<void> {
+  await runBrowserSemanticAction((controller) => controller.openInReview());
+}
+
+async function handleBrowserSemanticReviewHandoff(_handoff: BrowserSemanticReviewHandoff): Promise<void> {
+  const message = t(
+    'browserSemanticReviewHandoffUnavailable',
+    'Review Semantic handoff is not wired yet; continue in Browser Semantic Workbench.',
+  );
+  setBrowserSemanticUnavailable(message);
+  await pushErrMsg(message);
 }
 
 async function loadAllRowsForCurrentView(sortModel: SortModel[] = []): Promise<BrowserCard[]> {

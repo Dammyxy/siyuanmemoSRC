@@ -108,6 +108,29 @@
   color: var(--b3-theme-on-surface-light);
 }
 
+.card-browser__semantic-workbench {
+  flex-shrink: 0;
+  max-height: min(460px, 52vh);
+  min-height: 220px;
+  overflow: auto;
+  border-bottom: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-background);
+}
+
+.card-browser__semantic-unavailable {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  color: var(--b3-theme-on-background);
+}
+
+.card-browser__semantic-unavailable span {
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .toolbar__left {
   grid-area: left;
   display: flex;
