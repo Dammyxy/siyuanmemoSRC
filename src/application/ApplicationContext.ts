@@ -140,6 +140,7 @@ import { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceR
 import { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
 import { PrivateApiClient } from '@/application/clients/PrivateApiClient';
 import { SemanticActivationCommandClient } from '@/application/clients/SemanticActivationCommandClient';
+import { SemanticActivationBrowserReadClient } from '@/application/clients/SemanticActivationBrowserReadClient';
 import {
   BACKEND_MIGRATION_FEATURE_GATES,
   listMigratedStateFamilies,
@@ -190,6 +191,7 @@ interface ApplicationServiceRegistry {
   privateApiAuditService: PrivateApiAuditService;
   privateApiClient: PrivateApiClient;
   semanticActivationCommandClient: SemanticActivationCommandClient | null;
+  semanticActivationBrowserReadClient: SemanticActivationBrowserReadClient | null;
   privateApiService: PrivateApiService;
   dialogManager: DialogManager;
   menuManager: MenuManager;
@@ -682,6 +684,15 @@ export class ApplicationContext {
         frontendRuntime: context.getFrontendInstanceRuntime(),
         followerCommandClient: context.getFollowerCommandClient(),
         writerRelayRequiredForMutations: true,
+      });
+    });
+
+    this.registerServiceFactory('semanticActivationBrowserReadClient', (context) => {
+      if (!context.srsBackendClient) {
+        return null;
+      }
+      return new SemanticActivationBrowserReadClient({
+        backendClient: context.srsBackendClient,
       });
     });
 
@@ -2619,6 +2630,10 @@ export class ApplicationContext {
 
   getSemanticActivationCommandClient(): SemanticActivationCommandClient | null {
     return this.getService('semanticActivationCommandClient');
+  }
+
+  getSemanticActivationBrowserReadClient(): SemanticActivationBrowserReadClient | null {
+    return this.getService('semanticActivationBrowserReadClient');
   }
 
   getCardTypeDetectionService(): CardTypeDetectionService {

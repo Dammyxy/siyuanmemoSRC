@@ -219,6 +219,9 @@ export function buildSemanticMemoryProjection(
   }
 
   for (const station of input.stations ?? []) {
+    if (typeof station.archivedAt === 'number') {
+      continue;
+    }
     const projectedAt = Number.isFinite(Number(station.createdAt)) ? Number(station.createdAt) : rebuiltAt;
     if (station.type === 'node') {
       const nodeId = normalizeString(station.nodeId);

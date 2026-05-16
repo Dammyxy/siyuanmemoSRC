@@ -156,6 +156,8 @@ describe('SemanticActivationSessionController', () => {
 
     await controller.recordImplicitNodeAction('implicit-1', 'expand', 'free');
     await controller.createStation('path');
+    await controller.archiveStation('station-1');
+    await controller.restorePathStation('station-2');
     await controller.acceptRelation({
       relationId: 'relation-1',
       fromNodeId: 'root',
@@ -191,13 +193,29 @@ describe('SemanticActivationSessionController', () => {
       },
     }));
     expect(execute).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      callerIntent: 'semantic.station.archive',
+      command: {
+        type: 'archive-station',
+        sessionId: 'semantic-session-1',
+        stationId: 'station-1',
+      },
+    }));
+    expect(execute).toHaveBeenNthCalledWith(4, expect.objectContaining({
+      callerIntent: 'semantic.station.restore-path',
+      command: {
+        type: 'restore-path-station',
+        sessionId: 'semantic-session-1',
+        stationId: 'station-2',
+      },
+    }));
+    expect(execute).toHaveBeenNthCalledWith(5, expect.objectContaining({
       callerIntent: 'semantic.ai-relation.accept',
       command: expect.objectContaining({
         type: 'accept-relation',
         source: 'ai',
       }),
     }));
-    expect(execute).toHaveBeenNthCalledWith(4, expect.objectContaining({
+    expect(execute).toHaveBeenNthCalledWith(6, expect.objectContaining({
       callerIntent: 'semantic.ai-relation.reject',
       command: expect.objectContaining({
         type: 'reject-relation',

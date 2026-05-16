@@ -3696,6 +3696,303 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('archives semantic stations and restores path stations without replaying traversal events', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({ database });
+
+    await kernel.handle({
+      id: 'semantic-restore-start',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-restore-start-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-station-restore',
+        idempotencyKey: 'semantic-restore-start-key',
+        command: {
+          type: 'start-session',
+          rootFocusNodeId: 'root',
+          sessionId: 'semantic-restore-session',
+        },
+      }],
+    });
+    await kernel.handle({
+      id: 'semantic-restore-follow-a',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-restore-follow-a-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-station-restore',
+        idempotencyKey: 'semantic-restore-follow-a-key',
+        command: {
+          type: 'follow-candidate',
+          sessionId: 'semantic-restore-session',
+          candidateId: 'node-a',
+          lens: 'free',
+        },
+      }],
+    });
+    const pathStation = await kernel.handle({
+      id: 'semantic-restore-path-station',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-restore-path-station-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-station-restore',
+        idempotencyKey: 'semantic-restore-path-station-key',
+        command: {
+          type: 'create-station',
+          sessionId: 'semantic-restore-session',
+          stationType: 'path',
+        },
+      }],
+    });
+    expect('result' in pathStation).toBe(true);
+    await kernel.handle({
+      id: 'semantic-restore-follow-b',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-restore-follow-b-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-station-restore',
+        idempotencyKey: 'semantic-restore-follow-b-key',
+        command: {
+          type: 'follow-candidate',
+          sessionId: 'semantic-restore-session',
+          candidateId: 'node-b',
+          lens: 'accommodation',
+        },
+      }],
+    });
+
+    const beforeRestoreEdges = database.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM semantic_events WHERE session_id = ? AND event_type = ?`,
+      ['semantic-restore-session', 'edge-traversed'],
+    )?.count ?? 0;
+    const restored = await kernel.handle({
+      id: 'semantic-path-station-restore',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-path-station-restore-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-station-restore',
+        idempotencyKey: 'semantic-path-station-restore-key',
+        command: {
+          type: 'restore-path-station',
+          sessionId: 'semantic-restore-session',
+          stationId: 'semantic-station:semantic-restore-path-station-1',
+        },
+      }],
+    });
+    expect('result' in restored).toBe(true);
+    if ('result' in restored) {
+      expect(restored.result).toMatchObject({
+        status: 'ok',
+        session: {
+          currentNodeId: 'node-a',
+          narrativePath: [
+            { nodeId: 'root', lens: 'assimilation' },
+            { nodeId: 'node-a', lens: 'free' },
+          ],
+        },
+        event: {
+          type: 'station-restored',
+        },
+      });
+    }
+    const afterRestoreEdges = database.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM semantic_events WHERE session_id = ? AND event_type = ?`,
+      ['semantic-restore-session', 'edge-traversed'],
+    )?.count ?? 0;
+    expect(afterRestoreEdges).toBe(beforeRestoreEdges);
+
+    const archived = await kernel.handle({
+      id: 'semantic-station-archive',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-station-archive-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-station-restore',
+        idempotencyKey: 'semantic-station-archive-key',
+        command: {
+          type: 'archive-station',
+          sessionId: 'semantic-restore-session',
+          stationId: 'semantic-station:semantic-restore-path-station-1',
+        },
+      }],
+    });
+    expect('result' in archived).toBe(true);
+    if ('result' in archived) {
+      expect(archived.result).toMatchObject({
+        status: 'ok',
+        archivedStationId: 'semantic-station:semantic-restore-path-station-1',
+        station: {
+          archivedAt: expect.any(Number),
+        },
+        event: {
+          type: 'station-archived',
+        },
+      });
+    }
+
+    const archivedRestore = await kernel.handle({
+      id: 'semantic-archived-station-restore',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-archived-station-restore-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-station-restore',
+        idempotencyKey: 'semantic-archived-station-restore-key',
+        command: {
+          type: 'restore-path-station',
+          sessionId: 'semantic-restore-session',
+          stationId: 'semantic-station:semantic-restore-path-station-1',
+        },
+      }],
+    });
+    expect('result' in archivedRestore).toBe(true);
+    if ('result' in archivedRestore) {
+      expect(archivedRestore.result).toMatchObject({
+        status: 'failed',
+        unavailableReason: 'inactive-station',
+      });
+    }
+  });
+
+  it('serves Browser Semantic read models without UI SQL and scopes stations to the current root', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({ database });
+
+    await kernel.handle({
+      id: 'semantic-browser-root-a-start',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-browser-root-a-start-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-browser-read',
+        idempotencyKey: 'semantic-browser-root-a-start-key',
+        command: {
+          type: 'start-session',
+          rootFocusNodeId: 'root-a',
+          sessionId: 'semantic-browser-session-a',
+        },
+      }],
+    });
+    await kernel.handle({
+      id: 'semantic-browser-root-a-follow',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-browser-root-a-follow-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-browser-read',
+        idempotencyKey: 'semantic-browser-root-a-follow-key',
+        command: {
+          type: 'follow-candidate',
+          sessionId: 'semantic-browser-session-a',
+          candidateId: 'old-node-a',
+          lens: 'free',
+        },
+      }],
+    });
+    await kernel.handle({
+      id: 'semantic-browser-root-a-node-station',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-browser-root-a-node-station-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-browser-read',
+        idempotencyKey: 'semantic-browser-root-a-node-station-key',
+        command: {
+          type: 'create-station',
+          sessionId: 'semantic-browser-session-a',
+          stationType: 'node',
+        },
+      }],
+    });
+    await kernel.handle({
+      id: 'semantic-browser-root-b-start',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-browser-root-b-start-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-browser-read',
+        idempotencyKey: 'semantic-browser-root-b-start-key',
+        command: {
+          type: 'start-session',
+          rootFocusNodeId: 'root-b',
+          sessionId: 'semantic-browser-session-b',
+        },
+      }],
+    });
+    await kernel.handle({
+      id: 'semantic-browser-root-b-node-station',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-browser-root-b-node-station-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-browser-read',
+        idempotencyKey: 'semantic-browser-root-b-node-station-key',
+        command: {
+          type: 'create-station',
+          sessionId: 'semantic-browser-session-b',
+          stationType: 'node',
+        },
+      }],
+    });
+
+    const response = await kernel.handle({
+      id: 'semantic-browser-read-root-a',
+      jsonrpc: '2.0',
+      method: 'semantic.browser.read' as never,
+      params: [{
+        requestId: 'semantic-browser-read-root-a-1',
+        method: 'semantic.browser.read',
+        callerIntent: 'test-semantic-browser-read',
+        rootFocusNodeId: 'root-a',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        status: 'ok',
+        activeSession: {
+          sessionId: 'semantic-browser-session-a',
+          rootFocusNodeId: 'root-a',
+          currentNodeId: 'old-node-a',
+        },
+        session: {
+          sessionId: 'semantic-browser-session-a',
+        },
+        rootNode: {
+          nodeId: 'root-a',
+          nodeType: 'concept',
+        },
+        currentNode: {
+          nodeId: 'old-node-a',
+        },
+      });
+      expect(response.result.rootScopedStations.map((station: { sessionId: string }) => station.sessionId)).toEqual([
+        'semantic-browser-session-a',
+      ]);
+      expect(response.result.stations.map((station: { stationId: string }) => station.stationId)).toEqual([
+        'semantic-station:semantic-browser-root-a-node-station-1',
+      ]);
+      expect(response.result.candidates.free.map((candidate: { candidateId: string }) => candidate.candidateId)).not.toContain('root-b');
+    }
+  });
+
   it('uses old neural-roam pools as read-only semantic projection boosts', async () => {
     const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
     const oldState = {

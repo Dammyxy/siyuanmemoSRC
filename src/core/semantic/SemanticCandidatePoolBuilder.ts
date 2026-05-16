@@ -124,6 +124,9 @@ export function buildSemanticCandidatePool(input: BuildSemanticCandidatePoolInpu
   }
 
   for (const station of input.stations ?? []) {
+    if (typeof station.archivedAt === 'number') {
+      continue;
+    }
     if (station.type === 'node') {
       addSource(createSource({
         nodeId: station.nodeId ?? '',

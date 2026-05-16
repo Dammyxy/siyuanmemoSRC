@@ -121,6 +121,7 @@ function rowToEvent(row: SemanticEventRow): SemanticEvent {
 }
 
 function rowToStation(row: SemanticStationRow): SemanticStation {
+  const payload = parseJson<{ archivedAt?: number | null }>(row.payload_json, {});
   return {
     stationId: row.station_id,
     type: row.station_type as SemanticStation['type'],
@@ -129,6 +130,7 @@ function rowToStation(row: SemanticStationRow): SemanticStation {
     path: parseJson<SemanticPathEntry[] | null>(row.path_json, null),
     lensHistory: parseJson<SemanticLens[] | null>(row.lens_history_json, null),
     createdAt: normalizeFiniteNumber(row.created_at),
+    archivedAt: typeof payload.archivedAt === 'number' ? payload.archivedAt : null,
   };
 }
 
@@ -192,6 +194,20 @@ export class SqlSemanticActivationRepository implements SemanticActivationPersis
     return row ? rowToSession(row) : null;
   }
 
+  findActiveSessionByRoot(rootFocusNodeId: string): SemanticSessionSnapshot | null {
+    const row = this.database.getOne<SemanticSessionRow>(
+      `SELECT session_id, root_focus_node_id, current_node_id, active_lens, narrative_path_json,
+              started_at, ended_at, payload_json, updated_at
+       FROM semantic_sessions
+       WHERE root_focus_node_id = ?
+         AND ended_at IS NULL
+       ORDER BY updated_at DESC, started_at DESC, session_id DESC
+       LIMIT 1`,
+      [requireString(rootFocusNodeId, 'rootFocusNodeId')],
+    );
+    return row ? rowToSession(row) : null;
+  }
+
   appendEvent(event: SemanticEvent): void {
     this.database.run(
       `INSERT INTO semantic_events
@@ -236,7 +252,7 @@ export class SqlSemanticActivationRepository implements SemanticActivationPersis
         stringifyJson(station.path ?? null),
         stringifyJson(station.lensHistory ?? null),
         normalizeFiniteNumber(station.createdAt, Date.now()),
-        stringifyJson({}),
+        stringifyJson({ archivedAt: typeof station.archivedAt === 'number' ? station.archivedAt : null }),
       ],
     );
   }
@@ -250,6 +266,43 @@ export class SqlSemanticActivationRepository implements SemanticActivationPersis
       [requireString(sessionId, 'sessionId')],
     );
     return rows.map(rowToStation);
+  }
+
+  listStationsByRoot(rootFocusNodeId: string): SemanticStation[] {
+    const rows = this.database.getAll<SemanticStationRow>(
+      `SELECT st.station_id, st.station_type, st.session_id, st.node_id, st.path_json,
+              st.lens_history_json, st.created_at, st.payload_json
+       FROM semantic_stations st
+       INNER JOIN semantic_sessions se ON se.session_id = st.session_id
+       WHERE se.root_focus_node_id = ?
+       ORDER BY st.created_at DESC, st.station_id ASC`,
+      [requireString(rootFocusNodeId, 'rootFocusNodeId')],
+    );
+    return rows.map(rowToStation);
+  }
+
+  getStation(stationId: string): SemanticStation | null {
+    const row = this.database.getOne<SemanticStationRow>(
+      `SELECT station_id, station_type, session_id, node_id, path_json, lens_history_json, created_at, payload_json
+       FROM semantic_stations
+       WHERE station_id = ?
+       LIMIT 1`,
+      [requireString(stationId, 'stationId')],
+    );
+    return row ? rowToStation(row) : null;
+  }
+
+  archiveStation(stationId: string, archivedAt: number): SemanticStation | null {
+    const station = this.getStation(stationId);
+    if (!station) {
+      return null;
+    }
+    const archived = {
+      ...station,
+      archivedAt: normalizeFiniteNumber(archivedAt, Date.now()),
+    };
+    this.saveStation(archived);
+    return archived;
   }
 
   saveRelation(relation: SemanticRelation): void {

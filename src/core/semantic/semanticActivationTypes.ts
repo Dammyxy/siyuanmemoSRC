@@ -25,6 +25,8 @@ export type SemanticEventType =
   | 'lens-switched'
   | 'implicit-node-action'
   | 'station-created'
+  | 'station-archived'
+  | 'station-restored'
   | 'ai-relation-accepted'
   | 'ai-relation-rejected'
   | 'node-marked-irrelevant'
@@ -39,6 +41,10 @@ export type SemanticUnavailableReason =
   | 'projection-unavailable'
   | 'graph-unavailable'
   | 'session-unavailable'
+  | 'focus-unavailable'
+  | 'candidate-unavailable'
+  | 'station-unavailable'
+  | 'inactive-station'
   | 'invalid-request'
   | 'failed';
 
@@ -130,6 +136,7 @@ export interface SemanticStation {
   path?: SemanticPathEntry[] | null;
   lensHistory?: SemanticLens[] | null;
   createdAt: number;
+  archivedAt?: number | null;
 }
 
 export interface SemanticRelation {
@@ -206,6 +213,8 @@ export type SemanticCommand =
       idempotencyKey: string;
     }
   | { type: 'mark-irrelevant'; sessionId: string; nodeId: string; idempotencyKey: string }
+  | { type: 'archive-station'; sessionId: string; stationId: string; idempotencyKey: string }
+  | { type: 'restore-path-station'; sessionId: string; stationId: string; idempotencyKey: string }
   | { type: 'end-session'; sessionId: string; idempotencyKey: string }
   | { type: 'restore-session'; sessionId: string; idempotencyKey: string };
 
@@ -217,6 +226,7 @@ export type SemanticCommandResult =
       events?: SemanticEvent[] | null;
       station?: SemanticStation | null;
       relation?: SemanticRelation | null;
+      archivedStationId?: string | null;
     }
   | {
       status: 'unavailable' | 'failed';

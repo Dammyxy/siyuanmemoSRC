@@ -43,6 +43,7 @@ export type BackendRpcMethod =
   | 'private.read.sessions'
   | 'private.command.execute'
   | 'semantic.command.execute'
+  | 'semantic.browser.read'
   | 'p6.ownership.query'
   | 'p6.ownership.command';
 
@@ -407,6 +408,115 @@ export type BackendSemanticLens = 'assimilation' | 'accommodation' | 'free';
 
 export type BackendSemanticStationType = 'node' | 'path';
 
+export type BackendSemanticNodeType = 'real-review-card' | 'implicit-knowledge' | 'concept';
+
+export interface BackendSemanticPathEntry {
+  nodeId: string;
+  lens: BackendSemanticLens;
+  eventId: string;
+  visitedAt: number;
+}
+
+export interface BackendSemanticSessionSnapshot {
+  sessionId: string;
+  rootFocusNodeId: string;
+  currentNodeId: string;
+  activeLens: BackendSemanticLens;
+  narrativePath: BackendSemanticPathEntry[];
+  startedAt: number;
+  endedAt?: number | null;
+}
+
+export interface BackendSemanticNode {
+  nodeId: string;
+  nodeType: BackendSemanticNodeType;
+  title: string;
+  preview: string;
+  location: {
+    blockId: string;
+    cardId?: string | null;
+    deckId?: string | null;
+    breadcrumb?: string[] | null;
+    backlinkBlockIds?: string[] | null;
+  };
+}
+
+export interface BackendSemanticCandidateReason {
+  code:
+    | 'current-node-relation'
+    | 'root-focus-relation'
+    | 'memory-projection'
+    | 'station-boost'
+    | 'accepted-ai-relation'
+    | 'old-mode-manual-boost'
+    | 'structural-relation'
+    | 'novelty'
+    | 'tension'
+    | 'free-association';
+  weight: number;
+  label?: string | null;
+  evidenceEventIds?: string[];
+}
+
+export interface BackendSemanticCandidate {
+  candidateId: string;
+  node: BackendSemanticNode;
+  score: number;
+  lens: BackendSemanticLens;
+  reasons: BackendSemanticCandidateReason[];
+  explanation?: Record<string, unknown> | null;
+}
+
+export type BackendSemanticCandidateColumns = Record<BackendSemanticLens, BackendSemanticCandidate[]>;
+
+export interface BackendSemanticStation {
+  stationId: string;
+  type: BackendSemanticStationType;
+  sessionId: string;
+  nodeId?: string | null;
+  path?: BackendSemanticPathEntry[] | null;
+  lensHistory?: BackendSemanticLens[] | null;
+  createdAt: number;
+  archivedAt?: number | null;
+}
+
+export interface BackendSemanticBrowserReadRequest {
+  requestId: string;
+  method: 'semantic.browser.read';
+  callerIntent: string;
+  rootFocusNodeId?: string | null;
+  sessionId?: string | null;
+}
+
+export type BackendSemanticBrowserReadResult =
+  | {
+      status: 'ok';
+      requestId: string;
+      activeSession: BackendSemanticSessionSnapshot | null;
+      session: BackendSemanticSessionSnapshot | null;
+      rootNode: BackendSemanticNode | null;
+      currentNode: BackendSemanticNode | null;
+      candidates: BackendSemanticCandidateColumns;
+      stations: BackendSemanticStation[];
+      stationNodes: BackendSemanticNode[];
+      rootScopedStations: BackendSemanticStation[];
+      diagnosticEventId: string;
+    }
+  | {
+      status: 'unavailable' | 'failed';
+      unavailableReason:
+        | 'projection-unavailable'
+        | 'graph-unavailable'
+        | 'session-unavailable'
+        | 'focus-unavailable'
+        | 'candidate-unavailable'
+        | 'station-unavailable'
+        | 'invalid-request'
+        | 'failed';
+      message: string;
+      diagnosticEventId: string;
+    };
+
 export type BackendSemanticCommand =
   | { type: 'start-session'; rootFocusNodeId: string; sessionId?: string; idempotencyKey?: string }
   | { type: 'follow-candidate'; sessionId: string; candidateId: string; lens: BackendSemanticLens; idempotencyKey?: string }
@@ -432,6 +542,8 @@ export type BackendSemanticCommand =
       idempotencyKey?: string;
     }
   | { type: 'mark-irrelevant'; sessionId: string; nodeId: string; idempotencyKey?: string }
+  | { type: 'archive-station'; sessionId: string; stationId: string; idempotencyKey?: string }
+  | { type: 'restore-path-station'; sessionId: string; stationId: string; idempotencyKey?: string }
   | { type: 'end-session'; sessionId: string; idempotencyKey?: string }
   | { type: 'restore-session'; sessionId: string; idempotencyKey?: string };
 
@@ -454,6 +566,7 @@ export type BackendSemanticCommandResult =
       events?: unknown[] | null;
       station?: unknown | null;
       relation?: unknown | null;
+      archivedStationId?: string | null;
       diagnosticEventId: string;
     }
   | {
@@ -463,6 +576,10 @@ export type BackendSemanticCommandResult =
         | 'projection-unavailable'
         | 'graph-unavailable'
         | 'session-unavailable'
+        | 'focus-unavailable'
+        | 'candidate-unavailable'
+        | 'station-unavailable'
+        | 'inactive-station'
         | 'invalid-request'
         | 'failed';
       message: string;

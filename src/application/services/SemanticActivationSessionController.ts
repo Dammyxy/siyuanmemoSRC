@@ -34,6 +34,15 @@ export class SemanticActivationSessionController {
     });
   }
 
+  async startSessionFromBrowserConcept(rootFocusNodeId: string): Promise<BackendSemanticCommandResult> {
+    const sessionId = this.idFactory();
+    return this.execute('semantic.browser-concept.start', {
+      type: 'start-session',
+      rootFocusNodeId,
+      sessionId,
+    });
+  }
+
   async followCandidate(candidateId: string, lens: BackendSemanticLens): Promise<BackendSemanticCommandResult> {
     return this.executeWithSession('semantic.navigation.follow-candidate', (sessionId) => ({
       type: 'follow-candidate',
@@ -129,6 +138,22 @@ export class SemanticActivationSessionController {
       type: 'mark-irrelevant',
       sessionId,
       nodeId,
+    }));
+  }
+
+  async archiveStation(stationId: string): Promise<BackendSemanticCommandResult> {
+    return this.executeWithSession('semantic.station.archive', (sessionId) => ({
+      type: 'archive-station',
+      sessionId,
+      stationId,
+    }));
+  }
+
+  async restorePathStation(stationId: string): Promise<BackendSemanticCommandResult> {
+    return this.executeWithSession('semantic.station.restore-path', (sessionId) => ({
+      type: 'restore-path-station',
+      sessionId,
+      stationId,
     }));
   }
 

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-16 (Round 371)
+Last update: 2026-05-16 (Round 372)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-16 - Browser Semantic Navigator management
+
+- Task: Apply OpenSpec change `add-browser-semantic-navigator` for current-root Semantic entry/navigation/station management.
+- Touched slice: Browser Semantic UI helpers in `src/ui/browser/semantic/*`, Semantic Activation command/read clients, worker `semantic.command.execute` + `semantic.browser.read`, SQLite Semantic repository, projection/candidate builders, backend contracts, Browser/Semantic targeted tests, and architecture/OpenSpec docs.
+- Debt fixed now: Browser Semantic is modeled as Browser Entry/Navigator/Workbench rather than a third old NeuralRoam engine mode. Concept-only Browser entry restores active same-root sessions before starting new ones, ended sessions stop restoring, Browser read state now loads through `semantic.browser.read` instead of UI SQL, station archive/restore are writer-owned commands, archived stations stop boosting candidates/projection, path station restore does not replay fake traversal events, and Browser-owned Navigator renders path/candidates/stations without Review grading controls.
+- Debt deferred: `SRSBrowser.vue` visible toolbar/panel mount and full live Review tab focusing are still not wired into a real SiYuan Browser runtime. Backend `semantic.browser.read` returns stable node shells for Semantic ids; richer SiYuan graph hydration/candidate explanations remain a follow-up.
+- Why deferred: This slice locks the Browser-owned contracts, command path, station management, and component/controller seams with tests. Mounting into the large Browser shell plus live tab focus needs a narrower follow-up to avoid mixing UI lifecycle churn with Semantic command semantics.
+- Next safe step: Wire `BrowserSemanticStateController` into `SRSBrowser.vue` behind a selected-Concept action, then add one mounted Browser integration spec and a live smoke note for writer/follower unavailable behavior.
+- Validation: `pnpm exec vitest run src/ui/browser/semantic/__tests__/BrowserSemanticNavigator.spec.ts src/ui/browser/semantic/__tests__/BrowserSemanticStateController.test.ts src/ui/browser/semantic/__tests__/BrowserSemanticEntryController.test.ts src/application/services/__tests__/SemanticActivationSessionController.test.ts worker/__tests__/BackendKernel.test.ts`.
 
 ### 2026-05-16 - Semantic Activation visible entry
 

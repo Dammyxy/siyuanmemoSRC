@@ -36,6 +36,8 @@ import type {
   BackendQueueProjectionSnapshotResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendSemanticBrowserReadRequest,
+  BackendSemanticBrowserReadResult,
   BackendSemanticCommandRequest,
   BackendSemanticCommandResult,
   P6OwnershipCommandRequest,
@@ -255,6 +257,10 @@ export class SrsBackendClient {
 
   async semanticCommand(request: BackendSemanticCommandRequest): Promise<BackendSemanticCommandResult> {
     return this.call<BackendSemanticCommandResult>(request.method, request);
+  }
+
+  async semanticBrowserRead(request: BackendSemanticBrowserReadRequest): Promise<BackendSemanticBrowserReadResult> {
+    return this.call<BackendSemanticBrowserReadResult>(request.method, request);
   }
 
   async p6OwnershipQuery(request: P6OwnershipQueryRequest): Promise<P6OwnershipResult> {
