@@ -4,6 +4,7 @@ import { SQLITE_DB_FILE } from '@/infrastructure/persistence/sqlite/schema';
 import { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository';
 import { SqlQueueProjectionRepository } from '@/infrastructure/persistence/sqlite/SqlQueueProjectionRepository';
 import { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite/SqlQueueStateRepository';
+import { SqlSemanticActivationRepository } from '@/infrastructure/persistence/sqlite/SqlSemanticActivationRepository';
 import { SchedulerRouter } from '@/core/scheduler';
 import { createReviewLogV2 } from '@/types/review';
 import type { StructuredCardQuery } from '@/types/card-query';
@@ -44,7 +45,21 @@ import type {
   BackendKernelTransactionRequeueResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendSemanticCommandRequest,
+  BackendSemanticCommandResult,
 } from '../../packages/contracts/src/backend-rpc';
+import type {
+  SemanticEvent,
+  SemanticLens,
+  SemanticPathEntry,
+  SemanticRelation,
+  SemanticSessionSnapshot,
+  SemanticStation,
+} from '@/core/semantic/semanticActivationTypes';
+import {
+  buildSemanticMemoryProjection,
+  type SemanticOldModeManualBoostEvidence,
+} from '@/core/semantic/SemanticMemoryProjectionBuilder';
 import type {
   SourceExistenceRefreshCandidate,
   SourceExistenceRefreshRequest,
@@ -123,7 +138,9 @@ export class WorkerSqliteDatabaseService {
   private repository: SqlUnifiedStorageRepository | null = null;
   private queueProjection: SqlQueueProjectionRepository | null = null;
   private queueState: SqlQueueStateRepository | null = null;
+  private semanticActivation: SqlSemanticActivationRepository | null = null;
   private initialized = false;
+  private readonly semanticCommandResultsByIdempotencyKey = new Map<string, BackendSemanticCommandResult>();
   private readonly kernelTransactionQueue: Array<{
     source: 'kernel-sidecar' | 'ws-main';
     transactions: unknown[];
@@ -215,6 +232,7 @@ export class WorkerSqliteDatabaseService {
     this.repository = new SqlUnifiedStorageRepository(this.runtime);
     this.queueProjection = new SqlQueueProjectionRepository(this.runtime);
     this.queueState = new SqlQueueStateRepository(this.runtime);
+    this.semanticActivation = new SqlSemanticActivationRepository(this.runtime);
     await this.restoreKernelIngestQueueSnapshot();
     await this.restoreKernelActionQueueSnapshot();
     this.initialized = true;
@@ -1978,6 +1996,467 @@ export class WorkerSqliteDatabaseService {
       hash = Math.imul(hash, 0x01000193);
     }
     return (hash >>> 0).toString(16).padStart(8, '0');
+  }
+
+  async executeSemanticCommand(request: BackendSemanticCommandRequest): Promise<BackendSemanticCommandResult> {
+    await this.init();
+    const requestId = normalizeString(request.requestId);
+    const callerIntent = normalizeString(request.callerIntent);
+    const idempotencyKey = normalizeString(request.idempotencyKey);
+    if (!requestId || !callerIntent || !idempotencyKey || request.method !== 'semantic.command.execute') {
+      return this.semanticFailed(requestId || 'semantic-command', 'invalid-request', 'semantic.command.execute requires requestId/callerIntent/idempotencyKey');
+    }
+    const cached = this.semanticCommandResultsByIdempotencyKey.get(idempotencyKey);
+    if (cached) {
+      return cached;
+    }
+    const command = request.command;
+    if (!command || typeof command !== 'object') {
+      return this.semanticFailed(requestId, 'invalid-request', 'semantic.command.execute requires command');
+    }
+    const result = await this.runtime.runTransaction('semantic.command.execute', () => {
+      return this.executeSemanticCommandInTransaction(requestId, idempotencyKey, command);
+    });
+    this.semanticCommandResultsByIdempotencyKey.set(idempotencyKey, result);
+    return result;
+  }
+
+  private executeSemanticCommandInTransaction(
+    requestId: string,
+    idempotencyKey: string,
+    command: BackendSemanticCommandRequest['command'],
+  ): BackendSemanticCommandResult {
+    switch (command.type) {
+      case 'start-session':
+        return this.startSemanticSession(requestId, idempotencyKey, command);
+      case 'follow-candidate':
+        return this.followSemanticCandidate(requestId, command);
+      case 'switch-lens':
+        return this.switchSemanticLens(requestId, command);
+      case 'create-station':
+        return this.createSemanticStation(requestId, command);
+      case 'record-implicit-node-action':
+        return this.recordImplicitSemanticNodeAction(requestId, command);
+      case 'accept-relation':
+      case 'reject-relation':
+        return this.decideSemanticRelation(requestId, command);
+      case 'mark-irrelevant':
+        return this.markSemanticNodeIrrelevant(requestId, command);
+      case 'end-session':
+        return this.endSemanticSession(requestId, command);
+      default:
+        return this.semanticFailed(requestId, 'invalid-request', `unsupported semantic command: ${(command as { type?: unknown }).type || '<missing>'}`);
+    }
+  }
+
+  private startSemanticSession(
+    requestId: string,
+    idempotencyKey: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'start-session' }>,
+  ): BackendSemanticCommandResult {
+    const rootFocusNodeId = normalizeString(command.rootFocusNodeId);
+    if (!rootFocusNodeId) {
+      return this.semanticFailed(requestId, 'invalid-request', 'start-session requires rootFocusNodeId');
+    }
+    const now = Date.now();
+    const sessionId = normalizeString(command.sessionId) || `semantic-session:${idempotencyKey}`;
+    const eventId = `semantic-event:${idempotencyKey}:session-started`;
+    const entry: SemanticPathEntry = {
+      nodeId: rootFocusNodeId,
+      lens: 'assimilation',
+      eventId,
+      visitedAt: now,
+    };
+    const session: SemanticSessionSnapshot = {
+      sessionId,
+      rootFocusNodeId,
+      currentNodeId: rootFocusNodeId,
+      activeLens: 'assimilation',
+      narrativePath: [entry],
+      startedAt: now,
+      endedAt: null,
+    };
+    const event = this.semanticEvent(eventId, sessionId, 'session-started', {
+      nodeId: rootFocusNodeId,
+      lens: 'assimilation',
+      occurredAt: now,
+      payload: { rootFocusNodeId },
+    });
+    const visitEvent = this.semanticEvent(`semantic-event:${idempotencyKey}:node-visited`, sessionId, 'node-visited', {
+      nodeId: rootFocusNodeId,
+      lens: 'assimilation',
+      occurredAt: now,
+      payload: { reason: 'session-started' },
+    });
+    this.semanticActivation!.saveSession(session);
+    this.semanticActivation!.appendEvent(event);
+    this.semanticActivation!.appendEvent(visitEvent);
+    return this.semanticOk(requestId, sessionId, { session, event: visitEvent, events: [event, visitEvent] });
+  }
+
+  private followSemanticCandidate(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'follow-candidate' }>,
+  ): BackendSemanticCommandResult {
+    const session = this.requireSemanticSession(requestId, command.sessionId);
+    if (!('sessionId' in session)) {
+      return session;
+    }
+    const candidateId = normalizeString(command.candidateId);
+    const lens = this.normalizeSemanticLens(command.lens) ?? session.activeLens;
+    if (!candidateId) {
+      return this.semanticFailed(requestId, 'invalid-request', 'follow-candidate requires candidateId');
+    }
+    const now = Date.now();
+    const events: SemanticEvent[] = [];
+    if (lens !== session.activeLens) {
+      events.push(this.semanticEvent(`semantic-event:${requestId}:lens-switched`, session.sessionId, 'lens-switched', {
+        nodeId: session.currentNodeId,
+        lens,
+        occurredAt: now,
+        payload: { previousLens: session.activeLens, nextLens: lens, reason: 'follow-candidate' },
+      }));
+    }
+    const edgeEventId = `semantic-event:${requestId}:edge-traversed`;
+    events.push(this.semanticEvent(edgeEventId, session.sessionId, 'edge-traversed', {
+      nodeId: candidateId,
+      fromNodeId: session.currentNodeId,
+      toNodeId: candidateId,
+      lens,
+      occurredAt: now,
+      payload: { candidateId },
+    }));
+    const visitEvent = this.semanticEvent(`semantic-event:${requestId}:node-visited`, session.sessionId, 'node-visited', {
+      nodeId: candidateId,
+      lens,
+      occurredAt: now,
+      payload: { reason: 'follow-candidate', candidateId },
+    });
+    events.push(visitEvent);
+    const updated: SemanticSessionSnapshot = {
+      ...session,
+      currentNodeId: candidateId,
+      activeLens: lens,
+      narrativePath: [
+        ...session.narrativePath,
+        { nodeId: candidateId, lens, eventId: visitEvent.eventId, visitedAt: now },
+      ],
+    };
+    this.semanticActivation!.saveSession(updated);
+    for (const event of events) {
+      this.semanticActivation!.appendEvent(event);
+    }
+    return this.semanticOk(requestId, updated.sessionId, { session: updated, event: visitEvent, events });
+  }
+
+  private switchSemanticLens(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'switch-lens' }>,
+  ): BackendSemanticCommandResult {
+    const session = this.requireSemanticSession(requestId, command.sessionId);
+    if (!('sessionId' in session)) {
+      return session;
+    }
+    const lens = this.normalizeSemanticLens(command.lens);
+    if (!lens) {
+      return this.semanticFailed(requestId, 'invalid-request', 'switch-lens requires lens');
+    }
+    const event = this.semanticEvent(`semantic-event:${requestId}:lens-switched`, session.sessionId, 'lens-switched', {
+      nodeId: session.currentNodeId,
+      lens,
+      payload: { previousLens: session.activeLens, nextLens: lens },
+    });
+    const updated = { ...session, activeLens: lens };
+    this.semanticActivation!.saveSession(updated);
+    this.semanticActivation!.appendEvent(event);
+    return this.semanticOk(requestId, updated.sessionId, { session: updated, event });
+  }
+
+  private createSemanticStation(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'create-station' }>,
+  ): BackendSemanticCommandResult {
+    const session = this.requireSemanticSession(requestId, command.sessionId);
+    if (!('sessionId' in session)) {
+      return session;
+    }
+    const stationType = command.stationType === 'path' ? 'path' : 'node';
+    const station: SemanticStation = {
+      stationId: `semantic-station:${requestId}`,
+      type: stationType,
+      sessionId: session.sessionId,
+      nodeId: stationType === 'node' ? session.currentNodeId : null,
+      path: stationType === 'path' ? session.narrativePath : null,
+      lensHistory: stationType === 'path' ? session.narrativePath.map((entry) => entry.lens) : [session.activeLens],
+      createdAt: Date.now(),
+    };
+    const event = this.semanticEvent(`semantic-event:${requestId}:station-created`, session.sessionId, 'station-created', {
+      nodeId: station.nodeId,
+      lens: session.activeLens,
+      payload: { stationId: station.stationId, stationType },
+    });
+    this.semanticActivation!.saveStation(station);
+    this.semanticActivation!.appendEvent(event);
+    return this.semanticOk(requestId, session.sessionId, { session, event, station });
+  }
+
+  private recordImplicitSemanticNodeAction(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'record-implicit-node-action' }>,
+  ): BackendSemanticCommandResult {
+    const session = this.requireSemanticSession(requestId, command.sessionId);
+    if (!('sessionId' in session)) {
+      return session;
+    }
+    const nodeId = normalizeString(command.nodeId);
+    const action = normalizeString(command.action);
+    if (!nodeId || !action) {
+      return this.semanticFailed(requestId, 'invalid-request', 'record-implicit-node-action requires nodeId/action');
+    }
+    const lens = this.normalizeSemanticLens(command.lens) ?? session.activeLens;
+    const event = this.semanticEvent(`semantic-event:${requestId}:implicit-node-action`, session.sessionId, 'implicit-node-action', {
+      nodeId,
+      lens,
+      payload: { nodeId, action },
+    });
+    this.semanticActivation!.appendEvent(event);
+    return this.semanticOk(requestId, session.sessionId, { session, event, events: [event] });
+  }
+
+  private decideSemanticRelation(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'accept-relation' | 'reject-relation' }>,
+  ): BackendSemanticCommandResult {
+    const session = this.requireSemanticSession(requestId, command.sessionId);
+    if (!('sessionId' in session)) {
+      return session;
+    }
+    const relationId = normalizeString(command.relationId);
+    const fromNodeId = normalizeString(command.fromNodeId);
+    const toNodeId = normalizeString(command.toNodeId);
+    if (!relationId || !fromNodeId || !toNodeId) {
+      return this.semanticFailed(requestId, 'invalid-request', `${command.type} requires relationId/fromNodeId/toNodeId`);
+    }
+    const decision = command.type === 'accept-relation' ? 'accepted' : 'rejected';
+    const eventType = command.type === 'accept-relation' ? 'ai-relation-accepted' : 'ai-relation-rejected';
+    const relation: SemanticRelation = {
+      relationId,
+      fromNodeId,
+      toNodeId,
+      decision,
+      source: command.source === 'manual' ? 'manual' : 'ai',
+      confidence: Number.isFinite(Number(command.confidence)) ? Number(command.confidence) : 1,
+      reason: normalizeOptionalString(command.reason),
+      decidedAt: Date.now(),
+    };
+    const event = this.semanticEvent(`semantic-event:${requestId}:${eventType}`, session.sessionId, eventType, {
+      fromNodeId,
+      toNodeId,
+      lens: session.activeLens,
+      payload: { relationId, decision },
+    });
+    this.semanticActivation!.saveRelation(relation);
+    this.semanticActivation!.appendEvent(event);
+    return this.semanticOk(requestId, session.sessionId, { session, event, relation });
+  }
+
+  private markSemanticNodeIrrelevant(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'mark-irrelevant' }>,
+  ): BackendSemanticCommandResult {
+    const session = this.requireSemanticSession(requestId, command.sessionId);
+    if (!('sessionId' in session)) {
+      return session;
+    }
+    const nodeId = normalizeString(command.nodeId);
+    if (!nodeId) {
+      return this.semanticFailed(requestId, 'invalid-request', 'mark-irrelevant requires nodeId');
+    }
+    const event = this.semanticEvent(`semantic-event:${requestId}:node-marked-irrelevant`, session.sessionId, 'node-marked-irrelevant', {
+      nodeId,
+      lens: session.activeLens,
+      payload: { nodeId },
+    });
+    this.semanticActivation!.appendEvent(event);
+    return this.semanticOk(requestId, session.sessionId, { session, event });
+  }
+
+  private endSemanticSession(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'end-session' }>,
+  ): BackendSemanticCommandResult {
+    const session = this.requireSemanticSession(requestId, command.sessionId);
+    if (!('sessionId' in session)) {
+      return session;
+    }
+    const now = Date.now();
+    const updated = { ...session, endedAt: now };
+    const event = this.semanticEvent(`semantic-event:${requestId}:session-ended`, session.sessionId, 'session-ended', {
+      nodeId: session.currentNodeId,
+      lens: session.activeLens,
+      occurredAt: now,
+    });
+    this.semanticActivation!.saveSession(updated);
+    this.semanticActivation!.appendEvent(event);
+    return this.semanticOk(requestId, session.sessionId, { session: updated, event });
+  }
+
+  private requireSemanticSession(requestId: string, sessionIdInput: unknown): SemanticSessionSnapshot | BackendSemanticCommandResult {
+    const sessionId = normalizeString(sessionIdInput);
+    if (!sessionId) {
+      return this.semanticFailed(requestId, 'invalid-request', 'semantic command requires sessionId');
+    }
+    const session = this.semanticActivation!.getSession(sessionId);
+    if (!session) {
+      return {
+        status: 'unavailable',
+        unavailableReason: 'session-unavailable',
+        message: `SESSION_UNAVAILABLE: semantic session not found: ${sessionId}`,
+        diagnosticEventId: `semantic-command-unavailable:${requestId}`,
+      };
+    }
+    return session;
+  }
+
+  private semanticEvent(
+    eventId: string,
+    sessionId: string,
+    type: SemanticEvent['type'],
+    input: {
+      nodeId?: string | null;
+      fromNodeId?: string | null;
+      toNodeId?: string | null;
+      lens?: SemanticLens | null;
+      occurredAt?: number;
+      payload?: Record<string, unknown> | null;
+    },
+  ): SemanticEvent {
+    return {
+      eventId,
+      sessionId,
+      type,
+      nodeId: normalizeOptionalString(input.nodeId),
+      fromNodeId: normalizeOptionalString(input.fromNodeId),
+      toNodeId: normalizeOptionalString(input.toNodeId),
+      lens: input.lens ?? null,
+      occurredAt: Number.isFinite(Number(input.occurredAt)) ? Number(input.occurredAt) : Date.now(),
+      payload: input.payload ?? null,
+    };
+  }
+
+  private normalizeSemanticLens(value: unknown): SemanticLens | null {
+    const lens = normalizeString(value);
+    return lens === 'assimilation' || lens === 'accommodation' || lens === 'free'
+      ? lens
+      : null;
+  }
+
+  private semanticOk(
+    requestId: string,
+    sessionId: string,
+    payload: Partial<Pick<Extract<BackendSemanticCommandResult, { status: 'ok' }>, 'session' | 'event' | 'events' | 'station' | 'relation'>>,
+  ): BackendSemanticCommandResult {
+    this.rebuildSemanticProjectionCache(sessionId);
+    return {
+      status: 'ok',
+      commandId: requestId,
+      writerInstanceId: 'backend-worker',
+      changed: {
+        semanticSessionIds: [sessionId],
+      },
+      diagnosticEventId: `semantic-command:${requestId}`,
+      ...payload,
+    };
+  }
+
+  private rebuildSemanticProjectionCache(sessionId: string): void {
+    const events = this.semanticActivation!.listEvents(sessionId, 5000);
+    const stations = this.semanticActivation!.listStations(sessionId);
+    const relations = this.semanticActivation!.listRelations();
+    this.semanticActivation!.saveProjection(buildSemanticMemoryProjection({
+      sessionId,
+      events,
+      stations,
+      relations,
+      oldModeManualBoosts: this.readOldNeuralRoamManualBoostEvidence(),
+    }));
+  }
+
+  private readOldNeuralRoamManualBoostEvidence(): SemanticOldModeManualBoostEvidence[] {
+    const state = this.readQueueStateValueSync<Record<string, unknown>>('neuralRoamQueue');
+    if (!state || !isRecord(state)) {
+      return [];
+    }
+    const evidence: SemanticOldModeManualBoostEvidence[] = [];
+    const orbit = isRecord(state.orbit) ? state.orbit : state;
+    this.collectOldNeuralRoamPoolEvidence(evidence, 'orbit-seed', orbit.seedPool);
+    this.collectOldNeuralRoamPoolEvidence(evidence, 'orbit-anchor', orbit.anchorPool);
+    const hyperspace = isRecord(state.hyperspace) ? state.hyperspace : {};
+    this.collectOldNeuralRoamPoolEvidence(evidence, 'hyperspace-source', hyperspace.sourcePool);
+    this.collectOldNeuralRoamPoolEvidence(evidence, 'hyperspace-anchor', hyperspace.anchorPool);
+    return evidence;
+  }
+
+  private readQueueStateValueSync<T>(key: string): T | null {
+    if (!this.queueState) {
+      return null;
+    }
+    const values = this.queueState.loadAll();
+    return Object.prototype.hasOwnProperty.call(values, key) ? values[key] as T : null;
+  }
+
+  private collectOldNeuralRoamPoolEvidence(
+    evidence: SemanticOldModeManualBoostEvidence[],
+    source: SemanticOldModeManualBoostEvidence['source'],
+    entries: unknown,
+  ): void {
+    if (!Array.isArray(entries)) {
+      return;
+    }
+    for (const entry of entries) {
+      if (!isRecord(entry)) {
+        continue;
+      }
+      const nodeId = normalizeString(entry.nodeId);
+      if (!nodeId) {
+        continue;
+      }
+      evidence.push({
+        nodeId,
+        source,
+        weight: this.oldNeuralRoamEvidenceWeight(source, entry),
+      });
+    }
+  }
+
+  private oldNeuralRoamEvidenceWeight(
+    source: SemanticOldModeManualBoostEvidence['source'],
+    entry: Record<string, unknown>,
+  ): number {
+    const base = source === 'orbit-anchor' || source === 'hyperspace-anchor' ? 0.32 : 0.24;
+    const priority = Number(entry.priority);
+    const priorityBoost = Number.isFinite(priority) ? this.clamp01(priority) * 0.18 : 0;
+    return this.clamp01(base + priorityBoost);
+  }
+
+  private clamp01(value: number): number {
+    if (!Number.isFinite(value)) {
+      return 0;
+    }
+    return Math.max(0, Math.min(1, value));
+  }
+
+  private semanticFailed(
+    requestId: string,
+    unavailableReason: Extract<BackendSemanticCommandResult, { status: 'failed' }>['unavailableReason'],
+    message: string,
+  ): BackendSemanticCommandResult {
+    return {
+      status: 'failed',
+      unavailableReason,
+      message,
+      diagnosticEventId: `semantic-command-failed:${requestId}`,
+    };
   }
 
   async runTransaction<T>(

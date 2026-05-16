@@ -1919,6 +1919,18 @@ export class ApplicationContext {
         auditContext?: Record<string, unknown>;
       });
     }
+    if (command.method === 'semantic.command.execute') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: semantic.command.execute relay requires params object');
+      }
+      return srsBackendClient.semanticCommand(command.params as {
+        requestId: string;
+        method: 'semantic.command.execute';
+        callerIntent: string;
+        idempotencyKey: string;
+        command: Record<string, unknown>;
+      });
+    }
     if (command.method === 'ai.session.create') {
       if (!command.params || typeof command.params !== 'object') {
         throw new Error('INVALID_REQUEST: ai.session.create relay requires params object');

@@ -52,6 +52,8 @@ import {
   type BackendHealthResult,
   type BackendRpcRequest,
   type BackendRpcResponse,
+  type BackendSemanticCommandRequest,
+  type BackendSemanticCommandResult,
   type P6OwnershipCommandRequest,
   type P6OwnershipOperation,
   type P6OwnershipQueryRequest,
@@ -277,6 +279,8 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handlePrivateRead(request.method, request.params));
         case 'private.command.execute':
           return buildSuccess(request.id, await this.handlePrivateCommand(request.params));
+        case 'semantic.command.execute':
+          return buildSuccess(request.id, await this.handleSemanticCommand(request.params));
         case 'p6.ownership.query':
           return buildSuccess(request.id, this.handleP6OwnershipQuery(request.params));
         case 'p6.ownership.command':
@@ -773,6 +777,14 @@ export class BackendKernel {
       status: 'completed',
     });
     return result;
+  }
+
+  private async handleSemanticCommand(params: unknown): Promise<BackendSemanticCommandResult> {
+    const named = this.readNamedParams<BackendSemanticCommandRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: semantic.command.execute requires named params');
+    }
+    return this.deps.database.executeSemanticCommand(named);
   }
 
   private handleP6OwnershipQuery(params: unknown): P6OwnershipResult {

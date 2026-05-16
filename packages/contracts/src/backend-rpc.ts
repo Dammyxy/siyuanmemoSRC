@@ -42,6 +42,7 @@ export type BackendRpcMethod =
   | 'private.read.queues'
   | 'private.read.sessions'
   | 'private.command.execute'
+  | 'semantic.command.execute'
   | 'p6.ownership.query'
   | 'p6.ownership.command';
 
@@ -95,6 +96,7 @@ export interface MutationChangedSet {
   queueIds?: string[];
   reviewSessionIds?: string[];
   aiSessionIds?: string[];
+  semanticSessionIds?: string[];
 }
 
 export interface MutationResult<TResult> {
@@ -400,6 +402,71 @@ export interface PrivateApiMutationResult {
   auditStatus: 'recorded' | 'skipped';
   diagnosticEventId: string;
 }
+
+export type BackendSemanticLens = 'assimilation' | 'accommodation' | 'free';
+
+export type BackendSemanticStationType = 'node' | 'path';
+
+export type BackendSemanticCommand =
+  | { type: 'start-session'; rootFocusNodeId: string; sessionId?: string; idempotencyKey?: string }
+  | { type: 'follow-candidate'; sessionId: string; candidateId: string; lens: BackendSemanticLens; idempotencyKey?: string }
+  | { type: 'switch-lens'; sessionId: string; lens: BackendSemanticLens; idempotencyKey?: string }
+  | { type: 'create-station'; sessionId: string; stationType: BackendSemanticStationType; idempotencyKey?: string }
+  | {
+      type: 'record-implicit-node-action';
+      sessionId: string;
+      nodeId: string;
+      action: 'follow' | 'expand' | 'node-station' | 'path-station' | 'skip' | 'mark-irrelevant';
+      lens?: BackendSemanticLens;
+      idempotencyKey?: string;
+    }
+  | {
+      type: 'accept-relation' | 'reject-relation';
+      sessionId: string;
+      relationId: string;
+      fromNodeId: string;
+      toNodeId: string;
+      confidence?: number;
+      reason?: string | null;
+      source?: 'manual' | 'ai';
+      idempotencyKey?: string;
+    }
+  | { type: 'mark-irrelevant'; sessionId: string; nodeId: string; idempotencyKey?: string }
+  | { type: 'end-session'; sessionId: string; idempotencyKey?: string };
+
+export interface BackendSemanticCommandRequest {
+  requestId: string;
+  method: 'semantic.command.execute';
+  callerIntent: string;
+  idempotencyKey: string;
+  command: BackendSemanticCommand;
+}
+
+export type BackendSemanticCommandResult =
+  | {
+      status: 'ok';
+      commandId: string;
+      writerInstanceId: string;
+      changed: MutationChangedSet;
+      session?: unknown | null;
+      event?: unknown | null;
+      events?: unknown[] | null;
+      station?: unknown | null;
+      relation?: unknown | null;
+      diagnosticEventId: string;
+    }
+  | {
+      status: 'unavailable' | 'failed';
+      unavailableReason:
+        | 'writer-unavailable'
+        | 'projection-unavailable'
+        | 'graph-unavailable'
+        | 'session-unavailable'
+        | 'invalid-request'
+        | 'failed';
+      message: string;
+      diagnosticEventId: string;
+    };
 
 export interface PrivateApiAuditQueryRequest {
   requestId: string;

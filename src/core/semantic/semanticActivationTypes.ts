@@ -65,6 +65,23 @@ export interface SemanticCandidateReason {
   evidenceEventIds?: string[];
 }
 
+export interface SemanticCandidateSource {
+  nodeId: string;
+  relatedToNodeId: string;
+  scope:
+    | 'current-node'
+    | 'root-focus'
+    | 'memory-projection'
+    | 'station'
+    | 'accepted-ai-relation'
+    | 'default-source'
+    | 'structural';
+  relationType: string;
+  weight: number;
+  structural: boolean;
+  evidence: Record<string, unknown>;
+}
+
 export interface SemanticCandidate {
   candidateId: string;
   node: SemanticNode;
@@ -160,8 +177,34 @@ export type SemanticCommand =
   | { type: 'follow-candidate'; sessionId: string; candidateId: string; lens: SemanticLens; idempotencyKey: string }
   | { type: 'switch-lens'; sessionId: string; lens: SemanticLens; idempotencyKey: string }
   | { type: 'create-station'; sessionId: string; stationType: SemanticStationType; idempotencyKey: string }
-  | { type: 'accept-relation'; sessionId: string; relationId: string; idempotencyKey: string }
-  | { type: 'reject-relation'; sessionId: string; relationId: string; idempotencyKey: string }
+  | {
+      type: 'record-implicit-node-action';
+      sessionId: string;
+      nodeId: string;
+      action: 'follow' | 'expand' | 'node-station' | 'path-station' | 'skip' | 'mark-irrelevant';
+      lens?: SemanticLens;
+      idempotencyKey: string;
+    }
+  | {
+      type: 'accept-relation';
+      sessionId: string;
+      relationId: string;
+      fromNodeId?: string;
+      toNodeId?: string;
+      confidence?: number;
+      reason?: string | null;
+      idempotencyKey: string;
+    }
+  | {
+      type: 'reject-relation';
+      sessionId: string;
+      relationId: string;
+      fromNodeId?: string;
+      toNodeId?: string;
+      confidence?: number;
+      reason?: string | null;
+      idempotencyKey: string;
+    }
   | { type: 'mark-irrelevant'; sessionId: string; nodeId: string; idempotencyKey: string }
   | { type: 'end-session'; sessionId: string; idempotencyKey: string };
 
@@ -170,6 +213,7 @@ export type SemanticCommandResult =
       status: 'ok';
       session?: SemanticSessionSnapshot | null;
       event?: SemanticEvent | null;
+      events?: SemanticEvent[] | null;
       station?: SemanticStation | null;
       relation?: SemanticRelation | null;
     }

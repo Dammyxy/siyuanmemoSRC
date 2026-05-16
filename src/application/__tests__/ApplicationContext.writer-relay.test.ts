@@ -271,4 +271,36 @@ describe('ApplicationContext writer relay command dispatch', () => {
       commandId: 'private-cmd-1',
     });
   });
+
+  it('dispatches semantic.command.execute to backend client', async () => {
+    const semanticCommand = vi.fn(async () => ({
+      status: 'ok',
+      commandId: 'semantic-cmd-1',
+      writerInstanceId: 'writer-1',
+      changed: { semanticSessionIds: ['semantic-session-1'] },
+      diagnosticEventId: 'diag-semantic-1',
+    }));
+    const client = {
+      semanticCommand,
+    };
+
+    const result = await (ApplicationContext as unknown as {
+      executeWriterRelayCommand: (backend: unknown, command: { method: string; params?: unknown }) => Promise<unknown>;
+    }).executeWriterRelayCommand(client, {
+      method: 'semantic.command.execute',
+      params: {
+        requestId: 'semantic-req-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic',
+        idempotencyKey: 'semantic-key-1',
+        command: { type: 'start-session', rootFocusNodeId: 'node-root' },
+      },
+    });
+
+    expect(semanticCommand).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      status: 'ok',
+      commandId: 'semantic-cmd-1',
+    });
+  });
 });

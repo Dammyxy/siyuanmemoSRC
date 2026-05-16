@@ -1,8 +1,78 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-16 (Round 365)
+Last update: 2026-05-16 (Round 371)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-16 - Semantic candidate pool and lens explanations
+
+- Task: Continue OpenSpec change `add-semantic-activation-roam-engine` through tasks 4.2-4.7.
+- Touched slice: Semantic Activation core candidate pooling and projection lens ranking.
+- Debt fixed now: Added `SemanticCandidatePoolBuilder` to assemble one de-duplicated candidate pool from graph current/root sources, memory projection nodes, Semantic stations, accepted AI relations, and default non-structural sources. Structural sources remain opt-in. Lens ranking now emits explanation payloads with current/root relation, memory, novelty, manual boost, and tension values, and free-lens reasons now expose root-focus gravity when it contributes.
+- Debt deferred: Review shell Semantic session start, runtime controller navigation, UI rendering, station actions, and AI path-analysis UI remain pending.
+- Why deferred: Section 4 owns core candidate source assembly/ranking only. Sections 5-9 own session navigation, presentation, stations, and AI workflows.
+- Next safe step: Start task 5.1 by tracing the Review Concept entry into a Semantic session command/controller without mutating Orbit or Hyperspace state.
+- Validation: `pnpm vitest run src\core\semantic\__tests__\SemanticCandidatePoolBuilder.test.ts src\core\semantic\__tests__\SemanticGraphProvider.test.ts src\core\semantic\__tests__\SemanticProjectionLensRanker.test.ts src\core\semantic\__tests__\SemanticMemoryProjectionBuilder.test.ts`.
+
+### 2026-05-16 - Semantic graph provider boundary
+
+- Task: Continue OpenSpec change `add-semantic-activation-roam-engine` through task 4.1.
+- Touched slice: Semantic Activation core graph-provider boundary.
+- Debt fixed now: Added `SemanticGraphProvider`, which reads candidate source edges only through the existing `NeuralGraphQueryPort` contract. It returns explicit `graph-unavailable` or `invalid-request` results instead of direct graph/SQL reads. Structural edge queries remain opt-in.
+- Debt deferred: Candidate pool merging, memory/station/relation source assembly, lens-specific final ranking, and UI explanation payloads remain pending.
+- Why deferred: Task 4.1 creates the graph/query boundary only. Tasks 4.2-4.7 own pool assembly, structural relation policy, ranking, reasons, and tests.
+- Next safe step: Implement 4.2 candidate pool collection from current/root graph sources, projection memory, stations, and accepted relations.
+- Validation: `pnpm vitest run src\core\semantic\__tests__\SemanticGraphProvider.test.ts src\core\semantic\__tests__\SemanticProjectionLensRanker.test.ts src\core\semantic\__tests__\SemanticMemoryProjectionBuilder.test.ts src\core\semantic\__tests__\semanticActivationTypes.test.ts`.
+
+### 2026-05-16 - Semantic Activation tension scorer guard
+
+- Task: Continue OpenSpec change `add-semantic-activation-roam-engine` through task 3.5.
+- Touched slice: Semantic Activation core projection lens scoring.
+- Debt fixed now: Added a pure projection lens scorer that can rank existing projection candidates for assimilation/accommodation/free lenses. Tension contributes to accommodation/free scoring and reasons, while rejected relation tension does not raise relation confidence or manual boost.
+- Debt deferred: Full graph-backed candidate provider, candidate pool assembly, root/current relation collection, and UI explanation payload rendering remain pending.
+- Why deferred: Task 3.5 proves the projection scoring invariant. Section 4 owns candidate provider and complete lens ranking.
+- Next safe step: Start 4.1 by adding a `SemanticGraphProvider` port/adapter that reads candidate source evidence through existing graph/query boundaries.
+- Validation: `pnpm vitest run src\core\semantic\__tests__\SemanticProjectionLensRanker.test.ts src\core\semantic\__tests__\SemanticMemoryProjectionBuilder.test.ts worker\__tests__\BackendKernel.test.ts src\core\semantic\__tests__\semanticActivationTypes.test.ts`.
+
+### 2026-05-16 - Semantic Activation old-mode boost evidence
+
+- Task: Continue OpenSpec change `add-semantic-activation-roam-engine` through tasks 3.3-3.4.
+- Touched slice: Semantic Activation projection builder and backend worker queue-state reader.
+- Debt fixed now: Projection rebuild now reads Orbit `seedPool`, Orbit `anchorPool`, Hyperspace `sourcePool`, and Hyperspace `anchorPool` from the existing `neuralRoamQueue` state as read-only manual-boost evidence. Semantic projection cache gets old-mode node boosts while the original Orbit/Hyperspace queue state remains unchanged.
+- Debt deferred: Tension-only ranking/explanation behavior, candidate provider integration, and UI projection consumption remain pending.
+- Why deferred: Tasks 3.3-3.4 cover old-mode read-only evidence and non-mutation tests. Ranking/explanation semantics start at 3.5 and section 4.
+- Next safe step: Add ranking/explanation tests that prove tension affects Semantic candidate ordering/explanations without writing long-term weights unless the user takes an explicit action.
+- Validation: `pnpm vitest run src\core\semantic\__tests__\SemanticMemoryProjectionBuilder.test.ts worker\__tests__\BackendKernel.test.ts src\core\semantic\__tests__\semanticActivationTypes.test.ts`.
+
+### 2026-05-16 - Semantic Activation projection builder
+
+- Task: Continue OpenSpec change `add-semantic-activation-roam-engine` through task 3.2.
+- Touched slice: Semantic Activation core projection builder and backend worker projection cache refresh.
+- Debt fixed now: Added deterministic rebuild from append-only events, stations, and accepted/rejected relations into node memory, edge memory, old-knowledge score, semantic familiarity, manual boosts, novelty, instability, and tension. Successful writer-owned Semantic commands now refresh the per-session projection cache through the SQLite owner repository.
+- Debt deferred: Old Orbit/Hyperspace boost import, candidate ranking integration, and UI projection consumption remain pending.
+- Why deferred: Task 3.2 covers Semantic-native evidence only. Old-mode read-only inputs start at 3.3.
+- Next safe step: Add read-only old Neural Roam boost evidence input to the projection builder without mutating Orbit/Hyperspace pools.
+- Validation: `pnpm vitest run src\core\semantic\__tests__\SemanticMemoryProjectionBuilder.test.ts worker\__tests__\BackendKernel.test.ts src\core\semantic\__tests__\semanticActivationTypes.test.ts`.
+
+### 2026-05-16 - Semantic Activation append-only command events
+
+- Task: Continue OpenSpec change `add-semantic-activation-roam-engine` through task 3.1.
+- Touched slice: Semantic Activation command/event contract and backend worker event writer.
+- Debt fixed now: Session start now records both `session-started` and root `node-visited`; candidate traversal records `lens-switched` before `edge-traversed` before target `node-visited`; implicit-node UI-intent recording has a writer-owned `record-implicit-node-action` command. Relation decisions, stations, irrelevant marks, and session end continue through append-only Semantic events.
+- Debt deferred: Event projection, ranking, old Orbit/Hyperspace boost import, and UI command binding remain pending.
+- Why deferred: Task 3.1 is the event log slice; projection semantics start at 3.2.
+- Next safe step: Implement 3.2 projection builder from persisted Semantic events without reading/writing Orbit/Hyperspace pools.
+- Validation: `pnpm vitest run packages/contracts/src/__tests__/kernel-rpc.test.ts src/application/clients/__tests__/SemanticActivationCommandClient.test.ts src/application/__tests__/ApplicationContext.writer-relay.test.ts worker/__tests__/BackendKernel.test.ts src/core/semantic/__tests__/semanticActivationTypes.test.ts`.
+
+### 2026-05-16 - Semantic Activation writer-owned commands
+
+- Task: Continue OpenSpec change `add-semantic-activation-roam-engine` through tasks 2.3-2.5.
+- Touched slice: Semantic Activation backend mutation contract; contracts package, application writer relay dispatch, follower command client wrapper, backend kernel dispatch, worker SQLite DB owner command execution, and focused relay/backend tests.
+- Debt fixed now: Added `semantic.command.execute` as an explicit writer-owned mutation path. Follower runtime routes through writer relay, stale writers re-route after lease refresh, and missing writer/relay returns explicit `writer-unavailable` instead of local mutation. Backend worker now records session start, traversal, lens switch, station creation, relation accept/reject, irrelevant marks, and session end through the Semantic SQLite repository.
+- Debt deferred: Projection builder, candidate provider, Review shell Semantic entry, UI commands, live two-window smoke, and `projection-unavailable` from a real projection reader are still future tasks.
+- Why deferred: Tasks 2.3-2.5 are the mutation ownership slice. Projection availability and UI behavior depend on later tasks 3-9.
+- Next safe step: Start task 3.1 by formalizing append-only event semantics for node visits, implicit-node actions, and lens-switch-before-traversal ordering before ranking/projection code.
+- Validation: `pnpm vitest run packages/contracts/src/__tests__/kernel-rpc.test.ts src/application/clients/__tests__/SemanticActivationCommandClient.test.ts src/application/__tests__/ApplicationContext.writer-relay.test.ts worker/__tests__/BackendKernel.test.ts`.
 
 ### 2026-05-16 - Semantic Activation DB owner persistence
 

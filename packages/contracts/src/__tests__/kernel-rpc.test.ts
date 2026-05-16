@@ -20,6 +20,7 @@ describe('kernel relay contract', () => {
       'autocard.decision.resolve',
       'autocard.execute',
       'private.command.execute',
+      'semantic.command.execute',
     ]));
   });
 

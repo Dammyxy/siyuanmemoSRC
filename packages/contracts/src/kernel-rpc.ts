@@ -227,6 +227,7 @@ export const KERNEL_RELAY_METHODS = [
   'ai.session.update',
   'ai.session.cancel',
   'private.command.execute',
+  'semantic.command.execute',
 ] as const;
 
 export type KernelRelayMethod = typeof KERNEL_RELAY_METHODS[number];

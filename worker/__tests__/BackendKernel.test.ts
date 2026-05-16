@@ -3339,6 +3339,340 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('executes writer-owned semantic activation commands through the backend database owner', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({ database });
+
+    const start = await kernel.handle({
+      id: 'semantic-start',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-start-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic',
+        idempotencyKey: 'semantic-start-key',
+        command: {
+          type: 'start-session',
+          rootFocusNodeId: 'node-root',
+          sessionId: 'semantic-session-1',
+        },
+      }],
+    });
+    expect('result' in start).toBe(true);
+    if (!('result' in start)) {
+      throw new Error('semantic start did not return result');
+    }
+    expect(start.result).toMatchObject({
+      status: 'ok',
+      commandId: 'semantic-start-1',
+      changed: {
+        semanticSessionIds: ['semantic-session-1'],
+      },
+      session: {
+        sessionId: 'semantic-session-1',
+        rootFocusNodeId: 'node-root',
+        currentNodeId: 'node-root',
+        activeLens: 'assimilation',
+      },
+      event: {
+        type: 'node-visited',
+      },
+      events: [
+        { type: 'session-started' },
+        { type: 'node-visited' },
+      ],
+    });
+
+    const follow = await kernel.handle({
+      id: 'semantic-follow',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-follow-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic',
+        idempotencyKey: 'semantic-follow-key',
+        command: {
+          type: 'follow-candidate',
+          sessionId: 'semantic-session-1',
+          candidateId: 'node-next',
+          lens: 'free',
+        },
+      }],
+    });
+    expect('result' in follow).toBe(true);
+    if ('result' in follow) {
+      expect(follow.result).toMatchObject({
+        status: 'ok',
+        session: {
+          currentNodeId: 'node-next',
+          activeLens: 'free',
+        },
+        event: {
+          type: 'node-visited',
+          nodeId: 'node-next',
+        },
+        events: [
+          { type: 'lens-switched' },
+          { type: 'edge-traversed' },
+          { type: 'node-visited' },
+        ],
+      });
+    }
+
+    const station = await kernel.handle({
+      id: 'semantic-station',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-station-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic',
+        idempotencyKey: 'semantic-station-key',
+        command: {
+          type: 'create-station',
+          sessionId: 'semantic-session-1',
+          stationType: 'node',
+        },
+      }],
+    });
+    expect('result' in station).toBe(true);
+    if ('result' in station) {
+      expect(station.result).toMatchObject({
+        status: 'ok',
+        station: {
+          type: 'node',
+          sessionId: 'semantic-session-1',
+          nodeId: 'node-next',
+        },
+      });
+    }
+
+    const relation = await kernel.handle({
+      id: 'semantic-relation',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-relation-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic',
+        idempotencyKey: 'semantic-relation-key',
+        command: {
+          type: 'accept-relation',
+          sessionId: 'semantic-session-1',
+          relationId: 'relation-1',
+          fromNodeId: 'node-root',
+          toNodeId: 'node-next',
+          confidence: 0.8,
+          reason: 'accepted by user',
+        },
+      }],
+    });
+    expect('result' in relation).toBe(true);
+    if ('result' in relation) {
+      expect(relation.result).toMatchObject({
+        status: 'ok',
+        relation: {
+          relationId: 'relation-1',
+          decision: 'accepted',
+          source: 'ai',
+        },
+        event: {
+          type: 'ai-relation-accepted',
+        },
+      });
+    }
+
+    const implicitAction = await kernel.handle({
+      id: 'semantic-implicit-action',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-implicit-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic',
+        idempotencyKey: 'semantic-implicit-key',
+        command: {
+          type: 'record-implicit-node-action',
+          sessionId: 'semantic-session-1',
+          nodeId: 'implicit-node-1',
+          action: 'expand',
+        },
+      }],
+    });
+    expect('result' in implicitAction).toBe(true);
+    if ('result' in implicitAction) {
+      expect(implicitAction.result).toMatchObject({
+        status: 'ok',
+        event: {
+          type: 'implicit-node-action',
+          nodeId: 'implicit-node-1',
+          payload: {
+            action: 'expand',
+          },
+        },
+      });
+    }
+
+    const projectionRow = database.getOne<{
+      session_id: string | null;
+      node_memory_json: string;
+      edge_memory_json: string;
+    }>(
+      `SELECT session_id, node_memory_json, edge_memory_json
+       FROM semantic_projection_cache
+       WHERE projection_key = ?`,
+      ['semantic-session-1'],
+    );
+    expect(projectionRow?.session_id).toBe('semantic-session-1');
+    const nodeMemory = JSON.parse(projectionRow?.node_memory_json ?? '[]') as Array<Record<string, unknown>>;
+    const edgeMemory = JSON.parse(projectionRow?.edge_memory_json ?? '[]') as Array<Record<string, unknown>>;
+    expect(nodeMemory).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        nodeId: 'node-root',
+      }),
+      expect.objectContaining({
+        nodeId: 'node-next',
+      }),
+      expect.objectContaining({
+        nodeId: 'implicit-node-1',
+      }),
+    ]));
+    expect(edgeMemory).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        fromNodeId: 'node-root',
+        toNodeId: 'node-next',
+        traversalCount: 1,
+      }),
+    ]));
+
+    const replay = await kernel.handle({
+      id: 'semantic-start-replay',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-start-2',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic',
+        idempotencyKey: 'semantic-start-key',
+        command: {
+          type: 'start-session',
+          rootFocusNodeId: 'other-root',
+          sessionId: 'semantic-session-2',
+        },
+      }],
+    });
+    expect('result' in replay).toBe(true);
+    if ('result' in replay) {
+      expect(replay.result).toMatchObject({
+        status: 'ok',
+        commandId: 'semantic-start-1',
+        session: {
+          sessionId: 'semantic-session-1',
+        },
+      });
+    }
+  });
+
+  it('returns explicit semantic session unavailable instead of fallback writes', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'semantic-missing-session',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-missing-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic',
+        idempotencyKey: 'semantic-missing-key',
+        command: {
+          type: 'create-station',
+          sessionId: 'missing-session',
+          stationType: 'node',
+        },
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        status: 'unavailable',
+        unavailableReason: 'session-unavailable',
+      });
+    }
+  });
+
+  it('uses old neural-roam pools as read-only semantic projection boosts', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const oldState = {
+      version: 8,
+      engineMode: 'hyperspace',
+      orbit: {
+        seedPool: [{ nodeId: 'old-orbit-seed', priority: 0.5, label: 'Orbit seed' }],
+        anchorPool: [{ nodeId: 'old-orbit-anchor', priority: 1, label: 'Orbit anchor' }],
+        session: { active: false },
+      },
+      hyperspace: {
+        sourcePool: [{ nodeId: 'old-hyperspace-source', priority: 0.25, label: 'Hyperspace source' }],
+        anchorPool: [{ nodeId: 'old-hyperspace-anchor', priority: 0.75, label: 'Hyperspace anchor' }],
+        session: { active: false },
+      },
+      pendingAssociatedReviewCardIds: ['card-pending'],
+      seenAssociatedReviewCardIds: ['card-seen'],
+    };
+    await database.setQueueStateValue('neuralRoamQueue', oldState);
+    const before = await database.getQueueStateValue('neuralRoamQueue');
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'semantic-old-mode-start',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-old-mode-start-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-old-mode',
+        idempotencyKey: 'semantic-old-mode-start-key',
+        command: {
+          type: 'start-session',
+          rootFocusNodeId: 'semantic-root',
+          sessionId: 'semantic-old-mode-session',
+        },
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        status: 'ok',
+        changed: {
+          semanticSessionIds: ['semantic-old-mode-session'],
+        },
+      });
+    }
+    await expect(database.getQueueStateValue('neuralRoamQueue')).resolves.toEqual(before);
+    const projectionRow = database.getOne<{
+      node_memory_json: string;
+      edge_memory_json: string;
+    }>(
+      `SELECT node_memory_json, edge_memory_json
+       FROM semantic_projection_cache
+       WHERE projection_key = ?`,
+      ['semantic-old-mode-session'],
+    );
+    const nodeMemory = JSON.parse(projectionRow?.node_memory_json ?? '[]') as Array<Record<string, unknown>>;
+    const edgeMemory = JSON.parse(projectionRow?.edge_memory_json ?? '[]') as Array<Record<string, unknown>>;
+    expect(edgeMemory).toEqual([]);
+    for (const nodeId of ['old-orbit-seed', 'old-orbit-anchor', 'old-hyperspace-source', 'old-hyperspace-anchor']) {
+      const node = nodeMemory.find((entry) => entry.nodeId === nodeId);
+      expect(node?.manualBoost).toBeGreaterThan(0);
+      expect(node?.oldKnowledgeScore).toBeGreaterThan(0);
+    }
+  });
+
   it('answers P6 ownership query and command contracts instead of METHOD_NOT_FOUND', async () => {
     const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
     const kernel = new BackendKernel({ database });

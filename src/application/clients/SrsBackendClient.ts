@@ -36,6 +36,8 @@ import type {
   BackendQueueProjectionSnapshotResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendSemanticCommandRequest,
+  BackendSemanticCommandResult,
   P6OwnershipCommandRequest,
   P6OwnershipQueryRequest,
   P6OwnershipResult,
@@ -249,6 +251,10 @@ export class SrsBackendClient {
 
   async privateCommand(request: PrivateApiMutationRequest): Promise<PrivateApiMutationResult> {
     return this.call<PrivateApiMutationResult>(request.method, request);
+  }
+
+  async semanticCommand(request: BackendSemanticCommandRequest): Promise<BackendSemanticCommandResult> {
+    return this.call<BackendSemanticCommandResult>(request.method, request);
   }
 
   async p6OwnershipQuery(request: P6OwnershipQueryRequest): Promise<P6OwnershipResult> {
