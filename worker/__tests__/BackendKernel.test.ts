@@ -3449,6 +3449,39 @@ describe('BackendKernel', () => {
       });
     }
 
+    const pathStation = await kernel.handle({
+      id: 'semantic-path-station',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-path-station-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic',
+        idempotencyKey: 'semantic-path-station-key',
+        command: {
+          type: 'create-station',
+          sessionId: 'semantic-session-1',
+          stationType: 'path',
+        },
+      }],
+    });
+    expect('result' in pathStation).toBe(true);
+    if ('result' in pathStation) {
+      expect(pathStation.result).toMatchObject({
+        status: 'ok',
+        station: {
+          type: 'path',
+          sessionId: 'semantic-session-1',
+          nodeId: null,
+          path: [
+            { nodeId: 'node-root', lens: 'assimilation' },
+            { nodeId: 'node-next', lens: 'free' },
+          ],
+          lensHistory: ['assimilation', 'free'],
+        },
+      });
+    }
+
     const relation = await kernel.handle({
       id: 'semantic-relation',
       jsonrpc: '2.0',
@@ -3546,6 +3579,64 @@ describe('BackendKernel', () => {
         traversalCount: 1,
       }),
     ]));
+
+    const ended = await kernel.handle({
+      id: 'semantic-end',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-end-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic',
+        idempotencyKey: 'semantic-end-key',
+        command: {
+          type: 'end-session',
+          sessionId: 'semantic-session-1',
+        },
+      }],
+    });
+    expect('result' in ended).toBe(true);
+    if ('result' in ended) {
+      expect(ended.result).toMatchObject({
+        status: 'ok',
+        session: {
+          sessionId: 'semantic-session-1',
+          endedAt: expect.any(Number),
+        },
+        event: {
+          type: 'session-ended',
+        },
+      });
+    }
+
+    const restored = await kernel.handle({
+      id: 'semantic-restore',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-restore-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic',
+        idempotencyKey: 'semantic-restore-key',
+        command: {
+          type: 'restore-session',
+          sessionId: 'semantic-session-1',
+        },
+      }],
+    });
+    expect('result' in restored).toBe(true);
+    if ('result' in restored) {
+      expect(restored.result).toMatchObject({
+        status: 'ok',
+        session: {
+          sessionId: 'semantic-session-1',
+          rootFocusNodeId: 'node-root',
+          currentNodeId: 'node-next',
+          activeLens: 'free',
+          endedAt: expect.any(Number),
+        },
+      });
+    }
 
     const replay = await kernel.handle({
       id: 'semantic-start-replay',

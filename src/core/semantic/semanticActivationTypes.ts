@@ -206,7 +206,8 @@ export type SemanticCommand =
       idempotencyKey: string;
     }
   | { type: 'mark-irrelevant'; sessionId: string; nodeId: string; idempotencyKey: string }
-  | { type: 'end-session'; sessionId: string; idempotencyKey: string };
+  | { type: 'end-session'; sessionId: string; idempotencyKey: string }
+  | { type: 'restore-session'; sessionId: string; idempotencyKey: string };
 
 export type SemanticCommandResult =
   | {
@@ -240,6 +241,7 @@ export interface SemanticActivationController {
   rejectRelation(relationId: string): Promise<SemanticCommandResult>;
   markIrrelevant(nodeId: string): Promise<SemanticCommandResult>;
   endSession(): Promise<SemanticCommandResult>;
+  restoreSession(sessionId: string): Promise<SemanticCommandResult>;
 }
 
 export function isSemanticActivationRuntimeQueue(

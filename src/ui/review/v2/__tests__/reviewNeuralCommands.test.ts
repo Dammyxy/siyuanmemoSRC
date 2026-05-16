@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  buildReviewNeuralEngineModeMenuItems,
   buildReviewNeuralFocusMenuItems,
   buildReviewNeuralHistoryMenuItems,
+  handleReviewNeuralEngineModeSelection,
   handleReviewNeuralToolbarAction,
 } from '../reviewNeuralCommands';
 import type {
@@ -116,6 +118,73 @@ function createQueue(options?: {
 }
 
 describe('reviewNeuralCommands', () => {
+  it('builds a three-mode Neural Roam picker including Semantic Activation', async () => {
+    const onSelect = vi.fn(async () => undefined);
+    const items = buildReviewNeuralEngineModeMenuItems({
+      t,
+      currentMode: 'orbit',
+      onSelect,
+    });
+
+    expect(items.map((item) => item.label)).toEqual([
+      'Orbit ✓',
+      'Hyperspace Expedition',
+      'Semantic Activation',
+    ]);
+    expect(items[0].disabled).toBe(true);
+
+    await items[2].click?.();
+    expect(onSelect).toHaveBeenCalledWith('semantic-activation');
+  });
+
+  it('routes Semantic Activation selection without mutating the Orbit/Hyperspace engine mode', async () => {
+    const queue = createQueue();
+    const persistPreferredMode = vi.fn(async () => undefined);
+    const startSemanticActivation = vi.fn(async () => undefined);
+
+    await handleReviewNeuralEngineModeSelection({
+      t,
+      selectedMode: 'semantic-activation',
+      neuralQueue: queue,
+      currentBlockId: 'block-1',
+      loadCardByBlockId: vi.fn(async () => undefined),
+      refreshNavigationState: vi.fn(),
+      showMessage: vi.fn(),
+      logger: {},
+      persistPreferredMode,
+      startSemanticActivation,
+    });
+
+    expect(persistPreferredMode).toHaveBeenCalledWith('semantic-activation');
+    expect(startSemanticActivation).toHaveBeenCalledTimes(1);
+    expect(queue.setEngineMode).not.toHaveBeenCalled();
+  });
+
+  it('routes Orbit and Hyperspace selections through the existing engine switch path', async () => {
+    const queue = createQueue({ navState: navigationState({ engineMode: 'orbit' }) });
+    const persistPreferredMode = vi.fn(async () => undefined);
+    const loadCardByBlockId = vi.fn(async () => undefined);
+    const refreshNavigationState = vi.fn();
+
+    await handleReviewNeuralEngineModeSelection({
+      t,
+      selectedMode: 'hyperspace',
+      neuralQueue: queue,
+      currentBlockId: 'block-1',
+      loadCardByBlockId,
+      refreshNavigationState,
+      showMessage: vi.fn(),
+      logger: {},
+      persistPreferredMode,
+      startSemanticActivation: vi.fn(async () => undefined),
+    });
+
+    expect(persistPreferredMode).toHaveBeenCalledWith('hyperspace');
+    expect(queue.setEngineMode).toHaveBeenCalledWith('hyperspace', { carryCurrentNode: true });
+    expect(refreshNavigationState).toHaveBeenCalledTimes(1);
+    expect(loadCardByBlockId).toHaveBeenCalledWith('node-current');
+  });
+
   it('builds focus menu actions that start from and remove source nodes', async () => {
     const queue = createQueue({
       sources: [

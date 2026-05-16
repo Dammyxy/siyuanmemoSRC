@@ -139,6 +139,7 @@ import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
 import { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
 import { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
 import { PrivateApiClient } from '@/application/clients/PrivateApiClient';
+import { SemanticActivationCommandClient } from '@/application/clients/SemanticActivationCommandClient';
 import {
   BACKEND_MIGRATION_FEATURE_GATES,
   listMigratedStateFamilies,
@@ -188,6 +189,7 @@ interface ApplicationServiceRegistry {
   aiWorkbenchService: AIWorkbenchService;
   privateApiAuditService: PrivateApiAuditService;
   privateApiClient: PrivateApiClient;
+  semanticActivationCommandClient: SemanticActivationCommandClient | null;
   privateApiService: PrivateApiService;
   dialogManager: DialogManager;
   menuManager: MenuManager;
@@ -668,6 +670,18 @@ export class ApplicationContext {
         frontendRuntime: context.getFrontendInstanceRuntime(),
         followerCommandClient: context.getFollowerCommandClient(),
         writerRelayRequiredForMutations: context.getBackendMigrationRuntimePolicy().capabilities.writerRelayRequiredForBackendWrites,
+      });
+    });
+
+    this.registerServiceFactory('semanticActivationCommandClient', (context) => {
+      if (!context.srsBackendClient) {
+        return null;
+      }
+      return new SemanticActivationCommandClient({
+        backendClient: context.srsBackendClient,
+        frontendRuntime: context.getFrontendInstanceRuntime(),
+        followerCommandClient: context.getFollowerCommandClient(),
+        writerRelayRequiredForMutations: true,
       });
     });
 
@@ -2601,6 +2615,10 @@ export class ApplicationContext {
    */
   getSettingsService(): SettingsService {
     return this.getService('settingsService');
+  }
+
+  getSemanticActivationCommandClient(): SemanticActivationCommandClient | null {
+    return this.getService('semanticActivationCommandClient');
   }
 
   getCardTypeDetectionService(): CardTypeDetectionService {

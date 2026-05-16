@@ -274,13 +274,24 @@ import {
   type ReviewMenuItem,
 } from './reviewMoreMenuItems';
 import {
+  buildReviewNeuralEngineModeMenuItems,
   buildReviewNeuralFocusMenuItems,
   buildReviewNeuralHistoryMenuItems,
+  handleReviewNeuralEngineModeSelection,
   handleReviewNeuralToolbarAction,
   isReviewNeuralMenuAction,
   isReviewNeuralToolbarAction,
   type ReviewNeuralBrowserSubview,
 } from './reviewNeuralCommands';
+import { SemanticActivationSessionController } from '@/application/services/SemanticActivationSessionController';
+import type { SemanticActivationCommandClient } from '@/application/clients/SemanticActivationCommandClient';
+import {
+  getPreferredNeuralRoamUserMode,
+  setPreferredNeuralRoamUserMode,
+  type NeuralRoamUserMode,
+} from './semantic/semanticActivationModePreference';
+import { startSemanticActivationFromReviewConcept } from './semantic/reviewSemanticActivationEntry';
+import { resolveReviewConceptRoamFocus } from './reviewConceptRoam';
 import {
   createReviewSourceRefreshRuntime,
   getSharedReviewSourceRefreshCoordinator,
@@ -402,7 +413,9 @@ type ReviewPluginContextLike = {
   getTabApplicationService?: () => ReviewTabApplicationServiceLike | undefined;
   getSettingsService?: () => {
     getSettings?: () => ReviewRuntimeSettingsLike;
+    updateSettings?: (settings: Partial<PluginSettings>) => Promise<void>;
   } | undefined;
+  getSemanticActivationCommandClient?: () => Pick<SemanticActivationCommandClient, 'execute'> | null | undefined;
   getTransactionWebSocketService?: () => ReviewTransactionWebSocketServiceLike | undefined;
   getCardService?: () => CardApplicationService | undefined;
   getCardEditorService?: () => CardEditorApplicationService | undefined;
@@ -422,7 +435,7 @@ type ReviewPluginContextLike = {
 };
 
 type ReviewRuntimeSettingsLike = Pick<Partial<PluginSettings>,
-  'ai' | 'progressiveReading' | 'quickCard' | 'riffIntegration' | 'ui'
+  'ai' | 'progressiveReading' | 'quickCard' | 'riffIntegration' | 'ui' | 'queues'
 >;
 
 type ReviewPluginLike = {
@@ -1595,6 +1608,11 @@ async function handleConceptRoam(focusBlockId: string): Promise<void> {
     return;
   }
 
+  if (resolveCurrentNeuralRoamUserMode() === 'semantic-activation') {
+    await startSemanticActivationEntry({ focusBlockId: normalizedFocusBlockId });
+    return;
+  }
+
   const dialogManager = getDialogManager();
   if (typeof dialogManager?.openNeuralRoamDialog !== 'function') {
     showMessage(t('reviewConceptRoamFailed', '无法从当前概念开始漫游'), 3000, 'error');
@@ -2550,6 +2568,99 @@ function handleOpenMoreMenu(ev: MouseEvent): void {
   openMenuAtEvent(menu, ev);
 }
 
+let semanticActivationController: SemanticActivationSessionController | null = null;
+
+function getSemanticActivationController(): SemanticActivationSessionController | null {
+  if (semanticActivationController) {
+    return semanticActivationController;
+  }
+  const commandClient = getPluginContext(props.plugin)?.getSemanticActivationCommandClient?.() ?? null;
+  if (!commandClient) {
+    return null;
+  }
+  semanticActivationController = new SemanticActivationSessionController({
+    commandClient,
+  });
+  return semanticActivationController;
+}
+
+function resolveCurrentNeuralRoamUserMode(): NeuralRoamUserMode {
+  if (state.value.overlay?.component === 'SemanticActivationSurface') {
+    return 'semantic-activation';
+  }
+  const settings = getPluginContext(props.plugin)?.getSettingsService?.()?.getSettings?.();
+  const preferred = getPreferredNeuralRoamUserMode(settings as Pick<PluginSettings, 'queues'> | null | undefined);
+  if (preferred !== 'orbit') {
+    return preferred;
+  }
+  return getNeuralRoamQueue()?.getEngineMode?.() ?? preferred;
+}
+
+async function persistPreferredNeuralRoamMode(mode: NeuralRoamUserMode): Promise<void> {
+  const settingsService = getPluginContext(props.plugin)?.getSettingsService?.();
+  const current = settingsService?.getSettings?.();
+  const next = setPreferredNeuralRoamUserMode({
+    queues: {
+      ...(current?.queues ?? {}),
+    },
+  } as Pick<PluginSettings, 'queues'>, mode);
+  await settingsService?.updateSettings?.({ queues: next.queues });
+}
+
+async function startSemanticActivationEntry(conceptFocusOverride?: { focusBlockId: string } | null): Promise<void> {
+  const controller = getSemanticActivationController();
+  if (!controller) {
+    showMessage(t('semanticActivationStartUnavailable', 'Semantic Activation is unavailable.'), 3000, 'error');
+    return;
+  }
+
+  const result = await startSemanticActivationFromReviewConcept({
+    controller,
+    content: state.value.content,
+    conceptFocus: conceptFocusOverride ?? resolveReviewConceptRoamFocus(state.value.content),
+    i18n,
+    t,
+    showMessage,
+  });
+
+  if (result.status !== 'started' || !result.entry) {
+    return;
+  }
+
+  state.value = {
+    ...state.value,
+    overlay: result.entry.overlay,
+    actions: {
+      ...state.value.actions,
+      showAnswer: false,
+      grades: result.entry.model.currentNode.canGrade ? state.value.actions.grades : [],
+    },
+  };
+}
+
+function handleNeuralEngineModeMenu(ev: MouseEvent): void {
+  const menu = new Menu('neural-engine-mode-menu');
+  addReviewMenuItems(menu, buildReviewNeuralEngineModeMenuItems({
+    t,
+    currentMode: resolveCurrentNeuralRoamUserMode(),
+    onSelect: async (mode) => {
+      await handleReviewNeuralEngineModeSelection({
+        t,
+        selectedMode: mode,
+        neuralQueue: getNeuralRoamQueue(),
+        currentBlockId: resolveCurrentReviewBlockId(),
+        loadCardByBlockId: (blockId) => hook.loadCardByBlockId(blockId),
+        refreshNavigationState,
+        showMessage,
+        logger,
+        persistPreferredMode: persistPreferredNeuralRoamMode,
+        startSemanticActivation: startSemanticActivationEntry,
+      });
+    },
+  }));
+  openMenuAtEvent(menu, ev);
+}
+
 function handleToolbarAction(actionType: string, ev: MouseEvent) {
   logger.debug('[SiYuanMemo][ReviewView] handleToolbarAction called:', actionType);
 
@@ -2608,6 +2719,10 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
     } else {
       handleNeuralHistoryMenu(ev);
     }
+  } else if (actionType === 'neural-engine-mode') {
+    ev.stopPropagation();
+    ev.preventDefault();
+    handleNeuralEngineModeMenu(ev);
   } else if (isReviewNeuralToolbarAction(actionType)) {
     void handleReviewNeuralToolbarAction(actionType, {
       t,

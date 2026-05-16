@@ -4,6 +4,36 @@ Last update: 2026-05-16 (Round 371)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-16 - Semantic Activation visible entry
+
+- Task: Apply OpenSpec change `wire-semantic-activation-entry`.
+- Touched slice: Review v2 Neural Roam entry wiring, Semantic Activation Review overlay start path, `ApplicationContext` Semantic command client exposure, mode preference persistence, i18n, architecture/backlog/manual smoke docs, and focused Review/Semantic tests.
+- Debt fixed now: The third Neural Roam mode is no longer only a contract/helper. The Review engine control now has a three-mode picker, Semantic selection does not call old `NeuralRoamQueue.setEngineMode()`, Concept roam honors preferred Semantic mode, and Semantic overlay state is mounted only after writer-owned session start succeeds.
+- Debt deferred: Browser global Neural Roam button without a selected Concept still opens the old NeuralRoam surface because Semantic requires a resolvable Concept root. A richer Browser Semantic entry should be designed around selected Concept/focus context, not a blank global launch.
+- Why deferred: Starting Semantic without a Concept would violate the session root contract. The implemented path covers Review and Browser-to-Review concept handoff where a Concept focus exists.
+- Next safe step: Add a Browser queue-view action that passes an explicitly selected Concept focus into the same Semantic entry path.
+- Validation: `pnpm vitest run src\ui\review\v2\__tests__\ReviewView.concept-roam.spec.ts src\ui\review\v2\__tests__\reviewNeuralCommands.test.ts src\ui\review\v2\semantic\__tests__\reviewSemanticActivationEntry.test.ts`; full focused suite, hidden fallback gate, boundaries, build, and OpenSpec strict validation.
+
+### 2026-05-16 - Semantic Activation Review shell and AI path surface
+
+- Task: Complete OpenSpec change `add-semantic-activation-roam-engine` through tasks 6.1-10.8.
+- Touched slice: Semantic Activation presentation/domain helpers, Review v2 overlay registry, Semantic surface Vue component, Neural Roam mode preference/menu helpers, i18n, backend station command test path, architecture docs, manual smoke script, and OpenSpec task ledger.
+- Debt fixed now: Added real-card vs implicit-node presentation rules, three-lens Semantic Review surface, node/path station UI intents, bounded AI current-path input validation, accept/reject/ignore relation decisions, persisted preferred Semantic mode identity, and Review overlay registration without wiring UI to direct SQL or Orbit/Hyperspace pools.
+- Debt deferred: Live two-window SiYuan smoke remains a manual checklist until a browser harness can own writer/follower plugin windows. Primary entry routing/product placement is handled by `wire-semantic-activation-entry`; global Browser launch without selected Concept remains intentionally old NeuralRoam.
+- Why deferred: The OpenSpec slice now has executable contracts, component/runtime tests, and documented smoke steps. Live multi-window runtime assertions require an actual SiYuan instance and cannot be proven by unit tests alone.
+- Next safe step: Run `docs/semantic-activation-manual-smoke.md` against a reloaded plugin build with one writer window and one follower window, then promote the mode picker placement from pure projection to the visible header/menu surface.
+- Validation: Semantic core/application/component/backend focused Vitest suites; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate add-semantic-activation-roam-engine --strict`.
+
+### 2026-05-16 - Semantic session navigation controller
+
+- Task: Continue OpenSpec change `add-semantic-activation-roam-engine` through tasks 5.1-5.5.
+- Touched slice: Semantic Activation application session/navigation and backend command contract; `SemanticActivationSessionController`, backend `semantic.command.execute`, worker Semantic DB owner path, contracts, architecture doc, and OpenSpec task ledger.
+- Debt fixed now: Added an application controller that starts Review Concept Semantic sessions with `assimilation`, follows candidates through writer-owned commands, keeps root focus stable while appending only visited nodes to the narrative path, switches lens via the traversal command before node visit, ends sessions, and restores historical sessions by id. Backend command contract now supports `restore-session` as an explicit read result through the DB owner path.
+- Debt deferred: Review shell UI binding, Semantic node presentation surfaces, station UI/actions, mode picker preference, and AI path-analysis UI remain pending.
+- Why deferred: Section 5 owns session/navigation behavior and command façade. Sections 6-9 own presentation, station controls, mode entry, and AI workflow.
+- Next safe step: Start task 6.1 by adding Semantic node presentation types for real review cards, implicit knowledge nodes, and concept nodes without exposing Review grading controls for implicit nodes.
+- Validation: `pnpm vitest run src\application\services\__tests__\SemanticActivationSessionController.test.ts`; `pnpm vitest run worker\__tests__\BackendKernel.test.ts -t "semantic activation"`.
+
 ### 2026-05-16 - Semantic candidate pool and lens explanations
 
 - Task: Continue OpenSpec change `add-semantic-activation-roam-engine` through tasks 4.2-4.7.

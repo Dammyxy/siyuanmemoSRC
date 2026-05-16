@@ -141,4 +141,87 @@ describe('ReviewView Concept roam entry', () => {
 
     wrapper.unmount();
   });
+
+  it('starts Semantic Activation from concept roam when Semantic is the preferred Neural mode', async () => {
+    const dialogManager = {
+      openNeuralRoamDialog: vi.fn(async () => undefined),
+    };
+    const semanticExecute = vi.fn(async () => ({
+      status: 'ok',
+      commandId: 'semantic-start',
+      writerInstanceId: 'writer-1',
+      changed: { semanticSessionIds: ['semantic-session-1'] },
+      diagnosticEventId: 'semantic-diag-1',
+      session: {
+        sessionId: 'semantic-session-1',
+        rootFocusNodeId: 'concept-block',
+        currentNodeId: 'concept-block',
+        activeLens: 'assimilation',
+        narrativePath: [{
+          nodeId: 'concept-block',
+          lens: 'assimilation',
+          eventId: 'event-1',
+          visitedAt: 1,
+        }],
+        startedAt: 1,
+        endedAt: null,
+      },
+    }));
+    const queue = createQueue();
+
+    const wrapper = mount(ReviewView, {
+      attachTo: document.body,
+      props: {
+        app: {} as never,
+        queue: queue as never,
+        adapter: createAdapter() as never,
+        mode: 'dialog',
+        title: '提取练习',
+        headerVariant: 'retrieval-practice',
+        plugin: {
+          getContext: () => ({
+            getDialogManager: () => dialogManager,
+            getSettingsService: () => ({
+              getSettings: () => ({
+                queues: {
+                  neuralRoam: {
+                    preferredMode: 'semantic-activation',
+                  },
+                },
+              }),
+            }),
+            getSemanticActivationCommandClient: () => ({
+              execute: semanticExecute,
+            }),
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          AiWorkbenchPane: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+    wrapper.getComponent(ReviewContentStub).vm.$emit('concept-roam', 'concept-block');
+    await flushPromises();
+
+    expect(dialogManager.openNeuralRoamDialog).not.toHaveBeenCalled();
+    expect(semanticExecute).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'semantic.command.execute',
+      command: expect.objectContaining({
+        type: 'start-session',
+        rootFocusNodeId: 'concept-block',
+      }),
+    }));
+    expect(queue.onFeedback).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
 });

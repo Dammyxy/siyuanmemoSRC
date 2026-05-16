@@ -432,7 +432,8 @@ export type BackendSemanticCommand =
       idempotencyKey?: string;
     }
   | { type: 'mark-irrelevant'; sessionId: string; nodeId: string; idempotencyKey?: string }
-  | { type: 'end-session'; sessionId: string; idempotencyKey?: string };
+  | { type: 'end-session'; sessionId: string; idempotencyKey?: string }
+  | { type: 'restore-session'; sessionId: string; idempotencyKey?: string };
 
 export interface BackendSemanticCommandRequest {
   requestId: string;

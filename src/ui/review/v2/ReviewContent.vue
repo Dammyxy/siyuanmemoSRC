@@ -2602,6 +2602,10 @@ const conceptRoamFocus = computed(() => resolveReviewConceptRoamFocus(props.cont
   pointer-events: none;
 }
 
+.fsrs-review-v2-content__overlay > :deep(*) {
+  pointer-events: auto;
+}
+
 .fsrs-review-v2-content__overlay[data-layout='top'] {
   inset: 0 0 auto 0;
 }

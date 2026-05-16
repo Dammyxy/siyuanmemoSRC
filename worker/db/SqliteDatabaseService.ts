@@ -2044,6 +2044,8 @@ export class WorkerSqliteDatabaseService {
         return this.markSemanticNodeIrrelevant(requestId, command);
       case 'end-session':
         return this.endSemanticSession(requestId, command);
+      case 'restore-session':
+        return this.restoreSemanticSession(requestId, command);
       default:
         return this.semanticFailed(requestId, 'invalid-request', `unsupported semantic command: ${(command as { type?: unknown }).type || '<missing>'}`);
     }
@@ -2301,6 +2303,17 @@ export class WorkerSqliteDatabaseService {
     return this.semanticOk(requestId, session.sessionId, { session: updated, event });
   }
 
+  private restoreSemanticSession(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'restore-session' }>,
+  ): BackendSemanticCommandResult {
+    const session = this.requireSemanticSession(requestId, command.sessionId);
+    if (!('sessionId' in session)) {
+      return session;
+    }
+    return this.semanticReadOk(requestId, session.sessionId, { session });
+  }
+
   private requireSemanticSession(requestId: string, sessionIdInput: unknown): SemanticSessionSnapshot | BackendSemanticCommandResult {
     const sessionId = normalizeString(sessionIdInput);
     if (!sessionId) {
@@ -2357,6 +2370,23 @@ export class WorkerSqliteDatabaseService {
     payload: Partial<Pick<Extract<BackendSemanticCommandResult, { status: 'ok' }>, 'session' | 'event' | 'events' | 'station' | 'relation'>>,
   ): BackendSemanticCommandResult {
     this.rebuildSemanticProjectionCache(sessionId);
+    return {
+      status: 'ok',
+      commandId: requestId,
+      writerInstanceId: 'backend-worker',
+      changed: {
+        semanticSessionIds: [sessionId],
+      },
+      diagnosticEventId: `semantic-command:${requestId}`,
+      ...payload,
+    };
+  }
+
+  private semanticReadOk(
+    requestId: string,
+    sessionId: string,
+    payload: Partial<Pick<Extract<BackendSemanticCommandResult, { status: 'ok' }>, 'session' | 'event' | 'events' | 'station' | 'relation'>>,
+  ): BackendSemanticCommandResult {
     return {
       status: 'ok',
       commandId: requestId,

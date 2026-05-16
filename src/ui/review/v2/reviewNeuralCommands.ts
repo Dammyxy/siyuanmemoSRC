@@ -1,4 +1,8 @@
 import { getNeuralEngineLabel, getNeuralSourceLabelSet } from '@/ui/shared/neuralRoamLabels';
+import {
+  buildNeuralRoamModeOptions,
+  type NeuralRoamUserMode,
+} from './semantic/semanticActivationModePreference';
 import type {
   NeuralEngineMode,
   NeuralRoamHistoryEntry,
@@ -44,9 +48,21 @@ type ReviewNeuralCommandDeps = {
   logger?: ReviewNeuralLogger;
 };
 
+type ReviewNeuralEngineModeSelectionDeps = ReviewNeuralCommandDeps & {
+  selectedMode: NeuralRoamUserMode;
+  persistPreferredMode: (mode: NeuralRoamUserMode) => void | Promise<void>;
+  startSemanticActivation: () => void | Promise<void>;
+};
+
 type BuildReviewNeuralMenuItemsInput = Omit<ReviewNeuralCommandDeps, 'currentBlockId'> & {
   neuralQueue: NeuralRoamSessionQueue;
   openNeuralBrowserSubview: (subview: ReviewNeuralBrowserSubview) => void;
+};
+
+type BuildReviewNeuralEngineModeMenuItemsInput = {
+  t: ReviewTranslate;
+  currentMode: NeuralRoamUserMode;
+  onSelect: (mode: NeuralRoamUserMode) => void | Promise<void>;
 };
 
 export function isReviewNeuralToolbarAction(actionType: string): actionType is ReviewNeuralToolbarAction {
@@ -58,6 +74,41 @@ export function isReviewNeuralToolbarAction(actionType: string): actionType is R
 
 export function isReviewNeuralMenuAction(actionType: string): actionType is ReviewNeuralMenuAction {
   return actionType === 'neural-focuses' || actionType === 'neural-history';
+}
+
+export function buildReviewNeuralEngineModeMenuItems(input: BuildReviewNeuralEngineModeMenuItemsInput): ReviewMenuItem[] {
+  const { t, currentMode, onSelect } = input;
+  return buildNeuralRoamModeOptions(t).map((option) => ({
+    icon: option.mode === 'semantic-activation' ? 'iconSparkles' : 'iconRefresh',
+    label: option.mode === currentMode ? `${option.label} ✓` : option.label,
+    description: option.description,
+    disabled: option.mode === currentMode,
+    click: () => onSelect(option.mode),
+  }));
+}
+
+export async function handleReviewNeuralEngineModeSelection(
+  deps: ReviewNeuralEngineModeSelectionDeps,
+): Promise<void> {
+  const { selectedMode, persistPreferredMode, startSemanticActivation, neuralQueue, showMessage, t, logger } = deps;
+  await persistPreferredMode(selectedMode);
+
+  if (selectedMode === 'semantic-activation') {
+    await startSemanticActivation();
+    return;
+  }
+
+  if (!neuralQueue) {
+    showMessage(t('queueNoFocusSupport', 'This queue does not support center actions'), 3000, 'error');
+    return;
+  }
+
+  try {
+    await switchNeuralEngineMode(selectedMode, { ...deps, neuralQueue });
+  } catch (error) {
+    logger?.error?.('[SiYuanMemo][ReviewView] Failed to switch engine mode:', error);
+    showMessage(t('engineModeSwitchFailed', 'Failed to switch engine mode'), 3000, 'error');
+  }
 }
 
 function shortenBlockId(blockId: string): string {

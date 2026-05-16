@@ -2,6 +2,7 @@ export type ReviewMenuItem = {
   id?: string;
   icon?: string;
   label: string;
+  description?: string;
   disabled?: boolean;
   click?: () => void | Promise<void>;
   submenu?: ReviewMenuItem[];

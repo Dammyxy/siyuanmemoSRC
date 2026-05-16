@@ -474,6 +474,7 @@ export interface NeuralRoamHistorySettings {
 }
 
 export interface NeuralRoamSettings {
+    preferredMode?: 'orbit' | 'hyperspace' | 'semantic-activation';
     history: NeuralRoamHistorySettings;
     hyperspace: HyperspaceSettings;
 }
@@ -754,6 +755,10 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
             neuralRoam: {
                 ...DEFAULT_SETTINGS.queues.neuralRoam,
                 ...(settings.queues?.neuralRoam || {}),
+                preferredMode: settings.queues?.neuralRoam?.preferredMode === 'hyperspace'
+                    || settings.queues?.neuralRoam?.preferredMode === 'semantic-activation'
+                    ? settings.queues.neuralRoam.preferredMode
+                    : DEFAULT_SETTINGS.queues.neuralRoam?.preferredMode,
                 history: {
                     ...DEFAULT_SETTINGS.queues.neuralRoam?.history,
                     ...(settings.queues?.neuralRoam?.history || {}),
@@ -1943,6 +1948,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
             },
         },
         neuralRoam: {
+            preferredMode: 'orbit',
             history: {
                 maxEntries: 3000,
             },

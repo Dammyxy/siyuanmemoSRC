@@ -327,6 +327,19 @@ export class SettingsService implements ISettingsService {
     }
 
     const neuralHistory = settings.queues?.neuralRoam?.history;
+    const preferredNeuralMode = settings.queues?.neuralRoam?.preferredMode;
+    if (
+      preferredNeuralMode !== undefined
+      && preferredNeuralMode !== 'orbit'
+      && preferredNeuralMode !== 'hyperspace'
+      && preferredNeuralMode !== 'semantic-activation'
+    ) {
+      throw new SettingsValidationError(
+        'queues.neuralRoam.preferredMode must be orbit, hyperspace, or semantic-activation',
+        'queues.neuralRoam.preferredMode'
+      );
+    }
+
     if (neuralHistory) {
       this.validateFiniteRange(
         neuralHistory.maxEntries,
