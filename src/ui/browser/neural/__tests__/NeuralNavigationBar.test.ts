@@ -51,11 +51,12 @@ describe('NeuralNavigationBar', () => {
     expect(wrapper.get('.neural-nav-bar__engine').text()).toBe('Orbit');
     expect(wrapper.get('.neural-nav-bar__status').text()).toContain('Current: Follow Path (4/10)');
     expect(wrapper.get('.neural-nav-bar__intro').text()).toBe('Roam locally around orbit centers, concept cards, and nearby stations.');
-    expect(wrapper.get('.neural-nav-bar__button').attributes('aria-label')).toContain('Switch Engine: Orbit Mode');
-    expect(wrapper.get('.neural-nav-bar__button').attributes('aria-label')).toContain('Roam locally around an orbit center');
-    expect(wrapper.get('.neural-nav-bar__button').attributes('title')).toContain('\n');
-    expect(wrapper.get('.neural-nav-bar__button').attributes('title')).toContain('Switch Engine: Orbit Mode');
-    expect(wrapper.get('.neural-nav-bar__button').attributes('title')).toContain('Roam locally around an orbit center');
+    expect(wrapper.findAll('.neural-nav-bar__mode').map((button) => button.text())).toEqual([
+      'Orbit',
+      'Hyperspace Expedition',
+      'Semantic Activation',
+    ]);
+    expect(wrapper.findAll('.neural-nav-bar__mode')[0]?.attributes('aria-selected')).toBe('true');
   });
 
   it('renders hyperspace explore status text', () => {
@@ -80,9 +81,33 @@ describe('NeuralNavigationBar', () => {
     expect(wrapper.get('.neural-nav-bar__engine').text()).toBe('Hyperspace Expedition');
     expect(wrapper.get('.neural-nav-bar__status').text()).toContain('Current: Free Roam');
     expect(wrapper.get('.neural-nav-bar__intro').text()).toBe('Propagate outward layer by layer from activation sources through links and optional tree relations.');
-    expect(wrapper.findAll('.neural-nav-bar__button')[0]?.attributes('aria-label')).toContain('Switch Engine: Hyperspace Expedition Mode');
-    expect(wrapper.findAll('.neural-nav-bar__button')[0]?.attributes('aria-label')).toContain('instead of orbiting a single center');
-    expect(wrapper.findAll('.neural-nav-bar__button')[0]?.attributes('title')).toContain('\n');
+    expect(wrapper.findAll('.neural-nav-bar__mode')[1]?.attributes('aria-selected')).toBe('true');
+  });
+
+  it('renders semantic as workspace mode without treating it as a neural engine', async () => {
+    const wrapper = mount(NeuralNavigationBar, {
+      props: {
+        i18n: {
+          engineOrbit: 'Orbit',
+          engineHyperspace: 'Hyperspace',
+          semanticActivation: 'Semantic',
+          semanticActivationIntro: 'Current understanding path only.',
+          navModeFollow: 'Follow Path',
+          navStatusFollow: 'Current: {mode} ({current}/{total})',
+        },
+        navigationState: createNavigationState(),
+        workspaceMode: 'semantic',
+      },
+    });
+
+    expect(wrapper.get('.neural-nav-bar__engine').text()).toBe('Semantic');
+    expect(wrapper.get('.neural-nav-bar__intro').text()).toBe('Current understanding path only.');
+    expect(wrapper.findAll('.neural-nav-bar__mode')[2]?.attributes('aria-selected')).toBe('true');
+
+    await wrapper.findAll('.neural-nav-bar__mode')[2]?.trigger('click');
+
+    expect(wrapper.emitted('select-workspace-mode')?.[0]).toEqual(['semantic']);
+    expect(wrapper.emitted('toggle-engine-mode')).toBeFalsy();
   });
 
   it('disables return button when bookmark is unavailable', () => {
@@ -95,7 +120,7 @@ describe('NeuralNavigationBar', () => {
     });
 
     const buttons = wrapper.findAll('.neural-nav-bar__button');
-    expect(buttons[2].attributes('disabled')).toBeDefined();
+    expect(buttons[1].attributes('disabled')).toBeDefined();
   });
 
   it('emits engine/nav/bookmark events', async () => {
@@ -107,12 +132,13 @@ describe('NeuralNavigationBar', () => {
       },
     });
 
+    const modes = wrapper.findAll('.neural-nav-bar__mode');
     const buttons = wrapper.findAll('.neural-nav-bar__button');
+    await modes[1].trigger('click');
     await buttons[0].trigger('click');
     await buttons[1].trigger('click');
-    await buttons[2].trigger('click');
 
-    expect(wrapper.emitted('toggle-engine-mode')).toBeTruthy();
+    expect(wrapper.emitted('select-workspace-mode')?.[0]).toEqual(['hyperspace']);
     expect(wrapper.emitted('toggle-nav-mode')).toBeTruthy();
     expect(wrapper.emitted('return-bookmark')).toBeTruthy();
   });

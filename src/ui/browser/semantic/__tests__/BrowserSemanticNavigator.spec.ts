@@ -151,6 +151,9 @@ describe('BrowserSemanticNavigator', () => {
     expect(wrapper.text()).not.toContain('Hard');
     expect(wrapper.text()).not.toContain('Good');
     expect(wrapper.text()).not.toContain('Easy');
+    expect(wrapper.text()).not.toContain('Reveal');
+    expect(wrapper.text()).not.toContain('Schedule');
+    expect(wrapper.text()).not.toContain('Auto-create');
   });
 
   it('keeps real review-card nodes free of Browser-native grading controls', () => {

@@ -125,39 +125,10 @@
       />
 
       <NeuralSubviewTabs
-        v-if="isNeuralRoamQueueActive"
+        v-if="isNeuralRoamQueueActive && !isBrowserSemanticWorkspaceActive"
         v-model="neuralSubview"
         :tabs="neuralSubviewTabs"
       />
-
-      <section
-        v-if="showBrowserSemanticWorkbench"
-        class="card-browser__semantic-workbench"
-        aria-label="Browser Semantic Workbench"
-      >
-        <BrowserSemanticNavigator
-          v-if="browserSemanticState.model"
-          :model="browserSemanticState.model"
-          :i18n="props.i18n"
-          :pending="browserSemanticPending"
-          :unavailable="browserSemanticState.unavailable"
-          @follow="handleBrowserSemanticFollow"
-          @create-station="handleBrowserSemanticCreateStation"
-          @archive-station="handleBrowserSemanticArchiveStation"
-          @open-node-station="handleBrowserSemanticOpenNodeStation"
-          @restore-path-station="handleBrowserSemanticRestorePathStation"
-          @open-review="handleBrowserSemanticOpenInReview"
-          @end-session="handleBrowserSemanticEndSession"
-        />
-        <div
-          v-else
-          class="card-browser__semantic-unavailable"
-          role="alert"
-        >
-          <strong>{{ t('browserSemanticUnavailable', 'Semantic Workbench unavailable') }}</strong>
-          <span>{{ browserSemanticState.unavailable?.message || t('browserSemanticNoSession', 'Select a Concept card and start Semantic.') }}</span>
-        </div>
-      </section>
 
       <!-- Detection status hint (disabled) -->
       <!-- <div
@@ -232,12 +203,68 @@
           :i18n="props.i18n"
           :siyuan-api="browserSiyuanApi"
           :navigation-state="neuralNavigationState"
+          :workspace-mode="neuralWorkspaceMode"
+          @select-workspace-mode="handleSelectNeuralWorkspaceMode"
           @toggle-engine-mode="handleNeuralToggleEngineMode"
           @toggle-nav-mode="handleNeuralToggleNavigationMode"
           @return-bookmark="handleNeuralReturnToBookmark"
         />
+        <section
+          v-if="isBrowserSemanticWorkspaceActive"
+          class="card-browser__semantic-workspace"
+          aria-label="Browser Semantic Workbench"
+        >
+          <div class="card-browser__semantic-root-pool">
+            <div class="card-browser__semantic-root-pool-header">
+              <span>{{ t('semanticRootCandidates', 'Semantic Roots') }}</span>
+              <span class="ft__secondary">{{ neuralSourceEntries.length }}</span>
+            </div>
+            <div
+              v-if="neuralSourceEntries.length === 0"
+              class="card-browser__semantic-empty"
+            >
+              {{ t('semanticRootPoolEmpty', 'No concept roots available. Add Concept cards to the Neural Roam pool first.') }}
+            </div>
+            <button
+              v-for="entry in neuralSourceEntries"
+              v-else
+              :key="`${entry.nodeId}-${entry.addedAt}`"
+              type="button"
+              class="card-browser__semantic-root"
+              :class="{ 'card-browser__semantic-root--active': browserSemanticState.model?.rootNode.nodeId === entry.nodeId }"
+              @click="handleBrowserSemanticStartFromNeuralRoot(entry.nodeId)"
+            >
+              <span>{{ entry.nodePreview || entry.nodeId }}</span>
+              <small>{{ t('startSemanticRoot', 'Start Semantic') }}</small>
+            </button>
+          </div>
+          <div class="card-browser__semantic-workbench">
+            <BrowserSemanticNavigator
+              v-if="browserSemanticState.model"
+              :model="browserSemanticState.model"
+              :i18n="props.i18n"
+              :pending="browserSemanticPending"
+              :unavailable="browserSemanticState.unavailable"
+              @follow="handleBrowserSemanticFollow"
+              @create-station="handleBrowserSemanticCreateStation"
+              @archive-station="handleBrowserSemanticArchiveStation"
+              @open-node-station="handleBrowserSemanticOpenNodeStation"
+              @restore-path-station="handleBrowserSemanticRestorePathStation"
+              @open-review="handleBrowserSemanticOpenInReview"
+              @end-session="handleBrowserSemanticEndSession"
+            />
+            <div
+              v-else
+              class="card-browser__semantic-unavailable"
+              role="alert"
+            >
+              <strong>{{ t('browserSemanticUnavailable', 'Semantic Workbench unavailable') }}</strong>
+              <span>{{ browserSemanticState.unavailable?.message || t('browserSemanticNoSession', 'Select a Concept from the pool to start Semantic.') }}</span>
+            </div>
+          </div>
+        </section>
         <NeuralFocusList
-          v-if="neuralSubview === 'concept-cards'"
+          v-else-if="neuralSubview === 'concept-cards'"
           :i18n="props.i18n"
           :entries="neuralSourceEntries"
           :selected-node-id="selectedNeuralTraceNodeId"
@@ -514,7 +541,7 @@ import type {
 } from '@/types/unified-data-source';
 import type { QueueProjectionIdentity } from '@/types/queue-projection-live-identity';
 import { filterService } from './services/FilterService';
-import type { NeuralSubview } from './neural/types';
+import type { BrowserNeuralWorkspaceMode, NeuralSubview } from './neural/types';
 import {
   CARD_STATE_COLORS,
   DEFAULT_PRIORITY,
@@ -745,6 +772,7 @@ const activeScopeDocIds = ref<string[] | null>(null);
 const activeDocId = ref<string | null>(null);
 const queueCounts = ref<Record<string, number>>({ ...EMPTY_QUEUE_COUNTS });
 const neuralSubview = ref<NeuralSubview>('concept-cards');
+const neuralWorkspaceMode = ref<BrowserNeuralWorkspaceMode>('orbit');
 const navigatorOpen = ref(false);
 const narrowRoamPane = ref<BrowserNarrowRoamPane>(resolveDefaultBrowserNarrowRoamPane());
 const NEURAL_HISTORY_PAGE_SIZE = 200;
@@ -925,7 +953,12 @@ const browserSemanticTargetCard = computed(() => selectedRows.value[0] ?? previe
 const canStartBrowserSemantic = computed(() =>
   Boolean(browserSemanticTargetCard.value) && !loading.value
 );
-const showBrowserSemanticWorkbench = computed(() => browserSemanticState.value.status !== 'idle');
+const isBrowserSemanticWorkspaceActive = computed(() =>
+  isNeuralRoamQueueActive.value && neuralWorkspaceMode.value === 'semantic'
+);
+const showBrowserSemanticWorkbench = computed(() =>
+  isBrowserSemanticWorkspaceActive.value && browserSemanticState.value.status !== 'idle'
+);
 const browserSemanticPending = computed(() => browserSemanticState.value.status === 'pending');
 
 function t(key: string, fallback: string): string {
@@ -2136,6 +2169,13 @@ watch(neuralSubview, () => {
   }
 });
 
+watch(() => neuralNavigationState.value?.engineMode, (engineMode) => {
+  if (!engineMode || neuralWorkspaceMode.value === 'semantic') {
+    return;
+  }
+  neuralWorkspaceMode.value = engineMode;
+});
+
 watch(layoutProfile, (profile, previousProfile) => {
   if (profile === previousProfile) {
     return;
@@ -3051,8 +3091,7 @@ function ensureBrowserSemanticController(): BrowserSemanticStateController | nul
   return browserSemanticController.value;
 }
 
-async function handleStartBrowserSemantic(): Promise<void> {
-  const targetCard = browserSemanticTargetCard.value;
+async function startBrowserSemanticFromCard(targetCard: BrowserCard | null | undefined): Promise<void> {
   if (!targetCard) {
     setBrowserSemanticUnavailable(t('browserSemanticNoSelection', 'Select a Concept card before starting Semantic.'));
     return;
@@ -3080,6 +3119,67 @@ async function handleStartBrowserSemantic(): Promise<void> {
   }
 
   browserSemanticState.value = await controller.start(targetCard);
+}
+
+async function switchToBrowserSemanticWorkspace(): Promise<void> {
+  neuralWorkspaceMode.value = 'semantic';
+  if (!isNeuralRoamQueueActive.value) {
+    await handleSelectQueue('neural-roam');
+  }
+  await refreshNeuralSubviewData();
+}
+
+async function handleStartBrowserSemantic(): Promise<void> {
+  const targetCard = browserSemanticTargetCard.value;
+  await switchToBrowserSemanticWorkspace();
+  await startBrowserSemanticFromCard(targetCard);
+}
+
+async function resolveBrowserSemanticCardFromNeuralRoot(nodeId: string): Promise<BrowserCard | null> {
+  const cards = await loadBrowserCardsByBlockIds([nodeId], {
+    applyQueryFilter: false,
+    manager: pluginUnifiedDataSourceManager.value || undefined,
+    siyuanApi: browserSiyuanApi.value || undefined,
+  });
+  return cards[0] ?? null;
+}
+
+async function handleBrowserSemanticStartFromNeuralRoot(nodeId: string): Promise<void> {
+  const targetCard = await resolveBrowserSemanticCardFromNeuralRoot(nodeId);
+  if (!targetCard) {
+    setBrowserSemanticUnavailable(t('browserSemanticRootUnavailable', 'Semantic root cannot be resolved from this concept pool item.'));
+    return;
+  }
+  await startBrowserSemanticFromCard(targetCard);
+}
+
+async function handleSelectNeuralWorkspaceMode(mode: BrowserNeuralWorkspaceMode): Promise<void> {
+  if (mode === 'semantic') {
+    neuralWorkspaceMode.value = 'semantic';
+    if (isNeuralRoamQueueActive.value) {
+      await refreshNeuralSubviewData();
+    }
+    if (browserSemanticState.value.status === 'idle') {
+      browserSemanticState.value = {
+        status: 'unavailable',
+        activeSessionId: null,
+        model: null,
+        unavailable: {
+          status: 'unavailable',
+          reason: 'focus-unavailable',
+          message: t('browserSemanticNoSession', 'Select a Concept from the pool to start Semantic.'),
+        },
+        pendingCommand: null,
+      };
+    }
+    return;
+  }
+
+  neuralWorkspaceMode.value = mode;
+  const currentEngineMode = neuralNavigationState.value?.engineMode;
+  if (currentEngineMode && currentEngineMode !== mode) {
+    await handleNeuralToggleEngineMode();
+  }
 }
 
 async function runBrowserSemanticAction(

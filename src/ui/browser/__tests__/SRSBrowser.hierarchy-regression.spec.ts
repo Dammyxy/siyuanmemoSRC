@@ -14,6 +14,8 @@ const createDeckDataSourceMock = vi.fn();
 const createQueueDataSourceMock = vi.fn();
 const createQueryDataSourceMock = vi.fn();
 const createFocusDataSourceMock = vi.fn();
+const getQueueByIdBridgeMock = vi.fn();
+const loadBrowserCardsByBlockIdsMock = vi.fn(async () => []);
 const agGridAttrsSeen: Array<Record<string, unknown>> = [];
 let agGridClickRow: BrowserCard | null = null;
 
@@ -108,7 +110,7 @@ vi.mock('@/utils/performance', () => ({
 }));
 
 vi.mock('../browserService', () => ({
-  loadBrowserCardsByBlockIds: vi.fn(async () => []),
+  loadBrowserCardsByBlockIds: (...args: unknown[]) => loadBrowserCardsByBlockIdsMock(...args),
   loadQueueCards: vi.fn(async () => []),
   setGlobalBrowserContext: (...args: unknown[]) => setGlobalBrowserContextMock(...args),
   clearGlobalBrowserContext: (...args: unknown[]) => clearGlobalBrowserContextMock(...args),
@@ -182,7 +184,7 @@ vi.mock('../composables/useQueueBridge', () => ({
     'filter-group': 0,
   },
   useQueueBridge: () => ({
-    getQueueById: vi.fn(),
+    getQueueById: (...args: unknown[]) => getQueueByIdBridgeMock(...args),
     refreshQueueCounts: vi.fn(async (queueCountsRef: { value: Record<string, number> }) => {
       queueCountsRef.value = {
         retrieval: 0,
@@ -381,6 +383,54 @@ function createBrowserService() {
   };
 }
 
+function createNeuralQueueMock(overrides: Record<string, unknown> = {}) {
+  return {
+    getEngineMode: vi.fn(() => 'orbit'),
+    setEngineMode: vi.fn(),
+    getSourceSnapshot: vi.fn(() => []),
+    setSourceEntry: vi.fn(),
+    getSeedSnapshot: vi.fn(() => []),
+    setSeedEntry: vi.fn(),
+    getAnchorSnapshot: vi.fn(() => []),
+    setAnchorEntry: vi.fn(),
+    clearAnchors: vi.fn(),
+    getCurrentBatchSnapshot: vi.fn(() => []),
+    getConceptBlocks: vi.fn(() => []),
+    getFocusPoolSnapshot: vi.fn(() => []),
+    setFocusPoolEntry: vi.fn(),
+    clearFocusPool: vi.fn(),
+    setCurrentFocus: vi.fn(),
+    startRoamingFromFocus: vi.fn(),
+    getHistoryCount: vi.fn(() => 0),
+    getHistoryPage: vi.fn(() => ({ entries: [], totalCount: 0, hasMore: false })),
+    getHistorySnapshot: vi.fn(() => []),
+    getHistoryEntryByEventId: vi.fn(() => null),
+    getHistoryEntriesByNodeId: vi.fn(() => []),
+    getHistoryHitCount: vi.fn(() => 0),
+    getActivationTrace: vi.fn(() => null),
+    getSessionFocusStack: vi.fn(() => []),
+    getPinnedFocusBlocks: vi.fn(() => []),
+    setPinnedFocusBlock: vi.fn(),
+    jumpToHistoryNode: vi.fn(),
+    getPathItemByNodeId: vi.fn(),
+    getNavigationState: vi.fn(() => ({
+      currentPathIndex: 0,
+      currentNodeId: null,
+      currentEventId: null,
+      navigationMode: 'follow',
+      engineMode: 'orbit',
+      engineSessionId: null,
+      hasBookmark: false,
+      pathLength: 0,
+      sessionId: null,
+    })),
+    setNavigationMode: vi.fn(),
+    returnToBookmark: vi.fn(() => false),
+    clearHistory: vi.fn(),
+    ...overrides,
+  };
+}
+
 async function advance(ms: number): Promise<void> {
   await vi.advanceTimersByTimeAsync(ms);
   await flushPromises();
@@ -449,7 +499,25 @@ function mountBrowser(propOverrides: Record<string, unknown> = {}) {
         BrowserPreview: { template: '<div class="preview-stub"></div>' },
         SyncStatusIndicator: { template: '<div class="sync-stub"></div>' },
         NeuralSubviewTabs: { template: '<div class="neural-tabs-stub"></div>' },
-        NeuralNavigationBar: { template: '<div></div>' },
+        NeuralNavigationBar: defineComponent({
+          name: 'NeuralNavigationBar',
+          props: {
+            workspaceMode: {
+              type: String,
+              default: 'orbit',
+            },
+          },
+          emits: ['select-workspace-mode', 'toggle-engine-mode', 'toggle-nav-mode', 'return-bookmark'],
+          setup(props, { emit }) {
+            return () => h('div', { class: 'neural-nav-stub' }, [
+              ...(['orbit', 'hyperspace', 'semantic'] as const).map((mode) => h('button', {
+                class: ['neural-mode-stub', `neural-mode-${mode}`],
+                'data-active': String(props.workspaceMode === mode),
+                onClick: () => emit('select-workspace-mode', mode),
+              }, mode)),
+            ]);
+          },
+        }),
         NeuralFocusList: { template: '<div></div>' },
         NeuralHistoryList: { template: '<div></div>' },
         NeuralActivationTracePanel: { template: '<div></div>' },
@@ -470,6 +538,10 @@ describe('SRSBrowser hierarchy regressions', () => {
     subscribeCacheUpdateMock.mockClear();
     getCacheStatsMock.mockReset();
     getCacheStatsMock.mockReturnValue({ count: 0, age: 0, valid: false });
+    getQueueByIdBridgeMock.mockReset();
+    getQueueByIdBridgeMock.mockReturnValue(null);
+    loadBrowserCardsByBlockIdsMock.mockReset();
+    loadBrowserCardsByBlockIdsMock.mockResolvedValue([]);
     createDeckDataSourceMock.mockReset();
     createQueueDataSourceMock.mockReset();
     createQueryDataSourceMock.mockReset();
@@ -493,6 +565,102 @@ describe('SRSBrowser hierarchy regressions', () => {
 
     expect(getRowId).toBeTypeOf('function');
     expect(getRowId?.({ data: buildBrowserCard('card-row-id', 'doc-1') })).toBe('card-row-id');
+
+    wrapper.unmount();
+  });
+
+  it('shows Orbit, Hyperspace, and Semantic choices in the Neural Roam workspace', async () => {
+    const wrapper = mountBrowser({ initialQueueId: 'neural-roam' });
+    await advance(0);
+    await advance(0);
+
+    expect(wrapper.find('.neural-mode-orbit').exists()).toBe(true);
+    expect(wrapper.find('.neural-mode-hyperspace').exists()).toBe(true);
+    expect(wrapper.find('.neural-mode-semantic').exists()).toBe(true);
+
+    wrapper.unmount();
+  });
+
+  it('selects Semantic without mutating Neural engine state', async () => {
+    const neuralQueue = createNeuralQueueMock();
+    getQueueByIdBridgeMock.mockReturnValue(neuralQueue);
+
+    const wrapper = mountBrowser({ initialQueueId: 'neural-roam' });
+    await advance(0);
+    await advance(0);
+    await wrapper.get('.neural-mode-semantic').trigger('click');
+    await flushPromises();
+    await nextTick();
+
+    expect(neuralQueue.setEngineMode).not.toHaveBeenCalled();
+    expect(neuralQueue.setSourceEntry).not.toHaveBeenCalled();
+    expect(neuralQueue.setAnchorEntry).not.toHaveBeenCalled();
+    expect(neuralQueue.startRoamingFromFocus).not.toHaveBeenCalled();
+    expect(neuralQueue.clearHistory).not.toHaveBeenCalled();
+    expect(wrapper.get('.neural-mode-semantic').attributes('data-active')).toBe('true');
+
+    wrapper.unmount();
+  });
+
+  it('starts Semantic from a Neural concept-pool root without adding implicit nodes to the pool', async () => {
+    const conceptCard = buildConceptBrowserCard('pool-root');
+    const neuralQueue = createNeuralQueueMock({
+      getSourceSnapshot: vi.fn(() => [{
+        nodeId: 'pool-root',
+        nodePreview: 'Pool Root Concept',
+        nodeKind: 'concept',
+        visitedAt: 10,
+        addedAt: 5,
+        priority: 50,
+      }]),
+    });
+    getQueueByIdBridgeMock.mockReturnValue(neuralQueue);
+    loadBrowserCardsByBlockIdsMock.mockResolvedValue([conceptCard]);
+    const readMock = vi.fn(async (request: { rootFocusNodeId?: string; sessionId?: string }) => {
+      if (request.rootFocusNodeId) {
+        return { ...semanticReadResult('session-pool', request.rootFocusNodeId), activeSession: null, session: null, rootNode: null, currentNode: null };
+      }
+      return semanticReadResult('session-pool', conceptCard.blockId);
+    });
+    const executeMock = vi.fn(async () => ({
+      status: 'ok',
+      commandId: 'semantic-start',
+      writerInstanceId: 'writer-1',
+      changed: {},
+      session: {
+        sessionId: 'session-pool',
+        rootFocusNodeId: conceptCard.blockId,
+        currentNodeId: conceptCard.blockId,
+        activeLens: 'assimilation',
+        narrativePath: [{ nodeId: conceptCard.blockId, lens: 'assimilation', eventId: 'event-root', visitedAt: 1 }],
+        startedAt: 1,
+        endedAt: null,
+      },
+      diagnosticEventId: 'semantic-start-ok',
+    }));
+
+    const wrapper = mountBrowser({
+      initialQueueId: 'neural-roam',
+      plugin: mountSemanticPlugin(readMock, executeMock) as never,
+    });
+    await advance(0);
+    await advance(0);
+    await wrapper.get('.neural-mode-semantic').trigger('click');
+    await flushPromises();
+    await nextTick();
+    await wrapper.get('.card-browser__semantic-root').trigger('click');
+    await flushPromises();
+    await nextTick();
+
+    expect(executeMock).toHaveBeenCalledWith(expect.objectContaining({
+      callerIntent: 'semantic.browser-concept.start',
+      command: expect.objectContaining({
+        type: 'start-session',
+        rootFocusNodeId: conceptCard.blockId,
+      }),
+    }));
+    expect(neuralQueue.setSourceEntry).not.toHaveBeenCalled();
+    expect(wrapper.get('.semantic-workbench-stub').text()).toContain('Visible Semantic Root');
 
     wrapper.unmount();
   });
@@ -548,6 +716,7 @@ describe('SRSBrowser hierarchy regressions', () => {
     }));
     expect(wrapper.get('.semantic-workbench-stub').text()).toContain('Visible Semantic Root');
     expect(wrapper.get('.toolbar-start-semantic').attributes('data-active')).toBe('true');
+    expect(wrapper.find('.card-browser__content > .card-browser__semantic-workbench').exists()).toBe(false);
 
     wrapper.unmount();
   });

@@ -8,6 +8,7 @@ import type {
 } from '@/types/unified-data-source';
 
 export type NeuralSubview = 'concept-cards' | 'roam-history' | 'worldline-anchors';
+export type BrowserNeuralWorkspaceMode = 'orbit' | 'hyperspace' | 'semantic';
 
 export interface NeuralSubviewTab {
   id: NeuralSubview;
