@@ -15,7 +15,7 @@ function presentation(nodeId: string, title: string, nodeType: SemanticNodePrese
     breadcrumb: [],
     backlinkBlockIds: [],
     blockId: nodeId,
-    cardId: null,
+    cardId: isReviewCard ? `card-${nodeId}` : null,
     isReviewCard,
     isImplicitKnowledge,
     isConceptNode,
@@ -102,7 +102,10 @@ describe('BrowserSemanticStateController', () => {
           focus: { rootFocusNodeId: 'root', title: 'Root', sourceCard: {} as never },
           restored: false,
           commandResult: null,
-          model: model('session-review', 'current-review'),
+          model: {
+            ...model('session-review', 'current-review'),
+            currentNode: presentation('current-review', 'Current Review', 'real-review-card'),
+          },
         })),
         followCandidate: vi.fn(),
         createStation: vi.fn(),
@@ -119,6 +122,9 @@ describe('BrowserSemanticStateController', () => {
     expect(openReviewSession).toHaveBeenCalledWith({
       sessionId: 'session-review',
       currentNodeId: 'current-review',
+      blockId: 'current-review',
+      cardId: 'card-current-review',
+      isReviewCard: true,
     });
   });
 });

@@ -4,6 +4,16 @@ Last update: 2026-05-16 (Round 372)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-17 - Browser Semantic Open in Review handoff
+
+- Task: Fix Browser Semantic `在复习中打开` after walking the Semantic path.
+- Touched slice: Browser Semantic state handoff, Browser shell handoff adapter, i18n, focused Semantic Browser tests, and architecture docs.
+- Debt fixed now: Browser Semantic handoff now carries current node review identity (`blockId/cardId/isReviewCard`) instead of only `sessionId/currentNodeId`. Real review-card Semantic nodes open as a one-card subset review through the existing plugin review entry, preserving preferred card id when available. Implicit/concept nodes fail closed with a clear message instead of pretending they are reviewable.
+- Debt deferred: Full Review surface reuse of an existing Semantic session remains separate; this fix opens the current real review card for review, not a live Semantic Review overlay bound to the same Browser session.
+- Why deferred: The user-facing defect was the dead `在复习中打开` button for path nodes. Reusing the full Semantic session inside Review needs a broader Review surface contract and should not be smuggled through the ordinary review entry.
+- Next safe step: Improve Browser Semantic node/path display hydration so path entries show meaningful content instead of bare block ids when read-model node titles are unavailable.
+- Validation: `pnpm test:run src/ui/browser/semantic/__tests__/BrowserSemanticStateController.test.ts src/ui/browser/semantic/__tests__/BrowserSemanticReviewHandoff.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
 ### 2026-05-16 - Browser Semantic Navigator management
 
 - Task: Apply OpenSpec change `add-browser-semantic-navigator` for current-root Semantic entry/navigation/station management.

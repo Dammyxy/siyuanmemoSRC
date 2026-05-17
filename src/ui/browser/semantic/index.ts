@@ -1,6 +1,7 @@
 export { BrowserSemanticEntryController } from './BrowserSemanticEntryController';
 export { BrowserSemanticStateController } from './BrowserSemanticStateController';
 export { BrowserSemanticBackendReadAdapter } from './BrowserSemanticBackendReadAdapter';
+export { openBrowserSemanticHandoffInReview } from './BrowserSemanticReviewHandoff';
 export { resolveBrowserSemanticFocus, isBrowserSemanticConceptCard } from './browserSemanticFocus';
 export {
   buildBrowserSemanticReadModel,

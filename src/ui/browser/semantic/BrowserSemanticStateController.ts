@@ -22,6 +22,9 @@ export interface BrowserSemanticWorkbenchState {
 export interface BrowserSemanticReviewHandoff {
   sessionId: string;
   currentNodeId: string;
+  blockId: string;
+  cardId: string | null;
+  isReviewCard: boolean;
 }
 
 export interface BrowserSemanticStateControllerDeps {
@@ -150,6 +153,9 @@ export class BrowserSemanticStateController {
     await this.deps.openReviewSession?.({
       sessionId: this.stateValue.activeSessionId,
       currentNodeId: this.stateValue.model.session.currentNodeId,
+      blockId: this.stateValue.model.currentNode.blockId,
+      cardId: this.stateValue.model.currentNode.cardId,
+      isReviewCard: this.stateValue.model.currentNode.isReviewCard,
     });
     return this.stateValue;
   }

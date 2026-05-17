@@ -517,6 +517,7 @@ import {
   type BrowserSemanticReviewHandoff,
   type BrowserSemanticWorkbenchState,
 } from './semantic/BrowserSemanticStateController';
+import { openBrowserSemanticHandoffInReview } from './semantic/BrowserSemanticReviewHandoff';
 import { SemanticActivationSessionController } from '@/application/services/SemanticActivationSessionController';
 import { isBrowserSemanticConceptCard } from './semantic/browserSemanticFocus';
 import NeuralAnchorList from './neural/NeuralAnchorList.vue';
@@ -3222,12 +3223,17 @@ async function handleBrowserSemanticOpenInReview(): Promise<void> {
 }
 
 async function handleBrowserSemanticReviewHandoff(_handoff: BrowserSemanticReviewHandoff): Promise<void> {
-  const message = t(
-    'browserSemanticReviewHandoffUnavailable',
-    'Review Semantic handoff is not wired yet; continue in Browser Semantic Workbench.',
-  );
-  setBrowserSemanticUnavailable(message);
-  await pushErrMsg(message);
+  const opened = await openBrowserSemanticHandoffInReview(_handoff, {
+    openSubsetReviewDialog: props.plugin?.openSubsetReviewDialog?.bind(props.plugin),
+    pushErrMsg,
+    t,
+  });
+  if (!opened) {
+    setBrowserSemanticUnavailable(t(
+      'browserSemanticReviewHandoffUnavailable',
+      'Review Semantic handoff is not wired yet; continue in Browser Semantic Workbench.',
+    ));
+  }
 }
 
 async function loadAllRowsForCurrentView(sortModel: SortModel[] = []): Promise<BrowserCard[]> {
