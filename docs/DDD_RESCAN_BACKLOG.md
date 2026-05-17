@@ -1,8 +1,38 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-18 (Round 378)
+Last update: 2026-05-18 (Round 381)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-18 - Source Existence Projection Invalidator
+
+- Task: Finish one architecture debt slice after Worker Queue Projection runtime by moving source-existence projection invalidation out of `SqliteDatabaseService`.
+- Touched slice: Queue projection backend worker invalidation; `worker/queue-projection/SourceExistenceProjectionInvalidator.ts`, `worker/db/SqliteDatabaseService.ts`, focused BackendKernel projection/source-existence tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Source-existence changed-block dedupe, queue coverage list, invalidation reason/metadata, and generation shaping now live behind `SourceExistenceProjectionInvalidator`. `SqliteDatabaseService` keeps source-existence read/write ownership and delegates projection invalidation.
+- Debt deferred: Browser source-existence refresh/sweep orchestration remains in Browser application service and backend RPC handlers; no change to relay or host sweep ownership.
+- Why deferred: This slice only moves projection invalidation ownership. Moving Browser refresh orchestration would cross Browser application timing, writer relay, and host-effect semantics.
+- Next safe step: Only revisit Browser source-existence orchestration if refresh coalescing, relay guard, or source status emission grows beyond current Browser application Module.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "source existence|source-existence|projection generations|projection"`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
+
+### 2026-05-18 - Worker Queue Projection runtime
+
+- Task: Continue architecture deepening after Worker Review Feedback runtime by moving worker projection read/replace behavior behind its own Module.
+- Touched slice: Queue projection backend worker; `worker/queue-projection/WorkerQueueProjectionRuntime.ts`, `worker/db/SqliteDatabaseService.ts`, `worker/review/WorkerReviewFeedbackRuntime.ts`, focused BackendKernel projection/review tests, boundary path checks, and `ARCHITECTURE.md`.
+- Debt fixed now: `SqliteDatabaseService` no longer owns `queue.projection.snapshot`, `queue.projection.rowsByIds`, or `queue.projection.replace` behavior. Projection row hydration, replace validation, counter rebuild, unavailable snapshot shape, and replace transaction ownership now live behind `WorkerQueueProjectionRuntime`; DB service remains SQLite owner/Adapter and delegates.
+- Debt deferred: Source-existence projection invalidation still lives in `SqliteDatabaseService` because it is triggered by source-existence writes in the same DB owner.
+- Why deferred: Moving invalidation in this slice would cross Browser source-existence write ownership and turn a projection RPC refactor into a broader source-existence workflow change.
+- Next safe step: If source-existence sweep logic grows, extract a worker Source Existence Projection Invalidator that can depend on queue projection runtime without owning Browser read/write commands.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "queue.projection|projection-backed|source rows|review.feedback|projection"`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-18 - Worker Review Feedback runtime
+
+- Task: Deepen worker Review feedback ownership after architecture scan candidate 2.
+- Touched slice: Review / Queue projection backend worker; `worker/review/WorkerReviewFeedbackRuntime.ts`, `worker/db/SqliteDatabaseService.ts`, focused BackendKernel review/projection tests, and `ARCHITECTURE.md`.
+- Debt fixed now: `SqliteDatabaseService` no longer owns `review.feedback` scheduler commit, review log insert, queue mode/policy validation, projection hot-patch/rebuild, or review-feedback queue impact construction. Those behaviours now live behind `WorkerReviewFeedbackRuntime`, while SQLite service keeps command dispatch/storage ownership and counters.
+- Debt deferred: Queue projection snapshot/read/replace and source-existence invalidation still live in `SqliteDatabaseService`.
+- Why deferred: This slice intentionally moved only the Review feedback path so the external worker command contract stayed unchanged and existing projection snapshot behaviour remained stable.
+- Next safe step: Move queue projection snapshot/read/replace into a sibling Worker Queue Projection Runtime if projection storage logic continues to grow.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "review.feedback|projection"`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
 
 ### 2026-05-18 - Long-lived Review Session Cursor
 

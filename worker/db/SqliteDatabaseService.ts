@@ -5,21 +5,10 @@ import { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite
 import { SqlQueueProjectionRepository } from '@/infrastructure/persistence/sqlite/SqlQueueProjectionRepository';
 import { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite/SqlQueueStateRepository';
 import { SqlSemanticActivationRepository } from '@/infrastructure/persistence/sqlite/SqlSemanticActivationRepository';
-import { SchedulerRouter } from '@/core/scheduler';
-import { createReviewLogV2 } from '@/types/review';
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
-import { CardType, type FSRSCard } from '@/types/card';
-import type { SchedulerType } from '@/core/scheduler/schedulerPolicy';
-import type {
-  QueueProjectionCounters,
-  QueueProjectionDueBucket,
-  QueueProjectionGeneration,
-  QueueProjectionRow,
-} from '@/application/ports/QueueProjectionPort';
-import { buildQueueProjectionRows } from '@/application/services/queue-projection/QueueProjectionBuilder';
-import { buildQueueSnapshotRow } from '@/core/queue/domain/queueCardProjection';
-import { QueueType } from '@/types/unified-data-source';
+import type { FSRSCard } from '@/types/card';
+import type { QueueProjectionGeneration } from '@/application/ports/QueueProjectionPort';
 import type {
   BrowserDeckCardPageResult,
   BrowserDeckPageRequest,
@@ -34,10 +23,6 @@ import type {
   BackendQueueProjectionReplaceResult,
   BackendQueueProjectionSnapshotRequest,
   BackendQueueProjectionSnapshotResult,
-  BackendQueueProjectionSnapshotRow,
-  BackendReviewFeedbackQueueImpact,
-  BackendReviewFeedbackQueueImpactEntry,
-  BackendReviewFeedbackQueueImpactReorderHint,
   BackendKernelTransactionAction,
   BackendKernelTransactionDequeueResult,
   BackendKernelTransactionIngestRequest,
@@ -74,12 +59,16 @@ import type {
   SourceExistenceUpdate,
 } from '@/application/ports/BrowserDeckReadPort';
 import type { SqlitePersistenceBridge } from './SqlitePersistenceBridge';
-import { DEFAULT_SETTINGS, type FSRSParameters } from '@/types/settings';
-import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 import { createLogger } from '@/utils/logger';
 import type { DoOperation } from '@/core/infrastructure/websocket/transaction-types';
 import { AutoCardDecisionService } from './AutoCardDecisionService';
 import { SemanticSessionReadModelBuilder } from '../semantic/SemanticSessionReadModelBuilder';
+import { WorkerReviewFeedbackRuntime } from '../review/WorkerReviewFeedbackRuntime';
+import {
+  resolveProjectionQueueType,
+  WorkerQueueProjectionRuntime,
+} from '../queue-projection/WorkerQueueProjectionRuntime';
+import { SourceExistenceProjectionInvalidator } from '../queue-projection/SourceExistenceProjectionInvalidator';
 
 type SqlParams = SqlValue[] | ParamsObject;
 const logger = createLogger('WorkerSqliteDatabaseService');
@@ -87,18 +76,6 @@ const KERNEL_INGEST_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-ingest.snapshot.js
 const KERNEL_INGEST_QUEUE_SNAPSHOT_VERSION = 1;
 const KERNEL_ACTION_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-actions.snapshot.json';
 const KERNEL_ACTION_QUEUE_SNAPSHOT_VERSION = 1;
-
-type ProjectionWorkerQueueType =
-  | QueueType.RetrievalPractice
-  | QueueType.IncrementalLearning
-  | QueueType.FilterGroup
-  | QueueType.FinalDrill
-  | QueueType.Leech
-  | QueueType.NeuralRoam;
-
-type SrsProjectionWorkerQueueType =
-  | QueueType.RetrievalPractice
-  | QueueType.IncrementalLearning;
 
 type SqliteFileServiceAdapter = {
   readJSON<T>(fileName: string): Promise<T | null>;
@@ -124,19 +101,6 @@ function createSqliteFileServiceAdapter(bridge: SqlitePersistenceBridge): Sqlite
     readBinary: (fileName: string) => bridge.readBinary(fileName),
     writeBinary: (fileName: string, bytes: Uint8Array) => bridge.writeBinary(fileName, bytes),
   };
-}
-
-function isProjectionWorkerQueueType(queueType: string): queueType is ProjectionWorkerQueueType {
-  return queueType === QueueType.RetrievalPractice
-    || queueType === QueueType.IncrementalLearning
-    || queueType === QueueType.FilterGroup
-    || queueType === QueueType.FinalDrill
-    || queueType === QueueType.Leech
-    || queueType === QueueType.NeuralRoam;
-}
-
-function isSrsProjectionQueueType(queueType: ProjectionWorkerQueueType): queueType is SrsProjectionWorkerQueueType {
-  return queueType === QueueType.RetrievalPractice || queueType === QueueType.IncrementalLearning;
 }
 
 export class WorkerSqliteDatabaseService {
@@ -717,189 +681,21 @@ export class WorkerSqliteDatabaseService {
     request: BackendQueueProjectionSnapshotRequest,
   ): Promise<BackendQueueProjectionSnapshotResult> {
     await this.init();
-    const queueType = this.resolveProjectionQueueType(request.queueType);
-    if (!queueType || !this.queueProjection) {
-      return this.buildUnavailableProjectionSnapshotResult(request.queueType);
-    }
-
-    const generation = this.queueProjection.readGeneration(queueType);
-    if (!generation) {
-      return this.buildUnavailableProjectionSnapshotResult(queueType);
-    }
-
-    const policyHash = normalizeOptionalString(request.policyHash) ?? generation.policyHash;
-    const requestedGeneration = normalizeOptionalInteger(request.generation) ?? generation.generation;
-    const counters = this.queueProjection.readCounters(queueType, policyHash);
-    if (generation.status !== 'ready') {
-      return {
-        queueType,
-        policyHash,
-        generation: generation.generation,
-        status: generation.status,
-        rows: [],
-        counters,
-      };
-    }
-
-    const rows = this.queueProjection.readRows({
-      queueType,
-      policyHash,
-      generation: requestedGeneration,
-      limit: request.limit,
-      offset: request.offset,
-    });
-    const cards = this.repository!.getCardsByIds(rows.map((row) => row.cardId));
-    const snapshotRows = this.buildProjectionSnapshotRows(rows, cards);
-    return {
-      queueType,
-      policyHash,
-      generation: requestedGeneration,
-      status: 'ready',
-      rows: snapshotRows,
-      counters: this.reconcileActiveProjectionCounters({
-        queueType,
-        policyHash,
-        generation: requestedGeneration,
-        counters,
-        rows: snapshotRows,
-      }),
-    };
+    return this.createQueueProjectionRuntime().snapshot(request);
   }
 
   async queueProjectionRowsByIds(
     request: BackendQueueProjectionRowsByIdsRequest,
   ): Promise<BackendQueueProjectionRowsByIdsResult> {
     await this.init();
-    const queueType = this.resolveProjectionQueueType(request.queueType);
-    const ids = uniqueStrings(Array.isArray(request.ids) ? request.ids : []);
-    if (!queueType || !this.queueProjection || ids.length === 0) {
-      return {
-        ...this.buildUnavailableProjectionSnapshotResult(request.queueType),
-        cards: [],
-      };
-    }
-
-    const generation = this.queueProjection.readGeneration(queueType);
-    if (!generation) {
-      return {
-        ...this.buildUnavailableProjectionSnapshotResult(queueType),
-        cards: [],
-      };
-    }
-
-    const policyHash = normalizeOptionalString(request.policyHash) ?? generation.policyHash;
-    const requestedGeneration = normalizeOptionalInteger(request.generation) ?? generation.generation;
-    if (generation.status !== 'ready') {
-      return {
-        queueType,
-        policyHash,
-        generation: generation.generation,
-        status: generation.status,
-        rows: [],
-        cards: [],
-      };
-    }
-
-    const projectionRows = this.queueProjection.readRows({
-      queueType,
-      policyHash,
-      generation: requestedGeneration,
-      limit: 5000,
-    });
-    const rowByIdentity = new Map<string, QueueProjectionRow>();
-    for (const row of projectionRows) {
-      if (row.rowId) {
-        rowByIdentity.set(row.rowId, row);
-      }
-      if (row.cardId) {
-        rowByIdentity.set(row.cardId, row);
-      }
-      if (row.blockId) {
-        rowByIdentity.set(row.blockId, row);
-      }
-    }
-
-    const orderedRows = ids
-      .map((id) => rowByIdentity.get(id))
-      .filter((row): row is QueueProjectionRow => Boolean(row));
-    const cards = this.repository!.getCardsByIds(orderedRows.map((row) => row.cardId));
-    const activeCardIds = new Set(cards.map((card) => String(card.id || '').trim()).filter(Boolean));
-    const activeRows = orderedRows.filter((row) => activeCardIds.has(String(row.cardId || '').trim()));
-    return {
-      queueType,
-      policyHash,
-      generation: requestedGeneration,
-      status: 'ready',
-      rows: this.buildProjectionSnapshotRows(activeRows, cards),
-      cards,
-    };
+    return this.createQueueProjectionRuntime().rowsByIds(request);
   }
 
   async replaceQueueProjection(
     request: BackendQueueProjectionReplaceRequest,
   ): Promise<BackendQueueProjectionReplaceResult> {
     await this.init();
-    const queueType = this.resolveProjectionQueueType(request.queueType);
-    if (!queueType || !this.queueProjection) {
-      throw new Error(`BACKEND_UNAVAILABLE: queue projection storage unavailable for ${String(request.queueType || '')}`);
-    }
-
-    const policyHash = normalizeOptionalString(request.policyHash);
-    if (!policyHash) {
-      throw new Error('INVALID_REQUEST: queue.projection.replace requires policyHash');
-    }
-
-    const previousGeneration = this.queueProjection.readGeneration(queueType);
-    const generation = normalizeOptionalInteger(request.generation)
-      ?? Math.max(1, Number(previousGeneration?.generation || 0) + 1);
-    if (!Number.isFinite(generation) || generation <= 0) {
-      throw new Error('INVALID_REQUEST: queue.projection.replace requires a positive generation');
-    }
-
-    const updatedAt = Date.now();
-    const rows = this.normalizeProjectionReplaceRows({
-      queueType,
-      policyHash,
-      generation,
-      rows: request.rows,
-      updatedAt,
-    });
-    const counters = buildQueueProjectionCountersFromRows({
-      queueType,
-      policyHash,
-      generation,
-      updatedAt,
-      now: updatedAt,
-      rows,
-    });
-    const reason = normalizeOptionalString(request.reason) ?? 'explicit-repair';
-    const metadata = request.metadata && typeof request.metadata === 'object'
-      ? { ...request.metadata }
-      : {};
-
-    await this.runtime.runTransaction('queue.projection.replace', () => {
-      this.queueProjection!.replaceQueueProjection({
-        queueType,
-        policyHash,
-        generation,
-        rows,
-        counters,
-        metadata: {
-          ...metadata,
-          reason,
-          materializedBy: 'application',
-        },
-      });
-    });
-
-    return {
-      queueType,
-      policyHash,
-      generation,
-      status: 'ready',
-      rows: rows.length,
-      counters,
-    };
+    return this.createQueueProjectionRuntime().replace(request);
   }
 
   async getCard(cardId: string): Promise<FSRSCard | undefined> {
@@ -1027,7 +823,7 @@ export class WorkerSqliteDatabaseService {
 
   async getQueueProjectionGeneration(queueType: string): Promise<QueueProjectionGeneration | null> {
     await this.init();
-    const projectionQueueType = this.resolveProjectionQueueType(queueType);
+    const projectionQueueType = resolveProjectionQueueType(queueType);
     if (!projectionQueueType || !this.queueProjection) {
       return null;
     }
@@ -1036,152 +832,15 @@ export class WorkerSqliteDatabaseService {
 
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
     await this.init();
-    const queueType = String(request.queueType || 'retrieval-practice').trim() || 'retrieval-practice';
-    const defaultCommitPolicy = queueType === 'final-drill' ? 'drill-only' : 'write-schedule';
-    const commitPolicy = String(request.commitPolicy || defaultCommitPolicy).trim() || defaultCommitPolicy;
-    const defaultQueueMode = queueType === 'filter-group'
-      ? (commitPolicy === 'preview-only' ? 'filtered-preview' : 'filtered-rescheduling')
-      : (queueType === 'final-drill' ? 'drill' : 'formal');
-    const queueMode = String(request.queueMode || defaultQueueMode).trim() || defaultQueueMode;
-    const reviewedAt = Number(request.reviewedAt || Date.now());
-    const rating = Math.max(1, Math.min(4, Math.floor(Number(request.rating) || 0))) as 1 | 2 | 3 | 4;
-    const cardId = String(request.cardId || '').trim();
-    if (!cardId) {
-      this.reviewFeedbackUnavailableTotal += 1;
-      throw new Error('review.feedback requires cardId');
-    }
-    const supportedQueueTypes = new Set([
-      'retrieval-practice',
-      'incremental-learning',
-      'filter-group',
-      'neural-roam',
-      'leech',
-      'final-drill',
-    ]);
-    if (!supportedQueueTypes.has(queueType)) {
-      this.reviewFeedbackUnavailableTotal += 1;
-      throw new Error(`SrsBackendWorker review.feedback unavailable for queueType in current phase: ${queueType}`);
-    }
-    if (queueType === 'filter-group') {
-      const allowed = (
-        (queueMode === 'filtered-preview' && commitPolicy === 'preview-only')
-        || (queueMode === 'filtered-rescheduling' && commitPolicy === 'write-schedule')
-      );
-      if (!allowed) {
+    const runtime = new WorkerReviewFeedbackRuntime({
+      repository: this.repository!,
+      queueProjection: this.queueProjection,
+      runtime: this.runtime,
+      recordUnavailable: () => {
         this.reviewFeedbackUnavailableTotal += 1;
-        throw new Error(
-          `SrsBackendWorker review.feedback unavailable for filter-group mode/policy in current phase: `
-          + `${queueMode}/${commitPolicy}`,
-        );
-      }
-    } else if (queueType === 'final-drill') {
-      if (queueMode !== 'drill' || commitPolicy !== 'drill-only') {
-        this.reviewFeedbackUnavailableTotal += 1;
-        throw new Error(
-          `SrsBackendWorker review.feedback unavailable for final-drill mode/policy in current phase: `
-          + `${queueMode}/${commitPolicy}`,
-        );
-      }
-    } else {
-      if (queueMode !== 'formal') {
-        this.reviewFeedbackUnavailableTotal += 1;
-        throw new Error(`SrsBackendWorker review.feedback unavailable for queueMode in current phase: ${queueMode}`);
-      }
-      if (commitPolicy !== 'write-schedule') {
-        this.reviewFeedbackUnavailableTotal += 1;
-        throw new Error(`SrsBackendWorker review.feedback unavailable for commitPolicy in current phase: ${commitPolicy}`);
-      }
-    }
-
-    const schedulerConfig = resolveWorkerReviewSchedulerConfig(request);
-    const result = await this.runtime.runTransaction('review.feedback', async () => {
-      const card = this.repository!.getCard(cardId);
-      if (!card) {
-        throw new Error(`review.feedback card not found: ${cardId}`);
-      }
-
-      const scheduler = new SchedulerRouter(
-        {
-          defaultScheduler: schedulerConfig.defaultScheduler,
-          fsrsParams: schedulerConfig.fsrsParams,
-        },
-        {
-          batchUpdateCardsWithoutEvents: async (cards) => {
-            this.repository!.upsertCards(
-              cards.map((c) => canonicalizeSchedulingState(c, {
-                source: 'review-commit',
-                mode: 'assert-internal',
-              }).card),
-            );
-          },
-          addReviewLogV2: async () => undefined,
-        },
-      );
-
-      const decision = scheduler.answer(card, rating, {
-        queueType,
-        queueMode,
-        commitPolicy: commitPolicy as 'write-schedule' | 'preview-only' | 'drill-only',
-        source: 'queue',
-        sessionId: request.sessionId,
-        reviewTime: reviewedAt,
-      });
-      const commitResult = await scheduler.commit(decision);
-      if (commitResult.committed && commitResult.updatedCard) {
-        const log = createReviewLogV2({
-          attemptId: decision.attempt.id,
-          cardId: decision.attempt.cardId,
-          rating: decision.attempt.rating,
-          reviewedAt: decision.attempt.reviewedAt,
-          before: decision.before,
-          after: commitResult.updatedCard,
-          elapsedMs: decision.attempt.elapsedMs,
-          queueType: decision.attempt.queueType,
-          queueMode: decision.queueMode,
-          source: decision.attempt.source,
-          algorithm: decision.algorithm,
-          schedulerType: decision.schedulerType,
-          commitPolicy: decision.commitPolicy,
-          isDrill: decision.attempt.isDrill,
-          isFiltered: decision.attempt.isFiltered,
-          customStudy: decision.attempt.customStudy,
-        });
-        const month = new Date(log.reviewedAt);
-        this.runtime.run(
-          `INSERT OR REPLACE INTO review_events
-            (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            log.id,
-            log.cardId,
-            log.attemptId,
-            log.rating,
-            log.reviewedAt,
-            month.getFullYear(),
-            month.getMonth() + 1,
-            'review-v2',
-            JSON.stringify(log),
-          ],
-        );
-      }
-      const queueImpact = this.buildReviewFeedbackQueueImpact({
-        queueType,
-        request,
-        reviewedCard: card,
-        reviewedAt,
-        committed: commitResult.committed,
-        updatedCard: commitResult.updatedCard ?? null,
-      });
-
-      return {
-        cardId,
-        committed: commitResult.committed,
-        reviewedAt,
-        queueType,
-        updatedCard: commitResult.updatedCard ?? null,
-        queueImpact,
-      };
+      },
     });
+    const result = await runtime.reviewFeedback(request);
     this.reviewFeedbackTotal += 1;
     if (result.committed) {
       this.reviewFeedbackCommittedTotal += 1;
@@ -1191,496 +850,18 @@ export class WorkerSqliteDatabaseService {
     return result;
   }
 
-  private buildReviewFeedbackQueueImpact(input: {
-    queueType: string;
-    request: BackendReviewFeedbackRequest;
-    reviewedCard: FSRSCard;
-    reviewedAt: number;
-    committed: boolean;
-    updatedCard: FSRSCard | null;
-  }): BackendReviewFeedbackQueueImpact | null {
-    const projectionQueueType = this.resolveProjectionQueueType(input.queueType);
-    if (!projectionQueueType) {
-      return null;
-    }
-    if (isSrsProjectionQueueType(projectionQueueType) && (!input.committed || !input.updatedCard)) {
-      return null;
-    }
-
-    if (!this.queueProjection) {
-      return this.buildRefreshRequiredQueueImpact({
-        queueType: projectionQueueType,
-        reason: 'projection-unavailable',
-        requestedGeneration: normalizeOptionalInteger(input.request.projectionGeneration),
-      });
-    }
-
-    const currentGeneration = this.queueProjection.readGeneration(projectionQueueType);
-    if (!currentGeneration) {
-      return this.buildRefreshRequiredQueueImpact({
-        queueType: projectionQueueType,
-        reason: 'projection-unavailable',
-        requestedGeneration: normalizeOptionalInteger(input.request.projectionGeneration),
-      });
-    }
-
-    if (currentGeneration.status !== 'ready') {
-      return this.buildRefreshRequiredQueueImpact({
-        queueType: projectionQueueType,
-        reason: 'projection-invalidated',
-        policyHash: currentGeneration.policyHash,
-        currentGeneration: currentGeneration.generation,
-        requestedGeneration: normalizeOptionalInteger(input.request.projectionGeneration),
-      });
-    }
-
-    const requestedGeneration = normalizeOptionalInteger(input.request.projectionGeneration);
-    const requestedPolicyHash = normalizeOptionalString(input.request.projectionPolicyHash);
-    const hasGenerationMismatch = (
-      (requestedGeneration !== null && requestedGeneration !== currentGeneration.generation)
-      || (requestedPolicyHash !== null && requestedPolicyHash !== currentGeneration.policyHash)
-    );
-
-    const policyHash = currentGeneration.policyHash;
-    if (!isSrsProjectionQueueType(projectionQueueType)) {
-      return this.buildDeferredReviewFeedbackQueueImpact({
-        queueType: projectionQueueType,
-        policyHash,
-        requestedGeneration,
-        requestedCurrentGeneration: currentGeneration.generation,
-        hasGenerationMismatch,
-        request: input.request,
-        reviewedCard: input.reviewedCard,
-        committed: input.committed,
-        reviewedAt: input.reviewedAt,
-      });
-    }
-
-    const previousRows = this.queueProjection.readRows({
-      queueType: projectionQueueType,
-      policyHash,
-      limit: 5000,
+  private createQueueProjectionRuntime(): WorkerQueueProjectionRuntime {
+    return new WorkerQueueProjectionRuntime({
+      repository: this.repository!,
+      queueProjection: this.queueProjection,
+      runtime: this.runtime,
     });
-    const nextGeneration = currentGeneration.generation + 1;
-    const updatedAt = input.reviewedAt;
-    const dayEnd = getDayEndForTimestamp(
-      input.reviewedAt,
-      normalizeDayStartHour(DEFAULT_SETTINGS.fsrs.dayStartHour),
-    );
-    const baseCards = this.readProjectionSourceCards(projectionQueueType, dayEnd);
-    const buildResult = buildQueueProjectionRows({
-      queueType: projectionQueueType,
-      baseCards,
-      now: input.reviewedAt,
-      dayEnd,
-      newCardsPerDay: DEFAULT_SETTINGS.newCardsPerDay,
-      reviewsPerDay: DEFAULT_SETTINGS.reviewsPerDay,
-      priorityRandomness: DEFAULT_SETTINGS.priorityRandomness,
-      learnAheadWindowEnd: input.reviewedAt
-        + DEFAULT_SETTINGS.scheduler.srsV2.learnAhead.windowMinutes * 60 * 1000,
-      learnAheadMaxCards: DEFAULT_SETTINGS.scheduler.srsV2.learnAhead.maxCards,
-      stableSalt: `${projectionQueueType}:${policyHash}`,
-      policyHash,
-      sourceGeneration: nextGeneration,
-      updatedAt,
-    });
-
-    const nextRows = buildResult.rows;
-    const delta = buildQueueProjectionDelta({
-      previousRows,
-      nextRows,
-    });
-
-    this.queueProjection.applyQueueProjectionDelta({
-      queueType: projectionQueueType,
-      policyHash,
-      generation: nextGeneration,
-      removeRowIds: delta.removedRowIds,
-      upsertRows: nextRows,
-      counters: buildResult.counters,
-      invalidation: {
-        queueType: projectionQueueType,
-        reason: 'review-feedback',
-        affectedCardIds: [input.updatedCard.id],
-        affectedBlockIds: input.updatedCard.blockId ? [input.updatedCard.blockId] : [],
-        generation: nextGeneration,
-        metadata: {
-          reviewedCardId: input.updatedCard.id,
-          hotPatchable: true,
-        },
-      },
-    });
-
-    if (hasGenerationMismatch) {
-      return this.buildRefreshRequiredQueueImpact({
-        queueType: projectionQueueType,
-        reason: 'generation-mismatch',
-        policyHash,
-        currentGeneration: nextGeneration,
-        requestedGeneration,
-      });
-    }
-
-    const affectedQueue: BackendReviewFeedbackQueueImpactEntry = {
-      queueType: projectionQueueType,
-      policyHash,
-      generation: nextGeneration,
-      currentGeneration: nextGeneration,
-      requestedGeneration: requestedGeneration ?? currentGeneration.generation,
-      hotPatchable: true,
-      refreshRequired: false,
-      reason: 'review-feedback',
-      removedRowIds: delta.removedRowIds,
-      insertedRows: delta.insertedRows,
-      updatedRows: delta.updatedRows,
-      reorderHints: delta.reorderHints,
-      counterGeneration: buildResult.counters.generation,
-      counters: buildResult.counters,
-    };
-
-    return {
-      hotPatchable: true,
-      refreshRequired: false,
-      affectedQueues: [affectedQueue],
-    };
-  }
-
-  private buildDeferredReviewFeedbackQueueImpact(input: {
-    queueType: ProjectionWorkerQueueType;
-    policyHash: string;
-    requestedGeneration: number | null;
-    requestedCurrentGeneration: number;
-    hasGenerationMismatch: boolean;
-    request: BackendReviewFeedbackRequest;
-    reviewedCard: FSRSCard;
-    committed: boolean;
-    reviewedAt: number;
-  }): BackendReviewFeedbackQueueImpact {
-    if (!this.queueProjection) {
-      return this.buildRefreshRequiredQueueImpact({
-        queueType: input.queueType,
-        reason: 'projection-unavailable',
-        requestedGeneration: input.requestedGeneration,
-      });
-    }
-
-    const previousRows = this.queueProjection.readRows({
-      queueType: input.queueType,
-      policyHash: input.policyHash,
-      limit: 5000,
-    });
-    const nextGeneration = input.requestedCurrentGeneration + 1;
-    const nextRows = buildDeferredReviewFeedbackNextRows({
-      queueType: input.queueType,
-      previousRows,
-      reviewedCard: input.reviewedCard,
-      rating: Number(input.request.rating),
-      nextGeneration,
-      updatedAt: input.reviewedAt,
-    });
-    if (!nextRows) {
-      return this.buildRefreshRequiredQueueImpact({
-        queueType: input.queueType,
-        reason: 'review-feedback',
-        policyHash: input.policyHash,
-        currentGeneration: input.requestedCurrentGeneration,
-        requestedGeneration: input.requestedGeneration,
-      });
-    }
-
-    const delta = buildQueueProjectionDelta({
-      previousRows,
-      nextRows,
-    });
-    const counters = buildQueueProjectionCountersFromRows({
-      queueType: input.queueType,
-      policyHash: input.policyHash,
-      generation: nextGeneration,
-      updatedAt: input.reviewedAt,
-      now: input.reviewedAt,
-      rows: nextRows,
-    });
-
-    this.queueProjection.applyQueueProjectionDelta({
-      queueType: input.queueType,
-      policyHash: input.policyHash,
-      generation: nextGeneration,
-      removeRowIds: delta.removedRowIds,
-      upsertRows: nextRows,
-      counters,
-      invalidation: {
-        queueType: input.queueType,
-        reason: 'review-feedback',
-        affectedCardIds: [input.reviewedCard.id],
-        affectedBlockIds: input.reviewedCard.blockId ? [input.reviewedCard.blockId] : [],
-        generation: nextGeneration,
-        metadata: {
-          reviewedCardId: input.reviewedCard.id,
-          committed: input.committed,
-          commitPolicy: input.request.commitPolicy ?? null,
-          hotPatchable: true,
-        },
-      },
-    });
-
-    if (input.hasGenerationMismatch) {
-      return this.buildRefreshRequiredQueueImpact({
-        queueType: input.queueType,
-        reason: 'generation-mismatch',
-        policyHash: input.policyHash,
-        currentGeneration: nextGeneration,
-        requestedGeneration: input.requestedGeneration,
-      });
-    }
-
-    const affectedQueue: BackendReviewFeedbackQueueImpactEntry = {
-      queueType: input.queueType,
-      policyHash: input.policyHash,
-      generation: nextGeneration,
-      currentGeneration: nextGeneration,
-      requestedGeneration: input.requestedGeneration ?? input.requestedCurrentGeneration,
-      hotPatchable: true,
-      refreshRequired: false,
-      reason: 'review-feedback',
-      removedRowIds: delta.removedRowIds,
-      insertedRows: delta.insertedRows,
-      updatedRows: delta.updatedRows,
-      reorderHints: delta.reorderHints,
-      counterGeneration: counters.generation,
-      counters,
-    };
-
-    return {
-      hotPatchable: true,
-      refreshRequired: false,
-      affectedQueues: [affectedQueue],
-    };
-  }
-
-  private buildRefreshRequiredQueueImpact(input: {
-    queueType: QueueType;
-    reason: BackendReviewFeedbackQueueImpactEntry['reason'];
-    policyHash?: string | null;
-    currentGeneration?: number | null;
-    requestedGeneration?: number | null;
-  }): BackendReviewFeedbackQueueImpact {
-    return {
-      hotPatchable: false,
-      refreshRequired: true,
-      affectedQueues: [{
-        queueType: input.queueType,
-        policyHash: input.policyHash ?? null,
-        generation: input.currentGeneration ?? null,
-        currentGeneration: input.currentGeneration ?? null,
-        requestedGeneration: input.requestedGeneration ?? null,
-        hotPatchable: false,
-        refreshRequired: true,
-        reason: input.reason,
-        removedRowIds: [],
-        insertedRows: [],
-        updatedRows: [],
-        reorderHints: [],
-        counterGeneration: null,
-        counters: null,
-      }],
-    };
-  }
-
-  private resolveProjectionQueueType(queueType: string): ProjectionWorkerQueueType | null {
-    if (isProjectionWorkerQueueType(queueType)) {
-      return queueType;
-    }
-    return null;
   }
 
   private invalidateQueueProjectionsForSourceChanges(blockIds: string[], checkedAt: number): void {
-    const affectedBlockIds = uniqueStrings(blockIds);
-    if (!this.queueProjection || affectedBlockIds.length === 0) {
-      return;
-    }
-    this.queueProjection.invalidateQueues({
-      queueTypes: [
-        QueueType.RetrievalPractice,
-        QueueType.IncrementalLearning,
-        QueueType.FilterGroup,
-        QueueType.FinalDrill,
-        QueueType.Leech,
-        QueueType.NeuralRoam,
-      ],
-      reason: 'source-existence-changed',
-      affectedBlockIds,
-      generation: Math.max(1, Math.floor(Number(checkedAt) || Date.now())),
-      createdAt: checkedAt,
-      metadata: {
-        source: 'source-existence-sweep',
-      },
-    });
-  }
-
-  private buildUnavailableProjectionSnapshotResult(queueType: unknown): BackendQueueProjectionSnapshotResult {
-    return {
-      queueType: String(queueType || ''),
-      policyHash: null,
-      generation: null,
-      status: 'unavailable',
-      rows: [],
-      counters: null,
-    };
-  }
-
-  private normalizeProjectionReplaceRows(input: {
-    queueType: ProjectionWorkerQueueType;
-    policyHash: string;
-    generation: number;
-    rows: unknown;
-    updatedAt: number;
-  }): QueueProjectionRow[] {
-    if (!Array.isArray(input.rows)) {
-      throw new Error('INVALID_REQUEST: queue.projection.replace requires rows array');
-    }
-
-    return input.rows.map((candidate, index) => {
-      if (!candidate || typeof candidate !== 'object') {
-        throw new Error(`INVALID_REQUEST: queue.projection.replace row ${index} must be an object`);
-      }
-      const row = candidate as Record<string, unknown>;
-      const rowId = normalizeOptionalString(row.rowId);
-      const cardId = normalizeOptionalString(row.cardId);
-      const membershipReason = normalizeOptionalString(row.membershipReason);
-      const sortKey = normalizeOptionalString(row.sortKey);
-      const dueBucket = normalizeProjectionDueBucket(row.dueBucket);
-      if (!rowId || !cardId || !membershipReason || !sortKey || !dueBucket) {
-        throw new Error(`INVALID_REQUEST: queue.projection.replace row ${index} is missing required projection fields`);
-      }
-      const priorityScore = Number(row.priorityScore);
-      if (!Number.isFinite(priorityScore)) {
-        throw new Error(`INVALID_REQUEST: queue.projection.replace row ${index} priorityScore must be finite`);
-      }
-      const payload = row.payload && typeof row.payload === 'object'
-        ? { ...(row.payload as Record<string, unknown>) }
-        : null;
-      if (!payload) {
-        throw new Error(`INVALID_REQUEST: queue.projection.replace row ${index} payload must be an object`);
-      }
-
-      return {
-        queueType: input.queueType,
-        rowId,
-        cardId,
-        blockId: normalizeOptionalString(row.blockId),
-        deckId: normalizeOptionalString(row.deckId),
-        membershipReason,
-        dueAt: normalizeOptionalInteger(row.dueAt),
-        dueBucket,
-        priorityScore,
-        sortKey,
-        queueIndexHint: normalizeOptionalInteger(row.queueIndexHint),
-        policyHash: input.policyHash,
-        sourceGeneration: input.generation,
-        payload,
-        updatedAt: normalizeOptionalInteger(row.updatedAt) ?? input.updatedAt,
-      };
-    });
-  }
-
-  private buildProjectionSnapshotRows(
-    projectionRows: QueueProjectionRow[],
-    cards: FSRSCard[],
-  ): BackendQueueProjectionSnapshotRow[] {
-    const cardById = new Map<string, FSRSCard>();
-    for (const card of cards) {
-      cardById.set(String(card.id || ''), card);
-    }
-
-    return projectionRows
-      .map<BackendQueueProjectionSnapshotRow | null>((row, index) => {
-        const card = cardById.get(row.cardId);
-        if (!card) {
-          return null;
-        }
-        const queueIndex = Number.isFinite(Number(row.queueIndexHint))
-          ? Number(row.queueIndexHint)
-          : index + 1;
-        const snapshot = buildQueueSnapshotRow(card, { queueIndex });
-        return {
-          ...snapshot,
-          id: row.rowId || snapshot.id,
-          fsrsCardId: row.cardId || snapshot.fsrsCardId,
-          blockId: row.blockId || snapshot.blockId,
-          deckId: row.deckId || snapshot.deckId,
-          queueIndex,
-          tags: [...snapshot.tags],
-        };
-      })
-      .filter((row): row is BackendQueueProjectionSnapshotRow => Boolean(row));
-  }
-
-  private reconcileActiveProjectionCounters(input: {
-    queueType: ProjectionWorkerQueueType;
-    policyHash: string;
-    generation: number;
-    counters: BackendQueueProjectionSnapshotResult['counters'];
-    rows: BackendQueueProjectionSnapshotRow[];
-  }): BackendQueueProjectionSnapshotResult['counters'] {
-    const buckets = {
-      all: 0,
-      item: 0,
-      descriptor: 0,
-      topic: 0,
-      concept: 0,
-    };
-    const now = Date.now();
-    let due = 0;
-    for (const row of input.rows) {
-      buckets.all += 1;
-      const cardType = String(row.cardType || '').trim();
-      if (cardType === CardType.Descriptor) {
-        buckets.descriptor += 1;
-      } else if (cardType === CardType.Topic) {
-        buckets.topic += 1;
-      } else if (cardType === CardType.Concept) {
-        buckets.concept += 1;
-      } else {
-        buckets.item += 1;
-      }
-      if (Number(row.due) <= now) {
-        due += 1;
-      }
-    }
-
-    return {
-      queueType: input.queueType,
-      policyHash: input.policyHash,
-      generation: input.generation,
-      version: Math.max(0, Math.floor(Number(input.counters?.version || input.generation))),
-      remaining: input.rows.length,
-      due,
-      total: input.rows.length,
-      buckets,
-      updatedAt: Math.max(0, Math.floor(Number(input.counters?.updatedAt || now))),
-    };
-  }
-
-  private readProjectionSourceCards(
-    queueType: SrsProjectionWorkerQueueType,
-    dayEnd: number,
-  ): FSRSCard[] {
-    const cardTypes = queueType === QueueType.RetrievalPractice
-      ? [CardType.Item, CardType.Descriptor]
-      : [
-        CardType.Item,
-        CardType.Descriptor,
-        CardType.Topic,
-        CardType.Concept,
-        CardType.Incremental,
-        CardType.Webpage,
-      ];
-    return this.repository!.queryCards({
-      cardTypes,
-      dueDate: { lte: dayEnd },
-      includeSuspended: false,
-      sourceStatus: 'active',
-    });
+    new SourceExistenceProjectionInvalidator({
+      queueProjection: this.queueProjection,
+    }).invalidateForSourceChanges(blockIds, checkedAt);
   }
 
   async resolveAutoCardDecision(
@@ -3334,236 +2515,6 @@ function collectKernelTransactionActions(input: {
   return actions;
 }
 
-function buildQueueProjectionDelta(input: {
-  previousRows: QueueProjectionRow[];
-  nextRows: QueueProjectionRow[];
-}): {
-  removedRowIds: string[];
-  insertedRows: QueueProjectionRow[];
-  updatedRows: QueueProjectionRow[];
-  reorderHints: BackendReviewFeedbackQueueImpactReorderHint[];
-} {
-  const previousByRowId = new Map(input.previousRows.map((row) => [row.rowId, row] as const));
-  const nextByRowId = new Map(input.nextRows.map((row) => [row.rowId, row] as const));
-  const removedRowIds = input.previousRows
-    .filter((row) => !nextByRowId.has(row.rowId))
-    .map((row) => row.rowId);
-  const insertedRows: QueueProjectionRow[] = [];
-  const updatedRows: QueueProjectionRow[] = [];
-  const reorderHints: BackendReviewFeedbackQueueImpactReorderHint[] = [];
-
-  for (const nextRow of input.nextRows) {
-    const previousRow = previousByRowId.get(nextRow.rowId);
-    if (!previousRow) {
-      insertedRows.push(nextRow);
-      reorderHints.push({
-        rowId: nextRow.rowId,
-        cardId: nextRow.cardId,
-        sortKey: nextRow.sortKey,
-        queueIndexHint: nextRow.queueIndexHint,
-        reason: 'inserted',
-      });
-      continue;
-    }
-
-    if (queueProjectionRowSignature(previousRow) !== queueProjectionRowSignature(nextRow)) {
-      updatedRows.push(nextRow);
-      if (
-        previousRow.sortKey !== nextRow.sortKey
-        || previousRow.queueIndexHint !== nextRow.queueIndexHint
-      ) {
-        reorderHints.push({
-          rowId: nextRow.rowId,
-          cardId: nextRow.cardId,
-          sortKey: nextRow.sortKey,
-          queueIndexHint: nextRow.queueIndexHint,
-          previousSortKey: previousRow.sortKey,
-          previousQueueIndexHint: previousRow.queueIndexHint,
-          reason: 'updated',
-        });
-      }
-    }
-  }
-
-  for (const rowId of removedRowIds) {
-    const previousRow = previousByRowId.get(rowId);
-    if (previousRow) {
-      reorderHints.push({
-        rowId,
-        cardId: previousRow.cardId,
-        sortKey: null,
-        queueIndexHint: null,
-        previousSortKey: previousRow.sortKey,
-        previousQueueIndexHint: previousRow.queueIndexHint,
-        reason: 'removed',
-      });
-    }
-  }
-
-  return {
-    removedRowIds,
-    insertedRows,
-    updatedRows,
-    reorderHints,
-  };
-}
-
-function queueProjectionRowSignature(row: QueueProjectionRow): string {
-  return JSON.stringify({
-    cardId: row.cardId,
-    blockId: row.blockId,
-    deckId: row.deckId,
-    membershipReason: row.membershipReason,
-    dueAt: row.dueAt,
-    dueBucket: row.dueBucket,
-    priorityScore: row.priorityScore,
-    sortKey: row.sortKey,
-    queueIndexHint: row.queueIndexHint,
-    payload: row.payload,
-  });
-}
-
-function buildDeferredReviewFeedbackNextRows(input: {
-  queueType: ProjectionWorkerQueueType;
-  previousRows: QueueProjectionRow[];
-  reviewedCard: FSRSCard;
-  rating: number;
-  nextGeneration: number;
-  updatedAt: number;
-}): QueueProjectionRow[] | null {
-  const targetRows = input.previousRows.filter((row) => rowMatchesReviewedCard(row, input.reviewedCard));
-  if (targetRows.length === 0) {
-    return null;
-  }
-
-  const remainingRows = input.previousRows.filter((row) => !rowMatchesReviewedCard(row, input.reviewedCard));
-  const shouldMoveFinalDrillToTail = input.queueType === QueueType.FinalDrill && input.rating < 4;
-  const nextRows = shouldMoveFinalDrillToTail
-    ? [...remainingRows, ...targetRows]
-    : remainingRows;
-
-  return reindexDeferredProjectionRows(nextRows, {
-    nextGeneration: input.nextGeneration,
-    updatedAt: input.updatedAt,
-  });
-}
-
-function rowMatchesReviewedCard(row: QueueProjectionRow, card: FSRSCard): boolean {
-  const identities = new Set(
-    [card.id, card.blockId, card.riffCardId]
-      .map((value) => String(value || '').trim())
-      .filter(Boolean),
-  );
-  return identities.has(String(row.rowId || '').trim())
-    || identities.has(String(row.cardId || '').trim())
-    || identities.has(String(row.blockId || '').trim());
-}
-
-function reindexDeferredProjectionRows(
-  rows: QueueProjectionRow[],
-  input: { nextGeneration: number; updatedAt: number },
-): QueueProjectionRow[] {
-  return rows.map((row, index) => {
-    const queueIndexHint = index + 1;
-    return {
-      ...row,
-      queueIndexHint,
-      sortKey: buildProjectionSortKeyFromRow(row, queueIndexHint),
-      sourceGeneration: input.nextGeneration,
-      updatedAt: input.updatedAt,
-      payload: {
-        ...row.payload,
-        queueIndexHint,
-      },
-    };
-  });
-}
-
-function buildProjectionSortKeyFromRow(row: QueueProjectionRow, queueIndexHint: number): string {
-  const indexPart = String(queueIndexHint).padStart(9, '0');
-  const duePart = String(Math.max(0, Number(row.dueAt) || 0)).padStart(16, '0');
-  const priorityPart = String(Math.max(0, Math.min(100, Math.floor(Number(row.priorityScore) || 0)))).padStart(3, '0');
-  return `${indexPart}:${duePart}:${priorityPart}:${row.rowId || row.cardId}`;
-}
-
-function buildQueueProjectionCountersFromRows(input: {
-  queueType: QueueType;
-  policyHash: string;
-  generation: number;
-  updatedAt: number;
-  now: number;
-  rows: QueueProjectionRow[];
-}): QueueProjectionCounters {
-  const buckets = {
-    all: 0,
-    item: 0,
-    descriptor: 0,
-    topic: 0,
-    concept: 0,
-  };
-  let currentLearningDue = 0;
-  let todayReviewDue = 0;
-  let allowedNew = 0;
-
-  for (const row of input.rows) {
-    buckets.all += 1;
-    buckets[resolveQueueProjectionCounterBucket(row)] += 1;
-    if (row.membershipReason === 'learning-due') {
-      currentLearningDue += 1;
-    } else if (row.membershipReason === 'review-due') {
-      todayReviewDue += 1;
-    } else if (row.membershipReason === 'new') {
-      allowedNew += 1;
-    }
-  }
-
-  return {
-    queueType: input.queueType,
-    policyHash: input.policyHash,
-    generation: input.generation,
-    version: input.generation,
-    remaining: input.rows.length,
-    due: input.rows.length,
-    total: input.rows.length,
-    currentLearningDue,
-    todayReviewDue,
-    allowedNew,
-    scheduledTotal: input.rows.length,
-    buckets,
-    updatedAt: input.updatedAt,
-  };
-}
-
-function resolveQueueProjectionCounterBucket(row: QueueProjectionRow): 'item' | 'descriptor' | 'topic' | 'concept' {
-  const cardType = String(row.payload.cardType || CardType.Item);
-  if (cardType === CardType.Descriptor) {
-    return 'descriptor';
-  }
-  if (cardType === CardType.Topic) {
-    return 'topic';
-  }
-  if (cardType === CardType.Concept) {
-    return 'concept';
-  }
-  return 'item';
-}
-
-function getDayEndForTimestamp(timestamp: number, dayStartHour: number): number {
-  const now = new Date(timestamp);
-  const start = new Date(now);
-  if (now.getHours() < dayStartHour) {
-    start.setDate(start.getDate() - 1);
-  }
-  start.setHours(dayStartHour, 0, 0, 0);
-  start.setDate(start.getDate() + 1);
-  return start.getTime();
-}
-
-function normalizeDayStartHour(value: unknown): number {
-  const hour = Math.floor(Number(value));
-  return Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : 4;
-}
-
 function normalizeOptionalInteger(value: unknown): number | null {
   if (value == null || value === '') {
     return null;
@@ -3575,49 +2526,4 @@ function normalizeOptionalInteger(value: unknown): number | null {
 function normalizeOptionalString(value: unknown): string | null {
   const normalized = String(value ?? '').trim();
   return normalized || null;
-}
-
-function normalizeProjectionDueBucket(value: unknown): QueueProjectionDueBucket | null {
-  const normalized = normalizeOptionalString(value);
-  if (
-    normalized === 'overdue'
-    || normalized === 'due'
-    || normalized === 'future'
-    || normalized === 'new'
-    || normalized === 'manual'
-    || normalized === 'blocked'
-  ) {
-    return normalized;
-  }
-  return null;
-}
-
-function resolveWorkerReviewSchedulerConfig(request: BackendReviewFeedbackRequest): {
-  defaultScheduler: SchedulerType;
-  fsrsParams: FSRSParameters;
-} {
-  const scheduler = request.scheduler && typeof request.scheduler === 'object'
-    ? request.scheduler
-    : null;
-  const defaultScheduler = isSchedulerType(scheduler?.defaultScheduler)
-    ? scheduler.defaultScheduler
-    : 'fsrs-v6';
-  const candidate = scheduler?.fsrsParams && typeof scheduler.fsrsParams === 'object'
-    ? scheduler.fsrsParams as Partial<FSRSParameters>
-    : {};
-  const candidateWeights = Array.isArray(candidate.weights)
-    ? candidate.weights.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
-    : [];
-  return {
-    defaultScheduler,
-    fsrsParams: {
-      ...DEFAULT_SETTINGS.fsrs,
-      ...candidate,
-      weights: candidateWeights.length > 0 ? [...candidateWeights] : [...DEFAULT_SETTINGS.fsrs.weights],
-    },
-  };
-}
-
-function isSchedulerType(value: unknown): value is SchedulerType {
-  return value === 'fsrs-v6' || value === 'a-factor-v2';
 }

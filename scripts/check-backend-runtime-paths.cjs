@@ -32,8 +32,13 @@ const runtimePaths = [
       },
       {
         file: 'worker/db/SqliteDatabaseService.ts',
-        tokens: ['async queueProjectionSnapshot', 'async queueProjectionRowsByIds', 'async replaceQueueProjection'],
-        reason: 'worker database owner must implement projection read/hydrate/replace',
+        tokens: ['async queueProjectionSnapshot', 'WorkerQueueProjectionRuntime'],
+        reason: 'worker database owner must expose projection commands and delegate the queue projection runtime',
+      },
+      {
+        file: 'worker/queue-projection/WorkerQueueProjectionRuntime.ts',
+        tokens: ['export class WorkerQueueProjectionRuntime', 'runTransaction(\'queue.projection.replace\''],
+        reason: 'worker queue projection runtime must own projection read/hydrate/replace behavior',
       },
       {
         file: 'src/application/clients/SrsBackendClient.ts',
@@ -119,8 +124,13 @@ const runtimePaths = [
       },
       {
         file: 'worker/db/SqliteDatabaseService.ts',
-        tokens: ['async reviewFeedback', 'runTransaction(\'review.feedback\''],
-        reason: 'review feedback writes must be owned by the worker database transaction',
+        tokens: ['async reviewFeedback', 'WorkerReviewFeedbackRuntime'],
+        reason: 'worker database owner must expose review feedback and delegate the review runtime',
+      },
+      {
+        file: 'worker/review/WorkerReviewFeedbackRuntime.ts',
+        tokens: ['export class WorkerReviewFeedbackRuntime', 'runTransaction(\'review.feedback\''],
+        reason: 'review feedback writes must be owned by the worker review transaction runtime',
       },
       {
         file: 'src/application/usecases/review/ReviewCommitUseCase.ts',
