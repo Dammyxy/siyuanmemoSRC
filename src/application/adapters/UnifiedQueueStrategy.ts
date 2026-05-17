@@ -24,6 +24,7 @@ import {
     NeuralRoamAdvanceOutcomePolicy,
     ReviewFeedbackCompensationPolicy,
     ReviewLearnAheadAdvancePolicy,
+    ReviewSessionCursor,
     ReviewSessionProjectionAdvancePolicy,
 } from './review-session';
 import { resolveEffectiveSchedulerTypeForCard } from '@/core/scheduler/schedulerPolicy';
@@ -914,32 +915,16 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private rotateCachedCardToTail(cardId: string): boolean {
-        if (!this.cacheValid) {
+        const cursor = this.createReviewSessionCursorFromLocalState();
+        const rotated = cursor.rotateToTail(cardId);
+        this.applyReviewSessionCursorToLocalState(cursor);
+        if (!rotated) {
             return false;
-        }
-
-        const normalizedCardId = this.normalizeCardId(cardId);
-        if (!normalizedCardId || this.cachedCards.length <= 1) {
-            return false;
-        }
-
-        const cachedIndex = this.findCachedCardIndexByCardId(normalizedCardId);
-        if (cachedIndex === -1 || cachedIndex >= this.cachedCards.length - 1) {
-            return false;
-        }
-
-        const [rotatedCard] = this.cachedCards.splice(cachedIndex, 1);
-        if (!rotatedCard) {
-            return false;
-        }
-        this.cachedCards.push(rotatedCard);
-        if (cachedIndex < this.currentIndex) {
-            this.currentIndex = Math.max(0, this.currentIndex - 1);
         }
 
         logger.info('[SiYuanMemo][UnifiedQueueStrategy] Low-rated card rotated to tail:', {
             queueType: this.queueType,
-            cardId: normalizedCardId,
+            cardId: this.normalizeCardId(cardId),
             currentIndex: this.currentIndex,
             total: this.cachedCards.length,
         });
@@ -952,24 +937,17 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         result: QueueReviewResultWithProjection,
         options: { forceRemove?: boolean } = {}
     ): Promise<ProjectionPatchOutcome> {
+        const cursor = this.createReviewSessionCursorFromLocalState();
         const applyResult = await this.projectionAdvancePolicy.advance({
             reviewedCard,
             result,
             forceRemove: options.forceRemove,
-            state: {
-                cacheValid: this.cacheValid,
-                cachedCards: this.cachedCards,
-                currentIndex: this.currentIndex,
-                forwardBuffer: this.forwardBuffer,
-                lastCounterSnapshot: this.lastCounterSnapshot,
-            },
+            state: cursor.projectionState(),
         });
 
         if (applyResult.outcome === 'patched') {
-            this.cachedCards = applyResult.state.cachedCards;
-            this.currentIndex = applyResult.state.currentIndex;
-            this.forwardBuffer = applyResult.state.forwardBuffer;
-            this.lastCounterSnapshot = applyResult.state.lastCounterSnapshot;
+            cursor.applyProjectionPatch(applyResult.state);
+            this.applyReviewSessionCursorToLocalState(cursor);
         }
         return applyResult.outcome;
     }
@@ -1292,103 +1270,78 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         result: QueueReviewResult,
         options: { forceRemove?: boolean } = {}
     ): boolean {
-        if (!this.cacheValid) {
-            return false;
-        }
-
-        const cachedIndex = options.forceRemove
-            ? this.findCachedCardIndexByCardId(reviewedCard.id)
-            : this.findCachedCardIndexByIdentity(reviewedCard.id, reviewedCard.blockId);
-        if (cachedIndex === -1) {
-            return false;
-        }
-
-        if (options.forceRemove || result.removedFromQueue) {
-            this.cachedCards.splice(cachedIndex, 1);
-            if (cachedIndex < this.currentIndex) {
-                this.currentIndex = Math.max(0, this.currentIndex - 1);
-            }
-        } else if (result.updatedCard) {
-            this.cachedCards[cachedIndex] = this.cloneCard(result.updatedCard);
-        }
-
-        if (this.currentIndex > this.cachedCards.length) {
-            this.currentIndex = this.cachedCards.length;
-        }
-
-        return true;
+        const cursor = this.createReviewSessionCursorFromLocalState();
+        const patched = cursor.applyReviewResult(reviewedCard, result, options);
+        this.applyReviewSessionCursorToLocalState(cursor);
+        return patched;
     }
 
     private applySkipToCache(cardId: string): boolean {
-        if (!this.cacheValid) {
-            return false;
-        }
-
-        const cachedIndex = this.findCachedCardIndexByIdentity(cardId);
-        if (cachedIndex === -1) {
-            return false;
-        }
-
-        const [skippedCard] = this.cachedCards.splice(cachedIndex, 1);
-        if (!skippedCard) {
-            return false;
-        }
-
-        this.cachedCards.push(skippedCard);
-        if (cachedIndex < this.currentIndex) {
-            this.currentIndex = Math.max(0, this.currentIndex - 1);
-        }
-        return true;
+        const cursor = this.createReviewSessionCursorFromLocalState();
+        const patched = cursor.applySkip(cardId);
+        this.applyReviewSessionCursorToLocalState(cursor);
+        return patched;
     }
 
     private applyRemovalToCache(cardId: string): boolean {
-        if (!this.cacheValid) {
-            return false;
-        }
-
-        const cachedIndex = this.findCachedCardIndexByIdentity(cardId);
-        if (cachedIndex === -1) {
-            return false;
-        }
-
-        this.cachedCards.splice(cachedIndex, 1);
-        if (cachedIndex < this.currentIndex) {
-            this.currentIndex = Math.max(0, this.currentIndex - 1);
-        }
-        if (this.currentIndex > this.cachedCards.length) {
-            this.currentIndex = this.cachedCards.length;
-        }
-        return true;
-    }
-
-    private findCachedCardIndexByIdentity(cardId: string, blockId?: string): number {
-        const normalizedCardId = String(cardId || '').trim();
-        if (normalizedCardId) {
-            const exactIndex = this.cachedCards.findIndex((card) => card.id === normalizedCardId);
-            if (exactIndex >= 0) {
-                return exactIndex;
-            }
-        }
-
-        const normalizedBlockId = String(blockId || '').trim();
-        if (normalizedBlockId) {
-            return this.cachedCards.findIndex((card) => card.blockId === normalizedBlockId);
-        }
-
-        return -1;
-    }
-
-    private findCachedCardIndexByCardId(cardId: string): number {
-        const normalizedCardId = this.normalizeCardId(cardId);
-        if (!normalizedCardId) {
-            return -1;
-        }
-
-        return this.cachedCards.findIndex((card) => this.normalizeCardId(card.id) === normalizedCardId);
+        const cursor = this.createReviewSessionCursorFromLocalState();
+        const patched = cursor.applyRemoval(cardId);
+        this.applyReviewSessionCursorToLocalState(cursor);
+        return patched;
     }
 
     private normalizeCardId(cardId: string | null | undefined): string {
         return String(cardId || '').trim();
+    }
+
+    private createReviewSessionCursorFromLocalState(): ReviewSessionCursor {
+        const cursor = new ReviewSessionCursor(this.queueType);
+        cursor.restore({
+            version: 1,
+            queueType: this.queueType,
+            cacheValid: this.cacheValid,
+            currentIndex: this.currentIndex,
+            cachedCards: this.cachedCards.map((card) => this.cloneCard(card)),
+            currentItem: this.currentItem ? this.cloneCard(this.currentItem) : null,
+            forwardBuffer: this.forwardBuffer.map((card) => this.cloneCard(card)),
+            pendingRotateCardId: this.pendingRotateCardId,
+            deferOnceCardId: this.avoidOnceCardId,
+            avoidOnceCardId: this.avoidOnceCardId,
+            avoidOnceBlockId: this.avoidOnceBlockId,
+            sessionExcludedCardIds: Array.from(this.sessionExcludedCardIds),
+            sessionExcludedLogicalKeys: Array.from(this.sessionExcludedLogicalKeys),
+            lastCounterSnapshot: this.lastCounterSnapshot
+                ? this.cloneCounterSnapshot(this.lastCounterSnapshot)
+                : null,
+        });
+        return cursor;
+    }
+
+    private applyReviewSessionCursorToLocalState(cursor: ReviewSessionCursor): void {
+        const state = cursor.projectionState();
+        const snapshot = cursor.serialize(this.queueType, this.currentItem);
+        this.cachedCards = state.cachedCards;
+        this.currentIndex = state.currentIndex;
+        this.cacheValid = state.cacheValid;
+        this.forwardBuffer = state.forwardBuffer;
+        this.pendingRotateCardId = cursor.pendingRotation;
+        this.avoidOnceCardId = cursor.avoidCardId;
+        this.avoidOnceBlockId = cursor.avoidBlockId;
+        this.sessionExcludedCardIds.clear();
+        this.sessionExcludedLogicalKeys.clear();
+        for (const cardId of snapshot.sessionExcludedCardIds ?? []) {
+            const normalized = this.normalizeCardId(cardId);
+            if (normalized) {
+                this.sessionExcludedCardIds.add(normalized);
+            }
+        }
+        for (const logicalKey of snapshot.sessionExcludedLogicalKeys ?? []) {
+            const normalized = this.normalizeCardId(logicalKey);
+            if (normalized) {
+                this.sessionExcludedLogicalKeys.add(normalized);
+            }
+        }
+        this.lastCounterSnapshot = state.lastCounterSnapshot;
     }
 
     private shouldExcludeReviewedCardFromSession(feedback: QueueFeedback): boolean {
@@ -1400,133 +1353,46 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private hasSessionExclusions(): boolean {
-        return this.sessionExcludedCardIds.size > 0 || this.sessionExcludedLogicalKeys.size > 0;
-    }
-
-    private addSessionExcludedCardId(cardId: string | null | undefined): boolean {
-        if (!this.supportsSessionCompletionExclusion()) {
-            return false;
-        }
-
-        const normalizedCardId = this.normalizeCardId(cardId);
-        if (!normalizedCardId) {
-            return false;
-        }
-
-        const previousSize = this.sessionExcludedCardIds.size;
-        this.sessionExcludedCardIds.add(normalizedCardId);
-        return this.sessionExcludedCardIds.size !== previousSize;
+        return this.createReviewSessionCursorFromLocalState().hasSessionExclusions();
     }
 
     private addSessionExcludedCardIdentity(card: FSRSCard): boolean {
-        if (!this.supportsSessionCompletionExclusion()) {
-            return false;
-        }
-
-        let changed = this.addSessionExcludedCardId(card.id);
-        for (const logicalKey of this.buildSessionExclusionLogicalKeys(card)) {
-            const previousSize = this.sessionExcludedLogicalKeys.size;
-            this.sessionExcludedLogicalKeys.add(logicalKey);
-            changed = changed || this.sessionExcludedLogicalKeys.size !== previousSize;
-        }
+        const cursor = this.createReviewSessionCursorFromLocalState();
+        const changed = cursor.addSessionExcludedCardIdentity(card);
+        this.applyReviewSessionCursorToLocalState(cursor);
         return changed;
     }
 
     private addUnavailableItemSessionExclusion(card: FSRSCard): void {
-        const normalizedCardId = this.normalizeCardId(card.id);
-        if (normalizedCardId) {
-            this.sessionExcludedCardIds.add(normalizedCardId);
-        }
-        for (const logicalKey of this.buildSessionExclusionLogicalKeys(card)) {
-            this.sessionExcludedLogicalKeys.add(logicalKey);
-        }
-    }
-
-    private removeSessionExcludedCardIds(cardIds: Array<string | null | undefined>): number {
-        let removed = 0;
-        for (const cardId of cardIds) {
-            const normalizedCardId = this.normalizeCardId(cardId);
-            if (normalizedCardId && this.sessionExcludedCardIds.delete(normalizedCardId)) {
-                removed += 1;
-            }
-        }
-        return removed;
+        const cursor = this.createReviewSessionCursorFromLocalState();
+        cursor.addUnavailableItemSessionExclusion(card);
+        this.applyReviewSessionCursorToLocalState(cursor);
     }
 
     private clearSessionExcludedCardIds(): void {
-        this.sessionExcludedCardIds.clear();
-        this.sessionExcludedLogicalKeys.clear();
+        const cursor = this.createReviewSessionCursorFromLocalState();
+        cursor.clearSessionExcludedCardIds();
+        this.applyReviewSessionCursorToLocalState(cursor);
+    }
+
+    private removeSessionExcludedCardIds(cardIds: Array<string | null | undefined>): number {
+        const cursor = this.createReviewSessionCursorFromLocalState();
+        const removed = cursor.removeSessionExcludedCardIds(cardIds);
+        this.applyReviewSessionCursorToLocalState(cursor);
+        return removed;
     }
 
     private restoreSessionExcludedCardIds(
         cardIds: Array<string | null | undefined>,
         logicalKeys: Array<string | null | undefined> = []
     ): void {
-        this.sessionExcludedCardIds.clear();
-        this.sessionExcludedLogicalKeys.clear();
-        if (!this.supportsSessionCompletionExclusion()) {
-            return;
-        }
-
-        for (const cardId of cardIds) {
-            const normalizedCardId = this.normalizeCardId(cardId);
-            if (normalizedCardId) {
-                this.sessionExcludedCardIds.add(normalizedCardId);
-            }
-        }
-        for (const logicalKey of logicalKeys) {
-            const normalizedLogicalKey = this.normalizeCardId(logicalKey);
-            if (normalizedLogicalKey) {
-                this.sessionExcludedLogicalKeys.add(normalizedLogicalKey);
-            }
-        }
+        const cursor = this.createReviewSessionCursorFromLocalState();
+        cursor.restoreSessionExcludedCardIds(cardIds, logicalKeys);
+        this.applyReviewSessionCursorToLocalState(cursor);
     }
 
     private applySessionExclusions(cards: FSRSCard[]): FSRSCard[] {
-        if (!this.hasSessionExclusions()) {
-            return cards.map((card) => this.cloneCard(card));
-        }
-
-        return cards
-            .filter((card) => !this.isSessionExcludedCard(card))
-            .map((card) => this.cloneCard(card));
-    }
-
-    private isSessionExcludedCard(card: FSRSCard): boolean {
-        if (this.sessionExcludedCardIds.has(this.normalizeCardId(card.id))) {
-            return true;
-        }
-
-        return this.buildSessionExclusionLogicalKeys(card)
-            .some((logicalKey) => this.sessionExcludedLogicalKeys.has(logicalKey));
-    }
-
-    private buildSessionExclusionLogicalKeys(card: Pick<FSRSCard, 'blockId' | 'xiuyuanID' | 'meta'>): string[] {
-        const faceIndex = this.readSessionExclusionFaceIndex(card.meta);
-        const blockId = String(card.blockId || '').trim();
-        const xiuyuanId = String(card.xiuyuanID || '').trim();
-        const keys: string[] = [];
-        if (blockId) {
-            keys.push(`block:${blockId}::face:${faceIndex}`);
-        }
-        if (xiuyuanId) {
-            keys.push(`xiuyuan:${xiuyuanId}::face:${faceIndex}`);
-        }
-        return keys;
-    }
-
-    private readSessionExclusionFaceIndex(meta: unknown): number {
-        if (!isRecord(meta)) {
-            return 0;
-        }
-
-        const rawFaceIndex = meta.faceIndex ?? meta.ruleIndex;
-        const numericFaceIndex = typeof rawFaceIndex === 'number'
-            ? rawFaceIndex
-            : typeof rawFaceIndex === 'string' && rawFaceIndex.trim().length > 0
-                ? Number(rawFaceIndex)
-                : 0;
-        return Number.isFinite(numericFaceIndex) ? Math.max(0, Math.floor(numericFaceIndex)) : 0;
+        return this.createReviewSessionCursorFromLocalState().applySessionExclusions(cards);
     }
 
     private supportsSessionCompletionExclusion(): boolean {
@@ -1583,56 +1449,36 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     appendCardsToTail(cards: FSRSCard[]): number {
-        if (!Array.isArray(cards) || cards.length === 0) {
+        const cursor = this.createReviewSessionCursorFromLocalState();
+        const appendedCount = cursor.appendCardsToTail(cards);
+        if (appendedCount === 0) {
             return 0;
         }
-
-        const existingCardIds = new Set(this.cachedCards.map((card) => String(card.id || '').trim()).filter(Boolean));
-        const appendedCards = cards
-            .filter((card) => {
-                const cardId = String(card.id || '').trim();
-                return cardId.length > 0 && !existingCardIds.has(cardId);
-            })
-            .map((card) => {
-                existingCardIds.add(String(card.id || '').trim());
-                return this.cloneCard(card);
-            });
-
-        if (appendedCards.length === 0) {
-            return 0;
-        }
-
-        this.cachedCards.push(...appendedCards);
-        this.lastCounterSnapshot = null;
+        this.applyReviewSessionCursorToLocalState(cursor);
 
         logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Appended cards to tail without resetting session pointer:`, {
             queueType: this.queueType,
-            appendedCount: appendedCards.length,
+            appendedCount,
             currentIndex: this.currentIndex,
             cachedSize: this.cachedCards.length,
         });
 
-        return appendedCards.length;
+        return appendedCount;
     }
 
     suppressReviewedCardForCurrentSession(card: FSRSCard): boolean {
-        const changed = this.addSessionExcludedCardIdentity(card);
-        if (!changed) {
+        const cursor = this.createReviewSessionCursorFromLocalState();
+        const result = cursor.suppressReviewedCardForCurrentSession(card);
+        if (!result.changed) {
             return false;
         }
-
-        const beforeLength = this.cachedCards.length;
-        this.cachedCards = this.applySessionExclusions(this.cachedCards);
-        if (this.currentIndex > this.cachedCards.length) {
-            this.currentIndex = this.cachedCards.length;
-        }
-        this.lastCounterSnapshot = null;
+        this.applyReviewSessionCursorToLocalState(cursor);
 
         logger.info('[SiYuanMemo][UnifiedQueueStrategy] Suppressed Semantic temporary review card from current session:', {
             queueType: this.queueType,
             cardId: card.id,
             blockId: card.blockId,
-            removedCachedCards: beforeLength - this.cachedCards.length,
+            removedCachedCards: result.removedCachedCards,
         });
         return true;
     }
@@ -2342,30 +2188,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     serializeSessionSnapshot(): ReviewQueueSessionSnapshot {
-        const requerySnapshot = this.incrementalRequeryPolicy.serialize({
-            cardId: this.avoidOnceCardId,
-            blockId: this.avoidOnceBlockId,
-        });
-        return {
-            version: 1,
-            queueType: this.queueType,
-            cacheValid: this.cacheValid,
-            currentIndex: Math.max(0, this.currentIndex),
-            cachedCards: this.cachedCards.map((card) => this.cloneCard(card)),
-            currentItem: this.currentItem ? this.cloneCard(this.currentItem) : null,
-            forwardBuffer: this.forwardBuffer.map((card) => this.cloneCard(card)),
-            pendingRotateCardId: this.pendingRotateCardId,
-            // Legacy readers may still look at deferOnceCardId; keep it in sync with
-            // the card-level part of the visible identity.
-            deferOnceCardId: requerySnapshot.deferOnceCardId,
-            avoidOnceCardId: requerySnapshot.avoidOnceCardId,
-            avoidOnceBlockId: requerySnapshot.avoidOnceBlockId,
-            sessionExcludedCardIds: Array.from(this.sessionExcludedCardIds),
-            sessionExcludedLogicalKeys: Array.from(this.sessionExcludedLogicalKeys),
-            lastCounterSnapshot: this.lastCounterSnapshot
-                ? this.cloneCounterSnapshot(this.lastCounterSnapshot)
-                : null,
-        };
+        return this.createReviewSessionCursorFromLocalState().serialize(this.queueType, this.currentItem);
     }
 
     restoreSessionSnapshot(snapshot: ReviewQueueSessionSnapshot | null | undefined): void {
@@ -2373,39 +2196,14 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return;
         }
 
-        this.restoreSessionExcludedCardIds(
-            Array.isArray(snapshot.sessionExcludedCardIds)
-                ? snapshot.sessionExcludedCardIds
-                : [],
-            Array.isArray(snapshot.sessionExcludedLogicalKeys)
-                ? snapshot.sessionExcludedLogicalKeys
-                : []
-        );
-        this.cachedCards = Array.isArray(snapshot.cachedCards)
-            ? this.applySessionExclusions(snapshot.cachedCards)
-            : [];
-        this.currentItem = snapshot.currentItem ? this.cloneCard(snapshot.currentItem) : null;
-        this.forwardBuffer = Array.isArray(snapshot.forwardBuffer)
-            ? this.applySessionExclusions(snapshot.forwardBuffer)
-            : [];
-        this.pendingRotateCardId = typeof snapshot.pendingRotateCardId === 'string'
-            ? snapshot.pendingRotateCardId
-            : null;
-        const requeryIdentity = this.incrementalRequeryPolicy.restore(snapshot);
-        this.avoidOnceCardId = requeryIdentity.cardId;
-        this.avoidOnceBlockId = requeryIdentity.blockId;
-        this.lastCounterSnapshot = snapshot.lastCounterSnapshot
-            ? this.cloneCounterSnapshot(snapshot.lastCounterSnapshot)
-            : null;
+        const cursor = new ReviewSessionCursor(this.queueType);
+        const restored = cursor.restore(snapshot);
+        this.currentItem = restored.currentItem;
+        this.applyReviewSessionCursorToLocalState(cursor);
         if (this.hasSessionExclusions() && this.lastCounterSnapshot) {
             this.refreshLocalCounterSnapshot('hot', this.lastCounterSnapshot);
         }
         this.historyStack = [];
-        this.currentIndex = Math.max(0, Math.min(
-            Number(snapshot.currentIndex) || 0,
-            this.cachedCards.length,
-        ));
-        this.cacheValid = snapshot.cacheValid === true;
     }
 
     getType(): QueueType {
@@ -2417,18 +2215,14 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     resetSessionState(): void {
-        this.forwardBuffer = [];
         this.historyStack = [];
-        this.pendingRotateCardId = null;
-        this.clearSessionExcludedCardIds();
         this.feedbackMutation = null;
-        this.clearAvoidOnceIdentity();
         this.currentItem = null;
-        this.currentIndex = 0;
-        this.cachedCards = [];
         this.pendingNeuralRoamAdvanceNext = null;
         this.pendingNeuralRoamAdvanceNextReady = false;
-        this.lastCounterSnapshot = null;
+        const cursor = this.createReviewSessionCursorFromLocalState();
+        cursor.reset();
+        this.applyReviewSessionCursorToLocalState(cursor);
         this.cacheManager.clear();
         this.invalidateCache();
         logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Session state reset: ${this.queueType}`);

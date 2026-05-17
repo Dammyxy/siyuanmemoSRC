@@ -27,3 +27,9 @@ export {
   NeuralRoamAdvanceOutcomePolicy,
   type NeuralRoamAdvanceOutcome,
 } from './NeuralRoamAdvanceOutcomePolicy';
+export {
+  ReviewSessionCursor,
+  type ReviewSessionCursorNextResult,
+  type ReviewSessionCursorProjectionPatch,
+  type ReviewSessionCursorReviewResultLike,
+} from './ReviewSessionCursor';
