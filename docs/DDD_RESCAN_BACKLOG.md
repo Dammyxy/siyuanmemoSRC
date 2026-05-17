@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-18 (Round 381)
+Last update: 2026-05-18 (Round 382)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-18 - Review Current Item Command
+
+- Task: Apply OpenSpec change `consolidate-review-current-item-command` by centralizing Review current-item mutation.
+- Touched slice: Review session advancement; `src/application/adapters/UnifiedQueueStrategy.ts`, `src/application/adapters/review-session/ReviewCurrentItemCommand.ts`, `CONTEXT.md`, `ARCHITECTURE.md`, and focused Review session tests.
+- Debt fixed now: Ordinary next/goBack, IncrementalLearning requery result application, review-tab snapshot restore, stale item clearing, and failed-feedback compensation now mutate the visible current item through `ReviewCurrentItemCommand` instead of scattered direct `UnifiedQueueStrategy.currentItem` assignment.
+- Debt deferred: NeuralRoam next-item selection remains backend-authoritative through `neural-roam.advance`; the command only applies/clears the item after backend outcome consumption.
+- Why deferred: Folding NeuralRoam selection into the local current-item command would mix backend advance authority with renderer-side Review session display mutation.
+- Next safe step: If Review session advancement grows again, move selected side-effect orchestration out of `UnifiedQueueStrategy` only after keeping Browser datasource, queue projection, scheduler commit, backend RPC, and writer relay contracts unchanged.
+- Validation: `pnpm vitest run src/application/adapters/review-session/__tests__/ReviewSessionCursor.test.ts src/application/adapters/review-session/__tests__/ReviewSessionAdvancementPolicies.test.ts src/application/adapters/__tests__/UnifiedQueueStrategy.scope-append.spec.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
 
 ### 2026-05-18 - Source Existence Projection Invalidator
 

@@ -21,6 +21,7 @@ import {
 } from './ReviewSessionProjectionApplier';
 import {
     NeuralRoamAdvanceOutcomePolicy,
+    ReviewCurrentItemCommand,
     ReviewFeedbackCompensationPolicy,
     ReviewLearnAheadAdvancePolicy,
     ReviewSessionCursor,
@@ -122,7 +123,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private queueType: QueueType;
     private cacheManager: CacheManagerObserver;
     private readonly cursor: ReviewSessionCursor;
-    private currentItem: FSRSCard | null = null;
+    private readonly currentItemCommand = new ReviewCurrentItemCommand();
     private historyStack: ReviewHistoryEntry[] = [];
     private readonly maxHistorySize = 100;
     private managerObserverRegistered = false;
@@ -172,6 +173,22 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Created for queue: ${this.queueType}`);
     }
 
+    private get currentItem(): FSRSCard | null {
+        return this.currentItemCommand.current;
+    }
+
+    private setCurrentItem(card: FSRSCard): FSRSCard {
+        return this.currentItemCommand.select(card);
+    }
+
+    private restoreCurrentItem(restored: { currentItem: FSRSCard | null }): FSRSCard | null {
+        return this.currentItemCommand.restore(restored);
+    }
+
+    private clearCurrentItem(): null {
+        return this.currentItemCommand.clear();
+    }
+
     async next(): Promise<FSRSCard | null> {
         try {
             if (this.cursor.hasForward()) {
@@ -180,7 +197,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     return null;
                 }
                 const replayCardWithNextDues = await this.maybeAddNextDues(replayCard);
-                this.currentItem = replayCardWithNextDues;
+                this.setCurrentItem(replayCardWithNextDues);
                 return replayCardWithNextDues;
             }
 
@@ -200,7 +217,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     cardId: card.id,
                     total: this.cursor.length,
                 });
-                this.currentItem = card;
+                this.setCurrentItem(card);
                 return card;
             }
 
@@ -218,14 +235,14 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
             if (this.cursor.length === 0) {
                 this.cursor.clearPendingRotation();
-                this.currentItem = null;
+                this.clearCurrentItem();
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue is empty: ${this.queueType}`);
                 return null;
             }
 
             const next = this.cursor.nextCached();
             if (!next) {
-                this.currentItem = null;
+                this.clearCurrentItem();
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue exhausted without reload: ${this.queueType}`);
                 return null;
             }
@@ -240,7 +257,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 now: new Date(Date.now()).toISOString(),
             });
 
-            this.currentItem = cardWithNextDues;
+            this.setCurrentItem(cardWithNextDues);
             return cardWithNextDues;
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -253,7 +270,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     async onFeedback(currentItem: FSRSCard | null, feedback: QueueFeedback): Promise<void> {
-        const activeItem = currentItem || this.currentItem;
+        const activeItem = this.currentItemCommand.resolveActive(currentItem);
         if (!activeItem) {
             this.cursor.clearPendingRotation();
             logger.warn(`[SiYuanMemo][UnifiedQueueStrategy] No current item for feedback`);
@@ -283,7 +300,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 const reviewResult = await this.handleReviewWithFeedbackContext(activeItem, feedback);
                 this.pushHistory(activeItem, activeTransaction);
                 activeTransactionPushed = true;
-                this.currentItem = null;
+                this.clearCurrentItem();
                 this.cursor.counterSnapshot = reviewResult.counterSnapshot ?? null;
 
                 if (this.learnAheadSession) {
@@ -400,7 +417,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 this.pushHistory(activeItem, activeTransaction);
                 activeTransactionPushed = true;
                 this.cursor.clearForward();
-                this.currentItem = null;
+                this.clearCurrentItem();
                 this.cursor.clearPendingRotation();
                 if (this.usesRequeryAfterFeedback()) {
                     this.setAvoidOnceIdentity(activeItem);
@@ -443,7 +460,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     this.pushHistory(activeItem, activeTransaction);
                     activeTransactionPushed = true;
                     this.cursor.clearForward();
-                    this.currentItem = null;
+                    this.clearCurrentItem();
                     this.cursor.clearPendingRotation();
                     this.clearAvoidOnceIdentity();
                     const patched = this.applyRemovalToCache(activeItem.id);
@@ -466,7 +483,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
                 this.pushHistory(activeItem, null);
                 this.cursor.clearForward();
-                this.currentItem = null;
+                this.clearCurrentItem();
                 this.cursor.clearPendingRotation();
                 if (this.usesRequeryAfterFeedback()) {
                     this.clearAvoidOnceIdentity();
@@ -548,7 +565,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     async goBack(currentItem: FSRSCard | null): Promise<FSRSCard | null> {
         this.cursor.clearPendingRotation();
         this.clearAvoidOnceIdentity();
-        const activeItem = currentItem || this.currentItem;
+        const activeItem = this.currentItemCommand.resolveActive(currentItem);
         if (this.historyStack.length === 0) {
             return activeItem;
         }
@@ -569,7 +586,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         }
 
         const previousWithNextDues = await this.maybeAddNextDues(previous);
-        this.currentItem = previousWithNextDues;
+        this.setCurrentItem(previousWithNextDues);
         return previousWithNextDues;
     }
 
@@ -770,14 +787,14 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         if (this.cursor.length === 0) {
             this.cursor.clearPendingRotation();
             this.clearAvoidOnceIdentity();
-            this.currentItem = null;
+            this.clearCurrentItem();
             logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue is empty: ${this.queueType}`);
             return null;
         }
 
         const selection = this.cursor.nextRequery();
         if (!selection) {
-            this.currentItem = null;
+            this.clearCurrentItem();
             logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue exhausted after requery: ${this.queueType}`);
             return null;
         }
@@ -797,7 +814,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             now: new Date(Date.now()).toISOString(),
         });
 
-        this.currentItem = cardWithNextDues;
+        this.setCurrentItem(cardWithNextDues);
         return cardWithNextDues;
     }
 
@@ -807,7 +824,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         _reviewResult: QueueReviewResult
     ): void {
         this.cursor.clearForward();
-        this.currentItem = null;
+        this.clearCurrentItem();
         this.cursor.clearPendingRotation();
         this.cursor.resetIndex();
         this.cursor.invalidate();
@@ -918,12 +935,12 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             this.pendingNeuralRoamAdvanceNext = null;
             this.pendingNeuralRoamAdvanceNextReady = false;
             if (!pending) {
-                this.currentItem = null;
+                this.clearCurrentItem();
                 logger.info('[SiYuanMemo][UnifiedQueueStrategy] NeuralRoam advance queue exhausted');
                 return null;
             }
             const cardWithNextDues = await this.maybeAddNextDues(pending);
-            this.currentItem = cardWithNextDues;
+            this.setCurrentItem(cardWithNextDues);
             return cardWithNextDues;
         }
 
@@ -951,7 +968,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             resetHistory: request?.resetHistory === true,
             startNewSession: request?.startNewSession === true,
         };
-        this.currentItem = null;
+        this.clearCurrentItem();
         this.pendingNeuralRoamAdvanceNext = null;
         this.pendingNeuralRoamAdvanceNextReady = false;
         this.cursor.clearForward();
@@ -965,7 +982,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             this.pushHistory(activeItem, null);
             this.pendingNeuralRoamAdvanceNext = null;
             this.pendingNeuralRoamAdvanceNextReady = false;
-            this.currentItem = null;
+            this.clearCurrentItem();
             logger.info('[SiYuanMemo][UnifiedQueueStrategy] NeuralRoam custom feedback handled as session-only action:', {
                 queueType: this.queueType,
                 cardId: activeItem.id,
@@ -1009,7 +1026,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         this.pushHistory(activeItem, null);
         this.cursor.clearForward();
         this.cursor.clearPendingRotation();
-        this.currentItem = null;
+        this.clearCurrentItem();
         this.pendingNeuralRoamAdvanceNext = result.nextItem
             ? this.fromNeuralRoamAdvanceItem(result.nextItem)
             : null;
@@ -1044,7 +1061,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         const outcome = this.neuralRoamAdvanceOutcomePolicy.consume(result);
         if (outcome.kind === 'exhausted') {
             await this.syncNeuralRoamQueueFromBackendState(result);
-            this.currentItem = null;
+            this.clearCurrentItem();
             return null;
         }
         if (outcome.kind !== 'next' || !result.nextItem) {
@@ -1056,7 +1073,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         await this.syncNeuralRoamQueueFromBackendState(result);
         const nextCard = this.fromNeuralRoamAdvanceItem(result.nextItem);
         const cardWithNextDues = await this.maybeAddNextDues(nextCard);
-        this.currentItem = cardWithNextDues;
+        this.setCurrentItem(cardWithNextDues);
         logger.info('[SiYuanMemo][UnifiedQueueStrategy] Next card (backend NeuralRoam advance):', {
             queueType: this.queueType,
             cardId: nextCard.id,
@@ -1175,7 +1192,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
         this.cursor.load(result.cards);
         this.learnAheadSession = true;
-        this.currentItem = null;
+        this.clearCurrentItem();
         this.cursor.clearPendingRotation();
         this.clearAvoidOnceIdentity();
         this.refreshLocalCounterSnapshot('hot', null);
@@ -1505,7 +1522,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             this.cursor.clearPendingRotation();
         }
         if (this.currentItem && this.matchesAnyCardIdentity(this.currentItem, identities)) {
-            this.currentItem = null;
+            this.clearCurrentItem();
         }
         if (
             (this.cursor.avoidCardId && identities.has(this.cursor.avoidCardId))
@@ -1529,7 +1546,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         const removed = this.cursor.removeMatching(identities);
 
         if (this.currentItem && this.matchesAnyCardIdentity(this.currentItem, identities)) {
-            this.currentItem = null;
+            this.clearCurrentItem();
         }
 
         return removed;
@@ -2005,8 +2022,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         this.cursor.clearForward();
         this.cursor.clearPendingRotation();
         this.clearAvoidOnceIdentity();
-        this.currentItem = await this.maybeAddNextDues(this.cloneCard(restoredItem))
-            .catch(() => this.cloneCard(restoredItem));
+        this.setCurrentItem(await this.maybeAddNextDues(this.cloneCard(restoredItem))
+            .catch(() => this.cloneCard(restoredItem)));
         this.invalidateCache();
     }
 
@@ -2026,7 +2043,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         }
 
         const restored = this.cursor.restore(snapshot);
-        this.currentItem = restored.currentItem;
+        this.restoreCurrentItem(restored);
         const lastCounterSnapshot = this.cursor.counterSnapshot;
         if (this.hasSessionExclusions() && lastCounterSnapshot) {
             this.refreshLocalCounterSnapshot('hot', lastCounterSnapshot);
@@ -2045,7 +2062,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     resetSessionState(): void {
         this.historyStack = [];
         this.feedbackMutation = null;
-        this.currentItem = null;
+        this.clearCurrentItem();
         this.pendingNeuralRoamAdvanceNext = null;
         this.pendingNeuralRoamAdvanceNextReady = false;
         this.cursor.reset();

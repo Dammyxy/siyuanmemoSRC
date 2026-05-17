@@ -68,6 +68,10 @@ _Avoid_: calling backend read-model assembly a projection builder, because core 
 The in-memory position and volatile movement state for a single Review session: current index, cached cards, forward buffer, one-time avoidance, and session-local exclusions. It does not own queue membership rules, scheduling, review commit, or backend projection storage.
 _Avoid_: calling this the Review session manager, because `useReviewSession` owns UI session orchestration and `SharedReviewSessionRegistry` owns shared surface registration.
 
+**Review Current Item Command**:
+The Review session advancement command that applies the currently visible card for a single Review session: selected next card, restored snapshot card, failed-feedback compensation restore, or explicit clear. It does not choose queue membership, persist review feedback, or own NeuralRoam next-item selection.
+_Avoid_: calling this a queue cursor or NeuralRoam advance owner; it only applies current-item mutation after another owner chooses the item.
+
 ## Relationships
 
 - A **Mixed SRS Queue** may contain **Learning Steps**, **Review Cards**, and new cards.
@@ -83,6 +87,7 @@ _Avoid_: calling this the Review session manager, because `useReviewSession` own
 - **Custom Review Surfaces** share review rendering requirements with native-like review surfaces, including supported link and reference behavior.
 - A **Semantic Session Read Model** is derived from Semantic session owner state and may consume core Semantic session projection, but it remains a read-only presentation model for Browser, Review sidebar, or session inspection callers.
 - A **Review Session Cursor** sits inside a Review session and consumes queue rows/cards, but it is not the queue authority and does not decide scheduling outcomes.
+- A **Review Current Item Command** sits beside the **Review Session Cursor** and applies the visible current card after cursor restore, ordinary advancement, or compensation chooses that card.
 
 ## Example Dialogue
 

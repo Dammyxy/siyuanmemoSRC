@@ -28,6 +28,10 @@ export {
   type NeuralRoamAdvanceOutcome,
 } from './NeuralRoamAdvanceOutcomePolicy';
 export {
+  ReviewCurrentItemCommand,
+  type ReviewCurrentItemRestoreResult,
+} from './ReviewCurrentItemCommand';
+export {
   ReviewSessionCursor,
   type ReviewSessionCursorNextResult,
   type ReviewSessionCursorProjectionPatch,
