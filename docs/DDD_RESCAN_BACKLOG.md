@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-17 (Round 374)
+Last update: 2026-05-17 (Round 375)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-17 - Semantic Session Read Model module
+
+- Task: Deepen Semantic session read-model assembly after architecture review candidate 1.
+- Touched slice: Semantic Exploration backend read surfaces; `CONTEXT.md`, `ARCHITECTURE.md`, `worker/semantic/SemanticSessionReadModelBuilder.ts`, `worker/db/SqliteDatabaseService.ts`, and focused builder/backend tests.
+- Debt fixed now: Browser, Review sidebar, and session inspection read assembly now live behind one Semantic Session Read Model module with a narrow reader Interface. `SqliteDatabaseService` no longer owns presentation assembly, candidate column shaping, backend session projection conversion, station node derivation, or edge explanation shaping for read surfaces; it stays SQL owner/Adapter and keeps writer-owned Semantic commands local.
+- Debt deferred: Candidate labels still depend on existing node shell presentation rather than real SiYuan content hydration, so unreadable/bare-id candidates remain filtered instead of displayed. The Semantic read model still reuses the current backend DTO shape rather than introducing a smaller internal view DTO.
+- Why deferred: This slice was an architecture deepening with no UI/content hydration change. Real content hydration needs a dedicated source-node lookup seam; changing DTO shape would cross Browser/Review contract ownership and belongs in a separate compatibility-planned change.
+- Next safe step: Add a source-node hydration reader for Semantic candidates/path nodes so the read model can render real titles while keeping unreadable nodes explicit unavailable.
+- Validation: `pnpm vitest run worker/semantic/__tests__/SemanticSessionReadModelBuilder.test.ts`; `pnpm vitest run worker/semantic/__tests__/SemanticSessionReadModelBuilder.test.ts worker/__tests__/BackendKernel.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-17 - Semantic Exploration surface closure
 

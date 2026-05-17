@@ -60,6 +60,10 @@ _Avoid_: treating all matching `blocks` rows as SRS Browser cards
 A SiYuanMemo-owned review UI that renders card content outside SiYuan's native block renderer. It must explicitly preserve supported link and reference behavior because native rendering is not automatically available.
 _Avoid_: assuming temporary or deliberate practice cannot render links by nature
 
+**Semantic Session Read Model**:
+A presentation-ready read model derived from Semantic session owner state for Browser, Review sidebar, or session inspection surfaces. It does not write Semantic state, execute Semantic commands, or perform UI selection side effects.
+_Avoid_: calling backend read-model assembly a projection builder, because core Semantic session projection is a lower-level derived structure.
+
 ## Relationships
 
 - A **Mixed SRS Queue** may contain **Learning Steps**, **Review Cards**, and new cards.
@@ -73,6 +77,7 @@ _Avoid_: assuming temporary or deliberate practice cannot render links by nature
 - **Topic Container** identity must not depend on whether the owning block is a document block.
 - **SRS Browser Card Universe** scopes Browser filters, SQL searches, counts, and bulk operations to cards managed by SiYuanMemo.
 - **Custom Review Surfaces** share review rendering requirements with native-like review surfaces, including supported link and reference behavior.
+- A **Semantic Session Read Model** is derived from Semantic session owner state and may consume core Semantic session projection, but it remains a read-only presentation model for Browser, Review sidebar, or session inspection callers.
 
 ## Example Dialogue
 
@@ -90,3 +95,4 @@ _Avoid_: assuming temporary or deliberate practice cannot render links by nature
 - Topic was implicitly treated as document-block-only in some creation flows. Resolved: **Topic Container** includes non-document blocks such as super blocks when they own Topic-derived item creation.
 - SRS Browser filtering was ambiguous between arbitrary block SQL and plugin-managed cards. Resolved: **SRS Browser Card Universe** is the outer scope; SQL results are intersected with it.
 - Temporary and deliberate practice were described as unable to render links. Resolved: the issue belongs to **Custom Review Surface** rendering, not to those practice modes as domain concepts.
+- Semantic read assembly was ambiguous with core projection building. Resolved: **Semantic Session Read Model** names the presentation-ready read model derived from Semantic session owner state, while core projection remains the lower-level tree/path/branch derivation.
