@@ -125,4 +125,23 @@ describe('ReviewSessionCursor', () => {
     expect(cursor.shiftForward()).toBeNull();
     expect(cursor.counterSnapshot?.remaining).toBe(1);
   });
+
+  it('selects requery next card and clears one-time avoidance inside the cursor', () => {
+    const cursor = new ReviewSessionCursor(QueueType.IncrementalLearning);
+    cursor.load([
+      card('a', { blockId: 'same-block' }),
+      card('b', { blockId: 'same-block' }),
+      card('c', { blockId: 'other-block' }),
+    ]);
+    cursor.setAvoidOnce(card('a', { blockId: 'same-block' }));
+
+    const next = cursor.nextRequery();
+
+    expect(next?.card.id).toBe('c');
+    expect(next?.avoidedCardId).toBe('a');
+    expect(next?.avoidedBlockId).toBe('same-block');
+    expect(cursor.index).toBe(3);
+    expect(cursor.avoidCardId).toBeNull();
+    expect(cursor.avoidBlockId).toBeNull();
+  });
 });

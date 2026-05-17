@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-18 (Round 377)
+Last update: 2026-05-18 (Round 378)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-18 - Long-lived Review Session Cursor
+
+- Task: Finish Review Session Cursor follow-up after the transitional module extraction.
+- Touched slice: Review session advancement; `src/application/adapters/UnifiedQueueStrategy.ts`, `src/application/adapters/review-session/ReviewSessionCursor.ts`, and focused cursor/strategy tests.
+- Debt fixed now: `UnifiedQueueStrategy` now owns one long-lived `ReviewSessionCursor` instead of mirrored volatile fields. Cached cards/current index/cache validity/forward buffer/pending rotation/avoid-once/session exclusions/counter snapshot now mutate through cursor methods, and incremental requery selection plus one-time avoidance clearing live inside `ReviewSessionCursor.nextRequery()`.
+- Debt deferred: NeuralRoam backend advance state remains outside Review Session Cursor.
+- Why deferred: NeuralRoam advance is backend-authoritative, not static queue cursor state; folding it into the cursor would mix backend advance ownership with local review-session movement.
+- Next safe step: Add a focused integration test around incremental requery skip/rate avoidance through `UnifiedQueueStrategy` if that flow changes again.
+- Validation: `pnpm vitest run src/application/adapters/review-session/__tests__/ReviewSessionCursor.test.ts`; `pnpm vitest run src/application/adapters/__tests__/UnifiedQueueStrategy.static-subset-projection.spec.ts src/application/adapters/__tests__/UnifiedQueueStrategy.scope-append.spec.ts src/application/adapters/review-session/__tests__/ReviewSessionAdvancementPolicies.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
 
 ### 2026-05-18 - Backend Worker liveness supervisor
 
@@ -29,9 +39,9 @@ Last update: 2026-05-18 (Round 377)
 - Task: Deepen Review session volatile movement state after architecture review candidate 2.
 - Touched slice: Review session advancement; `CONTEXT.md`, `ARCHITECTURE.md`, `src/application/adapters/review-session/ReviewSessionCursor.ts`, `src/application/adapters/review-session/index.ts`, `src/application/adapters/UnifiedQueueStrategy.ts`, and focused cursor/strategy tests.
 - Debt fixed now: Review Session Cursor is now a named domain term and a tested module. Cached cards/current index/forward buffer/pending rotation/avoid-once/session-local exclusions/projection patch state/snapshot restore now have one module-level Interface; `UnifiedQueueStrategy` delegates projection patch state, hot cache mutation, session exclusion filtering, append/suppress, and review-tab snapshot restore/serialize to that module instead of duplicating helper logic inline.
-- Debt deferred: `UnifiedQueueStrategy.next()` still reads the raw cursor fields directly for the main happy path, and NeuralRoam backend advance state remains outside Review Session Cursor because it is backend-authoritative rather than static queue cursor state.
+- Debt deferred: Follow-up on 2026-05-18 replaced the remaining direct cursor-state happy path with a long-lived cursor. NeuralRoam backend advance state remains outside Review Session Cursor because it is backend-authoritative rather than static queue cursor state.
 - Why deferred: This slice concentrated the highest-risk state mutation and snapshot behavior first while preserving the existing Review-facing façade. Moving the main `next()` loop fully behind cursor should be a smaller follow-up after this module has green integration coverage.
-- Next safe step: Replace the remaining direct `cachedCards/currentIndex/forwardBuffer/cacheValid` happy-path reads in `UnifiedQueueStrategy.next()` with `ReviewSessionCursor.nextCached()` and make cursor a long-lived field instead of a transitional state adapter.
+- Next safe step: See 2026-05-18 follow-up for the long-lived cursor closure; future work should keep backend-authoritative NeuralRoam advance outside this local cursor unless ownership changes.
 - Validation: `pnpm vitest run src/application/adapters/review-session/__tests__/ReviewSessionCursor.test.ts`; `pnpm vitest run src/application/adapters/review-session/__tests__/ReviewSessionCursor.test.ts src/application/adapters/review-session/__tests__/ReviewSessionAdvancementPolicies.test.ts src/application/adapters/__tests__/UnifiedQueueStrategy.static-subset-projection.spec.ts src/application/adapters/__tests__/UnifiedQueueStrategy.scope-append.spec.ts src/application/__tests__/UnifiedQueueStrategy.hide-current-in-scope.test.ts src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-17 - Semantic Session Read Model module

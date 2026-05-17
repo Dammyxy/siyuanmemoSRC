@@ -10,6 +10,12 @@ export interface ReviewSessionCursorNextResult {
   total: number;
 }
 
+export interface ReviewSessionCursorRequeryNextResult extends ReviewSessionCursorNextResult {
+  mode: string;
+  avoidedCardId: string | null;
+  avoidedBlockId: string | null;
+}
+
 export interface ReviewSessionCursorReviewResultLike {
   removedFromQueue?: boolean;
   updatedCard?: FSRSCard | null;
@@ -116,6 +122,41 @@ export class ReviewSessionCursor {
     const index = this.currentIndex;
     const card = this.cachedCards[this.currentIndex++];
     return card ? { card: cloneCard(card), index, total: this.cachedCards.length } : null;
+  }
+
+  nextRequery(): ReviewSessionCursorRequeryNextResult | null {
+    if (!this.cacheValid || this.currentIndex > this.cachedCards.length) {
+      return null;
+    }
+    if (this.cachedCards.length === 0) {
+      this.pendingRotateCardId = null;
+      this.clearAvoidOnce();
+      return null;
+    }
+    const avoidedCardId = this.avoidOnceCardId;
+    const avoidedBlockId = this.avoidOnceBlockId;
+    const selection = this.incrementalRequeryPolicy.selectNext(this.cachedCards, {
+      cardId: avoidedCardId,
+      blockId: avoidedBlockId,
+    });
+    if (selection.index === -1) {
+      this.clearAvoidOnce();
+      return null;
+    }
+    const card = this.cachedCards[selection.index];
+    this.currentIndex = Math.min(this.cachedCards.length, selection.index + 1);
+    this.pendingRotateCardId = null;
+    this.clearAvoidOnce();
+    return card
+      ? {
+          card: cloneCard(card),
+          index: selection.index,
+          total: this.cachedCards.length,
+          mode: selection.mode,
+          avoidedCardId,
+          avoidedBlockId,
+        }
+      : null;
   }
 
   invalidate(): void {
