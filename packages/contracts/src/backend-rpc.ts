@@ -43,6 +43,8 @@ export type BackendRpcMethod =
   | 'private.read.sessions'
   | 'private.command.execute'
   | 'semantic.command.execute'
+  | 'semantic.session.read'
+  | 'semantic.sidebar.read'
   | 'semantic.browser.read'
   | 'p6.ownership.query'
   | 'p6.ownership.command';
@@ -410,6 +412,36 @@ export type BackendSemanticStationType = 'node' | 'path';
 
 export type BackendSemanticNodeType = 'real-review-card' | 'implicit-knowledge' | 'concept';
 
+export type BackendSemanticNodeKind =
+  | 'flashcard'
+  | 'block'
+  | 'document'
+  | 'heading'
+  | 'list-item'
+  | 'paragraph'
+  | 'concept'
+  | 'unknown';
+
+export interface BackendSemanticNodeAvailability {
+  status: 'available' | 'unavailable';
+  reason?:
+    | 'writer-unavailable'
+    | 'projection-unavailable'
+    | 'graph-unavailable'
+    | 'session-unavailable'
+    | 'focus-unavailable'
+    | 'candidate-unavailable'
+    | 'station-unavailable'
+    | 'inactive-station'
+    | 'invalid-request'
+    | 'failed'
+    | 'source-missing'
+    | 'content-missing'
+    | 'virtual-node'
+    | null;
+  message?: string | null;
+}
+
 export interface BackendSemanticPathEntry {
   nodeId: string;
   lens: BackendSemanticLens;
@@ -420,16 +452,19 @@ export interface BackendSemanticPathEntry {
 export interface BackendSemanticSessionSnapshot {
   sessionId: string;
   rootFocusNodeId: string;
+  rootFocusNodeType?: BackendSemanticNodeType | null;
   currentNodeId: string;
   activeLens: BackendSemanticLens;
   narrativePath: BackendSemanticPathEntry[];
   startedAt: number;
   endedAt?: number | null;
+  forkMetadata?: BackendSemanticForkMetadata | null;
 }
 
 export interface BackendSemanticNode {
   nodeId: string;
   nodeType: BackendSemanticNodeType;
+  presentation?: BackendSemanticRealNodePresentation;
   title: string;
   preview: string;
   location: {
@@ -439,6 +474,114 @@ export interface BackendSemanticNode {
     breadcrumb?: string[] | null;
     backlinkBlockIds?: string[] | null;
   };
+}
+
+export interface BackendSemanticRealNodePresentation {
+  displayTitle: string;
+  summary: string;
+  nodeKind: BackendSemanticNodeKind;
+  breadcrumb: string[];
+  availability: BackendSemanticNodeAvailability;
+  sourceBlockId: string | null;
+  cardId: string | null;
+  debugId: string;
+}
+
+export interface BackendSemanticEdgeCreatedBy {
+  kind: 'user' | 'system' | 'ai' | 'import' | 'unknown';
+  id?: string | null;
+  label?: string | null;
+}
+
+export interface BackendSemanticEdgeEvidence {
+  eventId?: string | null;
+  relationId?: string | null;
+  sourceNodeId?: string | null;
+  label?: string | null;
+  weight?: number | null;
+}
+
+export interface BackendSemanticEdgeExplanation {
+  fromNodeId: string;
+  toNodeId: string;
+  lens: BackendSemanticLens;
+  primaryExplanation: string;
+  reasonTags: string[];
+  evidence: BackendSemanticEdgeEvidence[];
+  createdBy: BackendSemanticEdgeCreatedBy;
+  createdAt: number;
+}
+
+export interface BackendSemanticSessionTreeNode {
+  nodeId: string;
+  childNodeIds: string[];
+  edgeIds: string[];
+}
+
+export interface BackendSemanticBranchEdge {
+  edgeId: string;
+  sessionId: string;
+  branchId: string;
+  fromNodeId: string;
+  toNodeId: string;
+  lens: BackendSemanticLens;
+  explanation?: BackendSemanticEdgeExplanation | null;
+  createdBy: BackendSemanticEdgeCreatedBy;
+  createdAt: number;
+  forkMetadata?: BackendSemanticForkMetadata | null;
+}
+
+export interface BackendSemanticSessionBranchProjection {
+  branchId: string;
+  rootNodeId: string;
+  activeCursorNodeId: string;
+  edges: BackendSemanticBranchEdge[];
+  archivedAt?: number | null;
+  restoredAt?: number | null;
+  recentActivityAt: number;
+}
+
+export interface BackendSemanticLaterEntry {
+  entryId: string;
+  sessionId: string;
+  nodeId: string;
+  reason?: string | null;
+  createdAt: number;
+  removedAt?: number | null;
+}
+
+export interface BackendSemanticSuggestion {
+  suggestionId: string;
+  sessionId: string;
+  source: 'ai' | 'system';
+  summary: string;
+  status: 'active' | 'ignored' | 'bound' | 'materialized';
+  targetNodeId?: string | null;
+  boundNodeId?: string | null;
+  materializedBlockId?: string | null;
+  materializedCardId?: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface BackendSemanticSessionProjection {
+  session: BackendSemanticSessionSnapshot;
+  tree: BackendSemanticSessionTreeNode[];
+  activePath: BackendSemanticPathEntry[];
+  branches: BackendSemanticSessionBranchProjection[];
+  archivedBranches: BackendSemanticSessionBranchProjection[];
+  inheritedContextNodeIds: string[];
+  later: BackendSemanticLaterEntry[];
+  suggestions: BackendSemanticSuggestion[];
+  ended: boolean;
+  forkMetadata?: BackendSemanticForkMetadata | null;
+}
+
+export interface BackendSemanticForkMetadata {
+  sourceSessionId: string;
+  sourceNodeId: string;
+  forkedAt: number;
+  reason?: 'continue-ended-session' | 'branch-from-node' | 'manual' | null;
 }
 
 export interface BackendSemanticCandidateReason {
@@ -486,7 +629,88 @@ export interface BackendSemanticBrowserReadRequest {
   callerIntent: string;
   rootFocusNodeId?: string | null;
   sessionId?: string | null;
+  selectedNodeId?: string | null;
 }
+
+export interface BackendSemanticSessionReadRequest {
+  requestId: string;
+  method: 'semantic.session.read';
+  callerIntent: string;
+  sessionId: string;
+}
+
+export type BackendSemanticSessionReadResult =
+  | {
+      status: 'ok';
+      requestId: string;
+      projection: BackendSemanticSessionProjection;
+      nodes: BackendSemanticNode[];
+      diagnosticEventId: string;
+    }
+  | {
+      status: 'unavailable' | 'failed';
+      unavailableReason:
+        | 'projection-unavailable'
+        | 'graph-unavailable'
+        | 'session-unavailable'
+        | 'focus-unavailable'
+        | 'candidate-unavailable'
+        | 'station-unavailable'
+        | 'invalid-request'
+        | 'failed';
+      message: string;
+      diagnosticEventId: string;
+    };
+
+export interface BackendSemanticSidebarReadRequest {
+  requestId: string;
+  method: 'semantic.sidebar.read';
+  callerIntent: string;
+  sessionId?: string | null;
+  rootFocusNodeId?: string | null;
+  currentNodeId?: string | null;
+  bindingMode?: 'follow-current' | 'pinned-session';
+}
+
+export type BackendSemanticSidebarBindingState =
+  | { type: 'pinned-session'; sessionId: string }
+  | { type: 'follow-current'; rootFocusNodeId: string }
+  | { type: 'current-node-unavailable'; reason: string };
+
+export interface BackendSemanticSidebarReadModel {
+  bindingState: BackendSemanticSidebarBindingState;
+  session: BackendSemanticSessionSnapshot | null;
+  currentNode: BackendSemanticNode | null;
+  activePath: BackendSemanticPathEntry[];
+  activePathNodes: BackendSemanticNode[];
+  branches: BackendSemanticSessionBranchProjection[];
+  candidates: BackendSemanticCandidateColumns;
+  later: BackendSemanticLaterEntry[];
+  suggestions: BackendSemanticSuggestion[];
+  nodes: BackendSemanticNode[];
+}
+
+export type BackendSemanticSidebarReadResult =
+  | {
+      status: 'ok';
+      requestId: string;
+      model: BackendSemanticSidebarReadModel;
+      diagnosticEventId: string;
+    }
+  | {
+      status: 'unavailable' | 'failed';
+      unavailableReason:
+        | 'projection-unavailable'
+        | 'graph-unavailable'
+        | 'session-unavailable'
+        | 'focus-unavailable'
+        | 'candidate-unavailable'
+        | 'station-unavailable'
+        | 'invalid-request'
+        | 'failed';
+      message: string;
+      diagnosticEventId: string;
+    };
 
 export type BackendSemanticBrowserReadResult =
   | {
@@ -496,6 +720,13 @@ export type BackendSemanticBrowserReadResult =
       session: BackendSemanticSessionSnapshot | null;
       rootNode: BackendSemanticNode | null;
       currentNode: BackendSemanticNode | null;
+      projection?: BackendSemanticSessionProjection | null;
+      nodes?: BackendSemanticNode[];
+      selectedNode?: BackendSemanticNode | null;
+      edgeExplanations?: BackendSemanticEdgeExplanation[];
+      later?: BackendSemanticLaterEntry[];
+      suggestions?: BackendSemanticSuggestion[];
+      archivedBranches?: BackendSemanticSessionBranchProjection[];
       candidates: BackendSemanticCandidateColumns;
       stations: BackendSemanticStation[];
       stationNodes: BackendSemanticNode[];
@@ -518,8 +749,42 @@ export type BackendSemanticBrowserReadResult =
     };
 
 export type BackendSemanticCommand =
-  | { type: 'start-session'; rootFocusNodeId: string; sessionId?: string; idempotencyKey?: string }
+  | { type: 'start-session'; rootFocusNodeId: string; rootFocusNodeType?: BackendSemanticNodeType | null; sessionId?: string; idempotencyKey?: string }
+  | {
+      type: 'fork-session';
+      sourceSessionId: string;
+      sourceNodeId: string;
+      rootFocusNodeId: string;
+      forkMetadata?: Omit<BackendSemanticForkMetadata, 'forkedAt'> | null;
+      idempotencyKey?: string;
+    }
   | { type: 'follow-candidate'; sessionId: string; candidateId: string; lens: BackendSemanticLens; idempotencyKey?: string }
+  | {
+      type: 'create-branch-edge';
+      sessionId: string;
+      fromNodeId: string;
+      toNodeId: string;
+      lens: BackendSemanticLens;
+      explanation?: BackendSemanticEdgeExplanation | null;
+      idempotencyKey?: string;
+    }
+  | { type: 'move-active-cursor'; sessionId: string; nodeId: string; idempotencyKey?: string }
+  | { type: 'archive-branch'; sessionId: string; branchId: string; idempotencyKey?: string }
+  | { type: 'restore-branch'; sessionId: string; branchId: string; idempotencyKey?: string }
+  | { type: 'add-later'; sessionId: string; nodeId: string; reason?: string | null; idempotencyKey?: string }
+  | { type: 'remove-later'; sessionId: string; nodeId: string; idempotencyKey?: string }
+  | {
+      type: 'create-suggestion';
+      sessionId: string;
+      suggestionId: string;
+      source: 'ai' | 'system';
+      summary: string;
+      targetNodeId?: string | null;
+      idempotencyKey?: string;
+    }
+  | { type: 'ignore-suggestion'; sessionId: string; suggestionId: string; idempotencyKey?: string }
+  | { type: 'bind-suggestion'; sessionId: string; suggestionId: string; nodeId: string; idempotencyKey?: string }
+  | { type: 'materialize-suggestion'; sessionId: string; suggestionId: string; blockId: string; cardId?: string | null; idempotencyKey?: string }
   | { type: 'switch-lens'; sessionId: string; lens: BackendSemanticLens; idempotencyKey?: string }
   | { type: 'create-station'; sessionId: string; stationType: BackendSemanticStationType; idempotencyKey?: string }
   | {
@@ -541,7 +806,7 @@ export type BackendSemanticCommand =
       source?: 'manual' | 'ai';
       idempotencyKey?: string;
     }
-  | { type: 'mark-irrelevant'; sessionId: string; nodeId: string; idempotencyKey?: string }
+  | { type: 'mark-irrelevant'; sessionId: string; nodeId: string; scope?: 'session' | 'root'; idempotencyKey?: string }
   | { type: 'archive-station'; sessionId: string; stationId: string; idempotencyKey?: string }
   | { type: 'restore-path-station'; sessionId: string; stationId: string; idempotencyKey?: string }
   | { type: 'end-session'; sessionId: string; idempotencyKey?: string }

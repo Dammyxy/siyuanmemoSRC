@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-16 (Round 372)
+Last update: 2026-05-17 (Round 373)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-17 - Semantic Exploration redesign read-model foundation
+
+- Task: Apply OpenSpec change `redesign-semantic-exploration-surfaces` through tasks 1.1-4.5.
+- Touched slice: Semantic Activation core contracts/presentation, backend RPC DTOs, SQLite Semantic persistence owner, worker Semantic read/command handlers, core session projection builder, focused Semantic tests, and OpenSpec task ledger.
+- Debt fixed now: Semantic nodes now have a real-node presentation DTO with display title, summary, node kind, breadcrumb, availability, source block id, card id, and debug id. Edge explanations now carry lens, primary explanation, reason tags, evidence, created-by identity, and timestamp. Virtual/inferred nodes are explicitly unavailable for path/main-candidate representation until bound/materialized to a real block/card, and bare block ids are no longer accepted as primary display labels. Persistence now has owner tables/port methods for branch edges, active branch cursor state, archived/restored branches, later entries, irrelevant feedback, suggestions, and fork metadata. A core projection builder derives tree, active path, branches, archived branches, inherited context, later list, suggestions, ended state, and fork metadata from persisted state. New backend read surfaces `semantic.session.read` and `semantic.sidebar.read` return presentation-ready session/sidebar projections, and `semantic.browser.read` now also exposes review-mode projection fields: tree/timeline, selected node, edge explanations, later, suggestions, and archived branches. Semantic roots can now carry a real node type instead of being forced to Concept. Candidate reads filter unreadable/bare-id candidates and session/root irrelevant feedback. `add-later/remove-later`, scoped `mark-irrelevant`, and suggestion lifecycle commands persist user intent separately from candidates.
+- Debt deferred: Visible Review sidebar, Browser review-mode UI replacement, real SiYuan content hydration for readable candidate labels, and temporary one-card Review integration are still pending in the same OpenSpec change.
+- Why deferred: This slice establishes the backend read and intent contracts first. Wiring visible Review/Browser surfaces before these contracts would recreate the current UI problem where surfaces have to guess from ids.
+- Next safe step: Implement Review side-area AI/Semantic tab host and bind it to `semantic.sidebar.read`.
+- Validation: `pnpm test:run worker/__tests__/BackendKernel.test.ts -t "Semantic" src/core/semantic/__tests__/semanticActivationTypes.test.ts src/core/semantic/__tests__/SemanticSessionProjectionBuilder.test.ts src/core/semantic/__tests__/SemanticActivationPresentation.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlSemanticActivationRepository.test.ts`.
 
 ### 2026-05-17 - Browser Semantic Open in Review handoff
 

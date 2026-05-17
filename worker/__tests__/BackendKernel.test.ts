@@ -3982,7 +3982,32 @@ describe('BackendKernel', () => {
         currentNode: {
           nodeId: 'old-node-a',
         },
+        projection: {
+          session: {
+            sessionId: 'semantic-browser-session-a',
+          },
+          activePath: [
+            { nodeId: 'root-a' },
+            { nodeId: 'old-node-a' },
+          ],
+        },
+        selectedNode: {
+          nodeId: 'old-node-a',
+          presentation: expect.objectContaining({
+            debugId: 'old-node-a',
+          }),
+        },
       });
+      expect(response.result.edgeExplanations).toEqual([
+        expect.objectContaining({
+          fromNodeId: 'root-a',
+          toNodeId: 'old-node-a',
+          primaryExplanation: 'Semantic path step',
+        }),
+      ]);
+      expect(response.result.archivedBranches).toEqual([]);
+      expect(response.result.later).toEqual([]);
+      expect(response.result.suggestions).toEqual([]);
       expect(response.result.rootScopedStations.map((station: { sessionId: string }) => station.sessionId)).toEqual([
         'semantic-browser-session-a',
       ]);
@@ -3990,6 +4015,403 @@ describe('BackendKernel', () => {
         'semantic-station:semantic-browser-root-a-node-station-1',
       ]);
       expect(response.result.candidates.free.map((candidate: { candidateId: string }) => candidate.candidateId)).not.toContain('root-b');
+    }
+  });
+
+  it('serves presentation-ready Semantic session read models without bare ids as primary labels', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({ database });
+
+    await kernel.handle({
+      id: 'semantic-session-read-start',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-session-read-start-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-session-read',
+        idempotencyKey: 'semantic-session-read-start-key',
+        command: {
+          type: 'start-session',
+          rootFocusNodeId: 'root-session-read',
+          sessionId: 'semantic-session-read-1',
+        },
+      }],
+    });
+    await kernel.handle({
+      id: 'semantic-session-read-follow',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-session-read-follow-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-session-read',
+        idempotencyKey: 'semantic-session-read-follow-key',
+        command: {
+          type: 'follow-candidate',
+          sessionId: 'semantic-session-read-1',
+          candidateId: '20260517130000-abc1234',
+          lens: 'accommodation',
+        },
+      }],
+    });
+
+    const response = await kernel.handle({
+      id: 'semantic-session-read',
+      jsonrpc: '2.0',
+      method: 'semantic.session.read',
+      params: [{
+        requestId: 'semantic-session-read-1',
+        method: 'semantic.session.read',
+        callerIntent: 'test-semantic-session-read',
+        sessionId: 'semantic-session-read-1',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        status: 'ok',
+        projection: {
+          session: {
+            sessionId: 'semantic-session-read-1',
+            currentNodeId: '20260517130000-abc1234',
+          },
+          activePath: [
+            { nodeId: 'root-session-read', lens: 'assimilation' },
+            { nodeId: '20260517130000-abc1234', lens: 'accommodation' },
+          ],
+          ended: false,
+        },
+      });
+      expect(response.result.projection.tree).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: 'root-session-read',
+          childNodeIds: ['20260517130000-abc1234'],
+        }),
+      ]));
+      expect(response.result.nodes).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: '20260517130000-abc1234',
+          presentation: expect.objectContaining({
+            displayTitle: 'Content unavailable',
+            availability: expect.objectContaining({
+              status: 'unavailable',
+              reason: 'content-missing',
+            }),
+            debugId: '20260517130000-abc1234',
+          }),
+        }),
+      ]));
+    }
+  });
+
+  it('serves Review sidebar Semantic read models for follow-current and pinned sessions without auto-creating sessions', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    await database.init();
+    const kernel = new BackendKernel({ database });
+
+    const empty = await kernel.handle({
+      id: 'semantic-sidebar-empty',
+      jsonrpc: '2.0',
+      method: 'semantic.sidebar.read',
+      params: [{
+        requestId: 'semantic-sidebar-empty-1',
+        method: 'semantic.sidebar.read',
+        callerIntent: 'test-semantic-sidebar-read',
+        bindingMode: 'follow-current',
+        currentNodeId: 'root-sidebar',
+      }],
+    });
+
+    expect('result' in empty).toBe(true);
+    if ('result' in empty) {
+      expect(empty.result).toMatchObject({
+        status: 'ok',
+        model: {
+          bindingState: { type: 'follow-current', rootFocusNodeId: 'root-sidebar' },
+          session: null,
+          candidates: { assimilation: [], accommodation: [], free: [] },
+        },
+      });
+    }
+
+    await kernel.handle({
+      id: 'semantic-sidebar-start',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-sidebar-start-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-sidebar-read',
+        idempotencyKey: 'semantic-sidebar-start-key',
+        command: {
+          type: 'start-session',
+          rootFocusNodeId: 'root-sidebar',
+          sessionId: 'semantic-sidebar-session-1',
+        },
+      }],
+    });
+    await kernel.handle({
+      id: 'semantic-sidebar-follow',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-sidebar-follow-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-sidebar-read',
+        idempotencyKey: 'semantic-sidebar-follow-key',
+        command: {
+          type: 'follow-candidate',
+          sessionId: 'semantic-sidebar-session-1',
+          candidateId: 'node-sidebar-next',
+          lens: 'free',
+        },
+      }],
+    });
+    await kernel.handle({
+      id: 'semantic-sidebar-later',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-sidebar-later-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-sidebar-read',
+        idempotencyKey: 'semantic-sidebar-later-key',
+        command: {
+          type: 'add-later',
+          sessionId: 'semantic-sidebar-session-1',
+          nodeId: 'node-sidebar-later',
+          reason: 'compare after current path',
+        },
+      }],
+    });
+
+    const pinned = await kernel.handle({
+      id: 'semantic-sidebar-pinned',
+      jsonrpc: '2.0',
+      method: 'semantic.sidebar.read',
+      params: [{
+        requestId: 'semantic-sidebar-pinned-1',
+        method: 'semantic.sidebar.read',
+        callerIntent: 'test-semantic-sidebar-read',
+        bindingMode: 'pinned-session',
+        sessionId: 'semantic-sidebar-session-1',
+        currentNodeId: 'other-review-item',
+      }],
+    });
+
+    expect('result' in pinned).toBe(true);
+    if ('result' in pinned) {
+      expect(pinned.result).toMatchObject({
+        status: 'ok',
+        model: {
+          bindingState: { type: 'pinned-session', sessionId: 'semantic-sidebar-session-1' },
+          session: {
+            sessionId: 'semantic-sidebar-session-1',
+            currentNodeId: 'node-sidebar-next',
+          },
+          currentNode: {
+            nodeId: 'node-sidebar-next',
+            presentation: expect.objectContaining({
+              debugId: 'node-sidebar-next',
+            }),
+          },
+          activePath: [
+            { nodeId: 'root-sidebar' },
+            { nodeId: 'node-sidebar-next' },
+          ],
+          later: [
+            expect.objectContaining({
+              nodeId: 'node-sidebar-later',
+              reason: 'compare after current path',
+              removedAt: null,
+            }),
+          ],
+        },
+      });
+    }
+
+    await kernel.handle({
+      id: 'semantic-sidebar-later-remove',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-sidebar-later-remove-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-sidebar-read',
+        idempotencyKey: 'semantic-sidebar-later-remove-key',
+        command: {
+          type: 'remove-later',
+          sessionId: 'semantic-sidebar-session-1',
+          nodeId: 'node-sidebar-later',
+        },
+      }],
+    });
+    const afterRemove = await kernel.handle({
+      id: 'semantic-sidebar-after-remove',
+      jsonrpc: '2.0',
+      method: 'semantic.sidebar.read',
+      params: [{
+        requestId: 'semantic-sidebar-after-remove-1',
+        method: 'semantic.sidebar.read',
+        callerIntent: 'test-semantic-sidebar-read',
+        bindingMode: 'pinned-session',
+        sessionId: 'semantic-sidebar-session-1',
+      }],
+    });
+    expect('result' in afterRemove).toBe(true);
+    if ('result' in afterRemove) {
+      expect(afterRemove.result.model.later).toEqual([]);
+    }
+
+    await kernel.handle({
+      id: 'semantic-sidebar-irrelevant-root',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-sidebar-irrelevant-root-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-sidebar-read',
+        idempotencyKey: 'semantic-sidebar-irrelevant-root-key',
+        command: {
+          type: 'mark-irrelevant',
+          sessionId: 'semantic-sidebar-session-1',
+          nodeId: 'node-sidebar-nope',
+          scope: 'root',
+        },
+      }],
+    });
+    const feedback = database.getOne<{ scope: string; root_focus_node_id: string | null }>(
+      `SELECT scope, root_focus_node_id
+       FROM semantic_irrelevant_feedback
+       WHERE feedback_id = ?`,
+      ['semantic-irrelevant:semantic-sidebar-irrelevant-root-1'],
+    );
+    expect(feedback).toEqual({
+      scope: 'root',
+      root_focus_node_id: 'root-sidebar',
+    });
+
+    await kernel.handle({
+      id: 'semantic-sidebar-suggestion-create',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-sidebar-suggestion-create-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-sidebar-read',
+        idempotencyKey: 'semantic-sidebar-suggestion-create-key',
+        command: {
+          type: 'create-suggestion',
+          sessionId: 'semantic-sidebar-session-1',
+          suggestionId: 'suggestion-sidebar-1',
+          source: 'ai',
+          summary: 'bind this idea to a real note',
+          targetNodeId: 'node-sidebar-next',
+        },
+      }],
+    });
+    await kernel.handle({
+      id: 'semantic-sidebar-suggestion-bind',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-sidebar-suggestion-bind-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-sidebar-read',
+        idempotencyKey: 'semantic-sidebar-suggestion-bind-key',
+        command: {
+          type: 'bind-suggestion',
+          sessionId: 'semantic-sidebar-session-1',
+          suggestionId: 'suggestion-sidebar-1',
+          nodeId: 'node-sidebar-bound',
+        },
+      }],
+    });
+    const afterSuggestion = await kernel.handle({
+      id: 'semantic-sidebar-after-suggestion',
+      jsonrpc: '2.0',
+      method: 'semantic.sidebar.read',
+      params: [{
+        requestId: 'semantic-sidebar-after-suggestion-1',
+        method: 'semantic.sidebar.read',
+        callerIntent: 'test-semantic-sidebar-read',
+        bindingMode: 'pinned-session',
+        sessionId: 'semantic-sidebar-session-1',
+      }],
+    });
+    expect('result' in afterSuggestion).toBe(true);
+    if ('result' in afterSuggestion) {
+      expect(afterSuggestion.result.model.suggestions).toEqual([
+        expect.objectContaining({
+          suggestionId: 'suggestion-sidebar-1',
+          status: 'bound',
+          boundNodeId: 'node-sidebar-bound',
+        }),
+      ]);
+      expect(afterSuggestion.result.model.session.currentNodeId).toBe('node-sidebar-next');
+      expect(afterSuggestion.result.model.activePath.map((entry: { nodeId: string }) => entry.nodeId)).toEqual([
+        'root-sidebar',
+        'node-sidebar-next',
+      ]);
+    }
+  });
+
+  it('starts Semantic sessions from real review-card roots instead of forcing Concept-only roots', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({ database });
+
+    await kernel.handle({
+      id: 'semantic-real-root-start',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-real-root-start-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-real-root',
+        idempotencyKey: 'semantic-real-root-start-key',
+        command: {
+          type: 'start-session',
+          rootFocusNodeId: 'review-root-block',
+          rootFocusNodeType: 'real-review-card',
+          sessionId: 'semantic-real-root-session',
+        },
+      }],
+    });
+
+    const response = await kernel.handle({
+      id: 'semantic-real-root-read',
+      jsonrpc: '2.0',
+      method: 'semantic.session.read',
+      params: [{
+        requestId: 'semantic-real-root-read-1',
+        method: 'semantic.session.read',
+        callerIntent: 'test-semantic-real-root',
+        sessionId: 'semantic-real-root-session',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        status: 'ok',
+        projection: {
+          session: {
+            rootFocusNodeId: 'review-root-block',
+            rootFocusNodeType: 'real-review-card',
+          },
+        },
+      });
+      expect(response.result.nodes).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: 'review-root-block',
+          nodeType: 'real-review-card',
+          presentation: expect.objectContaining({
+            nodeKind: 'flashcard',
+          }),
+        }),
+      ]));
     }
   });
 

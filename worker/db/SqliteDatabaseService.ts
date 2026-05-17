@@ -47,20 +47,34 @@ import type {
   BackendReviewFeedbackResult,
   BackendSemanticBrowserReadRequest,
   BackendSemanticBrowserReadResult,
+  BackendSemanticBranchEdge,
   BackendSemanticCandidateColumns,
   BackendSemanticCommandRequest,
   BackendSemanticCommandResult,
   BackendSemanticNode,
+  BackendSemanticSidebarReadRequest,
+  BackendSemanticSidebarReadResult,
+  BackendSemanticSessionBranchProjection,
+  BackendSemanticSessionReadRequest,
+  BackendSemanticSessionReadResult,
 } from '../../packages/contracts/src/backend-rpc';
 import type {
   SemanticEvent,
+  SemanticBranchEdge,
+  SemanticSessionBranchProjection,
   SemanticLens,
   SemanticMemoryProjection,
   SemanticPathEntry,
   SemanticRelation,
+  SemanticSessionProjection,
   SemanticSessionSnapshot,
   SemanticStation,
 } from '@/core/semantic/semanticActivationTypes';
+import {
+  buildSemanticEdgeExplanation,
+  buildSemanticNodePresentation,
+} from '@/core/semantic/SemanticActivationPresentation';
+import { buildSemanticSessionProjection } from '@/core/semantic/SemanticSessionProjectionBuilder';
 import {
   buildSemanticMemoryProjection,
   type SemanticOldModeManualBoostEvidence,
@@ -2051,6 +2065,13 @@ export class WorkerSqliteDatabaseService {
         session: null,
         rootNode: rootFocusNodeId ? this.semanticNode(rootFocusNodeId, 'concept') : null,
         currentNode: null,
+        projection: null,
+        nodes: rootFocusNodeId ? [this.semanticPresentedNode(rootFocusNodeId, 'concept')] : [],
+        selectedNode: null,
+        edgeExplanations: [],
+        later: [],
+        suggestions: [],
+        archivedBranches: [],
         candidates: this.emptySemanticCandidateColumns(),
         stations: [],
         stationNodes: [],
@@ -2070,23 +2091,192 @@ export class WorkerSqliteDatabaseService {
     const stationNodeIds = this.semanticStationNodeIds(rootScopedStations);
     const projection = this.semanticActivation.getProjection(session.sessionId) ?? this.semanticActivation.getProjection(null);
     const relations = this.semanticActivation.listRelations();
-    const candidates = this.semanticBrowserCandidateColumns(session, rootScopedStations, projection, relations);
+    const irrelevantFeedback = this.semanticActivation.listIrrelevantFeedback(session.sessionId);
+    const candidates = this.semanticBrowserCandidateColumns(session, rootScopedStations, projection, relations, irrelevantFeedback);
     const stationNodes = Array.from(stationNodeIds)
       .filter((nodeId) => nodeId !== session.rootFocusNodeId && nodeId !== session.currentNodeId)
       .map((nodeId) => this.semanticNode(nodeId, 'implicit-knowledge'));
+    const sessionProjection = buildSemanticSessionProjection({
+      session,
+      events: this.semanticActivation.listEvents(session.sessionId, 5000),
+      branchEdges: this.semanticActivation.listBranchEdges(session.sessionId),
+      branchStates: this.semanticActivation.listBranchStates(session.sessionId),
+      laterEntries: this.semanticActivation.listLaterEntries(session.sessionId),
+      irrelevantFeedback: this.semanticActivation.listIrrelevantFeedback(session.sessionId),
+      suggestions: this.semanticActivation.listSuggestions(session.sessionId),
+    });
+    const nodeIds = this.semanticProjectionNodeIds(sessionProjection);
+    const nodes = Array.from(nodeIds).map((nodeId) => this.semanticPresentedNode(nodeId, this.semanticNodeTypeForProjection(session, nodeId)));
+    const nodesById = new Map(nodes.map((node) => [node.nodeId, node]));
+    const selectedNodeId = normalizeString(request.selectedNodeId) || session.currentNodeId;
 
     return {
       status: 'ok',
       requestId,
       activeSession: activeSession ?? (typeof session.endedAt === 'number' ? null : session),
       session,
-      rootNode: this.semanticNode(session.rootFocusNodeId, 'concept'),
+      rootNode: this.semanticNode(session.rootFocusNodeId, this.semanticNodeTypeForProjection(session, session.rootFocusNodeId)),
       currentNode: this.semanticNode(session.currentNodeId, session.currentNodeId === session.rootFocusNodeId ? 'concept' : 'implicit-knowledge'),
+      projection: this.backendSemanticSessionProjection(sessionProjection),
+      nodes,
+      selectedNode: nodesById.get(selectedNodeId) ?? null,
+      edgeExplanations: this.semanticSessionEdgeExplanations(sessionProjection),
+      later: sessionProjection.later,
+      suggestions: sessionProjection.suggestions,
+      archivedBranches: sessionProjection.archivedBranches.map((branch) => this.backendSemanticBranchProjection(branch)),
       candidates,
       stations,
       stationNodes,
       rootScopedStations,
       diagnosticEventId: `semantic-browser-read:${requestId}`,
+    };
+  }
+
+  readSemanticSession(request: BackendSemanticSessionReadRequest): BackendSemanticSessionReadResult {
+    const requestId = normalizeString(request.requestId) || 'semantic-session-read';
+    if (!request || request.method !== 'semantic.session.read') {
+      return this.semanticSessionReadFailed(requestId, 'invalid-request', 'semantic.session.read requires request');
+    }
+    if (!this.semanticActivation) {
+      return this.semanticSessionReadFailed(requestId, 'session-unavailable', 'semantic activation repository is unavailable');
+    }
+    const sessionId = normalizeString(request.sessionId);
+    if (!sessionId) {
+      return this.semanticSessionReadFailed(requestId, 'session-unavailable', 'semantic.session.read requires sessionId');
+    }
+    const session = this.semanticActivation.getSession(sessionId);
+    if (!session) {
+      return this.semanticSessionReadFailed(requestId, 'session-unavailable', `semantic session not found: ${sessionId}`);
+    }
+
+    const projection = buildSemanticSessionProjection({
+      session,
+      events: this.semanticActivation.listEvents(session.sessionId, 5000),
+      branchEdges: this.semanticActivation.listBranchEdges(session.sessionId),
+      branchStates: this.semanticActivation.listBranchStates(session.sessionId),
+      laterEntries: this.semanticActivation.listLaterEntries(session.sessionId),
+      irrelevantFeedback: this.semanticActivation.listIrrelevantFeedback(session.sessionId),
+      suggestions: this.semanticActivation.listSuggestions(session.sessionId),
+    });
+    const nodeIds = this.semanticProjectionNodeIds(projection);
+    const nodes = Array.from(nodeIds).map((nodeId) => this.semanticPresentedNode(nodeId, this.semanticNodeTypeForProjection(session, nodeId)));
+
+    return {
+      status: 'ok',
+      requestId,
+      projection: {
+        ...projection,
+        branches: projection.branches.map((branch) => this.backendSemanticBranchProjection(branch)),
+        archivedBranches: projection.archivedBranches.map((branch) => this.backendSemanticBranchProjection(branch)),
+      },
+      nodes,
+      diagnosticEventId: `semantic-session-read:${requestId}`,
+    };
+  }
+
+  readSemanticSidebar(request: BackendSemanticSidebarReadRequest): BackendSemanticSidebarReadResult {
+    const requestId = normalizeString(request.requestId) || 'semantic-sidebar-read';
+    if (!request || request.method !== 'semantic.sidebar.read') {
+      return this.semanticSidebarReadFailed(requestId, 'invalid-request', 'semantic.sidebar.read requires request');
+    }
+    if (!this.semanticActivation) {
+      return this.semanticSidebarReadFailed(requestId, 'session-unavailable', 'semantic activation repository is unavailable');
+    }
+    const requestedSessionId = normalizeString(request.sessionId);
+    const rootFocusNodeId = normalizeString(request.rootFocusNodeId || request.currentNodeId);
+    const bindingMode = request.bindingMode === 'pinned-session' ? 'pinned-session' : 'follow-current';
+    if (bindingMode === 'pinned-session' && !requestedSessionId) {
+      return this.semanticSidebarReadFailed(requestId, 'session-unavailable', 'semantic.sidebar.read pinned-session requires sessionId');
+    }
+    if (bindingMode === 'follow-current' && !rootFocusNodeId) {
+      return {
+        status: 'ok',
+        requestId,
+        model: {
+          bindingState: { type: 'current-node-unavailable', reason: 'missing-root' },
+          session: null,
+          currentNode: null,
+          activePath: [],
+          activePathNodes: [],
+          branches: [],
+          candidates: this.emptySemanticCandidateColumns(),
+          later: [],
+          suggestions: [],
+          nodes: [],
+        },
+        diagnosticEventId: `semantic-sidebar-read:${requestId}`,
+      };
+    }
+
+    const session = requestedSessionId
+      ? this.semanticActivation.getSession(requestedSessionId)
+      : this.semanticActivation.findActiveSessionByRoot(rootFocusNodeId);
+    if (!session) {
+      const rootNode = rootFocusNodeId ? this.semanticPresentedNode(rootFocusNodeId, 'real-review-card') : null;
+      return {
+        status: 'ok',
+        requestId,
+        model: {
+          bindingState: requestedSessionId
+            ? { type: 'pinned-session', sessionId: requestedSessionId }
+            : { type: 'follow-current', rootFocusNodeId },
+          session: null,
+          currentNode: rootNode,
+          activePath: [],
+          activePathNodes: rootNode ? [rootNode] : [],
+          branches: [],
+          candidates: this.emptySemanticCandidateColumns(),
+          later: [],
+          suggestions: [],
+          nodes: rootNode ? [rootNode] : [],
+        },
+        diagnosticEventId: `semantic-sidebar-read:${requestId}`,
+      };
+    }
+
+    const projection = buildSemanticSessionProjection({
+      session,
+      events: this.semanticActivation.listEvents(session.sessionId, 5000),
+      branchEdges: this.semanticActivation.listBranchEdges(session.sessionId),
+      branchStates: this.semanticActivation.listBranchStates(session.sessionId),
+      laterEntries: this.semanticActivation.listLaterEntries(session.sessionId),
+      irrelevantFeedback: this.semanticActivation.listIrrelevantFeedback(session.sessionId),
+      suggestions: this.semanticActivation.listSuggestions(session.sessionId),
+    });
+    const stationScope = this.semanticActivation.listStationsByRoot(session.rootFocusNodeId)
+      .filter((station) => typeof station.archivedAt !== 'number');
+    const projectionMemory = this.semanticActivation.getProjection(session.sessionId) ?? this.semanticActivation.getProjection(null);
+    const candidates = this.semanticBrowserCandidateColumns(
+      session,
+      stationScope,
+      projectionMemory,
+      this.semanticActivation.listRelations(),
+      this.semanticActivation.listIrrelevantFeedback(session.sessionId),
+    );
+    const nodeIds = this.semanticProjectionNodeIds(projection);
+    const nodes = Array.from(nodeIds).map((nodeId) => this.semanticPresentedNode(nodeId, this.semanticNodeTypeForProjection(session, nodeId)));
+    const nodesById = new Map(nodes.map((node) => [node.nodeId, node]));
+    const activePathNodes = projection.activePath
+      .map((entry) => nodesById.get(entry.nodeId) ?? this.semanticPresentedNode(entry.nodeId, this.semanticNodeTypeForProjection(session, entry.nodeId)));
+
+    return {
+      status: 'ok',
+      requestId,
+      model: {
+        bindingState: requestedSessionId
+          ? { type: 'pinned-session', sessionId: session.sessionId }
+          : { type: 'follow-current', rootFocusNodeId: session.rootFocusNodeId },
+        session,
+        currentNode: nodesById.get(session.currentNodeId) ?? this.semanticPresentedNode(session.currentNodeId, this.semanticNodeTypeForProjection(session, session.currentNodeId)),
+        activePath: projection.activePath,
+        activePathNodes,
+        branches: projection.branches.map((branch) => this.backendSemanticBranchProjection(branch)),
+        candidates,
+        later: projection.later,
+        suggestions: projection.suggestions,
+        nodes,
+      },
+      diagnosticEventId: `semantic-sidebar-read:${requestId}`,
     };
   }
 
@@ -2111,6 +2301,18 @@ export class WorkerSqliteDatabaseService {
         return this.decideSemanticRelation(requestId, command);
       case 'mark-irrelevant':
         return this.markSemanticNodeIrrelevant(requestId, command);
+      case 'add-later':
+        return this.addSemanticLaterEntry(requestId, command);
+      case 'remove-later':
+        return this.removeSemanticLaterEntry(requestId, command);
+      case 'create-suggestion':
+        return this.createSemanticSuggestion(requestId, command);
+      case 'ignore-suggestion':
+        return this.updateSemanticSuggestionStatus(requestId, command, 'ignored');
+      case 'bind-suggestion':
+        return this.updateSemanticSuggestionStatus(requestId, command, 'bound');
+      case 'materialize-suggestion':
+        return this.updateSemanticSuggestionStatus(requestId, command, 'materialized');
       case 'archive-station':
         return this.archiveSemanticStation(requestId, command);
       case 'restore-path-station':
@@ -2133,6 +2335,7 @@ export class WorkerSqliteDatabaseService {
     if (!rootFocusNodeId) {
       return this.semanticFailed(requestId, 'invalid-request', 'start-session requires rootFocusNodeId');
     }
+    const rootFocusNodeType = this.normalizeSemanticNodeType(command.rootFocusNodeType) ?? 'concept';
     const now = Date.now();
     const sessionId = normalizeString(command.sessionId) || `semantic-session:${idempotencyKey}`;
     const eventId = `semantic-event:${idempotencyKey}:session-started`;
@@ -2145,6 +2348,7 @@ export class WorkerSqliteDatabaseService {
     const session: SemanticSessionSnapshot = {
       sessionId,
       rootFocusNodeId,
+      rootFocusNodeType,
       currentNodeId: rootFocusNodeId,
       activeLens: 'assimilation',
       narrativePath: [entry],
@@ -2155,7 +2359,7 @@ export class WorkerSqliteDatabaseService {
       nodeId: rootFocusNodeId,
       lens: 'assimilation',
       occurredAt: now,
-      payload: { rootFocusNodeId },
+      payload: { rootFocusNodeId, rootFocusNodeType },
     });
     const visitEvent = this.semanticEvent(`semantic-event:${idempotencyKey}:node-visited`, sessionId, 'node-visited', {
       nodeId: rootFocusNodeId,
@@ -2347,10 +2551,172 @@ export class WorkerSqliteDatabaseService {
     if (!nodeId) {
       return this.semanticFailed(requestId, 'invalid-request', 'mark-irrelevant requires nodeId');
     }
+    const scope = command.scope === 'root' ? 'root' : 'session';
     const event = this.semanticEvent(`semantic-event:${requestId}:node-marked-irrelevant`, session.sessionId, 'node-marked-irrelevant', {
       nodeId,
       lens: session.activeLens,
-      payload: { nodeId },
+      payload: { nodeId, scope },
+    });
+    this.semanticActivation!.saveIrrelevantFeedback({
+      feedbackId: `semantic-irrelevant:${requestId}`,
+      sessionId: session.sessionId,
+      nodeId,
+      scope,
+      rootFocusNodeId: session.rootFocusNodeId,
+      createdAt: event.occurredAt,
+    });
+    this.semanticActivation!.appendEvent(event);
+    return this.semanticOk(requestId, session.sessionId, { session, event });
+  }
+
+  private addSemanticLaterEntry(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'add-later' }>,
+  ): BackendSemanticCommandResult {
+    const session = this.requireSemanticSession(requestId, command.sessionId);
+    if (!('sessionId' in session)) {
+      return session;
+    }
+    const nodeId = normalizeString(command.nodeId);
+    if (!nodeId) {
+      return this.semanticFailed(requestId, 'invalid-request', 'add-later requires nodeId');
+    }
+    const now = Date.now();
+    const entryId = `semantic-later:${session.sessionId}:${nodeId}`;
+    this.semanticActivation!.saveLaterEntry({
+      entryId,
+      sessionId: session.sessionId,
+      nodeId,
+      reason: normalizeOptionalString(command.reason),
+      createdAt: now,
+      removedAt: null,
+    });
+    const event = this.semanticEvent(`semantic-event:${requestId}:later-added`, session.sessionId, 'later-added', {
+      nodeId,
+      lens: session.activeLens,
+      occurredAt: now,
+      payload: { entryId, reason: normalizeOptionalString(command.reason) },
+    });
+    this.semanticActivation!.appendEvent(event);
+    return this.semanticOk(requestId, session.sessionId, { session, event });
+  }
+
+  private removeSemanticLaterEntry(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'remove-later' }>,
+  ): BackendSemanticCommandResult {
+    const session = this.requireSemanticSession(requestId, command.sessionId);
+    if (!('sessionId' in session)) {
+      return session;
+    }
+    const nodeId = normalizeString(command.nodeId);
+    if (!nodeId) {
+      return this.semanticFailed(requestId, 'invalid-request', 'remove-later requires nodeId');
+    }
+    const now = Date.now();
+    const existing = this.semanticActivation!.listLaterEntries(session.sessionId)
+      .find((entry) => entry.nodeId === nodeId && typeof entry.removedAt !== 'number');
+    const entryId = existing?.entryId ?? `semantic-later:${session.sessionId}:${nodeId}`;
+    this.semanticActivation!.saveLaterEntry({
+      entryId,
+      sessionId: session.sessionId,
+      nodeId,
+      reason: existing?.reason ?? null,
+      createdAt: existing?.createdAt ?? now,
+      removedAt: now,
+    });
+    const event = this.semanticEvent(`semantic-event:${requestId}:later-removed`, session.sessionId, 'later-removed', {
+      nodeId,
+      lens: session.activeLens,
+      occurredAt: now,
+      payload: { entryId },
+    });
+    this.semanticActivation!.appendEvent(event);
+    return this.semanticOk(requestId, session.sessionId, { session, event });
+  }
+
+  private createSemanticSuggestion(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'create-suggestion' }>,
+  ): BackendSemanticCommandResult {
+    const session = this.requireSemanticSession(requestId, command.sessionId);
+    if (!('sessionId' in session)) {
+      return session;
+    }
+    const suggestionId = normalizeString(command.suggestionId);
+    const summary = normalizeString(command.summary);
+    if (!suggestionId || !summary) {
+      return this.semanticFailed(requestId, 'invalid-request', 'create-suggestion requires suggestionId/summary');
+    }
+    const now = Date.now();
+    this.semanticActivation!.saveSuggestion({
+      suggestionId,
+      sessionId: session.sessionId,
+      source: command.source === 'system' ? 'system' : 'ai',
+      summary,
+      status: 'active',
+      targetNodeId: normalizeOptionalString(command.targetNodeId),
+      boundNodeId: null,
+      materializedBlockId: null,
+      materializedCardId: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const event = this.semanticEvent(`semantic-event:${requestId}:suggestion-created`, session.sessionId, 'suggestion-created', {
+      nodeId: normalizeOptionalString(command.targetNodeId),
+      lens: session.activeLens,
+      occurredAt: now,
+      payload: { suggestionId, source: command.source === 'system' ? 'system' : 'ai' },
+    });
+    this.semanticActivation!.appendEvent(event);
+    return this.semanticOk(requestId, session.sessionId, { session, event });
+  }
+
+  private updateSemanticSuggestionStatus(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'ignore-suggestion' | 'bind-suggestion' | 'materialize-suggestion' }>,
+    status: 'ignored' | 'bound' | 'materialized',
+  ): BackendSemanticCommandResult {
+    const session = this.requireSemanticSession(requestId, command.sessionId);
+    if (!('sessionId' in session)) {
+      return session;
+    }
+    const suggestionId = normalizeString(command.suggestionId);
+    if (!suggestionId) {
+      return this.semanticFailed(requestId, 'invalid-request', `${command.type} requires suggestionId`);
+    }
+    const existing = this.semanticActivation!.listSuggestions(session.sessionId)
+      .find((suggestion) => suggestion.suggestionId === suggestionId);
+    if (!existing) {
+      return this.semanticFailed(requestId, 'candidate-unavailable', `semantic suggestion not found: ${suggestionId}`);
+    }
+    const now = Date.now();
+    const boundNodeId = command.type === 'bind-suggestion'
+      ? normalizeOptionalString(command.nodeId)
+      : existing.boundNodeId ?? null;
+    const materializedBlockId = command.type === 'materialize-suggestion'
+      ? normalizeOptionalString(command.blockId)
+      : existing.materializedBlockId ?? null;
+    this.semanticActivation!.saveSuggestion({
+      ...existing,
+      status,
+      boundNodeId,
+      materializedBlockId,
+      materializedCardId: command.type === 'materialize-suggestion'
+        ? normalizeOptionalString(command.cardId)
+        : existing.materializedCardId ?? null,
+      updatedAt: now,
+    });
+    const eventType = status === 'ignored'
+      ? 'suggestion-ignored'
+      : status === 'bound'
+        ? 'suggestion-bound'
+        : 'suggestion-materialized';
+    const event = this.semanticEvent(`semantic-event:${requestId}:${eventType}`, session.sessionId, eventType, {
+      nodeId: boundNodeId ?? materializedBlockId ?? existing.targetNodeId ?? null,
+      lens: session.activeLens,
+      occurredAt: now,
+      payload: { suggestionId, status },
     });
     this.semanticActivation!.appendEvent(event);
     return this.semanticOk(requestId, session.sessionId, { session, event });
@@ -2510,6 +2876,13 @@ export class WorkerSqliteDatabaseService {
       : null;
   }
 
+  private normalizeSemanticNodeType(value: unknown): BackendSemanticNode['nodeType'] | null {
+    const nodeType = normalizeString(value);
+    return nodeType === 'real-review-card' || nodeType === 'implicit-knowledge' || nodeType === 'concept'
+      ? nodeType
+      : null;
+  }
+
   private emptySemanticCandidateColumns(): BackendSemanticCandidateColumns {
     return {
       assimilation: [],
@@ -2530,6 +2903,125 @@ export class WorkerSqliteDatabaseService {
         backlinkBlockIds: [],
       },
     };
+  }
+
+  private semanticPresentedNode(nodeId: string, nodeType: BackendSemanticNode['nodeType']): BackendSemanticNode {
+    const node = this.semanticNode(nodeId, nodeType);
+    return {
+      ...node,
+      presentation: buildSemanticNodePresentation({
+        nodeId: node.nodeId,
+        nodeType: node.nodeType,
+        title: node.title,
+        preview: node.preview,
+        location: node.location,
+      }),
+    };
+  }
+
+  private semanticNodeTypeForProjection(session: SemanticSessionSnapshot, nodeId: string): BackendSemanticNode['nodeType'] {
+    if (nodeId === session.rootFocusNodeId) {
+      return this.normalizeSemanticNodeType(session.rootFocusNodeType) ?? 'concept';
+    }
+    return 'real-review-card';
+  }
+
+  private semanticProjectionNodeIds(projection: SemanticSessionProjection): Set<string> {
+    const nodeIds = new Set<string>();
+    nodeIds.add(projection.session.rootFocusNodeId);
+    nodeIds.add(projection.session.currentNodeId);
+    for (const entry of projection.activePath) {
+      nodeIds.add(entry.nodeId);
+    }
+    for (const branch of [...projection.branches, ...projection.archivedBranches]) {
+      nodeIds.add(branch.rootNodeId);
+      nodeIds.add(branch.activeCursorNodeId);
+      for (const edge of branch.edges) {
+        nodeIds.add(edge.fromNodeId);
+        nodeIds.add(edge.toNodeId);
+      }
+    }
+    for (const entry of projection.later) {
+      nodeIds.add(entry.nodeId);
+    }
+    for (const suggestion of projection.suggestions) {
+      const boundNodeId = normalizeString(suggestion.boundNodeId);
+      const targetNodeId = normalizeString(suggestion.targetNodeId);
+      const materializedBlockId = normalizeString(suggestion.materializedBlockId);
+      if (boundNodeId) {
+        nodeIds.add(boundNodeId);
+      }
+      if (targetNodeId) {
+        nodeIds.add(targetNodeId);
+      }
+      if (materializedBlockId) {
+        nodeIds.add(materializedBlockId);
+      }
+    }
+    return nodeIds;
+  }
+
+  private backendSemanticBranchProjection(branch: SemanticSessionBranchProjection): BackendSemanticSessionBranchProjection {
+    return {
+      ...branch,
+      edges: branch.edges.map((edge) => this.backendSemanticBranchEdge(edge)),
+    };
+  }
+
+  private backendSemanticBranchEdge(edge: SemanticBranchEdge): BackendSemanticBranchEdge {
+    return {
+      ...edge,
+      lens: edge.lens,
+    };
+  }
+
+  private backendSemanticSessionProjection(projection: SemanticSessionProjection): NonNullable<Extract<BackendSemanticSessionReadResult, { status: 'ok' }>['projection']> {
+    return {
+      ...projection,
+      branches: projection.branches.map((branch) => this.backendSemanticBranchProjection(branch)),
+      archivedBranches: projection.archivedBranches.map((branch) => this.backendSemanticBranchProjection(branch)),
+    };
+  }
+
+  private semanticSessionEdgeExplanations(projection: SemanticSessionProjection): ReturnType<typeof buildSemanticEdgeExplanation>[] {
+    const explanations = new Map<string, ReturnType<typeof buildSemanticEdgeExplanation>>();
+    for (const branch of [...projection.branches, ...projection.archivedBranches]) {
+      for (const edge of branch.edges) {
+        const explanation = edge.explanation ?? buildSemanticEdgeExplanation({
+          fromNodeId: edge.fromNodeId,
+          toNodeId: edge.toNodeId,
+          lens: edge.lens,
+          primaryExplanation: 'Semantic traversal',
+          reasonTags: [edge.lens],
+          evidence: [{ eventId: edge.edgeId, label: 'branch-edge' }],
+          createdBy: edge.createdBy,
+          createdAt: edge.createdAt,
+        });
+        explanations.set(`${edge.fromNodeId}->${edge.toNodeId}:${edge.lens}:${edge.createdAt}`, explanation);
+      }
+    }
+    for (let index = 1; index < projection.activePath.length; index += 1) {
+      const previous = projection.activePath[index - 1];
+      const current = projection.activePath[index];
+      if (!previous || !current) {
+        continue;
+      }
+      const key = `${previous.nodeId}->${current.nodeId}:${current.lens}:${current.visitedAt}`;
+      if (explanations.has(key)) {
+        continue;
+      }
+      explanations.set(key, buildSemanticEdgeExplanation({
+        fromNodeId: previous.nodeId,
+        toNodeId: current.nodeId,
+        lens: current.lens,
+        primaryExplanation: 'Semantic path step',
+        reasonTags: [current.lens],
+        evidence: [{ eventId: current.eventId, label: 'path-event' }],
+        createdBy: { kind: 'system', id: 'semantic-session', label: 'session path' },
+        createdAt: current.visitedAt,
+      }));
+    }
+    return Array.from(explanations.values()).sort((left, right) => left.createdAt - right.createdAt);
   }
 
   private semanticStationNodeIds(stations: SemanticStation[]): Set<string> {
@@ -2554,9 +3046,16 @@ export class WorkerSqliteDatabaseService {
     stations: SemanticStation[],
     projection: SemanticMemoryProjection | null,
     relations: SemanticRelation[],
+    irrelevantFeedback: Array<{ nodeId: string; rootFocusNodeId?: string | null; scope?: string | null }> = [],
   ): BackendSemanticCandidateColumns {
     const columns = this.emptySemanticCandidateColumns();
-    const blocked = new Set([session.rootFocusNodeId, session.currentNodeId].filter(Boolean));
+    const blocked = new Set([
+      session.rootFocusNodeId,
+      session.currentNodeId,
+      ...irrelevantFeedback
+        .filter((feedback) => feedback.scope !== 'root' || !feedback.rootFocusNodeId || feedback.rootFocusNodeId === session.rootFocusNodeId)
+        .map((feedback) => feedback.nodeId),
+    ].filter(Boolean));
     const pushCandidate = (
       lens: SemanticLens,
       nodeId: string,
@@ -2568,9 +3067,23 @@ export class WorkerSqliteDatabaseService {
       if (!normalized || blocked.has(normalized) || columns[lens].some((candidate) => candidate.candidateId === normalized)) {
         return;
       }
+      const node = this.semanticNode(normalized, 'real-review-card');
+      const presentation = buildSemanticNodePresentation({
+        nodeId: node.nodeId,
+        nodeType: node.nodeType,
+        title: node.title,
+        preview: node.preview,
+        location: node.location,
+      });
+      if (presentation.availability.status !== 'available') {
+        return;
+      }
       columns[lens].push({
         candidateId: normalized,
-        node: this.semanticNode(normalized, 'implicit-knowledge'),
+        node: {
+          ...node,
+          presentation,
+        },
         score: Math.max(0, Math.min(1, Number(score) || 0)),
         lens,
         reasons: [{ code, weight: Math.max(0, Math.min(1, Number(score) || 0)) }],
@@ -2651,6 +3164,32 @@ export class WorkerSqliteDatabaseService {
       unavailableReason,
       message,
       diagnosticEventId: `semantic-browser-read-failed:${requestId}`,
+    };
+  }
+
+  private semanticSessionReadFailed(
+    requestId: string,
+    unavailableReason: Extract<BackendSemanticSessionReadResult, { status: 'unavailable' | 'failed' }>['unavailableReason'],
+    message: string,
+  ): BackendSemanticSessionReadResult {
+    return {
+      status: unavailableReason === 'failed' ? 'failed' : 'unavailable',
+      unavailableReason,
+      message,
+      diagnosticEventId: `semantic-session-read-failed:${requestId}`,
+    };
+  }
+
+  private semanticSidebarReadFailed(
+    requestId: string,
+    unavailableReason: Extract<BackendSemanticSidebarReadResult, { status: 'unavailable' | 'failed' }>['unavailableReason'],
+    message: string,
+  ): BackendSemanticSidebarReadResult {
+    return {
+      status: unavailableReason === 'failed' ? 'failed' : 'unavailable',
+      unavailableReason,
+      message,
+      diagnosticEventId: `semantic-sidebar-read-failed:${requestId}`,
     };
   }
 

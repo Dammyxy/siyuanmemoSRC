@@ -1,8 +1,14 @@
 import type {
   SemanticCandidate,
   SemanticCandidateColumns,
+  SemanticEdgeCreatedBy,
+  SemanticEdgeExplanation,
+  SemanticEdgeEvidence,
   SemanticLens,
   SemanticNode,
+  SemanticNodeAvailability,
+  SemanticNodeKind,
+  SemanticRealNodePresentation,
   SemanticNodeType,
   SemanticPathEntry,
   SemanticRelation,
@@ -23,6 +29,12 @@ export type SemanticPresentationAction =
 export interface SemanticNodePresentation {
   nodeId: string;
   nodeType: SemanticNodeType;
+  displayTitle: string;
+  summary: string;
+  nodeKind: SemanticNodeKind;
+  availability: SemanticNodeAvailability;
+  sourceBlockId: string | null;
+  debugId: string;
   title: string;
   preview: string;
   breadcrumb: string[];
@@ -83,12 +95,82 @@ function flattenCandidates(columns: SemanticCandidateColumns): SemanticCandidate
   ];
 }
 
+function normalizedText(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function inferNodeKind(node: SemanticNode): SemanticNodeKind {
+  if (node.nodeType === 'real-review-card') {
+    return 'flashcard';
+  }
+  if (node.nodeType === 'concept') {
+    return 'concept';
+  }
+  return 'unknown';
+}
+
+function readableNodeText(value: string, node: SemanticNode, sourceBlockId: string | null): string {
+  if (!value || value === node.nodeId || value === sourceBlockId) {
+    return '';
+  }
+  return value;
+}
+
+function buildAvailability(node: SemanticNode, sourceBlockId: string | null, displayTitle: string, summary: string): SemanticNodeAvailability {
+  if (node.nodeType === 'implicit-knowledge') {
+    return {
+      status: 'unavailable',
+      reason: 'virtual-node',
+      message: 'Semantic inferred context is not a reviewable source node.',
+    };
+  }
+  if (!sourceBlockId) {
+    return {
+      status: 'unavailable',
+      reason: 'source-missing',
+      message: 'Semantic source block is missing.',
+    };
+  }
+  if (displayTitle === 'Content unavailable' && !summary) {
+    return {
+      status: 'unavailable',
+      reason: 'content-missing',
+      message: 'Semantic source content is empty.',
+    };
+  }
+  return {
+    status: 'available',
+    reason: null,
+    message: null,
+  };
+}
+
+export function buildSemanticRealNodePresentation(node: SemanticNode): SemanticRealNodePresentation {
+  const location = node.location ?? { blockId: node.nodeId };
+  const sourceBlockId = normalizedText(location.blockId) || null;
+  const title = readableNodeText(normalizedText(node.title), node, sourceBlockId);
+  const summary = readableNodeText(normalizedText(node.preview), node, sourceBlockId);
+  const displayTitle = title || summary || 'Content unavailable';
+
+  return {
+    displayTitle,
+    summary,
+    nodeKind: inferNodeKind(node),
+    breadcrumb: unique(location.breadcrumb ?? []),
+    availability: buildAvailability(node, sourceBlockId, displayTitle, summary),
+    sourceBlockId,
+    cardId: normalizedText(location.cardId) || null,
+    debugId: node.nodeId,
+  };
+}
+
 export function buildSemanticNodePresentation(node: SemanticNode): SemanticNodePresentation {
   const nodeType = node.nodeType;
   const isReviewCard = nodeType === 'real-review-card';
   const isImplicitKnowledge = nodeType === 'implicit-knowledge';
   const isConceptNode = nodeType === 'concept';
   const location = node.location ?? { blockId: node.nodeId };
+  const realNode = buildSemanticRealNodePresentation(node);
   const baseActions: SemanticPresentationAction[] = ['follow', 'node-station', 'path-station', 'skip', 'mark-irrelevant'];
   const actions = isImplicitKnowledge || isConceptNode
     ? [...baseActions, 'expand']
@@ -97,12 +179,18 @@ export function buildSemanticNodePresentation(node: SemanticNode): SemanticNodeP
   return {
     nodeId: node.nodeId,
     nodeType,
+    displayTitle: realNode.displayTitle,
+    summary: realNode.summary,
+    nodeKind: realNode.nodeKind,
+    availability: realNode.availability,
+    sourceBlockId: realNode.sourceBlockId,
+    debugId: realNode.debugId,
     title: node.title,
     preview: node.preview,
-    breadcrumb: unique(location.breadcrumb ?? []),
+    breadcrumb: realNode.breadcrumb,
     backlinkBlockIds: unique(location.backlinkBlockIds ?? []),
     blockId: String(location.blockId || node.nodeId),
-    cardId: location.cardId ? String(location.cardId) : null,
+    cardId: realNode.cardId,
     isReviewCard,
     isImplicitKnowledge,
     isConceptNode,
@@ -112,6 +200,41 @@ export function buildSemanticNodePresentation(node: SemanticNode): SemanticNodeP
     canSchedule: isReviewCard,
     canAutoCreateCard: false,
     actions,
+  };
+}
+
+export function canRepresentSemanticPathNode(node: SemanticNode): boolean {
+  const presentation = buildSemanticRealNodePresentation(node);
+  return presentation.availability.status === 'available' && !!presentation.sourceBlockId;
+}
+
+export function filterRepresentableSemanticCandidates(columns: SemanticCandidateColumns): SemanticCandidateColumns {
+  return {
+    assimilation: (columns.assimilation ?? []).filter((candidate) => canRepresentSemanticPathNode(candidate.node)),
+    accommodation: (columns.accommodation ?? []).filter((candidate) => canRepresentSemanticPathNode(candidate.node)),
+    free: (columns.free ?? []).filter((candidate) => canRepresentSemanticPathNode(candidate.node)),
+  };
+}
+
+export function buildSemanticEdgeExplanation(input: {
+  fromNodeId: string;
+  toNodeId: string;
+  lens: SemanticLens;
+  primaryExplanation: string;
+  reasonTags?: string[];
+  evidence?: SemanticEdgeEvidence[];
+  createdBy?: SemanticEdgeCreatedBy;
+  createdAt: number;
+}): SemanticEdgeExplanation {
+  return {
+    fromNodeId: input.fromNodeId,
+    toNodeId: input.toNodeId,
+    lens: input.lens,
+    primaryExplanation: normalizedText(input.primaryExplanation),
+    reasonTags: unique(input.reasonTags ?? []),
+    evidence: [...(input.evidence ?? [])],
+    createdBy: input.createdBy ?? { kind: 'unknown', id: null, label: null },
+    createdAt: input.createdAt,
   };
 }
 

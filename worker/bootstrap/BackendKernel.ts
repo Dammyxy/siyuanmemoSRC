@@ -54,6 +54,10 @@ import {
   type BackendRpcResponse,
   type BackendSemanticCommandRequest,
   type BackendSemanticCommandResult,
+  type BackendSemanticSidebarReadRequest,
+  type BackendSemanticSidebarReadResult,
+  type BackendSemanticSessionReadRequest,
+  type BackendSemanticSessionReadResult,
   type BackendSemanticBrowserReadRequest,
   type BackendSemanticBrowserReadResult,
   type P6OwnershipCommandRequest,
@@ -283,6 +287,10 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handlePrivateCommand(request.params));
         case 'semantic.command.execute':
           return buildSuccess(request.id, await this.handleSemanticCommand(request.params));
+        case 'semantic.session.read':
+          return buildSuccess(request.id, this.handleSemanticSessionRead(request.params));
+        case 'semantic.sidebar.read':
+          return buildSuccess(request.id, this.handleSemanticSidebarRead(request.params));
         case 'semantic.browser.read':
           return buildSuccess(request.id, this.handleSemanticBrowserRead(request.params));
         case 'p6.ownership.query':
@@ -789,6 +797,22 @@ export class BackendKernel {
       throw new Error('INVALID_REQUEST: semantic.command.execute requires named params');
     }
     return this.deps.database.executeSemanticCommand(named);
+  }
+
+  private handleSemanticSessionRead(params: unknown): BackendSemanticSessionReadResult {
+    const named = this.readNamedParams<BackendSemanticSessionReadRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: semantic.session.read requires named params');
+    }
+    return this.deps.database.readSemanticSession(named);
+  }
+
+  private handleSemanticSidebarRead(params: unknown): BackendSemanticSidebarReadResult {
+    const named = this.readNamedParams<BackendSemanticSidebarReadRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: semantic.sidebar.read requires named params');
+    }
+    return this.deps.database.readSemanticSidebar(named);
   }
 
   private handleSemanticBrowserRead(params: unknown): BackendSemanticBrowserReadResult {

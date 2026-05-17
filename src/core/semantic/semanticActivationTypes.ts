@@ -6,6 +6,24 @@ export type SemanticLens = 'assimilation' | 'accommodation' | 'free';
 
 export type SemanticNodeType = 'real-review-card' | 'implicit-knowledge' | 'concept';
 
+export type SemanticNodeKind =
+  | 'flashcard'
+  | 'block'
+  | 'document'
+  | 'heading'
+  | 'list-item'
+  | 'paragraph'
+  | 'concept'
+  | 'unknown';
+
+export type SemanticNodeAvailabilityStatus = 'available' | 'unavailable';
+
+export interface SemanticNodeAvailability {
+  status: SemanticNodeAvailabilityStatus;
+  reason?: SemanticUnavailableReason | 'source-missing' | 'content-missing' | 'virtual-node' | null;
+  message?: string | null;
+}
+
 export type SemanticReasonCode =
   | 'current-node-relation'
   | 'root-focus-relation'
@@ -20,16 +38,27 @@ export type SemanticReasonCode =
 
 export type SemanticEventType =
   | 'session-started'
+  | 'session-forked'
   | 'node-visited'
   | 'edge-traversed'
+  | 'branch-edge-created'
+  | 'active-cursor-moved'
   | 'lens-switched'
   | 'implicit-node-action'
   | 'station-created'
   | 'station-archived'
   | 'station-restored'
+  | 'branch-archived'
+  | 'branch-restored'
+  | 'later-added'
+  | 'later-removed'
   | 'ai-relation-accepted'
   | 'ai-relation-rejected'
   | 'node-marked-irrelevant'
+  | 'suggestion-created'
+  | 'suggestion-ignored'
+  | 'suggestion-bound'
+  | 'suggestion-materialized'
   | 'session-ended';
 
 export type SemanticStationType = 'node' | 'path';
@@ -62,6 +91,17 @@ export interface SemanticNode {
   title: string;
   preview: string;
   location: SemanticNodeLocation;
+}
+
+export interface SemanticRealNodePresentation {
+  displayTitle: string;
+  summary: string;
+  nodeKind: SemanticNodeKind;
+  breadcrumb: string[];
+  availability: SemanticNodeAvailability;
+  sourceBlockId: string | null;
+  cardId: string | null;
+  debugId: string;
 }
 
 export interface SemanticCandidateReason {
@@ -106,14 +146,134 @@ export interface SemanticPathEntry {
   visitedAt: number;
 }
 
+export interface SemanticEdgeCreatedBy {
+  kind: 'user' | 'system' | 'ai' | 'import' | 'unknown';
+  id?: string | null;
+  label?: string | null;
+}
+
+export interface SemanticEdgeEvidence {
+  eventId?: string | null;
+  relationId?: string | null;
+  sourceNodeId?: string | null;
+  label?: string | null;
+  weight?: number | null;
+}
+
+export interface SemanticEdgeExplanation {
+  fromNodeId: string;
+  toNodeId: string;
+  lens: SemanticLens;
+  primaryExplanation: string;
+  reasonTags: string[];
+  evidence: SemanticEdgeEvidence[];
+  createdBy: SemanticEdgeCreatedBy;
+  createdAt: number;
+}
+
+export interface SemanticForkMetadata {
+  sourceSessionId: string;
+  sourceNodeId: string;
+  forkedAt: number;
+  reason?: 'continue-ended-session' | 'branch-from-node' | 'manual' | null;
+}
+
+export interface SemanticBranchEdge {
+  edgeId: string;
+  sessionId: string;
+  branchId: string;
+  fromNodeId: string;
+  toNodeId: string;
+  lens: SemanticLens;
+  explanation?: SemanticEdgeExplanation | null;
+  createdBy: SemanticEdgeCreatedBy;
+  createdAt: number;
+  forkMetadata?: SemanticForkMetadata | null;
+}
+
+export interface SemanticBranchState {
+  branchId: string;
+  sessionId: string;
+  rootNodeId: string;
+  activeCursorNodeId: string;
+  archivedAt?: number | null;
+  restoredAt?: number | null;
+  updatedAt: number;
+}
+
+export interface SemanticLaterEntry {
+  entryId: string;
+  sessionId: string;
+  nodeId: string;
+  reason?: string | null;
+  createdAt: number;
+  removedAt?: number | null;
+}
+
+export interface SemanticIrrelevantFeedback {
+  feedbackId: string;
+  sessionId: string;
+  nodeId: string;
+  scope: 'session' | 'root';
+  rootFocusNodeId?: string | null;
+  createdAt: number;
+}
+
+export type SemanticSuggestionStatus = 'active' | 'ignored' | 'bound' | 'materialized';
+
+export interface SemanticSuggestion {
+  suggestionId: string;
+  sessionId: string;
+  source: 'ai' | 'system';
+  summary: string;
+  status: SemanticSuggestionStatus;
+  targetNodeId?: string | null;
+  boundNodeId?: string | null;
+  materializedBlockId?: string | null;
+  materializedCardId?: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SemanticSessionTreeNode {
+  nodeId: string;
+  childNodeIds: string[];
+  edgeIds: string[];
+}
+
+export interface SemanticSessionBranchProjection {
+  branchId: string;
+  rootNodeId: string;
+  activeCursorNodeId: string;
+  edges: SemanticBranchEdge[];
+  archivedAt?: number | null;
+  restoredAt?: number | null;
+  recentActivityAt: number;
+}
+
+export interface SemanticSessionProjection {
+  session: SemanticSessionSnapshot;
+  tree: SemanticSessionTreeNode[];
+  activePath: SemanticPathEntry[];
+  branches: SemanticSessionBranchProjection[];
+  archivedBranches: SemanticSessionBranchProjection[];
+  inheritedContextNodeIds: string[];
+  later: SemanticLaterEntry[];
+  suggestions: SemanticSuggestion[];
+  ended: boolean;
+  forkMetadata?: SemanticForkMetadata | null;
+}
+
 export interface SemanticSessionSnapshot {
   sessionId: string;
   rootFocusNodeId: string;
+  rootFocusNodeType?: SemanticNodeType | null;
   currentNodeId: string;
   activeLens: SemanticLens;
   narrativePath: SemanticPathEntry[];
   startedAt: number;
   endedAt?: number | null;
+  forkMetadata?: SemanticForkMetadata | null;
 }
 
 export interface SemanticEvent {
@@ -180,8 +340,42 @@ export interface SemanticMemoryProjection {
 }
 
 export type SemanticCommand =
-  | { type: 'start-session'; rootFocusNodeId: string; idempotencyKey: string }
+  | { type: 'start-session'; rootFocusNodeId: string; rootFocusNodeType?: SemanticNodeType | null; idempotencyKey: string }
+  | {
+      type: 'fork-session';
+      sourceSessionId: string;
+      sourceNodeId: string;
+      rootFocusNodeId: string;
+      forkMetadata?: Omit<SemanticForkMetadata, 'forkedAt'> | null;
+      idempotencyKey: string;
+    }
   | { type: 'follow-candidate'; sessionId: string; candidateId: string; lens: SemanticLens; idempotencyKey: string }
+  | {
+      type: 'create-branch-edge';
+      sessionId: string;
+      fromNodeId: string;
+      toNodeId: string;
+      lens: SemanticLens;
+      explanation?: SemanticEdgeExplanation | null;
+      idempotencyKey: string;
+    }
+  | { type: 'move-active-cursor'; sessionId: string; nodeId: string; idempotencyKey: string }
+  | { type: 'archive-branch'; sessionId: string; branchId: string; idempotencyKey: string }
+  | { type: 'restore-branch'; sessionId: string; branchId: string; idempotencyKey: string }
+  | { type: 'add-later'; sessionId: string; nodeId: string; reason?: string | null; idempotencyKey: string }
+  | { type: 'remove-later'; sessionId: string; nodeId: string; idempotencyKey: string }
+  | {
+      type: 'create-suggestion';
+      sessionId: string;
+      suggestionId: string;
+      source: 'ai' | 'system';
+      summary: string;
+      targetNodeId?: string | null;
+      idempotencyKey: string;
+    }
+  | { type: 'ignore-suggestion'; sessionId: string; suggestionId: string; idempotencyKey: string }
+  | { type: 'bind-suggestion'; sessionId: string; suggestionId: string; nodeId: string; idempotencyKey: string }
+  | { type: 'materialize-suggestion'; sessionId: string; suggestionId: string; blockId: string; cardId?: string | null; idempotencyKey: string }
   | { type: 'switch-lens'; sessionId: string; lens: SemanticLens; idempotencyKey: string }
   | { type: 'create-station'; sessionId: string; stationType: SemanticStationType; idempotencyKey: string }
   | {
@@ -212,7 +406,7 @@ export type SemanticCommand =
       reason?: string | null;
       idempotencyKey: string;
     }
-  | { type: 'mark-irrelevant'; sessionId: string; nodeId: string; idempotencyKey: string }
+  | { type: 'mark-irrelevant'; sessionId: string; nodeId: string; scope?: 'session' | 'root'; idempotencyKey: string }
   | { type: 'archive-station'; sessionId: string; stationId: string; idempotencyKey: string }
   | { type: 'restore-path-station'; sessionId: string; stationId: string; idempotencyKey: string }
   | { type: 'end-session'; sessionId: string; idempotencyKey: string }

@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSemanticAiInput,
+  buildSemanticEdgeExplanation,
   buildSemanticNodePresentation,
+  buildSemanticRealNodePresentation,
+  canRepresentSemanticPathNode,
   collectSemanticPathStationDraft,
+  filterRepresentableSemanticCandidates,
   relationDecisionAltersSemanticMemory,
   validateSemanticAiRelationCandidates,
 } from '../SemanticActivationPresentation';
@@ -98,6 +102,117 @@ describe('SemanticActivationPresentation', () => {
       cardId: 'card-review-1',
     });
     expect(presentation.actions).toEqual(expect.arrayContaining(['review-reveal', 'review-grade']));
+  });
+
+  it('presents real Semantic nodes with readable content, source ids, availability, and debug ids', () => {
+    const presentation = buildSemanticRealNodePresentation(node('review-2', 'real-review-card'));
+
+    expect(presentation).toEqual(expect.objectContaining({
+      displayTitle: 'review-2 title',
+      summary: 'review-2 preview',
+      nodeKind: 'flashcard',
+      breadcrumb: ['Root', 'Leaf'],
+      sourceBlockId: 'review-2',
+      cardId: 'card-review-2',
+      debugId: 'review-2',
+      availability: { status: 'available', reason: null, message: null },
+    }));
+  });
+
+  it('marks virtual Semantic nodes unavailable instead of presenting them as reviewable source nodes', () => {
+    const presentation = buildSemanticNodePresentation(node('implicit-2', 'implicit-knowledge'));
+
+    expect(presentation).toMatchObject({
+      displayTitle: 'implicit-2 title',
+      summary: 'implicit-2 preview',
+      nodeKind: 'unknown',
+      sourceBlockId: 'implicit-2',
+      cardId: null,
+      debugId: 'implicit-2',
+      availability: {
+        status: 'unavailable',
+        reason: 'virtual-node',
+      },
+    });
+  });
+
+  it('returns explicit unavailable presentation instead of using a bare block id as the display label', () => {
+    const presentation = buildSemanticRealNodePresentation({
+      nodeId: '20260517130000-abc1234',
+      nodeType: 'real-review-card',
+      title: '20260517130000-abc1234',
+      preview: '',
+      location: {
+        blockId: '20260517130000-abc1234',
+        cardId: 'card-1',
+        breadcrumb: [],
+        backlinkBlockIds: [],
+      },
+    });
+
+    expect(presentation).toMatchObject({
+      displayTitle: 'Content unavailable',
+      summary: '',
+      sourceBlockId: '20260517130000-abc1234',
+      availability: {
+        status: 'unavailable',
+        reason: 'content-missing',
+      },
+    });
+  });
+
+  it('builds edge explanations with lens, reason tags, evidence, created-by identity, and timestamp', () => {
+    const explanation = buildSemanticEdgeExplanation({
+      fromNodeId: 'root',
+      toNodeId: 'next',
+      lens: 'accommodation',
+      primaryExplanation: 'Links new evidence back to an older note.',
+      reasonTags: [' tension ', 'tension', ' accepted-ai-relation '],
+      evidence: [{ eventId: 'event-1', relationId: 'relation-1', weight: 0.6 }],
+      createdBy: { kind: 'user', id: 'user-1', label: 'manual follow' },
+      createdAt: 42,
+    });
+
+    expect(explanation).toEqual({
+      fromNodeId: 'root',
+      toNodeId: 'next',
+      lens: 'accommodation',
+      primaryExplanation: 'Links new evidence back to an older note.',
+      reasonTags: ['tension', 'accepted-ai-relation'],
+      evidence: [{ eventId: 'event-1', relationId: 'relation-1', weight: 0.6 }],
+      createdBy: { kind: 'user', id: 'user-1', label: 'manual follow' },
+      createdAt: 42,
+    });
+  });
+
+  it('does not allow virtual or inferred knowledge to become a path node before materialization', () => {
+    expect(canRepresentSemanticPathNode(node('implicit-3', 'implicit-knowledge'))).toBe(false);
+    expect(canRepresentSemanticPathNode(node('review-3', 'real-review-card'))).toBe(true);
+  });
+
+  it('filters virtual or inferred knowledge out of main candidate columns before binding or materialization', () => {
+    const filtered = filterRepresentableSemanticCandidates({
+      assimilation: [
+        {
+          candidateId: 'implicit',
+          node: node('implicit-4', 'implicit-knowledge'),
+          score: 0.9,
+          lens: 'assimilation',
+          reasons: [],
+        },
+        {
+          candidateId: 'real',
+          node: node('review-4', 'real-review-card'),
+          score: 0.8,
+          lens: 'assimilation',
+          reasons: [],
+        },
+      ],
+      accommodation: [],
+      free: [],
+    });
+
+    expect(filtered.assimilation.map((candidate) => candidate.candidateId)).toEqual(['real']);
   });
 
   it('captures path stations from root-to-current narrative path and lens history', () => {

@@ -1,10 +1,15 @@
 import type {
   SemanticEvent,
+  SemanticBranchEdge,
+  SemanticBranchState,
+  SemanticIrrelevantFeedback,
+  SemanticLaterEntry,
   SemanticLens,
   SemanticMemoryProjection,
   SemanticPathEntry,
   SemanticRelation,
   SemanticSessionSnapshot,
+  SemanticSuggestion,
   SemanticStation,
 } from '@/core/semantic/semanticActivationTypes';
 import type { SemanticActivationPersistencePort } from '@/application/ports/SemanticActivationPersistencePort';
@@ -68,6 +73,63 @@ type SemanticProjectionRow = Record<string, string | number | null> & {
   payload_json: string;
 };
 
+type SemanticBranchEdgeRow = Record<string, string | number | null> & {
+  edge_id: string;
+  session_id: string;
+  branch_id: string;
+  from_node_id: string;
+  to_node_id: string;
+  lens: string;
+  created_at: number;
+  payload_json: string;
+};
+
+type SemanticBranchStateRow = Record<string, string | number | null> & {
+  branch_id: string;
+  session_id: string;
+  root_node_id: string;
+  active_cursor_node_id: string;
+  archived_at: number | null;
+  restored_at: number | null;
+  updated_at: number;
+  payload_json: string;
+};
+
+type SemanticLaterEntryRow = Record<string, string | number | null> & {
+  entry_id: string;
+  session_id: string;
+  node_id: string;
+  reason: string | null;
+  created_at: number;
+  removed_at: number | null;
+  payload_json: string;
+};
+
+type SemanticIrrelevantFeedbackRow = Record<string, string | number | null> & {
+  feedback_id: string;
+  session_id: string;
+  node_id: string;
+  scope: string;
+  root_focus_node_id: string | null;
+  created_at: number;
+  payload_json: string;
+};
+
+type SemanticSuggestionRow = Record<string, string | number | null> & {
+  suggestion_id: string;
+  session_id: string;
+  source: string;
+  summary: string;
+  status: string;
+  target_node_id: string | null;
+  bound_node_id: string | null;
+  materialized_block_id: string | null;
+  materialized_card_id: string | null;
+  created_at: number;
+  updated_at: number;
+  payload_json: string;
+};
+
 function normalizeString(value: unknown): string {
   return String(value || '').trim();
 }
@@ -95,9 +157,11 @@ function projectionKey(sessionId?: string | null): string {
 }
 
 function rowToSession(row: SemanticSessionRow): SemanticSessionSnapshot {
+  const payload = parseJson<{ rootFocusNodeType?: SemanticSessionSnapshot['rootFocusNodeType'] }>(row.payload_json, {});
   return {
     sessionId: row.session_id,
     rootFocusNodeId: row.root_focus_node_id,
+    rootFocusNodeType: payload.rootFocusNodeType ?? null,
     currentNodeId: row.current_node_id,
     activeLens: row.active_lens as SemanticLens,
     narrativePath: parseJson<SemanticPathEntry[]>(row.narrative_path_json, []),
@@ -157,6 +221,75 @@ function rowToProjection(row: SemanticProjectionRow): SemanticMemoryProjection {
   };
 }
 
+function rowToBranchEdge(row: SemanticBranchEdgeRow): SemanticBranchEdge {
+  const payload = parseJson<Pick<SemanticBranchEdge, 'explanation' | 'createdBy' | 'forkMetadata'>>(row.payload_json, {} as never);
+  return {
+    edgeId: row.edge_id,
+    sessionId: row.session_id,
+    branchId: row.branch_id,
+    fromNodeId: row.from_node_id,
+    toNodeId: row.to_node_id,
+    lens: row.lens as SemanticLens,
+    explanation: payload.explanation ?? null,
+    createdBy: payload.createdBy ?? { kind: 'unknown', id: null, label: null },
+    createdAt: normalizeFiniteNumber(row.created_at),
+    forkMetadata: payload.forkMetadata ?? null,
+  };
+}
+
+function rowToBranchState(row: SemanticBranchStateRow): SemanticBranchState {
+  return {
+    branchId: row.branch_id,
+    sessionId: row.session_id,
+    rootNodeId: row.root_node_id,
+    activeCursorNodeId: row.active_cursor_node_id,
+    archivedAt: typeof row.archived_at === 'number' ? row.archived_at : null,
+    restoredAt: typeof row.restored_at === 'number' ? row.restored_at : null,
+    updatedAt: normalizeFiniteNumber(row.updated_at),
+  };
+}
+
+function rowToLaterEntry(row: SemanticLaterEntryRow): SemanticLaterEntry {
+  return {
+    entryId: row.entry_id,
+    sessionId: row.session_id,
+    nodeId: row.node_id,
+    reason: row.reason,
+    createdAt: normalizeFiniteNumber(row.created_at),
+    removedAt: typeof row.removed_at === 'number' ? row.removed_at : null,
+  };
+}
+
+function rowToIrrelevantFeedback(row: SemanticIrrelevantFeedbackRow): SemanticIrrelevantFeedback {
+  return {
+    feedbackId: row.feedback_id,
+    sessionId: row.session_id,
+    nodeId: row.node_id,
+    scope: row.scope === 'root' ? 'root' : 'session',
+    rootFocusNodeId: row.root_focus_node_id,
+    createdAt: normalizeFiniteNumber(row.created_at),
+  };
+}
+
+function rowToSuggestion(row: SemanticSuggestionRow): SemanticSuggestion {
+  const status = ['active', 'ignored', 'bound', 'materialized'].includes(row.status)
+    ? row.status as SemanticSuggestion['status']
+    : 'active';
+  return {
+    suggestionId: row.suggestion_id,
+    sessionId: row.session_id,
+    source: row.source === 'system' ? 'system' : 'ai',
+    summary: row.summary,
+    status,
+    targetNodeId: row.target_node_id,
+    boundNodeId: row.bound_node_id,
+    materializedBlockId: row.materialized_block_id,
+    materializedCardId: row.materialized_card_id,
+    createdAt: normalizeFiniteNumber(row.created_at),
+    updatedAt: normalizeFiniteNumber(row.updated_at),
+  };
+}
+
 export class SqlSemanticActivationRepository implements SemanticActivationPersistencePort {
   constructor(private readonly database: SqliteDatabaseService) {}
 
@@ -176,7 +309,7 @@ export class SqlSemanticActivationRepository implements SemanticActivationPersis
         stringifyJson(session.narrativePath),
         normalizeFiniteNumber(session.startedAt, now),
         typeof session.endedAt === 'number' ? session.endedAt : null,
-        stringifyJson({}),
+        stringifyJson({ rootFocusNodeType: session.rootFocusNodeType ?? null }),
         now,
       ],
     );
@@ -331,6 +464,159 @@ export class SqlSemanticActivationRepository implements SemanticActivationPersis
        ORDER BY decided_at DESC, relation_id ASC`,
     );
     return rows.map(rowToRelation);
+  }
+
+  saveBranchEdge(edge: SemanticBranchEdge): void {
+    this.database.run(
+      `INSERT OR REPLACE INTO semantic_branch_edges
+        (edge_id, session_id, branch_id, from_node_id, to_node_id, lens, created_at, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        requireString(edge.edgeId, 'edgeId'),
+        requireString(edge.sessionId, 'sessionId'),
+        requireString(edge.branchId, 'branchId'),
+        requireString(edge.fromNodeId, 'fromNodeId'),
+        requireString(edge.toNodeId, 'toNodeId'),
+        requireString(edge.lens, 'lens'),
+        normalizeFiniteNumber(edge.createdAt, Date.now()),
+        stringifyJson({
+          explanation: edge.explanation ?? null,
+          createdBy: edge.createdBy ?? { kind: 'unknown', id: null, label: null },
+          forkMetadata: edge.forkMetadata ?? null,
+        }),
+      ],
+    );
+  }
+
+  listBranchEdges(sessionId: string): SemanticBranchEdge[] {
+    const rows = this.database.getAll<SemanticBranchEdgeRow>(
+      `SELECT edge_id, session_id, branch_id, from_node_id, to_node_id, lens, created_at, payload_json
+       FROM semantic_branch_edges
+       WHERE session_id = ?
+       ORDER BY created_at ASC, edge_id ASC`,
+      [requireString(sessionId, 'sessionId')],
+    );
+    return rows.map(rowToBranchEdge);
+  }
+
+  saveBranchState(state: SemanticBranchState): void {
+    this.database.run(
+      `INSERT OR REPLACE INTO semantic_branch_states
+        (branch_id, session_id, root_node_id, active_cursor_node_id, archived_at, restored_at, updated_at, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        requireString(state.branchId, 'branchId'),
+        requireString(state.sessionId, 'sessionId'),
+        requireString(state.rootNodeId, 'rootNodeId'),
+        requireString(state.activeCursorNodeId, 'activeCursorNodeId'),
+        typeof state.archivedAt === 'number' ? state.archivedAt : null,
+        typeof state.restoredAt === 'number' ? state.restoredAt : null,
+        normalizeFiniteNumber(state.updatedAt, Date.now()),
+        stringifyJson({}),
+      ],
+    );
+  }
+
+  listBranchStates(sessionId: string): SemanticBranchState[] {
+    const rows = this.database.getAll<SemanticBranchStateRow>(
+      `SELECT branch_id, session_id, root_node_id, active_cursor_node_id, archived_at, restored_at, updated_at, payload_json
+       FROM semantic_branch_states
+       WHERE session_id = ?
+       ORDER BY updated_at DESC, branch_id ASC`,
+      [requireString(sessionId, 'sessionId')],
+    );
+    return rows.map(rowToBranchState);
+  }
+
+  saveLaterEntry(entry: SemanticLaterEntry): void {
+    this.database.run(
+      `INSERT OR REPLACE INTO semantic_later_entries
+        (entry_id, session_id, node_id, reason, created_at, removed_at, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        requireString(entry.entryId, 'entryId'),
+        requireString(entry.sessionId, 'sessionId'),
+        requireString(entry.nodeId, 'nodeId'),
+        normalizeNullableString(entry.reason),
+        normalizeFiniteNumber(entry.createdAt, Date.now()),
+        typeof entry.removedAt === 'number' ? entry.removedAt : null,
+        stringifyJson({}),
+      ],
+    );
+  }
+
+  listLaterEntries(sessionId: string): SemanticLaterEntry[] {
+    const rows = this.database.getAll<SemanticLaterEntryRow>(
+      `SELECT entry_id, session_id, node_id, reason, created_at, removed_at, payload_json
+       FROM semantic_later_entries
+       WHERE session_id = ?
+       ORDER BY created_at DESC, entry_id ASC`,
+      [requireString(sessionId, 'sessionId')],
+    );
+    return rows.map(rowToLaterEntry);
+  }
+
+  saveIrrelevantFeedback(feedback: SemanticIrrelevantFeedback): void {
+    this.database.run(
+      `INSERT OR REPLACE INTO semantic_irrelevant_feedback
+        (feedback_id, session_id, node_id, scope, root_focus_node_id, created_at, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        requireString(feedback.feedbackId, 'feedbackId'),
+        requireString(feedback.sessionId, 'sessionId'),
+        requireString(feedback.nodeId, 'nodeId'),
+        requireString(feedback.scope, 'scope'),
+        normalizeNullableString(feedback.rootFocusNodeId),
+        normalizeFiniteNumber(feedback.createdAt, Date.now()),
+        stringifyJson({}),
+      ],
+    );
+  }
+
+  listIrrelevantFeedback(sessionId: string): SemanticIrrelevantFeedback[] {
+    const rows = this.database.getAll<SemanticIrrelevantFeedbackRow>(
+      `SELECT feedback_id, session_id, node_id, scope, root_focus_node_id, created_at, payload_json
+       FROM semantic_irrelevant_feedback
+       WHERE session_id = ?
+       ORDER BY created_at DESC, feedback_id ASC`,
+      [requireString(sessionId, 'sessionId')],
+    );
+    return rows.map(rowToIrrelevantFeedback);
+  }
+
+  saveSuggestion(suggestion: SemanticSuggestion): void {
+    this.database.run(
+      `INSERT OR REPLACE INTO semantic_suggestions
+        (suggestion_id, session_id, source, summary, status, target_node_id, bound_node_id,
+         materialized_block_id, materialized_card_id, created_at, updated_at, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        requireString(suggestion.suggestionId, 'suggestionId'),
+        requireString(suggestion.sessionId, 'sessionId'),
+        requireString(suggestion.source, 'source'),
+        requireString(suggestion.summary, 'summary'),
+        requireString(suggestion.status, 'status'),
+        normalizeNullableString(suggestion.targetNodeId),
+        normalizeNullableString(suggestion.boundNodeId),
+        normalizeNullableString(suggestion.materializedBlockId),
+        normalizeNullableString(suggestion.materializedCardId),
+        normalizeFiniteNumber(suggestion.createdAt, Date.now()),
+        normalizeFiniteNumber(suggestion.updatedAt, Date.now()),
+        stringifyJson({}),
+      ],
+    );
+  }
+
+  listSuggestions(sessionId: string): SemanticSuggestion[] {
+    const rows = this.database.getAll<SemanticSuggestionRow>(
+      `SELECT suggestion_id, session_id, source, summary, status, target_node_id, bound_node_id,
+              materialized_block_id, materialized_card_id, created_at, updated_at, payload_json
+       FROM semantic_suggestions
+       WHERE session_id = ?
+       ORDER BY updated_at DESC, suggestion_id ASC`,
+      [requireString(sessionId, 'sessionId')],
+    );
+    return rows.map(rowToSuggestion);
   }
 
   saveProjection(projection: SemanticMemoryProjection): void {

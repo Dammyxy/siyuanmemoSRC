@@ -375,6 +375,72 @@ export const SQL_SCHEMA_STATEMENTS = [
     ON semantic_relations(from_node_id, decision, decided_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_semantic_relations_to
     ON semantic_relations(to_node_id, decision, decided_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS semantic_branch_edges (
+    edge_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    branch_id TEXT NOT NULL,
+    from_node_id TEXT NOT NULL,
+    to_node_id TEXT NOT NULL,
+    lens TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    payload_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_branch_edges_session
+    ON semantic_branch_edges(session_id, created_at ASC, edge_id ASC)`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_branch_edges_branch
+    ON semantic_branch_edges(branch_id, created_at ASC)`,
+  `CREATE TABLE IF NOT EXISTS semantic_branch_states (
+    branch_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    root_node_id TEXT NOT NULL,
+    active_cursor_node_id TEXT NOT NULL,
+    archived_at INTEGER,
+    restored_at INTEGER,
+    updated_at INTEGER NOT NULL,
+    payload_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_branch_states_session
+    ON semantic_branch_states(session_id, updated_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS semantic_later_entries (
+    entry_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    reason TEXT,
+    created_at INTEGER NOT NULL,
+    removed_at INTEGER,
+    payload_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_later_entries_session
+    ON semantic_later_entries(session_id, created_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS semantic_irrelevant_feedback (
+    feedback_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    root_focus_node_id TEXT,
+    created_at INTEGER NOT NULL,
+    payload_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_irrelevant_feedback_session
+    ON semantic_irrelevant_feedback(session_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_irrelevant_feedback_root
+    ON semantic_irrelevant_feedback(root_focus_node_id, node_id, created_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS semantic_suggestions (
+    suggestion_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    status TEXT NOT NULL,
+    target_node_id TEXT,
+    bound_node_id TEXT,
+    materialized_block_id TEXT,
+    materialized_card_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    payload_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_suggestions_session
+    ON semantic_suggestions(session_id, updated_at DESC)`,
   `CREATE TABLE IF NOT EXISTS semantic_projection_cache (
     projection_key TEXT PRIMARY KEY,
     version INTEGER NOT NULL,

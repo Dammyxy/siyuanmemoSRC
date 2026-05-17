@@ -102,6 +102,64 @@ describe('SqlSemanticActivationRepository', () => {
         }],
         rebuiltAt: 1_700_001_000_300,
       });
+      port.saveBranchEdge({
+        edgeId: 'edge-1',
+        sessionId: 'session-1',
+        branchId: 'branch-main',
+        fromNodeId: 'concept-root',
+        toNodeId: 'card-1',
+        lens: 'accommodation',
+        explanation: {
+          fromNodeId: 'concept-root',
+          toNodeId: 'card-1',
+          lens: 'accommodation',
+          primaryExplanation: 'new note reframes old review card',
+          reasonTags: ['tension'],
+          evidence: [{ eventId: 'event-start', weight: 0.6 }],
+          createdBy: { kind: 'user', id: 'user-1', label: 'manual follow' },
+          createdAt: 1_700_001_000_400,
+        },
+        createdBy: { kind: 'user', id: 'user-1', label: 'manual follow' },
+        createdAt: 1_700_001_000_400,
+      });
+      port.saveBranchState({
+        branchId: 'branch-main',
+        sessionId: 'session-1',
+        rootNodeId: 'concept-root',
+        activeCursorNodeId: 'card-1',
+        archivedAt: null,
+        restoredAt: null,
+        updatedAt: 1_700_001_000_500,
+      });
+      port.saveLaterEntry({
+        entryId: 'later-1',
+        sessionId: 'session-1',
+        nodeId: 'card-2',
+        reason: 'compare later',
+        createdAt: 1_700_001_000_600,
+        removedAt: null,
+      });
+      port.saveIrrelevantFeedback({
+        feedbackId: 'irrelevant-1',
+        sessionId: 'session-1',
+        nodeId: 'card-3',
+        scope: 'root',
+        rootFocusNodeId: 'concept-root',
+        createdAt: 1_700_001_000_700,
+      });
+      port.saveSuggestion({
+        suggestionId: 'suggestion-1',
+        sessionId: 'session-1',
+        source: 'ai',
+        summary: 'bind this to a real block before following',
+        status: 'active',
+        targetNodeId: 'card-1',
+        boundNodeId: null,
+        materializedBlockId: null,
+        materializedCardId: null,
+        createdAt: 1_700_001_000_800,
+        updatedAt: 1_700_001_000_800,
+      });
     });
 
     expect(port.getSession('session-1')).toMatchObject({
@@ -119,5 +177,24 @@ describe('SqlSemanticActivationRepository', () => {
       nodeMemory: [expect.objectContaining({ nodeId: 'concept-root' })],
       edgeMemory: [expect.objectContaining({ toNodeId: 'implicit-1' })],
     });
+    expect(port.listBranchEdges('session-1')).toEqual([
+      expect.objectContaining({
+        edgeId: 'edge-1',
+        branchId: 'branch-main',
+        explanation: expect.objectContaining({ primaryExplanation: 'new note reframes old review card' }),
+      }),
+    ]);
+    expect(port.listBranchStates('session-1')).toEqual([
+      expect.objectContaining({ branchId: 'branch-main', activeCursorNodeId: 'card-1' }),
+    ]);
+    expect(port.listLaterEntries('session-1')).toEqual([
+      expect.objectContaining({ entryId: 'later-1', nodeId: 'card-2', removedAt: null }),
+    ]);
+    expect(port.listIrrelevantFeedback('session-1')).toEqual([
+      expect.objectContaining({ feedbackId: 'irrelevant-1', scope: 'root', rootFocusNodeId: 'concept-root' }),
+    ]);
+    expect(port.listSuggestions('session-1')).toEqual([
+      expect.objectContaining({ suggestionId: 'suggestion-1', status: 'active', targetNodeId: 'card-1' }),
+    ]);
   });
 });
