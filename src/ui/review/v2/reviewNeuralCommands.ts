@@ -51,7 +51,6 @@ type ReviewNeuralCommandDeps = {
 type ReviewNeuralEngineModeSelectionDeps = ReviewNeuralCommandDeps & {
   selectedMode: NeuralRoamUserMode;
   persistPreferredMode: (mode: NeuralRoamUserMode) => void | Promise<void>;
-  startSemanticActivation: () => void | Promise<void>;
 };
 
 type BuildReviewNeuralMenuItemsInput = Omit<ReviewNeuralCommandDeps, 'currentBlockId'> & {
@@ -79,7 +78,7 @@ export function isReviewNeuralMenuAction(actionType: string): actionType is Revi
 export function buildReviewNeuralEngineModeMenuItems(input: BuildReviewNeuralEngineModeMenuItemsInput): ReviewMenuItem[] {
   const { t, currentMode, onSelect } = input;
   return buildNeuralRoamModeOptions(t).map((option) => ({
-    icon: option.mode === 'semantic-activation' ? 'iconSparkles' : 'iconRefresh',
+    icon: 'iconRefresh',
     label: option.mode === currentMode ? `${option.label} ✓` : option.label,
     description: option.description,
     disabled: option.mode === currentMode,
@@ -90,13 +89,9 @@ export function buildReviewNeuralEngineModeMenuItems(input: BuildReviewNeuralEng
 export async function handleReviewNeuralEngineModeSelection(
   deps: ReviewNeuralEngineModeSelectionDeps,
 ): Promise<void> {
-  const { selectedMode, persistPreferredMode, startSemanticActivation, neuralQueue, showMessage, t, logger } = deps;
-  await persistPreferredMode(selectedMode);
-
-  if (selectedMode === 'semantic-activation') {
-    await startSemanticActivation();
-    return;
-  }
+  const { selectedMode, persistPreferredMode, neuralQueue, showMessage, t, logger } = deps;
+  const effectiveMode = selectedMode === 'semantic-activation' ? 'orbit' : selectedMode;
+  await persistPreferredMode(effectiveMode);
 
   if (!neuralQueue) {
     showMessage(t('queueNoFocusSupport', 'This queue does not support center actions'), 3000, 'error');
@@ -104,7 +99,7 @@ export async function handleReviewNeuralEngineModeSelection(
   }
 
   try {
-    await switchNeuralEngineMode(selectedMode, { ...deps, neuralQueue });
+    await switchNeuralEngineMode(effectiveMode, { ...deps, neuralQueue });
   } catch (error) {
     logger?.error?.('[SiYuanMemo][ReviewView] Failed to switch engine mode:', error);
     showMessage(t('engineModeSwitchFailed', 'Failed to switch engine mode'), 3000, 'error');

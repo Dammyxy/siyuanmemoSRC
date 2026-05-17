@@ -111,18 +111,6 @@
       </button>
 
       <button
-        v-if="!props.mobileMode"
-        class="b3-button b3-button--outline toolbar__action toolbar__action--semantic"
-        :class="{ 'b3-button--text': semanticActive }"
-        @click="$emit('startSemantic')"
-        :disabled="!canStartSemantic || loading"
-        :title="t('startSemantic', 'Start Semantic')"
-      >
-        <svg><use xlink:href="#iconGraph"></use></svg>
-        {{ startSemanticButtonLabel }}
-      </button>
-
-      <button
         v-if="canApplySortToQueue && !props.mobileMode"
         class="b3-button b3-button--outline"
         @click="$emit('applySortToQueue')"
@@ -248,8 +236,6 @@ const props = defineProps<{
   canSelectAllMatching: boolean;
   showNavigatorToggle?: boolean;
   navigatorOpen?: boolean;
-  canStartSemantic?: boolean;
-  semanticActive?: boolean;
 }>();
 
 const availableCardTypeFilters = computed(() => {
@@ -281,7 +267,6 @@ const emit = defineEmits<{
   (e: 'openFilterDialog'): void;
   (e: 'openSpreadDialog'): void;
   (e: 'openAiWorkbench'): void;
-  (e: 'startSemantic'): void;
   (e: 'selectCurrentPage'): void;
   (e: 'selectAllMatching'): void;
   (e: 'clearSelection'): void;
@@ -339,13 +324,6 @@ const startPracticeButtonLabel = computed(() => {
     return t('startPracticeShort', '练习');
   }
   return t('startPractice', '开始练习');
-});
-
-const startSemanticButtonLabel = computed(() => {
-  if (!props.mobileMode && isCompactDesktop.value) {
-    return t('startSemanticShort', 'Semantic');
-  }
-  return t('startSemantic', 'Start Semantic');
 });
 
 const openInTabButtonLabel = computed(() => t('openInTab', 'Open'));

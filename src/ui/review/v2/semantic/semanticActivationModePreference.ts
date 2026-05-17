@@ -12,7 +12,7 @@ export interface NeuralRoamModeOption {
 type TranslateFn = (key: string, fallback: string) => string;
 
 export function normalizeNeuralRoamUserMode(value: unknown): NeuralRoamUserMode {
-  return value === 'hyperspace' || value === 'semantic-activation' ? value : 'orbit';
+  return value === 'hyperspace' ? value : 'orbit';
 }
 
 export function getPreferredNeuralRoamUserMode(settings: Pick<PluginSettings, 'queues'> | null | undefined): NeuralRoamUserMode {
@@ -65,12 +65,6 @@ export function buildNeuralRoamModeOptions(t: TranslateFn): NeuralRoamModeOption
       label: t('engineHyperspace', 'Hyperspace Expedition'),
       description: t('engineHyperspaceIntro', 'Propagate outward layer by layer from activation sources through links and optional tree relations.'),
       runtimeQueueType: 'neural-roam',
-    },
-    {
-      mode: 'semantic-activation',
-      label: t('semanticActivation', 'Semantic Activation'),
-      description: t('semanticActivationIntro', 'Use old knowledge, new tension, and the actual path you traverse as one semantic activation session.'),
-      runtimeQueueType: 'semantic-activation',
     },
   ];
 }

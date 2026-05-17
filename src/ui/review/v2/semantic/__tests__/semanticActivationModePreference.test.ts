@@ -27,21 +27,18 @@ function settings(): PluginSettings {
 }
 
 describe('semanticActivationModePreference', () => {
-  it('exposes Semantic Activation as a third user-facing Neural Roam mode with separate runtime identity', () => {
+  it('hides Semantic Activation from the user-facing Neural Roam picker', () => {
     const options = buildNeuralRoamModeOptions(t);
 
-    expect(options.map((option) => option.mode)).toEqual(['orbit', 'hyperspace', 'semantic-activation']);
-    expect(options[2]).toMatchObject({
-      label: 'Semantic Activation',
-      runtimeQueueType: 'semantic-activation',
-    });
+    expect(options.map((option) => option.mode)).toEqual(['orbit', 'hyperspace']);
+    expect(options.some((option) => option.runtimeQueueType === 'semantic-activation')).toBe(false);
   });
 
-  it('persists and resolves preferred Neural Roam mode without mutating Orbit or Hyperspace state', () => {
+  it('coerces stale Semantic Activation preference back to Orbit', () => {
     const next = setPreferredNeuralRoamUserMode(settings(), 'semantic-activation');
 
-    expect(getPreferredNeuralRoamUserMode(next)).toBe('semantic-activation');
-    expect(resolvePrimaryNeuralRoamEntryMode(next)).toBe('semantic-activation');
+    expect(getPreferredNeuralRoamUserMode(next)).toBe('orbit');
+    expect(resolvePrimaryNeuralRoamEntryMode(next)).toBe('orbit');
     expect(resolvePrimaryNeuralRoamEntryMode(next, 'hyperspace')).toBe('hyperspace');
   });
 });

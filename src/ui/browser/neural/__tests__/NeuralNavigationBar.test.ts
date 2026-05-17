@@ -54,7 +54,6 @@ describe('NeuralNavigationBar', () => {
     expect(wrapper.findAll('.neural-nav-bar__mode').map((button) => button.text())).toEqual([
       'Orbit',
       'Hyperspace Expedition',
-      'Semantic Activation',
     ]);
     expect(wrapper.findAll('.neural-nav-bar__mode')[0]?.attributes('aria-selected')).toBe('true');
   });
@@ -82,32 +81,6 @@ describe('NeuralNavigationBar', () => {
     expect(wrapper.get('.neural-nav-bar__status').text()).toContain('Current: Free Roam');
     expect(wrapper.get('.neural-nav-bar__intro').text()).toBe('Propagate outward layer by layer from activation sources through links and optional tree relations.');
     expect(wrapper.findAll('.neural-nav-bar__mode')[1]?.attributes('aria-selected')).toBe('true');
-  });
-
-  it('renders semantic as workspace mode without treating it as a neural engine', async () => {
-    const wrapper = mount(NeuralNavigationBar, {
-      props: {
-        i18n: {
-          engineOrbit: 'Orbit',
-          engineHyperspace: 'Hyperspace',
-          semanticActivation: 'Semantic',
-          semanticActivationIntro: 'Current understanding path only.',
-          navModeFollow: 'Follow Path',
-          navStatusFollow: 'Current: {mode} ({current}/{total})',
-        },
-        navigationState: createNavigationState(),
-        workspaceMode: 'semantic',
-      },
-    });
-
-    expect(wrapper.get('.neural-nav-bar__engine').text()).toBe('Semantic');
-    expect(wrapper.get('.neural-nav-bar__intro').text()).toBe('Current understanding path only.');
-    expect(wrapper.findAll('.neural-nav-bar__mode')[2]?.attributes('aria-selected')).toBe('true');
-
-    await wrapper.findAll('.neural-nav-bar__mode')[2]?.trigger('click');
-
-    expect(wrapper.emitted('select-workspace-mode')?.[0]).toEqual(['semantic']);
-    expect(wrapper.emitted('toggle-engine-mode')).toBeFalsy();
   });
 
   it('disables return button when bookmark is unavailable', () => {

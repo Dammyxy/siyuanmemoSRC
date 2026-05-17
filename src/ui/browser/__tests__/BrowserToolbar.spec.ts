@@ -77,6 +77,19 @@ describe('BrowserToolbar surface actions', () => {
     expect(openInTabButton).toBeTruthy();
   });
 
+  it('hides the Semantic entry action', () => {
+    const wrapper = mount(BrowserToolbar, {
+      props: {
+        ...baseProps,
+        canStartSemantic: true,
+        semanticActive: true,
+      },
+    });
+
+    expect(wrapper.find('.toolbar__action--semantic').exists()).toBe(false);
+    expect(wrapper.findAll('button').some((button) => button.attributes('title') === 'Start Semantic')).toBe(false);
+  });
+
   it('keeps the main search placeholder empty even when advanced placeholder copy exists', () => {
     const wrapper = mount(BrowserToolbar, {
       props: baseProps,

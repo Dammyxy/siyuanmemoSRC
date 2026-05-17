@@ -1559,6 +1559,7 @@ const reviewDataObserverRuntime = createReviewDataObserverRuntime({
 });
 
 const REVIEW_AI_SIDECAR_MIN_VIEWPORT = 1040;
+const SEMANTIC_ACTIVATION_USER_ENTRY_ENABLED = false;
 
 const canUseEmbeddedReviewAISidecar = computed(() => (
   props.mode === 'dialog' && props.isMobile !== true && viewportWidth.value >= REVIEW_AI_SIDECAR_MIN_VIEWPORT
@@ -1573,7 +1574,8 @@ const showReviewAISidecar = computed(() => (
 ));
 
 const showReviewSemanticSidePanel = computed(() => (
-  canUseReviewSideArea.value
+  SEMANTIC_ACTIVATION_USER_ENTRY_ENABLED
+  && canUseReviewSideArea.value
   && reviewSemanticSidebarOpen.value
 ));
 
@@ -2992,7 +2994,6 @@ function handleNeuralEngineModeMenu(ev: MouseEvent): void {
         showMessage,
         logger,
         persistPreferredMode: persistPreferredNeuralRoamMode,
-        startSemanticActivation: startSemanticActivationEntry,
       });
     },
   }));

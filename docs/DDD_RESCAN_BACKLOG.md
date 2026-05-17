@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-17 (Round 376)
+Last update: 2026-05-18 (Round 377)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-18 - Hide Semantic Activation entries
+
+- Task: Hide Semantic roaming/activation user-facing entries so other defects can be repaired first.
+- Touched slice: Browser and Review Semantic Activation entry surfaces; `src/ui/browser/BrowserToolbar.vue`, `src/ui/browser/SRSBrowser.vue`, `src/ui/browser/neural/NeuralNavigationBar.vue`, `src/ui/review/v2/ReviewView.vue`, `src/ui/review/v2/semantic/semanticActivationModePreference.ts`, focused UI tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Browser toolbar no longer exposes `Start Semantic`; Browser neural workspace tabs no longer expose Semantic; Review Neural engine picker only exposes Orbit/Hyperspace; stale `semantic-activation` preference now normalizes to Orbit, so Review concept-roam opens ordinary Neural Roam instead of starting Semantic; embedded Review Semantic side panel is disabled behind an explicit local constant.
+- Debt deferred: Semantic backend/read/write contracts, controller code, Browser Semantic helpers, and standalone Semantic component tests remain in place rather than being deleted.
+- Why deferred: The user request is to hide the feature and focus on other repairs, not to remove the backend foundation or perform a wider Semantic architecture cleanup. Deleting contracts now would cross worker/backend/storage ownership and increase regression risk.
+- Next safe step: If Semantic should stay hidden long term, archive or remove the OpenSpec/UI smoke docs in a dedicated cleanup, then decide whether backend Semantic contracts should remain as dormant infrastructure or be retired.
+- Validation: `pnpm exec vitest run src/ui/review/v2/semantic/__tests__/semanticActivationModePreference.test.ts src/ui/review/v2/__tests__/reviewNeuralCommands.test.ts src/ui/browser/neural/__tests__/NeuralNavigationBar.test.ts src/ui/browser/__tests__/BrowserToolbar.spec.ts src/ui/review/v2/__tests__/ReviewView.concept-roam.spec.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-17 - Review Session Cursor module
 
