@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BackendRpcRequest, BackendRpcResponse } from '../../../../packages/contracts/src/backend-rpc';
 import { BACKEND_RPC_VERSION } from '../../../../packages/contracts/src/backend-rpc';
 import { BrowserSrsBackendWorkerTransport } from '../BrowserSrsBackendWorkerTransport';
@@ -36,6 +36,14 @@ function createRequest(id = 1): BackendRpcRequest {
 }
 
 describe('BrowserSrsBackendWorkerTransport', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('sends backend RPC requests to the worker and resolves matching responses', async () => {
     const worker = new FakeWorker();
     const transport = new BrowserSrsBackendWorkerTransport({
@@ -300,5 +308,214 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     worker.emitError('worker crashed');
 
     await expect(pending).rejects.toThrow('BACKEND_UNAVAILABLE: backend worker error: worker crashed');
+  });
+
+  it('rejects startup waiters when the worker does not become ready before deadline', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+      startupTimeoutMs: 25,
+      maxRestartAttempts: 0,
+    });
+    const pending = transport.request(createRequest(55));
+    const assertion = expect(pending).rejects.toThrow('BACKEND_UNAVAILABLE: backend worker startup timed out after 25ms');
+
+    await vi.advanceTimersByTimeAsync(25);
+
+    await assertion;
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'unavailable',
+      generation: 1,
+      startupTimeouts: 1,
+      pendingRequests: 0,
+    }));
+    expect(worker.terminated).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects in-flight requests and clears pending entries when request deadline expires', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+      requestTimeoutMs: 20,
+      maxRestartAttempts: 0,
+    });
+    worker.emit({ kind: 'ready' });
+
+    const pending = transport.request(createRequest(66));
+    await Promise.resolve();
+    expect(transport.getDiagnostics().pendingRequests).toBe(1);
+    const assertion = expect(pending).rejects.toThrow('BACKEND_UNAVAILABLE: backend worker request timed out after 20ms');
+
+    await vi.advanceTimersByTimeAsync(20);
+
+    await assertion;
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'unavailable',
+      requestTimeouts: 1,
+      pendingRequests: 0,
+    }));
+    expect(worker.terminated).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps diagnostics for worker error and dispose pending cleanup', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+      maxRestartAttempts: 0,
+    });
+    worker.emit({ kind: 'ready' });
+
+    const pending = transport.request(createRequest(77));
+    await Promise.resolve();
+    worker.emitError('worker crashed');
+
+    await expect(pending).rejects.toThrow('BACKEND_UNAVAILABLE: backend worker error: worker crashed');
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'unavailable',
+      pendingRequests: 0,
+      lastTerminalError: 'BACKEND_UNAVAILABLE: backend worker error: worker crashed',
+    }));
+    transport.dispose();
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'closed',
+      pendingRequests: 0,
+    }));
+  });
+
+  it('probes worker liveness and records last successful probe time', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+      probeTimeoutMs: 20,
+    });
+    worker.emit({ kind: 'ready' });
+
+    const probe = transport.probe();
+    await Promise.resolve();
+    expect(worker.posted[0]).toEqual(expect.objectContaining({
+      kind: 'probe',
+      probeId: expect.any(String),
+    }));
+
+    worker.emit({
+      kind: 'probe-result',
+      probeId: (worker.posted[0] as { probeId: string }).probeId,
+    });
+
+    await expect(probe).resolves.toBeUndefined();
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'healthy',
+      probeTimeouts: 0,
+      lastSuccessfulProbeAt: expect.any(Number),
+    }));
+  });
+
+  it('marks worker unhealthy when liveness probe misses its deadline', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+      probeTimeoutMs: 20,
+      maxRestartAttempts: 0,
+    });
+    worker.emit({ kind: 'ready' });
+
+    const probe = transport.probe();
+    await Promise.resolve();
+    const assertion = expect(probe).rejects.toThrow('BACKEND_UNAVAILABLE: backend worker probe timed out after 20ms');
+    await vi.advanceTimersByTimeAsync(20);
+
+    await assertion;
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'unavailable',
+      probeTimeouts: 1,
+      pendingRequests: 0,
+    }));
+    expect(worker.terminated).toHaveBeenCalledTimes(1);
+  });
+
+  it('restarts with a new worker generation without replaying timed-out pending requests', async () => {
+    const workers = [new FakeWorker(), new FakeWorker()];
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => workers.shift() as unknown as Worker,
+      hostEffects: {},
+      requestTimeoutMs: 20,
+      restartBackoffMs: 0,
+      maxRestartAttempts: 1,
+    });
+    const worker1 = (transport as unknown as { worker: FakeWorker }).worker;
+    worker1.emit({ kind: 'ready' });
+
+    const pending = transport.request(createRequest(88));
+    await Promise.resolve();
+    const assertion = expect(pending).rejects.toThrow('BACKEND_UNAVAILABLE: backend worker request timed out after 20ms');
+    await vi.advanceTimersByTimeAsync(20);
+    await assertion;
+    await vi.advanceTimersByTimeAsync(1);
+
+    const worker2 = (transport as unknown as { worker: FakeWorker }).worker;
+    expect(worker2).not.toBe(worker1);
+    expect(worker2.posted).toEqual([]);
+    worker2.emit({ kind: 'ready' });
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'healthy',
+      generation: 2,
+      restartCount: 1,
+    }));
+
+    const next = transport.request(createRequest(89));
+    await Promise.resolve();
+    expect(worker2.posted).toEqual([
+      expect.objectContaining({
+        kind: 'request',
+        request: createRequest(89),
+      }),
+    ]);
+    worker2.emit({
+      kind: 'response',
+      requestId: (worker2.posted[0] as { requestId: string }).requestId,
+      response: {
+        jsonrpc: BACKEND_RPC_VERSION,
+        id: 89,
+        result: { ok: true },
+      },
+    });
+    await expect(next).resolves.toEqual(expect.objectContaining({ id: 89 }));
+    transport.dispose();
+  });
+
+  it('stays unavailable after restart budget is exhausted', async () => {
+    const created: FakeWorker[] = [];
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => {
+        const worker = new FakeWorker();
+        created.push(worker);
+        return worker as unknown as Worker;
+      },
+      hostEffects: {},
+      startupTimeoutMs: 20,
+      restartBackoffMs: 0,
+      maxRestartAttempts: 1,
+    });
+    const firstRequest = transport.request(createRequest(90));
+    const firstAssertion = expect(firstRequest).rejects.toThrow('BACKEND_UNAVAILABLE: backend worker startup timed out after 20ms');
+
+    await vi.advanceTimersByTimeAsync(20);
+    await firstAssertion;
+    await vi.advanceTimersByTimeAsync(1);
+    expect(created).toHaveLength(2);
+
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'unavailable',
+      generation: 2,
+      restartCount: 1,
+      startupTimeouts: 2,
+    }));
   });
 });

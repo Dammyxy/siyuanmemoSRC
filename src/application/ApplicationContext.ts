@@ -134,7 +134,10 @@ import type { HybridSyncConfig } from '@/application/services/XiuyuanSyncService
 import { isErr } from '@/types/result';
 import type { KernelCompanionPort } from '@/application/ports/KernelCompanionPort';
 import { SrsBackendClient, type SrsBackendTransport } from '@/application/clients/SrsBackendClient';
-import { BrowserSrsBackendWorkerTransport } from '@/application/clients/BrowserSrsBackendWorkerTransport';
+import {
+  BrowserSrsBackendWorkerTransport,
+  type BrowserSrsBackendWorkerDiagnostics,
+} from '@/application/clients/BrowserSrsBackendWorkerTransport';
 import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
 import { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
 import { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
@@ -219,6 +222,7 @@ interface SqlPersistenceBundle {
 
 type DisposableSrsBackendTransport = SrsBackendTransport & {
   dispose?: () => void;
+  getDiagnostics?: () => BrowserSrsBackendWorkerDiagnostics;
 };
 
 /**
@@ -1440,6 +1444,20 @@ export class ApplicationContext {
             frontendKind: config.frontendKind,
             isBrowser: (config.plugin as unknown as { isBrowser?: boolean }).isBrowser,
             isMobile: (config.plugin as unknown as { isMobile?: boolean }).isMobile,
+            backendWorkerHealth: () => {
+              const diagnostics = srsBackendTransport?.getDiagnostics?.();
+              if (!diagnostics) {
+                return { healthy: false, reason: 'diagnostics-unavailable' };
+              }
+              const healthy = diagnostics.health === 'healthy' || diagnostics.health === 'starting';
+              return {
+                healthy,
+                reason: healthy
+                  ? null
+                  : diagnostics.lastTerminalError || diagnostics.health,
+                diagnostics,
+              };
+            },
             writerCommandHandler: (command) => ApplicationContext.executeWriterRelayCommand(
               srsBackendClient!,
               command,

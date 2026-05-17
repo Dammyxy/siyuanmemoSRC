@@ -4,6 +4,16 @@ Last update: 2026-05-18 (Round 377)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-18 - Backend Worker liveness supervisor
+
+- Task: Apply OpenSpec change `stabilize-backend-worker-liveness` for A+B: backend Worker deadlines/liveness plus renderer supervisor restart.
+- Touched slice: Siyuan integration / backend worker runtime; `BrowserSrsBackendWorkerTransport`, `BackendWorkerProtocol`, `backend-worker.entry.ts`, `FrontendInstanceRuntime`, `ApplicationContext`, focused runtime tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Backend Worker startup, request, and probe waits are bounded; timed-out or errored Worker generations reject pending work with explicit `BACKEND_UNAVAILABLE`; transport diagnostics expose health/generation/restart/pending/timeout state; unhealthy writer runtimes release or stop renewing writer lease and do not drain relay commands through a dead Worker.
+- Debt deferred: Default timeout tuning still needs live performance evidence for long-running backend commands. Browser Worker background behavior still needs a manual two-window SiYuan smoke because desktop may freeze, throttle, or terminate Worker/timers differently by version.
+- Why deferred: This slice intentionally keeps `kernel.js` as coordinator only and avoids kernel DB ownership. Live timeout values and OS/Electron background behavior require runtime smoke data rather than unit-only assumptions.
+- Next safe step: Run the manual two-window/background smoke after plugin reload; if timeout false positives appear, add per-method timeout metadata instead of disabling deadlines.
+- Validation: `pnpm exec vitest run src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts`; remaining validation listed in OpenSpec task 4.4.
+
 ### 2026-05-18 - Hide Semantic Activation entries
 
 - Task: Hide Semantic roaming/activation user-facing entries so other defects can be repaired first.

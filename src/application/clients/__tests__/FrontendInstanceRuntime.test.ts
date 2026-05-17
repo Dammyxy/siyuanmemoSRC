@@ -195,6 +195,56 @@ describe('FrontendInstanceRuntime', () => {
     await runtime.dispose();
   });
 
+  it('releases writer lease and refuses writable mode when backend worker health is unhealthy', async () => {
+    let backendHealthy = true;
+    const writerReleaseLease = vi.fn(async () => ({ ok: true, lease: null, now: 2 }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'instance-a',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'scope-a',
+        },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'instance-a',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'scope-a',
+        },
+        now: 1,
+      })),
+      writerReleaseLease,
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      runtimeScopeId: 'scope-a',
+      backendWorkerHealth: () => ({
+        healthy: backendHealthy,
+        reason: 'worker-timeout',
+      }),
+    });
+
+    await runtime.start();
+    expect(runtime.getMode()).toBe('writer');
+
+    backendHealthy = false;
+
+    await expect(runtime.ensureWritable()).rejects.toThrow(
+      'BACKEND_UNAVAILABLE: backend worker unhealthy: worker-timeout',
+    );
+    expect(writerReleaseLease).toHaveBeenCalledWith({ instanceId: 'instance-a' });
+    expect(runtime.getMode()).toBe('follower');
+    await runtime.dispose();
+  });
+
   it('passes bounded writer profile diagnostics through writer lease calls', async () => {
     vi.stubGlobal('document', {
       visibilityState: 'visible',
@@ -370,6 +420,83 @@ describe('FrontendInstanceRuntime', () => {
       commandId: 'cmd-push-1',
       result: { ok: true },
     }));
+    await runtime.dispose();
+  });
+
+  it('does not drain follower command through an unhealthy writer worker', async () => {
+    let backendHealthy = true;
+    let onEvent: ((event: {
+      method: string;
+      params: unknown;
+    }) => void) | null = null;
+    const subscribeBroadcast = vi.fn((handlers: {
+      onEvent: typeof onEvent;
+    }) => {
+      onEvent = handlers.onEvent;
+      return {
+        close: vi.fn(),
+        getDiagnostics: () => ({ state: 'open' }),
+      };
+    });
+    const writerTakeCommand = vi.fn(async () => ({
+      command: {
+        commandId: 'cmd-push-unhealthy',
+        requesterInstanceId: 'follower-1',
+        method: 'review.feedback',
+        requestedAt: 1,
+      },
+      now: 1,
+    }));
+    const writerReleaseLease = vi.fn(async () => ({ ok: true, lease: null, now: 2 }));
+    const writerCommandHandler = vi.fn(async () => ({ ok: true }));
+    const runtime = new FrontendInstanceRuntime({
+      subscribeBroadcast,
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'writer-1',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'scope-writer',
+        },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerTakeCommand,
+      writerCompleteCommand: vi.fn(async () => ({ ok: true, now: 2 })),
+      writerFailCommand: vi.fn(async () => ({ ok: true, now: 2 })),
+      writerReleaseLease,
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'writer-1',
+      runtimeScopeId: 'scope-writer',
+      writerCommandHandler,
+      backendWorkerHealth: () => ({
+        healthy: backendHealthy,
+        reason: 'worker-timeout',
+      }),
+    });
+
+    await runtime.start();
+    backendHealthy = false;
+
+    onEvent?.({
+      method: 'memo.writer.command',
+      params: {
+        commandId: 'cmd-push-unhealthy',
+        requesterInstanceId: 'follower-1',
+        method: 'review.feedback',
+        requestedAt: 1,
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(writerTakeCommand).not.toHaveBeenCalled();
+    expect(writerCommandHandler).not.toHaveBeenCalled();
+    expect(writerReleaseLease).toHaveBeenCalledWith({ instanceId: 'writer-1' });
+    expect(runtime.getMode()).toBe('follower');
     await runtime.dispose();
   });
 

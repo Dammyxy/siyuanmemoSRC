@@ -132,6 +132,13 @@ scope.onmessage = (event) => {
     scope.close?.();
     return;
   }
+  if (message.kind === 'probe') {
+    scope.postMessage({
+      kind: 'probe-result',
+      probeId: message.probeId,
+    });
+    return;
+  }
   if (message.kind === 'request') {
     backendKernel.handle(message.request)
       .catch((error) => buildInternalErrorResponse(

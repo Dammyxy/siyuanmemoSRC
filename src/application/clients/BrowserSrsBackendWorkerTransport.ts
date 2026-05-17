@@ -36,11 +36,47 @@ export interface BrowserSrsBackendWorkerHostEffects {
 export interface BrowserSrsBackendWorkerTransportOptions {
   workerFactory?: () => Worker;
   hostEffects: BrowserSrsBackendWorkerHostEffects;
+  startupTimeoutMs?: number;
+  requestTimeoutMs?: number;
+  probeTimeoutMs?: number;
+  maxRestartAttempts?: number;
+  restartBackoffMs?: number;
 }
 
 interface PendingBackendRequest {
   resolve: (response: BackendRpcResponse) => void;
   reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout> | null;
+  generation: number;
+}
+
+interface PendingProbe {
+  resolve: () => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout> | null;
+  generation: number;
+}
+
+export type BrowserSrsBackendWorkerHealth =
+  | 'starting'
+  | 'healthy'
+  | 'unhealthy'
+  | 'restarting'
+  | 'unavailable'
+  | 'closed';
+
+export interface BrowserSrsBackendWorkerDiagnostics {
+  health: BrowserSrsBackendWorkerHealth;
+  generation: number;
+  restartCount: number;
+  pendingRequests: number;
+  startupTimeouts: number;
+  requestTimeouts: number;
+  probeTimeouts: number;
+  lastSuccessfulProbeAt: number | null;
+  lastStartedAt: number | null;
+  lastReadyAt: number | null;
+  lastTerminalError: string | null;
 }
 
 function createDefaultBackendWorker(): Worker {
@@ -58,24 +94,30 @@ function unavailable(message: string): Error {
 }
 
 export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
-  private readonly worker: Worker;
+  private worker: Worker | null = null;
   private readonly pendingRequests = new Map<string, PendingBackendRequest>();
-  private readonly ready: Promise<void>;
+  private readonly pendingProbes = new Map<string, PendingProbe>();
+  private ready: Promise<void> = Promise.resolve();
   private resolveReady: (() => void) | null = null;
   private rejectReady: ((error: Error) => void) | null = null;
   private requestSeq = 0;
+  private probeSeq = 0;
+  private generation = 0;
+  private startupTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
+  private health: BrowserSrsBackendWorkerHealth = 'starting';
+  private restartCount = 0;
+  private startupTimeouts = 0;
+  private requestTimeouts = 0;
+  private probeTimeouts = 0;
+  private lastSuccessfulProbeAt: number | null = null;
+  private lastStartedAt: number | null = null;
+  private lastReadyAt: number | null = null;
+  private lastTerminalError: string | null = null;
+  private restartTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly options: BrowserSrsBackendWorkerTransportOptions) {
-    this.worker = options.workerFactory?.() ?? createDefaultBackendWorker();
-    this.ready = new Promise((resolve, reject) => {
-      this.resolveReady = resolve;
-      this.rejectReady = reject;
-    });
-    this.worker.onmessage = (event: MessageEvent<BackendWorkerToMainMessage>) => this.handleWorkerMessage(event.data);
-    this.worker.onerror = (event: ErrorEvent) => {
-      this.closeWithError(unavailable(`backend worker error: ${event.message || 'unknown error'}`));
-    };
+    this.startWorkerGeneration();
   }
 
   async request(request: BackendRpcRequest): Promise<BackendRpcResponse> {
@@ -86,9 +128,24 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     if (this.closed) {
       throw unavailable('backend worker transport closed');
     }
+    if (this.health === 'unavailable') {
+      throw unavailable(this.lastTerminalError || 'backend worker unavailable');
+    }
     const requestId = `req-${++this.requestSeq}`;
     const pending = new Promise<BackendRpcResponse>((resolve, reject) => {
-      this.pendingRequests.set(requestId, { resolve, reject });
+      const generation = this.generation;
+      const timer = setTimeout(() => {
+        const current = this.pendingRequests.get(requestId);
+        if (!current) {
+          return;
+        }
+        this.pendingRequests.delete(requestId);
+        this.requestTimeouts += 1;
+        const error = unavailable(`backend worker request timed out after ${this.requestTimeoutMs}ms`);
+        current.reject(error);
+        this.markWorkerUnhealthy(error, generation, { terminate: true });
+      }, this.requestTimeoutMs);
+      this.pendingRequests.set(requestId, { resolve, reject, timer, generation });
     });
     this.postToWorker({
       kind: 'request',
@@ -98,22 +155,74 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     return pending;
   }
 
+  async probe(): Promise<void> {
+    if (this.closed) {
+      throw unavailable('backend worker transport closed');
+    }
+    await this.ready;
+    if (this.closed) {
+      throw unavailable('backend worker transport closed');
+    }
+    if (this.health === 'unavailable') {
+      throw unavailable(this.lastTerminalError || 'backend worker unavailable');
+    }
+    const probeId = `probe-${++this.probeSeq}`;
+    const pending = new Promise<void>((resolve, reject) => {
+      const generation = this.generation;
+      const timer = setTimeout(() => {
+        const current = this.pendingProbes.get(probeId);
+        if (!current) {
+          return;
+        }
+        this.pendingProbes.delete(probeId);
+        this.probeTimeouts += 1;
+        const error = unavailable(`backend worker probe timed out after ${this.probeTimeoutMs}ms`);
+        current.reject(error);
+        this.markWorkerUnhealthy(error, generation, { terminate: true });
+      }, this.probeTimeoutMs);
+      this.pendingProbes.set(probeId, { resolve, reject, timer, generation });
+    });
+    this.postToWorker({
+      kind: 'probe',
+      probeId,
+    });
+    return pending;
+  }
+
   dispose(): void {
     if (this.closed) {
       return;
     }
     this.closed = true;
+    this.health = 'closed';
+    this.clearStartupTimer();
+    this.clearRestartTimer();
     this.rejectReady?.(unavailable('backend worker transport closed'));
-    for (const pending of this.pendingRequests.values()) {
-      pending.reject(unavailable('backend worker transport closed'));
-    }
-    this.pendingRequests.clear();
+    this.rejectPendingForGeneration(null, unavailable('backend worker transport closed'));
+    this.rejectProbesForGeneration(null, unavailable('backend worker transport closed'));
     try {
       this.postToWorker({ kind: 'shutdown' });
     } catch {
       // worker may already be gone
     }
-    this.worker.terminate();
+    this.worker?.terminate();
+    this.worker = null;
+  }
+
+  getDiagnostics(): BrowserSrsBackendWorkerDiagnostics {
+    return {
+      health: this.health,
+      generation: this.generation,
+      restartCount: this.restartCount,
+      pendingRequests: this.pendingRequests.size,
+      startupTimeouts: this.startupTimeouts,
+      requestTimeouts: this.requestTimeouts,
+      probeTimeouts: this.probeTimeouts,
+      lastSuccessfulProbeAt: this.lastSuccessfulProbeAt,
+      lastStartedAt: this.lastStartedAt,
+      lastReadyAt: this.lastReadyAt,
+      lastTerminalError: this.lastTerminalError,
+    };
   }
 
   private handleWorkerMessage(message: BackendWorkerToMainMessage): void {
@@ -121,6 +230,9 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       return;
     }
     if (message.kind === 'ready') {
+      this.clearStartupTimer();
+      this.health = 'healthy';
+      this.lastReadyAt = Date.now();
       this.resolveReady?.();
       return;
     }
@@ -130,7 +242,24 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         return;
       }
       this.pendingRequests.delete(message.requestId);
+      if (pending.timer) {
+        clearTimeout(pending.timer);
+      }
       pending.resolve(message.response);
+      return;
+    }
+    if (message.kind === 'probe-result') {
+      const pending = this.pendingProbes.get(message.probeId);
+      if (!pending) {
+        return;
+      }
+      this.pendingProbes.delete(message.probeId);
+      if (pending.timer) {
+        clearTimeout(pending.timer);
+      }
+      this.lastSuccessfulProbeAt = Date.now();
+      this.health = 'healthy';
+      pending.resolve();
       return;
     }
     if (message.kind === 'host-effect') {
@@ -214,6 +343,9 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
   }
 
   private postToWorker(message: BackendWorkerMainToWorkerMessage): void {
+    if (!this.worker) {
+      throw unavailable('backend worker transport closed');
+    }
     this.worker.postMessage(message);
   }
 
@@ -221,11 +353,146 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     if (this.closed) {
       return;
     }
-    this.closed = true;
-    this.rejectReady?.(error);
-    for (const pending of this.pendingRequests.values()) {
-      pending.reject(error);
+    this.markWorkerUnhealthy(error, this.generation, { terminate: true });
+  }
+
+  private startWorkerGeneration(): void {
+    if (this.closed) {
+      return;
     }
-    this.pendingRequests.clear();
+    this.clearStartupTimer();
+    const generation = this.generation + 1;
+    this.generation = generation;
+    this.health = 'starting';
+    this.lastStartedAt = Date.now();
+    this.worker = this.options.workerFactory?.() ?? createDefaultBackendWorker();
+    this.ready = new Promise((resolve, reject) => {
+      this.resolveReady = resolve;
+      this.rejectReady = reject;
+    });
+    this.ready.catch(() => {
+      // Request/probe callers receive this rejection through their own await.
+    });
+    this.worker.onmessage = (event: MessageEvent<BackendWorkerToMainMessage>) => {
+      if (generation !== this.generation) {
+        return;
+      }
+      this.handleWorkerMessage(event.data);
+    };
+    this.worker.onerror = (event: ErrorEvent) => {
+      if (generation !== this.generation) {
+        return;
+      }
+      this.closeWithError(unavailable(`backend worker error: ${event.message || 'unknown error'}`));
+    };
+    this.startupTimer = setTimeout(() => {
+      if (this.closed || generation !== this.generation || this.health !== 'starting') {
+        return;
+      }
+      this.startupTimeouts += 1;
+      const error = unavailable(`backend worker startup timed out after ${this.startupTimeoutMs}ms`);
+      this.rejectReady?.(error);
+      this.markWorkerUnhealthy(error, generation, { terminate: true });
+    }, this.startupTimeoutMs);
+  }
+
+  private markWorkerUnhealthy(error: Error, generation: number, options: { terminate: boolean }): void {
+    if (this.closed || generation !== this.generation) {
+      return;
+    }
+    this.health = 'unhealthy';
+    this.lastTerminalError = error.message;
+    this.clearStartupTimer();
+    this.rejectReady?.(error);
+    this.rejectPendingForGeneration(generation, error);
+    this.rejectProbesForGeneration(generation, error);
+    if (options.terminate) {
+      try {
+        this.worker?.terminate();
+      } catch {
+        // worker may already be gone
+      }
+    }
+    this.scheduleRestart();
+  }
+
+  private scheduleRestart(): void {
+    if (this.closed) {
+      return;
+    }
+    if (this.restartCount >= this.maxRestartAttempts) {
+      this.health = 'unavailable';
+      this.worker = null;
+      return;
+    }
+    this.health = 'restarting';
+    this.restartCount += 1;
+    this.clearRestartTimer();
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null;
+      this.startWorkerGeneration();
+    }, this.restartBackoffMs);
+  }
+
+  private rejectPendingForGeneration(generation: number | null, error: Error): void {
+    for (const [requestId, pending] of this.pendingRequests.entries()) {
+      if (generation !== null && pending.generation !== generation) {
+        continue;
+      }
+      if (pending.timer) {
+        clearTimeout(pending.timer);
+      }
+      pending.reject(error);
+      this.pendingRequests.delete(requestId);
+    }
+  }
+
+  private rejectProbesForGeneration(generation: number | null, error: Error): void {
+    for (const [probeId, pending] of this.pendingProbes.entries()) {
+      if (generation !== null && pending.generation !== generation) {
+        continue;
+      }
+      if (pending.timer) {
+        clearTimeout(pending.timer);
+      }
+      pending.reject(error);
+      this.pendingProbes.delete(probeId);
+    }
+  }
+
+  private clearStartupTimer(): void {
+    if (!this.startupTimer) {
+      return;
+    }
+    clearTimeout(this.startupTimer);
+    this.startupTimer = null;
+  }
+
+  private clearRestartTimer(): void {
+    if (!this.restartTimer) {
+      return;
+    }
+    clearTimeout(this.restartTimer);
+    this.restartTimer = null;
+  }
+
+  private get startupTimeoutMs(): number {
+    return Math.max(1, Math.floor(Number(this.options.startupTimeoutMs ?? 10_000)));
+  }
+
+  private get requestTimeoutMs(): number {
+    return Math.max(1, Math.floor(Number(this.options.requestTimeoutMs ?? 30_000)));
+  }
+
+  private get probeTimeoutMs(): number {
+    return Math.max(1, Math.floor(Number(this.options.probeTimeoutMs ?? 5_000)));
+  }
+
+  private get maxRestartAttempts(): number {
+    return Math.max(0, Math.floor(Number(this.options.maxRestartAttempts ?? 3)));
+  }
+
+  private get restartBackoffMs(): number {
+    return Math.max(0, Math.floor(Number(this.options.restartBackoffMs ?? 1_000)));
   }
 }

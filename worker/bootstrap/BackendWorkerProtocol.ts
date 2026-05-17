@@ -37,6 +37,16 @@ export type BackendWorkerShutdownMessage = {
   kind: 'shutdown';
 };
 
+export type BackendWorkerProbeMessage = {
+  kind: 'probe';
+  probeId: string;
+};
+
+export type BackendWorkerProbeResultMessage = {
+  kind: 'probe-result';
+  probeId: string;
+};
+
 export type BackendWorkerHostEffectMessage = {
   kind: 'host-effect';
   effectId: string;
@@ -54,11 +64,13 @@ export type BackendWorkerHostEffectResultMessage = {
 export type BackendWorkerMainToWorkerMessage =
   | BackendWorkerRequestMessage
   | BackendWorkerHostEffectResultMessage
-  | BackendWorkerShutdownMessage;
+  | BackendWorkerShutdownMessage
+  | BackendWorkerProbeMessage;
 
 export type BackendWorkerToMainMessage =
   | BackendWorkerReadyMessage
   | BackendWorkerResponseMessage
-  | BackendWorkerHostEffectMessage;
+  | BackendWorkerHostEffectMessage
+  | BackendWorkerProbeResultMessage;
 
 export type BackendWorkerHostEffectHandler = (effect: BackendWorkerHostEffect) => Promise<unknown>;

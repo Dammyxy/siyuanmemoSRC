@@ -41,6 +41,7 @@ export interface FrontendInstanceRuntimeOptions {
   startupRetryDelayMs?: number;
   startupMaxWaitMs?: number;
   logger?: FrontendRuntimeDiagnosticsLogger;
+  backendWorkerHealth?: () => FrontendBackendWorkerHealthSnapshot;
   writerCommandHandler?: (command: {
     commandId: string;
     requesterInstanceId: string;
@@ -48,6 +49,12 @@ export interface FrontendInstanceRuntimeOptions {
     params?: unknown;
     requestedAt: number;
   }) => Promise<unknown>;
+}
+
+export interface FrontendBackendWorkerHealthSnapshot {
+  healthy: boolean;
+  reason?: string | null;
+  diagnostics?: unknown;
 }
 
 export interface FrontendRuntimeDiagnosticsLogger {
@@ -288,6 +295,7 @@ export class FrontendInstanceRuntime {
   private readonly startupRetryDelayMs: number;
   private readonly startupMaxWaitMs: number;
   private readonly logger: FrontendRuntimeDiagnosticsLogger;
+  private readonly backendWorkerHealth: FrontendInstanceRuntimeOptions['backendWorkerHealth'];
   private readonly writerCommandHandler: FrontendInstanceRuntimeOptions['writerCommandHandler'];
   private readonly backendContainer: string;
   private readonly frontendKind: string;
@@ -343,6 +351,7 @@ export class FrontendInstanceRuntime {
       ? Math.max(this.startupRetryDelayMs, Math.floor(Number(options.startupMaxWaitMs)))
       : 5_000;
     this.logger = options.logger ?? createLogger('FrontendInstanceRuntime');
+    this.backendWorkerHealth = options.backendWorkerHealth;
     this.writerCommandHandler = options.writerCommandHandler;
     this.backendContainer = String(options.backendContainer || '').trim() || 'unknown';
     this.frontendKind = String(options.frontendKind || '').trim() || 'unknown';
@@ -440,6 +449,11 @@ export class FrontendInstanceRuntime {
   }
 
   async ensureWritable(): Promise<void> {
+    const backendUnavailableReason = this.getBackendWorkerUnavailableReason();
+    if (backendUnavailableReason) {
+      await this.releaseWriterLeaseForUnhealthyBackend(backendUnavailableReason, 'ensure-writable');
+      throw new Error(`BACKEND_UNAVAILABLE: backend worker unhealthy: ${backendUnavailableReason}`);
+    }
     await this.refreshOwnership();
     if (this.mode !== 'writer') {
       throw new Error(this.lastWriterUnavailableReason || 'BACKEND_UNAVAILABLE: writer lease held by another instance');
@@ -776,6 +790,11 @@ export class FrontendInstanceRuntime {
   }
 
   private async refreshOwnership(reason = 'manual'): Promise<FrontendOwnershipSnapshot> {
+    const backendUnavailableReason = this.getBackendWorkerUnavailableReason();
+    if (backendUnavailableReason) {
+      return this.handleBackendWorkerUnavailableForOwnership(reason, backendUnavailableReason);
+    }
+
     if (reason === 'heartbeat') {
       if (this.mode === 'writer') {
         return this.renewCurrentWriterLease(reason);
@@ -854,6 +873,10 @@ export class FrontendInstanceRuntime {
   }
 
   private async acquireWriterLease(reason: string): Promise<FrontendOwnershipSnapshot> {
+    const backendUnavailableReason = this.getBackendWorkerUnavailableReason();
+    if (backendUnavailableReason) {
+      return this.handleBackendWorkerUnavailableForOwnership(reason, backendUnavailableReason);
+    }
     try {
       const lease = await this.sidecarClient.writerAcquireLease({
         instanceId: this.instanceId,
@@ -879,6 +902,10 @@ export class FrontendInstanceRuntime {
   }
 
   private async renewCurrentWriterLease(reason: string): Promise<FrontendOwnershipSnapshot> {
+    const backendUnavailableReason = this.getBackendWorkerUnavailableReason();
+    if (backendUnavailableReason) {
+      return this.handleBackendWorkerUnavailableForOwnership(reason, backendUnavailableReason);
+    }
     try {
       const lease = await this.sidecarClient.writerRenewLease({
         instanceId: this.instanceId,
@@ -997,6 +1024,11 @@ export class FrontendInstanceRuntime {
 
   private async drainPendingWriterCommands(reason = 'watchdog', coalescedCommandId?: string): Promise<void> {
     if (!this.started || this.mode !== 'writer' || !this.writerCommandHandler) {
+      return;
+    }
+    const backendUnavailableReason = this.getBackendWorkerUnavailableReason();
+    if (backendUnavailableReason) {
+      await this.releaseWriterLeaseForUnhealthyBackend(backendUnavailableReason, `relay:${reason}`);
       return;
     }
     if (this.shouldSkipRelayWatchdogForNoCommandBackoff(reason, coalescedCommandId)) {
@@ -1219,6 +1251,64 @@ export class FrontendInstanceRuntime {
       }, {
         ok: status === 'drained' || status === 'yielded',
         errorName: status === 'drained' || status === 'yielded' ? undefined : 'WriterRelayDrainError',
+      });
+    }
+  }
+
+  private getBackendWorkerUnavailableReason(): string | null {
+    if (!this.backendWorkerHealth) {
+      return null;
+    }
+    let snapshot: FrontendBackendWorkerHealthSnapshot;
+    try {
+      snapshot = this.backendWorkerHealth();
+    } catch (error) {
+      return `health-check-failed: ${formatUnknownError(error)}`;
+    }
+    if (snapshot?.healthy) {
+      return null;
+    }
+    return String(snapshot?.reason || 'unhealthy').trim() || 'unhealthy';
+  }
+
+  private async handleBackendWorkerUnavailableForOwnership(
+    reason: string,
+    backendUnavailableReason: string,
+  ): Promise<FrontendOwnershipSnapshot> {
+    await this.releaseWriterLeaseForUnhealthyBackend(backendUnavailableReason, reason);
+    const now = Date.now();
+    return {
+      leaseHolder: null,
+      leaseSurfaceId: null,
+      leaseVisibilityState: null,
+      leaseDocumentHasFocus: null,
+      leaseLocationHref: null,
+      leaseOwnerChangedAt: null,
+      leaseAcquiredAt: null,
+      leaseLastHeartbeatAt: null,
+      leaseObservedAt: now,
+    };
+  }
+
+  private async releaseWriterLeaseForUnhealthyBackend(
+    backendUnavailableReason: string,
+    reason: string,
+  ): Promise<void> {
+    this.lastWriterUnavailableReason = `BACKEND_UNAVAILABLE: backend worker unhealthy: ${backendUnavailableReason}`;
+    const wasWriter = this.mode === 'writer';
+    this.setMode('follower', `backend-worker-unhealthy:${reason}`, null, null);
+    if (!wasWriter) {
+      return;
+    }
+    try {
+      await this.sidecarClient.writerReleaseLease({ instanceId: this.instanceId });
+    } catch (error) {
+      this.logger.warn('[FrontendInstanceRuntime] writer lease release after backend worker unhealthy failed', {
+        instanceId: this.instanceId,
+        runtimeScopeId: this.runtimeScopeId,
+        reason,
+        backendUnavailableReason,
+        error,
       });
     }
   }
