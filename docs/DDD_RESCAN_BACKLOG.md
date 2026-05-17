@@ -4,6 +4,26 @@ Last update: 2026-05-17 (Round 373)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-17 - Browser Semantic review-only surface
+
+- Task: Apply OpenSpec change `redesign-semantic-exploration-surfaces` tasks 7.1-7.3.
+- Touched slice: Browser Semantic review surface; `src/ui/browser/semantic/BrowserSemanticNavigator.vue`, `src/ui/browser/semantic/browserSemanticReadModel.ts`, `src/ui/browser/semantic/BrowserSemanticBackendReadAdapter.ts`, `src/ui/browser/semantic/types.ts`, and focused Browser Semantic tests.
+- Debt fixed now: Browser Semantic no longer renders active candidate lens columns or follow-candidate actions. The surface now presents single-session review with header/meta, timeline local selection, edge explanations, selected-node details, and collapsed later/suggestion/archived branch sections. Node click/double-click stays local and does not mutate active exploration.
+- Debt deferred: Continue-exploration still uses the existing Browser handoff event; pinning/focusing the Review Semantic sidebar from Browser remains task 7.4. AI path-analysis integration remains tasks 8.1-8.3.
+- Why deferred: Review sidebar pin/focus crosses Browser and Review surface ownership and needs a dedicated handoff contract rather than reusing active candidate mutation paths.
+- Next safe step: Implement Browser `继续探索` handoff that opens/focuses Review Semantic sidebar pinned to the selected session.
+- Validation: `pnpm vitest run src\ui\browser\semantic\__tests__\BrowserSemanticNavigator.spec.ts src\ui\browser\semantic\__tests__\BrowserSemanticBackendReadAdapter.test.ts`; combined focused Review/Browser suite; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-17 - Semantic temporary one-card review
+
+- Task: Apply OpenSpec change `redesign-semantic-exploration-surfaces` tasks 6.3-6.6.
+- Touched slice: Review temporary Semantic view and Review session advancement; `src/ui/review/v2/ReviewView.vue`, `src/ui/review/v2/useReviewSession.ts`, `src/ui/review/v2/reviewSessionController.ts`, `src/ui/review/v2/types.ts`, `src/application/adapters/UnifiedQueueStrategy.ts`, and focused Review tests.
+- Debt fixed now: Semantic temporary flashcard view now uses the existing Review presentation adapter, hides answers by default, reveals locally without scoring, scores the temporary card through the existing queue feedback/scheduler path without calling `next()` on the original Review session, and suppresses the scored temporary card from the current Review session when it would later reappear.
+- Debt deferred: Browser single-session review UI, Browser-to-Review continue-exploration handoff, and AI path-analysis suggestions remain pending OpenSpec sections 7-8.
+- Why deferred: This slice closes Review temporary one-card behavior only. Browser review and AI suggestion flows touch different surfaces and contracts.
+- Next safe step: Start Browser Semantic session review replacement from tasks 7.1-7.5.
+- Validation: `pnpm vitest run src\ui\review\v2\__tests__\ReviewView.concept-roam.spec.ts`; `pnpm vitest run src\ui\review\v2\__tests__\useReviewSession.spec.ts`; combined focused Review/Browser suite; `pnpm run check:boundaries`; `pnpm build`.
+
 ### 2026-05-17 - Semantic Exploration redesign read-model foundation
 
 - Task: Apply OpenSpec change `redesign-semantic-exploration-surfaces` through tasks 1.1-4.5.

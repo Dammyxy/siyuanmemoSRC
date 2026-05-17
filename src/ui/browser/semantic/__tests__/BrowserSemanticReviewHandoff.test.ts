@@ -4,13 +4,14 @@ import { openBrowserSemanticHandoffInReview } from '../BrowserSemanticReviewHand
 function deps() {
   return {
     openSubsetReviewDialog: vi.fn(async () => undefined),
+    openSemanticReviewSession: vi.fn(async () => undefined),
     pushErrMsg: vi.fn(async () => undefined),
     t: vi.fn((_key: string, fallback: string) => fallback),
   };
 }
 
 describe('openBrowserSemanticHandoffInReview', () => {
-  it('opens the current real review-card node as a one-card subset review', async () => {
+  it('opens Review Semantic sidebar pinned to the selected session', async () => {
     const harness = deps();
 
     const opened = await openBrowserSemanticHandoffInReview({
@@ -22,14 +23,16 @@ describe('openBrowserSemanticHandoffInReview', () => {
     }, harness);
 
     expect(opened).toBe(true);
-    expect(harness.openSubsetReviewDialog).toHaveBeenCalledWith(['block-review-1'], {
-      cardIds: ['card-review-1'],
-      preferredCardId: 'card-review-1',
+    expect(harness.openSemanticReviewSession).toHaveBeenCalledWith({
+      sessionId: 'semantic-session-1',
+      currentNodeId: 'node-review-1',
+      focusBlockId: 'block-review-1',
     });
+    expect(harness.openSubsetReviewDialog).not.toHaveBeenCalled();
     expect(harness.pushErrMsg).not.toHaveBeenCalled();
   });
 
-  it('fails closed for implicit semantic nodes', async () => {
+  it('does not require the selected node to be a review card', async () => {
     const harness = deps();
 
     const opened = await openBrowserSemanticHandoffInReview({
@@ -40,8 +43,30 @@ describe('openBrowserSemanticHandoffInReview', () => {
       isReviewCard: false,
     }, harness);
 
+    expect(opened).toBe(true);
+    expect(harness.openSemanticReviewSession).toHaveBeenCalledWith({
+      sessionId: 'semantic-session-1',
+      currentNodeId: 'implicit-node-1',
+      focusBlockId: 'implicit-node-1',
+    });
+    expect(harness.pushErrMsg).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when Review Semantic handoff is unavailable', async () => {
+    const harness = {
+      pushErrMsg: vi.fn(async () => undefined),
+      t: vi.fn((_key: string, fallback: string) => fallback),
+    };
+
+    const opened = await openBrowserSemanticHandoffInReview({
+      sessionId: 'semantic-session-1',
+      currentNodeId: 'node-1',
+      blockId: 'block-1',
+      cardId: null,
+      isReviewCard: false,
+    }, harness);
+
     expect(opened).toBe(false);
-    expect(harness.openSubsetReviewDialog).not.toHaveBeenCalled();
-    expect(harness.pushErrMsg).toHaveBeenCalledWith('Current Semantic node is not a review card.');
+    expect(harness.pushErrMsg).toHaveBeenCalledWith('Review Semantic handoff is not wired yet; continue in Browser Semantic Workbench.');
   });
 });

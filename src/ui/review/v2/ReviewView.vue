@@ -6,7 +6,7 @@
     data-key="dialog-opencard"
     @click="handleRootClick"
   >
-    <div class="fsrs-review-v2__workspace" :class="{ 'fsrs-review-v2__workspace--with-ai': showReviewAISidecar }">
+    <div class="fsrs-review-v2__workspace" :class="{ 'fsrs-review-v2__workspace--with-side-area': showReviewSideArea }">
       <!-- 📝 复习内容区 -->
       <div class="fsrs-review-v2__content-wrapper">
         <ReviewHeader
@@ -76,11 +76,11 @@
           ref="contentRef"
           :app="app"
           :plugin="props.plugin"
-          :content="state.content"
+          :content="displayedReviewContent"
           :overlay="state.overlay"
-          :has-hidden-content="state.meta.hasHiddenContent"
-          :show-answer="state.actions.showAnswer"
-          :meta="state.meta"
+          :has-hidden-content="displayedReviewMeta.hasHiddenContent"
+          :show-answer="displayedReviewActions.showAnswer"
+          :meta="displayedReviewMeta"
           :i18n="i18n"
           :render-epoch="renderEpoch"
           :render-services="reviewRenderServices"
@@ -88,11 +88,18 @@
           @concept-roam="handleConceptRoam"
         />
 
+        <div v-if="reviewSemanticTemporaryView" class="fsrs-review-v2__temporary-view" role="status">
+          <span>{{ t('semanticTemporaryViewing', 'Viewing: {title}').replace('{title}', reviewSemanticTemporaryView.title) }}</span>
+          <button type="button" class="b3-button b3-button--outline" @click="clearSemanticTemporaryView">
+            {{ t('semanticReturnToCurrentReview', 'Return to current review') }}
+          </button>
+        </div>
+
         <ReviewActions
-          v-if="!isEmptyReviewContent"
-          :actions="state.actions"
-          :meta="state.meta"
-          :current-card="state.content.card"
+          v-if="showReviewActions"
+          :actions="displayedReviewActions"
+          :meta="displayedReviewMeta"
+          :current-card="displayedReviewContent.card"
           :i18n="i18n"
           :queue="props.queue"
           :queue-type="activeReviewQueueType"
@@ -180,8 +187,59 @@
         />
       </div>
 
-      <aside v-if="showReviewAISidecar && reviewAIService" class="fsrs-review-v2__ai-sidecar">
-        <AiWorkbenchPane :service="reviewAIService" :i18n="i18n" @close="closeReviewAISidebar" />
+      <aside v-if="showReviewSideArea" class="fsrs-review-v2__side-area fsrs-review-v2__ai-sidecar">
+        <div class="fsrs-review-v2__side-tabs" role="tablist" :aria-label="t('reviewSideAreaTabs', 'Review side area')">
+          <button
+            v-if="showReviewAISidecar && reviewAIService"
+            type="button"
+            class="fsrs-review-v2__side-tab"
+            :class="{ 'fsrs-review-v2__side-tab--active': activeReviewSideAreaTab === 'ai' }"
+            role="tab"
+            :aria-selected="activeReviewSideAreaTab === 'ai'"
+            @click="activeReviewSideAreaTab = 'ai'"
+          >
+            AI
+          </button>
+          <button
+            v-if="showReviewSemanticSidePanel"
+            type="button"
+            class="fsrs-review-v2__side-tab"
+            :class="{ 'fsrs-review-v2__side-tab--active': activeReviewSideAreaTab === 'semantic' }"
+            role="tab"
+            :aria-selected="activeReviewSideAreaTab === 'semantic'"
+            @click="activeReviewSideAreaTab = 'semantic'"
+          >
+            语义
+          </button>
+        </div>
+        <div
+          v-if="showReviewAISidecar && reviewAIService"
+          v-show="activeReviewSideAreaTab === 'ai'"
+          class="fsrs-review-v2__side-panel"
+          role="tabpanel"
+        >
+          <AiWorkbenchPane :service="reviewAIService" :i18n="i18n" @close="closeReviewAISidebar" />
+        </div>
+        <div
+          v-if="showReviewSemanticSidePanel"
+          v-show="activeReviewSideAreaTab === 'semantic'"
+          class="fsrs-review-v2__side-panel fsrs-review-v2__side-panel--semantic"
+          role="tabpanel"
+        >
+          <SemanticReviewSidebar
+            :read-client="semanticActivationReadClient"
+            :command-client="semanticActivationCommandClient"
+            :current-node-id="reviewSemanticCurrentNodeId"
+            :pinned-session-id="reviewSemanticPinnedSessionId"
+            :i18n="i18n"
+            @unpin="reviewSemanticPinnedSessionId = null"
+            @start-exploration="startSemanticActivationEntry(null)"
+            @view-ended-session="handleSemanticEndedSessionReview"
+            @continue-ended-session="handleSemanticEndedSessionContinue"
+            @view-node="handleSemanticSidebarViewNode"
+            @analyze-path="handleSemanticAnalyzePath"
+          />
+        </div>
       </aside>
     </div>
   </div>
@@ -196,6 +254,12 @@ import ReviewHeader from './ReviewHeader.vue';
 import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
 import AiWorkbenchPane from '@/ui/ai/AiWorkbenchPane.vue';
 import LargeTextEditorDialog from '@/ui/shared/LargeTextEditorDialog.vue';
+import SemanticReviewSidebar from './semantic/SemanticReviewSidebar.vue';
+import {
+  buildSemanticPathAnalysisContext,
+  buildSemanticPathAnalysisPrompt,
+  type SemanticPathAnalysisPayload,
+} from './semantic/semanticReviewAIHandoff';
 import {
   createReviewSessionController,
   useReviewSession,
@@ -347,7 +411,7 @@ import {
   toggleReviewFullscreen as toggleReviewFullscreenCommand,
 } from './reviewShellCommands';
 import { openReviewSrsEditorDialog } from './reviewSrsEditorCommands';
-import type { AIWorkbenchOpenOptions, AIWorkbenchSurface } from '@/types/ai';
+import { AI_GENERAL_CHAT_SKILL_ID, type AIWorkbenchOpenOptions, type AIWorkbenchSurface } from '@/types/ai';
 import type { PluginSettings } from '@/types/settings';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
@@ -405,7 +469,7 @@ type ReviewPluginContextLike = {
   getStorage?: () => {
     getSettings?: () => ReviewRuntimeSettingsLike;
     getCard?: (cardId: string) => { id: string; blockId?: string } | undefined;
-    getCardByBlockId?: (blockId: string) => { id: string } | undefined;
+    getCardByBlockId?: (blockId: string) => FSRSCard | undefined;
   };
   getReviewService?: () => ReviewApplicationService | undefined;
   getProgressiveReadingService?: () => ReviewProgressiveReadingServiceLike | undefined;
@@ -416,6 +480,7 @@ type ReviewPluginContextLike = {
     updateSettings?: (settings: Partial<PluginSettings>) => Promise<void>;
   } | undefined;
   getSemanticActivationCommandClient?: () => Pick<SemanticActivationCommandClient, 'execute'> | null | undefined;
+  getSemanticActivationBrowserReadClient?: () => Pick<SemanticActivationBrowserReadClient, 'readSidebar'> | null | undefined;
   getTransactionWebSocketService?: () => ReviewTransactionWebSocketServiceLike | undefined;
   getCardService?: () => CardApplicationService | undefined;
   getCardEditorService?: () => CardEditorApplicationService | undefined;
@@ -506,6 +571,22 @@ type ScheduledReviewCardPayload = {
   cardId?: string;
   blockId?: string;
   dueTimestamp?: number;
+};
+
+type SemanticTemporaryReviewView = {
+  nodeId: string;
+  blockId: string;
+  title: string;
+  card: FSRSCard | null;
+  uiState: ReviewUIState | null;
+  showAnswer: boolean;
+  status: 'block' | 'card' | 'scoring' | 'error';
+  error?: string;
+};
+
+type QueueWithSemanticTemporaryReview = {
+  onFeedback?: (currentItem: FSRSCard | null, feedback: { action: 'rate'; rating: number }) => Promise<void> | void;
+  suppressReviewedCardForCurrentSession?: (card: FSRSCard) => boolean;
 };
 
 type DismissedReviewCardPayload = {
@@ -626,6 +707,7 @@ const props = defineProps<{
   initialCurrentItem?: FSRSCard | null;
   initialCurrentCardId?: string;
   initialShowAnswer?: boolean;
+  initialSemanticPinnedSessionId?: string | null;
   onTabRuntimeStateChange?: (state: ReviewTabRuntimeState | null) => void;
   reviewRenderServices?: ReviewRenderServices;
 }>();
@@ -653,6 +735,11 @@ const reviewRenderServices = computed(() => (
 ));
 const reviewAIService = ref<AIWorkbenchService | null>(null);
 const reviewAISidebarOpen = ref(false);
+const reviewSemanticInitialPinnedSessionId = String(props.initialSemanticPinnedSessionId || '').trim();
+const reviewSemanticSidebarOpen = ref(Boolean(reviewSemanticInitialPinnedSessionId));
+const reviewSemanticPinnedSessionId = ref<string | null>(reviewSemanticInitialPinnedSessionId || null);
+const reviewSemanticTemporaryView = ref<SemanticTemporaryReviewView | null>(null);
+const activeReviewSideAreaTab = ref<'ai' | 'semantic'>('ai');
 const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1440);
 
 const rootRef = ref<HTMLDivElement | null>(null);
@@ -1477,11 +1564,83 @@ const canUseEmbeddedReviewAISidecar = computed(() => (
   props.mode === 'dialog' && props.isMobile !== true && viewportWidth.value >= REVIEW_AI_SIDECAR_MIN_VIEWPORT
 ));
 
+const canUseReviewSideArea = computed(() => (
+  props.isMobile !== true && viewportWidth.value >= REVIEW_AI_SIDECAR_MIN_VIEWPORT
+));
+
 const showReviewAISidecar = computed(() => (
   canUseEmbeddedReviewAISidecar.value && reviewAISidebarOpen.value && reviewAIService.value !== null
 ));
 
+const showReviewSemanticSidePanel = computed(() => (
+  canUseReviewSideArea.value
+  && reviewSemanticSidebarOpen.value
+));
+
+const showReviewSideArea = computed(() => (
+  showReviewAISidecar.value || showReviewSemanticSidePanel.value
+));
+
+const semanticActivationReadClient = computed(() => (
+  getPluginContext(props.plugin)?.getSemanticActivationBrowserReadClient?.() ?? null
+));
+
+const semanticActivationCommandClient = computed(() => (
+  getPluginContext(props.plugin)?.getSemanticActivationCommandClient?.() ?? null
+));
+
+const reviewSemanticCurrentNodeId = computed(() => resolveCurrentReviewBlockId() || null);
+
+const displayedReviewContent = computed<ReviewUIState['content']>(() => {
+  const temporary = reviewSemanticTemporaryView.value;
+  if (!temporary) {
+    return state.value.content;
+  }
+  if (temporary.uiState) {
+    return temporary.uiState.content;
+  }
+  return {
+    type: 'protyle',
+    data: temporary.blockId,
+    id: temporary.blockId,
+  };
+});
+
+const displayedReviewActions = computed<ReviewUIState['actions']>(() => {
+  const temporary = reviewSemanticTemporaryView.value;
+  if (!temporary?.uiState) {
+    return state.value.actions;
+  }
+  return {
+    ...temporary.uiState.actions,
+    showAnswer: !temporary.showAnswer,
+    menu: [],
+  };
+});
+
+const displayedReviewMeta = computed<ReviewUIState['meta']>(() => {
+  const temporary = reviewSemanticTemporaryView.value;
+  if (!temporary?.uiState) {
+    return state.value.meta;
+  }
+  return {
+    ...temporary.uiState.meta,
+    canBack: true,
+    advancePending: temporary.status === 'scoring'
+      ? { active: true, reason: 'grade', startedAt: Date.now() }
+      : temporary.uiState.meta.advancePending,
+  };
+});
+
 const isEmptyReviewContent = computed(() => state.value.content.type === 'empty');
+
+const showReviewActions = computed(() => (
+  !isEmptyReviewContent.value
+  && (
+    !reviewSemanticTemporaryView.value
+    || (reviewSemanticTemporaryView.value.card !== null && reviewSemanticTemporaryView.value.uiState !== null)
+  )
+));
 
 const showCompletedEmptyStateExit = computed(() => (
   isEmptyReviewContent.value
@@ -2136,11 +2295,60 @@ function handleKeyDown(e: KeyboardEvent) {
 }
 
 function handleReveal(): void {
+  const temporary = reviewSemanticTemporaryView.value;
+  if (temporary?.card) {
+    reviewSemanticTemporaryView.value = {
+      ...temporary,
+      showAnswer: true,
+    };
+    return;
+  }
+  clearSemanticTemporaryView();
   escRepeatLatch = false;
   hook.reveal();
 }
 
+async function gradeSemanticTemporaryReview(rating: number): Promise<void> {
+  const temporary = reviewSemanticTemporaryView.value;
+  if (!temporary?.card) {
+    return;
+  }
+
+  const normalizedRating = Math.max(1, Math.min(4, Math.floor(rating)));
+  reviewSemanticTemporaryView.value = {
+    ...temporary,
+    status: 'scoring',
+    error: undefined,
+  };
+
+  try {
+    const queue = props.queue as QueueWithSemanticTemporaryReview | null | undefined;
+    if (typeof queue?.onFeedback !== 'function') {
+      throw new Error('SEMANTIC_TEMPORARY_REVIEW_UNAVAILABLE: review queue cannot score temporary card');
+    }
+    await queue.onFeedback(temporary.card, { action: 'rate', rating: normalizedRating });
+    queue.suppressReviewedCardForCurrentSession?.(temporary.card);
+    clearSemanticTemporaryView();
+  } catch (error) {
+    reviewSemanticTemporaryView.value = {
+      ...temporary,
+      status: 'error',
+      error: error instanceof Error ? error.message : String(error),
+    };
+    showMessage(
+      `${t('semanticTemporaryReviewFailed', 'Temporary Semantic review failed')}: ${reviewSemanticTemporaryView.value.error}`,
+      5000,
+      'error',
+    );
+  }
+}
+
 function handleGrade(rating: number): void {
+  if (reviewSemanticTemporaryView.value?.card) {
+    void gradeSemanticTemporaryReview(rating);
+    return;
+  }
+  clearSemanticTemporaryView();
   escRepeatLatch = false;
   kernelTransactionWriterActionTracker.record({
     type: 'grade',
@@ -2150,12 +2358,22 @@ function handleGrade(rating: number): void {
 }
 
 function handleSkip(): void {
+  if (reviewSemanticTemporaryView.value) {
+    clearSemanticTemporaryView();
+    return;
+  }
+  clearSemanticTemporaryView();
   escRepeatLatch = false;
   kernelTransactionWriterActionTracker.record({ type: 'skip' });
   void hook.skip();
 }
 
 function handleBack(): void {
+  if (reviewSemanticTemporaryView.value) {
+    clearSemanticTemporaryView();
+    return;
+  }
+  clearSemanticTemporaryView();
   escRepeatLatch = false;
   void hook.back();
 }
@@ -2365,7 +2583,7 @@ function updateReviewDialogContainerLayout(): void {
   }
 
   dialogContainer.style.transition = 'width 180ms ease, max-width 180ms ease';
-  if (showReviewAISidecar.value) {
+  if (showReviewSideArea.value) {
     dialogContainer.style.width = 'min(1320px, 98vw)';
     dialogContainer.style.maxWidth = '1320px';
   } else {
@@ -2376,6 +2594,9 @@ function updateReviewDialogContainerLayout(): void {
 
 function closeReviewAISidebar(): void {
   reviewAISidebarOpen.value = false;
+  if (activeReviewSideAreaTab.value === 'ai' && showReviewSemanticSidePanel.value) {
+    activeReviewSideAreaTab.value = 'semantic';
+  }
   updateReviewDialogContainerLayout();
 }
 
@@ -2421,6 +2642,7 @@ async function openReviewAIAssistant(requestedView?: ReviewAIRequestedView): Pro
     },
     onOpenSidecar: () => {
       reviewAISidebarOpen.value = true;
+      activeReviewSideAreaTab.value = 'ai';
       updateReviewDialogContainerLayout();
     },
     onPluginNotReady: () => {
@@ -2627,6 +2849,14 @@ async function startSemanticActivationEntry(conceptFocusOverride?: { focusBlockI
     return;
   }
 
+  if (canUseEmbeddedReviewAISidecar.value) {
+    reviewSemanticPinnedSessionId.value = result.entry.model.session.sessionId;
+    reviewSemanticSidebarOpen.value = true;
+    activeReviewSideAreaTab.value = 'semantic';
+    updateReviewDialogContainerLayout();
+    return;
+  }
+
   state.value = {
     ...state.value,
     overlay: result.entry.overlay,
@@ -2636,6 +2866,114 @@ async function startSemanticActivationEntry(conceptFocusOverride?: { focusBlockI
       grades: result.entry.model.currentNode.canGrade ? state.value.actions.grades : [],
     },
   };
+}
+
+function handleSemanticEndedSessionReview(sessionId: string): void {
+  reviewSemanticPinnedSessionId.value = sessionId;
+}
+
+async function focusSemanticSession(sessionId: string): Promise<boolean> {
+  const normalizedSessionId = String(sessionId || '').trim();
+  if (!normalizedSessionId) {
+    return false;
+  }
+  if (!semanticActivationReadClient.value || !semanticActivationCommandClient.value) {
+    showMessage(t('semanticActivationStartUnavailable', 'Semantic Activation is unavailable.'), 3000, 'error');
+    return false;
+  }
+  reviewSemanticPinnedSessionId.value = normalizedSessionId;
+  reviewSemanticSidebarOpen.value = true;
+  activeReviewSideAreaTab.value = 'semantic';
+  updateReviewDialogContainerLayout();
+  await nextTick();
+  return showReviewSemanticSidePanel.value;
+}
+
+function handleSemanticEndedSessionContinue(): void {
+  showMessage(t('semanticContinueFromHerePending', 'Continue from ended Semantic sessions is not wired yet.'), 3000, 'info');
+}
+
+async function handleSemanticAnalyzePath(payload: SemanticPathAnalysisPayload): Promise<void> {
+  await openReviewAIAssistant(AI_GENERAL_CHAT_SKILL_ID);
+  const service = reviewAIService.value || getReviewAIWorkbenchRegistry()?.getReviewSession?.(reviewSessionId.value) || null;
+  if (!service) {
+    showMessage(t('semanticAnalyzePathAIUnavailable', 'AI sidebar is unavailable for Semantic path analysis.'), 3000, 'error');
+    return;
+  }
+  await service.submitFollowUp(buildSemanticPathAnalysisPrompt(payload), {
+    attachedContexts: [buildSemanticPathAnalysisContext(payload)],
+  });
+  reviewAISidebarOpen.value = true;
+  activeReviewSideAreaTab.value = 'ai';
+  updateReviewDialogContainerLayout();
+}
+
+function findSemanticTemporaryCard(blockId: string): FSRSCard | null {
+  const context = getPluginContext(props.plugin) || getWindowPlugin()?.getContext?.();
+  const fromCardService = context?.getCardService?.()?.getCardByBlockId?.(blockId);
+  if (fromCardService) {
+    return fromCardService;
+  }
+  return context?.getStorage?.()?.getCardByBlockId?.(blockId) ?? null;
+}
+
+async function handleSemanticSidebarViewNode(nodeId: string, title?: string, sourceBlockId?: string): Promise<void> {
+  const normalizedNodeId = String(nodeId || '').trim();
+  if (!normalizedNodeId) {
+    showMessage(t('semanticTemporaryViewPending', 'Temporary Semantic node view is not wired yet.'), 3000, 'info');
+    return;
+  }
+  const normalizedBlockId = String(sourceBlockId || normalizedNodeId).trim() || normalizedNodeId;
+  const temporaryTitle = String(title || normalizedNodeId).trim() || normalizedNodeId;
+  const card = findSemanticTemporaryCard(normalizedBlockId);
+  reviewSemanticTemporaryView.value = {
+    nodeId: normalizedNodeId,
+    blockId: normalizedBlockId,
+    title: temporaryTitle,
+    card,
+    uiState: null,
+    showAnswer: false,
+    status: card ? 'card' : 'block',
+  };
+
+  if (!card) {
+    return;
+  }
+
+  try {
+    const uiState = await hook.renderItemPreview(card, {
+      showAnswer: false,
+      session: hook.context.value.session,
+    });
+    const current = reviewSemanticTemporaryView.value;
+    if (!current || current.nodeId !== normalizedNodeId || current.blockId !== normalizedBlockId) {
+      return;
+    }
+    reviewSemanticTemporaryView.value = {
+      ...current,
+      uiState,
+    };
+  } catch (error) {
+    reviewSemanticTemporaryView.value = {
+      nodeId: normalizedNodeId,
+      blockId: normalizedBlockId,
+      title: temporaryTitle,
+      card,
+      uiState: null,
+      showAnswer: false,
+      status: 'error',
+      error: error instanceof Error ? error.message : String(error),
+    };
+    showMessage(
+      `${t('semanticTemporaryViewFailed', 'Temporary Semantic card view failed')}: ${reviewSemanticTemporaryView.value.error}`,
+      5000,
+      'error',
+    );
+  }
+}
+
+function clearSemanticTemporaryView(): void {
+  reviewSemanticTemporaryView.value = null;
 }
 
 function handleNeuralEngineModeMenu(ev: MouseEvent): void {
@@ -3071,6 +3409,7 @@ async function syncToNeuralQueueCurrentNode(fallbackNodeId?: string | null): Pro
 defineExpose<ReviewViewTabBridge>({
   syncToNeuralQueueCurrentNode,
   refreshTabSurface,
+  focusSemanticSession,
 });
 
 watch(
@@ -3126,9 +3465,22 @@ watch(
 );
 
 watch(
-  showReviewAISidecar,
+  showReviewSideArea,
   () => {
     updateReviewDialogContainerLayout();
+  },
+);
+
+watch(
+  [showReviewAISidecar, showReviewSemanticSidePanel],
+  ([aiVisible, semanticVisible]) => {
+    if (activeReviewSideAreaTab.value === 'ai' && !aiVisible && semanticVisible) {
+      activeReviewSideAreaTab.value = 'semantic';
+      return;
+    }
+    if (activeReviewSideAreaTab.value === 'semantic' && !semanticVisible && aiVisible) {
+      activeReviewSideAreaTab.value = 'ai';
+    }
   },
 );
 
@@ -3167,7 +3519,7 @@ watch(
   min-width: 0;
 }
 
-.fsrs-review-v2__workspace--with-ai {
+.fsrs-review-v2__workspace--with-side-area {
   grid-template-columns: minmax(0, 1fr) minmax(380px, 420px);
   gap: 0;
   background: var(--b3-theme-background);
@@ -3192,6 +3544,28 @@ watch(
   color: var(--b3-theme-on-surface);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.fsrs-review-v2__temporary-view {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 16px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
+  background: var(--b3-theme-surface);
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.fsrs-review-v2__temporary-view span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .fsrs-review-v2__writer-recovery {
@@ -3242,7 +3616,7 @@ watch(
   flex-wrap: wrap;
 }
 
-.fsrs-review-v2__workspace--with-ai .fsrs-review-v2__content-wrapper {
+.fsrs-review-v2__workspace--with-side-area .fsrs-review-v2__content-wrapper {
   border-right: 1px solid var(--b3-border-color);
   background: var(--b3-theme-background);
 }
@@ -3257,11 +3631,53 @@ watch(
   min-width: 140px;
 }
 
-.fsrs-review-v2__ai-sidecar {
+.fsrs-review-v2__side-area {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
   background: var(--b3-theme-background);
+}
+
+.fsrs-review-v2__side-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-surface);
+}
+
+.fsrs-review-v2__side-tab {
+  min-width: 52px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  line-height: 26px;
+  cursor: pointer;
+}
+
+.fsrs-review-v2__side-tab--active {
+  border-color: var(--b3-border-color);
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-primary);
+  font-weight: 600;
+}
+
+.fsrs-review-v2__side-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fsrs-review-v2__side-panel--semantic {
+  overflow: auto;
 }
 
 .fsrs-review-v2-resume {

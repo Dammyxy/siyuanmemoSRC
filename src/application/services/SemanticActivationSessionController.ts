@@ -52,6 +52,44 @@ export class SemanticActivationSessionController {
     }));
   }
 
+  async createBranchEdge(input: {
+    fromNodeId: string;
+    toNodeId: string;
+    lens: BackendSemanticLens;
+  }): Promise<BackendSemanticCommandResult> {
+    return this.executeWithSession('semantic.branch.create-edge', (sessionId) => ({
+      type: 'create-branch-edge',
+      sessionId,
+      fromNodeId: input.fromNodeId,
+      toNodeId: input.toNodeId,
+      lens: input.lens,
+    }));
+  }
+
+  async moveActiveCursor(nodeId: string): Promise<BackendSemanticCommandResult> {
+    return this.executeWithSession('semantic.navigation.move-active-cursor', (sessionId) => ({
+      type: 'move-active-cursor',
+      sessionId,
+      nodeId,
+    }));
+  }
+
+  async archiveBranch(branchId: string): Promise<BackendSemanticCommandResult> {
+    return this.executeWithSession('semantic.branch.archive', (sessionId) => ({
+      type: 'archive-branch',
+      sessionId,
+      branchId,
+    }));
+  }
+
+  async restoreBranch(branchId: string): Promise<BackendSemanticCommandResult> {
+    return this.executeWithSession('semantic.branch.restore', (sessionId) => ({
+      type: 'restore-branch',
+      sessionId,
+      branchId,
+    }));
+  }
+
   async switchLens(lens: BackendSemanticLens): Promise<BackendSemanticCommandResult> {
     return this.executeWithSession('semantic.navigation.switch-lens', (sessionId) => ({
       type: 'switch-lens',

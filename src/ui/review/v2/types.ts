@@ -278,6 +278,7 @@ export interface ReviewSessionHook {
   refreshCurrentItem: (item: unknown, options?: RefreshCurrentItemOptions) => Promise<void>;
   getQueueStrategy: () => unknown;
   loadCardByBlockId: (blockId: string) => Promise<void>;
+  renderItemPreview: (item: unknown, context: AdapterContext) => Promise<ReviewUIState>;
   onMounted: () => void;
   onUnmounted: () => void;
 }
@@ -285,6 +286,7 @@ export interface ReviewSessionHook {
 export interface ReviewViewTabBridge {
   syncToNeuralQueueCurrentNode: (fallbackNodeId?: string | null) => Promise<boolean>;
   refreshTabSurface: (preferredCardId?: string | null) => Promise<boolean>;
+  focusSemanticSession: (sessionId: string) => Promise<boolean>;
 }
 
 export function createEmptyReviewUIState(): ReviewUIState {

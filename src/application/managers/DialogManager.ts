@@ -282,6 +282,7 @@ export class DialogManager implements IDialogManager {
     transferState?: ReviewTabTransferState;
     suppressSnapshotRecovery?: boolean;
     neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
+    initialSemanticPinnedSessionId?: string | null;
   }): {
     queue: IReviewQueue;
     title: string;
@@ -289,6 +290,7 @@ export class DialogManager implements IDialogManager {
     transferState?: ReviewTabTransferState;
     suppressSnapshotRecovery?: boolean;
     neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
+    initialSemanticPinnedSessionId?: string | null;
   } {
     return {
       queue: options.queueInstance ?? this.context.getUnifiedDataSourceManager().getQueue(options.queueType),
@@ -297,6 +299,7 @@ export class DialogManager implements IDialogManager {
       transferState: options.transferState,
       suppressSnapshotRecovery: options.suppressSnapshotRecovery,
       neuralRoamStartFromFocus: options.neuralRoamStartFromFocus,
+      initialSemanticPinnedSessionId: options.initialSemanticPinnedSessionId,
     };
   }
 
@@ -324,6 +327,7 @@ export class DialogManager implements IDialogManager {
     allowNewTab?: boolean;
     suppressSnapshotRecovery?: boolean;
     neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
+    initialSemanticPinnedSessionId?: string | null;
   }): Promise<void> {
     const allowNewTab = options.allowNewTab !== false;
     if (allowNewTab && this.shouldOpenReviewInNewTabByDefault()) {
@@ -347,6 +351,7 @@ export class DialogManager implements IDialogManager {
         initialSessionState: options.initialSessionState,
         transferState: options.transferState,
         neuralRoamStartFromFocus: options.neuralRoamStartFromFocus,
+        initialSemanticPinnedSessionId: options.initialSemanticPinnedSessionId,
         title: options.title,
         headerVariant: options.headerVariant,
         eventBus: this.context.getEventBus(),
@@ -1094,6 +1099,7 @@ export class DialogManager implements IDialogManager {
     includeFocusAsFirst?: boolean;
     resetHistory?: boolean;
     startNewSession?: boolean;
+    semanticPinnedSessionId?: string;
   }): Promise<void> {
     if (!(await this.checkInitialized())) return;
     this.destroyCurrentReviewDialog();
@@ -1104,6 +1110,7 @@ export class DialogManager implements IDialogManager {
       const includeFocusAsFirst = options?.includeFocusAsFirst ?? true;
       const resetHistory = options?.resetHistory === true;
       const startNewSession = options?.startNewSession === true;
+      const semanticPinnedSessionId = String(options?.semanticPinnedSessionId || '').trim();
 
       if (isNeuralRoamSessionQueue(neuralQueue)) {
         if (focusBlockId) {
@@ -1128,6 +1135,7 @@ export class DialogManager implements IDialogManager {
           resetHistory,
           startNewSession,
         } : null,
+        initialSemanticPinnedSessionId: semanticPinnedSessionId || null,
       });
 
       logger.info('[DialogManager] ✅ Neural roam opened');

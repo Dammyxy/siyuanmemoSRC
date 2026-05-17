@@ -45,6 +45,11 @@ import {
 
 const logger = createLogger('TabManager');
 
+function normalizeOptionalId(value: unknown): string | null {
+  const normalized = String(value || '').trim();
+  return normalized || null;
+}
+
 type ReviewProviderRef = {
   id: string;
 };
@@ -63,6 +68,7 @@ interface ReviewTabData {
   reviewState?: ReviewTabRuntimeState | null;
   suppressSnapshotRecovery?: boolean;
   neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
+  initialSemanticPinnedSessionId?: string | null;
 }
 
 interface BrowserTabData {
@@ -457,6 +463,7 @@ export interface ReviewTabOptions {
   reviewState?: ReviewTabRuntimeState | null;
   suppressSnapshotRecovery?: boolean;
   neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
+  initialSemanticPinnedSessionId?: string | null;
 }
 
 interface ReviewTabOpenOptions {
@@ -612,6 +619,7 @@ export class TabManager {
       initialCurrentItem: data.reviewState?.queueSnapshot?.currentItem ?? null,
       initialCurrentCardId: data.reviewState?.currentCardId ?? '',
       initialShowAnswer: data.reviewState?.showAnswer === true,
+      initialSemanticPinnedSessionId: data.initialSemanticPinnedSessionId ?? null,
       onTabRuntimeStateChange: (reviewState: ReviewTabRuntimeState | null) => {
         this.persistReviewTabRuntimeState(runtime, data, reviewState);
       },
@@ -872,6 +880,55 @@ export class TabManager {
     return presentation.ok
       ? { title: presentation.title, headerVariant: presentation.headerVariant }
       : null;
+  }
+
+  async focusSemanticReviewSession(sessionId: string, options?: {
+    focus?: boolean;
+  }): Promise<'synced' | 'missing' | 'failed'> {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) {
+      return 'failed';
+    }
+
+    const runtime = this.getLatestNeuralReviewTabRuntime();
+    if (!runtime) {
+      return 'missing';
+    }
+
+    if (!runtime.bridge || typeof runtime.bridge.focusSemanticSession !== 'function') {
+      logger.warn('Review Semantic tab bridge is unavailable', {
+        customId: runtime.customId,
+        title: runtime.title,
+      });
+      return 'failed';
+    }
+
+    try {
+      const synced = await runtime.bridge.focusSemanticSession(normalizedSessionId);
+      if (!synced) {
+        logger.warn('Review Semantic tab declined session focus request', {
+          customId: runtime.customId,
+          title: runtime.title,
+          sessionId: normalizedSessionId,
+        });
+        return 'failed';
+      }
+
+      if (options?.focus !== false && !this.focusReviewTab(runtime)) {
+        return 'failed';
+      }
+
+      runtime.lastActiveAt = Date.now();
+      return 'synced';
+    } catch (error) {
+      logger.error('Failed to focus Review Semantic session', {
+        customId: runtime.customId,
+        title: runtime.title,
+        sessionId: normalizedSessionId,
+        error,
+      });
+      return 'failed';
+    }
   }
 
   private buildCustomModelType(tabType: string): string {
@@ -1422,6 +1479,7 @@ export class TabManager {
       reviewState,
       suppressSnapshotRecovery: options.suppressSnapshotRecovery === true,
       neuralRoamStartFromFocus: normalizeNeuralRoamStartFromFocus(options.neuralRoamStartFromFocus),
+      initialSemanticPinnedSessionId: normalizeOptionalId(options.initialSemanticPinnedSessionId),
     };
   }
 
@@ -1449,6 +1507,7 @@ export class TabManager {
       reviewState,
       suppressSnapshotRecovery: data?.suppressSnapshotRecovery === true,
       neuralRoamStartFromFocus: normalizeNeuralRoamStartFromFocus(data?.neuralRoamStartFromFocus),
+      initialSemanticPinnedSessionId: normalizeOptionalId(data?.initialSemanticPinnedSessionId),
     };
   }
 

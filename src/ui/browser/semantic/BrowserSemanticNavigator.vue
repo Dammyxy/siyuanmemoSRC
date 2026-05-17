@@ -2,23 +2,17 @@
   <section
     class="browser-semantic-navigator"
     :class="{ 'browser-semantic-navigator--pending': pending }"
-    aria-label="Browser Semantic Workbench"
+    aria-label="Browser Semantic Review"
   >
     <header class="browser-semantic-navigator__header">
       <div class="browser-semantic-navigator__identity">
-        <span class="browser-semantic-navigator__eyebrow">{{ t('browserSemanticWorkbench', 'Browser Semantic Workbench') }}</span>
-        <h2>{{ model.currentNode.title }}</h2>
-        <p>{{ model.currentNode.preview }}</p>
+        <span class="browser-semantic-navigator__eyebrow">{{ t('browserSemanticReview', 'Browser Semantic Review') }}</span>
+        <h2>{{ model.session.sessionId }}</h2>
+        <p>{{ t('browserSemanticReviewDescription', 'Review Semantic session history without changing active exploration.') }}</p>
       </div>
       <div class="browser-semantic-navigator__actions">
-        <button type="button" class="b3-button b3-button--outline" :disabled="pending" @click="emit('create-station', 'node')">
-          {{ t('semanticNodeStation', 'Node Station') }}
-        </button>
-        <button type="button" class="b3-button b3-button--outline" :disabled="pending" @click="emit('create-station', 'path')">
-          {{ t('semanticPathStation', 'Path Station') }}
-        </button>
-        <button type="button" class="b3-button b3-button--outline" :disabled="pending" @click="emit('open-review')">
-          {{ t('semanticOpenInReview', 'Open in Review') }}
+        <button type="button" class="b3-button b3-button--text" :disabled="pending" @click="emit('open-review')">
+          {{ t('semanticContinueExploration', 'Continue Exploration') }}
         </button>
         <button type="button" class="b3-button b3-button--cancel" :disabled="pending" @click="emit('end-session')">
           {{ t('semanticEndSession', 'End Session') }}
@@ -29,7 +23,7 @@
     <div class="browser-semantic-navigator__meta">
       <span>{{ t('semanticRoot', 'Root') }}: {{ model.rootNode.title }}</span>
       <span>{{ t('semanticCurrent', 'Current') }}: {{ model.currentNode.title }}</span>
-      <span>{{ t('semanticLens', 'Lens') }}: {{ lensLabel(model.session.activeLens) }}</span>
+      <span>{{ t('semanticPath', 'Path') }}: {{ timelineNodes.length }}</span>
     </div>
 
     <div v-if="unavailable" class="browser-semantic-navigator__unavailable" role="alert">
@@ -40,114 +34,88 @@
     <div class="browser-semantic-navigator__grid">
       <aside class="browser-semantic-navigator__rail">
         <section>
-          <h3>{{ t('semanticPath', 'Path') }}</h3>
+          <h3>{{ t('semanticTimeline', 'Timeline') }}</h3>
           <ol class="browser-semantic-navigator__path">
             <li
-              v-for="entry in model.path"
-              :key="entry.eventId"
-              :class="{ 'browser-semantic-navigator__path-item--current': entry.nodeId === model.session.currentNodeId }"
+              v-for="node in timelineNodes"
+              :key="node.nodeId"
+              :class="{ 'browser-semantic-navigator__path-item--current': node.nodeId === selectedNode.nodeId }"
             >
-              <span>{{ titleForPathNode(entry.nodeId) }}</span>
-              <small>{{ lensLabel(entry.lens) }}</small>
+              <button type="button" class="browser-semantic-navigator__node-select" @click="selectedNodeId = node.nodeId" @dblclick="selectedNodeId = node.nodeId">
+                <span>{{ node.title || t('semanticNodeUnavailable', 'Content unavailable') }}</span>
+                <small>{{ node.preview }}</small>
+              </button>
             </li>
           </ol>
         </section>
 
         <section>
-          <h3>{{ t('semanticStations', 'Stations') }}</h3>
-          <div v-if="stationSummaries.length === 0" class="browser-semantic-navigator__empty">
-            {{ t('semanticNoStations', 'No stations') }}
+          <h3>{{ t('semanticEdgeExplanations', 'Edge explanations') }}</h3>
+          <div v-if="edgeExplanations.length === 0" class="browser-semantic-navigator__empty">
+            {{ t('semanticNone', 'None') }}
           </div>
           <article
-            v-for="summary in stationSummaries"
-            :key="summary.station.stationId"
+            v-for="edge in edgeExplanations"
+            :key="`${edge.fromNodeId}:${edge.toNodeId}:${edge.createdAt}`"
             class="browser-semantic-navigator__station"
-            :class="{
-              'browser-semantic-navigator__station--current': summary.isCurrentNode || summary.isCurrentPath,
-            }"
           >
-            <button
-              type="button"
-              class="browser-semantic-navigator__station-open"
-              :disabled="pending"
-              @click="openStation(summary)"
-            >
-              <span>{{ summary.title }}</span>
-              <small>{{ summary.station.type === 'path' ? t('semanticPathStation', 'Path Station') : t('semanticNodeStation', 'Node Station') }}</small>
-            </button>
-            <button
-              type="button"
-              class="b3-button b3-button--text browser-semantic-navigator__station-archive"
-              :disabled="pending"
-              @click="emit('archive-station', summary.station.stationId)"
-            >
-              {{ t('semanticArchiveStation', 'Archive') }}
-            </button>
+            <span>{{ edge.primaryExplanation || lensLabel(edge.lens) }}</span>
+            <small>{{ edge.reasonTags.join(' · ') }}</small>
           </article>
         </section>
       </aside>
 
       <main class="browser-semantic-navigator__candidates">
-        <div
-          v-for="lens in lenses"
-          :key="lens"
-          class="browser-semantic-navigator__lens"
-          :class="{ 'browser-semantic-navigator__lens--active': lens === model.session.activeLens }"
-        >
+        <section class="browser-semantic-navigator__lens browser-semantic-navigator__lens--active">
           <header>
-            <h3>{{ lensLabel(lens) }}</h3>
-            <span>{{ model.candidates[lens]?.length ?? 0 }}</span>
+            <h3>{{ t('semanticSelectedNode', 'Selected node') }}</h3>
+            <span>{{ nodeTypeLabel(selectedNode.nodeType) }}</span>
           </header>
-          <button
-            v-for="candidate in model.candidates[lens] ?? []"
-            :key="candidate.candidateId"
-            type="button"
-            class="browser-semantic-navigator__candidate"
-            :disabled="pending"
-            @click="emit('follow', candidate.candidateId, lens)"
-          >
-            <span class="browser-semantic-navigator__candidate-title">{{ candidate.node.title }}</span>
-            <span class="browser-semantic-navigator__candidate-preview">{{ candidate.node.preview }}</span>
-            <span class="browser-semantic-navigator__candidate-reasons">
-              <span v-for="reason in candidate.reasons.slice(0, 3)" :key="reason.code">
-                {{ reasonLabel(reason.code) }}
-              </span>
-            </span>
-          </button>
-          <div v-if="(model.candidates[lens]?.length ?? 0) === 0" class="browser-semantic-navigator__empty">
-            {{ model.emptyReason || t('semanticNoCandidates', 'No candidates') }}
+          <div class="browser-semantic-navigator__detail">
+            <h4>{{ selectedNode.title || t('semanticNodeUnavailable', 'Content unavailable') }}</h4>
+            <p>{{ selectedNode.preview || t('semanticNoPreview', 'No preview') }}</p>
+            <dl>
+              <div>
+                <dt>{{ t('semanticBreadcrumb', 'Breadcrumb') }}</dt>
+                <dd>{{ selectedNode.breadcrumb.join(' / ') || '-' }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('semanticSourceAvailability', 'Availability') }}</dt>
+                <dd>{{ selectedNode.blockId ? t('semanticAvailable', 'Available') : t('semanticNodeUnavailable', 'Content unavailable') }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('semanticDebugId', 'Debug ID') }}</dt>
+                <dd>{{ selectedNode.nodeId }}</dd>
+              </div>
+            </dl>
           </div>
-        </div>
+        </section>
       </main>
 
       <aside class="browser-semantic-navigator__preview">
-        <h3>{{ t('semanticPreviewEvidence', 'Preview / Evidence') }}</h3>
-        <dl>
-          <div>
-            <dt>{{ t('semanticNodeType', 'Type') }}</dt>
-            <dd>{{ nodeTypeLabel(model.currentNode.nodeType) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('semanticBreadcrumb', 'Breadcrumb') }}</dt>
-            <dd>{{ model.currentNode.breadcrumb.join(' / ') || '-' }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('semanticActivationReason', 'Activation') }}</dt>
-            <dd>{{ activationReason }}</dd>
-          </div>
-        </dl>
-        <p v-if="model.currentNode.isImplicitKnowledge" class="browser-semantic-navigator__guard">
-          {{ t('semanticImplicitReadOnlyGuard', 'Implicit knowledge is read-only here: no reveal, grading, scheduling, or automatic card creation.') }}
-        </p>
+        <h3>{{ t('semanticReviewSections', 'Review sections') }}</h3>
+        <details>
+          <summary>{{ t('semanticLater', 'Later') }} · {{ later.length }}</summary>
+          <p v-if="later.length === 0" class="browser-semantic-navigator__empty">{{ t('semanticNone', 'None') }}</p>
+        </details>
+        <details>
+          <summary>{{ t('semanticSuggestions', 'Suggestions') }} · {{ suggestions.length }}</summary>
+          <p v-if="suggestions.length === 0" class="browser-semantic-navigator__empty">{{ t('semanticNone', 'None') }}</p>
+          <p v-for="suggestion in suggestions" :key="suggestion.suggestionId">{{ suggestion.summary }}</p>
+        </details>
+        <details>
+          <summary>{{ t('semanticArchivedBranches', 'Archived branches') }} · {{ archivedBranches.length }}</summary>
+          <p v-if="archivedBranches.length === 0" class="browser-semantic-navigator__empty">{{ t('semanticNone', 'None') }}</p>
+        </details>
       </aside>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import type { SemanticLens, SemanticNodeType, SemanticReasonCode, SemanticStationType } from '@/core/semantic/semanticActivationTypes';
-import type { BrowserSemanticReadModel, BrowserSemanticStationSummary, BrowserSemanticUnavailable } from './types';
+import { computed, ref, watch } from 'vue';
+import type { SemanticLens, SemanticNodeType, SemanticStationType } from '@/core/semantic/semanticActivationTypes';
+import type { BrowserSemanticReadModel, BrowserSemanticUnavailable } from './types';
 
 const props = defineProps<{
   model: BrowserSemanticReadModel;
@@ -166,23 +134,30 @@ const emit = defineEmits<{
   (e: 'end-session'): void;
 }>();
 
-const lenses: SemanticLens[] = ['assimilation', 'accommodation', 'free'];
 const stationSummaries = computed(() => [...props.model.nodeStations, ...props.model.pathStations]);
-const pathTitleByNodeId = computed(() => {
-  const titles = new Map<string, string>();
-  titles.set(props.model.rootNode.nodeId, props.model.rootNode.title);
-  titles.set(props.model.currentNode.nodeId, props.model.currentNode.title);
-  for (const summary of stationSummaries.value) {
-    if (summary.station.nodeId) {
-      titles.set(summary.station.nodeId, summary.title);
-    }
-  }
-  return titles;
-});
-const activationReason = computed(() => {
-  const lastEntry = props.model.path[props.model.path.length - 1];
-  return lastEntry ? lensLabel(lastEntry.lens) : lensLabel(props.model.session.activeLens);
-});
+void stationSummaries;
+const selectedNodeId = ref(props.model.currentNode.nodeId);
+const timelineNodes = computed(() => (
+  props.model.timelineNodes && props.model.timelineNodes.length > 0
+    ? props.model.timelineNodes
+    : [props.model.rootNode, props.model.currentNode]
+));
+const selectedNode = computed(() => (
+  timelineNodes.value.find((node) => node.nodeId === selectedNodeId.value)
+  ?? props.model.currentNode
+  ?? props.model.rootNode
+));
+const edgeExplanations = computed(() => props.model.edgeExplanations ?? []);
+const later = computed(() => props.model.later ?? []);
+const suggestions = computed(() => props.model.suggestions ?? []);
+const archivedBranches = computed(() => props.model.archivedBranches ?? []);
+
+watch(
+  () => props.model.session.sessionId,
+  () => {
+    selectedNodeId.value = props.model.currentNode.nodeId;
+  },
+);
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
@@ -208,36 +183,6 @@ function nodeTypeLabel(nodeType: SemanticNodeType): string {
   return t('semanticNodeImplicit', 'Implicit Knowledge');
 }
 
-function reasonLabel(reason: SemanticReasonCode): string {
-  const labels: Record<SemanticReasonCode, string> = {
-    'current-node-relation': t('semanticReasonCurrentNode', 'Current'),
-    'root-focus-relation': t('semanticReasonRootFocus', 'Root'),
-    'memory-projection': t('semanticReasonMemory', 'Memory'),
-    'station-boost': t('semanticReasonStation', 'Station'),
-    'accepted-ai-relation': t('semanticReasonAiRelation', 'AI Relation'),
-    'old-mode-manual-boost': t('semanticReasonOldModeBoost', 'Old Mode Boost'),
-    'structural-relation': t('semanticReasonStructure', 'Structure'),
-    novelty: t('semanticReasonNovelty', 'Novelty'),
-    tension: t('semanticReasonTension', 'Tension'),
-    'free-association': t('semanticReasonFreeAssociation', 'Free'),
-  };
-  return labels[reason];
-}
-
-function titleForPathNode(nodeId: string): string {
-  return pathTitleByNodeId.value.get(nodeId) || nodeId;
-}
-
-function openStation(summary: BrowserSemanticStationSummary): void {
-  if (summary.station.type === 'path') {
-    emit('restore-path-station', summary.station.stationId);
-    return;
-  }
-  const nodeId = String(summary.station.nodeId || '').trim();
-  if (nodeId) {
-    emit('open-node-station', nodeId);
-  }
-}
 </script>
 
 <style scoped>

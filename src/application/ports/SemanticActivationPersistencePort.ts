@@ -15,6 +15,7 @@ export interface SemanticActivationPersistencePort {
   saveSession(session: SemanticSessionSnapshot): void;
   getSession(sessionId: string): SemanticSessionSnapshot | null;
   findActiveSessionByRoot(rootFocusNodeId: string): SemanticSessionSnapshot | null;
+  findMostRecentEndedSessionByRoot(rootFocusNodeId: string): SemanticSessionSnapshot | null;
   appendEvent(event: SemanticEvent): void;
   listEvents(sessionId: string, limit?: number): SemanticEvent[];
   saveStation(station: SemanticStation): void;

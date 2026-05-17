@@ -1,5 +1,12 @@
 import { buildSemanticNodePresentation } from '@/core/semantic/SemanticActivationPresentation';
 import type {
+  BackendSemanticEdgeExplanation,
+  BackendSemanticLaterEntry,
+  BackendSemanticSessionBranchProjection,
+  BackendSemanticSessionTreeNode,
+  BackendSemanticSuggestion,
+} from '../../../../packages/contracts/src/backend-rpc';
+import type {
   SemanticCandidateColumns,
   SemanticNode,
   SemanticSessionSnapshot,
@@ -78,6 +85,12 @@ export function buildBrowserSemanticReadModel(input: {
   candidates: SemanticCandidateColumns;
   stations: SemanticStation[];
   stationNodes?: SemanticNode[];
+  nodes?: SemanticNode[];
+  tree?: BackendSemanticSessionTreeNode[];
+  edgeExplanations?: BackendSemanticEdgeExplanation[];
+  later?: BackendSemanticLaterEntry[];
+  suggestions?: BackendSemanticSuggestion[];
+  archivedBranches?: BackendSemanticSessionBranchProjection[];
   emptyReason?: string | null;
 }): BrowserSemanticReadModelResult {
   if (!input.session || !input.rootNode || !input.currentNode) {
@@ -91,7 +104,22 @@ export function buildBrowserSemanticReadModel(input: {
   const stationSummaries = buildBrowserSemanticStationSummaries({
     session: input.session,
     stations: input.stations,
-    nodes: [input.rootNode, input.currentNode, ...(input.stationNodes ?? [])],
+    nodes: [input.rootNode, input.currentNode, ...(input.stationNodes ?? []), ...(input.nodes ?? [])],
+  });
+  const nodesById = new Map([input.rootNode, input.currentNode, ...(input.stationNodes ?? []), ...(input.nodes ?? [])]
+    .map((node) => [node.nodeId, node]));
+  const timelineNodes = input.session.narrativePath.map((entry) => {
+    const node = nodesById.get(entry.nodeId);
+    if (node) {
+      return buildSemanticNodePresentation(node);
+    }
+    return buildSemanticNodePresentation({
+      nodeId: entry.nodeId,
+      nodeType: 'implicit-knowledge',
+      title: 'Content unavailable',
+      preview: '',
+      location: { blockId: '' },
+    });
   });
   return {
     status: 'ready',
@@ -102,6 +130,11 @@ export function buildBrowserSemanticReadModel(input: {
     candidates: input.candidates,
     candidateState: candidateCount > 0 ? 'ready' : 'empty',
     emptyReason: candidateCount > 0 ? null : input.emptyReason ?? 'No Semantic candidates for the current root/current node',
+    timelineNodes,
+    edgeExplanations: input.edgeExplanations ?? [],
+    later: input.later ?? [],
+    suggestions: input.suggestions ?? [],
+    archivedBranches: input.archivedBranches ?? [],
     ...stationSummaries,
   };
 }

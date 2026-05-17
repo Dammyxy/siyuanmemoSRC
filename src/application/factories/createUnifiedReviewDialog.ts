@@ -66,6 +66,9 @@ export interface CreateUnifiedReviewDialogOptions {
 
     /** 可选：神经漫游后端首次 advance 的起点 */
     neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
+
+    /** 可选：打开 Review 时固定到已有 Semantic Exploration session */
+    initialSemanticPinnedSessionId?: string | null;
     
     /** 对话框标题 */
     title: string;
@@ -105,7 +108,7 @@ export interface CreateUnifiedReviewDialogOptions {
  * @returns 对话框实例
  */
 export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOptions) {
-    const { plugin, queueType, queueInstance, initialSessionState, transferState, neuralRoamStartFromFocus, title, headerVariant, eventBus, startFullscreen, onClose } = options;
+    const { plugin, queueType, queueInstance, initialSessionState, transferState, neuralRoamStartFromFocus, initialSemanticPinnedSessionId, title, headerVariant, eventBus, startFullscreen, onClose } = options;
     const isMobile = plugin.isMobile === true;
     
     try {
@@ -157,6 +160,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                 startFullscreen,
                 initialSessionState,
                 transferState,
+                initialSemanticPinnedSessionId,
             },
             events: {
                 close: () => {

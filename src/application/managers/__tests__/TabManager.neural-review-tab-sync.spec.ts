@@ -125,7 +125,7 @@ describe('TabManager neural review tab sync', () => {
     };
 
     mocks.nextMountedVm = bridge;
-    reviewRegistration.init.call(runtime);
+    await reviewRegistration.init.call(runtime);
 
     await expect(
       tabManager.syncExistingNeuralReviewTabToCurrentNode({ fallbackNodeId: 'node-a' }),
@@ -150,9 +150,9 @@ describe('TabManager neural review tab sync', () => {
     };
 
     mocks.nextMountedVm = bridgeA;
-    reviewRegistration.init.call(runtimeA);
+    await reviewRegistration.init.call(runtimeA);
     mocks.nextMountedVm = bridgeB;
-    reviewRegistration.init.call(runtimeB);
+    await reviewRegistration.init.call(runtimeB);
 
     runtimeA.tab.headElement.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
@@ -166,6 +166,25 @@ describe('TabManager neural review tab sync', () => {
     expect(runtimeB.tab.parent.switchTab).not.toHaveBeenCalled();
   });
 
+  it('focuses an existing neural review tab and pins the requested Semantic session', async () => {
+    const { tabManager, reviewRegistration } = createManager();
+    const runtime = createRuntime('review-neural-semantic', QueueType.NeuralRoam);
+    const bridge = {
+      syncToNeuralQueueCurrentNode: vi.fn().mockResolvedValue(true),
+      focusSemanticSession: vi.fn().mockResolvedValue(true),
+    };
+
+    mocks.nextMountedVm = bridge;
+    await reviewRegistration.init.call(runtime);
+
+    await expect(
+      tabManager.focusSemanticReviewSession('semantic-session-1', { focus: true }),
+    ).resolves.toBe('synced');
+
+    expect(bridge.focusSemanticSession).toHaveBeenCalledWith('semantic-session-1');
+    expect(runtime.tab.parent.switchTab).toHaveBeenCalledWith(runtime.tab.headElement);
+  });
+
   it('ignores non-neural review tabs when syncing browser neural jumps', async () => {
     const { tabManager, reviewRegistration } = createManager();
     const runtime = createRuntime('review-retrieval-1', QueueType.RetrievalPractice);
@@ -173,7 +192,7 @@ describe('TabManager neural review tab sync', () => {
     mocks.nextMountedVm = {
       syncToNeuralQueueCurrentNode: vi.fn().mockResolvedValue(true),
     };
-    reviewRegistration.init.call(runtime);
+    await reviewRegistration.init.call(runtime);
 
     await expect(
       tabManager.syncExistingNeuralReviewTabToCurrentNode({ fallbackNodeId: 'node-c' }),
@@ -188,7 +207,7 @@ describe('TabManager neural review tab sync', () => {
     };
 
     mocks.nextMountedVm = bridge;
-    reviewRegistration.init.call(runtime);
+    await reviewRegistration.init.call(runtime);
 
     await expect(
       tabManager.syncExistingNeuralReviewTabToCurrentNode({ fallbackNodeId: 'node-d' }),
@@ -209,7 +228,7 @@ describe('TabManager neural review tab sync', () => {
         exposed: bridge,
       },
     };
-    reviewRegistration.init.call(runtime);
+    await reviewRegistration.init.call(runtime);
 
     await expect(
       tabManager.syncExistingNeuralReviewTabToCurrentNode({ fallbackNodeId: 'node-exposed' }),

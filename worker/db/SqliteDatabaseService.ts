@@ -2195,11 +2195,13 @@ export class WorkerSqliteDatabaseService {
         model: {
           bindingState: { type: 'current-node-unavailable', reason: 'missing-root' },
           session: null,
+          recentEndedSession: null,
           currentNode: null,
           activePath: [],
           activePathNodes: [],
           branches: [],
           candidates: this.emptySemanticCandidateColumns(),
+          edgeExplanations: [],
           later: [],
           suggestions: [],
           nodes: [],
@@ -2213,6 +2215,9 @@ export class WorkerSqliteDatabaseService {
       : this.semanticActivation.findActiveSessionByRoot(rootFocusNodeId);
     if (!session) {
       const rootNode = rootFocusNodeId ? this.semanticPresentedNode(rootFocusNodeId, 'real-review-card') : null;
+      const recentEndedSession = !requestedSessionId && rootFocusNodeId
+        ? this.semanticActivation.findMostRecentEndedSessionByRoot(rootFocusNodeId)
+        : null;
       return {
         status: 'ok',
         requestId,
@@ -2221,11 +2226,13 @@ export class WorkerSqliteDatabaseService {
             ? { type: 'pinned-session', sessionId: requestedSessionId }
             : { type: 'follow-current', rootFocusNodeId },
           session: null,
+          recentEndedSession,
           currentNode: rootNode,
           activePath: [],
           activePathNodes: rootNode ? [rootNode] : [],
           branches: [],
           candidates: this.emptySemanticCandidateColumns(),
+          edgeExplanations: [],
           later: [],
           suggestions: [],
           nodes: rootNode ? [rootNode] : [],
@@ -2267,11 +2274,13 @@ export class WorkerSqliteDatabaseService {
           ? { type: 'pinned-session', sessionId: session.sessionId }
           : { type: 'follow-current', rootFocusNodeId: session.rootFocusNodeId },
         session,
+        recentEndedSession: null,
         currentNode: nodesById.get(session.currentNodeId) ?? this.semanticPresentedNode(session.currentNodeId, this.semanticNodeTypeForProjection(session, session.currentNodeId)),
         activePath: projection.activePath,
         activePathNodes,
         branches: projection.branches.map((branch) => this.backendSemanticBranchProjection(branch)),
         candidates,
+        edgeExplanations: this.semanticSessionEdgeExplanations(projection),
         later: projection.later,
         suggestions: projection.suggestions,
         nodes,
@@ -2290,6 +2299,14 @@ export class WorkerSqliteDatabaseService {
         return this.startSemanticSession(requestId, idempotencyKey, command);
       case 'follow-candidate':
         return this.followSemanticCandidate(requestId, command);
+      case 'create-branch-edge':
+        return this.createSemanticBranchEdge(requestId, command);
+      case 'move-active-cursor':
+        return this.moveSemanticActiveCursor(requestId, command);
+      case 'archive-branch':
+        return this.archiveSemanticBranch(requestId, command);
+      case 'restore-branch':
+        return this.restoreSemanticBranch(requestId, command);
       case 'switch-lens':
         return this.switchSemanticLens(requestId, command);
       case 'create-station':
@@ -2426,6 +2443,147 @@ export class WorkerSqliteDatabaseService {
       this.semanticActivation!.appendEvent(event);
     }
     return this.semanticOk(requestId, updated.sessionId, { session: updated, event: visitEvent, events });
+  }
+
+  private createSemanticBranchEdge(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'create-branch-edge' }>,
+  ): BackendSemanticCommandResult {
+    const session = this.requireSemanticSession(requestId, command.sessionId);
+    if (!('sessionId' in session)) {
+      return session;
+    }
+    const fromNodeId = normalizeString(command.fromNodeId);
+    const toNodeId = normalizeString(command.toNodeId);
+    const lens = this.normalizeSemanticLens(command.lens) ?? session.activeLens;
+    if (!fromNodeId || !toNodeId) {
+      return this.semanticFailed(requestId, 'invalid-request', 'create-branch-edge requires fromNodeId/toNodeId');
+    }
+    const now = Date.now();
+    const branchId = `semantic-branch:${session.sessionId}:${fromNodeId}:${requestId}`;
+    const edge = {
+      edgeId: `semantic-edge:${requestId}`,
+      sessionId: session.sessionId,
+      branchId,
+      fromNodeId,
+      toNodeId,
+      lens,
+      explanation: command.explanation ?? null,
+      createdBy: command.explanation?.createdBy ?? { kind: 'user' as const, label: 'Review sidebar' },
+      createdAt: now,
+      forkMetadata: null,
+    };
+    const state = {
+      branchId,
+      sessionId: session.sessionId,
+      rootNodeId: fromNodeId,
+      activeCursorNodeId: toNodeId,
+      archivedAt: null,
+      restoredAt: null,
+      updatedAt: now,
+    };
+    const event = this.semanticEvent(`semantic-event:${requestId}:branch-edge-created`, session.sessionId, 'branch-edge-created', {
+      fromNodeId,
+      toNodeId,
+      nodeId: toNodeId,
+      lens,
+      occurredAt: now,
+      payload: { branchId, edgeId: edge.edgeId },
+    });
+    this.semanticActivation!.saveBranchEdge(edge);
+    this.semanticActivation!.saveBranchState(state);
+    this.semanticActivation!.appendEvent(event);
+    return this.semanticOk(requestId, session.sessionId, { session, event });
+  }
+
+  private moveSemanticActiveCursor(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'move-active-cursor' }>,
+  ): BackendSemanticCommandResult {
+    const session = this.requireSemanticSession(requestId, command.sessionId);
+    if (!('sessionId' in session)) {
+      return session;
+    }
+    const nodeId = normalizeString(command.nodeId);
+    if (!nodeId) {
+      return this.semanticFailed(requestId, 'invalid-request', 'move-active-cursor requires nodeId');
+    }
+    const pathEntry = [...session.narrativePath].reverse().find((entry) => entry.nodeId === nodeId);
+    const lens = pathEntry?.lens ?? session.activeLens;
+    const now = Date.now();
+    const event = this.semanticEvent(`semantic-event:${requestId}:active-cursor-moved`, session.sessionId, 'active-cursor-moved', {
+      nodeId,
+      lens,
+      occurredAt: now,
+      payload: { previousNodeId: session.currentNodeId },
+    });
+    const updated = {
+      ...session,
+      currentNodeId: nodeId,
+      activeLens: lens,
+    };
+    this.semanticActivation!.saveSession(updated);
+    this.semanticActivation!.appendEvent(event);
+    return this.semanticOk(requestId, updated.sessionId, { session: updated, event });
+  }
+
+  private archiveSemanticBranch(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'archive-branch' }>,
+  ): BackendSemanticCommandResult {
+    return this.updateSemanticBranchArchivedState(requestId, command.sessionId, command.branchId, true);
+  }
+
+  private restoreSemanticBranch(
+    requestId: string,
+    command: Extract<BackendSemanticCommandRequest['command'], { type: 'restore-branch' }>,
+  ): BackendSemanticCommandResult {
+    return this.updateSemanticBranchArchivedState(requestId, command.sessionId, command.branchId, false);
+  }
+
+  private updateSemanticBranchArchivedState(
+    requestId: string,
+    sessionIdInput: unknown,
+    branchIdInput: unknown,
+    archive: boolean,
+  ): BackendSemanticCommandResult {
+    const session = this.requireSemanticSession(requestId, sessionIdInput);
+    if (!('sessionId' in session)) {
+      return session;
+    }
+    const branchId = normalizeString(branchIdInput);
+    if (!branchId) {
+      return this.semanticFailed(requestId, 'invalid-request', `${archive ? 'archive' : 'restore'}-branch requires branchId`);
+    }
+    const existingState = this.semanticActivation!.listBranchStates(session.sessionId)
+      .find((state) => state.branchId === branchId);
+    const branchEdges = this.semanticActivation!.listBranchEdges(session.sessionId)
+      .filter((edge) => edge.branchId === branchId);
+    if (!existingState && branchEdges.length === 0) {
+      return this.semanticFailed(requestId, 'invalid-request', `semantic branch not found: ${branchId}`);
+    }
+    const now = Date.now();
+    const firstEdge = branchEdges[0] ?? null;
+    const lastEdge = branchEdges[branchEdges.length - 1] ?? null;
+    const state = {
+      branchId,
+      sessionId: session.sessionId,
+      rootNodeId: existingState?.rootNodeId ?? firstEdge?.fromNodeId ?? session.currentNodeId,
+      activeCursorNodeId: existingState?.activeCursorNodeId ?? lastEdge?.toNodeId ?? session.currentNodeId,
+      archivedAt: archive ? now : existingState?.archivedAt ?? null,
+      restoredAt: archive ? existingState?.restoredAt ?? null : now,
+      updatedAt: now,
+    };
+    const eventType = archive ? 'branch-archived' : 'branch-restored';
+    const event = this.semanticEvent(`semantic-event:${requestId}:${eventType}`, session.sessionId, eventType, {
+      nodeId: state.activeCursorNodeId,
+      lens: session.activeLens,
+      occurredAt: now,
+      payload: { branchId },
+    });
+    this.semanticActivation!.saveBranchState(state);
+    this.semanticActivation!.appendEvent(event);
+    return this.semanticOk(requestId, session.sessionId, { session, event });
   }
 
   private switchSemanticLens(

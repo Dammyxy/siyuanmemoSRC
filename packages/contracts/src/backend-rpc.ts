@@ -680,11 +680,13 @@ export type BackendSemanticSidebarBindingState =
 export interface BackendSemanticSidebarReadModel {
   bindingState: BackendSemanticSidebarBindingState;
   session: BackendSemanticSessionSnapshot | null;
+  recentEndedSession?: BackendSemanticSessionSnapshot | null;
   currentNode: BackendSemanticNode | null;
   activePath: BackendSemanticPathEntry[];
   activePathNodes: BackendSemanticNode[];
   branches: BackendSemanticSessionBranchProjection[];
   candidates: BackendSemanticCandidateColumns;
+  edgeExplanations: BackendSemanticEdgeExplanation[];
   later: BackendSemanticLaterEntry[];
   suggestions: BackendSemanticSuggestion[];
   nodes: BackendSemanticNode[];

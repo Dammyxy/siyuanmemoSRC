@@ -1615,6 +1615,28 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         return appendedCards.length;
     }
 
+    suppressReviewedCardForCurrentSession(card: FSRSCard): boolean {
+        const changed = this.addSessionExcludedCardIdentity(card);
+        if (!changed) {
+            return false;
+        }
+
+        const beforeLength = this.cachedCards.length;
+        this.cachedCards = this.applySessionExclusions(this.cachedCards);
+        if (this.currentIndex > this.cachedCards.length) {
+            this.currentIndex = this.cachedCards.length;
+        }
+        this.lastCounterSnapshot = null;
+
+        logger.info('[SiYuanMemo][UnifiedQueueStrategy] Suppressed Semantic temporary review card from current session:', {
+            queueType: this.queueType,
+            cardId: card.id,
+            blockId: card.blockId,
+            removedCachedCards: beforeLength - this.cachedCards.length,
+        });
+        return true;
+    }
+
     async getRemainingSize(): Promise<number> {
         try {
             if (this.queueType === QueueType.NeuralRoam && !this.isProjectionBackedQueue()) {

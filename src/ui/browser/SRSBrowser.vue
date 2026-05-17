@@ -656,6 +656,7 @@ type BrowserDialogManagerPort = {
     includeFocusAsFirst?: boolean;
     resetHistory?: boolean;
     startNewSession?: boolean;
+    semanticPinnedSessionId?: string;
   }) => Promise<void> | void;
   openAiWorkbenchDialog?: (options?: AIWorkbenchOpenOptions) => Promise<void> | void;
 };
@@ -665,6 +666,10 @@ type BrowserTabManagerPort = {
     fallbackNodeId?: string | null;
     focus?: boolean;
   }) => Promise<'synced' | 'missing' | 'failed'> | 'synced' | 'missing' | 'failed';
+  focusSemanticReviewSession?: (
+    sessionId: string,
+    options?: { focus?: boolean },
+  ) => Promise<'synced' | 'missing' | 'failed'> | 'synced' | 'missing' | 'failed';
 };
 
 const props = defineProps<{
@@ -3224,7 +3229,27 @@ async function handleBrowserSemanticOpenInReview(): Promise<void> {
 
 async function handleBrowserSemanticReviewHandoff(_handoff: BrowserSemanticReviewHandoff): Promise<void> {
   const opened = await openBrowserSemanticHandoffInReview(_handoff, {
-    openSubsetReviewDialog: props.plugin?.openSubsetReviewDialog?.bind(props.plugin),
+    openSemanticReviewSession: async (handoff) => {
+      const context = pluginContext.value;
+      const tabResult = await context?.getTabManager?.()?.focusSemanticReviewSession?.(handoff.sessionId, { focus: true });
+      if (tabResult === 'synced') {
+        return;
+      }
+      const dialogManager = context?.getDialogManager?.();
+      if (!dialogManager?.openNeuralRoamDialog) {
+        throw new Error(t(
+          'browserSemanticReviewHandoffUnavailable',
+          'Review Semantic handoff is not wired yet; continue in Browser Semantic Workbench.',
+        ));
+      }
+      await dialogManager.openNeuralRoamDialog({
+        focusBlockId: handoff.focusBlockId,
+        includeFocusAsFirst: false,
+        resetHistory: false,
+        startNewSession: false,
+        semanticPinnedSessionId: handoff.sessionId,
+      });
+    },
     pushErrMsg,
     t,
   });

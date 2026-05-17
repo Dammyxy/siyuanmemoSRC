@@ -341,6 +341,20 @@ export class SqlSemanticActivationRepository implements SemanticActivationPersis
     return row ? rowToSession(row) : null;
   }
 
+  findMostRecentEndedSessionByRoot(rootFocusNodeId: string): SemanticSessionSnapshot | null {
+    const row = this.database.getOne<SemanticSessionRow>(
+      `SELECT session_id, root_focus_node_id, current_node_id, active_lens, narrative_path_json,
+              started_at, ended_at, payload_json, updated_at
+       FROM semantic_sessions
+       WHERE root_focus_node_id = ?
+         AND ended_at IS NOT NULL
+       ORDER BY ended_at DESC, updated_at DESC, started_at DESC, session_id DESC
+       LIMIT 1`,
+      [requireString(rootFocusNodeId, 'rootFocusNodeId')],
+    );
+    return row ? rowToSession(row) : null;
+  }
+
   appendEvent(event: SemanticEvent): void {
     this.database.run(
       `INSERT INTO semantic_events

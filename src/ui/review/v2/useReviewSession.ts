@@ -46,6 +46,7 @@ export function useReviewSession<TItem extends QueueItem>(
     refreshCurrentItem: (item: unknown, refreshOptions?: RefreshCurrentItemOptions) => controller.refreshCurrentItem(item, refreshOptions),
     getQueueStrategy: controller.getQueueStrategy,
     loadCardByBlockId: controller.loadCardByBlockId,
+    renderItemPreview: controller.renderItemPreview,
     onMounted: () => controller.attachSurface(surfaceId),
     onUnmounted: () => controller.detachSurface(surfaceId),
   };

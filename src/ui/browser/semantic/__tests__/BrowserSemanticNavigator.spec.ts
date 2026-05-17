@@ -118,35 +118,67 @@ function model(overrides: Partial<BrowserSemanticReadModel> = {}): BrowserSemant
 }
 
 describe('BrowserSemanticNavigator', () => {
-  it('renders path, three lens columns, preview evidence, and station management', async () => {
+  it('renders session review timeline, local node detail, edge/review sections, and continue handoff', async () => {
     const wrapper = mount(BrowserSemanticNavigator, {
-      props: { model: model() },
+      props: {
+        model: model({
+          edgeExplanations: [{
+            fromNodeId: 'root',
+            toNodeId: 'current',
+            lens: 'free',
+            primaryExplanation: 'Root relates to current through a remembered contrast.',
+            reasonTags: ['memory', 'contrast'],
+            evidence: [],
+            createdBy: { kind: 'system' },
+            createdAt: 2,
+          }],
+          suggestions: [{
+            suggestionId: 'suggestion-1',
+            sessionId: 'session-1',
+            summary: 'Add a bound example',
+            source: 'ai',
+            status: 'active',
+            createdAt: 3,
+            updatedAt: 3,
+          }],
+          archivedBranches: [{
+            branchId: 'branch-archived',
+            rootNodeId: 'root',
+            activeCursorNodeId: 'current',
+            edges: [],
+            recentActivityAt: 4,
+            archivedAt: 5,
+          }],
+        }),
+      },
     });
 
-    expect(wrapper.text()).toContain('Browser Semantic Workbench');
-    expect(wrapper.text()).toContain('Old Knowledge Explains New');
-    expect(wrapper.text()).toContain('New Knowledge Reinterprets Old');
-    expect(wrapper.text()).toContain('Free Association');
-    expect(wrapper.text()).toContain('Old explains new');
-    expect(wrapper.text()).toContain('Root Concept -> Implicit Current');
-    expect(wrapper.text()).toContain('Preview / Evidence');
+    expect(wrapper.text()).toContain('Browser Semantic Review');
+    expect(wrapper.text()).toContain('Timeline');
+    expect(wrapper.text()).toContain('Root Concept');
+    expect(wrapper.text()).toContain('Implicit Current');
+    expect(wrapper.text()).toContain('Root relates to current');
+    expect(wrapper.text()).toContain('Later · 0');
+    expect(wrapper.text()).toContain('Suggestions · 1');
+    expect(wrapper.text()).toContain('Archived branches · 1');
 
-    await wrapper.get('.browser-semantic-navigator__candidate').trigger('click');
-    expect(wrapper.emitted('follow')?.[0]).toEqual(['old-node', 'assimilation']);
+    await wrapper.findAll('.browser-semantic-navigator__node-select')[0].trigger('click');
+    expect(wrapper.text()).toContain('Debug IDroot');
+    expect(wrapper.emitted('follow')).toBeUndefined();
 
-    await wrapper.findAll('.browser-semantic-navigator__station-open')[1].trigger('click');
-    expect(wrapper.emitted('restore-path-station')?.[0]).toEqual(['station-path']);
-
-    await wrapper.find('.browser-semantic-navigator__station-archive').trigger('click');
-    expect(wrapper.emitted('archive-station')?.[0]).toEqual(['station-node']);
+    await wrapper.findAll('button').find((button) => button.text() === 'Continue Exploration')!.trigger('click');
+    expect(wrapper.emitted('open-review')?.[0]).toEqual([]);
   });
 
-  it('keeps implicit nodes read-only and does not render Review grading controls', () => {
+  it('keeps Browser review free of candidate lenses and Review grading controls', () => {
     const wrapper = mount(BrowserSemanticNavigator, {
       props: { model: model() },
     });
 
-    expect(wrapper.text()).toContain('Implicit knowledge is read-only here');
+    expect(wrapper.text()).not.toContain('Old Knowledge Explains New');
+    expect(wrapper.text()).not.toContain('New Knowledge Reinterprets Old');
+    expect(wrapper.text()).not.toContain('Free Association');
+    expect(wrapper.find('.browser-semantic-navigator__candidate').exists()).toBe(false);
     expect(wrapper.text()).not.toContain('Again');
     expect(wrapper.text()).not.toContain('Hard');
     expect(wrapper.text()).not.toContain('Good');
@@ -172,7 +204,7 @@ describe('BrowserSemanticNavigator', () => {
     expect(wrapper.text()).not.toContain('Easy');
   });
 
-  it('keeps all three lens sets reachable in the responsive one-column layout', () => {
+  it('keeps timeline, details, and review sections reachable in the responsive one-column layout', () => {
     const wrapper = mount(BrowserSemanticNavigator, {
       props: { model: model() },
     });
@@ -181,10 +213,9 @@ describe('BrowserSemanticNavigator', () => {
 
     expect(source).toContain('@media (max-width: 960px)');
     expect(source).toContain('grid-template-columns: 1fr');
-    expect(wrapper.findAll('.browser-semantic-navigator__lens')).toHaveLength(3);
-    expect(wrapper.text()).toContain('Old Knowledge Explains New');
-    expect(wrapper.text()).toContain('New Knowledge Reinterprets Old');
-    expect(wrapper.text()).toContain('Free Association');
+    expect(wrapper.text()).toContain('Timeline');
+    expect(wrapper.text()).toContain('Selected node');
+    expect(wrapper.text()).toContain('Review sections');
   });
 
   it('disables Semantic actions while pending and renders writer-unavailable failure state', async () => {
@@ -205,13 +236,12 @@ describe('BrowserSemanticNavigator', () => {
     expect(wrapper.text()).toContain('WRITER_UNAVAILABLE');
     expect(wrapper.find('.browser-semantic-navigator__unavailable').attributes('role')).toBe('alert');
 
-    await wrapper.get('.browser-semantic-navigator__candidate').trigger('click');
+    await wrapper.get('.browser-semantic-navigator__node-select').trigger('click');
     expect(wrapper.emitted('follow')).toBeUndefined();
-    expect(wrapper.find('.browser-semantic-navigator__candidate').attributes('disabled')).toBeDefined();
-    expect(wrapper.find('.browser-semantic-navigator__station-open').attributes('disabled')).toBeDefined();
+    expect(wrapper.findAll('button').find((button) => button.text() === 'Continue Exploration')!.attributes('disabled')).toBeDefined();
   });
 
-  it('shows empty candidate success separately from unavailable state', () => {
+  it('does not show empty candidate state in Browser review mode', () => {
     const wrapper = mount(BrowserSemanticNavigator, {
       props: {
         model: model({
@@ -222,7 +252,7 @@ describe('BrowserSemanticNavigator', () => {
       },
     });
 
-    expect(wrapper.text()).toContain('No candidates in current root');
+    expect(wrapper.text()).not.toContain('No candidates in current root');
     expect(wrapper.text()).not.toContain('unavailable');
   });
 });

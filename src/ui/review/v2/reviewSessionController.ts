@@ -108,6 +108,7 @@ export interface ReviewSessionController<TItem extends QueueItem = QueueItem> {
   refreshCurrentItem: (item: unknown, options?: RefreshCurrentItemOptions) => Promise<void>;
   getQueueStrategy: () => IQueueStrategy<TItem>;
   loadCardByBlockId: (blockId: string) => Promise<void>;
+  renderItemPreview: (item: unknown, previewContext: AdapterContext) => Promise<ReviewUIState>;
   getSnapshot: () => ReviewSessionControllerSnapshot<TItem>;
   subscribe: (listener: (snapshot: ReviewSessionControllerSnapshot<TItem>) => void) => () => void;
   subscribeDispose: (listener: () => void) => () => void;
@@ -940,6 +941,14 @@ export function createReviewSessionController<TItem extends QueueItem>(
     }
   });
 
+  const renderItemPreview = async (
+    item: unknown,
+    previewContext: AdapterContext,
+  ): Promise<ReviewUIState> => {
+    const hydratedItem = await hydrateDisplayItem(queue, (item as TItem | null) ?? null);
+    return withSessionMeta(await adapter.toUIState(queue, hydratedItem, previewContext));
+  };
+
   const attachSurface = (surfaceId: string): void => {
     if (disposed) {
       return;
@@ -1017,6 +1026,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
     refreshCurrentItem,
     getQueueStrategy: () => queue,
     loadCardByBlockId,
+    renderItemPreview,
     getSnapshot,
     subscribe,
     subscribeDispose,

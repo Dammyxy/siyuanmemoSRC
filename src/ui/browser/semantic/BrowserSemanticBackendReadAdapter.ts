@@ -54,6 +54,12 @@ export class BrowserSemanticBackendReadAdapter {
       candidates: result.candidates,
       stations: result.stations,
       stationNodes: result.stationNodes,
+      nodes: result.nodes,
+      tree: result.projection?.tree,
+      edgeExplanations: result.edgeExplanations,
+      later: result.later,
+      suggestions: result.suggestions,
+      archivedBranches: result.archivedBranches,
     });
   }
 

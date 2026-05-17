@@ -4106,6 +4106,144 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('executes Semantic cursor and branch commands for Review sidebar interactions', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({ database });
+
+    await kernel.handle({
+      id: 'semantic-sidebar-action-start',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-sidebar-action-start-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-sidebar-action',
+        idempotencyKey: 'semantic-sidebar-action-start-key',
+        command: {
+          type: 'start-session',
+          rootFocusNodeId: 'root-action',
+          sessionId: 'semantic-sidebar-action-session',
+        },
+      }],
+    });
+    await kernel.handle({
+      id: 'semantic-sidebar-action-follow',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-sidebar-action-follow-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-sidebar-action',
+        idempotencyKey: 'semantic-sidebar-action-follow-key',
+        command: {
+          type: 'follow-candidate',
+          sessionId: 'semantic-sidebar-action-session',
+          candidateId: 'node-action-next',
+          lens: 'free',
+        },
+      }],
+    });
+
+    const moved = await kernel.handle({
+      id: 'semantic-sidebar-action-move',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-sidebar-action-move-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-sidebar-action',
+        idempotencyKey: 'semantic-sidebar-action-move-key',
+        command: {
+          type: 'move-active-cursor',
+          sessionId: 'semantic-sidebar-action-session',
+          nodeId: 'root-action',
+        },
+      }],
+    });
+    expect('result' in moved).toBe(true);
+    if ('result' in moved) {
+      expect(moved.result).toMatchObject({
+        status: 'ok',
+        session: {
+          currentNodeId: 'root-action',
+        },
+      });
+    }
+
+    await kernel.handle({
+      id: 'semantic-sidebar-action-branch',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-sidebar-action-branch-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-sidebar-action',
+        idempotencyKey: 'semantic-sidebar-action-branch-key',
+        command: {
+          type: 'create-branch-edge',
+          sessionId: 'semantic-sidebar-action-session',
+          fromNodeId: 'root-action',
+          toNodeId: 'node-action-branch',
+          lens: 'assimilation',
+        },
+      }],
+    });
+    const withBranch = await kernel.handle({
+      id: 'semantic-sidebar-action-read',
+      jsonrpc: '2.0',
+      method: 'semantic.sidebar.read',
+      params: [{
+        requestId: 'semantic-sidebar-action-read-1',
+        method: 'semantic.sidebar.read',
+        callerIntent: 'test-semantic-sidebar-action',
+        bindingMode: 'pinned-session',
+        sessionId: 'semantic-sidebar-action-session',
+      }],
+    });
+    expect('result' in withBranch).toBe(true);
+    let branchId = '';
+    if ('result' in withBranch) {
+      branchId = withBranch.result.model.branches[0]?.branchId ?? '';
+      expect(withBranch.result.model.branches[0]).toEqual(expect.objectContaining({
+        rootNodeId: 'root-action',
+        activeCursorNodeId: 'node-action-branch',
+      }));
+    }
+
+    await kernel.handle({
+      id: 'semantic-sidebar-action-archive',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-sidebar-action-archive-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-sidebar-action',
+        idempotencyKey: 'semantic-sidebar-action-archive-key',
+        command: {
+          type: 'archive-branch',
+          sessionId: 'semantic-sidebar-action-session',
+          branchId,
+        },
+      }],
+    });
+    const afterArchive = await kernel.handle({
+      id: 'semantic-sidebar-action-after-archive',
+      jsonrpc: '2.0',
+      method: 'semantic.sidebar.read',
+      params: [{
+        requestId: 'semantic-sidebar-action-after-archive-1',
+        method: 'semantic.sidebar.read',
+        callerIntent: 'test-semantic-sidebar-action',
+        bindingMode: 'pinned-session',
+        sessionId: 'semantic-sidebar-action-session',
+      }],
+    });
+    expect('result' in afterArchive).toBe(true);
+    if ('result' in afterArchive) {
+      expect(afterArchive.result.model.branches).toEqual([]);
+    }
+  });
+
   it('serves Review sidebar Semantic read models for follow-current and pinned sessions without auto-creating sessions', async () => {
     const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
     await database.init();
@@ -4355,6 +4493,73 @@ describe('BackendKernel', () => {
         'root-sidebar',
         'node-sidebar-next',
       ]);
+    }
+  });
+
+  it('surfaces most recent ended Semantic session for Review sidebar restore without auto-creating a session', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    await database.init();
+    const kernel = new BackendKernel({ database });
+
+    await kernel.handle({
+      id: 'semantic-sidebar-ended-start',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-sidebar-ended-start-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-sidebar-ended',
+        idempotencyKey: 'semantic-sidebar-ended-start-key',
+        command: {
+          type: 'start-session',
+          rootFocusNodeId: 'root-ended',
+          sessionId: 'semantic-sidebar-ended-session',
+        },
+      }],
+    });
+    await kernel.handle({
+      id: 'semantic-sidebar-ended-end',
+      jsonrpc: '2.0',
+      method: 'semantic.command.execute',
+      params: [{
+        requestId: 'semantic-sidebar-ended-end-1',
+        method: 'semantic.command.execute',
+        callerIntent: 'test-semantic-sidebar-ended',
+        idempotencyKey: 'semantic-sidebar-ended-end-key',
+        command: {
+          type: 'end-session',
+          sessionId: 'semantic-sidebar-ended-session',
+        },
+      }],
+    });
+
+    const response = await kernel.handle({
+      id: 'semantic-sidebar-ended-read',
+      jsonrpc: '2.0',
+      method: 'semantic.sidebar.read',
+      params: [{
+        requestId: 'semantic-sidebar-ended-read-1',
+        method: 'semantic.sidebar.read',
+        callerIntent: 'test-semantic-sidebar-ended',
+        bindingMode: 'follow-current',
+        currentNodeId: 'root-ended',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        status: 'ok',
+        model: {
+          bindingState: { type: 'follow-current', rootFocusNodeId: 'root-ended' },
+          session: null,
+          recentEndedSession: {
+            sessionId: 'semantic-sidebar-ended-session',
+            rootFocusNodeId: 'root-ended',
+            endedAt: expect.any(Number),
+          },
+        },
+      });
     }
   });
 

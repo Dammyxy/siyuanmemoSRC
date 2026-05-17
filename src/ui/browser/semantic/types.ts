@@ -1,4 +1,10 @@
-import type { BackendSemanticCommandResult } from '../../../../packages/contracts/src/backend-rpc';
+import type {
+  BackendSemanticCommandResult,
+  BackendSemanticEdgeExplanation,
+  BackendSemanticLaterEntry,
+  BackendSemanticSessionBranchProjection,
+  BackendSemanticSuggestion,
+} from '../../../../packages/contracts/src/backend-rpc';
 import type { BrowserCard } from '../types';
 import type {
   SemanticCandidateColumns,
@@ -40,6 +46,11 @@ export interface BrowserSemanticReadModel {
   emptyReason?: string | null;
   nodeStations: BrowserSemanticStationSummary[];
   pathStations: BrowserSemanticStationSummary[];
+  timelineNodes?: SemanticNodePresentation[];
+  edgeExplanations?: BackendSemanticEdgeExplanation[];
+  later?: BackendSemanticLaterEntry[];
+  suggestions?: BackendSemanticSuggestion[];
+  archivedBranches?: BackendSemanticSessionBranchProjection[];
 }
 
 export type BrowserSemanticReadModelResult = BrowserSemanticReadModel | BrowserSemanticUnavailable;

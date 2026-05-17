@@ -1,6 +1,11 @@
 import type { BrowserSemanticReviewHandoff } from './BrowserSemanticStateController';
 
 export interface BrowserSemanticReviewHandoffDeps {
+  openSemanticReviewSession?: (options: {
+    sessionId: string;
+    currentNodeId: string;
+    focusBlockId?: string;
+  }) => Promise<void> | void;
   openSubsetReviewDialog?: (
     blockIds: string[],
     options?: {
@@ -20,16 +25,17 @@ export async function openBrowserSemanticHandoffInReview(
   handoff: BrowserSemanticReviewHandoff,
   deps: BrowserSemanticReviewHandoffDeps,
 ): Promise<boolean> {
-  const blockId = normalizeId(handoff.blockId || handoff.currentNodeId);
-  if (!handoff.isReviewCard || !blockId) {
+  const sessionId = normalizeId(handoff.sessionId);
+  const currentNodeId = normalizeId(handoff.currentNodeId);
+  if (!sessionId || !currentNodeId) {
     await deps.pushErrMsg(deps.t(
       'browserSemanticReviewHandoffNodeUnavailable',
-      'Current Semantic node is not a review card.',
+      'Current Semantic session is not ready for Review handoff.',
     ));
     return false;
   }
 
-  if (!deps.openSubsetReviewDialog) {
+  if (!deps.openSemanticReviewSession) {
     await deps.pushErrMsg(deps.t(
       'browserSemanticReviewHandoffUnavailable',
       'Review Semantic handoff is not wired yet; continue in Browser Semantic Workbench.',
@@ -37,9 +43,15 @@ export async function openBrowserSemanticHandoffInReview(
     return false;
   }
 
-  const cardId = normalizeId(handoff.cardId);
-  await deps.openSubsetReviewDialog([blockId], cardId
-    ? { cardIds: [cardId], preferredCardId: cardId }
-    : undefined);
+  try {
+    await deps.openSemanticReviewSession({
+      sessionId,
+      currentNodeId,
+      focusBlockId: normalizeId(handoff.blockId || handoff.currentNodeId) || undefined,
+    });
+  } catch (error) {
+    await deps.pushErrMsg(error instanceof Error ? error.message : String(error));
+    return false;
+  }
   return true;
 }
