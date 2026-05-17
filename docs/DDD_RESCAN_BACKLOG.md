@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-17 (Round 373)
+Last update: 2026-05-17 (Round 374)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-17 - Semantic Exploration surface closure
+
+- Task: Finish OpenSpec change `redesign-semantic-exploration-surfaces` documentation and validation tasks 9.1-9.6.
+- Touched slice: Semantic Exploration Review/Browser/AI docs and validation; `ARCHITECTURE.md`, `docs/browser-semantic-navigator-manual-smoke.md`, `docs/semantic-activation-manual-smoke.md`, and focused Semantic Review/Browser/backend test suites.
+- Debt fixed now: Architecture docs now match the implemented split: Browser Semantic is a read-only single-session review surface backed by `semantic.browser.read`; Review owns active Semantic exploration through the side-area Semantic sidebar backed by `semantic.sidebar.read`; Browser `继续探索` focuses/pins the Review Semantic sidebar instead of opening ordinary one-card subset review; AI path analysis writes bounded `建议补充` suggestions without creating path nodes until bind/materialize; temporary Semantic flashcard review uses formal scheduling and returns to the original Review item.
+- Debt deferred: Live two-window SiYuan writer/follower smoke remains manual, and real workspace visual validation of Review sidebar plus Browser handoff still depends on a reloaded plugin instance.
+- Why deferred: Unit/integration tests, boundary gates, and production build prove contracts and runtime wiring, but actual writer lease handover and visual SiYuan surfaces require the manual smoke environment.
+- Next safe step: Run the updated manual smoke docs in a reloaded plugin with writer/follower windows, then archive the OpenSpec change if no runtime-only defect appears.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts src/ui/browser/semantic/__tests__/BrowserSemanticNavigator.spec.ts src/ui/browser/semantic/__tests__/BrowserSemanticReviewHandoff.test.ts src/ui/review/v2/semantic/__tests__/SemanticReviewSidebar.spec.ts src/ui/review/v2/semantic/__tests__/semanticReviewAIHandoff.test.ts src/ui/review/v2/__tests__/ReviewView.concept-roam.spec.ts src/application/managers/__tests__/TabManager.neural-review-tab-sync.spec.ts`; follow-up Browser wording suite `pnpm vitest run src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts src/ui/browser/semantic/__tests__/BrowserSemanticReviewHandoff.test.ts`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate redesign-semantic-exploration-surfaces --strict`.
 
 ### 2026-05-17 - Browser Semantic review-only surface
 

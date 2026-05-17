@@ -1456,7 +1456,7 @@
   "browserSemanticConceptRequired": "浏览器语义漫游需要选择概念卡。",
   "browserSemanticRootUnavailable": "无法从这个概念池条目解析语义根节点。",
   "browserSemanticRuntimeUnavailable": "浏览器语义运行时不可用。",
-  "browserSemanticReviewHandoffUnavailable": "复习语义交接还没有接好；请先在浏览器语义工作台继续。",
+  "browserSemanticReviewHandoffUnavailable": "复习语义交接还没有接好；请先在浏览器语义回顾中继续。",
   "browserSemanticReviewHandoffNodeUnavailable": "当前语义节点不是可复习卡片。",
   "workspaceMode": "工作台模式",
   "semanticRootCandidates": "语义根节点",

@@ -67,6 +67,6 @@ describe('openBrowserSemanticHandoffInReview', () => {
     }, harness);
 
     expect(opened).toBe(false);
-    expect(harness.pushErrMsg).toHaveBeenCalledWith('Review Semantic handoff is not wired yet; continue in Browser Semantic Workbench.');
+    expect(harness.pushErrMsg).toHaveBeenCalledWith('Review Semantic handoff is not wired yet; continue in Browser Semantic Review.');
   });
 });

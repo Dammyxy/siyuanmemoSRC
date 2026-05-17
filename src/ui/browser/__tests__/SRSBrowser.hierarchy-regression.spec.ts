@@ -665,7 +665,7 @@ describe('SRSBrowser hierarchy regressions', () => {
     wrapper.unmount();
   });
 
-  it('mounts Browser Semantic Workbench from the selected Concept focus', async () => {
+  it('mounts Browser Semantic Review from the selected Concept focus', async () => {
     const conceptCard = buildConceptBrowserCard('concept-root');
     createDeckDataSourceMock.mockReturnValue(createQueryableDataSource([conceptCard]));
     const readMock = vi.fn(async (request: { rootFocusNodeId?: string; sessionId?: string }) => {

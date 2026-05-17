@@ -93,7 +93,7 @@ describe('BrowserSemanticStateController', () => {
     expect(controller.state).toMatchObject({ status: 'idle', activeSessionId: null, model: null });
   });
 
-  it('preserves session/current node for Open in Review handoff', async () => {
+  it('preserves session/current node for continue-exploration handoff', async () => {
     const openReviewSession = vi.fn();
     const controller = new BrowserSemanticStateController({
       entryController: {

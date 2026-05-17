@@ -1307,7 +1307,7 @@
   "browserSemanticConceptRequired": "Browser Semantic requires a Concept card selection.",
   "browserSemanticRootUnavailable": "Semantic root cannot be resolved from this concept pool item.",
   "browserSemanticRuntimeUnavailable": "Semantic runtime is unavailable in Browser.",
-  "browserSemanticReviewHandoffUnavailable": "Review Semantic handoff is not wired yet; continue in Browser Semantic Workbench.",
+  "browserSemanticReviewHandoffUnavailable": "Review Semantic handoff is not wired yet; continue in Browser Semantic Review.",
   "browserSemanticReviewHandoffNodeUnavailable": "Current Semantic node is not a review card.",
   "workspaceMode": "Workspace mode",
   "semanticRootCandidates": "Semantic Roots",

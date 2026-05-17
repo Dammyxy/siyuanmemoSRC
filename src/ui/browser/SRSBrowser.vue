@@ -212,7 +212,7 @@
         <section
           v-if="isBrowserSemanticWorkspaceActive"
           class="card-browser__semantic-workspace"
-          aria-label="Browser Semantic Workbench"
+          aria-label="Browser Semantic Review"
         >
           <div class="card-browser__semantic-root-pool">
             <div class="card-browser__semantic-root-pool-header">
@@ -3239,7 +3239,7 @@ async function handleBrowserSemanticReviewHandoff(_handoff: BrowserSemanticRevie
       if (!dialogManager?.openNeuralRoamDialog) {
         throw new Error(t(
           'browserSemanticReviewHandoffUnavailable',
-          'Review Semantic handoff is not wired yet; continue in Browser Semantic Workbench.',
+          'Review Semantic handoff is not wired yet; continue in Browser Semantic Review.',
         ));
       }
       await dialogManager.openNeuralRoamDialog({
@@ -3256,7 +3256,7 @@ async function handleBrowserSemanticReviewHandoff(_handoff: BrowserSemanticRevie
   if (!opened) {
     setBrowserSemanticUnavailable(t(
       'browserSemanticReviewHandoffUnavailable',
-      'Review Semantic handoff is not wired yet; continue in Browser Semantic Workbench.',
+      'Review Semantic handoff is not wired yet; continue in Browser Semantic Review.',
     ));
   }
 }

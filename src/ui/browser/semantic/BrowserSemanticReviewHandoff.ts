@@ -38,7 +38,7 @@ export async function openBrowserSemanticHandoffInReview(
   if (!deps.openSemanticReviewSession) {
     await deps.pushErrMsg(deps.t(
       'browserSemanticReviewHandoffUnavailable',
-      'Review Semantic handoff is not wired yet; continue in Browser Semantic Workbench.',
+      'Review Semantic handoff is not wired yet; continue in Browser Semantic Review.',
     ));
     return false;
   }
