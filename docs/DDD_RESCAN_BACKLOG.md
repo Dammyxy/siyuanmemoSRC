@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-18 (Round 382)
+Last update: 2026-05-18 (Round 384)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-18 - NeuralRoam Advance Coordinator
+
+- Task: Continue Review strategy deepening by moving backend-authoritative NeuralRoam advance consumption out of `UnifiedQueueStrategy`.
+- Touched slice: Review session advancement; `src/application/adapters/UnifiedQueueStrategy.ts`, `src/application/adapters/review-session/NeuralRoamAdvanceCoordinator.ts`, focused NeuralRoam tests, `CONTEXT.md`, and `ARCHITECTURE.md`.
+- Debt fixed now: `NeuralRoamAdvanceCoordinator` now owns `neural-roam.advance` request/result consumption, structured-clone-safe current-item DTO shaping, backend queue-state sync, pending next handling, NeuralRoam counter snapshot shaping, and applying visible NeuralRoam items through `ReviewCurrentItemCommand`. `UnifiedQueueStrategy` keeps the public `IQueueStrategy` façade, manager availability check, ordinary Review safety envelope, and logging.
+- Debt deferred: Backend NeuralRoam next-item selection, worker graph reads, renderer local NeuralRoam queue implementation, and Review transaction rollback safety remain outside the coordinator.
+- Why deferred: NeuralRoam next-item authority belongs to backend `neural-roam.advance`; moving graph/worker ownership or rollback safety into this renderer coordinator would cross bounded contexts.
+- Next safe step: Extract a Review Transaction Safety Envelope if rollback snapshot capture/restore grows again, keeping it separate from both ordinary local advancement and NeuralRoam backend advance.
+- Validation: `pnpm vitest run src/application/adapters/review-session/__tests__/NeuralRoamAdvanceCoordinator.test.ts src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`; `pnpm vitest run src/application/adapters/review-session/__tests__/NeuralRoamAdvanceCoordinator.test.ts src/application/adapters/review-session/__tests__/ReviewFeedbackAdvancementCoordinator.test.ts src/application/adapters/review-session/__tests__/ReviewSessionCursor.test.ts src/application/adapters/review-session/__tests__/ReviewSessionAdvancementPolicies.test.ts src/application/adapters/__tests__/UnifiedQueueStrategy.scope-append.spec.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
+
+### 2026-05-18 - Review Feedback Advancement Coordinator
+
+- Task: Deepen Review Feedback Advancement after architecture scan candidate 1.
+- Touched slice: Review session advancement; `src/application/adapters/UnifiedQueueStrategy.ts`, `src/application/adapters/review-session/ReviewFeedbackAdvancementCoordinator.ts`, Review session tests, `CONTEXT.md`, and `ARCHITECTURE.md`.
+- Debt fixed now: Ordinary non-Neural rate/skip/hide-current-in-scope local advancement, unavailable current-item cleanup, and failed-feedback local compensation now live behind `ReviewFeedbackAdvancementCoordinator`. `UnifiedQueueStrategy` keeps the Review-facing façade, queue/backend feedback submission, mutation safety envelope, rollback snapshot restore, logging, and NeuralRoam backend-authoritative advance.
+- Debt deferred: Transaction capture, rollback snapshot ownership, NeuralRoam next-item selection, Learn Ahead start, insert/append behavior, stats, nextDues, and projection loading remain outside the coordinator.
+- Why deferred: Those behaviours belong to queue/backend mutation safety, backend-authoritative NeuralRoam advance, explicit queue commands, or read/projection loading rather than post-feedback local Review session transition.
+- Next safe step: If `UnifiedQueueStrategy` grows again, extract NeuralRoam advance consumption into a sibling Module without moving backend advance authority into local cursor logic.
+- Validation: `pnpm vitest run src/application/adapters/review-session/__tests__/ReviewFeedbackAdvancementCoordinator.test.ts src/application/adapters/review-session/__tests__/ReviewSessionCursor.test.ts src/application/adapters/review-session/__tests__/ReviewSessionAdvancementPolicies.test.ts src/application/adapters/__tests__/UnifiedQueueStrategy.scope-append.spec.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
 
 ### 2026-05-18 - Review Current Item Command
 

@@ -28,9 +28,22 @@ export {
   type NeuralRoamAdvanceOutcome,
 } from './NeuralRoamAdvanceOutcomePolicy';
 export {
+  NeuralRoamAdvanceCoordinator,
+  type NeuralRoamAdvanceCoordinatorDependencies,
+  type NeuralRoamAdvanceFeedbackOutcome,
+  type NeuralRoamAdvanceNextOutcome,
+} from './NeuralRoamAdvanceCoordinator';
+export {
   ReviewCurrentItemCommand,
   type ReviewCurrentItemRestoreResult,
 } from './ReviewCurrentItemCommand';
+export {
+  ReviewFeedbackAdvancementCoordinator,
+  type ReviewFeedbackAdvancementCoordinatorDependencies,
+  type ReviewFeedbackAdvancementOutcome,
+  type ReviewFeedbackAdvancementOutcomeKind,
+  type ReviewFeedbackRateAdvancementInput,
+} from './ReviewFeedbackAdvancementCoordinator';
 export {
   ReviewSessionCursor,
   type ReviewSessionCursorNextResult,

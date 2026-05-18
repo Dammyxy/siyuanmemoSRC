@@ -72,6 +72,14 @@ _Avoid_: calling this the Review session manager, because `useReviewSession` own
 The Review session advancement command that applies the currently visible card for a single Review session: selected next card, restored snapshot card, failed-feedback compensation restore, or explicit clear. It does not choose queue membership, persist review feedback, or own NeuralRoam next-item selection.
 _Avoid_: calling this a queue cursor or NeuralRoam advance owner; it only applies current-item mutation after another owner chooses the item.
 
+**Review Feedback Advancement**:
+The post-feedback Review session transition that applies local Review session state after queue feedback succeeds or fails; it does not choose queue membership, commit scheduling, call the writer, or select NeuralRoam next items.
+_Avoid_: review commit, scheduler feedback, queue membership update, NeuralRoam advance
+
+**NeuralRoam Advance**:
+The backend-authoritative Review progression for NeuralRoam sessions that returns the next item, exhaustion, or explicit unavailability from the backend advance contract.
+_Avoid_: local NeuralRoam cursor, projection-backed NeuralRoam review, renderer-selected NeuralRoam next item
+
 ## Relationships
 
 - A **Mixed SRS Queue** may contain **Learning Steps**, **Review Cards**, and new cards.
@@ -88,6 +96,8 @@ _Avoid_: calling this a queue cursor or NeuralRoam advance owner; it only applie
 - A **Semantic Session Read Model** is derived from Semantic session owner state and may consume core Semantic session projection, but it remains a read-only presentation model for Browser, Review sidebar, or session inspection callers.
 - A **Review Session Cursor** sits inside a Review session and consumes queue rows/cards, but it is not the queue authority and does not decide scheduling outcomes.
 - A **Review Current Item Command** sits beside the **Review Session Cursor** and applies the visible current card after cursor restore, ordinary advancement, or compensation chooses that card.
+- **Review Feedback Advancement** consumes **Review Session Cursor** and **Review Current Item Command** state after a queue feedback result, while queue membership, scheduling commit, writer relay, and NeuralRoam next-item selection stay outside it.
+- **NeuralRoam Advance** selects NeuralRoam next items before **Review Current Item Command** applies them to the visible Review session.
 
 ## Example Dialogue
 
@@ -107,3 +117,5 @@ _Avoid_: calling this a queue cursor or NeuralRoam advance owner; it only applie
 - Temporary and deliberate practice were described as unable to render links. Resolved: the issue belongs to **Custom Review Surface** rendering, not to those practice modes as domain concepts.
 - Semantic read assembly was ambiguous with core projection building. Resolved: **Semantic Session Read Model** names the presentation-ready read model derived from Semantic session owner state, while core projection remains the lower-level tree/path/branch derivation.
 - Review session state was ambiguous between UI session orchestration, shared surface registration, and volatile queue movement. Resolved: **Review Session Cursor** names only the in-memory movement state within one Review session.
+- Review feedback handling was ambiguous between scheduler commit, queue membership update, and local session transition. Resolved: **Review Feedback Advancement** names only the post-feedback local Review session transition.
+- NeuralRoam progression was ambiguous with local cursor/projection review. Resolved: **NeuralRoam Advance** is backend-authoritative and the renderer only consumes its result.
