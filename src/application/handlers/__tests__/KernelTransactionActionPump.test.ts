@@ -406,6 +406,51 @@ describe('KernelTransactionActionPump', () => {
     await pump.dispose();
   });
 
+  it('drops auto-card candidates when listener handler is disabled instead of retrying forever', async () => {
+    const dequeueKernelTransactions = vi.fn()
+      .mockResolvedValueOnce({
+        actions: [{
+          type: 'auto-card-candidates' as const,
+          operations: [
+            { action: 'insert' as const, blockId: 'block-disabled-1' },
+            { action: 'update' as const, blockId: 'block-disabled-2' },
+          ],
+          source: 'ws-main' as const,
+          receivedAt: 3,
+          idempotencyKey: 'disabled-autocard',
+        }],
+        remaining: 0,
+      })
+      .mockResolvedValue({
+        actions: [],
+        remaining: 0,
+      });
+    const requeueKernelTransactions = vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 }));
+    const handle = vi.fn();
+    const getAutoCardHandler = vi.fn(() => undefined as { handle: typeof handle } | undefined);
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions },
+      null,
+      null,
+      () => undefined,
+      getAutoCardHandler,
+      { pollIntervalMs: 250, maxActionsPerPoll: 4, autoCardCooldownMs: 1_000 },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await Promise.resolve();
+
+    expect(handle).not.toHaveBeenCalled();
+    expect(getAutoCardHandler).toHaveBeenCalledTimes(1);
+    expect(requeueKernelTransactions).not.toHaveBeenCalled();
+
+    await pump.dispose();
+  });
+
   it('coalesces same-block auto-card operations across actions before dispatch', async () => {
     const dequeueKernelTransactions = vi.fn(async () => ({
       actions: [

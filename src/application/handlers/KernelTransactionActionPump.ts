@@ -346,9 +346,10 @@ export class KernelTransactionActionPump {
 
     const autoCardHandler = this.getAutoCardHandler();
     if (!autoCardHandler) {
-      logger.warn('Skip auto-card-candidates action because AutoCardHandler is unavailable', {
+      logger.debug('Drop auto-card-candidates action because AutoCardHandler is unavailable', {
         operations: operations.length,
       });
+      this.pendingAutoCardOpsByBlock.clear();
       this.nextAutoCardAt = now + this.autoCardCooldownMs;
       return;
     }

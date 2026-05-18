@@ -59,6 +59,24 @@ describe('writerProfileDetector', () => {
     });
   });
 
+  it('classifies mobile app frontend as canonical writer', () => {
+    expect(detectWriterProfile({
+      backendContainer: 'android',
+      frontendKind: 'mobile',
+      isBrowser: false,
+      isMobile: true,
+      userAgentFamily: 'mobile',
+      locationHref: 'http://127.0.0.1:6806/stage/build/mobile/?v=1778023002402',
+      bodyClass: 'fn__flex-column body--mobile',
+    })).toMatchObject({
+      backendContainer: 'android',
+      frontendKind: 'mobile',
+      surfaceRole: 'active-frontend',
+      writerEligibility: 'canonical',
+      confidence: 'high',
+    });
+  });
+
   it('keeps QuickNote/enhance surfaces ineligible even when URL includes app stage', () => {
     expect(detectWriterProfile({
       backendContainer: 'std',

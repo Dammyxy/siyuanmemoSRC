@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-18 (Round 389)
+Last update: 2026-05-19 (Round 390)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-19 - Mobile Review Writer And Disabled AutoCard Pump
+
+- Task: Fix two reported runtime bugs: disabled symbol listener repeatedly logging unavailable AutoCard handler, and mobile review feedback showing backend temporarily unavailable.
+- Touched slice: Kernel transaction AutoCard candidate pump and frontend writer profile ownership; `src/application/handlers/KernelTransactionActionPump.ts`, `src/application/clients/writerProfileDetector.ts`, and focused tests.
+- Debt fixed now: AutoCard candidates are consumed when the listener handler is disabled instead of retained for infinite retry/warn loops. Mobile app surfaces backed by Android/iOS/Harmony are now canonical active frontend writers, so review feedback can acquire the writer lease instead of failing as an unavailable follower.
+- Debt deferred: No broader AutoCard candidate persistence/restore policy, no new public writer mode, and no remote desktop-mobile sync repair workflow were added in this bug slice.
+- Why deferred: The symptoms were caused by disabled-handler retry retention and mobile writer misclassification; expanding into queue sync repair or ownership state taxonomy would widen the fix beyond the failing paths.
+- Next safe step: If field logs still report mobile review backend unavailable, capture the writer profile diagnostics (`backendContainer`, `frontendKind`, `isMobile`, `surfaceRole`, `writerEligibility`) before changing lease policy again.
+- Validation: `pnpm vitest run src/application/handlers/__tests__/KernelTransactionActionPump.test.ts`; `pnpm vitest run src/application/clients/__tests__/FrontendInstanceRuntime.test.ts`; `pnpm vitest run src/application/clients/__tests__/writerProfileDetector.test.ts`; `pnpm vitest run src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`.
 
 ### 2026-05-18 - Progressive Excerpt Source Marks And Link Preservation
 

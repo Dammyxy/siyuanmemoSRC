@@ -149,6 +149,20 @@ export function detectWriterProfile(input: WriterProfileObservation): WriterProf
     };
   }
 
+  if (isMobileFrontend({ backendContainer, frontendKind, isMobile, userAgentFamily, href })) {
+    return {
+      backendContainer,
+      frontendKind: frontendKind === 'browser-mobile' ? 'browser-mobile' : 'mobile',
+      surfaceRole: 'active-frontend',
+      writerEligibility: 'canonical',
+      confidence: backendContainer === 'android' || backendContainer === 'ios' || backendContainer === 'harmony'
+        ? 'high'
+        : 'medium',
+      reason: 'mobile app active frontend is canonical writer',
+      sanitizedLocationHref,
+    };
+  }
+
   if (isBrowserFrontend({ frontendKind, isBrowser, userAgentFamily, href })) {
     return {
       backendContainer,
@@ -247,6 +261,26 @@ function isBrowserFrontend(input: {
       input.frontendKind === 'browser-desktop'
       || input.frontendKind === 'browser-mobile'
       || input.href.includes('/stage/build/desktop')
+    );
+}
+
+function isMobileFrontend(input: {
+  backendContainer: WriterBackendContainer;
+  frontendKind: WriterFrontendKind;
+  isMobile: boolean;
+  userAgentFamily: WriterUserAgentFamily;
+  href: string;
+}): boolean {
+  const mobileBackend = input.backendContainer === 'android'
+    || input.backendContainer === 'ios'
+    || input.backendContainer === 'harmony';
+  return input.isMobile
+    && (
+      input.frontendKind === 'mobile'
+      || input.frontendKind === 'browser-mobile'
+      || input.userAgentFamily === 'mobile'
+      || mobileBackend
+      || input.href.includes('/stage/build/mobile')
     );
 }
 

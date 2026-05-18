@@ -1285,6 +1285,62 @@ describe('FrontendInstanceRuntime', () => {
     await runtime.dispose();
   });
 
+  it('allows mobile app surface to acquire writer lease for review feedback writes', async () => {
+    vi.stubGlobal('document', {
+      visibilityState: 'visible',
+      hasFocus: vi.fn(() => true),
+      body: { className: 'body--mobile' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 SiYuanMobile Android Mobile Safari/537.36',
+      platform: 'Linux armv8l',
+    });
+    vi.stubGlobal('window', {
+      location: { href: 'http://127.0.0.1:6806/stage/build/mobile/?v=1' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const writerAcquireLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'mobile-instance',
+        acquiredAt: 1,
+        expiresAt: 61_000,
+        lastHeartbeatAt: 1,
+        surfaceId: 'mobile-scope',
+      },
+      now: 1,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'mobile-instance',
+      runtimeScopeId: 'mobile-scope',
+      backendContainer: 'android',
+      frontendKind: 'mobile',
+      isBrowser: false,
+      isMobile: true,
+    });
+
+    await runtime.start();
+
+    expect(runtime.getMode()).toBe('writer');
+    expect(writerAcquireLease).toHaveBeenCalledWith(expect.objectContaining({
+      writerProfile: expect.objectContaining({
+        frontendKind: 'mobile',
+        surfaceRole: 'active-frontend',
+        writerEligibility: 'canonical',
+      }),
+    }));
+    await runtime.ensureWritable();
+    await runtime.dispose();
+  });
+
   it('throws explicit unavailable when follower cannot own lease', async () => {
     const runtime = new FrontendInstanceRuntime({
       writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
