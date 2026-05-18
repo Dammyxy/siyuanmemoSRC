@@ -1400,6 +1400,169 @@ describe('FrontendInstanceRuntime', () => {
     await runtime.dispose();
   });
 
+  it('keeps canonical primary writer mode while recovering an empty lease after heartbeat renew failure', async () => {
+    vi.stubGlobal('document', {
+      visibilityState: 'visible',
+      hasFocus: vi.fn(() => true),
+      body: { className: 'fn__flex-column body--win32' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 SiYuan/3.6.5 Chrome/146 Electron/41 Safari/537.36',
+      platform: 'Win32',
+    });
+    vi.stubGlobal('window', {
+      location: { href: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const info = vi.fn();
+    const warn = vi.fn();
+    const writerAcquireLease = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        lease: {
+          instanceId: 'primary-instance',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'primary-scope',
+        },
+        now: 1,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        lease: {
+          instanceId: 'primary-instance',
+          acquiredAt: 21_000,
+          expiresAt: 81_000,
+          lastHeartbeatAt: 21_000,
+          surfaceId: 'primary-scope',
+        },
+        now: 21_000,
+      });
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerRenewLease: vi.fn(async () => {
+        throw new Error('BACKEND_UNAVAILABLE: writer lease not found');
+      }),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 21_000 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 22_000 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'primary-instance',
+      runtimeScopeId: 'primary-scope',
+      backendContainer: 'std',
+      frontendKind: 'desktop',
+      isBrowser: false,
+      isMobile: false,
+      logger: { info, warn, error: vi.fn() },
+    });
+
+    await runtime.start();
+    await (runtime as unknown as {
+      refreshOwnership: (reason: string) => Promise<{ leaseHolder: string | null }>;
+    }).refreshOwnership('heartbeat');
+
+    expect(writerAcquireLease).toHaveBeenCalledTimes(2);
+    expect(runtime.getMode()).toBe('writer');
+    expect(info).not.toHaveBeenCalledWith(
+      '[FrontendInstanceRuntime] mode changed',
+      expect.objectContaining({ mode: 'follower' }),
+    );
+    expect(info).toHaveBeenCalledWith(
+      '[FrontendInstanceRuntime] writer lease gap recovered',
+      expect.objectContaining({
+        instanceId: 'primary-instance',
+        runtimeScopeId: 'primary-scope',
+        reason: 'heartbeat',
+      }),
+    );
+    await runtime.dispose();
+  });
+
+  it('recovers canonical primary writer relay polling from an empty lease gap without dropping follower', async () => {
+    vi.stubGlobal('document', {
+      visibilityState: 'visible',
+      hasFocus: vi.fn(() => true),
+      body: { className: 'fn__flex-column body--win32' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 SiYuan/3.6.5 Chrome/146 Electron/41 Safari/537.36',
+      platform: 'Win32',
+    });
+    vi.stubGlobal('window', {
+      location: { href: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const info = vi.fn();
+    const warn = vi.fn();
+    const writerAcquireLease = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        lease: {
+          instanceId: 'primary-instance',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'primary-scope',
+        },
+        now: 1,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        lease: {
+          instanceId: 'primary-instance',
+          acquiredAt: 2,
+          expiresAt: 62_000,
+          lastHeartbeatAt: 2,
+          surfaceId: 'primary-scope',
+        },
+        now: 2,
+      });
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+      writerTakeCommand: vi.fn(async () => {
+        throw new Error('BACKEND_UNAVAILABLE: writer command unavailable: no active writer lease');
+      }),
+      writerCompleteCommand: vi.fn(async () => ({ ok: true, now: 2 })),
+      writerFailCommand: vi.fn(async () => ({ ok: true, now: 2 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 3 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'primary-instance',
+      runtimeScopeId: 'primary-scope',
+      backendContainer: 'std',
+      frontendKind: 'desktop',
+      isBrowser: false,
+      isMobile: false,
+      writerCommandHandler: vi.fn(),
+      logger: { info, warn, error: vi.fn() },
+    });
+
+    await runtime.start();
+    await (runtime as unknown as {
+      drainPendingWriterCommands: (reason: string) => Promise<void>;
+    }).drainPendingWriterCommands('watchdog');
+
+    expect(writerAcquireLease).toHaveBeenCalledTimes(2);
+    expect(runtime.getMode()).toBe('writer');
+    expect(warn).not.toHaveBeenCalledWith(
+      '[FrontendInstanceRuntime] relay polling lost writer lease',
+      expect.anything(),
+    );
+    expect(info).not.toHaveBeenCalledWith(
+      '[FrontendInstanceRuntime] mode changed',
+      expect.objectContaining({ mode: 'follower' }),
+    );
+    await runtime.dispose();
+  });
+
   it('does not warn when writer heartbeat observes another active writer takeover', async () => {
     const warn = vi.fn();
     const runtime = new FrontendInstanceRuntime({

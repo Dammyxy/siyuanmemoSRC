@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-18 (Round 388)
+Last update: 2026-05-18 (Round 389)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-18 - Primary Writer Empty Lease Recovery
+
+- Task: Fix main-window writer lease heartbeat/relay gaps that briefly demoted the canonical writer to follower and caused `writer command unavailable: no active writer lease` noise.
+- Touched slice: Frontend writer ownership runtime; `src/application/clients/FrontendInstanceRuntime.ts` and `src/application/clients/__tests__/FrontendInstanceRuntime.test.ts`.
+- Debt fixed now: Canonical desktop primary-app writers now preserve writer mode when a heartbeat renew or relay poll observes an empty lease gap, immediately reacquire the writer lease, and emit a single `writer lease gap recovered` diagnostic instead of flickering writer -> follower -> writer. Observed real owners still win by policy: another primary writer can take over, document windows remain follower-only, and backend-worker unhealthy state still releases/demotes fail-closed.
+- Debt deferred: There is no separate public `writer-recovering` mode; recovery is kept internal to the ownership refresh and relay drain paths.
+- Why deferred: The symptom was caused by synchronous empty-lease observation, and preserving the existing `writer | follower` public contract avoids widening every caller while still preventing follower relay churn.
+- Next safe step: If field logs still show `no active writer lease`, capture whether the observed owner was empty, document-window, auxiliary, or another primary app before deciding whether a visible `writer-recovering` status is needed.
+- Validation: `pnpm exec vitest run src/application/clients/__tests__/FrontendInstanceRuntime.test.ts`; `pnpm exec vitest run src/application/handlers/__tests__/KernelTransactionActionPump.test.ts`.
 
 ### 2026-05-18 - NeuralRoam Virtual Document Title Hydration
 

@@ -282,6 +282,9 @@ function getSiyuanAppSurfaceRole(locationHref: string | null): SiyuanAppSurfaceR
 
 type FrontendInstanceMode = 'writer' | 'follower';
 type QueueProjectionIdentityBroadcastListener = (event: QueueProjectionLiveIdentityEvent) => void;
+interface ObserveCurrentLeaseOptions {
+  preserveWriterModeForEmptyPrimaryLeaseGap?: boolean;
+}
 
 export class FrontendInstanceRuntime {
   private readonly instanceId: string;
@@ -915,7 +918,17 @@ export class FrontendInstanceRuntime {
       });
       return this.applyLeaseOwnership(lease, reason);
     } catch (error) {
-      const observedOwnership = await this.observeCurrentLease(`${reason}:renew-failed`);
+      const observedOwnership = await this.observeCurrentLease(`${reason}:renew-failed`, {
+        preserveWriterModeForEmptyPrimaryLeaseGap: true,
+      });
+      if (this.shouldRecoverEmptyPrimaryWriterLeaseGap(observedOwnership)) {
+        const recoveredOwnership = await this.acquireWriterLease(`${reason}:recover-empty-lease`);
+        if (recoveredOwnership.leaseHolder === this.instanceId) {
+          this.logWriterLeaseGapRecovered(reason, observedOwnership, recoveredOwnership);
+          return recoveredOwnership;
+        }
+        return recoveredOwnership;
+      }
       if (!this.isExpectedOwnershipRenewContention(reason, error, observedOwnership)) {
         this.logger.warn('[FrontendInstanceRuntime] writer lease renew failed', {
           instanceId: this.instanceId,
@@ -984,7 +997,10 @@ export class FrontendInstanceRuntime {
       || this.isMobile !== null;
   }
 
-  private async observeCurrentLease(reason: string): Promise<FrontendOwnershipSnapshot> {
+  private async observeCurrentLease(
+    reason: string,
+    options: ObserveCurrentLeaseOptions = {},
+  ): Promise<FrontendOwnershipSnapshot> {
     let lease: FrontendObservedLeaseEnvelope | null;
     try {
       lease = await this.sidecarClient.writerGetLease();
@@ -998,6 +1014,12 @@ export class FrontendInstanceRuntime {
       throw new Error(`BACKEND_UNAVAILABLE: writer lease observation failed: ${formatUnknownError(error)}`);
     }
     const ownership = this.buildOwnershipSnapshot(lease);
+    if (
+      options.preserveWriterModeForEmptyPrimaryLeaseGap
+      && this.shouldRecoverEmptyPrimaryWriterLeaseGap(ownership)
+    ) {
+      return ownership;
+    }
     this.setMode(
       ownership.leaseHolder === this.instanceId ? 'writer' : 'follower',
       reason,
@@ -1005,6 +1027,30 @@ export class FrontendInstanceRuntime {
       ownership.leaseSurfaceId,
     );
     return ownership;
+  }
+
+  private shouldRecoverEmptyPrimaryWriterLeaseGap(ownership: FrontendOwnershipSnapshot): boolean {
+    if (this.mode !== 'writer' || ownership.leaseHolder || isDocumentHidden()) {
+      return false;
+    }
+    const currentProfile = this.buildCurrentWriterProfile();
+    return currentProfile?.surfaceRole === 'primary-app'
+      && currentProfile.writerEligibility === 'canonical';
+  }
+
+  private logWriterLeaseGapRecovered(
+    reason: string,
+    observedOwnership: FrontendOwnershipSnapshot,
+    recoveredOwnership: FrontendOwnershipSnapshot,
+  ): void {
+    this.logger.info('[FrontendInstanceRuntime] writer lease gap recovered', {
+      instanceId: this.instanceId,
+      runtimeScopeId: this.runtimeScopeId,
+      reason,
+      observedAt: observedOwnership.leaseObservedAt,
+      recoveredLeaseHolder: recoveredOwnership.leaseHolder,
+      recoveredLeaseSurfaceId: recoveredOwnership.leaseSurfaceId,
+    });
   }
 
   private buildOwnershipSnapshot(envelope: FrontendObservedLeaseEnvelope | null): FrontendOwnershipSnapshot {
@@ -1179,7 +1225,16 @@ export class FrontendInstanceRuntime {
     } catch (error) {
       status = 'error';
       if (this.isWriterLeaseUnavailableError(error)) {
-        const ownership = await this.observeCurrentLease(`${reason}:lost-writer`);
+        const ownership = await this.observeCurrentLease(`${reason}:lost-writer`, {
+          preserveWriterModeForEmptyPrimaryLeaseGap: true,
+        });
+        if (this.shouldRecoverEmptyPrimaryWriterLeaseGap(ownership)) {
+          const recoveredOwnership = await this.acquireWriterLease(`${reason}:recover-empty-lease`);
+          if (recoveredOwnership.leaseHolder === this.instanceId) {
+            this.logWriterLeaseGapRecovered(reason, ownership, recoveredOwnership);
+            return;
+          }
+        }
         if (!ownership.leaseHolder || ownership.leaseHolder === this.instanceId) {
           this.logger.warn('[FrontendInstanceRuntime] relay polling lost writer lease', {
             instanceId: this.instanceId,
