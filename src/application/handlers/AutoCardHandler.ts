@@ -58,6 +58,14 @@ import {
     type QuickCardSettings,
 } from './AutoCardDecisionRelayRuntime';
 import { AutoCardExecuteRelayRuntime } from './AutoCardExecuteRelayRuntime';
+import {
+    AutoCardListenerCandidateRuntime,
+    type AutoCardCheckStatus,
+    type AutoCardListenerBusinessIdentity,
+    type AutoCardListenerCandidateDiagnostic,
+} from './AutoCardListenerCandidateRuntime';
+
+export type { AutoCardListenerCandidateDiagnostic } from './AutoCardListenerCandidateRuntime';
 
 const logger = createLogger('AutoCardHandler');
 
@@ -169,56 +177,6 @@ type AutoCardTraceContext = {
     txBatchId?: string;
     nextBlockId?: string;
 };
-
-type CandidateBlockContext = {
-    candidateId: string;
-    blockId: string;
-    txBatchId: string;
-    actions: string[];
-    enqueuedAt: number;
-    opIds: string[];
-    retryAttempt: number;
-    followUpRequested?: boolean;
-};
-
-type AutoCardCheckStatus = string;
-
-type AutoCardListenerBusinessIdentity = {
-    key: string;
-    sourceBlockId: string;
-    symbolRangeFingerprint: string;
-    resolvedCardType: 'topic' | 'item';
-    envelopeKind: AutoCardExecutionEnvelope['kind'];
-    targetTopicContainerId: string | null;
-    selectedDecisionId: string | null;
-    enabledDecisionIds: string[];
-    matchedRuleIds: string[];
-};
-
-type ListenerCandidateLifecycleStatus =
-    | 'accepted'
-    | 'retry-scheduled'
-    | 'created'
-    | 'skipped'
-    | 'retry-exhausted'
-    | 'failed';
-
-export interface AutoCardListenerCandidateDiagnostic {
-    candidateId: string;
-    blockId: string;
-    status: ListenerCandidateLifecycleStatus;
-    reason: string;
-    terminal: boolean;
-    txBatchId?: string;
-    actions: string[];
-    opIds: string[];
-    attempt: number;
-    delayMs?: number;
-    runId?: string;
-    businessIdentity?: AutoCardListenerBusinessIdentity;
-    createdAt: number;
-    updatedAt: number;
-}
 
 export interface AutoCardHandlerPorts {
     siyuanApi: AutoCardSiyuanPort;
@@ -332,22 +290,15 @@ export class AutoCardHandler implements ITransactionHandler {
     private readonly executionRuntime: AutoCardExecutionRuntime;
     private readonly decisionRelayRuntime: AutoCardDecisionRelayRuntime;
     private readonly executeRelayRuntime: AutoCardExecuteRelayRuntime;
+    private readonly listenerCandidateRuntime: AutoCardListenerCandidateRuntime;
     
 
     private processing: Set<string> = new Set();
     private readonly conceptCardEnsureInFlight = new Set<string>();
-    private readonly candidateTimers = new Map<string, NodeJS.Timeout>();
-    private readonly candidateContexts = new Map<string, CandidateBlockContext>();
-    private readonly listenerCandidateDiagnostics = new Map<string, AutoCardListenerCandidateDiagnostic>();
-    private readonly listenerCandidateDiagnosticOrder: string[] = [];
     private readonly lastEvaluationFingerprintByBlock = new Map<string, string>();
     private readonly symbolListenerBusinessInFlight = new Set<string>();
     private readonly listenerBusinessIdentityByBlock = new Map<string, AutoCardListenerBusinessIdentity>();
     private readonly suppressedTopicDerivedMarkMutations = new Map<string, number>();
-    private readonly settledEvaluationDelayMs = 300;
-    private readonly candidateRetryDelaysMs = [250, 750, 1500, 3000, 6000];
-    private readonly followUpEvaluationDelayMs = 0;
-    private readonly maxListenerCandidateDiagnostics = 200;
     private traceSequence = 0;
     private readonly activeRunContexts = new Map<string, AutoCardTraceContext>();
     
@@ -401,6 +352,22 @@ export class AutoCardHandler implements ITransactionHandler {
             getFollowerCommandClient: () => this.getFollowerCommandClientOptional(),
             tracePolicyDecision: (reason, payload) => this.traceBackendPolicyDecision(reason, payload),
             toBackendExecuteEnvelope: (envelope) => this.toBackendExecuteEnvelope(envelope),
+        });
+        this.listenerCandidateRuntime = new AutoCardListenerCandidateRuntime({
+            settledEvaluationDelayMs: 300,
+            candidateRetryDelaysMs: [250, 750, 1500, 3000, 6000],
+            followUpEvaluationDelayMs: 0,
+            maxDiagnostics: 200,
+            nextCandidateId: () => this.nextTraceId('listener-candidate'),
+            evaluateCandidate: (blockId) => this.processSettledCandidate(blockId),
+            clearEvaluationFingerprint: (blockId) => {
+                this.lastEvaluationFingerprintByBlock.delete(blockId);
+            },
+            getBusinessIdentity: (blockId) => this.listenerBusinessIdentityByBlock.get(blockId) ?? null,
+            clearBusinessIdentity: (blockId) => {
+                this.listenerBusinessIdentityByBlock.delete(blockId);
+            },
+            traceAutoCard: (event, payload) => this.traceAutoCard(event, payload),
         });
         logger.debug('[SiYuanMemo][AutoCard] Handler initialized');
     }
@@ -1148,239 +1115,7 @@ export class AutoCardHandler implements ITransactionHandler {
     }
 
     getListenerCandidateDiagnostics(): AutoCardListenerCandidateDiagnostic[] {
-        return this.listenerCandidateDiagnosticOrder
-            .map((candidateId) => this.listenerCandidateDiagnostics.get(candidateId))
-            .filter((diagnostic): diagnostic is AutoCardListenerCandidateDiagnostic => Boolean(diagnostic))
-            .map((diagnostic) => ({
-                ...diagnostic,
-                actions: [...diagnostic.actions],
-                opIds: [...diagnostic.opIds],
-                ...(diagnostic.businessIdentity ? {
-                    businessIdentity: {
-                        ...diagnostic.businessIdentity,
-                        enabledDecisionIds: [...diagnostic.businessIdentity.enabledDecisionIds],
-                        matchedRuleIds: [...diagnostic.businessIdentity.matchedRuleIds],
-                    },
-                } : {}),
-            }));
-    }
-
-    private recordListenerCandidateLifecycle(
-        context: CandidateBlockContext,
-        status: ListenerCandidateLifecycleStatus,
-        reason: string,
-        options: {
-            terminal?: boolean;
-            delayMs?: number;
-            runId?: string | null;
-            attempt?: number;
-        } = {}
-    ): void {
-        const now = Date.now();
-        const existing = this.listenerCandidateDiagnostics.get(context.candidateId);
-        if (!existing) {
-            this.listenerCandidateDiagnosticOrder.push(context.candidateId);
-        }
-        const terminal = options.terminal ?? (
-            status === 'created'
-            || status === 'skipped'
-            || status === 'retry-exhausted'
-            || status === 'failed'
-        );
-        const businessIdentity = this.listenerBusinessIdentityByBlock.get(context.blockId);
-        this.listenerCandidateDiagnostics.set(context.candidateId, {
-            candidateId: context.candidateId,
-            blockId: context.blockId,
-            status,
-            reason,
-            terminal,
-            txBatchId: context.txBatchId,
-            actions: [...context.actions],
-            opIds: [...context.opIds],
-            attempt: options.attempt ?? context.retryAttempt,
-            ...(typeof options.delayMs === 'number' ? { delayMs: options.delayMs } : {}),
-            ...(options.runId ? { runId: options.runId } : {}),
-            ...(businessIdentity ? { businessIdentity } : {}),
-            createdAt: existing?.createdAt ?? now,
-            updatedAt: now,
-        });
-        this.trimListenerCandidateDiagnostics();
-        this.traceAutoCard('candidate.lifecycle', {
-            candidateId: context.candidateId,
-            blockId: context.blockId,
-            status,
-            reason,
-            terminal,
-            attempt: options.attempt ?? context.retryAttempt,
-            delayMs: options.delayMs ?? null,
-            txBatchId: context.txBatchId,
-            businessIdentityKey: businessIdentity?.key ?? null,
-        });
-    }
-
-    private trimListenerCandidateDiagnostics(): void {
-        while (this.listenerCandidateDiagnosticOrder.length > this.maxListenerCandidateDiagnostics) {
-            const candidateId = this.listenerCandidateDiagnosticOrder.shift();
-            if (candidateId) {
-                this.listenerCandidateDiagnostics.delete(candidateId);
-            }
-        }
-    }
-
-    private scheduleCandidateTimer(
-        blockId: string,
-        delayMs: number,
-        reason: string,
-        context: CandidateBlockContext
-    ): void {
-        const existingTimer = this.candidateTimers.get(blockId);
-        if (existingTimer) {
-            clearTimeout(existingTimer);
-        }
-        const timer = setTimeout(() => {
-            recordRuntimePerformanceSpan(
-                'autocard',
-                'candidate.settle-latency',
-                Date.now() - context.enqueuedAt,
-                {
-                    actionCount: context.actions.length,
-                    delayMs,
-                    txBatchId: context.txBatchId,
-                    reason,
-                    retryAttempt: context.retryAttempt,
-                },
-            );
-            this.candidateTimers.delete(blockId);
-            void this.processSettledCandidate(blockId);
-        }, delayMs);
-
-        this.candidateTimers.set(blockId, timer);
-    }
-
-    private isTransientReadinessStatus(status: AutoCardCheckStatus): boolean {
-        return status === 'empty-content' || status === 'missing-block';
-    }
-
-    private toTerminalCandidateOutcome(status: AutoCardCheckStatus): {
-        status: ListenerCandidateLifecycleStatus;
-        reason: string;
-    } {
-        if (status === 'executed-planner-decision' || status === 'executed-topic-derived') {
-            return { status: 'created', reason: status };
-        }
-        if (status === 'error') {
-            return { status: 'failed', reason: status };
-        }
-        if (status === 'skip-in-flight-duplicate') {
-            return { status: 'skipped', reason: 'in-flight duplicate skipped' };
-        }
-        return { status: 'skipped', reason: status || 'unknown' };
-    }
-
-    private scheduleRetryForTransientCandidate(
-        blockId: string,
-        reason: AutoCardCheckStatus,
-        context: CandidateBlockContext
-    ): boolean {
-        const nextAttempt = context.retryAttempt + 1;
-        if (nextAttempt > this.candidateRetryDelaysMs.length) {
-            return false;
-        }
-        const delayMs = this.candidateRetryDelaysMs[nextAttempt - 1] ?? this.candidateRetryDelaysMs[this.candidateRetryDelaysMs.length - 1];
-        const nextContext: CandidateBlockContext = {
-            ...context,
-            retryAttempt: nextAttempt,
-            followUpRequested: false,
-            enqueuedAt: Date.now(),
-        };
-        this.candidateContexts.set(blockId, nextContext);
-        this.recordListenerCandidateLifecycle(nextContext, 'retry-scheduled', reason, {
-            terminal: false,
-            delayMs,
-            attempt: nextAttempt,
-        });
-        this.scheduleCandidateTimer(blockId, delayMs, 'transient-retry', nextContext);
-        return true;
-    }
-
-    private scheduleFollowUpCandidate(
-        blockId: string,
-        context: CandidateBlockContext,
-        reason: string
-    ): void {
-        const nextContext: CandidateBlockContext = {
-            ...context,
-            retryAttempt: 0,
-            followUpRequested: false,
-            enqueuedAt: Date.now(),
-        };
-        this.candidateContexts.set(blockId, nextContext);
-        this.recordListenerCandidateLifecycle(nextContext, 'retry-scheduled', reason, {
-            terminal: false,
-            delayMs: this.followUpEvaluationDelayMs,
-        });
-        this.scheduleCandidateTimer(blockId, this.followUpEvaluationDelayMs, reason, nextContext);
-    }
-
-    private enqueueCandidateBlock(blockId: string, txBatchId: string, action: string, opId: string): void {
-        const existingContext = this.candidateContexts.get(blockId);
-        const enqueuedAt = Date.now();
-        const nextContext: CandidateBlockContext = existingContext
-            ? {
-                ...existingContext,
-                txBatchId,
-                actions: [...existingContext.actions, action],
-                opIds: [...existingContext.opIds, opId],
-                enqueuedAt,
-                retryAttempt: 0,
-            }
-            : {
-                candidateId: this.nextTraceId('listener-candidate'),
-                blockId,
-                txBatchId,
-                actions: [action],
-                enqueuedAt,
-                opIds: [opId],
-                retryAttempt: 0,
-            };
-
-        this.candidateContexts.set(blockId, nextContext);
-        this.recordListenerCandidateLifecycle(nextContext, 'accepted', action, {
-            terminal: false,
-        });
-
-        this.traceAutoCard('candidate.enqueue', {
-            candidateId: nextContext.candidateId,
-            blockId,
-            txBatchId,
-            action,
-            opId,
-            enqueueCount: nextContext.actions.length,
-            delayMs: this.settledEvaluationDelayMs,
-        });
-        this.scheduleCandidateTimer(blockId, this.settledEvaluationDelayMs, 'settled-evaluation', nextContext);
-    }
-
-    private cancelPendingCandidate(blockId: string, txBatchId: string, reason: string): void {
-        const existingContext = this.candidateContexts.get(blockId);
-        const existingTimer = this.candidateTimers.get(blockId);
-        if (existingTimer) {
-            clearTimeout(existingTimer);
-            this.candidateTimers.delete(blockId);
-        }
-        if (existingContext) {
-            this.recordListenerCandidateLifecycle(existingContext, 'skipped', reason, {
-                terminal: true,
-            });
-        }
-        this.candidateContexts.delete(blockId);
-        this.lastEvaluationFingerprintByBlock.delete(blockId);
-
-        this.traceAutoCard('candidate.cancel', {
-            blockId,
-            txBatchId,
-            reason,
-        });
+        return this.listenerCandidateRuntime.getDiagnostics();
     }
 
     private async createXiuyuanFromBlocks(
@@ -1428,7 +1163,7 @@ export class AutoCardHandler implements ITransactionHandler {
             incrementRuntimePerformanceCounter('autocard', 'candidate-batches-skipped');
             finishHandleSpan({
                 changedBlockCount: classification.changedBlockIds.length,
-                pendingCandidateCount: this.candidateContexts.size,
+                pendingCandidateCount: this.listenerCandidateRuntime.getPendingCandidateCount(),
                 prefilteredCount: classification.autoCard.prefilteredNoOpCount,
                 quickCardEnabled: true,
                 scheduledCount: 0,
@@ -1445,7 +1180,7 @@ export class AutoCardHandler implements ITransactionHandler {
         const prefilteredCount = classification.autoCard.prefilteredNoOpCount;
 
         for (const operation of classification.autoCard.candidateOperations) {
-            this.enqueueCandidateBlock(operation.blockId, txBatchId, operation.action, operation.opId);
+            this.listenerCandidateRuntime.enqueueCandidateBlock(operation.blockId, txBatchId, operation.action, operation.opId);
             scheduledCount++;
             relevantOperations.push({
                 action: operation.action,
@@ -1457,7 +1192,7 @@ export class AutoCardHandler implements ITransactionHandler {
         }
 
         for (const blockId of classification.autoCard.cancelBlockIds) {
-            this.cancelPendingCandidate(blockId, txBatchId, 'delete');
+            this.listenerCandidateRuntime.cancelPendingCandidate(blockId, txBatchId, 'delete');
             cancelledCount++;
             relevantOperations.push({
                 action: 'delete',
@@ -1476,7 +1211,7 @@ export class AutoCardHandler implements ITransactionHandler {
 
         this.traceAutoCard('handle.transactions', {
             txBatchId,
-            pendingCandidateCount: this.candidateContexts.size,
+            pendingCandidateCount: this.listenerCandidateRuntime.getPendingCandidateCount(),
             relevantOperations,
         });
         incrementRuntimePerformanceCounter('autocard', 'candidate-operations-scheduled', scheduledCount);
@@ -1484,7 +1219,7 @@ export class AutoCardHandler implements ITransactionHandler {
         incrementRuntimePerformanceCounter('autocard', 'candidate-operations-prefiltered', prefilteredCount);
         finishHandleSpan({
             cancelledCount,
-            pendingCandidateCount: this.candidateContexts.size,
+            pendingCandidateCount: this.listenerCandidateRuntime.getPendingCandidateCount(),
             prefilteredCount,
             quickCardEnabled: true,
             scheduledCount,
@@ -2248,7 +1983,7 @@ export class AutoCardHandler implements ITransactionHandler {
     // Process one settled candidate block after the debounce window has converged.
     private async processSettledCandidate(blockId: string): Promise<void> {
         logger.debug('[SiYuanMemo][AutoCard] Processing settled candidate block:', blockId);
-        const candidateContext = this.candidateContexts.get(blockId);
+        const candidateContext = this.listenerCandidateRuntime.getCandidateContext(blockId);
         const finishCandidateSpan = startRuntimePerformanceSpan('autocard', 'candidate.process-settled', {
             actionCount: candidateContext?.actions.length ?? 0,
             txBatchId: candidateContext?.txBatchId,
@@ -2274,18 +2009,7 @@ export class AutoCardHandler implements ITransactionHandler {
 
         if (alreadyProcessing) {
             logger.debug('[SiYuanMemo][AutoCard] Block already processing:', blockId);
-            if (candidateContext) {
-                const nextContext: CandidateBlockContext = {
-                    ...candidateContext,
-                    followUpRequested: true,
-                };
-                this.candidateContexts.set(blockId, nextContext);
-                this.recordListenerCandidateLifecycle(nextContext, 'retry-scheduled', 'already-processing', {
-                    terminal: false,
-                    runId,
-                    delayMs: this.followUpEvaluationDelayMs,
-                });
-            }
+            this.listenerCandidateRuntime.markAlreadyProcessing(blockId, runId);
             this.traceAutoCard('settledEvaluation.end', {
                 runId,
                 blockId,
@@ -2319,31 +2043,13 @@ export class AutoCardHandler implements ITransactionHandler {
         } finally {
             this.processing.delete(blockId);
             this.activeRunContexts.delete(blockId);
-            const currentContext = this.candidateContexts.get(blockId) ?? candidateContext ?? null;
-            if (currentContext) {
-                if (!errorMessage && this.isTransientReadinessStatus(checkStatus)) {
-                    scheduledContinuation = this.scheduleRetryForTransientCandidate(blockId, checkStatus, currentContext);
-                    if (!scheduledContinuation) {
-                        this.recordListenerCandidateLifecycle(currentContext, 'retry-exhausted', checkStatus, {
-                            terminal: true,
-                            runId,
-                        });
-                    }
-                } else if (!errorMessage && currentContext.followUpRequested) {
-                    scheduledContinuation = true;
-                    this.scheduleFollowUpCandidate(blockId, currentContext, 'already-processing-follow-up');
-                } else {
-                    const terminalOutcome = this.toTerminalCandidateOutcome(checkStatus);
-                    this.recordListenerCandidateLifecycle(currentContext, terminalOutcome.status, terminalOutcome.reason, {
-                        terminal: true,
-                        runId,
-                    });
-                }
-            }
-            if (!scheduledContinuation && !this.candidateTimers.has(blockId)) {
-                this.candidateContexts.delete(blockId);
-                this.listenerBusinessIdentityByBlock.delete(blockId);
-            }
+            ({ scheduledContinuation } = this.listenerCandidateRuntime.completeCandidateEvaluation({
+                blockId,
+                initialContext: candidateContext,
+                checkStatus,
+                errorMessage,
+                runId,
+            }));
             this.traceAutoCard('settledEvaluation.end', {
                 runId,
                 blockId,
@@ -3152,13 +2858,7 @@ export class AutoCardHandler implements ITransactionHandler {
     
     // Cleanup timers and in-memory queues.
     dispose(): void {
-        for (const timer of this.candidateTimers.values()) {
-            clearTimeout(timer);
-        }
-        this.candidateTimers.clear();
-        this.candidateContexts.clear();
-        this.listenerCandidateDiagnostics.clear();
-        this.listenerCandidateDiagnosticOrder.length = 0;
+        this.listenerCandidateRuntime.dispose();
         this.activeRunContexts.clear();
         this.suppressedTopicDerivedMarkMutations.clear();
         this.lastEvaluationFingerprintByBlock.clear();

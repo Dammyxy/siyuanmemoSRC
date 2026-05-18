@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-18 (Round 387)
+Last update: 2026-05-18 (Round 388)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-18 - AutoCard Listener Candidate Runtime
+
+- Task: Apply OpenSpec change `deepen-autocard-listener-runtime` by extracting AutoCard listener candidate lifecycle from `AutoCardHandler`.
+- Touched slice: AutoCard listener lifecycle; `src/application/handlers/AutoCardHandler.ts`, `src/application/handlers/AutoCardListenerCandidateRuntime.ts`, focused listener runtime tests, AutoCard handler/listener tests, `CONTEXT.md`, and `ARCHITECTURE.md`.
+- Debt fixed now: `AutoCardListenerCandidateRuntime` now owns transaction-derived candidate contexts, settle timers, transient retry policy, already-processing follow-up scheduling, bounded lifecycle diagnostics, immutable diagnostic reads, and dispose cleanup. `AutoCardHandler` delegates candidate accept/cancel/evaluation completion while keeping transaction entry, local planner decisions, decision/execute relay calls, local side effects, and backend callback behavior.
+- Debt deferred: `scanDocumentByRootId()` remains in `AutoCardHandler` because it directly composes document-root normalization, `DocumentPostCreationScanService`, decision resolution, and execute side effects. Xiuyuan writes, Topic-derived item creation, quick-card parser/planner rules, and broader handler file size remain outside this slice.
+- Why deferred: Document scan orchestration crosses decision and execute semantics; extracting it with listener timers would mix candidate lifecycle with write-side orchestration and weaken the new runtime interface.
+- Next safe step: If AutoCard remains the next target, split document scan only after naming a dedicated scan orchestration concept and preserving decision/execute relay tests; otherwise move to Review compensation or data-source interface slimming.
+- Validation: `pnpm vitest run src/application/handlers/__tests__/AutoCardListenerCandidateRuntime.test.ts`; `pnpm vitest run src/application/handlers/__tests__/AutoCardDecisionRelayRuntime.test.ts src/application/handlers/__tests__/AutoCardExecuteRelayRuntime.test.ts src/application/handlers/__tests__/AutoCardHandler.backend-execute.test.ts`; `pnpm vitest run src/application/handlers/__tests__/AutoCardHandler.listener-reliability.test.ts src/application/handlers/__tests__/AutoCardHandler.listener-structural-disabled.test.ts src/application/handlers/__tests__/AutoCardHandler.doc-scan-root-guard.test.ts src/application/handlers/__tests__/AutoCardHandler.cloze-planner.test.ts src/application/handlers/__tests__/AutoCardHandler.inline-content-normalize.test.ts src/application/handlers/__tests__/AutoCardHandler.quick-cloze-content.test.ts src/application/handlers/__tests__/AutoCardHandler.topic-derivation.test.ts src/application/handlers/__tests__/AutoCardHandler.triple-symbol-exclusion.test.ts src/application/handlers/__tests__/AutoCardExecutionRuntime.test.ts`.
 
 ### 2026-05-18 - AutoCard Execute Relay Runtime
 

@@ -60,6 +60,10 @@ _Avoid_: AutoCard execute runtime, card creation owner, Xiuyuan write path, Topi
 The AutoCard write-routing module that submits execution envelopes to backend `autocard.execute`, routes follower instances through writer relay, refreshes writer ownership before direct backend execution, and fails closed when backend or writer relay ownership is unavailable.
 _Avoid_: AutoCard decision selection, local planner execution, Xiuyuan application service ownership, Topic-derived item creation semantics, listener retry scheduling
 
+**AutoCard Listener Candidate Runtime**:
+The AutoCard listener lifecycle module that tracks transaction-derived candidate contexts, settle timers, transient retries, already-processing follow-ups, lifecycle diagnostics, and listener cleanup. It decides when a candidate is re-evaluated, not how a decision is selected or how card-creation side effects execute.
+_Avoid_: AutoCard Decision Relay, AutoCard Execute Relay, local planner rules, Xiuyuan write owner, Topic-derived item creation, document scan semantics
+
 **SRS Browser Card Universe**:
 The set of SRS cards that SiYuanMemo can manage through its card identity and browser projection. Arbitrary SQL block results are candidates only after intersecting with this card universe.
 _Avoid_: treating all matching `blocks` rows as SRS Browser cards
@@ -113,6 +117,7 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - **Topic Container** identity must not depend on whether the owning block is a document block.
 - **AutoCard Decision Relay** chooses the decision owner before AutoCard execute side effects run.
 - **AutoCard Execute Relay** chooses the backend/writer owner for AutoCard execution envelopes, but does not execute local card creation itself.
+- **AutoCard Listener Candidate Runtime** decides when transaction-derived AutoCard candidates are evaluated; **AutoCard Decision Relay** and **AutoCard Execute Relay** decide backend/writer command ownership after evaluation begins.
 - **SRS Browser Card Universe** scopes Browser filters, SQL searches, counts, and bulk operations to cards managed by SiYuanMemo.
 - **Custom Review Surfaces** share review rendering requirements with native-like review surfaces, including supported link and reference behavior.
 - A **Semantic Session Read Model** is derived from Semantic session owner state and may consume core Semantic session projection, but it remains a read-only presentation model for Browser, Review sidebar, or session inspection callers.
@@ -140,6 +145,7 @@ _Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoa
 - Topic was implicitly treated as document-block-only in some creation flows. Resolved: **Topic Container** includes non-document blocks such as super blocks when they own Topic-derived item creation.
 - AutoCard decision routing was ambiguous with AutoCard execution and Xiuyuan writes. Resolved: **AutoCard Decision Relay** owns only decision resolve routing/local compatibility-read; execute side effects remain separate.
 - AutoCard execute routing was ambiguous with local execution side effects. Resolved: **AutoCard Execute Relay** owns backend/follower/writer relay routing and unavailable diagnostics; local planner, Xiuyuan, and Topic-derived writes remain behind application execution runtime/services.
+- AutoCard listener retry/settle state was ambiguous with decision and execute command ownership. Resolved: **AutoCard Listener Candidate Runtime** owns candidate lifecycle timing/diagnostics only; decision/execute routing and write side effects stay outside it.
 - SRS Browser filtering was ambiguous between arbitrary block SQL and plugin-managed cards. Resolved: **SRS Browser Card Universe** is the outer scope; SQL results are intersected with it.
 - Temporary and deliberate practice were described as unable to render links. Resolved: the issue belongs to **Custom Review Surface** rendering, not to those practice modes as domain concepts.
 - Semantic read assembly was ambiguous with core projection building. Resolved: **Semantic Session Read Model** names the presentation-ready read model derived from Semantic session owner state, while core projection remains the lower-level tree/path/branch derivation.
