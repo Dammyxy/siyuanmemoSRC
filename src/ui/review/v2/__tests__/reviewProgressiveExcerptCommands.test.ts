@@ -217,6 +217,46 @@ describe('reviewProgressiveExcerptCommands', () => {
     expect(showMessage).toHaveBeenLastCalledWith('已创建 Topic，并并入当前超空间神经漫游', 3000, 'info');
   });
 
+  it('shows degraded preservation feedback only when likely inline references have no content DOM', async () => {
+    const createdResult = {
+      kind: 'created' as const,
+      excerptEntityId: 'excerpt-doc-1',
+      excerptEntityType: 'doc' as const,
+      topicCardId: 'topic-card-1',
+      sourceBlockId: 'source-block-1',
+      sourceBlockIds: ['source-block-1'],
+      containerDocId: 'daily-note-1',
+      recordId: 'record-1',
+      colorApplied: false,
+    };
+    const selection = createSelection();
+    selection.text = 'See [link](https://example.com)';
+    selection.contentDom = '';
+    const selectionService = createSelectionService(createdResult);
+    const routeExcerpt = vi.fn(async () => null);
+    const showMessage = vi.fn();
+    const logger = { warn: vi.fn() };
+
+    await createProgressiveExcerptFromReviewSelection({
+      selection,
+      trigger: 'toolbar',
+      selectionService,
+      tabApplicationService: null,
+      currentCardId: 'card-topic-1',
+      routeExcerpt,
+      t,
+      showMessage,
+      logger,
+    });
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('without DOM preservation evidence'),
+      expect.objectContaining({ sourceBlockId: 'source-block-1' }),
+    );
+    expect(showMessage).toHaveBeenCalledWith('已创建 Topic，但原文链接或块引用可能未完整保留', 5000, 'info');
+    expect(showMessage).toHaveBeenLastCalledWith('已创建 Topic', 3000, 'info');
+  });
+
   it('opens duplicate excerpts without routing them again', async () => {
     const duplicateResult = {
       kind: 'duplicate' as const,

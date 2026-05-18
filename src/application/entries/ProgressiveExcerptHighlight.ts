@@ -7,6 +7,9 @@ import { PROGRESSIVE_EXCERPT_COLOR_TOKEN } from '@/application/services/ExcerptR
 import { createLogger } from '@/utils/logger';
 
 export const PROGRESSIVE_EXCERPT_HIGHLIGHT_COLOR = PROGRESSIVE_EXCERPT_COLOR_TOKEN;
+export const PROGRESSIVE_EXCERPT_MARK_ATTR = 'data-siyuanmemo-excerpt-mark';
+export const PROGRESSIVE_EXCERPT_MARK_VALUE = 'source';
+export const PROGRESSIVE_EXCERPT_MARK_CLASS = 'siyuanmemo-progressive-excerpt-mark';
 
 const logger = createLogger('ProgressiveExcerptHighlight');
 
@@ -46,13 +49,18 @@ function getTextInlineWrapper(node: Node | null): HTMLElement | null {
   return getElementFromNode(node)?.closest<HTMLElement>('span[data-type~="text"]') || null;
 }
 
-function hasHighlightColor(element: Element | null): boolean {
+function hasPluginExcerptMark(element: Element | null): boolean {
   if (!(element instanceof HTMLElement)) {
     return false;
   }
 
-  const style = element.getAttribute('style') || '';
-  return style.includes('background-color') && style.includes(PROGRESSIVE_EXCERPT_HIGHLIGHT_COLOR);
+  return element.getAttribute(PROGRESSIVE_EXCERPT_MARK_ATTR) === PROGRESSIVE_EXCERPT_MARK_VALUE
+    || element.classList.contains(PROGRESSIVE_EXCERPT_MARK_CLASS);
+}
+
+function applyPluginExcerptMarkIdentity(element: HTMLElement): void {
+  element.setAttribute(PROGRESSIVE_EXCERPT_MARK_ATTR, PROGRESSIVE_EXCERPT_MARK_VALUE);
+  element.classList.add(PROGRESSIVE_EXCERPT_MARK_CLASS);
 }
 
 function resolveLiveRoot(snapshot: ProgressiveExcerptSelectionSnapshot): HTMLElement | null {
@@ -94,10 +102,10 @@ function isRangeInsideHighlightedText(range: Range): boolean {
   }
 
   if (startWrapper === endWrapper) {
-    return hasHighlightColor(startWrapper);
+    return hasPluginExcerptMark(startWrapper);
   }
 
-  return hasHighlightColor(startWrapper) && hasHighlightColor(endWrapper);
+  return hasPluginExcerptMark(startWrapper) && hasPluginExcerptMark(endWrapper);
 }
 
 function buildNodePath(root: Node, target: Node | null): number[] | null {
@@ -166,7 +174,8 @@ function cloneHighlightRange(
   }
 
   const wrapper = document.createElement('span');
-  wrapper.setAttribute('data-type', 'text');
+  wrapper.setAttribute('data-type', 'text mark');
+  applyPluginExcerptMarkIdentity(wrapper);
   wrapper.style.backgroundColor = PROGRESSIVE_EXCERPT_HIGHLIGHT_COLOR;
   wrapper.append(clonedRange.extractContents());
   clonedRange.insertNode(wrapper);
@@ -212,10 +221,7 @@ function cloneSuperBlockHighlight(blockElement: HTMLElement): PreparedProgressiv
     return null;
   }
 
-  if (targets.every((target) => {
-    const currentStyle = target.getAttribute('style') || '';
-    return currentStyle.includes('background-color') && currentStyle.includes(PROGRESSIVE_EXCERPT_HIGHLIGHT_COLOR);
-  })) {
+  if (targets.every((target) => hasPluginExcerptMark(target))) {
     return {
       blockId: String(blockElement.getAttribute('data-node-id') || '').trim(),
       previousBlockHtml,
@@ -225,6 +231,7 @@ function cloneSuperBlockHighlight(blockElement: HTMLElement): PreparedProgressiv
   }
 
   for (const target of targets) {
+    applyPluginExcerptMarkIdentity(target);
     target.setAttribute('style', appendBackgroundColor(target.getAttribute('style')));
   }
 
@@ -245,7 +252,7 @@ function cloneFullBlockHighlight(blockElement: HTMLElement): PreparedProgressive
   const clonedBlock = blockElement.cloneNode(true) as HTMLElement;
   const target = resolveFullBlockHighlightTarget(clonedBlock);
   const currentStyle = target.getAttribute('style') || '';
-  if (currentStyle.includes('background-color') && currentStyle.includes(PROGRESSIVE_EXCERPT_HIGHLIGHT_COLOR)) {
+  if (hasPluginExcerptMark(target)) {
     return {
       blockId: String(blockElement.getAttribute('data-node-id') || '').trim(),
       previousBlockHtml,
@@ -254,6 +261,7 @@ function cloneFullBlockHighlight(blockElement: HTMLElement): PreparedProgressive
     };
   }
 
+  applyPluginExcerptMarkIdentity(target);
   target.setAttribute('style', appendBackgroundColor(currentStyle));
   return {
     blockId: String(blockElement.getAttribute('data-node-id') || '').trim(),

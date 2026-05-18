@@ -72,6 +72,7 @@ function createSelectionSnapshot(root: HTMLElement | null, overrides: Record<str
 
 function createHandler(options?: {
   enabled?: boolean;
+  sourceMarkingEnabled?: boolean;
   createFromSelection?: ReturnType<typeof vi.fn>;
   materializeExcerptSource?: ReturnType<typeof vi.fn>;
   prepareTopicContinuation?: ReturnType<typeof vi.fn>;
@@ -130,6 +131,7 @@ function createHandler(options?: {
         getSettings: () => ({
           progressiveReading: {
             altXExcerptEnabled: options?.enabled ?? true,
+            sourceMarkingEnabled: options?.sourceMarkingEnabled ?? true,
           },
         }),
       }),
@@ -402,6 +404,79 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     } as any);
 
     expect(createFromSelection).toHaveBeenCalledTimes(1);
+    expect(showMessage).toHaveBeenCalledWith('Topic created and added to today', 3000, 'info');
+  });
+
+  it('creates excerpts without preparing or applying source marks when source marking is disabled', async () => {
+    document.body.innerHTML = `
+      <div class="protyle" id="editor-root">
+        <div data-node-id="block-1">
+          <span id="target" contenteditable="true">Hello world</span>
+        </div>
+      </div>
+    `;
+
+    const root = document.getElementById('editor-root');
+    if (!root) {
+      throw new Error('Expected editor root');
+    }
+
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(root));
+
+    const { handler, createFromSelection } = createHandler({ sourceMarkingEnabled: false });
+    await handler.runFromEditor({
+      wysiwyg: {
+        element: root,
+      },
+    } as any);
+
+    expect(createFromSelection).toHaveBeenCalledTimes(1);
+    expect(prepareProgressiveExcerptHighlight).not.toHaveBeenCalled();
+    expect(applyProgressiveExcerptHighlight).not.toHaveBeenCalled();
+    expect(showMessage).toHaveBeenCalledWith('Topic created and added to today', 3000, 'info');
+  });
+
+  it('warns when likely inline references are excerpted without DOM preservation evidence', async () => {
+    document.body.innerHTML = `
+      <div class="protyle" id="editor-root">
+        <div data-node-id="block-1">
+          <span id="target" contenteditable="true">See [link](https://example.com)</span>
+        </div>
+      </div>
+    `;
+
+    const root = document.getElementById('editor-root');
+    if (!root) {
+      throw new Error('Expected editor root');
+    }
+
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(root, {
+      text: 'See [link](https://example.com)',
+      contentDom: '',
+    }));
+
+    const materializeExcerptSource = vi.fn(async (selection: ReturnType<typeof createSelectionSnapshot>) => ({
+      sourceBlockId: selection.sourceBlockId,
+      sourceBlockIds: selection.sourceBlockIds,
+      contentDom: '',
+      highlightSnapshot: selection,
+      reused: false,
+    }));
+
+    const { handler } = createHandler({ materializeExcerptSource });
+    await handler.runFromEditor({
+      wysiwyg: {
+        element: root,
+      },
+    } as any);
+
+    expect(showMessage).toHaveBeenCalledWith(
+      '已创建 Topic，但原文链接或块引用可能未完整保留',
+      5000,
+      'info',
+    );
     expect(showMessage).toHaveBeenCalledWith('Topic created and added to today', 3000, 'info');
   });
 

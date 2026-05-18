@@ -326,6 +326,14 @@ export class SettingsService implements ISettingsService {
       );
     }
 
+    const sourceMarkingEnabled = settings.progressiveReading?.sourceMarkingEnabled;
+    if (sourceMarkingEnabled !== undefined && typeof sourceMarkingEnabled !== 'boolean') {
+      throw new SettingsValidationError(
+        'progressiveReading.sourceMarkingEnabled must be a boolean',
+        'progressiveReading.sourceMarkingEnabled'
+      );
+    }
+
     const neuralHistory = settings.queues?.neuralRoam?.history;
     const preferredNeuralMode = settings.queues?.neuralRoam?.preferredMode;
     if (

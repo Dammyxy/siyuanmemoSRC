@@ -718,7 +718,7 @@ export class ProgressiveReadingService {
       }
     }
 
-    const excerptAttempt = await this.excerptRecordService.createOrRejectDuplicate({
+    const excerptAttempt = await this.excerptRecordService.createAllowingDuplicate({
       sourceDocId,
       sourceBlockId,
       sourceBlockIds,
@@ -821,16 +821,6 @@ export class ProgressiveReadingService {
         }
       },
     });
-
-    if (excerptAttempt.kind === 'duplicate') {
-      logger.info('Duplicate excerpt prevented', {
-        sourceBlockId,
-        sourceDocId,
-        recordId: excerptAttempt.record.recordId,
-        origin: input.origin,
-      });
-      return excerptAttempt;
-    }
 
     logger.info('Excerpt created', {
       sourceBlockId,

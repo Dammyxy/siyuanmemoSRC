@@ -44,6 +44,7 @@ export function createDefaultSettingsFormState(): SettingsFormState {
     priorityRandomness: 0.1,
     quickCard: createDefaultQuickCardSettings(),
     progressiveAltXExcerptEnabled: false,
+    progressiveSourceMarkingEnabled: DEFAULT_SETTINGS.progressiveReading.sourceMarkingEnabled,
     progressiveStorage: createDefaultConfiguredCaptureStorageSettings(DEFAULT_SETTINGS.progressiveReading.storage),
   };
 }

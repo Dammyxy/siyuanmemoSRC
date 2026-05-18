@@ -522,6 +522,13 @@
             <input type="checkbox" v-model="settings.progressiveAltXExcerptEnabled">
           </div>
         </div>
+
+        <div class="form-item">
+          <label>{{ t('progressiveSourceMarkingEnabled', '摘录后标记原文') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.progressiveSourceMarkingEnabled">
+          </div>
+        </div>
         </div>
 
         <div v-show="isActiveSubTab('capture-sync', 'storage')" class="settings-subtab-panel">

@@ -814,6 +814,8 @@ Progressive 制卡契约：
 - 摘录即 Topic：摘录文档、全局摘录库摘录和 Daily Note 摘录块上的后续符号/选区制卡，都会落到本地 derived Item 卡 + 原生 Riff 注册，而不是把块级 card-type 属性当作事实源。
 - `⌥⇧Z` 与右键 `在 Topic 下创建 Item` 的 active path 一致：在 Topic / 摘录语境里，只要有非空单块选区就允许继续创建 Item；结构化 quick 语法沿用 planner-derived，普通选区则先把 source 选区包成原生 `data-type="mark"`，再立刻创建 1 个 manual-cloze Item。离开 Topic / 摘录语境后，`⌥⇧Z` 会退回普通文档选区包裹挖空并沿用现有普通制卡链路。
 - Topic / excerpt 中的 `mark` 型 cloze 归手动 continuation 所有：程序性加亮会注册一次性 suppression，避免 `AutoCardHandler` 再按 topic-derived 自动生成第二张；手打 `==...==` / `{{...}}` / `>>` / `::` / `;;` 仍保留现有 auto symbol 链。
+- `Alt+X` / Review / block-menu 摘录成功后可按 `progressiveReading.sourceMarkingEnabled` 写回原文可见标记。该标记使用 SiYuan 原生 `text mark`/背景色表现，但带 `data-siyuanmemo-excerpt-mark="source"` 与 `siyuanmemo-progressive-excerpt-mark` 身份；普通用户 mark 不视为插件摘录标记，标记只作视觉证据，不参与重复摘录拦截，也不会根据历史摘录记录自动修复被用户删改的标记。
+- 摘录与 Topic-derived Item 的内容生成优先使用 selection / artifact `contentDom`，保留 `span[data-type]`、block-ref、asset/resource link、`siyuan://` 与普通链接 token；缺少 DOM 证据时允许纯文本创建，但如果文本证据像链接或块引用，入口层记录降级诊断并提示用户链接/引用可能未完整保留，纯文本不提示。
 - derived Item 默认按普通 `Item` 契约复习；即使保留 symbol/question/answer 等派生元数据，也不会再仅凭旧式 quick-like metadata 被稳定 quick force path 误送进 quick renderer，只有显式 quick 契约卡才走 quick 渲染。
 - 这些 progressive 卡的类型真相源保存在本地 Xiuyuan / FSRS 数据里，不依赖块级 `custom-fsrs-card-type`；块属性只保留必要的 `custom-xiuyuan-id`、原生 Riff 标记，以及 `custom-fsrs-reading-*` 来源/lineage 信息。
 - 新的 progressive-owned `piece` / `excerpt` / `derived-item` 不再写 deprecated `custom-fsrs-card-type`，保存 / 更新 / sync 触达时也会显式 scrub 旧 attr；但非 progressive 的历史 quick/card/sync 路径仍可能兼容读写该旧属性。

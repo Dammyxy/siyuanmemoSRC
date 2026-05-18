@@ -1686,7 +1686,7 @@ describe('ProgressiveReadingService', () => {
     }));
   });
 
-  it('rejects duplicate excerpts on the same source block before creating a second excerpt entity', async () => {
+  it('allows repeated excerpts on the same source block and records each created excerpt', async () => {
     const fileService = createFileServiceMock();
     const recordService = new ExcerptRecordService(fileService);
     await recordService.createOrRejectDuplicate({
@@ -1714,8 +1714,12 @@ describe('ProgressiveReadingService', () => {
             { id: 'source-dup-1', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 'p', content: 'Before Focus text after', markdown: 'Before Focus text after' },
           ];
         }
+        if (stmt.includes("a1.value = 'doc-ordinary'")) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
+      createDocWithMarkdown: vi.fn(async () => 'excerpt-created-2'),
     });
     const cardService = createCardServiceMock();
     const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
@@ -1726,17 +1730,28 @@ describe('ProgressiveReadingService', () => {
       origin: 'editor',
     });
 
-    expect(result).toEqual({
-      kind: 'duplicate',
-      record: expect.objectContaining({
-        excerptEntityId: 'excerpt-existing-1',
-        sourceBlockId: 'source-dup-1',
-        normalizedFingerprint: 'Focus text',
-      }),
-    });
-    expect(port.createDocWithMarkdown).not.toHaveBeenCalled();
-    expect(port.appendDomBlock).not.toHaveBeenCalled();
-    expect(cardService.service.createCard).not.toHaveBeenCalled();
+    expect(result).toEqual(expect.objectContaining({
+      kind: 'created',
+      excerptEntityId: 'excerpt-created-2',
+      sourceBlockId: 'source-dup-1',
+      recordId: expect.any(String),
+    }));
+    expect(port.createDocWithMarkdown).toHaveBeenCalledTimes(1);
+    expect(cardService.service.createCard).toHaveBeenCalledTimes(1);
+    expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toEqual(expect.objectContaining({
+      records: expect.arrayContaining([
+        expect.objectContaining({
+          excerptEntityId: 'excerpt-existing-1',
+          sourceBlockId: 'source-dup-1',
+          normalizedFingerprint: 'Focus text',
+        }),
+        expect.objectContaining({
+          excerptEntityId: 'excerpt-created-2',
+          sourceBlockId: 'source-dup-1',
+          normalizedFingerprint: 'Focus text',
+        }),
+      ]),
+    }));
   });
 
   it('does not write any Daily Notes trace by default while still creating excerpt docs and topic cards', async () => {
@@ -1918,14 +1933,14 @@ describe('ProgressiveReadingService', () => {
     );
 
     const contentDom = [
-      '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha <span data-type="a" data-href="https://example.com">Link</span></div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha <span data-type="a" data-href="https://example.com">Markdown Link</span> <span data-type="block-ref" data-id="20240101010101-abcdefg">Ref</span> <span data-type="a" data-href="assets/paper.pdf">Asset</span> <span data-type="a" data-href="siyuan://blocks/20240101010101-abcdefg">Siyuan</span> <span data-type="tag">#token#</span></div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
       '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Beta</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
     ].join('');
 
     const result = await service.createExcerptFromSelection({
       sourceBlockId: 'source-rich-1',
       sourceBlockIds: ['source-rich-1', 'source-rich-2'],
-      selectedText: 'Alpha Link\nBeta',
+      selectedText: 'Alpha Markdown Link Ref Asset Siyuan #token#\nBeta',
       contentDom,
       origin: 'editor',
     });
@@ -1942,6 +1957,22 @@ describe('ProgressiveReadingService', () => {
     expect(port.appendDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-rich-1',
       expect.stringContaining('data-type="a"'),
+    );
+    expect(port.appendDomBlock).toHaveBeenCalledWith(
+      'excerpt-doc-rich-1',
+      expect.stringContaining('data-type="block-ref"'),
+    );
+    expect(port.appendDomBlock).toHaveBeenCalledWith(
+      'excerpt-doc-rich-1',
+      expect.stringContaining('data-href="assets/paper.pdf"'),
+    );
+    expect(port.appendDomBlock).toHaveBeenCalledWith(
+      'excerpt-doc-rich-1',
+      expect.stringContaining('data-href="siyuan://blocks/20240101010101-abcdefg"'),
+    );
+    expect(port.appendDomBlock).toHaveBeenCalledWith(
+      'excerpt-doc-rich-1',
+      expect.stringContaining('data-type="tag"'),
     );
     expect(port.appendDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-rich-1',

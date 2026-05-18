@@ -4,6 +4,16 @@ Last update: 2026-05-18 (Round 389)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-18 - Progressive Excerpt Source Marks And Link Preservation
+
+- Task: Apply OpenSpec change `preserve-progressive-excerpt-source-links-and-marks` for GitHub issues #59 and #46, with #58 validation-only and #38/#10/#48/#13/#41/#42 deferred.
+- Touched slice: Progressive / Excerpt / Topic-derived active path in `src/application/entries/ProgressiveExcerptHighlight.ts`, `src/application/handlers/ProgressiveExcerptHotkeyHandler.ts`, `src/ui/review/v2/reviewProgressiveExcerptCommands.ts`, `src/application/managers/BlockMenuHandler.ts`, `src/application/services/{ProgressiveReadingService,ExcerptRecordService,TopicDerivedItemService}.ts`, settings types/UI/load/save, and focused tests.
+- Debt fixed now: Source-side excerpt marks are configurable, default-on, plugin-owned, and visually restrained; generic user marks no longer count as plugin excerpt marks. Progressive excerpts now allow repeated same-source same-text creation while still recording each excerpt. Excerpt and Topic-derived Item creation preserve supported inline link/ref/token DOM when available, and DOM-missing likely link/ref cases now emit explicit degraded-preservation feedback instead of silently implying full preservation.
+- Debt deferred: No old excerpt/source-mark migration, no background repair of deleted source marks, no original Topic/excerpt removal policy, no global symbol scan, no missing-source repair workflow, and no quick-card cancel/recreate behavior.
+- Why deferred: Those items cross destructive content policy, Browser repair, AutoCard batch scan, or quick-card mutation semantics and were explicitly excluded from the grilled issue batch.
+- Next safe step: If real SiYuan smoke finds a link/ref DOM shape that still degrades, add that exact DOM shape to the preservation tests before adding any parser or markdown round-trip helper.
+- Validation: `pnpm exec vitest run src/types/__tests__/settings-normalization.test.ts src/ui/settings/__tests__/settingsSavePayload.test.ts src/ui/settings/__tests__/settingsLoadState.test.ts src/ui/settings/__tests__/SettingsPanel.test.ts`; `pnpm exec vitest run src/application/entries/__tests__/ProgressiveExcerptHighlight.test.ts src/application/handlers/__tests__/ProgressiveExcerptHotkeyHandler.test.ts src/ui/review/v2/__tests__/reviewProgressiveExcerptCommands.test.ts src/application/managers/__tests__/BlockMenuHandler.progressive-excerpt.test.ts src/application/services/__tests__/ProgressiveReadingService.test.ts`; `pnpm exec vitest run src/application/services/__tests__/TopicDerivedItemService.test.ts`.
+
 ### 2026-05-18 - Primary Writer Empty Lease Recovery
 
 - Task: Fix main-window writer lease heartbeat/relay gaps that briefly demoted the canonical writer to follower and caused `writer command unavailable: no active writer lease` noise.

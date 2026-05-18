@@ -32,8 +32,21 @@ type ReviewProgressiveLogger = {
 type ReviewProgressiveRuntimeSettingsLike = {
   progressiveReading?: {
     altXExcerptEnabled?: boolean;
+    sourceMarkingEnabled?: boolean;
   };
 };
+
+function hasLikelyInlineReferenceEvidence(value: string): boolean {
+  return /\[[^\]]+\]\([^)]+\)/u.test(value)
+    || /\(\([0-9]{14}-[0-9a-z]{7}\)\)/u.test(value)
+    || /\bassets\/\S+/u.test(value)
+    || /\bsiyuan:\/\/\S+/u.test(value)
+    || /data-type\s*=/u.test(value);
+}
+
+function hasMissingDomPreservationEvidence(contentDom: string | undefined, selectedText: string): boolean {
+  return !String(contentDom || '').trim() && hasLikelyInlineReferenceEvidence(selectedText);
+}
 
 export type ReviewProgressiveReadingServiceLike = {
   completeCurrentPiece: (pieceDocId: string) => Promise<{ nextPieceDocId?: string }>;
@@ -100,6 +113,7 @@ export type ReviewProgressiveExcerptCommandInput = {
   neuralQueue: NeuralRoamSessionQueue | null;
   t: ReviewProgressiveTranslate;
   showMessage: ReviewProgressiveShowMessage;
+  sourceMarkingEnabled?: boolean;
   logger?: ReviewProgressiveLogger;
 };
 
@@ -204,6 +218,26 @@ export function isReviewProgressiveExcerptEnabled(input: {
     }
   }
   return false;
+}
+
+export function isReviewProgressiveSourceMarkingEnabled(input: {
+  contexts: Array<ReviewProgressiveContextLike | null | undefined>;
+  logger?: ReviewProgressiveLogger;
+}): boolean {
+  for (const context of input.contexts) {
+    if (!context) {
+      continue;
+    }
+    try {
+      const enabled = context.getSettingsService?.()?.getSettings?.()?.progressiveReading?.sourceMarkingEnabled;
+      if (typeof enabled === 'boolean') {
+        return enabled;
+      }
+    } catch (error) {
+      input.logger?.warn?.('[SiYuanMemo][ReviewView] Failed to read progressive source-mark setting:', error);
+    }
+  }
+  return true;
 }
 
 export function isProgressiveExcerptCard(card: FSRSCard): boolean {
@@ -349,6 +383,9 @@ async function tryApplyPreparedProgressiveExcerptHighlight(
   selectionService: ReviewSelectionExcerptServiceLike,
   logger?: ReviewProgressiveLogger,
 ): Promise<boolean> {
+  if (!preparedHighlight) {
+    return false;
+  }
   try {
     return await applyProgressiveExcerptHighlight(preparedHighlight, {
       persistDomBlock: (blockId, dom) => selectionService.updateSourceBlockDom(blockId, dom),
@@ -413,7 +450,16 @@ export async function createProgressiveExcerptFromReviewSelection(
 
   try {
     const materialized = await selectionService.materializeExcerptSource(selection);
-    const preparedHighlight = tryPrepareProgressiveExcerptHighlight(materialized.highlightSnapshot, logger);
+    const degradedPreservation = hasMissingDomPreservationEvidence(materialized.contentDom, selection.text);
+    if (degradedPreservation) {
+      logger?.warn?.('[SiYuanMemo][ReviewView] Progressive excerpt created without DOM preservation evidence for likely inline references', {
+        sourceBlockId: materialized.sourceBlockId,
+        sourceBlockIds: materialized.sourceBlockIds,
+      });
+    }
+    const preparedHighlight = input.sourceMarkingEnabled === false
+      ? null
+      : tryPrepareProgressiveExcerptHighlight(materialized.highlightSnapshot, logger);
     const result = await selectionService.createFromSelection({
       sourceBlockId: materialized.sourceBlockId,
       sourceBlockIds: materialized.sourceBlockIds,
@@ -435,6 +481,13 @@ export async function createProgressiveExcerptFromReviewSelection(
 
     result.colorApplied = await tryApplyPreparedProgressiveExcerptHighlight(preparedHighlight, selectionService, logger);
     const routedExcerptTarget = await routeExcerpt(result.excerptEntityId);
+    if (degradedPreservation) {
+      showMessage(
+        t('progressiveExcerptPreservationDegraded', '已创建 Topic，但原文链接或块引用可能未完整保留'),
+        5000,
+        'info',
+      );
+    }
     showMessage(getCreatedExcerptMessage(trigger, routedExcerptTarget, t), 3000, 'info');
   } catch (error) {
     logger?.error?.('[SiYuanMemo][ReviewView] Failed to create excerpt from review:', error);
@@ -493,6 +546,7 @@ export async function runReviewProgressiveExcerptCommand(
     }),
     t,
     showMessage,
+    sourceMarkingEnabled: isReviewProgressiveSourceMarkingEnabled({ contexts, logger }),
     logger,
   });
 }

@@ -38,6 +38,7 @@ function createSettings(overrides: Partial<SettingsFormState> = {}): SettingsFor
     priorityRandomness: DEFAULT_SETTINGS.priorityRandomness,
     quickCard: clone(DEFAULT_SETTINGS.quickCard),
     progressiveAltXExcerptEnabled: false,
+    progressiveSourceMarkingEnabled: true,
     progressiveStorage: clone(DEFAULT_SETTINGS.progressiveReading.storage),
     ...overrides,
   };
@@ -116,6 +117,7 @@ describe('settingsSavePayload', () => {
         addToOutstandingEveryNth: 999,
         priorityRandomness: 1.5,
         progressiveAltXExcerptEnabled: true,
+        progressiveSourceMarkingEnabled: false,
         progressiveStorage: {
           mode: 'library',
           notebookId: 'notebook-a',
@@ -150,6 +152,7 @@ describe('settingsSavePayload', () => {
     expect(payload.riffIntegration.storageConflictResolution).toBe('prefer-local');
     expect(payload.progressiveReading).toEqual({
       altXExcerptEnabled: true,
+      sourceMarkingEnabled: false,
       storage: {
         mode: 'library',
         notebookId: 'notebook-a',

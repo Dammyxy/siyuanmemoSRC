@@ -39,6 +39,7 @@ export interface SettingsFormState {
   priorityRandomness: number;
   quickCard: QuickCardSettings;
   progressiveAltXExcerptEnabled: boolean;
+  progressiveSourceMarkingEnabled: boolean;
   progressiveStorage: ConfiguredCaptureStorageSettings;
 }
 
@@ -235,6 +236,7 @@ export function buildSettingsSavePayload(input: {
     autoPostponeEnabled: _autoPostponeEnabled,
     autoPostponeSkipTopN: _autoPostponeSkipTopN,
     progressiveAltXExcerptEnabled: _progressiveAltXExcerptEnabled,
+    progressiveSourceMarkingEnabled: _progressiveSourceMarkingEnabled,
     ...settingsBase
   } = input.settings;
 
@@ -281,6 +283,7 @@ export function buildSettingsSavePayload(input: {
     },
     progressiveReading: {
       altXExcerptEnabled: input.settings.progressiveAltXExcerptEnabled,
+      sourceMarkingEnabled: input.settings.progressiveSourceMarkingEnabled,
       storage: normalizeConfiguredCaptureStorageSettings(
         input.settings.progressiveStorage,
         {

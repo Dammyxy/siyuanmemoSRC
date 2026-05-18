@@ -179,6 +179,19 @@ export class ExcerptRecordService {
   async createOrRejectDuplicate<TCreated extends CreateExcerptRecordArtifact>(
     input: CreateExcerptRecordAttemptInput<TCreated>,
   ): Promise<CreateExcerptRecordAttemptResult<TCreated>> {
+    return this.createRecordAttempt(input, { allowDuplicate: false });
+  }
+
+  async createAllowingDuplicate<TCreated extends CreateExcerptRecordArtifact>(
+    input: CreateExcerptRecordAttemptInput<TCreated>,
+  ): Promise<Extract<CreateExcerptRecordAttemptResult<TCreated>, { kind: 'created' }>> {
+    return this.createRecordAttempt(input, { allowDuplicate: true }) as Promise<Extract<CreateExcerptRecordAttemptResult<TCreated>, { kind: 'created' }>>;
+  }
+
+  private async createRecordAttempt<TCreated extends CreateExcerptRecordArtifact>(
+    input: CreateExcerptRecordAttemptInput<TCreated>,
+    options: { allowDuplicate: boolean },
+  ): Promise<CreateExcerptRecordAttemptResult<TCreated>> {
     const sourceDocId = normalizeString(input.sourceDocId);
     const sourceBlockId = normalizeString(input.sourceBlockId);
     const sourceBlockIds = normalizeExcerptBlockIds(input.sourceBlockIds, input.sourceBlockId);
@@ -190,16 +203,18 @@ export class ExcerptRecordService {
 
     const state = await this.readState();
     const normalizedRangeKey = buildNormalizedBlockRangeKey(sourceBlockIds);
-    const duplicate = state.records.find((record) =>
-      buildNormalizedBlockRangeKey(record.sourceBlockIds) === normalizedRangeKey
-      && record.normalizedFingerprint === normalizedFingerprint
-      && record.status !== 'archived'
-    );
-    if (duplicate) {
-      return {
-        kind: 'duplicate',
-        record: duplicate,
-      };
+    if (!options.allowDuplicate) {
+      const duplicate = state.records.find((record) =>
+        buildNormalizedBlockRangeKey(record.sourceBlockIds) === normalizedRangeKey
+        && record.normalizedFingerprint === normalizedFingerprint
+        && record.status !== 'archived'
+      );
+      if (duplicate) {
+        return {
+          kind: 'duplicate',
+          record: duplicate,
+        };
+      }
     }
 
     const created = await input.createExcerpt();

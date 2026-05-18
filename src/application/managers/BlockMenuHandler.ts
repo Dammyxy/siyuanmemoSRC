@@ -890,6 +890,9 @@ export class BlockMenuHandler {
   private async tryApplyPreparedProgressiveExcerptHighlight(
     preparedHighlight: ReturnType<typeof prepareProgressiveExcerptHighlight>,
   ): Promise<boolean> {
+    if (!preparedHighlight) {
+      return false;
+    }
     try {
       return await applyProgressiveExcerptHighlight(preparedHighlight, {
         persistDomBlock: (blockId, dom) => this.deps.applicationContext.getSelectionExcerptService().updateSourceBlockDom(blockId, dom),
@@ -923,7 +926,9 @@ export class BlockMenuHandler {
     const selectionService = this.deps.applicationContext.getSelectionExcerptService();
     try {
       const materialized = await selectionService.materializeExcerptSource(selection);
-      const preparedHighlight = this.tryPrepareProgressiveExcerptHighlight(materialized.highlightSnapshot);
+      const preparedHighlight = this.isProgressiveExcerptSourceMarkingEnabled()
+        ? this.tryPrepareProgressiveExcerptHighlight(materialized.highlightSnapshot)
+        : null;
       const result = await selectionService.createFromSelection({
         sourceBlockId: materialized.sourceBlockId,
         sourceBlockIds: materialized.sourceBlockIds,
@@ -946,6 +951,16 @@ export class BlockMenuHandler {
         this.text('progressiveExcerptFailed', '摘抄失败：{message}')
           .replace('{message}', error instanceof Error ? error.message : String(error)),
       );
+    }
+  }
+
+  private isProgressiveExcerptSourceMarkingEnabled(): boolean {
+    try {
+      const settingsService = this.deps.applicationContext.getSettingsService?.();
+      return settingsService?.getSettings?.().progressiveReading?.sourceMarkingEnabled !== false;
+    } catch (error) {
+      logger.warn('[BlockMenuHandler] Failed to read progressive source-mark setting, defaulting to enabled:', error);
+      return true;
     }
   }
 

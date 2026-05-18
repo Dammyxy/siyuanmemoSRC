@@ -77,6 +77,7 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         hyperspaceElementLinkPriority: 'Block-link weight',
         progressiveReadingSettingsTitle: 'Progressive Reading',
         progressiveAltXExcerptEnabled: 'Enable excerpt shortcut (default ⌥⇧X)',
+        progressiveSourceMarkingEnabled: 'Mark source text after excerpt',
         reviewOpenInNewTabByDefault: 'Open review in a new tab by default',
         reviewOpenInNewTabByDefaultHint: 'Desktop global review entries open in a new tab by default.',
         reviewOpenFullscreenByDefault: 'Open review fullscreen by default',
@@ -458,12 +459,15 @@ describe('SettingsPanel', () => {
 
     expect(wrapper.text()).toContain('Progressive Reading');
     expect(wrapper.text()).toContain('Enable excerpt shortcut');
+    expect(wrapper.text()).toContain('Mark source text after excerpt');
     expect(wrapper.text()).toContain('⌥⇧X');
     expect(wrapper.text()).not.toContain('Alt+X');
 
     const formItems = wrapper.findAll('.form-item');
     const altXItem = formItems.find((item) => item.text().includes('Enable excerpt shortcut'));
     const altXToggle = altXItem?.find('input[type="checkbox"]');
+    const sourceMarkItem = formItems.find((item) => item.text().includes('Mark source text after excerpt'));
+    const sourceMarkToggle = sourceMarkItem?.find('input[type="checkbox"]');
     const storageModeItem = formItems.find((item) => item.text().includes('Excerpt storage mode'));
     const storageModeSelect = storageModeItem?.find('select');
     const notebookItem = formItems.find((item) => item.text().includes('Target notebook'));
@@ -477,6 +481,9 @@ describe('SettingsPanel', () => {
 
     expect(altXToggle).toBeDefined();
     await altXToggle!.setValue(true);
+    expect(sourceMarkToggle).toBeDefined();
+    expect((sourceMarkToggle!.element as HTMLInputElement).checked).toBe(true);
+    await sourceMarkToggle!.setValue(false);
 
     await clickSubtab(wrapper, 'Storage');
 
@@ -503,6 +510,7 @@ describe('SettingsPanel', () => {
 
     const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
     expect(payload.progressiveReading.altXExcerptEnabled).toBe(true);
+    expect(payload.progressiveReading.sourceMarkingEnabled).toBe(false);
     expect(payload.progressiveReading).not.toHaveProperty('dailyTraceEnabled');
     expect(payload.progressiveReading.storage).toEqual({
       mode: 'library',

@@ -134,6 +134,7 @@ describe('settings normalization', () => {
 
     expect(normalized.changed).toBe(true);
     expect(normalized.settings.progressiveReading.altXExcerptEnabled).toBe(false);
+    expect(normalized.settings.progressiveReading.sourceMarkingEnabled).toBe(true);
     expect(normalized.settings.progressiveReading.storage).toEqual(DEFAULT_SETTINGS.progressiveReading.storage);
   });
 
@@ -202,6 +203,16 @@ describe('settings normalization', () => {
 
     expect(normalized.changed).toBe(true);
     expect(normalized.settings.progressiveReading.storage).toEqual(DEFAULT_SETTINGS.progressiveReading.storage);
+  });
+
+  it('fills progressive source marking default when missing', () => {
+    const legacy = cloneSettings();
+    delete (legacy.progressiveReading as Partial<typeof legacy.progressiveReading>).sourceMarkingEnabled;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.progressiveReading.sourceMarkingEnabled).toBe(true);
   });
 
   it('fills AI defaults when ai settings are missing', () => {

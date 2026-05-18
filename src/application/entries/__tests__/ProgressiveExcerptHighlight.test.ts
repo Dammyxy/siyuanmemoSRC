@@ -3,6 +3,9 @@ import {
   applyProgressiveExcerptHighlight,
   prepareProgressiveExcerptHighlight,
   PROGRESSIVE_EXCERPT_HIGHLIGHT_COLOR,
+  PROGRESSIVE_EXCERPT_MARK_ATTR,
+  PROGRESSIVE_EXCERPT_MARK_CLASS,
+  PROGRESSIVE_EXCERPT_MARK_VALUE,
 } from '../ProgressiveExcerptHighlight';
 
 describe('ProgressiveExcerptHighlight', () => {
@@ -50,7 +53,9 @@ describe('ProgressiveExcerptHighlight', () => {
     expect(prepared?.root).toBe(root);
     expect(prepared?.previousBlockHtml).not.toContain(`background-color: ${PROGRESSIVE_EXCERPT_HIGHLIGHT_COLOR};`);
     expect(prepared?.nextBlockHtml).toContain(`background-color: ${PROGRESSIVE_EXCERPT_HIGHLIGHT_COLOR};`);
-    expect(prepared?.nextBlockHtml).toContain('data-type="text"');
+    expect(prepared?.nextBlockHtml).toContain('data-type="text mark"');
+    expect(prepared?.nextBlockHtml).toContain(`${PROGRESSIVE_EXCERPT_MARK_ATTR}="${PROGRESSIVE_EXCERPT_MARK_VALUE}"`);
+    expect(prepared?.nextBlockHtml).toContain(PROGRESSIVE_EXCERPT_MARK_CLASS);
   });
 
   it('persists the prepared mutation through the supplied block-update callback and refreshes the live block', async () => {
@@ -281,11 +286,11 @@ describe('ProgressiveExcerptHighlight', () => {
     expect(reload).toHaveBeenCalledWith(false);
   });
 
-  it('treats already-colored selections as no-op success', async () => {
+  it('treats already plugin-marked selections as no-op success', async () => {
     document.body.innerHTML = `
       <div id="root">
         <div data-node-id="block-1">
-          <span data-type="text" style="background-color: var(--b3-font-background4);" id="text">Hello world</span>
+          <span data-type="text mark" ${PROGRESSIVE_EXCERPT_MARK_ATTR}="${PROGRESSIVE_EXCERPT_MARK_VALUE}" class="${PROGRESSIVE_EXCERPT_MARK_CLASS}" style="background-color: var(--b3-font-background4);" id="text">Hello world</span>
         </div>
       </div>
     `;
@@ -320,6 +325,45 @@ describe('ProgressiveExcerptHighlight', () => {
     const persistDomBlock = vi.fn(async () => undefined);
     await expect(applyProgressiveExcerptHighlight(prepared, { persistDomBlock })).resolves.toBe(true);
     expect(persistDomBlock).not.toHaveBeenCalled();
+  });
+
+  it('does not treat generic user marks as SiYuanMemo excerpt marks', async () => {
+    document.body.innerHTML = `
+      <div id="root">
+        <div data-node-id="block-1">
+          <span data-type="text mark" style="background-color: var(--b3-font-background4);" id="text">Hello world</span>
+        </div>
+      </div>
+    `;
+
+    const root = document.getElementById('root');
+    const textNode = document.getElementById('text')?.firstChild;
+    if (!root || !textNode) {
+      throw new Error('Expected generic mark fixture');
+    }
+
+    const range = document.createRange();
+    range.setStart(textNode, 0);
+    range.setEnd(textNode, 5);
+
+    const prepared = prepareProgressiveExcerptHighlight({
+      blockId: 'block-1',
+      text: 'Hello',
+      range,
+      commonElement: root,
+      root,
+      protyle: {
+        wysiwyg: {
+          element: root,
+        },
+      } as never,
+    });
+
+    expect(prepared?.alreadyApplied).toBe(false);
+    expect(prepared?.nextBlockHtml).toContain(`${PROGRESSIVE_EXCERPT_MARK_ATTR}="${PROGRESSIVE_EXCERPT_MARK_VALUE}"`);
+    const persistDomBlock = vi.fn(async () => undefined);
+    await expect(applyProgressiveExcerptHighlight(prepared, { persistDomBlock })).resolves.toBe(true);
+    expect(persistDomBlock).toHaveBeenCalledTimes(1);
   });
 
   it('returns null when the saved range is no longer attached to the live root', async () => {

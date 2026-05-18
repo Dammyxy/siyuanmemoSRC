@@ -248,6 +248,7 @@ export interface DrillSettings {
 
 export interface ProgressiveReadingSettings {
     altXExcerptEnabled: boolean;
+    sourceMarkingEnabled: boolean;
     storage: ConfiguredCaptureStorageSettings;
 }
 
@@ -792,6 +793,7 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         progressiveReading: {
             ...DEFAULT_SETTINGS.progressiveReading,
             ...sourceProgressiveReadingWithoutLegacy,
+            sourceMarkingEnabled: sourceProgressiveReadingWithoutLegacy.sourceMarkingEnabled ?? DEFAULT_SETTINGS.progressiveReading.sourceMarkingEnabled,
             storage: normalizeConfiguredCaptureStorageSettings(
                 sourceProgressiveReadingWithoutLegacy.storage,
                 {
@@ -890,6 +892,7 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
     } else if (
         Object.prototype.hasOwnProperty.call(settings.progressiveReading, 'dailyTraceEnabled')
         || settings.progressiveReading.altXExcerptEnabled !== normalized.progressiveReading.altXExcerptEnabled
+        || settings.progressiveReading.sourceMarkingEnabled !== normalized.progressiveReading.sourceMarkingEnabled
         || settings.progressiveReading.storage?.mode !== normalized.progressiveReading.storage.mode
         || settings.progressiveReading.storage?.notebookId !== normalized.progressiveReading.storage.notebookId
         || (settings.progressiveReading.storage?.targetBlockId || '') !== normalized.progressiveReading.storage.targetBlockId
@@ -1908,6 +1911,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     },
     progressiveReading: {
         altXExcerptEnabled: false,
+        sourceMarkingEnabled: true,
         storage: {
             mode: 'source-child',
             notebookId: '',

@@ -102,6 +102,88 @@ GitHub CLI was unavailable in this environment, so the refresh used the GitHub R
 - The action must not grade, reveal, skip, advance, hide, suspend, delete, reschedule, or submit Review feedback for the active card.
 - Implementation scope is tracked by OpenSpec change `add-concept-review-roam-entry`.
 
+## Live Refresh - 2026-05-18
+
+Source: GitHub API `Dammyxy/siyuan-plugin-siyuanmemo/issues?state=open&per_page=100`
+
+Observed open issues: 40.
+
+GitHub CLI was unavailable in this environment, so the refresh used the GitHub REST API.
+
+### Open Issues Still Covered By Completed Local Changes
+
+GitHub still reports these issues open, but local OpenSpec completion evidence is `all_done`:
+
+| Issue | Local change |
+|---|---|
+| #65 / #60 / #56 | `add-review-command-hotkeys-and-doc-scope-review` |
+| #64 | `fix-topic-container-shortcut-item-creation` |
+| #63 | `fix-multicloze-review-rendering` |
+| #61 | `fix-formula-cloze-katex-marker-rendering` |
+| #57 | `show-suspended-card-badge-in-browser` |
+| #55 | `render-custom-review-surface-links` |
+| #54 | `add-concept-review-roam-entry` |
+| #52 | `scope-srs-browser-sql-filter-to-card-universe` |
+| #20 | `harden-symbol-listener-business-idempotency` |
+| #19 | `explain-srs-browser-count-differences` |
+| #16 | `add-relative-priority-actions-in-browser` |
+
+### Next Batch Grouping
+
+Recommended next change after scope grilling: `preserve-progressive-excerpt-source-links-and-marks`.
+
+Included issues:
+
+| Issue | Topic | Why grouped |
+|---|---|---|
+| #59 | Mark already-excerpted source text | Progressive excerpt source marking |
+| #46 | Preserve links during excerpt card creation | Inline source/link preservation across excerpt and Topic-derived Item creation |
+
+Validation-only:
+
+| Issue | Reason |
+|---|---|
+| #58 | Current `ProgressiveReadingService` code/tests already append a single first-source visible reference; keep as verification unless an uncovered entry path is found. |
+
+Deferred or non-feature:
+
+| Issue | Reason |
+|---|---|
+| #38 | Deferred. SuperMemo-style semantics retain original Topic/excerpt by default; removal/hiding would be a separate destructive policy decision. |
+| #10 | Discussion/question only, not a feature requirement. |
+| #48 | Global symbol scan broadens AutoCard listener/write ownership. |
+| #13 | Document-wide super-block one-click card creation broadens batch creation scope. |
+| #41 | Missing-source repair is a Browser/repair workflow, not excerpt source preservation. |
+| #42 | Quick-card cancel-and-recreate changes quick-card mutation semantics. |
+
+Decisions from scope grilling:
+
+- #59 source marks are enabled by default, configurable, visually restrained, and SiYuanMemo-owned so generic user marks are not confused with plugin marks.
+- #59 marks are visual only. They do not block repeated excerpts, and deleted/edited marks are not auto-repaired.
+- #46 covers both creation hops: source selection -> excerpt/Topic artifact, and Topic/excerpt selection -> derived Item artifact.
+- #46 preserves common inline structures when DOM evidence is available: Markdown links, SiYuan block references, asset/resource links, `siyuan://` links, and existing inline `span[data-type]` tokens.
+- #46 allows plain degraded creation when preservation evidence is unavailable, but diagnostics must record it and user-facing feedback appears when source evidence suggests link/reference loss.
+- Do not mix Browser, Queue, scheduler, backend worker, or kernel companion ownership into this change.
+
+Implementation note:
+
+- Local change `preserve-progressive-excerpt-source-links-and-marks` now implements #59 source marking and #46 inline preservation coverage on the active Progressive / Excerpt / Topic-derived path.
+- #58 stayed validation-only: current tests still assert only the first source reference is emitted for multi-block excerpts.
+- Deferred skip list remains unchanged for future pulls: #38, #10, #48, #13, #41, and #42.
+
+### Deferred / Do Not Auto-Pull
+
+When selecting the next local issue batch, skip these issues unless the user explicitly names them:
+
+| Issue | Status | Skip reason |
+|---|---|---|
+| #38 | Deferred | Keep original Topic/excerpt by default; source removal/hiding needs a separate destructive-policy decision. |
+| #10 | Discussion only | This is a product question about Progressive Reading vocabulary, not an implementation request. |
+| #48 | Deferred | Global symbol scan broadens AutoCard listener/write ownership. |
+| #13 | Deferred | Document-wide super-block one-click card creation broadens batch creation scope. |
+| #41 | Deferred | Missing-source repair belongs to Browser/repair workflow, not current excerpt preservation work. |
+| #42 | Deferred | Quick-card cancel-and-recreate changes quick-card mutation semantics and needs its own decision. |
+
 ## First Batch
 
 These issues are selected first because they look like correctness bugs, data integrity risks, or high-friction creation/review failures.
@@ -112,8 +194,8 @@ These issues are selected first because they look like correctness bugs, data in
 | [#63](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/63) | Cloze review/rendering | Cloze blank length should reflect hidden text length. Multi-cloze cards are created, but review hides/shows all blanks together, and first generated card can fail rendering. | Implemented: `fix-multicloze-review-rendering` routes ordinary multi-cloze review to the dedicated renderer; live SiYuan smoke still pending. |
 | [#61](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/61) | Formula cloze | Formula card using `\cloze` can produce KaTeX error: `Expected 'EOF', got '#' at position 1: #2`. | Implemented: `fix-formula-cloze-katex-marker-rendering`; live temporary-card Review smoke passed and was cleaned up. |
 | [#55](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/55) | Temporary / deliberate practice rendering | Temporary and deliberate practice surfaces do not render links. User also asks about language-learning cards with audio timestamp, original text, and translation. | Implemented: `render-custom-review-surface-links` renders common custom Review links and forwards block navigation through existing open-block behavior; language-learning card workflow remains separate. |
-| [#52](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/52) | SRS Browser SQL filter | SRS Browser right-top filter should stay scoped to SRS Browser cards even for SQL search such as `select * from blocks where box = ...`. | Pending |
-| [#20](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/20) | Symbol listener duplicate creation | Symbol listener card creation can create duplicate cards when YeGui plugin is also enabled. Reports multiple console errors. | Pending |
+| [#52](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/52) | SRS Browser SQL filter | SRS Browser right-top filter should stay scoped to SRS Browser cards even for SQL search such as `select * from blocks where box = ...`. | Implemented: `scope-srs-browser-sql-filter-to-card-universe` scopes SQL-mode rows/actions to the Browser Card Universe; live mixed SQL smoke script recorded. |
+| [#20](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/20) | Symbol listener duplicate creation | Symbol listener card creation can create duplicate cards when YeGui plugin is also enabled. Reports multiple console errors. | Implemented: `harden-symbol-listener-business-idempotency` adds stable business idempotency and in-flight duplicate skipping; live YeGui-style smoke script recorded. |
 | [#19](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/19) | SRS Browser card count | SiYuan native flashcard manager shows more cards than SRS Browser. SRS Browser total can vary and document plugin card count can also be short. | Implemented: `explain-srs-browser-count-differences` adds read-only native-vs-Browser count diagnostics without changing Browser row/action scope. |
 
 ## Proposed Order
@@ -195,5 +277,6 @@ Open terms to sharpen:
 ## Later Batch Summary
 
 - Review/UI: #60, #57, #56, #54, #53, #49, #40, #39, #35, #30, #26, #25, #23, #22, #18, #6
-- Creation/progressive reading: #59, #58, #48, #46, #42, #41, #38, #31, #29, #28, #13, #10
+- Creation/progressive reading: #59, #58, #46, #31, #29, #28
+- Deferred / do not auto-pull unless explicitly named: #48, #42, #41, #38, #13, #10
 - Queue/Browser enhancements: #47, #36, #32, #21, #16, #15

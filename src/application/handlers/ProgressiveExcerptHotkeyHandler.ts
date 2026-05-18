@@ -45,6 +45,18 @@ function getProtyleRoot(protyle: unknown): HTMLElement | null {
   return null;
 }
 
+function hasLikelyInlineReferenceEvidence(value: string): boolean {
+  return /\[[^\]]+\]\([^)]+\)/u.test(value)
+    || /\(\([0-9]{14}-[0-9a-z]{7}\)\)/u.test(value)
+    || /\bassets\/\S+/u.test(value)
+    || /\bsiyuan:\/\/\S+/u.test(value)
+    || /data-type\s*=/u.test(value);
+}
+
+function hasMissingDomPreservationEvidence(contentDom: string | undefined, selectedText: string): boolean {
+  return !String(contentDom || '').trim() && hasLikelyInlineReferenceEvidence(selectedText);
+}
+
 type ProgressiveExcerptSelectionOptions = {
   root?: HTMLElement | null;
   protyle?: IProtyle | unknown;
@@ -211,7 +223,16 @@ export class ProgressiveExcerptHotkeyHandler {
   private async runExcerptFromSnapshot(selection: ProgressiveExcerptSelectionSnapshot): Promise<void> {
     try {
       const materialized = await this.context.getSelectionExcerptService().materializeExcerptSource(selection);
-      const preparedHighlight = this.tryPrepareExcerptHighlight(materialized.highlightSnapshot);
+      const degradedPreservation = hasMissingDomPreservationEvidence(materialized.contentDom, selection.text);
+      if (degradedPreservation) {
+        logger.warn('Progressive excerpt created without DOM preservation evidence for likely inline references', {
+          sourceBlockId: materialized.sourceBlockId,
+          sourceBlockIds: materialized.sourceBlockIds,
+        });
+      }
+      const preparedHighlight = this.isSourceMarkingEnabled()
+        ? this.tryPrepareExcerptHighlight(materialized.highlightSnapshot)
+        : null;
       const result = await this.context.getSelectionExcerptService().createFromSelection({
         sourceBlockId: materialized.sourceBlockId,
         sourceBlockIds: materialized.sourceBlockIds,
@@ -231,6 +252,13 @@ export class ProgressiveExcerptHotkeyHandler {
       }
 
       result.colorApplied = await this.tryApplyExcerptHighlight(preparedHighlight);
+      if (degradedPreservation) {
+        showMessage(
+          this.translate('progressiveExcerptPreservationDegraded', '已创建 Topic，但原文链接或块引用可能未完整保留'),
+          5000,
+          'info',
+        );
+      }
       showMessage(
         this.translate('progressiveExcerptCreatedHotkey', '已创建 Topic，已进入今日渐进学习'),
         3000,
@@ -436,6 +464,9 @@ export class ProgressiveExcerptHotkeyHandler {
   }
 
   private async tryApplyExcerptHighlight(selection: Parameters<typeof applyProgressiveExcerptHighlight>[0]): Promise<boolean> {
+    if (!selection) {
+      return false;
+    }
     try {
       return await applyProgressiveExcerptHighlight(selection, {
         persistDomBlock: (blockId, dom) => this.context.getSelectionExcerptService().updateSourceBlockDom(blockId, dom),
@@ -510,6 +541,15 @@ export class ProgressiveExcerptHotkeyHandler {
       return rootId;
     }
     return fallbackBlockId ? String(fallbackBlockId).trim() || undefined : undefined;
+  }
+
+  private isSourceMarkingEnabled(): boolean {
+    try {
+      return this.context.getSettingsService().getSettings().progressiveReading?.sourceMarkingEnabled !== false;
+    } catch (error) {
+      logger.warn('Failed to read progressive excerpt source-mark setting, defaulting to enabled', error);
+      return true;
+    }
   }
 
   private resolveTopicContainerId(selection: ProgressiveExcerptSelectionSnapshot): string | undefined {

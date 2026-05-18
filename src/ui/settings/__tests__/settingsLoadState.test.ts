@@ -78,6 +78,7 @@ describe('settingsLoadState', () => {
       progressiveReadingSettings: {
         ...DEFAULT_SETTINGS.progressiveReading,
         altXExcerptEnabled: true,
+        sourceMarkingEnabled: false,
         storage: {
           mode: 'library',
           notebookId: 'notebook-a',
@@ -116,6 +117,7 @@ describe('settingsLoadState', () => {
       storageMode: 'source-child',
     });
     expect(loaded.settings.progressiveAltXExcerptEnabled).toBe(true);
+    expect(loaded.settings.progressiveSourceMarkingEnabled).toBe(false);
     expect(loaded.settings.progressiveStorage).toEqual({
       mode: 'library',
       notebookId: 'notebook-a',

@@ -228,6 +228,7 @@ export function resolveSettingsPanelLoadState(input: SettingsPanelLoadInput): Se
       priorityRandomness: normalizePriorityRandomness(input.priorityRandomness),
       quickCard: mergeQuickCardSettings(input.quickCardSettings),
       progressiveAltXExcerptEnabled: input.progressiveReadingSettings?.altXExcerptEnabled === true,
+      progressiveSourceMarkingEnabled: input.progressiveReadingSettings?.sourceMarkingEnabled !== false,
       progressiveStorage: mergeConfiguredCaptureStorageSettings(
         input.progressiveReadingSettings?.storage,
         DEFAULT_SETTINGS.progressiveReading.storage,
@@ -237,6 +238,7 @@ export function resolveSettingsPanelLoadState(input: SettingsPanelLoadInput): Se
 
   settings.quickCard = mergeQuickCardSettings(input.quickCardSettings);
   settings.progressiveAltXExcerptEnabled = input.progressiveReadingSettings?.altXExcerptEnabled === true;
+  settings.progressiveSourceMarkingEnabled = input.progressiveReadingSettings?.sourceMarkingEnabled !== false;
   settings.progressiveStorage = mergeConfiguredCaptureStorageSettings(
     input.progressiveReadingSettings?.storage,
     DEFAULT_SETTINGS.progressiveReading.storage,

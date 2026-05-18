@@ -515,7 +515,7 @@ describe('TopicDerivedItemService', () => {
     expect(progressiveReadingService.service.deleteProgressiveArtifact).toHaveBeenCalledWith('derived-doc-1');
   });
 
-  it('uses content DOM for manual Topic cloze items so block-ref anchor text and mark rendering are preserved', async () => {
+  it('uses content DOM for manual Topic cloze items so inline links, refs, and tokens are preserved', async () => {
     const cardService = createCardServiceMock();
     const progressiveReadingService = createProgressiveReadingServiceMock();
     const nativeRiffApi = createNativeRiffPortMock();
@@ -530,8 +530,8 @@ describe('TopicDerivedItemService', () => {
       sourceBlockId: 'source-block-manual-1',
       sourceDocId: 'topic-doc-root-1',
       parentTopicCardId: 'topic-card-manual-1',
-      plannerContent: 'Alpha ==((20240101010101-abcdefg))== Gamma',
-      artifactContentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="mark"><span data-type="block-ref" data-id="20240101010101-abcdefg">*</span></span> Gamma</div></div>',
+      plannerContent: 'Alpha ==((20240101010101-abcdefg)) link asset siyuan tag== Gamma',
+      artifactContentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="mark"><span data-type="block-ref" data-id="20240101010101-abcdefg">*</span> <span data-type="a" data-href="https://example.com">link</span> <span data-type="a" data-href="assets/paper.pdf">asset</span> <span data-type="a" data-href="siyuan://blocks/20240101010101-abcdefg">siyuan</span> <span data-type="tag">#token#</span></span> Gamma</div></div>',
       previewText: '*',
       answerFingerprint: 'source-block-manual-1::ManualSelectionClozeRule::Alpha::((20240101010101-abcdefg))::Gamma',
       mode: 'manual-cloze',
@@ -554,6 +554,10 @@ describe('TopicDerivedItemService', () => {
     }));
     expect(firstChildInput?.contentDom).toContain('>*</span>');
     expect(firstChildInput?.contentDom).toContain('<span data-type="mark"><span data-type="block-ref"');
+    expect(firstChildInput?.contentDom).toContain('data-href="https://example.com"');
+    expect(firstChildInput?.contentDom).toContain('data-href="assets/paper.pdf"');
+    expect(firstChildInput?.contentDom).toContain('data-href="siyuan://blocks/20240101010101-abcdefg"');
+    expect(firstChildInput?.contentDom).toContain('data-type="tag"');
     expect(firstChildInput).not.toHaveProperty('contentMarkdown');
 
     expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
