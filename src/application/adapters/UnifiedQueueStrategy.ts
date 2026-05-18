@@ -25,9 +25,12 @@ import {
     ReviewCurrentItemCommand,
     ReviewFeedbackAdvancementCoordinator,
     ReviewFeedbackCompensationPolicy,
+    ReviewHistoryStack,
     ReviewLearnAheadAdvancePolicy,
     ReviewSessionCursor,
     ReviewSessionProjectionAdvancePolicy,
+    ReviewTransactionSafetyEnvelope,
+    type ReviewTransaction,
 } from './review-session';
 import { resolveEffectiveSchedulerTypeForCard } from '@/core/scheduler/schedulerPolicy';
 import { buildSchedulerPreviewSnapshotKey } from '@/core/scheduler/schedulerStateSnapshot';
@@ -58,31 +61,6 @@ type SchedulerPreviewRouter = ISchedulerRouter & {
 
 type ReviewSchedulingContextQueue = IReviewQueue & {
     getReviewSchedulingContext: (card: FSRSCard) => QueueReviewSchedulingContext | null;
-};
-
-type QueueRollbackCapable = IReviewQueue & {
-    createRollbackSnapshot?: () => Promise<unknown>;
-    restoreRollbackSnapshot?: (snapshot: unknown) => Promise<void>;
-};
-
-type QueueSnapshotRecord = {
-    queueType: QueueType;
-    queue: QueueRollbackCapable;
-    snapshot: unknown;
-};
-
-type ReviewTransaction = {
-    action: QueueFeedback['action'];
-    cardId: string;
-    cardBefore: FSRSCard | null;
-    queueSnapshots: QueueSnapshotRecord[];
-    sessionExcludedCardIdsBefore: string[];
-    sessionExcludedLogicalKeysBefore: string[];
-};
-
-type ReviewHistoryEntry = {
-    item: FSRSCard;
-    transaction: ReviewTransaction | null;
 };
 
 type FeedbackMutationContext = {
@@ -125,8 +103,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private cacheManager: CacheManagerObserver;
     private readonly cursor: ReviewSessionCursor;
     private readonly currentItemCommand = new ReviewCurrentItemCommand();
-    private historyStack: ReviewHistoryEntry[] = [];
-    private readonly maxHistorySize = 100;
+    private readonly historyStack = new ReviewHistoryStack(100);
     private managerObserverRegistered = false;
     private feedbackMutation: FeedbackMutationContext | null = null;
     private readonly suspiciousNextDuesLogKeys = new Set<string>();
@@ -137,6 +114,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private readonly neuralRoamAdvanceOutcomePolicy = new NeuralRoamAdvanceOutcomePolicy();
     private readonly feedbackAdvancement: ReviewFeedbackAdvancementCoordinator;
     private readonly neuralRoamAdvance: NeuralRoamAdvanceCoordinator;
+    private readonly transactionSafetyEnvelope: ReviewTransactionSafetyEnvelope;
 
     constructor(
         queueTypeOrQueue: QueueType | IReviewQueue,
@@ -174,6 +152,15 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             applyProjectionQueueImpact: (reviewedCard, result, options) => this.applyProjectionQueueImpactToCache(reviewedCard, result, options),
             refreshLocalCounterSnapshot: (source, baseSnapshot) => this.refreshLocalCounterSnapshot(source, baseSnapshot),
             invalidateCache: () => this.invalidateCache(),
+        });
+        this.transactionSafetyEnvelope = new ReviewTransactionSafetyEnvelope({
+            queueType: this.queueType,
+            queue: this.queue,
+            manager: this.manager,
+            cursor: this.cursor,
+            getCurrentItem: () => this.currentItem,
+            invalidateCache: () => this.invalidateCache(),
+            refreshRestoredItem: (item) => this.maybeAddNextDues(item),
         });
         this.neuralRoamAdvance = new NeuralRoamAdvanceCoordinator({
             cursor: this.cursor,
@@ -508,14 +495,14 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     canGoBack(): boolean {
-        return this.historyStack.length > 0;
+        return this.historyStack.canGoBack();
     }
 
     async goBack(currentItem: FSRSCard | null): Promise<FSRSCard | null> {
         this.cursor.clearPendingRotation();
         this.clearAvoidOnceIdentity();
         const activeItem = this.currentItemCommand.resolveActive(currentItem);
-        if (this.historyStack.length === 0) {
+        if (!this.historyStack.canGoBack()) {
             return activeItem;
         }
 
@@ -930,13 +917,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     private removeSessionExcludedCardIds(cardIds: Array<string | null | undefined>): number {
         return this.cursor.removeSessionExcludedCardIds(cardIds);
-    }
-
-    private restoreSessionExcludedCardIds(
-        cardIds: Array<string | null | undefined>,
-        logicalKeys: Array<string | null | undefined> = []
-    ): void {
-        this.cursor.restoreSessionExcludedCardIds(cardIds, logicalKeys);
     }
 
     async insertAt(cardId: string, position: number): Promise<void> {
@@ -1435,21 +1415,11 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private pushHistory(item: FSRSCard, transaction: ReviewTransaction | null): void {
-        this.historyStack.push({
-            item: this.cloneCard(item),
-            transaction,
-        });
-        if (this.historyStack.length > this.maxHistorySize) {
-            this.historyStack.shift();
-        }
+        this.historyStack.push(item, transaction);
     }
 
     private discardFailedHistoryEntry(item: FSRSCard, transaction: ReviewTransaction): void {
-        const last = this.historyStack[this.historyStack.length - 1];
-        if (!last || last.transaction !== transaction || last.item.id !== item.id) {
-            return;
-        }
-        this.historyStack.pop();
+        this.historyStack.discardFailedEntry(item, transaction);
     }
 
     private pushForwardItem(card: FSRSCard): void {
@@ -1461,135 +1431,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         feedback: QueueFeedback,
         options: { includeCardSnapshot?: boolean } = {}
     ): Promise<ReviewTransaction> {
-        const includeCardSnapshot = options.includeCardSnapshot !== false;
-        let cardBefore: FSRSCard | null = null;
-        if (includeCardSnapshot) {
-            try {
-                cardBefore = await this.resolvePreReviewCardSnapshot(currentItem);
-                if (!cardBefore && this.queueType !== QueueType.NeuralRoam) {
-                    logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Unable to resolve pre-review card snapshot:', {
-                        queueType: this.queueType,
-                        cardId: currentItem.id,
-                        blockId: currentItem.blockId,
-                    });
-                    throw new QueueItemUnavailableError(
-                        `Pre-review card snapshot missing for current queue item: ${currentItem.id}`,
-                        {
-                            cardId: currentItem.id,
-                            blockId: currentItem.blockId,
-                            queueType: this.queueType,
-                        },
-                    );
-                }
-            } catch (error) {
-                if (error instanceof QueueItemUnavailableError
-                    || (isRecord(error) && error.name === 'QueueItemUnavailableError')
-                    || this.isUnavailableCurrentItemError(error, currentItem)) {
-                    throw new QueueItemUnavailableError(
-                        `Queue item is no longer available: ${currentItem.id}`,
-                        {
-                            cardId: currentItem.id,
-                            blockId: currentItem.blockId,
-                            queueType: this.queueType,
-                        },
-                        error,
-                    );
-                }
-                logger.error('[SiYuanMemo][UnifiedQueueStrategy] QUEUE_REVIEW_SNAPSHOT_UNAVAILABLE: failed to capture pre-review card snapshot:', {
-                    queueType: this.queueType,
-                    cardId: currentItem.id,
-                    error: error instanceof Error ? error.message : String(error),
-                });
-                const unavailable = new Error(`QUEUE_REVIEW_SNAPSHOT_UNAVAILABLE: ${this.queueType} pre-review card snapshot unavailable`);
-                (unavailable as Error & { cause?: unknown }).cause = error;
-                throw unavailable;
-            }
-        }
-
-        const queueSnapshots = await this.captureQueueSnapshots(feedback);
-        const cursorSnapshot = this.cursor.serialize(this.queueType, this.currentItem);
-
-        return {
-            action: feedback.action,
-            cardId: currentItem.id,
-            cardBefore,
-            queueSnapshots,
-            sessionExcludedCardIdsBefore: cursorSnapshot.sessionExcludedCardIds ?? [],
-            sessionExcludedLogicalKeysBefore: cursorSnapshot.sessionExcludedLogicalKeys ?? [],
-        };
-    }
-
-    private async resolvePreReviewCardSnapshot(currentItem: FSRSCard): Promise<FSRSCard | null> {
-        // NeuralRoam may surface non-card nodes as synthetic review items (id=blockId).
-        // These blocks do not necessarily exist in card storage, so snapshot lookup is intentionally skipped.
-        if (this.queueType === QueueType.NeuralRoam) {
-            return null;
-        }
-
-        const byCardId = await this.manager.getCard(currentItem.id, { silent: true });
-        if (byCardId) {
-            return this.cloneCard(byCardId);
-        }
-
-        const blockId = String(currentItem.blockId || currentItem.id || '').trim();
-        if (!blockId) {
-            return null;
-        }
-
-        const byBlockId = await this.manager.getCards({ blockIds: [blockId] });
-        if (byBlockId.length > 0) {
-            return this.cloneCard(byBlockId[0]);
-        }
-
-        return null;
-    }
-
-    private async captureQueueSnapshots(feedback: QueueFeedback): Promise<QueueSnapshotRecord[]> {
-        const targets = new Map<QueueType, QueueRollbackCapable>();
-        this.addSnapshotTarget(targets, this.queueType, this.queue as QueueRollbackCapable);
-
-        if (this.shouldSnapshotFinalDrill(feedback)) {
-            this.addSnapshotTarget(
-                targets,
-                QueueType.FinalDrill,
-                this.manager.getQueue(QueueType.FinalDrill) as QueueRollbackCapable
-            );
-        }
-
-        const records: QueueSnapshotRecord[] = [];
-        for (const [queueType, queue] of targets.entries()) {
-            if (typeof queue.createRollbackSnapshot !== 'function') {
-                continue;
-            }
-            const snapshot = await queue.createRollbackSnapshot();
-            records.push({ queueType, queue, snapshot });
-        }
-        return records;
-    }
-
-    private addSnapshotTarget(
-        targets: Map<QueueType, QueueRollbackCapable>,
-        queueType: QueueType,
-        queue: QueueRollbackCapable
-    ): void {
-        if (!targets.has(queueType)) {
-            targets.set(queueType, queue);
-        }
-    }
-
-    private shouldSnapshotFinalDrill(feedback: QueueFeedback): boolean {
-        if (feedback.action !== 'rate') {
-            return false;
-        }
-
-        const rating = feedback.rating ?? 0;
-        if (rating >= 3) {
-            return false;
-        }
-
-        return this.queueType === QueueType.RetrievalPractice
-            || this.queueType === QueueType.IncrementalLearning
-            || this.queueType === QueueType.FilterGroup;
+        return this.transactionSafetyEnvelope.capture(currentItem, feedback, options);
     }
 
     private shouldHandleHideCurrentInScope(currentItem: FSRSCard, actionId: string): boolean {
@@ -1601,59 +1443,12 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         return cardType === 'topic' || cardType === 'concept';
     }
 
-    private async restoreReviewTransaction(
-        transaction: ReviewTransaction,
-        options: { persistCardRestore: boolean }
-    ): Promise<void> {
-        for (const record of transaction.queueSnapshots) {
-            if (typeof record.queue.restoreRollbackSnapshot !== 'function') {
-                continue;
-            }
-            await record.queue.restoreRollbackSnapshot(record.snapshot);
-        }
-
-        if (transaction.cardBefore) {
-            const cardSnapshot = this.cloneCard(transaction.cardBefore);
-            if (options.persistCardRestore) {
-                await this.manager.updateCard(cardSnapshot);
-            } else if (typeof this.manager.restoreCardSnapshotForFailedFeedback === 'function') {
-                await this.manager.restoreCardSnapshotForFailedFeedback(cardSnapshot);
-            } else {
-                logger.warn('[SiYuanMemo][UnifiedQueueStrategy] No no-persist card restore port for failed feedback:', {
-                    queueType: this.queueType,
-                    cardId: transaction.cardId,
-                });
-            }
-        }
-
-        this.restoreSessionExcludedCardIds(
-            transaction.sessionExcludedCardIdsBefore,
-            transaction.sessionExcludedLogicalKeysBefore
-        );
-    }
-
     private async rollbackTransaction(transaction: ReviewTransaction): Promise<void> {
-        await this.restoreReviewTransaction(transaction, { persistCardRestore: true });
-        this.cursor.counterSnapshot = null;
-        this.invalidateCache();
+        await this.transactionSafetyEnvelope.rollback(transaction);
     }
 
     private async compensateFailedFeedback(activeItem: FSRSCard, transaction: ReviewTransaction | null): Promise<void> {
-        const restoredItem = transaction?.cardBefore || activeItem;
-        try {
-            if (transaction) {
-                await this.restoreReviewTransaction(transaction, { persistCardRestore: false });
-            }
-        } catch (rollbackError) {
-            logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Failed to compensate failed feedback:', {
-                queueType: this.queueType,
-                cardId: activeItem.id,
-                error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
-            });
-        }
-
-        const restoredWithNextDues = await this.maybeAddNextDues(this.cloneCard(restoredItem))
-            .catch(() => this.cloneCard(restoredItem));
+        const restoredWithNextDues = await this.transactionSafetyEnvelope.compensateFailedFeedback(activeItem, transaction);
         this.feedbackAdvancement.applyFailedFeedbackCompensation(restoredWithNextDues);
     }
 
@@ -1678,7 +1473,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         if (this.hasSessionExclusions() && lastCounterSnapshot) {
             this.refreshLocalCounterSnapshot('hot', lastCounterSnapshot);
         }
-        this.historyStack = [];
+        this.historyStack.clear();
     }
 
     getType(): QueueType {
@@ -1690,7 +1485,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     resetSessionState(): void {
-        this.historyStack = [];
+        this.historyStack.clear();
         this.feedbackMutation = null;
         this.clearCurrentItem();
         this.neuralRoamAdvance.reset();

@@ -45,6 +45,17 @@ export {
   type ReviewFeedbackRateAdvancementInput,
 } from './ReviewFeedbackAdvancementCoordinator';
 export {
+  ReviewHistoryStack,
+  type ReviewHistoryEntry,
+} from './ReviewHistoryStack';
+export {
+  ReviewTransactionSafetyEnvelope,
+  type ReviewQueueSnapshotRecord,
+  type ReviewTransaction,
+  type ReviewTransactionSafetyEnvelopeDependencies,
+  type ReviewTransactionSafetyEnvelopeManager,
+} from './ReviewTransactionSafetyEnvelope';
+export {
   ReviewSessionCursor,
   type ReviewSessionCursorNextResult,
   type ReviewSessionCursorProjectionPatch,

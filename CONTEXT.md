@@ -80,6 +80,14 @@ _Avoid_: review commit, scheduler feedback, queue membership update, NeuralRoam 
 The backend-authoritative Review progression for NeuralRoam sessions that returns the next item, exhaustion, or explicit unavailability from the backend advance contract.
 _Avoid_: local NeuralRoam cursor, projection-backed NeuralRoam review, renderer-selected NeuralRoam next item
 
+**Review Transaction Safety Envelope**:
+The pre-feedback and failed-feedback safety boundary for a Review transaction: pre-review card snapshot, queue rollback snapshots, session-local exclusion snapshot, persistent rollback on go-back, and no-persist compensation after failed feedback.
+_Avoid_: scheduler commit, queue membership selection, local Review advancement, NeuralRoam next-item selection
+
+**Review History**:
+The bounded LIFO record of previously visible Review items and their optional Review transaction, used by go-back and failed-feedback cleanup.
+_Avoid_: queue cache, browser history, review event log, scheduler history
+
 ## Relationships
 
 - A **Mixed SRS Queue** may contain **Learning Steps**, **Review Cards**, and new cards.
@@ -98,6 +106,8 @@ _Avoid_: local NeuralRoam cursor, projection-backed NeuralRoam review, renderer-
 - A **Review Current Item Command** sits beside the **Review Session Cursor** and applies the visible current card after cursor restore, ordinary advancement, or compensation chooses that card.
 - **Review Feedback Advancement** consumes **Review Session Cursor** and **Review Current Item Command** state after a queue feedback result, while queue membership, scheduling commit, writer relay, and NeuralRoam next-item selection stay outside it.
 - **NeuralRoam Advance** selects NeuralRoam next items before **Review Current Item Command** applies them to the visible Review session.
+- **Review Transaction Safety Envelope** wraps risky Review feedback mutation before **Review Feedback Advancement** applies local session transition.
+- **Review History** stores the previous visible item and optional **Review Transaction Safety Envelope** transaction for go-back or failed-feedback cleanup.
 
 ## Example Dialogue
 
@@ -119,3 +129,5 @@ _Avoid_: local NeuralRoam cursor, projection-backed NeuralRoam review, renderer-
 - Review session state was ambiguous between UI session orchestration, shared surface registration, and volatile queue movement. Resolved: **Review Session Cursor** names only the in-memory movement state within one Review session.
 - Review feedback handling was ambiguous between scheduler commit, queue membership update, and local session transition. Resolved: **Review Feedback Advancement** names only the post-feedback local Review session transition.
 - NeuralRoam progression was ambiguous with local cursor/projection review. Resolved: **NeuralRoam Advance** is backend-authoritative and the renderer only consumes its result.
+- Review rollback handling was ambiguous between queue rollback, card snapshot restore, session exclusion restore, and visible current-item compensation. Resolved: **Review Transaction Safety Envelope** owns transaction safety; **Review Feedback Advancement** only applies the restored item locally.
+- Review go-back storage was ambiguous with queue cache and review logs. Resolved: **Review History** names only the bounded in-memory previous-item stack inside one Review strategy.

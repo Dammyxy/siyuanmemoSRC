@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-18 (Round 384)
+Last update: 2026-05-18 (Round 386)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-18 - Review History Stack
+
+- Task: Continue Review strategy deepening by moving bounded go-back history storage out of `UnifiedQueueStrategy`.
+- Touched slice: Review session history; `src/application/adapters/UnifiedQueueStrategy.ts`, `src/application/adapters/review-session/ReviewHistoryStack.ts`, focused history tests, `CONTEXT.md`, and `ARCHITECTURE.md`.
+- Debt fixed now: `ReviewHistoryStack` now owns bounded previous-item storage, clone-on-push semantics, failed-history-entry discard checks, clear/reset behaviour, and preserving transaction object identity for rollback owners. `UnifiedQueueStrategy` keeps go-back orchestration, rollback invocation, forward-buffer push, visible current-item restore, and logging.
+- Debt deferred: Go-back UI state, transaction rollback semantics, forward-buffer cursor ownership, nextDues hydration, NeuralRoam advance, and Review event logs remain outside Review History.
+- Why deferred: Those behaviours belong to UI session orchestration, transaction safety, cursor movement, display hydration, backend advance, or durable analytics rather than bounded in-memory go-back storage.
+- Next safe step: Stop Review strategy deepening unless `UnifiedQueueStrategy` grows again; next larger architecture payoff is likely outside Review, especially Browser grid/data lifecycle or AI workbench orchestration.
+- Validation: `pnpm vitest run src/application/adapters/review-session/__tests__/ReviewHistoryStack.test.ts`; `pnpm vitest run src/application/adapters/review-session/__tests__/ReviewHistoryStack.test.ts src/application/adapters/review-session/__tests__/ReviewTransactionSafetyEnvelope.test.ts src/application/adapters/review-session/__tests__/NeuralRoamAdvanceCoordinator.test.ts src/application/adapters/review-session/__tests__/ReviewFeedbackAdvancementCoordinator.test.ts src/application/adapters/review-session/__tests__/ReviewSessionCursor.test.ts src/application/adapters/review-session/__tests__/ReviewSessionAdvancementPolicies.test.ts src/application/adapters/__tests__/UnifiedQueueStrategy.scope-append.spec.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
+
+### 2026-05-18 - Review Transaction Safety Envelope
+
+- Task: Continue Review strategy deepening by moving feedback transaction safety out of `UnifiedQueueStrategy`.
+- Touched slice: Review session transaction safety; `src/application/adapters/UnifiedQueueStrategy.ts`, `src/application/adapters/review-session/ReviewTransactionSafetyEnvelope.ts`, focused safety tests, `CONTEXT.md`, and `ARCHITECTURE.md`.
+- Debt fixed now: `ReviewTransactionSafetyEnvelope` now owns pre-review card snapshot capture, queue rollback snapshot capture/restore, FinalDrill rollback coverage for low ratings, session-local exclusion snapshot/restore, persistent rollback for go-back, and no-persist failed-feedback compensation. `UnifiedQueueStrategy` keeps the public `IQueueStrategy` façade, feedback mutation call, history stack, compensation plan selection, logging, and local advancement delegation.
+- Debt deferred: Backend `review.feedback` transaction semantics, writer relay failure modes, projection patch/refresh policy, NeuralRoam backend advance, Learn Ahead, insert/append, stats, and Browser projection readiness remain outside the safety envelope.
+- Why deferred: Those behaviours belong to backend commit authority, projection read/write coordination, explicit queue commands, or Review local advancement rather than transaction safety capture/restore.
+- Next safe step: If `UnifiedQueueStrategy` keeps shrinking, extract history stack ownership into a small Review History module; otherwise pause this seam and move to the next high-friction bounded context.
+- Validation: `pnpm vitest run src/application/adapters/review-session/__tests__/ReviewTransactionSafetyEnvelope.test.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts`; `pnpm vitest run src/application/adapters/review-session/__tests__/ReviewTransactionSafetyEnvelope.test.ts src/application/adapters/review-session/__tests__/NeuralRoamAdvanceCoordinator.test.ts src/application/adapters/review-session/__tests__/ReviewFeedbackAdvancementCoordinator.test.ts src/application/adapters/review-session/__tests__/ReviewSessionCursor.test.ts src/application/adapters/review-session/__tests__/ReviewSessionAdvancementPolicies.test.ts src/application/adapters/__tests__/UnifiedQueueStrategy.scope-append.spec.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
 
 ### 2026-05-18 - NeuralRoam Advance Coordinator
 
