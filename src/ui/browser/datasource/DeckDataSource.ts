@@ -29,6 +29,7 @@ import type { IUnifiedDataSourceManagerFacade } from '@/types/unified-data-sourc
 import type { RescheduleService } from '@/core/scheduler/rescheduleService';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import type { FSRSCard } from '@/types/card';
+import { resolveBrowserCardFullContent } from '@/types/browser';
 import {
   adjustBrowserCardsPriorityRelative,
   applyCardTypeFilter,
@@ -488,7 +489,11 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
       }
     }
 
-    const fullContent = (card.meta?.content as string) || card.content || '';
+    const fullContent = resolveBrowserCardFullContent({
+      meta: card.meta,
+      content: card.content,
+      title: (card as DeckCardRecord & { title?: unknown }).title,
+    });
     const content = this.truncateContent(fullContent, 100);
     const deckId = (card.meta?.deckId as string) || card.deckId || '';
     const cardType = card.type as

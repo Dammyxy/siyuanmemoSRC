@@ -464,6 +464,12 @@ export class WorkerNeuralRoamAdvanceService {
   ): Promise<BackendNeuralRoamAdvanceResult> {
     const navigation = queue.getNavigationState();
     const counters = await this.readCounters(queue);
+    if (status === 'exhausted') {
+      counters.remaining = 0;
+      counters.due = 0;
+      counters.total = 0;
+      counters.pendingAssociatedReview = 0;
+    }
     const sessionId = request.sessionId ?? navigation.sessionId ?? navigation.engineSessionId ?? null;
     return {
       queueType: 'neural-roam',

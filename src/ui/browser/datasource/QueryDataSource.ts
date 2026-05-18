@@ -36,6 +36,7 @@ import {
 } from './MenuActions';
 import type { IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
+import { resolveBrowserCardFullContent } from '@/types/browser';
 import {
   buildTemplateBackedBrowserRowFromCard,
 } from '@/types/memory-content-payload-seam';
@@ -504,7 +505,10 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
     const now = Date.now();
     const meta = isObjectLike(card.meta) ? card.meta : {};
     const templateContent = readString(template?.fullContent || template?.content);
-    const fullContent = readOptionalString(meta.content) || templateContent;
+    const fullContent = resolveBrowserCardFullContent({
+      meta,
+      content: templateContent,
+    });
     const priority = readNumber(card.priority, template?.priority ?? 50);
     const skipUntil = readNumber(card.skipUntil);
     return buildTemplateBackedBrowserRowFromCard({

@@ -13,7 +13,14 @@ import type { IUnifiedDataSourceManagerFacade, IDataSourceObserver, DataChangeEv
 import type { SortModel, FilterModel } from '@/application/interfaces/ICardDataSource';
 import type { FSRSCard } from '@/types/card';
 import type { BrowserCard } from './types';
-import { CardState, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from './types';
+import {
+    CardState,
+    calculateRetrievability,
+    formatDueDate,
+    formatHistoryDate,
+    resolveBrowserCardFullContent,
+    truncateContent,
+} from './types';
 import { validateConsumerCardType } from '@/diagnostics/type-guards';
 import { createLogger } from '@/utils/logger';
 
@@ -410,8 +417,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
         const lastReviewFormatted = lastReviewDate ? formatHistoryDate(lastReviewDate) : '';
         const firstReviewFormatted = lastReviewDate ? formatHistoryDate(lastReviewDate) : ''; // TODO: 使用实际的 firstReview
         
-        // 🔧 优先从 meta 字段获取内容，如果不存在则使用空字符串
-        const fullContent = (card.meta?.content as string) || '';
+        const fullContent = resolveBrowserCardFullContent({ meta: card.meta });
         const content = truncateContent(fullContent, 100);
         
         // 🔧 从 meta 字段获取 deckId

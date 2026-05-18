@@ -166,6 +166,7 @@ function createStrategyWithQueue(
     getCards: ReturnType<typeof vi.fn>;
     updateCard: ReturnType<typeof vi.fn>;
     neuralRoamAdvance: ReturnType<typeof vi.fn>;
+    getBlockContentsWithType: ReturnType<typeof vi.fn>;
   };
 } {
   const manager = {
@@ -176,6 +177,7 @@ function createStrategyWithQueue(
     getCards: vi.fn(async () => []),
     updateCard: vi.fn(async () => {}),
     neuralRoamAdvance: vi.fn(async () => createAdvanceResult(null)),
+    getBlockContentsWithType: vi.fn(async () => new Map()),
   };
 
   const eventBus = {
@@ -290,6 +292,25 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
     });
     expect(queue.getSize).toHaveBeenCalledTimes(1);
     expect(queue.getCards).not.toHaveBeenCalled();
+  });
+
+  it('uses backend neural-roam exhausted counters instead of stale local source pool stats', async () => {
+    const queue = createQueueStub() as IReviewQueue & {
+      getSize: ReturnType<typeof vi.fn>;
+    };
+    queue.getSize.mockResolvedValue(3);
+    const { strategy, manager } = createStrategyWithQueue(queue);
+    manager.neuralRoamAdvance.mockResolvedValueOnce(createAdvanceResult(null, 'exhausted'));
+
+    await expect(strategy.next()).resolves.toBeNull();
+
+    const stats = await strategy.getStats();
+    expect(stats).toEqual({
+      size: 0,
+      label: '0 due',
+      extra: '0 total',
+    });
+    expect(queue.getSize).not.toHaveBeenCalled();
   });
 
   it('uses queue.getSize fast-path for neural remaining size', async () => {
@@ -440,5 +461,84 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
     expect(hydrated).toBe(topicNode);
     expect(preview).not.toHaveBeenCalled();
     expect(hydrated && 'nextDues' in hydrated).toBe(false);
+  });
+
+  it('hydrates neural-roam virtual document nodes with the same document title payload as real document cards', async () => {
+    const queue = createQueueStub();
+    const virtualDocNode = createSyntheticNeuralCard({
+      id: '20260518120000-docnode',
+      blockId: '20260518120000-docnode',
+      type: CardType.Topic,
+      meta: {
+        neuralContext: {
+          isFlashcard: false,
+          nodeRole: 'virtual',
+        },
+      },
+    });
+    const { strategy, manager } = createStrategyWithQueue(queue);
+    manager.getBlockContentsWithType.mockResolvedValueOnce(new Map([
+      [virtualDocNode.blockId, {
+        id: virtualDocNode.blockId,
+        content: 'Document Node Title',
+        type: 'd',
+        isDocument: true,
+      }],
+    ]));
+
+    const hydrated = await strategy.hydrateCurrentItem(virtualDocNode);
+
+    expect(hydrated).toMatchObject({
+      id: virtualDocNode.id,
+      blockId: virtualDocNode.blockId,
+      meta: expect.objectContaining({
+        content: 'Document Node Title',
+        blockType: 'd',
+        isDocument: true,
+        neuralContext: expect.objectContaining({
+          isFlashcard: false,
+          nodeRole: 'virtual',
+        }),
+      }),
+    });
+    expect(manager.getBlockContentsWithType).toHaveBeenCalledWith([virtualDocNode.blockId]);
+  });
+
+  it('hydrates backend-advanced neural-roam virtual document nodes before returning the next card', async () => {
+    const queue = createQueueStub();
+    const virtualDocNode = createSyntheticNeuralCard({
+      id: '20260518120000-nextdoc',
+      blockId: '20260518120000-nextdoc',
+      type: CardType.Topic,
+      meta: {
+        neuralContext: {
+          isFlashcard: false,
+          nodeRole: 'virtual',
+        },
+      },
+    });
+    const { strategy, manager } = createStrategyWithQueue(queue);
+    manager.neuralRoamAdvance.mockResolvedValueOnce(createAdvanceResult(createAdvanceItem(virtualDocNode)));
+    manager.getBlockContentsWithType.mockResolvedValueOnce(new Map([
+      [virtualDocNode.blockId, {
+        id: virtualDocNode.blockId,
+        content: 'Advanced Document Title',
+        type: 'd',
+        isDocument: true,
+      }],
+    ]));
+
+    const next = await strategy.next();
+
+    expect(next).toMatchObject({
+      id: virtualDocNode.id,
+      blockId: virtualDocNode.blockId,
+      meta: expect.objectContaining({
+        content: 'Advanced Document Title',
+        blockType: 'd',
+        isDocument: true,
+      }),
+    });
+    expect(manager.getBlockContentsWithType).toHaveBeenCalledWith([virtualDocNode.blockId]);
   });
 });

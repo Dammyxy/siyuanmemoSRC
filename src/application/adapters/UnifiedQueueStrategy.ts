@@ -485,11 +485,49 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return null;
         }
 
-        if (!this.shouldComputeNextDues(card)) {
+        const displayHydratedCard = await this.hydrateNeuralRoamVirtualDocumentCard(card);
+        if (!this.shouldComputeNextDues(displayHydratedCard)) {
+            return displayHydratedCard;
+        }
+
+        return this.addNextDues(displayHydratedCard);
+    }
+
+    private async hydrateNeuralRoamVirtualDocumentCard(card: FSRSCard): Promise<FSRSCard> {
+        if (this.queueType !== QueueType.NeuralRoam) {
             return card;
         }
 
-        return this.addNextDues(card);
+        const meta = isRecord(card.meta) ? card.meta : {};
+        const neuralContext = isRecord(meta.neuralContext) ? meta.neuralContext : null;
+        if (neuralContext?.isFlashcard !== false) {
+            return card;
+        }
+
+        if (meta.isDocument === true || meta.blockType === 'd') {
+            return card;
+        }
+
+        const blockId = String(card.blockId || card.id || '').trim();
+        if (!blockId) {
+            return card;
+        }
+
+        const contentResults = await this.manager.getBlockContentsWithType([blockId]);
+        const contentResult = contentResults.get(blockId);
+        if (!contentResult || contentResult.isDocument !== true || contentResult.type !== 'd') {
+            return card;
+        }
+
+        return {
+            ...card,
+            meta: {
+                ...meta,
+                content: contentResult.content || '',
+                blockType: contentResult.type,
+                isDocument: true,
+            },
+        };
     }
 
     canGoBack(): boolean {
@@ -552,6 +590,14 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     async getStats(): Promise<QueueStats> {
         try {
             if (this.queueType === QueueType.NeuralRoam && !this.isProjectionBackedQueue()) {
+                if (this.cursor.counterSnapshot) {
+                    const stats = this.formatStatsFromCounterSnapshot(this.cursor.counterSnapshot);
+                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
+                        queueType: this.queueType,
+                        ...stats,
+                    });
+                    return stats;
+                }
                 const size = await this.queue.getSize();
                 const stats: QueueStats = {
                     size,
@@ -569,19 +615,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
             const counterSnapshot = await this.getCounterSnapshot();
             if (counterSnapshot) {
-                const extraParts = [
-                    counterSnapshot.currentLearningDue != null ? `${counterSnapshot.currentLearningDue} learning now` : null,
-                    counterSnapshot.todayReviewDue != null ? `${counterSnapshot.todayReviewDue} review today` : null,
-                    counterSnapshot.allowedNew != null ? `${counterSnapshot.allowedNew} new` : null,
-                    counterSnapshot.learnAheadAvailable ? `${counterSnapshot.learnAheadAvailable} learn ahead` : null,
-                ].filter(Boolean);
-                const stats: QueueStats = {
-                    size: counterSnapshot.remaining,
-                    label: `${counterSnapshot.due} due`,
-                    extra: extraParts.length > 0
-                        ? extraParts.join(' · ')
-                        : `${counterSnapshot.total ?? counterSnapshot.remaining} total`,
-                };
+                const stats = this.formatStatsFromCounterSnapshot(counterSnapshot);
 
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
                     queueType: this.queueType,
@@ -809,14 +843,18 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             logger.info('[SiYuanMemo][UnifiedQueueStrategy] NeuralRoam advance queue exhausted');
             return null;
         }
+        const displayHydratedCard = await this.hydrateNeuralRoamVirtualDocumentCard(outcome.card);
+        if (displayHydratedCard !== outcome.card) {
+            this.setCurrentItem(displayHydratedCard);
+        }
 
         logger.info('[SiYuanMemo][UnifiedQueueStrategy] Next card (backend NeuralRoam advance):', {
             queueType: this.queueType,
-            cardId: outcome.card.id,
+            cardId: displayHydratedCard.id,
             source: outcome.source,
             status: outcome.status,
         });
-        return outcome.card;
+        return displayHydratedCard;
     }
 
     public startNeuralRoamFromFocusOnNextAdvance(request: BackendNeuralRoamStartFromFocusRequest | null | undefined): void {
@@ -981,6 +1019,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     async getRemainingSize(): Promise<number> {
         try {
             if (this.queueType === QueueType.NeuralRoam && !this.isProjectionBackedQueue()) {
+                if (this.cursor.counterSnapshot) {
+                    return this.cursor.counterSnapshot.remaining;
+                }
                 return await this.queue.getSize();
             }
 
@@ -1003,6 +1044,22 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             });
             throw this.createQueueCountUnavailableError('remaining size read', error);
         }
+    }
+
+    private formatStatsFromCounterSnapshot(counterSnapshot: QueueCounterSnapshot): QueueStats {
+        const extraParts = [
+            counterSnapshot.currentLearningDue != null ? `${counterSnapshot.currentLearningDue} learning now` : null,
+            counterSnapshot.todayReviewDue != null ? `${counterSnapshot.todayReviewDue} review today` : null,
+            counterSnapshot.allowedNew != null ? `${counterSnapshot.allowedNew} new` : null,
+            counterSnapshot.learnAheadAvailable ? `${counterSnapshot.learnAheadAvailable} learn ahead` : null,
+        ].filter(Boolean);
+        return {
+            size: counterSnapshot.remaining,
+            label: `${counterSnapshot.due} due`,
+            extra: extraParts.length > 0
+                ? extraParts.join(' · ')
+                : `${counterSnapshot.total ?? counterSnapshot.remaining} total`,
+        };
     }
 
     async getCounterSnapshot(): Promise<QueueCounterSnapshot | null> {

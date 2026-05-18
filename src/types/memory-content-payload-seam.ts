@@ -4,6 +4,7 @@ import {
   calculateRetrievability,
   formatDueDate,
   formatHistoryDate,
+  resolveBrowserCardFullContent,
   truncateContent,
 } from './browser';
 import { CardState, type CardType, type FSRSCard } from './card';
@@ -110,12 +111,7 @@ function readString(value: unknown): string {
 }
 
 function resolveCardContent(card: FSRSCard): string {
-  const meta = card.meta || {};
-  return (
-    readString(meta.content) ||
-    readString(meta.imageOcclusionPrompt) ||
-    readString(meta.title)
-  );
+  return resolveBrowserCardFullContent({ meta: card.meta });
 }
 
 function resolveFirstReview(
@@ -387,7 +383,10 @@ export function buildTemplateBackedBrowserRowFromCard(
   const template = input.template ?? null;
   const meta = card.meta || {};
   const templateFullContent = readString(template?.fullContent || template?.content);
-  const fullContent = input.fullContent ?? (readString(meta.content) || templateFullContent);
+  const fullContent = input.fullContent ?? resolveBrowserCardFullContent({
+    meta,
+    content: templateFullContent,
+  });
   const blockId = input.blockId ?? card.blockId;
   const memory = buildMemoryItemSnapshot(card, {
     firstReviewMode: input.firstReviewMode ?? 'created-or-last',

@@ -4,6 +4,36 @@ Last update: 2026-05-18 (Round 388)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-18 - NeuralRoam Virtual Document Title Hydration
+
+- Task: Make NeuralRoam virtual document nodes display document titles in the review surface like real document flashcards.
+- Touched slice: Review display hydration; `src/application/adapters/UnifiedQueueStrategy.ts`, `src/application/services/UnifiedDataSourceManager.ts`, `src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`, and `src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts`.
+- Debt fixed now: NeuralRoam virtual non-flashcard nodes now reuse the real flashcard content query path through `CardContentQueryService`; when the block is a document (`type='d'`), hydration adds `meta.content`, `meta.blockType='d'`, and `meta.isDocument=true`, letting existing Review document-render rules show the title without a Vue-layer special case. Both restored/current-item hydration and backend `queue.next()` advance now pass through the same display hydration before the card reaches Review UI.
+- Debt deferred: Non-document virtual nodes still do not receive general content hydration through this path.
+- Why deferred: The requested behavior is document-title parity; broad virtual-node content hydration may affect ordinary Protyle block rendering and AI context semantics.
+- Next safe step: If ordinary virtual nodes need richer display metadata, add a separate display-content contract with tests instead of expanding document hydration implicitly.
+- Validation: `pnpm exec vitest run src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts src/application/queries/__tests__/CardContentQueryService.test.ts`.
+
+### 2026-05-18 - NeuralRoam Exhausted Counter Contract
+
+- Task: Diagnose NeuralRoam entering review with no next card while logs still report `3 due`.
+- Touched slice: Review session NeuralRoam advance contract; `src/application/adapters/UnifiedQueueStrategy.ts`, `worker/bootstrap/WorkerNeuralRoamAdvanceService.ts`, `src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`, and `worker/__tests__/BackendKernel.test.ts`.
+- Debt fixed now: Backend `neural-roam.advance` exhausted results no longer report stale source-pool nodes as due/remaining/total work, and renderer NeuralRoam stats now prefer the backend hot counter after an advance outcome instead of re-reading local `NeuralRoamQueue.getSize()` source-pool counts.
+- Debt deferred: The NeuralRoam source-pool size still represents configured roaming sources before the first backend advance, not a precomputed graph reachability count.
+- Why deferred: Determining reachability requires graph authority and belongs to backend advance/query, not renderer queue size reads.
+- Next safe step: If users still see immediate exhaustion with expected reachable notes, capture the `neural-roam.advance` result `queueState.hyperspace.session.exhaustedSources` and graph query responses for those source block IDs.
+- Validation: `pnpm exec vitest run src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts src/application/adapters/review-session/__tests__/NeuralRoamAdvanceCoordinator.test.ts`; `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts -t "neural-roam"`.
+
+### 2026-05-18 - Browser Quick-Card Title Projection
+
+- Task: Diagnose and fix symbol/quick cards showing blank Title cells in the browser while preview still renders source content.
+- Touched slice: Browser projection; `src/types/browser.ts`, `src/types/memory-content-payload-seam.ts`, `src/application/queries/browser/shared/BrowserDeckQueryKernel.ts`, `src/ui/browser/datasource/{DeckDataSource,QueryDataSource}.ts`, `src/ui/browser/SRSBrowserAdapter.ts`, and `src/ui/browser/datasource/__tests__/DeckDataSource.query-snapshot.test.ts`.
+- Debt fixed now: Browser row content resolution is centralized behind `resolveBrowserCardFullContent()`, so deck, query, queue/memory, backend deck hydration, and legacy browser adapter paths all honor `meta.content`, `meta.title`, and image-occlusion prompt fields consistently instead of only reading `meta.content`.
+- Debt deferred: Preview breadcrumb helpers still keep their local document-title resolution because preview already worked for the reported case and has separate breadcrumb/document semantics.
+- Why deferred: Expanding preview title resolution would cross into preview UX rather than the browser row projection defect.
+- Next safe step: If another blank browser label appears, route it through the same projection helper instead of adding per-data-source field checks.
+- Validation: `pnpm exec vitest run src/ui/browser/datasource/__tests__/DeckDataSource.query-snapshot.test.ts`; `pnpm exec vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
+
 ### 2026-05-18 - AutoCard Listener Candidate Runtime
 
 - Task: Apply OpenSpec change `deepen-autocard-listener-runtime` by extracting AutoCard listener candidate lifecycle from `AutoCardHandler`.

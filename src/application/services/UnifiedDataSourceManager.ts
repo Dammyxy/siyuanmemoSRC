@@ -59,6 +59,7 @@ import type {
     QueueProjectionReadinessRequest,
 } from '../../../packages/contracts/src/backend-rpc';
 import { QueueProjectionRuntime } from '@/application/services/queue-projection/QueueProjectionRuntime';
+import type { BlockContentResult } from '@/application/queries/CardContentQueryService';
 
 const logger = createLogger('UnifiedDataSourceManager');
 
@@ -66,6 +67,9 @@ interface UnifiedManagerPluginContextLike {
     getScheduler?: () => unknown;
     getCardTypeDetectionService?: () => {
         detectCardType?: (blockId: string) => Promise<'item' | 'topic'>;
+    } | null | undefined;
+    getCardContentQueryService?: () => {
+        getBlockContentsWithType?: (blockIds: string[]) => Promise<Map<string, BlockContentResult>>;
     } | null | undefined;
     getSettingsService?: () => {
         getSettings?: () => {
@@ -977,6 +981,14 @@ export class UnifiedDataSourceManager {
             logger.error('Failed to get cards:', errorMessage);
             throw new Error(`获取卡片列表失败: ${errorMessage}`);
         }
+    }
+
+    public async getBlockContentsWithType(blockIds: string[]): Promise<Map<string, BlockContentResult>> {
+        const contentService = this.resolvePluginContext()?.getCardContentQueryService?.();
+        if (typeof contentService?.getBlockContentsWithType !== 'function') {
+            throw new Error('[SiYuanMemo][UnifiedDataSourceManager] CardContentQueryService is required but not available');
+        }
+        return contentService.getBlockContentsWithType(blockIds);
     }
     
     /**

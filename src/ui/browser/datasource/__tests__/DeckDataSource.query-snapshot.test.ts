@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { reactive } from 'vue';
 import { DeckDataSource } from '../DeckDataSource';
 import type { BrowserCard } from '../../types';
+import { CardState, CardType, type FSRSCard } from '@/types/card';
 
 function makeBrowserCard(id: string, overrides: Partial<BrowserCard> = {}): BrowserCard {
   return {
@@ -39,6 +40,60 @@ function makeBrowserCard(id: string, overrides: Partial<BrowserCard> = {}): Brow
 }
 
 describe('DeckDataSource query snapshot path', () => {
+  it('shows symbol quick-card title when persisted content is stored in meta.title', async () => {
+    const now = Date.now();
+    const symbolCard: FSRSCard = {
+      id: 'card-symbol-title',
+      xiuyuanID: 'xy-block-symbol-title',
+      blockId: 'block-symbol-title',
+      due: now,
+      stability: 0,
+      difficulty: 0,
+      reps: 0,
+      lapses: 0,
+      state: CardState.New,
+      lastReview: 0,
+      elapsedDays: 0,
+      scheduledDays: 0,
+      priority: 50,
+      type: CardType.Item,
+      tags: [],
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: now,
+      updatedAt: now,
+      meta: {
+        title: '符号卡片标题',
+        source: 'symbol',
+        cardSource: 'quick-symbol',
+        symbolDetected: true,
+      },
+    };
+    const manager = {
+      getCards: vi.fn(async () => [symbolCard]),
+      updateCard: vi.fn(),
+      deleteCard: vi.fn(),
+      getQueue: vi.fn(),
+    } as never;
+
+    const dataSource = new DeckDataSource(
+      manager,
+      { preset: 'all' },
+    );
+
+    const result = await dataSource.fetchRows({
+      sortModel: [],
+      filterModel: {},
+      startRow: 0,
+      endRow: 20,
+    });
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]?.content).toBe('符号卡片标题');
+    expect(result.rows[0]?.fullContent).toBe('符号卡片标题');
+  });
+
   it('uses paged browserService path without building a full snapshot when available', async () => {
     const manager = {
       getCards: vi.fn(() => {

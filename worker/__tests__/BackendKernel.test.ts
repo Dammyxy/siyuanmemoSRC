@@ -118,9 +118,10 @@ async function seedQueueProjection(database: WorkerSqliteDatabaseService, input:
 
 async function seedNeuralRoamHyperspaceSource(
   database: WorkerSqliteDatabaseService,
-  sourceId = 'neural-source-1',
+  sourceId: string | string[] = 'neural-source-1',
   storageKey = 'neuralRoamQueue',
 ): Promise<void> {
+  const sourceIds = Array.isArray(sourceId) ? sourceId : [sourceId];
   await database.setQueueStateValue(storageKey, {
     version: 8,
     engineMode: 'hyperspace',
@@ -130,15 +131,15 @@ async function seedNeuralRoamHyperspaceSource(
       session: {},
     },
     hyperspace: {
-      sourcePool: [{
-        nodeId: sourceId,
+      sourcePool: sourceIds.map((nodeId) => ({
+        nodeId,
         nodeKind: 'concept',
         role: 'orbit-center',
         priority: 0.9,
         addedAt: 1_700_000_000_000,
         visitedAt: 0,
         nodePreview: 'Neural source',
-      }],
+      })),
       anchorPool: [],
       session: {
         displayPath: [],
@@ -1234,6 +1235,44 @@ describe('BackendKernel', () => {
         unavailableReason: null,
         sessionState: {
           exhausted: true,
+        },
+      });
+    }
+  });
+
+  it('does not report stale source-pool nodes as due after neural-roam advance exhausts', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    await seedNeuralRoamHyperspaceSource(database, [
+      'neural-source-missing-1',
+      'neural-source-missing-2',
+      'neural-source-missing-3',
+    ]);
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({}),
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-exhausted-counters',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: null,
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        status: 'exhausted',
+        nextItem: null,
+        counters: {
+          remaining: 0,
+          due: 0,
+          total: 0,
+          sourceNodes: 3,
         },
       });
     }

@@ -568,6 +568,41 @@ describe('UnifiedReviewAdapter', () => {
     expect(ui.content.answerBlockID).toBe('');
   });
 
+  it('keeps hydrated neural-roam virtual document nodes on the document render path', async () => {
+    const adapter = new UnifiedReviewAdapter({ headerVariant: 'neural-roam' });
+    const currentItem = createCard('virtual-doc-node', CardType.Topic, {
+      meta: {
+        content: 'Virtual Document Title',
+        blockType: 'd',
+        isDocument: true,
+        neuralContext: {
+          blockType: 'd',
+          isFlashcard: false,
+          nodeRole: 'virtual',
+        },
+      },
+    });
+
+    const ui = await renderState(
+      adapter,
+      createQueue({
+        queueType: 'neural-roam',
+        liveCards: [currentItem],
+        underlyingQueue: createNeuralUnderlyingQueue(5, 1, 1),
+      }),
+      currentItem,
+      createContext(),
+    );
+
+    expect(ui.actions.cardMeta).toMatchObject({
+      type: 'topic',
+      cardType: 'topic',
+    });
+    expect(ui.content.id).toBe('block-virtual-doc-node');
+    expect(ui.content.data).toBe('block-virtual-doc-node');
+    expect(ui.content.answerBlockID).toBe('');
+  });
+
   it('maps neural-roam non-flashcard concept nodes to topic actions', async () => {
     const adapter = new UnifiedReviewAdapter({ headerVariant: 'neural-roam' });
     const currentItem = createCard('concept-node', CardType.Concept, {

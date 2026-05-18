@@ -245,6 +245,27 @@ export function truncateContent(text: string, maxLength = 100): string {
   return `${cleaned.slice(0, maxLength)}...`;
 }
 
+function readBrowserProjectionString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+export function resolveBrowserCardFullContent(input: {
+  meta?: Record<string, unknown> | null;
+  content?: unknown;
+  title?: unknown;
+  imageOcclusionPrompt?: unknown;
+}): string {
+  const meta = input.meta || {};
+  return (
+    readBrowserProjectionString(meta.content)
+    || readBrowserProjectionString(meta.title)
+    || readBrowserProjectionString(meta.imageOcclusionPrompt)
+    || readBrowserProjectionString(input.content)
+    || readBrowserProjectionString(input.title)
+    || readBrowserProjectionString(input.imageOcclusionPrompt)
+  );
+}
+
 export interface IBreadcrumbItem {
   id: string;
   content?: string;

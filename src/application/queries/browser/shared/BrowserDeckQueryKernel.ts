@@ -14,6 +14,7 @@ import {
   formatDueDate,
   formatHistoryDate,
   resolveBrowserCardStableId,
+  resolveBrowserCardFullContent,
   STATE_LABELS,
   truncateContent,
   parseQuery,
@@ -198,7 +199,7 @@ export class BrowserDeckQueryKernel {
     const lastReviewFormatted = lastReviewDate ? formatHistoryDate(lastReviewDate) : '';
     const firstReviewFormatted = lastReviewDate ? formatHistoryDate(lastReviewDate) : '';
 
-    const fullContent = (card.meta?.content as string) || '';
+    const fullContent = resolveBrowserCardFullContent({ meta: card.meta });
     const content = truncateContent(fullContent, 100);
 
     const deckId = (card.meta?.deckId as string) || '';
@@ -293,7 +294,7 @@ export class BrowserDeckQueryKernel {
     const firstReviewDate = (card.reps || 0) > 0
       ? (card.createdAt ? new Date(card.createdAt) : lastReviewDate)
       : null;
-    const fullContent = (card.meta?.content as string) || '';
+    const fullContent = resolveBrowserCardFullContent({ meta: card.meta });
     const tags = Array.isArray(card.meta?.tags)
       ? (card.meta?.tags as string[]).map((tag) => String(tag || '').trim()).filter(Boolean)
       : [];
@@ -773,7 +774,7 @@ export class BrowserDeckQueryKernel {
     }
 
     const cardsNeedingContent = cards.filter((card) => {
-      const content = (card.meta?.content as string || '').trim();
+      const content = resolveBrowserCardFullContent({ meta: card.meta });
       return !content;
     });
 
