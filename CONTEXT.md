@@ -52,6 +52,14 @@ _Avoid_: scattered queue load glue, UI projection repair
 A block that owns Topic-derived item creation. A document block and a non-document block such as a super block can both be valid **Topic Containers**.
 _Avoid_: document-only Topic, assuming Topic means document block
 
+**AutoCard Decision Relay**:
+The AutoCard decision routing module that resolves candidate decisions through backend/writer relay when enabled, sends follower decisions to the writer, and falls back to local compatibility-read only when backend decision ownership is explicitly disabled or unavailable by policy.
+_Avoid_: AutoCard execute runtime, card creation owner, Xiuyuan write path, Topic-derived side-effect owner
+
+**AutoCard Execute Relay**:
+The AutoCard write-routing module that submits execution envelopes to backend `autocard.execute`, routes follower instances through writer relay, refreshes writer ownership before direct backend execution, and fails closed when backend or writer relay ownership is unavailable.
+_Avoid_: AutoCard decision selection, local planner execution, Xiuyuan application service ownership, Topic-derived item creation semantics, listener retry scheduling
+
 **SRS Browser Card Universe**:
 The set of SRS cards that SiYuanMemo can manage through its card identity and browser projection. Arbitrary SQL block results are candidates only after intersecting with this card universe.
 _Avoid_: treating all matching `blocks` rows as SRS Browser cards
@@ -88,6 +96,10 @@ _Avoid_: scheduler commit, queue membership selection, local Review advancement,
 The bounded LIFO record of previously visible Review items and their optional Review transaction, used by go-back and failed-feedback cleanup.
 _Avoid_: queue cache, browser history, review event log, scheduler history
 
+**Review Transaction Runtime**:
+The Review session module that presents one interface for capturing Review transactions, recording **Review History**, go-back rollback, failed-feedback compensation, and clearing session transaction state. It composes **Review Transaction Safety Envelope** and **Review History** but does not choose queue membership, commit scheduling, own cursor movement, or select NeuralRoam next items.
+_Avoid_: review commit runtime, queue strategy, scheduler transaction, NeuralRoam advance owner
+
 ## Relationships
 
 - A **Mixed SRS Queue** may contain **Learning Steps**, **Review Cards**, and new cards.
@@ -99,6 +111,8 @@ _Avoid_: queue cache, browser history, review event log, scheduler history
 - **Queue Projection Readiness** is consumed by Browser views and owned by application/backend coordination, not by UI retry logic.
 - **Browser Queue View Lifecycle** consumes **Queue Projection Readiness** and owns Browser-side retry/attach decisions, but does not materialize queue projections.
 - **Topic Container** identity must not depend on whether the owning block is a document block.
+- **AutoCard Decision Relay** chooses the decision owner before AutoCard execute side effects run.
+- **AutoCard Execute Relay** chooses the backend/writer owner for AutoCard execution envelopes, but does not execute local card creation itself.
 - **SRS Browser Card Universe** scopes Browser filters, SQL searches, counts, and bulk operations to cards managed by SiYuanMemo.
 - **Custom Review Surfaces** share review rendering requirements with native-like review surfaces, including supported link and reference behavior.
 - A **Semantic Session Read Model** is derived from Semantic session owner state and may consume core Semantic session projection, but it remains a read-only presentation model for Browser, Review sidebar, or session inspection callers.
@@ -108,6 +122,7 @@ _Avoid_: queue cache, browser history, review event log, scheduler history
 - **NeuralRoam Advance** selects NeuralRoam next items before **Review Current Item Command** applies them to the visible Review session.
 - **Review Transaction Safety Envelope** wraps risky Review feedback mutation before **Review Feedback Advancement** applies local session transition.
 - **Review History** stores the previous visible item and optional **Review Transaction Safety Envelope** transaction for go-back or failed-feedback cleanup.
+- **Review Transaction Runtime** composes **Review Transaction Safety Envelope** and **Review History** behind the interface consumed by the Review strategy.
 
 ## Example Dialogue
 
@@ -123,6 +138,8 @@ _Avoid_: queue cache, browser history, review event log, scheduler history
 - Queue projection "not ready" was used for normal preparation, transient infrastructure unavailability, and terminal projection failures. Resolved: **Queue Projection Readiness** separates readable, preparing, and unavailable states.
 - Browser queue loading mixed readiness, retry, datasource creation, and attach decisions. Resolved: **Browser Queue View Lifecycle** owns Browser-side queue preparation before grid attach.
 - Topic was implicitly treated as document-block-only in some creation flows. Resolved: **Topic Container** includes non-document blocks such as super blocks when they own Topic-derived item creation.
+- AutoCard decision routing was ambiguous with AutoCard execution and Xiuyuan writes. Resolved: **AutoCard Decision Relay** owns only decision resolve routing/local compatibility-read; execute side effects remain separate.
+- AutoCard execute routing was ambiguous with local execution side effects. Resolved: **AutoCard Execute Relay** owns backend/follower/writer relay routing and unavailable diagnostics; local planner, Xiuyuan, and Topic-derived writes remain behind application execution runtime/services.
 - SRS Browser filtering was ambiguous between arbitrary block SQL and plugin-managed cards. Resolved: **SRS Browser Card Universe** is the outer scope; SQL results are intersected with it.
 - Temporary and deliberate practice were described as unable to render links. Resolved: the issue belongs to **Custom Review Surface** rendering, not to those practice modes as domain concepts.
 - Semantic read assembly was ambiguous with core projection building. Resolved: **Semantic Session Read Model** names the presentation-ready read model derived from Semantic session owner state, while core projection remains the lower-level tree/path/branch derivation.
@@ -131,3 +148,4 @@ _Avoid_: queue cache, browser history, review event log, scheduler history
 - NeuralRoam progression was ambiguous with local cursor/projection review. Resolved: **NeuralRoam Advance** is backend-authoritative and the renderer only consumes its result.
 - Review rollback handling was ambiguous between queue rollback, card snapshot restore, session exclusion restore, and visible current-item compensation. Resolved: **Review Transaction Safety Envelope** owns transaction safety; **Review Feedback Advancement** only applies the restored item locally.
 - Review go-back storage was ambiguous with queue cache and review logs. Resolved: **Review History** names only the bounded in-memory previous-item stack inside one Review strategy.
+- Review transaction orchestration was ambiguous between direct Strategy glue and separate safety/history modules. Resolved: **Review Transaction Runtime** is the Strategy-facing module for capture, record, go-back rollback, failed-feedback compensation, and clear.

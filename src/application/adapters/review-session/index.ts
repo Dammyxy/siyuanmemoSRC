@@ -56,6 +56,10 @@ export {
   type ReviewTransactionSafetyEnvelopeManager,
 } from './ReviewTransactionSafetyEnvelope';
 export {
+  ReviewTransactionRuntime,
+  type ReviewGoBackResult,
+} from './ReviewTransactionRuntime';
+export {
   ReviewSessionCursor,
   type ReviewSessionCursorNextResult,
   type ReviewSessionCursorProjectionPatch,

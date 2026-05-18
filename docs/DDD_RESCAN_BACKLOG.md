@@ -1,8 +1,38 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-18 (Round 386)
+Last update: 2026-05-18 (Round 387)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-18 - AutoCard Execute Relay Runtime
+
+- Task: Apply OpenSpec change `deepen-autocard-backend-command-runtime` by extracting AutoCard execute routing from `AutoCardHandler`.
+- Touched slice: AutoCard execute relay; `src/application/handlers/AutoCardHandler.ts`, `src/application/handlers/AutoCardExecuteRelayRuntime.ts`, focused execute relay/handler backend routing tests, `CONTEXT.md`, and `ARCHITECTURE.md`.
+- Debt fixed now: `AutoCardExecuteRelayRuntime` now owns `autocard.execute` request shaping, backend result normalization, follower writer relay submission, missing follower client failure, relay timeout diagnostics, writer `ensureWritable`, stale-writer-to-follower handoff, backend worker unavailable failure, and writer relay unavailable failure. `AutoCardHandler.executeViaWorkerIfAvailable()` is now a delegation boundary.
+- Debt deferred: Local planner execution, Xiuyuan writes, Topic-derived item creation, listener candidate retry/settle scheduling, document scan orchestration, and wider `AutoCardHandler` file size remain outside this slice.
+- Why deferred: Those behaviours are application side-effect execution or listener lifecycle concerns; moving them with backend command routing would cross AutoCard execution semantics, Xiuyuan, and Topic-derived bounded contexts.
+- Next safe step: If AutoCard remains the next architecture target, split listener candidate lifecycle/retry diagnostics from the handler without changing backend command contracts; otherwise return to higher-payoff shared modules.
+- Validation: `pnpm vitest run src/application/handlers/__tests__/AutoCardExecuteRelayRuntime.test.ts src/application/handlers/__tests__/AutoCardHandler.backend-execute.test.ts`.
+
+### 2026-05-18 - AutoCard Decision Relay Runtime
+
+- Task: Extract AutoCard decision resolve routing from `AutoCardHandler` after architecture candidate selection.
+- Touched slice: AutoCard decision relay; `src/application/handlers/AutoCardHandler.ts`, `src/application/handlers/AutoCardDecisionRelayRuntime.ts`, focused decision/handler backend routing tests, `CONTEXT.md`, and `ARCHITECTURE.md`.
+- Debt fixed now: `AutoCardDecisionRelayRuntime` now owns `autocard.decision.resolve` request shaping, backend decision calls, follower writer relay submission, relay unavailable/timeout diagnostics, backend result normalization, and policy-disabled local compatibility-read delegation. `AutoCardHandler` keeps the listener/planner facade, local decision implementation, execute envelope routing, Xiuyuan writes, Topic-derived side effects, and listener diagnostics.
+- Debt deferred: `autocard.execute` relay, stale-writer ensure-writable routing, AutoCard execution side effects, Topic-derived item creation, Xiuyuan writes, listener retry/settle scheduling, and broader `AutoCardHandler` file size remain outside this slice.
+- Why deferred: Those behaviours are write/side-effect ownership or listener lifecycle concerns; moving them with decision routing would widen this refactor across AutoCard execute and Topic-derived bounded contexts.
+- Next safe step: If AutoCard remains the next architecture target, extract `autocard.execute` relay into a sibling runtime only after preserving writer/follower tests; otherwise move to `UnifiedDataSourceManager` interface slimming.
+- Validation: `pnpm vitest run src/application/handlers/__tests__/AutoCardDecisionRelayRuntime.test.ts`; `pnpm vitest run src/application/handlers/__tests__/AutoCardDecisionRelayRuntime.test.ts src/application/handlers/__tests__/AutoCardHandler.backend-execute.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-18 - Review Transaction Runtime
+
+- Task: Continue Review strategy deepening from architecture candidate 1 by hiding Review transaction/history orchestration behind one Strategy-facing module.
+- Touched slice: Review session transaction orchestration; `src/application/adapters/UnifiedQueueStrategy.ts`, `src/application/adapters/review-session/ReviewTransactionRuntime.ts`, `src/application/adapters/review-session/{ReviewTransactionSafetyEnvelope,ReviewHistoryStack}.ts`, focused runtime/safety/history tests, `CONTEXT.md`, and `ARCHITECTURE.md`.
+- Debt fixed now: `ReviewTransactionRuntime` now owns capture delegation, Review History record/discard, go-back rollback orchestration, failed-feedback compensation delegation, and clear/reset for Review transaction state. `UnifiedQueueStrategy` no longer directly owns `ReviewHistoryStack` or `ReviewTransactionSafetyEnvelope`; it keeps the public strategy facade, cursor/current-item application, forward-buffer push, feedback mutation, and logging.
+- Debt deferred: `activeTransactionPushed` compensation planning, Review cursor movement, nextDues hydration, NeuralRoam advance, queue membership, scheduler commit, writer relay, and durable Review event logs remain outside this module.
+- Why deferred: Those behaviours belong to local advancement, display hydration, backend/writer authority, queue domain rules, or analytics rather than the transaction/history interface.
+- Next safe step: If this slice is revisited, shrink the remaining Strategy feedback glue only around one explicit behaviour at a time; otherwise move to a different high-friction bounded context such as AutoCard decision relay or UnifiedDataSourceManager projection/writer interfaces.
+- Validation: `pnpm vitest run src/application/adapters/review-session/__tests__/ReviewTransactionRuntime.test.ts src/application/adapters/review-session/__tests__/ReviewTransactionSafetyEnvelope.test.ts src/application/adapters/review-session/__tests__/ReviewHistoryStack.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-18 - Review History Stack
 

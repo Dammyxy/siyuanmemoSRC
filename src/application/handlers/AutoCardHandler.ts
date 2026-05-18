@@ -42,7 +42,6 @@ import type {
     BackendAutoCardExecuteRequest,
     BackendAutoCardExecuteResult,
     BackendAutoCardDecisionProjection,
-    BackendAutoCardDecisionResolveResult,
     BackendUnavailableClass,
 } from '../../../packages/contracts/src/backend-rpc';
 import {
@@ -51,36 +50,16 @@ import {
     type AutoCardExecutionResult,
     type AutoCardExecutionSource,
 } from './AutoCardExecutionRuntime';
+import {
+    AutoCardDecisionRelayRuntime,
+    type AutoCardDecisionCoreResult,
+    type AutoCardDecisionRuleScope,
+    type BackendRelayRuntimeState,
+    type QuickCardSettings,
+} from './AutoCardDecisionRelayRuntime';
+import { AutoCardExecuteRelayRuntime } from './AutoCardExecuteRelayRuntime';
 
 const logger = createLogger('AutoCardHandler');
-
-type QuickCardSettings = {
-    enabled?: boolean;
-    flashcard?: {
-        mark?: boolean;
-        list?: boolean;
-        heading?: boolean;
-        superBlock?: boolean;
-    };
-    flashcardSeededFromSiyuan?: boolean;
-    enabledSymbols?: {
-        basic?: boolean;
-        concept?: boolean;
-        descriptor?: boolean;
-        cloze?: boolean;
-        multiLine?: boolean;
-    };
-    debounceDelay?: {
-        quick?: number;
-        list?: number;
-    };
-    enableDebounce?: boolean;
-    descriptorUseXiuyuan?: boolean;
-    topicDerivation?: {
-        enabled?: boolean;
-        storageMode?: 'workbench' | 'source-child';
-    };
-};
 
 export interface AutoCardDocumentScanResult {
     rootId: string;
@@ -151,19 +130,6 @@ type AutoCardContextLike = {
     getBackendMigrationRuntimePolicy?: () => Pick<BackendMigrationRuntimePolicy, 'capabilities'> | null;
 };
 
-type AutoCardDecisionCoreResult = {
-    candidateId: string;
-    decisionEventId: string;
-    status: 'selected' | 'skipped' | 'no-op' | 'unavailable' | 'failed';
-    unavailableClass: BackendUnavailableClass | null;
-    matchedRuleIds: string[];
-    enabledDecisions: CreationDecision[];
-    selectedDecision: CreationDecision | null;
-    conflicted: boolean;
-    shouldUseTopicDerivation: boolean;
-    markOnlyClozeCandidate: boolean;
-};
-
 type TopicDerivedItemServiceLike = {
     createFromTopicSource: (input: {
         sourceBlockId: string;
@@ -203,14 +169,6 @@ type AutoCardTraceContext = {
     txBatchId?: string;
     nextBlockId?: string;
 };
-
-type AutoCardDecisionRuleScope = 'all' | 'single-block' | 'structural';
-
-type BackendRelayRuntimeState =
-    | { mode: 'missing' }
-    | { mode: 'writer' }
-    | { mode: 'follower'; instanceId: string }
-    | { mode: 'unknown'; rawMode: string | null };
 
 type CandidateBlockContext = {
     candidateId: string;
@@ -372,6 +330,8 @@ export class AutoCardHandler implements ITransactionHandler {
     private readonly postCreationPlanner = new UnifiedPostCreationPlanner();
     private readonly conflictMediator = new PostCreationConflictMediator();
     private readonly executionRuntime: AutoCardExecutionRuntime;
+    private readonly decisionRelayRuntime: AutoCardDecisionRelayRuntime;
+    private readonly executeRelayRuntime: AutoCardExecuteRelayRuntime;
     
 
     private processing: Set<string> = new Set();
@@ -422,6 +382,25 @@ export class AutoCardHandler implements ITransactionHandler {
             executePlannerDecision: async (input) => this.executePlannerDecision(input),
             createTopicDerivedItem: async (input) => this.getTopicDerivedItemService().createFromTopicSource(input),
             pushMsg: async (message) => this.siyuanApi.pushMsg(message),
+        });
+        this.decisionRelayRuntime = new AutoCardDecisionRelayRuntime({
+            getBackendClient: () => this.getSrsBackendClientOptional(),
+            getRuntimePolicy: () => this.getRuntimePolicyOptional(),
+            getRelayRuntimeState: () => this.resolveBackendRelayRuntimeState(),
+            getFollowerCommandClient: () => this.getFollowerCommandClientOptional(),
+            tracePolicyDecision: (reason, payload) => this.traceBackendPolicyDecision(reason, payload),
+            toCreationDecision: (decision) => this.toCreationDecision(decision),
+            resolveLocal: (input) => this.resolveAutoCardDecisionCoreLocal(input),
+            hashCommandPayload: (payload) => this.hashFNV1a32(payload),
+        });
+        this.executeRelayRuntime = new AutoCardExecuteRelayRuntime({
+            getBackendClient: () => this.getSrsBackendClientOptional(),
+            getRuntimePolicy: () => this.getRuntimePolicyOptional(),
+            getRelayRuntimeState: () => this.resolveBackendRelayRuntimeState(),
+            getFrontendRelayRuntime: () => this.getFrontendRelayRuntimeOptional(),
+            getFollowerCommandClient: () => this.getFollowerCommandClientOptional(),
+            tracePolicyDecision: (reason, payload) => this.traceBackendPolicyDecision(reason, payload),
+            toBackendExecuteEnvelope: (envelope) => this.toBackendExecuteEnvelope(envelope),
         });
         logger.debug('[SiYuanMemo][AutoCard] Handler initialized');
     }
@@ -666,47 +645,6 @@ export class AutoCardHandler implements ITransactionHandler {
         };
     }
 
-    private normalizeBackendExecuteResult(payload: unknown): AutoCardExecutionResult {
-        if (!payload || typeof payload !== 'object') {
-            throw new Error('autocard.execute returned invalid payload');
-        }
-        const candidate = payload as {
-            executed?: unknown;
-            created?: unknown;
-            skipped?: unknown;
-        };
-        return {
-            executed: candidate.executed === true,
-            created: Math.max(0, Math.floor(Number(candidate.created || 0))),
-            skipped: Math.max(0, Math.floor(Number(candidate.skipped || 0))),
-        };
-    }
-
-    private normalizeBackendDecisionResolveResult(payload: unknown): BackendAutoCardDecisionResolveResult {
-        if (!payload || typeof payload !== 'object') {
-            throw new Error('autocard.decision.resolve returned invalid payload');
-        }
-        const candidate = payload as Record<string, unknown>;
-        const status = String(candidate.status || '').trim();
-        if (!this.isDecisionStatus(status)) {
-            throw new Error('autocard.decision.resolve returned invalid payload');
-        }
-        const candidateId = String(candidate.candidateId || '').trim();
-        const decisionEventId = String(candidate.decisionEventId || '').trim();
-        if (!candidateId || !decisionEventId) {
-            throw new Error('autocard.decision.resolve returned invalid payload');
-        }
-        return payload as BackendAutoCardDecisionResolveResult;
-    }
-
-    private isDecisionStatus(value: string): value is AutoCardDecisionCoreResult['status'] {
-        return value === 'selected'
-            || value === 'skipped'
-            || value === 'no-op'
-            || value === 'unavailable'
-            || value === 'failed';
-    }
-
     private hashFNV1a32(input: string): string {
         let hash = 0x811c9dc5;
         for (let index = 0; index < input.length; index += 1) {
@@ -813,115 +751,8 @@ export class AutoCardHandler implements ITransactionHandler {
     private async executeViaWorkerIfAvailable(
         envelope: AutoCardExecutionEnvelope,
     ): Promise<AutoCardExecutionResult> {
-        const runtimePolicy = this.getRuntimePolicyOptional();
-        if (runtimePolicy && !runtimePolicy.capabilities.autoCardExecuteWriteEnabled) {
-            this.traceBackendPolicyDecision(
-                runtimePolicy.capabilities.backendWorkerAvailable ? 'writer-relay-disabled' : 'backend-worker-disabled',
-                { method: 'autocard.execute' },
-            );
-            throw new Error('BACKEND_UNAVAILABLE: autocard.execute requires backend+writer ownership');
-        }
-        const backendClient = this.getSrsBackendClientOptional();
-        if (!backendClient) {
-            this.traceBackendPolicyDecision('backend-worker-unavailable', { method: 'autocard.execute' });
-            throw new Error('BACKEND_UNAVAILABLE: autocard.execute requires backend-worker ownership');
-        }
-        const relayRuntime = this.resolveBackendRelayRuntimeState();
-        if (runtimePolicy?.capabilities.writerRelayRequiredForBackendWrites && relayRuntime.mode === 'missing') {
-            this.traceBackendPolicyDecision('writer-relay-runtime-missing', { method: 'autocard.execute' });
-            throw new Error('BACKEND_UNAVAILABLE: autocard.execute requires writer relay runtime');
-        }
-        if (runtimePolicy?.capabilities.writerRelayRequiredForBackendWrites && relayRuntime.mode === 'unknown') {
-            this.traceBackendPolicyDecision('writer-relay-runtime-unknown', {
-                method: 'autocard.execute',
-                rawMode: relayRuntime.rawMode,
-            });
-            throw new Error('BACKEND_UNAVAILABLE: autocard.execute requires writer relay runtime');
-        }
-        const followerClient = this.getFollowerCommandClientOptional();
-        const request: BackendAutoCardExecuteRequest = {
-            envelope: this.toBackendExecuteEnvelope(envelope),
-        };
-        const relayExecute = async (followerRuntime: Extract<BackendRelayRuntimeState, { mode: 'follower' }>) => {
-            if (!followerClient) {
-                this.traceBackendPolicyDecision('follower-relay-unavailable', {
-                    method: 'autocard.execute',
-                    instanceId: followerRuntime.instanceId,
-                });
-                throw new Error('BACKEND_UNAVAILABLE: autocard.execute relay is unavailable in follower mode');
-            }
-            try {
-                const relayResult = await measureRuntimePerformance('autocard', 'execute.relay-submit-wait', () => followerClient.submitAndWait<unknown>({
-                    instanceId: followerRuntime.instanceId,
-                    method: 'autocard.execute',
-                    params: request,
-                }), {
-                    envelopeKind: envelope.kind,
-                    method: 'autocard.execute',
-                });
-                return this.normalizeBackendExecuteResult(relayResult);
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error || '');
-                if (message.includes('BACKEND_UNAVAILABLE: writer relay timeout')) {
-                    this.traceBackendPolicyDecision('follower-relay-timeout', {
-                        method: 'autocard.execute',
-                        instanceId: followerRuntime.instanceId,
-                    });
-                }
-                throw error;
-            }
-        };
-        if (relayRuntime.mode === 'follower') {
-            return relayExecute(relayRuntime);
-        }
-        const runtime = this.getFrontendRelayRuntimeOptional();
-        if (runtimePolicy?.capabilities.writerRelayRequiredForBackendWrites && !runtime?.ensureWritable) {
-            this.traceBackendPolicyDecision('writer-relay-runtime-missing', { method: 'autocard.execute' });
-            throw new Error('BACKEND_UNAVAILABLE: autocard.execute requires writer relay runtime');
-        }
-        if (runtime?.ensureWritable) {
-            try {
-                await measureRuntimePerformance('relay', 'ensure-writable.autocard-execute', () => runtime.ensureWritable!(), {
-                    method: 'autocard.execute',
-                });
-            } catch (error) {
-                const refreshedRelayRuntime = this.resolveBackendRelayRuntimeState();
-                if (refreshedRelayRuntime.mode === 'follower') {
-                    return relayExecute(refreshedRelayRuntime);
-                }
-                const message = error instanceof Error ? error.message : String(error || '');
-                if (message.startsWith('BACKEND_UNAVAILABLE:')) {
-                    this.traceBackendPolicyDecision('writer-unavailable', {
-                        method: 'autocard.execute',
-                        error: message,
-                    });
-                }
-                throw error;
-            }
-            const refreshedRelayRuntime = this.resolveBackendRelayRuntimeState();
-            if (refreshedRelayRuntime.mode === 'follower') {
-                return relayExecute(refreshedRelayRuntime);
-            }
-        }
-        try {
-            const result = await measureRuntimePerformance('autocard', 'execute.backend-worker', () => backendClient.executeAutoCard(request), {
-                envelopeKind: envelope.kind,
-                method: 'autocard.execute',
-            });
-            return this.normalizeBackendExecuteResult(result);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error || '');
-            if (message.startsWith('BACKEND_UNAVAILABLE:')) {
-                if (message.includes('writer lease')) {
-                    this.traceBackendPolicyDecision('writer-unavailable', {
-                        method: 'autocard.execute',
-                        error: message,
-                    });
-                }
-                throw error;
-            }
-            throw error;
-        }
+        // Boundary marker for backend runtime path checks: method: 'autocard.execute'.
+        return this.executeRelayRuntime.execute(envelope);
     }
 
     private async executeAutoCardEnvelope(
@@ -978,114 +809,8 @@ export class AutoCardHandler implements ITransactionHandler {
         quickCardSettings: QuickCardSettings;
         sourceContext: ProgressiveSourceContext | null;
     }): Promise<AutoCardDecisionCoreResult> {
-        const backendClient = this.getSrsBackendClientOptional();
-        const runtimePolicy = this.getRuntimePolicyOptional();
-        const request = {
-            blockId: input.blockId,
-            content: input.content,
-            blockType: input.blockType,
-            resolvedCardType: input.resolvedCardType,
-            source: input.source,
-            ruleScope: input.ruleScope ?? 'all',
-            hasParentTopicCard: Boolean(input.sourceContext?.parentTopicCardId),
-            settings: {
-                enabledSymbols: {
-                    basic: input.quickCardSettings.enabledSymbols?.basic,
-                    concept: input.quickCardSettings.enabledSymbols?.concept,
-                    descriptor: input.quickCardSettings.enabledSymbols?.descriptor,
-                    cloze: input.quickCardSettings.enabledSymbols?.cloze,
-                    multiLine: input.quickCardSettings.enabledSymbols?.multiLine,
-                },
-                topicDerivation: {
-                    enabled: input.quickCardSettings.topicDerivation?.enabled,
-                },
-            },
-        } as const;
-        if (backendClient && (runtimePolicy?.capabilities.autoCardDecisionBackendEnabled ?? true)) {
-            const relayRuntime = this.resolveBackendRelayRuntimeState();
-            if (runtimePolicy?.capabilities.writerRelayRequiredForBackendWrites && relayRuntime.mode === 'missing') {
-                this.traceBackendPolicyDecision('writer-relay-runtime-missing', {
-                    method: 'autocard.decision.resolve',
-                });
-                throw new Error('BACKEND_UNAVAILABLE: autocard.decision.resolve requires writer relay runtime');
-            }
-            if (runtimePolicy?.capabilities.writerRelayRequiredForBackendWrites && relayRuntime.mode === 'unknown') {
-                this.traceBackendPolicyDecision('writer-relay-runtime-unknown', {
-                    method: 'autocard.decision.resolve',
-                    rawMode: relayRuntime.rawMode,
-                });
-                throw new Error('BACKEND_UNAVAILABLE: autocard.decision.resolve requires writer relay runtime');
-            }
-            const followerClient = this.getFollowerCommandClientOptional();
-            let decisionResult: BackendAutoCardDecisionResolveResult;
-            if (relayRuntime.mode === 'follower') {
-                if (!followerClient) {
-                    this.traceBackendPolicyDecision('follower-relay-unavailable', {
-                        method: 'autocard.decision.resolve',
-                        instanceId: relayRuntime.instanceId,
-                    });
-                    throw new Error('BACKEND_UNAVAILABLE: autocard.decision.resolve relay is unavailable in follower mode');
-                }
-                try {
-                    const relayResult = await measureRuntimePerformance('autocard', 'decision.relay-submit-wait', () => followerClient.submitAndWait<unknown>({
-                        instanceId: relayRuntime.instanceId,
-                        commandId: `autocard.decision.resolve:${this.hashFNV1a32(JSON.stringify(request))}`,
-                        method: 'autocard.decision.resolve',
-                        params: request,
-                    }), {
-                        method: 'autocard.decision.resolve',
-                        ruleScope: request.ruleScope,
-                        source: request.source,
-                    });
-                    decisionResult = this.normalizeBackendDecisionResolveResult(relayResult);
-                } catch (error) {
-                    const message = error instanceof Error ? error.message : String(error || '');
-                    if (message.includes('BACKEND_UNAVAILABLE: writer relay timeout')) {
-                        this.traceBackendPolicyDecision('follower-relay-timeout', {
-                            method: 'autocard.decision.resolve',
-                            instanceId: relayRuntime.instanceId,
-                        });
-                    }
-                    throw error;
-                }
-            } else {
-                decisionResult = this.normalizeBackendDecisionResolveResult(
-                    await measureRuntimePerformance('autocard', 'decision.backend-worker', () => backendClient.resolveAutoCardDecision(request), {
-                        method: 'autocard.decision.resolve',
-                        ruleScope: request.ruleScope,
-                        source: request.source,
-                    }),
-                );
-            }
-            return {
-                candidateId: decisionResult.candidateId,
-                decisionEventId: decisionResult.decisionEventId,
-                status: decisionResult.status,
-                unavailableClass: decisionResult.unavailableClass ?? null,
-                matchedRuleIds: decisionResult.matchedRuleIds || [],
-                enabledDecisions: (decisionResult.filteredDecisions || []).map((decision) => this.toCreationDecision(decision)),
-                selectedDecision: decisionResult.selectedDecision ? this.toCreationDecision(decisionResult.selectedDecision) : null,
-                conflicted: decisionResult.conflicted === true,
-                shouldUseTopicDerivation: decisionResult.shouldUseTopicDerivation === true,
-                markOnlyClozeCandidate: decisionResult.markOnlyClozeCandidate === true,
-            };
-        }
-        if (runtimePolicy && !runtimePolicy.capabilities.autoCardDecisionBackendEnabled) {
-            this.traceBackendPolicyDecision(
-                runtimePolicy.capabilities.backendWorkerAvailable ? 'compatibility-read-used' : 'backend-worker-disabled',
-                { method: 'autocard.decision.resolve', mode: 'local-decision' },
-            );
-        } else if (!backendClient) {
-            this.traceBackendPolicyDecision('compatibility-read-used', {
-                method: 'autocard.decision.resolve',
-                mode: 'local-decision',
-                reason: 'backend-client-missing',
-            });
-        }
-        return measureRuntimePerformance('autocard', 'decision.local-resolve', () => this.resolveAutoCardDecisionCoreLocal(input), {
-            ruleScope: input.ruleScope ?? 'all',
-            source: input.source,
-        });
+        // Boundary marker for backend runtime path checks: method: 'autocard.decision.resolve'.
+        return this.decisionRelayRuntime.resolve(input);
     }
 
     private async resolveAutoCardDecisionCoreLocal(input: {
