@@ -1,8 +1,68 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-19 (Round 395)
+Last update: 2026-05-20 (Round 400)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-20 - Manual Sync Direction Resolution
+
+- Task: Implement `add-manual-sync-direction-resolution` OpenSpec change for Anki-style manual conflict direction choice.
+- Touched slice: Siyuan integration / backend worker / application command entry; `packages/contracts/src/backend-rpc.ts`, `worker/db/SqliteDatabaseService.ts`, `worker/bootstrap/BackendKernel.ts`, `src/application/services/SyncConflictDirectionResolutionService.ts`, `src/infrastructure/services/FileService.ts`, `src/ui/syncConflict/manualSyncConflictResolutionDialog.ts`, `src/application/ApplicationContext.ts`, `src/index.ts`, `src/application/managers/MenuManager.ts`, i18n files, and focused tests.
+- Debt fixed now: Manual conflict recovery now previews current and conflict DB summaries without UI SQLite parsing, keeps smart merge on backend-owned `sync.conflict.merge`, supports keep-current/cancel no-ops, backs up `siyuanmemo.db` before full replacement, and forces worker SQLite reload after replacement so stale in-memory state cannot continue.
+- Debt deferred: Live SiYuan UI smoke against real existing conflict DB copies remains manual, and conflict files still have no processed-source tombstone or resolved marker.
+- Why deferred: Smoke requires an interactive restarted test workspace and disposable replacement run; tombstone/processed-source policy is an explicit retention decision and conflict files must stay immutable in this change.
+- Next safe step: Restart `H:\闪卡同步测试`, open the command palette/topbar “Resolve SiYuanMemo Sync Conflicts”, verify preview rows, run smart merge and keep-current, then test replacement only against a disposable backup workspace and confirm backup path is reported.
+- Validation: `pnpm vitest run src/application/services/__tests__/SyncConflictDirectionResolutionService.test.ts src/infrastructure/services/__tests__/FileService.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts worker/__tests__/BackendKernel.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed; existing non-blocking `package.zip` unlink EPERM during zip packing, Vite build and dist hygiene succeeded); copied rebuilt `dist/` to `H:\闪卡同步测试\data\plugins\siyuan-plugin-siyuanmemo`.
+
+### 2026-05-20 - Manual Sync Conflict Merge Entry
+
+- Task: Add an Anki-style manual merge action for SiYuanMemo sync conflict database copies.
+- Touched slice: Siyuan integration / application command entry; `src/application/services/SyncConflictMergeApplicationService.ts`, `src/application/ApplicationContext.ts`, `src/index.ts`, `src/application/managers/MenuManager.ts`, i18n files, and focused service tests.
+- Debt fixed now: Manual conflict recovery now has an explicit user action in both the command palette and the topbar context menu. The action reuses the backend-owned `sync.conflict.merge` path and the existing SiYuan conflict-copy scanner instead of adding a second merge implementation.
+- Debt deferred: No visual preview/diff dialog, processed-source tombstone, or conflict-file deletion yet.
+- Why deferred: The immediate need is a safe manual recovery button for existing conflict DB copies. Preview and processed-source policy need a separate UX/data-retention decision.
+- Next safe step: Restart the test SiYuan workspace, run “手动合并 SiYuanMemo 同步冲突” from the command palette or topbar right-click menu, then verify the main `siyuanmemo.db` gained the missing `review_events`.
+- Validation: `pnpm vitest run src/application/services/__tests__/SyncConflictMergeApplicationService.test.ts src/infrastructure/services/__tests__/FileService.test.ts src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts worker/__tests__/BackendKernel.test.ts -t "SyncConflictMergeApplicationService|sync conflict database|sync conflict database source|conflict database copies|externally synced database"`; `pnpm run check:boundaries`; `pnpm build`; copied rebuilt `dist/` to `H:\闪卡同步测试\data\plugins\siyuan-plugin-siyuanmemo`.
+
+### 2026-05-19 - Fix Conflict DB Temp Path Lookup
+
+- Task: Read the failed post-deploy sync logs and explain why conflict DB auto-merge still did not recover the phone review rows.
+- Touched slice: Worker host conflict-file discovery path; `src/infrastructure/services/FileService.ts`, `src/infrastructure/services/__tests__/FileService.test.ts`, and rebuilt `dist/`.
+- Debt fixed now: Fixed the SiYuan conflict-copy lookup path. The worker host now reads `/temp/repo/sync/conflicts/<sync-id>/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db`; the previous implementation accidentally inserted `/data` and therefore looked for a non-existent `/temp/repo/sync/conflicts/<sync-id>/data/storage/...` file.
+- Debt deferred: Existing conflict DB copies are still not marked processed or deleted.
+- Why deferred: The immediate failure was a bad lookup path, and conflict artifacts should remain available while the user verifies recovery.
+- Next safe step: Restart desktop SiYuan so the newly copied bundle loads, open Review/Browser to trigger a DB-backed backend request, then inspect the main DB. It should merge rows from the existing 23:13/23:14 conflict DB copies.
+- Validation: `pnpm vitest run src/infrastructure/services/__tests__/FileService.test.ts -t "sync conflict database"`; `pnpm vitest run src/infrastructure/services/__tests__/FileService.test.ts src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts -t "sync conflict database"`; `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "externally synced database|conflict database copies"`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-19 - Auto Merge SiYuan Sync Conflict DB Copies
+
+- Task: Inspect the latest `H:\闪卡同步测试` sync files after a real rating/sync and fix the confirmed case where new review records landed in SiYuan sync conflict DB copies while the main `siyuanmemo.db` stayed on the older two-event version.
+- Touched slice: Worker SQLite sync conflict discovery/merge path; `src/infrastructure/services/FileService.ts`, `src/application/ApplicationContext.ts`, `src/application/clients/BrowserSrsBackendWorkerTransport.ts`, `worker/bootstrap/BackendWorkerProtocol.ts`, `worker/bootstrap/backend-worker.entry.ts`, `worker/db/SqlitePersistenceBridge.ts`, `worker/db/SqliteDatabaseService.ts`, `worker/__tests__/BackendKernel.test.ts`, and `src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts`.
+- Debt fixed now: The backend worker can now ask the host for `temp/repo/sync/conflicts/**/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db` copies and automatically merge those DB bytes before DB-backed backend RPCs. The merge reuses the existing backend-owned append/择新 rules, persists only when events/cards changed, and leaves conflict files untouched.
+- Debt deferred: No processed-source tombstone or UI-visible sync-merge status yet.
+- Why deferred: The immediate data-loss risk is recovering rows from SiYuan's conflict DB copies; source tombstones and status UX need a separate product decision so we do not silently delete/mark sync artifacts or add noisy UI.
+- Next safe step: Deploy the rebuilt bundle to the desktop test plugin and phone, restart both, review on phone, sync phone then desktop, open Review/Browser on desktop, and verify the desktop main DB has the conflict-copy review events merged into `review_events`.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "conflict database copies"`; `pnpm vitest run src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts -t "sync conflict database source"`; `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "externally synced database|conflict database copies"`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-19 - Merge Synced Main DB Before Backend Requests
+
+- Task: Diagnose the `H:\闪卡同步测试` smoke where real review feedback produced `review_events=2` in `data/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db`, but another synced runtime still did not see the review records.
+- Touched slice: Worker SQLite external-sync refresh path; `worker/bootstrap/BackendKernel.ts`, `worker/db/SqliteDatabaseService.ts`, and `worker/__tests__/BackendKernel.test.ts`.
+- Debt fixed now: Backend worker now checks the persisted `siyuanmemo.db` before DB-backed RPCs. If SiYuan sync has replaced or updated the on-disk DB since the worker last observed it, the worker merges that external DB into the current in-memory DB using the same append/择新 conflict rules, then persists the merged DB instead of serving stale memory or overwriting synced records.
+- Debt deferred: No UI status for sync-merge activity yet, and no automatic directory scan for side conflict DB files.
+- Why deferred: The confirmed failing path is main DB replacement/update after sync, not a discovered conflict-copy file. Status UX and side-file discovery need separate host/file-listing seams.
+- Next safe step: Deploy this build to both test devices, restart SiYuan so workers start from the new bundle, review on one device, sync, then trigger any backend read/write on the other device and verify `review_events` contains both local and synced rows.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "externally synced database"`.
+
+### 2026-05-19 - Backend Conflict DB Merge Tracer
+
+- Task: Start the Anki-style sync recovery path for SiYuan file-sync conflicts by adding a backend seam that can merge explicit conflict `siyuanmemo.db` bytes into the current worker-owned DB.
+- Touched slice: Worker SQLite sync conflict recovery; `packages/contracts/src/backend-rpc.ts`, `worker/bootstrap/BackendKernel.ts`, `worker/db/SqliteDatabaseService.ts`, `src/application/clients/SrsBackendClient.ts`, `worker/__tests__/BackendKernel.test.ts`, and `src/application/clients/__tests__/SrsBackendClient.test.ts`.
+- Debt fixed now: Added `sync.conflict.merge` as a backend-owned RPC. It appends missing `review_events`, applies newer `cards` by review/update stamp, ignores duplicate events and stale cards, persists inside the worker SQLite transaction, and bumps `store_metadata.sync_metadata` only when a source changes data.
+- Debt deferred: Automatic scanning of SiYuan `temp/repo/sync/conflicts/**/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db` is not wired yet.
+- Why deferred: The active worker persistence bridge currently exposes binary read/write for known plugin data paths but no directory listing/readDir host effect. Adding auto-discovery needs a separate host-effect/application scan seam so the worker remains the DB owner and `kernel.js` stays out of DB/file sync policy.
+- Next safe step: Add a host/application discovery slice that lists candidate conflict DB files, reads bytes, calls `SrsBackendClient.mergeSyncConflicts()`, and records processed source IDs so startup does not reprocess the same conflict forever.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "conflict database|ignores duplicate|loads and persists sqlite"`; `pnpm vitest run src/application/clients/__tests__/SrsBackendClient.test.ts`.
 
 ### 2026-05-19 - Bump Review Sync Metadata With Worker Feedback
 

@@ -30,6 +30,12 @@ import type {
   BackendKernelTransactionRequeueResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendSyncConflictDatabaseSummary,
+  BackendSyncConflictMergeRequest,
+  BackendSyncConflictMergeResult,
+  BackendSyncConflictReloadResult,
+  BackendSyncConflictSummarizeRequest,
+  BackendSyncConflictSummarizeResult,
   BackendSemanticBrowserReadRequest,
   BackendSemanticBrowserReadResult,
   BackendSemanticCommandRequest,
@@ -58,7 +64,7 @@ import type {
   SourceExistenceSummary,
   SourceExistenceUpdate,
 } from '@/application/ports/BrowserDeckReadPort';
-import type { SqlitePersistenceBridge } from './SqlitePersistenceBridge';
+import type { SqliteConflictDatabaseSource, SqlitePersistenceBridge } from './SqlitePersistenceBridge';
 import { createLogger } from '@/utils/logger';
 import type { DoOperation } from '@/core/infrastructure/websocket/transaction-types';
 import { AutoCardDecisionService } from './AutoCardDecisionService';
@@ -82,7 +88,39 @@ type SqliteFileServiceAdapter = {
   writeJSON(fileName: string, data: unknown): Promise<void>;
   readBinary(fileName: string): Promise<Uint8Array | null>;
   writeBinary(fileName: string, bytes: Uint8Array): Promise<void>;
+  readSyncConflictDatabaseSources(): Promise<SqliteConflictDatabaseSource[]>;
 };
+
+interface ConflictReviewEventRow {
+  id: string;
+  card_id: string | null;
+  attempt_id: string | null;
+  rating: number | null;
+  reviewed_at: number;
+  year: number;
+  month: number;
+  event_type: string;
+  payload_json: string;
+}
+
+interface ConflictCardRow {
+  id: string;
+  updated_at: number | null;
+  reps: number | null;
+  last_review: number | null;
+  payload_json: string;
+}
+
+interface ConflictSummaryReviewRow {
+  count: number;
+  latest: number | null;
+}
+
+interface ConflictSummaryCardRow {
+  count: number;
+  latestUpdated: number | null;
+  latestReview: number | null;
+}
 
 function createSqliteFileServiceAdapter(bridge: SqlitePersistenceBridge): SqliteFileServiceAdapter {
   return {
@@ -100,7 +138,62 @@ function createSqliteFileServiceAdapter(bridge: SqlitePersistenceBridge): Sqlite
     },
     readBinary: (fileName: string) => bridge.readBinary(fileName),
     writeBinary: (fileName: string, bytes: Uint8Array) => bridge.writeBinary(fileName, bytes),
+    readSyncConflictDatabaseSources: async () => {
+      if (!bridge.readSyncConflictDatabaseSources) {
+        return [];
+      }
+      return bridge.readSyncConflictDatabaseSources();
+    },
   };
+}
+
+function createReadonlyConflictFileService(bytes: Uint8Array): SqliteFileServiceAdapter {
+  return {
+    readJSON: async <T>(): Promise<T | null> => null,
+    writeJSON: async (): Promise<void> => undefined,
+    readBinary: async (): Promise<Uint8Array> => new Uint8Array(bytes),
+    writeBinary: async (): Promise<void> => undefined,
+    readSyncConflictDatabaseSources: async (): Promise<SqliteConflictDatabaseSource[]> => [],
+  };
+}
+
+function isUint8ArrayLike(value: unknown): value is Uint8Array {
+  return value instanceof Uint8Array;
+}
+
+function parseJsonObject<T>(value: string, fallback: T): T {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function comparableCardStamp(row: Pick<ConflictCardRow, 'updated_at' | 'last_review' | 'reps'>): number {
+  return Math.max(
+    Number(row.updated_at) || 0,
+    Number(row.last_review) || 0,
+    Number(row.reps) || 0,
+  );
+}
+
+function toNullableTimestamp(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function toSummarySize(source: Pick<SqliteConflictDatabaseSource, 'bytes' | 'size'>): number {
+  const explicit = Number(source.size);
+  return Number.isFinite(explicit) && explicit >= 0 ? Math.floor(explicit) : source.bytes.byteLength;
+}
+
+function hashBytes(bytes: Uint8Array): string {
+  let hash = 0x811c9dc5;
+  for (const byte of bytes) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
 export class WorkerSqliteDatabaseService {
@@ -112,6 +205,7 @@ export class WorkerSqliteDatabaseService {
   private queueState: SqlQueueStateRepository | null = null;
   private semanticActivation: SqlSemanticActivationRepository | null = null;
   private initialized = false;
+  private lastObservedPersistedHash: string | null = null;
   private readonly semanticCommandResultsByIdempotencyKey = new Map<string, BackendSemanticCommandResult>();
   private readonly kernelTransactionQueue: Array<{
     source: 'kernel-sidecar' | 'ws-main';
@@ -208,6 +302,7 @@ export class WorkerSqliteDatabaseService {
     await this.restoreKernelIngestQueueSnapshot();
     await this.restoreKernelActionQueueSnapshot();
     this.initialized = true;
+    await this.rememberPersistedHash();
   }
 
   async load(): Promise<{ ok: true; initialized: true; dbFile: string }> {
@@ -219,14 +314,185 @@ export class WorkerSqliteDatabaseService {
     };
   }
 
+  async reloadFromDisk(): Promise<BackendSyncConflictReloadResult> {
+    this.queueState = null;
+    this.semanticActivation = null;
+    this.runtime.dispose();
+    this.initialized = false;
+    await this.init();
+    return {
+      ok: true,
+      reloaded: true,
+      dbFile: this.dbFile,
+    };
+  }
+
   async persist(): Promise<{ ok: true; persisted: true; dbFile: string }> {
     await this.init();
     await this.runtime.persist();
+    await this.rememberPersistedHash();
     return {
       ok: true,
       persisted: true,
       dbFile: this.dbFile,
     };
+  }
+
+  async mergeExternalDatabaseIfChanged(mergedAt = Date.now()): Promise<{
+    ok: true;
+    checked: true;
+    changed: boolean;
+    mergedReviewEvents: number;
+    mergedCards: number;
+    ignoredReviewEvents: number;
+    ignoredCards: number;
+    skippedSources: Array<{ sourceId: string; reason: string }>;
+  }> {
+    await this.init();
+    const sources: BackendSyncConflictMergeRequest['sources'] = [];
+    const bytes = await this.fileService.readBinary(this.dbFile);
+
+    if (bytes && bytes.byteLength > 0) {
+      const persistedHash = hashBytes(bytes);
+      if (persistedHash !== this.lastObservedPersistedHash) {
+        const currentHash = await this.runtime.read((db) => hashBytes(db.export()));
+        if (persistedHash === currentHash) {
+          this.lastObservedPersistedHash = persistedHash;
+        } else {
+          sources.push({ sourceId: 'siyuan-sync:siyuanmemo.db', bytes });
+        }
+      }
+    }
+
+    const conflictSources = await this.fileService.readSyncConflictDatabaseSources();
+    for (const source of conflictSources) {
+      if (source.bytes.byteLength > 0) {
+        sources.push(source);
+      }
+    }
+
+    if (sources.length === 0) {
+      return {
+        ok: true,
+        checked: true,
+        changed: false,
+        mergedReviewEvents: 0,
+        mergedCards: 0,
+        ignoredReviewEvents: 0,
+        ignoredCards: 0,
+        skippedSources: [],
+      };
+    }
+
+    const result = await this.mergeSyncConflictDatabases({
+      mergedAt,
+      sources,
+    });
+    if (
+      result.skippedSources.length === 0
+      && (result.mergedReviewEvents > 0 || result.mergedCards > 0)
+    ) {
+      await this.runtime.persist();
+      await this.rememberPersistedHash();
+    }
+
+    return {
+      ok: true,
+      checked: true,
+      changed: result.mergedReviewEvents > 0 || result.mergedCards > 0,
+      mergedReviewEvents: result.mergedReviewEvents,
+      mergedCards: result.mergedCards,
+      ignoredReviewEvents: result.ignoredReviewEvents,
+      ignoredCards: result.ignoredCards,
+      skippedSources: result.skippedSources,
+    };
+  }
+
+  private async rememberPersistedHash(): Promise<void> {
+    const bytes = await this.fileService.readBinary(this.dbFile);
+    this.lastObservedPersistedHash = bytes ? hashBytes(bytes) : null;
+  }
+
+  async summarizeSyncConflictDatabases(
+    request: BackendSyncConflictSummarizeRequest,
+  ): Promise<BackendSyncConflictSummarizeResult> {
+    await this.init();
+    const sources = Array.isArray(request.sources) ? request.sources : [];
+    const current = request.includeCurrent === false
+      ? null
+      : await this.summarizeCurrentDatabase();
+    return {
+      ok: true,
+      current,
+      sources: await Promise.all(sources.map((source) => this.summarizeDatabaseSource(source))),
+    };
+  }
+
+  private async summarizeCurrentDatabase(): Promise<BackendSyncConflictDatabaseSummary> {
+    const bytes = await this.runtime.read((db) => db.export());
+    return this.summarizeDatabaseSource({
+      sourceId: 'current-local:siyuanmemo.db',
+      bytes,
+      path: 'siyuanmemo.db',
+      size: bytes.byteLength,
+      modifiedAt: null,
+    });
+  }
+
+  private async summarizeDatabaseSource(
+    source: SqliteConflictDatabaseSource,
+  ): Promise<BackendSyncConflictDatabaseSummary> {
+    const sourceId = String(source?.sourceId || '').trim() || 'unknown';
+    const base = {
+      sourceId,
+      path: source?.path ?? null,
+      size: toSummarySize(source),
+      modifiedAt: toNullableTimestamp(source?.modifiedAt),
+      reviewEventCount: 0,
+      cardCount: 0,
+      latestReviewTimestamp: null,
+      latestCardTimestamp: null,
+    };
+    if (!isUint8ArrayLike(source?.bytes)) {
+      return { ...base, size: 0, parseStatus: 'invalid-bytes', parseError: 'invalid-bytes' };
+    }
+    if (source.bytes.byteLength === 0) {
+      return { ...base, parseStatus: 'empty', parseError: 'empty-bytes' };
+    }
+
+    let conflictRuntime: RuntimeSqliteDatabaseService | null = null;
+    try {
+      conflictRuntime = new RuntimeSqliteDatabaseService(
+        createReadonlyConflictFileService(source.bytes),
+        `${sourceId}.db`,
+      );
+      await conflictRuntime.init();
+      const review = conflictRuntime.getOne<ConflictSummaryReviewRow>(
+        'SELECT COUNT(*) AS count, MAX(reviewed_at) AS latest FROM review_events',
+      );
+      const card = conflictRuntime.getOne<ConflictSummaryCardRow>(
+        'SELECT COUNT(*) AS count, MAX(updated_at) AS latestUpdated, MAX(last_review) AS latestReview FROM cards',
+      );
+      return {
+        ...base,
+        reviewEventCount: Math.max(0, Number(review?.count || 0)),
+        cardCount: Math.max(0, Number(card?.count || 0)),
+        latestReviewTimestamp: toNullableTimestamp(review?.latest),
+        latestCardTimestamp: toNullableTimestamp(Math.max(
+          Number(card?.latestUpdated || 0),
+          Number(card?.latestReview || 0),
+        )),
+        parseStatus: 'ok',
+      };
+    } catch (error) {
+      return {
+        ...base,
+        parseStatus: 'parse-error',
+        parseError: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      conflictRuntime?.dispose();
+    }
   }
 
   getStatus(): {
@@ -847,6 +1113,118 @@ export class WorkerSqliteDatabaseService {
     } else {
       this.reviewFeedbackPreviewTotal += 1;
     }
+    return result;
+  }
+
+  async mergeSyncConflictDatabases(
+    request: BackendSyncConflictMergeRequest,
+  ): Promise<BackendSyncConflictMergeResult> {
+    await this.init();
+    const sources = Array.isArray(request.sources) ? request.sources : [];
+    const result: BackendSyncConflictMergeResult = {
+      ok: true,
+      sources: sources.length,
+      mergedReviewEvents: 0,
+      ignoredReviewEvents: 0,
+      mergedCards: 0,
+      ignoredCards: 0,
+      skippedSources: [],
+    };
+
+    for (const source of sources) {
+      const sourceId = String(source?.sourceId || '').trim() || 'unknown';
+      if (!isUint8ArrayLike(source?.bytes) || source.bytes.byteLength === 0) {
+        result.skippedSources.push({ sourceId, reason: 'invalid-bytes' });
+        continue;
+      }
+
+      let conflictRuntime: RuntimeSqliteDatabaseService | null = null;
+      try {
+        conflictRuntime = new RuntimeSqliteDatabaseService(
+          createReadonlyConflictFileService(source.bytes),
+          `${sourceId}.db`,
+        );
+        await conflictRuntime.init();
+        const reviewEvents = conflictRuntime.getAll<ConflictReviewEventRow>(
+          `SELECT id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json
+           FROM review_events
+           ORDER BY reviewed_at, id`,
+        );
+        const cards = conflictRuntime.getAll<ConflictCardRow>(
+          `SELECT id, updated_at, reps, last_review, payload_json
+           FROM cards
+           ORDER BY id`,
+        );
+
+        await this.runtime.runTransaction('sync.conflict.merge', async () => {
+          let sourceChanged = false;
+          for (const event of reviewEvents) {
+            const existing = this.runtime.getOne<{ count: number }>(
+              'SELECT COUNT(*) AS count FROM review_events WHERE id = ?',
+              [event.id],
+            );
+            if (Number(existing?.count) > 0) {
+              result.ignoredReviewEvents += 1;
+              continue;
+            }
+            this.runtime.run(
+              `INSERT INTO review_events
+                (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                event.id,
+                event.card_id || null,
+                event.attempt_id || null,
+                event.rating ?? null,
+                Number(event.reviewed_at),
+                Number(event.year),
+                Number(event.month),
+                event.event_type || 'review',
+                event.payload_json || '{}',
+              ],
+            );
+            result.mergedReviewEvents += 1;
+            sourceChanged = true;
+          }
+
+          for (const cardRow of cards) {
+            const incoming = parseJsonObject<FSRSCard | null>(cardRow.payload_json, null);
+            if (!incoming?.id) {
+              result.ignoredCards += 1;
+              continue;
+            }
+            const existing = this.runtime.getOne<ConflictCardRow>(
+              `SELECT id, updated_at, reps, last_review, payload_json
+               FROM cards
+               WHERE id = ?`,
+              [incoming.id],
+            );
+            if (existing && comparableCardStamp(existing) >= comparableCardStamp(cardRow)) {
+              result.ignoredCards += 1;
+              continue;
+            }
+            this.repository!.upsertCard(incoming);
+            result.mergedCards += 1;
+            sourceChanged = true;
+          }
+
+          if (sourceChanged) {
+            await this.repository!.touchSyncMetadata({
+              modifiedAt: request.mergedAt,
+              modifiedBy: 'srs-backend-worker:sync.conflict.merge',
+            });
+          }
+        });
+      } catch (error) {
+        result.skippedSources.push({
+          sourceId,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        conflictRuntime?.dispose();
+      }
+    }
+
     return result;
   }
 

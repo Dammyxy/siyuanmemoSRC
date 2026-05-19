@@ -4,6 +4,9 @@ export type BackendRpcMethod =
   | 'system.health'
   | 'db.load'
   | 'db.persist'
+  | 'sync.conflict.merge'
+  | 'sync.conflict.summarize'
+  | 'sync.conflict.reload'
   | 'diagnostics.status'
   | 'browser.deck.page'
   | 'browser.deck.matchedIds'
@@ -124,6 +127,62 @@ export interface BackendDbLoadResult {
 export interface BackendDbPersistResult {
   ok: true;
   persisted: true;
+  dbFile: string;
+}
+
+export interface BackendSyncConflictMergeSource {
+  sourceId: string;
+  bytes: Uint8Array;
+  path?: string | null;
+  modifiedAt?: number | null;
+  size?: number | null;
+}
+
+export interface BackendSyncConflictMergeRequest {
+  sources: BackendSyncConflictMergeSource[];
+  mergedAt?: number;
+}
+
+export interface BackendSyncConflictMergeResult {
+  ok: true;
+  sources: number;
+  mergedReviewEvents: number;
+  ignoredReviewEvents: number;
+  mergedCards: number;
+  ignoredCards: number;
+  skippedSources: Array<{
+    sourceId: string;
+    reason: string;
+  }>;
+}
+
+export interface BackendSyncConflictDatabaseSummary {
+  sourceId: string;
+  path?: string | null;
+  size: number;
+  modifiedAt: number | null;
+  reviewEventCount: number;
+  cardCount: number;
+  latestReviewTimestamp: number | null;
+  latestCardTimestamp: number | null;
+  parseStatus: 'ok' | 'empty' | 'invalid-bytes' | 'parse-error';
+  parseError?: string;
+}
+
+export interface BackendSyncConflictSummarizeRequest {
+  sources: BackendSyncConflictMergeSource[];
+  includeCurrent?: boolean;
+}
+
+export interface BackendSyncConflictSummarizeResult {
+  ok: true;
+  current: BackendSyncConflictDatabaseSummary | null;
+  sources: BackendSyncConflictDatabaseSummary[];
+}
+
+export interface BackendSyncConflictReloadResult {
+  ok: true;
+  reloaded: true;
   dbFile: string;
 }
 

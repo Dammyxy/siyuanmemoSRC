@@ -95,6 +95,15 @@ const database = new WorkerSqliteDatabaseService({
     path,
     value,
   }),
+  readSyncConflictDatabaseSources: () => requestHostEffect<Array<{
+    sourceId: string;
+    bytes: Uint8Array;
+    path?: string | null;
+    modifiedAt?: number | null;
+    size?: number | null;
+  }>>({
+    kind: 'sqlite.readSyncConflictDatabaseSources',
+  }),
 });
 
 const backendKernel = new BackendKernel({

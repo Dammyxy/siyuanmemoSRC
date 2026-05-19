@@ -277,6 +277,483 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('merges review events and newer card state from a synced conflict database', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    const staleReviewAt = 1_779_187_000_000;
+    const syncedReviewAt = 1_779_188_000_000;
+    await currentDatabase.upsertCards([
+      buildCard({
+        id: 'card-sync-conflict',
+        due: staleReviewAt + 86_400_000,
+        reps: 0,
+        lastReview: staleReviewAt,
+        updatedAt: staleReviewAt,
+      }),
+    ]);
+
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await conflictDatabase.upsertCards([
+      buildCard({
+        id: 'card-sync-conflict',
+        due: syncedReviewAt + 2 * 86_400_000,
+        reps: 1,
+        lastReview: syncedReviewAt,
+        updatedAt: syncedReviewAt,
+      }),
+    ]);
+    await conflictDatabase.runTransaction('seed.conflict-review-event', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-from-phone',
+          'card-sync-conflict',
+          'attempt-phone',
+          3,
+          syncedReviewAt,
+          2026,
+          5,
+          'review',
+          JSON.stringify({ source: 'phone' }),
+        ],
+      );
+    });
+    const conflictBytes = conflictBridge.snapshot().bytes;
+    expect(conflictBytes).toBeTruthy();
+
+    const kernel = new BackendKernel({ database: currentDatabase });
+    const response = await kernel.handle({
+      id: 'merge-conflict-db',
+      jsonrpc: '2.0',
+      method: 'sync.conflict.merge',
+      params: [{
+        mergedAt: syncedReviewAt + 1,
+        sources: [{ sourceId: 'phone-conflict-db', bytes: conflictBytes! }],
+      }],
+    });
+
+    expect(response).toEqual({
+      id: 'merge-conflict-db',
+      jsonrpc: '2.0',
+      result: {
+        ok: true,
+        sources: 1,
+        mergedReviewEvents: 1,
+        ignoredReviewEvents: 0,
+        mergedCards: 1,
+        ignoredCards: 0,
+        skippedSources: [],
+      },
+    });
+    expect(currentDatabase.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE id = ?',
+      ['event-from-phone'],
+    )?.count).toBe(1);
+    const mergedCard = await currentDatabase.getCard('card-sync-conflict');
+    expect(mergedCard?.reps).toBe(1);
+    expect(mergedCard?.lastReview).toBe(syncedReviewAt);
+    const metadataRow = currentDatabase.getOne<{ value_json: string; updated_at: number }>(
+      'SELECT value_json, updated_at FROM store_metadata WHERE key = ?',
+      ['sync_metadata'],
+    );
+    expect(metadataRow?.updated_at).toBe(syncedReviewAt + 1);
+    expect(JSON.parse(metadataRow?.value_json || '{}')).toMatchObject({
+      revision: 1,
+      lastModifiedAt: syncedReviewAt + 1,
+      lastModifiedBy: 'srs-backend-worker:sync.conflict.merge',
+    });
+  });
+
+  it('ignores duplicate review events and stale cards when merging the same conflict database again', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    const reviewedAt = 1_779_188_100_000;
+    await currentDatabase.upsertCards([
+      buildCard({
+        id: 'card-sync-idempotent',
+        due: reviewedAt + 86_400_000,
+        reps: 2,
+        lastReview: reviewedAt,
+        updatedAt: reviewedAt,
+      }),
+    ]);
+
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await conflictDatabase.upsertCards([
+      buildCard({
+        id: 'card-sync-idempotent',
+        due: reviewedAt,
+        reps: 1,
+        lastReview: reviewedAt - 1_000,
+        updatedAt: reviewedAt - 1_000,
+      }),
+    ]);
+    await conflictDatabase.runTransaction('seed.duplicate-conflict-review-event', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-duplicate',
+          'card-sync-idempotent',
+          'attempt-duplicate',
+          3,
+          reviewedAt - 1_000,
+          2026,
+          5,
+          'review',
+          '{}',
+        ],
+      );
+    });
+    const conflictBytes = conflictBridge.snapshot().bytes;
+    expect(conflictBytes).toBeTruthy();
+    await currentDatabase.runTransaction('seed.existing-review-event', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-duplicate',
+          'card-sync-idempotent',
+          'attempt-duplicate',
+          3,
+          reviewedAt - 1_000,
+          2026,
+          5,
+          'review',
+          '{}',
+        ],
+      );
+    });
+
+    const kernel = new BackendKernel({ database: currentDatabase });
+    const response = await kernel.handle({
+      id: 'merge-duplicate-conflict-db',
+      jsonrpc: '2.0',
+      method: 'sync.conflict.merge',
+      params: [{
+        mergedAt: reviewedAt + 1,
+        sources: [{ sourceId: 'duplicate-conflict-db', bytes: conflictBytes! }],
+      }],
+    });
+
+    expect(response).toEqual({
+      id: 'merge-duplicate-conflict-db',
+      jsonrpc: '2.0',
+      result: {
+        ok: true,
+        sources: 1,
+        mergedReviewEvents: 0,
+        ignoredReviewEvents: 1,
+        mergedCards: 0,
+        ignoredCards: 1,
+        skippedSources: [],
+      },
+    });
+    expect(currentDatabase.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE id = ?',
+      ['event-duplicate'],
+    )?.count).toBe(1);
+    const card = await currentDatabase.getCard('card-sync-idempotent');
+    expect(card?.reps).toBe(2);
+    expect(card?.lastReview).toBe(reviewedAt);
+  });
+
+  it('merges externally synced database bytes before the next backend request', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const localReviewAt = 1_779_189_000_000;
+    const remoteReviewAt = 1_779_190_000_000;
+    await database.upsertCards([
+      buildCard({
+        id: 'card-sync-auto',
+        due: localReviewAt + 86_400_000,
+        reps: 1,
+        lastReview: localReviewAt,
+        updatedAt: localReviewAt,
+      }),
+    ]);
+    await database.runTransaction('seed.local-review-event', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-local-before-sync',
+          'card-sync-auto',
+          'attempt-local',
+          3,
+          localReviewAt,
+          2026,
+          5,
+          'review',
+          '{}',
+        ],
+      );
+    });
+
+    const remoteBridge = createInMemorySqlitePersistenceBridge();
+    const remoteDatabase = new WorkerSqliteDatabaseService(remoteBridge);
+    await remoteDatabase.upsertCards([
+      buildCard({
+        id: 'card-sync-auto',
+        due: remoteReviewAt + 2 * 86_400_000,
+        reps: 2,
+        lastReview: remoteReviewAt,
+        updatedAt: remoteReviewAt,
+      }),
+    ]);
+    await remoteDatabase.runTransaction('seed.remote-review-event', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-remote-after-sync',
+          'card-sync-auto',
+          'attempt-remote',
+          4,
+          remoteReviewAt,
+          2026,
+          5,
+          'review',
+          '{}',
+        ],
+      );
+    });
+    const remoteBytes = remoteBridge.snapshot().bytes;
+    expect(remoteBytes).toBeTruthy();
+    await persistenceBridge.writeBinary('siyuanmemo.db', remoteBytes!);
+
+    const kernel = new BackendKernel({ database });
+    const response = await kernel.handle({
+      id: 'persist-after-external-sync',
+      jsonrpc: '2.0',
+      method: 'db.persist',
+      params: [],
+    });
+    expect(response).toEqual({
+      id: 'persist-after-external-sync',
+      jsonrpc: '2.0',
+      result: {
+        ok: true,
+        persisted: true,
+        dbFile: 'siyuanmemo.db',
+      },
+    });
+
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE id IN (?, ?)',
+      ['event-local-before-sync', 'event-remote-after-sync'],
+    )?.count).toBe(2);
+    const mergedCard = await database.getCard('card-sync-auto');
+    expect(mergedCard?.reps).toBe(2);
+    expect(mergedCard?.lastReview).toBe(remoteReviewAt);
+  });
+
+  it('merges synced conflict database copies before the next backend request', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const staleReviewAt = 1_779_187_510_541;
+    const conflictReviewAt = 1_779_201_734_583;
+    await database.upsertCards([
+      buildCard({
+        id: 'card-sync-conflict-auto',
+        due: staleReviewAt + 60_000,
+        reps: 1,
+        lastReview: staleReviewAt,
+        updatedAt: staleReviewAt,
+      }),
+    ]);
+    await database.runTransaction('seed.stale-main-review-event', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-stale-main',
+          'card-sync-conflict-auto',
+          'attempt-stale',
+          3,
+          staleReviewAt,
+          2026,
+          5,
+          'review',
+          '{}',
+        ],
+      );
+    });
+    await persistenceBridge.writeBinary('siyuanmemo.db', persistenceBridge.snapshot().bytes!);
+
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await conflictDatabase.upsertCards([
+      buildCard({
+        id: 'card-sync-conflict-auto',
+        due: conflictReviewAt + 120_000,
+        reps: 2,
+        lastReview: conflictReviewAt,
+        updatedAt: conflictReviewAt,
+      }),
+    ]);
+    await conflictDatabase.runTransaction('seed.conflict-auto-review-event', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-conflict-copy',
+          'card-sync-conflict-auto',
+          'attempt-conflict-copy',
+          4,
+          conflictReviewAt,
+          2026,
+          5,
+          'review',
+          JSON.stringify({ source: 'siyuan-sync-conflict' }),
+        ],
+      );
+    });
+    const conflictBytes = conflictBridge.snapshot().bytes;
+    expect(conflictBytes).toBeTruthy();
+    persistenceBridge.readSyncConflictDatabaseSources = vi.fn(async () => [{
+      sourceId: 'siyuan-sync-conflict:2026-05-19-224317:/data/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db',
+      bytes: conflictBytes!,
+    }]);
+
+    const kernel = new BackendKernel({ database });
+    const response = await kernel.handle({
+      id: 'persist-after-conflict-sync',
+      jsonrpc: '2.0',
+      method: 'db.persist',
+      params: [],
+    });
+
+    expect(response).toEqual({
+      id: 'persist-after-conflict-sync',
+      jsonrpc: '2.0',
+      result: {
+        ok: true,
+        persisted: true,
+        dbFile: 'siyuanmemo.db',
+      },
+    });
+    expect(persistenceBridge.readSyncConflictDatabaseSources).toHaveBeenCalled();
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE id IN (?, ?)',
+      ['event-stale-main', 'event-conflict-copy'],
+    )?.count).toBe(2);
+    const mergedCard = await database.getCard('card-sync-conflict-auto');
+    expect(mergedCard?.reps).toBe(2);
+    expect(mergedCard?.lastReview).toBe(conflictReviewAt);
+  });
+
+  it('summarizes readable and unreadable sync conflict database copies without mutating current state', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({ id: 'current-card', updatedAt: 100, lastReview: 90 })]);
+
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await conflictDatabase.upsertCards([buildCard({ id: 'conflict-card', updatedAt: 200, lastReview: 180 })]);
+    await conflictDatabase.runTransaction('seed.summary-review-event', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ['event-summary', 'conflict-card', 'attempt-summary', 3, 220, 2026, 5, 'review', '{}'],
+      );
+    });
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'summary',
+      jsonrpc: '2.0',
+      method: 'sync.conflict.summarize',
+      params: [{
+        sources: [
+          { sourceId: 'readable', bytes: conflictBridge.snapshot().bytes!, path: '/conflict/siyuanmemo.db', modifiedAt: 300 },
+          { sourceId: 'broken', bytes: new Uint8Array([
+            ..."SQLite format 3\0".split('').map((char) => char.charCodeAt(0)),
+            1,
+            2,
+            3,
+          ]) },
+        ],
+      }],
+    });
+
+    expect(response).toMatchObject({
+      id: 'summary',
+      jsonrpc: '2.0',
+      result: {
+        ok: true,
+        current: {
+          sourceId: 'current-local:siyuanmemo.db',
+          parseStatus: 'ok',
+          cardCount: 1,
+        },
+        sources: [
+          {
+            sourceId: 'readable',
+            path: '/conflict/siyuanmemo.db',
+            modifiedAt: 300,
+            reviewEventCount: 1,
+            cardCount: 1,
+            latestReviewTimestamp: 220,
+            parseStatus: 'ok',
+          },
+          {
+            sourceId: 'broken',
+            parseStatus: 'parse-error',
+          },
+        ],
+      },
+    });
+    expect(await database.getCard('conflict-card')).toBeUndefined();
+  });
+
+  it('reloads worker sqlite state from replaced persisted bytes before later requests', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({ id: 'old-card', blockId: 'old-block' })]);
+
+    const replacementBridge = createInMemorySqlitePersistenceBridge();
+    const replacementDatabase = new WorkerSqliteDatabaseService(replacementBridge);
+    await replacementDatabase.upsertCards([buildCard({ id: 'replacement-card', blockId: 'replacement-block' })]);
+    await replacementDatabase.persist();
+    const replacementBytes = await replacementBridge.readBinary('siyuanmemo.db');
+    expect(replacementBytes).toBeTruthy();
+    await persistenceBridge.writeBinary('siyuanmemo.db', replacementBytes!);
+
+    const kernel = new BackendKernel({ database });
+    await expect(kernel.handle({
+      id: 'reload',
+      jsonrpc: '2.0',
+      method: 'sync.conflict.reload',
+      params: [],
+    })).resolves.toEqual({
+      id: 'reload',
+      jsonrpc: '2.0',
+      result: {
+        ok: true,
+        reloaded: true,
+        dbFile: 'siyuanmemo.db',
+      },
+    });
+
+    expect(await database.getCard('old-card')).toBeUndefined();
+    expect(await database.getCard('replacement-card')).toMatchObject({
+      id: 'replacement-card',
+      blockId: 'replacement-block',
+    });
+  });
+
   it('serves browser phase-2 rpc methods from worker sqlite repository', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);

@@ -34,6 +34,7 @@ import {
   type TopBarQuickEntryActionId,
 } from '@/application/entries/TopBarQuickEntryRegistry';
 import { ensureSiyuanMenuComponentFallbacks } from '@/utils/siyuanMenuComponentFallbacks';
+import { openManualSyncConflictResolutionDialog } from '@/ui/syncConflict/manualSyncConflictResolutionDialog';
 import {
   initializeRuntimePerformanceDiagnosticsFromSession,
   installRuntimePerformanceDiagnosticsGlobal,
@@ -258,6 +259,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
         this.registerProgressiveItemCommand();
         this.registerTopBarQuickCommands();
         this.registerDocTreeReviewCommands();
+        this.registerSyncConflictMergeCommand();
         if (this.shouldExposeCoreReviewContextEntries()) {
           this.registerCoreReviewCommands();
         }
@@ -494,6 +496,26 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
         void this.runCurrentDocTreeTemporaryDrillAction({ protyle });
       },
     });
+  }
+
+  private registerSyncConflictMergeCommand(): void {
+    this.addCommand({
+      langKey: 'syncConflictManualMergeCommand',
+      hotkey: '',
+      callback: () => {
+        void this.runManualSyncConflictMergeAction();
+      },
+    });
+  }
+
+  private async runManualSyncConflictMergeAction(): Promise<void> {
+    try {
+      const context = await this.contextReady.promise;
+      await openManualSyncConflictResolutionDialog(context);
+    } catch (error) {
+      this.logger.error('Manual sync conflict merge failed:', error);
+      await pushErrMsg(this.i18n?.syncConflictManualMergeFailed || '同步冲突合并失败');
+    }
   }
 
   private registerCoreReviewCommands(): void {

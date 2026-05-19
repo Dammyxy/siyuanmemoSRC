@@ -36,6 +36,11 @@ import type {
   BackendQueueProjectionSnapshotResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendSyncConflictMergeRequest,
+  BackendSyncConflictMergeResult,
+  BackendSyncConflictReloadResult,
+  BackendSyncConflictSummarizeRequest,
+  BackendSyncConflictSummarizeResult,
   BackendSemanticBrowserReadRequest,
   BackendSemanticBrowserReadResult,
   BackendSemanticCommandRequest,
@@ -171,6 +176,22 @@ export class SrsBackendClient {
 
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
     return this.call<BackendReviewFeedbackResult>('review.feedback', request);
+  }
+
+  async mergeSyncConflicts(
+    request: BackendSyncConflictMergeRequest,
+  ): Promise<BackendSyncConflictMergeResult> {
+    return this.call<BackendSyncConflictMergeResult>('sync.conflict.merge', request);
+  }
+
+  async summarizeSyncConflicts(
+    request: BackendSyncConflictSummarizeRequest,
+  ): Promise<BackendSyncConflictSummarizeResult> {
+    return this.call<BackendSyncConflictSummarizeResult>('sync.conflict.summarize', request);
+  }
+
+  async reloadSyncConflictDatabase(): Promise<BackendSyncConflictReloadResult> {
+    return this.call<BackendSyncConflictReloadResult>('sync.conflict.reload');
   }
 
   async queueProjectionSnapshot(

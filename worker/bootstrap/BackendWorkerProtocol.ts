@@ -12,6 +12,7 @@ export type BackendWorkerHostEffect =
   | { kind: 'sqlite.writeBinary'; path: string; bytes: Uint8Array }
   | { kind: 'sqlite.readJSON'; path: string }
   | { kind: 'sqlite.writeJSON'; path: string; value: unknown }
+  | { kind: 'sqlite.readSyncConflictDatabaseSources' }
   | { kind: 'siyuan.resolveExistingBlockIds'; blockIds: string[] }
   | { kind: 'siyuan.neuralGraph.query'; request: BackendNeuralGraphQueryRequest }
   | { kind: 'autocard.execute'; request: BackendAutoCardExecuteRequest }

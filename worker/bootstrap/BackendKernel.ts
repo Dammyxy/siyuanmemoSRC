@@ -38,6 +38,11 @@ import {
   type BackendKernelTransactionRequeueRequest,
   type BackendKernelTransactionRequeueResult,
   type BackendReviewFeedbackResult,
+  type BackendSyncConflictMergeRequest,
+  type BackendSyncConflictMergeResult,
+  type BackendSyncConflictReloadResult,
+  type BackendSyncConflictSummarizeRequest,
+  type BackendSyncConflictSummarizeResult,
   type PrivateApiAuditQueryRequest,
   type PrivateApiMutationRequest,
   type PrivateApiMutationResult,
@@ -153,6 +158,14 @@ const P6_OWNERSHIP_QUERY_OPERATIONS = new Set<P6OwnershipOperation>([
   'read-card-context',
 ]);
 
+const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
+  'system.health',
+  'diagnostics.status',
+  'sync.conflict.merge',
+  'sync.conflict.summarize',
+  'sync.conflict.reload',
+]);
+
 export class BackendKernel {
   private readonly privateApiAuditTrail: Array<{
     requestId: string;
@@ -206,6 +219,9 @@ export class BackendKernel {
     }
 
     try {
+      if (!STORAGE_REFRESH_EXEMPT_METHODS.has(request.method)) {
+        await this.deps.database.mergeExternalDatabaseIfChanged();
+      }
       switch (request.method) {
         case 'system.health':
           return buildSuccess(request.id, this.systemHealth());
@@ -213,6 +229,12 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.deps.database.load());
         case 'db.persist':
           return buildSuccess(request.id, await this.deps.database.persist());
+        case 'sync.conflict.merge':
+          return buildSuccess(request.id, await this.handleSyncConflictMerge(request.params));
+        case 'sync.conflict.summarize':
+          return buildSuccess(request.id, await this.handleSyncConflictSummarize(request.params));
+        case 'sync.conflict.reload':
+          return buildSuccess(request.id, await this.handleSyncConflictReload());
         case 'diagnostics.status':
           return buildSuccess(request.id, this.diagnosticsStatus());
         case 'browser.deck.page':
@@ -482,6 +504,26 @@ export class BackendKernel {
       throw new Error('review.feedback requires named params');
     }
     return this.deps.database.reviewFeedback(named);
+  }
+
+  private async handleSyncConflictMerge(params: unknown): Promise<BackendSyncConflictMergeResult> {
+    const named = this.readNamedParams<BackendSyncConflictMergeRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('sync.conflict.merge requires named params');
+    }
+    return this.deps.database.mergeSyncConflictDatabases(named);
+  }
+
+  private async handleSyncConflictSummarize(params: unknown): Promise<BackendSyncConflictSummarizeResult> {
+    const named = this.readNamedParams<BackendSyncConflictSummarizeRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('sync.conflict.summarize requires named params');
+    }
+    return this.deps.database.summarizeSyncConflictDatabases(named);
+  }
+
+  private async handleSyncConflictReload(): Promise<BackendSyncConflictReloadResult> {
+    return this.deps.database.reloadFromDisk();
   }
 
   private async handleQueueProjectionSnapshot(params: unknown): Promise<BackendQueueProjectionSnapshotResult> {

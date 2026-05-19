@@ -54,6 +54,21 @@ export interface IFileService {
   writeBinary?(fileName: string, bytes: Uint8Array): Promise<void>;
 
   /**
+   * Read SiYuan sync conflict copies of the plugin sqlite database.
+   */
+  readSyncConflictDatabaseSources?(): Promise<Array<{
+    sourceId: string;
+    bytes: Uint8Array;
+    path?: string | null;
+    modifiedAt?: number | null;
+    size?: number | null;
+  }>>;
+
+  backupCurrentSqliteDatabase?(options?: { sourceId?: string; now?: number }): Promise<{ backupPath: string; bytes: Uint8Array }>;
+
+  replaceCurrentSqliteDatabase?(bytes: Uint8Array): Promise<void>;
+
+  /**
    * 删除插件数据文件
    * @param fileName 文件名（相对于插件数据目录）
    */
@@ -107,6 +122,18 @@ interface FileErrorLike {
   message?: string;
 }
 
+interface ReadDirEntry {
+  name: string;
+  isDir: boolean;
+  updated?: number | null;
+  size?: number | null;
+}
+
+interface FileApiEnvelope {
+  code?: number;
+  data?: unknown;
+}
+
 function describeLoadedData(data: unknown): Record<string, unknown> {
   if (data === null) {
     return { type: 'null' };
@@ -124,6 +151,38 @@ function describeLoadedData(data: unknown): Record<string, unknown> {
     return { type: 'object', keys: Object.keys(data).slice(0, 8) };
   }
   return { type: typeof data };
+}
+
+function entryIsDir(entry: Record<string, unknown>): boolean {
+  return entry.isDir === true
+    || entry.isdir === true
+    || entry.isDir === 1
+    || entry.isdir === 1
+    || entry.type === 'dir'
+    || entry.type === 'directory';
+}
+
+function normalizeReadDirEntries(value: unknown): ReadDirEntry[] {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === 'object' && value !== null
+      ? (Array.isArray((value as { files?: unknown }).files)
+        ? (value as { files: unknown[] }).files
+        : Array.isArray((value as { entries?: unknown }).entries)
+          ? (value as { entries: unknown[] }).entries
+          : [])
+      : [];
+  return source
+    .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+    .map((entry) => ({
+      name: String(entry.name || '').trim(),
+      isDir: entryIsDir(entry),
+      updated: Number.isFinite(Number(entry.updated ?? entry.mtime ?? entry.modTime))
+        ? Number(entry.updated ?? entry.mtime ?? entry.modTime)
+        : null,
+      size: Number.isFinite(Number(entry.size)) ? Number(entry.size) : null,
+    }))
+    .filter((entry) => Boolean(entry.name));
 }
 
 /**
@@ -240,6 +299,106 @@ export class FileService implements IFileService {
         fileName,
         error instanceof Error ? error : new Error(String(error))
       );
+    }
+  }
+
+  async readSyncConflictDatabaseSources(): Promise<Array<{
+    sourceId: string;
+    bytes: Uint8Array;
+    path?: string | null;
+    modifiedAt?: number | null;
+    size?: number | null;
+  }>> {
+    const conflictRoot = '/temp/repo/sync/conflicts';
+    const pluginStoragePath = `${getPluginDataPath(this.plugin.name)}/siyuanmemo.db`
+      .replace(/^\/data(?=\/)/, '');
+    const conflictEntries = await this.readDir(conflictRoot);
+    const sources: Array<{ sourceId: string; bytes: Uint8Array }> = [];
+
+    for (const entry of conflictEntries) {
+      if (!entry.isDir || !entry.name) {
+        continue;
+      }
+      const dbPath = `${conflictRoot}/${entry.name}${pluginStoragePath}`;
+      const bytes = await this.readAbsoluteBinary(dbPath);
+      if (bytes && bytes.byteLength > 0) {
+        sources.push({
+          sourceId: `siyuan-sync-conflict:${entry.name}:${pluginStoragePath}`,
+          bytes,
+          path: dbPath,
+          modifiedAt: entry.updated ?? null,
+          size: entry.size ?? bytes.byteLength,
+        });
+      }
+    }
+
+    return sources;
+  }
+
+  async backupCurrentSqliteDatabase(options: { sourceId?: string; now?: number } = {}): Promise<{
+    backupPath: string;
+    bytes: Uint8Array;
+  }> {
+    const current = await this.readBinary('siyuanmemo.db');
+    if (!current || current.byteLength === 0) {
+      throw new FileOperationError('read', 'siyuanmemo.db', new Error('current sqlite database is missing'));
+    }
+    const safeSourceId = String(options.sourceId || 'manual-replacement')
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 96) || 'manual-replacement';
+    const stamp = new Date(options.now ?? Date.now())
+      .toISOString()
+      .replace(/[:.]/g, '-');
+    const backupPath = `manual-sync-backups/siyuanmemo.db.${stamp}.${safeSourceId}.bak`;
+    await this.writeBinary(backupPath, current);
+    return { backupPath, bytes: current };
+  }
+
+  async replaceCurrentSqliteDatabase(bytes: Uint8Array): Promise<void> {
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+      throw new FileOperationError('write', 'siyuanmemo.db', new Error('replacement sqlite database bytes are empty'));
+    }
+    await this.writeBinary('siyuanmemo.db', bytes);
+  }
+
+  private async readAbsoluteBinary(path: string): Promise<Uint8Array | null> {
+    try {
+      const response = await fetch('/api/file/getFile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+      if (!response.ok) {
+        return null;
+      }
+      const buffer = await response.arrayBuffer();
+      if (buffer.byteLength === 0) {
+        return null;
+      }
+      return new Uint8Array(buffer);
+    } catch {
+      return null;
+    }
+  }
+
+  private async readDir(path: string): Promise<ReadDirEntry[]> {
+    try {
+      const response = await fetch('/api/file/readDir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+      if (!response.ok) {
+        return [];
+      }
+      const envelope = await response.json() as FileApiEnvelope;
+      if (envelope.code !== 0) {
+        return [];
+      }
+      return normalizeReadDirEntries(envelope.data);
+    } catch {
+      return [];
     }
   }
 

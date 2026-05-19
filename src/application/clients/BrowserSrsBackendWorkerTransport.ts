@@ -22,6 +22,13 @@ export interface BrowserSrsBackendWorkerHostEffects {
   writeBinary?: (path: string, bytes: Uint8Array) => Promise<void>;
   readJSON?: <T>(path: string) => Promise<T | null>;
   writeJSON?: (path: string, value: unknown) => Promise<void>;
+  readSyncConflictDatabaseSources?: () => Promise<Array<{
+    sourceId: string;
+    bytes: Uint8Array;
+    path?: string | null;
+    modifiedAt?: number | null;
+    size?: number | null;
+  }>>;
   resolveExistingBlockIds?: (blockIds: string[]) => Promise<string[]>;
   resolveNeuralGraphQuery?: (
     request: BackendNeuralGraphQueryRequest,
@@ -317,6 +324,11 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         }
         await this.options.hostEffects.writeJSON(effect.path, effect.value);
         return null;
+      case 'sqlite.readSyncConflictDatabaseSources':
+        if (!this.options.hostEffects.readSyncConflictDatabaseSources) {
+          return [];
+        }
+        return this.options.hostEffects.readSyncConflictDatabaseSources();
       case 'siyuan.resolveExistingBlockIds':
         if (!this.options.hostEffects.resolveExistingBlockIds) {
           throw unavailable('resolveExistingBlockIds host effect unavailable');

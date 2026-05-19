@@ -1,8 +1,17 @@
+export interface SqliteConflictDatabaseSource {
+  sourceId: string;
+  bytes: Uint8Array;
+  path?: string | null;
+  modifiedAt?: number | null;
+  size?: number | null;
+}
+
 export interface SqlitePersistenceBridge {
   readBinary(path: string): Promise<Uint8Array | null>;
   writeBinary(path: string, bytes: Uint8Array): Promise<void>;
   readJSON?<T>(path: string): Promise<T | null>;
   writeJSON?(path: string, value: unknown): Promise<void>;
+  readSyncConflictDatabaseSources?(): Promise<SqliteConflictDatabaseSource[]>;
 }
 
 export function toTransferableArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -24,6 +33,9 @@ export function createUnavailableSqlitePersistenceBridge(reason: string): Sqlite
       throw new Error(reason);
     },
     async writeJSON(): Promise<void> {
+      throw new Error(reason);
+    },
+    async readSyncConflictDatabaseSources(): Promise<SqliteConflictDatabaseSource[]> {
       throw new Error(reason);
     },
   };
@@ -49,6 +61,9 @@ export function createInMemorySqlitePersistenceBridge(): SqlitePersistenceBridge
     },
     async writeJSON(path: string, value: unknown): Promise<void> {
       json.set(path, value);
+    },
+    async readSyncConflictDatabaseSources(): Promise<SqliteConflictDatabaseSource[]> {
+      return [];
     },
     snapshot() {
       const first = binary.values().next().value as Uint8Array | undefined;

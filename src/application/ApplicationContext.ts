@@ -63,6 +63,13 @@ import { BrowserApplicationService } from '@/application/services/BrowserApplica
 import { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
 import { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import { SrsTransparencyApplicationService } from '@/application/services/SrsTransparencyApplicationService';
+import {
+  SyncConflictDirectionResolutionService,
+  type SyncConflictDirectionApplyResult,
+  type SyncConflictDirectionChoice,
+  type SyncConflictDirectionPreview,
+} from '@/application/services/SyncConflictDirectionResolutionService';
+import { SyncConflictMergeApplicationService } from '@/application/services/SyncConflictMergeApplicationService';
 import { ReviewLogLearningCurveEvidenceReader } from '@/application/services/SrsTransparencyEvidenceReader';
 import {
   createReviewRenderServices as createInjectedReviewRenderServices,
@@ -159,6 +166,7 @@ import {
   type BackendMigrationRuntimePolicy,
 } from '@/application/backendMigration/runtimePolicy';
 import type { SqlitePersistenceBridge } from '../../worker/db/SqlitePersistenceBridge';
+import type { BackendSyncConflictMergeResult } from '../../packages/contracts/src/backend-rpc';
 
 const logger = createLogger('ApplicationContext');
 
@@ -1415,6 +1423,7 @@ export class ApplicationContext {
                 }
                 return bridge.writeJSON(path, value);
               },
+              readSyncConflictDatabaseSources: () => bridge.readSyncConflictDatabaseSources?.() ?? Promise.resolve([]),
               resolveExistingBlockIds: (blockIds: string[]) => ApplicationContext.resolveExistingBlockIdsViaSiyuan(
                 browserSiyuanApi,
                 blockIds,
@@ -1731,6 +1740,7 @@ export class ApplicationContext {
       },
       readJSON: <T>(path: string) => fileService.readJSON<T>(path),
       writeJSON: (path: string, value: unknown) => fileService.writeJSON(path, value),
+      readSyncConflictDatabaseSources: () => fileService.readSyncConflictDatabaseSources(),
     };
   }
 
@@ -2525,6 +2535,33 @@ export class ApplicationContext {
 
   getSrsBackendClient(): SrsBackendClient | null {
     return this.srsBackendClient;
+  }
+
+  async mergeSyncConflictDatabasesNow(mergedAt = Date.now()): Promise<BackendSyncConflictMergeResult> {
+    const backendClient = this.getSrsBackendClient();
+    if (!backendClient) {
+      throw new Error('BACKEND_UNAVAILABLE: sync conflict merge requires SRS backend');
+    }
+    const service = new SyncConflictMergeApplicationService(this.getFileService(), backendClient);
+    return service.mergeNow({ mergedAt });
+  }
+
+  async previewSyncConflictDirectionResolution(): Promise<SyncConflictDirectionPreview> {
+    return this.createSyncConflictDirectionResolutionService().preview();
+  }
+
+  async applySyncConflictDirectionResolution(
+    choice: SyncConflictDirectionChoice,
+  ): Promise<SyncConflictDirectionApplyResult> {
+    return this.createSyncConflictDirectionResolutionService().apply(choice);
+  }
+
+  private createSyncConflictDirectionResolutionService(): SyncConflictDirectionResolutionService {
+    const backendClient = this.getSrsBackendClient();
+    if (!backendClient) {
+      throw new Error('BACKEND_UNAVAILABLE: sync conflict direction resolution requires SRS backend');
+    }
+    return new SyncConflictDirectionResolutionService(this.getFileService(), backendClient);
   }
 
   getFrontendInstanceRuntime(): FrontendInstanceRuntime | null {

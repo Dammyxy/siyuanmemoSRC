@@ -19,6 +19,7 @@ import type { Plugin } from 'siyuan';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { DialogManager } from './DialogManager';
 import { Menu, showMessage } from 'siyuan';
+import { openManualSyncConflictResolutionDialog } from '@/ui/syncConflict/manualSyncConflictResolutionDialog';
 import type { AutoCardHandler } from '@/application/handlers/AutoCardHandler';
 import { createLogger } from '@/utils/logger';
 import type { FSRSCard } from '@/types/card';
@@ -169,6 +170,14 @@ export class MenuManager {
     }
 
     menu.addSeparator();
+
+    menu.addItem({
+      icon: 'iconRefresh',
+      label: this.i18n?.syncConflictManualMergeCommand || '手动合并 SiYuanMemo 同步冲突',
+      click: () => {
+        void this.runManualSyncConflictMerge();
+      },
+    });
     
     // 设置
     menu.addItem({
@@ -190,6 +199,15 @@ export class MenuManager {
       });
     } else {
       menu.open({ x: ev.clientX, y: ev.clientY, isLeft: true });
+    }
+  }
+
+  private async runManualSyncConflictMerge(): Promise<void> {
+    try {
+      await openManualSyncConflictResolutionDialog(this.context);
+    } catch (error) {
+      logger.error('Manual sync conflict merge failed:', error);
+      showMessage(this.i18n?.syncConflictManualMergeFailed || '同步冲突合并失败', 5000, 'error');
     }
   }
 

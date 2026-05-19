@@ -109,6 +109,41 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
+  it('serves sqlite sync conflict database source host effects through the typed bridge', async () => {
+    const worker = new FakeWorker();
+    const readSyncConflictDatabaseSources = vi.fn(async () => [{
+      sourceId: 'conflict-db',
+      bytes: new Uint8Array([4, 5, 6]),
+    }]);
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { readSyncConflictDatabaseSources },
+    });
+
+    worker.emit({ kind: 'ready' });
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-conflict-sources',
+      effect: {
+        kind: 'sqlite.readSyncConflictDatabaseSources',
+      },
+    });
+
+    expect(readSyncConflictDatabaseSources).toHaveBeenCalled();
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+    expect(worker.posted[0]).toEqual(expect.objectContaining({
+      kind: 'host-effect-result',
+      effectId: 'effect-conflict-sources',
+      ok: true,
+    }));
+    const result = (worker.posted[0] as {
+      result: Array<{ sourceId: string; bytes: Uint8Array }>;
+    }).result;
+    expect(result[0].sourceId).toBe('conflict-db');
+    expect(Array.from(result[0].bytes)).toEqual([4, 5, 6]);
+    transport.dispose();
+  });
+
   it('posts explicit unavailable host-effect failures', async () => {
     const worker = new FakeWorker();
     const transport = new BrowserSrsBackendWorkerTransport({

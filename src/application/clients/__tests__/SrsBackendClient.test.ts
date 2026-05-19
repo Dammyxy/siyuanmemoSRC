@@ -134,6 +134,40 @@ describe('SrsBackendClient', () => {
             };
           case 'review.feedback':
             return { jsonrpc: '2.0', id: request.id, error: { code: 'BACKEND_UNAVAILABLE', message: 'review not ready' } };
+          case 'sync.conflict.merge':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                ok: true,
+                sources: 1,
+                mergedReviewEvents: 1,
+                ignoredReviewEvents: 0,
+                mergedCards: 1,
+                ignoredCards: 0,
+                skippedSources: [],
+              },
+            };
+          case 'sync.conflict.summarize':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                ok: true,
+                current: null,
+                sources: [],
+              },
+            };
+          case 'sync.conflict.reload':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                ok: true,
+                reloaded: true,
+                dbFile: 'siyuanmemo.db',
+              },
+            };
           case 'queue.projection.snapshot': {
             const [params] = request.params as [{ queueType?: string }?];
             return {
@@ -414,6 +448,28 @@ describe('SrsBackendClient', () => {
       queueMode: 'formal',
       commitPolicy: 'write-schedule',
     })).rejects.toThrow('BACKEND_UNAVAILABLE: review not ready');
+    await expect(client.mergeSyncConflicts({
+      mergedAt: 1,
+      sources: [{ sourceId: 'conflict-a', bytes: new Uint8Array([1, 2, 3]) }],
+    })).resolves.toMatchObject({
+      ok: true,
+      sources: 1,
+      mergedReviewEvents: 1,
+      mergedCards: 1,
+    });
+    await expect(client.summarizeSyncConflicts({
+      includeCurrent: true,
+      sources: [],
+    })).resolves.toEqual({
+      ok: true,
+      current: null,
+      sources: [],
+    });
+    await expect(client.reloadSyncConflictDatabase()).resolves.toEqual({
+      ok: true,
+      reloaded: true,
+      dbFile: 'siyuanmemo.db',
+    });
     await expect(client.queueProjectionSnapshot({
       queueType: 'neural-roam',
       generation: 4,
@@ -565,6 +621,9 @@ describe('SrsBackendClient', () => {
       'autocard.decision.resolve',
       'autocard.execute',
       'review.feedback',
+      'sync.conflict.merge',
+      'sync.conflict.summarize',
+      'sync.conflict.reload',
       'queue.projection.snapshot',
       'queue.projection.rowsByIds',
       'neural-roam.advance',
@@ -605,7 +664,11 @@ describe('SrsBackendClient', () => {
       queueMode: 'formal',
       commitPolicy: 'write-schedule',
     }]);
-    expect(requests[19].params).toEqual([{
+    expect(requests[17].params).toEqual([{
+      mergedAt: 1,
+      sources: [{ sourceId: 'conflict-a', bytes: new Uint8Array([1, 2, 3]) }],
+    }]);
+    expect(requests[22].params).toEqual([{
       queueType: 'neural-roam',
       sessionId: 'session-neural-1',
       currentItem: {
