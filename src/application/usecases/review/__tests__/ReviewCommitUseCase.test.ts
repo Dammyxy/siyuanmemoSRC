@@ -48,6 +48,7 @@ function createReleasePolicy(overrides?: {
   backendWorker?: string;
   writerLeaseGuard?: string;
   autocardDecisionRelay?: string;
+  mobileSurface?: boolean;
 }) {
   return resolveBackendMigrationRuntimePolicy({
     VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER: overrides?.backendWorker ?? 'true',
@@ -56,7 +57,9 @@ function createReleasePolicy(overrides?: {
     VITE_SIYUANMEMO_ENABLE_KERNEL_TRANSACTION_INGEST: 'false',
     VITE_SIYUANMEMO_ENABLE_PRIVATE_API: 'false',
     VITE_SIYUANMEMO_ENABLE_AI_BACKEND_RUNTIME: 'false',
-  });
+  }, overrides?.mobileSurface
+    ? { backendContainer: 'android', frontendKind: 'mobile', isMobile: true }
+    : {});
 }
 
 describe('ReviewCommitUseCase', () => {
@@ -95,6 +98,33 @@ describe('ReviewCommitUseCase', () => {
 
     expect(result.committed).toBe(true);
     expect(ensureWritable).toHaveBeenCalledTimes(1);
+    expect(reviewFeedback).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses local backend worker write path on mobile without kernel writer relay', async () => {
+    const before = createCard({ id: 'card-mobile-local-worker' });
+    const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });
+    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after }));
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      srsBackend: { reviewFeedback },
+      writerLeaseGuard: null,
+      followerCommandClient: null,
+      runtimePolicy: createReleasePolicy({ mobileSurface: true }),
+    });
+
+    const result = await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(result.committed).toBe(true);
     expect(reviewFeedback).toHaveBeenCalledTimes(1);
   });
 
@@ -328,6 +358,7 @@ describe('ReviewCommitUseCase', () => {
   it('surfaces writer unavailable error and emits diagnostics', async () => {
     const before = createCard({ id: 'card-writer-unavailable' });
     const writerError = new Error('BACKEND_UNAVAILABLE: writer lease not owned by current instance');
+    const record = vi.fn(async () => undefined);
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
       srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
@@ -337,6 +368,7 @@ describe('ReviewCommitUseCase', () => {
         }),
         getMode: () => 'writer',
       } as never,
+      diagnosticSink: { record },
       runtimePolicy: createReleasePolicy(),
     });
 
@@ -354,6 +386,13 @@ describe('ReviewCommitUseCase', () => {
       '[BackendMigrationPolicy][ReviewCommitUseCase]',
       expect.objectContaining({ reason: 'writer-unavailable' }),
     );
+    expect(record).toHaveBeenCalledWith('review-feedback.ensure-writable-failed', expect.objectContaining({
+      cardId: before.id,
+      rating: Rating.Good,
+      error: writerError,
+      hasBackendClient: true,
+      hasWriterLeaseGuard: true,
+    }));
   });
 
   it('emits follower relay timeout diagnostics when follower relay call times out', async () => {

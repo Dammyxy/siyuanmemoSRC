@@ -325,12 +325,12 @@ describe('服务访问集成测试', () => {
         });
         const useCase = flaggedContext.getReviewCommitUseCase() as unknown as {
           deps?: {
-            writerLeaseGuard?: unknown;
+            writerLeaseGuard?: { getMode?: () => unknown };
             runtimePolicy?: { capabilities?: { reviewFeedbackWriteEnabled?: boolean } };
           };
         };
         expect(useCase.deps?.runtimePolicy?.capabilities?.reviewFeedbackWriteEnabled).toBe(true);
-        expect(useCase.deps?.writerLeaseGuard).toBe(flaggedContext.getFrontendInstanceRuntime());
+        expect(useCase.deps?.writerLeaseGuard?.getMode?.()).toBe(flaggedContext.getFrontendInstanceRuntime()?.getMode());
       } finally {
         if (flaggedContext && !flaggedContext.isDisposed()) {
           await flaggedContext.dispose();

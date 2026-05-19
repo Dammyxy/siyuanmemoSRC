@@ -6,6 +6,12 @@ export const BACKEND_MIGRATION_AI_BACKEND_RUNTIME_ENV_KEY = 'VITE_SIYUANMEMO_ENA
 
 export type RuntimeEnv = Record<string, string | undefined>;
 
+export interface BackendMigrationRuntimeSurface {
+  backendContainer?: string | null;
+  frontendKind?: string | null;
+  isMobile?: boolean | null;
+}
+
 export const BACKEND_MIGRATION_RUNTIME_ENV_KEYS = Array.from(new Set([
   ...Object.values(BACKEND_MIGRATION_FEATURE_GATES),
   BACKEND_MIGRATION_WRITER_LEASE_GUARD_ENV_KEY,
@@ -59,7 +65,10 @@ interface RuntimeFamilyPolicy {
   unavailableCode: 'BACKEND_UNAVAILABLE';
 }
 
-export function resolveBackendMigrationRuntimePolicy(env: RuntimeEnv): BackendMigrationRuntimePolicy {
+export function resolveBackendMigrationRuntimePolicy(
+  env: RuntimeEnv,
+  surface: BackendMigrationRuntimeSurface = {},
+): BackendMigrationRuntimePolicy {
   const gates = resolveBackendFeatureGates(env);
   const flags = {
     backendWorker: gates[BACKEND_MIGRATION_FEATURE_GATES.autocardExecuteRelay] === true,
@@ -71,15 +80,22 @@ export function resolveBackendMigrationRuntimePolicy(env: RuntimeEnv): BackendMi
   };
 
   const backendWorkerAvailable = flags.backendWorker;
-  const writerRelayRuntimeEnabled = backendWorkerAvailable && flags.writerLeaseGuard;
-  const writerRelayRequiredForBackendWrites = true;
-  const reviewFeedbackWriteEnabled = backendWorkerAvailable && flags.writerLeaseGuard;
-  const autoCardExecuteWriteEnabled = backendWorkerAvailable && flags.writerLeaseGuard;
-  const autoCardDecisionBackendEnabled = flags.autoCardDecisionRelay && backendWorkerAvailable && flags.writerLeaseGuard;
-  const kernelTransactionIngestEnabled = flags.kernelTransactionIngest && backendWorkerAvailable && flags.writerLeaseGuard;
+  const localBackendWorkerOwnsWrites = isMobileRuntimeSurface(surface);
+  const writerRelayRequiredForBackendWrites = !localBackendWorkerOwnsWrites;
+  const writerRelayRuntimeEnabled = backendWorkerAvailable && flags.writerLeaseGuard && writerRelayRequiredForBackendWrites;
+  const backendWriteOwnerAvailable = backendWorkerAvailable && (
+    writerRelayRequiredForBackendWrites
+      ? flags.writerLeaseGuard
+      : true
+  );
+  const reviewFeedbackWriteEnabled = backendWriteOwnerAvailable;
+  const autoCardExecuteWriteEnabled = backendWriteOwnerAvailable;
+  const autoCardDecisionBackendEnabled = flags.autoCardDecisionRelay && backendWriteOwnerAvailable;
+  const kernelTransactionIngestEnabled = flags.kernelTransactionIngest && backendWorkerAvailable && writerRelayRuntimeEnabled;
   const privateApiReadEnabled = flags.privateApi && backendWorkerAvailable;
-  const privateApiMutationEnabled = flags.privateApi && backendWorkerAvailable && flags.writerLeaseGuard;
+  const privateApiMutationEnabled = flags.privateApi && backendWorkerAvailable && writerRelayRuntimeEnabled;
   const aiBackendSessionEnabled = flags.aiBackendRuntime && backendWorkerAvailable;
+  const writeOwner = localBackendWorkerOwnsWrites ? 'backend-worker' : 'writer-relay';
 
   return {
     flags,
@@ -97,12 +113,12 @@ export function resolveBackendMigrationRuntimePolicy(env: RuntimeEnv): BackendMi
     },
     behavior: {
       reviewWrites: {
-        owner: 'writer-relay',
+        owner: writeOwner,
         rollbackMode: 'return-unavailable',
         unavailableCode: 'BACKEND_UNAVAILABLE',
       },
       autoCardWrites: {
-        owner: 'writer-relay',
+        owner: writeOwner,
         rollbackMode: 'return-unavailable',
         unavailableCode: 'BACKEND_UNAVAILABLE',
       },
@@ -133,6 +149,16 @@ export function resolveBackendMigrationRuntimePolicy(env: RuntimeEnv): BackendMi
       },
     },
   };
+}
+
+function isMobileRuntimeSurface(surface: BackendMigrationRuntimeSurface): boolean {
+  const backendContainer = String(surface.backendContainer || '').trim().toLowerCase();
+  const frontendKind = String(surface.frontendKind || '').trim().toLowerCase();
+  return surface.isMobile === true
+    || frontendKind === 'mobile'
+    || backendContainer === 'android'
+    || backendContainer === 'ios'
+    || backendContainer === 'harmony';
 }
 
 export function collectBackendMigrationRuntimeEnv(

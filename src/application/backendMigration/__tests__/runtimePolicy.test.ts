@@ -130,6 +130,31 @@ describe('backend migration runtime policy', () => {
     expect(policy.capabilities.privateApiMutationEnabled).toBe(true);
   });
 
+  it('uses local backend-worker ownership on mobile surfaces without kernel writer relay', () => {
+    const policy = resolveBackendMigrationRuntimePolicy({
+      VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER: 'true',
+      VITE_SIYUANMEMO_ENABLE_KERNEL_WRITER_LEASE_GUARD: 'true',
+      VITE_SIYUANMEMO_ENABLE_AUTOCARD_DECISION_RELAY: 'true',
+      VITE_SIYUANMEMO_ENABLE_KERNEL_TRANSACTION_INGEST: 'true',
+      VITE_SIYUANMEMO_ENABLE_PRIVATE_API: 'true',
+    }, {
+      backendContainer: 'android',
+      frontendKind: 'mobile',
+      isMobile: true,
+    });
+
+    expect(policy.capabilities.backendWorkerAvailable).toBe(true);
+    expect(policy.capabilities.writerRelayRuntimeEnabled).toBe(false);
+    expect(policy.capabilities.writerRelayRequiredForBackendWrites).toBe(false);
+    expect(policy.capabilities.reviewFeedbackWriteEnabled).toBe(true);
+    expect(policy.capabilities.autoCardExecuteWriteEnabled).toBe(true);
+    expect(policy.capabilities.autoCardDecisionBackendEnabled).toBe(true);
+    expect(policy.capabilities.kernelTransactionIngestEnabled).toBe(false);
+    expect(policy.capabilities.privateApiMutationEnabled).toBe(false);
+    expect(policy.behavior.reviewWrites.owner).toBe('backend-worker');
+    expect(policy.behavior.autoCardWrites.owner).toBe('backend-worker');
+  });
+
   it('keeps private API and AI backend disabled when explicitly turned off', () => {
     const policy = resolveBackendMigrationRuntimePolicy({
       VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER: 'true',

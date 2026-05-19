@@ -41,6 +41,7 @@ export interface FrontendInstanceRuntimeOptions {
   startupRetryDelayMs?: number;
   startupMaxWaitMs?: number;
   logger?: FrontendRuntimeDiagnosticsLogger;
+  diagnosticSink?: FrontendRuntimeDiagnosticSink | null;
   backendWorkerHealth?: () => FrontendBackendWorkerHealthSnapshot;
   writerCommandHandler?: (command: {
     commandId: string;
@@ -61,6 +62,10 @@ export interface FrontendRuntimeDiagnosticsLogger {
   info: (...args: unknown[]) => void;
   warn: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
+}
+
+export interface FrontendRuntimeDiagnosticSink {
+  record(event: string, payload?: Record<string, unknown>): Promise<void> | void;
 }
 
 interface FrontendRuntimeScopeRegistryEntry {
@@ -298,6 +303,7 @@ export class FrontendInstanceRuntime {
   private readonly startupRetryDelayMs: number;
   private readonly startupMaxWaitMs: number;
   private readonly logger: FrontendRuntimeDiagnosticsLogger;
+  private readonly diagnosticSink: FrontendRuntimeDiagnosticSink | null;
   private readonly backendWorkerHealth: FrontendInstanceRuntimeOptions['backendWorkerHealth'];
   private readonly writerCommandHandler: FrontendInstanceRuntimeOptions['writerCommandHandler'];
   private readonly backendContainer: string;
@@ -354,6 +360,7 @@ export class FrontendInstanceRuntime {
       ? Math.max(this.startupRetryDelayMs, Math.floor(Number(options.startupMaxWaitMs)))
       : 5_000;
     this.logger = options.logger ?? createLogger('FrontendInstanceRuntime');
+    this.diagnosticSink = options.diagnosticSink ?? null;
     this.backendWorkerHealth = options.backendWorkerHealth;
     this.writerCommandHandler = options.writerCommandHandler;
     this.backendContainer = String(options.backendContainer || '').trim() || 'unknown';
@@ -435,6 +442,9 @@ export class FrontendInstanceRuntime {
         relayPollIntervalMs: this.writerCommandHandler ? this.relayPollIntervalMs : null,
         pushRelayState: this.pushRelayDiagnostics?.state ?? null,
       });
+      this.recordDiagnostic('frontend-runtime.started', {
+        ownership,
+      });
     } catch (error) {
       this.started = false;
       this.stopHeartbeat();
@@ -447,6 +457,9 @@ export class FrontendInstanceRuntime {
         runtimeScopeId: this.runtimeScopeId,
         error,
       });
+      this.recordDiagnostic('frontend-runtime.start-failed', {
+        error,
+      });
       throw error;
     }
   }
@@ -455,12 +468,21 @@ export class FrontendInstanceRuntime {
     const backendUnavailableReason = this.getBackendWorkerUnavailableReason();
     if (backendUnavailableReason) {
       await this.releaseWriterLeaseForUnhealthyBackend(backendUnavailableReason, 'ensure-writable');
+      this.recordDiagnostic('frontend-runtime.ensure-writable-failed', {
+        reason: 'backend-worker-unhealthy',
+        backendUnavailableReason,
+      });
       throw new Error(`BACKEND_UNAVAILABLE: backend worker unhealthy: ${backendUnavailableReason}`);
     }
     await this.refreshOwnership();
     if (this.mode !== 'writer') {
+      this.recordDiagnostic('frontend-runtime.ensure-writable-failed', {
+        reason: 'not-writer',
+        lastWriterUnavailableReason: this.lastWriterUnavailableReason,
+      });
       throw new Error(this.lastWriterUnavailableReason || 'BACKEND_UNAVAILABLE: writer lease held by another instance');
     }
+    this.recordDiagnostic('frontend-runtime.ensure-writable-ok');
   }
 
   async dispose(): Promise<void> {
@@ -988,6 +1010,45 @@ export class FrontendInstanceRuntime {
       locationHref: resolveWindowLocationHref(),
       bodyClass: resolveDocumentBodyClass(),
     });
+  }
+
+  private recordDiagnostic(event: string, payload: Record<string, unknown> = {}): void {
+    if (!this.diagnosticSink) {
+      return;
+    }
+    const diagnosticsPayload = {
+      instanceId: this.instanceId,
+      runtimeScopeId: this.runtimeScopeId,
+      started: this.started,
+      mode: this.mode,
+      backendContainer: this.backendContainer,
+      frontendKind: this.frontendKind,
+      isBrowser: this.isBrowser,
+      isMobile: this.isMobile,
+      visibilityState: resolveDocumentVisibilityState(),
+      documentHasFocus: resolveDocumentHasFocus(),
+      locationHref: resolveWindowLocationHref(),
+      writerProfile: this.buildCurrentWriterProfile(),
+      backendWorkerHealth: this.safeBackendWorkerHealthSnapshot(),
+      ...payload,
+    };
+    Promise.resolve(this.diagnosticSink.record(event, diagnosticsPayload)).catch((error) => {
+      this.logger.warn('[FrontendInstanceRuntime] diagnostic record failed', {
+        event,
+        error,
+      });
+    });
+  }
+
+  private safeBackendWorkerHealthSnapshot(): FrontendBackendWorkerHealthSnapshot | null {
+    try {
+      return this.backendWorkerHealth?.() ?? null;
+    } catch (error) {
+      return {
+        healthy: false,
+        reason: `backend-worker-health-threw: ${formatUnknownError(error)}`,
+      };
+    }
   }
 
   private shouldSendWriterProfile(): boolean {

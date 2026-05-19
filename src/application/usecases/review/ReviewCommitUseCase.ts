@@ -51,6 +51,8 @@ export interface ReviewCommitBackendFeedbackClient {
 
 export interface ReviewCommitWriterLeaseGuard {
   ensureWritable(): Promise<void>;
+  getMode?(): unknown;
+  getInstanceId?(): unknown;
 }
 
 export interface ReviewCommitFollowerCommandClient {
@@ -61,12 +63,17 @@ export interface ReviewCommitFollowerCommandClient {
   }, timeoutMs?: number): Promise<TResult>;
 }
 
+export interface ReviewCommitDiagnosticSink {
+  record(event: string, payload?: Record<string, unknown>): Promise<void> | void;
+}
+
 export interface ReviewCommitUseCaseDependencies {
   cards: ReviewCommitCardReader;
   arena?: ReviewCommitArenaRecorder | null;
   srsBackend?: ReviewCommitBackendFeedbackClient | null;
   writerLeaseGuard?: ReviewCommitWriterLeaseGuard | null;
   followerCommandClient?: ReviewCommitFollowerCommandClient | null;
+  diagnosticSink?: ReviewCommitDiagnosticSink | null;
   schedulerConfig?: BackendReviewSchedulerConfig | null;
   runtimePolicy?: Pick<BackendMigrationRuntimePolicy, 'capabilities'> | null;
 }
@@ -85,7 +92,7 @@ type ReviewPolicyDecisionReason =
 type RelayRuntimeState =
   | { mode: 'missing' }
   | { mode: 'unknown'; rawMode: string | null }
-  | { mode: 'writer' }
+  | { mode: 'writer'; observedMode?: 'writer' | 'unknown' }
   | { mode: 'follower'; instanceId: string };
 
 export class ReviewCommitUseCase {
@@ -99,11 +106,26 @@ export class ReviewCommitUseCase {
         relayRuntimeMode: relayRuntime.mode,
         relayRuntimeRawMode: relayRuntime.mode === 'unknown' ? relayRuntime.rawMode : null,
       });
+      this.recordDiagnostic('review-feedback.runtime-not-ready', {
+        cardId: command.cardId,
+        rating: command.rating,
+        reason: runtimeReadiness.reason,
+        message: runtimeReadiness.message,
+        relayRuntimeMode: relayRuntime.mode,
+        relayRuntimeRawMode: relayRuntime.mode === 'unknown' ? relayRuntime.rawMode : null,
+        hasBackendClient: Boolean(this.deps.srsBackend),
+      });
       throw new Error(runtimeReadiness.message);
     }
     if (!this.shouldUseWorkerFeedback(command)) {
       this.logPolicyDecision('backend-worker-unavailable', {
         hasBackendClient: Boolean(this.deps.srsBackend),
+      });
+      this.recordDiagnostic('review-feedback.backend-worker-unavailable', {
+        cardId: command.cardId,
+        rating: command.rating,
+        hasBackendClient: Boolean(this.deps.srsBackend),
+        workerContext: resolveWorkerFeedbackContext(command.context),
       });
       throw new Error('BACKEND_UNAVAILABLE: review.feedback requires backend-worker ownership');
     }
@@ -194,6 +216,12 @@ export class ReviewCommitUseCase {
         this.logPolicyDecision('follower-relay-unavailable', {
           instanceId: relayRuntime.instanceId,
         });
+        this.recordDiagnostic('review-feedback.follower-relay-unavailable', {
+          cardId: command.cardId,
+          rating,
+          followerInstanceId: relayRuntime.instanceId,
+          request: summarizeReviewFeedbackRequest(requestPayload),
+        });
         throw new Error('BACKEND_UNAVAILABLE: review.feedback relay is unavailable in follower mode');
       }
       try {
@@ -216,6 +244,13 @@ export class ReviewCommitUseCase {
             instanceId: relayRuntime.instanceId,
           });
         }
+        this.recordDiagnostic('review-feedback.follower-relay-failed', {
+          cardId: command.cardId,
+          rating,
+          followerInstanceId: relayRuntime.instanceId,
+          request: summarizeReviewFeedbackRequest(requestPayload),
+          error,
+        });
         throw error;
       }
     } else {
@@ -223,7 +258,6 @@ export class ReviewCommitUseCase {
         this.logPolicyDecision('writer-relay-runtime-unknown', {
           relayRuntimeRawMode: relayRuntime.rawMode,
         });
-        throw new Error('BACKEND_UNAVAILABLE: review.feedback requires writer relay runtime');
       }
       if (this.deps.writerLeaseGuard) {
         try {
@@ -234,16 +268,32 @@ export class ReviewCommitUseCase {
           this.logPolicyDecision('writer-unavailable', {
             error: error instanceof Error ? error.message : String(error),
           });
+          this.recordDiagnostic('review-feedback.ensure-writable-failed', {
+            cardId: command.cardId,
+            rating,
+            request: summarizeReviewFeedbackRequest(requestPayload),
+            error,
+          });
           throw error;
         }
       }
-      result = await measureRuntimePerformance('review', 'feedback.backend-worker', () => this.deps.srsBackend!.reviewFeedback(requestPayload), {
-        cardId: command.cardId,
-        commitPolicy: workerContext.commitPolicy,
-        queueMode: workerContext.queueMode,
-        queueType: workerContext.queueType,
-        rating,
-      });
+      try {
+        result = await measureRuntimePerformance('review', 'feedback.backend-worker', () => this.deps.srsBackend!.reviewFeedback(requestPayload), {
+          cardId: command.cardId,
+          commitPolicy: workerContext.commitPolicy,
+          queueMode: workerContext.queueMode,
+          queueType: workerContext.queueType,
+          rating,
+        });
+      } catch (error) {
+        this.recordDiagnostic('review-feedback.backend-worker-call-failed', {
+          cardId: command.cardId,
+          rating,
+          request: summarizeReviewFeedbackRequest(requestPayload),
+          error,
+        });
+        throw error;
+      }
     }
 
     const updatedCard = normalizeWorkerUpdatedCard(result.updatedCard, card);
@@ -312,6 +362,25 @@ export class ReviewCommitUseCase {
     });
   }
 
+  private recordDiagnostic(event: string, payload: Record<string, unknown> = {}): void {
+    const sink = this.deps.diagnosticSink;
+    if (!sink) {
+      return;
+    }
+    Promise.resolve(sink.record(event, {
+      runtimeCapabilities: this.deps.runtimePolicy?.capabilities ?? null,
+      hasBackendClient: Boolean(this.deps.srsBackend),
+      hasWriterLeaseGuard: Boolean(this.deps.writerLeaseGuard),
+      hasFollowerCommandClient: Boolean(this.deps.followerCommandClient),
+      ...payload,
+    })).catch((error) => {
+      logger.warn('[ReviewCommitUseCase] diagnostic record failed', {
+        event,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
   private async recordArenaReview(card: FSRSCard, rating: Rating, schedulingContext?: SrsV2SchedulingContext | null): Promise<void> {
     if (!this.deps.arena) {
       return;
@@ -337,6 +406,32 @@ function normalizeRating(value: number): Rating {
   return Math.max(1, Math.min(4, Math.floor(Number(value) || 0))) as Rating;
 }
 
+function summarizeReviewFeedbackRequest(request: {
+  cardId: string;
+  rating: number;
+  queueType?: string;
+  queueMode?: string;
+  commitPolicy?: string;
+  sessionId?: string;
+  reviewedAt?: number;
+  projectionGeneration?: number;
+  projectionPolicyHash?: string;
+  scheduler?: BackendReviewSchedulerConfig;
+}): Record<string, unknown> {
+  return {
+    cardId: request.cardId,
+    rating: request.rating,
+    queueType: request.queueType ?? null,
+    queueMode: request.queueMode ?? null,
+    commitPolicy: request.commitPolicy ?? null,
+    sessionId: request.sessionId ?? null,
+    reviewedAt: request.reviewedAt ?? null,
+    projectionGeneration: request.projectionGeneration ?? null,
+    projectionPolicyHash: request.projectionPolicyHash ?? null,
+    schedulerDefault: request.scheduler?.defaultScheduler ?? null,
+  };
+}
+
 function resolveRelayRuntimeState(
   writerLeaseGuard: ReviewCommitWriterLeaseGuard | null | undefined,
 ): RelayRuntimeState {
@@ -356,10 +451,12 @@ function resolveRelayRuntimeState(
     return { mode: 'follower', instanceId };
   }
   if (rawMode === 'writer') {
-    return { mode: 'writer' };
+    return { mode: 'writer', observedMode: 'writer' };
   }
   if (typeof rawMode === 'undefined' || rawMode === null || rawMode === '') {
-    return { mode: 'unknown', rawMode: null };
+    return typeof runtime.getMode === 'function' && typeof writerLeaseGuard.ensureWritable === 'function'
+      ? { mode: 'writer', observedMode: 'unknown' }
+      : { mode: 'unknown', rawMode: null };
   }
   return { mode: 'unknown', rawMode: String(rawMode) };
 }

@@ -1,8 +1,48 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-19 (Round 390)
+Last update: 2026-05-19 (Round 394)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-19 - Mobile Local Backend Worker Review Writes
+
+- Task: Fix the mobile review backend-unavailable path confirmed by diagnostics: Android starts the backend worker successfully, but `FrontendInstanceRuntime.start()` fails because kernel companion RPC reports `Plugin [siyuan-plugin-siyuanmemo] not loaded`.
+- Touched slice: Backend migration runtime policy and review commit ownership; `src/application/backendMigration/runtimePolicy.ts`, `src/application/ApplicationContext.ts`, and focused policy/review tests.
+- Debt fixed now: Mobile surfaces (`android`/`ios`/`harmony`, `frontendKind=mobile`, or `isMobile=true`) now use local `backend-worker` ownership for review and AutoCard backend writes instead of requiring kernel writer relay. Desktop/std surfaces still require writer relay. Kernel transaction ingest and private mutations remain disabled without writer relay.
+- Debt deferred: Cross-device conflict semantics are not solved in this slice; mobile local writes still rely on SiYuan file sync after the local backend worker commit.
+- Why deferred: The reported failure was caused by applying desktop multi-window kernel relay requirements to Android, where the kernel companion RPC is unavailable. Broader multi-device conflict handling belongs to a separate sync/ownership design.
+- Next safe step: Install this build on the phone, review one card, then confirm diagnostics show `application-context.created` with `hasFrontendInstanceRuntime=false` but no `review-feedback.ensure-writable-failed`; if a new failure appears, inspect `review-feedback.backend-worker-call-failed`.
+- Validation: `pnpm vitest run src/application/backendMigration/__tests__/runtimePolicy.test.ts`; `pnpm vitest run src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`; `pnpm vitest run src/application/handlers/__tests__/AutoCardExecuteRelayRuntime.test.ts src/application/handlers/__tests__/AutoCardDecisionRelayRuntime.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-19 - Mobile Review Runtime Startup Diagnostics
+
+- Task: Continue diagnosing the mobile review `BACKEND_UNAVAILABLE` path after device diagnostics advanced from missing/unknown relay guard to `ensureWritable()` finding no current `FrontendInstanceRuntime`.
+- Touched slice: Review backend write composition and startup diagnostics in `src/application/ApplicationContext.ts`.
+- Debt fixed now: Startup now writes bounded diagnostics when backend worker bootstrap fails, frontend runtime init is skipped, frontend runtime start is unavailable, and review commit reaches a context with no writer runtime. The next device repro can distinguish worker bootstrap, relay init, runtime start, and context lifetime failures instead of collapsing them into the same user-facing backend unavailable message.
+- Debt deferred: The diagnostic probe remains temporary and still lives in synced plugin storage, so desktop/mobile entries can mix until the root device branch is identified.
+- Why deferred: The latest pulled JSON already showed possible synced desktop entries; keeping the probe small and tagged is safer than adding a broader device-local logging surface mid-investigation.
+- Next safe step: Install this build on the phone, reproduce one review rating, pull only the current data-path diagnostics file again, then inspect the newest `application-context.*` event before changing writer policy.
+- Validation: `pnpm vitest run src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`; `pnpm vitest run src/application/services/__tests__/MobileReviewBackendDiagnosticsService.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-19 - Review Commit Dynamic Writer Runtime
+
+- Task: Fix the mobile/desktop review feedback unavailable path identified by `diagnostics/mobile-review-backend.json` where `ReviewCommitUseCase` had `hasWriterLeaseGuard=false` despite `FrontendInstanceRuntime` being started.
+- Touched slice: Review backend write dependency resolution; `src/application/ApplicationContext.ts`, `src/application/usecases/review/ReviewCommitUseCase.ts`, and service access test expectation.
+- Debt fixed now: Review feedback no longer captures a one-time writer runtime snapshot in the use case factory. It uses dynamic writer lease and follower relay adapters that resolve the current `FrontendInstanceRuntime`/`FollowerCommandClient` at commit time, so stale construction order cannot leave review writes permanently without a writer guard.
+- Debt deferred: The temporary mobile diagnostics file remains in place until one post-fix device repro confirms the failure path is gone.
+- Why deferred: The diagnostic probe is still useful to prove the runtime now appears at commit time on the affected device.
+- Next safe step: Rebuild/install the plugin, reproduce once on the device, and confirm the diagnostics no longer show `review-feedback.runtime-not-ready` with `hasWriterLeaseGuard=false`.
+- Validation: `pnpm vitest run src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`; `pnpm vitest run src/application/services/__tests__/MobileReviewBackendDiagnosticsService.test.ts`; `pnpm vitest run src/application/clients/__tests__/FrontendInstanceRuntime.test.ts`; `pnpm run check:boundaries`; `pnpm build`. `pnpm vitest run src/application/__tests__/service-access.integration.test.ts` is currently blocked by the existing test-environment `/api/file/getFile` relative URL failure during SQLite init.
+
+### 2026-05-19 - Mobile Review Backend Diagnostics Probe
+
+- Task: Add a temporary mobile-friendly diagnostic file for the remaining “backend temporarily unavailable” review feedback report when WebView console/logcat cannot expose plugin logs.
+- Touched slice: Review backend write diagnostics; `src/application/services/MobileReviewBackendDiagnosticsService.ts`, `src/application/clients/FrontendInstanceRuntime.ts`, `src/application/usecases/review/ReviewCommitUseCase.ts`, `src/application/ApplicationContext.ts`, and focused tests.
+- Debt fixed now: Mobile review feedback failures now append bounded diagnostic entries to `diagnostics/mobile-review-backend.json`, including runtime mode/profile, backend worker health, writer readiness failure reason, review feedback request metadata, and backend/relay error summaries without card content.
+- Debt deferred: This is intentionally a temporary probe, not a user-facing diagnostics UI or permanent telemetry framework.
+- Why deferred: The immediate blocker is collecting facts from a device where console inspection is unavailable; building full diagnostics UX would be wider than the bug investigation.
+- Next safe step: After one failing mobile repro, inspect the newest entries and remove or gate the probe once the true failing branch is fixed.
+- Validation: `pnpm vitest run src/application/services/__tests__/MobileReviewBackendDiagnosticsService.test.ts`; `pnpm vitest run src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`; `pnpm vitest run src/application/clients/__tests__/FrontendInstanceRuntime.test.ts`.
 
 ### 2026-05-19 - Mobile Review Writer And Disabled AutoCard Pump
 
