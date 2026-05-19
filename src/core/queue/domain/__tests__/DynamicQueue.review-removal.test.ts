@@ -47,6 +47,7 @@ function createManagerStub(
   options?: {
     cards?: FSRSCard[];
     updatedCard?: FSRSCard;
+    commitReview?: (command: QueueReviewCommand) => Promise<unknown>;
   }
 ) {
   const updatedCard: FSRSCard = options?.updatedCard ?? {
@@ -56,7 +57,7 @@ function createManagerStub(
     reps: card.reps + 1,
   };
 
-  const commitReview = vi.fn(async (command: QueueReviewCommand) => {
+  const commitReview = vi.fn(options?.commitReview ?? (async (command: QueueReviewCommand) => {
     const committed = command.context.commitPolicy !== 'preview-only'
       && command.context.commitPolicy !== 'drill-only';
     return {
@@ -74,7 +75,7 @@ function createManagerStub(
         suppressedReason: committed ? undefined : command.context.commitPolicy,
       },
     };
-  });
+  }));
   const schedulerRouter = {
     answer: vi.fn(),
     commit: vi.fn(),
@@ -524,6 +525,41 @@ describe('Dynamic queues - review removal semantics', () => {
     });
     expect(manager.onCardUpdatedFromScheduler).not.toHaveBeenCalled();
     expect(manager.updateCard).not.toHaveBeenCalled();
+  });
+
+  it('propagates backend unavailable review failures without scheduler fallback mutation', async () => {
+    const card = createCard({ id: 'card-backend-unavailable', reps: 0 });
+    const unavailable = new Error('BACKEND_UNAVAILABLE: review.feedback requires writer relay runtime');
+    const manager = createManagerStub(card, {
+      commitReview: async () => {
+        throw unavailable;
+      },
+    });
+    const queue = new RetrievalPracticeQueue(manager as never);
+
+    await expect(queue.handleReview(card.id, 3)).rejects.toThrow(
+      'BACKEND_UNAVAILABLE: review.feedback requires writer relay runtime',
+    );
+
+    expect(manager.commitReview).toHaveBeenCalledTimes(1);
+    expect(manager.getSchedulerRouter).not.toHaveBeenCalled();
+    expect(manager.updateCard).not.toHaveBeenCalled();
+    expect(manager.onCardUpdatedFromScheduler).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when review manager has no commitReview path', async () => {
+    const card = createCard({ id: 'card-missing-commit-review', reps: 0 });
+    const manager = createManagerStub(card);
+    delete (manager as typeof manager & { commitReview?: unknown }).commitReview;
+    const queue = new RetrievalPracticeQueue(manager as never);
+
+    await expect(queue.handleReview(card.id, 3)).rejects.toThrow(
+      'BACKEND_UNAVAILABLE: review.feedback requires manager.commitReview for queue retrieval-practice',
+    );
+
+    expect(manager.getSchedulerRouter).not.toHaveBeenCalled();
+    expect(manager.updateCard).not.toHaveBeenCalled();
+    expect(manager.onCardUpdatedFromScheduler).not.toHaveBeenCalled();
   });
 
   it('filter group due-card review uses filtered rescheduling worker context', async () => {

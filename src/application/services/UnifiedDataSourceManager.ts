@@ -425,11 +425,7 @@ export class UnifiedDataSourceManager {
 
         const result = await kernel.execute(command);
         if (result.committed && result.updatedCard) {
-            await this.updateCard(result.updatedCard, {
-                preferIncomingScheduling: true,
-                schedulingWriteSource: 'review-commit',
-                suppressAutosave: true,
-            });
+            await this.onCardUpdatedFromScheduler(result.updatedCard);
         }
         if (result.committed) {
             const queueType = this.normalizeQueueType(command.context?.queueType);

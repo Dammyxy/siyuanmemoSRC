@@ -1042,34 +1042,30 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                 reps: card.reps,
             });
             
-            // 2. 通过 application review commit use case 调度卡片；旧 manager 仍走 scheduler fallback
+            // 2. 通过 application review commit use case 调度卡片。
             const routeOptions = this.buildReviewSchedulingContext(card);
             let updatedCard: FSRSCard;
             let schedulingCommitted = true;
-            let postCommitNotificationRequired = false;
             let queueImpact: unknown | null = null;
             let projectionAction: QueueReviewResult['projectionAction'] = null;
             let projectionImpactEntry: unknown | null = null;
 
-            if (typeof this.manager.commitReview === 'function') {
-                const commitResult = await this.manager.commitReview({
-                    cardId: card.id,
-                    rating,
-                    context: routeOptions,
-                });
-                schedulingCommitted = commitResult.committed;
-                updatedCard = commitResult.updatedCard;
-                queueImpact = commitResult.queueImpact ?? null;
-                projectionAction = commitResult.projectionAction ?? null;
-                projectionImpactEntry = commitResult.projectionImpactEntry ?? null;
-            } else {
-                const schedulerRouter = this.getSchedulerRouter();
-                postCommitNotificationRequired = true;
-                const decision = schedulerRouter.answer(card, rating, routeOptions);
-                const commitResult = await schedulerRouter.commit(decision);
-                schedulingCommitted = commitResult.committed;
-                updatedCard = commitResult.updatedCard ?? decision.current;
+            if (typeof this.manager.commitReview !== 'function') {
+                throw new Error(
+                    `BACKEND_UNAVAILABLE: review.feedback requires manager.commitReview for queue ${this.type}`,
+                );
             }
+
+            const commitResult = await this.manager.commitReview({
+                cardId: card.id,
+                rating,
+                context: routeOptions,
+            });
+            schedulingCommitted = commitResult.committed;
+            updatedCard = commitResult.updatedCard;
+            queueImpact = commitResult.queueImpact ?? null;
+            projectionAction = commitResult.projectionAction ?? null;
+            projectionImpactEntry = commitResult.projectionImpactEntry ?? null;
             
             logger.debug(`[${this.type}] handleReviewWithScheduler - After scheduling:`, {
                 cardId: updatedCard.id,
@@ -1089,14 +1085,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             }
             
             // 3. 调度器已完成持久化，这里只做队列缓存失效 + 事件通知
-            if (schedulingCommitted && postCommitNotificationRequired) {
-                if (typeof this.manager.onCardUpdatedFromScheduler === 'function') {
-                    await this.manager.onCardUpdatedFromScheduler(updatedCard);
-                } else {
-                    // 向后兼容：旧 manager 仍走 updateCard 路径
-                    await this.manager.updateCard(updatedCard);
-                }
-            } else if (!schedulingCommitted) {
+            if (!schedulingCommitted) {
                 logger.debug(`[${this.type}] SRS v2 decision was preview/drill-only; formal schedule was not updated`, {
                     cardId,
                     rating,

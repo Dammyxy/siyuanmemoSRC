@@ -86,7 +86,7 @@ describe('UnifiedDataSourceManager card update notifications', () => {
     ]);
   });
 
-  it('mirrors committed review feedback cards into the frontend read model before queue reload', async () => {
+  it('does not rewrite committed backend review cards from the frontend snapshot', async () => {
     const manager = UnifiedDataSourceManager.getInstance();
     const now = Date.now();
     const before = createCard();
@@ -127,6 +127,12 @@ describe('UnifiedDataSourceManager card update notifications', () => {
       getAvailableQueueTypes: vi.fn(() => []),
     } as unknown as IDataRouter & { plugin: unknown };
     manager.setAdvancedRouter(router);
+    const events: DataChangeEvent[] = [];
+    manager.registerObserver({
+      onDataChanged: (event) => {
+        events.push(event);
+      },
+    });
 
     await manager.commitReview({
       cardId: before.id,
@@ -138,12 +144,27 @@ describe('UnifiedDataSourceManager card update notifications', () => {
       },
     });
 
-    expect(router.updateCard).toHaveBeenCalledWith(after, expect.objectContaining({
-      preferIncomingScheduling: true,
-      schedulingWriteSource: 'review-commit',
-      suppressAutosave: true,
-    }));
-    await expect(manager.getCards({ dueDate: { lte: new Date(now) } })).resolves.toEqual([]);
+    expect(router.updateCard).not.toHaveBeenCalled();
+    expect(storedCard).toEqual(before);
+    await flushMicrotasks();
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'card-updated',
+        cardIds: [after.id, after.blockId],
+      }),
+      expect.objectContaining({
+        type: 'queue-changed',
+        queueType: QueueType.RetrievalPractice,
+      }),
+      expect.objectContaining({
+        type: 'queue-changed',
+        queueType: QueueType.IncrementalLearning,
+      }),
+      expect.objectContaining({
+        type: 'queue-changed',
+        queueType: QueueType.FilterGroup,
+      }),
+    ]);
   });
 
   it('emits card-created and queue-changed for dynamic queues after card creation sync', async () => {

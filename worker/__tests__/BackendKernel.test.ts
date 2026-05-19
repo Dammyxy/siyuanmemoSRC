@@ -2417,7 +2417,23 @@ describe('BackendKernel', () => {
   it('commits retrieval review feedback in worker transaction', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
-    await database.upsertCards([buildCard({ id: 'card-review-1', due: Date.now() - 10_000 })]);
+    const reviewedAt = 1_779_187_777_000;
+    await database.upsertCards([buildCard({ id: 'card-review-1', due: reviewedAt - 10_000 })]);
+    await database.runTransaction('seed.sync-metadata', (db) => {
+      db.run(
+        'INSERT OR REPLACE INTO store_metadata (key, value_json, updated_at) VALUES (?, ?, ?)',
+        [
+          'sync_metadata',
+          JSON.stringify({
+            revision: 12,
+            contentHash: 'stale-before-review',
+            lastModifiedAt: reviewedAt - 60_000,
+            lastModifiedBy: 'storage-phone',
+          }),
+          reviewedAt - 60_000,
+        ],
+      );
+    });
     const kernel = new BackendKernel({
       database,
       resolveExistingBlockIds: async (blockIds) => blockIds,
@@ -2427,7 +2443,7 @@ describe('BackendKernel', () => {
       id: 'review-feedback-success',
       jsonrpc: '2.0',
       method: 'review.feedback',
-      params: [{ cardId: 'card-review-1', rating: 3, queueType: 'retrieval-practice' }],
+      params: [{ cardId: 'card-review-1', rating: 3, reviewedAt, queueType: 'retrieval-practice' }],
     });
 
     expect('result' in response).toBe(true);
@@ -2439,6 +2455,25 @@ describe('BackendKernel', () => {
       });
       expect(response.result.updatedCard).toBeTruthy();
     }
+    expect(database.getOne<{ count: number }>('SELECT COUNT(*) AS count FROM review_events')?.count).toBe(1);
+    const metadataRow = database.getOne<{ value_json: string; updated_at: number }>(
+      'SELECT value_json, updated_at FROM store_metadata WHERE key = ?',
+      ['sync_metadata'],
+    );
+    expect(metadataRow?.updated_at).toBe(reviewedAt);
+    const metadata = JSON.parse(metadataRow?.value_json || '{}') as {
+      revision?: number;
+      contentHash?: string;
+      lastModifiedAt?: number;
+      lastModifiedBy?: string;
+    };
+    expect(metadata).toMatchObject({
+      revision: 13,
+      lastModifiedAt: reviewedAt,
+      lastModifiedBy: 'srs-backend-worker:review.feedback',
+    });
+    expect(metadata.contentHash).toMatch(/^[0-9a-f]{16}$/);
+    expect(metadata.contentHash).not.toBe('stale-before-review');
   });
 
   it('returns refresh-required queue impact when the projection generation is unavailable', async () => {

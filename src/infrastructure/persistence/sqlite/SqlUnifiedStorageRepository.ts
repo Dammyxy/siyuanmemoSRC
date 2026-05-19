@@ -78,6 +78,9 @@ interface CardPageResult {
   total: number;
 }
 
+const FNV1A_64_OFFSET_BASIS = 0xcbf29ce484222325n;
+const FNV1A_64_PRIME = 0x100000001b3n;
+
 export interface AlgorithmCardStateDiagnosticSummary {
   total: number;
   dirty: number;
@@ -105,6 +108,62 @@ function createEmptyStore(): UnifiedCardStore {
     riffBlacklist: [],
     riffSyncState: {},
   };
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null) {
+    return 'null';
+  }
+
+  const valueType = typeof value;
+  if (valueType === 'number') {
+    return Number.isFinite(value as number) ? JSON.stringify(value) : 'null';
+  }
+  if (valueType === 'boolean' || valueType === 'string') {
+    return JSON.stringify(value);
+  }
+  if (valueType === 'undefined') {
+    return 'null';
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(item => stableStringify(item)).join(',')}]`;
+  }
+
+  if (valueType === 'object') {
+    const record = value as Record<string, unknown>;
+    const entries = Object.entries(record)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+
+    const body = entries
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`)
+      .join(',');
+    return `{${body}}`;
+  }
+
+  return 'null';
+}
+
+function fnv1aHash(input: string): string {
+  let hash = FNV1A_64_OFFSET_BASIS;
+  for (const character of input) {
+    hash ^= BigInt(character.codePointAt(0) || 0);
+    hash = BigInt.asUintN(64, hash * FNV1A_64_PRIME);
+  }
+  return hash.toString(16).padStart(16, '0');
+}
+
+function calculateStoreContentHash(store: UnifiedCardStore): string {
+  return fnv1aHash(stableStringify({
+    version: store.version,
+    xiuyuans: store.xiuyuans,
+    cardDTOs: store.cardDTOs || {},
+    deletedCardDTOs: store.deletedCardDTOs || {},
+    deletedXiuyuans: store.deletedXiuyuans || {},
+    riffBlacklist: store.riffBlacklist || [],
+    riffSyncState: store.riffSyncState || {},
+  }));
 }
 
 function normalizeNumber(value: unknown): number | null {
@@ -371,6 +430,37 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         ['unified_store_version', stringifyJson(store.version || 2), now],
       );
     });
+  }
+
+  async touchSyncMetadata(input: {
+    modifiedAt?: number;
+    modifiedBy?: string;
+  } = {}): Promise<void> {
+    const current = this.database.getOne<{ value_json: string }>(
+      'SELECT value_json FROM store_metadata WHERE key = ?',
+      ['sync_metadata'],
+    );
+    const previous = parseJson<UnifiedCardStore['syncMetadata'] | undefined>(
+      current?.value_json,
+      undefined,
+    );
+    const store = await this.loadStore();
+    const now = input.modifiedAt ?? Date.now();
+    const metadata = {
+      revision: Math.max(Number(previous?.revision) || 0, Number(store.syncMetadata?.revision) || 0) + 1,
+      contentHash: calculateStoreContentHash(store),
+      lastModifiedAt: now,
+      lastModifiedBy: String(input.modifiedBy || previous?.lastModifiedBy || store.syncMetadata?.lastModifiedBy || 'srs-backend-worker'),
+    };
+
+    this.database.run(
+      'INSERT OR REPLACE INTO store_metadata (key, value_json, updated_at) VALUES (?, ?, ?)',
+      ['sync_metadata', stringifyJson(metadata), now],
+    );
+    this.database.run(
+      'INSERT OR REPLACE INTO store_metadata (key, value_json, updated_at) VALUES (?, ?, ?)',
+      ['unified_store_version', stringifyJson(store.version || 2), now],
+    );
   }
 
   upsertCards(cards: FSRSCard[]): void {

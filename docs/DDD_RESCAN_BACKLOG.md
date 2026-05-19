@@ -4,6 +4,46 @@ Last update: 2026-05-19 (Round 395)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-19 - Bump Review Sync Metadata With Worker Feedback
+
+- Task: Diagnose the cross-device smoke where Android ratings briefly produced `review_events`, but after cloud sync both phone and `H:\闪卡同步测试` desktop DBs returned to `review_events=0` and unreviewed `cards`.
+- Touched slice: Worker review feedback persistence metadata; `worker/review/WorkerReviewFeedbackRuntime.ts`, `src/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository.ts`, and `worker/__tests__/BackendKernel.test.ts`.
+- Debt fixed now: `review.feedback` now bumps `store_metadata.sync_metadata` in the same SQLite transaction as card schedule, review event, and projection changes. The metadata revision, hash, and modified time now reflect backend-owned review writes instead of staying at the pre-review save boundary.
+- Debt deferred: The ratings already overwritten by cloud sync are not recoverable from the current phone/desktop DB files unless an external sync history or backup still contains the earlier DB. A fresh post-deploy phone review and normal cloud sync smoke is still required.
+- Why deferred: The current phone pull and desktop DB both show `review_events=0`; this proves the event row was overwritten before this fix could preserve its metadata boundary.
+- Next safe step: Deploy the rebuilt bundle to `H:\闪卡同步测试` and the Android plugin directory, restart SiYuan, rate one card on phone, confirm `review_events>0` and bumped `sync_metadata`, sync cloud, then pull desktop and verify the event row remains.
+- Validation: `pnpm vitest run worker\__tests__\BackendKernel.test.ts -t "commits retrieval review feedback"`; `pnpm vitest run worker\__tests__\BackendKernel.test.ts -t "review feedback|commits retrieval review feedback|commits incremental-learning review feedback|commits filter-group filtered-rescheduling"`; `pnpm vitest run src\application\services\__tests__\UnifiedDataSourceManager.card-update-events.test.ts src\core\queue\domain\__tests__\DynamicQueue.review-removal.test.ts`.
+
+### 2026-05-19 - Preserve Worker Review Events After Mobile Feedback
+
+- Task: Fix the confirmed Android follow-up smoke where two real ratings still updated `cards` while `review_events` stayed empty after the scheduler fallback was removed.
+- Touched slice: Review feedback commit ownership; `src/application/services/UnifiedDataSourceManager.ts` and `src/application/services/__tests__/UnifiedDataSourceManager.card-update-events.test.ts`.
+- Debt fixed now: `UnifiedDataSourceManager.commitReview()` no longer rewrites the worker-committed review card through the frontend SQLite snapshot after `review.feedback` returns. It now only emits post-commit card/queue notifications, preventing the frontend snapshot from overwriting the worker-persisted `review_events` row.
+- Debt deferred: None for this slice; remaining cross-device sync behavior should be handled as a separate sync smoke after the phone-side event row exists.
+- Why closed: Rebuilt bundle was deployed to `H:\闪卡同步测试` and the Android plugin directory, SiYuan was restarted, and a real phone rating at 2026-05-19 18:07:53 produced both the updated `cards` row and one `review_events` row.
+- Next safe step: Run a normal desktop/phone workspace sync smoke to confirm the now-present `review_events` row propagates across devices.
+- Validation: `pnpm vitest run src\application\services\__tests__\UnifiedDataSourceManager.card-update-events.test.ts src\core\queue\domain\__tests__\DynamicQueue.review-removal.test.ts`; `pnpm vitest run worker\__tests__\BackendKernel.test.ts -t "review feedback|commits retrieval review feedback|commits incremental-learning review feedback|commits filter-group filtered-rescheduling"`; `pnpm run check:boundaries`; `pnpm build`; Android DB pull after real rating confirmed `review_events=1`.
+
+### 2026-05-19 - Remove Review Scheduler Fallback Without Events
+
+- Task: Fix the confirmed Android review sync symptom where new-bundle phone reviews updated `cards` while `review_events` remained empty.
+- Touched slice: Review queue commit ownership; `src/core/queue/domain/BaseReviewQueue.ts` and `src/core/queue/domain/__tests__/DynamicQueue.review-removal.test.ts`.
+- Debt fixed now: Standard review queues no longer fall back to direct `SchedulerRouter.commit()` when the queue manager lacks `commitReview`. Missing `manager.commitReview` now fails closed with `BACKEND_UNAVAILABLE`, preventing card schedule writes that bypass the backend `review.feedback` transaction and its `review_events` insert.
+- Debt deferred: The next device smoke must confirm whether the mobile runtime now reaches `commitReview` and writes `review_events`, or fails visibly because a non-application manager is still constructing the review queue.
+- Why deferred: The pulled phone DB proved the bad half-commit path after real user ratings, but the patched bundle still needs one phone run to distinguish fixed event writes from an explicit manager-composition failure.
+- Next safe step: Build and deploy this patch to the test workspace/phone, restart SiYuan, rate one card, pull `siyuanmemo.db`, and verify `review_events` count increases with the reviewed card.
+- Validation: `pnpm vitest run src\core\queue\domain\__tests__\DynamicQueue.review-removal.test.ts`; `pnpm vitest run src\core\queue\domain\__tests__\DynamicQueue.review-removal.test.ts worker\__tests__\BackendKernel.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-19 - Cross-device Review Sync Bundle Drift Check
+
+- Task: Continue the cross-device review sync investigation against the `H:\闪卡同步测试` workspace and the Android device DB pulled via ADB.
+- Touched slice: Review commit fail-closed regression coverage and distribution/runtime drift verification; `src/core/queue/domain/__tests__/DynamicQueue.review-removal.test.ts` plus rebuilt `dist/`.
+- Debt fixed now: Added a queue regression test proving backend-unavailable review feedback propagates without scheduler fallback mutation. Confirmed current source/dist no longer contains the removed mobile diagnostic writer, while the installed test-space `index.js` still did. Rebuilt `dist` from the active source so the next device run can test the current mobile local-backend path instead of the stale diagnostic bundle.
+- Debt deferred: A fresh phone review must be rerun after replacing the test-space plugin bundle, then the phone DB should be pulled again to confirm `review_events` advances with the reviewed cards.
+- Why deferred: The pulled phone DB was produced by a stale installed bundle that still emitted removed diagnostic events, so it cannot prove the current source still loses review events.
+- Next safe step: Replace `H:\闪卡同步测试\data\plugins\siyuan-plugin-siyuanmemo` with the rebuilt `dist`, sync/install to the phone, run one review, pull `siyuanmemo.db`, then compare `cards` and `review_events`.
+- Validation: `pnpm vitest run src\core\queue\domain\__tests__\DynamicQueue.review-removal.test.ts worker\__tests__\BackendKernel.test.ts -t "review feedback|backend unavailable"`; `pnpm run check:boundaries`; `pnpm build`.
+
 ### 2026-05-19 - Remove Temporary Mobile Review Diagnostics File
 
 - Task: Remove the temporary mobile review backend diagnostic file now that the Android backend-unavailable root cause is confirmed and fixed.

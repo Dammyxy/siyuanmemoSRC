@@ -33,7 +33,7 @@ type SrsProjectionWorkerQueueType =
   | QueueType.IncrementalLearning;
 
 export type WorkerReviewFeedbackRuntimeDeps = {
-  repository: Pick<SqlUnifiedStorageRepository, 'getCard' | 'upsertCards' | 'queryCards'>;
+  repository: Pick<SqlUnifiedStorageRepository, 'getCard' | 'upsertCards' | 'queryCards' | 'touchSyncMetadata'>;
   queueProjection: Pick<SqlQueueProjectionRepository, 'readGeneration' | 'readRows' | 'applyQueueProjectionDelta'> | null;
   runtime: Pick<RuntimeSqliteDatabaseService, 'runTransaction' | 'run'>;
   recordUnavailable?: () => void;
@@ -180,6 +180,12 @@ export class WorkerReviewFeedbackRuntime {
         committed: commitResult.committed,
         updatedCard: commitResult.updatedCard ?? null,
       });
+      if (commitResult.committed) {
+        await this.deps.repository.touchSyncMetadata({
+          modifiedAt: reviewedAt,
+          modifiedBy: 'srs-backend-worker:review.feedback',
+        });
+      }
 
       return {
         cardId,
