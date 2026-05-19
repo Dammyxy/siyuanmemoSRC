@@ -63,17 +63,12 @@ export interface ReviewCommitFollowerCommandClient {
   }, timeoutMs?: number): Promise<TResult>;
 }
 
-export interface ReviewCommitDiagnosticSink {
-  record(event: string, payload?: Record<string, unknown>): Promise<void> | void;
-}
-
 export interface ReviewCommitUseCaseDependencies {
   cards: ReviewCommitCardReader;
   arena?: ReviewCommitArenaRecorder | null;
   srsBackend?: ReviewCommitBackendFeedbackClient | null;
   writerLeaseGuard?: ReviewCommitWriterLeaseGuard | null;
   followerCommandClient?: ReviewCommitFollowerCommandClient | null;
-  diagnosticSink?: ReviewCommitDiagnosticSink | null;
   schedulerConfig?: BackendReviewSchedulerConfig | null;
   runtimePolicy?: Pick<BackendMigrationRuntimePolicy, 'capabilities'> | null;
 }
@@ -106,26 +101,11 @@ export class ReviewCommitUseCase {
         relayRuntimeMode: relayRuntime.mode,
         relayRuntimeRawMode: relayRuntime.mode === 'unknown' ? relayRuntime.rawMode : null,
       });
-      this.recordDiagnostic('review-feedback.runtime-not-ready', {
-        cardId: command.cardId,
-        rating: command.rating,
-        reason: runtimeReadiness.reason,
-        message: runtimeReadiness.message,
-        relayRuntimeMode: relayRuntime.mode,
-        relayRuntimeRawMode: relayRuntime.mode === 'unknown' ? relayRuntime.rawMode : null,
-        hasBackendClient: Boolean(this.deps.srsBackend),
-      });
       throw new Error(runtimeReadiness.message);
     }
     if (!this.shouldUseWorkerFeedback(command)) {
       this.logPolicyDecision('backend-worker-unavailable', {
         hasBackendClient: Boolean(this.deps.srsBackend),
-      });
-      this.recordDiagnostic('review-feedback.backend-worker-unavailable', {
-        cardId: command.cardId,
-        rating: command.rating,
-        hasBackendClient: Boolean(this.deps.srsBackend),
-        workerContext: resolveWorkerFeedbackContext(command.context),
       });
       throw new Error('BACKEND_UNAVAILABLE: review.feedback requires backend-worker ownership');
     }
@@ -216,12 +196,6 @@ export class ReviewCommitUseCase {
         this.logPolicyDecision('follower-relay-unavailable', {
           instanceId: relayRuntime.instanceId,
         });
-        this.recordDiagnostic('review-feedback.follower-relay-unavailable', {
-          cardId: command.cardId,
-          rating,
-          followerInstanceId: relayRuntime.instanceId,
-          request: summarizeReviewFeedbackRequest(requestPayload),
-        });
         throw new Error('BACKEND_UNAVAILABLE: review.feedback relay is unavailable in follower mode');
       }
       try {
@@ -244,13 +218,6 @@ export class ReviewCommitUseCase {
             instanceId: relayRuntime.instanceId,
           });
         }
-        this.recordDiagnostic('review-feedback.follower-relay-failed', {
-          cardId: command.cardId,
-          rating,
-          followerInstanceId: relayRuntime.instanceId,
-          request: summarizeReviewFeedbackRequest(requestPayload),
-          error,
-        });
         throw error;
       }
     } else {
@@ -268,12 +235,6 @@ export class ReviewCommitUseCase {
           this.logPolicyDecision('writer-unavailable', {
             error: error instanceof Error ? error.message : String(error),
           });
-          this.recordDiagnostic('review-feedback.ensure-writable-failed', {
-            cardId: command.cardId,
-            rating,
-            request: summarizeReviewFeedbackRequest(requestPayload),
-            error,
-          });
           throw error;
         }
       }
@@ -286,12 +247,6 @@ export class ReviewCommitUseCase {
           rating,
         });
       } catch (error) {
-        this.recordDiagnostic('review-feedback.backend-worker-call-failed', {
-          cardId: command.cardId,
-          rating,
-          request: summarizeReviewFeedbackRequest(requestPayload),
-          error,
-        });
         throw error;
       }
     }
@@ -362,25 +317,6 @@ export class ReviewCommitUseCase {
     });
   }
 
-  private recordDiagnostic(event: string, payload: Record<string, unknown> = {}): void {
-    const sink = this.deps.diagnosticSink;
-    if (!sink) {
-      return;
-    }
-    Promise.resolve(sink.record(event, {
-      runtimeCapabilities: this.deps.runtimePolicy?.capabilities ?? null,
-      hasBackendClient: Boolean(this.deps.srsBackend),
-      hasWriterLeaseGuard: Boolean(this.deps.writerLeaseGuard),
-      hasFollowerCommandClient: Boolean(this.deps.followerCommandClient),
-      ...payload,
-    })).catch((error) => {
-      logger.warn('[ReviewCommitUseCase] diagnostic record failed', {
-        event,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-  }
-
   private async recordArenaReview(card: FSRSCard, rating: Rating, schedulingContext?: SrsV2SchedulingContext | null): Promise<void> {
     if (!this.deps.arena) {
       return;
@@ -404,32 +340,6 @@ export class ReviewCommitUseCase {
 
 function normalizeRating(value: number): Rating {
   return Math.max(1, Math.min(4, Math.floor(Number(value) || 0))) as Rating;
-}
-
-function summarizeReviewFeedbackRequest(request: {
-  cardId: string;
-  rating: number;
-  queueType?: string;
-  queueMode?: string;
-  commitPolicy?: string;
-  sessionId?: string;
-  reviewedAt?: number;
-  projectionGeneration?: number;
-  projectionPolicyHash?: string;
-  scheduler?: BackendReviewSchedulerConfig;
-}): Record<string, unknown> {
-  return {
-    cardId: request.cardId,
-    rating: request.rating,
-    queueType: request.queueType ?? null,
-    queueMode: request.queueMode ?? null,
-    commitPolicy: request.commitPolicy ?? null,
-    sessionId: request.sessionId ?? null,
-    reviewedAt: request.reviewedAt ?? null,
-    projectionGeneration: request.projectionGeneration ?? null,
-    projectionPolicyHash: request.projectionPolicyHash ?? null,
-    schedulerDefault: request.scheduler?.defaultScheduler ?? null,
-  };
 }
 
 function resolveRelayRuntimeState(

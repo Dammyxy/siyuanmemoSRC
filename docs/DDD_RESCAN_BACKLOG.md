@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-19 (Round 394)
+Last update: 2026-05-19 (Round 395)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-19 - Remove Temporary Mobile Review Diagnostics File
+
+- Task: Remove the temporary mobile review backend diagnostic file now that the Android backend-unavailable root cause is confirmed and fixed.
+- Touched slice: Review backend write diagnostics cleanup; `src/application/ApplicationContext.ts`, `src/application/clients/FrontendInstanceRuntime.ts`, `src/application/usecases/review/ReviewCommitUseCase.ts`, and focused review/runtime tests.
+- Debt fixed now: Removed `diagnostics/mobile-review-backend.json` writer service, startup/review file-diagnostic hooks, runtime diagnostic sink plumbing, and the temporary diagnostic tests. Existing policy logs and runtime console logs remain available without writing synced plugin-storage diagnostic files.
+- Debt deferred: Cross-device review record sync remains open and should be diagnosed separately from the removed temporary backend-availability probe.
+- Why deferred: User confirmed mobile review is writable again; the remaining issue is persistence/sync propagation, not backend runtime availability.
+- Next safe step: Start a focused sync investigation from review commit persistence to SQLite/file sync and queue reload, using the handoff doc at `C:/Users/Dammy/.codex/memories/handoff-12a953.md`.
+- Validation: `pnpm vitest run src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts`.
 
 ### 2026-05-19 - Mobile Local Backend Worker Review Writes
 
@@ -11,7 +21,7 @@ Last update: 2026-05-19 (Round 394)
 - Debt fixed now: Mobile surfaces (`android`/`ios`/`harmony`, `frontendKind=mobile`, or `isMobile=true`) now use local `backend-worker` ownership for review and AutoCard backend writes instead of requiring kernel writer relay. Desktop/std surfaces still require writer relay. Kernel transaction ingest and private mutations remain disabled without writer relay.
 - Debt deferred: Cross-device conflict semantics are not solved in this slice; mobile local writes still rely on SiYuan file sync after the local backend worker commit.
 - Why deferred: The reported failure was caused by applying desktop multi-window kernel relay requirements to Android, where the kernel companion RPC is unavailable. Broader multi-device conflict handling belongs to a separate sync/ownership design.
-- Next safe step: Install this build on the phone, review one card, then confirm diagnostics show `application-context.created` with `hasFrontendInstanceRuntime=false` but no `review-feedback.ensure-writable-failed`; if a new failure appears, inspect `review-feedback.backend-worker-call-failed`.
+- Next safe step: Investigate cross-device review record sync now that mobile review writes are confirmed working.
 - Validation: `pnpm vitest run src/application/backendMigration/__tests__/runtimePolicy.test.ts`; `pnpm vitest run src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`; `pnpm vitest run src/application/handlers/__tests__/AutoCardExecuteRelayRuntime.test.ts src/application/handlers/__tests__/AutoCardDecisionRelayRuntime.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-19 - Mobile Review Runtime Startup Diagnostics

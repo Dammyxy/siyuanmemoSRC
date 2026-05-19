@@ -355,10 +355,9 @@ describe('ReviewCommitUseCase', () => {
     );
   });
 
-  it('surfaces writer unavailable error and emits diagnostics', async () => {
+  it('surfaces writer unavailable error', async () => {
     const before = createCard({ id: 'card-writer-unavailable' });
     const writerError = new Error('BACKEND_UNAVAILABLE: writer lease not owned by current instance');
-    const record = vi.fn(async () => undefined);
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
       srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
@@ -368,7 +367,6 @@ describe('ReviewCommitUseCase', () => {
         }),
         getMode: () => 'writer',
       } as never,
-      diagnosticSink: { record },
       runtimePolicy: createReleasePolicy(),
     });
 
@@ -386,16 +384,9 @@ describe('ReviewCommitUseCase', () => {
       '[BackendMigrationPolicy][ReviewCommitUseCase]',
       expect.objectContaining({ reason: 'writer-unavailable' }),
     );
-    expect(record).toHaveBeenCalledWith('review-feedback.ensure-writable-failed', expect.objectContaining({
-      cardId: before.id,
-      rating: Rating.Good,
-      error: writerError,
-      hasBackendClient: true,
-      hasWriterLeaseGuard: true,
-    }));
   });
 
-  it('emits follower relay timeout diagnostics when follower relay call times out', async () => {
+  it('logs follower relay timeout when follower relay call times out', async () => {
     const before = createCard({ id: 'card-follower-timeout' });
     const relayTimeout = new Error('BACKEND_UNAVAILABLE: writer relay timeout');
     const useCase = new ReviewCommitUseCase({

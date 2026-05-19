@@ -83,7 +83,6 @@ import {
 } from '@/infrastructure/persistence/sqlite';
 import { SettingsService } from '@/application/services/SettingsService';
 import { ReviewLogService } from '@/application/services/ReviewLogService';
-import { MobileReviewBackendDiagnosticsService } from '@/application/services/MobileReviewBackendDiagnosticsService';
 import { RiffBlacklistService } from '@/application/services/RiffBlacklistService';
 import { ReviewQueuePreparationService } from '@/application/services/ReviewQueuePreparationService';
 import { CardContentQueryService } from '@/application/queries/CardContentQueryService';
@@ -176,7 +175,6 @@ interface ApplicationServiceRegistry {
   settingsService: SettingsService;
   reviewQueuePreparationService: ReviewQueuePreparationService;
   reviewLogService: ReviewLogService;
-  mobileReviewBackendDiagnosticsService: MobileReviewBackendDiagnosticsService;
   reviewCommitUseCase: ReviewCommitUseCase;
   reviewAttemptKernel: ReviewAttemptKernel;
   riffBlacklistService: RiffBlacklistService;
@@ -299,7 +297,6 @@ export class ApplicationContext {
   private srsBackendTransport: DisposableSrsBackendTransport | null = null;
   private frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
   private followerCommandClient: FollowerCommandClient | null = null;
-  private mobileReviewBackendDiagnosticsService: MobileReviewBackendDiagnosticsService;
   private kernelSidecarClient: KernelSidecarClient;
   private readonly backendMigrationRuntimePolicy: BackendMigrationRuntimePolicy;
   
@@ -384,7 +381,6 @@ export class ApplicationContext {
       srsBackendTransport?: DisposableSrsBackendTransport | null;
       frontendInstanceRuntime?: FrontendInstanceRuntime | null;
       followerCommandClient?: FollowerCommandClient | null;
-      mobileReviewBackendDiagnosticsService: MobileReviewBackendDiagnosticsService;
       kernelSidecarClient: KernelSidecarClient;
       backendMigrationRuntimePolicy: BackendMigrationRuntimePolicy;
     }
@@ -404,7 +400,6 @@ export class ApplicationContext {
     this.srsBackendTransport = services.srsBackendTransport ?? null;
     this.frontendInstanceRuntime = services.frontendInstanceRuntime ?? null;
     this.followerCommandClient = services.followerCommandClient ?? null;
-    this.mobileReviewBackendDiagnosticsService = services.mobileReviewBackendDiagnosticsService;
     this.kernelSidecarClient = services.kernelSidecarClient;
     this.backendMigrationRuntimePolicy = services.backendMigrationRuntimePolicy;
     
@@ -433,7 +428,6 @@ export class ApplicationContext {
     this.serviceContainer.set('unifiedStorage', this.unifiedStorageManager);  // 🆕 注册统一存储
     this.serviceContainer.set('scheduler', this.schedulerRouter);
     this.serviceContainer.set('unifiedDataSource', this.unifiedDataSourceManager);
-    this.serviceContainer.set('mobileReviewBackendDiagnosticsService', this.mobileReviewBackendDiagnosticsService);
     
     // ✅ EventBus 已经在构造函数中设置（如果提供了 sharedEventBus）
     // 如果没有提供，则懒加载创建
@@ -579,7 +573,6 @@ export class ApplicationContext {
         srsBackend: context.srsBackendClient,
         writerLeaseGuard,
         followerCommandClient,
-        diagnosticSink: context.mobileReviewBackendDiagnosticsService,
         runtimePolicy,
       });
     });
@@ -1063,7 +1056,6 @@ export class ApplicationContext {
     const storageManager = new StorageManager(config.plugin.name);
     await measureRuntimePerformance('startup', 'storage-manager.init', () => storageManager.init());
     const fileService = new FileService(config.plugin as unknown as SiyuanMemoPlugin);
-    const mobileReviewBackendDiagnosticsService = new MobileReviewBackendDiagnosticsService(fileService);
     const legacyPersistence = createPersistenceCallbacks(config.plugin);
     let sqlPersistence: SqlPersistenceBundle | undefined;
     let unifiedSave = legacyPersistence.save;
@@ -1452,14 +1444,6 @@ export class ApplicationContext {
       } catch (error) {
         srsBackendTransport?.dispose?.();
         srsBackendTransport = null;
-        void mobileReviewBackendDiagnosticsService.record('application-context.backend-worker.bootstrap-failed', {
-          error,
-          runtimeCapabilities: backendMigrationRuntimePolicy.capabilities,
-          backendContainer: siyuanBackendContainer,
-          frontendKind: config.frontendKind,
-          isBrowser: pluginRuntimeSurface.isBrowser,
-          isMobile: pluginRuntimeSurface.isMobile,
-        });
         logger.error('[ApplicationContext] Failed to bootstrap SRS backend browser Worker transport; backend runtime remains unavailable:', error);
       }
     }
@@ -1474,7 +1458,6 @@ export class ApplicationContext {
             frontendKind: config.frontendKind,
             isBrowser: pluginRuntimeSurface.isBrowser,
             isMobile: pluginRuntimeSurface.isMobile,
-            diagnosticSink: mobileReviewBackendDiagnosticsService,
             backendWorkerHealth: () => {
               const diagnostics = srsBackendTransport?.getDiagnostics?.();
               if (!diagnostics) {
@@ -1508,29 +1491,8 @@ export class ApplicationContext {
       } catch (error) {
         frontendInstanceRuntime = null;
         followerCommandClient = null;
-        void mobileReviewBackendDiagnosticsService.record('application-context.frontend-runtime.start-unavailable', {
-          error,
-          runtimeCapabilities: backendMigrationRuntimePolicy.capabilities,
-          hasBackendClient: Boolean(srsBackendClient),
-          backendWorkerDiagnostics: srsBackendTransport?.getDiagnostics?.() ?? null,
-          backendContainer: siyuanBackendContainer,
-          frontendKind: config.frontendKind,
-          isBrowser: pluginRuntimeSurface.isBrowser,
-          isMobile: pluginRuntimeSurface.isMobile,
-        });
         logger.warn('[ApplicationContext] Frontend instance runtime unavailable; backend write families fail closed with explicit unavailable', error);
       }
-    } else if (backendMigrationRuntimePolicy.capabilities.writerRelayRuntimeEnabled) {
-      void mobileReviewBackendDiagnosticsService.record('application-context.frontend-runtime.init-skipped', {
-        reason: srsBackendClient ? 'writer-relay-runtime-disabled' : 'backend-client-missing',
-        runtimeCapabilities: backendMigrationRuntimePolicy.capabilities,
-        hasBackendClient: Boolean(srsBackendClient),
-        backendWorkerDiagnostics: srsBackendTransport?.getDiagnostics?.() ?? null,
-        backendContainer: siyuanBackendContainer,
-        frontendKind: config.frontendKind,
-        isBrowser: pluginRuntimeSurface.isBrowser,
-        isMobile: pluginRuntimeSurface.isMobile,
-      });
     }
 
     // 创建 CardCreationHelper
@@ -1600,22 +1562,8 @@ export class ApplicationContext {
       srsBackendTransport,
       frontendInstanceRuntime,
       followerCommandClient,
-      mobileReviewBackendDiagnosticsService,
       kernelSidecarClient,
       backendMigrationRuntimePolicy,
-    });
-    void mobileReviewBackendDiagnosticsService.record('application-context.created', {
-      runtimeCapabilities: backendMigrationRuntimePolicy.capabilities,
-      hasBackendClient: Boolean(srsBackendClient),
-      hasFrontendInstanceRuntime: Boolean(frontendInstanceRuntime),
-      hasFollowerCommandClient: Boolean(followerCommandClient),
-      backendWorkerDiagnostics: srsBackendTransport?.getDiagnostics?.() ?? null,
-      frontendRuntimeMode: frontendInstanceRuntime?.getMode?.() ?? null,
-      frontendRuntimeInstanceId: frontendInstanceRuntime?.getInstanceId?.() ?? null,
-      backendContainer: siyuanBackendContainer,
-      frontendKind: config.frontendKind,
-      isBrowser: pluginRuntimeSurface.isBrowser,
-      isMobile: pluginRuntimeSurface.isMobile,
     });
     
     // 设置 context 引用（用于 blockMenuHandler 的闭包）
@@ -2600,18 +2548,6 @@ export class ApplicationContext {
       ensureWritable: async () => {
         const runtime = this.getFrontendInstanceRuntime();
         if (!runtime) {
-          await this.mobileReviewBackendDiagnosticsService.record('application-context.review-writer-runtime-missing', {
-            runtimeCapabilities: this.backendMigrationRuntimePolicy.capabilities,
-            hasBackendClient: Boolean(this.srsBackendClient),
-            hasFrontendInstanceRuntime: false,
-            hasFollowerCommandClient: Boolean(this.followerCommandClient),
-            backendWorkerDiagnostics: this.srsBackendTransport?.getDiagnostics?.() ?? null,
-            disposed: this.disposed,
-            backendContainer: ApplicationContext.resolveSiyuanBackendContainer(),
-            frontendKind: this.config.frontendKind,
-            isBrowser: (this.config.plugin as unknown as { isBrowser?: boolean }).isBrowser,
-            isMobile: (this.config.plugin as unknown as { isMobile?: boolean }).isMobile,
-          });
           throw new Error('BACKEND_UNAVAILABLE: review.feedback requires writer relay runtime');
         }
         await runtime.ensureWritable();
