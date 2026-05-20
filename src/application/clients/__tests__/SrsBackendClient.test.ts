@@ -146,6 +146,9 @@ describe('SrsBackendClient', () => {
                 mergedCards: 1,
                 ignoredCards: 0,
                 skippedSources: [],
+                diagnostics: {
+                  reviewCardDivergences: [],
+                },
               },
             };
           case 'sync.conflict.summarize':

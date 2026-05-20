@@ -31,6 +31,7 @@ import type {
   BackendKernelTransactionRequeueResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendSyncConflictMergeDivergenceDiagnostic,
   BackendSyncConflictDatabaseSummary,
   BackendSyncConflictMergeRequest,
   BackendSyncConflictMergeResult,
@@ -127,6 +128,12 @@ interface ConflictSummaryCardRow {
   latestReview: number | null;
 }
 
+interface ReviewCardDivergenceEvidenceRow {
+  card_id: string;
+  newest_reviewed_at: number | null;
+  review_event_count: number;
+}
+
 function createSqliteFileServiceAdapter(bridge: SqlitePersistenceBridge): SqliteFileServiceAdapter {
   return {
     readJSON: async <T>(fileName: string): Promise<T | null> => {
@@ -174,12 +181,34 @@ function parseJsonObject<T>(value: string, fallback: T): T {
   }
 }
 
-function comparableCardStamp(row: Pick<ConflictCardRow, 'updated_at' | 'last_review' | 'reps'>): number {
-  return Math.max(
-    Number(row.updated_at) || 0,
-    Number(row.last_review) || 0,
-    Number(row.reps) || 0,
-  );
+function positiveNumber(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+}
+
+function compareReviewSyncCardFreshness(
+  local: Pick<ConflictCardRow, 'updated_at' | 'last_review' | 'reps'>,
+  incoming: Pick<ConflictCardRow, 'updated_at' | 'last_review' | 'reps'>,
+): number {
+  const localReview = positiveNumber(local.last_review);
+  const incomingReview = positiveNumber(incoming.last_review);
+  if (localReview !== incomingReview) {
+    return incomingReview - localReview;
+  }
+
+  const localUpdated = positiveNumber(local.updated_at);
+  const incomingUpdated = positiveNumber(incoming.updated_at);
+  if (localUpdated !== incomingUpdated) {
+    return incomingUpdated - localUpdated;
+  }
+
+  const localReps = positiveNumber(local.reps);
+  const incomingReps = positiveNumber(incoming.reps);
+  if (localReps !== incomingReps) {
+    return incomingReps - localReps;
+  }
+
+  return 0;
 }
 
 function toNullableTimestamp(value: unknown): number | null {
@@ -352,6 +381,7 @@ export class WorkerSqliteDatabaseService {
     ignoredReviewEvents: number;
     ignoredCards: number;
     skippedSources: Array<{ sourceId: string; reason: string }>;
+    diagnostics: BackendSyncConflictMergeResult['diagnostics'];
   }> {
     await this.init();
     const sources: BackendSyncConflictMergeRequest['sources'] = [];
@@ -386,6 +416,9 @@ export class WorkerSqliteDatabaseService {
         ignoredReviewEvents: 0,
         ignoredCards: 0,
         skippedSources: [],
+        diagnostics: {
+          reviewCardDivergences: [],
+        },
       };
     }
 
@@ -410,6 +443,7 @@ export class WorkerSqliteDatabaseService {
       ignoredReviewEvents: result.ignoredReviewEvents,
       ignoredCards: result.ignoredCards,
       skippedSources: result.skippedSources,
+      diagnostics: result.diagnostics,
     };
   }
 
@@ -1134,6 +1168,9 @@ export class WorkerSqliteDatabaseService {
       mergedCards: 0,
       ignoredCards: 0,
       skippedSources: [],
+      diagnostics: {
+        reviewCardDivergences: [],
+      },
     };
 
     for (const source of sources) {
@@ -1167,7 +1204,12 @@ export class WorkerSqliteDatabaseService {
           let sourceChanged = false;
           const affectedCardIds = new Set<string>();
           const affectedBlockIds = new Set<string>();
+          const diagnosticCardIds = new Set<string>();
           for (const event of reviewEvents) {
+            const eventCardId = String(event.card_id || '').trim();
+            if (eventCardId) {
+              diagnosticCardIds.add(eventCardId);
+            }
             const existing = this.runtime.getOne<{ count: number }>(
               'SELECT COUNT(*) AS count FROM review_events WHERE id = ?',
               [event.id],
@@ -1202,6 +1244,7 @@ export class WorkerSqliteDatabaseService {
               result.ignoredCards += 1;
               continue;
             }
+            diagnosticCardIds.add(incoming.id);
             const existing = this.runtime.getOne<ConflictCardRow>(
               `SELECT id, updated_at, reps, last_review,
                       block_id, source_exists, source_checked_at, source_missing_at,
@@ -1210,7 +1253,7 @@ export class WorkerSqliteDatabaseService {
                WHERE id = ?`,
               [incoming.id],
             );
-            if (existing && comparableCardStamp(existing) >= comparableCardStamp(cardRow)) {
+            if (existing && compareReviewSyncCardFreshness(existing, cardRow) <= 0) {
               result.ignoredCards += 1;
               continue;
             }
@@ -1236,6 +1279,7 @@ export class WorkerSqliteDatabaseService {
               modifiedBy: 'srs-backend-worker:sync.conflict.merge',
             });
           }
+          this.appendReviewCardDivergenceDiagnostics(result.diagnostics.reviewCardDivergences, [...diagnosticCardIds]);
         });
       } catch (error) {
         result.skippedSources.push({
@@ -1248,6 +1292,73 @@ export class WorkerSqliteDatabaseService {
     }
 
     return result;
+  }
+
+  private appendReviewCardDivergenceDiagnostics(
+    diagnostics: BackendSyncConflictMergeDivergenceDiagnostic[],
+    cardIds: string[],
+  ): void {
+    const uniqueCardIds = Array.from(new Set(cardIds.map((id) => String(id || '').trim()).filter(Boolean)));
+    for (const cardId of uniqueCardIds) {
+      const evidence = this.runtime.getOne<ReviewCardDivergenceEvidenceRow>(
+        `SELECT card_id,
+                MAX(reviewed_at) AS newest_reviewed_at,
+                COUNT(*) AS review_event_count
+         FROM review_events
+         WHERE card_id = ?
+           AND event_type = 'review-v2'
+         GROUP BY card_id`,
+        [cardId],
+      );
+      if (!evidence || Number(evidence.review_event_count) <= 0) {
+        continue;
+      }
+
+      const card = this.runtime.getOne<ConflictCardRow>(
+        `SELECT id, updated_at, reps, last_review,
+                block_id, source_exists, source_checked_at, source_missing_at,
+                payload_json
+         FROM cards
+         WHERE id = ?`,
+        [cardId],
+      );
+      if (!card) {
+        continue;
+      }
+
+      const newestReviewEventAt = toNullableTimestamp(evidence.newest_reviewed_at);
+      const cardLastReview = toNullableTimestamp(card.last_review);
+      const reviewEventCount = Math.max(0, Math.floor(Number(evidence.review_event_count) || 0));
+      const cardReps = Number.isFinite(Number(card.reps)) ? Math.max(0, Math.floor(Number(card.reps))) : null;
+
+      if (newestReviewEventAt && (!cardLastReview || newestReviewEventAt > cardLastReview)) {
+        const reason = 'review-history-newer-than-card-state';
+        if (!diagnostics.some((diagnostic) => diagnostic.cardId === cardId && diagnostic.reason === reason)) {
+          diagnostics.push({
+            cardId,
+            reason,
+            newestReviewEventAt,
+            cardLastReview,
+            reviewEventCount,
+            cardReps,
+          });
+        }
+      }
+
+      if (cardReps !== null && reviewEventCount > cardReps) {
+        const reason = 'review-event-count-exceeds-card-reps';
+        if (!diagnostics.some((diagnostic) => diagnostic.cardId === cardId && diagnostic.reason === reason)) {
+          diagnostics.push({
+            cardId,
+            reason,
+            newestReviewEventAt,
+            cardLastReview,
+            reviewEventCount,
+            cardReps,
+          });
+        }
+      }
+    }
   }
 
   private createQueueProjectionRuntime(): WorkerQueueProjectionRuntime {

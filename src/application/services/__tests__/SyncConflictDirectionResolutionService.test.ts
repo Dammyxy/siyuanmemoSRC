@@ -95,6 +95,9 @@ describe('SyncConflictDirectionResolutionService', () => {
       mergedCards: 3,
       ignoredCards: 0,
       skippedSources: [],
+      diagnostics: {
+        reviewCardDivergences: [],
+      },
     }));
     const service = new SyncConflictDirectionResolutionService(
       {

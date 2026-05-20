@@ -4,6 +4,16 @@ Last update: 2026-05-20 (Round 405)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-20 - Review Sync Conflict Merge Uses Explicit Freshness
+
+- Task: Implement OpenSpec `harden-review-sync-conflict-merge` so synced review history and card state converge predictably after SiYuan conflict-copy merges.
+- Touched slice: Worker sync conflict merge / backend RPC contract / application sync conflict services/tests; `worker/db/SqliteDatabaseService.ts`, `worker/__tests__/BackendKernel.test.ts`, `packages/contracts/src/backend-rpc.ts`, `src/application/services/SyncConflictMergeApplicationService.ts`, `src/application/services/__tests__/SyncConflictMergeApplicationService.test.ts`, `src/application/services/__tests__/SyncConflictDirectionResolutionService.test.ts`, and `src/application/clients/__tests__/SrsBackendClient.test.ts`.
+- Debt fixed now: `sync.conflict.merge` now uses an explicit review-sync card freshness policy (`last_review`, then `updated_at`, then `reps`, then keep local), keeps `review_events` append-only/idempotent, returns read-only review/card divergence diagnostics, and avoids queue projection invalidation when a merge imports review events only.
+- Debt deferred: Automatic review-event replay, scheduler repair, or card schedule reconstruction remains out of scope.
+- Why deferred: Replaying history needs scheduler configuration and historical semantics that conflict copies do not fully encode; diagnostics first exposes divergence without hidden repair writes.
+- Next safe step: Inspect real `reviewCardDivergences` from affected workspaces after deploying the rebuilt plugin, then decide whether a manual or opt-in repair flow is needed.
+- Validation: `pnpm vitest run worker\__tests__\BackendKernel.test.ts --reporter=dot`; `pnpm vitest run src\application\services\__tests__\SyncConflictMergeApplicationService.test.ts src\application\services\__tests__\SyncConflictDirectionResolutionService.test.ts src\application\clients\__tests__\SrsBackendClient.test.ts --reporter=dot`; `pnpm run check:boundaries`; `pnpm build` (passed; existing non-blocking `package.zip` unlink EPERM during zip packing, Vite build and dist hygiene succeeded).
+
 ### 2026-05-20 - Browser Opens In Hierarchy View By Default
 
 - Task: Fix Browser opening in flat view after plugin reload or SiYuan restart, forcing the user to click `层级视图` every time.

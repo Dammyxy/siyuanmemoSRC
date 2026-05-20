@@ -116,6 +116,36 @@ async function seedQueueProjection(database: WorkerSqliteDatabaseService, input:
   });
 }
 
+async function seedReviewEvent(database: WorkerSqliteDatabaseService, input: {
+  id: string;
+  cardId: string;
+  attemptId?: string;
+  rating?: number;
+  reviewedAt: number;
+  eventType?: string;
+  payload?: unknown;
+}): Promise<void> {
+  const reviewedAtDate = new Date(input.reviewedAt);
+  await database.runTransaction(`seed.review-event.${input.id}`, (db) => {
+    db.run(
+      `INSERT INTO review_events
+        (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.id,
+        input.cardId,
+        input.attemptId ?? `attempt-${input.id}`,
+        input.rating ?? 3,
+        input.reviewedAt,
+        reviewedAtDate.getFullYear(),
+        reviewedAtDate.getMonth() + 1,
+        input.eventType ?? 'review-v2',
+        JSON.stringify(input.payload ?? {}),
+      ],
+    );
+  });
+}
+
 async function seedNeuralRoamHyperspaceSource(
   database: WorkerSqliteDatabaseService,
   sourceId: string | string[] = 'neural-source-1',
@@ -346,6 +376,9 @@ describe('BackendKernel', () => {
         mergedCards: 1,
         ignoredCards: 0,
         skippedSources: [],
+        diagnostics: {
+          reviewCardDivergences: [],
+        },
       },
     });
     expect(currentDatabase.getOne<{ count: number }>(
@@ -584,6 +617,9 @@ describe('BackendKernel', () => {
         mergedCards: 0,
         ignoredCards: 1,
         skippedSources: [],
+        diagnostics: {
+          reviewCardDivergences: [],
+        },
       },
     });
     expect(currentDatabase.getOne<{ count: number }>(
@@ -593,6 +629,251 @@ describe('BackendKernel', () => {
     const card = await currentDatabase.getCard('card-sync-idempotent');
     expect(card?.reps).toBe(2);
     expect(card?.lastReview).toBe(reviewedAt);
+  });
+
+  it('uses review-time, modification-time, reps, and local tie order when merging conflict cards', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    const base = 1_779_188_500_000;
+    await currentDatabase.upsertCards([
+      buildCard({
+        id: 'card-newer-review',
+        due: base + 86_400_000,
+        reps: 4,
+        lastReview: base,
+        updatedAt: base + 10_000,
+      }),
+      buildCard({
+        id: 'card-newer-updated',
+        due: base + 86_400_000,
+        reps: 3,
+        lastReview: 0,
+        updatedAt: base,
+      }),
+      buildCard({
+        id: 'card-higher-reps',
+        due: base + 86_400_000,
+        reps: 3,
+        lastReview: base,
+        updatedAt: base,
+      }),
+      buildCard({
+        id: 'card-full-tie',
+        due: base + 86_400_000,
+        reps: 3,
+        lastReview: base,
+        updatedAt: base,
+      }),
+    ]);
+
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await conflictDatabase.upsertCards([
+      buildCard({
+        id: 'card-newer-review',
+        due: base + 2 * 86_400_000,
+        reps: 2,
+        lastReview: base + 1_000,
+        updatedAt: base,
+      }),
+      buildCard({
+        id: 'card-newer-updated',
+        due: base + 3 * 86_400_000,
+        reps: 1,
+        lastReview: 0,
+        updatedAt: base + 1_000,
+      }),
+      buildCard({
+        id: 'card-higher-reps',
+        due: base + 4 * 86_400_000,
+        reps: 4,
+        lastReview: base,
+        updatedAt: base,
+      }),
+      buildCard({
+        id: 'card-full-tie',
+        due: base + 5 * 86_400_000,
+        reps: 3,
+        lastReview: base,
+        updatedAt: base,
+      }),
+    ]);
+    await conflictDatabase.persist();
+    const conflictBytes = conflictBridge.snapshot().bytes;
+    expect(conflictBytes).toBeTruthy();
+
+    const kernel = new BackendKernel({ database: currentDatabase });
+    const response = await kernel.handle({
+      id: 'merge-card-freshness-policy',
+      jsonrpc: '2.0',
+      method: 'sync.conflict.merge',
+      params: [{
+        mergedAt: base + 2_000,
+        sources: [{ sourceId: 'freshness-conflict-db', bytes: conflictBytes! }],
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        mergedCards: 3,
+        ignoredCards: 1,
+      }),
+    }));
+    await expect(currentDatabase.getCard('card-newer-review')).resolves.toMatchObject({
+      due: base + 2 * 86_400_000,
+      lastReview: base + 1_000,
+      reps: 2,
+    });
+    await expect(currentDatabase.getCard('card-newer-updated')).resolves.toMatchObject({
+      due: base + 3 * 86_400_000,
+      updatedAt: base + 1_000,
+      reps: 1,
+    });
+    await expect(currentDatabase.getCard('card-higher-reps')).resolves.toMatchObject({
+      due: base + 4 * 86_400_000,
+      reps: 4,
+    });
+    await expect(currentDatabase.getCard('card-full-tie')).resolves.toMatchObject({
+      due: base + 86_400_000,
+      reps: 3,
+    });
+  });
+
+  it('does not invalidate queue projections when conflict merge only imports review events', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    const reviewedAt = 1_779_188_600_000;
+    await currentDatabase.upsertCards([buildCard({
+      id: 'card-event-only',
+      blockId: 'block-event-only',
+      due: reviewedAt + 86_400_000,
+      reps: 1,
+      lastReview: reviewedAt - 86_400_000,
+      updatedAt: reviewedAt - 86_400_000,
+    })]);
+    await seedQueueProjection(currentDatabase, {
+      queueType: 'retrieval-practice',
+      generation: 7,
+      rows: [buildCard({ id: 'card-event-only', blockId: 'block-event-only' })],
+      updatedAt: reviewedAt - 1_000,
+    });
+
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await seedReviewEvent(conflictDatabase, {
+      id: 'event-only-import',
+      cardId: 'card-event-only',
+      reviewedAt,
+      eventType: 'review-v2',
+    });
+    await conflictDatabase.persist();
+    const conflictBytes = conflictBridge.snapshot().bytes;
+    expect(conflictBytes).toBeTruthy();
+
+    const kernel = new BackendKernel({ database: currentDatabase });
+    const response = await kernel.handle({
+      id: 'merge-event-only',
+      jsonrpc: '2.0',
+      method: 'sync.conflict.merge',
+      params: [{
+        mergedAt: reviewedAt + 1,
+        sources: [{ sourceId: 'event-only-conflict-db', bytes: conflictBytes! }],
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        mergedReviewEvents: 1,
+        mergedCards: 0,
+      }),
+    }));
+    expect(currentDatabase.getOne<{ status: string; rebuild_reason: string | null }>(
+      'SELECT status, rebuild_reason FROM queue_projection_generations WHERE queue_type = ?',
+      ['retrieval-practice'],
+    )).toMatchObject({
+      status: 'ready',
+      rebuild_reason: null,
+    });
+  });
+
+  it('reports review/card divergence diagnostics without repairing selected card state', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    const localReviewAt = 1_779_188_700_000;
+    const remoteReviewAt = localReviewAt + 60_000;
+    await currentDatabase.upsertCards([buildCard({
+      id: 'card-divergent-history',
+      due: localReviewAt + 86_400_000,
+      reps: 1,
+      lastReview: localReviewAt,
+      updatedAt: localReviewAt,
+    })]);
+    await seedReviewEvent(currentDatabase, {
+      id: 'event-local-divergent',
+      cardId: 'card-divergent-history',
+      reviewedAt: localReviewAt,
+      eventType: 'review-v2',
+    });
+
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await seedReviewEvent(conflictDatabase, {
+      id: 'event-remote-divergent',
+      cardId: 'card-divergent-history',
+      reviewedAt: remoteReviewAt,
+      eventType: 'review-v2',
+    });
+    await conflictDatabase.persist();
+    const conflictBytes = conflictBridge.snapshot().bytes;
+    expect(conflictBytes).toBeTruthy();
+
+    const kernel = new BackendKernel({ database: currentDatabase });
+    const response = await kernel.handle({
+      id: 'merge-divergence-diagnostics',
+      jsonrpc: '2.0',
+      method: 'sync.conflict.merge',
+      params: [{
+        mergedAt: remoteReviewAt + 1,
+        sources: [{ sourceId: 'divergence-conflict-db', bytes: conflictBytes! }],
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        mergedReviewEvents: 1,
+        mergedCards: 0,
+        diagnostics: {
+          reviewCardDivergences: expect.arrayContaining([
+            expect.objectContaining({
+              cardId: 'card-divergent-history',
+              reason: 'review-history-newer-than-card-state',
+              newestReviewEventAt: remoteReviewAt,
+              cardLastReview: localReviewAt,
+              reviewEventCount: 2,
+              cardReps: 1,
+            }),
+            expect.objectContaining({
+              cardId: 'card-divergent-history',
+              reason: 'review-event-count-exceeds-card-reps',
+              newestReviewEventAt: remoteReviewAt,
+              cardLastReview: localReviewAt,
+              reviewEventCount: 2,
+              cardReps: 1,
+            }),
+          ]),
+        },
+      }),
+    }));
+    await expect(currentDatabase.getCard('card-divergent-history')).resolves.toMatchObject({
+      due: localReviewAt + 86_400_000,
+      reps: 1,
+      lastReview: localReviewAt,
+      updatedAt: localReviewAt,
+    });
+    expect(currentDatabase.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
+      ['card-divergent-history'],
+    )?.count).toBe(2);
   });
 
   it('merges externally synced database bytes before the next backend request', async () => {

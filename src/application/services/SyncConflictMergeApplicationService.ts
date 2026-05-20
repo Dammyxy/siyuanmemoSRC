@@ -28,6 +28,9 @@ export class SyncConflictMergeApplicationService {
         mergedCards: 0,
         ignoredCards: 0,
         skippedSources: [],
+        diagnostics: {
+          reviewCardDivergences: [],
+        },
       };
     }
 

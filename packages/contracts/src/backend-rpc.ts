@@ -143,6 +143,23 @@ export interface BackendSyncConflictMergeRequest {
   mergedAt?: number;
 }
 
+export type BackendSyncConflictMergeDivergenceReason =
+  | 'review-history-newer-than-card-state'
+  | 'review-event-count-exceeds-card-reps';
+
+export interface BackendSyncConflictMergeDivergenceDiagnostic {
+  cardId: string;
+  reason: BackendSyncConflictMergeDivergenceReason;
+  newestReviewEventAt: number | null;
+  cardLastReview: number | null;
+  reviewEventCount: number;
+  cardReps: number | null;
+}
+
+export interface BackendSyncConflictMergeDiagnostics {
+  reviewCardDivergences: BackendSyncConflictMergeDivergenceDiagnostic[];
+}
+
 export interface BackendSyncConflictMergeResult {
   ok: true;
   sources: number;
@@ -154,6 +171,7 @@ export interface BackendSyncConflictMergeResult {
     sourceId: string;
     reason: string;
   }>;
+  diagnostics: BackendSyncConflictMergeDiagnostics;
 }
 
 export interface BackendSyncConflictDatabaseSummary {

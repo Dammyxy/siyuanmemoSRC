@@ -20,6 +20,9 @@ describe('SyncConflictMergeApplicationService', () => {
       mergedCards: 0,
       ignoredCards: 0,
       skippedSources: [],
+      diagnostics: {
+        reviewCardDivergences: [],
+      },
     });
     expect(mergeSyncConflicts).not.toHaveBeenCalled();
   });
@@ -33,6 +36,9 @@ describe('SyncConflictMergeApplicationService', () => {
       mergedCards: 1,
       ignoredCards: 4,
       skippedSources: [],
+      diagnostics: {
+        reviewCardDivergences: [],
+      },
     };
     const mergeSyncConflicts = vi.fn().mockResolvedValue(expected);
     const source = {
