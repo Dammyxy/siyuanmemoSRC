@@ -1,8 +1,19 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-21 (Round 412)
+Last update: 2026-05-21 (Round 413)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-21 - Domain Sync Repair Preview And Apply
+
+- Task: Implement 5.1-7.4 and validation/doc tasks for OpenSpec `add-anki-style-domain-sync-ledger`.
+- Touched slice: Backend domain sync repair preview/apply / writer relay / application diagnostics / manual sync conflict recovery surface; `worker/db/SqliteDatabaseService.ts`, `worker/bootstrap/BackendKernel.ts`, `packages/contracts/src/kernel-rpc.ts`, `src/application/clients/SrsBackendClient.ts`, `src/application/services/DomainSyncDiagnosticsApplicationService.ts`, `src/application/ApplicationContext.ts`, `src/ui/syncConflict/manualSyncConflictResolutionDialog.ts`, focused worker/application tests, and runtime docs.
+- Debt fixed now: Backend now exposes read-only `domainSync.repair.preview` with bounded evidence, scheduler/config proof, unrepairable reasons, truncation metadata, and non-authoritative persisted plan metadata. Backend `domainSync.repair.apply` requires user confirmation and idempotency key, rejects stale plans when ledger/card/review/scheduler fingerprints change, applies only planned card-state repairs, appends `repair-applied` audit operations, touches sync metadata, and invalidates all six queue projections with `explicit-repair`. Application code routes follower apply through writer relay and returns explicit unavailable when relay/backend ownership is missing. Manual sync conflict dialog now has optional non-blocking domain sync health, preview, and confirmed apply controls without changing ordinary Review/Browser reads.
+- Debt deferred: Independent sync server/protocol remains out of scope; scheduler history replay and hidden automatic repair remain forbidden. Focused UI DOM coverage for clean/repairable/skipped/truncated panel states is still pending, and the two-device phone/desktop smoke has a recorded plan but was not run in this workspace.
+- Why deferred: Current slice closes backend/apply semantics and build validation. UI DOM verification needs a runnable SiYuan dialog harness, and device smoke needs real synced phone/desktop workspace.
+- Manual smoke plan: review on phone, let SiYuan sync database bytes/conflict copy to desktop, trigger any desktop backend request so pre-request merge runs, inspect `diagnostics.status.domainSync` and `preRequestMerge.latest`, run `domainSync.repair.preview` only if divergent/repairable evidence appears, apply once with explicit confirmation, sync again, then confirm no duplicate `review_events`, no duplicate `domain_sync_operations` for the same apply idempotency key, and queue projections rebuild from the new generation.
+- Next safe step: Add focused UI DOM tests for manual sync conflict dialog domain-sync states before marking 7.5/8.4 complete.
+- Validation: `pnpm vitest run worker\__tests__\BackendKernel.test.ts src\application\services\__tests__\DomainSyncDiagnosticsApplicationService.test.ts src\application\clients\__tests__\SrsBackendClient.test.ts`; `node scripts\check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build` (passed; existing non-blocking i18n warnings remain, and zip packing reported nonfatal `package.zip` unlink EPERM while build/dist hygiene completed with exit 0).
 
 ### 2026-05-21 - Domain Sync Sanity Diagnostics
 

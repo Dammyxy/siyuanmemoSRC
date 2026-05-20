@@ -1221,6 +1221,401 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('builds a read-only domain sync repair preview from newer review history', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'preview-newer-card',
+      blockId: 'preview-newer-block',
+      reps: 0,
+      lastReview: 1_700_001_000_000,
+      updatedAt: 1_700_001_000_000,
+    });
+    await database.upsertCards([card]);
+    await seedReviewEvent(database, {
+      id: 'preview-newer-review-event',
+      cardId: 'preview-newer-card',
+      reviewedAt: 1_700_001_100_000,
+    });
+
+    const preview = await database.previewDomainSyncRepair({ limit: 10 }, 1_700_001_200_000);
+
+    expect(preview).toMatchObject({
+      ok: true,
+      status: 'preview',
+      affectedCardCount: 1,
+      schedulerEvidence: {
+        schedulerType: expect.any(String),
+        configHash: expect.any(String),
+        capturedAt: 1_700_001_200_000,
+      },
+      evidence: [
+        expect.objectContaining({
+          cardId: 'preview-newer-card',
+          blockId: 'preview-newer-block',
+          reason: 'review-history-newer-than-card-state',
+          newestReviewEventAt: 1_700_001_100_000,
+          cardLastReview: 1_700_001_000_000,
+        }),
+      ],
+      plannedMutations: [
+        expect.objectContaining({
+          cardId: 'preview-newer-card',
+          mutationType: 'card-state-repair',
+          after: expect.objectContaining({
+            lastReview: 1_700_001_100_000,
+            reps: 1,
+          }),
+        }),
+      ],
+    });
+    await expect(database.getCard('preview-newer-card')).resolves.toMatchObject({
+      reps: 0,
+      lastReview: 1_700_001_000_000,
+    });
+    expect(database.getOne<{ status: string; affected_card_count: number; payload_json: string }>(
+      `SELECT status, affected_card_count, payload_json
+       FROM domain_sync_repair_plans
+       WHERE plan_id = ?`,
+      [preview.planId],
+    )).toMatchObject({
+      status: 'preview',
+      affected_card_count: 1,
+    });
+  });
+
+  it('surfaces review event count divergence in repair preview evidence', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({
+      id: 'preview-count-card',
+      blockId: 'preview-count-block',
+      reps: 1,
+      lastReview: 1_700_001_300_000,
+      updatedAt: 1_700_001_300_000,
+    })]);
+    await seedReviewEvent(database, {
+      id: 'preview-count-review-1',
+      cardId: 'preview-count-card',
+      reviewedAt: 1_700_001_200_000,
+    });
+    await seedReviewEvent(database, {
+      id: 'preview-count-review-2',
+      cardId: 'preview-count-card',
+      reviewedAt: 1_700_001_250_000,
+    });
+
+    await expect(database.previewDomainSyncRepair({ cardIds: ['preview-count-card'] }, 1_700_001_300_001))
+      .resolves.toMatchObject({
+        status: 'preview',
+        evidence: [
+          expect.objectContaining({
+            cardId: 'preview-count-card',
+            reason: 'review-event-count-exceeds-card-reps',
+            reviewEventCount: 2,
+            cardReps: 1,
+          }),
+        ],
+        plannedMutations: [
+          expect.objectContaining({
+            after: expect.objectContaining({ reps: 2 }),
+          }),
+        ],
+      });
+  });
+
+  it('reports missing scheduler evidence as unrepairable without mutating card state', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({
+      id: 'preview-missing-scheduler-card',
+      blockId: 'preview-missing-scheduler-block',
+      reps: 0,
+      lastReview: 1_700_001_400_000,
+      updatedAt: 1_700_001_400_000,
+    })]);
+    await seedReviewEvent(database, {
+      id: 'preview-missing-scheduler-review',
+      cardId: 'preview-missing-scheduler-card',
+      reviewedAt: 1_700_001_500_000,
+    });
+    await database.runTransaction('seed.missing-scheduler-evidence', (db) => {
+      db.run(
+        `UPDATE cards
+         SET stability = NULL
+         WHERE id = ?`,
+        ['preview-missing-scheduler-card'],
+      );
+    });
+
+    const preview = await database.previewDomainSyncRepair({
+      cardIds: ['preview-missing-scheduler-card'],
+      includeUnrepairable: true,
+    }, 1_700_001_500_001);
+
+    expect(preview).toMatchObject({
+      status: 'unrepairable',
+      evidence: [
+        expect.objectContaining({
+          cardId: 'preview-missing-scheduler-card',
+          reason: 'missing-scheduler-evidence',
+        }),
+      ],
+      plannedMutations: [],
+      unrepairableReasons: [
+        { cardId: 'preview-missing-scheduler-card', reason: 'missing-scheduler-evidence' },
+      ],
+    });
+    await expect(database.getCard('preview-missing-scheduler-card')).resolves.toMatchObject({
+      reps: 0,
+      lastReview: 1_700_001_400_000,
+    });
+  });
+
+  it('scopes and truncates domain sync repair preview results', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([
+      buildCard({
+        id: 'preview-scope-a',
+        blockId: 'preview-scope-block-a',
+        reps: 0,
+        lastReview: 1_700_001_600_000,
+        updatedAt: 1_700_001_600_000,
+      }),
+      buildCard({
+        id: 'preview-scope-b',
+        blockId: 'preview-scope-block-b',
+        reps: 0,
+        lastReview: 1_700_001_600_000,
+        updatedAt: 1_700_001_600_000,
+      }),
+      buildCard({
+        id: 'preview-scope-c',
+        blockId: 'preview-scope-block-c',
+        reps: 0,
+        lastReview: 1_700_001_600_000,
+        updatedAt: 1_700_001_600_000,
+      }),
+    ]);
+    for (const cardId of ['preview-scope-a', 'preview-scope-b', 'preview-scope-c']) {
+      await seedReviewEvent(database, {
+        id: `${cardId}-review`,
+        cardId,
+        reviewedAt: 1_700_001_700_000,
+      });
+    }
+
+    const scoped = await database.previewDomainSyncRepair({
+      cardIds: ['preview-scope-b'],
+      limit: 10,
+    }, 1_700_001_700_001);
+    const truncated = await database.previewDomainSyncRepair({ limit: 2 }, 1_700_001_700_002);
+
+    expect(scoped.evidence.map((item) => item.cardId)).toEqual(['preview-scope-b']);
+    expect(truncated).toMatchObject({
+      status: 'preview',
+      truncated: true,
+      limit: 2,
+      affectedCardCount: 2,
+    });
+    expect(truncated.evidence).toHaveLength(2);
+    expect(truncated.plannedMutations).toHaveLength(2);
+  });
+
+  it('exposes domain sync repair preview through backend RPC', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({
+      id: 'preview-rpc-card',
+      blockId: 'preview-rpc-block',
+      reps: 0,
+      lastReview: 1_700_001_800_000,
+      updatedAt: 1_700_001_800_000,
+    })]);
+    await seedReviewEvent(database, {
+      id: 'preview-rpc-review',
+      cardId: 'preview-rpc-card',
+      reviewedAt: 1_700_001_900_000,
+    });
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      jsonrpc: '2.0',
+      id: 5101,
+      method: 'domainSync.repair.preview',
+      params: [{ cardIds: ['preview-rpc-card'], limit: 10 }],
+    });
+
+    expect(response).toMatchObject({
+      jsonrpc: '2.0',
+      id: 5101,
+      result: {
+        ok: true,
+        status: 'preview',
+        evidence: [
+          expect.objectContaining({
+            cardId: 'preview-rpc-card',
+          }),
+        ],
+      },
+    });
+  });
+
+  it('applies a domain sync repair plan once and records audit/projection effects', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({
+      id: 'apply-repair-card',
+      blockId: 'apply-repair-block',
+      reps: 0,
+      lastReview: 1_700_002_000_000,
+      updatedAt: 1_700_002_000_000,
+    })]);
+    await seedQueueProjection(database, {
+      rows: [buildCard({ id: 'apply-repair-card', blockId: 'apply-repair-block' })],
+      updatedAt: 1_700_002_000_000,
+    });
+    await seedReviewEvent(database, {
+      id: 'apply-repair-review',
+      cardId: 'apply-repair-card',
+      reviewedAt: 1_700_002_100_000,
+    });
+    const preview = await database.previewDomainSyncRepair({ cardIds: ['apply-repair-card'] }, 1_700_002_100_001);
+
+    const applied = await database.applyDomainSyncRepair({
+      planId: preview.planId,
+      idempotencyKey: 'apply-repair-key',
+      confirmedAt: 1_700_002_100_002,
+      confirmedBy: 'test',
+    }, 1_700_002_100_003);
+    const duplicate = await database.applyDomainSyncRepair({
+      planId: preview.planId,
+      idempotencyKey: 'apply-repair-key',
+      confirmedAt: 1_700_002_100_004,
+    }, 1_700_002_100_005);
+
+    expect(applied).toMatchObject({
+      ok: true,
+      status: 'applied',
+      appliedCards: 1,
+      skippedCards: 0,
+      invalidatedQueueProjections: 6,
+    });
+    expect(duplicate).toMatchObject({
+      ok: true,
+      status: 'duplicate',
+      appliedCards: 1,
+      skippedCards: 0,
+    });
+    await expect(database.getCard('apply-repair-card')).resolves.toMatchObject({
+      reps: 1,
+      lastReview: 1_700_002_100_000,
+      updatedAt: 1_700_002_100_003,
+    });
+    expect(database.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM domain_sync_operations
+       WHERE operation_type = ?
+         AND entity_id = ?`,
+      ['repair-applied', 'apply-repair-card'],
+    )?.count).toBe(1);
+    expect(database.getOne<{ status: string; apply_idempotency_key: string }>(
+      `SELECT status, apply_idempotency_key
+       FROM domain_sync_repair_plans
+       WHERE plan_id = ?`,
+      [preview.planId],
+    )).toMatchObject({
+      status: 'applied',
+      apply_idempotency_key: 'apply-repair-key',
+    });
+    expect(database.getOne<{ status: string }>(
+      `SELECT status
+       FROM queue_projection_generations
+       WHERE queue_type = ?`,
+      ['retrieval-practice'],
+    )).toMatchObject({ status: 'invalidated' });
+  });
+
+  it('rejects stale domain sync repair plans when card state changes after preview', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({
+      id: 'stale-repair-card',
+      blockId: 'stale-repair-block',
+      reps: 0,
+      lastReview: 1_700_002_200_000,
+      updatedAt: 1_700_002_200_000,
+    })]);
+    await seedReviewEvent(database, {
+      id: 'stale-repair-review',
+      cardId: 'stale-repair-card',
+      reviewedAt: 1_700_002_300_000,
+    });
+    const preview = await database.previewDomainSyncRepair({ cardIds: ['stale-repair-card'] }, 1_700_002_300_001);
+    await database.upsertCards([buildCard({
+      id: 'stale-repair-card',
+      blockId: 'stale-repair-block',
+      reps: 0,
+      lastReview: 1_700_002_250_000,
+      updatedAt: 1_700_002_250_000,
+    })]);
+
+    await expect(database.applyDomainSyncRepair({
+      planId: preview.planId,
+      idempotencyKey: 'stale-repair-key',
+      confirmedAt: 1_700_002_300_002,
+    }, 1_700_002_300_003)).resolves.toMatchObject({
+      ok: false,
+      status: 'stale-plan',
+    });
+    await expect(database.getCard('stale-repair-card')).resolves.toMatchObject({
+      lastReview: 1_700_002_250_000,
+    });
+  });
+
+  it('exposes domain sync repair apply through backend RPC', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({
+      id: 'apply-rpc-card',
+      blockId: 'apply-rpc-block',
+      reps: 0,
+      lastReview: 1_700_002_400_000,
+      updatedAt: 1_700_002_400_000,
+    })]);
+    await seedReviewEvent(database, {
+      id: 'apply-rpc-review',
+      cardId: 'apply-rpc-card',
+      reviewedAt: 1_700_002_500_000,
+    });
+    const preview = await database.previewDomainSyncRepair({ cardIds: ['apply-rpc-card'] }, 1_700_002_500_001);
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      jsonrpc: '2.0',
+      id: 6101,
+      method: 'domainSync.repair.apply',
+      params: [{
+        planId: preview.planId,
+        idempotencyKey: 'apply-rpc-key',
+        confirmedAt: 1_700_002_500_002,
+      }],
+    });
+
+    expect(response).toMatchObject({
+      jsonrpc: '2.0',
+      id: 6101,
+      result: {
+        ok: true,
+        status: 'applied',
+        planId: preview.planId,
+        idempotencyKey: 'apply-rpc-key',
+        appliedCards: 1,
+      },
+    });
+  });
+
   it('reports divergent domain sync sanity when review ledger evidence lacks a review event', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);

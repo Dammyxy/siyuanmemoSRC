@@ -171,6 +171,10 @@ import type { SqlitePersistenceBridge } from '../../worker/db/SqlitePersistenceB
 import type {
   BackendReviewSyncDivergenceAuditRequest,
   BackendReviewSyncDivergenceAuditResult,
+  BackendDomainSyncRepairApplyRequest,
+  BackendDomainSyncRepairApplyResult,
+  BackendDomainSyncRepairPreviewRequest,
+  BackendDomainSyncRepairPreviewResult,
   BackendDomainSyncStatusResult,
   BackendSyncConflictMergeResult,
 } from '../../packages/contracts/src/backend-rpc';
@@ -1814,6 +1818,18 @@ export class ApplicationContext {
         };
       });
     }
+    if (command.method === 'domainSync.repair.apply') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: domainSync.repair.apply relay requires params object');
+      }
+      return srsBackendClient.domainSyncRepairApply(command.params as {
+        planId: string;
+        idempotencyKey: string;
+        confirmedAt: number;
+        confirmedBy?: string | null;
+        confirmationText?: string | null;
+      });
+    }
     if (command.method === 'browser.sourceExistence.applySweepHost') {
       if (!command.params || typeof command.params !== 'object') {
         throw new Error('INVALID_REQUEST: browser.sourceExistence.applySweepHost relay requires params object');
@@ -2603,6 +2619,33 @@ export class ApplicationContext {
     }
     const service = new DomainSyncDiagnosticsApplicationService(backendClient, logger);
     return service.readStatus();
+  }
+
+  async previewDomainSyncRepair(
+    request: BackendDomainSyncRepairPreviewRequest = {},
+  ): Promise<BackendDomainSyncRepairPreviewResult> {
+    const backendClient = this.getSrsBackendClient();
+    if (!backendClient) {
+      throw new Error('BACKEND_UNAVAILABLE: domain sync repair preview requires SRS backend');
+    }
+    const service = new DomainSyncDiagnosticsApplicationService(backendClient, logger);
+    return service.previewRepair(request);
+  }
+
+  async applyDomainSyncRepair(
+    request: BackendDomainSyncRepairApplyRequest,
+  ): Promise<BackendDomainSyncRepairApplyResult> {
+    const backendClient = this.getSrsBackendClient();
+    if (!backendClient) {
+      throw new Error('BACKEND_UNAVAILABLE: domain sync repair apply requires SRS backend');
+    }
+    const service = new DomainSyncDiagnosticsApplicationService(
+      backendClient,
+      logger,
+      this.frontendInstanceRuntime,
+      this.followerCommandClient,
+    );
+    return service.applyRepair(request);
   }
 
   async previewSyncConflictDirectionResolution(): Promise<SyncConflictDirectionPreview> {

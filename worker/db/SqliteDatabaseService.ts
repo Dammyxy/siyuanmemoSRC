@@ -33,6 +33,12 @@ import type {
   BackendReviewFeedbackResult,
   BackendDomainSyncOperationType,
   BackendDomainSyncProcessedSource,
+  BackendDomainSyncRepairApplyRequest,
+  BackendDomainSyncRepairApplyResult,
+  BackendDomainSyncRepairPreviewCardEvidence,
+  BackendDomainSyncRepairPreviewPlannedMutation,
+  BackendDomainSyncRepairPreviewRequest,
+  BackendDomainSyncRepairPreviewResult,
   BackendDomainSyncSanityStatus,
   BackendDomainSyncStatusResult,
   BackendReviewSyncDivergenceAuditRequest,
@@ -206,6 +212,38 @@ interface DomainSyncProcessedSourceRow {
   latest_sanity_status: BackendDomainSyncSanityStatus | null;
 }
 
+interface DomainSyncRepairPreviewEvidenceRow {
+  card_id: string | null;
+  newest_reviewed_at: number | null;
+  review_event_count: number;
+  updated_at: number | null;
+  due: number | null;
+  state: number | null;
+  scheduled_days: number | null;
+  stability: number | null;
+  difficulty: number | null;
+  reps: number | null;
+  last_review: number | null;
+  block_id: string | null;
+  scheduler_type: string | null;
+}
+
+interface DomainSyncRepairPlanRow {
+  plan_id: string;
+  status: string;
+  created_at: number;
+  scope_json: string;
+  scheduler_config_hash: string | null;
+  ledger_generation: number;
+  card_state_fingerprint: string;
+  review_history_fingerprint: string;
+  affected_card_count: number;
+  apply_idempotency_key: string | null;
+  applied_at: number | null;
+  result_json: string | null;
+  payload_json: string;
+}
+
 interface ReviewCardDivergenceEvidenceWithCardRow {
   card_id: string;
   newest_reviewed_at: number | null;
@@ -313,6 +351,10 @@ function toNullableBoolean(value: unknown): boolean | null {
     return false;
   }
   return null;
+}
+
+function isFiniteSqlNumber(value: unknown): boolean {
+  return value !== null && value !== undefined && Number.isFinite(Number(value));
 }
 
 function normalizeAuditLimit(value: unknown): number {
@@ -1489,6 +1531,307 @@ export class WorkerSqliteDatabaseService {
     };
   }
 
+  async previewDomainSyncRepair(
+    request: BackendDomainSyncRepairPreviewRequest = {},
+    createdAt = Date.now(),
+  ): Promise<BackendDomainSyncRepairPreviewResult> {
+    await this.init();
+    const limit = normalizeAuditLimit(request.limit);
+    const requestedCardIds = normalizeAuditCardIds(request.cardIds);
+    const includeUnrepairable = request.includeUnrepairable !== false;
+    const rows = this.queryDomainSyncRepairPreviewEvidence(requestedCardIds);
+    const evidence: BackendDomainSyncRepairPreviewCardEvidence[] = [];
+    const plannedMutations: BackendDomainSyncRepairPreviewPlannedMutation[] = [];
+    const unrepairableReasons: BackendDomainSyncRepairPreviewResult['unrepairableReasons'] = [];
+    const seenEvidence = new Set<string>();
+
+    for (const row of rows) {
+      const cardId = String(row.card_id || '').trim();
+      if (!cardId || seenEvidence.has(cardId)) {
+        continue;
+      }
+      seenEvidence.add(cardId);
+      const newestReviewEventAt = toNullableTimestamp(row.newest_reviewed_at);
+      const cardLastReview = toNullableTimestamp(row.last_review);
+      const reviewEventCount = Math.max(0, Math.floor(Number(row.review_event_count) || 0));
+      const cardReps = Number.isFinite(Number(row.reps)) ? Math.max(0, Math.floor(Number(row.reps))) : null;
+      const blockId = typeof row.block_id === 'string' && row.block_id.trim() ? row.block_id : null;
+      const hasCardState = row.updated_at !== null && row.updated_at !== undefined;
+      const hasSchedulerEvidence = hasCardState
+        && isFiniteSqlNumber(row.due)
+        && isFiniteSqlNumber(row.state)
+        && isFiniteSqlNumber(row.scheduled_days)
+        && isFiniteSqlNumber(row.stability)
+        && isFiniteSqlNumber(row.difficulty);
+      const repairReasons: BackendDomainSyncRepairPreviewCardEvidence['reason'][] = [];
+
+      if (!hasCardState) {
+        repairReasons.push('missing-card-state');
+      } else {
+        if (newestReviewEventAt && (!cardLastReview || newestReviewEventAt > cardLastReview)) {
+          repairReasons.push('review-history-newer-than-card-state');
+        }
+        if (cardReps !== null && reviewEventCount > cardReps) {
+          repairReasons.push('review-event-count-exceeds-card-reps');
+        }
+        if (!hasSchedulerEvidence && repairReasons.length > 0) {
+          repairReasons.splice(0, repairReasons.length, 'missing-scheduler-evidence');
+        }
+      }
+
+      if (repairReasons.length === 0) {
+        continue;
+      }
+
+      const firstReason = repairReasons[0];
+      if (firstReason === 'missing-card-state' || firstReason === 'missing-scheduler-evidence') {
+        if (includeUnrepairable) {
+          evidence.push({
+            cardId,
+            blockId,
+            reason: firstReason,
+            newestReviewEventAt,
+            cardLastReview,
+            reviewEventCount,
+            cardReps,
+          });
+        }
+        unrepairableReasons.push({
+          cardId,
+          reason: firstReason,
+        });
+        continue;
+      }
+
+      evidence.push({
+        cardId,
+        blockId,
+        reason: firstReason,
+        newestReviewEventAt,
+        cardLastReview,
+        reviewEventCount,
+        cardReps,
+      });
+      plannedMutations.push({
+        cardId,
+        mutationType: 'card-state-repair',
+        summary: 'repair card review counters from backend review history',
+        before: {
+          lastReview: cardLastReview,
+          reps: cardReps,
+        },
+        after: {
+          lastReview: newestReviewEventAt,
+          reps: Math.max(reviewEventCount, cardReps ?? 0),
+        },
+      });
+    }
+
+    const truncated = evidence.length > limit;
+    const boundedEvidence = evidence.slice(0, limit);
+    const boundedCardIds = new Set(boundedEvidence.map((item) => item.cardId));
+    const boundedMutations = plannedMutations.filter((mutation) => boundedCardIds.has(mutation.cardId));
+    const affectedCardCount = new Set(boundedEvidence.map((item) => item.cardId)).size;
+    const status: BackendDomainSyncRepairPreviewResult['status'] = boundedMutations.length > 0
+      ? 'preview'
+      : unrepairableReasons.length > 0
+        ? 'unrepairable'
+        : 'no-repair';
+    const schedulerConfigHash = this.buildDomainSyncRepairSchedulerConfigHash(rows);
+    const planId = `domain-sync-repair-preview:${createdAt}:${this.fnv1a32(JSON.stringify({
+      requestedCardIds,
+      limit,
+      status,
+      affectedCardIds: boundedEvidence.map((item) => item.cardId),
+      mutations: boundedMutations.map((mutation) => mutation.cardId),
+    }))}`;
+    const result: BackendDomainSyncRepairPreviewResult = {
+      ok: true,
+      planId,
+      status,
+      createdAt,
+      affectedCardCount,
+      evidence: boundedEvidence,
+      plannedMutations: boundedMutations,
+      unrepairableReasons: unrepairableReasons.filter((item) => boundedCardIds.has(item.cardId) || requestedCardIds.includes(item.cardId)),
+      schedulerEvidence: {
+        schedulerType: this.resolveDomainSyncRepairSchedulerType(rows),
+        configHash: schedulerConfigHash,
+        capturedAt: createdAt,
+      },
+      truncated,
+      limit,
+    };
+
+    this.persistDomainSyncRepairPreviewPlan({
+      request,
+      result,
+      rows,
+      schedulerConfigHash,
+    });
+    return result;
+  }
+
+  async applyDomainSyncRepair(
+    request: BackendDomainSyncRepairApplyRequest,
+    appliedAt = Date.now(),
+  ): Promise<BackendDomainSyncRepairApplyResult> {
+    await this.init();
+    const planId = String(request?.planId || '').trim();
+    const idempotencyKey = String(request?.idempotencyKey || '').trim();
+    const confirmedAt = Math.max(0, Math.floor(Number(request?.confirmedAt || 0)));
+    if (!planId || !idempotencyKey || confirmedAt <= 0) {
+      return {
+        ok: false,
+        status: 'invalid-request',
+        planId,
+        idempotencyKey,
+        reason: 'domainSync.repair.apply requires planId, idempotencyKey, and confirmedAt',
+      };
+    }
+
+    const duplicate = this.readDomainSyncRepairPlanByApplyKey(idempotencyKey);
+    if (duplicate?.result_json) {
+      const cached = parseJsonObject<BackendDomainSyncRepairApplyResult | null>(duplicate.result_json, null);
+      if (cached?.ok) {
+        return {
+          ...cached,
+          status: 'duplicate',
+          appliedAt,
+        };
+      }
+    }
+
+    const plan = this.readDomainSyncRepairPlan(planId);
+    if (!plan) {
+      return {
+        ok: false,
+        status: 'invalid-request',
+        planId,
+        idempotencyKey,
+        reason: 'repair plan not found',
+      };
+    }
+    if (plan.apply_idempotency_key && plan.apply_idempotency_key !== idempotencyKey) {
+      return {
+        ok: false,
+        status: 'conflict',
+        planId,
+        idempotencyKey,
+        reason: 'repair plan was already applied with a different idempotency key',
+      };
+    }
+
+    const preview = parseJsonObject<BackendDomainSyncRepairPreviewResult | null>(plan.payload_json, null);
+    if (!preview || preview.ok !== true || preview.status !== 'preview' || preview.plannedMutations.length === 0) {
+      return {
+        ok: false,
+        status: 'invalid-request',
+        planId,
+        idempotencyKey,
+        reason: 'repair plan has no applyable card-state mutations',
+      };
+    }
+    const scope = parseJsonObject<{ cardIds?: string[] } | null>(plan.scope_json, null);
+    const currentRows = this.queryDomainSyncRepairPreviewEvidence(scope?.cardIds ?? preview.evidence.map((item) => item.cardId));
+    const currentFingerprints = this.buildDomainSyncRepairPlanFingerprints(currentRows);
+    const currentLedgerGeneration = this.countDomainSyncLedgerGeneration();
+    const currentSchedulerConfigHash = this.buildDomainSyncRepairSchedulerConfigHash(currentRows);
+    if (
+      currentLedgerGeneration !== Math.max(0, Math.floor(Number(plan.ledger_generation || 0)))
+      || currentFingerprints.cardStateFingerprint !== plan.card_state_fingerprint
+      || currentFingerprints.reviewHistoryFingerprint !== plan.review_history_fingerprint
+      || currentSchedulerConfigHash !== plan.scheduler_config_hash
+    ) {
+      return {
+        ok: false,
+        status: 'stale-plan',
+        planId,
+        idempotencyKey,
+        reason: 'repair plan no longer matches card state, review history, scheduler evidence, or ledger generation',
+      };
+    }
+
+    return this.runtime.runTransaction('domain-sync.repair.apply', async () => {
+      let appliedCards = 0;
+      let skippedCards = 0;
+      const affectedCardIds: string[] = [];
+      const affectedBlockIds: string[] = [];
+      for (const mutation of preview.plannedMutations) {
+        if (mutation.mutationType !== 'card-state-repair') {
+          skippedCards += 1;
+          continue;
+        }
+        const card = await this.getCard(mutation.cardId);
+        if (!card) {
+          skippedCards += 1;
+          continue;
+        }
+        const after = mutation.after || {};
+        const nextLastReview = toNullableTimestamp(after.lastReview);
+        const nextReps = Number.isFinite(Number(after.reps)) ? Math.max(0, Math.floor(Number(after.reps))) : null;
+        if (!nextLastReview || nextReps === null) {
+          skippedCards += 1;
+          continue;
+        }
+        this.repository!.upsertCard({
+          ...card,
+          lastReview: nextLastReview,
+          reps: nextReps,
+          updatedAt: appliedAt,
+        });
+        appliedCards += 1;
+        affectedCardIds.push(card.id);
+        if (card.blockId) {
+          affectedBlockIds.push(card.blockId);
+        }
+        this.appendDomainSyncRepairAppliedOperation({
+          planId,
+          idempotencyKey,
+          cardId: card.id,
+          blockId: card.blockId ?? null,
+          appliedAt,
+          mutation,
+        });
+      }
+
+      const invalidatedQueueProjections = appliedCards > 0
+        ? this.invalidateQueueProjectionsForDomainSyncRepair({
+          affectedCardIds,
+          affectedBlockIds,
+          appliedAt,
+        })
+        : 0;
+      if (appliedCards > 0) {
+        await this.repository!.touchSyncMetadata({
+          modifiedAt: appliedAt,
+          modifiedBy: 'srs-backend-worker:domain-sync.repair.apply',
+        });
+      }
+
+      const result: BackendDomainSyncRepairApplyResult = {
+        ok: true,
+        status: 'applied',
+        planId,
+        idempotencyKey,
+        appliedAt,
+        appliedCards,
+        skippedCards,
+        invalidatedQueueProjections,
+      };
+      this.runtime.run(
+        `UPDATE domain_sync_repair_plans
+         SET status = ?,
+             apply_idempotency_key = ?,
+             applied_at = ?,
+             result_json = ?
+         WHERE plan_id = ?`,
+        ['applied', idempotencyKey, appliedAt, JSON.stringify(result), planId],
+      );
+      return result;
+    });
+  }
+
   async mergeSyncConflictDatabases(
     request: BackendSyncConflictMergeRequest,
   ): Promise<BackendSyncConflictMergeResult> {
@@ -1848,6 +2191,38 @@ export class WorkerSqliteDatabaseService {
     return row?.plan_id ? String(row.plan_id) : null;
   }
 
+  private readDomainSyncRepairPlan(planId: string): DomainSyncRepairPlanRow | null {
+    return this.runtime.getOne<DomainSyncRepairPlanRow>(
+      `SELECT plan_id, status, created_at, scope_json, scheduler_config_hash,
+              ledger_generation, card_state_fingerprint, review_history_fingerprint,
+              affected_card_count, apply_idempotency_key, applied_at, result_json, payload_json
+       FROM domain_sync_repair_plans
+       WHERE plan_id = ?
+       LIMIT 1`,
+      [planId],
+    ) ?? null;
+  }
+
+  private readDomainSyncRepairPlanByApplyKey(idempotencyKey: string): DomainSyncRepairPlanRow | null {
+    return this.runtime.getOne<DomainSyncRepairPlanRow>(
+      `SELECT plan_id, status, created_at, scope_json, scheduler_config_hash,
+              ledger_generation, card_state_fingerprint, review_history_fingerprint,
+              affected_card_count, apply_idempotency_key, applied_at, result_json, payload_json
+       FROM domain_sync_repair_plans
+       WHERE apply_idempotency_key = ?
+       LIMIT 1`,
+      [idempotencyKey],
+    ) ?? null;
+  }
+
+  private countDomainSyncLedgerGeneration(): number {
+    const row = this.runtime.getOne<{ generation: number }>(
+      `SELECT COUNT(*) AS generation
+       FROM domain_sync_operations`,
+    );
+    return Math.max(0, Math.floor(Number(row?.generation || 0)));
+  }
+
   private importMissingDomainSyncOperations(rows: ConflictDomainSyncOperationRow[]): DomainSyncOperationImportResult {
     const result: DomainSyncOperationImportResult = {
       imported: 0,
@@ -2172,6 +2547,129 @@ export class WorkerSqliteDatabaseService {
     );
   }
 
+  private queryDomainSyncRepairPreviewEvidence(cardIds: string[] = []): DomainSyncRepairPreviewEvidenceRow[] {
+    const uniqueCardIds = normalizeAuditCardIds(cardIds);
+    const params: SqlValue[] = [];
+    const scope = uniqueCardIds.length > 0
+      ? `AND e.card_id IN (${uniqueCardIds.map(() => '?').join(', ')})`
+      : '';
+    params.push(...uniqueCardIds);
+    return this.runtime.getAll<DomainSyncRepairPreviewEvidenceRow>(
+      `SELECT e.card_id,
+              MAX(e.reviewed_at) AS newest_reviewed_at,
+              COUNT(*) AS review_event_count,
+              c.updated_at,
+              c.due,
+              c.state,
+              c.scheduled_days,
+              c.stability,
+              c.difficulty,
+              c.reps,
+              c.last_review,
+              c.block_id,
+              c.scheduler_type
+       FROM review_events e
+       LEFT JOIN cards c ON c.id = e.card_id
+       WHERE e.event_type = 'review-v2'
+         ${scope}
+       GROUP BY e.card_id, c.updated_at, c.due, c.state, c.scheduled_days,
+                c.stability, c.difficulty, c.reps, c.last_review, c.block_id, c.scheduler_type
+       ORDER BY e.card_id ASC`,
+      params,
+    );
+  }
+
+  private buildDomainSyncRepairSchedulerConfigHash(rows: DomainSyncRepairPreviewEvidenceRow[]): string | null {
+    const schedulerRows = rows
+      .filter((row) => row.updated_at !== null && row.updated_at !== undefined)
+      .map((row) => ({
+        cardId: String(row.card_id || ''),
+        schedulerType: String(row.scheduler_type || 'default'),
+        due: toNullableTimestamp(row.due),
+        state: isFiniteSqlNumber(row.state) ? Number(row.state) : null,
+        scheduledDays: isFiniteSqlNumber(row.scheduled_days) ? Number(row.scheduled_days) : null,
+        stability: isFiniteSqlNumber(row.stability) ? Number(row.stability) : null,
+        difficulty: isFiniteSqlNumber(row.difficulty) ? Number(row.difficulty) : null,
+      }));
+    if (schedulerRows.length === 0) {
+      return null;
+    }
+    return this.fnv1a32(JSON.stringify(schedulerRows));
+  }
+
+  private resolveDomainSyncRepairSchedulerType(rows: DomainSyncRepairPreviewEvidenceRow[]): string | null {
+    const schedulerTypes = Array.from(new Set(rows
+      .map((row) => String(row.scheduler_type || '').trim())
+      .filter(Boolean)));
+    if (schedulerTypes.length === 1) {
+      return schedulerTypes[0];
+    }
+    if (schedulerTypes.length > 1) {
+      return 'mixed';
+    }
+    return rows.some((row) => row.updated_at !== null && row.updated_at !== undefined) ? 'default' : null;
+  }
+
+  private persistDomainSyncRepairPreviewPlan(input: {
+    request: BackendDomainSyncRepairPreviewRequest;
+    result: BackendDomainSyncRepairPreviewResult;
+    rows: DomainSyncRepairPreviewEvidenceRow[];
+    schedulerConfigHash: string | null;
+  }): void {
+    const fingerprints = this.buildDomainSyncRepairPlanFingerprints(input.rows);
+    this.runtime.run(
+      `INSERT OR REPLACE INTO domain_sync_repair_plans
+        (plan_id, status, created_at, expires_at, scope_json, scheduler_config_hash,
+         ledger_generation, card_state_fingerprint, review_history_fingerprint,
+         affected_card_count, apply_idempotency_key, applied_at, result_json, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.result.planId,
+        input.result.status,
+        input.result.createdAt,
+        null,
+        JSON.stringify({
+          cardIds: normalizeAuditCardIds(input.request.cardIds),
+          limit: input.result.limit,
+          includeUnrepairable: input.request.includeUnrepairable !== false,
+        }),
+        input.schedulerConfigHash,
+        this.countDomainSyncLedgerGeneration(),
+        fingerprints.cardStateFingerprint,
+        fingerprints.reviewHistoryFingerprint,
+        input.result.affectedCardCount,
+        null,
+        null,
+        null,
+        JSON.stringify(input.result),
+      ],
+    );
+  }
+
+  private buildDomainSyncRepairPlanFingerprints(rows: DomainSyncRepairPreviewEvidenceRow[]): {
+    cardStateFingerprint: string;
+    reviewHistoryFingerprint: string;
+  } {
+    return {
+      cardStateFingerprint: this.fnv1a32(JSON.stringify(rows.map((row) => ({
+        cardId: row.card_id,
+        updatedAt: row.updated_at,
+        reps: row.reps,
+        lastReview: row.last_review,
+        due: row.due,
+        state: row.state,
+        scheduledDays: row.scheduled_days,
+        stability: row.stability,
+        difficulty: row.difficulty,
+      })))),
+      reviewHistoryFingerprint: this.fnv1a32(JSON.stringify(rows.map((row) => ({
+        cardId: row.card_id,
+        newestReviewEventAt: row.newest_reviewed_at,
+        reviewEventCount: row.review_event_count,
+      })))),
+    };
+  }
+
   private createQueueProjectionRuntime(): WorkerQueueProjectionRuntime {
     return new WorkerQueueProjectionRuntime({
       repository: this.repository!,
@@ -2213,6 +2711,75 @@ export class WorkerSqliteDatabaseService {
         source: 'sync-conflict-merge',
       },
     });
+  }
+
+  private invalidateQueueProjectionsForDomainSyncRepair(input: {
+    affectedCardIds: string[];
+    affectedBlockIds: string[];
+    appliedAt: number;
+  }): number {
+    if (!this.queueProjection || input.affectedCardIds.length === 0) {
+      return 0;
+    }
+    const queueTypes = [
+      QueueType.RetrievalPractice,
+      QueueType.IncrementalLearning,
+      QueueType.FilterGroup,
+      QueueType.FinalDrill,
+      QueueType.Leech,
+      QueueType.NeuralRoam,
+    ];
+    this.queueProjection.invalidateQueues({
+      queueTypes,
+      reason: 'explicit-repair',
+      affectedCardIds: input.affectedCardIds,
+      affectedBlockIds: input.affectedBlockIds,
+      generation: input.appliedAt,
+      createdAt: input.appliedAt,
+      metadata: {
+        source: 'domain-sync.repair.apply',
+      },
+    });
+    return queueTypes.length;
+  }
+
+  private appendDomainSyncRepairAppliedOperation(input: {
+    planId: string;
+    idempotencyKey: string;
+    cardId: string;
+    blockId: string | null;
+    appliedAt: number;
+    mutation: BackendDomainSyncRepairPreviewPlannedMutation;
+  }): void {
+    const payload = {
+      planId: input.planId,
+      idempotencyKey: input.idempotencyKey,
+      mutation: input.mutation,
+    };
+    const payloadJson = JSON.stringify(payload);
+    this.runtime.run(
+      `INSERT OR IGNORE INTO domain_sync_operations
+        (operation_id, source_id, source_device_id, source_generation, operation_type,
+         entity_type, entity_id, entity_block_id, occurred_at, observed_at,
+         payload_fingerprint, idempotency_key, review_event_id, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        `repair-applied:${input.planId}:${input.cardId}`,
+        'srs-backend-worker',
+        null,
+        null,
+        'repair-applied',
+        'card',
+        input.cardId,
+        input.blockId,
+        input.appliedAt,
+        input.appliedAt,
+        this.fnv1a32(payloadJson),
+        input.idempotencyKey,
+        null,
+        payloadJson,
+      ],
+    );
   }
 
   private applyIncomingMissingSourceProjection(row: ConflictCardRow, incoming: FSRSCard): void {

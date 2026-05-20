@@ -36,6 +36,10 @@ import type {
   BackendQueueProjectionSnapshotResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendDomainSyncRepairApplyRequest,
+  BackendDomainSyncRepairApplyResult,
+  BackendDomainSyncRepairPreviewRequest,
+  BackendDomainSyncRepairPreviewResult,
   BackendDomainSyncStatusResult,
   BackendReviewSyncDivergenceAuditRequest,
   BackendReviewSyncDivergenceAuditResult,
@@ -101,6 +105,18 @@ export class SrsBackendClient {
 
   async domainSyncStatus(): Promise<BackendDomainSyncStatusResult> {
     return this.call<BackendDomainSyncStatusResult>('domainSync.status');
+  }
+
+  async domainSyncRepairPreview(
+    request: BackendDomainSyncRepairPreviewRequest = {},
+  ): Promise<BackendDomainSyncRepairPreviewResult> {
+    return this.call<BackendDomainSyncRepairPreviewResult>('domainSync.repair.preview', request);
+  }
+
+  async domainSyncRepairApply(
+    request: BackendDomainSyncRepairApplyRequest,
+  ): Promise<BackendDomainSyncRepairApplyResult> {
+    return this.call<BackendDomainSyncRepairApplyResult>('domainSync.repair.apply', request);
   }
 
   async browserDeckPage(
