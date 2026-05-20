@@ -1395,6 +1395,9 @@ export class ApplicationContext {
         backendContainer: siyuanBackendContainer,
         frontendKind: config.frontendKind,
         isMobile: pluginRuntimeSurface.isMobile,
+        locationHref: ApplicationContext.resolveWindowLocationHref(),
+        userAgent: ApplicationContext.resolveNavigatorUserAgent(),
+        bodyClass: ApplicationContext.resolveDocumentBodyClass(),
       },
     );
     logger.info('[ApplicationContext] Backend migration runtime policy resolved', {
@@ -1814,6 +1817,7 @@ export class ApplicationContext {
           limit?: number;
           staleBefore?: number;
           includeKnownMissing?: boolean;
+          force?: boolean;
         };
         checkedAt?: number;
       };
@@ -1849,6 +1853,7 @@ export class ApplicationContext {
           limit?: number;
           staleBefore?: number;
           includeKnownMissing?: boolean;
+          force?: boolean;
         };
         existingBlockIds?: string[];
         checkedAt?: number;
@@ -2070,6 +2075,33 @@ export class ApplicationContext {
       return container || 'unknown';
     } catch {
       return 'unknown';
+    }
+  }
+
+  private static resolveWindowLocationHref(): string {
+    try {
+      const runtime = globalThis as unknown as { window?: { location?: { href?: unknown } } };
+      return String(runtime.window?.location?.href || '');
+    } catch {
+      return '';
+    }
+  }
+
+  private static resolveNavigatorUserAgent(): string {
+    try {
+      const runtime = globalThis as unknown as { navigator?: { userAgent?: unknown } };
+      return String(runtime.navigator?.userAgent || '');
+    } catch {
+      return '';
+    }
+  }
+
+  private static resolveDocumentBodyClass(): string {
+    try {
+      const runtime = globalThis as unknown as { document?: { body?: { className?: unknown } } };
+      return String(runtime.document?.body?.className || '');
+    } catch {
+      return '';
     }
   }
 

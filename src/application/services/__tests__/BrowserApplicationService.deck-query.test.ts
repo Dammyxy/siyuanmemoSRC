@@ -384,7 +384,7 @@ describe('BrowserApplicationService deck query kernel', () => {
     expect(backendClient.browserStats).toHaveBeenCalled();
     expect(backendClient.browserSourceExistenceApplySweepHost).toHaveBeenCalled();
     expect(backendClient.browserSourceExistenceApplySweepHost).toHaveBeenCalledWith(
-      expect.objectContaining({ blockIds: ['block-worker-1', 'block-worker-2'] }),
+      expect.objectContaining({ blockIds: ['block-worker-1', 'block-worker-2'], force: true }),
       expect.any(Number),
     );
   });
@@ -520,7 +520,7 @@ describe('BrowserApplicationService deck query kernel', () => {
     expect(backendClient.browserDeckPage).toHaveBeenCalledTimes(1);
     await flushBackgroundTimers();
     expect(backendClient.browserSourceExistenceApplySweepHost).toHaveBeenCalledWith(
-      expect.objectContaining({ blockIds: ['block-worker-missing', 'block-worker-active'] }),
+      expect.objectContaining({ blockIds: ['block-worker-missing', 'block-worker-active'], force: true }),
       expect.any(Number),
     );
   });

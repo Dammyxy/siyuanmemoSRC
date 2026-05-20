@@ -58,6 +58,11 @@ interface SourceExistenceProjection {
   sourceMissingAt: number | null;
 }
 
+interface DeletionTombstone {
+  deletedAt: number;
+  deletedBy?: string;
+}
+
 interface WhereClause {
   sql: string;
   params: Array<string | number>;
@@ -80,6 +85,13 @@ interface CardPageResult {
 
 const FNV1A_64_OFFSET_BASIS = 0xcbf29ce484222325n;
 const FNV1A_64_PRIME = 0x100000001b3n;
+const ACTIVE_CARD_NOT_TOMBSTONED_SQL = `NOT EXISTS (
+  SELECT 1
+  FROM tombstones card_tombstone
+  WHERE card_tombstone.kind = 'card'
+    AND card_tombstone.id = cards.id
+    AND card_tombstone.deleted_at >= COALESCE(cards.updated_at, 0)
+)`;
 
 export interface AlgorithmCardStateDiagnosticSummary {
   total: number;
@@ -169,6 +181,22 @@ function calculateStoreContentHash(store: UnifiedCardStore): string {
 function normalizeNumber(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeTombstoneDeletedAt(tombstone: DeletionTombstone | undefined): number | null {
+  return tombstone ? normalizeNumber(tombstone.deletedAt) : null;
+}
+
+function resolveCardUpdatedAt(card: FSRSCard | undefined): number {
+  return normalizeNumber(card?.updatedAt) || 0;
+}
+
+function isCardDeletedByActiveTombstone(card: FSRSCard | undefined, tombstone: DeletionTombstone | undefined): boolean {
+  const deletedAt = normalizeTombstoneDeletedAt(tombstone);
+  if (deletedAt === null) {
+    return false;
+  }
+  return deletedAt >= resolveCardUpdatedAt(card);
 }
 
 function resolveXiuyuanId(card: FSRSCard, dto?: CardPersistenceDTO): string | null {
@@ -322,7 +350,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         id: string;
         payload_json: string;
         dto_json: string | null;
-      }>('SELECT id, payload_json, dto_json FROM cards ORDER BY id');
+      }>(`SELECT id, payload_json, dto_json FROM cards WHERE ${ACTIVE_CARD_NOT_TOMBSTONED_SQL} ORDER BY id`);
       const stateRows = this.loadAlgorithmStateRowMap(cardRows.map((row) => row.id));
       const xiuyuanRows = this.database.getAll<{
         id: string;
@@ -385,6 +413,9 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
 
       const cardDTOs = store.cardDTOs || {};
       for (const [id, card] of Object.entries(store.cards || {})) {
+        if (isCardDeletedByActiveTombstone(card, store.deletedCardDTOs?.[id])) {
+          continue;
+        }
         const dto = cardDTOs[id];
         this.writeCardRecord(db, { ...card, id }, dto, existingSource.get(id));
       }
@@ -398,6 +429,9 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       }
 
       for (const [id, tombstone] of Object.entries(store.deletedCardDTOs || {})) {
+        if (!isCardDeletedByActiveTombstone(store.cards?.[id], tombstone)) {
+          continue;
+        }
         db.run(
           `INSERT INTO tombstones (kind, id, deleted_at, deleted_by, payload_json)
            VALUES (?, ?, ?, ?, ?)`,
@@ -484,7 +518,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       return undefined;
     }
     const row = this.database.getOne<{ payload_json: string }>(
-      'SELECT payload_json FROM cards WHERE id = ?',
+      `SELECT payload_json FROM cards WHERE id = ? AND ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}`,
       [normalizedId],
     );
     return row ? this.parseCardRows([row])[0] : undefined;
@@ -520,6 +554,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     const rows = this.database.getAll<{ payload_json: string }>(
       `SELECT payload_json FROM cards
        WHERE (id IN (${placeholders}) OR block_id IN (${placeholders}))
+         AND ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}
          AND (source_exists IS NULL OR source_exists = 1)`,
       [...uniqueIds, ...uniqueIds],
     );
@@ -651,7 +686,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND state = ? THEN 1 ELSE 0 END), 0) AS reviewCards,
         COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND suspended = 1 THEN 1 ELSE 0 END), 0) AS suspendedCards,
         COALESCE(SUM(CASE WHEN source_exists = 0 THEN 1 ELSE 0 END), 0) AS lostCards
-       FROM cards`,
+       FROM cards
+       WHERE ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}`,
       [now, CardState.New, CardState.Learning, CardState.Review],
     );
 
@@ -671,21 +707,25 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
   ): SourceExistenceRefreshCandidate[] {
     const clauses = ["block_id IS NOT NULL", "block_id != ''"];
     const params: Array<string | number> = [];
+    clauses.push(ACTIVE_CARD_NOT_TOMBSTONED_SQL);
     const blockIds = normalizeStringArray(request.blockIds);
     if (blockIds.length > 0) {
       appendInClause(clauses, params, 'block_id', blockIds);
     }
 
+    const forceRefresh = request.force === true;
     const staleBefore = normalizeNumber(request.staleBefore);
     const freshnessClauses = ['source_checked_at IS NULL'];
-    if (staleBefore !== null) {
+    if (!forceRefresh && staleBefore !== null) {
       freshnessClauses.push('source_checked_at < ?');
       params.push(staleBefore);
     }
     if (request.includeKnownMissing !== true) {
       clauses.push('(source_exists IS NULL OR source_exists != 0)');
     }
-    clauses.push(`(${freshnessClauses.join(' OR ')})`);
+    if (!forceRefresh) {
+      clauses.push(`(${freshnessClauses.join(' OR ')})`);
+    }
 
     const limit = Math.max(1, Math.floor(Number(request.limit) || 500));
     const rows = this.database.getAll<{
@@ -757,7 +797,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         COALESCE(SUM(CASE WHEN source_checked_at IS NULL THEN 1 ELSE 0 END), 0) AS unknown,
         COALESCE(SUM(CASE WHEN source_checked_at IS NOT NULL AND source_checked_at < ? THEN 1 ELSE 0 END), 0) AS stale,
         COALESCE(SUM(CASE WHEN source_exists = 0 THEN 1 ELSE 0 END), 0) AS missing
-       FROM cards`,
+       FROM cards
+       WHERE ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}`,
       [staleBefore],
     );
     return {
@@ -779,7 +820,9 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       block_id: string;
       source_exists: number | null;
     }>(
-      `SELECT block_id, source_exists FROM cards WHERE block_id IN (${placeholders})`,
+      `SELECT block_id, source_exists FROM cards
+       WHERE block_id IN (${placeholders})
+         AND ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}`,
       normalized,
     );
     for (const row of rows) {
@@ -800,6 +843,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
 
     const clauses: string[] = [];
     const params: Array<string | number> = [];
+    clauses.push(ACTIVE_CARD_NOT_TOMBSTONED_SQL);
     appendInClause(clauses, params, 'root_id', normalizedRootIds);
     if (options.excludeKnownMissing !== false) {
       this.appendSourceStatusClause(clauses, 'active');
@@ -818,6 +862,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
        WHERE (root_id IS NULL OR root_id = '')
          AND block_id IS NOT NULL
          AND block_id != ''
+         AND ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}
          AND (source_exists IS NULL OR source_exists = 1)
        ORDER BY id ASC
        LIMIT ?`,
@@ -830,8 +875,9 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     const rows = this.database.getAll<{ id: string }>(
       `SELECT id
        FROM cards
-       WHERE (card_type_marker = 'concept' AND (type IS NULL OR type != 'concept'))
-          OR (card_type_marker = 'descriptor' AND (type IS NULL OR type != 'descriptor'))
+       WHERE ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}
+         AND ((card_type_marker = 'concept' AND (type IS NULL OR type != 'concept'))
+          OR (card_type_marker = 'descriptor' AND (type IS NULL OR type != 'descriptor')))
        ORDER BY id ASC`,
     );
     return rows.map((row) => row.id).filter(Boolean);
@@ -1204,7 +1250,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
   }
 
   private buildStructuredWhereClause(query?: StructuredCardQuery): WhereClause | null {
-    const clauses: string[] = [];
+    const clauses: string[] = [ACTIVE_CARD_NOT_TOMBSTONED_SQL];
     const params: Array<string | number> = [];
 
     appendInClause(clauses, params, 'block_id', normalizeStringArray(query?.blockIds));
@@ -1263,9 +1309,6 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       params.push(...tags.map((tag) => `%\n${escapeLike(tag)}\n%`));
     }
 
-    if (clauses.length === 0) {
-      return null;
-    }
     return {
       sql: clauses.join(' AND '),
       params,
@@ -1273,7 +1316,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
   }
 
   private buildBrowserDeckSqlQuery(query: BrowserDeckSnapshotQuery): BrowserDeckSqlQuery | null {
-    const clauses: string[] = [];
+    const clauses: string[] = [ACTIVE_CARD_NOT_TOMBSTONED_SQL];
     const params: Array<string | number> = [];
     const normalizedDocId = normalizeString(query.docId);
     const normalizedCardTypes = normalizeStringArray(query.cardTypes);

@@ -12,6 +12,7 @@ export interface SourceExistenceRefreshRequest {
   limit?: number;
   staleBefore?: number;
   includeKnownMissing?: boolean;
+  force?: boolean;
 }
 
 export interface SourceExistenceRefreshCandidate {

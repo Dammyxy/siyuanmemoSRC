@@ -1,8 +1,88 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-20 (Round 400)
+Last update: 2026-05-20 (Round 402)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-20 - Visible Source-Existence Refresh Ignores TTL
+
+- Task: Continue diagnosing `H:\闪卡同步测试` after rebuilt SQL tombstone filtering still showed five old empty rows. Live DB showed those rows were not tombstoned and still had fresh `source_exists=1`, so the page-visible source-existence refresh skipped them under the normal stale-before TTL.
+- Touched slice: Browser source-existence refresh contract / backend SQLite refresh candidates; `src/application/queries/browser/shared/SourceExistenceCache.ts`, `src/application/services/BrowserApplicationService.ts`, `src/application/ports/BrowserDeckReadPort.ts`, `packages/contracts/src/backend-rpc.ts`, `src/application/ApplicationContext.ts`, and `src/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository.ts`.
+- Debt fixed now: Page-visible cards now send `force: true` through the Browser/backend source-existence sweep path. SQLite refresh candidate selection ignores `source_checked_at` freshness when forced, so stale `source_exists=1` rows for visible blocks are rechecked immediately and can converge to `source_exists=0` when the source block is gone.
+- Debt deferred: The already-open test workspace still needs the rebuilt bundle copied into `H:\闪卡同步测试` and SiYuan/plugin reload so the forced sweep can run against live data.
+- Why deferred: This fixes active runtime convergence instead of mutating `siyuanmemo.db` directly. Manual DB edits would hide whether Browser visible-row repair works.
+- Next safe step: Deploy rebuilt `dist`, restart or reload the test SiYuan workspace, open the queue/browser page, then verify old block ids such as `20260511184417-j2223s1` are marked missing and disappear from active queues.
+- Validation: `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts`; `pnpm exec vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`; `pnpm exec vitest run src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed; existing non-blocking `package.zip` unlink EPERM during zip packing, Vite build and dist hygiene succeeded).
+
+### 2026-05-20 - SQL Tombstone Reads Do Not Revive Deleted Cards
+
+- Task: Diagnose `H:\闪卡同步测试` where plugin Browser/queues showed seven cards while native Riff and current `.sy` data only had one active flashcard, with previously deleted cards appearing as empty rows and failing cancel.
+- Touched slice: SQLite unified storage read model / Browser source-existence convergence; `src/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository.ts`, `src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts`, plus existing Browser/DataAccess source-existence tests.
+- Debt fixed now: SQL card reads now treat active `tombstones(kind='card')` as deletion truth. `loadStore`, structured card queries, deck pages/matched ids, card-by-id reads, source-existence refresh candidates, source cache lookups, stats, and root/type scans all exclude cards whose tombstone is newer than or equal to the card projection. `saveStore` also avoids rewriting card rows covered by active tombstones.
+- Debt deferred: The five currently visible empty rows in `H:\闪卡同步测试` are stale `source_exists=1` queue projection rows, not live native Riff cards. They still need the rebuilt plugin plus source-existence sweep/queue reload to mark their missing blocks and filter them out; no live DB mutation was done.
+- Why deferred: Direct DB edits would hide whether the active source-existence and queue projection path converges. The runtime must repair visibility through backend-owned sweep and queue reload.
+- Next safe step: Deploy rebuilt plugin, restart the test workspace, open Browser/queue, wait for source-existence page/background sweep, then verify old block ids such as `20260511184417-j2223s1` leave active queues and cancel flashcard only targets remaining live cards.
+- Validation: `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts`; `pnpm exec vitest run src/ui/browser/__tests__/sourceExistenceUpdatePolicy.test.ts`; `pnpm exec vitest run src/application/queries/__tests__/DataAccessFacade.missing-block-filter.test.ts`; `pnpm exec vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed; existing non-blocking `package.zip` unlink EPERM during zip packing, Vite build and dist hygiene succeeded).
+
+### 2026-05-20 - Queue Source Missing Update Reloads Active Browser View
+
+- Task: Diagnose Browser logs where the adapter remounted and empty/missing cards still remained visible after source-existence repair.
+- Touched slice: Browser queue view / source-existence visible update policy; `src/ui/browser/SRSBrowser.vue`, `src/ui/browser/sourceExistenceUpdatePolicy.ts`, and focused Browser/source-existence tests.
+- Debt fixed now: Active queue Browser views now trigger a light `queue-sync` reload when a source-existence update reports `exists=false`, so rows newly marked missing by the background/page sweep are re-run through queue snapshot filtering and disappear instead of staying as empty/missing visible rows. Cleaned mojibake status icons from Browser sync logs so future logs are readable.
+- Debt deferred: Existing live rows still require deployed bundle plus the next source-existence update / queue reload; no direct DB mutation was done.
+- Why deferred: Browser rows must converge through source-existence sweep and queue filtering, not manual grid/DB editing.
+- Next safe step: Deploy rebuilt plugin, open the same queue, wait for source-existence update or force refresh; stale rows should reload out of the active queue.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/sourceExistenceUpdatePolicy.test.ts src/application/queries/browser/shared/__tests__/MissingBlockMarker.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed; existing non-blocking `package.zip` unlink EPERM during zip packing, Vite build and dist hygiene succeeded).
+
+### 2026-05-20 - Sync Conflict Merge Carries Missing Source Projection
+
+- Task: Inspect current desktop/Android card data after deleted cards appeared again in plugin queues.
+- Touched slice: Worker SQLite sync-conflict merge / source-existence projection; `worker/db/SqliteDatabaseService.ts`, `worker/__tests__/BackendKernel.test.ts`, and live DB inspection of `H:\闪卡同步测试` plus pulled Android `siyuanmemo.db`.
+- Debt fixed now: `sync.conflict.merge` now reads `block_id/source_exists/source_checked_at/source_missing_at` from conflict DB cards and imports only `source_exists = 0` missing-source projection when the incoming card/block pair is newer enough. Android no longer keeps desktop-confirmed deleted cards as `source_exists NULL` after conflict merge, so valid-block deleted cards cannot ride the source-unchecked fail-open path back into queues.
+- Debt deferred: Already-pulled Android DB currently has 12 `source_exists NULL` cards and empty projection rows; existing live data still needs rebuilt plugin runtime plus another merge/source sweep/projection rebuild, not ad-hoc DB mutation.
+- Why deferred: This slice fixes future conflict merge behavior. Directly editing phone/test DB would bypass the runtime path and hide whether sync recovery works.
+- Next safe step: Deploy rebuilt plugin, restart desktop/phone, run sync conflict merge or open a backend-backed surface, then verify the 9 desktop-missing cards become `source_exists=0` on Android and stay out of `queue_projection_rows`.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "imports synced missing-source projection"` (red before fix, green after); `pnpm vitest run worker/__tests__/BackendKernel.test.ts src/application/queries/__tests__/DataAccessFacade.missing-block-filter.test.ts src/application/queries/__tests__/DataAccessFacade.limit-cap-regression.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed; existing non-blocking `package.zip` unlink EPERM during zip packing, Vite build and dist hygiene succeeded).
+
+### 2026-05-20 - Stale Source-Existing Empty Cards Do Not Fail Open
+
+- Task: Follow up on visible empty cards after the first deleted-card fix.
+- Touched slice: Data access / host block existence guard; `src/application/queries/DataAccessFacade.ts`, `src/application/queries/__tests__/DataAccessFacade.missing-block-filter.test.ts`, and live `.sy` inspection of `H:\闪卡同步测试`.
+- Debt fixed now: `DataAccessFacade.getCards()` no longer treats "has rootId but empty content" as post-sync pending source metadata. If the host block query cannot find a valid block id and the card already has `meta.rootId`, the card is filtered even when `meta.content` is empty. Only cards missing `rootId` remain fail-open for the short sync-index catch-up window.
+- Debt deferred: Current live projection rows may still contain old cards until deployed runtime rebuilds/refreshes projections; no direct DB mutation was done.
+- Why deferred: Projection repair must happen through backend-owned queue materialization, not a manual SQL edit.
+- Next safe step: Deploy rebuilt plugin, restart, force queue refresh/rebuild, then verify old block ids like `20260511184417-j2223s1` do not appear in Review/Browser queues.
+- Validation: `pnpm vitest run src/application/queries/__tests__/DataAccessFacade.missing-block-filter.test.ts -t "filters stale source-existing cards"` (red before fix, green after); `pnpm vitest run src/application/queries/__tests__/DataAccessFacade.missing-block-filter.test.ts src/application/queries/__tests__/DataAccessFacade.limit-cap-regression.test.ts worker/__tests__/BackendKernel.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed; existing non-blocking `package.zip` unlink EPERM during zip packing, Vite build and dist hygiene succeeded).
+
+### 2026-05-20 - Synced Source-Unchecked Cards Stay Visible During Queue Materialization
+
+- Task: Fix the follow-up sync case where desktop showed four incremental-learning cards but Android showed two after the block file had synced.
+- Touched slice: Data access / source-existence guard / queue projection materialization input; `src/application/queries/DataAccessFacade.ts`, `src/application/queries/__tests__/DataAccessFacade.missing-block-filter.test.ts`, and live DB inspection of desktop/Android test workspace copies.
+- Debt fixed now: `DataAccessFacade.getCards()` no longer filters source-unchecked cards with incomplete source metadata just because the host block index misses them during the post-sync window. Fully hydrated stale cards are still filtered when the host says their block is missing; unchecked/incomplete cards stay fail-open only when they still carry a valid SiYuan block id, so deleted/malformed cards without real block identity do not return to plugin queues.
+- Debt deferred: Existing Android `queue_projection_rows` already materialized with two rows needs rebuilt bundle + projection refresh/rebuild; no direct mutation of `H:\闪卡同步测试` or phone DB was done.
+- Why deferred: This slice fixes materialization input for future rebuilds. Repairing the current live DB should happen through deployed plugin runtime, not ad-hoc DB edits.
+- Next safe step: Deploy rebuilt plugin, restart desktop/phone, trigger Review/Browser projection refresh on Android, and verify `incremental-learning` rows include both `20260520032552-bnr3w6a` and `20260520032910-jsyrycd`.
+- Validation: `pnpm vitest run src/application/queries/__tests__/DataAccessFacade.missing-block-filter.test.ts src/application/queries/__tests__/DataAccessFacade.limit-cap-regression.test.ts worker/__tests__/BackendKernel.test.ts src/application/backendMigration/__tests__/runtimePolicy.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed; existing non-blocking `package.zip` unlink EPERM during zip packing, Vite build and dist hygiene succeeded).
+
+### 2026-05-20 - Sync Conflict Merge Invalidates Queue Projection
+
+- Task: Diagnose why `H:\闪卡同步测试` desktop had due cards after cloud sync while Android showed no due cards, then fix the stale projection root cause.
+- Touched slice: Worker SQLite sync-conflict merge / queue projection; `worker/db/SqliteDatabaseService.ts`, `worker/__tests__/BackendKernel.test.ts`, `ARCHITECTURE.md`, and live DB inspection of desktop/Android test workspace copies.
+- Debt fixed now: `sync.conflict.merge` now invalidates all backend-owned queue projections when merged conflict cards change, using reason `sync-conflict-merge` and affected card/block ids. Stale `queue_projection_generations` can no longer remain `ready` with zero rows/counters after cards become due through SiYuan sync conflict recovery.
+- Debt deferred: Existing already-stale DB copies in `H:\闪卡同步测试` and Android still need a rebuilt plugin restart plus a backend request/manual conflict recovery to invalidate/rebuild projections; conflict DB deletion/retention UI remains separate.
+- Why deferred: This slice fixes future merge behavior. Mutating current real test DBs or deleting conflict artifacts should be done only after deploying the rebuilt bundle and confirming recovery.
+- Next safe step: Deploy the new build to desktop/phone, restart both, open Review/Browser to trigger backend merge + projection refresh, then verify `queue_projection_generations.status` changes from stale `ready` to `invalidated`/rebuilt and due queues show rows.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts src/application/backendMigration/__tests__/runtimePolicy.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed; existing non-blocking `package.zip` unlink EPERM during zip packing, Vite build and dist hygiene succeeded).
+
+### 2026-05-20 - Android Review Feedback Runtime Surface Fix
+
+- Task: Fix the root cause behind Android review feedback being blocked as if it were a desktop/follower runtime after SiYuan sync produced conflict DB copies.
+- Touched slice: Review / Mobile entry / backend migration runtime ownership; `src/application/backendMigration/runtimePolicy.ts`, `src/application/ApplicationContext.ts`, `src/application/backendMigration/__tests__/runtimePolicy.test.ts`, `worker/__tests__/BackendKernel.test.ts`, and `ARCHITECTURE.md`.
+- Debt fixed now: Runtime policy now consumes browser runtime evidence (`locationHref`, `userAgent`, `bodyClass`) in addition to SiYuan `container/frontEnd/isMobile`, so Android WebView app surfaces reported as `std + desktop + isMobile=false` still use local backend-worker ownership for review feedback instead of requiring desktop writer relay. Added a persistence regression proving `review.feedback` commits are written to the sqlite bridge file and reloadable.
+- Debt deferred: Existing conflict DB files are still retained and must be recovered/deleted through the manual conflict workflow; no live USB redeploy/smoke was run in this slice.
+- Why deferred: This slice fixes the runtime ownership root cause that prevents new Android review writes. Conflict artifact retention/deletion is a separate manual-sync UX/data-retention task, and live deploy needs a rebuilt plugin package plus phone restart.
+- Next safe step: Build/deploy to the phone and desktop test workspace, restart both SiYuan instances, review on Android, sync phone then desktop, and verify the main DB gains new `review_events` without another writer-relay unavailable diagnostic.
+- Validation: `pnpm vitest run src/application/backendMigration/__tests__/runtimePolicy.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts worker/__tests__/BackendKernel.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed; existing non-blocking `package.zip` unlink EPERM during zip packing, Vite build and dist hygiene succeeded).
 
 ### 2026-05-20 - Manual Sync Direction Resolution
 

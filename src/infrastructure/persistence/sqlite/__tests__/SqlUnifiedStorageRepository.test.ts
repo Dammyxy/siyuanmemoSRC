@@ -275,6 +275,57 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     ]));
   });
 
+  it('force-selects visible source-existence candidates even when their cache is fresh', async () => {
+    const { repository } = await seedRepositories();
+    await repository.updateSourceExistence([
+      { cardId: 'card-a', blockId: 'block-a', exists: true },
+    ], 1_700_000_010_000);
+
+    expect(repository.getSourceExistenceRefreshCandidates({
+      blockIds: ['block-a'],
+      staleBefore: 1_700_000_000_000,
+      limit: 10,
+    })).toEqual([]);
+    expect(repository.getSourceExistenceRefreshCandidates({
+      blockIds: ['block-a'],
+      force: true,
+      staleBefore: 1_700_000_000_000,
+      limit: 10,
+    })).toMatchObject([
+      { cardId: 'card-a', blockId: 'block-a', sourceExists: true },
+    ]);
+  });
+
+  it('treats active tombstones as deletion truth for SQL card reads', async () => {
+    const { storage, repository } = await seedRepositories();
+    const store = storage.getStoreData();
+    store.deletedCardDTOs = {
+      ...(store.deletedCardDTOs || {}),
+      'card-b': {
+        deletedAt: 1_700_000_010_000,
+        deletedBy: 'test-delete',
+      },
+    };
+    await repository.saveStore(store);
+
+    expect(repository.getCard('card-b')).toBeUndefined();
+    expect(repository.getCardByBlockId('block-b')).toBeUndefined();
+    expect(ids(repository.getCardsByIds(['card-a', 'card-b', 'card-c']))).toEqual(['card-a', 'card-c']);
+    expect(ids(repository.queryCards())).toEqual(['card-a', 'card-c', 'card-d']);
+    expect(repository.countCards()).toBe(3);
+    expect(repository.queryDeckMatchedIds({ sortModel: [] })).toEqual(['card-a', 'card-c', 'card-d']);
+    expect(repository.getBrowserStats(1_700_000_002_500)).toMatchObject({
+      totalCards: 3,
+      dueCards: 2,
+      lostCards: 0,
+    });
+
+    const loaded = await repository.loadStore();
+    expect(loaded.cards['card-b']).toBeUndefined();
+    expect(loaded.cardDTOs?.['card-b']).toBeUndefined();
+    expect(loaded.deletedCardDTOs?.['card-b']).toMatchObject({ deletedBy: 'test-delete' });
+  });
+
   it('hydrates card ids with active-source semantics and preserves unknown fail-open behavior', async () => {
     const { repository } = await seedRepositories();
     await repository.updateSourceExistence([

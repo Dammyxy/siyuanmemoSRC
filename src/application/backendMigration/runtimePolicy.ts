@@ -10,6 +10,9 @@ export interface BackendMigrationRuntimeSurface {
   backendContainer?: string | null;
   frontendKind?: string | null;
   isMobile?: boolean | null;
+  locationHref?: string | null;
+  userAgent?: string | null;
+  bodyClass?: string | null;
 }
 
 export const BACKEND_MIGRATION_RUNTIME_ENV_KEYS = Array.from(new Set([
@@ -154,11 +157,33 @@ export function resolveBackendMigrationRuntimePolicy(
 function isMobileRuntimeSurface(surface: BackendMigrationRuntimeSurface): boolean {
   const backendContainer = String(surface.backendContainer || '').trim().toLowerCase();
   const frontendKind = String(surface.frontendKind || '').trim().toLowerCase();
+  const locationHref = String(surface.locationHref || '').trim().toLowerCase();
+  const userAgent = String(surface.userAgent || '').trim().toLowerCase();
+  const bodyClass = String(surface.bodyClass || '').trim().toLowerCase();
   return surface.isMobile === true
     || frontendKind === 'mobile'
+    || frontendKind === 'browser-mobile'
     || backendContainer === 'android'
     || backendContainer === 'ios'
-    || backendContainer === 'harmony';
+    || backendContainer === 'harmony'
+    || hasMobileBodyClass(bodyClass)
+    || locationHref.includes('/stage/build/mobile')
+    || (
+      locationHref.includes('/stage/build/app')
+      && (
+        userAgent.includes('android')
+        || userAgent.includes('iphone')
+        || userAgent.includes('ipad')
+        || userAgent.includes('mobile')
+        || userAgent.includes('harmony')
+      )
+    );
+}
+
+function hasMobileBodyClass(bodyClass: string): boolean {
+  return bodyClass
+    .split(/\s+/)
+    .some((token) => token === 'mobile' || token === 'body--mobile' || token.endsWith('--mobile'));
 }
 
 export function collectBackendMigrationRuntimeEnv(

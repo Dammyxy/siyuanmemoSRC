@@ -8,6 +8,7 @@ import { SqlSemanticActivationRepository } from '@/infrastructure/persistence/sq
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type { FSRSCard } from '@/types/card';
+import { QueueType } from '@/types/unified-data-source';
 import type { QueueProjectionGeneration } from '@/application/ports/QueueProjectionPort';
 import type {
   BrowserDeckCardPageResult,
@@ -108,6 +109,10 @@ interface ConflictCardRow {
   updated_at: number | null;
   reps: number | null;
   last_review: number | null;
+  block_id: string | null;
+  source_exists: number | null;
+  source_checked_at: number | null;
+  source_missing_at: number | null;
   payload_json: string;
 }
 
@@ -1151,13 +1156,17 @@ export class WorkerSqliteDatabaseService {
            ORDER BY reviewed_at, id`,
         );
         const cards = conflictRuntime.getAll<ConflictCardRow>(
-          `SELECT id, updated_at, reps, last_review, payload_json
+          `SELECT id, updated_at, reps, last_review,
+                  block_id, source_exists, source_checked_at, source_missing_at,
+                  payload_json
            FROM cards
            ORDER BY id`,
         );
 
         await this.runtime.runTransaction('sync.conflict.merge', async () => {
           let sourceChanged = false;
+          const affectedCardIds = new Set<string>();
+          const affectedBlockIds = new Set<string>();
           for (const event of reviewEvents) {
             const existing = this.runtime.getOne<{ count: number }>(
               'SELECT COUNT(*) AS count FROM review_events WHERE id = ?',
@@ -1194,7 +1203,9 @@ export class WorkerSqliteDatabaseService {
               continue;
             }
             const existing = this.runtime.getOne<ConflictCardRow>(
-              `SELECT id, updated_at, reps, last_review, payload_json
+              `SELECT id, updated_at, reps, last_review,
+                      block_id, source_exists, source_checked_at, source_missing_at,
+                      payload_json
                FROM cards
                WHERE id = ?`,
               [incoming.id],
@@ -1204,11 +1215,22 @@ export class WorkerSqliteDatabaseService {
               continue;
             }
             this.repository!.upsertCard(incoming);
+            this.applyIncomingMissingSourceProjection(cardRow, incoming);
             result.mergedCards += 1;
             sourceChanged = true;
+            affectedCardIds.add(incoming.id);
+            const blockId = String(incoming.blockId || '').trim();
+            if (blockId) {
+              affectedBlockIds.add(blockId);
+            }
           }
 
           if (sourceChanged) {
+            this.invalidateQueueProjectionsForSyncConflictMerge({
+              affectedCardIds: [...affectedCardIds],
+              affectedBlockIds: [...affectedBlockIds],
+              mergedAt: request.mergedAt,
+            });
             await this.repository!.touchSyncMetadata({
               modifiedAt: request.mergedAt,
               modifiedBy: 'srs-backend-worker:sync.conflict.merge',
@@ -1240,6 +1262,72 @@ export class WorkerSqliteDatabaseService {
     new SourceExistenceProjectionInvalidator({
       queueProjection: this.queueProjection,
     }).invalidateForSourceChanges(blockIds, checkedAt);
+  }
+
+  private invalidateQueueProjectionsForSyncConflictMerge(input: {
+    affectedCardIds: string[];
+    affectedBlockIds: string[];
+    mergedAt: number;
+  }): void {
+    if (!this.queueProjection || input.affectedCardIds.length === 0) {
+      return;
+    }
+    const mergedAt = Math.max(1, Math.floor(Number(input.mergedAt) || Date.now()));
+    this.queueProjection.invalidateQueues({
+      queueTypes: [
+        QueueType.RetrievalPractice,
+        QueueType.IncrementalLearning,
+        QueueType.FilterGroup,
+        QueueType.FinalDrill,
+        QueueType.Leech,
+        QueueType.NeuralRoam,
+      ],
+      reason: 'sync-conflict-merge',
+      affectedCardIds: input.affectedCardIds,
+      affectedBlockIds: input.affectedBlockIds,
+      generation: mergedAt,
+      createdAt: mergedAt,
+      metadata: {
+        source: 'sync-conflict-merge',
+      },
+    });
+  }
+
+  private applyIncomingMissingSourceProjection(row: ConflictCardRow, incoming: FSRSCard): void {
+    if (Number(row.source_exists) !== 0) {
+      return;
+    }
+    const rowBlockId = String(row.block_id || '').trim();
+    const incomingBlockId = String(incoming.blockId || '').trim();
+    if (!rowBlockId || rowBlockId !== incomingBlockId) {
+      return;
+    }
+    const incomingCheckedAt = this.normalizeConflictTimestamp(row.source_checked_at);
+    const incomingMissingAt = this.normalizeConflictTimestamp(row.source_missing_at) || incomingCheckedAt;
+    const current = this.runtime.getOne<{
+      source_checked_at: number | null;
+    }>(
+      'SELECT source_checked_at FROM cards WHERE id = ?',
+      [incoming.id],
+    );
+    const currentCheckedAt = this.normalizeConflictTimestamp(current?.source_checked_at);
+    if (currentCheckedAt && incomingCheckedAt && currentCheckedAt > incomingCheckedAt) {
+      return;
+    }
+    this.runtime.run(
+      `UPDATE cards
+       SET source_exists = 0,
+           source_checked_at = ?,
+           source_missing_at = ?
+       WHERE id = ?
+         AND block_id = ?`,
+      [incomingCheckedAt || null, incomingMissingAt || null, incoming.id, incomingBlockId],
+    );
+  }
+
+  private normalizeConflictTimestamp(value: unknown): number {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
   }
 
   async resolveAutoCardDecision(

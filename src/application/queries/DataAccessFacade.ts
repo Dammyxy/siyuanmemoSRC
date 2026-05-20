@@ -78,6 +78,7 @@ interface SettingsServiceLike {
 }
 
 const logger = createLogger('DataAccessFacade');
+const SIYUAN_BLOCK_ID_PATTERN = /^\d{14}-[a-z0-9]{7}$/i;
 
 /**
  * DataAccessFacade 类
@@ -309,16 +310,17 @@ export class DataAccessFacade implements IDataRouter {
         // 🆕 无论是否使用缓存，都检查并填充缺失的 rootId 和 content
         // 这确保了数据源筛选（如文档筛选）能够正常工作
         const beforeValidBlockId = cards.length;
-        cards = this.cardFilterService.filterValidBlockIds(cards);
+        cards = this.filterValidSiyuanBlockIdCards(cards);
         const invalidBlockCount = beforeValidBlockId - cards.length;
         if (invalidBlockCount > 0) {
             logger.debug(`[SiYuanMemo][DataAccessFacade] Filtered out ${invalidBlockCount} cards with invalid blockId`);
         }
 
         const { missingBlockIds, uncheckedBlockIds } = await this.collectMissingBlockIds(cards.map((card) => card.blockId));
-        if (missingBlockIds.size > 0) {
+        const missingBlockIdsToFilter = this.filterMissingBlockIdsWithCompleteSourceMetadata(cards, missingBlockIds);
+        if (missingBlockIdsToFilter.size > 0) {
             const beforeMissingFilter = cards.length;
-            cards = cards.filter((card) => !missingBlockIds.has(card.blockId));
+            cards = cards.filter((card) => !missingBlockIdsToFilter.has(card.blockId));
             logger.debug(`[SiYuanMemo][DataAccessFacade] Filtered out ${beforeMissingFilter - cards.length} cards with missing blocks`);
         }
         if (uncheckedBlockIds.size > 0) {
@@ -862,6 +864,38 @@ export class DataAccessFacade implements IDataRouter {
             deduped.set(cardId, card);
         }
         return Array.from(deduped.values());
+    }
+
+    private filterValidSiyuanBlockIdCards(cards: FSRSCard[]): FSRSCard[] {
+        return this.cardFilterService.filterValidBlockIds(cards)
+            .filter((card) => this.isSiyuanBlockId(card.blockId));
+    }
+
+    private filterMissingBlockIdsWithCompleteSourceMetadata(cards: FSRSCard[], missingBlockIds: Set<string>): Set<string> {
+        if (missingBlockIds.size === 0) {
+            return missingBlockIds;
+        }
+        const result = new Set<string>();
+        for (const card of cards) {
+            const blockId = String(card.blockId || '').trim();
+            if (!blockId || !missingBlockIds.has(blockId)) {
+                continue;
+            }
+            if (!this.isSiyuanBlockId(blockId) || this.hasSourceRootId(card)) {
+                result.add(blockId);
+            }
+        }
+        return result;
+    }
+
+    private isSiyuanBlockId(blockId: unknown): boolean {
+        return SIYUAN_BLOCK_ID_PATTERN.test(String(blockId || '').trim());
+    }
+
+    private hasSourceRootId(card: FSRSCard): boolean {
+        const meta = card.meta && typeof card.meta === 'object' ? card.meta as Record<string, unknown> : {};
+        const rootId = String(meta.rootId || '').trim();
+        return Boolean(rootId);
     }
 
     private async collectMissingBlockIds(blockIds: string[]): Promise<{

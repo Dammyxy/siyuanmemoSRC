@@ -991,6 +991,7 @@ export interface BackendSourceExistenceRefreshRequest {
   limit?: number;
   staleBefore?: number;
   includeKnownMissing?: boolean;
+  force?: boolean;
 }
 
 export interface BackendSourceExistenceRefreshCandidate {

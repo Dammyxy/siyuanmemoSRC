@@ -1,16 +1,27 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type { StorageManager } from '@/core/storage/manager';
+import { BlockRepository } from '@/core/storage/infrastructure/BlockRepository';
 import { DataAccessFacade } from '../DataAccessFacade';
+
+const BLOCK_DEFAULT = '20260520000000-def0000';
+const BLOCK_EXISTING = '20260520000001-exist01';
+const BLOCK_MISSING = '20260520000002-missing';
+const BLOCK_A = '20260520000003-block0a';
+const BLOCK_B = '20260520000004-block0b';
+const BLOCK_SYNCED_PENDING = '20260520000005-synced1';
+const BLOCK_KEYWORD = '20260520000006-keyword';
+const BLOCK_FILTERED = '20260520000007-filterd';
+const BLOCK_STALE_SOURCE_EXISTS = '20260511184417-j2223s1';
 
 function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = Date.now();
   return {
     id: 'card-default',
     xiuyuanID: 'xiuyuan-default',
-    blockId: 'block-default',
+    blockId: BLOCK_DEFAULT,
     due: now,
     stability: 1,
     difficulty: 5,
@@ -73,17 +84,21 @@ describe('DataAccessFacade missing block filtering', () => {
     );
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('filters out cards whose block does not exist even when meta already has rootId/content', async () => {
     const existingCard = createCard({
       id: 'card-existing',
       xiuyuanID: 'xiuyuan-existing',
-      blockId: 'block-existing',
+      blockId: BLOCK_EXISTING,
       meta: { rootId: 'doc-existing', content: 'existing content' },
     });
     const missingCard = createCard({
       id: 'card-missing',
       xiuyuanID: 'xiuyuan-missing',
-      blockId: 'block-missing',
+      blockId: BLOCK_MISSING,
       meta: { rootId: 'doc-stale', content: 'stale content should not keep card' },
     });
 
@@ -91,7 +106,7 @@ describe('DataAccessFacade missing block filtering', () => {
       cards: [existingCard, missingCard],
       total: 2,
     });
-    getExistingBlockIds.mockResolvedValue(new Set(['block-existing']));
+    getExistingBlockIds.mockResolvedValue(new Set([BLOCK_EXISTING]));
 
     const cards = await facade.getCards();
 
@@ -103,12 +118,12 @@ describe('DataAccessFacade missing block filtering', () => {
     const cardA = createCard({
       id: 'card-a',
       xiuyuanID: 'xiuyuan-a',
-      blockId: 'block-a',
+      blockId: BLOCK_A,
     });
     const cardB = createCard({
       id: 'card-b',
       xiuyuanID: 'xiuyuan-b',
-      blockId: 'block-b',
+      blockId: BLOCK_B,
     });
 
     cardService.getCards.mockResolvedValue({
@@ -123,11 +138,98 @@ describe('DataAccessFacade missing block filtering', () => {
     expect(cards.map((card) => card.id)).toEqual(['card-a', 'card-b']);
   });
 
+  it('keeps source-unchecked cards with incomplete source metadata when host index has not caught up after sync', async () => {
+    const syncedPendingCard = createCard({
+      id: 'card-synced-pending',
+      xiuyuanID: 'xiuyuan-synced-pending',
+      blockId: BLOCK_SYNCED_PENDING,
+      meta: {
+        source: 'auto-listener',
+        content: '',
+      },
+    });
+    const existingCard = createCard({
+      id: 'card-existing',
+      xiuyuanID: 'xiuyuan-existing',
+      blockId: BLOCK_EXISTING,
+      meta: { rootId: 'doc-existing', content: 'existing content' },
+    });
+
+    cardService.getCards.mockResolvedValue({
+      cards: [syncedPendingCard, existingCard],
+      total: 2,
+    });
+    getExistingBlockIds.mockResolvedValue(new Set([BLOCK_EXISTING]));
+    vi.spyOn(BlockRepository.prototype, 'batchQueryRootIds').mockResolvedValue(new Map([
+      [BLOCK_SYNCED_PENDING, 'doc-synced-pending'],
+    ]));
+
+    const cards = await facade.getCards();
+
+    expect(cards.map((card) => card.id)).toEqual(['card-synced-pending', 'card-existing']);
+  });
+
+  it('filters stale source-existing cards when host no longer finds the block even if content is empty', async () => {
+    const staleSourceExistingCard = createCard({
+      id: 'card-stale-source-existing',
+      xiuyuanID: 'xiuyuan-stale-source-existing',
+      blockId: BLOCK_STALE_SOURCE_EXISTS,
+      meta: {
+        rootId: 'doc-stale-source',
+        content: '',
+      },
+    });
+    const existingCard = createCard({
+      id: 'card-existing',
+      xiuyuanID: 'xiuyuan-existing',
+      blockId: BLOCK_EXISTING,
+      meta: { rootId: 'doc-existing', content: 'existing content' },
+    });
+
+    cardService.getCards.mockResolvedValue({
+      cards: [staleSourceExistingCard, existingCard],
+      total: 2,
+    });
+    getExistingBlockIds.mockResolvedValue(new Set([BLOCK_EXISTING]));
+
+    const cards = await facade.getCards();
+
+    expect(cards.map((card) => card.id)).toEqual(['card-existing']);
+  });
+
+  it('filters source-unchecked cards with malformed block ids instead of treating them as post-sync pending blocks', async () => {
+    const malformedCard = createCard({
+      id: 'card-malformed',
+      xiuyuanID: 'xiuyuan-malformed',
+      blockId: 'missing-block-id',
+      meta: {
+        source: 'auto-listener',
+        content: '',
+      },
+    });
+    const existingCard = createCard({
+      id: 'card-existing',
+      xiuyuanID: 'xiuyuan-existing',
+      blockId: '20260520032910-jsyrycd',
+      meta: { rootId: 'doc-existing', content: 'existing content' },
+    });
+
+    cardService.getCards.mockResolvedValue({
+      cards: [malformedCard, existingCard],
+      total: 2,
+    });
+    getExistingBlockIds.mockResolvedValue(new Set(['20260520032910-jsyrycd']));
+
+    const cards = await facade.getCards();
+
+    expect(cards.map((card) => card.id)).toEqual(['card-existing']);
+  });
+
   it('keeps pure residual filters local and calls cardService without structured prefilter', async () => {
     const card = createCard({
       id: 'card-keyword',
       xiuyuanID: 'xiuyuan-keyword',
-      blockId: 'block-keyword',
+      blockId: BLOCK_KEYWORD,
       meta: {
         rootId: 'doc-keyword',
         content: 'needle content',
@@ -138,7 +240,7 @@ describe('DataAccessFacade missing block filtering', () => {
       cards: [card],
       total: 1,
     });
-    getExistingBlockIds.mockResolvedValue(new Set(['block-keyword']));
+    getExistingBlockIds.mockResolvedValue(new Set([BLOCK_KEYWORD]));
 
     const result = await facade.getCards({
       keyword: 'needle',
@@ -153,7 +255,7 @@ describe('DataAccessFacade missing block filtering', () => {
     const card = createCard({
       id: 'card-filtered',
       xiuyuanID: 'xiuyuan-filtered',
-      blockId: 'block-filtered',
+      blockId: BLOCK_FILTERED,
       state: CardState.New,
       type: CardType.Item,
       due: Date.now(),
@@ -167,10 +269,10 @@ describe('DataAccessFacade missing block filtering', () => {
       cards: [card],
       total: 1,
     });
-    getExistingBlockIds.mockResolvedValue(new Set(['block-filtered']));
+    getExistingBlockIds.mockResolvedValue(new Set([BLOCK_FILTERED]));
 
     const result = await facade.getCards({
-      blockIds: ['block-filtered'],
+      blockIds: [BLOCK_FILTERED],
       cardType: 'item',
       cardStatus: ['new'],
       dueDate: { lte: new Date() },
@@ -179,7 +281,7 @@ describe('DataAccessFacade missing block filtering', () => {
 
     expect(cardService.getCards).toHaveBeenCalledWith({
       filter: expect.objectContaining({
-        blockIds: ['block-filtered'],
+        blockIds: [BLOCK_FILTERED],
         cardTypes: ['item'],
         cardStatus: ['new'],
         dueDate: expect.objectContaining({
@@ -195,7 +297,7 @@ describe('DataAccessFacade missing block filtering', () => {
     const missingCard = createCard({
       id: 'card-missing',
       xiuyuanID: 'xiuyuan-missing',
-      blockId: 'block-missing',
+      blockId: BLOCK_MISSING,
     });
 
     cardService.getCard.mockResolvedValue({ card: missingCard });
@@ -208,15 +310,15 @@ describe('DataAccessFacade missing block filtering', () => {
     const existingCard = createCard({
       id: 'card-existing',
       xiuyuanID: 'xiuyuan-existing',
-      blockId: 'block-existing',
+      blockId: BLOCK_EXISTING,
     });
 
     cardService.getCard.mockResolvedValue({ card: existingCard });
-    getExistingBlockIds.mockResolvedValue(new Set(['block-existing']));
+    getExistingBlockIds.mockResolvedValue(new Set([BLOCK_EXISTING]));
 
     const card = await facade.getCard('card-existing');
 
     expect(card.id).toBe('card-existing');
-    expect(card.blockId).toBe('block-existing');
+    expect(card.blockId).toBe(BLOCK_EXISTING);
   });
 });

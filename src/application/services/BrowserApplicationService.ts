@@ -494,8 +494,8 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       const sweep = await measureRuntimePerformance('source-existence', 'refresh-page-cards', () => this.invokeBackendSourceExistenceSweepHost({
         blockIds,
         limit,
-        staleBefore: Date.now() - SOURCE_EXISTENCE_TTL_MS,
         includeKnownMissing: true,
+        force: true,
       }, Date.now()), {
         blockCount: blockIds.length,
         coalescedCount,
@@ -766,6 +766,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       limit?: number;
       staleBefore?: number;
       includeKnownMissing?: boolean;
+      force?: boolean;
     },
     checkedAt: number,
   ): Promise<{ checked: number; updated: number; changed: boolean; changedToMissing: boolean; changedBlockIds?: string[] }> {

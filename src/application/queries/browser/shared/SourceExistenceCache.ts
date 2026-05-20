@@ -115,7 +115,7 @@ export async function refreshSourceExistenceForBlockIds(
   port: BrowserDeckReadPort | null | undefined,
   siyuanApi: Pick<QuerySiyuanPort, 'sql'> | null | undefined,
   blockIds: unknown[],
-  options: { limit?: number; staleBefore?: number; includeKnownMissing?: boolean } = {},
+  options: { limit?: number; staleBefore?: number; includeKnownMissing?: boolean; force?: boolean } = {},
 ): Promise<SourceExistenceRefreshResult> {
   if (!hasSourceExistencePort(port) || !siyuanApi) {
     return { changed: false, changedToMissing: false };
@@ -132,6 +132,7 @@ export async function refreshSourceExistenceForBlockIds(
       limit: options.limit ?? SOURCE_EXISTENCE_BATCH_SIZE,
       staleBefore: options.staleBefore ?? Date.now() - SOURCE_EXISTENCE_TTL_MS,
       includeKnownMissing: options.includeKnownMissing ?? true,
+      force: options.force === true,
     }), {
       blockCount: normalizedBlockIds.length,
       limit: options.limit ?? SOURCE_EXISTENCE_BATCH_SIZE,
@@ -228,7 +229,7 @@ export function scheduleSourceExistenceRefresh(
   siyuanApi: Pick<QuerySiyuanPort, 'sql'> | null | undefined,
   blockIds: unknown[],
 ): void {
-  void refreshSourceExistenceForBlockIds(port, siyuanApi, blockIds)
+  void refreshSourceExistenceForBlockIds(port, siyuanApi, blockIds, { force: true })
     .catch((error) => {
       logger.debug('Scheduled source existence refresh failed', error);
     });

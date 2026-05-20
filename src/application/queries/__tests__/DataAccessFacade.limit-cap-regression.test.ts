@@ -7,10 +7,11 @@ import { DataAccessFacade } from '../DataAccessFacade';
 
 function createCard(index: number): FSRSCard {
   const now = Date.now();
+  const suffix = `b${index.toString(36).padStart(6, '0')}`.slice(0, 7);
   return {
     id: `card-${index}`,
     xiuyuanID: `xiuyuan-${index}`,
-    blockId: `block-${index}`,
+    blockId: `${String(20260520000000 + index).padStart(14, '0')}-${suffix}`,
     due: now,
     stability: 1,
     difficulty: 5,

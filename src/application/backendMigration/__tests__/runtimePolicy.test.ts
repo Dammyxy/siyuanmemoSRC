@@ -155,6 +155,27 @@ describe('backend migration runtime policy', () => {
     expect(policy.behavior.autoCardWrites.owner).toBe('backend-worker');
   });
 
+  it('treats Android WebView app surfaces as mobile even when SiYuan reports desktop/std', () => {
+    const policy = resolveBackendMigrationRuntimePolicy({
+      VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER: 'true',
+      VITE_SIYUANMEMO_ENABLE_KERNEL_WRITER_LEASE_GUARD: 'true',
+      VITE_SIYUANMEMO_ENABLE_AUTOCARD_DECISION_RELAY: 'true',
+      VITE_SIYUANMEMO_ENABLE_KERNEL_TRANSACTION_INGEST: 'true',
+      VITE_SIYUANMEMO_ENABLE_PRIVATE_API: 'true',
+    }, {
+      backendContainer: 'std',
+      frontendKind: 'desktop',
+      isMobile: false,
+      locationHref: 'http://127.0.0.1:56588/stage/build/app/?v=3.6.9',
+      userAgent: 'Mozilla/5.0 (Linux; Android 10; ALP-AL00) AppleWebKit/537.36 Mobile Safari/537.36',
+    });
+
+    expect(policy.capabilities.writerRelayRuntimeEnabled).toBe(false);
+    expect(policy.capabilities.writerRelayRequiredForBackendWrites).toBe(false);
+    expect(policy.capabilities.reviewFeedbackWriteEnabled).toBe(true);
+    expect(policy.behavior.reviewWrites.owner).toBe('backend-worker');
+  });
+
   it('keeps private API and AI backend disabled when explicitly turned off', () => {
     const policy = resolveBackendMigrationRuntimePolicy({
       VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER: 'true',

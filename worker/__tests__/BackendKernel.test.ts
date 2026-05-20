@@ -367,6 +367,137 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('invalidates queue projections when synced conflict merge changes cards', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    const mergedAt = 1_779_219_500_000;
+    await currentDatabase.upsertCards([
+      buildCard({
+        id: 'card-projection-stale',
+        blockId: 'block-projection-stale',
+        due: mergedAt + 86_400_000,
+        reps: 0,
+        lastReview: 0,
+        updatedAt: mergedAt - 10_000,
+      }),
+    ]);
+    await seedQueueProjection(currentDatabase, {
+      queueType: 'incremental-learning',
+      generation: 3,
+      rows: [],
+      updatedAt: mergedAt - 5_000,
+    });
+
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await conflictDatabase.upsertCards([
+      buildCard({
+        id: 'card-projection-stale',
+        blockId: 'block-projection-stale',
+        due: mergedAt - 1_000,
+        reps: 1,
+        lastReview: mergedAt,
+        updatedAt: mergedAt,
+      }),
+    ]);
+    await conflictDatabase.persist();
+    const conflictBytes = conflictBridge.snapshot().bytes;
+    expect(conflictBytes).toBeTruthy();
+
+    const kernel = new BackendKernel({ database: currentDatabase });
+    const response = await kernel.handle({
+      id: 'merge-conflict-invalidates-projection',
+      jsonrpc: '2.0',
+      method: 'sync.conflict.merge',
+      params: [{
+        mergedAt,
+        sources: [{ sourceId: 'projection-conflict-db', bytes: conflictBytes! }],
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        mergedCards: 1,
+      }),
+    }));
+    expect(currentDatabase.getOne<{ status: string; rebuild_reason: string | null }>(
+      'SELECT status, rebuild_reason FROM queue_projection_generations WHERE queue_type = ?',
+      ['incremental-learning'],
+    )).toMatchObject({
+      status: 'invalidated',
+      rebuild_reason: 'sync-conflict-merge',
+    });
+  });
+
+  it('imports synced missing-source projection when merging conflict cards', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    const checkedAt = 1_779_264_500_000;
+    await currentDatabase.upsertCards([
+      buildCard({
+        id: 'card-source-missing',
+        blockId: '20260520005027-wqloxxq',
+        due: checkedAt - 1_000,
+        reps: 0,
+        lastReview: 0,
+        updatedAt: checkedAt - 10_000,
+      }),
+    ]);
+
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await conflictDatabase.upsertCards([
+      buildCard({
+        id: 'card-source-missing',
+        blockId: '20260520005027-wqloxxq',
+        due: checkedAt - 1_000,
+        reps: 1,
+        lastReview: checkedAt,
+        updatedAt: checkedAt,
+      }),
+    ]);
+    await conflictDatabase.runTransaction('seed.source-missing', (db) => {
+      db.run(
+        `UPDATE cards
+         SET source_exists = 0, source_checked_at = ?, source_missing_at = ?
+         WHERE id = ?`,
+        [checkedAt + 1, checkedAt + 1, 'card-source-missing'],
+      );
+    });
+    await conflictDatabase.persist();
+    const conflictBytes = conflictBridge.snapshot().bytes;
+    expect(conflictBytes).toBeTruthy();
+
+    const kernel = new BackendKernel({ database: currentDatabase });
+    const response = await kernel.handle({
+      id: 'merge-conflict-source-missing',
+      jsonrpc: '2.0',
+      method: 'sync.conflict.merge',
+      params: [{
+        mergedAt: checkedAt + 2,
+        sources: [{ sourceId: 'source-missing-conflict-db', bytes: conflictBytes! }],
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        mergedCards: 1,
+      }),
+    }));
+    expect(currentDatabase.getOne<{
+      source_exists: number | null;
+      source_checked_at: number | null;
+      source_missing_at: number | null;
+    }>(
+      'SELECT source_exists, source_checked_at, source_missing_at FROM cards WHERE id = ?',
+      ['card-source-missing'],
+    )).toEqual({
+      source_exists: 0,
+      source_checked_at: checkedAt + 1,
+      source_missing_at: checkedAt + 1,
+    });
+  });
+
   it('ignores duplicate review events and stale cards when merging the same conflict database again', async () => {
     const currentBridge = createInMemorySqlitePersistenceBridge();
     const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
@@ -2951,6 +3082,38 @@ describe('BackendKernel', () => {
     });
     expect(metadata.contentHash).toMatch(/^[0-9a-f]{16}$/);
     expect(metadata.contentHash).not.toBe('stale-before-review');
+  });
+
+  it('persists committed review feedback to the sqlite bridge file', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const reviewedAt = 1_779_187_888_000;
+    await database.upsertCards([buildCard({ id: 'card-review-persist', due: reviewedAt - 10_000 })]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-persist',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-persist', rating: 3, reviewedAt, queueType: 'retrieval-practice' }],
+    });
+
+    expect('result' in response).toBe(true);
+    const persistedBytes = persistenceBridge.snapshot().bytes;
+    expect(persistedBytes?.byteLength).toBeGreaterThan(0);
+
+    const reloadedBridge = createInMemorySqlitePersistenceBridge();
+    await reloadedBridge.writeBinary('siyuanmemo.db', persistedBytes!);
+    const reloadedDatabase = new WorkerSqliteDatabaseService(reloadedBridge);
+    await reloadedDatabase.load();
+
+    expect(reloadedDatabase.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
+      ['card-review-persist'],
+    )?.count).toBe(1);
   });
 
   it('returns refresh-required queue impact when the projection generation is unavailable', async () => {

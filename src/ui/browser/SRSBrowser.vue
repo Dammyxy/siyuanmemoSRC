@@ -576,6 +576,7 @@ import {
   createBrowserLoadDataRuntime,
   type BrowserLoadDataOptions,
 } from './browserLoadDataRuntime';
+import { shouldReloadQueueAfterSourceExistenceUpdate } from './sourceExistenceUpdatePolicy';
 import { openBrowserSpreadDialog } from './browserSpreadDialog';
 import {
   isNeuralQueueId,
@@ -1462,6 +1463,10 @@ function handleSourceExistenceUpdate(update: BrowserSourceExistenceUpdate): void
   if (statusEntries.length === 0) {
     return;
   }
+  const shouldReloadActiveQueue = shouldReloadQueueAfterSourceExistenceUpdate({
+    activeQueueId: activeQueueId.value,
+    statuses: update.statuses,
+  });
 
   measureRuntimePerformance('source-existence', 'visible-rows-patch.apply', () => {
     const updatedRows: BrowserCard[] = [];
@@ -1506,6 +1511,13 @@ function handleSourceExistenceUpdate(update: BrowserSourceExistenceUpdate): void
     source: update.source,
     statusCount: statusEntries.length,
   });
+
+  if (shouldReloadActiveQueue) {
+    void loadData(false, {
+      origin: 'queue-sync',
+      refreshQueueCounts: false,
+    });
+  }
 }
 
 function scheduleDatasourceUiUpdate(version: number, update: () => void): void {
@@ -2916,7 +2928,7 @@ onMounted(() => {
       logger.info('[SiYuanMemo][SRSBrowser] Received wsSync event:', event);
 
       if (event.success) {
-        logger.info('[SiYuanMemo][SRSBrowser] 鈿?Reloading data due to WebSocket sync...');
+        logger.info('[SiYuanMemo][SRSBrowser] Reloading data due to WebSocket sync...');
         void loadData(true); // Force refresh cache
       } else {
         logger.error('[SiYuanMemo][SRSBrowser] WebSocket sync failed:', event.error);
@@ -2925,7 +2937,7 @@ onMounted(() => {
       }
     });
 
-    logger.info('[SiYuanMemo][SRSBrowser] 鉁?Subscribed to HybridSyncService wsSync events');
+    logger.info('[SiYuanMemo][SRSBrowser] Subscribed to HybridSyncService wsSync events');
   }
 
   // 🆕 触发同步（如果启用）
@@ -2948,28 +2960,28 @@ onMounted(() => {
                                     riffConfig?.incrementalSync?.triggers?.includes('browser-open');
 
     if (shouldSyncOnBrowserOpen) {
-      logger.info('[SiYuanMemo][SRSBrowser] 鉁?Triggering incremental sync on browser open...');
+      logger.info('[SiYuanMemo][SRSBrowser] Triggering incremental sync on browser open...');
 
       void (async () => {
         try {
           await hybridService.incrementalSync();
-          logger.info('[SiYuanMemo][SRSBrowser] 鉁?Incremental sync completed, reloading data...');
+          logger.info('[SiYuanMemo][SRSBrowser] Incremental sync completed, reloading data...');
           await applyInitialBrowserView(true);
         } catch (err) {
-          logger.error('[SiYuanMemo][SRSBrowser] 鉂?Incremental sync failed:', err);
+          logger.error('[SiYuanMemo][SRSBrowser] Incremental sync failed:', err);
           await applyInitialBrowserView(false);
         }
       })();
 
       return;
     } else {
-      logger.info('[SiYuanMemo][SRSBrowser] 鈿狅笍 Auto-sync not triggered, loading data without sync', {
+      logger.info('[SiYuanMemo][SRSBrowser] Auto-sync not triggered, loading data without sync', {
         shouldSyncOnBrowserOpen,
         reason: !shouldSyncOnBrowserOpen ? 'browser-open trigger not configured' : 'browser-open trigger skipped'
       });
     }
   } else {
-    logger.info('[SiYuanMemo][SRSBrowser] 鈿狅笍 HybridSyncService not available');
+    logger.info('[SiYuanMemo][SRSBrowser] HybridSyncService not available');
   }
 
   void applyInitialBrowserView(false);
