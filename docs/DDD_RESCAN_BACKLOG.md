@@ -1,8 +1,58 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-20 (Round 406)
+Last update: 2026-05-20 (Round 411)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-20 - Domain Sync Ledger Source Import
+
+- Task: Implement 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, and 3.7 for OpenSpec `add-anki-style-domain-sync-ledger`.
+- Touched slice: Backend sync conflict/main DB merge / domain sync ledger import; `worker/db/SqliteDatabaseService.ts` and `worker/__tests__/BackendKernel.test.ts`.
+- Debt fixed now: Changed persisted main DB bytes and readable SiYuan conflict DB copies now import missing immutable `domain_sync_operations` before the existing review-event/card merge. Ledger-only imports are treated as real external DB changes so the persisted main DB hash is remembered and repeated scans do not reprocess the same main DB bytes. Successful parsed sources now write `domain_sync_processed_sources` with source id, source fingerprint, source kind, imported/ignored operation counts, imported/ignored review event counts, imported/ignored card counts, and processed timestamp. Empty, invalid, and parse-error sources now write skipped registry diagnostics with zero successful import counts and an explicit skipped reason. Read-only conflict DB loading no longer auto-migrates schema before inspection, so legacy DBs without ledger tables keep their review/card merge behavior and imported formal `review-v2` events are backfilled into the local ledger with `legacy-import:*` source identity. Repeated successful conflict DB fingerprints are now skipped before opening the source DB, preserving the original processed counts. Imported `review-committed` ledger operations remain event-only and do not invalidate queue projections; imported card/source/tombstone-affecting operations carry affected card/block ids into the existing sync-conflict projection invalidation path.
+- Debt deferred: Sanity diagnostics, repair preview/apply, and UI recovery remain pending.
+- Why deferred: 3.1-3.7 complete source import/merge behavior. Sanity and repair require a separate read model over ledger/review/card/tombstone/processed-source evidence.
+- Next safe step: Implement 4.1 domain sync sanity builder.
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts -t "event-only ledger imports|card-affecting ledger imports|imports missing domain sync ledger operations from readable sync conflict database copies" --reporter=dot`.
+
+### 2026-05-20 - Domain Sync Conservative Backfill
+
+- Task: Implement 2.6 for OpenSpec `add-anki-style-domain-sync-ledger`.
+- Touched slice: Backend worker startup/reload / domain sync ledger backfill; `worker/domain-sync/DomainSyncLedger.ts`, `worker/db/SqliteDatabaseService.ts`, and `worker/__tests__/BackendKernel.test.ts`.
+- Debt fixed now: Worker init/reload now detects missing ledger coverage and backfills existing formal `review-v2` events plus card tombstones using migration source identities. Backfill is idempotent, skips non-formal review events, preserves review/tombstone rows, and avoids opening a write transaction when no backfill operations are missing.
+- Debt deferred: Source import/merge, processed-source registry, sanity diagnostics, repair preview/apply, and UI recovery remain pending.
+- Why deferred: 2.6 only establishes local legacy DB coverage. Importing operations from SiYuan-synced sources needs processed-source fingerprint policy and merge diagnostics in P3.
+- Next safe step: Implement 3.1 missing ledger operation import from changed persisted main DB bytes before existing event/card merge.
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts -t "source-existence-updated domain sync|compatible review.feedback retry|card-deleted domain sync|conservatively backfills" --reporter=dot`.
+
+### 2026-05-20 - Domain Sync Source Existence Recording
+
+- Task: Implement 2.5 for OpenSpec `add-anki-style-domain-sync-ledger`.
+- Touched slice: Backend source-existence repair / domain sync ledger / queue projection invalidation; `worker/domain-sync/DomainSyncLedger.ts`, `worker/db/SqliteDatabaseService.ts`, and `worker/__tests__/BackendKernel.test.ts`.
+- Debt fixed now: Backend source-existence sweep now appends one immutable `source-existence-updated` operation when a candidate changes from unknown/present to missing. The write happens inside the backend sweep transaction and preserves the existing `source-existence-changed` queue projection invalidation behavior. Repeated sweeps over already-missing cards do not append duplicate operations.
+- Debt deferred: Conservative ledger backfill, imported ledger operations from synced DB sources, processed-source registry, sanity diagnostics, repair preview/apply, and UI recovery remain pending.
+- Why deferred: 2.5 is limited to the active source-existence repair mutation path. Backfill/import/repair tasks require broader merge diagnostics and replay policy.
+- Next safe step: Implement 2.6 conservative backfill for existing formal `review-v2` events and card tombstones with migration source identity.
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts -t "source-existence-updated domain sync|compatible review.feedback retry|card-deleted domain sync" --reporter=dot`.
+
+### 2026-05-20 - Domain Sync Card Tombstone Recording
+
+- Task: Implement 2.4 for OpenSpec `add-anki-style-domain-sync-ledger`.
+- Touched slice: Backend-owned domain sync ledger / SQLite tombstone persistence; `worker/domain-sync/DomainSyncLedger.ts`, `worker/db/SqliteDatabaseService.ts`, `src/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository.ts`, and `src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts`.
+- Debt fixed now: Card tombstone persistence can now append one immutable `card-deleted` domain sync operation with card id, block id, tombstone timestamp, deleted-by metadata, stable idempotency key, and payload fingerprint. Worker-created repositories inject the backend-owned ledger recorder; UI/kernel/follower code still does not inspect ledger tables directly.
+- Debt deferred: Source-existence update operations, conservative tombstone backfill, import/merge of ledger operations from synced DB sources, processed-source registry, sanity diagnostics, and repair preview/apply remain pending.
+- Why deferred: 2.4 is scoped to deletion/tombstone operation recording. The next tasks cross source-existence repair, sync source import, diagnostics, writer relay, and UI recovery surfaces.
+- Next safe step: Implement 2.5 `source-existence-updated` operations when backend source-existence sweep marks cards missing while preserving existing projection invalidation.
+- Validation: `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts -t "card-deleted domain sync" --reporter=dot`.
+
+### 2026-05-20 - Domain Sync Ledger Review Recording
+
+- Task: Implement P2 minimum vertical slice for OpenSpec `add-anki-style-domain-sync-ledger`.
+- Touched slice: Backend worker review feedback / domain sync ledger; `worker/domain-sync/DomainSyncLedger.ts`, `worker/review/WorkerReviewFeedbackRuntime.ts`, and `worker/__tests__/BackendKernel.test.ts`.
+- Debt fixed now: Added a worker-owned ledger writer for immutable `domain_sync_operations` rows and records one `review-committed` operation inside the existing `review.feedback` SQLite transaction. Compatible `commitIdempotencyKey` retries now prove they leave both `review_events` and domain sync operations at one row.
+- Debt deferred: Card delete, source-existence update, conservative backfill, source import/merge, sanity diagnostics, and repair preview/apply remain pending.
+- Why deferred: P2 is deliberately scoped to review feedback ledger recording; later tasks cross Card CRUD, source-existence repair, merge diagnostics, queue projection, writer relay, and UI contexts.
+- Next safe step: Implement 2.4 `card-deleted` operations on backend-owned tombstone/delete paths without moving ownership to UI/kernel/follower.
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed; existing non-blocking `package.zip` unlink EPERM and i18n warning counts remain).
 
 ### 2026-05-20 - Domain Sync Ledger Schema And Contracts
 

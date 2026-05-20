@@ -63,6 +63,17 @@ interface DeletionTombstone {
   deletedBy?: string;
 }
 
+interface DomainSyncLedgerRecorder {
+  appendCardDeleted(input: {
+    cardId: string;
+    blockId?: string | null;
+    deletedAt: number;
+    deletedBy?: string | null;
+    idempotencyKey?: string | null;
+    payload?: unknown;
+  }): void;
+}
+
 interface WhereClause {
   sql: string;
   params: Array<string | number>;
@@ -341,7 +352,10 @@ function stateRowKey(cardId: string, algorithmId: string): string {
 }
 
 export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
-  constructor(private readonly database: SqliteDatabaseService) {}
+  constructor(
+    private readonly database: SqliteDatabaseService,
+    private readonly options: { domainSyncLedger?: DomainSyncLedgerRecorder } = {},
+  ) {}
 
   async loadStore(_reason: StorageLoadReason = 'unspecified'): Promise<UnifiedCardStore> {
     return this.database.read(() => {
@@ -432,11 +446,23 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         if (!isCardDeletedByActiveTombstone(store.cards?.[id], tombstone)) {
           continue;
         }
+        const deletedAt = normalizeNumber(tombstone.deletedAt) || Date.now();
+        const card = store.cards?.[id];
+        const dto = store.cardDTOs?.[id];
+        const blockId = normalizeString(card?.blockId || dto?.blockId) || null;
         db.run(
           `INSERT INTO tombstones (kind, id, deleted_at, deleted_by, payload_json)
            VALUES (?, ?, ?, ?, ?)`,
-          ['card', id, normalizeNumber(tombstone.deletedAt) || Date.now(), tombstone.deletedBy || null, stringifyJson(tombstone)],
+          ['card', id, deletedAt, tombstone.deletedBy || null, stringifyJson(tombstone)],
         );
+        this.options.domainSyncLedger?.appendCardDeleted({
+          cardId: id,
+          blockId,
+          deletedAt,
+          deletedBy: tombstone.deletedBy || null,
+          idempotencyKey: `card-delete:${id}:${deletedAt}`,
+          payload: tombstone,
+        });
       }
       for (const [id, tombstone] of Object.entries(store.deletedXiuyuans || {})) {
         db.run(

@@ -18,6 +18,7 @@ import type {
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
 } from '../../packages/contracts/src/backend-rpc';
+import { DomainSyncLedger } from '../domain-sync/DomainSyncLedger';
 import { buildQueueProjectionCountersFromRows } from '../queue-projection/WorkerQueueProjectionRuntime';
 
 type ProjectionWorkerQueueType =
@@ -36,6 +37,7 @@ export type WorkerReviewFeedbackRuntimeDeps = {
   repository: Pick<SqlUnifiedStorageRepository, 'getCard' | 'upsertCards' | 'queryCards' | 'touchSyncMetadata'>;
   queueProjection: Pick<SqlQueueProjectionRepository, 'readGeneration' | 'readRows' | 'applyQueueProjectionDelta'> | null;
   runtime: Pick<RuntimeSqliteDatabaseService, 'runTransaction' | 'run' | 'getOne'>;
+  domainSyncLedger?: DomainSyncLedger;
   recordUnavailable?: () => void;
 };
 
@@ -113,6 +115,7 @@ export class WorkerReviewFeedbackRuntime {
 
     const schedulerConfig = resolveWorkerReviewSchedulerConfig(request);
     return await this.deps.runtime.runTransaction('review.feedback', async () => {
+      const domainSyncLedger = this.deps.domainSyncLedger ?? new DomainSyncLedger(this.deps.runtime);
       const card = this.deps.repository.getCard(cardId);
       if (!card) {
         throw new Error(`review.feedback card not found: ${cardId}`);
@@ -206,6 +209,16 @@ export class WorkerReviewFeedbackRuntime {
             JSON.stringify(log),
           ],
         );
+        domainSyncLedger.appendReviewCommitted({
+          reviewEventId: log.id,
+          card,
+          rating,
+          reviewedAt: log.reviewedAt,
+          queueType,
+          queueMode,
+          commitPolicy,
+          idempotencyKey: idempotencyKey ?? null,
+        });
       }
       const queueImpact = this.buildReviewFeedbackQueueImpact({
         queueType,

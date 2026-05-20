@@ -74,6 +74,7 @@ import type { DoOperation } from '@/core/infrastructure/websocket/transaction-ty
 import { AutoCardDecisionService } from './AutoCardDecisionService';
 import { SemanticSessionReadModelBuilder } from '../semantic/SemanticSessionReadModelBuilder';
 import { WorkerReviewFeedbackRuntime } from '../review/WorkerReviewFeedbackRuntime';
+import { DomainSyncLedger } from '../domain-sync/DomainSyncLedger';
 import {
   resolveProjectionQueueType,
   WorkerQueueProjectionRuntime,
@@ -117,6 +118,55 @@ interface ConflictCardRow {
   source_checked_at: number | null;
   source_missing_at: number | null;
   payload_json: string;
+}
+
+interface ConflictDomainSyncOperationRow {
+  operation_id: string;
+  source_id: string;
+  source_device_id: string | null;
+  source_generation: number | null;
+  operation_type: string;
+  entity_type: string;
+  entity_id: string;
+  entity_block_id: string | null;
+  occurred_at: number;
+  observed_at: number;
+  payload_fingerprint: string;
+  idempotency_key: string | null;
+  review_event_id: string | null;
+  payload_json: string;
+}
+
+interface DomainSyncOperationImportResult {
+  imported: number;
+  ignored: number;
+  affectedCardIds: string[];
+  affectedBlockIds: string[];
+}
+
+type DomainSyncProcessedSourceKind =
+  | 'persisted-main-db'
+  | 'siyuan-conflict-db'
+  | 'legacy-db'
+  | 'migration'
+  | 'unknown';
+
+type DomainSyncSkippedSourceReason =
+  | 'unreadable'
+  | 'invalid-bytes'
+  | 'missing-ledger'
+  | 'ledger-invariant-violation'
+  | 'parse-error'
+  | 'source-unavailable'
+  | 'unknown';
+
+interface DomainSyncProcessedSourceCounters {
+  importedOperations: number;
+  ignoredOperations: number;
+  importedReviewEvents: number;
+  ignoredReviewEvents: number;
+  importedCards: number;
+  ignoredCards: number;
 }
 
 interface ConflictSummaryReviewRow {
@@ -409,10 +459,18 @@ export class WorkerSqliteDatabaseService {
       return;
     }
     await this.runtime.init();
-    this.repository = new SqlUnifiedStorageRepository(this.runtime);
+    this.repository = new SqlUnifiedStorageRepository(this.runtime, {
+      domainSyncLedger: new DomainSyncLedger(this.runtime),
+    });
     this.queueProjection = new SqlQueueProjectionRepository(this.runtime);
     this.queueState = new SqlQueueStateRepository(this.runtime);
     this.semanticActivation = new SqlSemanticActivationRepository(this.runtime);
+    const domainSyncLedger = new DomainSyncLedger(this.runtime);
+    if (domainSyncLedger.hasMissingBackfillOperations()) {
+      await this.runtime.runTransaction('domain-sync.backfill-existing', () => {
+        domainSyncLedger.backfillExistingReviewEventsAndCardTombstones();
+      });
+    }
     await this.restoreKernelIngestQueueSnapshot();
     await this.restoreKernelActionQueueSnapshot();
     this.initialized = true;
@@ -504,13 +562,22 @@ export class WorkerSqliteDatabaseService {
       };
     }
 
+    const operationCountBeforeMerge = this.runtime.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_operations',
+    )?.count ?? 0;
     const result = await this.mergeSyncConflictDatabases({
       mergedAt,
       sources,
     });
+    const operationCountAfterMerge = this.runtime.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_operations',
+    )?.count ?? operationCountBeforeMerge;
+    const changed = result.mergedReviewEvents > 0
+      || result.mergedCards > 0
+      || Number(operationCountAfterMerge) > Number(operationCountBeforeMerge);
     if (
       result.skippedSources.length === 0
-      && (result.mergedReviewEvents > 0 || result.mergedCards > 0)
+      && changed
     ) {
       await this.runtime.persist();
       await this.rememberPersistedHash();
@@ -519,7 +586,7 @@ export class WorkerSqliteDatabaseService {
     return {
       ok: true,
       checked: true,
-      changed: result.mergedReviewEvents > 0 || result.mergedCards > 0,
+      changed,
       mergedReviewEvents: result.mergedReviewEvents,
       mergedCards: result.mergedCards,
       ignoredReviewEvents: result.ignoredReviewEvents,
@@ -1195,10 +1262,26 @@ export class WorkerSqliteDatabaseService {
       });
     }
 
-    await this.repository!.updateSourceExistence(updates, checkedAt);
-    if (changedBlockIds.length > 0) {
-      this.invalidateQueueProjectionsForSourceChanges(changedBlockIds, checkedAt);
-    }
+    await this.runtime.runTransaction('source-existence.sweep', async () => {
+      await this.repository!.updateSourceExistence(updates, checkedAt);
+      const domainSyncLedger = new DomainSyncLedger(this.runtime);
+      for (const candidate of candidates) {
+        const exists = existingSet.has(candidate.blockId);
+        if (candidate.sourceExists !== exists && !exists) {
+          domainSyncLedger.appendSourceExistenceUpdated({
+            cardId: candidate.cardId,
+            blockId: candidate.blockId,
+            previousExists: candidate.sourceExists,
+            exists,
+            checkedAt,
+            missingAt: checkedAt,
+          });
+        }
+      }
+      if (changedBlockIds.length > 0) {
+        this.invalidateQueueProjectionsForSourceChanges(changedBlockIds, checkedAt);
+      }
+    });
 
     return {
       checked: candidates.length,
@@ -1224,6 +1307,7 @@ export class WorkerSqliteDatabaseService {
       repository: this.repository!,
       queueProjection: this.queueProjection,
       runtime: this.runtime,
+      domainSyncLedger: new DomainSyncLedger(this.runtime),
       recordUnavailable: () => {
         this.reviewFeedbackUnavailableTotal += 1;
       },
@@ -1286,8 +1370,21 @@ export class WorkerSqliteDatabaseService {
 
     for (const source of sources) {
       const sourceId = String(source?.sourceId || '').trim() || 'unknown';
+      const sourceFingerprint = isUint8ArrayLike(source?.bytes) ? hashBytes(source.bytes) : '';
       if (!isUint8ArrayLike(source?.bytes) || source.bytes.byteLength === 0) {
         result.skippedSources.push({ sourceId, reason: 'invalid-bytes' });
+        this.recordDomainSyncSkippedSource({
+          sourceId,
+          sourceFingerprint,
+          sourceKind: 'unknown',
+          path: source?.path ?? null,
+          processedAt: request.mergedAt,
+          skippedReason: 'invalid-bytes',
+          metadata: { byteLength: isUint8ArrayLike(source?.bytes) ? source.bytes.byteLength : null },
+        });
+        continue;
+      }
+      if (this.hasSuccessfulDomainSyncProcessedSource(sourceId, sourceFingerprint)) {
         continue;
       }
 
@@ -1296,6 +1393,10 @@ export class WorkerSqliteDatabaseService {
         conflictRuntime = new RuntimeSqliteDatabaseService(
           createReadonlyConflictFileService(source.bytes),
           `${sourceId}.db`,
+          {
+            applySchemaOnInit: false,
+            persistOnInit: false,
+          },
         );
         await conflictRuntime.init();
         const reviewEvents = conflictRuntime.getAll<ConflictReviewEventRow>(
@@ -1310,12 +1411,36 @@ export class WorkerSqliteDatabaseService {
            FROM cards
            ORDER BY id`,
         );
+        const hasDomainSyncLedger = this.hasConflictDomainSyncLedger(conflictRuntime);
+        const domainSyncOperations = this.readConflictDomainSyncOperations(conflictRuntime);
+        const sourceKind = this.resolveDomainSyncProcessedSourceKind(sourceId, hasDomainSyncLedger);
+        const conflictCardsById = new Map(cards.map((cardRow) => [String(cardRow.id || '').trim(), cardRow]));
+        const processedCounters: DomainSyncProcessedSourceCounters = {
+          importedOperations: 0,
+          ignoredOperations: 0,
+          importedReviewEvents: 0,
+          ignoredReviewEvents: 0,
+          importedCards: 0,
+          ignoredCards: 0,
+        };
 
         await this.runtime.runTransaction('sync.conflict.merge', async () => {
           let sourceChanged = false;
           const affectedCardIds = new Set<string>();
           const affectedBlockIds = new Set<string>();
           const diagnosticCardIds = new Set<string>();
+          if (domainSyncOperations.length > 0) {
+            const operationImport = this.importMissingDomainSyncOperations(domainSyncOperations);
+            processedCounters.importedOperations += operationImport.imported;
+            processedCounters.ignoredOperations += operationImport.ignored;
+            for (const cardId of operationImport.affectedCardIds) {
+              affectedCardIds.add(cardId);
+            }
+            for (const blockId of operationImport.affectedBlockIds) {
+              affectedBlockIds.add(blockId);
+            }
+            sourceChanged = operationImport.imported > 0 || sourceChanged;
+          }
           for (const event of reviewEvents) {
             const eventCardId = String(event.card_id || '').trim();
             if (eventCardId) {
@@ -1327,6 +1452,7 @@ export class WorkerSqliteDatabaseService {
             );
             if (Number(existing?.count) > 0) {
               result.ignoredReviewEvents += 1;
+              processedCounters.ignoredReviewEvents += 1;
               continue;
             }
             this.runtime.run(
@@ -1346,6 +1472,17 @@ export class WorkerSqliteDatabaseService {
               ],
             );
             result.mergedReviewEvents += 1;
+            processedCounters.importedReviewEvents += 1;
+            if (!hasDomainSyncLedger && event.event_type === 'review-v2') {
+              const ledgerBackfill = this.appendLegacyReviewImportDomainSyncOperation({
+                event,
+                blockId: conflictCardsById.get(eventCardId)?.block_id ?? null,
+                sourceId,
+                observedAt: request.mergedAt,
+              });
+              processedCounters.importedOperations += ledgerBackfill.imported;
+              processedCounters.ignoredOperations += ledgerBackfill.ignored;
+            }
             sourceChanged = true;
           }
 
@@ -1353,6 +1490,7 @@ export class WorkerSqliteDatabaseService {
             const incoming = parseJsonObject<FSRSCard | null>(cardRow.payload_json, null);
             if (!incoming?.id) {
               result.ignoredCards += 1;
+              processedCounters.ignoredCards += 1;
               continue;
             }
             diagnosticCardIds.add(incoming.id);
@@ -1366,11 +1504,13 @@ export class WorkerSqliteDatabaseService {
             );
             if (existing && compareReviewSyncCardFreshness(existing, cardRow) <= 0) {
               result.ignoredCards += 1;
+              processedCounters.ignoredCards += 1;
               continue;
             }
             this.repository!.upsertCard(incoming);
             this.applyIncomingMissingSourceProjection(cardRow, incoming);
             result.mergedCards += 1;
+            processedCounters.importedCards += 1;
             sourceChanged = true;
             affectedCardIds.add(incoming.id);
             const blockId = String(incoming.blockId || '').trim();
@@ -1390,12 +1530,32 @@ export class WorkerSqliteDatabaseService {
               modifiedBy: 'srs-backend-worker:sync.conflict.merge',
             });
           }
+          this.recordDomainSyncProcessedSource({
+            sourceId,
+            sourceFingerprint,
+            sourceKind,
+            path: source.path ?? null,
+            processedAt: request.mergedAt,
+            counters: processedCounters,
+          });
           this.appendReviewCardDivergenceDiagnostics(result.diagnostics.reviewCardDivergences, [...diagnosticCardIds]);
         });
       } catch (error) {
+        const reason = this.resolveDomainSyncSkippedReason(error);
         result.skippedSources.push({
           sourceId,
           reason: error instanceof Error ? error.message : String(error),
+        });
+        this.recordDomainSyncSkippedSource({
+          sourceId,
+          sourceFingerprint,
+          sourceKind: 'unknown',
+          path: source.path ?? null,
+          processedAt: request.mergedAt,
+          skippedReason: reason,
+          metadata: {
+            error: error instanceof Error ? error.message : String(error),
+          },
         });
       } finally {
         conflictRuntime?.dispose();
@@ -1403,6 +1563,306 @@ export class WorkerSqliteDatabaseService {
     }
 
     return result;
+  }
+
+  private readConflictDomainSyncOperations(conflictRuntime: RuntimeSqliteDatabaseService): ConflictDomainSyncOperationRow[] {
+    if (!this.hasConflictDomainSyncLedger(conflictRuntime)) {
+      return [];
+    }
+    return conflictRuntime.getAll<ConflictDomainSyncOperationRow>(
+      `SELECT operation_id, source_id, source_device_id, source_generation, operation_type,
+              entity_type, entity_id, entity_block_id, occurred_at, observed_at,
+              payload_fingerprint, idempotency_key, review_event_id, payload_json
+       FROM domain_sync_operations
+       ORDER BY occurred_at, operation_id`,
+    );
+  }
+
+  private hasConflictDomainSyncLedger(conflictRuntime: RuntimeSqliteDatabaseService): boolean {
+    const hasLedger = conflictRuntime.getOne<{ name: string }>(
+      `SELECT name
+       FROM sqlite_master
+       WHERE type = ? AND name = ?
+       LIMIT 1`,
+      ['table', 'domain_sync_operations'],
+    );
+    return Boolean(hasLedger);
+  }
+
+  private importMissingDomainSyncOperations(rows: ConflictDomainSyncOperationRow[]): DomainSyncOperationImportResult {
+    const result: DomainSyncOperationImportResult = {
+      imported: 0,
+      ignored: 0,
+      affectedCardIds: [],
+      affectedBlockIds: [],
+    };
+    for (const row of rows) {
+      const operationId = String(row.operation_id || '').trim();
+      const operationType = String(row.operation_type || '').trim();
+      const entityType = String(row.entity_type || '').trim();
+      const entityId = String(row.entity_id || '').trim();
+      const payloadFingerprint = String(row.payload_fingerprint || '').trim();
+      const payloadJson = String(row.payload_json || '').trim();
+      if (!operationId || !operationType || !entityType || !entityId || !payloadFingerprint || !payloadJson) {
+        result.ignored += 1;
+        continue;
+      }
+      const existing = this.runtime.getOne<{ count: number }>(
+        'SELECT COUNT(*) AS count FROM domain_sync_operations WHERE operation_id = ?',
+        [operationId],
+      );
+      if (Number(existing?.count) > 0) {
+        result.ignored += 1;
+        continue;
+      }
+      this.runtime.run(
+        `INSERT OR IGNORE INTO domain_sync_operations
+          (operation_id, source_id, source_device_id, source_generation, operation_type,
+           entity_type, entity_id, entity_block_id, occurred_at, observed_at,
+           payload_fingerprint, idempotency_key, review_event_id, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          operationId,
+          String(row.source_id || '').trim() || 'unknown',
+          row.source_device_id || null,
+          row.source_generation ?? null,
+          operationType,
+          entityType,
+          entityId,
+          row.entity_block_id || null,
+          Number(row.occurred_at) || Date.now(),
+          Number(row.observed_at) || Date.now(),
+          payloadFingerprint,
+          row.idempotency_key || null,
+          row.review_event_id || null,
+          payloadJson,
+        ],
+      );
+      const inserted = this.runtime.getOne<{ count: number }>(
+        'SELECT COUNT(*) AS count FROM domain_sync_operations WHERE operation_id = ?',
+        [operationId],
+      );
+      if (Number(inserted?.count) > 0) {
+        result.imported += 1;
+        this.collectDomainSyncOperationAffectedEntities(row, result);
+      } else {
+        result.ignored += 1;
+      }
+    }
+    return result;
+  }
+
+  private collectDomainSyncOperationAffectedEntities(
+    row: ConflictDomainSyncOperationRow,
+    result: DomainSyncOperationImportResult,
+  ): void {
+    const operationType = String(row.operation_type || '').trim();
+    if (operationType === 'review-committed') {
+      return;
+    }
+    if (![
+      'card-upserted',
+      'card-deleted',
+      'source-existence-updated',
+      'queue-projection-invalidated',
+      'repair-applied',
+    ].includes(operationType)) {
+      return;
+    }
+    const entityId = String(row.entity_id || '').trim();
+    const blockId = String(row.entity_block_id || '').trim();
+    if (entityId && !result.affectedCardIds.includes(entityId)) {
+      result.affectedCardIds.push(entityId);
+    }
+    if (blockId && !result.affectedBlockIds.includes(blockId)) {
+      result.affectedBlockIds.push(blockId);
+    }
+  }
+
+  private appendLegacyReviewImportDomainSyncOperation(input: {
+    event: ConflictReviewEventRow;
+    blockId: string | null;
+    sourceId: string;
+    observedAt: number | undefined;
+  }): DomainSyncOperationImportResult {
+    const reviewEventId = String(input.event.id || '').trim();
+    const cardId = String(input.event.card_id || '').trim();
+    if (!reviewEventId || !cardId) {
+      return { imported: 0, ignored: 1, affectedCardIds: [], affectedBlockIds: [] };
+    }
+    const idempotencyKey = `legacy-review:${reviewEventId}`;
+    const payload = {
+      reviewEventId,
+      cardId,
+      blockId: String(input.blockId || '').trim() || null,
+      attemptId: String(input.event.attempt_id || '').trim() || null,
+      rating: Number.isFinite(Number(input.event.rating)) ? Number(input.event.rating) : null,
+      reviewedAt: Number(input.event.reviewed_at) || Date.now(),
+      eventType: input.event.event_type || 'review-v2',
+      legacySourceId: input.sourceId,
+      idempotencyKey,
+    };
+    const payloadJson = JSON.stringify(payload);
+    const operationId = `domain-sync:review-committed:${this.fnv1a32(`${cardId}:${reviewEventId}`)}`;
+    const existing = this.runtime.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM domain_sync_operations
+       WHERE operation_id = ?
+          OR (operation_type = ? AND idempotency_key = ?)`,
+      [operationId, 'review-committed', idempotencyKey],
+    );
+    if (Number(existing?.count) > 0) {
+      return { imported: 0, ignored: 1, affectedCardIds: [], affectedBlockIds: [] };
+    }
+    this.runtime.run(
+      `INSERT OR IGNORE INTO domain_sync_operations
+        (operation_id, source_id, source_device_id, source_generation, operation_type,
+         entity_type, entity_id, entity_block_id, occurred_at, observed_at,
+         payload_fingerprint, idempotency_key, review_event_id, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        operationId,
+        `legacy-import:${input.sourceId}`,
+        null,
+        null,
+        'review-committed',
+        'card',
+        cardId,
+        payload.blockId,
+        payload.reviewedAt,
+        Number(input.observedAt) || Date.now(),
+        this.fnv1a32(payloadJson),
+        idempotencyKey,
+        reviewEventId,
+        payloadJson,
+      ],
+    );
+    const inserted = this.runtime.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_operations WHERE operation_id = ?',
+      [operationId],
+    );
+    return Number(inserted?.count) > 0
+      ? { imported: 1, ignored: 0, affectedCardIds: [], affectedBlockIds: [] }
+      : { imported: 0, ignored: 1, affectedCardIds: [], affectedBlockIds: [] };
+  }
+
+  private resolveDomainSyncProcessedSourceKind(
+    sourceId: string,
+    hasLedger: boolean,
+  ): DomainSyncProcessedSourceKind {
+    if (sourceId === 'siyuan-sync:siyuanmemo.db') {
+      return 'persisted-main-db';
+    }
+    if (sourceId.startsWith('siyuan-sync-conflict:')) {
+      return hasLedger ? 'siyuan-conflict-db' : 'legacy-db';
+    }
+    return hasLedger ? 'unknown' : 'legacy-db';
+  }
+
+  private recordDomainSyncProcessedSource(input: {
+    sourceId: string;
+    sourceFingerprint: string;
+    sourceKind: DomainSyncProcessedSourceKind;
+    path: string | null;
+    processedAt: number | undefined;
+    counters: DomainSyncProcessedSourceCounters;
+  }): void {
+    const processedAt = Number(input.processedAt) || Date.now();
+    this.runtime.run(
+      `INSERT OR REPLACE INTO domain_sync_processed_sources
+        (source_id, source_fingerprint, source_kind, path, processed_at,
+         imported_operations, ignored_operations, imported_review_events, ignored_review_events,
+         imported_cards, ignored_cards, skipped_reason, latest_sanity_status, metadata_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.sourceId,
+        input.sourceFingerprint,
+        input.sourceKind,
+        input.path,
+        processedAt,
+        input.counters.importedOperations,
+        input.counters.ignoredOperations,
+        input.counters.importedReviewEvents,
+        input.counters.ignoredReviewEvents,
+        input.counters.importedCards,
+        input.counters.ignoredCards,
+        null,
+        null,
+        JSON.stringify({
+          sourceId: input.sourceId,
+          sourceKind: input.sourceKind,
+          processedAt,
+        }),
+      ],
+    );
+  }
+
+  private hasSuccessfulDomainSyncProcessedSource(sourceId: string, sourceFingerprint: string): boolean {
+    const existing = this.runtime.getOne<{ present: number }>(
+      `SELECT 1 AS present
+       FROM domain_sync_processed_sources
+       WHERE source_id = ?
+         AND source_fingerprint = ?
+         AND skipped_reason IS NULL
+       LIMIT 1`,
+      [sourceId, sourceFingerprint],
+    );
+    return Boolean(existing);
+  }
+
+  private resolveDomainSyncSkippedReason(error: unknown): DomainSyncSkippedSourceReason {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/invariant/i.test(message)) {
+      return 'ledger-invariant-violation';
+    }
+    if (/unavailable|denied|permission/i.test(message)) {
+      return 'source-unavailable';
+    }
+    if (/sqlite|database|file|parse|malformed|corrupt/i.test(message)) {
+      return 'parse-error';
+    }
+    return 'unknown';
+  }
+
+  private recordDomainSyncSkippedSource(input: {
+    sourceId: string;
+    sourceFingerprint: string;
+    sourceKind: DomainSyncProcessedSourceKind;
+    path: string | null;
+    processedAt: number | undefined;
+    skippedReason: DomainSyncSkippedSourceReason;
+    metadata: Record<string, unknown>;
+  }): void {
+    const processedAt = Number(input.processedAt) || Date.now();
+    this.runtime.run(
+      `INSERT OR REPLACE INTO domain_sync_processed_sources
+        (source_id, source_fingerprint, source_kind, path, processed_at,
+         imported_operations, ignored_operations, imported_review_events, ignored_review_events,
+         imported_cards, ignored_cards, skipped_reason, latest_sanity_status, metadata_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.sourceId,
+        input.sourceFingerprint,
+        input.sourceKind,
+        input.path,
+        processedAt,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        input.skippedReason,
+        null,
+        JSON.stringify({
+          sourceId: input.sourceId,
+          sourceKind: input.sourceKind,
+          skippedReason: input.skippedReason,
+          processedAt,
+          ...input.metadata,
+        }),
+      ],
+    );
   }
 
   private appendReviewCardDivergenceDiagnostics(

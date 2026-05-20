@@ -146,6 +146,47 @@ async function seedReviewEvent(database: WorkerSqliteDatabaseService, input: {
   });
 }
 
+async function seedDomainSyncOperation(database: WorkerSqliteDatabaseService, input: {
+  operationId: string;
+  sourceId?: string;
+  operationType?: string;
+  entityType?: string;
+  entityId?: string;
+  entityBlockId?: string | null;
+  occurredAt?: number;
+  observedAt?: number;
+  payloadFingerprint?: string;
+  idempotencyKey?: string | null;
+  reviewEventId?: string | null;
+  payload?: unknown;
+}): Promise<void> {
+  await database.runTransaction(`seed.domain-sync-operation.${input.operationId}`, (db) => {
+    db.run(
+      `INSERT INTO domain_sync_operations
+        (operation_id, source_id, source_device_id, source_generation, operation_type,
+         entity_type, entity_id, entity_block_id, occurred_at, observed_at,
+         payload_fingerprint, idempotency_key, review_event_id, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.operationId,
+        input.sourceId ?? 'test-source',
+        null,
+        null,
+        input.operationType ?? 'review-committed',
+        input.entityType ?? 'card',
+        input.entityId ?? 'card-domain-sync-import',
+        input.entityBlockId ?? 'block-domain-sync-import',
+        input.occurredAt ?? 1_700_000_700_000,
+        input.observedAt ?? 1_700_000_700_001,
+        input.payloadFingerprint ?? 'abc12345',
+        input.idempotencyKey ?? `test:${input.operationId}`,
+        input.reviewEventId ?? null,
+        JSON.stringify(input.payload ?? { seeded: true }),
+      ],
+    );
+  });
+}
+
 async function seedNeuralRoamHyperspaceSource(
   database: WorkerSqliteDatabaseService,
   sourceId: string | string[] = 'neural-source-1',
@@ -370,6 +411,46 @@ describe('BackendKernel', () => {
       'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
       ['card-review-retry-idempotent'],
     )?.count).toBe(1);
+    expect(database.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM domain_sync_operations
+       WHERE operation_type = ? AND entity_id = ?`,
+      ['review-committed', 'card-review-retry-idempotent'],
+    )?.count).toBe(1);
+    const ledgerRow = database.getOne<{
+      operation_type: string;
+      entity_type: string;
+      entity_id: string;
+      entity_block_id: string | null;
+      idempotency_key: string | null;
+      review_event_id: string | null;
+      payload_fingerprint: string;
+      payload_json: string;
+    }>(
+      `SELECT operation_type, entity_type, entity_id, entity_block_id,
+              idempotency_key, review_event_id, payload_fingerprint, payload_json
+       FROM domain_sync_operations
+       WHERE operation_type = ? AND entity_id = ?
+       ORDER BY occurred_at, operation_id`,
+      ['review-committed', 'card-review-retry-idempotent'],
+    );
+    expect(ledgerRow).toMatchObject({
+      operation_type: 'review-committed',
+      entity_type: 'card',
+      entity_id: 'card-review-retry-idempotent',
+      entity_block_id: 'block-1',
+      idempotency_key: 'review-commit:retry-same-action',
+    });
+    expect(ledgerRow?.review_event_id).toMatch(/^v2:card-review-retry-idempotent:/);
+    expect(ledgerRow?.payload_fingerprint).toMatch(/^[0-9a-f]{8}$/);
+    expect(JSON.parse(ledgerRow?.payload_json || '{}')).toMatchObject({
+      cardId: 'card-review-retry-idempotent',
+      rating: 3,
+      queueType: 'retrieval-practice',
+      queueMode: 'formal',
+      commitPolicy: 'write-schedule',
+      idempotencyKey: 'review-commit:retry-same-action',
+    });
     expect(afterRetry?.reps).toBe(afterFirst?.reps);
     expect(afterRetry?.lastReview).toBe(afterFirst?.lastReview);
   });
@@ -659,6 +740,393 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('imports missing domain sync ledger operations from changed persisted main DB bytes', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({ id: 'local-main-import-card', blockId: 'local-main-import-block' })]);
+
+    const externalBridge = createInMemorySqlitePersistenceBridge();
+    const externalDatabase = new WorkerSqliteDatabaseService(externalBridge);
+    await seedDomainSyncOperation(externalDatabase, {
+      operationId: 'domain-sync-main-import-1',
+      sourceId: 'phone-main-db',
+      operationType: 'review-committed',
+      entityId: 'remote-review-card',
+      entityBlockId: 'remote-review-block',
+      reviewEventId: 'remote-review-event-1',
+      idempotencyKey: 'review:remote-review-event-1',
+    });
+    await externalDatabase.persist();
+    const externalBytes = await externalBridge.readBinary('siyuanmemo.db');
+    expect(externalBytes).toBeTruthy();
+    await persistenceBridge.writeBinary('siyuanmemo.db', externalBytes!);
+
+    const result = await database.mergeExternalDatabaseIfChanged(1_700_000_900_000);
+
+    expect(result).toMatchObject({
+      ok: true,
+      checked: true,
+      changed: true,
+      mergedReviewEvents: 0,
+      mergedCards: 0,
+      skippedSources: [],
+    });
+    const imported = database.getOne<{
+      operation_type: string;
+      source_id: string;
+      review_event_id: string | null;
+      payload_json: string;
+    }>(
+      `SELECT operation_type, source_id, review_event_id, payload_json
+       FROM domain_sync_operations
+       WHERE operation_id = ?`,
+      ['domain-sync-main-import-1'],
+    );
+    expect(imported).toMatchObject({
+      operation_type: 'review-committed',
+      source_id: 'phone-main-db',
+      review_event_id: 'remote-review-event-1',
+      payload_json: JSON.stringify({ seeded: true }),
+    });
+    expect(database.getOne<{
+      source_kind: string;
+      imported_operations: number;
+      ignored_operations: number;
+      imported_review_events: number;
+      imported_cards: number;
+    }>(
+      `SELECT source_kind, imported_operations, ignored_operations, imported_review_events, imported_cards
+       FROM domain_sync_processed_sources
+       WHERE source_id = ?`,
+      ['siyuan-sync:siyuanmemo.db'],
+    )).toMatchObject({
+      source_kind: 'persisted-main-db',
+      imported_operations: 1,
+      ignored_operations: 0,
+      imported_review_events: 0,
+      imported_cards: 0,
+    });
+
+    const repeated = await database.mergeExternalDatabaseIfChanged(1_700_000_900_001);
+    expect(repeated.changed).toBe(false);
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_operations WHERE operation_id = ?',
+      ['domain-sync-main-import-1'],
+    )?.count).toBe(1);
+  });
+
+  it('imports missing domain sync ledger operations from readable sync conflict database copies', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await seedDomainSyncOperation(conflictDatabase, {
+      operationId: 'domain-sync-conflict-import-1',
+      sourceId: 'tablet-conflict-db',
+      operationType: 'card-deleted',
+      entityId: 'deleted-conflict-card',
+      entityBlockId: 'deleted-conflict-block',
+      idempotencyKey: 'card-delete:deleted-conflict-card:1700000800000',
+      payload: { deletedAt: 1_700_000_800_000 },
+    });
+    await conflictDatabase.persist();
+    const conflictBytes = await conflictBridge.readBinary('siyuanmemo.db');
+    expect(conflictBytes).toBeTruthy();
+
+    const result = await database.mergeSyncConflictDatabases({
+      mergedAt: 1_700_000_901_000,
+      sources: [{ sourceId: 'siyuan-sync-conflict:ledger-only', bytes: conflictBytes! }],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      sources: 1,
+      mergedReviewEvents: 0,
+      mergedCards: 0,
+      skippedSources: [],
+    });
+    const imported = database.getOne<{
+      operation_type: string;
+      source_id: string;
+      entity_id: string;
+      entity_block_id: string | null;
+      payload_json: string;
+    }>(
+      `SELECT operation_type, source_id, entity_id, entity_block_id, payload_json
+       FROM domain_sync_operations
+       WHERE operation_id = ?`,
+      ['domain-sync-conflict-import-1'],
+    );
+    expect(imported).toMatchObject({
+      operation_type: 'card-deleted',
+      source_id: 'tablet-conflict-db',
+      entity_id: 'deleted-conflict-card',
+      entity_block_id: 'deleted-conflict-block',
+      payload_json: JSON.stringify({ deletedAt: 1_700_000_800_000 }),
+    });
+    expect(database.getOne<{
+      source_kind: string;
+      imported_operations: number;
+      ignored_operations: number;
+      imported_review_events: number;
+      imported_cards: number;
+    }>(
+      `SELECT source_kind, imported_operations, ignored_operations, imported_review_events, imported_cards
+       FROM domain_sync_processed_sources
+       WHERE source_id = ?`,
+      ['siyuan-sync-conflict:ledger-only'],
+    )).toMatchObject({
+      source_kind: 'siyuan-conflict-db',
+      imported_operations: 1,
+      ignored_operations: 0,
+      imported_review_events: 0,
+      imported_cards: 0,
+    });
+
+    const repeated = await database.mergeSyncConflictDatabases({
+      mergedAt: 1_700_000_901_001,
+      sources: [{ sourceId: 'siyuan-sync-conflict:ledger-only', bytes: conflictBytes! }],
+    });
+    expect(repeated).toMatchObject({
+      ok: true,
+      sources: 1,
+      mergedReviewEvents: 0,
+      mergedCards: 0,
+      skippedSources: [],
+    });
+    expect(database.getOne<{
+      imported_operations: number;
+      ignored_operations: number;
+    }>(
+      `SELECT imported_operations, ignored_operations
+       FROM domain_sync_processed_sources
+       WHERE source_id = ?`,
+      ['siyuan-sync-conflict:ledger-only'],
+    )).toMatchObject({
+      imported_operations: 1,
+      ignored_operations: 0,
+    });
+  });
+
+  it('records skipped domain sync source diagnostics without successful processed counts', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+
+    const result = await database.mergeSyncConflictDatabases({
+      mergedAt: 1_700_000_902_000,
+      sources: [
+        { sourceId: 'empty-source', bytes: new Uint8Array() },
+        { sourceId: 'broken-source', bytes: new Uint8Array([
+          ..."SQLite format 3\0".split('').map((char) => char.charCodeAt(0)),
+          1,
+          2,
+          3,
+        ]) },
+      ],
+    });
+
+    expect(result.skippedSources).toEqual([
+      { sourceId: 'empty-source', reason: 'invalid-bytes' },
+      expect.objectContaining({ sourceId: 'broken-source' }),
+    ]);
+    const brokenSkipped = database.getOne<{
+      source_id: string;
+      skipped_reason: string;
+      imported_operations: number;
+      imported_review_events: number;
+      imported_cards: number;
+    }>(
+      `SELECT source_id, skipped_reason, imported_operations, imported_review_events, imported_cards
+       FROM domain_sync_processed_sources
+       WHERE source_id = ?`,
+      ['broken-source'],
+    );
+    const emptySkipped = database.getOne<{
+      source_id: string;
+      skipped_reason: string;
+      imported_operations: number;
+      imported_review_events: number;
+      imported_cards: number;
+    }>(
+      `SELECT source_id, skipped_reason, imported_operations, imported_review_events, imported_cards
+       FROM domain_sync_processed_sources
+       WHERE source_id = ?`,
+      ['empty-source'],
+    );
+    expect(brokenSkipped).toMatchObject({
+      source_id: 'broken-source',
+      skipped_reason: 'parse-error',
+      imported_operations: 0,
+      imported_review_events: 0,
+      imported_cards: 0,
+    });
+    expect(emptySkipped).toMatchObject({
+      source_id: 'empty-source',
+      skipped_reason: 'invalid-bytes',
+      imported_operations: 0,
+      imported_review_events: 0,
+      imported_cards: 0,
+    });
+  });
+
+  it('keeps legacy DB merge behavior and backfills imported formal review events into the local ledger', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    const reviewedAt = 1_700_000_903_000;
+
+    const legacyBridge = createInMemorySqlitePersistenceBridge();
+    const legacyDatabase = new WorkerSqliteDatabaseService(legacyBridge);
+    await legacyDatabase.upsertCards([
+      buildCard({
+        id: 'legacy-card',
+        blockId: 'legacy-block',
+        reps: 2,
+        lastReview: reviewedAt,
+        updatedAt: reviewedAt,
+      }),
+    ]);
+    await seedReviewEvent(legacyDatabase, {
+      id: 'legacy-review-event-1',
+      cardId: 'legacy-card',
+      reviewedAt,
+      payload: { source: 'legacy-db' },
+    });
+    await legacyDatabase.runTransaction('legacy.drop-domain-sync-ledger', (db) => {
+      db.run('DROP TABLE domain_sync_operations');
+    });
+    await legacyDatabase.persist();
+    const legacyBytes = await legacyBridge.readBinary('siyuanmemo.db');
+    expect(legacyBytes).toBeTruthy();
+
+    const result = await currentDatabase.mergeSyncConflictDatabases({
+      mergedAt: reviewedAt + 1,
+      sources: [{ sourceId: 'legacy-conflict-db', bytes: legacyBytes! }],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      sources: 1,
+      mergedReviewEvents: 1,
+      mergedCards: 1,
+      skippedSources: [],
+    });
+    expect(await currentDatabase.getCard('legacy-card')).toMatchObject({
+      id: 'legacy-card',
+      blockId: 'legacy-block',
+      reps: 2,
+    });
+    expect(currentDatabase.getOne<{
+      source_id: string;
+      operation_type: string;
+      entity_id: string;
+      entity_block_id: string | null;
+      review_event_id: string | null;
+    }>(
+      `SELECT source_id, operation_type, entity_id, entity_block_id, review_event_id
+       FROM domain_sync_operations
+       WHERE review_event_id = ?`,
+      ['legacy-review-event-1'],
+    )).toMatchObject({
+      source_id: 'legacy-import:legacy-conflict-db',
+      operation_type: 'review-committed',
+      entity_id: 'legacy-card',
+      entity_block_id: 'legacy-block',
+      review_event_id: 'legacy-review-event-1',
+    });
+    expect(currentDatabase.getOne<{
+      source_kind: string;
+      imported_operations: number;
+      imported_review_events: number;
+      imported_cards: number;
+    }>(
+      `SELECT source_kind, imported_operations, imported_review_events, imported_cards
+       FROM domain_sync_processed_sources
+       WHERE source_id = ?`,
+      ['legacy-conflict-db'],
+    )).toMatchObject({
+      source_kind: 'legacy-db',
+      imported_operations: 1,
+      imported_review_events: 1,
+      imported_cards: 1,
+    });
+  });
+
+  it('does not invalidate queue projections for event-only ledger imports', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    await seedQueueProjection(currentDatabase, {
+      queueType: 'retrieval-practice',
+      rows: [buildCard({ id: 'event-only-card', blockId: 'event-only-block' })],
+    });
+
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await seedDomainSyncOperation(conflictDatabase, {
+      operationId: 'domain-sync-event-only-import-1',
+      operationType: 'review-committed',
+      entityId: 'event-only-card',
+      entityBlockId: 'event-only-block',
+      reviewEventId: 'event-only-review-1',
+      idempotencyKey: 'review:event-only-review-1',
+    });
+    await conflictDatabase.persist();
+    const conflictBytes = await conflictBridge.readBinary('siyuanmemo.db');
+    expect(conflictBytes).toBeTruthy();
+
+    await currentDatabase.mergeSyncConflictDatabases({
+      mergedAt: 1_700_000_904_000,
+      sources: [{ sourceId: 'event-only-ledger-source', bytes: conflictBytes! }],
+    });
+
+    expect(currentDatabase.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM queue_projection_invalidations',
+    )?.count).toBe(0);
+  });
+
+  it('invalidates queue projections for card-affecting ledger imports', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    await seedQueueProjection(currentDatabase, {
+      queueType: 'retrieval-practice',
+      rows: [buildCard({ id: 'card-affecting-import-card', blockId: 'card-affecting-import-block' })],
+    });
+
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await seedDomainSyncOperation(conflictDatabase, {
+      operationId: 'domain-sync-card-affecting-import-1',
+      operationType: 'card-deleted',
+      entityId: 'card-affecting-import-card',
+      entityBlockId: 'card-affecting-import-block',
+      idempotencyKey: 'card-delete:card-affecting-import-card:1700000904000',
+      payload: { deletedAt: 1_700_000_904_000 },
+    });
+    await conflictDatabase.persist();
+    const conflictBytes = await conflictBridge.readBinary('siyuanmemo.db');
+    expect(conflictBytes).toBeTruthy();
+
+    await currentDatabase.mergeSyncConflictDatabases({
+      mergedAt: 1_700_000_904_001,
+      sources: [{ sourceId: 'card-affecting-ledger-source', bytes: conflictBytes! }],
+    });
+
+    const invalidation = currentDatabase.getOne<{
+      reason: string;
+      affected_card_ids_json: string;
+      affected_block_ids_json: string;
+    }>(
+      `SELECT reason, affected_card_ids_json, affected_block_ids_json
+       FROM queue_projection_invalidations
+       WHERE reason = ?
+       LIMIT 1`,
+      ['sync-conflict-merge'],
+    );
+    expect(invalidation?.reason).toBe('sync-conflict-merge');
+    expect(JSON.parse(invalidation?.affected_card_ids_json || '[]')).toContain('card-affecting-import-card');
+    expect(JSON.parse(invalidation?.affected_block_ids_json || '[]')).toContain('card-affecting-import-block');
+  });
+
   it('invalidates queue projections when synced conflict merge changes cards', async () => {
     const currentBridge = createInMemorySqlitePersistenceBridge();
     const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
@@ -787,6 +1255,233 @@ describe('BackendKernel', () => {
       source_exists: 0,
       source_checked_at: checkedAt + 1,
       source_missing_at: checkedAt + 1,
+    });
+  });
+
+  it('records source-existence-updated domain sync operations when sweep marks cards missing', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+    const checkedAt = 1_779_401_000_000;
+    await database.upsertCards([
+      buildCard({
+        id: 'card-source-ledger-missing',
+        blockId: 'block-source-ledger-missing',
+        due: checkedAt - 1_000,
+        updatedAt: checkedAt - 10_000,
+      }),
+    ]);
+    await seedQueueProjection(database, {
+      rows: [buildCard({
+        id: 'card-source-ledger-missing',
+        blockId: 'block-source-ledger-missing',
+        due: checkedAt - 1_000,
+      })],
+      updatedAt: checkedAt - 1,
+    });
+
+    const first = await kernel.handle({
+      id: 'source-existence-ledger-first',
+      jsonrpc: '2.0',
+      method: 'browser.sourceExistence.applySweep',
+      params: [{
+        request: { blockIds: ['block-source-ledger-missing'], force: true },
+        existingBlockIds: [],
+        checkedAt,
+      }],
+    });
+    const retry = await kernel.handle({
+      id: 'source-existence-ledger-retry',
+      jsonrpc: '2.0',
+      method: 'browser.sourceExistence.applySweep',
+      params: [{
+        request: { blockIds: ['block-source-ledger-missing'], force: true },
+        existingBlockIds: [],
+        checkedAt,
+      }],
+    });
+
+    expect(first).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        checked: 1,
+        updated: 1,
+        changed: true,
+        changedToMissing: true,
+        changedBlockIds: ['block-source-ledger-missing'],
+      }),
+    }));
+    expect(retry).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        checked: 0,
+        updated: 0,
+        changed: false,
+        changedToMissing: false,
+        changedBlockIds: [],
+      }),
+    }));
+    expect(database.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM domain_sync_operations
+       WHERE operation_type = ? AND entity_id = ?`,
+      ['source-existence-updated', 'card-source-ledger-missing'],
+    )?.count).toBe(1);
+    const ledgerRow = database.getOne<{
+      operation_type: string;
+      entity_id: string;
+      entity_block_id: string | null;
+      idempotency_key: string | null;
+      payload_fingerprint: string;
+      payload_json: string;
+    }>(
+      `SELECT operation_type, entity_id, entity_block_id, idempotency_key, payload_fingerprint, payload_json
+       FROM domain_sync_operations
+       WHERE operation_type = ? AND entity_id = ?`,
+      ['source-existence-updated', 'card-source-ledger-missing'],
+    );
+    expect(ledgerRow).toMatchObject({
+      operation_type: 'source-existence-updated',
+      entity_id: 'card-source-ledger-missing',
+      entity_block_id: 'block-source-ledger-missing',
+      idempotency_key: 'source-existence:card-source-ledger-missing:block-source-ledger-missing:1779401000000:missing',
+    });
+    expect(ledgerRow?.payload_fingerprint).toMatch(/^[0-9a-f]{8}$/);
+    expect(JSON.parse(ledgerRow?.payload_json || '{}')).toMatchObject({
+      cardId: 'card-source-ledger-missing',
+      blockId: 'block-source-ledger-missing',
+      previousExists: null,
+      exists: false,
+      checkedAt,
+      missingAt: checkedAt,
+    });
+    expect(database.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM queue_projection_generations
+       WHERE queue_type = ? AND status = ? AND rebuild_reason = ?`,
+      ['retrieval-practice', 'invalidated', 'source-existence-changed'],
+    )?.count).toBe(1);
+  });
+
+  it('conservatively backfills existing formal reviews and card tombstones into domain sync ledger', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const reviewedAt = 1_779_402_000_000;
+    await database.upsertCards([
+      buildCard({
+        id: 'card-backfill-review',
+        blockId: 'block-backfill-review',
+        lastReview: reviewedAt,
+      }),
+      buildCard({
+        id: 'card-backfill-delete',
+        blockId: 'block-backfill-delete',
+      }),
+    ]);
+    await database.runTransaction('seed.domain-sync-backfill', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, year, month, commit_idempotency_key, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'review-backfill-formal',
+          'card-backfill-review',
+          'attempt-backfill-formal',
+          4,
+          reviewedAt,
+          2026,
+          5,
+          null,
+          'review-v2',
+          '{}',
+        ],
+      );
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, year, month, commit_idempotency_key, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'review-backfill-nonformal',
+          'card-backfill-review',
+          'attempt-backfill-nonformal',
+          3,
+          reviewedAt + 1,
+          2026,
+          5,
+          null,
+          'drill',
+          '{}',
+        ],
+      );
+      db.run(
+        `INSERT INTO tombstones (kind, id, deleted_at, deleted_by, payload_json)
+         VALUES (?, ?, ?, ?, ?)`,
+        ['card', 'card-backfill-delete', reviewedAt + 2, 'migration-test', '{}'],
+      );
+    });
+
+    await database.reloadFromDisk();
+    await database.reloadFromDisk();
+
+    expect(database.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM domain_sync_operations
+       WHERE operation_type = ? AND entity_id = ?`,
+      ['review-committed', 'card-backfill-review'],
+    )?.count).toBe(1);
+    expect(database.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM domain_sync_operations
+       WHERE operation_type = ? AND entity_id = ?`,
+      ['card-deleted', 'card-backfill-delete'],
+    )?.count).toBe(1);
+    expect(database.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM domain_sync_operations
+       WHERE review_event_id = ?`,
+      ['review-backfill-nonformal'],
+    )?.count).toBe(0);
+    const reviewLedger = database.getOne<{
+      source_id: string;
+      review_event_id: string | null;
+      entity_block_id: string | null;
+      idempotency_key: string | null;
+      payload_json: string;
+    }>(
+      `SELECT source_id, review_event_id, entity_block_id, idempotency_key, payload_json
+       FROM domain_sync_operations
+       WHERE operation_type = ? AND entity_id = ?`,
+      ['review-committed', 'card-backfill-review'],
+    );
+    expect(reviewLedger).toMatchObject({
+      source_id: 'migration:domain-sync-ledger:review-events',
+      review_event_id: 'review-backfill-formal',
+      entity_block_id: 'block-backfill-review',
+      idempotency_key: null,
+    });
+    expect(JSON.parse(reviewLedger?.payload_json || '{}')).toMatchObject({
+      migrationSource: 'existing-review-events',
+      reviewEventId: 'review-backfill-formal',
+      cardId: 'card-backfill-review',
+    });
+    const tombstoneLedger = database.getOne<{
+      source_id: string;
+      entity_block_id: string | null;
+      idempotency_key: string | null;
+      payload_json: string;
+    }>(
+      `SELECT source_id, entity_block_id, idempotency_key, payload_json
+       FROM domain_sync_operations
+       WHERE operation_type = ? AND entity_id = ?`,
+      ['card-deleted', 'card-backfill-delete'],
+    );
+    expect(tombstoneLedger).toMatchObject({
+      source_id: 'migration:domain-sync-ledger:card-tombstones',
+      entity_block_id: 'block-backfill-delete',
+      idempotency_key: 'migration-card-delete:card-backfill-delete:1779402000002',
+    });
+    expect(JSON.parse(tombstoneLedger?.payload_json || '{}')).toMatchObject({
+      migrationSource: 'existing-card-tombstones',
+      cardId: 'card-backfill-delete',
+      deletedBy: 'migration-test',
     });
   });
 

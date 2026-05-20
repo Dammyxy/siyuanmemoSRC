@@ -14,6 +14,10 @@ const logger = createLogger('SqliteDatabaseService');
 
 type SqlParams = SqlValue[] | ParamsObject;
 type TransactionOptions = { persist?: boolean };
+type SqliteDatabaseServiceOptions = {
+  applySchemaOnInit?: boolean;
+  persistOnInit?: boolean;
+};
 type SqliteFileService = Pick<IFileService, 'readJSON' | 'writeJSON'>
   & Partial<Pick<IFileService, 'readBinary' | 'writeBinary'>>;
 
@@ -96,6 +100,7 @@ export class SqliteDatabaseService {
   constructor(
     private readonly fileService: SqliteFileService,
     private readonly dbFile = SQLITE_DB_FILE,
+    private readonly options: SqliteDatabaseServiceOptions = {},
   ) {}
 
   async init(): Promise<void> {
@@ -112,11 +117,15 @@ export class SqliteDatabaseService {
       await this.backupLegacyEnvelope(stored.legacyEnvelope);
     }
     this.db = stored.bytes ? new SQL.Database(stored.bytes) : new SQL.Database();
-    this.applySchema();
-    this.detectFts5Support();
-    this.seedAlgorithmRegistry();
+    if (this.options.applySchemaOnInit !== false) {
+      this.applySchema();
+      this.detectFts5Support();
+      this.seedAlgorithmRegistry();
+    }
     this.initialized = true;
-    await this.persist();
+    if (this.options.persistOnInit !== false) {
+      await this.persist();
+    }
   }
 
   async read<T>(reader: (db: Database) => T): Promise<T> {

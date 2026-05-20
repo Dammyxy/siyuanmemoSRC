@@ -3,6 +3,7 @@ import type { IFileService } from '@/infrastructure/services/FileService';
 import { SqliteDatabaseService } from '@/infrastructure/persistence/sqlite/SqliteDatabaseService';
 import { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository';
 import { SqlCardReadModel } from '@/infrastructure/queries/SqlCardReadModel';
+import { DomainSyncLedger } from '../../../../../worker/domain-sync/DomainSyncLedger';
 import { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
 import type { CardPersistenceDTO } from '@/infrastructure/persistence/dto/CardPersistenceDTO';
 import {
@@ -324,6 +325,63 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     expect(loaded.cards['card-b']).toBeUndefined();
     expect(loaded.cardDTOs?.['card-b']).toBeUndefined();
     expect(loaded.deletedCardDTOs?.['card-b']).toMatchObject({ deletedBy: 'test-delete' });
+  });
+
+  it('records card-deleted domain sync operations when a card tombstone is saved', async () => {
+    const storage = new UnifiedStorageManager();
+    const dto = createDTO({
+      id: 'card-delete-ledger',
+      blockId: 'block-delete-ledger',
+      updatedAt: 1_700_000_000_000,
+    });
+    const result = await storage.createCardDTO(createXiuyuan('xy-delete-ledger', dto.blockId), dto);
+    expect(result.ok).toBe(true);
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+    const repository = new SqlUnifiedStorageRepository(database, {
+      domainSyncLedger: new DomainSyncLedger(database),
+    });
+    const store = storage.getStoreData();
+    store.deletedCardDTOs = {
+      ...(store.deletedCardDTOs || {}),
+      'card-delete-ledger': {
+        deletedAt: 1_700_000_020_000,
+        deletedBy: 'test-delete-ledger',
+      },
+    };
+
+    await repository.saveStore(store);
+    await repository.saveStore(store);
+
+    const ledgerRows = database.getAll<{
+      operation_type: string;
+      entity_id: string;
+      entity_block_id: string | null;
+      idempotency_key: string | null;
+      payload_fingerprint: string;
+      payload_json: string;
+    }>(
+      `SELECT operation_type, entity_id, entity_block_id, idempotency_key, payload_fingerprint, payload_json
+       FROM domain_sync_operations
+       WHERE operation_type = ? AND entity_id = ?
+       ORDER BY operation_id`,
+      ['card-deleted', 'card-delete-ledger'],
+    );
+    expect(ledgerRows).toHaveLength(1);
+    expect(ledgerRows[0]).toMatchObject({
+      operation_type: 'card-deleted',
+      entity_id: 'card-delete-ledger',
+      entity_block_id: 'block-delete-ledger',
+      idempotency_key: 'card-delete:card-delete-ledger:1700000020000',
+    });
+    expect(ledgerRows[0].payload_fingerprint).toMatch(/^[0-9a-f]{8}$/);
+    expect(JSON.parse(ledgerRows[0].payload_json)).toMatchObject({
+      cardId: 'card-delete-ledger',
+      blockId: 'block-delete-ledger',
+      deletedAt: 1_700_000_020_000,
+      deletedBy: 'test-delete-ledger',
+      idempotencyKey: 'card-delete:card-delete-ledger:1700000020000',
+    });
   });
 
   it('hydrates card ids with active-source semantics and preserves unknown fail-open behavior', async () => {
