@@ -349,4 +349,47 @@ describe('openManualSyncConflictResolutionDialog', () => {
     }));
     expect(onDiagnosticsSafe).toHaveBeenCalledOnce();
   });
+
+  it('cleans eligible conflict copies through the bound application context method', async () => {
+    const { openManualSyncConflictResolutionDialog } = await loadModule();
+    const status = domainStatus('merged');
+    status.processedSources.recent = [{
+      sourceId: 'processed-copy',
+      sourceKind: 'siyuan-conflict-db',
+      fingerprint: 'fp-processed-copy',
+      path: '/tmp/processed-copy.db',
+      processedAt: 1,
+      importedOperations: 1,
+      ignoredOperations: 0,
+      importedReviewEvents: 1,
+      ignoredReviewEvents: 0,
+      importedCards: 0,
+      ignoredCards: 0,
+      skippedReason: null,
+      latestSanityStatus: 'merged',
+      cleanup: { eligible: true, reason: 'processed-resolved' },
+    }];
+    const context = buildContext({
+      initialDomainStatus: status,
+      readDomainSyncDiagnostics: vi.fn(async () => domainStatus('clean')),
+    });
+    context.cleanupDomainSyncConflictSources = vi.fn(async function cleanup(this: unknown, request: { sourceIds: string[] }) {
+      expect(this).toBe(context);
+      expect(request.sourceIds).toEqual(['processed-copy']);
+      return {
+        cleaned: [{ sourceId: 'processed-copy' }],
+        skipped: [],
+        failed: [],
+      };
+    });
+
+    await openManualSyncConflictResolutionDialog(context, {
+      initialDomainStatus: status,
+      reviewBlockDecision: decision('block-repairable', 'repairable'),
+    });
+    await click(document.body.querySelector('[data-action="domain-cleanup"]'));
+
+    expect(context.cleanupDomainSyncConflictSources).toHaveBeenCalledOnce();
+    expect(showMessageMock).toHaveBeenCalledWith(expect.stringContaining('已清理 1'), 5000, 'info');
+  });
 });

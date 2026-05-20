@@ -4,6 +4,16 @@ Last update: 2026-05-21 (Round 415)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-21 - Sync Conflict Cleanup Keeps Application Context
+
+- Task: Fix processed conflict source cleanup crashing from an unbound ApplicationContext method.
+- Touched slice: Manual sync conflict recovery UI cleanup action; `src/ui/syncConflict/manualSyncConflictResolutionDialog.ts` and focused dialog test.
+- Debt fixed now: The cleanup button now calls `context.cleanupDomainSyncConflictSources(...)` through its owning context object instead of extracting the method and losing `this`, so `ApplicationContext.getSrsBackendClient()` remains available.
+- Debt deferred: Live SiYuan cleanup smoke still needs a real processed conflict copy.
+- Why deferred: Unit tests prove JavaScript receiver binding; filesystem removal needs a live SiYuan workspace with processed conflict sources.
+- Next safe step: Click "清理已处理副本" again in the live dialog and verify success toast plus updated diagnostics.
+- Validation: Red/green cleanup receiver regression, full conflict dialog test, hidden fallback gate, boundary checks, and build.
+
 ### 2026-05-21 - Sync Conflict Recovery Chinese UI
 
 - Task: Localize the sync conflict recovery/repair dialog to Chinese.

@@ -530,17 +530,17 @@ export async function openManualSyncConflictResolutionDialog(
           return;
         }
         try {
-          const cleanup = (context as unknown as {
+          const cleanupHost = context as unknown as {
             cleanupDomainSyncConflictSources?: (request: {
               sourceIds: string[];
               idempotencyKey: string;
               confirmedAt: number;
             }) => Promise<{ cleaned: unknown[]; skipped: unknown[]; failed: unknown[] }>;
-          }).cleanupDomainSyncConflictSources;
-          if (!cleanup) {
+          };
+          if (!cleanupHost.cleanupDomainSyncConflictSources) {
             throw new Error(i18n.domainSyncCleanupUnavailable || '同步冲突副本清理命令不可用');
           }
-          const result = await cleanup({
+          const result = await cleanupHost.cleanupDomainSyncConflictSources({
             sourceIds,
             idempotencyKey: `domain-sync-cleanup:${Date.now()}:${sourceIds.join(',')}`,
             confirmedAt: Date.now(),
