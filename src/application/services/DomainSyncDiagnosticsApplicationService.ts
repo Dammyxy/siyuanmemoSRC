@@ -4,12 +4,15 @@ import type {
   BackendDomainSyncRepairPreviewRequest,
   BackendDomainSyncRepairPreviewResult,
   BackendDomainSyncStatusResult,
+  BackendDomainSyncConflictSourceCleanupRequest,
+  BackendDomainSyncConflictSourceCleanupResult,
 } from '../../../packages/contracts/src/backend-rpc';
 
 export interface DomainSyncDiagnosticsBackend {
   domainSyncStatus(): Promise<BackendDomainSyncStatusResult>;
   domainSyncRepairPreview(request?: BackendDomainSyncRepairPreviewRequest): Promise<BackendDomainSyncRepairPreviewResult>;
   domainSyncRepairApply(request: BackendDomainSyncRepairApplyRequest): Promise<BackendDomainSyncRepairApplyResult>;
+  domainSyncConflictSourcesCleanup(request: BackendDomainSyncConflictSourceCleanupRequest): Promise<BackendDomainSyncConflictSourceCleanupResult>;
 }
 
 export interface DomainSyncDiagnosticsLogger {
@@ -24,8 +27,8 @@ export interface DomainSyncDiagnosticsFrontendRuntime {
 export interface DomainSyncDiagnosticsFollowerCommandClient {
   submitAndWait<TResult>(request: {
     instanceId: string;
-    method: 'domainSync.repair.apply';
-    params: BackendDomainSyncRepairApplyRequest;
+    method: 'domainSync.repair.apply' | 'domainSync.conflictSources.cleanup';
+    params: BackendDomainSyncRepairApplyRequest | BackendDomainSyncConflictSourceCleanupRequest;
   }): Promise<TResult>;
 }
 
@@ -80,5 +83,30 @@ export class DomainSyncDiagnosticsApplicationService {
       });
     }
     return this.backend.domainSyncRepairApply(request);
+  }
+
+  async cleanupConflictSources(
+    request: BackendDomainSyncConflictSourceCleanupRequest,
+  ): Promise<BackendDomainSyncConflictSourceCleanupResult> {
+    const runtime = this.frontendRuntime;
+    if (runtime?.getMode() === 'follower') {
+      const instanceId = runtime.getInstanceId();
+      if (!instanceId || !this.followerCommandClient) {
+        return {
+          ok: false,
+          idempotencyKey: request.idempotencyKey,
+          cleaned: [],
+          skipped: request.sourceIds.map((sourceId) => ({ sourceId, reason: 'writer relay unavailable' })),
+          failed: [],
+          status: 'unavailable',
+        };
+      }
+      return this.followerCommandClient.submitAndWait<BackendDomainSyncConflictSourceCleanupResult>({
+        instanceId,
+        method: 'domainSync.conflictSources.cleanup',
+        params: request,
+      });
+    }
+    return this.backend.domainSyncConflictSourcesCleanup(request);
   }
 }

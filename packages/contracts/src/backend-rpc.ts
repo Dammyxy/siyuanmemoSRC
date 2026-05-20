@@ -12,6 +12,7 @@ export type BackendRpcMethod =
   | 'domainSync.status'
   | 'domainSync.repair.preview'
   | 'domainSync.repair.apply'
+  | 'domainSync.conflictSources.cleanup'
   | 'browser.deck.page'
   | 'browser.deck.matchedIds'
   | 'browser.deck.rowsByIds'
@@ -269,6 +270,10 @@ export interface BackendDomainSyncProcessedSource {
   ignoredCards: number;
   skippedReason?: BackendDomainSyncSkippedSourceReason | null;
   latestSanityStatus?: BackendDomainSyncSanityStatus | null;
+  cleanup?: {
+    eligible: boolean;
+    reason: 'processed-resolved' | 'missing-path' | 'skipped-source' | 'needs-direction' | 'source-error' | 'unprocessed' | 'unsupported-source-kind';
+  };
 }
 
 export interface BackendDomainSyncSanitySummary {
@@ -377,6 +382,21 @@ export type BackendDomainSyncRepairApplyResult =
       idempotencyKey: string;
       reason: string;
     };
+
+export interface BackendDomainSyncConflictSourceCleanupRequest {
+  sourceIds: string[];
+  idempotencyKey: string;
+  confirmedAt: number;
+}
+
+export interface BackendDomainSyncConflictSourceCleanupResult {
+  ok: boolean;
+  idempotencyKey: string;
+  cleaned: Array<{ sourceId: string; path: string | null }>;
+  skipped: Array<{ sourceId: string; reason: string }>;
+  failed: Array<{ sourceId: string; path: string | null; reason: string }>;
+  status: 'cleaned' | 'partial' | 'duplicate' | 'invalid-request' | 'unavailable';
+}
 
 export interface BackendDiagnosticsStatusResult {
   runtime: 'srs-backend-worker';

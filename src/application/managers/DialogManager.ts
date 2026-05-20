@@ -54,6 +54,7 @@ import {
   type BlockAttrCleanupMode,
 } from '@/application/services';
 import { buildReviewDomainSyncSafetyDecision } from '@/application/services/ReviewDomainSyncSafetyService';
+import { openManualSyncConflictResolutionDialog } from '@/ui/syncConflict/manualSyncConflictResolutionDialog';
 import {
   ProgressiveSplitCancelledError,
   type ProgressiveSplitConfig,
@@ -341,7 +342,10 @@ export class DialogManager implements IDialogManager {
         pendingImportCount: decision.pendingImportCount,
         divergentCardCount: decision.divergentCardCount,
       });
-      await this.siyuanApi.pushErrMsg(decision.message);
+      await openManualSyncConflictResolutionDialog(this.context, {
+        initialDomainStatus: status,
+        reviewBlockDecision: decision,
+      });
       return false;
     } catch (error) {
       const decision = buildReviewDomainSyncSafetyDecision(null, error);
@@ -351,7 +355,10 @@ export class DialogManager implements IDialogManager {
         surface: options.surface,
         error,
       });
-      await this.siyuanApi.pushErrMsg(decision.message);
+      await openManualSyncConflictResolutionDialog(this.context, {
+        reviewBlockDecision: decision,
+        diagnosticsUnavailableReason: decision.message,
+      });
       return false;
     }
   }

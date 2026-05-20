@@ -7,6 +7,10 @@ import type {
 } from '../../../packages/contracts/src/backend-rpc';
 import { applyDialogChrome } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
+import {
+  buildReviewDomainSyncSafetyDecision,
+  type ReviewDomainSyncSafetyDecision,
+} from '@/application/services/ReviewDomainSyncSafetyService';
 
 const logger = createLogger('ManualSyncConflictResolutionDialog');
 
@@ -46,42 +50,130 @@ function fmtSize(value: number): string {
 function resultMessage(result: SyncConflictDirectionApplyResult, i18n: Record<string, string>): string {
   if (result.kind === 'smartMerge') {
     return (i18n.syncConflictResolutionSmartMergeDone
-      || 'Smart merge complete: sources {sources}, reviews {reviewEvents}, cards {cards}')
+      || '智能合并完成：来源 {sources}，新增复习 {reviewEvents}，更新卡片 {cards}')
       .replace('{sources}', String(result.merge.sources))
       .replace('{reviewEvents}', String(result.merge.mergedReviewEvents))
       .replace('{cards}', String(result.merge.mergedCards));
   }
   if (result.kind === 'keepCurrentLocal') {
     return i18n.syncConflictResolutionKeepCurrentDone
-      || 'Current local database kept. Conflict files were not changed.';
+      || '已保留当前本地库，冲突文件未改动。';
   }
   if (result.kind === 'replaceWithConflictCopy') {
     return (i18n.syncConflictResolutionReplaceDone
-      || 'Replacement complete. Backup: {backupPath}')
+      || '替换完成，备份路径：{backupPath}')
       .replace('{backupPath}', result.backupPath);
   }
-  return i18n.syncConflictResolutionCanceled || 'Resolution canceled';
+  return i18n.syncConflictResolutionCanceled || '已取消处理';
+}
+
+function label(i18n: Record<string, string>, key: string, fallback: string): string {
+  return i18n[key] || fallback;
+}
+
+function template(
+  i18n: Record<string, string>,
+  key: string,
+  fallback: string,
+  values: Record<string, string | number>,
+): string {
+  let text = label(i18n, key, fallback);
+  for (const [name, value] of Object.entries(values)) {
+    text = text.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value));
+  }
+  return text;
+}
+
+function domainSyncStatusLabel(status: string, i18n: Record<string, string>): string {
+  const labels: Record<string, [string, string]> = {
+    clean: ['domainSyncStatusClean', '正常'],
+    merged: ['domainSyncStatusMerged', '已合并'],
+    repairable: ['domainSyncStatusRepairable', '可修复'],
+    'needs-direction': ['domainSyncStatusNeedsDirection', '需要选择处理方向'],
+    divergent: ['domainSyncStatusDivergent', '存在分歧'],
+    'source-error': ['domainSyncStatusSourceError', '来源读取异常'],
+  };
+  const pair = labels[status];
+  return pair ? label(i18n, pair[0], pair[1]) : status;
+}
+
+function domainSyncEvidenceReasonLabel(reason: string, i18n: Record<string, string>): string {
+  const labels: Record<string, [string, string]> = {
+    'missing-card-state': ['domainSyncReasonMissingCardState', '缺少卡片状态'],
+    'missing-scheduler-evidence': ['domainSyncReasonMissingSchedulerEvidence', '缺少调度证据'],
+    'review-history-newer-than-card-state': ['domainSyncReasonReviewHistoryNewer', '复习历史比卡片状态更新'],
+    'review-event-count-exceeds-card-reps': ['domainSyncReasonReviewCountExceedsReps', '复习记录数超过卡片复习次数'],
+  };
+  const pair = labels[reason];
+  return pair ? label(i18n, pair[0], pair[1]) : reason;
+}
+
+function domainSyncSkippedReasonLabel(reason: string | null | undefined, i18n: Record<string, string>): string {
+  const raw = reason || 'skipped';
+  const labels: Record<string, [string, string]> = {
+    skipped: ['domainSyncSkippedReasonSkipped', '已跳过'],
+    'parse-error': ['domainSyncSkippedReasonParseError', '解析失败'],
+    'open-error': ['domainSyncSkippedReasonOpenError', '打开失败'],
+    'schema-missing': ['domainSyncSkippedReasonSchemaMissing', '缺少同步表结构'],
+  };
+  const pair = labels[raw];
+  return pair ? label(i18n, pair[0], pair[1]) : raw;
+}
+
+function reviewBlockDecisionMessage(
+  decision: ReviewDomainSyncSafetyDecision,
+  i18n: Record<string, string>,
+): string {
+  const counts = {
+    repairable: decision.repairableDivergenceCount,
+    divergent: decision.divergentCardCount,
+    skipped: decision.skippedSourceCount,
+    pending: decision.pendingImportCount,
+  };
+  switch (decision.kind) {
+    case 'block-repairable':
+      return template(i18n, 'domainSyncReviewBlockedRepairable', '检测到可修复的同步差异：可修复 {repairable}，分歧 {divergent}，跳过来源 {skipped}。请先预览并应用修复，再开始复习。', counts);
+    case 'block-needs-direction':
+      return template(i18n, 'domainSyncReviewBlockedNeedsDirection', '检测到需要人工选择处理方向的同步变更：待处理 {pending}，分歧 {divergent}。请先处理同步冲突，再开始复习。', counts);
+    case 'block-divergent':
+      return template(i18n, 'domainSyncReviewBlockedDivergent', '检测到无法自动判断的同步分歧：分歧 {divergent}。请先处理冲突，再开始复习。', counts);
+    case 'block-source-error':
+      return template(i18n, 'domainSyncReviewBlockedSourceError', '检测到同步来源读取异常：跳过来源 {skipped}。请先处理或清理异常来源，再开始复习。', counts);
+    case 'unavailable':
+      return label(i18n, 'domainSyncReviewBlockedUnavailable', '无法读取同步诊断状态。请重试诊断后再开始复习。');
+    case 'allow':
+      return label(i18n, 'domainSyncReviewSafe', '同步状态安全，可以开始复习。');
+  }
 }
 
 function renderDomainSyncPanel(
   status: BackendDomainSyncStatusResult | null,
   repairPreview: BackendDomainSyncRepairPreviewResult | null,
   i18n: Record<string, string>,
+  options: {
+    reviewBlockDecision?: ReviewDomainSyncSafetyDecision | null;
+    diagnosticsUnavailableReason?: string | null;
+  } = {},
 ): string {
   if (!status) {
     return `
       <div class="b3-card b3-card--warning siyuanmemo-domain-sync-panel" style="margin: 10px 0; padding: 10px;">
-        ${escapeHtml(i18n.domainSyncStatusUnavailable || 'Domain sync diagnostics unavailable')}
+        <div style="font-weight: 600;">${escapeHtml(i18n.domainSyncStatusUnavailable || '同步诊断状态不可用')}</div>
+        ${options.diagnosticsUnavailableReason ? `<div class="ft__on-surface" style="margin-top: 4px; font-size: 12px;">${escapeHtml(options.diagnosticsUnavailableReason)}</div>` : ''}
+        <div class="fn__flex" style="gap: 8px; margin-top: 10px; flex-wrap: wrap;">
+          <button class="b3-button b3-button--outline" data-action="domain-retry">${escapeHtml(i18n.retry || '重试')}</button>
+          <button class="b3-button b3-button--cancel" data-action="domain-cancel-review">${escapeHtml(i18n.cancel || '取消')}</button>
+        </div>
       </div>
     `;
   }
   const skipped = status.processedSources.skipped.slice(0, 3)
-    .map((source) => `<span class="b3-chip b3-chip--middle">${escapeHtml(source.sourceId)}: ${escapeHtml(source.skippedReason || 'skipped')}</span>`)
+    .map((source) => `<span class="b3-chip b3-chip--middle">${escapeHtml(source.sourceId)}: ${escapeHtml(domainSyncSkippedReasonLabel(source.skippedReason, i18n))}</span>`)
     .join(' ');
   const previewRows = repairPreview?.evidence.slice(0, 5).map((item) => `
     <tr>
       <td class="ft__breakword">${escapeHtml(item.cardId)}</td>
-      <td>${escapeHtml(item.reason)}</td>
+      <td>${escapeHtml(domainSyncEvidenceReasonLabel(item.reason, i18n))}</td>
       <td>${item.reviewEventCount}</td>
       <td>${item.cardReps ?? '-'}</td>
       <td>${fmtTime(item.newestReviewEventAt)}</td>
@@ -89,42 +181,58 @@ function renderDomainSyncPanel(
   `).join('') || '';
   const canPreview = status.repair.available || status.sanity.repairableDivergenceCount > 0;
   const canApply = repairPreview?.status === 'preview' && repairPreview.plannedMutations.length > 0;
+  const cleanupEligible = status.processedSources.recent.filter((source) => source.cleanup?.eligible === true);
   return `
     <div class="siyuanmemo-domain-sync-panel" style="margin: 10px 0; padding: 10px; border: 1px solid var(--b3-border-color); border-radius: 6px;">
+      ${options.reviewBlockDecision ? `
+        <div class="b3-card b3-card--warning" style="margin: 0 0 10px 0; padding: 8px;">
+          <div style="font-weight: 600;">${escapeHtml(i18n.domainSyncReviewBlocked || '同步冲突处理完成前无法开始复习')}</div>
+          <div class="ft__on-surface" style="font-size: 12px; margin-top: 4px;">${escapeHtml(reviewBlockDecisionMessage(options.reviewBlockDecision, i18n))}</div>
+        </div>
+      ` : ''}
       <div class="fn__flex" style="align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
         <div>
-          <div style="font-weight: 600;">${escapeHtml(i18n.domainSyncHealth || 'Domain sync health')}: ${escapeHtml(status.sanity.status)}</div>
+          <div style="font-weight: 600;">${escapeHtml(i18n.domainSyncHealth || '同步健康状态')}: ${escapeHtml(domainSyncStatusLabel(status.sanity.status, i18n))}</div>
           <div class="ft__on-surface" style="font-size: 12px;">
-            ${escapeHtml(i18n.domainSyncLedgerOps || 'Ledger ops')}: ${status.ledger.operationCount}
-            · ${escapeHtml(i18n.domainSyncRepairable || 'Repairable')}: ${status.sanity.repairableDivergenceCount}
-            · ${escapeHtml(i18n.domainSyncSkippedSources || 'Skipped sources')}: ${status.processedSources.totalSkipped}
+            ${escapeHtml(i18n.domainSyncLedgerOps || '同步记录')}: ${status.ledger.operationCount}
+            · ${escapeHtml(i18n.domainSyncRepairable || '可修复')}: ${status.sanity.repairableDivergenceCount}
+            · ${escapeHtml(i18n.domainSyncSkippedSources || '跳过来源')}: ${status.processedSources.totalSkipped}
           </div>
         </div>
         <div class="fn__flex" style="gap: 8px;">
-          <button class="b3-button b3-button--outline" data-action="domain-preview" ${canPreview ? '' : 'disabled'}>${escapeHtml(i18n.domainSyncPreviewRepair || 'Preview repair')}</button>
-          <button class="b3-button b3-button--error" data-action="domain-apply" ${canApply ? '' : 'disabled'}>${escapeHtml(i18n.domainSyncApplyRepair || 'Apply repair')}</button>
+          <button class="b3-button b3-button--outline" data-action="domain-retry">${escapeHtml(i18n.retry || '重试')}</button>
+          <button class="b3-button b3-button--outline" data-action="domain-preview" ${canPreview ? '' : 'disabled'}>${escapeHtml(i18n.domainSyncPreviewRepair || '预览修复')}</button>
+          <button class="b3-button b3-button--error" data-action="domain-apply" ${canApply ? '' : 'disabled'}>${escapeHtml(i18n.domainSyncApplyRepair || '应用修复')}</button>
+          <button class="b3-button b3-button--outline" data-action="domain-cleanup" ${cleanupEligible.length > 0 ? '' : 'disabled'}>${escapeHtml(i18n.domainSyncCleanupSources || '清理已处理副本')}</button>
+          <button class="b3-button b3-button--cancel" data-action="domain-cancel-review">${escapeHtml(i18n.cancel || '取消')}</button>
         </div>
       </div>
+      ${cleanupEligible.length > 0 ? `
+        <div class="ft__on-surface" style="margin-top: 6px; font-size: 12px;">
+          ${escapeHtml(i18n.domainSyncCleanupEligible || '可清理的冲突副本')}: ${cleanupEligible.map((source) => escapeHtml(source.sourceId)).join(', ')}
+        </div>
+      ` : ''}
       ${skipped ? `<div style="margin-top: 8px;">${skipped}</div>` : ''}
       ${repairPreview ? `
         <div style="margin-top: 10px; max-height: 180px; overflow: auto; border: 1px solid var(--b3-border-color); border-radius: 4px;">
           <table class="b3-table" style="width: 100%; margin: 0;">
             <thead>
               <tr>
-                <th>${escapeHtml(i18n.card || 'Card')}</th>
-                <th>${escapeHtml(i18n.reason || 'Reason')}</th>
-                <th>${escapeHtml(i18n.domainSyncReviewEvents || 'Events')}</th>
-                <th>${escapeHtml(i18n.domainSyncCardReps || 'Card reps')}</th>
-                <th>${escapeHtml(i18n.syncConflictResolutionLatest || 'Latest')}</th>
+                <th>${escapeHtml(i18n.card || '卡片')}</th>
+                <th>${escapeHtml(i18n.reason || '原因')}</th>
+                <th>${escapeHtml(i18n.domainSyncReviewEvents || '复习记录')}</th>
+                <th>${escapeHtml(i18n.domainSyncCardReps || '卡片复习次数')}</th>
+                <th>${escapeHtml(i18n.syncConflictResolutionLatest || '最新时间')}</th>
               </tr>
             </thead>
             <tbody>${previewRows}</tbody>
           </table>
         </div>
         <div class="ft__on-surface" style="margin-top: 6px; font-size: 12px;">
-          ${escapeHtml(i18n.domainSyncPlannedMutations || 'Planned mutations')}: ${repairPreview.plannedMutations.length}
-          · ${escapeHtml(i18n.domainSyncUnrepairable || 'Unrepairable')}: ${repairPreview.unrepairableReasons.length}
-          ${repairPreview.truncated ? `· ${escapeHtml(i18n.truncated || 'Truncated')}` : ''}
+          ${escapeHtml(i18n.domainSyncPlannedMutations || '计划变更')}: ${repairPreview.plannedMutations.length}
+          · ${escapeHtml(i18n.domainSyncAffectedCards || '受影响卡片')}: ${repairPreview.affectedCardCount}
+          · ${escapeHtml(i18n.domainSyncUnrepairable || '不可修复')}: ${repairPreview.unrepairableReasons.length}
+          ${repairPreview.truncated ? `· ${escapeHtml(i18n.truncated || '已截断')}` : ''}
         </div>
       ` : ''}
     </div>
@@ -136,6 +244,10 @@ function renderPreview(
   i18n: Record<string, string>,
   domainStatus: BackendDomainSyncStatusResult | null,
   repairPreview: BackendDomainSyncRepairPreviewResult | null,
+  options: {
+    reviewBlockDecision?: ReviewDomainSyncSafetyDecision | null;
+    diagnosticsUnavailableReason?: string | null;
+  } = {},
 ): string {
   const current = preview.current;
   const sourceRows = preview.sources.map((source, index) => {
@@ -159,21 +271,21 @@ function renderPreview(
     <div class="siyuanmemo-sync-conflict-dialog" style="padding: 12px; font-size: 13px;">
       <div class="b3-label" style="margin: 0 0 8px 0;">
         <div class="fn__flex" style="gap: 12px; flex-wrap: wrap;">
-          <span>${escapeHtml(i18n.syncConflictResolutionCurrent || 'Current local')}: ${current ? `${current.reviewEventCount} reviews / ${current.cardCount} cards` : '-'}</span>
-          <span>${escapeHtml(i18n.syncConflictResolutionLatest || 'Latest')}: ${fmtTime(current?.latestReviewTimestamp || current?.latestCardTimestamp)}</span>
+          <span>${escapeHtml(i18n.syncConflictResolutionCurrent || '当前本地库')}: ${current ? `${current.reviewEventCount} ${i18n.syncConflictResolutionReviews || '复习'} / ${current.cardCount} ${i18n.syncConflictResolutionCards || '卡片'}` : '-'}</span>
+          <span>${escapeHtml(i18n.syncConflictResolutionLatest || '最新时间')}: ${fmtTime(current?.latestReviewTimestamp || current?.latestCardTimestamp)}</span>
         </div>
       </div>
-      ${renderDomainSyncPanel(domainStatus, repairPreview, i18n)}
+      ${renderDomainSyncPanel(domainStatus, repairPreview, i18n, options)}
       ${preview.sources.length === 0 ? `
         <div class="b3-card b3-card--info" style="margin: 8px 0; padding: 10px;">
-          ${escapeHtml(i18n.syncConflictManualMergeNoSources || 'No SiYuanMemo sync conflict databases found')}
+          ${escapeHtml(i18n.syncConflictManualMergeNoSources || '未发现 SiYuanMemo 同步冲突数据库')}
         </div>
       ` : `
         <div style="max-height: 340px; overflow: auto; border: 1px solid var(--b3-border-color); border-radius: 6px;">
           <table class="b3-table" style="width: 100%; margin: 0;">
             <thead>
               <tr>
-                <th></th><th>${escapeHtml(i18n.syncConflictResolutionSource || 'Source')}</th><th>${escapeHtml(i18n.syncConflictResolutionSize || 'Size')}</th><th>${escapeHtml(i18n.syncConflictResolutionReviews || 'Reviews')}</th><th>${escapeHtml(i18n.syncConflictResolutionCards || 'Cards')}</th><th>${escapeHtml(i18n.syncConflictResolutionLatest || 'Latest')}</th><th>${escapeHtml(i18n.syncConflictResolutionStatus || 'Status')}</th>
+                <th></th><th>${escapeHtml(i18n.syncConflictResolutionSource || '来源')}</th><th>${escapeHtml(i18n.syncConflictResolutionSize || '大小')}</th><th>${escapeHtml(i18n.syncConflictResolutionReviews || '复习')}</th><th>${escapeHtml(i18n.syncConflictResolutionCards || '卡片')}</th><th>${escapeHtml(i18n.syncConflictResolutionLatest || '最新时间')}</th><th>${escapeHtml(i18n.syncConflictResolutionStatus || '状态')}</th>
               </tr>
             </thead>
             <tbody>${sourceRows}</tbody>
@@ -181,10 +293,10 @@ function renderPreview(
         </div>
       `}
       <div class="fn__flex" style="justify-content: flex-end; gap: 8px; margin-top: 12px;">
-        <button class="b3-button b3-button--cancel" data-action="cancel">${escapeHtml(i18n.cancel || 'Cancel')}</button>
-        <button class="b3-button b3-button--outline" data-action="keep-current">${escapeHtml(i18n.syncConflictResolutionKeepCurrent || 'Keep current local')}</button>
-        <button class="b3-button" data-action="smart-merge" ${preview.sources.some((source) => source.parseStatus === 'ok') ? '' : 'disabled'}>${escapeHtml(i18n.syncConflictResolutionSmartMerge || 'Smart merge')}</button>
-        <button class="b3-button b3-button--error" data-action="replace" ${preview.sources.some((source) => source.parseStatus === 'ok') ? '' : 'disabled'}>${escapeHtml(i18n.syncConflictResolutionReplace || 'Use selected conflict copy')}</button>
+        <button class="b3-button b3-button--cancel" data-action="cancel">${escapeHtml(i18n.cancel || '取消')}</button>
+        <button class="b3-button b3-button--outline" data-action="keep-current">${escapeHtml(i18n.syncConflictResolutionKeepCurrent || '保留当前本地库')}</button>
+        <button class="b3-button" data-action="smart-merge" ${preview.sources.some((source) => source.parseStatus === 'ok') ? '' : 'disabled'}>${escapeHtml(i18n.syncConflictResolutionSmartMerge || '智能合并')}</button>
+        <button class="b3-button b3-button--error" data-action="replace" ${preview.sources.some((source) => source.parseStatus === 'ok') ? '' : 'disabled'}>${escapeHtml(i18n.syncConflictResolutionReplace || '使用选中的冲突副本')}</button>
       </div>
     </div>
   `;
@@ -195,27 +307,101 @@ function selectedSourceId(dialog: Dialog): string | null {
   return input?.value || null;
 }
 
-export async function openManualSyncConflictResolutionDialog(context: ApplicationContext): Promise<void> {
+function renderConfirmationContent(input: {
+  title: string;
+  body: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  danger?: boolean;
+  rows?: Array<{ label: string; value: string | number }>;
+}): string {
+  const rows = input.rows?.map((row) => `
+    <div class="fn__flex" style="justify-content: space-between; gap: 16px; padding: 6px 0; border-bottom: 1px solid var(--b3-border-color);">
+      <span class="ft__on-surface">${escapeHtml(row.label)}</span>
+      <strong class="ft__breakword" style="text-align: right;">${escapeHtml(row.value)}</strong>
+    </div>
+  `).join('') || '';
+  return `
+    <div class="siyuanmemo-domain-sync-confirm" style="padding: 14px; font-size: 13px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">${escapeHtml(input.title)}</div>
+      <div class="ft__on-surface" style="line-height: 1.5;">${escapeHtml(input.body)}</div>
+      ${rows ? `<div style="margin-top: 12px;">${rows}</div>` : ''}
+      <div class="fn__flex" style="justify-content: flex-end; gap: 8px; margin-top: 14px;">
+        <button class="b3-button b3-button--cancel" data-action="confirm-cancel">${escapeHtml(input.cancelLabel)}</button>
+        <button class="b3-button ${input.danger ? 'b3-button--error' : ''}" data-action="confirm-apply">${escapeHtml(input.confirmLabel)}</button>
+      </div>
+    </div>
+  `;
+}
+
+function openPluginConfirmation(input: {
+  title: string;
+  body: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  danger?: boolean;
+  rows?: Array<{ label: string; value: string | number }>;
+}): Promise<boolean> {
+  return new Promise((resolve) => {
+    const dialog = new Dialog({
+      title: input.title,
+      content: renderConfirmationContent(input),
+      width: 'min(520px, 92vw)',
+    });
+    applyDialogChrome(dialog, {
+      visualVariant: 'form',
+      containerClass: 'siyuanmemo-domain-sync-confirm-dialog',
+      dialogWidth: 'min(520px, 92vw)',
+      dialogHeight: 'auto',
+    });
+    const settle = (confirmed: boolean): void => {
+      dialog.destroy();
+      resolve(confirmed);
+    };
+    dialog.element.querySelector('[data-action="confirm-cancel"]')?.addEventListener('click', () => settle(false));
+    dialog.element.querySelector('[data-action="confirm-apply"]')?.addEventListener('click', () => settle(true));
+  });
+}
+
+export interface OpenManualSyncConflictResolutionDialogOptions {
+  initialDomainStatus?: BackendDomainSyncStatusResult | null;
+  reviewBlockDecision?: ReviewDomainSyncSafetyDecision | null;
+  diagnosticsUnavailableReason?: string | null;
+  onDiagnosticsSafe?: () => void | Promise<void>;
+}
+
+export async function openManualSyncConflictResolutionDialog(
+  context: ApplicationContext,
+  options: OpenManualSyncConflictResolutionDialogOptions = {},
+): Promise<void> {
   const i18n = context.getI18n?.() || {};
   let preview: SyncConflictDirectionPreview;
-  let domainStatus: BackendDomainSyncStatusResult | null = null;
+  let domainStatus: BackendDomainSyncStatusResult | null = options.initialDomainStatus ?? null;
   let repairPreview: BackendDomainSyncRepairPreviewResult | null = null;
+  let diagnosticsUnavailableReason: string | null = options.diagnosticsUnavailableReason ?? null;
   try {
     preview = await context.previewSyncConflictDirectionResolution();
   } catch (error) {
     logger.error('Manual sync conflict preview failed:', error);
-    showMessage(i18n.syncConflictResolutionPreviewFailed || 'Failed to preview sync conflicts', 5000, 'error');
+    showMessage(i18n.syncConflictResolutionPreviewFailed || '同步冲突预览失败', 5000, 'error');
     return;
   }
-  try {
-    domainStatus = await context.readDomainSyncDiagnostics();
-  } catch (error) {
-    logger.warn('Domain sync diagnostics preview unavailable:', error);
+  if (!domainStatus) {
+    try {
+      domainStatus = await context.readDomainSyncDiagnostics();
+      diagnosticsUnavailableReason = null;
+    } catch (error) {
+      diagnosticsUnavailableReason = error instanceof Error ? error.message : String(error);
+      logger.warn('Domain sync diagnostics preview unavailable:', error);
+    }
   }
 
   const dialog = new Dialog({
-    title: i18n.syncConflictResolutionTitle || 'Resolve SiYuanMemo Sync Conflict',
-    content: renderPreview(preview, i18n, domainStatus, repairPreview),
+    title: i18n.syncConflictResolutionTitle || '处理 SiYuanMemo 同步冲突',
+    content: renderPreview(preview, i18n, domainStatus, repairPreview, {
+      reviewBlockDecision: options.reviewBlockDecision ?? null,
+      diagnosticsUnavailableReason,
+    }),
     width: 'min(920px, 96vw)',
   });
   applyDialogChrome(dialog, {
@@ -247,13 +433,23 @@ export async function openManualSyncConflictResolutionDialog(context: Applicatio
       }
       const sourceId = selectedSourceId(dialog);
       if (!sourceId) {
-        showMessage(i18n.syncConflictResolutionSelectSource || 'Select one readable conflict copy', 3000, 'error');
+        showMessage(i18n.syncConflictResolutionSelectSource || '请选择一个可读取的冲突副本', 3000, 'error');
         return;
       }
       const confirmText = (i18n.syncConflictResolutionReplaceConfirm
-        || 'Replace current local database with {sourceId}? A backup will be created first.')
+        || '确认用 {sourceId} 替换当前本地数据库？系统会先创建备份。')
         .replace('{sourceId}', sourceId);
-      if (!window.confirm(confirmText)) {
+      const confirmed = await openPluginConfirmation({
+        title: i18n.syncConflictResolutionReplaceConfirmTitle || '确认替换冲突副本',
+        body: confirmText,
+        confirmLabel: i18n.syncConflictResolutionReplace || '使用选中的冲突副本',
+        cancelLabel: i18n.cancel || '取消',
+        danger: true,
+        rows: [
+          { label: i18n.syncConflictResolutionSource || '来源', value: sourceId },
+        ],
+      });
+      if (!confirmed) {
         return;
       }
       const result = await context.applySyncConflictDirectionResolution({
@@ -272,12 +468,45 @@ export async function openManualSyncConflictResolutionDialog(context: Applicatio
   function refreshDomainPanel(): void {
     const panel = dialog.element.querySelector('.siyuanmemo-domain-sync-panel');
     if (panel) {
-      panel.outerHTML = renderDomainSyncPanel(domainStatus, repairPreview, i18n);
+      panel.outerHTML = renderDomainSyncPanel(domainStatus, repairPreview, i18n, {
+        reviewBlockDecision: options.reviewBlockDecision ?? null,
+        diagnosticsUnavailableReason,
+      });
     }
     bindDomainActions();
   }
 
+  async function notifySafeDiagnosticsIfNeeded(): Promise<void> {
+    if (!domainStatus || !options.onDiagnosticsSafe) {
+      return;
+    }
+    const decision = buildReviewDomainSyncSafetyDecision(domainStatus);
+    if (decision.canOpenReview) {
+      await options.onDiagnosticsSafe();
+    }
+  }
+
   function bindDomainActions(): void {
+    dialog.element.querySelector('[data-action="domain-retry"]')?.addEventListener('click', () => {
+      void (async () => {
+        try {
+          domainStatus = await context.readDomainSyncDiagnostics();
+          diagnosticsUnavailableReason = null;
+          repairPreview = null;
+          refreshDomainPanel();
+          await notifySafeDiagnosticsIfNeeded();
+        } catch (error) {
+          diagnosticsUnavailableReason = error instanceof Error ? error.message : String(error);
+          logger.warn('Domain sync diagnostics retry unavailable:', error);
+          refreshDomainPanel();
+          showMessage(diagnosticsUnavailableReason, 7000, 'error');
+        }
+      })();
+    });
+    dialog.element.querySelector('[data-action="domain-cancel-review"]')?.addEventListener('click', () => {
+      dialog.destroy();
+      showMessage(i18n.domainSyncReviewCanceled || '已取消复习，请先处理同步冲突', 2500, 'info');
+    });
     dialog.element.querySelector('[data-action="domain-preview"]')?.addEventListener('click', () => {
       void (async () => {
         try {
@@ -289,15 +518,67 @@ export async function openManualSyncConflictResolutionDialog(context: Applicatio
         }
       })();
     });
+    dialog.element.querySelector('[data-action="domain-cleanup"]')?.addEventListener('click', () => {
+      void (async () => {
+        if (!domainStatus) {
+          return;
+        }
+        const sourceIds = domainStatus.processedSources.recent
+          .filter((source) => source.cleanup?.eligible === true)
+          .map((source) => source.sourceId);
+        if (sourceIds.length === 0) {
+          return;
+        }
+        try {
+          const cleanup = (context as unknown as {
+            cleanupDomainSyncConflictSources?: (request: {
+              sourceIds: string[];
+              idempotencyKey: string;
+              confirmedAt: number;
+            }) => Promise<{ cleaned: unknown[]; skipped: unknown[]; failed: unknown[] }>;
+          }).cleanupDomainSyncConflictSources;
+          if (!cleanup) {
+            throw new Error(i18n.domainSyncCleanupUnavailable || '同步冲突副本清理命令不可用');
+          }
+          const result = await cleanup({
+            sourceIds,
+            idempotencyKey: `domain-sync-cleanup:${Date.now()}:${sourceIds.join(',')}`,
+            confirmedAt: Date.now(),
+          });
+          domainStatus = await context.readDomainSyncDiagnostics();
+          refreshDomainPanel();
+          showMessage((i18n.domainSyncCleanupDone || '清理完成：已清理 {cleaned}，已跳过 {skipped}，失败 {failed}')
+            .replace('{cleaned}', String(result.cleaned.length))
+            .replace('{skipped}', String(result.skipped.length))
+            .replace('{failed}', String(result.failed.length)), 5000, 'info');
+        } catch (error) {
+          logger.error('Domain sync conflict source cleanup failed:', error);
+          showMessage(error instanceof Error ? error.message : String(error), 7000, 'error');
+        }
+      })();
+    });
     dialog.element.querySelector('[data-action="domain-apply"]')?.addEventListener('click', () => {
       void (async () => {
         if (!repairPreview || repairPreview.status !== 'preview') {
           return;
         }
         const confirmText = (i18n.domainSyncApplyConfirm
-          || 'Apply repair plan {planId}? This updates card review state from review history.')
+          || '应用修复计划 {planId}？这会根据复习历史更新卡片复习状态。')
           .replace('{planId}', repairPreview.planId);
-        if (!window.confirm(confirmText)) {
+        const confirmed = await openPluginConfirmation({
+          title: i18n.domainSyncApplyConfirmTitle || '应用同步修复',
+          body: confirmText,
+          confirmLabel: i18n.domainSyncApplyRepair || '应用修复',
+          cancelLabel: i18n.cancel || '取消',
+          danger: true,
+          rows: [
+            { label: i18n.domainSyncPlanId || '计划 ID', value: repairPreview.planId },
+            { label: i18n.domainSyncAffectedCards || '受影响卡片', value: repairPreview.affectedCardCount },
+            { label: i18n.domainSyncPlannedMutations || '计划变更', value: repairPreview.plannedMutations.length },
+            { label: i18n.domainSyncUnrepairable || '不可修复', value: repairPreview.unrepairableReasons.length },
+          ],
+        });
+        if (!confirmed) {
           return;
         }
         try {
@@ -315,7 +596,8 @@ export async function openManualSyncConflictResolutionDialog(context: Applicatio
           domainStatus = await context.readDomainSyncDiagnostics();
           repairPreview = null;
           refreshDomainPanel();
-          showMessage((i18n.domainSyncApplyDone || 'Domain sync repair applied: {cards} cards')
+          await notifySafeDiagnosticsIfNeeded();
+          showMessage((i18n.domainSyncApplyDone || '同步修复已应用：{cards} 张卡片')
             .replace('{cards}', String(result.appliedCards)), 5000, 'info');
         } catch (error) {
           logger.error('Domain sync repair apply failed:', error);

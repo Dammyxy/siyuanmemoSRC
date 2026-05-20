@@ -9,6 +9,10 @@ import type { Plugin } from 'siyuan';
 import { createVueDialog } from '@/utils/dialog';
 import { QueueType } from '@/types/unified-data-source';
 
+const { openManualSyncConflictResolutionDialogMock } = vi.hoisted(() => ({
+  openManualSyncConflictResolutionDialogMock: vi.fn(async () => undefined),
+}));
+
 // Mock dependencies
 vi.mock('@/utils/dialog', () => ({
   createVueDialog: vi.fn((options) => {
@@ -40,6 +44,10 @@ const { createUnifiedReviewDialogMock } = vi.hoisted(() => ({
 
 vi.mock('@/application/factories/createUnifiedReviewDialog', () => ({
   createUnifiedReviewDialog: createUnifiedReviewDialogMock,
+}));
+
+vi.mock('@/ui/syncConflict/manualSyncConflictResolutionDialog', () => ({
+  openManualSyncConflictResolutionDialog: openManualSyncConflictResolutionDialogMock,
 }));
 
 function buildDomainStatus(
@@ -307,7 +315,12 @@ describe('DialogManager', () => {
 
       expect(createUnifiedReviewDialogMock).not.toHaveBeenCalled();
       expect(mockContext.getReviewQueuePreparationService).not.toHaveBeenCalled();
-      expect(mockSiyuanApi.pushErrMsg).toHaveBeenCalledWith(expect.stringContaining('repairable'));
+      expect(openManualSyncConflictResolutionDialogMock).toHaveBeenCalledWith(
+        mockContext,
+        expect.objectContaining({
+          reviewBlockDecision: expect.objectContaining({ kind: 'block-repairable' }),
+        }),
+      );
     });
 
     it('blocks tab-mode Review before opening a Review tab', async () => {
@@ -322,7 +335,12 @@ describe('DialogManager', () => {
 
       expect(mockTabManager.openReviewTabInNewTab).not.toHaveBeenCalled();
       expect(createUnifiedReviewDialogMock).not.toHaveBeenCalled();
-      expect(mockSiyuanApi.pushErrMsg).toHaveBeenCalledWith(expect.stringContaining('needs-direction'));
+      expect(openManualSyncConflictResolutionDialogMock).toHaveBeenCalledWith(
+        mockContext,
+        expect.objectContaining({
+          reviewBlockDecision: expect.objectContaining({ kind: 'block-needs-direction' }),
+        }),
+      );
     });
 
     it('blocks scoped Review before creating a subset queue', async () => {
@@ -339,7 +357,12 @@ describe('DialogManager', () => {
 
       expect(manager.getQueue).not.toHaveBeenCalled();
       expect(createUnifiedReviewDialogMock).not.toHaveBeenCalled();
-      expect(mockSiyuanApi.pushErrMsg).toHaveBeenCalledWith(expect.stringContaining('source-error'));
+      expect(openManualSyncConflictResolutionDialogMock).toHaveBeenCalledWith(
+        mockContext,
+        expect.objectContaining({
+          reviewBlockDecision: expect.objectContaining({ kind: 'block-source-error' }),
+        }),
+      );
     });
 
     it('keeps safe Review entry behavior for representative surfaces', async () => {

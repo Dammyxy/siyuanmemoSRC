@@ -41,6 +41,8 @@ import type {
   BackendDomainSyncRepairPreviewResult,
   BackendDomainSyncSanityStatus,
   BackendDomainSyncStatusResult,
+  BackendDomainSyncConflictSourceCleanupRequest,
+  BackendDomainSyncConflictSourceCleanupResult,
   BackendReviewSyncDivergenceAuditRequest,
   BackendReviewSyncDivergenceAuditResult,
   BackendSyncConflictMergeDivergenceDiagnostic,
@@ -104,6 +106,11 @@ type SqliteFileServiceAdapter = {
   readBinary(fileName: string): Promise<Uint8Array | null>;
   writeBinary(fileName: string, bytes: Uint8Array): Promise<void>;
   readSyncConflictDatabaseSources(): Promise<SqliteConflictDatabaseSource[]>;
+  cleanupSyncConflictDatabaseSources(sourceIds: string[]): Promise<{
+    cleaned: Array<{ sourceId: string; path: string | null }>;
+    skipped: Array<{ sourceId: string; reason: string }>;
+    failed: Array<{ sourceId: string; path: string | null; reason: string }>;
+  }>;
 };
 
 interface ConflictReviewEventRow {
@@ -279,6 +286,16 @@ function createSqliteFileServiceAdapter(bridge: SqlitePersistenceBridge): Sqlite
       }
       return bridge.readSyncConflictDatabaseSources();
     },
+    cleanupSyncConflictDatabaseSources: async (sourceIds: string[]) => {
+      if (!bridge.cleanupSyncConflictDatabaseSources) {
+        return {
+          cleaned: [],
+          skipped: sourceIds.map((sourceId) => ({ sourceId, reason: 'cleanup host effect unavailable' })),
+          failed: [],
+        };
+      }
+      return bridge.cleanupSyncConflictDatabaseSources(sourceIds);
+    },
   };
 }
 
@@ -289,6 +306,11 @@ function createReadonlyConflictFileService(bytes: Uint8Array): SqliteFileService
     readBinary: async (): Promise<Uint8Array> => new Uint8Array(bytes),
     writeBinary: async (): Promise<void> => undefined,
     readSyncConflictDatabaseSources: async (): Promise<SqliteConflictDatabaseSource[]> => [],
+    cleanupSyncConflictDatabaseSources: async (sourceIds: string[]) => ({
+      cleaned: [],
+      skipped: sourceIds.map((sourceId) => ({ sourceId, reason: 'readonly conflict source' })),
+      failed: [],
+    }),
   };
 }
 
@@ -439,6 +461,7 @@ export class WorkerSqliteDatabaseService {
   private initialized = false;
   private lastObservedPersistedHash: string | null = null;
   private readonly semanticCommandResultsByIdempotencyKey = new Map<string, BackendSemanticCommandResult>();
+  private readonly domainSyncCleanupResultsByIdempotencyKey = new Map<string, BackendDomainSyncConflictSourceCleanupResult>();
   private readonly kernelTransactionQueue: Array<{
     source: 'kernel-sidecar' | 'ws-main';
     transactions: unknown[];
@@ -1436,8 +1459,6 @@ export class WorkerSqliteDatabaseService {
       }
     }
 
-    const recentProcessed = this.readDomainSyncProcessedSources(false, 10);
-    const recentSkipped = this.readDomainSyncProcessedSources(true, 10);
     const processedCounts = this.runtime.getOne<{
       total_processed: number;
       total_skipped: number;
@@ -1468,6 +1489,8 @@ export class WorkerSqliteDatabaseService {
     if (skippedSourceCount > 0) {
       reasonCounts['source-error'] = skippedSourceCount;
     }
+    const recentProcessed = this.readDomainSyncProcessedSources(false, 10, status);
+    const recentSkipped = this.readDomainSyncProcessedSources(true, 10, status);
 
     return {
       ok: true,
@@ -1832,6 +1855,100 @@ export class WorkerSqliteDatabaseService {
     });
   }
 
+  async cleanupDomainSyncConflictSources(
+    request: BackendDomainSyncConflictSourceCleanupRequest,
+  ): Promise<BackendDomainSyncConflictSourceCleanupResult> {
+    await this.init();
+    const idempotencyKey = String(request?.idempotencyKey || '').trim();
+    const sourceIds = [...new Set((Array.isArray(request?.sourceIds) ? request.sourceIds : [])
+      .map((sourceId) => String(sourceId || '').trim())
+      .filter(Boolean))];
+    const confirmedAt = Math.max(0, Math.floor(Number(request?.confirmedAt || 0)));
+    if (!idempotencyKey || sourceIds.length === 0 || confirmedAt <= 0) {
+      return {
+        ok: false,
+        idempotencyKey,
+        cleaned: [],
+        skipped: sourceIds.map((sourceId) => ({ sourceId, reason: 'invalid-request' })),
+        failed: [],
+        status: 'invalid-request',
+      };
+    }
+    const duplicate = this.domainSyncCleanupResultsByIdempotencyKey.get(idempotencyKey);
+    if (duplicate) {
+      return {
+        ...duplicate,
+        status: 'duplicate',
+      };
+    }
+
+    const status = await this.getDomainSyncStatus();
+    const rows = this.readDomainSyncProcessedSourcesForSourceIds(sourceIds);
+    const rowsById = new Map(rows.map((row) => [String(row.source_id || ''), row]));
+    const eligible: string[] = [];
+    const skipped: BackendDomainSyncConflictSourceCleanupResult['skipped'] = [];
+    for (const sourceId of sourceIds) {
+      const row = rowsById.get(sourceId);
+      if (!row) {
+        skipped.push({ sourceId, reason: 'unprocessed' });
+        continue;
+      }
+      const cleanup = this.resolveDomainSyncProcessedSourceCleanup(row, status.sanity.status);
+      if (!cleanup.eligible) {
+        skipped.push({ sourceId, reason: cleanup.reason });
+        continue;
+      }
+      eligible.push(sourceId);
+    }
+
+    if (eligible.length === 0) {
+      const result: BackendDomainSyncConflictSourceCleanupResult = {
+        ok: true,
+        idempotencyKey,
+        cleaned: [],
+        skipped,
+        failed: [],
+        status: 'invalid-request',
+      };
+      this.domainSyncCleanupResultsByIdempotencyKey.set(idempotencyKey, result);
+      return result;
+    }
+
+    let hostResult: Awaited<ReturnType<SqliteFileServiceAdapter['cleanupSyncConflictDatabaseSources']>>;
+    try {
+      hostResult = await this.fileService.cleanupSyncConflictDatabaseSources(eligible);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return {
+        ok: false,
+        idempotencyKey,
+        cleaned: [],
+        skipped,
+        failed: eligible.map((sourceId) => ({
+          sourceId,
+          path: rowsById.get(sourceId)?.path ?? null,
+          reason,
+        })),
+        status: 'unavailable',
+      };
+    }
+
+    const result: BackendDomainSyncConflictSourceCleanupResult = {
+      ok: hostResult.failed.length === 0,
+      idempotencyKey,
+      cleaned: hostResult.cleaned,
+      skipped: [...skipped, ...hostResult.skipped],
+      failed: hostResult.failed,
+      status: hostResult.failed.length > 0
+        ? 'partial'
+        : hostResult.cleaned.length > 0
+          ? 'cleaned'
+          : 'invalid-request',
+    };
+    this.domainSyncCleanupResultsByIdempotencyKey.set(idempotencyKey, result);
+    return result;
+  }
+
   async mergeSyncConflictDatabases(
     request: BackendSyncConflictMergeRequest,
   ): Promise<BackendSyncConflictMergeResult> {
@@ -2071,7 +2188,11 @@ export class WorkerSqliteDatabaseService {
     return Boolean(hasLedger);
   }
 
-  private readDomainSyncProcessedSources(skipped: boolean, limit: number): BackendDomainSyncProcessedSource[] {
+  private readDomainSyncProcessedSources(
+    skipped: boolean,
+    limit: number,
+    sanityStatus?: BackendDomainSyncSanityStatus,
+  ): BackendDomainSyncProcessedSource[] {
     const rows = this.runtime.getAll<DomainSyncProcessedSourceRow>(
       `SELECT source_id, source_fingerprint, source_kind, path, processed_at,
               imported_operations, ignored_operations, imported_review_events, ignored_review_events,
@@ -2082,7 +2203,7 @@ export class WorkerSqliteDatabaseService {
        LIMIT ?`,
       [Math.max(1, Math.floor(limit))],
     );
-    return rows.map((row) => this.toDomainSyncProcessedSource(row));
+    return rows.map((row) => this.toDomainSyncProcessedSource(row, sanityStatus));
   }
 
   private readDomainSyncProcessedSourcesForSourceIds(sourceIds: unknown[]): DomainSyncProcessedSourceRow[] {
@@ -2103,7 +2224,10 @@ export class WorkerSqliteDatabaseService {
     );
   }
 
-  private toDomainSyncProcessedSource(row: DomainSyncProcessedSourceRow): BackendDomainSyncProcessedSource {
+  private toDomainSyncProcessedSource(
+    row: DomainSyncProcessedSourceRow,
+    sanityStatus?: BackendDomainSyncSanityStatus,
+  ): BackendDomainSyncProcessedSource {
     return {
       sourceId: String(row.source_id || ''),
       sourceKind: (row.source_kind || 'unknown') as BackendDomainSyncProcessedSource['sourceKind'],
@@ -2118,15 +2242,38 @@ export class WorkerSqliteDatabaseService {
       ignoredCards: Math.max(0, Number(row.ignored_cards || 0)),
       skippedReason: (row.skipped_reason as BackendDomainSyncProcessedSource['skippedReason']) ?? null,
       latestSanityStatus: row.latest_sanity_status ?? null,
+      cleanup: this.resolveDomainSyncProcessedSourceCleanup(row, sanityStatus),
     };
+  }
+
+  private resolveDomainSyncProcessedSourceCleanup(
+    row: DomainSyncProcessedSourceRow,
+    sanityStatus?: BackendDomainSyncSanityStatus,
+  ): BackendDomainSyncProcessedSource['cleanup'] {
+    if (row.skipped_reason) {
+      return { eligible: false, reason: 'skipped-source' };
+    }
+    if (row.source_kind !== 'siyuan-conflict-db') {
+      return { eligible: false, reason: 'unsupported-source-kind' };
+    }
+    if (!String(row.path || '').trim()) {
+      return { eligible: false, reason: 'missing-path' };
+    }
+    if (sanityStatus === 'needs-direction') {
+      return { eligible: false, reason: 'needs-direction' };
+    }
+    if (sanityStatus === 'source-error') {
+      return { eligible: false, reason: 'source-error' };
+    }
+    return { eligible: true, reason: 'processed-resolved' };
   }
 
   private countNeedsDirectionDomainSyncOperations(): number {
     const row = this.runtime.getOne<{ count: number }>(
       `SELECT COUNT(*) AS count
        FROM domain_sync_operations
-       WHERE operation_type IN (?, ?, ?)`,
-      ['card-upserted', 'queue-projection-invalidated', 'repair-applied'],
+       WHERE operation_type IN (?, ?)`,
+      ['card-upserted', 'queue-projection-invalidated'],
     );
     return Math.max(0, Number(row?.count || 0));
   }

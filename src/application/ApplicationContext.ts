@@ -176,6 +176,8 @@ import type {
   BackendDomainSyncRepairPreviewRequest,
   BackendDomainSyncRepairPreviewResult,
   BackendDomainSyncStatusResult,
+  BackendDomainSyncConflictSourceCleanupRequest,
+  BackendDomainSyncConflictSourceCleanupResult,
   BackendSyncConflictMergeResult,
 } from '../../packages/contracts/src/backend-rpc';
 
@@ -1438,6 +1440,11 @@ export class ApplicationContext {
                 return bridge.writeJSON(path, value);
               },
               readSyncConflictDatabaseSources: () => bridge.readSyncConflictDatabaseSources?.() ?? Promise.resolve([]),
+              cleanupSyncConflictDatabaseSources: (sourceIds) => bridge.cleanupSyncConflictDatabaseSources?.(sourceIds) ?? Promise.resolve({
+                cleaned: [],
+                skipped: sourceIds.map((sourceId) => ({ sourceId, reason: 'cleanup host effect unavailable' })),
+                failed: [],
+              }),
               resolveExistingBlockIds: (blockIds: string[]) => ApplicationContext.resolveExistingBlockIdsViaSiyuan(
                 browserSiyuanApi,
                 blockIds,
@@ -1755,6 +1762,7 @@ export class ApplicationContext {
       readJSON: <T>(path: string) => fileService.readJSON<T>(path),
       writeJSON: (path: string, value: unknown) => fileService.writeJSON(path, value),
       readSyncConflictDatabaseSources: () => fileService.readSyncConflictDatabaseSources(),
+      cleanupSyncConflictDatabaseSources: (sourceIds: string[]) => fileService.cleanupSyncConflictDatabaseSources(sourceIds),
     };
   }
 
@@ -2646,6 +2654,22 @@ export class ApplicationContext {
       this.followerCommandClient,
     );
     return service.applyRepair(request);
+  }
+
+  async cleanupDomainSyncConflictSources(
+    request: BackendDomainSyncConflictSourceCleanupRequest,
+  ): Promise<BackendDomainSyncConflictSourceCleanupResult> {
+    const backendClient = this.getSrsBackendClient();
+    if (!backendClient) {
+      throw new Error('BACKEND_UNAVAILABLE: domain sync conflict source cleanup requires SRS backend');
+    }
+    const service = new DomainSyncDiagnosticsApplicationService(
+      backendClient,
+      logger,
+      this.frontendInstanceRuntime,
+      this.followerCommandClient,
+    );
+    return service.cleanupConflictSources(request);
   }
 
   async previewSyncConflictDirectionResolution(): Promise<SyncConflictDirectionPreview> {

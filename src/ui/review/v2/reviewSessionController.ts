@@ -128,6 +128,10 @@ export interface CreateReviewSessionControllerOptions<TItem extends QueueItem = 
     state: ReviewUIState,
     reason: ReviewSessionUpdateReason,
   ) => Promise<ReviewUIState>;
+  ensureActionSafe?: (input: {
+    action: ReviewSessionRetryAction;
+    item: TItem | null;
+  }) => Promise<void>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -715,6 +719,10 @@ export function createReviewSessionController<TItem extends QueueItem>(
       markAdvancePending('grade');
       const reviewedItem = currentItem.value;
       reviewedCardId = extractCardId(reviewedItem);
+      await options?.ensureActionSafe?.({
+        action: { type: 'grade', rating: normalized },
+        item: reviewedItem,
+      });
       const pendingKey = `grade:${reviewedCardId}:${normalized}`;
       const commitIdempotencyKey = pendingCommitKeys.get(pendingKey)
         ?? createReviewCommitIdempotencyKey(reviewedCardId, normalized);
@@ -780,6 +788,10 @@ export function createReviewSessionController<TItem extends QueueItem>(
     let pushedHistory = false;
     try {
       markAdvancePending('skip');
+      await options?.ensureActionSafe?.({
+        action: { type: 'skip' },
+        item: currentItem.value,
+      });
       await queue.onFeedback(currentItem.value, { action: 'skip' });
       pushReviewHistory(context.value, {
         action: 'skip',
@@ -826,6 +838,10 @@ export function createReviewSessionController<TItem extends QueueItem>(
       }
 
       markAdvancePending('custom');
+      await options?.ensureActionSafe?.({
+        action: { type: 'custom', commandId: id },
+        item: currentItem.value,
+      });
       await queue.onFeedback(currentItem.value, { action: 'custom', customActionId: id });
       pushReviewHistory(context.value, {
         action: 'custom',

@@ -428,6 +428,8 @@ import { createReviewCurrentContentEditorRuntime } from './reviewCurrentContentE
 import { createReviewFilterRuntime, type ReviewFilterGroupQueueLike } from './reviewFilterCommands';
 import { createReviewDataObserverRuntime } from './reviewDataObserverRuntime';
 import { createReviewNativeSplitRuntime } from './reviewNativeSplitRuntime';
+import { buildReviewDomainSyncSafetyDecision } from '@/application/services/ReviewDomainSyncSafetyService';
+import { openManualSyncConflictResolutionDialog } from '@/ui/syncConflict/manualSyncConflictResolutionDialog';
 
 const logger = createLogger('ReviewView');
 
@@ -497,6 +499,7 @@ type ReviewPluginContextLike = {
     getSchedulerType?: (card: FSRSCard) => 'fsrs-v6' | 'a-factor-v2';
   } | undefined;
   getUnifiedDataSourceManager?: () => IUnifiedDataSourceManagerFacade | null | undefined;
+  readDomainSyncDiagnostics?: () => Promise<unknown>;
 };
 
 type ReviewRuntimeSettingsLike = Pick<Partial<PluginSettings>,
@@ -1423,6 +1426,49 @@ async function handleReviewArenaFeedback(payload: { cardId: string; rating: numb
   await reviewArenaRuntime.handleFeedback(payload);
 }
 
+async function ensureReviewDomainSyncSafeForAction(input: {
+  action: ReviewSessionRetryAction;
+  item: ActiveReviewItem | null;
+}): Promise<void> {
+  const context = getPluginContext(props.plugin);
+  if (typeof context?.readDomainSyncDiagnostics !== 'function') {
+    throw new Error('DOMAIN_SYNC_DIAGNOSTICS_UNAVAILABLE: Review feedback requires domain sync diagnostics');
+  }
+
+  let blockedDecisionMessage: string | null = null;
+  try {
+    const status = await context.readDomainSyncDiagnostics();
+    const decision = buildReviewDomainSyncSafetyDecision(status as never);
+    if (decision.canOpenReview) {
+      return;
+    }
+    blockedDecisionMessage = decision.message;
+    await openManualSyncConflictResolutionDialog(context as never, {
+      initialDomainStatus: status as never,
+      reviewBlockDecision: decision,
+      onDiagnosticsSafe: async () => {
+        await reviewSessionController.reload();
+      },
+    });
+    throw new Error(decision.message);
+  } catch (error) {
+    if (blockedDecisionMessage) {
+      throw new Error(blockedDecisionMessage);
+    }
+    const decision = buildReviewDomainSyncSafetyDecision(null, error);
+    await openManualSyncConflictResolutionDialog(context as never, {
+      reviewBlockDecision: decision,
+      diagnosticsUnavailableReason: decision.message,
+    });
+    throw error instanceof Error ? error : new Error(String(error));
+  } finally {
+    logger.info('[ReviewView] Domain sync safety checked before Review action', {
+      action: input.action.type,
+      cardId: input.item?.id || input.item?.cardID || null,
+    });
+  }
+}
+
 function createReviewSessionControllerInstance(): ReviewSessionController<ActiveReviewItem> {
   return createReviewSessionController(
     props.queue as never,
@@ -1435,6 +1481,7 @@ function createReviewSessionControllerInstance(): ReviewSessionController<Active
       initialCurrentItem: effectiveInitialCurrentItem as never,
       initialShowAnswer: effectiveInitialShowAnswer,
       prepareStateBeforeCommit: prepareReviewStateBeforeCommit,
+      ensureActionSafe: ensureReviewDomainSyncSafeForAction as never,
     },
   ) as ReviewSessionController<ActiveReviewItem>;
 }
@@ -1471,6 +1518,7 @@ const hook = useReviewSession(
     initialCurrentItem: effectiveInitialCurrentItem as never,
     initialShowAnswer: effectiveInitialShowAnswer,
     prepareStateBeforeCommit: prepareReviewStateBeforeCommit,
+    ensureActionSafe: ensureReviewDomainSyncSafeForAction as never,
     controller: reviewSessionController as never,
     surfaceId: reviewSessionId.value,
   }

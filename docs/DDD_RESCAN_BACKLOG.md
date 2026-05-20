@@ -1,17 +1,47 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-21 (Round 414)
+Last update: 2026-05-21 (Round 415)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-21 - Sync Conflict Recovery Chinese UI
+
+- Task: Localize the sync conflict recovery/repair dialog to Chinese.
+- Touched slice: Manual sync conflict recovery UI / i18n dictionaries; `src/ui/syncConflict/manualSyncConflictResolutionDialog.ts`, `src/i18n/{zh_CN,en_US}.json`, and focused dialog tests.
+- Debt fixed now: The recovery page now uses Chinese i18n labels for blocked Review copy, sync health, repair preview/apply, cleanup actions, confirmation dialogs, counts, and status/reason labels. Backend enum values such as `needs-direction`, `source-error`, and repair reasons are mapped to user-facing Chinese labels instead of leaking raw technical tokens.
+- Debt deferred: Existing unrelated global i18n audit warnings remain outside this dialog slice.
+- Why deferred: This change only addresses the conflict recovery surface reported by the user.
+- Next safe step: Smoke the dialog in SiYuan with zh_CN locale after a real conflict appears.
+- Validation: Focused conflict dialog/i18n tests, `node check-i18n.cjs`, `node scripts/check-hidden-fallbacks.cjs`, `pnpm run check:boundaries`, and `pnpm build`.
+
+### 2026-05-21 - Domain Sync Repair Clears Review Gate
+
+- Task: Fix Review reopening the sync conflict recovery dialog after the user applied a domain-sync repair.
+- Touched slice: Backend domain-sync sanity status / Review gate evidence; `worker/db/SqliteDatabaseService.ts` and `worker/__tests__/BackendKernel.test.ts`.
+- Debt fixed now: `repair-applied` is no longer counted as a `needs-direction` operation. A successful repair can now clear `repairable` evidence and return diagnostics to safe `clean`/`merged` state, so the next Review entry no longer loops back to the conflict dialog because of the repair audit event itself.
+- Debt deferred: Live desktop/mobile smoke still needs real paired SiYuan devices to prove file sync no longer creates a second conflict loop.
+- Why deferred: Unit/integration tests can prove backend status resolution after repair; they cannot create actual SiYuan cross-device file conflict copies.
+- Next safe step: In live smoke, after applying repair, inspect `domainSync.status` before clicking Review again.
+- Validation: Focused regression red/green for repair apply -> `getDomainSyncStatus()`, full focused worker/DialogManager/safety/dialog test batch, hidden fallback gate, boundary checks, and build.
+
+### 2026-05-21 - Review Domain Sync Gate Recovery And Cleanup
+
+- Task: Continue OpenSpec `gate-review-on-domain-sync-conflict` tasks 3-6.
+- Touched slice: Review domain-sync conflict gate / manual sync conflict recovery / Review session feedback guard / backend domain-sync cleanup; `src/ui/syncConflict/manualSyncConflictResolutionDialog.ts`, `src/ui/review/v2/{ReviewView.vue,reviewSessionController.ts}`, `worker/db/SqliteDatabaseService.ts`, `worker/bootstrap/*`, `packages/contracts/src/backend-rpc.ts`, `src/application/{ApplicationContext.ts,clients/SrsBackendClient.ts,services/DomainSyncDiagnosticsApplicationService.ts}`, `src/infrastructure/services/FileService.ts`, and focused tests.
+- Debt fixed now: Blocked Review now opens the plugin-owned sync conflict dialog with retry diagnostics, repair preview, native repair confirmation, manual conflict actions, and cancel. Raw `window.confirm()` is gone from the repair/replacement confirmation path. In-session grade/skip/custom actions now check domain-sync safety before `queue.onFeedback()`, preserving the visible card and blocking backend feedback, writer relay feedback, local queue advancement, session counters, and projection patch when unsafe. Safe diagnostics after repair/retry trigger Review reload from backend-owned queue/card state. Processed conflict DB sources now carry backend cleanup eligibility; cleanup is backend/writer owned, idempotent, and refuses unprocessed, skipped, `source-error`, or `needs-direction` evidence.
+- Debt deferred: SiYuan official sync can still create file-level conflict copies; plugin cleanup only removes/archives backend-eligible processed copies after convergence. Live desktop/mobile smoke remains manual because this workspace has no paired SiYuan devices.
+- Why deferred: File-level sync behavior belongs to SiYuan, not SiYuanMemo. Mobile/desktop smoke needs real synced runtimes and cannot be proven by unit tests alone.
+- Next safe step: Run the recorded desktop/mobile smoke and inspect `diagnostics.status.domainSync` after cleanup/repair.
+- Validation: Focused Vitest for manual conflict dialog, Review session guard, domain-sync application service, backend cleanup; hidden-fallback/boundary/build pending in current validation pass.
 
 ### 2026-05-21 - Review Entry Blocks Unsafe Domain Sync
 
 - Task: Implement P1-P2 for OpenSpec `gate-review-on-domain-sync-conflict`.
 - Touched slice: Review entry gating / domain sync diagnostics read path; `src/application/services/ReviewDomainSyncSafetyService.ts`, `src/application/managers/DialogManager.ts`, and focused Review entry tests.
 - Debt fixed now: Review entry now asks `ApplicationContext.readDomainSyncDiagnostics()` before opening standard dialogs, tab-mode Review, queue switching, subset/static review, leech, neural-roam, and drill-style surfaces. Unsafe `repairable`, `needs-direction`, `divergent`, `source-error`, and diagnostics-unavailable states block Review before queue preparation, tab delegation, queue materialization, or dialog creation. Existing open Review dialogs are not destroyed on blocked entry, so conflict detection does not worsen an active session.
-- Debt deferred: Review-answer in-session freeze, plugin-owned conflict recovery dialog, processed conflict-source cleanup affordance, architecture docs, and desktop/mobile smoke remain in later tasks for the same OpenSpec change.
-- Why deferred: This slice closes entry-time mutation risk only. In-session scoring and recovery UI cross Review controller/UI and sync conflict dialog ownership.
-- Next safe step: Implement the conflict recovery dialog surface so blocked Review can show repair/manual-resolution actions instead of only an error toast.
+- Debt deferred: Desktop/mobile smoke remains in later validation for the same OpenSpec change.
+- Why deferred: This slice closed entry-time mutation risk only; later Round 415 closed in-session scoring, recovery UI, and cleanup ownership.
+- Next safe step: Run live desktop/mobile smoke for the full gate/recovery path.
 - Validation: `pnpm vitest run src\application\services\__tests__\ReviewDomainSyncSafetyService.test.ts src\application\managers\DialogManager.test.ts --reporter=dot`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build` (passed with existing non-blocking i18n warnings; zip packing again reported nonfatal `package.zip` unlink EPERM while Vite/webpack and dist hygiene completed with exit 0).
 
 ### 2026-05-21 - Domain Sync Repair Preview And Apply

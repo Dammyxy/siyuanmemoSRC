@@ -29,6 +29,11 @@ export interface BrowserSrsBackendWorkerHostEffects {
     modifiedAt?: number | null;
     size?: number | null;
   }>>;
+  cleanupSyncConflictDatabaseSources?: (sourceIds: string[]) => Promise<{
+    cleaned: Array<{ sourceId: string; path: string | null }>;
+    skipped: Array<{ sourceId: string; reason: string }>;
+    failed: Array<{ sourceId: string; path: string | null; reason: string }>;
+  }>;
   resolveExistingBlockIds?: (blockIds: string[]) => Promise<string[]>;
   resolveNeuralGraphQuery?: (
     request: BackendNeuralGraphQueryRequest,
@@ -329,6 +334,15 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           return [];
         }
         return this.options.hostEffects.readSyncConflictDatabaseSources();
+      case 'sqlite.cleanupSyncConflictDatabaseSources':
+        if (!this.options.hostEffects.cleanupSyncConflictDatabaseSources) {
+          return {
+            cleaned: [],
+            skipped: effect.sourceIds.map((sourceId) => ({ sourceId, reason: 'cleanup host effect unavailable' })),
+            failed: [],
+          };
+        }
+        return this.options.hostEffects.cleanupSyncConflictDatabaseSources(effect.sourceIds);
       case 'siyuan.resolveExistingBlockIds':
         if (!this.options.hostEffects.resolveExistingBlockIds) {
           throw unavailable('resolveExistingBlockIds host effect unavailable');

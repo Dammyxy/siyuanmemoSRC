@@ -61,6 +61,8 @@ import {
   type BackendDomainSyncRepairApplyResult,
   type BackendDomainSyncRepairPreviewRequest,
   type BackendDomainSyncRepairPreviewResult,
+  type BackendDomainSyncConflictSourceCleanupRequest,
+  type BackendDomainSyncConflictSourceCleanupResult,
   type BackendPreRequestMergeDiagnostic,
   type BackendPreRequestMergeDiagnosticsState,
   type BackendHealthResult,
@@ -256,6 +258,8 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleDomainSyncRepairPreview(request.params));
         case 'domainSync.repair.apply':
           return buildSuccess(request.id, await this.handleDomainSyncRepairApply(request.params));
+        case 'domainSync.conflictSources.cleanup':
+          return buildSuccess(request.id, await this.handleDomainSyncConflictSourceCleanup(request.params));
         case 'sync.reviewDivergence.audit':
           return buildSuccess(request.id, await this.handleReviewSyncDivergenceAudit(request.params));
         case 'browser.deck.page':
@@ -398,6 +402,11 @@ export class BackendKernel {
   private async handleDomainSyncRepairApply(params: unknown): Promise<BackendDomainSyncRepairApplyResult> {
     const [request] = Array.isArray(params) ? params : [params];
     return this.deps.database.applyDomainSyncRepair((request ?? {}) as BackendDomainSyncRepairApplyRequest);
+  }
+
+  private async handleDomainSyncConflictSourceCleanup(params: unknown): Promise<BackendDomainSyncConflictSourceCleanupResult> {
+    const [request] = Array.isArray(params) ? params : [params];
+    return this.deps.database.cleanupDomainSyncConflictSources((request ?? {}) as BackendDomainSyncConflictSourceCleanupRequest);
   }
 
   private recordPreRequestMergeDiagnostic(

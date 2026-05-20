@@ -104,6 +104,14 @@ const database = new WorkerSqliteDatabaseService({
   }>>({
     kind: 'sqlite.readSyncConflictDatabaseSources',
   }),
+  cleanupSyncConflictDatabaseSources: (sourceIds) => requestHostEffect<{
+    cleaned: Array<{ sourceId: string; path: string | null }>;
+    skipped: Array<{ sourceId: string; reason: string }>;
+    failed: Array<{ sourceId: string; path: string | null; reason: string }>;
+  }>({
+    kind: 'sqlite.cleanupSyncConflictDatabaseSources',
+    sourceIds,
+  }),
 });
 
 const backendKernel = new BackendKernel({

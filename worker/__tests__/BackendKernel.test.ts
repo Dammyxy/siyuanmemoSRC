@@ -970,6 +970,72 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('cleans only backend-eligible processed conflict sources and keeps idempotency bounded', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const cleanupSyncConflictDatabaseSources = vi.fn(async (sourceIds: string[]) => ({
+      cleaned: sourceIds.map((sourceId) => ({ sourceId, path: `/conflicts/${sourceId}.db` })),
+      skipped: [],
+      failed: [],
+    }));
+    persistenceBridge.cleanupSyncConflictDatabaseSources = cleanupSyncConflictDatabaseSources;
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.load();
+    await database.runTransaction('seed.domain-sync-cleanup-sources', (db) => {
+      db.run(
+        `INSERT INTO domain_sync_processed_sources
+          (source_id, source_fingerprint, source_kind, path, processed_at,
+           imported_operations, ignored_operations, imported_review_events, ignored_review_events,
+           imported_cards, ignored_cards, skipped_reason, latest_sanity_status, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ['eligible-source', 'fp-eligible', 'siyuan-conflict-db', '/conflicts/eligible-source.db', 1, 0, 0, 0, 0, 0, 0, null, 'clean', '{}'],
+      );
+    });
+
+    const result = await database.cleanupDomainSyncConflictSources({
+      sourceIds: ['eligible-source', 'missing-source'],
+      idempotencyKey: 'cleanup-key-1',
+      confirmedAt: 1_700_000_000_000,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      status: 'cleaned',
+      cleaned: [{ sourceId: 'eligible-source', path: '/conflicts/eligible-source.db' }],
+      skipped: [
+        { sourceId: 'missing-source', reason: 'unprocessed' },
+      ],
+      failed: [],
+    });
+    expect(cleanupSyncConflictDatabaseSources).toHaveBeenCalledWith(['eligible-source']);
+
+    const duplicate = await database.cleanupDomainSyncConflictSources({
+      sourceIds: ['eligible-source'],
+      idempotencyKey: 'cleanup-key-1',
+      confirmedAt: 1_700_000_000_001,
+    });
+    expect(duplicate.status).toBe('duplicate');
+    expect(cleanupSyncConflictDatabaseSources).toHaveBeenCalledTimes(1);
+
+    await database.runTransaction('seed.domain-sync-skipped-cleanup-source', (db) => {
+      db.run(
+        `INSERT INTO domain_sync_processed_sources
+          (source_id, source_fingerprint, source_kind, path, processed_at,
+           imported_operations, ignored_operations, imported_review_events, ignored_review_events,
+           imported_cards, ignored_cards, skipped_reason, latest_sanity_status, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ['skipped-source', 'fp-skipped', 'siyuan-conflict-db', '/conflicts/skipped-source.db', 1, 0, 0, 0, 0, 0, 0, 'parse-error', 'source-error', '{}'],
+      );
+    });
+    const skipped = await database.cleanupDomainSyncConflictSources({
+      sourceIds: ['skipped-source'],
+      idempotencyKey: 'cleanup-key-2',
+      confirmedAt: 1_700_000_000_002,
+    });
+    expect(skipped.cleaned).toEqual([]);
+    expect(skipped.skipped).toEqual([{ sourceId: 'skipped-source', reason: 'skipped-source' }]);
+    expect(cleanupSyncConflictDatabaseSources).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps legacy DB merge behavior and backfills imported formal review events into the local ledger', async () => {
     const currentBridge = createInMemorySqlitePersistenceBridge();
     const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
@@ -1535,6 +1601,13 @@ describe('BackendKernel', () => {
        WHERE queue_type = ?`,
       ['retrieval-practice'],
     )).toMatchObject({ status: 'invalidated' });
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      sanity: {
+        status: 'clean',
+        repairableDivergenceCount: 0,
+        divergentCardCount: 0,
+      },
+    });
   });
 
   it('rejects stale domain sync repair plans when card state changes after preview', async () => {

@@ -12,6 +12,11 @@ export interface SqlitePersistenceBridge {
   readJSON?<T>(path: string): Promise<T | null>;
   writeJSON?(path: string, value: unknown): Promise<void>;
   readSyncConflictDatabaseSources?(): Promise<SqliteConflictDatabaseSource[]>;
+  cleanupSyncConflictDatabaseSources?(sourceIds: string[]): Promise<{
+    cleaned: Array<{ sourceId: string; path: string | null }>;
+    skipped: Array<{ sourceId: string; reason: string }>;
+    failed: Array<{ sourceId: string; path: string | null; reason: string }>;
+  }>;
 }
 
 export function toTransferableArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -36,6 +41,13 @@ export function createUnavailableSqlitePersistenceBridge(reason: string): Sqlite
       throw new Error(reason);
     },
     async readSyncConflictDatabaseSources(): Promise<SqliteConflictDatabaseSource[]> {
+      throw new Error(reason);
+    },
+    async cleanupSyncConflictDatabaseSources(): Promise<{
+      cleaned: Array<{ sourceId: string; path: string | null }>;
+      skipped: Array<{ sourceId: string; reason: string }>;
+      failed: Array<{ sourceId: string; path: string | null; reason: string }>;
+    }> {
       throw new Error(reason);
     },
   };
@@ -64,6 +76,17 @@ export function createInMemorySqlitePersistenceBridge(): SqlitePersistenceBridge
     },
     async readSyncConflictDatabaseSources(): Promise<SqliteConflictDatabaseSource[]> {
       return [];
+    },
+    async cleanupSyncConflictDatabaseSources(sourceIds: string[]): Promise<{
+      cleaned: Array<{ sourceId: string; path: string | null }>;
+      skipped: Array<{ sourceId: string; reason: string }>;
+      failed: Array<{ sourceId: string; path: string | null; reason: string }>;
+    }> {
+      return {
+        cleaned: sourceIds.map((sourceId) => ({ sourceId, path: null })),
+        skipped: [],
+        failed: [],
+      };
     },
     snapshot() {
       const first = binary.values().next().value as Uint8Array | undefined;

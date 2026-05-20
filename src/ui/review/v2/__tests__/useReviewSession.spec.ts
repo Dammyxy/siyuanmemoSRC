@@ -108,6 +108,7 @@ function mountHook(options: {
   onReviewDetailed?: ReturnType<typeof vi.fn>;
   onActionError?: ReturnType<typeof vi.fn>;
   prepareStateBeforeCommit?: (state: ReviewUIState, reason: string) => Promise<ReviewUIState>;
+  ensureActionSafe?: () => Promise<void>;
 } = {}) {
   const queue = options.queue ?? createQueue();
   const adapter = options.adapter ?? createAdapter();
@@ -122,6 +123,7 @@ function mountHook(options: {
         onReviewDetailed: options.onReviewDetailed,
         onActionError: options.onActionError,
         prepareStateBeforeCommit: options.prepareStateBeforeCommit as never,
+        ensureActionSafe: options.ensureActionSafe as never,
       });
       return () => h('div');
     },
@@ -523,6 +525,34 @@ describe('useReviewSession', () => {
     expect(hook.context.value.session?.answeredCount).toBe(1);
     expect(hook.context.value.session?.correctCount).toBe(1);
     expect(actionError).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it('blocks grade before feedback and queue advancement when the action guard reports unsafe state', async () => {
+    const actionError = vi.fn();
+    const ensureActionSafe = vi.fn(async () => {
+      throw new Error('Domain sync status is repairable');
+    });
+    const queue = createQueue();
+    const { getHook, wrapper } = mountHook({ queue, onActionError: actionError, ensureActionSafe });
+    await flushAsync();
+
+    const hook = getHook();
+    await hook.grade(3);
+
+    expect(ensureActionSafe).toHaveBeenCalledWith(expect.objectContaining({
+      action: { type: 'grade', rating: 3 },
+    }));
+    expect(queue.onFeedback).not.toHaveBeenCalled();
+    expect(queue.next).toHaveBeenCalledTimes(1);
+    expect(hook.context.value.session?.answeredCount).toBe(0);
+    expect(hook.context.value.session?.correctCount).toBe(0);
+    expect(actionError).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'grade',
+      action: { type: 'grade', rating: 3 },
+      item: expect.objectContaining({ id: 'card-1' }),
+    }));
 
     wrapper.unmount();
   });

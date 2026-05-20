@@ -47,6 +47,7 @@ describe('DomainSyncDiagnosticsApplicationService', () => {
       domainSyncStatus,
       domainSyncRepairPreview,
       domainSyncRepairApply,
+      domainSyncConflictSourcesCleanup: vi.fn(),
     }, logger);
 
     await expect(service.readStatus()).resolves.toBe(result);
@@ -67,6 +68,7 @@ describe('DomainSyncDiagnosticsApplicationService', () => {
       domainSyncRepairApply: vi.fn(async () => {
         throw new Error('follower must not apply locally');
       }),
+      domainSyncConflictSourcesCleanup: vi.fn(),
     };
     const request = {
       planId: 'plan-follower',
@@ -105,6 +107,7 @@ describe('DomainSyncDiagnosticsApplicationService', () => {
       domainSyncStatus: vi.fn(),
       domainSyncRepairPreview: vi.fn(),
       domainSyncRepairApply: vi.fn(),
+      domainSyncConflictSourcesCleanup: vi.fn(),
     };
     const request = {
       planId: 'plan-no-relay',
@@ -144,6 +147,7 @@ describe('DomainSyncDiagnosticsApplicationService', () => {
       domainSyncStatus: vi.fn(),
       domainSyncRepairPreview: vi.fn(),
       domainSyncRepairApply: vi.fn(async () => unavailable),
+      domainSyncConflictSourcesCleanup: vi.fn(),
     };
     const service = new DomainSyncDiagnosticsApplicationService(
       backend,
@@ -154,5 +158,44 @@ describe('DomainSyncDiagnosticsApplicationService', () => {
 
     await expect(service.applyRepair(request)).resolves.toBe(unavailable);
     expect(backend.domainSyncRepairApply).toHaveBeenCalledWith(request);
+  });
+
+  it('routes cleanup through writer relay when runtime is follower', async () => {
+    const request = {
+      sourceIds: ['eligible-source'],
+      idempotencyKey: 'cleanup-key-follower',
+      confirmedAt: 1_700_003_000_000,
+    };
+    const relayResult = {
+      ok: true,
+      idempotencyKey: request.idempotencyKey,
+      cleaned: [{ sourceId: 'eligible-source', path: '/conflicts/eligible-source.db' }],
+      skipped: [],
+      failed: [],
+      status: 'cleaned' as const,
+    };
+    const backend = {
+      domainSyncStatus: vi.fn(),
+      domainSyncRepairPreview: vi.fn(),
+      domainSyncRepairApply: vi.fn(),
+      domainSyncConflictSourcesCleanup: vi.fn(async () => {
+        throw new Error('follower must not cleanup locally');
+      }),
+    };
+    const submitAndWait = vi.fn(async () => relayResult);
+    const service = new DomainSyncDiagnosticsApplicationService(
+      backend,
+      { info: vi.fn() },
+      { getMode: () => 'follower', getInstanceId: () => 'instance-follower-domain-cleanup' },
+      { submitAndWait },
+    );
+
+    await expect(service.cleanupConflictSources(request)).resolves.toBe(relayResult);
+    expect(backend.domainSyncConflictSourcesCleanup).not.toHaveBeenCalled();
+    expect(submitAndWait).toHaveBeenCalledWith({
+      instanceId: 'instance-follower-domain-cleanup',
+      method: 'domainSync.conflictSources.cleanup',
+      params: request,
+    });
   });
 });

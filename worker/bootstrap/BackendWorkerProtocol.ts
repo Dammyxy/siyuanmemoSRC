@@ -13,6 +13,7 @@ export type BackendWorkerHostEffect =
   | { kind: 'sqlite.readJSON'; path: string }
   | { kind: 'sqlite.writeJSON'; path: string; value: unknown }
   | { kind: 'sqlite.readSyncConflictDatabaseSources' }
+  | { kind: 'sqlite.cleanupSyncConflictDatabaseSources'; sourceIds: string[] }
   | { kind: 'siyuan.resolveExistingBlockIds'; blockIds: string[] }
   | { kind: 'siyuan.neuralGraph.query'; request: BackendNeuralGraphQueryRequest }
   | { kind: 'autocard.execute'; request: BackendAutoCardExecuteRequest }

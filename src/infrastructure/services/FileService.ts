@@ -64,6 +64,12 @@ export interface IFileService {
     size?: number | null;
   }>>;
 
+  cleanupSyncConflictDatabaseSources?(sourceIds: string[]): Promise<{
+    cleaned: Array<{ sourceId: string; path: string | null }>;
+    skipped: Array<{ sourceId: string; reason: string }>;
+    failed: Array<{ sourceId: string; path: string | null; reason: string }>;
+  }>;
+
   backupCurrentSqliteDatabase?(options?: { sourceId?: string; now?: number }): Promise<{ backupPath: string; bytes: Uint8Array }>;
 
   replaceCurrentSqliteDatabase?(bytes: Uint8Array): Promise<void>;
@@ -335,6 +341,46 @@ export class FileService implements IFileService {
     return sources;
   }
 
+  async cleanupSyncConflictDatabaseSources(sourceIds: string[]): Promise<{
+    cleaned: Array<{ sourceId: string; path: string | null }>;
+    skipped: Array<{ sourceId: string; reason: string }>;
+    failed: Array<{ sourceId: string; path: string | null; reason: string }>;
+  }> {
+    const normalized = new Set(sourceIds.map((sourceId) => String(sourceId || '').trim()).filter(Boolean));
+    if (normalized.size === 0) {
+      return { cleaned: [], skipped: [], failed: [] };
+    }
+    const sources = await this.readSyncConflictDatabaseSources();
+    const byId = new Map(sources.map((source) => [source.sourceId, source]));
+    const cleaned: Array<{ sourceId: string; path: string | null }> = [];
+    const skipped: Array<{ sourceId: string; reason: string }> = [];
+    const failed: Array<{ sourceId: string; path: string | null; reason: string }> = [];
+
+    for (const sourceId of normalized) {
+      const source = byId.get(sourceId);
+      if (!source) {
+        skipped.push({ sourceId, reason: 'source-not-found' });
+        continue;
+      }
+      const path = String(source.path || '').trim();
+      if (!path) {
+        skipped.push({ sourceId, reason: 'missing-path' });
+        continue;
+      }
+      try {
+        await this.removeAbsoluteFile(path);
+        cleaned.push({ sourceId, path });
+      } catch (error) {
+        failed.push({
+          sourceId,
+          path,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return { cleaned, skipped, failed };
+  }
+
   async backupCurrentSqliteDatabase(options: { sourceId?: string; now?: number } = {}): Promise<{
     backupPath: string;
     bytes: Uint8Array;
@@ -379,6 +425,21 @@ export class FileService implements IFileService {
       return new Uint8Array(buffer);
     } catch {
       return null;
+    }
+  }
+
+  private async removeAbsoluteFile(path: string): Promise<void> {
+    const response = await fetch('/api/file/removeFile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
+    if (!response.ok) {
+      throw new Error(`removeFile failed: HTTP ${response.status}`);
+    }
+    const envelope = await response.json().catch(() => ({ code: 0 })) as FileApiEnvelope;
+    if (envelope.code !== undefined && envelope.code !== 0) {
+      throw new Error(`removeFile failed: code ${envelope.code}`);
     }
   }
 
