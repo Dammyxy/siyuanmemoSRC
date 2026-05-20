@@ -307,6 +307,265 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('treats compatible review.feedback retry with changed timing/session as one committed review event', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+    const reviewedAt = 1_779_300_000_000;
+    await database.upsertCards([
+      buildCard({
+        id: 'card-review-retry-idempotent',
+        due: reviewedAt,
+        reps: 3,
+        lastReview: reviewedAt - 86_400_000,
+        updatedAt: reviewedAt - 86_400_000,
+      }),
+    ]);
+
+    const first = await kernel.handle({
+      id: 'review-first',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-retry-idempotent',
+        rating: 3,
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        sessionId: 'session-before-retry',
+        reviewedAt,
+        idempotencyKey: 'review-commit:retry-same-action',
+      }],
+    });
+    const afterFirst = await database.getCard('card-review-retry-idempotent');
+
+    const retry = await kernel.handle({
+      id: 'review-retry',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-retry-idempotent',
+        rating: 3,
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        sessionId: 'session-after-retry',
+        reviewedAt: reviewedAt + 30_000,
+        idempotencyKey: 'review-commit:retry-same-action',
+      }],
+    });
+    const afterRetry = await database.getCard('card-review-retry-idempotent');
+
+    expect(first).toEqual(expect.objectContaining({
+      result: expect.objectContaining({ committed: true }),
+    }));
+    expect(retry).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        committed: true,
+        duplicate: true,
+        idempotencyKey: 'review-commit:retry-same-action',
+      }),
+    }));
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
+      ['card-review-retry-idempotent'],
+    )?.count).toBe(1);
+    expect(afterRetry?.reps).toBe(afterFirst?.reps);
+    expect(afterRetry?.lastReview).toBe(afterFirst?.lastReview);
+  });
+
+  it('commits a later review of the same card and rating when commit identity is new', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+    const reviewedAt = 1_779_301_000_000;
+    await database.upsertCards([
+      buildCard({
+        id: 'card-review-later-distinct',
+        due: reviewedAt,
+        reps: 3,
+        lastReview: reviewedAt - 86_400_000,
+        updatedAt: reviewedAt - 86_400_000,
+      }),
+    ]);
+
+    for (const [idempotencyKey, offset] of [
+      ['review-commit:later-first', 0],
+      ['review-commit:later-second', 86_400_000],
+    ] as const) {
+      const response = await kernel.handle({
+        id: idempotencyKey,
+        jsonrpc: '2.0',
+        method: 'review.feedback',
+        params: [{
+          cardId: 'card-review-later-distinct',
+          rating: 3,
+          queueType: 'retrieval-practice',
+          queueMode: 'formal',
+          commitPolicy: 'write-schedule',
+          sessionId: idempotencyKey,
+          reviewedAt: reviewedAt + offset,
+          idempotencyKey,
+        }],
+      });
+      expect(response).toEqual(expect.objectContaining({
+        result: expect.objectContaining({
+          committed: true,
+          duplicate: false,
+          idempotencyKey,
+        }),
+      }));
+    }
+
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
+      ['card-review-later-distinct'],
+    )?.count).toBe(2);
+  });
+
+  it('rejects conflicting duplicate review commit identity without mutating review state', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+    const reviewedAt = 1_779_302_000_000;
+    await database.upsertCards([
+      buildCard({ id: 'card-review-conflict-a', due: reviewedAt }),
+      buildCard({ id: 'card-review-conflict-b', due: reviewedAt }),
+    ]);
+
+    await kernel.handle({
+      id: 'review-conflict-first',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-conflict-a',
+        rating: 3,
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        reviewedAt,
+        idempotencyKey: 'review-commit:conflicting-key',
+      }],
+    });
+    const beforeConflict = await database.getCard('card-review-conflict-b');
+
+    const conflict = await kernel.handle({
+      id: 'review-conflict-second',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-conflict-b',
+        rating: 3,
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        reviewedAt: reviewedAt + 1_000,
+        idempotencyKey: 'review-commit:conflicting-key',
+      }],
+    });
+    const afterConflict = await database.getCard('card-review-conflict-b');
+
+    expect(conflict).toEqual(expect.objectContaining({
+      error: expect.objectContaining({
+        code: 'INVALID_REQUEST',
+        message: expect.stringContaining('conflicting review commit idempotency key'),
+      }),
+    }));
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id IN (?, ?)',
+      ['card-review-conflict-a', 'card-review-conflict-b'],
+    )?.count).toBe(1);
+    expect(afterConflict?.reps).toBe(beforeConflict?.reps);
+    expect(afterConflict?.lastReview).toBe(beforeConflict?.lastReview);
+  });
+
+  it('exposes automatic pre-request merge activity through diagnostics.status', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    const reviewedAt = 1_779_303_000_000;
+    await currentDatabase.upsertCards([
+      buildCard({
+        id: 'card-pre-request-merge',
+        due: reviewedAt + 86_400_000,
+        reps: 0,
+        lastReview: reviewedAt - 86_400_000,
+        updatedAt: reviewedAt - 86_400_000,
+      }),
+    ]);
+
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await conflictDatabase.upsertCards([
+      buildCard({
+        id: 'card-pre-request-merge',
+        due: reviewedAt + 2 * 86_400_000,
+        reps: 1,
+        lastReview: reviewedAt,
+        updatedAt: reviewedAt,
+      }),
+    ]);
+    await seedReviewEvent(conflictDatabase, {
+      id: 'event-pre-request-merge',
+      cardId: 'card-pre-request-merge',
+      reviewedAt,
+      payload: { source: 'phone' },
+    });
+    await conflictDatabase.persist();
+    const conflictBytes = conflictBridge.snapshot().bytes;
+    expect(conflictBytes).toBeTruthy();
+
+    const bridgeWithConflict = {
+      ...currentBridge,
+      async readSyncConflictDatabaseSources() {
+        return [{
+          sourceId: 'phone-pre-request-conflict',
+          bytes: conflictBytes!,
+        }];
+      },
+    };
+    const database = new WorkerSqliteDatabaseService(bridgeWithConflict);
+    await database.upsertCards([buildCard({ id: 'card-pre-request-merge' })]);
+    const kernel = new BackendKernel({ database });
+
+    const countResponse = await kernel.handle({
+      id: 'trigger-pre-request-merge',
+      jsonrpc: '2.0',
+      method: 'browser.count',
+      params: [{ query: {} }],
+    });
+    expect(countResponse).toEqual(expect.objectContaining({
+      result: expect.objectContaining({ count: expect.any(Number) }),
+    }));
+
+    const diagnosticsResponse = await kernel.handle({
+      id: 'diagnostics-after-pre-request-merge',
+      jsonrpc: '2.0',
+      method: 'diagnostics.status',
+      params: [],
+    });
+    expect(diagnosticsResponse).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        preRequestMerge: expect.objectContaining({
+          latest: expect.objectContaining({
+            method: 'browser.count',
+            sources: 1,
+            mergedReviewEvents: 1,
+            mergedCards: 1,
+            skippedSources: [],
+            sourceIds: ['phone-pre-request-conflict'],
+          }),
+          history: expect.arrayContaining([
+            expect.objectContaining({
+              method: 'browser.count',
+              mergedReviewEvents: 1,
+              mergedCards: 1,
+            }),
+          ]),
+        }),
+      }),
+    }));
+  });
+
   it('merges review events and newer card state from a synced conflict database', async () => {
     const currentBridge = createInMemorySqlitePersistenceBridge();
     const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);

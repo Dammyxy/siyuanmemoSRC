@@ -17,10 +17,12 @@ export class SubsetReviewQueue extends OrderedStaticSubsetQueueBase {
     super(manager, QueueType.FilterGroup, blockIds, options);
   }
 
-  public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {
+  public async handleReview(cardId: string, rating: number, options?: { commitIdempotencyKey?: string }): Promise<QueueReviewResult> {
     let result: QueueReviewResult;
     try {
-      result = await this.handleReviewWithScheduler(cardId, rating);
+      result = await this.handleReviewWithScheduler(cardId, rating, {
+        commitIdempotencyKey: options?.commitIdempotencyKey,
+      });
     } finally {
       await this.removeCard(cardId);
     }

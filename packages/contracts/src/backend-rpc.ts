@@ -282,6 +282,7 @@ export interface BackendDiagnosticsStatusResult {
     jobTimeoutTotal: number;
     jobFailedTotal: number;
   };
+  preRequestMerge?: BackendPreRequestMergeDiagnosticsState;
 }
 
 export type BackendUnavailableClass =
@@ -1208,6 +1209,7 @@ export interface BackendReviewFeedbackRequest {
   commitPolicy?: string;
   sessionId?: string;
   reviewedAt?: number;
+  idempotencyKey?: string | null;
   projectionGeneration?: number;
   projectionPolicyHash?: string;
   scheduler?: BackendReviewSchedulerConfig;
@@ -1292,7 +1294,28 @@ export interface BackendReviewFeedbackResult {
   reviewedAt: number;
   queueType: string;
   updatedCard: unknown | null;
+  idempotencyKey?: string | null;
+  duplicate?: boolean;
   queueImpact?: BackendReviewFeedbackQueueImpact | null;
+}
+
+export interface BackendPreRequestMergeDiagnostic {
+  method: BackendRpcMethod | string;
+  timestamp: number;
+  sources: number;
+  sourceIds: string[];
+  mergedReviewEvents: number;
+  mergedCards: number;
+  ignoredReviewEvents: number;
+  ignoredCards: number;
+  skippedSources: Array<{ sourceId: string; reason: string }>;
+  divergenceCount: number;
+  divergenceReasonCounts: Record<string, number>;
+}
+
+export interface BackendPreRequestMergeDiagnosticsState {
+  latest: BackendPreRequestMergeDiagnostic | null;
+  history: BackendPreRequestMergeDiagnostic[];
 }
 
 export type BackendNeuralRoamFeedbackAction = 'rate' | 'skip' | 'custom';

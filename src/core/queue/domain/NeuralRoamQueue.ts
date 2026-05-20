@@ -830,11 +830,13 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     };
   }
 
-  public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {
+  public async handleReview(cardId: string, rating: number, options?: { commitIdempotencyKey?: string }): Promise<QueueReviewResult> {
     try {
       const localCard = await this.manager.getCard(cardId, { silent: true });
       if (this.isLocalReviewCard(localCard)) {
-        return this.handleReviewWithScheduler(cardId, rating);
+        return this.handleReviewWithScheduler(cardId, rating, {
+          commitIdempotencyKey: options?.commitIdempotencyKey,
+        });
       }
     } catch (error) {
       logger.debug('[NeuralRoamQueue] Reviewed node has no persisted flashcard backing, keeping practice-only semantics', {

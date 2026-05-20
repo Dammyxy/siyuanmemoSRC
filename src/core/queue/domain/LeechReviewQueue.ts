@@ -104,8 +104,10 @@ export class LeechReviewQueue extends ManualCardCollectionQueue {
     });
   }
 
-  public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {
-    const result = await this.handleReviewWithScheduler(cardId, rating);
+  public async handleReview(cardId: string, rating: number, options?: { commitIdempotencyKey?: string }): Promise<QueueReviewResult> {
+    const result = await this.handleReviewWithScheduler(cardId, rating, {
+      commitIdempotencyKey: options?.commitIdempotencyKey,
+    });
 
     try {
       const card = await this.manager.getCard(cardId, { silent: true });

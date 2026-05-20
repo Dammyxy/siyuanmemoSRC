@@ -29,6 +29,7 @@ export interface SrsV2SchedulingContext extends SchedulerTimingOptions {
   source?: 'queue' | 'browser' | 'manual' | 'arena' | 'test' | string;
   sessionId?: string;
   elapsedMs?: number;
+  commitIdempotencyKey?: string;
   reviewTime?: Date | number;
   projectionGeneration?: number;
   projectionPolicyHash?: string;

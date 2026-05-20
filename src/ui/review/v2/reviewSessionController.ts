@@ -23,6 +23,7 @@ import { createEmptyReviewUIState } from './types';
 
 const logger = createLogger('ReviewSessionController');
 const REVIEW_GRADE_PHASE_SLOW_MS = 120;
+let reviewCommitIdentityCounter = 0;
 
 type RatingValue = 1 | 2 | 3 | 4;
 
@@ -145,6 +146,18 @@ function extractCardId(item: unknown): string {
   const shaped = item as ItemIdLike;
   const raw = shaped.cardID ?? shaped.cardId ?? shaped.id;
   return raw == null ? '' : String(raw);
+}
+
+function createReviewCommitIdempotencyKey(cardId: string, rating: RatingValue): string {
+  reviewCommitIdentityCounter += 1;
+  const normalizedCardId = String(cardId || 'unknown-card').replace(/[^a-zA-Z0-9_.:-]/g, '_');
+  return [
+    'review-commit',
+    normalizedCardId,
+    rating,
+    Date.now().toString(36),
+    reviewCommitIdentityCounter.toString(36),
+  ].join(':');
 }
 
 async function measureReviewPhase<TResult>(
@@ -379,6 +392,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
   let disposed = false;
   let startPromise: Promise<void> | null = null;
   let serializedAction: Promise<void> = Promise.resolve();
+  const pendingCommitKeys = new Map<string, string>();
   const attachedSurfaceIds = new Set<string>();
   const subscribers = new Set<(snapshot: ReviewSessionControllerSnapshot<TItem>) => void>();
   const disposeSubscribers = new Set<() => void>();
@@ -699,11 +713,16 @@ export function createReviewSessionController<TItem extends QueueItem>(
     let status = 'started';
     try {
       markAdvancePending('grade');
-      const feedback: QueueFeedback = { action: 'rate', rating: normalized };
       const reviewedItem = currentItem.value;
       reviewedCardId = extractCardId(reviewedItem);
+      const pendingKey = `grade:${reviewedCardId}:${normalized}`;
+      const commitIdempotencyKey = pendingCommitKeys.get(pendingKey)
+        ?? createReviewCommitIdempotencyKey(reviewedCardId, normalized);
+      pendingCommitKeys.set(pendingKey, commitIdempotencyKey);
+      const feedback: QueueFeedback = { action: 'rate', rating: normalized, commitIdempotencyKey };
 
       await measureReviewPhase('feedback', reviewedCardId, () => queue.onFeedback(reviewedItem, feedback));
+      pendingCommitKeys.delete(pendingKey);
       if (options?.onReview && reviewedItem) {
         if (reviewedCardId) {
           options.onReview(reviewedCardId, normalized);

@@ -21,7 +21,7 @@ export class TemporaryDrillQueue extends OrderedStaticSubsetQueueBase {
     super(manager, QueueType.FinalDrill, blockIds, options);
   }
 
-  public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {
+  public async handleReview(cardId: string, rating: number, _options?: { commitIdempotencyKey?: string }): Promise<QueueReviewResult> {
     if (rating === 4) {
       await this.removeCard(cardId);
       const counterSnapshot = await this.getCounterSnapshot(true);

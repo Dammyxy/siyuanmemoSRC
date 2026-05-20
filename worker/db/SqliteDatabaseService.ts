@@ -460,6 +460,7 @@ export class WorkerSqliteDatabaseService {
     mergedCards: number;
     ignoredReviewEvents: number;
     ignoredCards: number;
+    sourceIds: string[];
     skippedSources: Array<{ sourceId: string; reason: string }>;
     diagnostics: BackendSyncConflictMergeResult['diagnostics'];
   }> {
@@ -495,6 +496,7 @@ export class WorkerSqliteDatabaseService {
         mergedCards: 0,
         ignoredReviewEvents: 0,
         ignoredCards: 0,
+        sourceIds: [],
         skippedSources: [],
         diagnostics: {
           reviewCardDivergences: [],
@@ -522,6 +524,7 @@ export class WorkerSqliteDatabaseService {
       mergedCards: result.mergedCards,
       ignoredReviewEvents: result.ignoredReviewEvents,
       ignoredCards: result.ignoredCards,
+      sourceIds: sources.map((source) => String(source.sourceId || '').trim() || 'unknown'),
       skippedSources: result.skippedSources,
       diagnostics: result.diagnostics,
     };

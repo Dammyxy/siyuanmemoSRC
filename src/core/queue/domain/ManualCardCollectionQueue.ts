@@ -95,6 +95,7 @@ interface HandleReviewWithAutoFailedOptions {
   logger: ManualCardQueueLogger;
   autoFailedSink: AutoFailedCardSinkPort;
   logEscalation?: boolean;
+  commitIdempotencyKey?: string;
 }
 
 type ManualCardCollectionRollbackSnapshot = {
@@ -804,7 +805,9 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
   ): Promise<QueueReviewResult> {
     const { logger, autoFailedSink, logEscalation = false } = options;
     try {
-      const result = await this.handleReviewWithScheduler(cardId, rating);
+      const result = await this.handleReviewWithScheduler(cardId, rating, {
+        commitIdempotencyKey: options.commitIdempotencyKey,
+      });
       if (rating < 3) {
         await autoFailedSink.addAutoFailed(cardId);
         if (logEscalation) {

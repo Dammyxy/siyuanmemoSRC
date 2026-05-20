@@ -61,6 +61,7 @@ export interface ReviewLogV2 {
     cardId: string;
     rating: Rating;
     reviewedAt: number;
+    commitIdempotencyKey?: string;
     elapsedMs?: number;
     queueType?: string;
     queueMode: ReviewLogV2QueueMode | string;
@@ -141,6 +142,7 @@ export function createReviewLogV2(input: {
     cardId: string;
     rating: Rating;
     reviewedAt: number;
+    commitIdempotencyKey?: string;
     before: FSRSCard;
     after: FSRSCard | null;
     elapsedMs?: number;
@@ -161,6 +163,7 @@ export function createReviewLogV2(input: {
         cardId: input.cardId,
         rating: input.rating,
         reviewedAt: input.reviewedAt,
+        commitIdempotencyKey: input.commitIdempotencyKey,
         elapsedMs: input.elapsedMs,
         queueType: input.queueType,
         queueMode: input.queueMode,

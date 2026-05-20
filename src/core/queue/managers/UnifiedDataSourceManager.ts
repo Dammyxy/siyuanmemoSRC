@@ -30,6 +30,7 @@ export interface QueueReviewCommand {
   cardId: string;
   rating: number;
   context: SrsV2SchedulingContext;
+  commitIdempotencyKey?: string;
 }
 
 export interface QueueReviewCommitResult {

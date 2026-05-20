@@ -184,6 +184,7 @@ export const SQL_SCHEMA_STATEMENTS = [
     attempt_id TEXT,
     rating INTEGER,
     reviewed_at INTEGER NOT NULL,
+    commit_idempotency_key TEXT,
     year INTEGER NOT NULL,
     month INTEGER NOT NULL,
     event_type TEXT NOT NULL,

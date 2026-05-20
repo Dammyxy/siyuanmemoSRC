@@ -101,6 +101,42 @@ describe('ReviewCommitUseCase', () => {
     expect(reviewFeedback).toHaveBeenCalledTimes(1);
   });
 
+  it('passes review commit idempotency key to backend worker request', async () => {
+    const before = createCard({ id: 'card-idempotency-key' });
+    const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });
+    const reviewFeedback = vi.fn(async () => ({
+      committed: true,
+      updatedCard: after,
+      idempotencyKey: 'review-commit:key-1',
+      duplicate: false,
+    }));
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      srsBackend: { reviewFeedback },
+      writerLeaseGuard: {
+        ensureWritable: vi.fn(async () => {}),
+        getMode: () => 'writer',
+      } as never,
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      commitIdempotencyKey: 'review-commit:key-1',
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(reviewFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: 'review-commit:key-1',
+    }));
+  });
+
   it('uses local backend worker write path on mobile without kernel writer relay', async () => {
     const before = createCard({ id: 'card-mobile-local-worker' });
     const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });
@@ -275,6 +311,49 @@ describe('ReviewCommitUseCase', () => {
     expect(submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
       instanceId: 'instance-follower-1',
       method: 'review.feedback',
+    }));
+    expect(reviewFeedback).not.toHaveBeenCalled();
+  });
+
+  it('carries review commit idempotency key through follower relay payload', async () => {
+    const before = createCard({ id: 'card-follower-idempotency' });
+    const after = createCard({ id: before.id, due: before.due + 3 * 86_400_000 });
+    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after }));
+    const submitAndWait = vi.fn(async () => ({
+      committed: true,
+      updatedCard: after,
+      idempotencyKey: 'review-commit:follower-key',
+      duplicate: false,
+    }));
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      srsBackend: { reviewFeedback },
+      writerLeaseGuard: {
+        ensureWritable: vi.fn(async () => {}),
+        getMode: () => 'follower',
+        getInstanceId: () => 'instance-follower-idempotency',
+      } as never,
+      followerCommandClient: { submitAndWait },
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      commitIdempotencyKey: 'review-commit:follower-key',
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'review.feedback',
+      params: expect.objectContaining({
+        idempotencyKey: 'review-commit:follower-key',
+      }),
     }));
     expect(reviewFeedback).not.toHaveBeenCalled();
   });

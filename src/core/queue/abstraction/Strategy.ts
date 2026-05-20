@@ -51,6 +51,8 @@ export type QueueFeedback = {
   customActionId?: string;
   /** Time spent reviewing this item in milliseconds */
   durationMs?: number;
+  /** Stable command identity for retrying the same user feedback attempt */
+  commitIdempotencyKey?: string;
 };
 
 /**

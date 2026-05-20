@@ -39,12 +39,15 @@ export interface ReviewCommitBackendFeedbackClient {
     commitPolicy?: string;
     sessionId?: string;
     reviewedAt?: number;
+    idempotencyKey?: string | null;
     projectionGeneration?: number;
     projectionPolicyHash?: string;
     scheduler?: BackendReviewSchedulerConfig;
   }): Promise<{
     committed: boolean;
     updatedCard: unknown | null;
+    idempotencyKey?: string | null;
+    duplicate?: boolean;
     queueImpact?: BackendReviewFeedbackQueueImpact | null;
   }>;
 }
@@ -171,6 +174,7 @@ export class ReviewCommitUseCase {
     };
     const workerContext = resolveWorkerFeedbackContext(context);
     const reviewedAt = normalizeReviewedAt(context.reviewTime);
+    const idempotencyKey = normalizeOptionalString(command.commitIdempotencyKey ?? context.commitIdempotencyKey);
     const schedulerConfig = normalizeBackendReviewSchedulerConfig(this.deps.schedulerConfig);
     const projectionGeneration = normalizeProjectionGeneration(context.projectionGeneration);
     const projectionPolicyHash = normalizeProjectionPolicyHash(context.projectionPolicyHash);
@@ -182,6 +186,7 @@ export class ReviewCommitUseCase {
       commitPolicy: workerContext.commitPolicy,
       sessionId: context.sessionId,
       reviewedAt,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
       ...(projectionGeneration !== null ? { projectionGeneration } : {}),
       ...(projectionPolicyHash ? { projectionPolicyHash } : {}),
       ...(schedulerConfig ? { scheduler: schedulerConfig } : {}),
@@ -189,6 +194,8 @@ export class ReviewCommitUseCase {
     let result: {
       committed: boolean;
       updatedCard: unknown | null;
+      idempotencyKey?: string | null;
+      duplicate?: boolean;
       queueImpact?: BackendReviewFeedbackQueueImpact | null;
     };
     if (relayRuntime.mode === 'follower') {
@@ -387,6 +394,8 @@ function normalizeRelayFeedbackResult(payload: unknown): {
   const candidate = payload as {
     committed?: unknown;
     updatedCard?: unknown;
+    idempotencyKey?: unknown;
+    duplicate?: unknown;
     queueImpact?: unknown;
   };
   if (typeof candidate.committed !== 'boolean') {
@@ -395,6 +404,8 @@ function normalizeRelayFeedbackResult(payload: unknown): {
   return {
     committed: candidate.committed,
     updatedCard: candidate.updatedCard ?? null,
+    idempotencyKey: normalizeOptionalString(candidate.idempotencyKey),
+    duplicate: candidate.duplicate === true,
     queueImpact: normalizeRelayQueueImpact(candidate.queueImpact),
   };
 }
@@ -440,6 +451,11 @@ function normalizeProjectionGeneration(value: unknown): number | null {
 }
 
 function normalizeProjectionPolicyHash(value: unknown): string | null {
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
+}
+
+function normalizeOptionalString(value: unknown): string | null {
   const normalized = String(value ?? '').trim();
   return normalized || null;
 }

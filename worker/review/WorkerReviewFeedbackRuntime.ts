@@ -35,8 +35,17 @@ type SrsProjectionWorkerQueueType =
 export type WorkerReviewFeedbackRuntimeDeps = {
   repository: Pick<SqlUnifiedStorageRepository, 'getCard' | 'upsertCards' | 'queryCards' | 'touchSyncMetadata'>;
   queueProjection: Pick<SqlQueueProjectionRepository, 'readGeneration' | 'readRows' | 'applyQueueProjectionDelta'> | null;
-  runtime: Pick<RuntimeSqliteDatabaseService, 'runTransaction' | 'run'>;
+  runtime: Pick<RuntimeSqliteDatabaseService, 'runTransaction' | 'run' | 'getOne'>;
   recordUnavailable?: () => void;
+};
+
+type ExistingReviewCommitRow = {
+  id: string;
+  card_id: string | null;
+  rating: number | null;
+  reviewed_at: number;
+  event_type: string;
+  payload_json: string;
 };
 
 export class WorkerReviewFeedbackRuntime {
@@ -53,6 +62,7 @@ export class WorkerReviewFeedbackRuntime {
     const reviewedAt = Number(request.reviewedAt || Date.now());
     const rating = Math.max(1, Math.min(4, Math.floor(Number(request.rating) || 0))) as 1 | 2 | 3 | 4;
     const cardId = String(request.cardId || '').trim();
+    const idempotencyKey = normalizeOptionalString(request.idempotencyKey);
     if (!cardId) {
       this.recordUnavailable();
       throw new Error('review.feedback requires cardId');
@@ -107,6 +117,29 @@ export class WorkerReviewFeedbackRuntime {
       if (!card) {
         throw new Error(`review.feedback card not found: ${cardId}`);
       }
+      const existingCommit = idempotencyKey
+        ? this.readExistingReviewCommit(idempotencyKey)
+        : null;
+      if (existingCommit) {
+        this.assertCompatibleDuplicateCommit(existingCommit, {
+          idempotencyKey,
+          cardId,
+          rating,
+          queueType,
+          queueMode,
+          commitPolicy,
+        });
+        return {
+          cardId,
+          committed: true,
+          reviewedAt: existingCommit.reviewedAt,
+          queueType,
+          updatedCard: card,
+          idempotencyKey,
+          duplicate: true,
+          queueImpact: null,
+        };
+      }
 
       const scheduler = new SchedulerRouter(
         {
@@ -150,6 +183,7 @@ export class WorkerReviewFeedbackRuntime {
           algorithm: decision.algorithm,
           schedulerType: decision.schedulerType,
           commitPolicy: decision.commitPolicy,
+          commitIdempotencyKey: idempotencyKey ?? undefined,
           isDrill: decision.attempt.isDrill,
           isFiltered: decision.attempt.isFiltered,
           customStudy: decision.attempt.customStudy,
@@ -157,14 +191,15 @@ export class WorkerReviewFeedbackRuntime {
         const month = new Date(log.reviewedAt);
         this.deps.runtime.run(
           `INSERT OR REPLACE INTO review_events
-            (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             log.id,
             log.cardId,
             log.attemptId,
             log.rating,
             log.reviewedAt,
+            idempotencyKey,
             month.getFullYear(),
             month.getMonth() + 1,
             'review-v2',
@@ -193,6 +228,8 @@ export class WorkerReviewFeedbackRuntime {
         reviewedAt,
         queueType,
         updatedCard: commitResult.updatedCard ?? null,
+        idempotencyKey: idempotencyKey ?? null,
+        duplicate: false,
         queueImpact,
       };
     });
@@ -200,6 +237,53 @@ export class WorkerReviewFeedbackRuntime {
 
   private recordUnavailable(): void {
     this.deps.recordUnavailable?.();
+  }
+
+  private readExistingReviewCommit(idempotencyKey: string): {
+    reviewedAt: number;
+    payload: Record<string, unknown>;
+  } | null {
+    const row = this.deps.runtime.getOne<ExistingReviewCommitRow>(
+      `SELECT id, card_id, rating, reviewed_at, event_type, payload_json
+       FROM review_events
+       WHERE commit_idempotency_key = ?
+       ORDER BY reviewed_at, id
+       LIMIT 1`,
+      [idempotencyKey],
+    );
+    if (!row) {
+      return null;
+    }
+    return {
+      reviewedAt: Number(row.reviewed_at),
+      payload: parseJsonObject(row.payload_json),
+    };
+  }
+
+  private assertCompatibleDuplicateCommit(
+    existing: { payload: Record<string, unknown> },
+    request: {
+      idempotencyKey: string;
+      cardId: string;
+      rating: number;
+      queueType: string;
+      queueMode: string;
+      commitPolicy: string;
+    },
+  ): void {
+    const payload = existing.payload;
+    const mismatches = [
+      ['cardId', payload.cardId, request.cardId],
+      ['rating', payload.rating, request.rating],
+      ['queueType', payload.queueType, request.queueType],
+      ['queueMode', payload.queueMode, request.queueMode],
+      ['commitPolicy', payload.commitPolicy, request.commitPolicy],
+    ].filter(([, actual, expected]) => String(actual ?? '') !== String(expected ?? ''));
+    if (mismatches.length > 0) {
+      throw new Error(
+        `INVALID_REQUEST: conflicting review commit idempotency key: ${request.idempotencyKey}`,
+      );
+    }
   }
 
   private buildReviewFeedbackQueueImpact(input: {
@@ -719,6 +803,20 @@ function normalizeOptionalInteger(value: unknown): number | null {
 function normalizeOptionalString(value: unknown): string | null {
   const normalized = String(value ?? '').trim();
   return normalized || null;
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'string' || !value.trim()) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 function resolveWorkerReviewSchedulerConfig(request: BackendReviewFeedbackRequest): {

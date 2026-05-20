@@ -792,7 +792,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         };
 
         try {
-            return await this.queue.handleReview(activeItem.id, feedback.rating || 0);
+            return await this.queue.handleReview(activeItem.id, feedback.rating || 0, {
+                commitIdempotencyKey: feedback.commitIdempotencyKey,
+            });
         } finally {
             this.feedbackMutation = null;
         }

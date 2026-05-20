@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-20 (Round 405)
+Last update: 2026-05-20 (Round 406)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-20 - Review Commit Idempotency And Pre-Request Merge Diagnostics
+
+- Task: Implement OpenSpec `harden-review-commit-idempotency-and-merge-diagnostics` so review feedback retries cannot double-commit and automatic pre-request merge activity is queryable.
+- Touched slice: Review / Queue / backend worker / SQLite schema / diagnostics; `src/ui/review/v2/reviewSessionController.ts`, `src/application/adapters/UnifiedQueueStrategy.ts`, `src/core/queue/domain/*`, `src/application/usecases/review/ReviewCommitUseCase.ts`, `worker/review/WorkerReviewFeedbackRuntime.ts`, `worker/bootstrap/BackendKernel.ts`, `worker/db/SqliteDatabaseService.ts`, `packages/contracts/src/backend-rpc.ts`, and focused tests.
+- Debt fixed now: Ordinary review feedback now carries a stable `commitIdempotencyKey` from UI retry through queue command, backend/follower relay, and worker commit. Worker-owned `review.feedback` records `commit_idempotency_key`, replays compatible duplicates without appending `review_events` or advancing schedule/projection twice, and rejects conflicting duplicate identities explicitly. `diagnostics.status` now exposes bounded `preRequestMerge` latest/history summaries for non-empty automatic merge activity before normal RPC handling.
+- Debt deferred: FSRS replay/repair for already divergent history remains out of scope.
+- Why deferred: Repair needs explicit user intent plus scheduler/config reconstruction; this slice hardens future commits and exposes merge evidence without hidden writes.
+- Next safe step: After deploy, inspect `diagnostics.status.preRequestMerge.latest` during phone/desktop sync smoke and use `sync.reviewDivergence.audit` for any existing divergence before proposing repair.
+- Validation: `pnpm vitest run worker\__tests__\BackendKernel.test.ts --reporter=dot`; `pnpm vitest run src\application\usecases\review\__tests__\ReviewCommitUseCase.test.ts src\ui\review\v2\__tests__\useReviewSession.spec.ts --reporter=dot`; `pnpm vitest run src\application\clients\__tests__\SrsBackendClient.test.ts --reporter=dot`.
 
 ### 2026-05-20 - Review Sync Divergence Audit Is Read-Only
 

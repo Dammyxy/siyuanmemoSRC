@@ -56,6 +56,8 @@ import {
   type BackendSourceExistenceUpdate,
   type BackendReviewFeedbackRequest,
   type BackendDiagnosticsStatusResult,
+  type BackendPreRequestMergeDiagnostic,
+  type BackendPreRequestMergeDiagnosticsState,
   type BackendHealthResult,
   type BackendRpcRequest,
   type BackendRpcResponse,
@@ -178,6 +180,7 @@ export class BackendKernel {
     timestamp: number;
   }> = [];
   private readonly privateCommandResultsByIdempotencyKey = new Map<string, PrivateApiMutationResult>();
+  private readonly preRequestMergeDiagnostics: BackendPreRequestMergeDiagnostic[] = [];
   private readonly aiRuntime: BackendJobRuntime;
   private readonly neuralRoamRuntime: WorkerNeuralRoamAdvanceService;
 
@@ -223,7 +226,8 @@ export class BackendKernel {
 
     try {
       if (!STORAGE_REFRESH_EXEMPT_METHODS.has(request.method)) {
-        await this.deps.database.mergeExternalDatabaseIfChanged();
+        const merge = await this.deps.database.mergeExternalDatabaseIfChanged();
+        this.recordPreRequestMergeDiagnostic(request.method, merge);
       }
       switch (request.method) {
         case 'system.health':
@@ -365,6 +369,51 @@ export class BackendKernel {
       autoCard: status.autoCard,
       review: status.review,
       ai: status.ai,
+      preRequestMerge: this.getPreRequestMergeDiagnostics(),
+    };
+  }
+
+  private recordPreRequestMergeDiagnostic(
+    method: string,
+    merge: Awaited<ReturnType<WorkerSqliteDatabaseService['mergeExternalDatabaseIfChanged']>>,
+  ): void {
+    if (
+      merge.mergedReviewEvents <= 0
+      && merge.mergedCards <= 0
+      && merge.ignoredReviewEvents <= 0
+      && merge.ignoredCards <= 0
+      && merge.skippedSources.length === 0
+    ) {
+      return;
+    }
+    const divergenceReasonCounts: Record<string, number> = {};
+    for (const record of merge.diagnostics.reviewCardDivergences || []) {
+      const reason = String(record.reason || 'unknown');
+      divergenceReasonCounts[reason] = (divergenceReasonCounts[reason] || 0) + 1;
+    }
+    this.preRequestMergeDiagnostics.push({
+      method,
+      timestamp: Date.now(),
+      sources: merge.sourceIds.length,
+      sourceIds: merge.sourceIds,
+      mergedReviewEvents: merge.mergedReviewEvents,
+      mergedCards: merge.mergedCards,
+      ignoredReviewEvents: merge.ignoredReviewEvents,
+      ignoredCards: merge.ignoredCards,
+      skippedSources: merge.skippedSources,
+      divergenceCount: merge.diagnostics.reviewCardDivergences?.length ?? 0,
+      divergenceReasonCounts,
+    });
+    if (this.preRequestMergeDiagnostics.length > 20) {
+      this.preRequestMergeDiagnostics.splice(0, this.preRequestMergeDiagnostics.length - 20);
+    }
+  }
+
+  private getPreRequestMergeDiagnostics(): BackendPreRequestMergeDiagnosticsState {
+    const history = this.preRequestMergeDiagnostics.slice(-20);
+    return {
+      latest: history.at(-1) ?? null,
+      history,
     };
   }
 

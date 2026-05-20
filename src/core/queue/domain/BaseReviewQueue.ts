@@ -834,7 +834,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @param rating 评分 (1-4)
      * @see 需求 7.1-7.7, 8.1-8.3, 9.1-9.3
      */
-    public abstract handleReview(cardId: string, rating: number): Promise<QueueReviewResult>;
+    public abstract handleReview(cardId: string, rating: number, options?: { commitIdempotencyKey?: string }): Promise<QueueReviewResult>;
     
     // ========================================================================
     // 调度器集成辅助方法（队列-调度器职责分离）
@@ -1027,7 +1027,11 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @see 需求 1.1, 1.2, 1.3, 2.1
      * @see .kiro/specs/queue-scheduler-separation/design.md
      */
-    protected async handleReviewWithScheduler(cardId: string, rating: number): Promise<QueueReviewResult> {
+    protected async handleReviewWithScheduler(
+        cardId: string,
+        rating: number,
+        options?: { commitIdempotencyKey?: string }
+    ): Promise<QueueReviewResult> {
         try {
             // 1. 获取卡片
             const card = await this.manager.getCard(cardId);
@@ -1060,6 +1064,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                 cardId: card.id,
                 rating,
                 context: routeOptions,
+                commitIdempotencyKey: options?.commitIdempotencyKey,
             });
             schedulingCommitted = commitResult.committed;
             updatedCard = commitResult.updatedCard;

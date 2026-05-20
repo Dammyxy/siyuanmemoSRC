@@ -527,6 +527,38 @@ describe('useReviewSession', () => {
     wrapper.unmount();
   });
 
+  it('reuses the same review commit idempotency key when a failed grade is retried', async () => {
+    const queue = createQueue();
+    queue.onFeedback = vi.fn()
+      .mockRejectedValueOnce(new Error('transient backend failure'))
+      .mockResolvedValueOnce(undefined);
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+    });
+
+    const { getHook, wrapper } = mountHook({ queue, adapter });
+    await flushAsync();
+
+    const hook = getHook();
+    await hook.grade(3);
+    await hook.grade(3);
+
+    const firstFeedback = queue.onFeedback.mock.calls[0]?.[1];
+    const retryFeedback = queue.onFeedback.mock.calls[1]?.[1];
+    expect(firstFeedback).toEqual(expect.objectContaining({
+      action: 'rate',
+      rating: 3,
+      commitIdempotencyKey: expect.stringMatching(/^review-commit:/),
+    }));
+    expect(retryFeedback).toEqual(expect.objectContaining({
+      action: 'rate',
+      rating: 3,
+      commitIdempotencyKey: firstFeedback?.commitIdempotencyKey,
+    }));
+
+    wrapper.unmount();
+  });
+
   it('commits the next card before slow review detail handlers finish', async () => {
     const detailGate = createDeferred<void>();
     const onReviewDetailed = vi.fn(() => detailGate.promise);

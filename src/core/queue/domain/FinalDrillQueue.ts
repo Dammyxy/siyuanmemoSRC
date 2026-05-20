@@ -423,7 +423,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
      * @param rating 评分 (1-4)
      * @see 需求 8.1, 8.2, 8.3
      */
-    public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {
+    public async handleReview(cardId: string, rating: number, _options?: { commitIdempotencyKey?: string }): Promise<QueueReviewResult> {
         try {
             await this.ensureInitialLoad();
             // 注意：评分不计入调度算法

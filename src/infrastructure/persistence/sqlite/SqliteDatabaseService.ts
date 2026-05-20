@@ -334,6 +334,7 @@ export class SqliteDatabaseService {
       db.run(statement);
     }
     this.ensureCardsProjectionColumns(db);
+    this.ensureReviewEventCommitIdempotencyColumn(db);
     for (const statement of CARD_PROJECTION_INDEX_STATEMENTS) {
       db.run(statement);
     }
@@ -372,6 +373,18 @@ export class SqliteDatabaseService {
         db.run(`ALTER TABLE cards ADD COLUMN ${column.definition}`);
       }
     }
+  }
+
+  private ensureReviewEventCommitIdempotencyColumn(db: Database): void {
+    const rows = this.getAll<{ name: string }>('PRAGMA table_info(review_events)');
+    const hasColumn = rows.some((row) => row.name === 'commit_idempotency_key');
+    if (!hasColumn) {
+      db.run('ALTER TABLE review_events ADD COLUMN commit_idempotency_key TEXT');
+    }
+    db.run(
+      `CREATE INDEX IF NOT EXISTS idx_review_events_commit_idempotency
+        ON review_events(commit_idempotency_key)`,
+    );
   }
 
   private seedAlgorithmRegistry(): void {

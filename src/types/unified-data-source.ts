@@ -218,6 +218,7 @@ export interface QueueReviewSchedulingContext {
     source?: 'queue' | 'browser' | 'manual' | 'arena' | 'test' | string;
     sessionId?: string;
     elapsedMs?: number;
+    commitIdempotencyKey?: string;
     projectionGeneration?: number;
     projectionPolicyHash?: string;
     isDrill?: boolean;
@@ -936,7 +937,7 @@ export interface IReviewQueue {
      * @param cardId 卡片 ID
      * @param rating 评分 (1-4)
      */
-    handleReview(cardId: string, rating: number): Promise<QueueReviewResult>;
+    handleReview(cardId: string, rating: number, options?: { commitIdempotencyKey?: string }): Promise<QueueReviewResult>;
 
     /**
      * 可选：为本次复习提供调度时间锚点。

@@ -300,10 +300,11 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
      * @see 需求 7.1, 7.2, 7.7, 9.1, 18.2, 18.3
      * @see .kiro/specs/queue-scheduler-separation/requirements.md
      */
-    public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {
+    public async handleReview(cardId: string, rating: number, options?: { commitIdempotencyKey?: string }): Promise<QueueReviewResult> {
         return this.handleReviewWithAutoFailed(cardId, rating, {
             logger,
             autoFailedSink: this.autoFailedSink,
+            commitIdempotencyKey: options?.commitIdempotencyKey,
         });
     }
     
