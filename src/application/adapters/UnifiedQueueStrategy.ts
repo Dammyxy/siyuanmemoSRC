@@ -905,7 +905,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         }
 
         const result = await this.learnAheadAdvancePolicy.startAfterNormalExhaustion({
-            getNormalRemaining: () => this.queue.getRemainingSize(),
+            getNormalRemaining: () => this.getVisibleNormalRemainingForLearnAhead(),
             getLearnAheadCards: () => queue.getLearnAheadCards!(),
         });
         if (!result.started) {
@@ -924,6 +924,13 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             cardCount: result.cards.length,
         });
         return true;
+    }
+
+    private async getVisibleNormalRemainingForLearnAhead(): Promise<number> {
+        if (this.cursor.valid) {
+            return this.cursor.remainingFromCache();
+        }
+        return this.queue.getRemainingSize();
     }
 
     private async syncNeuralRoamQueueFromBackendState(result: BackendNeuralRoamAdvanceResult): Promise<void> {

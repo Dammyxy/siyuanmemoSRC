@@ -371,6 +371,9 @@ function buildProjectionSnapshotRows(
       if (!card) {
         return null;
       }
+      if (isStaleProjectionMembership(row, card)) {
+        return null;
+      }
       const queueIndex = Number.isFinite(Number(row.queueIndexHint))
         ? Number(row.queueIndexHint)
         : index + 1;
@@ -386,6 +389,20 @@ function buildProjectionSnapshotRows(
       };
     })
     .filter((row): row is BackendQueueProjectionSnapshotRow => Boolean(row));
+}
+
+function isStaleProjectionMembership(row: QueueProjectionRow, card: FSRSCard): boolean {
+  const projectedState = normalizeOptionalInteger((row.payload as Record<string, unknown>).state);
+  if (projectedState !== null && projectedState !== Number(card.state)) {
+    return true;
+  }
+
+  const projectedDue = normalizeOptionalInteger(row.dueAt);
+  if (projectedDue !== null && projectedDue !== Number(card.due)) {
+    return true;
+  }
+
+  return false;
 }
 
 function reconcileActiveProjectionCounters(input: {

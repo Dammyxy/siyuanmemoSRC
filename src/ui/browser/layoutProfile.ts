@@ -27,8 +27,8 @@ export function resolveBrowserLayoutProfile(options: {
   return options.width >= TAB_NARROW_LAYOUT_BREAKPOINT ? 'tab-wide' : 'tab-narrow';
 }
 
-export function resolveDefaultBrowserViewMode(profile: BrowserLayoutProfile): BrowserViewMode {
-  return profile === 'tab-wide' ? 'hierarchy' : 'flat';
+export function resolveDefaultBrowserViewMode(_profile: BrowserLayoutProfile): BrowserViewMode {
+  return 'hierarchy';
 }
 
 export function resolveDefaultBrowserShowPreview(profile: BrowserLayoutProfile): boolean {

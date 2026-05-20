@@ -48,9 +48,11 @@ describe('SRSBrowser tab layout profile helpers', () => {
     })).toBe('dock');
   });
 
-  it('uses separated defaults for wide and narrow tab workspaces', () => {
+  it('uses hierarchy as the default desktop browser view', () => {
     expect(resolveDefaultBrowserViewMode('tab-wide')).toBe('hierarchy');
-    expect(resolveDefaultBrowserViewMode('tab-narrow')).toBe('flat');
+    expect(resolveDefaultBrowserViewMode('tab-narrow')).toBe('hierarchy');
+    expect(resolveDefaultBrowserViewMode('dialog')).toBe('hierarchy');
+    expect(resolveDefaultBrowserViewMode('dock')).toBe('hierarchy');
     expect(resolveDefaultBrowserShowPreview('tab-wide')).toBe(false);
     expect(resolveDefaultBrowserShowPreview('tab-narrow')).toBe(false);
     expect(resolveDefaultBrowserNavigatorOpen('tab-wide')).toBe(true);
@@ -63,17 +65,22 @@ describe('SRSBrowser tab layout profile helpers', () => {
     expect(buildBrowserPreferenceKey('viewMode', 'tab-narrow')).toBe('fsrs-card-browser:tab-narrow:viewMode');
   });
 
-  it('reads profile defaults when no chrome preferences exist', () => {
+  it('reads hierarchy as the default desktop view when no chrome preferences exist', () => {
     expect(readBrowserChromePreferences('tab-wide', createMemoryStorage())).toEqual({
       viewMode: 'hierarchy',
       showPreview: false,
       navigatorOpen: true,
       narrowRoamPane: 'history',
     });
+    expect(readBrowserChromePreferences('dialog', createMemoryStorage()).viewMode).toBe('hierarchy');
+    expect(readBrowserChromePreferences('dock', createMemoryStorage()).viewMode).toBe('hierarchy');
+    expect(readBrowserChromePreferences('tab-narrow', createMemoryStorage()).viewMode).toBe('hierarchy');
   });
 
   it('writes and reads profile-scoped chrome preferences', () => {
-    const storage = createMemoryStorage();
+    const storage = createMemoryStorage({
+      'fsrs-card-browser:chromePreferencesVersion': '2',
+    });
 
     writeBrowserChromePreference('viewMode', 'tab-narrow', 'hierarchy', storage);
     writeBrowserChromePreference('showPreview', 'tab-narrow', true, storage);
@@ -99,6 +106,20 @@ describe('SRSBrowser tab layout profile helpers', () => {
     expect(storage.getItem(buildBrowserPreferenceKey('viewMode', 'dialog'))).toBe('hierarchy');
   });
 
+  it('migrates old flat defaults to hierarchy once, then respects explicit flat choices', () => {
+    const storage = createMemoryStorage({
+      [buildBrowserPreferenceKey('viewMode', 'dialog')]: 'flat',
+    });
+
+    expect(readBrowserChromePreferences('dialog', storage).viewMode).toBe('hierarchy');
+    expect(storage.getItem(buildBrowserPreferenceKey('viewMode', 'dialog'))).toBe('hierarchy');
+    expect(storage.getItem('fsrs-card-browser:chromePreferencesVersion')).toBe('2');
+
+    writeBrowserChromePreference('viewMode', 'dialog', 'flat', storage);
+
+    expect(readBrowserChromePreferences('dialog', storage).viewMode).toBe('flat');
+  });
+
   it('falls back to defaults when preference storage throws', () => {
     const storage: BrowserPreferenceStorage = {
       getItem: () => {
@@ -110,7 +131,7 @@ describe('SRSBrowser tab layout profile helpers', () => {
     };
 
     expect(readBrowserChromePreferences('dialog', storage)).toEqual({
-      viewMode: 'flat',
+      viewMode: 'hierarchy',
       showPreview: true,
       navigatorOpen: false,
       narrowRoamPane: 'history',

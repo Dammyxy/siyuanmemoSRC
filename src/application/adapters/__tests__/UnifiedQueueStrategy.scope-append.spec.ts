@@ -48,6 +48,58 @@ function createCounterSnapshot(total: number): QueueCounterSnapshot {
 }
 
 describe('UnifiedQueueStrategy appendCardsToTail', () => {
+  it('starts learn-ahead from the visible exhausted session even when queue counters are stale', async () => {
+    const normalCard = createCard('card-normal', 'block-normal');
+    const learnAheadCard = createCard('card-learn-ahead', 'block-learn-ahead');
+    let normalCards = [normalCard];
+    const queue = {
+      getType: () => QueueType.IncrementalLearning,
+      getCards: vi.fn(async () => normalCards),
+      getCounterSnapshot: vi.fn(async () => ({
+        ...createCounterSnapshot(1),
+        learnAheadAvailable: 1,
+        scheduledTotal: 1,
+      })),
+      getRemainingSize: vi.fn(async () => 1),
+      getLearnAheadCards: vi.fn(async () => [learnAheadCard]),
+      handleReview: vi.fn(async () => {
+        normalCards = [];
+        return {
+          cardId: normalCard.id,
+          rating: 3,
+          removedFromQueue: true,
+          remainsInQueue: false,
+          queueChanged: true,
+          requiresCurrentViewReorder: true,
+          counterSnapshot: {
+            ...createCounterSnapshot(1),
+            learnAheadAvailable: 1,
+            scheduledTotal: 1,
+          },
+        };
+      }),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+
+    const strategy = new UnifiedQueueStrategy(
+      queue as any,
+      { getCard: vi.fn(async () => normalCard) } as any,
+      new EventBus(false),
+      null,
+    );
+
+    expect(await strategy.next()).toMatchObject({ id: normalCard.id });
+    await strategy.onFeedback(normalCard, { action: 'rate', rating: 3 });
+    expect(await strategy.next()).toBeNull();
+
+    await expect(strategy.learnAhead()).resolves.toBe(true);
+    expect(queue.getLearnAheadCards).toHaveBeenCalledTimes(1);
+    await expect(strategy.next()).resolves.toMatchObject({ id: learnAheadCard.id });
+
+    strategy.cleanup();
+  });
+
   it('continues from the current position after appending new scope cards', async () => {
     const initialCards = [createCard('card-1', 'block-1')];
     const queue = {

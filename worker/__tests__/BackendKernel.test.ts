@@ -1559,6 +1559,78 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('filters projection rows whose stored membership is stale after synced review state changes', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const reviewedCard = buildCard({
+      id: 'projection-reviewed-card',
+      blockId: 'projection-reviewed-block',
+      state: 1,
+      due: 1_700_000_000_000,
+      lastReview: 1_699_999_900_000,
+      updatedAt: 1_700_000_000_000,
+      meta: { content: 'projection stale membership', rootId: 'doc-projection' },
+    });
+    await database.upsertCards([reviewedCard]);
+    const kernel = new BackendKernel({ database });
+
+    const replace = await kernel.handle({
+      id: 'projection-stale-replace',
+      jsonrpc: '2.0',
+      method: 'queue.projection.replace' as never,
+      params: [{
+        queueType: 'incremental-learning',
+        policyHash: 'incremental-learning:materialized:v1',
+        generation: 1,
+        rows: [{
+          queueType: 'incremental-learning',
+          rowId: reviewedCard.id,
+          cardId: reviewedCard.id,
+          blockId: reviewedCard.blockId,
+          deckId: null,
+          membershipReason: 'rotation',
+          dueAt: reviewedCard.due,
+          dueBucket: 'overdue',
+          priorityScore: reviewedCard.priority,
+          sortKey: `000000001:${reviewedCard.id}`,
+          queueIndexHint: 1,
+          policyHash: 'incremental-learning:materialized:v1',
+          sourceGeneration: 1,
+          payload: { queueKind: 'incremental-learning', state: 1, source: 'application-materialized' },
+          updatedAt: 1_700_000_000_100,
+        }],
+        reason: 'snapshot-refresh',
+      }],
+    });
+    expect('result' in replace).toBe(true);
+
+    await database.upsertCards([{
+      ...reviewedCard,
+      state: 2,
+      due: 1_700_172_800_000,
+      lastReview: 1_700_000_200_000,
+      updatedAt: 1_700_000_200_000,
+    }]);
+
+    const snapshot = await kernel.handle({
+      id: 'projection-stale-snapshot',
+      jsonrpc: '2.0',
+      method: 'queue.projection.snapshot' as never,
+      params: [{ queueType: 'incremental-learning' }],
+    });
+    expect('result' in snapshot).toBe(true);
+    if ('result' in snapshot) {
+      expect(snapshot.result).toMatchObject({
+        status: 'ready',
+        counters: {
+          remaining: 0,
+          total: 0,
+        },
+      });
+      expect(snapshot.result.rows).toEqual([]);
+    }
+  });
+
   it.each([
     'filter-group',
     'final-drill',

@@ -25,6 +25,9 @@ export interface BrowserChromePreferences {
 
 export type BrowserChromePreferenceValue = BrowserViewMode | BrowserNarrowRoamPane | boolean;
 
+const BROWSER_CHROME_PREFERENCES_VERSION_KEY = 'fsrs-card-browser:chromePreferencesVersion';
+const BROWSER_CHROME_PREFERENCES_VERSION = '2';
+
 function resolveBrowserPreferenceStorage(): BrowserPreferenceStorage | null {
   const candidate = (globalThis as { localStorage?: BrowserPreferenceStorage }).localStorage;
   return candidate || null;
@@ -33,6 +36,7 @@ function resolveBrowserPreferenceStorage(): BrowserPreferenceStorage | null {
 function readStoredViewMode(
   profile: BrowserLayoutProfile,
   storage: BrowserPreferenceStorage | null,
+  migrateLegacyFlatDefault: boolean,
 ): BrowserViewMode {
   if (!storage) {
     return resolveDefaultBrowserViewMode(profile);
@@ -42,19 +46,49 @@ function readStoredViewMode(
   try {
     const stored = storage.getItem(key);
     if (stored === 'flat' || stored === 'hierarchy') {
+      if (stored === 'flat' && migrateLegacyFlatDefault) {
+        const migrated = resolveDefaultBrowserViewMode(profile);
+        storage.setItem(key, migrated);
+        return migrated;
+      }
       return stored;
     }
 
     if (profile === 'dialog') {
       const legacy = storage.getItem(LEGACY_BROWSER_VIEW_MODE_KEY);
       if (legacy === 'flat' || legacy === 'hierarchy') {
-        storage.setItem(key, legacy);
-        return legacy;
+        const migrated = legacy === 'flat' && migrateLegacyFlatDefault
+          ? resolveDefaultBrowserViewMode(profile)
+          : legacy;
+        storage.setItem(key, migrated);
+        return migrated;
       }
     }
   } catch {}
 
   return resolveDefaultBrowserViewMode(profile);
+}
+
+function shouldMigrateLegacyFlatDefault(storage: BrowserPreferenceStorage | null): boolean {
+  if (!storage) {
+    return false;
+  }
+
+  try {
+    return storage.getItem(BROWSER_CHROME_PREFERENCES_VERSION_KEY) !== BROWSER_CHROME_PREFERENCES_VERSION;
+  } catch {
+    return false;
+  }
+}
+
+function markBrowserChromePreferencesCurrent(storage: BrowserPreferenceStorage | null): void {
+  if (!storage) {
+    return;
+  }
+
+  try {
+    storage.setItem(BROWSER_CHROME_PREFERENCES_VERSION_KEY, BROWSER_CHROME_PREFERENCES_VERSION);
+  } catch {}
 }
 
 function readStoredBooleanPreference(
@@ -102,8 +136,9 @@ export function readBrowserChromePreferences(
   profile: BrowserLayoutProfile,
   storage: BrowserPreferenceStorage | null = resolveBrowserPreferenceStorage(),
 ): BrowserChromePreferences {
-  return {
-    viewMode: readStoredViewMode(profile, storage),
+  const migrateLegacyFlatDefault = shouldMigrateLegacyFlatDefault(storage);
+  const preferences = {
+    viewMode: readStoredViewMode(profile, storage, migrateLegacyFlatDefault),
     showPreview: readStoredBooleanPreference(
       'showPreview',
       profile,
@@ -118,6 +153,8 @@ export function readBrowserChromePreferences(
     ),
     narrowRoamPane: readStoredNarrowRoamPane(profile, storage),
   };
+  markBrowserChromePreferencesCurrent(storage);
+  return preferences;
 }
 
 function encodeBrowserChromePreferenceValue(value: BrowserChromePreferenceValue): string {

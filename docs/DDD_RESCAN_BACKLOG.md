@@ -1,8 +1,38 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-20 (Round 402)
+Last update: 2026-05-20 (Round 405)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-20 - Browser Opens In Hierarchy View By Default
+
+- Task: Fix Browser opening in flat view after plugin reload or SiYuan restart, forcing the user to click `层级视图` every time.
+- Touched slice: Browser chrome layout defaults/preferences; `src/ui/browser/layoutProfile.ts`, `src/ui/browser/browserChromePreferences.ts`, and `src/ui/browser/__tests__/SRSBrowser.tab-layout.spec.ts`.
+- Debt fixed now: Desktop Browser layout profiles (`dialog`, `dock`, `tab-wide`, `tab-narrow`) now resolve default `viewMode` to `hierarchy`. A one-time chrome preference version migration upgrades old saved `flat` defaults to `hierarchy`, then stamps the preference version so future explicit flat choices are still respected. Mobile still follows the `SRSBrowser.vue` mobile guard and opens flat.
+- Debt deferred: No destructive blanket localStorage reset was added.
+- Why deferred: The fix should migrate the ambiguous old default only once, not erase future user intent.
+- Next safe step: Deploy rebuilt bundle, reload plugin/SiYuan, open Browser with no saved flat preference; it should enter `层级视图` immediately.
+- Validation: `pnpm exec vitest run src/ui/browser/__tests__/SRSBrowser.tab-layout.spec.ts`.
+
+### 2026-05-20 - Synced Review State Filters Stale Projection Rows
+
+- Task: Diagnose phone-to-desktop review sync appearing unmerged after mobile review. Live `H:\闪卡同步测试` main DB already contained all conflict-copy review events, but `queue_projection_rows` still exposed old incremental-learning membership for reviewed cards.
+- Touched slice: Worker queue projection read model / sync conflict projection convergence; `worker/queue-projection/WorkerQueueProjectionRuntime.ts` and `worker/__tests__/BackendKernel.test.ts`.
+- Debt fixed now: Worker projection snapshots now drop rows whose persisted projection membership no longer matches the current card row (`state` or `due` changed). Stale rows left behind by sync conflict merge/materialization can no longer make a future reviewed card appear due, so Review/Browser reads follow merged card truth.
+- Debt deferred: Existing stale rows remain in `siyuanmemo.db` until projection is rebuilt, but runtime reads now filter them out. No direct DB mutation was performed.
+- Why deferred: The active owner is backend projection read/repair path. Manual SQL edits would hide whether stale projection reads are guarded.
+- Next safe step: Deploy rebuilt bundle, reload SiYuan, then open incremental learning/review; card `card_xy_20260520032910-jsyrycd_1` should follow its merged card state (`state=2`, due `2026-05-22T10:57:22.793Z`) instead of stale projection due `2026-05-20T10:50:02.029Z`.
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts -t "filters projection rows"`; `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts`; `pnpm run check:boundaries`.
+
+### 2026-05-20 - Learn Ahead Starts From Visible Exhausted Session
+
+- Task: Fix Review empty-state `提前学习` doing nothing after finishing new cards.
+- Touched slice: Review session queue strategy / learn-ahead start policy; `src/application/adapters/UnifiedQueueStrategy.ts` and `src/application/adapters/__tests__/UnifiedQueueStrategy.scope-append.spec.ts`.
+- Debt fixed now: `UnifiedQueueStrategy.learnAhead()` now checks the visible session cursor first when it is valid. If the UI has already exhausted the normal queue, stale queue counters can no longer block the explicit learn-ahead action.
+- Debt deferred: No browser automation smoke was run in the live SiYuan UI for this slice; validation is through the queue strategy regression plus build.
+- Why deferred: The bug is a strategy-level stale-counter guard. The regression reproduces the exact "normal queue empty, counter still says remaining" state without needing manual clicks.
+- Next safe step: Deploy rebuilt bundle to the test workspace and reload SiYuan, then finish current new cards and click `提前学习`; it should advance into the bounded learn-ahead card set.
+- Validation: `pnpm exec vitest run src/application/adapters/__tests__/UnifiedQueueStrategy.scope-append.spec.ts src/application/adapters/review-session/__tests__/ReviewSessionAdvancementPolicies.test.ts`; `pnpm run check:boundaries`.
 
 ### 2026-05-20 - Visible Source-Existence Refresh Ignores TTL
 
