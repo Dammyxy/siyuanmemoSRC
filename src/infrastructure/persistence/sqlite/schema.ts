@@ -178,6 +178,94 @@ export const SQL_SCHEMA_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_queue_projection_rebuilds_queue
     ON queue_projection_rebuilds(queue_type, started_at)`,
+  `CREATE TABLE IF NOT EXISTS domain_sync_operations (
+    operation_id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    source_device_id TEXT,
+    source_generation INTEGER,
+    operation_type TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    entity_block_id TEXT,
+    occurred_at INTEGER NOT NULL,
+    observed_at INTEGER NOT NULL,
+    payload_fingerprint TEXT NOT NULL,
+    idempotency_key TEXT,
+    review_event_id TEXT,
+    payload_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_domain_sync_operations_source
+    ON domain_sync_operations(source_id, source_generation, occurred_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_domain_sync_operations_entity
+    ON domain_sync_operations(entity_type, entity_id, occurred_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_domain_sync_operations_type
+    ON domain_sync_operations(operation_type, occurred_at)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_domain_sync_operations_idempotency
+    ON domain_sync_operations(operation_type, idempotency_key)
+    WHERE idempotency_key IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_domain_sync_operations_review_event
+    ON domain_sync_operations(review_event_id)
+    WHERE review_event_id IS NOT NULL`,
+  `CREATE TABLE IF NOT EXISTS domain_sync_processed_sources (
+    source_id TEXT NOT NULL,
+    source_fingerprint TEXT NOT NULL,
+    source_kind TEXT NOT NULL,
+    path TEXT,
+    processed_at INTEGER NOT NULL,
+    imported_operations INTEGER NOT NULL,
+    ignored_operations INTEGER NOT NULL,
+    imported_review_events INTEGER NOT NULL,
+    ignored_review_events INTEGER NOT NULL,
+    imported_cards INTEGER NOT NULL,
+    ignored_cards INTEGER NOT NULL,
+    skipped_reason TEXT,
+    latest_sanity_status TEXT,
+    metadata_json TEXT NOT NULL,
+    PRIMARY KEY(source_id, source_fingerprint)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_domain_sync_processed_sources_source
+    ON domain_sync_processed_sources(source_id, processed_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_domain_sync_processed_sources_fingerprint
+    ON domain_sync_processed_sources(source_fingerprint, processed_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_domain_sync_processed_sources_skipped
+    ON domain_sync_processed_sources(skipped_reason, processed_at)`,
+  `CREATE TABLE IF NOT EXISTS domain_sync_sanity_snapshots (
+    snapshot_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    checked_at INTEGER NOT NULL,
+    ledger_operation_count INTEGER NOT NULL,
+    pending_import_count INTEGER NOT NULL,
+    processed_source_count INTEGER NOT NULL,
+    skipped_source_count INTEGER NOT NULL,
+    repairable_divergence_count INTEGER NOT NULL,
+    divergent_card_count INTEGER NOT NULL,
+    source_error_count INTEGER NOT NULL,
+    truncated INTEGER NOT NULL,
+    payload_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_domain_sync_sanity_snapshots_status
+    ON domain_sync_sanity_snapshots(status, checked_at)`,
+  `CREATE TABLE IF NOT EXISTS domain_sync_repair_plans (
+    plan_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER,
+    scope_json TEXT NOT NULL,
+    scheduler_config_hash TEXT,
+    ledger_generation INTEGER NOT NULL,
+    card_state_fingerprint TEXT NOT NULL,
+    review_history_fingerprint TEXT NOT NULL,
+    affected_card_count INTEGER NOT NULL,
+    apply_idempotency_key TEXT,
+    applied_at INTEGER,
+    result_json TEXT,
+    payload_json TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_domain_sync_repair_plans_status
+    ON domain_sync_repair_plans(status, created_at)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_domain_sync_repair_plans_apply_key
+    ON domain_sync_repair_plans(apply_idempotency_key)
+    WHERE apply_idempotency_key IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS review_events (
     id TEXT PRIMARY KEY,
     card_id TEXT,

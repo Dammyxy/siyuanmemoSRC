@@ -134,4 +134,102 @@ describe('SqliteDatabaseService', () => {
 
     expect(rows.map((row) => row.algorithm_id)).toEqual(['a-factor-v2', 'fsrs-v6']);
   });
+
+  it('adds domain sync ledger tables to an existing database without dropping review, card, tombstone, or projection rows', async () => {
+    const fileService = new MemorySqliteFileService();
+    const first = new SqliteDatabaseService(fileService);
+    await first.init();
+    await first.runTransaction('seed-pre-ledger-db', () => {
+      for (const table of [
+        'domain_sync_operations',
+        'domain_sync_processed_sources',
+        'domain_sync_sanity_snapshots',
+        'domain_sync_repair_plans',
+      ]) {
+        first.run(`DROP TABLE IF EXISTS ${table}`);
+      }
+      first.run(
+        `INSERT INTO cards (id, block_id, updated_at, payload_json)
+         VALUES (?, ?, ?, ?)`,
+        ['card-a', 'block-a', 1_700_000_000_000, '{}'],
+      );
+      first.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ['event-a', 'card-a', 'attempt-a', 3, 1_700_000_000_001, 2026, 5, 'review-v2', '{}'],
+      );
+      first.run(
+        `INSERT INTO tombstones (kind, id, deleted_at, deleted_by, payload_json)
+         VALUES (?, ?, ?, ?, ?)`,
+        ['card', 'card-deleted', 1_700_000_000_002, 'test', '{}'],
+      );
+      first.run(
+        `INSERT INTO queue_projection_generations
+          (queue_type, policy_hash, generation, status, rebuild_reason, updated_at, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ['retrieval-practice', 'policy-a', 1, 'ready', null, 1_700_000_000_003, '{}'],
+      );
+      first.run(
+        `INSERT INTO queue_projection_rows
+          (queue_type, row_id, card_id, block_id, membership_reason, due_at, due_bucket, priority_score,
+           sort_key, queue_index_hint, policy_hash, source_generation, payload_json, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'retrieval-practice',
+          'row-a',
+          'card-a',
+          'block-a',
+          'due',
+          1_700_000_000_004,
+          'due',
+          1,
+          '0001',
+          0,
+          'policy-a',
+          1,
+          '{}',
+          1_700_000_000_004,
+        ],
+      );
+    });
+    await first.persist();
+
+    const second = new SqliteDatabaseService(fileService);
+    await second.init();
+
+    for (const table of [
+      'domain_sync_operations',
+      'domain_sync_processed_sources',
+      'domain_sync_sanity_snapshots',
+      'domain_sync_repair_plans',
+    ]) {
+      expect(second.getOne<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        [table],
+      )).toEqual({ name: table });
+    }
+    expect(second.getOne<{ count: number }>('SELECT COUNT(*) AS count FROM review_events')?.count).toBe(1);
+    expect(second.getOne<{ count: number }>('SELECT COUNT(*) AS count FROM cards')?.count).toBeGreaterThanOrEqual(1);
+    expect(second.getOne<{ count: number }>('SELECT COUNT(*) AS count FROM tombstones')?.count).toBe(1);
+    expect(second.getOne<{ count: number }>('SELECT COUNT(*) AS count FROM queue_projection_rows')?.count).toBe(1);
+
+    const indexNames = second.getAll<{ name: string }>(
+      `SELECT name FROM sqlite_master
+       WHERE type = 'index' AND name LIKE 'idx_domain_sync_%'
+       ORDER BY name`,
+    ).map((row) => row.name);
+    expect(indexNames).toEqual(expect.arrayContaining([
+      'idx_domain_sync_operations_entity',
+      'idx_domain_sync_operations_idempotency',
+      'idx_domain_sync_operations_review_event',
+      'idx_domain_sync_operations_source',
+      'idx_domain_sync_operations_type',
+      'idx_domain_sync_processed_sources_fingerprint',
+      'idx_domain_sync_processed_sources_source',
+      'idx_domain_sync_repair_plans_apply_key',
+      'idx_domain_sync_repair_plans_status',
+      'idx_domain_sync_sanity_snapshots_status',
+    ]));
+  });
 });

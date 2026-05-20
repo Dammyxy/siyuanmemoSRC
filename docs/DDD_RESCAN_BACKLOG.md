@@ -4,6 +4,16 @@ Last update: 2026-05-20 (Round 406)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-20 - Domain Sync Ledger Schema And Contracts
+
+- Task: Implement P1 of OpenSpec `add-anki-style-domain-sync-ledger`: backend RPC contract types plus SQLite schema/index foundation.
+- Touched slice: Backend RPC contracts / SQLite schema; `packages/contracts/src/backend-rpc.ts`, `packages/contracts/src/__tests__/backend-rpc.test.ts`, `src/infrastructure/persistence/sqlite/schema.ts`, and `src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`.
+- Debt fixed now: Added typed domain sync status, processed-source, sanity, repair preview, and repair apply contracts. Added backend-owned ledger tables for operations, processed sources, sanity snapshots, and repair plans with idempotency/source/entity/type/fingerprint indexes. Existing DB initialization now recreates those tables without dropping review events, cards, tombstones, or queue projection rows.
+- Debt deferred: Ledger write paths, source import/merge, sanity builder, repair preview/apply runtime, and UI surface remain unimplemented.
+- Why deferred: P1 is foundation only; writing/merging/repairing operations crosses review feedback, card CRUD, source-existence repair, queue projection, writer relay, and UI contexts.
+- Next safe step: Implement P2 minimum vertical slice: worker-owned ledger module plus `review-committed` operation recording with duplicate retry protection.
+- Validation: `pnpm exec vitest run packages/contracts/src/__tests__/backend-rpc.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`.
+
 ### 2026-05-20 - Review Commit Idempotency And Pre-Request Merge Diagnostics
 
 - Task: Implement OpenSpec `harden-review-commit-idempotency-and-merge-diagnostics` so review feedback retries cannot double-commit and automatic pre-request merge activity is queryable.

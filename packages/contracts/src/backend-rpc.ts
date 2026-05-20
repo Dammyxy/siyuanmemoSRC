@@ -9,6 +9,9 @@ export type BackendRpcMethod =
   | 'sync.conflict.summarize'
   | 'sync.conflict.reload'
   | 'diagnostics.status'
+  | 'domainSync.status'
+  | 'domainSync.repair.preview'
+  | 'domainSync.repair.apply'
   | 'browser.deck.page'
   | 'browser.deck.matchedIds'
   | 'browser.deck.rowsByIds'
@@ -227,6 +230,154 @@ export interface BackendSyncConflictReloadResult {
   dbFile: string;
 }
 
+export type BackendDomainSyncOperationType =
+  | 'review-committed'
+  | 'card-upserted'
+  | 'card-deleted'
+  | 'source-existence-updated'
+  | 'queue-projection-invalidated'
+  | 'repair-applied';
+
+export type BackendDomainSyncSanityStatus =
+  | 'clean'
+  | 'merged'
+  | 'repairable'
+  | 'divergent'
+  | 'needs-direction'
+  | 'source-error';
+
+export type BackendDomainSyncSkippedSourceReason =
+  | 'unreadable'
+  | 'invalid-bytes'
+  | 'missing-ledger'
+  | 'ledger-invariant-violation'
+  | 'parse-error'
+  | 'source-unavailable'
+  | 'unknown';
+
+export interface BackendDomainSyncProcessedSource {
+  sourceId: string;
+  sourceKind: 'persisted-main-db' | 'siyuan-conflict-db' | 'legacy-db' | 'migration' | 'unknown';
+  fingerprint: string;
+  path?: string | null;
+  processedAt: number;
+  importedOperations: number;
+  ignoredOperations: number;
+  importedReviewEvents: number;
+  ignoredReviewEvents: number;
+  importedCards: number;
+  ignoredCards: number;
+  skippedReason?: BackendDomainSyncSkippedSourceReason | null;
+  latestSanityStatus?: BackendDomainSyncSanityStatus | null;
+}
+
+export interface BackendDomainSyncSanitySummary {
+  status: BackendDomainSyncSanityStatus;
+  checkedAt: number;
+  ledgerOperationCount: number;
+  pendingImportCount: number;
+  processedSourceCount: number;
+  skippedSourceCount: number;
+  repairableDivergenceCount: number;
+  divergentCardCount: number;
+  reasonCounts: Partial<Record<BackendSyncConflictMergeDivergenceReason | 'needs-direction' | 'source-error', number>>;
+  affectedCardIds: string[];
+  truncated: boolean;
+}
+
+export interface BackendDomainSyncStatusResult {
+  ok: true;
+  ledger: {
+    operationCount: number;
+    newestOperationAt: number | null;
+    operationTypes: Partial<Record<BackendDomainSyncOperationType, number>>;
+  };
+  processedSources: {
+    recent: BackendDomainSyncProcessedSource[];
+    skipped: BackendDomainSyncProcessedSource[];
+    totalProcessed: number;
+    totalSkipped: number;
+  };
+  sanity: BackendDomainSyncSanitySummary;
+  repair: {
+    available: boolean;
+    repairableDivergenceCount: number;
+    latestPlanId: string | null;
+  };
+}
+
+export interface BackendDomainSyncRepairPreviewRequest {
+  cardIds?: string[];
+  limit?: number;
+  includeUnrepairable?: boolean;
+}
+
+export interface BackendDomainSyncRepairPreviewCardEvidence {
+  cardId: string;
+  blockId: string | null;
+  reason: BackendSyncConflictMergeDivergenceReason | 'missing-card-state' | 'missing-scheduler-evidence';
+  newestReviewEventAt: number | null;
+  cardLastReview: number | null;
+  reviewEventCount: number;
+  cardReps: number | null;
+}
+
+export interface BackendDomainSyncRepairPreviewPlannedMutation {
+  cardId: string;
+  mutationType: 'card-state-repair' | 'projection-invalidation';
+  summary: string;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+}
+
+export interface BackendDomainSyncRepairPreviewResult {
+  ok: true;
+  planId: string;
+  status: 'preview' | 'no-repair' | 'unrepairable';
+  createdAt: number;
+  affectedCardCount: number;
+  evidence: BackendDomainSyncRepairPreviewCardEvidence[];
+  plannedMutations: BackendDomainSyncRepairPreviewPlannedMutation[];
+  unrepairableReasons: Array<{
+    cardId: string;
+    reason: string;
+  }>;
+  schedulerEvidence: {
+    schedulerType: string | null;
+    configHash: string | null;
+    capturedAt: number;
+  };
+  truncated: boolean;
+  limit: number;
+}
+
+export interface BackendDomainSyncRepairApplyRequest {
+  planId: string;
+  idempotencyKey: string;
+  confirmedAt: number;
+  confirmedBy?: string | null;
+  confirmationText?: string | null;
+}
+
+export type BackendDomainSyncRepairApplyResult =
+  | {
+      ok: true;
+      status: 'applied' | 'duplicate';
+      planId: string;
+      idempotencyKey: string;
+      appliedAt: number;
+      appliedCards: number;
+      skippedCards: number;
+      invalidatedQueueProjections: number;
+    }
+  | {
+      ok: false;
+      status: 'stale-plan' | 'conflict' | 'unavailable' | 'invalid-request' | 'failed';
+      planId: string;
+      idempotencyKey: string;
+      reason: string;
+    };
+
 export interface BackendDiagnosticsStatusResult {
   runtime: 'srs-backend-worker';
   initialized: boolean;
@@ -283,6 +434,7 @@ export interface BackendDiagnosticsStatusResult {
     jobFailedTotal: number;
   };
   preRequestMerge?: BackendPreRequestMergeDiagnosticsState;
+  domainSync?: BackendDomainSyncStatusResult;
 }
 
 export type BackendUnavailableClass =
