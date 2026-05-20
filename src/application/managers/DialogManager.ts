@@ -53,6 +53,7 @@ import {
   BlockAttrCleanupService,
   type BlockAttrCleanupMode,
 } from '@/application/services';
+import { buildReviewDomainSyncSafetyDecision } from '@/application/services/ReviewDomainSyncSafetyService';
 import {
   ProgressiveSplitCancelledError,
   type ProgressiveSplitConfig,
@@ -317,6 +318,44 @@ export class DialogManager implements IDialogManager {
       : null;
   }
 
+  private async ensureDomainSyncSafeForReviewEntry(options: {
+    queueType: QueueType;
+    title?: string;
+    surface?: string;
+  }): Promise<boolean> {
+    try {
+      const status = await this.context.readDomainSyncDiagnostics();
+      const decision = buildReviewDomainSyncSafetyDecision(status);
+      if (decision.canOpenReview) {
+        return true;
+      }
+
+      logger.warn('[DialogManager] Review entry blocked by domain sync safety gate', {
+        queueType: options.queueType,
+        title: options.title,
+        surface: options.surface,
+        kind: decision.kind,
+        sanityStatus: decision.sanityStatus,
+        repairableDivergenceCount: decision.repairableDivergenceCount,
+        skippedSourceCount: decision.skippedSourceCount,
+        pendingImportCount: decision.pendingImportCount,
+        divergentCardCount: decision.divergentCardCount,
+      });
+      await this.siyuanApi.pushErrMsg(decision.message);
+      return false;
+    } catch (error) {
+      const decision = buildReviewDomainSyncSafetyDecision(null, error);
+      logger.warn('[DialogManager] Review entry blocked because domain sync diagnostics are unavailable', {
+        queueType: options.queueType,
+        title: options.title,
+        surface: options.surface,
+        error,
+      });
+      await this.siyuanApi.pushErrMsg(decision.message);
+      return false;
+    }
+  }
+
   private async openStandardReviewEntry(options: {
     queueType: QueueType;
     title: string;
@@ -328,7 +367,19 @@ export class DialogManager implements IDialogManager {
     suppressSnapshotRecovery?: boolean;
     neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
     initialSemanticPinnedSessionId?: string | null;
+    skipDomainSyncGate?: boolean;
   }): Promise<void> {
+    if (options.skipDomainSyncGate !== true) {
+      const safe = await this.ensureDomainSyncSafeForReviewEntry({
+        queueType: options.queueType,
+        title: options.title,
+        surface: 'standard-review-entry',
+      });
+      if (!safe) {
+        return;
+      }
+    }
+
     const allowNewTab = options.allowNewTab !== false;
     if (allowNewTab && this.shouldOpenReviewInNewTabByDefault()) {
       const tabManager = this.context.getTabManager?.();
@@ -387,6 +438,14 @@ export class DialogManager implements IDialogManager {
       return;
     }
 
+    if (!(await this.ensureDomainSyncSafeForReviewEntry({
+      queueType,
+      title: preset.title,
+      surface: 'switch-standard-review-dialog-queue',
+    }))) {
+      return;
+    }
+
     this.destroyCurrentReviewDialog();
     await this.prepareQueueBeforeReview(queueType);
     await this.openStandardReviewEntry({
@@ -394,6 +453,7 @@ export class DialogManager implements IDialogManager {
       title: preset.title,
       headerVariant: preset.headerVariant,
       allowNewTab: false,
+      skipDomainSyncGate: true,
     });
   }
 
@@ -1004,14 +1064,21 @@ export class DialogManager implements IDialogManager {
    */
   async openReviewDialog(): Promise<void> {
     if (!(await this.checkInitialized())) return;
+    const title = this.context.getI18n()?.retrievalPractice || '提取练习';
+    if (!(await this.ensureDomainSyncSafeForReviewEntry({
+      queueType: QueueType.RetrievalPractice,
+      title,
+      surface: 'open-review-dialog',
+    }))) return;
     this.destroyCurrentReviewDialog();
     await this.prepareQueueBeforeReview(QueueType.RetrievalPractice);
 
     try {
       await this.openStandardReviewEntry({
         queueType: QueueType.RetrievalPractice,
-        title: this.context.getI18n()?.retrievalPractice || '提取练习',
+        title,
         headerVariant: 'retrieval-practice',
+        skipDomainSyncGate: true,
       });
 
       logger.info('[DialogManager] ✅ Retrieval practice opened');
@@ -1026,14 +1093,21 @@ export class DialogManager implements IDialogManager {
    */
   async openIncrementalLearningDialog(): Promise<void> {
     if (!(await this.checkInitialized())) return;
+    const title = this.context.getI18n()?.incrementalLearning || '渐进学习';
+    if (!(await this.ensureDomainSyncSafeForReviewEntry({
+      queueType: QueueType.IncrementalLearning,
+      title,
+      surface: 'open-incremental-learning-dialog',
+    }))) return;
     this.destroyCurrentReviewDialog();
     await this.prepareQueueBeforeReview(QueueType.IncrementalLearning);
 
     try {
       await this.openStandardReviewEntry({
         queueType: QueueType.IncrementalLearning,
-        title: this.context.getI18n()?.incrementalLearning || '渐进学习',
+        title,
         headerVariant: 'incremental-learning',
+        skipDomainSyncGate: true,
       });
 
       logger.info('[DialogManager] ✅ Incremental learning opened');
@@ -1048,13 +1122,20 @@ export class DialogManager implements IDialogManager {
    */
   async openFinalDrillDialog(): Promise<void> {
     if (!(await this.checkInitialized())) return;
+    const title = this.context.getI18n()?.finalDrill || '刻意练习';
+    if (!(await this.ensureDomainSyncSafeForReviewEntry({
+      queueType: QueueType.FinalDrill,
+      title,
+      surface: 'open-final-drill-dialog',
+    }))) return;
     this.destroyCurrentReviewDialog();
 
     try {
       await this.openStandardReviewEntry({
         queueType: QueueType.FinalDrill,
-        title: this.context.getI18n()?.finalDrill || '刻意练习',
+        title,
         headerVariant: 'final-drill',
+        skipDomainSyncGate: true,
       });
 
       logger.info('[DialogManager] ✅ Final drill opened');
@@ -1069,13 +1150,20 @@ export class DialogManager implements IDialogManager {
    */
   async openFilterGroupPracticeDialog(): Promise<void> {
     if (!(await this.checkInitialized())) return;
+    const title = this.context.getI18n()?.filterGroupPractice || '分组队列';
+    if (!(await this.ensureDomainSyncSafeForReviewEntry({
+      queueType: QueueType.FilterGroup,
+      title,
+      surface: 'open-filter-group-practice-dialog',
+    }))) return;
     this.destroyCurrentReviewDialog();
 
     try {
       await this.openStandardReviewEntry({
         queueType: QueueType.FilterGroup,
-        title: this.context.getI18n()?.filterGroupPractice || '分组队列',
+        title,
         headerVariant: 'filter-group',
+        skipDomainSyncGate: true,
       });
 
       logger.info('[DialogManager] ✅ Filter group review opened');
@@ -1102,6 +1190,12 @@ export class DialogManager implements IDialogManager {
     semanticPinnedSessionId?: string;
   }): Promise<void> {
     if (!(await this.checkInitialized())) return;
+    const title = this.context.getI18n()?.neuralReviewTitle || '神经漫游';
+    if (!(await this.ensureDomainSyncSafeForReviewEntry({
+      queueType: QueueType.NeuralRoam,
+      title,
+      surface: 'open-neural-roam-dialog',
+    }))) return;
     this.destroyCurrentReviewDialog();
 
     try {
@@ -1126,7 +1220,7 @@ export class DialogManager implements IDialogManager {
 
       await this.openStandardReviewEntry({
         queueType: QueueType.NeuralRoam,
-        title: this.context.getI18n()?.neuralReviewTitle || '神经漫游',
+        title,
         headerVariant: 'neural-roam',
         suppressSnapshotRecovery: Boolean(options?.focusBlockId || options?.resetHistory || options?.startNewSession),
         neuralRoamStartFromFocus: focusBlockId ? {
@@ -1136,6 +1230,7 @@ export class DialogManager implements IDialogManager {
           startNewSession,
         } : null,
         initialSemanticPinnedSessionId: semanticPinnedSessionId || null,
+        skipDomainSyncGate: true,
       });
 
       logger.info('[DialogManager] ✅ Neural roam opened');
@@ -1149,6 +1244,13 @@ export class DialogManager implements IDialogManager {
    * 打开难点攻坚对话框
    */
   async openLeechReviewDialog(): Promise<void> {
+    if (!(await this.checkInitialized())) return;
+    const title = this.context.getI18n()?.startLeechPractice || '难点攻坚';
+    if (!(await this.ensureDomainSyncSafeForReviewEntry({
+      queueType: QueueType.Leech,
+      title,
+      surface: 'open-leech-review-dialog',
+    }))) return;
     this.destroyCurrentReviewDialog();
 
     try {
@@ -1171,7 +1273,7 @@ export class DialogManager implements IDialogManager {
           plugin: this.plugin,
           queueType: QueueType.Leech,
           queueInstance: queue,
-          title: this.context.getI18n()?.startLeechPractice || '难点攻坚',
+          title,
           headerVariant: 'leech',
           eventBus: this.context.getEventBus(),
           startFullscreen: this.shouldStartReviewFullscreenByDefault(),
@@ -1194,8 +1296,6 @@ export class DialogManager implements IDialogManager {
       preferredCardId?: string;
     }
   ): Promise<void> {
-    this.destroyCurrentReviewDialog();
-
     const ids = normalizeIdList(blockIds);
     const cardIds = normalizeIdList(options?.cardIds);
     if (ids.length === 0 && cardIds.length === 0) {
@@ -1204,14 +1304,21 @@ export class DialogManager implements IDialogManager {
     }
 
     try {
+      const titleCount = cardIds.length > 0 ? cardIds.length : ids.length;
+      const title = (this.context.getI18n()?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(titleCount));
+      if (!(await this.ensureDomainSyncSafeForReviewEntry({
+        queueType: QueueType.FilterGroup,
+        title,
+        surface: 'open-subset-review-dialog',
+      }))) return;
+      this.destroyCurrentReviewDialog();
+
       const manager = this.context.getUnifiedDataSourceManager();
       const preferredCardId = normalizeOptionalId(options?.preferredCardId);
       const queue = new SubsetReviewQueue(manager, ids, {
         cardIds: cardIds.length > 0 ? cardIds : undefined,
         preferredCardId,
       });
-      const titleCount = cardIds.length > 0 ? cardIds.length : ids.length;
-      const title = (this.context.getI18n()?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(titleCount));
       const transferState = buildStaticSubsetTransferState(
         QueueType.FilterGroup,
         ids,
@@ -1255,10 +1362,8 @@ export class DialogManager implements IDialogManager {
     dueOnly: boolean;
   }): Promise<void> {
     if (!(await this.checkInitialized())) return;
-    this.destroyCurrentReviewDialog();
 
     try {
-      const manager = this.context.getUnifiedDataSourceManager();
       const ids = normalizeIdList(options.blockIds);
       const cardIds = normalizeIdList(options.cardIds);
       if (ids.length === 0 && cardIds.length === 0) {
@@ -1266,6 +1371,15 @@ export class DialogManager implements IDialogManager {
         return;
       }
 
+      const title = this.context.getI18n()?.retrievalPractice || '提取练习';
+      if (!(await this.ensureDomainSyncSafeForReviewEntry({
+        queueType: QueueType.FilterGroup,
+        title,
+        surface: 'open-retrieval-practice-with-filter',
+      }))) return;
+      this.destroyCurrentReviewDialog();
+
+      const manager = this.context.getUnifiedDataSourceManager();
       const queue = new SubsetReviewQueue(manager, ids, {
         cardIds: cardIds.length > 0 ? cardIds : undefined,
         preferredCardId: normalizeOptionalId(options.preferredCardId),
@@ -1287,8 +1401,9 @@ export class DialogManager implements IDialogManager {
           cardIds,
           options.preferredCardId,
         ),
-        title: this.context.getI18n()?.retrievalPractice || '提取练习',
+        title,
         headerVariant: 'retrieval-practice',
+        skipDomainSyncGate: true,
       });
 
       logger.info('[DialogManager] ✅ Scoped retrieval practice opened');
@@ -1314,10 +1429,8 @@ export class DialogManager implements IDialogManager {
     dueOnly: boolean;
   }): Promise<void> {
     if (!(await this.checkInitialized())) return;
-    this.destroyCurrentReviewDialog();
 
     try {
-      const manager = this.context.getUnifiedDataSourceManager();
       const ids = normalizeIdList(options.blockIds);
       const cardIds = normalizeIdList(options.cardIds);
       if (ids.length === 0 && cardIds.length === 0) {
@@ -1325,6 +1438,15 @@ export class DialogManager implements IDialogManager {
         return;
       }
 
+      const title = this.context.getI18n()?.incrementalLearning || '渐进学习';
+      if (!(await this.ensureDomainSyncSafeForReviewEntry({
+        queueType: QueueType.FilterGroup,
+        title,
+        surface: 'open-incremental-learning-with-filter',
+      }))) return;
+      this.destroyCurrentReviewDialog();
+
+      const manager = this.context.getUnifiedDataSourceManager();
       const queue = new SubsetReviewQueue(manager, ids, {
         cardIds: cardIds.length > 0 ? cardIds : undefined,
         preferredCardId: normalizeOptionalId(options.preferredCardId),
@@ -1346,8 +1468,9 @@ export class DialogManager implements IDialogManager {
           cardIds,
           options.preferredCardId,
         ),
-        title: this.context.getI18n()?.incrementalLearning || '渐进学习',
+        title,
         headerVariant: 'incremental-learning',
+        skipDomainSyncGate: true,
       });
 
       logger.info('[DialogManager] ✅ Scoped incremental learning opened');
@@ -1369,8 +1492,6 @@ export class DialogManager implements IDialogManager {
       preferredCardId?: string;
     },
   ): Promise<void> {
-    this.destroyCurrentReviewDialog();
-
     const ids = normalizeIdList(blockIds);
     const cardIds = normalizeIdList(options?.cardIds);
     if (ids.length === 0 && cardIds.length === 0) {
@@ -1379,13 +1500,20 @@ export class DialogManager implements IDialogManager {
     }
 
     try {
+      const titleCount = cardIds.length > 0 ? cardIds.length : ids.length;
+      const title = (this.context.getI18n()?.temporaryDrill || '临时练习') + ` (${titleCount} 张)`;
+      if (!(await this.ensureDomainSyncSafeForReviewEntry({
+        queueType: QueueType.FinalDrill,
+        title,
+        surface: 'open-temporary-drill',
+      }))) return;
+      this.destroyCurrentReviewDialog();
+
       const manager = this.context.getUnifiedDataSourceManager();
       const queue = new TemporaryDrillQueue(manager, ids, {
         cardIds: cardIds.length > 0 ? cardIds : undefined,
         preferredCardId: normalizeOptionalId(options?.preferredCardId),
       });
-      const titleCount = cardIds.length > 0 ? cardIds.length : ids.length;
-      const title = (this.context.getI18n()?.temporaryDrill || '临时练习') + ` (${titleCount} 张)`;
       const transferState = buildStaticSubsetTransferState(
         QueueType.FinalDrill,
         ids,

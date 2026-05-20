@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-21 (Round 413)
+Last update: 2026-05-21 (Round 414)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-21 - Review Entry Blocks Unsafe Domain Sync
+
+- Task: Implement P1-P2 for OpenSpec `gate-review-on-domain-sync-conflict`.
+- Touched slice: Review entry gating / domain sync diagnostics read path; `src/application/services/ReviewDomainSyncSafetyService.ts`, `src/application/managers/DialogManager.ts`, and focused Review entry tests.
+- Debt fixed now: Review entry now asks `ApplicationContext.readDomainSyncDiagnostics()` before opening standard dialogs, tab-mode Review, queue switching, subset/static review, leech, neural-roam, and drill-style surfaces. Unsafe `repairable`, `needs-direction`, `divergent`, `source-error`, and diagnostics-unavailable states block Review before queue preparation, tab delegation, queue materialization, or dialog creation. Existing open Review dialogs are not destroyed on blocked entry, so conflict detection does not worsen an active session.
+- Debt deferred: Review-answer in-session freeze, plugin-owned conflict recovery dialog, processed conflict-source cleanup affordance, architecture docs, and desktop/mobile smoke remain in later tasks for the same OpenSpec change.
+- Why deferred: This slice closes entry-time mutation risk only. In-session scoring and recovery UI cross Review controller/UI and sync conflict dialog ownership.
+- Next safe step: Implement the conflict recovery dialog surface so blocked Review can show repair/manual-resolution actions instead of only an error toast.
+- Validation: `pnpm vitest run src\application\services\__tests__\ReviewDomainSyncSafetyService.test.ts src\application\managers\DialogManager.test.ts --reporter=dot`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build` (passed with existing non-blocking i18n warnings; zip packing again reported nonfatal `package.zip` unlink EPERM while Vite/webpack and dist hygiene completed with exit 0).
 
 ### 2026-05-21 - Domain Sync Repair Preview And Apply
 

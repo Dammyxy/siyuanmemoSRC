@@ -7,6 +7,7 @@ import { DialogManager } from './DialogManager';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { Plugin } from 'siyuan';
 import { createVueDialog } from '@/utils/dialog';
+import { QueueType } from '@/types/unified-data-source';
 
 // Mock dependencies
 vi.mock('@/utils/dialog', () => ({
@@ -41,6 +42,51 @@ vi.mock('@/application/factories/createUnifiedReviewDialog', () => ({
   createUnifiedReviewDialog: createUnifiedReviewDialogMock,
 }));
 
+function buildDomainStatus(
+  status: 'clean' | 'merged' | 'repairable' | 'divergent' | 'needs-direction' | 'source-error',
+  overrides: {
+    repairableDivergenceCount?: number;
+    divergentCardCount?: number;
+    skippedSourceCount?: number;
+    pendingImportCount?: number;
+  } = {},
+) {
+  const repairableDivergenceCount = overrides.repairableDivergenceCount ?? 0;
+  const skippedSourceCount = overrides.skippedSourceCount ?? 0;
+  return {
+    ok: true,
+    ledger: {
+      operationCount: 1,
+      newestOperationAt: 1,
+      operationTypes: {},
+    },
+    processedSources: {
+      recent: [],
+      skipped: [],
+      totalProcessed: 0,
+      totalSkipped: skippedSourceCount,
+    },
+    sanity: {
+      status,
+      checkedAt: 1,
+      ledgerOperationCount: 1,
+      pendingImportCount: overrides.pendingImportCount ?? 0,
+      processedSourceCount: 0,
+      skippedSourceCount,
+      repairableDivergenceCount,
+      divergentCardCount: overrides.divergentCardCount ?? repairableDivergenceCount,
+      reasonCounts: {},
+      affectedCardIds: [],
+      truncated: false,
+    },
+    repair: {
+      available: repairableDivergenceCount > 0,
+      repairableDivergenceCount,
+      latestPlanId: null,
+    },
+  };
+}
+
 describe('DialogManager', () => {
   let dialogManager: DialogManager;
   let mockContext: ApplicationContext;
@@ -53,6 +99,8 @@ describe('DialogManager', () => {
   let mockProgressiveSiyuanApi: any;
   let mockPracticeQueueManager: any;
   let mockRetrievalQueue: any;
+  let mockReadDomainSyncDiagnostics: any;
+  let mockTabManager: any;
 
   beforeEach(() => {
     // 创建 mock 对象
@@ -78,8 +126,13 @@ describe('DialogManager', () => {
     };
     mockSiyuanApi = {
       pushErrMsg: vi.fn(async () => undefined),
+      pushMsg: vi.fn(async () => undefined),
     };
     mockProgressiveSiyuanApi = {};
+    mockReadDomainSyncDiagnostics = vi.fn(async () => buildDomainStatus('clean'));
+    mockTabManager = {
+      openReviewTabInNewTab: vi.fn(),
+    };
 
     mockI18n = {
       settings: 'Settings',
@@ -97,6 +150,12 @@ describe('DialogManager', () => {
       getReviewQueuePreparationService: vi.fn(() => null),
       getPracticeQueueManager: vi.fn(() => mockPracticeQueueManager),
       getRetrievalQueue: vi.fn(() => mockRetrievalQueue),
+      getUnifiedDataSourceManager: vi.fn(() => ({
+        getQueue: vi.fn(() => ({ cards: [] })),
+        materializeQueueProjection: vi.fn(async () => undefined),
+      })),
+      getTabManager: vi.fn(() => mockTabManager),
+      readDomainSyncDiagnostics: mockReadDomainSyncDiagnostics,
       getI18n: vi.fn(() => mockI18n),
       getPlugin: vi.fn(() => mockPlugin),
       getConfiguredCaptureStorageService: vi.fn(() => ({
@@ -237,6 +296,67 @@ describe('DialogManager', () => {
       await dialogManager.openReviewDialog();
       
       expect(mockSiyuanApi.pushErrMsg).toHaveBeenCalled();
+    });
+
+    it('blocks standard Review before dialog creation when domain sync is repairable', async () => {
+      mockReadDomainSyncDiagnostics.mockResolvedValueOnce(buildDomainStatus('repairable', {
+        repairableDivergenceCount: 2,
+      }));
+
+      await dialogManager.openReviewDialog();
+
+      expect(createUnifiedReviewDialogMock).not.toHaveBeenCalled();
+      expect(mockContext.getReviewQueuePreparationService).not.toHaveBeenCalled();
+      expect(mockSiyuanApi.pushErrMsg).toHaveBeenCalledWith(expect.stringContaining('repairable'));
+    });
+
+    it('blocks tab-mode Review before opening a Review tab', async () => {
+      mockSettingsService.getSettings.mockReturnValueOnce({
+        ui: {
+          reviewOpenInNewTabByDefault: true,
+        },
+      });
+      mockReadDomainSyncDiagnostics.mockResolvedValueOnce(buildDomainStatus('needs-direction'));
+
+      await dialogManager.openFinalDrillDialog();
+
+      expect(mockTabManager.openReviewTabInNewTab).not.toHaveBeenCalled();
+      expect(createUnifiedReviewDialogMock).not.toHaveBeenCalled();
+      expect(mockSiyuanApi.pushErrMsg).toHaveBeenCalledWith(expect.stringContaining('needs-direction'));
+    });
+
+    it('blocks scoped Review before creating a subset queue', async () => {
+      const manager = {
+        getQueue: vi.fn(() => ({ cards: [] })),
+        materializeQueueProjection: vi.fn(async () => undefined),
+      };
+      vi.mocked(mockContext.getUnifiedDataSourceManager).mockReturnValueOnce(manager as never);
+      mockReadDomainSyncDiagnostics.mockResolvedValueOnce(buildDomainStatus('source-error', {
+        skippedSourceCount: 1,
+      }));
+
+      await dialogManager.openSubsetReviewDialog(['20260520191142-k4so8as']);
+
+      expect(manager.getQueue).not.toHaveBeenCalled();
+      expect(createUnifiedReviewDialogMock).not.toHaveBeenCalled();
+      expect(mockSiyuanApi.pushErrMsg).toHaveBeenCalledWith(expect.stringContaining('source-error'));
+    });
+
+    it('keeps safe Review entry behavior for representative surfaces', async () => {
+      await dialogManager.openReviewDialog();
+      await dialogManager.openFinalDrillDialog();
+      await dialogManager.openSubsetReviewDialog(['20260520191142-k4so8as']);
+
+      expect(createUnifiedReviewDialogMock).toHaveBeenCalledTimes(3);
+      expect(createUnifiedReviewDialogMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        queueType: QueueType.RetrievalPractice,
+      }));
+      expect(createUnifiedReviewDialogMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        queueType: QueueType.FinalDrill,
+      }));
+      expect(createUnifiedReviewDialogMock).toHaveBeenNthCalledWith(3, expect.objectContaining({
+        headerVariant: 'subset-review',
+      }));
     });
   });
 
