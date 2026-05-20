@@ -1127,6 +1127,207 @@ describe('BackendKernel', () => {
     expect(JSON.parse(invalidation?.affected_block_ids_json || '[]')).toContain('card-affecting-import-block');
   });
 
+  it('reports clean domain sync sanity through diagnostics without changing ordinary browser count shape', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+
+    const countResponse = await kernel.handle({
+      id: 'count-shape',
+      jsonrpc: '2.0',
+      method: 'browser.count',
+      params: [{ query: {} }],
+    });
+    const diagnosticsResponse = await kernel.handle({
+      id: 'domain-sync-clean',
+      jsonrpc: '2.0',
+      method: 'diagnostics.status',
+      params: [],
+    });
+
+    expect(countResponse).toEqual({
+      id: 'count-shape',
+      jsonrpc: '2.0',
+      result: { count: 0 },
+    });
+    expect(diagnosticsResponse).toMatchObject({
+      id: 'domain-sync-clean',
+      jsonrpc: '2.0',
+      result: {
+        domainSync: {
+          ok: true,
+          ledger: { operationCount: 0 },
+          sanity: { status: 'clean', pendingImportCount: 0 },
+          processedSources: { totalProcessed: 0, totalSkipped: 0 },
+        },
+      },
+    });
+  });
+
+  it('reports merged domain sync sanity after a successful processed source import', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await seedDomainSyncOperation(conflictDatabase, {
+      operationId: 'domain-sync-merged-status-1',
+      operationType: 'card-deleted',
+      entityId: 'merged-status-card',
+      entityBlockId: 'merged-status-block',
+      idempotencyKey: 'card-delete:merged-status-card:1700001000000',
+    });
+    await conflictDatabase.persist();
+    const conflictBytes = await conflictBridge.readBinary('siyuanmemo.db');
+    expect(conflictBytes).toBeTruthy();
+
+    await database.mergeSyncConflictDatabases({
+      mergedAt: 1_700_001_000_000,
+      sources: [{ sourceId: 'merged-status-source', bytes: conflictBytes! }],
+    });
+
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      ledger: { operationCount: 1 },
+      processedSources: { totalProcessed: 1, totalSkipped: 0 },
+      sanity: { status: 'merged' },
+    });
+  });
+
+  it('reports repairable domain sync sanity for newer formal review history', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({
+      id: 'repairable-card',
+      blockId: 'repairable-block',
+      reps: 0,
+      lastReview: 1_700_001_000_000,
+      updatedAt: 1_700_001_000_000,
+    })]);
+    await seedReviewEvent(database, {
+      id: 'repairable-review-event',
+      cardId: 'repairable-card',
+      reviewedAt: 1_700_001_100_000,
+    });
+
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      sanity: {
+        status: 'repairable',
+        repairableDivergenceCount: 1,
+        affectedCardIds: expect.arrayContaining(['repairable-card']),
+      },
+      repair: {
+        available: true,
+        repairableDivergenceCount: 1,
+      },
+    });
+  });
+
+  it('reports divergent domain sync sanity when review ledger evidence lacks a review event', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await seedDomainSyncOperation(database, {
+      operationId: 'domain-sync-divergent-ledger-1',
+      operationType: 'review-committed',
+      entityId: 'divergent-ledger-card',
+      reviewEventId: 'missing-review-event',
+      idempotencyKey: 'review:missing-review-event',
+    });
+
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      sanity: {
+        status: 'divergent',
+        divergentCardCount: 1,
+      },
+    });
+  });
+
+  it('reports needs-direction domain sync sanity for unsupported imported mutation classes', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await seedDomainSyncOperation(database, {
+      operationId: 'domain-sync-needs-direction-1',
+      operationType: 'card-upserted',
+      entityId: 'needs-direction-card',
+      entityBlockId: 'needs-direction-block',
+      idempotencyKey: 'card-upserted:needs-direction-card',
+    });
+
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      sanity: {
+        status: 'needs-direction',
+        reasonCounts: { 'needs-direction': 1 },
+      },
+    });
+  });
+
+  it('reports source-error domain sync sanity for skipped sync sources', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.mergeSyncConflictDatabases({
+      mergedAt: 1_700_001_200_000,
+      sources: [{ sourceId: 'source-error-bytes', bytes: new Uint8Array() }],
+    });
+
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      processedSources: { totalProcessed: 0, totalSkipped: 1 },
+      sanity: {
+        status: 'source-error',
+        reasonCounts: { 'source-error': 1 },
+      },
+    });
+  });
+
+  it('records domain sync import counts in pre-request merge diagnostics', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await seedDomainSyncOperation(conflictDatabase, {
+      operationId: 'domain-sync-pre-request-diagnostics-1',
+      operationType: 'card-deleted',
+      entityId: 'pre-request-domain-sync-card',
+      entityBlockId: 'pre-request-domain-sync-block',
+      idempotencyKey: 'card-delete:pre-request-domain-sync-card:1700001300000',
+    });
+    await conflictDatabase.persist();
+    const conflictBytes = await conflictBridge.readBinary('siyuanmemo.db');
+    expect(conflictBytes).toBeTruthy();
+    const bridgeWithConflict = {
+      ...currentBridge,
+      async readSyncConflictDatabaseSources() {
+        return [{ sourceId: 'pre-request-domain-sync-source', bytes: conflictBytes! }];
+      },
+    };
+    const database = new WorkerSqliteDatabaseService(bridgeWithConflict);
+    const kernel = new BackendKernel({ database });
+
+    await kernel.handle({
+      id: 'trigger-domain-sync-pre-request',
+      jsonrpc: '2.0',
+      method: 'browser.count',
+      params: [{ query: {} }],
+    });
+    const diagnostics = await kernel.handle({
+      id: 'read-domain-sync-pre-request',
+      jsonrpc: '2.0',
+      method: 'diagnostics.status',
+      params: [],
+    });
+
+    expect(diagnostics).toMatchObject({
+      result: {
+        preRequestMerge: {
+          latest: {
+            method: 'browser.count',
+            sourceIds: ['pre-request-domain-sync-source'],
+            importedOperations: 1,
+            ignoredOperations: 0,
+            processedSourceIds: ['pre-request-domain-sync-source'],
+            sanityStatus: 'merged',
+          },
+        },
+      },
+    });
+  });
+
   it('invalidates queue projections when synced conflict merge changes cards', async () => {
     const currentBridge = createInMemorySqlitePersistenceBridge();
     const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);

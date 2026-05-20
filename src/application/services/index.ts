@@ -19,6 +19,11 @@ export type {
   ReviewSyncDivergenceAuditBackend,
   ReviewSyncDivergenceAuditLogger,
 } from './ReviewSyncDivergenceAuditApplicationService';
+export { DomainSyncDiagnosticsApplicationService } from './DomainSyncDiagnosticsApplicationService';
+export type {
+  DomainSyncDiagnosticsBackend,
+  DomainSyncDiagnosticsLogger,
+} from './DomainSyncDiagnosticsApplicationService';
 export * from './external-srs/ExternalSrsAlgorithmRuntime';
 export * from './queue-projection/QueueProjectionBuilder';
 export * from './queue-projection/QueueProjectionParityDiagnostics';

@@ -36,6 +36,7 @@ import type {
   BackendQueueProjectionSnapshotResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendDomainSyncStatusResult,
   BackendReviewSyncDivergenceAuditRequest,
   BackendReviewSyncDivergenceAuditResult,
   BackendSyncConflictMergeRequest,
@@ -96,6 +97,10 @@ export class SrsBackendClient {
 
   async diagnosticsStatus(): Promise<BackendDiagnosticsStatusResult> {
     return this.call<BackendDiagnosticsStatusResult>('diagnostics.status');
+  }
+
+  async domainSyncStatus(): Promise<BackendDomainSyncStatusResult> {
+    return this.call<BackendDomainSyncStatusResult>('domainSync.status');
   }
 
   async browserDeckPage(

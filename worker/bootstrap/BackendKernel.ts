@@ -56,6 +56,7 @@ import {
   type BackendSourceExistenceUpdate,
   type BackendReviewFeedbackRequest,
   type BackendDiagnosticsStatusResult,
+  type BackendDomainSyncStatusResult,
   type BackendPreRequestMergeDiagnostic,
   type BackendPreRequestMergeDiagnosticsState,
   type BackendHealthResult,
@@ -165,6 +166,7 @@ const P6_OWNERSHIP_QUERY_OPERATIONS = new Set<P6OwnershipOperation>([
 const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'system.health',
   'diagnostics.status',
+  'domainSync.status',
   'sync.reviewDivergence.audit',
   'sync.conflict.merge',
   'sync.conflict.summarize',
@@ -243,7 +245,9 @@ export class BackendKernel {
         case 'sync.conflict.reload':
           return buildSuccess(request.id, await this.handleSyncConflictReload());
         case 'diagnostics.status':
-          return buildSuccess(request.id, this.diagnosticsStatus());
+          return buildSuccess(request.id, await this.diagnosticsStatus());
+        case 'domainSync.status':
+          return buildSuccess(request.id, await this.handleDomainSyncStatus());
         case 'sync.reviewDivergence.audit':
           return buildSuccess(request.id, await this.handleReviewSyncDivergenceAudit(request.params));
         case 'browser.deck.page':
@@ -359,7 +363,7 @@ export class BackendKernel {
     };
   }
 
-  private diagnosticsStatus(): BackendDiagnosticsStatusResult {
+  private async diagnosticsStatus(): Promise<BackendDiagnosticsStatusResult> {
     const status = this.deps.database.getStatus();
     return {
       runtime: 'srs-backend-worker',
@@ -370,7 +374,12 @@ export class BackendKernel {
       review: status.review,
       ai: status.ai,
       preRequestMerge: this.getPreRequestMergeDiagnostics(),
+      domainSync: await this.deps.database.getDomainSyncStatus(),
     };
+  }
+
+  private async handleDomainSyncStatus(): Promise<BackendDomainSyncStatusResult> {
+    return this.deps.database.getDomainSyncStatus();
   }
 
   private recordPreRequestMergeDiagnostic(
@@ -382,6 +391,8 @@ export class BackendKernel {
       && merge.mergedCards <= 0
       && merge.ignoredReviewEvents <= 0
       && merge.ignoredCards <= 0
+      && merge.importedOperations <= 0
+      && merge.ignoredOperations <= 0
       && merge.skippedSources.length === 0
     ) {
       return;
@@ -396,6 +407,11 @@ export class BackendKernel {
       timestamp: Date.now(),
       sources: merge.sourceIds.length,
       sourceIds: merge.sourceIds,
+      importedOperations: merge.importedOperations,
+      ignoredOperations: merge.ignoredOperations,
+      processedSourceIds: merge.processedSourceIds,
+      skippedSourceReasons: merge.skippedSourceReasons,
+      sanityStatus: merge.sanityStatus,
       mergedReviewEvents: merge.mergedReviewEvents,
       mergedCards: merge.mergedCards,
       ignoredReviewEvents: merge.ignoredReviewEvents,

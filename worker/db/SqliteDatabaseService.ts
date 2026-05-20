@@ -31,6 +31,10 @@ import type {
   BackendKernelTransactionRequeueResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendDomainSyncOperationType,
+  BackendDomainSyncProcessedSource,
+  BackendDomainSyncSanityStatus,
+  BackendDomainSyncStatusResult,
   BackendReviewSyncDivergenceAuditRequest,
   BackendReviewSyncDivergenceAuditResult,
   BackendSyncConflictMergeDivergenceDiagnostic,
@@ -178,6 +182,28 @@ interface ConflictSummaryCardRow {
   count: number;
   latestUpdated: number | null;
   latestReview: number | null;
+}
+
+interface DomainSyncOperationSummaryRow {
+  operation_type: string;
+  count: number;
+  newest: number | null;
+}
+
+interface DomainSyncProcessedSourceRow {
+  source_id: string;
+  source_fingerprint: string;
+  source_kind: BackendDomainSyncProcessedSource['sourceKind'];
+  path: string | null;
+  processed_at: number;
+  imported_operations: number;
+  ignored_operations: number;
+  imported_review_events: number;
+  ignored_review_events: number;
+  imported_cards: number;
+  ignored_cards: number;
+  skipped_reason: string | null;
+  latest_sanity_status: BackendDomainSyncSanityStatus | null;
 }
 
 interface ReviewCardDivergenceEvidenceWithCardRow {
@@ -518,6 +544,11 @@ export class WorkerSqliteDatabaseService {
     mergedCards: number;
     ignoredReviewEvents: number;
     ignoredCards: number;
+    importedOperations: number;
+    ignoredOperations: number;
+    processedSourceIds: string[];
+    skippedSourceReasons: Record<string, number>;
+    sanityStatus: BackendDomainSyncSanityStatus;
     sourceIds: string[];
     skippedSources: Array<{ sourceId: string; reason: string }>;
     diagnostics: BackendSyncConflictMergeResult['diagnostics'];
@@ -554,6 +585,11 @@ export class WorkerSqliteDatabaseService {
         mergedCards: 0,
         ignoredReviewEvents: 0,
         ignoredCards: 0,
+        importedOperations: 0,
+        ignoredOperations: 0,
+        processedSourceIds: [],
+        skippedSourceReasons: {},
+        sanityStatus: (await this.getDomainSyncStatus()).sanity.status,
         sourceIds: [],
         skippedSources: [],
         diagnostics: {
@@ -569,6 +605,13 @@ export class WorkerSqliteDatabaseService {
       mergedAt,
       sources,
     });
+    const domainSyncStatus = await this.getDomainSyncStatus();
+    const processedRows = this.readDomainSyncProcessedSourcesForSourceIds(sources.map((source) => source.sourceId));
+    const skippedSourceReasons: Record<string, number> = {};
+    for (const skipped of result.skippedSources) {
+      const reason = String(skipped.reason || 'unknown');
+      skippedSourceReasons[reason] = (skippedSourceReasons[reason] || 0) + 1;
+    }
     const operationCountAfterMerge = this.runtime.getOne<{ count: number }>(
       'SELECT COUNT(*) AS count FROM domain_sync_operations',
     )?.count ?? operationCountBeforeMerge;
@@ -591,6 +634,13 @@ export class WorkerSqliteDatabaseService {
       mergedCards: result.mergedCards,
       ignoredReviewEvents: result.ignoredReviewEvents,
       ignoredCards: result.ignoredCards,
+      importedOperations: processedRows.reduce((sum, row) => sum + Number(row.imported_operations || 0), 0),
+      ignoredOperations: processedRows.reduce((sum, row) => sum + Number(row.ignored_operations || 0), 0),
+      processedSourceIds: processedRows
+        .filter((row) => !row.skipped_reason)
+        .map((row) => row.source_id),
+      skippedSourceReasons,
+      sanityStatus: domainSyncStatus.sanity.status,
       sourceIds: sources.map((source) => String(source.sourceId || '').trim() || 'unknown'),
       skippedSources: result.skippedSources,
       diagnostics: result.diagnostics,
@@ -1322,6 +1372,95 @@ export class WorkerSqliteDatabaseService {
     return result;
   }
 
+  async getDomainSyncStatus(checkedAt = Date.now()): Promise<BackendDomainSyncStatusResult> {
+    await this.init();
+    const operationRows = this.runtime.getAll<DomainSyncOperationSummaryRow>(
+      `SELECT operation_type, COUNT(*) AS count, MAX(occurred_at) AS newest
+       FROM domain_sync_operations
+       GROUP BY operation_type
+       ORDER BY operation_type`,
+    );
+    const operationTypes: Partial<Record<BackendDomainSyncOperationType, number>> = {};
+    let operationCount = 0;
+    let newestOperationAt: number | null = null;
+    for (const row of operationRows) {
+      const operationType = String(row.operation_type || '') as BackendDomainSyncOperationType;
+      const count = Math.max(0, Number(row.count || 0));
+      operationTypes[operationType] = count;
+      operationCount += count;
+      const newest = toNullableTimestamp(row.newest);
+      if (newest !== null && (newestOperationAt === null || newest > newestOperationAt)) {
+        newestOperationAt = newest;
+      }
+    }
+
+    const recentProcessed = this.readDomainSyncProcessedSources(false, 10);
+    const recentSkipped = this.readDomainSyncProcessedSources(true, 10);
+    const processedCounts = this.runtime.getOne<{
+      total_processed: number;
+      total_skipped: number;
+    }>(
+      `SELECT
+         SUM(CASE WHEN skipped_reason IS NULL THEN 1 ELSE 0 END) AS total_processed,
+         SUM(CASE WHEN skipped_reason IS NOT NULL THEN 1 ELSE 0 END) AS total_skipped
+       FROM domain_sync_processed_sources`,
+    );
+    const divergence = await this.auditReviewSyncDivergence({ limit: 50 });
+    const needsDirection = this.countNeedsDirectionDomainSyncOperations();
+    const divergentLedgerCount = this.countDivergentLedgerOperations();
+    const pendingImportCount = this.countPotentialPendingImportOperations();
+    const skippedSourceCount = Math.max(0, Number(processedCounts?.total_skipped || 0));
+    const status = this.resolveDomainSyncSanityStatus({
+      skippedSourceCount,
+      needsDirection,
+      divergentLedgerCount,
+      repairableDivergenceCount: divergence.divergentCards,
+      processedSourceCount: Math.max(0, Number(processedCounts?.total_processed || 0)),
+    });
+    const reasonCounts: BackendDomainSyncStatusResult['sanity']['reasonCounts'] = {
+      ...divergence.reasons,
+    };
+    if (needsDirection > 0) {
+      reasonCounts['needs-direction'] = needsDirection;
+    }
+    if (skippedSourceCount > 0) {
+      reasonCounts['source-error'] = skippedSourceCount;
+    }
+
+    return {
+      ok: true,
+      ledger: {
+        operationCount,
+        newestOperationAt,
+        operationTypes,
+      },
+      processedSources: {
+        recent: recentProcessed,
+        skipped: recentSkipped,
+        totalProcessed: Math.max(0, Number(processedCounts?.total_processed || 0)),
+        totalSkipped: skippedSourceCount,
+      },
+      sanity: {
+        status,
+        checkedAt,
+        ledgerOperationCount: operationCount,
+        pendingImportCount,
+        processedSourceCount: Math.max(0, Number(processedCounts?.total_processed || 0)),
+        skippedSourceCount,
+        repairableDivergenceCount: divergence.divergentCards,
+        divergentCardCount: divergence.divergentCards + divergentLedgerCount,
+        reasonCounts,
+        affectedCardIds: divergence.records.map((record) => record.cardId),
+        truncated: divergence.truncated,
+      },
+      repair: {
+        available: divergence.divergentCards > 0,
+        repairableDivergenceCount: divergence.divergentCards,
+        latestPlanId: this.readLatestDomainSyncRepairPlanId(),
+      },
+    };
+  }
+
   async auditReviewSyncDivergence(
     request: BackendReviewSyncDivergenceAuditRequest = {},
   ): Promise<BackendReviewSyncDivergenceAuditResult> {
@@ -1587,6 +1726,126 @@ export class WorkerSqliteDatabaseService {
       ['table', 'domain_sync_operations'],
     );
     return Boolean(hasLedger);
+  }
+
+  private readDomainSyncProcessedSources(skipped: boolean, limit: number): BackendDomainSyncProcessedSource[] {
+    const rows = this.runtime.getAll<DomainSyncProcessedSourceRow>(
+      `SELECT source_id, source_fingerprint, source_kind, path, processed_at,
+              imported_operations, ignored_operations, imported_review_events, ignored_review_events,
+              imported_cards, ignored_cards, skipped_reason, latest_sanity_status
+       FROM domain_sync_processed_sources
+       WHERE skipped_reason IS ${skipped ? 'NOT NULL' : 'NULL'}
+       ORDER BY processed_at DESC, source_id ASC
+       LIMIT ?`,
+      [Math.max(1, Math.floor(limit))],
+    );
+    return rows.map((row) => this.toDomainSyncProcessedSource(row));
+  }
+
+  private readDomainSyncProcessedSourcesForSourceIds(sourceIds: unknown[]): DomainSyncProcessedSourceRow[] {
+    const uniqueIds = [...new Set(sourceIds
+      .map((sourceId) => String(sourceId || '').trim() || 'unknown')
+      .filter(Boolean))];
+    if (uniqueIds.length === 0) {
+      return [];
+    }
+    return this.runtime.getAll<DomainSyncProcessedSourceRow>(
+      `SELECT source_id, source_fingerprint, source_kind, path, processed_at,
+              imported_operations, ignored_operations, imported_review_events, ignored_review_events,
+              imported_cards, ignored_cards, skipped_reason, latest_sanity_status
+       FROM domain_sync_processed_sources
+       WHERE source_id IN (${uniqueIds.map(() => '?').join(', ')})
+       ORDER BY processed_at DESC, source_id ASC`,
+      uniqueIds,
+    );
+  }
+
+  private toDomainSyncProcessedSource(row: DomainSyncProcessedSourceRow): BackendDomainSyncProcessedSource {
+    return {
+      sourceId: String(row.source_id || ''),
+      sourceKind: (row.source_kind || 'unknown') as BackendDomainSyncProcessedSource['sourceKind'],
+      fingerprint: String(row.source_fingerprint || ''),
+      path: row.path ?? null,
+      processedAt: Number(row.processed_at) || 0,
+      importedOperations: Math.max(0, Number(row.imported_operations || 0)),
+      ignoredOperations: Math.max(0, Number(row.ignored_operations || 0)),
+      importedReviewEvents: Math.max(0, Number(row.imported_review_events || 0)),
+      ignoredReviewEvents: Math.max(0, Number(row.ignored_review_events || 0)),
+      importedCards: Math.max(0, Number(row.imported_cards || 0)),
+      ignoredCards: Math.max(0, Number(row.ignored_cards || 0)),
+      skippedReason: (row.skipped_reason as BackendDomainSyncProcessedSource['skippedReason']) ?? null,
+      latestSanityStatus: row.latest_sanity_status ?? null,
+    };
+  }
+
+  private countNeedsDirectionDomainSyncOperations(): number {
+    const row = this.runtime.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM domain_sync_operations
+       WHERE operation_type IN (?, ?, ?)`,
+      ['card-upserted', 'queue-projection-invalidated', 'repair-applied'],
+    );
+    return Math.max(0, Number(row?.count || 0));
+  }
+
+  private countDivergentLedgerOperations(): number {
+    const row = this.runtime.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM domain_sync_operations d
+       WHERE d.operation_type = ?
+         AND d.review_event_id IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1
+           FROM review_events e
+           WHERE e.id = d.review_event_id
+         )`,
+      ['review-committed'],
+    );
+    return Math.max(0, Number(row?.count || 0));
+  }
+
+  private countPotentialPendingImportOperations(): number {
+    const row = this.runtime.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM domain_sync_processed_sources
+       WHERE skipped_reason IS NOT NULL`,
+    );
+    return Math.max(0, Number(row?.count || 0));
+  }
+
+  private resolveDomainSyncSanityStatus(input: {
+    skippedSourceCount: number;
+    needsDirection: number;
+    divergentLedgerCount: number;
+    repairableDivergenceCount: number;
+    processedSourceCount: number;
+  }): BackendDomainSyncSanityStatus {
+    if (input.skippedSourceCount > 0) {
+      return 'source-error';
+    }
+    if (input.needsDirection > 0) {
+      return 'needs-direction';
+    }
+    if (input.divergentLedgerCount > 0) {
+      return 'divergent';
+    }
+    if (input.repairableDivergenceCount > 0) {
+      return 'repairable';
+    }
+    if (input.processedSourceCount > 0) {
+      return 'merged';
+    }
+    return 'clean';
+  }
+
+  private readLatestDomainSyncRepairPlanId(): string | null {
+    const row = this.runtime.getOne<{ plan_id: string }>(
+      `SELECT plan_id
+       FROM domain_sync_repair_plans
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    );
+    return row?.plan_id ? String(row.plan_id) : null;
   }
 
   private importMissingDomainSyncOperations(rows: ConflictDomainSyncOperationRow[]): DomainSyncOperationImportResult {

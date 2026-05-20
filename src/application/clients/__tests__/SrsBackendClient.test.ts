@@ -2,6 +2,57 @@ import { describe, expect, it, vi } from 'vitest';
 import { SrsBackendClient, type SrsBackendTransport } from '../SrsBackendClient';
 
 describe('SrsBackendClient', () => {
+  it('reads domain sync diagnostics through the backend RPC', async () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          ok: true,
+          ledger: {
+            operationCount: 1,
+            newestOperationAt: 2,
+            operationTypes: { 'review-committed': 1 },
+          },
+          processedSources: {
+            recent: [],
+            skipped: [],
+            totalProcessed: 0,
+            totalSkipped: 0,
+          },
+          sanity: {
+            status: 'clean',
+            checkedAt: 3,
+            ledgerOperationCount: 1,
+            pendingImportCount: 0,
+            processedSourceCount: 0,
+            skippedSourceCount: 0,
+            repairableDivergenceCount: 0,
+            divergentCardCount: 0,
+            reasonCounts: {},
+            affectedCardIds: [],
+            truncated: false,
+          },
+          repair: {
+            available: false,
+            repairableDivergenceCount: 0,
+            latestPlanId: null,
+          },
+        },
+      })),
+    };
+    const client = new SrsBackendClient(transport);
+
+    await expect(client.domainSyncStatus()).resolves.toMatchObject({
+      ok: true,
+      sanity: { status: 'clean' },
+    });
+    expect(transport.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'domainSync.status',
+      params: [],
+    }));
+  });
+
   it('sends browser phase-2 rpc envelopes with positional params', async () => {
     const requests: Array<{ method: string; params: unknown }> = [];
     const transport: SrsBackendTransport = {

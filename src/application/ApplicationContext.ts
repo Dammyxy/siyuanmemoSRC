@@ -71,6 +71,7 @@ import {
 } from '@/application/services/SyncConflictDirectionResolutionService';
 import { SyncConflictMergeApplicationService } from '@/application/services/SyncConflictMergeApplicationService';
 import { ReviewSyncDivergenceAuditApplicationService } from '@/application/services/ReviewSyncDivergenceAuditApplicationService';
+import { DomainSyncDiagnosticsApplicationService } from '@/application/services/DomainSyncDiagnosticsApplicationService';
 import { ReviewLogLearningCurveEvidenceReader } from '@/application/services/SrsTransparencyEvidenceReader';
 import {
   createReviewRenderServices as createInjectedReviewRenderServices,
@@ -170,6 +171,7 @@ import type { SqlitePersistenceBridge } from '../../worker/db/SqlitePersistenceB
 import type {
   BackendReviewSyncDivergenceAuditRequest,
   BackendReviewSyncDivergenceAuditResult,
+  BackendDomainSyncStatusResult,
   BackendSyncConflictMergeResult,
 } from '../../packages/contracts/src/backend-rpc';
 
@@ -2592,6 +2594,15 @@ export class ApplicationContext {
     }
     const service = new ReviewSyncDivergenceAuditApplicationService(backendClient, logger);
     return service.runAudit(request);
+  }
+
+  async readDomainSyncDiagnostics(): Promise<BackendDomainSyncStatusResult> {
+    const backendClient = this.getSrsBackendClient();
+    if (!backendClient) {
+      throw new Error('BACKEND_UNAVAILABLE: domain sync diagnostics requires SRS backend');
+    }
+    const service = new DomainSyncDiagnosticsApplicationService(backendClient, logger);
+    return service.readStatus();
   }
 
   async previewSyncConflictDirectionResolution(): Promise<SyncConflictDirectionPreview> {

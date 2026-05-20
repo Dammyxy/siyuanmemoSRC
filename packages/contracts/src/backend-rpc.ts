@@ -1456,6 +1456,11 @@ export interface BackendPreRequestMergeDiagnostic {
   timestamp: number;
   sources: number;
   sourceIds: string[];
+  importedOperations?: number;
+  ignoredOperations?: number;
+  processedSourceIds?: string[];
+  skippedSourceReasons?: Record<string, number>;
+  sanityStatus?: BackendDomainSyncSanityStatus;
   mergedReviewEvents: number;
   mergedCards: number;
   ignoredReviewEvents: number;

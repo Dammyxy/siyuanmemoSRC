@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-20 (Round 411)
+Last update: 2026-05-21 (Round 412)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-21 - Domain Sync Sanity Diagnostics
+
+- Task: Implement 4.1-4.6 for OpenSpec `add-anki-style-domain-sync-ledger`.
+- Touched slice: Backend domain sync diagnostics / pre-request merge diagnostics / application diagnostic entry point; `worker/db/SqliteDatabaseService.ts`, `worker/bootstrap/BackendKernel.ts`, `packages/contracts/src/backend-rpc.ts`, `src/application/clients/SrsBackendClient.ts`, `src/application/services/DomainSyncDiagnosticsApplicationService.ts`, `src/application/ApplicationContext.ts`, and focused tests.
+- Debt fixed now: Backend now builds a bounded domain sync status summary over ledger operations, processed sources, skipped sources, review/card divergence evidence, pending/skipped import evidence, and latest repair plan metadata. `diagnostics.status` includes `domainSync` without changing ordinary Browser/Review result shapes, and `domainSync.status` gives a dedicated backend-owned read RPC. Pre-request merge diagnostics now record imported/ignored operation counts, processed source ids, skipped source reason counts, and the current sanity status. Application code can read domain sync diagnostics through `SrsBackendClient` and `ApplicationContext` only; no renderer/kernel/follower direct SQLite inspection was added.
+- Debt deferred: Repair preview/apply runtime, UI recovery surface, architecture docs, and manual two-device smoke remain pending.
+- Why deferred: P4 is diagnostics-only. Repair needs explicit plan/apply semantics and user confirmation in P5/P6.
+- Next safe step: Implement 5.1 repair preview RPC from ledger/review/card evidence.
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/services/__tests__/DomainSyncDiagnosticsApplicationService.test.ts -t "domain sync sanity|domain sync import counts|ordinary browser count shape|domain sync diagnostics|backend-owned domain sync" --reporter=dot`; `pnpm run check:boundaries`.
 
 ### 2026-05-20 - Domain Sync Ledger Source Import
 
