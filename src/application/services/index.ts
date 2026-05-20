@@ -14,6 +14,11 @@ export { ProgressiveReadingService } from './ProgressiveReadingService';
 export { SelectionExcerptService } from './SelectionExcerptService';
 export { SelectionTopicContinuationService } from './SelectionTopicContinuationService';
 export { TopicDerivedItemService } from './TopicDerivedItemService';
+export { ReviewSyncDivergenceAuditApplicationService } from './ReviewSyncDivergenceAuditApplicationService';
+export type {
+  ReviewSyncDivergenceAuditBackend,
+  ReviewSyncDivergenceAuditLogger,
+} from './ReviewSyncDivergenceAuditApplicationService';
 export * from './external-srs/ExternalSrsAlgorithmRuntime';
 export * from './queue-projection/QueueProjectionBuilder';
 export * from './queue-projection/QueueProjectionParityDiagnostics';

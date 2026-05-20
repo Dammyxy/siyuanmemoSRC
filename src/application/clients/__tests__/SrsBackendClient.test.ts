@@ -151,6 +151,34 @@ describe('SrsBackendClient', () => {
                 },
               },
             };
+          case 'sync.reviewDivergence.audit':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                ok: true,
+                scannedCards: 1,
+                divergentCards: 1,
+                limit: 5,
+                truncated: false,
+                reasons: {
+                  'review-history-newer-than-card-state': 1,
+                  'review-event-count-exceeds-card-reps': 0,
+                },
+                records: [{
+                  cardId: 'card-1',
+                  blockId: 'block-1',
+                  reason: 'review-history-newer-than-card-state',
+                  newestReviewEventAt: 2,
+                  cardLastReview: 1,
+                  reviewEventCount: 1,
+                  cardReps: 1,
+                  sourceExists: true,
+                  sourceCheckedAt: 3,
+                  sourceMissingAt: null,
+                }],
+              },
+            };
           case 'sync.conflict.summarize':
             return {
               jsonrpc: '2.0',
@@ -460,6 +488,15 @@ describe('SrsBackendClient', () => {
       mergedReviewEvents: 1,
       mergedCards: 1,
     });
+    await expect(client.auditReviewSyncDivergence({
+      cardIds: ['card-1'],
+      limit: 5,
+    })).resolves.toMatchObject({
+      ok: true,
+      scannedCards: 1,
+      divergentCards: 1,
+      records: [expect.objectContaining({ cardId: 'card-1' })],
+    });
     await expect(client.summarizeSyncConflicts({
       includeCurrent: true,
       sources: [],
@@ -625,6 +662,7 @@ describe('SrsBackendClient', () => {
       'autocard.execute',
       'review.feedback',
       'sync.conflict.merge',
+      'sync.reviewDivergence.audit',
       'sync.conflict.summarize',
       'sync.conflict.reload',
       'queue.projection.snapshot',
@@ -671,7 +709,11 @@ describe('SrsBackendClient', () => {
       mergedAt: 1,
       sources: [{ sourceId: 'conflict-a', bytes: new Uint8Array([1, 2, 3]) }],
     }]);
-    expect(requests[22].params).toEqual([{
+    expect(requests[18].params).toEqual([{
+      cardIds: ['card-1'],
+      limit: 5,
+    }]);
+    expect(requests[23].params).toEqual([{
       queueType: 'neural-roam',
       sessionId: 'session-neural-1',
       currentItem: {

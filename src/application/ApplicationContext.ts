@@ -70,6 +70,7 @@ import {
   type SyncConflictDirectionPreview,
 } from '@/application/services/SyncConflictDirectionResolutionService';
 import { SyncConflictMergeApplicationService } from '@/application/services/SyncConflictMergeApplicationService';
+import { ReviewSyncDivergenceAuditApplicationService } from '@/application/services/ReviewSyncDivergenceAuditApplicationService';
 import { ReviewLogLearningCurveEvidenceReader } from '@/application/services/SrsTransparencyEvidenceReader';
 import {
   createReviewRenderServices as createInjectedReviewRenderServices,
@@ -166,7 +167,11 @@ import {
   type BackendMigrationRuntimePolicy,
 } from '@/application/backendMigration/runtimePolicy';
 import type { SqlitePersistenceBridge } from '../../worker/db/SqlitePersistenceBridge';
-import type { BackendSyncConflictMergeResult } from '../../packages/contracts/src/backend-rpc';
+import type {
+  BackendReviewSyncDivergenceAuditRequest,
+  BackendReviewSyncDivergenceAuditResult,
+  BackendSyncConflictMergeResult,
+} from '../../packages/contracts/src/backend-rpc';
 
 const logger = createLogger('ApplicationContext');
 
@@ -2576,6 +2581,17 @@ export class ApplicationContext {
     }
     const service = new SyncConflictMergeApplicationService(this.getFileService(), backendClient);
     return service.mergeNow({ mergedAt });
+  }
+
+  async auditReviewSyncDivergence(
+    request: BackendReviewSyncDivergenceAuditRequest = {},
+  ): Promise<BackendReviewSyncDivergenceAuditResult> {
+    const backendClient = this.getSrsBackendClient();
+    if (!backendClient) {
+      throw new Error('BACKEND_UNAVAILABLE: review sync divergence audit requires SRS backend');
+    }
+    const service = new ReviewSyncDivergenceAuditApplicationService(backendClient, logger);
+    return service.runAudit(request);
   }
 
   async previewSyncConflictDirectionResolution(): Promise<SyncConflictDirectionPreview> {

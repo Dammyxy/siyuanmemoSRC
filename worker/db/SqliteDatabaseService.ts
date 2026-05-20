@@ -31,6 +31,8 @@ import type {
   BackendKernelTransactionRequeueResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendReviewSyncDivergenceAuditRequest,
+  BackendReviewSyncDivergenceAuditResult,
   BackendSyncConflictMergeDivergenceDiagnostic,
   BackendSyncConflictDatabaseSummary,
   BackendSyncConflictMergeRequest,
@@ -128,10 +130,17 @@ interface ConflictSummaryCardRow {
   latestReview: number | null;
 }
 
-interface ReviewCardDivergenceEvidenceRow {
+interface ReviewCardDivergenceEvidenceWithCardRow {
   card_id: string;
   newest_reviewed_at: number | null;
   review_event_count: number;
+  updated_at: number | null;
+  reps: number | null;
+  last_review: number | null;
+  block_id: string | null;
+  source_exists: number | null;
+  source_checked_at: number | null;
+  source_missing_at: number | null;
 }
 
 function createSqliteFileServiceAdapter(bridge: SqlitePersistenceBridge): SqliteFileServiceAdapter {
@@ -214,6 +223,77 @@ function compareReviewSyncCardFreshness(
 function toNullableTimestamp(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function toNullableBoolean(value: unknown): boolean | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const numeric = Number(value);
+  if (numeric === 1) {
+    return true;
+  }
+  if (numeric === 0) {
+    return false;
+  }
+  return null;
+}
+
+function normalizeAuditLimit(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 100;
+  }
+  return Math.max(1, Math.min(500, Math.floor(numeric)));
+}
+
+function normalizeAuditCardIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return Array.from(new Set(value.map((id) => String(id || '').trim()).filter(Boolean)));
+}
+
+function buildReviewCardDivergenceRecords(
+  rows: ReviewCardDivergenceEvidenceWithCardRow[],
+): BackendReviewSyncDivergenceAuditResult['records'] {
+  const records: BackendReviewSyncDivergenceAuditResult['records'] = [];
+  for (const row of rows) {
+    const cardId = String(row.card_id || '').trim();
+    if (!cardId) {
+      continue;
+    }
+    const newestReviewEventAt = toNullableTimestamp(row.newest_reviewed_at);
+    const cardLastReview = toNullableTimestamp(row.last_review);
+    const reviewEventCount = Math.max(0, Math.floor(Number(row.review_event_count) || 0));
+    const cardReps = Number.isFinite(Number(row.reps)) ? Math.max(0, Math.floor(Number(row.reps))) : null;
+    const base = {
+      cardId,
+      newestReviewEventAt,
+      cardLastReview,
+      reviewEventCount,
+      cardReps,
+      blockId: typeof row.block_id === 'string' && row.block_id.trim() ? row.block_id : null,
+      sourceExists: toNullableBoolean(row.source_exists),
+      sourceCheckedAt: toNullableTimestamp(row.source_checked_at),
+      sourceMissingAt: toNullableTimestamp(row.source_missing_at),
+    };
+
+    if (newestReviewEventAt && (!cardLastReview || newestReviewEventAt > cardLastReview)) {
+      records.push({
+        ...base,
+        reason: 'review-history-newer-than-card-state',
+      });
+    }
+
+    if (cardReps !== null && reviewEventCount > cardReps) {
+      records.push({
+        ...base,
+        reason: 'review-event-count-exceeds-card-reps',
+      });
+    }
+  }
+  return records;
 }
 
 function toSummarySize(source: Pick<SqliteConflictDatabaseSource, 'bytes' | 'size'>): number {
@@ -1155,6 +1235,34 @@ export class WorkerSqliteDatabaseService {
     return result;
   }
 
+  async auditReviewSyncDivergence(
+    request: BackendReviewSyncDivergenceAuditRequest = {},
+  ): Promise<BackendReviewSyncDivergenceAuditResult> {
+    await this.init();
+    const limit = normalizeAuditLimit(request.limit);
+    const cardIds = normalizeAuditCardIds(request.cardIds);
+    const rows = this.queryReviewCardDivergenceEvidence(cardIds);
+    const records = buildReviewCardDivergenceRecords(rows);
+    const divergentCardIds = new Set(records.map((record) => record.cardId));
+    const reasons: BackendReviewSyncDivergenceAuditResult['reasons'] = {
+      'review-history-newer-than-card-state': 0,
+      'review-event-count-exceeds-card-reps': 0,
+    };
+    for (const record of records) {
+      reasons[record.reason] += 1;
+    }
+
+    return {
+      ok: true,
+      scannedCards: rows.length,
+      divergentCards: divergentCardIds.size,
+      limit,
+      truncated: records.length > limit,
+      reasons,
+      records: records.slice(0, limit),
+    };
+  }
+
   async mergeSyncConflictDatabases(
     request: BackendSyncConflictMergeRequest,
   ): Promise<BackendSyncConflictMergeResult> {
@@ -1298,67 +1406,48 @@ export class WorkerSqliteDatabaseService {
     diagnostics: BackendSyncConflictMergeDivergenceDiagnostic[],
     cardIds: string[],
   ): void {
-    const uniqueCardIds = Array.from(new Set(cardIds.map((id) => String(id || '').trim()).filter(Boolean)));
-    for (const cardId of uniqueCardIds) {
-      const evidence = this.runtime.getOne<ReviewCardDivergenceEvidenceRow>(
-        `SELECT card_id,
-                MAX(reviewed_at) AS newest_reviewed_at,
-                COUNT(*) AS review_event_count
-         FROM review_events
-         WHERE card_id = ?
-           AND event_type = 'review-v2'
-         GROUP BY card_id`,
-        [cardId],
-      );
-      if (!evidence || Number(evidence.review_event_count) <= 0) {
-        continue;
-      }
-
-      const card = this.runtime.getOne<ConflictCardRow>(
-        `SELECT id, updated_at, reps, last_review,
-                block_id, source_exists, source_checked_at, source_missing_at,
-                payload_json
-         FROM cards
-         WHERE id = ?`,
-        [cardId],
-      );
-      if (!card) {
-        continue;
-      }
-
-      const newestReviewEventAt = toNullableTimestamp(evidence.newest_reviewed_at);
-      const cardLastReview = toNullableTimestamp(card.last_review);
-      const reviewEventCount = Math.max(0, Math.floor(Number(evidence.review_event_count) || 0));
-      const cardReps = Number.isFinite(Number(card.reps)) ? Math.max(0, Math.floor(Number(card.reps))) : null;
-
-      if (newestReviewEventAt && (!cardLastReview || newestReviewEventAt > cardLastReview)) {
-        const reason = 'review-history-newer-than-card-state';
-        if (!diagnostics.some((diagnostic) => diagnostic.cardId === cardId && diagnostic.reason === reason)) {
-          diagnostics.push({
-            cardId,
-            reason,
-            newestReviewEventAt,
-            cardLastReview,
-            reviewEventCount,
-            cardReps,
-          });
-        }
-      }
-
-      if (cardReps !== null && reviewEventCount > cardReps) {
-        const reason = 'review-event-count-exceeds-card-reps';
-        if (!diagnostics.some((diagnostic) => diagnostic.cardId === cardId && diagnostic.reason === reason)) {
-          diagnostics.push({
-            cardId,
-            reason,
-            newestReviewEventAt,
-            cardLastReview,
-            reviewEventCount,
-            cardReps,
-          });
-        }
+    const records = buildReviewCardDivergenceRecords(this.queryReviewCardDivergenceEvidence(cardIds));
+    for (const record of records) {
+      if (!diagnostics.some((diagnostic) => diagnostic.cardId === record.cardId && diagnostic.reason === record.reason)) {
+        diagnostics.push({
+          cardId: record.cardId,
+          reason: record.reason,
+          newestReviewEventAt: record.newestReviewEventAt,
+          cardLastReview: record.cardLastReview,
+          reviewEventCount: record.reviewEventCount,
+          cardReps: record.cardReps,
+        });
       }
     }
+  }
+
+  private queryReviewCardDivergenceEvidence(cardIds: string[] = []): ReviewCardDivergenceEvidenceWithCardRow[] {
+    const uniqueCardIds = normalizeAuditCardIds(cardIds);
+    const params: SqlValue[] = [];
+    const scope = uniqueCardIds.length > 0
+      ? `AND e.card_id IN (${uniqueCardIds.map(() => '?').join(', ')})`
+      : '';
+    params.push(...uniqueCardIds);
+    return this.runtime.getAll<ReviewCardDivergenceEvidenceWithCardRow>(
+      `SELECT e.card_id,
+              MAX(e.reviewed_at) AS newest_reviewed_at,
+              COUNT(*) AS review_event_count,
+              c.updated_at,
+              c.reps,
+              c.last_review,
+              c.block_id,
+              c.source_exists,
+              c.source_checked_at,
+              c.source_missing_at
+       FROM review_events e
+       INNER JOIN cards c ON c.id = e.card_id
+       WHERE e.event_type = 'review-v2'
+         ${scope}
+       GROUP BY e.card_id, c.updated_at, c.reps, c.last_review,
+                c.block_id, c.source_exists, c.source_checked_at, c.source_missing_at
+       ORDER BY e.card_id ASC`,
+      params,
+    );
   }
 
   private createQueueProjectionRuntime(): WorkerQueueProjectionRuntime {

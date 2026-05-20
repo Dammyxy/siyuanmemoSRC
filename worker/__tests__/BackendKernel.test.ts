@@ -876,6 +876,215 @@ describe('BackendKernel', () => {
     )?.count).toBe(2);
   });
 
+  it('audits current review/card divergence without requiring a conflict merge', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    const base = 1_779_188_800_000;
+    await currentDatabase.upsertCards([
+      buildCard({
+        id: 'card-audit-newer-history',
+        blockId: 'block-audit-newer-history',
+        due: base + 86_400_000,
+        reps: 1,
+        lastReview: base,
+        updatedAt: base,
+      }),
+      buildCard({
+        id: 'card-audit-consistent',
+        blockId: 'block-audit-consistent',
+        due: base + 2 * 86_400_000,
+        reps: 2,
+        lastReview: base + 20_000,
+        updatedAt: base + 20_000,
+      }),
+    ]);
+    await seedReviewEvent(currentDatabase, {
+      id: 'event-audit-local',
+      cardId: 'card-audit-newer-history',
+      reviewedAt: base,
+    });
+    await seedReviewEvent(currentDatabase, {
+      id: 'event-audit-remote',
+      cardId: 'card-audit-newer-history',
+      reviewedAt: base + 60_000,
+    });
+    await seedReviewEvent(currentDatabase, {
+      id: 'event-audit-consistent-1',
+      cardId: 'card-audit-consistent',
+      reviewedAt: base + 10_000,
+    });
+    await seedReviewEvent(currentDatabase, {
+      id: 'event-audit-consistent-2',
+      cardId: 'card-audit-consistent',
+      reviewedAt: base + 20_000,
+    });
+
+    const kernel = new BackendKernel({ database: currentDatabase });
+    const response = await kernel.handle({
+      id: 'review-divergence-audit',
+      jsonrpc: '2.0',
+      method: 'sync.reviewDivergence.audit',
+      params: [{ limit: 10 }],
+    });
+
+    expect(response).toEqual({
+      id: 'review-divergence-audit',
+      jsonrpc: '2.0',
+      result: {
+        ok: true,
+        scannedCards: 2,
+        divergentCards: 1,
+        limit: 10,
+        truncated: false,
+        reasons: {
+          'review-history-newer-than-card-state': 1,
+          'review-event-count-exceeds-card-reps': 1,
+        },
+        records: expect.arrayContaining([
+          expect.objectContaining({
+            cardId: 'card-audit-newer-history',
+            blockId: 'block-audit-newer-history',
+            reason: 'review-history-newer-than-card-state',
+            newestReviewEventAt: base + 60_000,
+            cardLastReview: base,
+            reviewEventCount: 2,
+            cardReps: 1,
+          }),
+          expect.objectContaining({
+            cardId: 'card-audit-newer-history',
+            blockId: 'block-audit-newer-history',
+            reason: 'review-event-count-exceeds-card-reps',
+            newestReviewEventAt: base + 60_000,
+            cardLastReview: base,
+            reviewEventCount: 2,
+            cardReps: 1,
+          }),
+        ]),
+      },
+    });
+    expect(JSON.stringify(response)).not.toContain('card-audit-consistent');
+  });
+
+  it('audits review/card divergence with scoped card ids and bounded output', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    const base = 1_779_188_900_000;
+    await currentDatabase.upsertCards([
+      buildCard({ id: 'card-audit-scope-a', blockId: 'block-audit-scope-a', reps: 0, lastReview: base }),
+      buildCard({ id: 'card-audit-scope-b', blockId: 'block-audit-scope-b', reps: 0, lastReview: base }),
+      buildCard({ id: 'card-audit-outside', blockId: 'block-audit-outside', reps: 0, lastReview: base }),
+    ]);
+    await seedReviewEvent(currentDatabase, {
+      id: 'event-audit-scope-a',
+      cardId: 'card-audit-scope-a',
+      reviewedAt: base + 10_000,
+    });
+    await seedReviewEvent(currentDatabase, {
+      id: 'event-audit-scope-b',
+      cardId: 'card-audit-scope-b',
+      reviewedAt: base + 20_000,
+    });
+    await seedReviewEvent(currentDatabase, {
+      id: 'event-audit-outside',
+      cardId: 'card-audit-outside',
+      reviewedAt: base + 30_000,
+    });
+
+    const kernel = new BackendKernel({ database: currentDatabase });
+    const response = await kernel.handle({
+      id: 'review-divergence-audit-scoped',
+      jsonrpc: '2.0',
+      method: 'sync.reviewDivergence.audit',
+      params: [{
+        cardIds: ['card-audit-scope-a', 'card-audit-scope-b'],
+        limit: 1,
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        ok: true,
+        scannedCards: 2,
+        divergentCards: 2,
+        limit: 1,
+        truncated: true,
+        records: [
+          expect.objectContaining({
+            cardId: expect.stringMatching(/^card-audit-scope-/),
+          }),
+        ],
+      }),
+    }));
+    expect(JSON.stringify(response)).not.toContain('card-audit-outside');
+  });
+
+  it('audits review/card divergence without mutating review, card, sync, or projection state', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    const base = 1_779_189_000_000;
+    await currentDatabase.upsertCards([
+      buildCard({
+        id: 'card-audit-readonly',
+        blockId: 'block-audit-readonly',
+        due: base + 86_400_000,
+        reps: 0,
+        lastReview: base,
+        updatedAt: base,
+      }),
+    ]);
+    await seedReviewEvent(currentDatabase, {
+      id: 'event-audit-readonly',
+      cardId: 'card-audit-readonly',
+      reviewedAt: base + 60_000,
+    });
+    await seedQueueProjection(currentDatabase, {
+      queueType: 'retrieval-practice',
+      generation: 11,
+      rows: [buildCard({ id: 'card-audit-readonly', blockId: 'block-audit-readonly' })],
+      updatedAt: base,
+    });
+    const beforeCard = await currentDatabase.getCard('card-audit-readonly');
+    const beforeEvents = currentDatabase.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
+      ['card-audit-readonly'],
+    );
+    const beforeProjection = currentDatabase.getOne<{ status: string; rebuild_reason: string | null }>(
+      'SELECT status, rebuild_reason FROM queue_projection_generations WHERE queue_type = ?',
+      ['retrieval-practice'],
+    );
+    const beforeMetadata = currentDatabase.getOne<{ value_json: string; updated_at: number }>(
+      'SELECT value_json, updated_at FROM store_metadata WHERE key = ?',
+      ['sync_metadata'],
+    );
+
+    const kernel = new BackendKernel({ database: currentDatabase });
+    const response = await kernel.handle({
+      id: 'review-divergence-audit-readonly',
+      jsonrpc: '2.0',
+      method: 'sync.reviewDivergence.audit',
+      params: [{ cardIds: ['card-audit-readonly'] }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        divergentCards: 1,
+      }),
+    }));
+    await expect(currentDatabase.getCard('card-audit-readonly')).resolves.toEqual(beforeCard);
+    expect(currentDatabase.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
+      ['card-audit-readonly'],
+    )).toEqual(beforeEvents);
+    expect(currentDatabase.getOne<{ status: string; rebuild_reason: string | null }>(
+      'SELECT status, rebuild_reason FROM queue_projection_generations WHERE queue_type = ?',
+      ['retrieval-practice'],
+    )).toEqual(beforeProjection);
+    expect(currentDatabase.getOne<{ value_json: string; updated_at: number }>(
+      'SELECT value_json, updated_at FROM store_metadata WHERE key = ?',
+      ['sync_metadata'],
+    )).toEqual(beforeMetadata);
+  });
+
   it('merges externally synced database bytes before the next backend request', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);

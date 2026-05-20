@@ -4,6 +4,16 @@ Last update: 2026-05-20 (Round 405)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-20 - Review Sync Divergence Audit Is Read-Only
+
+- Task: Implement OpenSpec `add-review-sync-divergence-audit` so existing workspaces can inspect review/card divergence without waiting for a conflict merge or mutating scheduler state.
+- Touched slice: Worker review sync diagnostics / backend RPC contract / backend client / application diagnostic entry point; `worker/db/SqliteDatabaseService.ts`, `worker/bootstrap/BackendKernel.ts`, `worker/__tests__/BackendKernel.test.ts`, `packages/contracts/src/backend-rpc.ts`, `src/application/clients/SrsBackendClient.ts`, `src/application/clients/__tests__/SrsBackendClient.test.ts`, `src/application/services/ReviewSyncDivergenceAuditApplicationService.ts`, `src/application/services/__tests__/ReviewSyncDivergenceAuditApplicationService.test.ts`, `src/application/services/index.ts`, and `src/application/ApplicationContext.ts`.
+- Debt fixed now: Added `sync.reviewDivergence.audit` as a backend-owned read RPC that scans formal `review-v2` history against selected card state, returns bounded per-card evidence, per-reason counts, scoped card-id support, truncation metadata, source metadata, and an application-level diagnostic log summary.
+- Debt deferred: Automatic replay/repair of divergent card schedule state remains out of scope.
+- Why deferred: Repair needs scheduler config, queue-mode semantics, and explicit user intent; read-only audit gives evidence without hidden writes.
+- Next safe step: Run the audit against affected desktop/phone workspaces after deploying the rebuilt plugin and decide whether a manual opt-in repair proposal is warranted.
+- Validation: `pnpm vitest run worker\__tests__\BackendKernel.test.ts --reporter=dot`; `pnpm vitest run src\application\clients\__tests__\SrsBackendClient.test.ts src\application\services\__tests__\ReviewSyncDivergenceAuditApplicationService.test.ts --reporter=dot`; `pnpm run check:boundaries`; `pnpm build` (passed; existing non-blocking `package.zip` unlink EPERM during zip packing, Vite build and dist hygiene succeeded).
+
 ### 2026-05-20 - Review Sync Conflict Merge Uses Explicit Freshness
 
 - Task: Implement OpenSpec `harden-review-sync-conflict-merge` so synced review history and card state converge predictably after SiYuan conflict-copy merges.

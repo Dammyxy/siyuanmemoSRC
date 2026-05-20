@@ -38,6 +38,8 @@ import {
   type BackendKernelTransactionRequeueRequest,
   type BackendKernelTransactionRequeueResult,
   type BackendReviewFeedbackResult,
+  type BackendReviewSyncDivergenceAuditRequest,
+  type BackendReviewSyncDivergenceAuditResult,
   type BackendSyncConflictMergeRequest,
   type BackendSyncConflictMergeResult,
   type BackendSyncConflictReloadResult,
@@ -161,6 +163,7 @@ const P6_OWNERSHIP_QUERY_OPERATIONS = new Set<P6OwnershipOperation>([
 const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'system.health',
   'diagnostics.status',
+  'sync.reviewDivergence.audit',
   'sync.conflict.merge',
   'sync.conflict.summarize',
   'sync.conflict.reload',
@@ -237,6 +240,8 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleSyncConflictReload());
         case 'diagnostics.status':
           return buildSuccess(request.id, this.diagnosticsStatus());
+        case 'sync.reviewDivergence.audit':
+          return buildSuccess(request.id, await this.handleReviewSyncDivergenceAudit(request.params));
         case 'browser.deck.page':
           return buildSuccess(request.id, await this.handleBrowserDeckPage(request.params));
         case 'browser.deck.matchedIds':
@@ -512,6 +517,14 @@ export class BackendKernel {
       throw new Error('sync.conflict.merge requires named params');
     }
     return this.deps.database.mergeSyncConflictDatabases(named);
+  }
+
+  private async handleReviewSyncDivergenceAudit(params: unknown): Promise<BackendReviewSyncDivergenceAuditResult> {
+    const named = this.readNamedParams<BackendReviewSyncDivergenceAuditRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('sync.reviewDivergence.audit requires named params');
+    }
+    return this.deps.database.auditReviewSyncDivergence(named);
   }
 
   private async handleSyncConflictSummarize(params: unknown): Promise<BackendSyncConflictSummarizeResult> {

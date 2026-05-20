@@ -5,6 +5,7 @@ export type BackendRpcMethod =
   | 'db.load'
   | 'db.persist'
   | 'sync.conflict.merge'
+  | 'sync.reviewDivergence.audit'
   | 'sync.conflict.summarize'
   | 'sync.conflict.reload'
   | 'diagnostics.status'
@@ -158,6 +159,28 @@ export interface BackendSyncConflictMergeDivergenceDiagnostic {
 
 export interface BackendSyncConflictMergeDiagnostics {
   reviewCardDivergences: BackendSyncConflictMergeDivergenceDiagnostic[];
+}
+
+export interface BackendReviewSyncDivergenceAuditRequest {
+  cardIds?: string[];
+  limit?: number;
+}
+
+export interface BackendReviewSyncDivergenceAuditRecord extends BackendSyncConflictMergeDivergenceDiagnostic {
+  blockId: string | null;
+  sourceExists: boolean | null;
+  sourceCheckedAt: number | null;
+  sourceMissingAt: number | null;
+}
+
+export interface BackendReviewSyncDivergenceAuditResult {
+  ok: true;
+  scannedCards: number;
+  divergentCards: number;
+  limit: number;
+  truncated: boolean;
+  reasons: Record<BackendSyncConflictMergeDivergenceReason, number>;
+  records: BackendReviewSyncDivergenceAuditRecord[];
 }
 
 export interface BackendSyncConflictMergeResult {

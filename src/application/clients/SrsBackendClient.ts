@@ -36,6 +36,8 @@ import type {
   BackendQueueProjectionSnapshotResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendReviewSyncDivergenceAuditRequest,
+  BackendReviewSyncDivergenceAuditResult,
   BackendSyncConflictMergeRequest,
   BackendSyncConflictMergeResult,
   BackendSyncConflictReloadResult,
@@ -182,6 +184,12 @@ export class SrsBackendClient {
     request: BackendSyncConflictMergeRequest,
   ): Promise<BackendSyncConflictMergeResult> {
     return this.call<BackendSyncConflictMergeResult>('sync.conflict.merge', request);
+  }
+
+  async auditReviewSyncDivergence(
+    request: BackendReviewSyncDivergenceAuditRequest = {},
+  ): Promise<BackendReviewSyncDivergenceAuditResult> {
+    return this.call<BackendReviewSyncDivergenceAuditResult>('sync.reviewDivergence.audit', request);
   }
 
   async summarizeSyncConflicts(
