@@ -9,10 +9,10 @@
 ## 2. Legacy Migration And Queue Integration
 
 - [ ] 2.1 Migrate legacy NeuralRoam state into `默认航线` on read, preserving Orbit seed/station/session and Hyperspace source/station/session data.
-- [ ] 2.2 Update `NeuralRoamQueue` to use global `activeRouteId` for all seed, station, session, and stats operations.
+- [x] 2.2 Update `NeuralRoamQueue` to use global `activeRouteId` for all seed, station, session, and stats operations.
 - [ ] 2.3 Make route switching a hard boundary that clears current item, pending next, pending start, and forward/back cursor state.
 - [ ] 2.4 Ensure only one active NeuralRoam review surface is supported in v1 and route switching affects the open surface.
-- [ ] 2.5 Add route-scoped history limit enforcement using existing NeuralRoam history setting defaults and clamps.
+- [x] 2.5 Add route-scoped history limit enforcement using existing NeuralRoam history setting defaults and clamps.
 
 ## 3. Shared Route Pools Across Engines
 
@@ -79,7 +79,7 @@
 
 - [x] 10.1 Add route domain tests for create/switch/delete/save/discard/default-route invariants.
 - [x] 10.2 Add legacy migration tests from v8 NeuralRoam state to `默认航线`.
-- [ ] 10.3 Add Orbit tests proving active-route seed/station isolation and no fallback to another route.
+- [x] 10.3 Add Orbit tests proving active-route seed/station isolation and no fallback to another route.
 - [ ] 10.4 Add Hyperspace tests proving shared route assets and private Hyperspace session/frontier.
 - [ ] 10.5 Add temporary route tests for clean discard, delta prompt, save-in-place, and replacing one temporary route with another.
 - [ ] 10.6 Add route history tests for chronological non-deduped events across both engines and no recommendation impact.

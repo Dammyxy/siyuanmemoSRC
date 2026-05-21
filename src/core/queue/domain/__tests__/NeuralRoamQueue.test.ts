@@ -3,6 +3,12 @@ import { NeuralRoamQueue } from '../NeuralRoamQueue';
 import type { QueuePersistencePort } from '../ports';
 import type { NeuralRoamHistoryEntry, QueueCounterSnapshot } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
+import {
+  DEFAULT_NEURAL_ROAM_ROUTE_ID,
+  InMemoryNeuralRoamRouteRepository,
+  NeuralRoamRouteCatalog,
+  type NeuralRoamRouteState,
+} from '../../neural/routes';
 
 function createPersistence(initial: unknown): {
   persistence: QueuePersistencePort;
@@ -290,6 +296,18 @@ function mockNeuralEngine(queue: NeuralRoamQueue): void {
   graphProvider.fetchHyperspaceEdges = vi.fn().mockResolvedValue([]);
   graphProvider.fetchNodePriority = vi.fn(async () => 0.7);
   graphProvider.isConceptCard = vi.fn(async (nodeId: string) => nodeId.startsWith('concept'));
+}
+
+function createRouteCatalog(initialState?: NeuralRoamRouteState | null) {
+  let nextId = 1;
+  const repository = new InMemoryNeuralRoamRouteRepository(initialState);
+  const catalog = new NeuralRoamRouteCatalog({
+    repository,
+    idFactory: {
+      createRouteId: () => `route-${nextId++}`,
+    },
+  });
+  return { catalog, repository };
 }
 
 describe('NeuralRoamQueue', () => {
@@ -1513,5 +1531,136 @@ describe('NeuralRoamQueue', () => {
     expect(conceptQueue.getHistorySnapshot()[0]?.nodeId).toBe('orbit-node-5');
     expect(hyperspaceEngine.getHistoryCount()).toBe(200);
     expect(hyperspaceEngine.getHistorySnapshot()[0]?.nodeId).toBe('hyperspace-node-5');
+  });
+
+  it('writes orbit seeds and stations to the active route after an external route switch without leaking old route assets', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [
+        conceptCard('concept-default'),
+        conceptCard('concept-second'),
+      ],
+    });
+    const { catalog, repository } = createRouteCatalog();
+    const queue = new NeuralRoamQueue(manager.manager, persistence, {
+      routeCatalog: catalog,
+    });
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.setSeedEntry('concept-default', true);
+    await queue.setAnchorEntry('station-default', true);
+    await queue.setCurrentFocus('concept-default', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    const secondRoute = await catalog.createRoute({ name: '天体物理' });
+
+    expect(await queue.getNextCard()).toBeNull();
+
+    await queue.setSeedEntry('concept-second', true);
+    await queue.setAnchorEntry('station-second', true);
+    await queue.setCurrentFocus('concept-second', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    const state = await repository.loadState();
+    const defaultRoute = state?.routes.find((route) => route.metadata.id === DEFAULT_NEURAL_ROAM_ROUTE_ID);
+    const activeRoute = state?.routes.find((route) => route.metadata.id === secondRoute.metadata.id);
+    const defaultAnchors = defaultRoute?.anchorPool.map((entry) => entry.nodeId) ?? [];
+    const activeAnchors = activeRoute?.anchorPool.map((entry) => entry.nodeId) ?? [];
+
+    expect(defaultRoute?.seedPool.map((entry) => entry.nodeId)).toEqual(['concept-default']);
+    expect(defaultAnchors).toContain('station-default');
+    expect(defaultAnchors).not.toContain('station-second');
+    expect(defaultRoute?.sessions.orbit?.currentFocus).toBe('concept-default');
+    expect(activeRoute?.seedPool.map((entry) => entry.nodeId)).toEqual(['concept-second']);
+    expect(activeAnchors).toContain('station-second');
+    expect(activeAnchors).not.toContain('station-default');
+    expect(activeRoute?.sessions.orbit?.currentFocus).toBe('concept-second');
+    expect(queue.getSeedSnapshot().map((entry) => entry.nodeId)).toEqual(['concept-second']);
+    expect(queue.getAnchorSnapshot().map((entry) => entry.nodeId)).toEqual(expect.arrayContaining(['station-second']));
+    expect(await queue.getSize()).toBe(1);
+  });
+
+  it('enforces the configured history limit on the active route log when saving route snapshots', async () => {
+    const orbitHistory = Array.from({ length: 205 }, (_, index) => createHistoryEntry(index, {
+      engineMode: 'orbit',
+      nodeId: `orbit-node-${index}`,
+      sessionId: 'orbit-session-1',
+    }));
+    const hyperspaceHistory = Array.from({ length: 205 }, (_, index) => createHistoryEntry(index + 300, {
+      engineMode: 'hyperspace',
+      nodeId: `hyperspace-node-${index}`,
+      sessionId: 'hyperspace-session-1',
+    }));
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager();
+    const { catalog, repository } = createRouteCatalog({
+      activeRouteId: DEFAULT_NEURAL_ROAM_ROUTE_ID,
+      engineMode: 'orbit',
+      routes: [{
+        metadata: {
+          id: DEFAULT_NEURAL_ROAM_ROUTE_ID,
+          name: '默认航线',
+          temporary: false,
+          previousRouteId: null,
+          initialSeedNodeIds: [],
+          createdAt: 1,
+          updatedAt: 1,
+          lastUsedAt: 1,
+        },
+        seedPool: [],
+        anchorPool: [],
+        sessions: {
+          orbit: {
+            displayPath: [],
+            displayPathEventIds: [],
+            currentPathIndex: -1,
+            navigationMode: 'explore',
+            bookmarkPathIndex: null,
+            history: orbitHistory,
+            currentFocus: null,
+            currentFocusEventId: null,
+            branchRootNodeId: null,
+            currentSessionId: 'orbit-session-1',
+            visitedBlocks: orbitHistory.map((entry) => entry.nodeId),
+            exhaustedFocuses: [],
+            currentRoundStartedAt: null,
+          },
+          hyperspace: {
+            displayPath: [],
+            displayPathEventIds: [],
+            currentPathIndex: -1,
+            navigationMode: 'explore',
+            bookmarkPathIndex: null,
+            history: hyperspaceHistory,
+            currentLeadSource: null,
+            currentLeadSourceEventId: null,
+            branchRootNodeId: null,
+            currentSessionId: 'hyperspace-session-1',
+            visitedBlocks: hyperspaceHistory.map((entry) => entry.nodeId),
+            frontier: [],
+            exhaustedSources: [],
+          },
+        },
+        history: [],
+      }],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence, {
+      getHistoryLimit: () => 200,
+      routeCatalog: catalog,
+    });
+
+    await queue.load();
+    await queue.save();
+
+    const state = await repository.loadState();
+    const routeHistory = state?.routes[0].history ?? [];
+    expect(routeHistory).toHaveLength(200);
+    expect(routeHistory[0].nodeId).toBe('hyperspace-node-5');
+    expect(routeHistory.at(-1)?.nodeId).toBe('hyperspace-node-204');
   });
 });

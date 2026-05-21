@@ -4,6 +4,16 @@ Last update: 2026-05-22 (Round 427)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-22 - NeuralRoam Active Route Queue Sync
+
+- Task: Continue OpenSpec `add-neural-roam-routes` by closing the Queue-layer active route behavior for Orbit assets/session and route log limits.
+- Touched slice: Queue domain route integration; `src/core/queue/domain/NeuralRoamQueue.ts`, `src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts`, and OpenSpec task checklist.
+- Debt fixed now: `NeuralRoamQueue` now re-syncs from `NeuralRoamRouteCatalog` when the global `activeRouteId` or engine mode changes before async queue reads/mutations. Seed, station, focus/session, next-card, size, review, add/remove, and history navigation operations no longer save stale route snapshots after an external route switch. Active route log snapshots are pruned with the configured NeuralRoam history limit and the existing 200..5000 clamp.
+- Debt deferred: Review/Browser route switching reset flows, temporary route lifecycle, Hyperspace shared/private route tests, and backend route command contracts remain in the OpenSpec checklist.
+- Why deferred: This slice deliberately stayed inside the Queue bounded context; UI lifecycle and backend command ownership require separate active call-chain tracing.
+- Next safe step: Implement Review route-switch reset boundary or Hyperspace shared route assets/private session tests as the next small slice.
+- Validation: Focused NeuralRoam queue, route catalog, legacy migration, and UnifiedDataSourceManager route injection tests passed; boundary/build gates run after this delta.
+
 ### 2026-05-22 - Review CDF NeuralRoam Entry Cleanup
 
 - Task: Fix CDF-related Review UI still showing the legacy standalone `从概念漫游` action after NeuralRoam entry actions moved into the toolbar icon menu.

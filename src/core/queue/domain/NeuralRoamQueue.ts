@@ -469,6 +469,36 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     this.hyperspaceEngine.restoreSessionState(route.sessions.hyperspace);
   }
 
+  private async syncActiveRouteStateIfChanged(): Promise<void> {
+    if (!this.routeCatalog) {
+      return;
+    }
+
+    const state = await this.routeCatalog.getState();
+    if (
+      this.activeRouteSnapshot
+      && this.activeRouteSnapshot.metadata.id === state.activeRouteId
+      && this.engineMode === state.engineMode
+    ) {
+      return;
+    }
+
+    const route = state.routes.find((candidate) => candidate.metadata.id === state.activeRouteId)
+      ?? await this.routeCatalog.getActiveRoute();
+    this.engineMode = state.engineMode;
+    this.applyRouteSnapshot(route);
+    this.activeRouteSnapshot = route;
+    this.persistedRouteHistoryEventIds = new Set(route.history.map((event) => event.eventId));
+    this.resetAssociatedReviewState();
+    this.cards = [];
+    this.cardsTrusted = false;
+    this.snapshotRows = [];
+    this.snapshotRowsTrusted = false;
+    this.markCounterSnapshotDirty();
+    this.clearSizeCache();
+    logger.info(`Synchronized neural roam active route, activeRoute=${route.metadata.id}, engineMode=${this.engineMode}`);
+  }
+
   private routePoolEntryToFocusPoolEntry(entry: NeuralRoamRoutePoolEntry): FocusPoolPersistedEntry {
     return {
       nodeId: entry.nodeId,
@@ -577,7 +607,14 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     ]) {
       events.set(entry.eventId, this.historyEntryToRouteHistoryEvent(routeId, entry));
     }
-    return Array.from(events.values()).sort((left, right) => left.visitedAt - right.visitedAt);
+    return Array.from(events.values())
+      .sort((left, right) => left.visitedAt - right.visitedAt)
+      .slice(-this.resolveRouteHistoryLimit());
+  }
+
+  private resolveRouteHistoryLimit(): number {
+    const parsed = Math.floor(Number(this.getHistoryLimit?.()) || 3000);
+    return Math.max(200, Math.min(5000, parsed));
   }
 
   private historyEntryToRouteHistoryEvent(
@@ -924,6 +961,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async getCards(): Promise<FSRSCard[]> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
     const nodeIds = this.getSessionVisibleNodeIds(80);
     if (nodeIds.length === 0) {
       return [];
@@ -947,6 +985,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     priorityOrSource: 'normal' | 'high' | QueueAddSource = 'normal',
   ): Promise<void> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
     const priority = priorityOrSource === 'high'
       ? 'high'
       : 'normal';
@@ -959,6 +998,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     priorityOrSource: 'normal' | 'high' | QueueAddSource = 'normal',
   ): Promise<QueueBulkMutationResult> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
 
     const priority = priorityOrSource === 'high' ? 'high' : 'normal';
     const items = this.dedupeBulkAddInputs(cards);
@@ -992,12 +1032,14 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async removeCard(cardIdOrBlockId: string): Promise<void> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
     this.conceptQueue.removeConceptBlock(cardIdOrBlockId);
     await this.save();
   }
 
   public override async removeCards(cardIdsOrBlockIds: string[]): Promise<QueueBulkMutationResult> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
 
     const ids = this.uniqueNeuralBulkIds((cardIdsOrBlockIds || []).map((id) => String(id || '').trim()));
     let changedCount = 0;
@@ -1025,6 +1067,9 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   }
 
   public async handleReview(cardId: string, rating: number, options?: { commitIdempotencyKey?: string }): Promise<QueueReviewResult> {
+    await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
+
     try {
       const localCard = await this.manager.getCard(cardId, { silent: true });
       if (this.isLocalReviewCard(localCard)) {
@@ -1061,6 +1106,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async getNextCard(): Promise<FSRSCard | null> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
     const pendingAssociatedCard = this.dequeuePendingAssociatedReviewCard();
     if (pendingAssociatedCard) {
       void this.save().catch((error) => {
@@ -1082,6 +1128,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async lockCurrentAsFocus(cardId: string, priority: 'normal' | 'high' = 'high'): Promise<void> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
     if (this.engineMode === 'hyperspace') {
       await this.hyperspaceEngine.setSourceEntry(cardId, true);
       await this.hyperspaceEngine.setAnchorEntry(cardId, true);
@@ -1141,6 +1188,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     } = {},
   ): Promise<void> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
 
     if (mode === this.engineMode) {
       return;
@@ -1554,6 +1602,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async setSourceEntry(nodeId: string, enabled = true): Promise<void> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
     await this.conceptQueue.setSeedEntry(nodeId, enabled);
     await this.hyperspaceEngine.setSourceEntry(nodeId, enabled);
     await this.save();
@@ -1590,6 +1639,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async setSeedEntry(nodeId: string, enabled = true): Promise<void> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
     await this.conceptQueue.setSeedEntry(nodeId, enabled);
     await this.hyperspaceEngine.setSourceEntry(nodeId, enabled);
     await this.save();
@@ -1597,6 +1647,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async lockCurrentAsSeed(nodeId: string, priority: 'normal' | 'high' = 'high'): Promise<void> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
     if (this.engineMode === 'hyperspace') {
       await this.hyperspaceEngine.setSourceEntry(nodeId, true);
       await this.conceptQueue.setSeedEntry(nodeId, true);
@@ -1631,6 +1682,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async setAnchorEntry(nodeId: string, enabled = true): Promise<void> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
     await this.conceptQueue.setAnchorEntry(nodeId, enabled);
     await this.hyperspaceEngine.setAnchorEntry(nodeId, enabled);
     await this.save();
@@ -1638,6 +1690,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async clearAnchors(): Promise<void> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
     await this.conceptQueue.clearAnchors();
     await this.hyperspaceEngine.clearAnchors();
     await this.save();
@@ -1662,6 +1715,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     } = {}
   ): Promise<void> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
     if (options.resetHistory === true || options.startNewSession === true) {
       this.resetAssociatedReviewState();
     } else {
@@ -1732,6 +1786,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     } = {}
   ): Promise<void> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
     if (options.resetHistory === true) {
       this.resetAssociatedReviewState();
     } else {
@@ -1759,6 +1814,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async jumpToHistoryNode(nodeId: string): Promise<boolean> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
     const jumped = await this.getActiveEngine().jumpToHistoryNode(nodeId);
     if (jumped) {
       this.clearPendingAssociatedReviewCards();
@@ -1769,6 +1825,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async getPathItemByNodeId(blockId: string): Promise<FSRSCard | null> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
     const queueItem = await this.getActiveEngine().getPathItemByNodeId(blockId);
     if (!queueItem) {
       return null;
@@ -1816,6 +1873,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async getSize(): Promise<number> {
     await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
     return this.getSourceSnapshot().length + this.pendingAssociatedReviewCards.length;
   }
 
