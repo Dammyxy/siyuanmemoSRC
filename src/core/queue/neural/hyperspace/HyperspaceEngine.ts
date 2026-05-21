@@ -105,6 +105,7 @@ export interface HyperspaceSessionState {
 interface ActivateNodeMeta {
   associationType: NeuralAssociationType;
   reason: string;
+  cardId?: string | null;
   focusId: string | null;
   isVirtual: boolean;
   activationKind?: NeuralActivationKind;
@@ -119,7 +120,9 @@ interface ActivateNodeMeta {
 
 interface AssociatedReviewVisitInput {
   nodeId: string;
+  cardId?: string | null;
   nodePreview?: string | null;
+  associationType?: NeuralAssociationType | null;
   sourceNodeId?: string | null;
   sourceEventId?: string | null;
   reason?: string | null;
@@ -220,6 +223,7 @@ function buildReasonText(type: NeuralAssociationType | NeuralPropagationOrigin):
     case 'element-link': return '块链接';
     case 'descriptor': return '描述符';
     case 'associated-review': return '关联复习卡';
+    case 'same-block-card': return '同块卡片';
     case 'tree-child': return '子节点传导';
     case 'tree-sibling': return '同级传导';
     case 'tree-parent': return '父节点传导';
@@ -581,14 +585,16 @@ export class HyperspaceEngine {
     const sessionId = sourceEntry?.sessionId ?? this.currentSessionId;
     const focusId = sourceEntry?.focusId ?? this.currentLeadSource;
     const branchRootNodeId = sourceEntry?.branchRootNodeId ?? this.branchRootNodeId ?? focusId ?? nodeId;
-    const reason = String(input.reason || '').trim() || buildReasonText('associated-review');
+    const associationType = input.associationType ?? 'associated-review';
+    const reason = String(input.reason || '').trim() || buildReasonText(associationType);
     const historyEntry = this.createHistoryEntry(
       nodeId,
       sessionId,
       normalizePreview(String(input.nodePreview || nodeId), this.previewLength),
       {
-        associationType: 'associated-review',
+        associationType,
         reason,
+        cardId: String(input.cardId || '').trim() || null,
         focusId,
         isVirtual: false,
         activationKind: 'follow-path',
@@ -1770,6 +1776,7 @@ export class HyperspaceEngine {
       focusId: typeof entry.focusId === 'string' && entry.focusId ? entry.focusId : null,
       sessionId,
       associationType,
+      cardId: typeof entry.cardId === 'string' && entry.cardId ? entry.cardId : null,
       reason: typeof entry.reason === 'string' ? entry.reason : buildReasonText(origin ?? associationType),
       visitedAt: Number.isFinite(visitedAt) ? visitedAt : Date.now(),
       isVirtual: Boolean(entry.isVirtual),
@@ -1791,6 +1798,7 @@ export class HyperspaceEngine {
     return {
       eventId: createHistoryEventId(),
       nodeId,
+      cardId: meta.cardId ?? null,
       focusId: meta.focusId,
       sessionId,
       associationType: meta.associationType,
@@ -1819,6 +1827,7 @@ export class HyperspaceEngine {
     return {
       eventId: entry.eventId,
       nodeId: entry.nodeId,
+      cardId: entry.cardId ?? null,
       nodePreview: entry.nodePreview,
       isVirtual: entry.isVirtual,
       associationType: entry.associationType,

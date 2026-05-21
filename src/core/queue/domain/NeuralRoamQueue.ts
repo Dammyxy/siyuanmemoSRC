@@ -129,12 +129,15 @@ type AssociatedReviewSource = {
   sourceVirtualNodeId?: string | null;
   sourceVirtualEventId?: string | null;
   sourceVirtualReason?: string | null;
+  associationType?: 'associated-review' | 'same-block-card';
 };
 
 type AssociatedReviewVisitRecorder = {
   recordAssociatedReviewVisit(input: {
     nodeId: string;
+    cardId?: string | null;
     nodePreview?: string | null;
+    associationType?: string | null;
     sourceNodeId?: string | null;
     sourceEventId?: string | null;
     reason?: string | null;
@@ -294,6 +297,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   private engineMode: NeuralEngineMode = 'orbit';
   private pendingAssociatedReviewCards: FSRSCard[] = [];
   private readonly seenAssociatedReviewCardIds = new Set<string>();
+  private readonly lastReviewedCardIdByBlockId = new Map<string, string>();
   private historyClearedAt = 0;
   private readonly locallyClearedHistoryEventIds = new Set<string>();
 
@@ -712,8 +716,8 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         session: this.hyperspaceEngine.exportSessionState(),
       },
       pendingAssociatedReviewCardIds: this.pendingAssociatedReviewCards
-        .map((card) => String(card.blockId || '').trim())
-        .filter((blockId) => blockId.length > 0),
+        .map((card) => String(card.id || '').trim())
+        .filter((cardId) => cardId.length > 0),
       seenAssociatedReviewCardIds: Array.from(this.seenAssociatedReviewCardIds.values()),
     };
   }
@@ -840,6 +844,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     try {
       const localCard = await this.manager.getCard(cardId, { silent: true });
       if (this.isLocalReviewCard(localCard)) {
+        this.rememberReviewedCard(localCard);
         return this.handleReviewWithScheduler(cardId, rating, {
           commitIdempotencyKey: options?.commitIdempotencyKey,
         });
@@ -1075,10 +1080,15 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     const sourceReason = typeof neuralContext?.sourceVirtualReason === 'string'
       ? neuralContext.sourceVirtualReason
       : null;
+    const associationType = typeof neuralContext?.associationType === 'string'
+      ? neuralContext.associationType
+      : 'associated-review';
 
     recorder.recordAssociatedReviewVisit.call(engine, {
       nodeId: card.blockId,
+      cardId: card.id,
       nodePreview: this.resolveAssociatedReviewPreview(card),
+      associationType,
       sourceNodeId,
       sourceEventId,
       reason: sourceReason,
@@ -1103,6 +1113,16 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     return card.blockId || card.id;
   }
 
+  private rememberReviewedCard(card: FSRSCard): void {
+    const blockId = String(card.blockId || '').trim();
+    const cardId = String(card.id || '').trim();
+    if (!blockId || !cardId) {
+      return;
+    }
+    this.lastReviewedCardIdByBlockId.set(blockId, cardId);
+    this.seenAssociatedReviewCardIds.add(cardId);
+  }
+
   private clearPendingAssociatedReviewCards(): void {
     if (this.pendingAssociatedReviewCards.length === 0) {
       return;
@@ -1114,6 +1134,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   private resetAssociatedReviewState(): void {
     this.pendingAssociatedReviewCards = [];
     this.seenAssociatedReviewCardIds.clear();
+    this.lastReviewedCardIdByBlockId.clear();
     this.clearSizeCache();
   }
 
@@ -1149,23 +1170,32 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       const localCards = await this.manager.getCards({
         blockIds: subtreeBlockIds,
       });
+      const sameBlockCards = this.selectSameBlockReviewCards(sourceBlockId, localCards, source);
+      for (const card of sameBlockCards) {
+        this.seenAssociatedReviewCardIds.add(card.id);
+      }
+
       const localCardsByBlockId = new Map(
         localCards
           .map((card) => this.cloneLocalCard(card))
           .filter((card) => this.isLocalReviewCard(card))
+          .filter((card) => sameBlockCards.length === 0 || card.blockId !== sourceBlockId)
           .map((card) => [card.blockId, card] as const),
       );
 
-      const associatedCards: FSRSCard[] = [];
+      const associatedCards: FSRSCard[] = [...sameBlockCards];
       for (const blockId of subtreeBlockIds) {
+        if (sameBlockCards.length > 0 && blockId === sourceBlockId) {
+          continue;
+        }
         const localCard = localCardsByBlockId.get(blockId);
         if (!localCard) {
           continue;
         }
-        if (this.seenAssociatedReviewCardIds.has(localCard.blockId)) {
+        if (this.seenAssociatedReviewCardIds.has(localCard.id)) {
           continue;
         }
-        this.seenAssociatedReviewCardIds.add(localCard.blockId);
+        this.seenAssociatedReviewCardIds.add(localCard.id);
         associatedCards.push(await this.buildAssociatedReviewCard(localCard, source));
       }
 
@@ -1180,52 +1210,143 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     }
   }
 
+  private selectSameBlockReviewCards(
+    sourceBlockId: string,
+    localCards: FSRSCard[],
+    source: AssociatedReviewSource,
+  ): FSRSCard[] {
+    const normalizedSourceBlockId = String(sourceBlockId || '').trim();
+    if (!normalizedSourceBlockId) {
+      return [];
+    }
+
+    const sourceCardId = this.lastReviewedCardIdByBlockId.get(normalizedSourceBlockId) ?? '';
+    const reviewCards = localCards
+      .map((card) => this.cloneLocalCard(card))
+      .filter((card) => card.blockId === normalizedSourceBlockId)
+      .filter((card) => this.isLocalReviewCard(card));
+
+    if (reviewCards.length <= 1) {
+      return [];
+    }
+
+    const candidates = reviewCards
+      .filter((card) => card.id !== sourceCardId)
+      .filter((card) => !this.seenAssociatedReviewCardIds.has(card.id))
+      .sort((left, right) => this.compareSameBlockCards(left, right));
+
+    const selected = candidates[0];
+    logger.debug('[NeuralRoamQueue] same-block candidate selection', {
+      sourceBlockId: normalizedSourceBlockId,
+      reviewCardCount: reviewCards.length,
+      candidateCount: candidates.length,
+      excludedSourceCard: Boolean(sourceCardId),
+      selectedCardId: selected?.id ?? null,
+    });
+    if (!selected) {
+      return [];
+    }
+
+    return [this.buildSameBlockReviewCard(selected, source)];
+  }
+
+  private compareSameBlockCards(left: FSRSCard, right: FSRSCard): number {
+    const now = Date.now();
+    const leftDue = Number(left.due);
+    const rightDue = Number(right.due);
+    const leftIsDue = Number.isFinite(leftDue) && leftDue <= now;
+    const rightIsDue = Number.isFinite(rightDue) && rightDue <= now;
+    if (leftIsDue !== rightIsDue) {
+      return leftIsDue ? -1 : 1;
+    }
+    if (Number.isFinite(leftDue) && Number.isFinite(rightDue) && leftDue !== rightDue) {
+      return leftDue - rightDue;
+    }
+    return String(left.id || '').localeCompare(String(right.id || ''));
+  }
+
+  private buildSameBlockReviewCard(
+    localCard: FSRSCard,
+    source: AssociatedReviewSource = {},
+  ): FSRSCard {
+    const neuralContext = {
+      associationType: 'same-block-card',
+      reason: '同块卡片',
+      blockType: '',
+      isFlashcard: true,
+      nodeRole: 'associated-review' as const,
+      sourceVirtualNodeId: source.sourceVirtualNodeId ?? localCard.blockId,
+      sourceVirtualEventId: source.sourceVirtualEventId ?? null,
+      sourceVirtualReason: '同块卡片',
+    };
+
+    return {
+      ...this.cloneLocalCard(localCard),
+      meta: isRecord(localCard.meta)
+        ? {
+            ...localCard.meta,
+            neuralContext,
+          }
+        : {
+            neuralContext,
+          },
+    };
+  }
+
+  private async resolvePersistedAssociatedReviewCard(cardIdOrLegacyBlockId: string): Promise<FSRSCard | null> {
+    const normalized = String(cardIdOrLegacyBlockId || '').trim();
+    if (!normalized) {
+      return null;
+    }
+
+    try {
+      const card = await this.manager.getCard(normalized, { silent: true });
+      return this.isLocalReviewCard(card) ? this.cloneLocalCard(card) : null;
+    } catch {
+      const cards = await this.manager.getCards({ blockIds: [normalized] });
+      const card = cards
+        .map((entry) => this.cloneLocalCard(entry))
+        .find((entry) => this.isLocalReviewCard(entry));
+      return card ?? null;
+    }
+  }
+
   private async restoreAssociatedReviewState(
     pendingAssociatedReviewCardIds: unknown,
     seenAssociatedReviewCardIds: unknown,
   ): Promise<boolean> {
-    const pendingBlockIds = this.normalizeAssociatedReviewIds(pendingAssociatedReviewCardIds);
-    const seenBlockIds = this.normalizeAssociatedReviewIds(seenAssociatedReviewCardIds);
+    const pendingCardIds = this.normalizeAssociatedReviewIds(pendingAssociatedReviewCardIds);
+    const seenCardIds = this.normalizeAssociatedReviewIds(seenAssociatedReviewCardIds);
 
     this.pendingAssociatedReviewCards = [];
     this.seenAssociatedReviewCardIds.clear();
-    for (const blockId of seenBlockIds) {
-      this.seenAssociatedReviewCardIds.add(blockId);
+    for (const cardId of seenCardIds) {
+      this.seenAssociatedReviewCardIds.add(cardId);
     }
 
-    if (pendingBlockIds.length === 0) {
+    if (pendingCardIds.length === 0) {
       return false;
     }
 
     try {
-      const localCards = await this.manager.getCards({
-        blockIds: pendingBlockIds,
-      });
-      const localCardsByBlockId = new Map(
-        localCards
-          .map((card) => this.cloneLocalCard(card))
-          .filter((card) => this.isLocalReviewCard(card))
-          .map((card) => [card.blockId, card] as const),
-      );
-
       let changed = false;
-      for (const blockId of pendingBlockIds) {
-        const localCard = localCardsByBlockId.get(blockId);
+      for (const cardId of pendingCardIds) {
+        const localCard = await this.resolvePersistedAssociatedReviewCard(cardId);
         if (!localCard) {
           changed = true;
           continue;
         }
         this.pendingAssociatedReviewCards.push(await this.buildAssociatedReviewCard(localCard));
-        this.seenAssociatedReviewCardIds.add(localCard.blockId);
+        this.seenAssociatedReviewCardIds.add(localCard.id);
       }
 
       this.clearSizeCache();
-      return changed || this.pendingAssociatedReviewCards.length !== pendingBlockIds.length;
+      return changed || this.pendingAssociatedReviewCards.length !== pendingCardIds.length;
     } catch (error) {
       logger.warn('Failed to restore associated neural review cards from persisted state:', error);
       this.pendingAssociatedReviewCards = [];
       this.clearSizeCache();
-      return pendingBlockIds.length > 0;
+      return pendingCardIds.length > 0;
     }
   }
 
@@ -1743,8 +1864,10 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   ): Promise<FSRSCard> {
     const blockData = await this.queryEngine.fetchBlockData(localCard.blockId);
     const neuralContext = {
-      associationType: 'associated-review',
-      reason: source.sourceVirtualReason ?? 'associated-review',
+      associationType: source.associationType ?? 'associated-review',
+      reason: source.associationType === 'same-block-card'
+        ? '同块卡片'
+        : source.sourceVirtualReason ?? 'associated-review',
       blockType: blockData?.type ?? '',
       isFlashcard: true,
       nodeRole: 'associated-review' as const,

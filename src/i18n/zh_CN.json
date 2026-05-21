@@ -1431,6 +1431,7 @@
   "relationOutgoingIndirect": "间接正链",
   "relationDescriptor": "描述符",
   "relationAssociatedReview": "关联复习卡",
+  "relationSameBlockCard": "同块卡片",
   "relationConceptLink": "概念链接",
   "relationElementLink": "块链接",
   "relationOriginBacklink": "反向链接",

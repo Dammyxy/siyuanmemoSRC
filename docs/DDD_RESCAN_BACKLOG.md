@@ -4,6 +4,16 @@ Last update: 2026-05-22 (Round 427)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-22 - NeuralRoam Same-Block Card Links
+
+- Task: Continue OpenSpec `neural-roam-entry-actions-and-same-block-links` by implementing same-block multi-card NeuralRoam relationships.
+- Touched slice: NeuralRoam queue/history/trace; `src/core/queue/domain/NeuralRoamQueue.ts`, `src/core/queue/neural/ConceptNeuralQueue.ts`, `src/core/queue/neural/hyperspace/HyperspaceEngine.ts`, `src/types/unified-data-source.ts`, NeuralRoam trace/history UI labels, i18n, and focused queue/UI tests.
+- Debt fixed now: NeuralRoam now resolves same-block sibling cards through the local card read path, keeps graph identity as `blockId`, uses `cardId` for displayed-card feedback/history identity, excludes the current reviewed card, dedupes candidate cards by `cardId`, ranks one due sibling before ordinary graph neighbors, and emits `same-block-card` history/trace metadata with `同块卡片` labels.
+- Debt deferred: Broader per-tab NeuralRoam path isolation remains outside this change.
+- Why deferred: The OpenSpec explicitly keeps queue path state shared; this slice only adds same-block candidate/history semantics inside the active queue path.
+- Next safe step: Re-run final hidden-fallback, runtime hygiene, boundary, and build gates, then archive the OpenSpec change if all stay green.
+- Validation: Focused `NeuralRoamQueue`, `neuralTraceViewModel`, and `NeuralHistoryList` tests passed. Hidden fallback gate, dist/source SRS runtime hygiene, boundary checks, and build passed. Build still reports existing non-blocking i18n hardcoded-string warnings, `package.zip` unlink EPERM zip-pack warnings, and Sass legacy API warnings.
+
 ### 2026-05-22 - NeuralRoam Entry Action Service Slice
 
 - Task: Start OpenSpec `neural-roam-entry-actions-and-same-block-links` by extracting shared NeuralRoam entry actions and explicit focused starts.

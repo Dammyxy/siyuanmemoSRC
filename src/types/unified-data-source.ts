@@ -308,6 +308,7 @@ export type NeuralAssociationType =
     | 'outgoing-indirect'
     | 'descriptor'
     | 'associated-review'
+    | 'same-block-card'
     | 'focus'
     | 'path'
     | 'source'
@@ -341,6 +342,7 @@ export interface NeuralNavigationState {
 export interface NeuralRoamHistoryEntry {
     eventId: string;
     nodeId: string;
+    cardId?: string | null;
     focusId: string | null;
     sessionId: string;
     associationType: NeuralAssociationType;
@@ -375,6 +377,7 @@ export interface NeuralHistoryPageResult {
 export interface NeuralActivationTraceStep {
     eventId: string;
     nodeId: string;
+    cardId?: string | null;
     nodePreview: string;
     isVirtual: boolean;
     associationType: NeuralAssociationType;
@@ -448,6 +451,7 @@ export type NeuralRoamBatchKind = 'orbit-round' | 'hyperspace-current-node';
 export interface NeuralRoamBatchNode {
     eventId: string;
     nodeId: string;
+    cardId?: string | null;
     nodePreview: string;
     isVirtual: boolean;
     associationType: NeuralAssociationType;

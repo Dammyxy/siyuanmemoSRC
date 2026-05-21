@@ -18,6 +18,7 @@ export function resolveNeuralRelationLabel(type: string, t: NeuralTraceTranslato
     'outgoing-indirect': t('relationOutgoingIndirect', '间接正链'),
     descriptor: t('relationDescriptor', '描述符'),
     'associated-review': t('relationAssociatedReview', '关联复习卡'),
+    'same-block-card': t('relationSameBlockCard', '同块卡片'),
     focus: t('activationKindFocusRoot', '概念卡：轨道中心节点'),
     source: t('activationKindSourceRoot', '概念卡：激活源'),
     'concept-link': t('relationConceptLink', '概念链接'),

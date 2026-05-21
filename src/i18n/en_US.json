@@ -1282,6 +1282,7 @@
   "relationOutgoingIndirect": "Indirect Outgoing",
   "relationDescriptor": "Descriptor",
   "relationAssociatedReview": "Associated Review Card",
+  "relationSameBlockCard": "Same Block Card",
   "relationConceptLink": "Concept Link",
   "relationElementLink": "Block Link",
   "relationOriginBacklink": "Backlink",

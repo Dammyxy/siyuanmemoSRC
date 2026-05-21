@@ -83,6 +83,7 @@ export interface ConceptNeuralSessionState {
 interface ActivateNodeMeta {
   associationType: string;
   reason: string;
+  cardId?: string | null;
   focusId: string | null;
   isVirtual: boolean;
   activationKind?: NeuralActivationKind;
@@ -94,7 +95,9 @@ interface ActivateNodeMeta {
 
 interface AssociatedReviewVisitInput {
   nodeId: string;
+  cardId?: string | null;
   nodePreview?: string | null;
+  associationType?: string | null;
   sourceNodeId?: string | null;
   sourceEventId?: string | null;
   reason?: string | null;
@@ -686,10 +689,12 @@ export class ConceptNeuralQueue {
     const sessionId = sourceEntry?.sessionId ?? this.currentSessionId;
     const branchRootNodeId = sourceEntry?.branchRootNodeId ?? this.branchRootNodeId ?? focusId ?? nodeId;
     const nodePreview = this.compressText(String(input.nodePreview || nodeId));
-    const reason = String(input.reason || '').trim() || this.getReasonText('associated-review');
+    const associationType = String(input.associationType || '').trim() || 'associated-review';
+    const reason = String(input.reason || '').trim() || this.getReasonText(associationType);
     const historyEntry = this.createHistoryEntry(nodeId, sessionId, nodePreview, {
-      associationType: 'associated-review',
+      associationType,
       reason,
+      cardId: String(input.cardId || '').trim() || null,
       focusId,
       isVirtual: false,
       activationKind: 'follow-path',
@@ -1351,6 +1356,7 @@ export class ConceptNeuralQueue {
       'outgoing-indirect': '间接引用',
       descriptor: '描述符卡',
       'associated-review': '关联复习卡',
+      'same-block-card': '同块卡片',
       focus: '焦点节点',
       path: '路径节点',
     };
@@ -2064,6 +2070,7 @@ export class ConceptNeuralQueue {
     return {
       eventId,
       nodeId,
+      cardId: meta.cardId ?? null,
       focusId: meta.focusId,
       sessionId,
       associationType: meta.associationType,
@@ -2088,6 +2095,7 @@ export class ConceptNeuralQueue {
     return {
       eventId: entry.eventId,
       nodeId: entry.nodeId,
+      cardId: entry.cardId ?? null,
       nodePreview: entry.nodePreview,
       isVirtual: entry.isVirtual,
       associationType: entry.associationType,

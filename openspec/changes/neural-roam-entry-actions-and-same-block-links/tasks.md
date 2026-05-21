@@ -34,20 +34,20 @@
 
 ## 5. Same-Block Multi-Card Links
 
-- [ ] 5.1 Add a same-block card relationship source to NeuralRoam expansion using block id as the node identity and card id as display/feedback identity.
-- [ ] 5.2 Resolve same-block card candidates from the local card universe through `UnifiedDataSourceManager.getCards({ blockIds })` or the active local data source, without querying Riff or `fsrs_cards`.
-- [ ] 5.3 Include all reviewable same-block card types and sort candidates with due cards ahead of non-due cards.
-- [ ] 5.4 Limit same-block expansion to at most one sibling card per expansion cycle.
-- [ ] 5.5 Rank same-block candidates above normal graph neighbors but below explicit entry first-screen cards.
-- [ ] 5.6 Exclude the current/source card id from same-block candidates so the first next-card choice does not immediately repeat the entry card.
-- [ ] 5.7 Apply two-layer dedupe: graph traversal by `blockId`, card candidate selection by `cardId`.
+- [x] 5.1 Add a same-block card relationship source to NeuralRoam expansion using block id as the node identity and card id as display/feedback identity.
+- [x] 5.2 Resolve same-block card candidates from the local card universe through `UnifiedDataSourceManager.getCards({ blockIds })` or the active local data source, without querying Riff or `fsrs_cards`.
+- [x] 5.3 Include all reviewable same-block card types and sort candidates with due cards ahead of non-due cards.
+- [x] 5.4 Limit same-block expansion to at most one sibling card per expansion cycle.
+- [x] 5.5 Rank same-block candidates above normal graph neighbors but below explicit entry first-screen cards.
+- [x] 5.6 Exclude the current/source card id from same-block candidates so the first next-card choice does not immediately repeat the entry card.
+- [x] 5.7 Apply two-layer dedupe: graph traversal by `blockId`, card candidate selection by `cardId`.
 
 ## 6. History, Trace, And Diagnostics
 
-- [ ] 6.1 Extend NeuralRoam history entries to store `nodeId = blockId` plus optional `cardId` for same-block multi-card visits.
-- [ ] 6.2 Add activation trace metadata for same-block relationships with association type `same-block-card`, label `同块卡片`, and compact badge `同块`.
-- [ ] 6.3 Ensure feedback/rating writes to the displayed card id while graph progression continues from the block id.
-- [ ] 6.4 Add focused diagnostics for entry-session parameters and same-block candidate selection without logging full card payloads.
+- [x] 6.1 Extend NeuralRoam history entries to store `nodeId = blockId` plus optional `cardId` for same-block multi-card visits.
+- [x] 6.2 Add activation trace metadata for same-block relationships with association type `same-block-card`, label `同块卡片`, and compact badge `同块`.
+- [x] 6.3 Ensure feedback/rating writes to the displayed card id while graph progression continues from the block id.
+- [x] 6.4 Add focused diagnostics for entry-session parameters and same-block candidate selection without logging full card payloads.
 
 ## 7. Tests And Validation
 
@@ -55,6 +55,6 @@
 - [x] 7.2 Add review UI tests for menu visibility, group hiding, concept-target submenu behavior, and missing-block guards.
 - [x] 7.3 Add block menu regression tests proving the existing concept action labels and high-priority immediate-roam semantics are preserved through the shared service.
 - [x] 7.4 Add NeuralRoam runtime tests for temporary orbit mode, tab-local engine restore, manual engine-switch override, and explicit first-card behavior.
-- [ ] 7.5 Add queue/graph tests for same-block candidates, due-first sorting, one-sibling limit, current-card exclusion, ranking, history card id, and trace labels.
+- [x] 7.5 Add queue/graph tests for same-block candidates, due-first sorting, one-sibling limit, current-card exclusion, ranking, history card id, and trace labels.
 - [x] 7.6 Run targeted NeuralRoam and review-entry tests.
 - [x] 7.7 Run `node scripts/check-hidden-fallbacks.cjs`, `node scripts/check-srs-runtime-hygiene.cjs --dist`, `pnpm run check:boundaries`, and `pnpm build`.

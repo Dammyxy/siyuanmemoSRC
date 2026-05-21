@@ -202,6 +202,7 @@ function formatMeta(entry: NeuralListEntry): string {
     'outgoing-indirect': t('relationOutgoingIndirect', 'Indirect Outgoing Link'),
     descriptor: t('relationDescriptor', 'Descriptor'),
     'associated-review': t('relationAssociatedReview', 'Associated Review Card'),
+    'same-block-card': t('relationSameBlockCard', 'Same Block Card'),
     focus: t('activationKindFocusRoot', 'Orbit Center Node'),
     path: t('activationKindManualJump', 'Manual Jump'),
     source: t('activationKindSourceRoot', 'Activation Source'),

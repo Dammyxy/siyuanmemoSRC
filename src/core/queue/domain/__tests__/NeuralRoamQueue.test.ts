@@ -77,11 +77,13 @@ function createManager(options: {
   throwOnLookup?: boolean;
   schedulerRoute?: (card: FSRSCard, rating: number) => Promise<FSRSCard>;
 } = {}) {
-  const cardByBlockId = new Map<string, FSRSCard>();
+  const cardsByBlockId = new Map<string, FSRSCard[]>();
   const cardById = new Map<string, FSRSCard>();
   for (const seed of options.cards ?? []) {
     const card = toStoredCard(seed);
-    cardByBlockId.set(card.blockId, card);
+    const cardsForBlock = cardsByBlockId.get(card.blockId) ?? [];
+    cardsForBlock.push(card);
+    cardsByBlockId.set(card.blockId, cardsForBlock);
     cardById.set(card.id, card);
   }
 
@@ -91,11 +93,10 @@ function createManager(options: {
     }
     const blockIds = Array.isArray(filter?.blockIds) ? filter?.blockIds : [];
     if (blockIds.length === 0) {
-      return Array.from(cardByBlockId.values()).map((card) => JSON.parse(JSON.stringify(card))) as any[];
+      return Array.from(cardsByBlockId.values()).flat().map((card) => JSON.parse(JSON.stringify(card))) as any[];
     }
     return blockIds
-      .map((blockId) => cardByBlockId.get(blockId))
-      .filter((card): card is FSRSCard => Boolean(card))
+      .flatMap((blockId) => cardsByBlockId.get(blockId) ?? [])
       .map((card) => JSON.parse(JSON.stringify(card))) as any[];
   });
 
@@ -110,7 +111,10 @@ function createManager(options: {
   const route = vi.fn(async (card: FSRSCard, rating: number) => {
     if (options.schedulerRoute) {
       const updated = await options.schedulerRoute(card, rating);
-      cardByBlockId.set(updated.blockId, JSON.parse(JSON.stringify(updated)));
+      const cardsForBlock = cardsByBlockId.get(updated.blockId) ?? [];
+      const nextCardsForBlock = cardsForBlock.filter((existing) => existing.id !== updated.id);
+      nextCardsForBlock.push(JSON.parse(JSON.stringify(updated)));
+      cardsByBlockId.set(updated.blockId, nextCardsForBlock);
       cardById.set(updated.id, JSON.parse(JSON.stringify(updated)));
       return JSON.parse(JSON.stringify(updated));
     }
@@ -123,13 +127,19 @@ function createManager(options: {
       updatedAt: Date.now(),
       lastReview: Date.now(),
     };
-    cardByBlockId.set(updated.blockId, JSON.parse(JSON.stringify(updated)));
+    const cardsForBlock = cardsByBlockId.get(updated.blockId) ?? [];
+    const nextCardsForBlock = cardsForBlock.filter((existing) => existing.id !== updated.id);
+    nextCardsForBlock.push(JSON.parse(JSON.stringify(updated)));
+    cardsByBlockId.set(updated.blockId, nextCardsForBlock);
     cardById.set(updated.id, JSON.parse(JSON.stringify(updated)));
     return JSON.parse(JSON.stringify(updated));
   });
 
   const onCardUpdatedFromScheduler = vi.fn(async (card: FSRSCard) => {
-    cardByBlockId.set(card.blockId, JSON.parse(JSON.stringify(card)));
+    const cardsForBlock = cardsByBlockId.get(card.blockId) ?? [];
+    const nextCardsForBlock = cardsForBlock.filter((existing) => existing.id !== card.id);
+    nextCardsForBlock.push(JSON.parse(JSON.stringify(card)));
+    cardsByBlockId.set(card.blockId, nextCardsForBlock);
     cardById.set(card.id, JSON.parse(JSON.stringify(card)));
   });
   const commitReview = vi.fn(async (command: { cardId: string; rating: number }) => {
@@ -176,6 +186,15 @@ function itemCard(blockId: string): LocalCardSeed {
   return {
     blockId,
     type: 'item',
+  };
+}
+
+function itemCardWithId(id: string, blockId: string, due: number): LocalCardSeed {
+  return {
+    id,
+    blockId,
+    type: 'item',
+    due,
   };
 }
 
@@ -1026,7 +1045,7 @@ describe('NeuralRoamQueue', () => {
     await queue.save();
     const persisted = persistence.get<any>('neuralRoamQueue');
     expect(persisted?.version).toBe(8);
-    expect(persisted?.seenAssociatedReviewCardIds).toContain('descriptor-1');
+    expect(persisted?.seenAssociatedReviewCardIds).toContain('card-descriptor-1');
   });
 
   it('records associated review cards in neural history when they are surfaced from the pending buffer', async () => {
@@ -1185,6 +1204,95 @@ describe('NeuralRoamQueue', () => {
       'virtual-2',
       null,
     ]);
+  });
+
+  it('surfaces one due-first same-block sibling above graph neighbors while keeping block/card identity split', async () => {
+    const now = Date.now();
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [
+        conceptCard('concept-a'),
+        itemCardWithId('entry-card', 'shared-block', now - 60_000),
+        itemCardWithId('future-sibling', 'shared-block', now + 86_400_000),
+        itemCardWithId('due-sibling', 'shared-block', now - 10_000),
+        itemCardWithId('next-graph-card', 'next-graph-block', now - 10_000),
+      ],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    mockNeuralEngine(queue);
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    const conceptQueue = (queue as any).conceptQueue;
+    conceptQueue.getNextCard = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'shared-block',
+        blockId: 'shared-block',
+        deckId: 'neural-roam',
+        blockData: {
+          id: 'shared-block',
+          content: 'shared-block content',
+          type: 'p',
+          root_id: 'doc-1',
+        },
+        associationType: 'backlink',
+        reason: '反向链接',
+      })
+      .mockResolvedValueOnce({
+        id: 'next-graph-block',
+        blockId: 'next-graph-block',
+        deckId: 'neural-roam',
+        blockData: {
+          id: 'next-graph-block',
+          content: 'next-graph-block content',
+          type: 'p',
+          root_id: 'doc-1',
+        },
+        associationType: 'outgoing-direct',
+        reason: '直接引用',
+      });
+    const queryEngine = (queue as any).queryEngine;
+    queryEngine.fetchSubtreeBlockIds = vi.fn(async (blockId: string) => [blockId]);
+
+    await queue.handleReview('entry-card', 3);
+    const virtualSharedBlock = await queue.getNextCard();
+    const sameBlockSibling = await queue.getNextCard();
+    const graphNeighbor = await queue.getNextCard();
+
+    expect(manager.getCards).toHaveBeenCalledWith({ blockIds: ['shared-block'] });
+    expect(virtualSharedBlock?.id).toBe('shared-block');
+    expect(sameBlockSibling?.id).toBe('due-sibling');
+    expect(sameBlockSibling?.blockId).toBe('shared-block');
+    expect(sameBlockSibling?.meta).toEqual(expect.objectContaining({
+      neuralContext: expect.objectContaining({
+        associationType: 'same-block-card',
+        isFlashcard: true,
+        nodeRole: 'associated-review',
+        sourceVirtualNodeId: 'shared-block',
+      }),
+    }));
+    expect(graphNeighbor?.id).toBe('next-graph-block');
+
+    const sharedBlockHistory = queue.getHistoryEntriesByNodeId('shared-block');
+    expect(sharedBlockHistory).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        nodeId: 'shared-block',
+        cardId: 'due-sibling',
+        associationType: 'same-block-card',
+        reason: '同块卡片',
+      }),
+    ]));
+    expect(queue.getActivationTrace(sharedBlockHistory.at(-1)!.eventId)?.steps.at(-1)).toEqual(expect.objectContaining({
+      nodeId: 'shared-block',
+      cardId: 'due-sibling',
+      associationType: 'same-block-card',
+      reason: '同块卡片',
+    }));
   });
 
   it('keeps local topic blocks on the main path as virtual practice nodes without formal SRS writeback', async () => {
