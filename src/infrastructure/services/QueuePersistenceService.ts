@@ -11,7 +11,7 @@
  * - 支持任意 JSON 可序列化的数据类型
  * - 使用 Map 作为内存缓存
  * - 实现防抖机制（300ms）避免频繁写入
- * - 将所有队列数据持久化到单一文件（queues.msgpack）
+ * - 将所有队列数据持久化到 SQLite queue state repository
  * 
  * **设计原则**：
  * - 队列自治：每个队列领域对象自己管理状态和逻辑
@@ -21,7 +21,6 @@
  * **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5**
  */
 
-import type { IFileService } from './FileService';
 import type { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite';
 import { stripTransientSchedulingPreviewFields } from '@/core/scheduler/schedulingStateCleanliness';
 import { createLogger } from '@/utils/logger';
@@ -86,7 +85,6 @@ export class QueuePersistenceError extends Error {
  * 队列持久化服务实现
  */
 export class QueuePersistenceService implements IQueuePersistenceService {
-  private static readonly STORAGE_FILE = 'queues.msgpack';
   private static readonly DEBOUNCE_DELAY = 300; // 300ms 防抖延迟
   
   private cache: Map<string, unknown> = new Map();
@@ -96,7 +94,6 @@ export class QueuePersistenceService implements IQueuePersistenceService {
   private initialized = false;
 
   constructor(
-    private readonly fileService: IFileService,
     private readonly sqlRepository?: SqlQueueStateRepository | null,
   ) {}
 
@@ -110,32 +107,15 @@ export class QueuePersistenceService implements IQueuePersistenceService {
     }
 
     try {
-      if (this.sqlRepository) {
-        this.cache = new Map(Object.entries(this.sqlRepository.loadAll()).map(([key, value]) => [
-          key,
-          stripTransientSchedulingPreviewFields(value).value,
-        ]));
-        this.initialized = true;
-        logger.info(`Loaded ${this.cache.size} queue(s) from SQLite`);
-        return;
+      if (!this.sqlRepository) {
+        throw new Error('SQLite queue repository unavailable');
       }
-
-      const data = await this.fileService.readMsgpack<Record<string, unknown>>(
-        QueuePersistenceService.STORAGE_FILE
-      );
-      
-      if (data) {
-        // 将加载的数据填充到缓存
-        this.cache = new Map(Object.entries(data).map(([key, value]) => [
-          key,
-          stripTransientSchedulingPreviewFields(value).value,
-        ]));
-        logger.info(`Loaded ${this.cache.size} queue(s) from storage`);
-      } else {
-        logger.info('No existing queue data found, starting fresh');
-      }
-      
+      this.cache = new Map(Object.entries(this.sqlRepository.loadAll()).map(([key, value]) => [
+        key,
+        stripTransientSchedulingPreviewFields(value).value,
+      ]));
       this.initialized = true;
+      logger.info(`Loaded ${this.cache.size} queue(s) from SQLite`);
     } catch (error) {
       logger.error('Failed to initialize:', error);
       throw new QueuePersistenceError(
@@ -273,44 +253,26 @@ export class QueuePersistenceService implements IQueuePersistenceService {
    */
   private async save(): Promise<void> {
     try {
-      if (this.sqlRepository) {
-        const dirtyKeys = Array.from(this.dirtyKeys);
-        const deletedKeys = Array.from(this.deletedKeys);
-        if (dirtyKeys.length === 0 && deletedKeys.length === 0) {
-          return;
-        }
-        for (const key of deletedKeys) {
-          this.sqlRepository.delete(key);
-        }
-        for (const key of dirtyKeys) {
-          if (this.cache.has(key)) {
-            this.sqlRepository.set(key, stripTransientSchedulingPreviewFields(this.cache.get(key)).value);
-          }
-        }
-        await this.sqlRepository.persist();
-        this.dirtyKeys.clear();
-        this.deletedKeys.clear();
-        logger.info(`Saved ${dirtyKeys.length + deletedKeys.length} changed queue state(s) to SQLite`);
+      if (!this.sqlRepository) {
+        throw new Error('SQLite queue repository unavailable');
+      }
+      const dirtyKeys = Array.from(this.dirtyKeys);
+      const deletedKeys = Array.from(this.deletedKeys);
+      if (dirtyKeys.length === 0 && deletedKeys.length === 0) {
         return;
       }
-
-      // 将 Map 转换为普通对象
-      const data = Object.fromEntries(
-        Array.from(this.cache.entries()).map(([key, value]) => [
-          key,
-          stripTransientSchedulingPreviewFields(value).value,
-        ]),
-      );
-      
-      // 写入文件
-      await this.fileService.writeMsgpack(
-        QueuePersistenceService.STORAGE_FILE,
-        data
-      );
+      for (const key of deletedKeys) {
+        this.sqlRepository.delete(key);
+      }
+      for (const key of dirtyKeys) {
+        if (this.cache.has(key)) {
+          this.sqlRepository.set(key, stripTransientSchedulingPreviewFields(this.cache.get(key)).value);
+        }
+      }
+      await this.sqlRepository.persist();
       this.dirtyKeys.clear();
       this.deletedKeys.clear();
-      
-      logger.info(`Saved ${this.cache.size} queue(s) to storage`);
+      logger.info(`Saved ${dirtyKeys.length + deletedKeys.length} changed queue state(s) to SQLite`);
     } catch (error) {
       logger.error('Failed to save queue data:', error);
       throw new QueuePersistenceError(

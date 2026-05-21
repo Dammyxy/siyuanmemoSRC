@@ -472,8 +472,7 @@ export class ApplicationContext {
       return new FileService(context.getPlugin() as unknown as SiyuanMemoPlugin);
     });
     this.registerServiceFactory('queuePersistenceService', (context) => {
-      const fileService = context.getFileService();
-      const service = new QueuePersistenceService(fileService, context.sqlPersistence?.queue ?? null);
+      const service = new QueuePersistenceService(context.sqlPersistence?.queue ?? null);
       // 🔧 修复：延迟初始化（在首次使用前）
       // 注意：init() 会在 ApplicationContext.init() 中调用
       return service;

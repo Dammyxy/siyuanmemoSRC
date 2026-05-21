@@ -24,6 +24,12 @@ const BUDGETS_MS = {
     matchedIds: 300,
     likeSearch: 300,
     sourceCandidateUpdate: 500,
+    queueSnapshot: 150,
+    queueRowsByIds: 300,
+    queueCounters: 50,
+    reviewFeedbackTransaction: 250,
+    xiuyuanFindById: 50,
+    xiuyuanFindByBlockId: 100,
 } as const;
 
 type MetricName = keyof typeof BUDGETS_MS;
@@ -44,6 +50,19 @@ interface SourceSummary {
     missing: number;
 }
 
+interface QueryPlanSummary {
+    name: string;
+    detail: string[];
+}
+
+interface RuntimeSqlProfileSection {
+    rowCount: number;
+    timings: TimingSummary[];
+    queryPlans: QueryPlanSummary[];
+    pass: boolean;
+    skippedReason?: string;
+}
+
 interface BrowserSqlProfileScenario {
     label: string;
     targetRows: number;
@@ -52,6 +71,12 @@ interface BrowserSqlProfileScenario {
     sourceSummaryBefore: SourceSummary;
     sourceSummaryAfterSimulation: SourceSummary;
     timings: TimingSummary[];
+    sections: {
+        browser: RuntimeSqlProfileSection;
+        queueProjection: RuntimeSqlProfileSection;
+        reviewFeedback: RuntimeSqlProfileSection;
+        xiuyuan: RuntimeSqlProfileSection;
+    };
     pass: boolean;
 }
 
@@ -83,6 +108,13 @@ export async function runBrowserSqlProfileCommand(options: {
     });
     output.printJson(result);
     return result;
+}
+
+export async function runRuntimeSqlProfileCommand(options: {
+    dbPath?: string;
+    output?: DiagnosticsOutputPort;
+}): Promise<BrowserSqlProfileResult> {
+    return runBrowserSqlProfileCommand(options);
 }
 
 export async function runBrowserSqlProfileFromBytes(options: {
@@ -130,7 +162,7 @@ function resolveTargets(baseCount: number, requestedTargets?: number[]): number[
 }
 
 function withDatabase<T>(SQL: SqlJsStatic, bytes: Uint8Array, callback: (database: Database) => T): T {
-    const database = new SQL.Database(bytes);
+    const database = new SQL.Database(new Uint8Array(bytes));
     try {
         return callback(database);
     } finally {
@@ -144,12 +176,13 @@ function profileScenario(
     options: { targetRows: number; runs: number; warmupRuns: number; pageSize: number },
 ): BrowserSqlProfileScenario {
     return withDatabase(SQL, bytes, (database) => {
+        applyRuntimeProfileSchemaRepair(database);
         const beforeCount = countCards(database);
         expandCards(database, options.targetRows);
         const rowCount = countCards(database);
         const staleBefore = Date.now() - DAY_MS;
         const sourceSummaryBefore = getSourceExistenceSummary(database, staleBefore);
-        const timings: TimingSummary[] = [
+        const browserTimings: TimingSummary[] = [
             measureMetric('stats', options, () => {
                 getBrowserStats(database);
             }),
@@ -169,7 +202,26 @@ function profileScenario(
                 simulateSourceCandidateUpdate(database, staleBefore, SOURCE_UPDATE_LIMIT);
             }),
         ];
+        const browserSection: RuntimeSqlProfileSection = {
+            rowCount,
+            timings: browserTimings,
+            queryPlans: [
+                explainQuery(database, 'browser-page', 'SELECT id, payload_json FROM cards WHERE source_exists IS NULL OR source_exists = 1 ORDER BY due ASC, priority ASC, id ASC LIMIT ? OFFSET ?', [options.pageSize, 0]),
+                explainQuery(database, 'browser-matched-ids', 'SELECT id FROM cards WHERE source_exists IS NULL OR source_exists = 1 ORDER BY due ASC, priority ASC, id ASC'),
+                explainQuery(database, 'browser-like-search', "SELECT id FROM cards WHERE (source_exists IS NULL OR source_exists = 1) AND search_text LIKE ? ESCAPE '\\' ORDER BY due ASC, priority ASC, id ASC", ['%profile%']),
+            ],
+            pass: browserTimings.every((timing) => timing.pass),
+        };
+        const queueProjectionSection = profileQueueProjection(database, options);
+        const reviewFeedbackSection = profileReviewFeedback(database, options);
+        const xiuyuanSection = profileXiuyuan(database, options);
         const sourceSummaryAfterSimulation = getSourceExistenceSummary(database, staleBefore);
+        const sections = {
+            browser: browserSection,
+            queueProjection: queueProjectionSection,
+            reviewFeedback: reviewFeedbackSection,
+            xiuyuan: xiuyuanSection,
+        };
         return {
             label: rowCount === beforeCount ? 'real-db' : `expanded-${rowCount}`,
             targetRows: options.targetRows,
@@ -177,8 +229,9 @@ function profileScenario(
             expandedRows: Math.max(0, rowCount - beforeCount),
             sourceSummaryBefore,
             sourceSummaryAfterSimulation,
-            timings,
-            pass: timings.every((timing) => timing.pass),
+            timings: browserTimings,
+            sections,
+            pass: Object.values(sections).every((section) => section.pass),
         };
     });
 }
@@ -325,6 +378,234 @@ function simulateSourceCandidateUpdate(database: Database, staleBefore: number, 
     }
 }
 
+function applyRuntimeProfileSchemaRepair(database: Database): void {
+    if (!tableExists(database, 'review_events')) {
+        return;
+    }
+    if (!tableColumnExists(database, 'review_events', 'commit_idempotency_key')) {
+        database.run('ALTER TABLE review_events ADD COLUMN commit_idempotency_key TEXT');
+    }
+    database.run(
+        `CREATE INDEX IF NOT EXISTS idx_review_events_commit_idempotency
+         ON review_events(commit_idempotency_key)`,
+    );
+}
+
+function profileQueueProjection(
+    database: Database,
+    options: { runs: number; warmupRuns: number },
+): RuntimeSqlProfileSection {
+    if (!tableExists(database, 'queue_projection_rows') || !tableExists(database, 'queue_projection_generations')) {
+        return skippedSection('queue projection tables unavailable');
+    }
+    const generation = getOne(database,
+        `SELECT queue_type, policy_hash, generation, status
+         FROM queue_projection_generations
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+    );
+    const queueType = String(generation?.queue_type || '');
+    const policyHash = String(generation?.policy_hash || '');
+    const sourceGeneration = Number(generation?.generation) || 0;
+    const rowCount = queueType
+        ? Number(getOne(database, 'SELECT COUNT(*) AS count FROM queue_projection_rows WHERE queue_type = ?', [queueType])?.count) || 0
+        : 0;
+    const ids = queueType
+        ? getAll(database,
+            `SELECT row_id
+             FROM queue_projection_rows
+             WHERE queue_type = ?
+             ORDER BY sort_key ASC, COALESCE(queue_index_hint, 2147483647) ASC, row_id ASC
+             LIMIT 20`,
+            [queueType],
+        ).map((row) => String(row.row_id || '')).filter(Boolean)
+        : [];
+    const timings: TimingSummary[] = [
+        measureMetric('queueCounters', options, () => {
+            queryQueueCounters(database, queueType, policyHash);
+        }),
+        measureMetric('queueSnapshot', options, () => {
+            queryQueueProjectionSnapshot(database, queueType, policyHash, sourceGeneration);
+        }),
+        measureMetric('queueRowsByIds', options, () => {
+            queryQueueProjectionRowsByIds(database, queueType, policyHash, sourceGeneration, ids);
+        }),
+    ];
+    return {
+        rowCount,
+        timings,
+        queryPlans: [
+            explainQuery(database, 'queue-snapshot', queueSnapshotSql(), [queueType, policyHash, sourceGeneration, 50, 0]),
+            explainQuery(database, 'queue-rows-by-ids-read-all', queueRowsByIdsSql(), [queueType, policyHash, sourceGeneration, 5000]),
+            explainQuery(database, 'queue-counters', queueCountersSql(), [queueType, policyHash]),
+        ],
+        pass: timings.every((timing) => timing.pass),
+    };
+}
+
+function profileReviewFeedback(
+    database: Database,
+    options: { runs: number; warmupRuns: number },
+): RuntimeSqlProfileSection {
+    if (!tableExists(database, 'review_events')) {
+        return skippedSection('review_events table unavailable');
+    }
+    const row = getOne(database, 'SELECT id, payload_json FROM cards ORDER BY due ASC, id ASC LIMIT 1');
+    if (!row?.id) {
+        return skippedSection('no cards available for review feedback simulation');
+    }
+    const cardId = String(row.id);
+    const timings = [
+        measureMetric('reviewFeedbackTransaction', options, () => {
+            simulateReviewFeedbackTransaction(database, cardId);
+        }),
+    ];
+    const hasIdempotencyColumn = tableColumnExists(database, 'review_events', 'commit_idempotency_key');
+    return {
+        rowCount: countCards(database),
+        timings,
+        queryPlans: [
+            explainQuery(database, 'review-feedback-card-load', 'SELECT payload_json, dto_json FROM cards WHERE id = ?', [cardId]),
+            hasIdempotencyColumn
+                ? explainQuery(database, 'review-feedback-duplicate-check', 'SELECT id, card_id, rating, reviewed_at, event_type, payload_json FROM review_events WHERE commit_idempotency_key = ? ORDER BY reviewed_at, id LIMIT 1', [`profile:${cardId}`])
+                : { name: 'review-feedback-duplicate-check', detail: ['unavailable: review_events.commit_idempotency_key column missing'] },
+        ],
+        pass: timings.every((timing) => timing.pass),
+    };
+}
+
+function profileXiuyuan(
+    database: Database,
+    options: { runs: number; warmupRuns: number },
+): RuntimeSqlProfileSection {
+    if (!tableExists(database, 'xiuyuans')) {
+        return skippedSection('xiuyuans table unavailable');
+    }
+    const xiuyuan = getOne(database, 'SELECT id FROM xiuyuans ORDER BY id LIMIT 1');
+    const block = getOne(database, "SELECT block_id FROM cards WHERE block_id IS NOT NULL AND block_id != '' ORDER BY id LIMIT 1");
+    const xiuyuanId = String(xiuyuan?.id || '');
+    const blockId = String(block?.block_id || '');
+    const timings: TimingSummary[] = [
+        measureMetric('xiuyuanFindById', options, () => {
+            queryXiuyuanById(database, xiuyuanId);
+        }),
+        measureMetric('xiuyuanFindByBlockId', options, () => {
+            queryXiuyuanByBlockId(database, blockId);
+        }),
+    ];
+    return {
+        rowCount: Number(getOne(database, 'SELECT COUNT(*) AS count FROM xiuyuans')?.count) || 0,
+        timings,
+        queryPlans: [
+            explainQuery(database, 'xiuyuan-find-by-id', xiuyuanByIdSql(), [xiuyuanId]),
+            explainQuery(database, 'xiuyuan-find-by-block-id', xiuyuanByBlockIdSql(), [blockId]),
+        ],
+        pass: timings.every((timing) => timing.pass),
+    };
+}
+
+function skippedSection(reason: string): RuntimeSqlProfileSection {
+    return {
+        rowCount: 0,
+        timings: [],
+        queryPlans: [],
+        pass: true,
+        skippedReason: reason,
+    };
+}
+
+function queryQueueCounters(database: Database, queueType: string, policyHash: string): void {
+    if (!queueType) return;
+    getOne(database, queueCountersSql(), [queueType, policyHash]);
+}
+
+function queryQueueProjectionSnapshot(database: Database, queueType: string, policyHash: string, generation: number): void {
+    if (!queueType) return;
+    const rows = getAll(database, queueSnapshotSql(), [queueType, policyHash, generation, 50, 0]);
+    getCardsByIds(database, rows.map((row) => String(row.card_id || '')).filter(Boolean));
+}
+
+function queryQueueProjectionRowsByIds(
+    database: Database,
+    queueType: string,
+    policyHash: string,
+    generation: number,
+    ids: string[],
+): void {
+    if (!queueType || ids.length === 0) return;
+    const projectionRows = getAll(database, queueRowsByIdsSql(), [queueType, policyHash, generation, 5000]);
+    const byId = new Map<string, SqlRow>();
+    for (const row of projectionRows) {
+        for (const key of ['row_id', 'card_id', 'block_id']) {
+            const value = String(row[key] || '');
+            if (value) byId.set(value, row);
+        }
+    }
+    const orderedRows = ids.map((id) => byId.get(id)).filter((row): row is SqlRow => Boolean(row));
+    getCardsByIds(database, orderedRows.map((row) => String(row.card_id || '')).filter(Boolean));
+}
+
+function simulateReviewFeedbackTransaction(database: Database, cardId: string): void {
+    database.run('BEGIN');
+    try {
+        const now = Date.now();
+        const hasIdempotencyColumn = tableColumnExists(database, 'review_events', 'commit_idempotency_key');
+        database.run('UPDATE cards SET due = due + ?, reps = COALESCE(reps, 0) + 1, last_review = ?, updated_at = ? WHERE id = ?', [
+            60_000,
+            now,
+            now,
+            cardId,
+        ]);
+        const columns = [
+            'id',
+            'card_id',
+            'attempt_id',
+            'rating',
+            'reviewed_at',
+            ...(hasIdempotencyColumn ? ['commit_idempotency_key'] : []),
+            'year',
+            'month',
+            'event_type',
+            'payload_json',
+        ];
+        const values = [
+            `profile-review:${cardId}`,
+            cardId,
+            `profile-attempt:${cardId}`,
+            3,
+            now,
+            ...(hasIdempotencyColumn ? [`profile:${cardId}`] : []),
+            new Date(now).getFullYear(),
+            new Date(now).getMonth() + 1,
+            'review-v2',
+            JSON.stringify({ cardId, rating: 3, reviewedAt: now }),
+        ];
+        database.run(
+            `INSERT OR REPLACE INTO review_events (${columns.join(', ')})
+             VALUES (${columns.map(() => '?').join(', ')})`,
+            values,
+        );
+        database.run('ROLLBACK');
+    } catch (error) {
+        try {
+            database.run('ROLLBACK');
+        } catch {
+            // Ignore rollback errors in a profiler-only simulation.
+        }
+        throw error;
+    }
+}
+
+function queryXiuyuanById(database: Database, xiuyuanId: string): void {
+    if (!xiuyuanId) return;
+    getOne(database, xiuyuanByIdSql(), [xiuyuanId]);
+}
+
+function queryXiuyuanByBlockId(database: Database, blockId: string): void {
+    if (!blockId) return;
+    getAll(database, xiuyuanByBlockIdSql(), [blockId]);
+}
+
 function loadAlgorithmStateRows(database: Database, cardIds: string[]): void {
     if (cardIds.length === 0 || !tableExists(database, 'algorithm_card_state')) {
         return;
@@ -442,6 +723,105 @@ function tableColumns(database: Database, tableName: string): string[] {
 function tableExists(database: Database, tableName: string): boolean {
     const row = getOne(database, 'SELECT name FROM sqlite_master WHERE type = ? AND name = ?', ['table', tableName]);
     return Boolean(row?.name);
+}
+
+function tableColumnExists(database: Database, tableName: string, columnName: string): boolean {
+    return tableColumns(database, tableName).includes(columnName);
+}
+
+function queueSnapshotSql(): string {
+    return `SELECT queue_type, row_id, card_id, block_id, deck_id, membership_reason, due_at, due_bucket,
+                   priority_score, sort_key, queue_index_hint, policy_hash, source_generation, payload_json, updated_at
+            FROM queue_projection_rows
+            WHERE queue_type = ?
+              AND policy_hash = ?
+              AND source_generation = ?
+            ORDER BY sort_key ASC, COALESCE(queue_index_hint, 2147483647) ASC, row_id ASC
+            LIMIT ? OFFSET ?`;
+}
+
+function queueRowsByIdsSql(): string {
+    return `SELECT queue_type, row_id, card_id, block_id, deck_id, membership_reason, due_at, due_bucket,
+                   priority_score, sort_key, queue_index_hint, policy_hash, source_generation, payload_json, updated_at
+            FROM queue_projection_rows
+            WHERE queue_type = ?
+              AND policy_hash = ?
+              AND source_generation = ?
+            ORDER BY sort_key ASC, COALESCE(queue_index_hint, 2147483647) ASC, row_id ASC
+            LIMIT ?`;
+}
+
+function queueCountersSql(): string {
+    return `SELECT queue_type, policy_hash, generation, version, remaining, due, total, buckets_json, updated_at
+            FROM queue_projection_counters
+            WHERE queue_type = ? AND policy_hash = ?
+            ORDER BY generation DESC, version DESC
+            LIMIT 1`;
+}
+
+function xiuyuanByIdSql(): string {
+    return `SELECT payload_json FROM xiuyuans
+            WHERE id = ?
+              AND NOT EXISTS (
+                SELECT 1 FROM tombstones t
+                WHERE t.kind = 'xiuyuan' AND t.id = xiuyuans.id
+              )`;
+}
+
+function xiuyuanByBlockIdSql(): string {
+    return `SELECT DISTINCT xiuyuans.payload_json
+            FROM cards
+            INNER JOIN xiuyuans ON xiuyuans.id = cards.xiuyuan_id
+            WHERE cards.block_id = ?
+              AND cards.xiuyuan_id IS NOT NULL
+              AND cards.xiuyuan_id != ''
+              AND NOT EXISTS (
+                SELECT 1 FROM tombstones t
+                WHERE t.kind = 'card' AND t.id = cards.id
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM tombstones t
+                WHERE t.kind = 'xiuyuan' AND t.id = xiuyuans.id
+              )
+            ORDER BY xiuyuans.id ASC`;
+}
+
+function getCardsByIds(database: Database, cardIds: string[]): SqlRow[] {
+    if (cardIds.length === 0) {
+        return [];
+    }
+    const placeholders = cardIds.map(() => '?').join(', ');
+    return getAll(database, `SELECT id, payload_json FROM cards WHERE id IN (${placeholders})`, cardIds);
+}
+
+function explainQuery(database: Database, name: string, sql: string, params?: RowValue[]): QueryPlanSummary {
+    try {
+        return {
+            name,
+            detail: getAll(database, `EXPLAIN QUERY PLAN ${sql}`, expandRepeatedParams(sql, params || []))
+                .map((row) => String(row.detail || '')),
+        };
+    } catch (error) {
+        return {
+            name,
+            detail: [`unavailable: ${error instanceof Error ? error.message : String(error)}`],
+        };
+    }
+}
+
+function expandRepeatedParams(sql: string, params: RowValue[]): RowValue[] {
+    const expected = (sql.match(/\?/g) || []).length;
+    if (params.length === expected) {
+        return params;
+    }
+    if (params.length === 0) {
+        return params;
+    }
+    const expanded: RowValue[] = [];
+    for (let index = 0; index < expected; index += 1) {
+        expanded.push(params[Math.min(index, params.length - 1)]);
+    }
+    return expanded;
 }
 
 function getOne(database: Database, sql: string, params?: RowValue[]): SqlRow | null {

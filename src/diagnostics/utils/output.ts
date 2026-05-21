@@ -1,8 +1,11 @@
 type OutputSink = (message: string) => void;
 
-function serializePart(part: unknown): string {
+export function formatDiagnosticsOutputPart(part: unknown): string {
     if (typeof part === 'string') {
         return part;
+    }
+    if (part instanceof Error) {
+        return part.stack || part.message;
     }
 
     try {
@@ -13,7 +16,7 @@ function serializePart(part: unknown): string {
 }
 
 function writeLine(sink: OutputSink, parts: unknown[]): void {
-    const content = parts.map(serializePart).join(' ');
+    const content = parts.map(formatDiagnosticsOutputPart).join(' ');
     sink(`${content}\n`);
 }
 
@@ -46,7 +49,7 @@ export class NodeDiagnosticsOutput implements DiagnosticsOutputPort {
     }
 
     printJson(payload: unknown): void {
-        writeLine(stdoutSink, [serializePart(payload)]);
+        writeLine(stdoutSink, [formatDiagnosticsOutputPart(payload)]);
     }
 }
 

@@ -4,6 +4,36 @@ Last update: 2026-05-21 (Round 424)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-21 - Queue Persistence Legacy Msgpack Retirement
+
+- Task: Close one SQL-redemption deferred debt by removing the queue persistence `queues.msgpack` fallback path from the active runtime Interface.
+- Touched slice: Queue persistence storage ownership; `src/infrastructure/services/QueuePersistenceService.ts`, `src/application/ApplicationContext.ts`, and `src/infrastructure/services/__tests__/QueuePersistenceService.test.ts`.
+- Debt fixed now: `QueuePersistenceService` now requires the SQL queue state repository and fails closed with `SQLite queue repository unavailable` when it is absent. It no longer accepts `FileService` or reads/writes `queues.msgpack` as a production fallback. Tests prove the SQL path still loads/flushes queue state and the missing-SQL path fails explicitly.
+- Debt deferred: Other legacy compatibility reads remain where they are explicit migration or old persisted-shape normalization paths, such as initial SQLite migration from msgpack/review logs and AI/NeuralRoam payload compatibility.
+- Why deferred: Those paths are not the active queue persistence write path and need narrower audits by bounded context before deletion.
+- Next safe step: Add a guard for old storage file tokens or continue mutation ownership audit for Browser batch and sync conflict merge paths.
+- Validation: QueuePersistenceService focused tests, hidden fallback gate, boundary checks, and build passed. Build still reports existing non-blocking i18n hardcoded-string warnings, `package.zip` unlink EPERM zip-pack warnings, and Sass legacy API warnings.
+
+### 2026-05-21 - Runtime SQL Profile Schema Repair
+
+- Task: Fix Runtime SQL profile reporting missing review idempotency schema on legacy DB bytes.
+- Touched slice: SQLite schema repair and diagnostics Runtime SQL profile; `src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`, `src/diagnostics/browserSqlProfile.ts`, and `src/diagnostics/__tests__/browserSqlProfile.test.ts`.
+- Debt fixed now: Added regression proving production `SqliteDatabaseService` upgrades legacy `review_events` tables with `commit_idempotency_key` plus `idx_review_events_commit_idempotency`. Runtime SQL profile now applies equivalent in-memory schema repair before profiling and clones input bytes per scenario, so profiling cannot mutate source bytes or corrupt later scenarios.
+- Debt deferred: Review duplicate-check still uses a temporary B-tree for `ORDER BY reviewed_at, id` after idempotency lookup; no index change now because profile stays under budget.
+- Why deferred: No measured bottleneck. Adding a wider `(commit_idempotency_key, reviewed_at, id)` index would be speculative until larger DB evidence shows duplicate-check cost.
+- Next safe step: Run profile against a larger user library DB before index tuning; continue SQL benefit work on broader mutation ownership.
+- Validation: Targeted schema/profile tests, Runtime SQL profile, hidden fallback gate, boundary checks, and build passed. Build still reports existing non-blocking i18n hardcoded-string warnings, `package.zip` unlink EPERM zip-pack warnings, and Sass legacy API warnings.
+
+### 2026-05-21 - Runtime SQL Profile Evidence
+
+- Task: Start `profile-sql-runtime-benefits` by archiving the completed SQL-first runtime change and adding real-database Runtime SQL profile evidence.
+- Touched slice: Diagnostics SQL runtime profile and OpenSpec workflow; `src/diagnostics/browserSqlProfile.ts`, `src/diagnostics/cli.ts`, `src/diagnostics/utils/output.ts`, `src/diagnostics/__tests__/browserSqlProfile.test.ts`, `src/diagnostics/__tests__/diagnosticsOutput.test.ts`, `package.json`, and `openspec/changes/profile-sql-runtime-benefits/*`.
+- Debt fixed now: Archived `deepen-sql-first-card-runtime` after completion checks and validation. Deepened the Browser-only SQL profile into a Runtime SQL profile Module that reports Browser, Queue Projection, Review feedback, and Xiuyuan sections behind one diagnostic Interface while keeping the old Browser profile command compatible. Diagnostics output now renders `Error` messages explicitly instead of `{}`. The profile uses SQLite bytes/in-memory expansion, rollback-only Review feedback simulation, row counts, budgets, and query-plan summaries.
+- Debt deferred: No immediate index or read Interface change. The 5k expanded real-DB profile stayed within all budgets. Browser and Queue plans still show temporary B-tree ordering in some shapes, and old real DB `review_events` lacks `commit_idempotency_key`, but neither blocks the current profile or proves a bottleneck.
+- Why deferred: Adding indexes from acceptable timings would be speculative. The old `review_events` column gap is compatibility evidence for profiling, not an active runtime write failure in the current schema path.
+- Next safe step: Broaden the Runtime SQL profile with a larger user library DB or generated queue projection rows before changing indexes; keep Xiuyuan `findAll()` as sync/management full enumeration unless a hot UI caller appears.
+- Validation: Runtime SQL profile passed against `phone-siyuanmemo-after-cloud-sync.db` for real, 1k, and 5k scenarios. Targeted diagnostics tests passed. Hidden fallback gate, boundary checks, and build passed. Build still reports existing non-blocking i18n hardcoded-string warnings, `package.zip` unlink EPERM zip-pack warnings, and Sass legacy API warnings.
+
 ### 2026-05-21 - Review Mutation Persistence Module
 
 - Task: Finish the remaining `deepen-sql-first-card-runtime` review mutation and fallback discipline tasks.

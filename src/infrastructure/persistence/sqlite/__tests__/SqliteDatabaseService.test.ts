@@ -232,4 +232,44 @@ describe('SqliteDatabaseService', () => {
       'idx_domain_sync_sanity_snapshots_status',
     ]));
   });
+
+  it('adds review event idempotency column and index to an existing legacy database', async () => {
+    const fileService = new MemorySqliteFileService();
+    const seed = new SqliteDatabaseService(fileService);
+    await seed.init();
+    await seed.runTransaction('seed-legacy-review-events', () => {
+      seed.run('DROP TABLE review_events');
+      seed.run(
+        `CREATE TABLE review_events (
+          id TEXT PRIMARY KEY,
+          card_id TEXT,
+          attempt_id TEXT,
+          rating INTEGER,
+          reviewed_at INTEGER NOT NULL,
+          year INTEGER NOT NULL,
+          month INTEGER NOT NULL,
+          event_type TEXT NOT NULL,
+          payload_json TEXT NOT NULL
+        )`,
+      );
+      seed.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ['event-a', 'card-a', 'attempt-a', 3, 1_700_000_000_001, 2026, 5, 'review-v2', '{}'],
+      );
+    });
+    await seed.persist();
+
+    const database = new SqliteDatabaseService(fileService);
+    await database.init();
+
+    const columns = database.getAll<{ name: string }>('PRAGMA table_info(review_events)').map((row) => row.name);
+    expect(columns).toContain('commit_idempotency_key');
+    expect(database.getOne<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+      ['idx_review_events_commit_idempotency'],
+    )).toEqual({ name: 'idx_review_events_commit_idempotency' });
+    expect(database.getOne<{ count: number }>('SELECT COUNT(*) AS count FROM review_events')?.count).toBe(1);
+  });
 });

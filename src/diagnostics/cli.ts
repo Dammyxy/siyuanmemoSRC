@@ -9,12 +9,13 @@
  * - report
  * - algorithm-state
  * - browser-sql-profile
+ * - runtime-sql-profile
  */
 
 import minimist from 'minimist';
 import * as path from 'path';
 import { runAlgorithmStateDiagnosticCommand } from './algorithmStateDiagnostic.ts';
-import { runBrowserSqlProfileCommand } from './browserSqlProfile.ts';
+import { runBrowserSqlProfileCommand, runRuntimeSqlProfileCommand } from './browserSqlProfile.ts';
 import { ArchitectureScanner } from './scanners/ArchitectureScanner.ts';
 import { InterfaceValidator } from './validators/InterfaceValidator.ts';
 import { MigrationAnalyzer } from './analyzers/MigrationAnalyzer.ts';
@@ -41,7 +42,7 @@ async function run() {
     const { command, rootDir, output, compatOutput, dbPath } = parseArgs();
 
     if (!command) {
-        diagnosticsOutput.error('Usage: diagnostics <scan|validate|analyze|report|algorithm-state|browser-sql-profile> [--root <path>] [--output <path>] [--db <path>]');
+        diagnosticsOutput.error('Usage: diagnostics <scan|validate|analyze|report|algorithm-state|browser-sql-profile|runtime-sql-profile> [--root <path>] [--output <path>] [--db <path>]');
         process.exit(1);
     }
 
@@ -124,6 +125,15 @@ async function run() {
         case 'browser-sql-profile': {
             logProgress('Running Browser SQL profile...');
             const result = await runBrowserSqlProfileCommand({ dbPath, output: diagnosticsOutput });
+            if (!result.pass) {
+                process.exitCode = 2;
+            }
+            break;
+        }
+
+        case 'runtime-sql-profile': {
+            logProgress('Running Runtime SQL profile...');
+            const result = await runRuntimeSqlProfileCommand({ dbPath, output: diagnosticsOutput });
             if (!result.pass) {
                 process.exitCode = 2;
             }
