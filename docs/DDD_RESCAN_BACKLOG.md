@@ -4,6 +4,26 @@ Last update: 2026-05-22 (Round 427)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-22 - NeuralRoam Single Review Surface
+
+- Task: Continue OpenSpec `add-neural-roam-routes` by enforcing the v1 single active NeuralRoam review surface lifecycle.
+- Touched slice: Review surface lifecycle and NeuralRoam route boundary; `src/application/managers/DialogManager.ts`, `src/application/managers/TabManager.ts`, route-switch adapter tests, and OpenSpec task checklist.
+- Debt fixed now: NeuralRoam no longer follows the generic review "open in new tab" default. `DialogManager.openNeuralRoamDialog()` first reuses an existing NeuralRoam review tab when available, and `TabManager` reuses/focuses the latest NeuralRoam review tab instead of opening a second tab or window. Existing route switches continue through `UnifiedQueueStrategy.switchNeuralRoamRoute()`, so the open surface is the one whose current item, pending next/start, cursor, transaction runtime, and cache are reset.
+- Debt deferred: Review header route display/selector, Browser route management warning/confirmation, temporary route save/discard prompts, and backend route management commands remain open in the OpenSpec checklist.
+- Why deferred: This slice closed the global Review surface lifecycle. Route UI controls and Browser confirmation need their own UI and command-contract pass.
+- Next safe step: Implement Review header route display and selector actions on top of the single-surface lifecycle and existing `switchNeuralRoamRoute()` boundary.
+- Validation: `pnpm vitest run src\application\managers\__tests__\DialogManager.review-header-variant.test.ts src\application\managers\__tests__\TabManager.neural-review-tab-sync.spec.ts src\application\__tests__\UnifiedQueueStrategy.neural-roam.test.ts`.
+
+### 2026-05-22 - NeuralRoam Route Switch Review Boundary
+
+- Task: Continue OpenSpec `add-neural-roam-routes` by closing legacy migration checklist drift and adding a route-switch hard boundary for NeuralRoam review state.
+- Touched slice: Queue and Review adapter route boundary; `src/core/queue/domain/NeuralRoamQueue.ts`, `src/application/adapters/UnifiedQueueStrategy.ts`, `src/application/adapters/review-session/NeuralRoamAdvanceCoordinator.ts`, `src/types/unified-data-source.ts`, focused tests, and OpenSpec task checklist.
+- Debt fixed now: `NeuralRoamQueue` now exposes route listing/switching through its route catalog instead of forcing callers to mutate route state out of band. `UnifiedQueueStrategy.switchNeuralRoamRoute()` switches via the queue contract and clears current item, pending backend next, pending focus start, forward/back cursor state, review transaction history, feedback mutation state, and cache before the next advance. The stale unchecked 2.1 task now matches the already-tested legacy migration implementation.
+- Debt deferred: Single active NeuralRoam review surface coordination, visible Review route selector/header controls, Browser route management, temporary route prompts, and backend route management commands remain open in the OpenSpec checklist.
+- Why deferred: This slice closed the application/queue hard boundary only; wiring global Review/Browser surfaces needs a separate UI lifecycle pass so one open surface can be found and reset deliberately.
+- Next safe step: Implement Review header route display/selector on top of `switchNeuralRoamRoute()`, then connect Browser route switching to the same reset boundary with the required warning.
+- Validation: `pnpm vitest run src\application\adapters\review-session\__tests__\NeuralRoamAdvanceCoordinator.test.ts`; `pnpm vitest run src\application\__tests__\UnifiedQueueStrategy.neural-roam.test.ts`; `pnpm vitest run src\core\queue\neural\__tests__\NeuralRoamRouteLegacyMigration.test.ts src\core\queue\domain\__tests__\NeuralRoamQueue.test.ts`.
+
 ### 2026-05-22 - NeuralRoam Active Route Queue Sync
 
 - Task: Continue OpenSpec `add-neural-roam-routes` by closing the Queue-layer active route behavior for Orbit assets/session and route log limits.

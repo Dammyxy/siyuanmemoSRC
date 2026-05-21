@@ -89,6 +89,7 @@ function createQueueStub(): IReviewQueue {
     refresh: vi.fn(async () => {}),
     clear: vi.fn(async () => {}),
     getSize: vi.fn(async () => 0),
+    switchRoute: vi.fn(async () => ({})),
     syncFromBackendState: vi.fn(async () => {}),
     sort: vi.fn(async () => {}),
     subscribe: vi.fn(),
@@ -218,12 +219,12 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
       queueType: 'neural-roam',
       currentItem: null,
       feedback: null,
-      startFromFocus: {
+      startFromFocus: expect.objectContaining({
         blockId: 'concept-focus',
         includeFocusAsFirst: true,
         resetHistory: false,
         startNewSession: true,
-      },
+      }),
     }));
   });
 
@@ -360,6 +361,31 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
     expect(previous?.id).toBe(topicNode.id);
     expect(preview).not.toHaveBeenCalled();
     expect(previous && 'nextDues' in previous).toBe(false);
+  });
+
+  it('switches neural-roam route through queue contract and clears pending review advance state', async () => {
+    const queue = createQueueStub() as IReviewQueue & {
+      switchRoute: ReturnType<typeof vi.fn>;
+    };
+    const active = createSyntheticNeuralCard({ id: 'active-node', blockId: 'active-node' });
+    const pending = createSyntheticNeuralCard({ id: 'old-route-pending', blockId: 'old-route-pending' });
+    const newRouteNext = createSyntheticNeuralCard({ id: 'new-route-node', blockId: 'new-route-node' });
+    const { strategy, manager } = createStrategyWithQueue(queue);
+    manager.neuralRoamAdvance.mockResolvedValueOnce(createAdvanceResult(createAdvanceItem(pending)));
+
+    await strategy.onFeedback(active, { action: 'skip' });
+    await strategy.switchNeuralRoamRoute('route-new');
+    manager.neuralRoamAdvance.mockResolvedValueOnce(createAdvanceResult(createAdvanceItem(newRouteNext)));
+
+    const next = await strategy.next();
+
+    expect(queue.switchRoute).toHaveBeenCalledWith('route-new');
+    expect(next?.id).toBe('new-route-node');
+    expect(manager.neuralRoamAdvance).toHaveBeenLastCalledWith(expect.objectContaining({
+      currentItem: null,
+      feedback: null,
+      startFromFocus: null,
+    }));
   });
 
   it('syncs the local neural queue after backend next advances the track state', async () => {

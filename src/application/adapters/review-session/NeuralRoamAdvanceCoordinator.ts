@@ -46,6 +46,12 @@ export class NeuralRoamAdvanceCoordinator {
     this.pendingStartFromFocus = null;
   }
 
+  clearRouteBoundaryState(): void {
+    this.reset();
+    this.deps.cursor.reset();
+    this.deps.currentItem.clear();
+  }
+
   startFromFocusOnNextAdvance(request: BackendNeuralRoamStartFromFocusRequest | null | undefined): void {
     const blockId = String(request?.blockId || '').trim();
     if (!blockId) {

@@ -51,6 +51,7 @@ import type { NeuralRoamCardFacts } from '../neural/NeuralRoamCardFacts';
 import type {
   NeuralRoamRouteCatalog,
   NeuralRoamRouteHistoryEvent,
+  NeuralRoamRouteListItem,
   NeuralRoamRoutePoolEntry,
   NeuralRoamRouteSnapshot,
 } from '../neural/routes';
@@ -1179,6 +1180,24 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public getEngineMode(): NeuralEngineMode {
     return this.engineMode;
+  }
+
+  public async listRoutes(): Promise<NeuralRoamRouteListItem[]> {
+    if (!this.routeCatalog) {
+      throw new Error('NEURAL_ROAM_ROUTE_UNAVAILABLE: route catalog is not configured');
+    }
+    await this.ensureInitialLoad();
+    return this.routeCatalog.listRoutes();
+  }
+
+  public async switchRoute(routeId: string): Promise<NeuralRoamRouteSnapshot> {
+    if (!this.routeCatalog) {
+      throw new Error('NEURAL_ROAM_ROUTE_UNAVAILABLE: route catalog is not configured');
+    }
+    await this.ensureInitialLoad();
+    const route = await this.routeCatalog.switchRoute({ routeId });
+    await this.syncActiveRouteStateIfChanged();
+    return route;
   }
 
   public async setEngineMode(

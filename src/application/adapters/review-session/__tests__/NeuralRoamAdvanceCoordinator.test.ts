@@ -185,4 +185,34 @@ describe('NeuralRoamAdvanceCoordinator', () => {
     expect(currentItem.current).toBeNull();
     expect(submitAdvance).not.toHaveBeenCalled();
   });
+
+  it('clears pending start, pending next, current item, and cursor state at a route boundary', async () => {
+    const active = card('active-node');
+    const next = card('next-node');
+    const { coordinator, cursor, currentItem, submitAdvance } = createCoordinator();
+    cursor.load([active, next]);
+    cursor.pushForward(next);
+    currentItem.select(active);
+    coordinator.startFromFocusOnNextAdvance({
+      blockId: 'old-route-focus',
+      includeFocusAsFirst: true,
+    });
+    submitAdvance.mockResolvedValueOnce(advanceResult(advanceItem(next)));
+    await coordinator.handleFeedback(active, { action: 'skip' });
+
+    coordinator.clearRouteBoundaryState();
+    submitAdvance.mockResolvedValueOnce(advanceResult(advanceItem(card('new-route-node'))));
+
+    const outcome = await coordinator.next();
+
+    expect(currentItem.current?.id).toBe('new-route-node');
+    expect(outcome?.kind).toBe('next');
+    expect(cursor.cached()).toEqual([]);
+    expect(cursor.hasForward()).toBe(false);
+    expect(submitAdvance).toHaveBeenLastCalledWith(expect.objectContaining({
+      currentItem: null,
+      feedback: null,
+      startFromFocus: null,
+    }));
+  });
 });

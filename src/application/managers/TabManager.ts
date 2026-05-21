@@ -480,6 +480,8 @@ interface ReviewTabOpenOptions {
   removeCurrentTab?: boolean;
 }
 
+type NeuralReviewSurfaceSyncResult = 'synced' | 'missing' | 'failed';
+
 export interface BrowserTabOpenOptions {
   initialState?: BrowserOpenState | null;
   position?: 'right' | 'bottom';
@@ -1545,6 +1547,33 @@ export class TabManager {
     };
   }
 
+  private async reuseExistingNeuralReviewSurface(options?: {
+    fallbackNodeId?: string | null;
+  }): Promise<NeuralReviewSurfaceSyncResult> {
+    const existing = this.getLatestNeuralReviewTabRuntime();
+    if (!existing) {
+      return 'missing';
+    }
+    if (!existing.bridge || typeof existing.bridge.syncToNeuralQueueCurrentNode !== 'function') {
+      return this.focusReviewTab(existing) ? 'synced' : 'failed';
+    }
+
+    try {
+      const synced = await existing.bridge.syncToNeuralQueueCurrentNode(options?.fallbackNodeId ?? null);
+      if (!synced) {
+        return 'failed';
+      }
+      return this.focusReviewTab(existing) ? 'synced' : 'failed';
+    } catch (error) {
+      logger.error('Failed to reuse existing NeuralRoam review surface', {
+        customId: existing.customId,
+        title: existing.title,
+        error,
+      });
+      return 'failed';
+    }
+  }
+
   private normalizeReviewTabData(data: Partial<ReviewTabData> | undefined): ReviewTabData {
     const providerId = typeof data?.providerId === 'string' && data.providerId
       ? data.providerId
@@ -1716,6 +1745,14 @@ export class TabManager {
   ): Promise<void> {
     try {
       const tabData = this.resolveReviewTabData(options);
+      if (tabData.queueType === QueueType.NeuralRoam && tabOpenOptions.removeCurrentTab !== true) {
+        const reused = await this.reuseExistingNeuralReviewSurface({
+          fallbackNodeId: tabData.neuralRoamStartFromFocus?.blockId ?? null,
+        });
+        if (reused !== 'missing') {
+          return;
+        }
+      }
       const reviewModelType = this.buildCustomModelType(this.REVIEW_TAB_TYPE);
       const position = tabOpenOptions.position ?? options.position;
       const prepare = this.prepareQueueBeforeOpen(tabData.queueType);
@@ -1750,6 +1787,14 @@ export class TabManager {
         throw new Error('ipcRenderer is unavailable');
       }
       const tabData = this.resolveReviewTabData(options);
+      if (tabData.queueType === QueueType.NeuralRoam) {
+        const reused = await this.reuseExistingNeuralReviewSurface({
+          fallbackNodeId: tabData.neuralRoamStartFromFocus?.blockId ?? null,
+        });
+        if (reused !== 'missing') {
+          return;
+        }
+      }
       const reviewModelType = this.buildCustomModelType(this.REVIEW_TAB_TYPE);
       this.triggerQueuePreparationInBackground(tabData.queueType);
 

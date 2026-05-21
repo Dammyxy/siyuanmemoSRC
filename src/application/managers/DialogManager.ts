@@ -79,6 +79,7 @@ const logger = createLogger('DialogManager');
 
 type VueDialogHandle = ReturnType<typeof createVueDialog>;
 type PluginWithMobileFlag = Plugin & { isMobile?: boolean };
+type NeuralReviewSurfaceSyncResult = 'synced' | 'missing' | 'failed';
 type MobileLauncherQueueId =
   | 'retrieval'
   | 'incremental-learning'
@@ -388,7 +389,7 @@ export class DialogManager implements IDialogManager {
     }
 
     const allowNewTab = options.allowNewTab !== false;
-    if (allowNewTab && this.shouldOpenReviewInNewTabByDefault()) {
+    if (allowNewTab && options.queueType !== QueueType.NeuralRoam && this.shouldOpenReviewInNewTabByDefault()) {
       const tabManager = this.context.getTabManager?.();
       if (tabManager?.openReviewTabInNewTab) {
         tabManager.openReviewTabInNewTab(this.buildReviewTabOptions(options));
@@ -1065,6 +1066,19 @@ export class DialogManager implements IDialogManager {
       });
     }
   }
+
+  private async syncExistingNeuralReviewSurface(options?: {
+    fallbackNodeId?: string | null;
+  }): Promise<NeuralReviewSurfaceSyncResult> {
+    const tabManager = this.context.getTabManager?.();
+    if (typeof tabManager?.syncExistingNeuralReviewTabToCurrentNode !== 'function') {
+      return 'missing';
+    }
+    return await tabManager.syncExistingNeuralReviewTabToCurrentNode({
+      fallbackNodeId: options?.fallbackNodeId ?? null,
+      focus: true,
+    });
+  }
   
   /**
    * 打开提取练习对话框
@@ -1208,6 +1222,19 @@ export class DialogManager implements IDialogManager {
       title,
       surface: 'open-neural-roam-dialog',
     }))) return;
+
+    const existingSurface = await this.syncExistingNeuralReviewSurface({
+      fallbackNodeId: options?.focusBlockId ?? null,
+    });
+    if (existingSurface === 'synced') {
+      logger.info('[DialogManager] Reused existing NeuralRoam review surface');
+      return;
+    }
+    if (existingSurface === 'failed') {
+      await this.siyuanApi.pushErrMsg(this.context.getI18n()?.neuralReviewFailed || '神经复习启动失败');
+      return;
+    }
+
     this.destroyCurrentReviewDialog();
 
     try {

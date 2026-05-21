@@ -484,6 +484,8 @@ export interface HyperspaceExcerptInjectionContext {
 }
 
 export interface NeuralRoamSessionQueue {
+    listRoutes?(): Promise<import('@/core/queue/neural/routes').NeuralRoamRouteListItem[]>;
+    switchRoute?(routeId: string): Promise<import('@/core/queue/neural/routes').NeuralRoamRouteSnapshot>;
     getEngineMode(): NeuralEngineMode;
     setEngineMode(
         mode: NeuralEngineMode,

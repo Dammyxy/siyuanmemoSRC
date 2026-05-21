@@ -6,6 +6,41 @@ import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
 import { QueueType } from '@/types/unified-data-source';
 import { DialogManager } from '../DialogManager';
 
+function cleanDomainSyncStatus() {
+  return {
+    ok: true,
+    ledger: {
+      operationCount: 1,
+      newestOperationAt: 1,
+      operationTypes: {},
+    },
+    processedSources: {
+      recent: [],
+      skipped: [],
+      totalProcessed: 0,
+      totalSkipped: 0,
+    },
+    sanity: {
+      status: 'clean',
+      checkedAt: 1,
+      ledgerOperationCount: 1,
+      pendingImportCount: 0,
+      processedSourceCount: 0,
+      skippedSourceCount: 0,
+      repairableDivergenceCount: 0,
+      divergentCardCount: 0,
+      reasonCounts: {},
+      affectedCardIds: [],
+      truncated: false,
+    },
+    repair: {
+      available: false,
+      repairableDivergenceCount: 0,
+      latestPlanId: null,
+    },
+  };
+}
+
 const { unifiedQueueStrategyMock, unifiedReviewAdapterMock } = vi.hoisted(() => ({
   unifiedQueueStrategyMock: vi.fn().mockImplementation(() => ({})),
   unifiedReviewAdapterMock: vi.fn().mockImplementation((options) => ({ options })),
@@ -97,6 +132,7 @@ function createDialogManager(options?: {
 
   const tabManager = {
     openReviewTabInNewTab: vi.fn(),
+    syncExistingNeuralReviewTabToCurrentNode: vi.fn().mockResolvedValue('missing'),
   };
 
   const context = {
@@ -125,6 +161,7 @@ function createDialogManager(options?: {
     }),
     getReviewQueuePreparationService: vi.fn().mockReturnValue(preparationService),
     getTabManager: vi.fn().mockReturnValue(tabManager),
+    readDomainSyncDiagnostics: vi.fn().mockResolvedValue(cleanDomainSyncStatus()),
   } as any;
 
   const plugin = {
@@ -176,7 +213,7 @@ describe('DialogManager review header variants', () => {
     ]);
   });
 
-  it('suppresses stale tab snapshot recovery when concept roam starts a fresh neural session', async () => {
+  it('keeps NeuralRoam in one dialog surface even when new-tab default is enabled', async () => {
     const { dialogManager, tabManager } = createDialogManager({
       reviewOpenInNewTabByDefault: true,
     });
@@ -187,16 +224,29 @@ describe('DialogManager review header variants', () => {
       startNewSession: true,
     });
 
-    expect(tabManager.openReviewTabInNewTab).toHaveBeenCalledWith(expect.objectContaining({
+    expect(tabManager.openReviewTabInNewTab).not.toHaveBeenCalled();
+    expect(createUnifiedReviewDialog).toHaveBeenCalledWith(expect.objectContaining({
       headerVariant: 'neural-roam',
-      suppressSnapshotRecovery: true,
-      neuralRoamStartFromFocus: {
+      neuralRoamStartFromFocus: expect.objectContaining({
         blockId: 'concept-block',
         includeFocusAsFirst: true,
         resetHistory: false,
         startNewSession: true,
-      },
+      }),
     }));
+  });
+
+  it('reuses an existing NeuralRoam review tab instead of opening a dialog', async () => {
+    const { dialogManager, tabManager } = createDialogManager();
+    tabManager.syncExistingNeuralReviewTabToCurrentNode.mockResolvedValue('synced');
+
+    await dialogManager.openNeuralRoamDialog({ focusBlockId: 'focus-block' });
+
+    expect(tabManager.syncExistingNeuralReviewTabToCurrentNode).toHaveBeenCalledWith({
+      fallbackNodeId: 'focus-block',
+      focus: true,
+    });
+    expect(createUnifiedReviewDialog).not.toHaveBeenCalled();
   });
 
   it('passes exact cardIds to subset review queues and counts cards in the title', async () => {

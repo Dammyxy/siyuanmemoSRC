@@ -1585,6 +1585,43 @@ describe('NeuralRoamQueue', () => {
     expect(await queue.getSize()).toBe(1);
   });
 
+  it('switchRoute applies the selected route and clears route-local pending review state', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [
+        conceptCard('concept-default'),
+        conceptCard('concept-second'),
+      ],
+    });
+    const { catalog, repository } = createRouteCatalog();
+    const queue = new NeuralRoamQueue(manager.manager, persistence, {
+      routeCatalog: catalog,
+    });
+
+    await queue.load();
+    mockNeuralEngine(queue);
+    await queue.setSeedEntry('concept-default', true);
+    await queue.setCurrentFocus('concept-default', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    const secondRoute = await catalog.createRoute({ name: '第二航线' });
+    await queue.setSeedEntry('concept-second', true);
+    await queue.setCurrentFocus('concept-second', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    await queue.switchRoute(DEFAULT_NEURAL_ROAM_ROUTE_ID);
+
+    const state = await repository.loadState();
+    expect(state?.activeRouteId).toBe(DEFAULT_NEURAL_ROAM_ROUTE_ID);
+    expect(queue.getSeedSnapshot().map((entry) => entry.nodeId)).toEqual(['concept-default']);
+    expect(queue.getNavigationState().currentNodeId).toBe('concept-default');
+    expect(state?.routes.find((route) => route.metadata.id === secondRoute.metadata.id)?.seedPool.map((entry) => entry.nodeId))
+      .toEqual(['concept-second']);
+  });
+
   it('enforces the configured history limit on the active route log when saving route snapshots', async () => {
     const orbitHistory = Array.from({ length: 205 }, (_, index) => createHistoryEntry(index, {
       engineMode: 'orbit',

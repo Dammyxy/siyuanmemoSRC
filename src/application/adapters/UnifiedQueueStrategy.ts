@@ -77,6 +77,10 @@ type NeuralRoamBackendStateSyncQueue = IReviewQueue & {
     syncFromBackendState?: (state: Record<string, unknown>) => Promise<void>;
 };
 
+type NeuralRoamRouteSwitchQueue = IReviewQueue & {
+    switchRoute?: (routeId: string) => Promise<unknown>;
+};
+
 function supportsInsertAt(queue: IReviewQueue): queue is QueueWithInsertAt {
     const candidate = queue as Partial<QueueWithInsertAt>;
     return typeof candidate.insertAt === 'function';
@@ -861,6 +865,27 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     public startNeuralRoamFromFocusOnNextAdvance(request: BackendNeuralRoamStartFromFocusRequest | null | undefined): void {
         this.neuralRoamAdvance.startFromFocusOnNextAdvance(request);
+    }
+
+    public async switchNeuralRoamRoute(routeId: string): Promise<void> {
+        if (this.queueType !== QueueType.NeuralRoam) {
+            throw new Error(`Queue ${this.queueType} does not support NeuralRoam route switching`);
+        }
+        const queue = this.queue as NeuralRoamRouteSwitchQueue;
+        if (typeof queue.switchRoute !== 'function') {
+            throw new Error('NEURAL_ROAM_ROUTE_UNAVAILABLE: queue route switch contract is unavailable');
+        }
+
+        await queue.switchRoute(routeId);
+        this.transactionRuntime.clear();
+        this.feedbackMutation = null;
+        this.neuralRoamAdvance.clearRouteBoundaryState();
+        this.cacheManager.clear();
+        this.invalidateCache();
+        logger.info('[SiYuanMemo][UnifiedQueueStrategy] NeuralRoam route switched and review session boundary cleared:', {
+            queueType: this.queueType,
+            routeId,
+        });
     }
 
     private async handleNeuralRoamAdvanceFeedback(

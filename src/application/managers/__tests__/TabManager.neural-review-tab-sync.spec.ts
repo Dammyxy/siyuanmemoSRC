@@ -242,6 +242,34 @@ describe('TabManager neural review tab sync', () => {
     expect(runtime.tab.parent.switchTab).toHaveBeenCalledWith(runtime.tab.headElement);
   });
 
+  it('reuses the existing neural review tab instead of opening a second tab', async () => {
+    const { tabManager, reviewRegistration } = createManager();
+    const runtime = createRuntime('review-neural-singleton', QueueType.NeuralRoam);
+    const bridge = {
+      syncToNeuralQueueCurrentNode: vi.fn().mockResolvedValue(true),
+    };
+
+    mocks.nextMountedVm = bridge;
+    await reviewRegistration.init.call(runtime);
+
+    tabManager.openReviewTabInNewTab({
+      title: '神经漫游',
+      queue: { getType: () => QueueType.NeuralRoam },
+      neuralRoamStartFromFocus: {
+        blockId: 'focus-block',
+        includeFocusAsFirst: true,
+        resetHistory: false,
+        startNewSession: true,
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mocks.openTab).not.toHaveBeenCalled();
+    expect(bridge.syncToNeuralQueueCurrentNode).toHaveBeenCalledWith('focus-block');
+    expect(runtime.tab.parent.switchTab).toHaveBeenCalledWith(runtime.tab.headElement);
+  });
+
   it('restores temporary NeuralRoam engine mode when the tab closes without manual mode change', async () => {
     const { reviewRegistration, queueStub } = createManager();
     const runtime = createRuntime('review-neural-temp', QueueType.NeuralRoam);
