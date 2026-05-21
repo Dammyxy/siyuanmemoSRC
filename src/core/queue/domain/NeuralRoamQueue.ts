@@ -1213,6 +1213,35 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     return route;
   }
 
+  public async createRoute(input: { name?: string } = {}): Promise<NeuralRoamRouteSnapshot> {
+    if (!this.routeCatalog) {
+      throw new Error('NEURAL_ROAM_ROUTE_UNAVAILABLE: route catalog is not configured');
+    }
+    await this.ensureInitialLoad();
+    const route = await this.routeCatalog.createRoute({ name: input.name });
+    await this.syncActiveRouteStateIfChanged();
+    return route;
+  }
+
+  public async renameRoute(routeId: string, name: string): Promise<NeuralRoamRouteSnapshot> {
+    if (!this.routeCatalog) {
+      throw new Error('NEURAL_ROAM_ROUTE_UNAVAILABLE: route catalog is not configured');
+    }
+    await this.ensureInitialLoad();
+    const route = await this.routeCatalog.renameRoute({ routeId, name });
+    await this.syncActiveRouteStateIfChanged();
+    return route;
+  }
+
+  public async deleteRoute(routeId: string): Promise<void> {
+    if (!this.routeCatalog) {
+      throw new Error('NEURAL_ROAM_ROUTE_UNAVAILABLE: route catalog is not configured');
+    }
+    await this.ensureInitialLoad();
+    await this.routeCatalog.deleteRoute({ routeId });
+    await this.syncActiveRouteStateIfChanged();
+  }
+
   public async resolveTemporaryRouteCloseAction(): Promise<
     | { kind: 'none' }
     | { kind: 'discard-clean'; routeId: string; previousRouteId: string | null }

@@ -54,10 +54,10 @@
 
 ## 7. Review UI
 
-- [ ] 7.1 Add current route display to NeuralRoam Review header.
-- [ ] 7.2 Add route selector menu with switch route, create route, rename route, delete route, save temporary route, open route log, and open Browser NeuralRoam panel actions.
-- [ ] 7.3 Switching routes from Review clears the current card and fetches from the selected route.
-- [ ] 7.4 Show current-route counts in the Review header and per-route counts in the route selector where available.
+- [x] 7.1 Add current route display to NeuralRoam Review header.
+- [x] 7.2 Add route selector menu with switch route, create route, rename route, delete route, save temporary route, open route log, and open Browser NeuralRoam panel actions.
+- [x] 7.3 Switching routes from Review clears the current card and fetches from the selected route.
+- [x] 7.4 Show current-route counts in the Review header and per-route counts in the route selector where available.
 - [x] 7.5 Ensure temporary route close/save/discard prompts are reachable from Review close lifecycle.
 
 ## 8. SRS Browser NeuralRoam Panel
@@ -84,7 +84,7 @@
 - [x] 10.5 Add temporary route tests for clean discard, delta prompt, save-in-place, and replacing one temporary route with another.
 - [x] 10.6 Add route history tests for chronological non-deduped events across both engines and no recommendation impact.
 - [x] 10.7 Add SQL repository tests for route metadata, pool entries, route history pagination, session snapshots, and delete/discard cleanup.
-- [ ] 10.8 Add Review header/selector tests for route display, switching reset, temporary save/discard actions, and route counts.
+- [x] 10.8 Add Review header/selector tests for route display, switching reset, temporary save/discard actions, and route counts.
 - [ ] 10.9 Add SRS Browser NeuralRoam panel tests for route-aware concept pool/station management and route log browsing.
 - [ ] 10.10 Run targeted NeuralRoam, backend advance, Review, Browser, SQL repository, and migration tests.
 - [ ] 10.11 Run `pnpm run check:boundaries` and `pnpm build`.

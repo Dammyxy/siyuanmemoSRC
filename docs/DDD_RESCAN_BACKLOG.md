@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-22 (Round 427)
+Last update: 2026-05-22 (Round 428)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-22 - NeuralRoam Review Route Selector
+
+- Task: Continue OpenSpec `add-neural-roam-routes` by closing the NeuralRoam Review header route display, route selector actions, route switching reset, and Review selector tests.
+- Touched slice: Review UI and Queue route command contract; `src/ui/review/v2/ReviewHeader.vue`, `src/ui/review/v2/ReviewView.vue`, `src/ui/review/v2/types.ts`, `src/core/queue/domain/NeuralRoamQueue.ts`, `src/types/unified-data-source.ts`, i18n, focused Review/Queue tests, and OpenSpec task checklist.
+- Debt fixed now: Review now shows a compact Siyuan-native route chip with current route name and current-route counts. The route menu exposes switch, create, rename, delete, save temporary, route log, and Browser NeuralRoam panel actions while staying behind queue/application contracts. Route switching uses `UnifiedQueueStrategy.switchNeuralRoamRoute()` plus Review session reload instead of UI-side SQL or direct route-state mutation. New tests cover route chip rendering, per-route counts, selector actions, temporary save, and route switch reload behavior.
+- Debt deferred: SRS Browser NeuralRoam panel route management, route-aware Browser concept/station management, Browser route log browsing, Browser-to-Review reset confirmation, and backend route command/advance contract tasks remain open in OpenSpec.
+- Why deferred: This slice intentionally stayed inside Review plus existing queue contract boundaries. Browser management and backend route contracts are separate surfaces with different ownership and tests.
+- Next safe step: Implement SRS Browser NeuralRoam route panel actions and route-aware pool/station/log reads, then close backend route command tasks.
+- Validation: `pnpm vitest run src\ui\review\v2\__tests__\ReviewHeader.spec.ts src\ui\review\v2\__tests__\ReviewView.queue-switch.spec.ts`; `pnpm vitest run src\core\queue\domain\__tests__\NeuralRoamQueue.test.ts src\core\queue\neural\__tests__\NeuralRoamRouteCatalog.test.ts src\application\services\__tests__\NeuralRoamEntryActionService.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-22 - NeuralRoam Temporary Route Lifecycle
 

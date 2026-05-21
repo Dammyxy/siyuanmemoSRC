@@ -179,6 +179,41 @@ describe('ReviewHeader', () => {
     expect(wrapper2.get('.siyuanmemo-review-header__queue-switch').text()).toBe('提取练习');
   });
 
+  it('renders neural-roam route chip and emits route menu action', async () => {
+    const wrapper = mount(ReviewHeader, {
+      props: {
+        header: createHeaderState(),
+        meta: {
+          transition: 'slide-left',
+          queueProgress: {
+            queueType: 'neural-roam',
+            queueLabel: 'neural-roam',
+            completed: 2,
+            remaining: 7,
+            total: 9,
+          },
+        },
+        isMobile: false,
+        mode: 'dialog',
+        routeControl: {
+          label: '航线',
+          name: '天体物理',
+          detail: '概念 3 · 空间站 2 · 日志 7',
+          temporary: false,
+          disabled: false,
+        },
+      },
+    });
+
+    const routeButton = wrapper.get('.siyuanmemo-review-header__route');
+    expect(routeButton.text()).toContain('航线');
+    expect(routeButton.text()).toContain('天体物理');
+    expect(routeButton.attributes('title')).toContain('概念 3');
+
+    await routeButton.trigger('click');
+    expect(wrapper.emitted('route-menu')).toBeTruthy();
+  });
+
   it('keeps the summary chip mounted between filter-group and neural-roam toolbar variants in native-dialog mode', () => {
     const filterHeader = createHeaderState();
     filterHeader.toolbar = [

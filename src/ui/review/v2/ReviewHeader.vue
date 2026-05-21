@@ -30,6 +30,21 @@
         <span class="siyuanmemo-review-header__queue-switch-text">{{ displayTitle }}</span>
       </button>
 
+      <button
+        v-if="props.routeControl"
+        type="button"
+        class="siyuanmemo-review-header__route"
+        :class="{ 'siyuanmemo-review-header__route--temporary': props.routeControl.temporary }"
+        :title="routeControlTitle"
+        :aria-label="routeControlAriaLabel"
+        :disabled="props.routeControl.disabled"
+        @click="handleRouteClick"
+      >
+        <span class="siyuanmemo-review-header__route-label">{{ props.routeControl.label }}</span>
+        <span class="siyuanmemo-review-header__route-name">{{ props.routeControl.name }}</span>
+        <svg class="siyuanmemo-review-header__route-icon"><use xlink:href="#iconDown"></use></svg>
+      </button>
+
       <div
         ref="counterAreaRef"
         class="siyuanmemo-review-header__summary-wrap"
@@ -155,7 +170,7 @@ import { getHeaderToneColor, getPriorityVisualToken } from '@/ui/shared/cardVisu
 import { getNeuralEngineLabel } from '@/ui/shared/neuralRoamLabels';
 import type { NeuralNavigationState } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
-import type { ReviewHeaderCounterBadge, ReviewUIState } from './types';
+import type { ReviewHeaderCounterBadge, ReviewHeaderRouteControl, ReviewUIState } from './types';
 
 const props = defineProps<{
   header: ReviewUIState['header'];
@@ -169,6 +184,7 @@ const props = defineProps<{
   isMobile?: boolean;
   nativeDialogTitlebar?: boolean;
   navigationState?: NeuralNavigationState | null;
+  routeControl?: ReviewHeaderRouteControl | null;
 }>();
 
 const emit = defineEmits<{
@@ -177,6 +193,7 @@ const emit = defineEmits<{
   (e: 'context', payload: { id: string; openNewTab: boolean }): void;
   (e: 'breadcrumb-click', crumb: { icon?: string; text: string; id?: string; action?: string }, index: number): void;
   (e: 'queue-switch', event: MouseEvent): void;
+  (e: 'route-menu', event: MouseEvent): void;
 }>();
 
 const logger = createLogger('ReviewHeader');
@@ -225,6 +242,22 @@ const displayTitle = computed(() => (
   String(props.title || props.header?.title || props.header?.stats?.queueName || t('reviewTitle', 'Review')).trim()
     || t('reviewTitle', 'Review')
 ));
+
+const routeControlTitle = computed(() => {
+  const route = props.routeControl;
+  if (!route) {
+    return '';
+  }
+  return [route.name, route.detail].filter(Boolean).join(' · ');
+});
+
+const routeControlAriaLabel = computed(() => {
+  const route = props.routeControl;
+  if (!route) {
+    return '';
+  }
+  return interpolate(t('switchNeuralRoamRouteAriaLabel', '切换航线：{name}'), { name: route.name });
+});
 
 const visibleCounterValue = computed(() => {
   const summaryValue = Number(counterSummary.value?.value);
@@ -610,6 +643,11 @@ function handleQueueSwitchClick(event: MouseEvent): void {
   emit('queue-switch', event);
 }
 
+function handleRouteClick(event: MouseEvent): void {
+  event.stopPropagation();
+  emit('route-menu', event);
+}
+
 onMounted(() => {
   document.addEventListener('pointerdown', handleDocumentPointerDown);
   document.addEventListener('keydown', handleDocumentKeydown);
@@ -703,6 +741,57 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--b3-theme-on-surface-light) 6%, transparent);
 }
 
+.siyuanmemo-review-header__route {
+  position: relative;
+  z-index: 3;
+  grid-column: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: 6px;
+  min-width: 0;
+  max-width: min(220px, 100%);
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+}
+
+.siyuanmemo-review-header__route:hover,
+.siyuanmemo-review-header__route:focus-visible {
+  border-color: var(--b3-theme-primary);
+  background: var(--b3-list-hover);
+}
+
+.siyuanmemo-review-header__route--temporary {
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 36%, var(--b3-border-color));
+}
+
+.siyuanmemo-review-header__route-label {
+  flex: 0 0 auto;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 11px;
+}
+
+.siyuanmemo-review-header__route-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.siyuanmemo-review-header__route-icon {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  color: var(--b3-theme-on-surface-light);
+}
+
 .siyuanmemo-review-header__summary-wrap {
   position: relative;
   z-index: 3;
@@ -715,6 +804,7 @@ onUnmounted(() => {
 }
 
 .siyuanmemo-review-header__queue-switch,
+.siyuanmemo-review-header__route,
 .siyuanmemo-review-header__summary-wrap,
 .siyuanmemo-review-header__summary,
 .siyuanmemo-review-header__toolbar,

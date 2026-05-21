@@ -99,6 +99,14 @@ export interface ReviewHeaderPriorityBadge {
   ariaLabel: string;
 }
 
+export interface ReviewHeaderRouteControl {
+  label: string;
+  name: string;
+  detail: string;
+  temporary: boolean;
+  disabled?: boolean;
+}
+
 const DEFAULT_REVIEW_HEADER_VARIANT_BY_QUEUE_TYPE: Record<QueueType, ReviewHeaderVariant> = {
   'retrieval-practice': 'retrieval-practice',
   'incremental-learning': 'incremental-learning',

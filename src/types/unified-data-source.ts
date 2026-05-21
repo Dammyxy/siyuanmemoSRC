@@ -486,6 +486,9 @@ export interface HyperspaceExcerptInjectionContext {
 export interface NeuralRoamSessionQueue {
     listRoutes?(): Promise<import('@/core/queue/neural/routes').NeuralRoamRouteListItem[]>;
     switchRoute?(routeId: string): Promise<import('@/core/queue/neural/routes').NeuralRoamRouteSnapshot>;
+    createRoute?(input?: { name?: string }): Promise<import('@/core/queue/neural/routes').NeuralRoamRouteSnapshot>;
+    renameRoute?(routeId: string, name: string): Promise<import('@/core/queue/neural/routes').NeuralRoamRouteSnapshot>;
+    deleteRoute?(routeId: string): Promise<void>;
     resolveTemporaryRouteCloseAction?(): Promise<
         | { kind: 'none' }
         | { kind: 'discard-clean'; routeId: string; previousRouteId: string | null }

@@ -19,11 +19,13 @@
           :is-mobile="props.isMobile"
           :native-dialog-titlebar="props.nativeDialogTitlebar === true"
           :navigation-state="neuralNavigationState"
+          :route-control="neuralRoamRouteControl"
           @toolbar-action="handleToolbarAction"
           @action="hook.executeCommand"
           @context="handleContext"
           @breadcrumb-click="handleBreadcrumbClick"
           @queue-switch="handleQueueSwitchTrigger"
+          @route-menu="handleNeuralRoamRouteMenu"
         />
 
         <div v-if="reviewArenaHint" class="fsrs-review-v2__arena-hint">
@@ -271,6 +273,7 @@ import {
   type RefreshCurrentItemOptions,
   type ReviewEditableSource,
   type ReviewHeaderVariant,
+  type ReviewHeaderRouteControl,
   type ReviewNativeSplitGuardState,
   type ReviewUIState,
   type ReviewViewTabBridge,
@@ -280,7 +283,7 @@ import {
   resolveReviewPresentationHeaderVariant,
 } from '@/types/review-presentation-semantics';
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
-import { confirmDialog, createVueDialog, threeChoiceDialog } from '@/utils/dialog';
+import { confirmDialog, createVueDialog, inputDialog, threeChoiceDialog } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
 import { closeTemporaryRouteWithPrompt } from '@/application/services/NeuralRoamTemporaryRouteLifecycle';
 import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
@@ -298,6 +301,7 @@ import {
   type QueueReviewSchedulingContext,
   type ReviewQueueProgressSnapshot,
 } from '@/types/unified-data-source';
+import { DEFAULT_NEURAL_ROAM_ROUTE_ID, type NeuralRoamRouteListItem } from '@/core/queue/neural/routes';
 import type { FSRSCard } from '@/types/card';
 import type { SrsArenaRecommendation } from '@/types/arena';
 import type { ReviewQueueSessionSnapshot, ReviewTabRuntimeState } from '@/types/review-tab';
@@ -955,6 +959,37 @@ function getNeuralRoamQueue(): NeuralRoamSessionQueue | null {
   return underlyingQueue;
 }
 
+function getQueueStrategyWithNeuralRouteSwitch(): { switchNeuralRoamRoute?: (routeId: string) => Promise<void> } | null {
+  const strategy = hook.getQueueStrategy();
+  if (!isRecord(strategy)) {
+    return null;
+  }
+  const candidate = strategy as { switchNeuralRoamRoute?: (routeId: string) => Promise<void> };
+  return typeof candidate.switchNeuralRoamRoute === 'function' ? candidate : null;
+}
+
+function formatNeuralRoamRouteDetail(route: NeuralRoamRouteListItem): string {
+  return [
+    `${t('routeConceptCount', '概念')} ${Math.max(0, Number(route.stats?.seedCount) || 0)}`,
+    `${t('routeStationCount', '空间站')} ${Math.max(0, Number(route.stats?.anchorCount) || 0)}`,
+    `${t('routeHistoryCount', '日志')} ${Math.max(0, Number(route.stats?.historyCount) || 0)}`,
+  ].join(' · ');
+}
+
+async function refreshNeuralRoamRoutes(): Promise<void> {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue?.listRoutes) {
+    neuralRoamRoutes.value = [];
+    return;
+  }
+  try {
+    neuralRoamRoutes.value = await neuralQueue.listRoutes();
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to list NeuralRoam routes:', error);
+    neuralRoamRoutes.value = [];
+  }
+}
+
 function getDialogManager() {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
@@ -1356,6 +1391,7 @@ onMounted(() => {
     dialogElements: document.querySelectorAll('.b3-dialog__container').length,
     ourDialog: rootRef.value?.closest('.b3-dialog__container.siyuanmemo-review-dialog-container'),
   });
+  void refreshNeuralRoamRoutes();
 
   removeReviewGlobalEventBindings = bindReviewGlobalEvents([
     { target: document, type: 'keydown', listener: handleKeyDown as EventListener, options: true },
@@ -1555,6 +1591,7 @@ const hook = useReviewSession(
   }
 );
 const state = hook.state;
+const neuralRoamRoutes = ref<NeuralRoamRouteListItem[]>([]);
 const app = props.app;
 const reviewWriterUnavailableNotice = ref<ReviewWriterUnavailableRecoveryNotice | null>(null);
 const lastReviewWriterRecoveryAction = ref<ReviewSessionRetryAction | null>(null);
@@ -1671,6 +1708,29 @@ const semanticActivationCommandClient = computed(() => (
 ));
 
 const reviewSemanticCurrentNodeId = computed(() => resolveCurrentReviewBlockId() || null);
+
+const activeNeuralRoamRoute = computed(() => (
+  neuralRoamRoutes.value.find((route) => route.isActive)
+  ?? neuralRoamRoutes.value[0]
+  ?? null
+));
+
+const neuralRoamRouteControl = computed<ReviewHeaderRouteControl | null>(() => {
+  if (!getNeuralRoamQueue()) {
+    return null;
+  }
+  const route = activeNeuralRoamRoute.value;
+  if (!route) {
+    return null;
+  }
+  return {
+    label: t('route', '航线'),
+    name: route.name,
+    detail: formatNeuralRoamRouteDetail(route),
+    temporary: route.temporary === true,
+    disabled: false,
+  };
+});
 
 const displayedReviewContent = computed<ReviewUIState['content']>(() => {
   const temporary = reviewSemanticTemporaryView.value;
@@ -3115,6 +3175,171 @@ function handleNeuralRoamEntryMenu(ev: MouseEvent): void {
 
   const menu = new Menu('neural-roam-entry-menu');
   addReviewMenuItems(menu, items);
+  openMenuAtEvent(menu, ev);
+}
+
+async function switchNeuralRoamRouteFromReview(routeId: string): Promise<void> {
+  const routeSwitchStrategy = getQueueStrategyWithNeuralRouteSwitch();
+  if (!routeSwitchStrategy?.switchNeuralRoamRoute) {
+    showMessage(t('neuralRoamRouteSwitchUnavailable', '航线切换不可用'), 3000, 'error');
+    return;
+  }
+  await routeSwitchStrategy.switchNeuralRoamRoute(routeId);
+  await refreshNeuralRoamRoutes();
+  await hook.reload();
+}
+
+async function createNeuralRoamRouteFromReview(): Promise<void> {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue?.createRoute) {
+    showMessage(t('neuralRoamRouteCreateUnavailable', '航线创建不可用'), 3000, 'error');
+    return;
+  }
+  const name = await inputDialog({
+    title: t('createRoute', '新建航线'),
+    placeholder: t('routeNamePlaceholder', '航线名称'),
+    defaultValue: t('newRoute', '新航线'),
+    confirmText: t('confirm', '确认'),
+    cancelText: t('cancel', '取消'),
+    visualVariant: 'workspace',
+  });
+  const normalizedName = String(name || '').trim();
+  if (!normalizedName) {
+    return;
+  }
+  const route = await neuralQueue.createRoute({ name: normalizedName });
+  await switchNeuralRoamRouteFromReview(route.metadata.id);
+}
+
+async function renameNeuralRoamRouteFromReview(route: NeuralRoamRouteListItem): Promise<void> {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue?.renameRoute) {
+    showMessage(t('neuralRoamRouteRenameUnavailable', '航线重命名不可用'), 3000, 'error');
+    return;
+  }
+  const name = await inputDialog({
+    title: t('renameRoute', '重命名航线'),
+    placeholder: t('routeNamePlaceholder', '航线名称'),
+    defaultValue: route.name,
+    confirmText: t('confirm', '确认'),
+    cancelText: t('cancel', '取消'),
+    visualVariant: 'workspace',
+  });
+  const normalizedName = String(name || '').trim();
+  if (!normalizedName) {
+    return;
+  }
+  await neuralQueue.renameRoute(route.id, normalizedName);
+  await refreshNeuralRoamRoutes();
+}
+
+async function deleteNeuralRoamRouteFromReview(route: NeuralRoamRouteListItem): Promise<void> {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue?.deleteRoute) {
+    showMessage(t('neuralRoamRouteDeleteUnavailable', '航线删除不可用'), 3000, 'error');
+    return;
+  }
+  const confirmed = await confirmDialog({
+    title: t('deleteRoute', '删除航线'),
+    content: t('deleteRouteConfirm', '删除航线只会移除航线状态，不会删除卡片或思源块。是否继续？'),
+    confirmText: t('delete', '删除'),
+    cancelText: t('cancel', '取消'),
+    visualVariant: 'workspace',
+  });
+  if (!confirmed) {
+    return;
+  }
+  await neuralQueue.deleteRoute(route.id);
+  await refreshNeuralRoamRoutes();
+  await hook.reload();
+}
+
+async function saveTemporaryNeuralRoamRouteFromReview(route: NeuralRoamRouteListItem): Promise<void> {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue?.saveTemporaryRoute) {
+    showMessage(t('neuralRoamRouteSaveUnavailable', '临时航线保存不可用'), 3000, 'error');
+    return;
+  }
+  await neuralQueue.saveTemporaryRoute(route.id);
+  await refreshNeuralRoamRoutes();
+  showMessage(t('temporaryRouteSaved', '临时航线已保存'), 2500, 'info');
+}
+
+function handleNeuralRoamRouteMenu(ev: MouseEvent): void {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue) {
+    showMessage(t('neuralRoamRouteUnavailable', '航线不可用'), 3000, 'error');
+    return;
+  }
+  void refreshNeuralRoamRoutes();
+  const routes = neuralRoamRoutes.value;
+  const activeRoute = activeNeuralRoamRoute.value;
+  const menu = new Menu('neural-roam-route-menu');
+
+  for (const route of routes) {
+    menu.addItem({
+      icon: route.isActive ? 'iconCheck' : undefined,
+      label: route.name,
+      accelerator: formatNeuralRoamRouteDetail(route),
+      disabled: route.isActive,
+      click: () => {
+        void switchNeuralRoamRouteFromReview(route.id);
+      },
+    });
+  }
+
+  if (routes.length > 0) {
+    menu.addSeparator();
+  }
+
+  menu.addItem({
+    icon: 'iconAdd',
+    label: t('createRoute', '新建航线'),
+    click: () => {
+      void createNeuralRoamRouteFromReview();
+    },
+  });
+
+  if (activeRoute) {
+    menu.addItem({
+      icon: 'iconEdit',
+      label: t('renameRoute', '重命名航线'),
+      click: () => {
+        void renameNeuralRoamRouteFromReview(activeRoute);
+      },
+    });
+    if (activeRoute.temporary) {
+      menu.addItem({
+        icon: 'iconSave',
+        label: t('saveAsRoute', '保存为航线'),
+        click: () => {
+          void saveTemporaryNeuralRoamRouteFromReview(activeRoute);
+        },
+      });
+    }
+    if (activeRoute.id !== DEFAULT_NEURAL_ROAM_ROUTE_ID) {
+      menu.addItem({
+        icon: 'iconTrashcan',
+        label: t('deleteRoute', '删除航线'),
+        click: () => {
+          void deleteNeuralRoamRouteFromReview(activeRoute);
+        },
+      });
+    }
+  }
+
+  menu.addSeparator();
+  menu.addItem({
+    icon: 'iconHistory',
+    label: t('routeLog', '航线日志'),
+    click: () => openNeuralBrowserSubview('roam-history'),
+  });
+  menu.addItem({
+    icon: 'iconDatabase',
+    label: t('openBrowserNeuralRoamPanel', '打开浏览器神经漫游面板'),
+    click: () => openNeuralBrowserSubview('concept-cards'),
+  });
+
   openMenuAtEvent(menu, ev);
 }
 
