@@ -27,6 +27,7 @@ import { resolveListItemAnchorBlockId as resolveListItemAnchorBlockIdHelper } fr
 import { resolveCdfTailMarkerFromSources } from '@/application/usecases/xiuyuan/shared/CdfTailMarker';
 import { CoreReviewEntryService, type CoreReviewScopeOptions } from '@/application/entries/CoreReviewEntryService';
 import type { CoreReviewEntryActionId } from '@/application/entries/CoreReviewEntryRegistry';
+import type { NeuralRoamEntryActionService } from '@/application/services/NeuralRoamEntryActionService';
 import {
   applyProgressiveExcerptHighlight,
   prepareProgressiveExcerptHighlight,
@@ -99,10 +100,6 @@ interface BlockSqlRow extends Record<string, unknown> {
   markdown?: string;
 }
 
-interface NeuralRoamQueueLike {
-  addCard(card: FSRSCard | string, priority?: 'normal' | 'high'): Promise<void>;
-}
-
 interface ReviewScopeSnapshot {
   cards: FSRSCard[];
   scopeDocIds?: string[];
@@ -113,7 +110,17 @@ export interface BlockMenuHandlerDeps {
   i18n: Record<string, string>;
   dialogManager: DialogManager;
   openCreateTemplateCardDialog: (blockIds: string[]) => Promise<void>;
-  openNeuralReviewDialog: (options?: { focusBlockId?: string; includeFocusAsFirst?: boolean; resetHistory?: boolean; startNewSession?: boolean }) => Promise<void>;
+  openNeuralReviewDialog: (options?: {
+    focusBlockId?: string;
+    seedBlockId?: string | null;
+    sourceReviewCardId?: string | null;
+    conceptBlockId?: string | null;
+    previousEngineMode?: 'orbit' | 'hyperspace' | null;
+    includeFocusAsFirst?: boolean;
+    resetHistory?: boolean;
+    startNewSession?: boolean;
+    entrySessionKind?: 'temporary-current-block' | 'temporary-concept' | 'station-roam' | 'concept-card-roam' | 'direct-focus' | null;
+  }) => Promise<void>;
   applicationContext: ApplicationContext;  // ✅ 必需：用于访问所有 DDD 架构服务
   cardCreationHelper: CardCreationHelper;  // ✅ 卡片创建辅助类
   siyuanApi: ManagerSiyuanPort;
@@ -170,6 +177,10 @@ export class BlockMenuHandler {
 
   private getQueue(type: QueueType): IReviewQueue {
     return this.deps.applicationContext.getUnifiedDataSourceManager().getQueue(type);
+  }
+
+  private getNeuralRoamEntryActionService(): NeuralRoamEntryActionService {
+    return this.deps.applicationContext.getNeuralRoamEntryActionService();
   }
 
   private escapeAttr(value: string): string {
@@ -1612,102 +1623,23 @@ export class BlockMenuHandler {
    */
   private async makeConceptAndAddToRoam(blockId: string, priority: 'normal' | 'high'): Promise<void> {
     try {
-      // 1. 检查是否已经是卡片
-      const existingCard = this.getStorage().getCardByBlockId(blockId);
-      
-      if (!existingCard) {
-        // 2. 使用 CardCreationHelper 创建概念卡
-        const priorityValue = priority === 'high' ? 100 : 50;
-        
-        const result = await this.deps.cardCreationHelper.createConceptCard(blockId, {
-          priority: priorityValue,
-          metadata: {
-            source: 'manual',
-          },
-        });
-        
-        if (!isErr(result)) {
-          // 概念卡采用本地卡数据模型，不再写入块级 legacy 卡片属性。
+      const service = this.getNeuralRoamEntryActionService();
+      const result = priority === 'high'
+        ? await service.makeConceptAndStartRoam(blockId)
+        : await service.makeConceptAndAddToQueue(blockId, { priority: 'normal' });
 
-          // ✅ 添加到 Riff（确保同步）
-          await this.siyuanApi.addRiffCards(this.siyuanApi.BUILTIN_DECK_ID, [blockId]);
-          logger.info(`[BlockMenuHandler] Added concept card to Riff: ${blockId}`);
-          
-          logger.info(`[BlockMenuHandler] Created concept card via CardCreationHelper: ${blockId}`);
-          await this.siyuanApi.pushMsg('✅ 已制作为概念卡');
-        } else {
-          logger.error(`[BlockMenuHandler] Failed to create concept card: ${result.error.message}`);
-          await this.siyuanApi.pushErrMsg(`创建失败：${result.error.message}`);
-        }
-      } else {
-        // 3. 如果已经是卡片，确保类型为 concept
-        const isConcept = await this.isConceptCard(blockId);
-        if (!isConcept) {
-          // 使用 CardApplicationService 更新卡片类型
-          const cardService = this.getCardService();
-          
-          const result = await cardService.updateFSRSCard({
-            cardId: existingCard.id,
-            updates: {
-              type: CardType.Concept,
-            }
-          });
-          
-          if (!isErr(result)) {
-            logger.info(`[BlockMenuHandler] Updated card type to concept for block: ${blockId}`);
-            await this.siyuanApi.pushMsg('✅ 已更新为概念卡');
-          } else {
-            logger.error(`[BlockMenuHandler] Failed to update card type: ${result.error}`);
-            await this.siyuanApi.pushErrMsg(`更新失败：${result.error}`);
-            return;
-          }
-        }
+      if (!result.ok) {
+        logger.error('[BlockMenuHandler] Failed to make concept and add to roam:', result);
+        await this.siyuanApi.pushErrMsg(`❌ 操作失败：${result.message}`);
+        return;
       }
-      
-      // 等待本地卡类型更新完成（增加等待时间并添加重试逻辑）
-      let retries = 5;
-      let isConceptVerified = false;
-      
-      while (retries > 0 && !isConceptVerified) {
-        await new Promise(resolve => setTimeout(resolve, 200));
-        isConceptVerified = await this.isConceptCard(blockId);
-        
-        if (!isConceptVerified) {
-          logger.info(`[BlockMenuHandler] Waiting for local concept card state to be visible... (retries left: ${retries})`);
-          retries--;
-        }
-      }
-      
-      if (!isConceptVerified) {
-        logger.warn(`[BlockMenuHandler] Concept card verification failed after retries, but continuing...`);
-      }
-      
-      // 4. 获取神经漫游队列（✅ DDD 架构：通过 ApplicationContext）
-      const neuralQueue = this.getQueue(QueueType.NeuralRoam) as unknown as NeuralRoamQueueLike;
-      
-      // 5. 添加到队列
-      const localConceptCard = this.getStorage().getCardByBlockId(blockId);
-      if (localConceptCard) {
-        await neuralQueue.addCard(localConceptCard, priority);
-      } else {
-        await neuralQueue.addCard(blockId, priority);
-      }
-      
-      // 6. 如果是高优先级，自动打开神经漫游对话框
+
       if (priority === 'high') {
         await this.siyuanApi.pushMsg('🚀 已加入漫游队列（高优先级），正在打开神经漫游...');
-        
-        // 打开神经漫游对话框
-        try {
-          await this.deps.dialogManager.openNeuralRoamDialog();
-        } catch (err) {
-          logger.error('[BlockMenuHandler] Failed to open neural roam dialog:', err);
-          await this.siyuanApi.pushErrMsg('❌ 打开神经漫游失败');
-        }
       } else {
         await this.siyuanApi.pushMsg('📍 已加入漫游队列');
       }
-      
+
       logger.info(`[BlockMenuHandler] Added concept card to neural roam: ${blockId} (priority: ${priority})`);
     } catch (error) {
       logger.error('[BlockMenuHandler] Failed to make concept and add to roam:', error);

@@ -131,9 +131,9 @@ describe('ReviewView Concept roam entry', () => {
     vi.clearAllMocks();
   });
 
-  it('starts Neural Roam through DialogManager without submitting Review feedback', async () => {
-    const dialogManager = {
-      openNeuralRoamDialog: vi.fn(async () => undefined),
+  it('starts temporary concept roam through entry action service without submitting Review feedback', async () => {
+    const entryActionService = {
+      startTemporaryConceptRoam: vi.fn(async () => ({ ok: true })),
     };
     const queue = createQueue();
 
@@ -148,7 +148,7 @@ describe('ReviewView Concept roam entry', () => {
         headerVariant: 'retrieval-practice',
         plugin: {
           getContext: () => ({
-            getDialogManager: () => dialogManager,
+            getNeuralRoamEntryActionService: () => entryActionService,
           }),
         },
       },
@@ -168,10 +168,8 @@ describe('ReviewView Concept roam entry', () => {
     wrapper.getComponent(ReviewContentStub).vm.$emit('concept-roam', 'concept-block');
     await flushPromises();
 
-    expect(dialogManager.openNeuralRoamDialog).toHaveBeenCalledWith({
-      focusBlockId: 'concept-block',
-      includeFocusAsFirst: true,
-      startNewSession: true,
+    expect(entryActionService.startTemporaryConceptRoam).toHaveBeenCalledWith({
+      conceptBlockId: 'concept-block',
     });
     expect(queue.onFeedback).not.toHaveBeenCalled();
 
@@ -186,6 +184,9 @@ describe('ReviewView Concept roam entry', () => {
     });
     const dialogManager = {
       openNeuralRoamDialog: vi.fn(async () => undefined),
+    };
+    const entryActionService = {
+      startTemporaryConceptRoam: vi.fn(async () => ({ ok: true })),
     };
     const reviewAIService = {
       state: {
@@ -274,6 +275,7 @@ describe('ReviewView Concept roam entry', () => {
         plugin: {
           getContext: () => ({
             getDialogManager: () => dialogManager,
+            getNeuralRoamEntryActionService: () => entryActionService,
             getSettingsService: () => ({
               getSettings: () => ({
                 queues: {
@@ -311,11 +313,10 @@ describe('ReviewView Concept roam entry', () => {
     wrapper.getComponent(ReviewContentStub).vm.$emit('concept-roam', 'concept-block');
     await flushPromises();
 
-    expect(dialogManager.openNeuralRoamDialog).toHaveBeenCalledWith({
-      focusBlockId: 'concept-block',
-      includeFocusAsFirst: true,
-      startNewSession: true,
+    expect(entryActionService.startTemporaryConceptRoam).toHaveBeenCalledWith({
+      conceptBlockId: 'concept-block',
     });
+    expect(dialogManager.openNeuralRoamDialog).not.toHaveBeenCalled();
     expect(semanticExecute).not.toHaveBeenCalled();
     expect(queue.onFeedback).not.toHaveBeenCalled();
     expect(wrapper.find('.fsrs-review-v2__side-tabs').exists()).toBe(true);

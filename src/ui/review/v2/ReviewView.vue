@@ -442,9 +442,14 @@ type ReviewPluginContextLike = {
         }) => void;
         openNeuralRoamDialog?: (options?: {
           focusBlockId?: string;
+          seedBlockId?: string | null;
+          sourceReviewCardId?: string | null;
+          conceptBlockId?: string | null;
+          previousEngineMode?: 'orbit' | 'hyperspace' | null;
           includeFocusAsFirst?: boolean;
           resetHistory?: boolean;
           startNewSession?: boolean;
+          entrySessionKind?: 'temporary-current-block' | 'temporary-concept' | 'station-roam' | 'concept-card-roam' | 'direct-focus' | null;
         }) => Promise<void> | void;
         openAiWorkbenchDialog?: (options?: AIWorkbenchOpenOptions) => Promise<void> | void;
         switchStandardReviewDialogQueue?: (queueType: QueueType) => Promise<void> | void;
@@ -454,6 +459,14 @@ type ReviewPluginContextLike = {
     | (ReviewAIRegistryLike & {
         disposeReviewSession?: (sessionId: string) => void;
       })
+    | undefined;
+  getNeuralRoamEntryActionService?: () =>
+    | {
+        startTemporaryConceptRoam?: (input: {
+          conceptBlockId: string;
+          conceptCardId?: string | null;
+        }) => Promise<{ ok: boolean; message?: string }>;
+      }
     | undefined;
   getSharedReviewSessionRegistry?: () => SharedReviewSessionRegistry | undefined;
   createReviewRenderServices?: (options?: { i18n?: Record<string, string> }) => ReviewRenderServices;
@@ -712,6 +725,7 @@ const props = defineProps<{
   initialShowAnswer?: boolean;
   initialSemanticPinnedSessionId?: string | null;
   onTabRuntimeStateChange?: (state: ReviewTabRuntimeState | null) => void;
+  onNeuralRoamEngineModeTouched?: () => void;
   reviewRenderServices?: ReviewRenderServices;
 }>();
 
@@ -952,6 +966,12 @@ function getSharedReviewSessionRegistry(): SharedReviewSessionRegistry | null {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
   return contextFromProps?.getSharedReviewSessionRegistry?.() || contextFromWindow?.getSharedReviewSessionRegistry?.() || null;
+}
+
+function getNeuralRoamEntryActionService() {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  return contextFromProps?.getNeuralRoamEntryActionService?.() || contextFromWindow?.getNeuralRoamEntryActionService?.() || null;
 }
 
 function getArenaKernelService() {
@@ -1822,18 +1842,19 @@ async function handleConceptRoam(focusBlockId: string): Promise<void> {
     return;
   }
 
-  const dialogManager = getDialogManager();
-  if (typeof dialogManager?.openNeuralRoamDialog !== 'function') {
+  const entryActionService = getNeuralRoamEntryActionService();
+  if (typeof entryActionService?.startTemporaryConceptRoam !== 'function') {
     showMessage(t('reviewConceptRoamFailed', '无法从当前概念开始漫游'), 3000, 'error');
     return;
   }
 
   try {
-    await dialogManager.openNeuralRoamDialog({
-      focusBlockId: normalizedFocusBlockId,
-      includeFocusAsFirst: true,
-      startNewSession: true,
+    const result = await entryActionService.startTemporaryConceptRoam({
+      conceptBlockId: normalizedFocusBlockId,
     });
+    if (!result.ok) {
+      showMessage(result.message || t('reviewConceptRoamFailed', '无法从当前概念开始漫游'), 3000, 'error');
+    }
   } catch (error) {
     logger.error('[ReviewView] Failed to start concept roam from Review content', {
       focusBlockId: normalizedFocusBlockId,
@@ -3032,6 +3053,7 @@ function handleNeuralEngineModeMenu(ev: MouseEvent): void {
     t,
     currentMode: resolveCurrentNeuralRoamUserMode(),
     onSelect: async (mode) => {
+      props.onNeuralRoamEngineModeTouched?.();
       await handleReviewNeuralEngineModeSelection({
         t,
         selectedMode: mode,

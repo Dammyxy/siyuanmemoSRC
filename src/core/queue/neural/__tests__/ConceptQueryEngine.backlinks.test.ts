@@ -176,7 +176,7 @@ describe('ConceptQueryEngine - backlink normalization', () => {
 
   it('collects exact descriptor blocks from descriptor scope without turning them into main neighbors', async () => {
     vi.mocked(api.sql).mockImplementation(async (stmt: string) => {
-      if (stmt.includes("WHERE fc.block_id IN (SELECT id FROM descriptor_scope)")) {
+      if (stmt.includes('FROM blocks b') && stmt.includes('descriptor_scope')) {
         return [
           { id: 'descriptor-paragraph-1' },
           { id: 'descriptor-paragraph-2' },
@@ -191,26 +191,28 @@ describe('ConceptQueryEngine - backlink normalization', () => {
   });
 
   it('filters exact local review cards and descriptors out of main neighbors while keeping virtual nodes', async () => {
+    const resolveNodeType = vi.fn(async (blockId: string) => {
+      if (blockId === 'descriptor-1') {
+        return 'descriptor' as const;
+      }
+      if (blockId === 'item-1') {
+        return 'item' as const;
+      }
+      if (blockId === 'concept-2') {
+        return 'concept' as const;
+      }
+      if (blockId === 'virtual-wrapper-1') {
+        return 'topic' as const;
+      }
+      return 'unknown' as const;
+    });
+    engine = new ConceptQueryEngine({
+      cardFacts: { resolveNodeType },
+    });
     vi.spyOn(engine, 'fetchBacklinks').mockResolvedValue(['virtual-wrapper-1', 'descriptor-1']);
     vi.spyOn(engine, 'fetchDirectOutgoingLinks').mockResolvedValue(['item-1', 'concept-2']);
     vi.spyOn(engine, 'fetchIndirectOutgoingLinks').mockResolvedValue(['virtual-wrapper-1']);
     const fetchDescriptorsSpy = vi.spyOn(engine, 'fetchDescriptors').mockResolvedValue(['descriptor-ignored']);
-
-    vi.mocked(api.sql).mockImplementation(async (stmt: string) => {
-      if (stmt.includes("WHERE block_id = 'descriptor-1'")) {
-        return [{ type: 'descriptor', card_type_marker: 'descriptor' }] as any;
-      }
-      if (stmt.includes("WHERE block_id = 'item-1'")) {
-        return [{ type: 'item', card_type_marker: '' }] as any;
-      }
-      if (stmt.includes("WHERE block_id = 'concept-2'")) {
-        return [{ type: 'concept', card_type_marker: 'concept' }] as any;
-      }
-      if (stmt.includes("WHERE block_id = 'virtual-wrapper-1'")) {
-        return [] as any;
-      }
-      return [] as any;
-    });
 
     const result = await engine.fetchNeighbors('concept-1');
 
@@ -227,18 +229,24 @@ describe('ConceptQueryEngine - backlink normalization', () => {
         weight: 10,
       },
     ]);
+    expect(resolveNodeType).toHaveBeenCalledWith('descriptor-1');
+    expect(resolveNodeType).toHaveBeenCalledWith('item-1');
+    expect(api.sql).not.toHaveBeenCalled();
   });
 
-  it('fails closed when local fsrs SQL is unsupported during neighbor filtering', async () => {
+  it('surfaces block-data query errors during syntax fallback without probing fsrs_cards', async () => {
     vi.spyOn(engine, 'fetchBacklinks').mockResolvedValue(['virtual-wrapper-1', 'virtual-wrapper-2']);
     vi.spyOn(engine, 'fetchDirectOutgoingLinks').mockResolvedValue([]);
     vi.spyOn(engine, 'fetchIndirectOutgoingLinks').mockResolvedValue([]);
 
     vi.mocked(api.sql).mockRejectedValue(new Error('near "LIMIT": syntax error'));
 
-    await expect(engine.fetchNeighbors('concept-1')).rejects.toThrow('NEURAL_ROAM_SCHEMA_UNAVAILABLE');
+    await expect(engine.fetchNeighbors('concept-1')).rejects.toThrow('NEURAL_ROAM_QUERY_UNAVAILABLE');
 
     expect(api.sql).toHaveBeenCalledTimes(1);
+    for (const [stmt] of vi.mocked(api.sql).mock.calls) {
+      expect(String(stmt)).not.toContain('FROM fsrs_cards');
+    }
   });
 
   it('filters formal review neighbors through injected node type resolver before local fsrs SQL', async () => {

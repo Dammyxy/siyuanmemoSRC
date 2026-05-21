@@ -1525,9 +1525,14 @@ export interface BackendNeuralRoamFeedback {
 
 export interface BackendNeuralRoamStartFromFocusRequest {
   blockId: string;
+  seedBlockId?: string | null;
+  sourceReviewCardId?: string | null;
+  conceptBlockId?: string | null;
+  previousEngineMode?: 'orbit' | 'hyperspace' | null;
   includeFocusAsFirst?: boolean;
   resetHistory?: boolean;
   startNewSession?: boolean;
+  entrySessionKind?: 'temporary-current-block' | 'temporary-concept' | 'station-roam' | 'concept-card-roam' | 'direct-focus' | null;
 }
 
 export interface BackendNeuralRoamItem {

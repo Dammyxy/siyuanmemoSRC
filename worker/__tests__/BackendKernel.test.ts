@@ -4347,6 +4347,60 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('starts backend neural-roam from a block seed while returning the source review card first', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const resolveNeuralGraphQuery = createNeuralGraphResolver({
+      'review-block-1': {
+        id: 'review-block-1',
+        content: 'Review block',
+        type: 'p',
+      },
+    });
+    await database.upsertCards([buildCard({
+      id: 'source-review-card-1',
+      blockId: 'review-block-1',
+      type: CardType.Item,
+    })]);
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery,
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-start-source-review-card',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: null,
+        startFromFocus: {
+          blockId: 'review-block-1',
+          seedBlockId: 'review-block-1',
+          sourceReviewCardId: 'source-review-card-1',
+          includeFocusAsFirst: true,
+          startNewSession: true,
+          entrySessionKind: 'temporary-current-block',
+        },
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        status: 'advanced',
+        nextItem: {
+          cardId: 'source-review-card-1',
+          blockId: 'review-block-1',
+          sourceKind: 'virtual',
+        },
+        sessionState: {
+          currentNodeId: 'review-block-1',
+        },
+      });
+    }
+  });
+
   it('returns explicit unavailable when neural-roam graph query authority is absent', async () => {
     const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
     const kernel = new BackendKernel({ database });

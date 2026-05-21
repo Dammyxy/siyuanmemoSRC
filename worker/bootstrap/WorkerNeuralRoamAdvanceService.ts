@@ -254,6 +254,7 @@ export class WorkerNeuralRoamAdvanceService {
     }
 
     const includeFocusAsFirst = request.startFromFocus?.includeFocusAsFirst !== false;
+    const sourceReviewCardId = normalizeString(request.startFromFocus?.sourceReviewCardId);
     await queue.startRoamingFromFocus(blockId, {
       includeFocusAsFirst,
       resetHistory: request.startFromFocus?.resetHistory === true,
@@ -262,6 +263,17 @@ export class WorkerNeuralRoamAdvanceService {
 
     if (!includeFocusAsFirst) {
       return { applied: true, nextItem: null, unavailableReason: null, message: null };
+    }
+    if (sourceReviewCardId) {
+      const sourceReviewCard = await this.createManagerFacade().getCard(sourceReviewCardId, { silent: true });
+      if (sourceReviewCard) {
+        return {
+          applied: true,
+          nextItem: this.toAdvanceItem(sourceReviewCard),
+          unavailableReason: null,
+          message: null,
+        };
+      }
     }
     const focusItem = await queue.getPathItemByNodeId(blockId);
     return focusItem

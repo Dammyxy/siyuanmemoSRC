@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-21 (Round 424)
+Last update: 2026-05-22 (Round 426)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-22 - NeuralRoam Entry Action Service Slice
+
+- Task: Start OpenSpec `neural-roam-entry-actions-and-same-block-links` by extracting shared NeuralRoam entry actions and explicit focused starts.
+- Touched slice: NeuralRoam entry actions across Block menu, application service wiring, Review/Tab start contracts, and backend NeuralRoam advance; `src/application/services/NeuralRoamEntryActionService.ts`, `src/application/managers/BlockMenuHandler.ts`, `src/application/ApplicationContext.ts`, `src/application/managers/DialogManager.ts`, `src/application/managers/TabManager.ts`, `src/application/adapters/review-session/NeuralRoamAdvanceCoordinator.ts`, `packages/contracts/src/backend-rpc.ts`, `worker/bootstrap/WorkerNeuralRoamAdvanceService.ts`, and focused tests.
+- Debt fixed now: Block-menu concept add/start orchestration now goes through `NeuralRoamEntryActionService` instead of private duplicated manager logic. Immediate concept roam now opens NeuralRoam with explicit `focusBlockId`, `includeFocusAsFirst: true`, and `startNewSession: true`, and forces orbit before start. Start-focus contracts now carry seed/source/concept/session-kind metadata, and backend advance can seed by block while returning the source review card first for temporary current-block entries. Temporary current-block/concept entries now force orbit, persist the previous tab-local engine mode, restore it on tab close, and skip restore when the user manually changes engine mode in that tab.
+- Debt deferred: Missing-block/virtual-card guards, review toolbar/menu UI, concept-target submenu resolution for multiple targets, same-block relationship expansion, history card identity, and trace badges remain open in the OpenSpec checklist.
+- Why deferred: This pass closed the shared service, explicit start path, and temporary mode lifecycle first; review UI and same-block graph changes cross additional surfaces and need their own focused tests.
+- Next safe step: Implement task 2.6 missing-block/virtual-card guards, then build the review-card NeuralRoam menu against `NeuralRoamEntryActionService` before same-block expansion.
+- Validation: `NeuralRoamEntryActionService` tests, `ReviewView` concept-roam tests, `TabManager` neural review tab sync tests, `NeuralRoamAdvanceCoordinator` tests, targeted `BackendKernel` focus/source-review tests, hidden fallback gate, boundary checks, and build passed. Full `BackendKernel.test.ts` still has an unrelated existing projection stale-membership failure when run as a whole. Build still reports existing non-blocking i18n hardcoded-string warnings, `package.zip` unlink EPERM zip-pack warnings, and Sass legacy API warnings.
 
 ### 2026-05-21 - SQL Runtime Guard And Ownership Anchors
 

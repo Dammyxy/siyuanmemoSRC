@@ -43,6 +43,11 @@ function createManager() {
   const queueStub = {
     getType: vi.fn(() => QueueType.NeuralRoam),
     subscribe: vi.fn(),
+    getEngineMode: vi.fn(() => 'orbit'),
+    setEngineMode: vi.fn().mockResolvedValue(undefined),
+  };
+  const unifiedDataSourceManager = {
+    getQueue: vi.fn(() => queueStub),
   };
   const context = {
     getI18n: vi.fn(() => ({
@@ -55,9 +60,7 @@ function createManager() {
         },
       }),
     })),
-    getUnifiedDataSourceManager: vi.fn(() => ({
-      getQueue: vi.fn(() => queueStub),
-    })),
+    getUnifiedDataSourceManager: vi.fn(() => unifiedDataSourceManager),
     getReviewAIWorkbenchRegistry: vi.fn(() => ({
       disposeReviewSession: vi.fn(),
     })),
@@ -80,6 +83,7 @@ function createManager() {
   return {
     tabManager,
     reviewRegistration,
+    queueStub,
   };
 }
 
@@ -236,5 +240,51 @@ describe('TabManager neural review tab sync', () => {
 
     expect(bridge.syncToNeuralQueueCurrentNode).toHaveBeenCalledWith('node-exposed');
     expect(runtime.tab.parent.switchTab).toHaveBeenCalledWith(runtime.tab.headElement);
+  });
+
+  it('restores temporary NeuralRoam engine mode when the tab closes without manual mode change', async () => {
+    const { reviewRegistration, queueStub } = createManager();
+    const runtime = createRuntime('review-neural-temp', QueueType.NeuralRoam);
+    runtime.data = {
+      ...runtime.data,
+      neuralRoamStartFromFocus: {
+        blockId: 'focus-block',
+        previousEngineMode: 'hyperspace',
+        includeFocusAsFirst: true,
+        startNewSession: true,
+        entrySessionKind: 'temporary-current-block',
+      },
+    };
+
+    mocks.nextMountedVm = { syncToNeuralQueueCurrentNode: vi.fn().mockResolvedValue(true) };
+    await reviewRegistration.init.call(runtime);
+    reviewRegistration.destroy.call(runtime);
+
+    expect(queueStub.setEngineMode).toHaveBeenCalledWith('hyperspace', { carryCurrentNode: true });
+  });
+
+  it('does not restore temporary NeuralRoam engine mode after manual mode change in the tab', async () => {
+    const { reviewRegistration, queueStub } = createManager();
+    const runtime = createRuntime('review-neural-temp-touched', QueueType.NeuralRoam);
+    runtime.data = {
+      ...runtime.data,
+      neuralRoamStartFromFocus: {
+        blockId: 'focus-block',
+        previousEngineMode: 'hyperspace',
+        includeFocusAsFirst: true,
+        startNewSession: true,
+        entrySessionKind: 'temporary-current-block',
+      },
+    };
+
+    mocks.nextMountedVm = { syncToNeuralQueueCurrentNode: vi.fn().mockResolvedValue(true) };
+    await reviewRegistration.init.call(runtime);
+    const reviewProps = mocks.createApp.mock.calls.at(-1)?.[1] as {
+      onNeuralRoamEngineModeTouched?: () => void;
+    };
+    reviewProps.onNeuralRoamEngineModeTouched?.();
+    reviewRegistration.destroy.call(runtime);
+
+    expect(queueStub.setEngineMode).not.toHaveBeenCalled();
   });
 });

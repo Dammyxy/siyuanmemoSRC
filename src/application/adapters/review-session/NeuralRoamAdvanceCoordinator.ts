@@ -55,9 +55,14 @@ export class NeuralRoamAdvanceCoordinator {
 
     this.pendingStartFromFocus = {
       blockId,
+      seedBlockId: String(request?.seedBlockId || '').trim() || blockId,
+      sourceReviewCardId: String(request?.sourceReviewCardId || '').trim() || null,
+      conceptBlockId: String(request?.conceptBlockId || '').trim() || null,
+      previousEngineMode: request?.previousEngineMode ?? null,
       includeFocusAsFirst: request?.includeFocusAsFirst !== false,
       resetHistory: request?.resetHistory === true,
       startNewSession: request?.startNewSession === true,
+      entrySessionKind: request?.entrySessionKind ?? null,
     };
     this.deps.currentItem.clear();
     this.pendingNext = null;

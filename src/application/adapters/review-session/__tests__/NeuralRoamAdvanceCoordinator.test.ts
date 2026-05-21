@@ -140,12 +140,13 @@ describe('NeuralRoamAdvanceCoordinator', () => {
       queueType: 'neural-roam',
       currentItem: null,
       feedback: null,
-      startFromFocus: {
+      startFromFocus: expect.objectContaining({
         blockId: 'focus-node',
+        seedBlockId: 'focus-node',
         includeFocusAsFirst: true,
         resetHistory: false,
         startNewSession: true,
-      },
+      }),
     }));
   });
 

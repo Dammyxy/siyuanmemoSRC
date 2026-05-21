@@ -63,6 +63,7 @@ import { BrowserApplicationService } from '@/application/services/BrowserApplica
 import { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
 import { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import { SrsTransparencyApplicationService } from '@/application/services/SrsTransparencyApplicationService';
+import { NeuralRoamEntryActionService } from '@/application/services/NeuralRoamEntryActionService';
 import {
   SyncConflictDirectionResolutionService,
   type SyncConflictDirectionApplyResult,
@@ -237,6 +238,7 @@ interface ApplicationServiceRegistry {
   cardService: CardApplicationService;
   browserService: BrowserApplicationService;
   reviewService: ReviewApplicationService;
+  neuralRoamEntryActionService: NeuralRoamEntryActionService;
   cardEditorService: CardEditorApplicationService;
   srsTransparencyService: SrsTransparencyApplicationService;
 }
@@ -565,6 +567,20 @@ export class ApplicationContext {
         context.getSettingsService(),
         context.srsBackendClient || undefined,
       );
+    });
+
+    this.registerServiceFactory('neuralRoamEntryActionService', (context) => {
+      const siyuanApi = new ManagerSiyuanAdapter();
+      return new NeuralRoamEntryActionService({
+        storage: context.getStorage(),
+        cardCreationHelper: new CardCreationHelper(context.getCardService()),
+        cardService: context.getCardService(),
+        dataSourceManager: context.getUnifiedDataSourceManager(),
+        siyuanApi,
+        openNeuralRoamDialog: async (options) => {
+          await context.getDialogManager().openNeuralRoamDialog(options);
+        },
+      });
     });
     
     this.registerServiceFactory('reviewQueuePreparationService', (context) => {
@@ -2610,6 +2626,10 @@ export class ApplicationContext {
    */
   getReviewService(): ReviewApplicationService {
     return this.getService('reviewService');
+  }
+
+  getNeuralRoamEntryActionService(): NeuralRoamEntryActionService {
+    return this.getService('neuralRoamEntryActionService');
   }
 
   getSrsBackendClient(): SrsBackendClient | null {

@@ -68,6 +68,7 @@ interface ReviewTabData {
   reviewState?: ReviewTabRuntimeState | null;
   suppressSnapshotRecovery?: boolean;
   neuralRoamStartFromFocus?: BackendNeuralRoamStartFromFocusRequest | null;
+  neuralRoamTemporaryEngineModeTouched?: boolean;
   initialSemanticPinnedSessionId?: string | null;
 }
 
@@ -406,9 +407,16 @@ function normalizeNeuralRoamStartFromFocus(value: unknown): BackendNeuralRoamSta
   }
   return {
     blockId,
+    seedBlockId: String(value.seedBlockId || '').trim() || blockId,
+    sourceReviewCardId: String(value.sourceReviewCardId || '').trim() || null,
+    conceptBlockId: String(value.conceptBlockId || '').trim() || null,
+    previousEngineMode: value.previousEngineMode === 'hyperspace' || value.previousEngineMode === 'orbit'
+      ? value.previousEngineMode
+      : null,
     includeFocusAsFirst: value.includeFocusAsFirst !== false,
     resetHistory: value.resetHistory === true,
     startNewSession: value.startNewSession === true,
+    entrySessionKind: typeof value.entrySessionKind === 'string' ? value.entrySessionKind as BackendNeuralRoamStartFromFocusRequest['entrySessionKind'] : null,
   };
 }
 
@@ -620,6 +628,9 @@ export class TabManager {
       initialCurrentCardId: data.reviewState?.currentCardId ?? '',
       initialShowAnswer: data.reviewState?.showAnswer === true,
       initialSemanticPinnedSessionId: data.initialSemanticPinnedSessionId ?? null,
+      onNeuralRoamEngineModeTouched: () => {
+        this.markNeuralRoamTemporaryEngineModeTouched(runtime, data);
+      },
       onTabRuntimeStateChange: (reviewState: ReviewTabRuntimeState | null) => {
         this.persistReviewTabRuntimeState(runtime, data, reviewState);
       },
@@ -1048,9 +1059,12 @@ export class TabManager {
     baseData: ReviewTabData,
     reviewState: ReviewTabRuntimeState | null,
   ): void {
+    const currentData = this.normalizeReviewTabData(runtime.data);
     const nextData: ReviewTabData = {
       ...baseData,
       reviewState: normalizeReviewTabRuntimeState(reviewState),
+      neuralRoamTemporaryEngineModeTouched: currentData.neuralRoamTemporaryEngineModeTouched === true
+        || baseData.neuralRoamTemporaryEngineModeTouched === true,
     };
     nextData.sharedReviewSessionId = normalizeSharedReviewSessionId(
       nextData.reviewState?.sharedReviewSessionId ?? baseData.sharedReviewSessionId,
@@ -1065,6 +1079,48 @@ export class TabManager {
       nextData,
       nextData.reviewState,
     );
+  }
+
+  private markNeuralRoamTemporaryEngineModeTouched(
+    runtime: TabRuntimeContext,
+    baseData: ReviewTabData,
+  ): void {
+    const nextData: ReviewTabData = {
+      ...baseData,
+      neuralRoamTemporaryEngineModeTouched: true,
+    };
+    runtime.data = nextData;
+    const tabModel = runtime.tab?.model as { data?: ReviewTabData } | undefined;
+    if (tabModel) {
+      tabModel.data = nextData;
+    }
+  }
+
+  private restoreTemporaryNeuralRoamEngineModeIfNeeded(data: ReviewTabData | null): void {
+    const start = data?.neuralRoamStartFromFocus;
+    const isTemporary = typeof start?.entrySessionKind === 'string'
+      && start.entrySessionKind.startsWith('temporary-');
+    const previousMode = start?.previousEngineMode;
+    if (!isTemporary || data?.neuralRoamTemporaryEngineModeTouched === true || (previousMode !== 'orbit' && previousMode !== 'hyperspace')) {
+      return;
+    }
+
+    const queue = this.context.getUnifiedDataSourceManager().getQueue(QueueType.NeuralRoam) as {
+      getEngineMode?: () => string;
+      setEngineMode?: (mode: 'orbit' | 'hyperspace', options?: { carryCurrentNode?: boolean }) => Promise<void>;
+    };
+    if (typeof queue?.setEngineMode !== 'function') {
+      return;
+    }
+    if (typeof queue.getEngineMode === 'function' && queue.getEngineMode() === previousMode) {
+      return;
+    }
+    void queue.setEngineMode(previousMode, { carryCurrentNode: true }).catch((error) => {
+      logger.warn('Failed to restore temporary NeuralRoam engine mode on tab close', {
+        previousMode,
+        error,
+      });
+    });
   }
 
   private buildReviewTabTransferStateKey(transferState?: ReviewTabTransferState | null): string {
@@ -1322,6 +1378,7 @@ export class TabManager {
       window.clearTimeout(existing.pendingSurfaceRefreshTimer);
       existing.pendingSurfaceRefreshTimer = null;
     }
+    this.restoreTemporaryNeuralRoamEngineModeIfNeeded(this.normalizeReviewTabData(existing.custom.data));
     existing.removeActivityListeners();
     this.reviewTabRuntimes.delete(normalizedId);
     this.closeReviewAICompanionTab(normalizedId);
@@ -1479,6 +1536,11 @@ export class TabManager {
       reviewState,
       suppressSnapshotRecovery: options.suppressSnapshotRecovery === true,
       neuralRoamStartFromFocus: normalizeNeuralRoamStartFromFocus(options.neuralRoamStartFromFocus),
+      neuralRoamTemporaryEngineModeTouched: options.neuralRoamStartFromFocus?.previousEngineMode
+        ? false
+        : options.neuralRoamStartFromFocus?.entrySessionKind?.startsWith('temporary-') === true
+          ? false
+          : undefined,
       initialSemanticPinnedSessionId: normalizeOptionalId(options.initialSemanticPinnedSessionId),
     };
   }
@@ -1507,6 +1569,7 @@ export class TabManager {
       reviewState,
       suppressSnapshotRecovery: data?.suppressSnapshotRecovery === true,
       neuralRoamStartFromFocus: normalizeNeuralRoamStartFromFocus(data?.neuralRoamStartFromFocus),
+      neuralRoamTemporaryEngineModeTouched: data?.neuralRoamTemporaryEngineModeTouched === true,
       initialSemanticPinnedSessionId: normalizeOptionalId(data?.initialSemanticPinnedSessionId),
     };
   }

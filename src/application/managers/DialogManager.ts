@@ -1191,9 +1191,14 @@ export class DialogManager implements IDialogManager {
    */
   async openNeuralRoamDialog(options?: { 
     focusBlockId?: string;
+    seedBlockId?: string | null;
+    sourceReviewCardId?: string | null;
+    conceptBlockId?: string | null;
+    previousEngineMode?: BackendNeuralRoamStartFromFocusRequest['previousEngineMode'];
     includeFocusAsFirst?: boolean;
     resetHistory?: boolean;
     startNewSession?: boolean;
+    entrySessionKind?: BackendNeuralRoamStartFromFocusRequest['entrySessionKind'];
     semanticPinnedSessionId?: string;
   }): Promise<void> {
     if (!(await this.checkInitialized())) return;
@@ -1232,9 +1237,14 @@ export class DialogManager implements IDialogManager {
         suppressSnapshotRecovery: Boolean(options?.focusBlockId || options?.resetHistory || options?.startNewSession),
         neuralRoamStartFromFocus: focusBlockId ? {
           blockId: focusBlockId,
+          seedBlockId: String(options?.seedBlockId || '').trim() || focusBlockId,
+          sourceReviewCardId: String(options?.sourceReviewCardId || '').trim() || null,
+          conceptBlockId: String(options?.conceptBlockId || '').trim() || null,
+          previousEngineMode: options?.previousEngineMode ?? null,
           includeFocusAsFirst,
           resetHistory,
           startNewSession,
+          entrySessionKind: options?.entrySessionKind ?? null,
         } : null,
         initialSemanticPinnedSessionId: semanticPinnedSessionId || null,
         skipDomainSyncGate: true,
