@@ -3692,7 +3692,7 @@ describe('BackendKernel', () => {
     }
   });
 
-  it('filters known missing source rows from projection snapshot and row hydration', async () => {
+  it('fails closed when projection rows cannot all hydrate to active cards', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
     const activeCard = buildCard({
@@ -3732,13 +3732,13 @@ describe('BackendKernel', () => {
 
     expect('result' in snapshot).toBe(true);
     if ('result' in snapshot) {
-      expect(snapshot.result.rows.map((row: { fsrsCardId: string }) => row.fsrsCardId)).toEqual([
-        'projection-active-card',
-        'projection-unknown-card',
-      ]);
-      expect(snapshot.result.counters).toMatchObject({
-        remaining: 2,
-        total: 2,
+      expect(snapshot.result).toMatchObject({
+        queueType: 'incremental-learning',
+        policyHash: 'policy-a',
+        generation: 9,
+        status: 'unavailable',
+        rows: [],
+        counters: null,
       });
     }
 
@@ -3754,14 +3754,14 @@ describe('BackendKernel', () => {
 
     expect('result' in rowsByIds).toBe(true);
     if ('result' in rowsByIds) {
-      expect(rowsByIds.result.cards.map((card: FSRSCard) => card.id)).toEqual([
-        'projection-active-card',
-        'projection-unknown-card',
-      ]);
-      expect(rowsByIds.result.rows.map((row: { fsrsCardId: string }) => row.fsrsCardId)).toEqual([
-        'projection-active-card',
-        'projection-unknown-card',
-      ]);
+      expect(rowsByIds.result).toMatchObject({
+        queueType: 'incremental-learning',
+        policyHash: 'policy-a',
+        generation: 9,
+        status: 'unavailable',
+        rows: [],
+        cards: [],
+      });
     }
   });
 

@@ -221,12 +221,17 @@ describe('BrowserApplicationService deck query kernel', () => {
       pushErrMsg: vi.fn(),
     };
 
+    const storage = {
+      getCard: vi.fn(),
+      queryCards: vi.fn(() => {
+        throw new Error('SQL-first deck reads must not query local card snapshots');
+      }),
+      getAllCards: vi.fn(() => {
+        throw new Error('SQL-first deck reads must not scan all local cards');
+      }),
+    };
     const service = new BrowserApplicationService(
-      {
-        getCard: vi.fn(),
-        queryCards: vi.fn(),
-        getAllCards: vi.fn(),
-      } as never,
+      storage as never,
       new CardScheduleService(),
       new CardFilterService(),
       new CardSortService(),
@@ -353,12 +358,17 @@ describe('BrowserApplicationService deck query kernel', () => {
       pushErrMsg: vi.fn(),
     };
 
+    const storage = {
+      getCard: vi.fn(),
+      queryCards: vi.fn(() => {
+        throw new Error('SQL-first deck reads must not query local card snapshots');
+      }),
+      getAllCards: vi.fn(() => {
+        throw new Error('SQL-first deck reads must not scan all local cards');
+      }),
+    };
     const service = new BrowserApplicationService(
-      {
-        getCard: vi.fn(),
-        queryCards: vi.fn(),
-        getAllCards: vi.fn(),
-      } as never,
+      storage as never,
       new CardScheduleService(),
       new CardFilterService(),
       new CardSortService(),
@@ -382,6 +392,8 @@ describe('BrowserApplicationService deck query kernel', () => {
     expect(backendClient.browserDeckMatchedIds).toHaveBeenCalled();
     expect(backendClient.browserCountCards).toHaveBeenCalled();
     expect(backendClient.browserStats).toHaveBeenCalled();
+    expect(storage.queryCards).not.toHaveBeenCalled();
+    expect(storage.getAllCards).not.toHaveBeenCalled();
     expect(backendClient.browserSourceExistenceApplySweepHost).toHaveBeenCalled();
     expect(backendClient.browserSourceExistenceApplySweepHost).toHaveBeenCalledWith(
       expect.objectContaining({ blockIds: ['block-worker-1', 'block-worker-2'], force: true }),

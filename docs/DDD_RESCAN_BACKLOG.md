@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-21 (Round 420)
+Last update: 2026-05-21 (Round 422)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-21 - Browser And Queue Read Modules
+
+- Task: Continue `deepen-sql-first-card-runtime` P2/P3 by deepening Browser card-universe reads and queue projection reads behind application Modules.
+- Touched slice: Browser SQL-first deck runtime and Queue Projection Read façade; `src/application/services/browser/BrowserCardUniverseReadModule.ts`, `src/application/services/BrowserApplicationService.ts`, `src/application/services/queue-projection/QueueProjectionReadModule.ts`, `src/application/services/UnifiedDataSourceManager.ts`, focused Browser/Queue/Review tests, `ARCHITECTURE.md`, and the OpenSpec task checklist.
+- Debt fixed now: Browser deck page, matched IDs, rows-by-IDs, count, stats, source-existence row marking, and unavailable mapping now sit behind `BrowserCardUniverseReadModule` instead of being open-coded in `BrowserApplicationService`. Tests now assert active SQL-first deck reads do not call local `queryCards()` or `getAllCards()` for normal page/hydrate/count/stat paths. `UnifiedDataSourceManager` exposes projection readiness, snapshot, hydration, diagnostics, and live identity through `QueueProjectionReadModule`, so Browser Queue View and `BaseReviewQueue` consume one read façade for projection-backed reads.
+- Debt deferred: `QueueProjectionRuntime` still owns materialization, live identity emission, diagnostics state, and backend repair/mutation helpers; splitting those write/repair concerns from read concerns can be a later cleanup if the runtime keeps growing.
+- Why deferred: This pass closed P2/P3 read ownership and caller wiring without destabilizing projection materialization and follower writer-relay behavior.
+- Next safe step: Continue with 1.4/5.x review mutation persistence, because Browser and Queue read ownership now has explicit fail-closed boundaries.
+- Validation: Focused Browser deck tests, queue projection rollout tests, BaseReviewQueue snapshot tests, Browser Queue View lifecycle tests, browser load-data runtime tests, grid datasource lifecycle tests, and Browser queue-count fail-closed tests passed. Hidden fallback gate, boundary checks, and build passed. Build still reports existing non-blocking i18n hardcoded-string warnings, `package.zip` unlink EPERM zip-pack warnings, and Sass legacy API warnings.
+
+### 2026-05-21 - Browser And Queue SQL Baseline
+
+- Task: Continue `deepen-sql-first-card-runtime` by closing the Browser deck and queue projection baseline characterization tasks.
+- Touched slice: Browser SQL card-universe tests and Queue Projection Runtime; `src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts`, `src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`, `src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts`, `src/infrastructure/persistence/sqlite/__tests__/SqlQueueProjectionRepository.test.ts`, `worker/queue-projection/WorkerQueueProjectionRuntime.ts`, `worker/__tests__/BackendKernel.test.ts`, and the OpenSpec task checklist.
+- Debt fixed now: Existing Browser baseline tests prove SQL page reads, matched IDs, hydration order, stats, and source-existence marking. Queue projection tests now prove readiness, snapshot rows, row hydration, counters, stale materialization, and incomplete hydration fail-closed. `WorkerQueueProjectionRuntime` no longer silently returns partial projection snapshots or hydrated rows when stored projection rows cannot all hydrate to active SQL cards; it returns an explicit unavailable projection result with the current projection identity.
+- Debt deferred: The deep Browser card-universe read Module (2.x) and queue projection read Module (3.x) are still pending implementation slices.
+- Why deferred: This pass closed the baseline and fixed the active fail-open behavior first; the new read Modules should be introduced one bounded context at a time.
+- Next safe step: Implement 2.1/2.2 for Browser SQL card-universe ownership, or 3.1 for queue projection read ownership, while keeping explicit unavailable/refresh-required diagnostics.
+- Validation: Focused worker projection tests, queue projection rollout/repository tests, and Browser SQL repository/application tests passed. Hidden fallback gate, boundary checks, and build passed. Build still reports existing non-blocking i18n hardcoded-string warnings, `package.zip` unlink EPERM zip-pack warnings, and Sass legacy API warnings.
 
 ### 2026-05-21 - NeuralRoam SQL Card Facts Slice
 

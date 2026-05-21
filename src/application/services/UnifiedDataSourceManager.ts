@@ -60,6 +60,7 @@ import type {
     QueueProjectionReadinessRequest,
 } from '../../../packages/contracts/src/backend-rpc';
 import { QueueProjectionRuntime } from '@/application/services/queue-projection/QueueProjectionRuntime';
+import { QueueProjectionReadModule } from '@/application/services/queue-projection/QueueProjectionReadModule';
 import type { BlockContentResult } from '@/application/queries/CardContentQueryService';
 
 const logger = createLogger('UnifiedDataSourceManager');
@@ -270,6 +271,7 @@ export class UnifiedDataSourceManager {
     private pendingObserverEventOrder: string[];
     private observerFlushScheduled: boolean;
     private readonly queueProjectionRuntime: QueueProjectionRuntime;
+    private readonly queueProjectionReadModule: QueueProjectionReadModule;
     private unsubscribeQueueProjectionIdentityBroadcasts: (() => void) | null;
     
     // ========================================================================
@@ -313,6 +315,9 @@ export class UnifiedDataSourceManager {
                     ?.publishQueueProjectionIdentityBroadcast?.(event)
             ),
             logger,
+        });
+        this.queueProjectionReadModule = new QueueProjectionReadModule({
+            runtime: this.queueProjectionRuntime,
         });
     }
     
@@ -532,19 +537,19 @@ export class UnifiedDataSourceManager {
         queueType: QueueType,
         options: { forceRefresh?: boolean } = {},
     ): Promise<QueueProjectionSnapshot | null> {
-        return this.queueProjectionRuntime.readSnapshot(queueType, options);
+        return this.queueProjectionReadModule.readSnapshot(queueType, options);
     }
 
     public async ensureQueueProjectionReady(
         request: QueueProjectionReadinessRequest,
     ): Promise<QueueProjectionReadiness> {
-        return this.queueProjectionRuntime.ensureReady(request);
+        return this.queueProjectionReadModule.ensureReady(request);
     }
 
     public subscribeQueueProjectionLiveIdentityEvents(
         listener: QueueProjectionLiveIdentityListener,
     ): () => void {
-        return this.queueProjectionRuntime.subscribeLiveIdentityEvents(listener);
+        return this.queueProjectionReadModule.subscribeLiveIdentityEvents(listener);
     }
 
     private refreshQueueProjectionIdentityBroadcastSubscription(): void {
@@ -564,7 +569,7 @@ export class UnifiedDataSourceManager {
         ids: string[],
         options: { forceRefresh?: boolean } = {},
     ): Promise<FSRSCard[]> {
-        return this.queueProjectionRuntime.getCardsBySnapshotIds(queueType, ids, options);
+        return this.queueProjectionReadModule.getCardsBySnapshotIds(queueType, ids, options);
     }
 
     public async appendDrillLogV2(log: DrillLogV2): Promise<void> {
@@ -585,7 +590,7 @@ export class UnifiedDataSourceManager {
     }
 
     public getQueueProjectionRolloutDiagnostics(queueType?: QueueType): QueueProjectionRolloutDiagnostic[] {
-        return this.queueProjectionRuntime.getRolloutDiagnostics(queueType);
+        return this.queueProjectionReadModule.getRolloutDiagnostics(queueType);
     }
 
     private normalizeQueueType(queueType: unknown): QueueType | null {

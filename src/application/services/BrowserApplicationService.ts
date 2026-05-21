@@ -66,6 +66,7 @@ import {
   startRuntimePerformanceSpan,
 } from '@/utils/runtimePerformanceDiagnostics';
 import { hasFilterSetter, hasRebuildAction } from './browser/filterGroupQueueContract';
+import { BrowserCardUniverseReadModule } from './browser/BrowserCardUniverseReadModule';
 
 const EMPTY_QUEUE_COUNTS: Record<string, number> = Object.fromEntries(
   getCanonicalBrowserQueueIds().map((queueId) => [queueId, 0]),
@@ -134,6 +135,7 @@ function createBrowserRowProjectionSignature(row: BrowserCard): string {
 export class BrowserApplicationService implements IBrowserApplicationService {
   private readonly getBrowserCardsQueryHandler: GetBrowserCardsQueryHandler;
   private readonly browserDeckQueryKernel: BrowserDeckQueryKernel;
+  private readonly browserCardUniverseReadModule: BrowserCardUniverseReadModule;
   private readonly queueBrowserQueryKernel: QueueBrowserQueryKernel | null;
   private readonly unifiedDataSourceManager: IUnifiedDataSourceManagerFacade | null;
   private readonly siyuanApi: BrowserSiyuanPort;
@@ -189,6 +191,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
 
     this.unifiedDataSourceManager = unifiedDataSourceManager ?? null;
     this.siyuanApi = siyuanApi;
+    this.browserCardUniverseReadModule = new BrowserCardUniverseReadModule({
+      backendClient: srsBackendClient,
+      browserDeckQueryKernel: this.browserDeckQueryKernel,
+      scheduleSourceExistenceRefreshForCards: (cards, options) => this.scheduleSourceExistenceRefreshForBackendCards(cards, options),
+      markRowsFromBackendSourceExistence: (rows) => this.markRowsFromBackendSourceExistence(rows),
+      reuseBrowserRowProjections: (rows, reason) => this.reuseBrowserRowProjections(rows, reason),
+      scheduleSourceExistenceSweep: () => this.scheduleSourceExistenceSweepFromBackend(),
+      sourceExistenceBatchSize: SOURCE_EXISTENCE_BATCH_SIZE,
+    });
   }
 
   getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null {
@@ -242,62 +253,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     query: BrowserDeckSnapshotQuery,
     page: BrowserDeckPageRequest,
   ): Promise<BrowserDeckPageResult> {
-    if (!this.srsBackendClient) {
-      throw this.toBackendReadUnavailable('browser.deck.page');
-    }
-    try {
-      const initialPage = await measureRuntimePerformance('browser', 'backend.deck-page', () => this.srsBackendClient!.browserDeckPage(query, page), {
-        endRow: page.endRow,
-        startRow: page.startRow,
-      });
-      const initialCards = initialPage.cards as FSRSCard[];
-      this.scheduleSourceExistenceRefreshForBackendCards(initialCards, {
-        limit: SOURCE_EXISTENCE_BATCH_SIZE,
-      });
-      const rows = await measureRuntimePerformance('browser', 'deck-page.map-browser-rows', () => this.browserDeckQueryKernel.getBrowserCardsFromCards(initialCards, { markMissing: false }), {
-        rowCount: initialCards.length,
-      });
-      return {
-        rows: this.reuseBrowserRowProjections(
-          await this.markRowsFromBackendSourceExistence(rows),
-          'deck-page',
-        ),
-        total: initialPage.total,
-      };
-    } catch (error) {
-      throw this.toBackendReadUnavailable('browser.deck.page', error);
-    }
+    return this.browserCardUniverseReadModule.readPage(query, page);
   }
 
   async getDeckMatchedIds(query: BrowserDeckSnapshotQuery): Promise<string[]> {
-    if (!this.srsBackendClient) {
-      throw this.toBackendReadUnavailable('browser.deck.matchedIds');
-    }
-    try {
-      return await this.srsBackendClient.browserDeckMatchedIds(query);
-    } catch (error) {
-      throw this.toBackendReadUnavailable('browser.deck.matchedIds', error);
-    }
+    return this.browserCardUniverseReadModule.readMatchedIds(query);
   }
 
   async getDeckRowsByIds(ids: string[]) {
-    if (!this.srsBackendClient) {
-      throw this.toBackendReadUnavailable('browser.deck.rowsByIds');
-    }
-    try {
-      const cards = await measureRuntimePerformance('browser', 'backend.deck-rows-by-ids', () => this.srsBackendClient!.browserDeckRowsByIds(ids), {
-        idCount: ids.length,
-      });
-      const rows = await measureRuntimePerformance('browser', 'deck-rows-by-ids.map-browser-rows', () => this.browserDeckQueryKernel.getBrowserCardsFromCards(cards, { markMissing: false }), {
-        rowCount: cards.length,
-      });
-      return this.reuseBrowserRowProjections(
-        await this.markRowsFromBackendSourceExistence(rows),
-        'deck-rows-by-ids',
-      );
-    } catch (error) {
-      throw this.toBackendReadUnavailable('browser.deck.rowsByIds', error);
-    }
+    return this.browserCardUniverseReadModule.readRowsByIds(ids);
   }
 
   async getQueueQuerySnapshot(query: QueueBrowserSnapshotQuery): Promise<QueueBrowserSnapshotResult> {
@@ -315,31 +279,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   async getDueCount(): Promise<number> {
-    if (!this.srsBackendClient) {
-      throw this.toBackendReadUnavailable('browser.count');
-    }
-    try {
-      return await this.srsBackendClient.browserCountCards({
+    return this.browserCardUniverseReadModule.countCards({
         dueDate: { lte: Date.now() },
         includeSuspended: false,
         sourceStatus: 'active',
       });
-    } catch (error) {
-      throw this.toBackendReadUnavailable('browser.count', error);
-    }
   }
 
   async getStats(): Promise<BrowserStats> {
-    if (!this.srsBackendClient) {
-      throw this.toBackendReadUnavailable('browser.stats');
-    }
-    try {
-      const stats = await measureRuntimePerformance('browser', 'backend.stats', () => this.srsBackendClient!.browserStats());
-      this.scheduleSourceExistenceSweepFromBackend();
-      return stats;
-    } catch (error) {
-      throw this.toBackendReadUnavailable('browser.stats', error);
-    }
+    return this.browserCardUniverseReadModule.readStats();
   }
 
   async getBrowserCountDifferenceDiagnostic(): Promise<BrowserCountDifferenceDiagnostic> {
@@ -360,17 +308,6 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     return () => {
       this.sourceExistenceUpdateListeners.delete(listener);
     };
-  }
-
-  private toBackendReadUnavailable(operation: string, error?: unknown): Error {
-    const message = error instanceof Error ? String(error.message || '') : String(error || '');
-    if (message.startsWith('BACKEND_UNAVAILABLE:')) {
-      return error instanceof Error ? error : new Error(message);
-    }
-    if (message) {
-      return new Error(`BACKEND_UNAVAILABLE: ${operation} unavailable (${message})`);
-    }
-    return new Error(`BACKEND_UNAVAILABLE: ${operation} requires backend-worker ownership`);
   }
 
   private async readNativeCountDifferenceEvidence(): Promise<

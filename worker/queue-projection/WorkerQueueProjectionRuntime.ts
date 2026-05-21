@@ -84,6 +84,13 @@ export class WorkerQueueProjectionRuntime {
     });
     const cards = this.deps.repository.getCardsByIds(rows.map((row) => row.cardId));
     const snapshotRows = buildProjectionSnapshotRows(rows, cards);
+    if (snapshotRows.length !== rows.length) {
+      return buildHydrationUnavailableProjectionSnapshotResult({
+        queueType,
+        policyHash,
+        generation: requestedGeneration,
+      });
+    }
     return {
       queueType,
       policyHash,
@@ -158,6 +165,16 @@ export class WorkerQueueProjectionRuntime {
     const cards = this.deps.repository.getCardsByIds(orderedRows.map((row) => row.cardId));
     const activeCardIds = new Set(cards.map((card) => String(card.id || '').trim()).filter(Boolean));
     const activeRows = orderedRows.filter((row) => activeCardIds.has(String(row.cardId || '').trim()));
+    if (activeRows.length !== orderedRows.length) {
+      return {
+        ...buildHydrationUnavailableProjectionSnapshotResult({
+          queueType,
+          policyHash,
+          generation: requestedGeneration,
+        }),
+        cards: [],
+      };
+    }
     return {
       queueType,
       policyHash,
@@ -295,6 +312,21 @@ function buildUnavailableProjectionSnapshotResult(queueType: unknown): BackendQu
     queueType: String(queueType || ''),
     policyHash: null,
     generation: null,
+    status: 'unavailable',
+    rows: [],
+    counters: null,
+  };
+}
+
+function buildHydrationUnavailableProjectionSnapshotResult(input: {
+  queueType: ProjectionWorkerQueueType;
+  policyHash: string;
+  generation: number;
+}): BackendQueueProjectionSnapshotResult {
+  return {
+    queueType: input.queueType,
+    policyHash: input.policyHash,
+    generation: input.generation,
     status: 'unavailable',
     rows: [],
     counters: null,
