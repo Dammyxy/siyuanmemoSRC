@@ -2466,7 +2466,7 @@ describe('ReviewContent editor state', () => {
     wrapper.unmount();
   });
 
-  it('shows Concept roam action near Review content and emits the resolved focus', async () => {
+  it('does not render the legacy Concept roam action near Review content', async () => {
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
       props: {
@@ -2478,9 +2478,6 @@ describe('ReviewContent editor state', () => {
             ...createProtyleContent('concept-block', 'concept-card').card,
             type: 'concept',
           },
-        },
-        i18n: {
-          reviewRoamFromConcept: '从概念漫游',
         },
         showAnswer: true,
         hasHiddenContent: false,
@@ -2503,16 +2500,12 @@ describe('ReviewContent editor state', () => {
     });
 
     await settleReviewContent();
-    const button = wrapper.get('.fsrs-review-v2-content__concept-roam');
-    expect(button.text()).toBe('从概念漫游');
-
-    await button.trigger('click');
-
-    expect(wrapper.emitted('concept-roam')).toEqual([['concept-block']]);
+    expect(wrapper.find('.fsrs-review-v2-content__concept-roam').exists()).toBe(false);
+    expect(wrapper.emitted('concept-roam')).toBeUndefined();
     wrapper.unmount();
   });
 
-  it('keeps Concept roam action visible after answer reveal', async () => {
+  it('keeps the legacy Concept roam action hidden after answer reveal', async () => {
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
       props: {
@@ -2546,7 +2539,7 @@ describe('ReviewContent editor state', () => {
     });
 
     await settleReviewContent();
-    expect(wrapper.find('.fsrs-review-v2-content__concept-roam').exists()).toBe(true);
+    expect(wrapper.find('.fsrs-review-v2-content__concept-roam').exists()).toBe(false);
     wrapper.unmount();
   });
 

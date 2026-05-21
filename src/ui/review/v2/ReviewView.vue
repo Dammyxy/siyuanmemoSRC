@@ -85,7 +85,6 @@
           :render-epoch="renderEpoch"
           :render-services="reviewRenderServices"
           @editor-state-change="handleEditorStateChange"
-          @concept-roam="handleConceptRoam"
         />
 
         <div v-if="reviewSemanticTemporaryView" class="fsrs-review-v2__temporary-view" role="status">
@@ -1866,39 +1865,6 @@ function t(key: string, fallback: string): string {
 function notifyReviewMessage(message: string, timeout = 3000, type: 'info' | 'error' | 'warning' = 'info'): void {
   if (typeof showMessage === 'function') {
     showMessage(message, timeout, type);
-  }
-}
-
-async function handleConceptRoam(focusBlockId: string): Promise<void> {
-  const normalizedFocusBlockId = String(focusBlockId || '').trim();
-  if (!normalizedFocusBlockId) {
-    return;
-  }
-
-  if (resolveCurrentNeuralRoamUserMode() === 'semantic-activation') {
-    await startSemanticActivationEntry({ focusBlockId: normalizedFocusBlockId });
-    return;
-  }
-
-  const entryActionService = getNeuralRoamEntryActionService();
-  if (typeof entryActionService?.startTemporaryConceptRoam !== 'function') {
-    showMessage(t('reviewConceptRoamFailed', '无法从当前概念开始漫游'), 3000, 'error');
-    return;
-  }
-
-  try {
-    const result = await entryActionService.startTemporaryConceptRoam({
-      conceptBlockId: normalizedFocusBlockId,
-    });
-    if (!result.ok) {
-      showMessage(result.message || t('reviewConceptRoamFailed', '无法从当前概念开始漫游'), 3000, 'error');
-    }
-  } catch (error) {
-    logger.error('[ReviewView] Failed to start concept roam from Review content', {
-      focusBlockId: normalizedFocusBlockId,
-      error,
-    });
-    showMessage(t('reviewConceptRoamFailed', '无法从当前概念开始漫游'), 3000, 'error');
   }
 }
 

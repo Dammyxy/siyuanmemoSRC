@@ -4,6 +4,16 @@ Last update: 2026-05-22 (Round 427)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-22 - Review CDF NeuralRoam Entry Cleanup
+
+- Task: Fix CDF-related Review UI still showing the legacy standalone `从概念漫游` action after NeuralRoam entry actions moved into the toolbar icon menu.
+- Touched slice: Review content surface and Review NeuralRoam entry wiring; `src/ui/review/v2/ReviewContent.vue`, `src/ui/review/v2/ReviewView.vue`, and focused Review UI tests.
+- Debt fixed now: Removed the old Review content `concept-roam` button/event path and its unused handler, so CDF/concept temporary roam is only exposed through the compact `神经漫游` toolbar menu.
+- Debt deferred: Temporary NeuralRoam path isolation remains shared with the persistent NeuralRoam seed pool.
+- Why deferred: User asked to locate and discuss the temporary-roam next-card behavior before changing queue semantics.
+- Next safe step: Decide whether temporary roam should use a scoped focus pool inside the existing queue or a separate temporary queue/session instance.
+- Validation: Focused Review content/menu and NeuralRoam entry service tests passed. Boundary checks and build passed; build still reports existing non-blocking hardcoded i18n warnings, `package.zip` EPERM zip-pack warnings, and Sass legacy API warnings.
+
 ### 2026-05-22 - NeuralRoam Same-Block Card Links
 
 - Task: Continue OpenSpec `neural-roam-entry-actions-and-same-block-links` by implementing same-block multi-card NeuralRoam relationships.
