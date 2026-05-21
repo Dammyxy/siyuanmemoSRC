@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-21 (Round 422)
+Last update: 2026-05-21 (Round 423)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-21 - Xiuyuan SQL Reads And Review Mutation Slice
+
+- Task: Continue `deepen-sql-first-card-runtime` P2/P3 follow-up by closing Xiuyuan SQL read persistence and selecting the first Review mutation slice.
+- Touched slice: Xiuyuan repository read paths, SQLite persistence adapters, composition root wiring, Review mutation documentation, OpenSpec checklist, and focused Xiuyuan/SQL tests.
+- Debt fixed now: Added `SqlXiuyuanReadRepository` as the SQL read adapter for ADR-004 aggregates. `XiuyuanRepository.findById()` now uses SQL primary-key lookup when the port is injected, and `findByBlockId()` uses the `cards.block_id + cards.xiuyuan_id` indexed join instead of scanning all Xiuyuans. Aggregate hydration still flows through the existing `toDomain()` path, now parameterized by the card DTO reader, so faces, template ID, block IDs, ownership metadata, card IDs, and scheduling links keep the same domain semantics. Review mutation slice 5.1 is selected as ordinary `review.feedback`, because the active worker path already commits SQL card state, review event/domain sync ledger, sync metadata, and queue projection impact inside `runTransaction('review.feedback')`.
+- Debt deferred: `XiuyuanRepository.findAll()` remains a sync/management full-enumeration path for this phase; no indexed `findAll` query was added because normal active lookups are by ID or source block ID. Review mutation tasks 5.2-5.4 still need the new persistence module extraction and failure-restoration tests; this pass only documented the safe first slice and verified existing projection impact baselines.
+- Why deferred: Adding indexed `findAll()` would broaden semantics without a current active caller requiring pagination/filtering. Extracting Review mutation persistence is a separate transaction-boundary refactor and should keep the existing worker transaction owner intact.
+- Next safe step: Implement 5.2-5.4 by extracting a worker-side review card-mutation persistence module behind the existing `review.feedback` transaction, then add failure injection tests for SQL persist/queue projection partial-success restoration.
+- Validation: Focused `XiuyuanRepository.sql-read`, `SqlXiuyuanReadRepository`, `ReviewCommitUseCase`, `ReviewAttemptKernel`, and BackendKernel review/projection-impact tests passed. Hidden fallback gate, boundary checks, and build passed. Build still reports existing non-blocking i18n hardcoded-string warnings, `package.zip` unlink EPERM zip-pack warnings, and Sass legacy API warnings.
 
 ### 2026-05-21 - Browser And Queue Read Modules
 

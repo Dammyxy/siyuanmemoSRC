@@ -129,6 +129,12 @@ type CardTypeDetectionPort = {
   detectCardType: (blockId: string) => Promise<XiuyuanCardType>;
 };
 
+export interface XiuyuanSqlReadPort {
+  findById(id: string): IXiuyuan | null;
+  findByBlockId(blockId: string): IXiuyuan[];
+  getCardDTO(cardId: string): CardPersistenceDTO | null;
+}
+
 type DeferredRepositorySideEffects = {
   afterPersist: Array<() => Promise<void>>;
   eventXiuyuans: Xiuyuan[];
@@ -211,7 +217,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
   constructor(
     private readonly storage: UnifiedStorageManager,
-    private readonly cardTypeDetectionService?: CardTypeDetectionPort
+    private readonly cardTypeDetectionService?: CardTypeDetectionPort,
+    private readonly sqlReadPort?: XiuyuanSqlReadPort | null,
   ) {
     this.templateRegistry = new TemplateRegistry();
   }
@@ -564,12 +571,14 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    */
   async findById(id: XiuyuanId): Promise<Result<Xiuyuan | null>> {
     try {
-      const data = this.storage.getXiuYuan(id.getValue());
+      const data = this.sqlReadPort
+        ? this.sqlReadPort.findById(id.getValue())
+        : this.storage.getXiuYuan(id.getValue());
       if (!data) {
         return ok(null);
       }
 
-      const result = this.toDomain(data);
+      const result = this.toDomain(data, this.sqlReadPort || undefined);
       if (isErr(result)) {
         return result;
       }
@@ -593,15 +602,16 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    */
   async findByBlockId(blockId: BlockId): Promise<Result<Xiuyuan[]>> {
     try {
-      // 閫氳繃 UnifiedStorageManager 鏌ヨ鎵€鏈?XiuYuans
-      const allXiuyuans = this.storage.getAllXiuYuans();
+      const allXiuyuans = this.sqlReadPort
+        ? this.sqlReadPort.findByBlockId(blockId.getValue())
+        : this.storage.getAllXiuYuans();
       const xiuyuans: Xiuyuan[] = [];
       const repairCandidates: XiuyuanReadCardRepairCandidate[] = [];
 
       // 杩囨护鍖呭惈鎸囧畾 blockID 鐨?XiuYuans
       for (const data of allXiuyuans) {
         if (data.blockIDs.includes(blockId.getValue())) {
-          const result = this.toDomain(data);
+          const result = this.toDomain(data, this.sqlReadPort || undefined);
           if (result.ok && result.value.xiuyuan) {
             xiuyuans.push(result.value.xiuyuan);
             const candidate = this.buildCardIdRepairCandidate(data, result.value.cardIdStats);
@@ -1304,7 +1314,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    * @returns Result<Xiuyuan | null>
    * @private
    */
-  private toDomain(data: IXiuyuan): Result<{ xiuyuan: Xiuyuan | null; cardIdStats: CardIdResolutionStats }> {
+  private toDomain(
+    data: IXiuyuan,
+    cardDtoReader: Pick<UnifiedStorageManager, 'getCardDTO'> | XiuyuanSqlReadPort = this.storage,
+  ): Result<{ xiuyuan: Xiuyuan | null; cardIdStats: CardIdResolutionStats }> {
     try {
       // 1. 杞崲 ID
       const idResult = XiuyuanId.create(data.id);
@@ -1351,7 +1364,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       logger.debug(`toDomain: Xiuyuan ${data.id} has ${cardIds.length} cardIds in meta`);
       
       for (const cardId of cardIds) {
-        const cardDTO = this.storage.getCardDTO(cardId);
+        const cardDTO = cardDtoReader.getCardDTO(cardId);
         if (!cardDTO) {
           missingDtoCardIds.push(cardId);
           continue;

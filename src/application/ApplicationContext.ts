@@ -94,6 +94,7 @@ import {
   SqlQueueStateRepository,
   SqlReviewLogRepository,
   SqlUnifiedStorageRepository,
+  SqlXiuyuanReadRepository,
 } from '@/infrastructure/persistence/sqlite';
 import { SettingsService } from '@/application/services/SettingsService';
 import { ReviewLogService } from '@/application/services/ReviewLogService';
@@ -249,6 +250,7 @@ interface SqlPersistenceBundle {
   queue: SqlQueueStateRepository;
   reviewLogs: SqlReviewLogRepository;
   arena: SqlArenaRepository;
+  xiuyuanRead: SqlXiuyuanReadRepository;
 }
 
 type DisposableSrsBackendTransport = SrsBackendTransport & {
@@ -815,7 +817,8 @@ export class ApplicationContext {
       
       const xiuyuanRepo = new XiuyuanRepository(
         context.getUnifiedStorage(),  // ✅ 使用 UnifiedStorageManager
-        cardTypeDetectionService      // ✅ 注入 CardTypeDetectionService
+        cardTypeDetectionService,      // ✅ 注入 CardTypeDetectionService
+        context.sqlPersistence?.xiuyuanRead ?? null,
       );
 
       // 创建领域服务
@@ -1096,6 +1099,7 @@ export class ApplicationContext {
         const queue = new SqlQueueStateRepository(database);
         const reviewLogs = new SqlReviewLogRepository(database);
         const arena = new SqlArenaRepository(database);
+        const xiuyuanRead = new SqlXiuyuanReadRepository(database);
         const migrationService = new SqliteMigrationService(
           database,
           fileService,
@@ -1103,7 +1107,7 @@ export class ApplicationContext {
           legacyPersistence.load,
         );
         await migrationService.migrateIfNeeded();
-        sqlPersistence = { database, unified, queue, reviewLogs, arena };
+        sqlPersistence = { database, unified, queue, reviewLogs, arena, xiuyuanRead };
         unifiedSave = (data) => unified.saveStore(data);
         unifiedLoad = (reason) => unified.loadStore(reason);
       });
@@ -1311,7 +1315,8 @@ export class ApplicationContext {
     
     const xiuyuanRepoTemp = new XiuyuanRepository(
       unifiedStorageManager,
-      cardTypeDetectionServiceTemp  // ✅ 注入 CardTypeDetectionService
+      cardTypeDetectionServiceTemp,  // ✅ 注入 CardTypeDetectionService
+      sqlPersistence?.xiuyuanRead ?? null,
     );
     
     // 创建领域服务
@@ -1679,7 +1684,8 @@ export class ApplicationContext {
       // ✅ 创建 XiuyuanRepository
       const xiuyuanRepository = new XiuyuanRepository(
         unifiedStorageManager,
-        cardTypeDetectionService2  // ✅ 注入 CardTypeDetectionService
+        cardTypeDetectionService2,  // ✅ 注入 CardTypeDetectionService
+        sqlPersistence?.xiuyuanRead ?? null,
       );
       const cardTypeDetectionService = context.getCardTypeDetectionService();
       
@@ -2279,7 +2285,8 @@ export class ApplicationContext {
       // 创建 XiuyuanRepository
       const xiuyuanRepository = new XiuyuanRepository(
         this.unifiedStorageManager,
-        cardTypeDetectionService  // ✅ 注入 CardTypeDetectionService
+        cardTypeDetectionService,  // ✅ 注入 CardTypeDetectionService
+        this.sqlPersistence?.xiuyuanRead ?? null,
       );
       
       // ✅ 从代码导入模板（硬编码，不需要持久化）

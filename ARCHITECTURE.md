@@ -103,7 +103,7 @@ flowchart TD
 - 装配 `DialogManager` / `MenuManager` / `TabManager` / `DockManager`；`DialogManager`、`MenuManager`、`TabManager`、`BlockMenuHandler`、`PracticeQueueManager`、`ReviewScopeCardCreationSyncService` 的 Siyuan / Progressive / Leech effects 依赖由 `ApplicationContext` 通过应用端口注入，不在 manager/service 内部默认构造基础设施 adapter
 - 装配 Browser 所需的 Siyuan port 与 datasource factory；`BrowserApplicationService` 不直接依赖 `src/ui/browser/*`
 - 装配 Review special renderer service；`ReviewContent.vue` 不直接创建 core infrastructure repository
-- 装配 `XiuyuanApplicationService` / `XiuyuanSyncService`；`XiuyuanApplicationService` 的修远写入 usecases 共享组合根注入的 `XiuyuanSiyuanAdapter`，`XiuyuanSyncService` 的 Riff sync API 依赖由组合根注入 `XiuyuanSyncSiyuanAdapter`
+- 装配 `XiuyuanApplicationService` / `XiuyuanSyncService`；SQL active 时 `ApplicationContext` 给 `XiuyuanRepository` 注入 `SqlXiuyuanReadRepository`，`findById()` 读 `xiuyuans` 主键，`findByBlockId()` 通过 `cards.block_id + cards.xiuyuan_id` 索引 join 到 `xiuyuans`，再用 `cards.dto_json` 恢复 ADR-004 aggregate card links；这两个读路径不扫描 `UnifiedStorageManager.getAllXiuYuans()`。`findAll()` 仍是同步/管理面的全量枚举，暂不纳入本阶段 SQL-first active path。`XiuyuanApplicationService` 的修缘写入 usecases 共享组合根注入的 `XiuyuanSiyuanAdapter`，`XiuyuanSyncService` 的 Riff sync API 依赖由组合根注入 `XiuyuanSyncSiyuanAdapter`
 - 装配 `ProgressiveReadingService` / `SelectionExcerptService` / `SelectionTopicContinuationService` / `TopicDerivedItemService`
 - 装配 `ConfiguredCaptureStorageService` / `ReviewAIWorkbenchRegistry` / `AIWorkbenchService`
 - 装配 `KernelCompanionPort` 与 `KernelSidecarClient`，把可选内核伴生 JSON-RPC、RPC WebSocket push、kernel network proxy、private SSE 细节限制在 Siyuan integration 边界内；Settings / UI 只通过应用端口读状态，不直接调用 `/api/plugin/rpc/*`、`/ws/plugin/rpc/*` 或 private SSE endpoint
@@ -260,7 +260,7 @@ Review Attempt Kernel 边界：
 
 - `ReviewAttemptKernel` 位于 `src/application/usecases/review`，是一次评分/预览/drill attempt 的应用层深 module；它保持 `ReviewCommitUseCase` 作为 backend-worker / writer-relay authority adapter，不接管 DB 写入，也不把 fallback local schedule write 带回复习路径。
 - kernel 输出统一 `projectionAction`：`patch-applied`、`refresh-required`、`generation-mismatch`、`not-applicable`、`unavailable`。`BaseReviewQueue` 只透传 outcome，`UnifiedQueueStrategy` 只消费 action 做本地 session cache hot patch 或强制刷新，不再独立解析 backend `queueImpact.affectedQueues` 来决定投影后续动作。
-- `ReviewCommitUseCase` 是 kernel 下层的 backend feedback adapter，只保留 card read、runtime policy、backend `review.feedback`、writer relay、scheduler config 与 Arena 批次记录依赖；旧本地 scheduler / review log / transaction runner 构造依赖已移除。
+- `ReviewCommitUseCase` 是 kernel 下层的 backend feedback adapter，只保留 card read、runtime policy、backend `review.feedback`、writer relay、scheduler config 与 Arena 批次记录依赖；旧本地 scheduler / review log / transaction runner 构造依赖已移除。`deepen-sql-first-card-runtime` 的首个 Review mutation slice 选定普通 `review.feedback`：worker 内已通过 `runTransaction('review.feedback')` 同时提交 SQL card state、review event/domain sync ledger、sync metadata 与 queue projection impact，且现有 ReviewCommit/ReviewAttempt/BackendKernel 测试覆盖 projection generation mismatch、hot-patch impact、projection unavailable 与 writer-required fail-closed。后续 5.2-5.4 只抽模块，不改变事务 owner。
 - `src/application/adapters/review-session/*` 是 Review session advancement 的应用层模块区：`ReviewSessionCursor` owns in-memory Review Session Cursor state（cached cards/current index/forward buffer/pending rotation/avoid-once/session-local exclusions/projection patch state/snapshot restore），`ReviewCurrentItemCommand` owns 当前可见 item 的 select/restore/clear mutation（ordinary next、snapshot restore、failed-feedback compensation、stale item clear），`ReviewTransactionRuntime` owns Strategy-facing Review transaction interface（capture、record history、go-back rollback、failed-feedback compensation、clear），并在内部组合 `ReviewTransactionSafetyEnvelope`（pre-review snapshot / queue rollback snapshots / session exclusions / persistent rollback / no-persist compensation）与 `ReviewHistoryStack`（clone-on-push previous items、optional transaction identity、failed-entry discard、clear/reset），`ReviewSessionProjectionAdvancePolicy` 包装 `ReviewSessionProjectionApplier` 的 patch/refresh 判断，`ReviewFeedbackCompensationPolicy` 给出失败反馈补偿动作顺序，`IncrementalRequeryAdvancePolicy` 维护 avoid-once visible identity 和 snapshot 兼容字段，`ReviewLearnAheadAdvancePolicy` 管理 Learn Ahead enter/exit，`NeuralRoamAdvanceOutcomePolicy` 只消费 backend advance outcome，不读取静态 projection cursor。`UnifiedQueueStrategy` 只负责调用这些 policy/module、应用返回 state、执行现有 side effect、或触发 reload。
 
 ### 4.3 Progressive / Excerpt / Topic-derived item
@@ -508,7 +508,7 @@ Handlers / entries / helpers：
 - `src/core/card-builder/*`：卡型识别、元数据提取与构建辅助。
 - `src/core/card-type/*`：卡型标记与规则映射。
 - `src/core/xiuyuan/domain/*`：修远聚合、值对象、领域服务、领域事件。
-- `src/core/xiuyuan/infrastructure/XiuyuanRepository.ts`：修远仓储核心实现。
+- `src/core/xiuyuan/infrastructure/XiuyuanRepository.ts`：修缘仓储核心实现；SQL read port 存在时，按 ID 与 block ID 读路径优先走 `XiuyuanSqlReadPort`，并用同一 `toDomain()` aggregate hydration 逻辑恢复 faces、metadata 与 card scheduling links。
 - `src/core/xiuyuan/templates/*`：内置模板与模板注册。
 
 共享能力：
@@ -543,7 +543,7 @@ Siyuan / Riff / LLM 适配器：
 持久化与支撑：
 
 - `src/infrastructure/persistence/*`：卡片仓储、DTO、mapper、持久化映射。
-- `src/infrastructure/persistence/sqlite/*`：sql.js 单文件持久化层；`SqliteDatabaseService` 负责 `siyuanmemo.db`、schema、算法注册、FTS5 能力检测、二进制 DB 落盘、事务级 persist 合并与 persist 失败后的 SQL 内存状态恢复，schema v4 在 `cards` 增加 Browser 常用投影、`search_text/card_type_marker`、`source_exists/source_checked_at/source_missing_at` 与索引，并新增 `queue_projection_generations / rows / counters / invalidations / rebuilds` 作为可重建队列投影底座；repository 负责 unified store、Browser deck SQL read port、source-existence cache、queue state、queue projection、review logs 与 Arena append-only 数据。SQL active 时 `algorithm_card_state` 是当前调度状态权威来源，`cards`/DTO 的调度字段只作为兼容快照与查询投影；`SqliteMigrationService` 负责旧 msgpack/JSON 到 SQL 的一次性迁移，并执行 `algorithm-card-state-production-v1` 回填、备份与 dirty diagnostic。
+- `src/infrastructure/persistence/sqlite/*`：sql.js 单文件持久化层；`SqliteDatabaseService` 负责 `siyuanmemo.db`、schema、算法注册、FTS5 能力检测、二进制 DB 落盘、事务级 persist 合并与 persist 失败后的 SQL 内存状态恢复，schema v4 在 `cards` 增加 Browser 常用投影、`search_text/card_type_marker`、`source_exists/source_checked_at/source_missing_at` 与索引，并新增 `queue_projection_generations / rows / counters / invalidations / rebuilds` 作为可重建队列投影底座；repository 负责 unified store、Browser deck SQL read port、source-existence cache、Xiuyuan SQL read port、queue state、queue projection、review logs 与 Arena append-only 数据。SQL active 时 `algorithm_card_state` 是当前调度状态权威来源，`cards`/DTO 的调度字段只作为兼容快照与查询投影；`SqliteMigrationService` 负责旧 msgpack/JSON 到 SQL 的一次性迁移，并执行 `algorithm-card-state-production-v1` 回填、备份与 dirty diagnostic。
 - `src/infrastructure/queries/CardReadModel.ts` / `SqlCardReadModel.ts`：卡片读模型实现；legacy 读内存 `UnifiedStorageManager`，SQL active 读 `SqlUnifiedStorageRepository.queryCards()/countCards()`，先走 `cards` 表索引字段，再执行 suspended/tags/customFilter 等残余过滤。
 - `src/infrastructure/services/FileService.ts` / `QueuePersistenceService.ts`：文件与队列持久化支撑；SQL active 时 `QueuePersistenceService` 只读写 `queue_state`，旧 `queues.msgpack` 只作为迁移来源或 fallback。`SqlQueueProjectionRepository` 单独实现 `QueueProjectionPort`，不替代 `queue_state` overlay。
 - `src/infrastructure/queue/*`：队列相关副作用适配器。
