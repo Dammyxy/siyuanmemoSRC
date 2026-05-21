@@ -39,6 +39,7 @@ import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
 import { FinalDrillQueue } from '@/core/queue/domain/FinalDrillQueue';
 import { NeuralRoamQueue } from '@/core/queue/domain/NeuralRoamQueue';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
+import type { NeuralRoamRouteCatalog } from '@/core/queue/neural/routes';
 import type { QueueInitialLoadAware, QueueSchedulerPort } from '@/core/queue/managers/UnifiedDataSourceManager';
 import type { QueueReviewCommand, QueueReviewCommitResult } from '@/core/queue/managers/UnifiedDataSourceManager';
 import type {
@@ -256,6 +257,7 @@ export class UnifiedDataSourceManager {
      * 用于队列数据的持久化（传递给队列构造函数）
      */
     private queuePersistence: QueuePersistencePort | null;
+    private neuralRoamRouteCatalog: NeuralRoamRouteCatalog | null;
 
     /**
      * Leech 队列副作用端口
@@ -296,6 +298,7 @@ export class UnifiedDataSourceManager {
         // 初始化队列实例缓存
         this.queueInstances = new Map<QueueType, IReviewQueue>();
         this.queuePersistence = null;
+        this.neuralRoamRouteCatalog = null;
         this.leechActionEffects = null;
         this.pendingObserverEvents = new Map<string, DataChangeEvent>();
         this.pendingObserverEventOrder = [];
@@ -331,6 +334,12 @@ export class UnifiedDataSourceManager {
     public setQueuePersistence(queuePersistence: QueuePersistencePort): void {
         this.queuePersistence = queuePersistence;
         logger.info('QueuePersistence service set');
+    }
+
+    public setNeuralRoamRouteCatalog(routeCatalog: NeuralRoamRouteCatalog | null): void {
+        this.neuralRoamRouteCatalog = routeCatalog;
+        this.invalidateQueue(QueueType.NeuralRoam);
+        logger.info('NeuralRoam route catalog set', { enabled: routeCatalog !== null });
     }
 
     /**
@@ -1292,6 +1301,7 @@ export class UnifiedDataSourceManager {
                     },
                     getHistoryLimit: () => this.getNeuralRoamHistoryMaxEntries(),
                     getHyperspaceSettings: () => this.getNeuralRoamHyperspaceSettings(),
+                    routeCatalog: this.neuralRoamRouteCatalog ?? undefined,
                 });
             
             case QueueType.Leech:

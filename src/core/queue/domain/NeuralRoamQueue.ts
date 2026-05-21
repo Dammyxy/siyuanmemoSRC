@@ -48,6 +48,12 @@ import {
 import { NeuralGraphProvider } from '../neural/graph/NeuralGraphProvider';
 import type { NeuralGraphQueryPort } from '../neural/NeuralGraphQueryPort';
 import type { NeuralRoamCardFacts } from '../neural/NeuralRoamCardFacts';
+import type {
+  NeuralRoamRouteCatalog,
+  NeuralRoamRouteHistoryEvent,
+  NeuralRoamRoutePoolEntry,
+  NeuralRoamRouteSnapshot,
+} from '../neural/routes';
 import { createDependencyUnavailableError } from '../dependencyErrors';
 import { resolveCardId } from '../../../diagnostics/type-guards';
 import { createLogger } from '@/utils/logger';
@@ -121,6 +127,7 @@ interface NeuralRoamQueueOptions {
   getHyperspaceSettings?: () => HyperspaceSettings;
   graphQuery?: NeuralGraphQueryPort;
   storageKey?: string;
+  routeCatalog?: NeuralRoamRouteCatalog;
 }
 
 type LocalConceptStatus = 'concept' | 'non-concept' | 'unknown';
@@ -294,6 +301,9 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   private readonly nodeTypeResolver?: NeuralRoamNodeTypeResolverPort;
   private readonly getHistoryLimit?: () => number;
   private readonly getHyperspaceSettings?: () => HyperspaceSettings;
+  private readonly routeCatalog?: NeuralRoamRouteCatalog;
+  private activeRouteSnapshot: NeuralRoamRouteSnapshot | null = null;
+  private persistedRouteHistoryEventIds = new Set<string>();
   private engineMode: NeuralEngineMode = 'orbit';
   private pendingAssociatedReviewCards: FSRSCard[] = [];
   private readonly seenAssociatedReviewCardIds = new Set<string>();
@@ -312,6 +322,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     this.nodeTypeResolver = options.nodeTypeResolver;
     this.getHistoryLimit = options.getHistoryLimit;
     this.getHyperspaceSettings = options.getHyperspaceSettings;
+    this.routeCatalog = options.routeCatalog;
     const cardFacts = options.cardFacts ?? (this.nodeTypeResolver
       ? { resolveNodeType: (blockId: string) => this.nodeTypeResolver!.resolveNodeType(blockId) }
       : undefined);
@@ -427,7 +438,170 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     return dedupedNewestFirst.reverse();
   }
 
+  private async restoreActiveRouteState(): Promise<boolean> {
+    if (!this.routeCatalog) {
+      return false;
+    }
+
+    const state = await this.routeCatalog.getState();
+    const route = state.routes.find((candidate) => candidate.metadata.id === state.activeRouteId)
+      ?? await this.routeCatalog.getActiveRoute();
+    this.engineMode = state.engineMode;
+    this.applyRouteSnapshot(route);
+    this.activeRouteSnapshot = route;
+    this.persistedRouteHistoryEventIds = new Set(route.history.map((event) => event.eventId));
+    this.resetAssociatedReviewState();
+    logger.info(`Loaded neural roam route state, activeRoute=${route.metadata.id}, engineMode=${this.engineMode}`);
+    return true;
+  }
+
+  private applyRouteSnapshot(route: NeuralRoamRouteSnapshot): void {
+    const orbitSeedPool = route.seedPool.map((entry) => this.routePoolEntryToFocusPoolEntry(entry));
+    const orbitAnchorPool = route.anchorPool.map((entry) => this.routePoolEntryToFocusPoolEntry(entry));
+    const hyperspaceSourcePool = route.seedPool.map((entry) => this.routePoolEntryToHyperspaceEntry(entry, 'activation-source'));
+    const hyperspaceAnchorPool = route.anchorPool.map((entry) => this.routePoolEntryToHyperspaceEntry(entry, entry.role ?? 'orbit-center'));
+
+    this.conceptQueue.restoreSeedPoolState(orbitSeedPool);
+    this.conceptQueue.restoreAnchorPoolState(orbitAnchorPool);
+    this.conceptQueue.restoreSessionState(route.sessions.orbit);
+    this.hyperspaceEngine.restoreSourcePoolState(hyperspaceSourcePool);
+    this.hyperspaceEngine.restoreAnchorPoolState(hyperspaceAnchorPool);
+    this.hyperspaceEngine.restoreSessionState(route.sessions.hyperspace);
+  }
+
+  private routePoolEntryToFocusPoolEntry(entry: NeuralRoamRoutePoolEntry): FocusPoolPersistedEntry {
+    return {
+      nodeId: entry.nodeId,
+      nodeKind: entry.nodeKind === 'virtual' ? 'virtual' : 'concept',
+      priority: entry.priority,
+      neighborsViewed: 0,
+      addedAt: entry.addedAt,
+      nodePreview: entry.preview || entry.nodeId,
+    };
+  }
+
+  private routePoolEntryToHyperspaceEntry(
+    entry: NeuralRoamRoutePoolEntry,
+    role: HyperspacePersistedEntry['role'],
+  ): HyperspacePersistedEntry {
+    return {
+      nodeId: entry.nodeId,
+      nodeKind: entry.nodeKind === 'element' ? 'element' : entry.nodeKind === 'virtual' ? 'virtual' : 'concept',
+      role,
+      priority: entry.priority,
+      addedAt: entry.addedAt,
+      visitedAt: entry.visitedAt ?? entry.addedAt,
+      nodePreview: entry.preview || entry.nodeId,
+    };
+  }
+
+  private focusPoolEntryToRoutePoolEntry(
+    entry: FocusPoolPersistedEntry,
+    routeId: string,
+    kind: NeuralRoamRoutePoolEntry['kind'],
+  ): NeuralRoamRoutePoolEntry {
+    return {
+      routeId,
+      nodeId: entry.nodeId,
+      kind,
+      nodeKind: entry.nodeKind,
+      role: null,
+      priority: entry.priority,
+      addedAt: entry.addedAt,
+      visitedAt: null,
+      preview: entry.nodePreview || entry.nodeId,
+    };
+  }
+
+  private hyperspaceEntryToRoutePoolEntry(
+    entry: HyperspacePersistedEntry,
+    routeId: string,
+    kind: NeuralRoamRoutePoolEntry['kind'],
+  ): NeuralRoamRoutePoolEntry {
+    return {
+      routeId,
+      nodeId: entry.nodeId,
+      kind,
+      nodeKind: entry.nodeKind,
+      role: entry.role,
+      priority: entry.priority,
+      addedAt: entry.addedAt,
+      visitedAt: entry.visitedAt,
+      preview: entry.nodePreview || entry.nodeId,
+    };
+  }
+
+  private mergeRoutePoolEntries(entries: NeuralRoamRoutePoolEntry[]): NeuralRoamRoutePoolEntry[] {
+    const merged = new Map<string, NeuralRoamRoutePoolEntry>();
+    for (const entry of entries) {
+      const existing = merged.get(entry.nodeId);
+      if (!existing || entry.addedAt >= existing.addedAt) {
+        merged.set(entry.nodeId, entry);
+      }
+    }
+    return Array.from(merged.values()).sort((left, right) => right.addedAt - left.addedAt);
+  }
+
+  private createRouteSnapshotFromCurrentEngines(base: NeuralRoamRouteSnapshot): NeuralRoamRouteSnapshot {
+    const routeId = base.metadata.id;
+    const seedPool = this.mergeRoutePoolEntries([
+      ...this.conceptQueue.exportSeedPoolState().map((entry) => this.focusPoolEntryToRoutePoolEntry(entry, routeId, 'seed')),
+      ...this.hyperspaceEngine.exportSourcePoolState().map((entry) => this.hyperspaceEntryToRoutePoolEntry(entry, routeId, 'seed')),
+    ]);
+    const anchorPool = this.mergeRoutePoolEntries([
+      ...this.conceptQueue.exportAnchorPoolState().map((entry) => this.focusPoolEntryToRoutePoolEntry(entry, routeId, 'anchor')),
+      ...this.hyperspaceEngine.exportAnchorPoolState().map((entry) => this.hyperspaceEntryToRoutePoolEntry(entry, routeId, 'anchor')),
+    ]);
+
+    return {
+      ...base,
+      seedPool,
+      anchorPool,
+      sessions: {
+        orbit: this.conceptQueue.exportSessionState(),
+        hyperspace: this.hyperspaceEngine.exportSessionState(),
+      },
+      history: this.mergeRouteHistoryEvents(base.history),
+    };
+  }
+
+  private mergeRouteHistoryEvents(existing: NeuralRoamRouteHistoryEvent[]): NeuralRoamRouteHistoryEvent[] {
+    const routeId = this.activeRouteSnapshot?.metadata.id ?? existing[0]?.routeId ?? 'default';
+    const events = new Map<string, NeuralRoamRouteHistoryEvent>();
+    for (const event of existing) {
+      events.set(event.eventId, { ...event, routeId });
+    }
+    for (const entry of [
+      ...this.conceptQueue.getHistorySnapshot(),
+      ...this.hyperspaceEngine.getHistorySnapshot(),
+    ]) {
+      events.set(entry.eventId, this.historyEntryToRouteHistoryEvent(routeId, entry));
+    }
+    return Array.from(events.values()).sort((left, right) => left.visitedAt - right.visitedAt);
+  }
+
+  private historyEntryToRouteHistoryEvent(
+    routeId: string,
+    entry: NeuralRoamHistoryEntry,
+  ): NeuralRoamRouteHistoryEvent {
+    return {
+      routeId,
+      eventId: entry.eventId,
+      engineMode: entry.engineMode === 'hyperspace' ? 'hyperspace' : 'orbit',
+      nodeId: entry.nodeId,
+      cardId: entry.cardId ?? null,
+      title: entry.nodePreview || entry.nodeId,
+      activationKind: entry.activationKind || entry.associationType || 'unknown',
+      sourceNodeId: entry.sourceNodeId ?? null,
+      visitedAt: entry.visitedAt,
+    };
+  }
+
   async load(): Promise<void> {
+    if (await this.restoreActiveRouteState()) {
+      return;
+    }
+
     const { value: rawState, fromStorage } = loadQueueState<unknown>({
       persistence: this.queuePersistence,
       key: this.storageKey,
@@ -723,6 +897,16 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   }
 
   async save(): Promise<void> {
+    if (this.routeCatalog && this.activeRouteSnapshot) {
+      const saved = await this.routeCatalog.replaceActiveRoute({
+        route: this.createRouteSnapshotFromCurrentEngines(this.activeRouteSnapshot),
+        engineMode: this.engineMode,
+      });
+      this.activeRouteSnapshot = saved;
+      this.persistedRouteHistoryEventIds = new Set(saved.history.map((event) => event.eventId));
+      return;
+    }
+
     const data = this.toPersistedState();
 
     await saveQueueState({
@@ -1370,13 +1554,8 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async setSourceEntry(nodeId: string, enabled = true): Promise<void> {
     await this.ensureInitialLoad();
-    if (this.engineMode === 'hyperspace') {
-      await this.hyperspaceEngine.setSourceEntry(nodeId, enabled);
-      await this.save();
-      return;
-    }
-
     await this.conceptQueue.setSeedEntry(nodeId, enabled);
+    await this.hyperspaceEngine.setSourceEntry(nodeId, enabled);
     await this.save();
   }
 
@@ -1411,11 +1590,8 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async setSeedEntry(nodeId: string, enabled = true): Promise<void> {
     await this.ensureInitialLoad();
-    if (this.engineMode === 'hyperspace') {
-      await this.hyperspaceEngine.setSourceEntry(nodeId, enabled);
-    } else {
-      await this.conceptQueue.setSeedEntry(nodeId, enabled);
-    }
+    await this.conceptQueue.setSeedEntry(nodeId, enabled);
+    await this.hyperspaceEngine.setSourceEntry(nodeId, enabled);
     await this.save();
   }
 
@@ -1423,6 +1599,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     await this.ensureInitialLoad();
     if (this.engineMode === 'hyperspace') {
       await this.hyperspaceEngine.setSourceEntry(nodeId, true);
+      await this.conceptQueue.setSeedEntry(nodeId, true);
       if (priority === 'high') {
         await this.hyperspaceEngine.setCurrentFocus(nodeId, {
           includeFocusAsFirst: true,
@@ -1435,6 +1612,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     }
 
     await this.conceptQueue.addConceptBlock(nodeId, priority);
+    await this.hyperspaceEngine.setSourceEntry(nodeId, true);
     if (priority === 'high') {
       await this.conceptQueue.setCurrentFocus(nodeId, {
         includeFocusAsFirst: true,
@@ -1453,13 +1631,15 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async setAnchorEntry(nodeId: string, enabled = true): Promise<void> {
     await this.ensureInitialLoad();
-    await this.getActiveEngine().setAnchorEntry(nodeId, enabled);
+    await this.conceptQueue.setAnchorEntry(nodeId, enabled);
+    await this.hyperspaceEngine.setAnchorEntry(nodeId, enabled);
     await this.save();
   }
 
   public async clearAnchors(): Promise<void> {
     await this.ensureInitialLoad();
-    await this.getActiveEngine().clearAnchors();
+    await this.conceptQueue.clearAnchors();
+    await this.hyperspaceEngine.clearAnchors();
     await this.save();
   }
 
@@ -1663,6 +1843,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     await this.conceptQueue.addConceptBlock(blockId, priority, {
       skipConceptValidation,
     });
+    await this.hyperspaceEngine.setSourceEntry(blockId, true);
   }
 
   private dedupeBulkAddInputs(cards: QueueBulkAddInput[]): {

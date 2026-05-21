@@ -1,10 +1,10 @@
 ## 1. Route Domain Model
 
-- [ ] 1.1 Add `NeuralRoamRoute` and route state contracts for route metadata, shared pool entries, route history events, and per-engine session snapshots.
-- [ ] 1.2 Add a route repository port with in-memory test implementation before SQL wiring.
-- [ ] 1.3 Add route selection operations: create, rename, delete, switch, save temporary, discard temporary, and list by current temporary/default/last-used order.
-- [ ] 1.4 Enforce route invariants: `默认航线` exists, default route cannot be deleted, route names may duplicate, route count is unlimited, and deleting a route never deletes cards or SiYuan blocks.
-- [ ] 1.5 Add route-scoped stats that count only the active route and preserve per-route counts for route menus.
+- [x] 1.1 Add `NeuralRoamRoute` and route state contracts for route metadata, shared pool entries, route history events, and per-engine session snapshots.
+- [x] 1.2 Add a route repository port with in-memory test implementation before SQL wiring.
+- [x] 1.3 Add route selection operations: create, rename, delete, switch, save temporary, discard temporary, and list by current temporary/default/last-used order.
+- [x] 1.4 Enforce route invariants: `默认航线` exists, default route cannot be deleted, route names may duplicate, route count is unlimited, and deleting a route never deletes cards or SiYuan blocks.
+- [x] 1.5 Add route-scoped stats that count only the active route and preserve per-route counts for route menus.
 
 ## 2. Legacy Migration And Queue Integration
 
@@ -36,21 +36,21 @@
 
 - [ ] 5.1 Append route history events whenever Orbit activates a node.
 - [ ] 5.2 Append route history events whenever Hyperspace activates a node.
-- [ ] 5.3 Keep route history chronological and non-deduped so repeated node visits are preserved.
+- [x] 5.3 Keep route history chronological and non-deduped so repeated node visits are preserved.
 - [ ] 5.4 Keep route history independent from engine recommendation state; it must not influence visited/frontier/dedupe decisions.
-- [ ] 5.5 Keep route history independent from engine history clearing; provide a separate clear-route-log operation if needed.
+- [x] 5.5 Keep route history independent from engine history clearing; provide a separate clear-route-log operation if needed.
 - [ ] 5.6 Drop route history with an unsaved discarded temporary route and preserve it when a temporary route is saved.
 
 ## 6. SQL Persistence
 
-- [ ] 6.1 Add SQL schema and repository for `neural_roam_routes`.
-- [ ] 6.2 Add SQL schema and repository for `neural_roam_route_pool_entries`.
-- [ ] 6.3 Add SQL schema and repository for `neural_roam_route_history_events`.
-- [ ] 6.4 Add SQL schema and repository for `neural_roam_route_session_snapshots`.
-- [ ] 6.5 Add SQL schema and repository for singleton active route/mode state.
-- [ ] 6.6 Implement legacy queue-state migration into SQL route rows and session snapshots without runtime dual-write to old state.
-- [ ] 6.7 Add paged route history reads and route-filtered pool/station reads for SRS Browser.
-- [ ] 6.8 Add SQL cleanup behavior for deleting routes and discarding temporary routes.
+- [x] 6.1 Add SQL schema and repository for `neural_roam_routes`.
+- [x] 6.2 Add SQL schema and repository for `neural_roam_route_pool_entries`.
+- [x] 6.3 Add SQL schema and repository for `neural_roam_route_history_events`.
+- [x] 6.4 Add SQL schema and repository for `neural_roam_route_session_snapshots`.
+- [x] 6.5 Add SQL schema and repository for singleton active route/mode state.
+- [x] 6.6 Implement legacy queue-state migration into SQL route rows and session snapshots without runtime dual-write to old state.
+- [x] 6.7 Add paged route history reads and route-filtered pool/station reads for SRS Browser.
+- [x] 6.8 Add SQL cleanup behavior for deleting routes and discarding temporary routes.
 
 ## 7. Review UI
 
@@ -77,13 +77,13 @@
 
 ## 10. Tests And Validation
 
-- [ ] 10.1 Add route domain tests for create/switch/delete/save/discard/default-route invariants.
-- [ ] 10.2 Add legacy migration tests from v8 NeuralRoam state to `默认航线`.
+- [x] 10.1 Add route domain tests for create/switch/delete/save/discard/default-route invariants.
+- [x] 10.2 Add legacy migration tests from v8 NeuralRoam state to `默认航线`.
 - [ ] 10.3 Add Orbit tests proving active-route seed/station isolation and no fallback to another route.
 - [ ] 10.4 Add Hyperspace tests proving shared route assets and private Hyperspace session/frontier.
 - [ ] 10.5 Add temporary route tests for clean discard, delta prompt, save-in-place, and replacing one temporary route with another.
 - [ ] 10.6 Add route history tests for chronological non-deduped events across both engines and no recommendation impact.
-- [ ] 10.7 Add SQL repository tests for route metadata, pool entries, route history pagination, session snapshots, and delete/discard cleanup.
+- [x] 10.7 Add SQL repository tests for route metadata, pool entries, route history pagination, session snapshots, and delete/discard cleanup.
 - [ ] 10.8 Add Review header/selector tests for route display, switching reset, temporary save/discard actions, and route counts.
 - [ ] 10.9 Add SRS Browser NeuralRoam panel tests for route-aware concept pool/station management and route log browsing.
 - [ ] 10.10 Run targeted NeuralRoam, backend advance, Review, Browser, SQL repository, and migration tests.

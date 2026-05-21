@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueueType, type IDataRouter } from '@/types/unified-data-source';
 import type { LeechActionEffectsPort } from '@/core/queue/domain/ports';
+import {
+  InMemoryNeuralRoamRouteRepository,
+  NeuralRoamRouteCatalog,
+  type NeuralRoamRouteState,
+} from '@/core/queue/neural/routes';
 import { UnifiedDataSourceManager } from '../UnifiedDataSourceManager';
 
 function createRouterWithSettings(settings: unknown): IDataRouter {
@@ -80,6 +85,80 @@ describe('UnifiedDataSourceManager settings accessors', () => {
 
     expect(() => manager.setAdvancedRouter(createRouterWithPendingContext())).not.toThrow();
     expect(manager.getAvailableQueueTypes()).toEqual([QueueType.Leech]);
+  });
+
+  it('injects the NeuralRoam route catalog into created NeuralRoam queues', async () => {
+    const routeState: NeuralRoamRouteState = {
+      activeRouteId: 'route-alpha',
+      engineMode: 'orbit',
+      routes: [
+        {
+          metadata: {
+            id: 'default',
+            name: '默认航线',
+            temporary: false,
+            previousRouteId: null,
+            initialSeedNodeIds: [],
+            createdAt: 1,
+            updatedAt: 1,
+            lastUsedAt: 1,
+          },
+          seedPool: [],
+          anchorPool: [],
+          sessions: { orbit: null, hyperspace: null },
+          history: [],
+        },
+        {
+          metadata: {
+            id: 'route-alpha',
+            name: '航线A',
+            temporary: false,
+            previousRouteId: null,
+            initialSeedNodeIds: [],
+            createdAt: 2,
+            updatedAt: 2,
+            lastUsedAt: 2,
+          },
+          seedPool: [
+            {
+              routeId: 'route-alpha',
+              nodeId: 'concept-alpha',
+              kind: 'seed',
+              nodeKind: 'concept',
+              role: null,
+              priority: 0.9,
+              addedAt: 2,
+              visitedAt: null,
+              preview: 'Concept Alpha',
+            },
+          ],
+          anchorPool: [],
+          sessions: { orbit: null, hyperspace: null },
+          history: [],
+        },
+      ],
+    };
+    const manager = setupManager({
+      queues: {
+        neuralRoam: {
+          history: { maxEntries: 3000 },
+        },
+      },
+    });
+    manager.setQueuePersistence({
+      get: vi.fn(() => null),
+      set: vi.fn(async () => undefined),
+    });
+    manager.setNeuralRoamRouteCatalog(new NeuralRoamRouteCatalog({
+      repository: new InMemoryNeuralRoamRouteRepository(routeState),
+    }));
+
+    const queue = manager.getQueue(QueueType.NeuralRoam);
+    await (queue as unknown as { ensureInitialLoad: () => Promise<void> }).ensureInitialLoad();
+
+    expect((queue as { getSeedSnapshot: () => Array<{ nodeId: string }> }).getSeedSnapshot()).toEqual([
+      expect.objectContaining({ nodeId: 'concept-alpha' }),
+    ]);
   });
 
   it('prefers fsrs.dayStartHour and falls back to queues.dayStartHour', () => {

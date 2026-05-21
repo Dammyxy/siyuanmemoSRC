@@ -106,6 +106,58 @@ export const SQL_SCHEMA_STATEMENTS = [
     value_json TEXT NOT NULL,
     updated_at INTEGER NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS neural_roam_routes (
+    route_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    temporary INTEGER NOT NULL,
+    previous_route_id TEXT,
+    initial_seed_node_ids_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    last_used_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_neural_roam_routes_last_used
+    ON neural_roam_routes(temporary, last_used_at)`,
+  `CREATE TABLE IF NOT EXISTS neural_roam_route_pool_entries (
+    route_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    node_kind TEXT NOT NULL,
+    role TEXT,
+    priority REAL NOT NULL,
+    added_at INTEGER NOT NULL,
+    visited_at INTEGER,
+    preview TEXT NOT NULL,
+    PRIMARY KEY(route_id, node_id, kind)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_neural_roam_route_pool_kind
+    ON neural_roam_route_pool_entries(route_id, kind, added_at)`,
+  `CREATE TABLE IF NOT EXISTS neural_roam_route_history_events (
+    event_id TEXT PRIMARY KEY,
+    route_id TEXT NOT NULL,
+    engine_mode TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    card_id TEXT,
+    title TEXT NOT NULL,
+    activation_kind TEXT NOT NULL,
+    source_node_id TEXT,
+    visited_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_neural_roam_route_history_route
+    ON neural_roam_route_history_events(route_id, visited_at DESC, event_id)`,
+  `CREATE TABLE IF NOT EXISTS neural_roam_route_session_snapshots (
+    route_id TEXT NOT NULL,
+    engine_mode TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY(route_id, engine_mode)
+  )`,
+  `CREATE TABLE IF NOT EXISTS neural_roam_route_active (
+    singleton_id TEXT PRIMARY KEY,
+    active_route_id TEXT NOT NULL,
+    engine_mode TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS queue_projection_generations (
     queue_type TEXT PRIMARY KEY,
     policy_hash TEXT NOT NULL,

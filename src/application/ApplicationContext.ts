@@ -64,6 +64,7 @@ import { CardEditorApplicationService } from '@/application/services/CardEditorA
 import { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import { SrsTransparencyApplicationService } from '@/application/services/SrsTransparencyApplicationService';
 import { NeuralRoamEntryActionService } from '@/application/services/NeuralRoamEntryActionService';
+import { NeuralRoamRouteCatalog } from '@/core/queue/neural/routes';
 import {
   SyncConflictDirectionResolutionService,
   type SyncConflictDirectionApplyResult,
@@ -92,6 +93,8 @@ import {
   SqlArenaRepository,
   SqliteDatabaseService,
   SqliteMigrationService,
+  SqlNeuralRoamRouteMigrationService,
+  SqlNeuralRoamRouteRepository,
   SqlQueueStateRepository,
   SqlReviewLogRepository,
   SqlUnifiedStorageRepository,
@@ -250,6 +253,7 @@ interface SqlPersistenceBundle {
   database: SqliteDatabaseService;
   unified: SqlUnifiedStorageRepository;
   queue: SqlQueueStateRepository;
+  neuralRoamRoutes: SqlNeuralRoamRouteRepository;
   reviewLogs: SqlReviewLogRepository;
   arena: SqlArenaRepository;
   xiuyuanRead: SqlXiuyuanReadRepository;
@@ -1112,6 +1116,7 @@ export class ApplicationContext {
         await database.init();
         const unified = new SqlUnifiedStorageRepository(database);
         const queue = new SqlQueueStateRepository(database);
+        const neuralRoamRoutes = new SqlNeuralRoamRouteRepository(database);
         const reviewLogs = new SqlReviewLogRepository(database);
         const arena = new SqlArenaRepository(database);
         const xiuyuanRead = new SqlXiuyuanReadRepository(database);
@@ -1122,7 +1127,9 @@ export class ApplicationContext {
           legacyPersistence.load,
         );
         await migrationService.migrateIfNeeded();
-        sqlPersistence = { database, unified, queue, reviewLogs, arena, xiuyuanRead };
+        const routeMigrationService = new SqlNeuralRoamRouteMigrationService(queue, neuralRoamRoutes);
+        await routeMigrationService.migrateIfNeeded();
+        sqlPersistence = { database, unified, queue, neuralRoamRoutes, reviewLogs, arena, xiuyuanRead };
         unifiedSave = (data) => unified.saveStore(data);
         unifiedLoad = (reason) => unified.loadStore(reason);
       });
@@ -1682,6 +1689,11 @@ export class ApplicationContext {
     logger.info('[ApplicationContext] ✅ ReviewScopeCardCreationSyncService initialized');
     
     unifiedDataSourceManager.setQueuePersistence(queuePersistenceService);
+    if (sqlPersistence?.neuralRoamRoutes) {
+      unifiedDataSourceManager.setNeuralRoamRouteCatalog(new NeuralRoamRouteCatalog({
+        repository: sqlPersistence.neuralRoamRoutes,
+      }));
+    }
     logger.info('[ApplicationContext] ✅ UnifiedDataSourceManager initialized with Advanced mode and QueuePersistence');
     
     // 14. 初始化 HybridSyncService（需要 CardApplicationService、EventBus 和 XiuyuanRepository）
