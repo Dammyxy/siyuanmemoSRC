@@ -10,7 +10,7 @@
       <!-- 📝 复习内容区 -->
       <div class="fsrs-review-v2__content-wrapper">
         <ReviewHeader
-          :header="state.header"
+          :header="displayedReviewHeader"
           :meta="state.meta"
           :i18n="i18n"
           :is-tab-mode="props.mode === 'tab'"
@@ -355,7 +355,8 @@ import {
   type NeuralRoamUserMode,
 } from './semantic/semanticActivationModePreference';
 import { startSemanticActivationFromReviewConcept } from './semantic/reviewSemanticActivationEntry';
-import { resolveReviewConceptRoamFocus } from './reviewConceptRoam';
+import { resolveReviewConceptRoamFocus, resolveReviewConceptRoamTargets } from './reviewConceptRoam';
+import { buildReviewNeuralEntryMenuItems } from './reviewNeuralEntryMenuItems';
 import {
   createReviewSourceRefreshRuntime,
   getSharedReviewSourceRefreshCoordinator,
@@ -462,10 +463,20 @@ type ReviewPluginContextLike = {
     | undefined;
   getNeuralRoamEntryActionService?: () =>
     | {
+        startTemporaryCurrentBlockRoam?: (input: {
+          blockId: string;
+          sourceReviewCardId?: string | null;
+        }) => Promise<{ ok: boolean; message?: string }>;
         startTemporaryConceptRoam?: (input: {
           conceptBlockId: string;
           conceptCardId?: string | null;
         }) => Promise<{ ok: boolean; message?: string }>;
+        establishStation?: (blockId: string) => Promise<{ ok: boolean; message?: string }>;
+        establishStationAndStartRoam?: (blockId: string) => Promise<{ ok: boolean; message?: string }>;
+        makeConceptOnly?: (blockId: string) => Promise<{ ok: boolean; message?: string }>;
+        makeConceptAndAddToQueue?: (blockId: string) => Promise<{ ok: boolean; message?: string }>;
+        makeConceptAndStartRoam?: (blockId: string) => Promise<{ ok: boolean; message?: string }>;
+        addExistingConceptToQueue?: (blockId: string) => Promise<{ ok: boolean; message?: string }>;
       }
     | undefined;
   getSharedReviewSessionRegistry?: () => SharedReviewSessionRegistry | undefined;
@@ -1673,6 +1684,33 @@ const displayedReviewContent = computed<ReviewUIState['content']>(() => {
     type: 'protyle',
     data: temporary.blockId,
     id: temporary.blockId,
+  };
+});
+
+const displayedReviewHeader = computed<ReviewUIState['header']>(() => {
+  const header = state.value.header;
+  const toolbar = Array.isArray(header.toolbar) ? header.toolbar : [];
+  if (
+    state.value.content.type === 'empty'
+    || !resolveCurrentReviewBlockId()
+    || !getNeuralRoamEntryActionService()
+    || toolbar.some((button) => button.type === 'neural-roam-entry')
+  ) {
+    return header;
+  }
+
+  return {
+    ...header,
+    toolbar: [
+      ...toolbar.slice(0, 1),
+      {
+        icon: '#iconGraph',
+        type: 'neural-roam-entry',
+        ariaLabel: t('neuralRoam', '神经漫游'),
+        tooltip: t('neuralRoam', '神经漫游'),
+      },
+      ...toolbar.slice(1),
+    ],
   };
 });
 
@@ -3070,6 +3108,49 @@ function handleNeuralEngineModeMenu(ev: MouseEvent): void {
   openMenuAtEvent(menu, ev);
 }
 
+function notifyNeuralEntryResult(label: string, result: { ok: boolean; message?: string } | undefined): void {
+  if (!result) {
+    showMessage(t('neuralRoamEntryActionUnavailable', '神经漫游动作不可用'), 3000, 'error');
+    return;
+  }
+  if (!result.ok) {
+    showMessage(result.message || t('neuralRoamEntryActionFailed', '神经漫游动作失败'), 3000, 'error');
+    return;
+  }
+  showMessage(t('neuralRoamEntryActionSucceeded', '{action}已完成').replace('{action}', label), 2500, 'info');
+}
+
+function handleNeuralRoamEntryMenu(ev: MouseEvent): void {
+  const entryActionService = getNeuralRoamEntryActionService();
+  const items = buildReviewNeuralEntryMenuItems({
+    t,
+    currentCard: state.value.content.card as FSRSCard | null | undefined,
+    currentBlockId: resolveCurrentReviewBlockId(),
+    currentCardId: resolveCurrentReviewCardId(),
+    conceptTargets: resolveReviewConceptRoamTargets(state.value.content),
+    entryActionService,
+    runAction: (label, action) => {
+      void (async () => {
+        try {
+          notifyNeuralEntryResult(label, await action());
+        } catch (error) {
+          logger.error('[SiYuanMemo][ReviewView] NeuralRoam entry action failed:', { label, error });
+          showMessage(t('neuralRoamEntryActionFailed', '神经漫游动作失败'), 3000, 'error');
+        }
+      })();
+    },
+  });
+
+  if (items.length === 0) {
+    showMessage(t('neuralRoamEntryUnavailable', '当前卡片不能启动神经漫游'), 3000, 'error');
+    return;
+  }
+
+  const menu = new Menu('neural-roam-entry-menu');
+  addReviewMenuItems(menu, items);
+  openMenuAtEvent(menu, ev);
+}
+
 function handleToolbarAction(actionType: string, ev: MouseEvent) {
   logger.debug('[SiYuanMemo][ReviewView] handleToolbarAction called:', actionType);
 
@@ -3110,6 +3191,13 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
 
   if (actionType === 'ai-explain') {
     void openReviewAIAssistant('explain');
+    return;
+  }
+
+  if (actionType === 'neural-roam-entry') {
+    ev.stopPropagation();
+    ev.preventDefault();
+    handleNeuralRoamEntryMenu(ev);
     return;
   }
 

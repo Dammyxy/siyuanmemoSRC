@@ -13,24 +13,24 @@
 - [x] 2.3 Implement `从概念临时漫游` so descriptor/related cards resolve selectable concept targets, start from the selected concept block/card, and do not show the descriptor card as the first NeuralRoam card.
 - [x] 2.4 Force `orbit` mode for temporary entries and restore the previous tab-local engine mode on tab close unless the user manually changes the NeuralRoam engine in that tab.
 - [x] 2.5 Force `orbit` mode for establish-and-roam and concept-card-and-roam actions without restoring the previous mode.
-- [ ] 2.6 Guard missing `blockId` and virtual/legacy card cases so NeuralRoam entry actions are hidden or rejected with a typed result instead of starting an invalid roam.
+- [x] 2.6 Guard missing `blockId` and virtual/legacy card cases so NeuralRoam entry actions are hidden or rejected with a typed result instead of starting an invalid roam.
 
 ## 3. Review UI Menu
 
-- [ ] 3.1 Add one icon-only NeuralRoam toolbar/menu trigger to review cards, with route-style icon and tooltip `神经漫游`.
-- [ ] 3.2 Build a two-level menu with groups `临时漫游`, `建立并漫游`, and `建立`, hiding unavailable actions and empty groups.
-- [ ] 3.3 Show concept-card actions for existing concept cards without duplicate `从当前块临时漫游` entries.
-- [ ] 3.4 Show CDF descriptor/related-card concept temporary roam actions only when concept targets can be resolved; show a concept-target submenu when multiple concept targets exist.
-- [ ] 3.5 Show ordinary block/station actions for non-concept review cards: `建立为空间站`, `建立为空间站并立即漫游`, and valid concept creation actions.
-- [ ] 3.6 Wire review UI actions to `NeuralRoamEntryActionService` and keep toast/message rendering in the UI caller rather than inside the service.
+- [x] 3.1 Add one icon-only NeuralRoam toolbar/menu trigger to review cards, with route-style icon and tooltip `神经漫游`.
+- [x] 3.2 Build a two-level menu with groups `临时漫游`, `建立并漫游`, and `建立`, hiding unavailable actions and empty groups.
+- [x] 3.3 Show concept-card actions for existing concept cards without duplicate `从当前块临时漫游` entries.
+- [x] 3.4 Show CDF descriptor/related-card concept temporary roam actions only when concept targets can be resolved; show a concept-target submenu when multiple concept targets exist.
+- [x] 3.5 Show ordinary block/station actions for non-concept review cards: `建立为空间站`, `建立为空间站并立即漫游`, and valid concept creation actions.
+- [x] 3.6 Wire review UI actions to `NeuralRoamEntryActionService` and keep toast/message rendering in the UI caller rather than inside the service.
 
 ## 4. Station And Queue Semantics
 
-- [ ] 4.1 Implement `建立为空间站` as a no-navigation, no-engine-switch action that records the ordinary block as a station/activation source.
-- [ ] 4.2 Implement `建立为空间站并立即漫游` as station creation plus a new NeuralRoam session focused on that block in `orbit` mode.
-- [ ] 4.3 Keep `制作为概念卡` separate from `制作为概念卡并加入队列`; concept creation alone must not imply joining the NeuralRoam queue/source pool.
-- [ ] 4.4 Implement `加入神经漫游队列` for existing concept cards/sources without creating a duplicate concept card.
-- [ ] 4.5 Preserve the existing short menu label `制作为概念卡并加入队列` while using NeuralRoam-specific wording in result/toast text where needed.
+- [x] 4.1 Implement `建立为空间站` as a no-navigation, no-engine-switch action that records the ordinary block as a station/activation source.
+- [x] 4.2 Implement `建立为空间站并立即漫游` as station creation plus a new NeuralRoam session focused on that block in `orbit` mode.
+- [x] 4.3 Keep `制作为概念卡` separate from `制作为概念卡并加入队列`; concept creation alone must not imply joining the NeuralRoam queue/source pool.
+- [x] 4.4 Implement `加入神经漫游队列` for existing concept cards/sources without creating a duplicate concept card.
+- [x] 4.5 Preserve the existing short menu label `制作为概念卡并加入队列` while using NeuralRoam-specific wording in result/toast text where needed.
 
 ## 5. Same-Block Multi-Card Links
 
@@ -51,10 +51,10 @@
 
 ## 7. Tests And Validation
 
-- [ ] 7.1 Add unit tests for `NeuralRoamEntryActionService` covering concept creation, queue insertion, station creation, immediate roam focus, and typed failure results.
-- [ ] 7.2 Add review UI tests for menu visibility, group hiding, concept-target submenu behavior, and missing-block guards.
-- [ ] 7.3 Add block menu regression tests proving the existing concept action labels and high-priority immediate-roam semantics are preserved through the shared service.
-- [ ] 7.4 Add NeuralRoam runtime tests for temporary orbit mode, tab-local engine restore, manual engine-switch override, and explicit first-card behavior.
+- [x] 7.1 Add unit tests for `NeuralRoamEntryActionService` covering concept creation, queue insertion, station creation, immediate roam focus, and typed failure results.
+- [x] 7.2 Add review UI tests for menu visibility, group hiding, concept-target submenu behavior, and missing-block guards.
+- [x] 7.3 Add block menu regression tests proving the existing concept action labels and high-priority immediate-roam semantics are preserved through the shared service.
+- [x] 7.4 Add NeuralRoam runtime tests for temporary orbit mode, tab-local engine restore, manual engine-switch override, and explicit first-card behavior.
 - [ ] 7.5 Add queue/graph tests for same-block candidates, due-first sorting, one-sibling limit, current-card exclusion, ranking, history card id, and trace labels.
-- [ ] 7.6 Run targeted NeuralRoam and review-entry tests.
-- [ ] 7.7 Run `node scripts/check-hidden-fallbacks.cjs`, `node scripts/check-srs-runtime-hygiene.cjs --dist`, `pnpm run check:boundaries`, and `pnpm build`.
+- [x] 7.6 Run targeted NeuralRoam and review-entry tests.
+- [x] 7.7 Run `node scripts/check-hidden-fallbacks.cjs`, `node scripts/check-srs-runtime-hygiene.cjs --dist`, `pnpm run check:boundaries`, and `pnpm build`.

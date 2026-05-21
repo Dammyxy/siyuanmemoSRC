@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
-import { resolveReviewConceptRoamFocus } from '../reviewConceptRoam';
+import { resolveReviewConceptRoamFocus, resolveReviewConceptRoamTargets } from '../reviewConceptRoam';
 import type { ReviewUIState } from '../types';
 
 function card(overrides: Partial<FSRSCard> = {}): FSRSCard {
@@ -120,5 +120,23 @@ describe('resolveReviewConceptRoamFocus', () => {
     }), 'definition-block'));
 
     expect(focus).toBeNull();
+  });
+
+  it('returns all selectable concept targets for ambiguous CDF cards', () => {
+    const targets = resolveReviewConceptRoamTargets(content(card({
+      meta: {
+        xiuyuanID: 'xy-1',
+        faceIndex: 0,
+        templateID: 'custom-concept-definition',
+        frontBlockIDs: ['candidate-a'],
+        backBlockIDs: ['candidate-b'],
+        typeMarker: 'custom-definition',
+        fieldMapping: {
+          definition: 'definition-block',
+        },
+      },
+    }), 'definition-block'));
+
+    expect(targets.map((target) => target.focusBlockId)).toEqual(['candidate-a', 'candidate-b']);
   });
 });

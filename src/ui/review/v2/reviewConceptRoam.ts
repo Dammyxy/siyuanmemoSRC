@@ -12,6 +12,10 @@ export interface ReviewConceptRoamFocus {
   focusBlockId: string;
 }
 
+export interface ReviewConceptRoamTarget extends ReviewConceptRoamFocus {
+  label?: string;
+}
+
 function normalizeBlockId(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -86,20 +90,56 @@ function resolveDescriptorFocus(card: FSRSCard): string {
   return onlyUnambiguous([front[0], back[0]].filter((id) => id && id !== descriptorId));
 }
 
-export function resolveReviewConceptRoamFocus(content: ReviewContent): ReviewConceptRoamFocus | null {
+function toTargets(candidates: string[]): ReviewConceptRoamTarget[] {
+  return uniqueCandidates(candidates).map((focusBlockId) => ({
+    focusBlockId,
+    label: focusBlockId,
+  }));
+}
+
+export function resolveReviewConceptRoamTargets(content: ReviewContent): ReviewConceptRoamTarget[] {
   const card = content.card;
   if (!card || content.type === 'empty') {
+    return [];
+  }
+
+  if (isConceptReviewCard(card)) {
+    const focusBlockId = resolveConceptCardFocus(content, card);
+    return focusBlockId ? [{ focusBlockId, label: focusBlockId }] : [];
+  }
+
+  if (isConceptDefinitionCard(card)) {
+    const mappedConcept = readFieldMapping(card, 'concept');
+    if (mappedConcept) {
+      return [{ focusBlockId: mappedConcept, label: mappedConcept }];
+    }
+    const definitionId = readFieldMapping(card, 'definition') || normalizeBlockId(content.id);
+    return toTargets([
+      ...readStringArray(card, 'frontBlockIDs'),
+      ...readStringArray(card, 'backBlockIDs'),
+    ].filter((id) => id && id !== definitionId));
+  }
+
+  if (isDescriptorSemanticCard(card)) {
+    const mappedConcept = readFieldMapping(card, 'concept');
+    if (mappedConcept) {
+      return [{ focusBlockId: mappedConcept, label: mappedConcept }];
+    }
+    const descriptorId = readFieldMapping(card, 'descriptor') || normalizeBlockId(content.id);
+    return toTargets([
+      ...readStringArray(card, 'frontBlockIDs'),
+      ...readStringArray(card, 'backBlockIDs'),
+    ].filter((id) => id && id !== descriptorId));
+  }
+
+  return [];
+}
+
+export function resolveReviewConceptRoamFocus(content: ReviewContent): ReviewConceptRoamFocus | null {
+  const targets = resolveReviewConceptRoamTargets(content);
+  if (targets.length !== 1) {
     return null;
   }
 
-  let focusBlockId = '';
-  if (isConceptReviewCard(card)) {
-    focusBlockId = resolveConceptCardFocus(content, card);
-  } else if (isConceptDefinitionCard(card)) {
-    focusBlockId = resolveConceptDefinitionFocus(content, card);
-  } else if (isDescriptorSemanticCard(card)) {
-    focusBlockId = resolveDescriptorFocus(card);
-  }
-
-  return focusBlockId ? { focusBlockId } : null;
+  return { focusBlockId: targets[0].focusBlockId };
 }

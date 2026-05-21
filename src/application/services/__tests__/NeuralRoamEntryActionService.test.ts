@@ -38,7 +38,7 @@ function createService(options: {
   updateFSRSCard?: ReturnType<typeof vi.fn>;
 } = {}) {
   const storedCard = options.storedCard ?? card({ type: CardType.Concept });
-  const queue = options.queue ?? {
+  const queue = 'queue' in options ? options.queue : {
     addCard: vi.fn(async () => undefined),
     setAnchorEntry: vi.fn(async () => undefined),
     getEngineMode: vi.fn(() => 'hyperspace'),
@@ -161,6 +161,40 @@ describe('NeuralRoamEntryActionService', () => {
       code: 'missing-block-id',
     });
     expect(queue.setEngineMode).not.toHaveBeenCalled();
+    expect(openNeuralRoamDialog).not.toHaveBeenCalled();
+  });
+
+  it('creates a concept card without adding it to the NeuralRoam queue', async () => {
+    const concept = card({ id: 'concept-card', blockId: 'concept-block', type: CardType.Concept });
+    const { service, queue } = createService({ storedCard: concept });
+
+    const result = await service.makeConceptOnly('concept-block');
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: 'make-concept',
+      blockId: 'concept-block',
+      conceptBlockId: 'concept-block',
+      cardId: 'concept-card',
+    });
+    expect(queue.addCard).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed failure when the NeuralRoam queue is unavailable', async () => {
+    const concept = card({ id: 'concept-card', blockId: 'concept-block', type: CardType.Concept });
+    const { service, openNeuralRoamDialog } = createService({
+      storedCard: concept,
+      queue: null as unknown as Record<string, unknown>,
+    });
+
+    const result = await service.addExistingConceptToQueue('concept-block');
+
+    expect(result).toMatchObject({
+      ok: false,
+      action: 'add-existing-concept-to-queue',
+      code: 'queue-unavailable',
+      blockId: 'concept-block',
+    });
     expect(openNeuralRoamDialog).not.toHaveBeenCalled();
   });
 
