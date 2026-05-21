@@ -133,6 +133,19 @@ interface NeuralRoamQueueOptions {
 
 type LocalConceptStatus = 'concept' | 'non-concept' | 'unknown';
 
+export class NeuralRoamTemporaryRouteError extends Error {
+  constructor(
+    message: string,
+    readonly code:
+      | 'temporary-route-dirty'
+      | 'temporary-route-unavailable'
+      | 'temporary-route-cancelled',
+  ) {
+    super(message);
+    this.name = 'NeuralRoamTemporaryRouteError';
+  }
+}
+
 type AssociatedReviewSource = {
   sourceVirtualNodeId?: string | null;
   sourceVirtualEventId?: string | null;
@@ -1198,6 +1211,182 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     const route = await this.routeCatalog.switchRoute({ routeId });
     await this.syncActiveRouteStateIfChanged();
     return route;
+  }
+
+  public async resolveTemporaryRouteCloseAction(): Promise<
+    | { kind: 'none' }
+    | { kind: 'discard-clean'; routeId: string; previousRouteId: string | null }
+    | { kind: 'prompt'; routeId: string; previousRouteId: string | null }
+  > {
+    if (!this.routeCatalog) {
+      return { kind: 'none' };
+    }
+    await this.ensureInitialLoad();
+    await this.saveActiveRouteSnapshotIfNeeded();
+    const route = await this.getActiveTemporaryRouteSnapshot();
+    if (!route) {
+      return { kind: 'none' };
+    }
+    return this.hasTemporaryRouteUserDelta(route)
+      ? {
+          kind: 'prompt',
+          routeId: route.metadata.id,
+          previousRouteId: route.metadata.previousRouteId,
+        }
+      : {
+          kind: 'discard-clean',
+          routeId: route.metadata.id,
+          previousRouteId: route.metadata.previousRouteId,
+        };
+  }
+
+  public async closeTemporaryRoute(input: {
+    action: 'save' | 'discard' | 'cancel';
+    routeId?: string | null;
+    name?: string | null;
+  }): Promise<NeuralRoamRouteSnapshot | null> {
+    const action = input.action;
+    if (action === 'cancel') {
+      throw new NeuralRoamTemporaryRouteError('Temporary route close cancelled', 'temporary-route-cancelled');
+    }
+    const route = await this.resolveTemporaryRouteForLifecycle(input.routeId);
+    if (action === 'save') {
+      return this.saveTemporaryRoute(route.metadata.id, input.name);
+    }
+    await this.discardTemporaryRoute(route.metadata.id);
+    return null;
+  }
+
+  public async createTemporaryRoute(input: {
+    name?: string;
+    seedBlockId: string;
+    previousRouteId?: string | null;
+  }): Promise<NeuralRoamRouteSnapshot> {
+    if (!this.routeCatalog) {
+      throw new Error('NEURAL_ROAM_ROUTE_UNAVAILABLE: route catalog is not configured');
+    }
+    await this.ensureInitialLoad();
+    const seedBlockId = String(input.seedBlockId || '').trim();
+    if (!seedBlockId) {
+      throw new Error('NEURAL_ROAM_ROUTE_INVALID: temporary route requires seedBlockId');
+    }
+
+    const currentState = await this.routeCatalog.getState();
+    const previousRouteId = String(input.previousRouteId || '').trim()
+      || currentState.activeRouteId
+      || null;
+    const route = await this.routeCatalog.createRoute({
+      name: input.name,
+      temporary: true,
+      previousRouteId,
+      initialSeedNodeIds: [seedBlockId],
+    });
+    await this.syncActiveRouteStateIfChanged();
+    await this.setSeedEntry(seedBlockId, true);
+    return route;
+  }
+
+  public async replaceActiveTemporaryRoute(input: {
+    name?: string;
+    seedBlockId: string;
+  }): Promise<NeuralRoamRouteSnapshot> {
+    if (!this.routeCatalog) {
+      throw new Error('NEURAL_ROAM_ROUTE_UNAVAILABLE: route catalog is not configured');
+    }
+    await this.ensureInitialLoad();
+    const closeAction = await this.resolveTemporaryRouteCloseAction();
+    const previousRouteId = closeAction.kind === 'none'
+      ? (await this.routeCatalog.getState()).activeRouteId
+      : closeAction.previousRouteId;
+    if (closeAction.kind === 'prompt') {
+      throw new NeuralRoamTemporaryRouteError(
+        'Active temporary NeuralRoam route has user delta',
+        'temporary-route-dirty',
+      );
+    }
+    if (closeAction.kind === 'discard-clean') {
+      await this.discardTemporaryRoute(closeAction.routeId);
+    }
+    return this.createTemporaryRoute({
+      name: input.name,
+      seedBlockId: input.seedBlockId,
+      previousRouteId,
+    });
+  }
+
+  public async saveTemporaryRoute(routeId?: string | null, name?: string | null): Promise<NeuralRoamRouteSnapshot> {
+    if (!this.routeCatalog) {
+      throw new Error('NEURAL_ROAM_ROUTE_UNAVAILABLE: route catalog is not configured');
+    }
+    await this.ensureInitialLoad();
+    const state = await this.routeCatalog.getState();
+    const targetRouteId = String(routeId || '').trim() || state.activeRouteId;
+    const route = await this.routeCatalog.saveTemporaryRoute({
+      routeId: targetRouteId,
+      name: String(name || '').trim() || undefined,
+    });
+    await this.syncActiveRouteStateIfChanged();
+    return route;
+  }
+
+  public async discardTemporaryRoute(routeId?: string | null): Promise<void> {
+    if (!this.routeCatalog) {
+      throw new Error('NEURAL_ROAM_ROUTE_UNAVAILABLE: route catalog is not configured');
+    }
+    await this.ensureInitialLoad();
+    const state = await this.routeCatalog.getState();
+    const targetRouteId = String(routeId || '').trim() || state.activeRouteId;
+    await this.routeCatalog.discardTemporaryRoute({ routeId: targetRouteId });
+    await this.syncActiveRouteStateIfChanged();
+  }
+
+  private async saveActiveRouteSnapshotIfNeeded(): Promise<void> {
+    if (this.routeCatalog && this.activeRouteSnapshot) {
+      await this.save();
+    }
+  }
+
+  private async getActiveTemporaryRouteSnapshot(): Promise<NeuralRoamRouteSnapshot | null> {
+    if (!this.routeCatalog) {
+      return null;
+    }
+    const state = await this.routeCatalog.getState();
+    const route = state.routes.find((candidate) => candidate.metadata.id === state.activeRouteId) ?? null;
+    return route?.metadata.temporary === true ? route : null;
+  }
+
+  private async resolveTemporaryRouteForLifecycle(routeId?: string | null): Promise<NeuralRoamRouteSnapshot> {
+    if (!this.routeCatalog) {
+      throw new Error('NEURAL_ROAM_ROUTE_UNAVAILABLE: route catalog is not configured');
+    }
+    await this.ensureInitialLoad();
+    await this.saveActiveRouteSnapshotIfNeeded();
+    const normalizedRouteId = String(routeId || '').trim();
+    const state = await this.routeCatalog.getState();
+    const targetRouteId = normalizedRouteId || state.activeRouteId;
+    const route = state.routes.find((candidate) => candidate.metadata.id === targetRouteId);
+    if (!route?.metadata.temporary) {
+      throw new NeuralRoamTemporaryRouteError(
+        'Active NeuralRoam route is not temporary',
+        'temporary-route-unavailable',
+      );
+    }
+    return route;
+  }
+
+  private hasTemporaryRouteUserDelta(route: NeuralRoamRouteSnapshot): boolean {
+    if (!route.metadata.temporary) {
+      return false;
+    }
+    const initialSeeds = new Set(route.metadata.initialSeedNodeIds.map((nodeId) => String(nodeId || '').trim()).filter(Boolean));
+    const currentSeeds = route.seedPool.map((entry) => String(entry.nodeId || '').trim()).filter(Boolean);
+    if (currentSeeds.some((nodeId) => !initialSeeds.has(nodeId))) {
+      return true;
+    }
+    if (route.anchorPool.some((entry) => !initialSeeds.has(String(entry.nodeId || '').trim()))) {
+      return true;
+    }
+    return route.history.length > 1;
   }
 
   public async setEngineMode(

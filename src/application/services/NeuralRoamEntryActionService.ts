@@ -5,6 +5,10 @@ import { CardType, type FSRSCard } from '@/types/card';
 import { isErr } from '@/types/result';
 import { QueueType, type IUnifiedDataSourceManagerFacade, type NeuralEngineMode } from '@/types/unified-data-source';
 import type { StorageManager } from '@/core/storage';
+import {
+  closeTemporaryRouteWithPrompt,
+  type NeuralRoamTemporaryRouteClosePrompt,
+} from './NeuralRoamTemporaryRouteLifecycle';
 
 type EntryActionFailureCode =
   | 'missing-block-id'
@@ -13,6 +17,7 @@ type EntryActionFailureCode =
   | 'concept-card-unavailable'
   | 'queue-unavailable'
   | 'dialog-unavailable'
+  | 'temporary-route-dirty'
   | 'unexpected-error';
 
 export type NeuralRoamEntryActionKind =
@@ -65,6 +70,8 @@ export interface NeuralRoamEntryActionServiceDeps {
   siyuanApi: Pick<ManagerSiyuanPort, 'BUILTIN_DECK_ID' | 'addRiffCards'>;
   openNeuralRoamDialog: (options?: NeuralRoamOpenOptions) => Promise<void>;
   waitForConceptVisible?: (blockId: string) => Promise<boolean>;
+  resolveBlockTitle?: (blockId: string) => Promise<string | null>;
+  promptTemporaryRouteClose?: NeuralRoamTemporaryRouteClosePrompt;
 }
 
 type NeuralRoamEntryQueue = {
@@ -73,6 +80,26 @@ type NeuralRoamEntryQueue = {
   setAnchorEntry?(nodeId: string, enabled?: boolean): Promise<void>;
   getEngineMode?(): NeuralEngineMode;
   setEngineMode?(mode: NeuralEngineMode, options?: { carryCurrentNode?: boolean }): Promise<void>;
+  listRoutes?(): Promise<Array<{ id: string; isActive?: boolean }>>;
+  resolveTemporaryRouteCloseAction?(): Promise<
+    | { kind: 'none' }
+    | { kind: 'discard-clean'; routeId: string; previousRouteId: string | null }
+    | { kind: 'prompt'; routeId: string; previousRouteId: string | null }
+  >;
+  replaceActiveTemporaryRoute?(input: {
+    name?: string;
+    seedBlockId: string;
+  }): Promise<unknown>;
+  createTemporaryRoute?(input: {
+    name?: string;
+    seedBlockId: string;
+    previousRouteId?: string | null;
+  }): Promise<unknown>;
+  closeTemporaryRoute?(input: {
+    action: 'save' | 'discard' | 'cancel';
+    routeId?: string | null;
+    name?: string | null;
+  }): Promise<unknown>;
 };
 
 export class NeuralRoamEntryActionService {
@@ -241,6 +268,10 @@ export class NeuralRoamEntryActionService {
     }
 
     const modeBefore = await this.forceOrbit();
+    const temporaryRoute = await this.createTemporaryRoute(normalizedBlockId, 'temporary-current-block-roam');
+    if (!temporaryRoute.ok) {
+      return temporaryRoute;
+    }
     await this.deps.openNeuralRoamDialog({
       focusBlockId: normalizedBlockId,
       seedBlockId: normalizedBlockId,
@@ -271,6 +302,10 @@ export class NeuralRoamEntryActionService {
     }
 
     const modeBefore = await this.forceOrbit();
+    const temporaryRoute = await this.createTemporaryRoute(conceptBlockId, 'temporary-concept-roam');
+    if (!temporaryRoute.ok) {
+      return temporaryRoute;
+    }
     await this.deps.openNeuralRoamDialog({
       focusBlockId: conceptBlockId,
       seedBlockId: conceptBlockId,
@@ -334,6 +369,67 @@ export class NeuralRoamEntryActionService {
       await queue.setEngineMode('orbit', { carryCurrentNode: true });
     }
     return modeBefore;
+  }
+
+  private async createTemporaryRoute(
+    seedBlockId: string,
+    action: Extract<NeuralRoamEntryActionKind, 'temporary-current-block-roam' | 'temporary-concept-roam'>,
+  ): Promise<{ ok: true } | Extract<NeuralRoamEntryActionResult, { ok: false }>> {
+    const queue = this.getNeuralQueue();
+    if (!queue?.createTemporaryRoute) {
+      return this.fail(action, 'queue-unavailable', '神经漫游航线不可用', seedBlockId);
+    }
+    const name = await this.buildTemporaryRouteName(seedBlockId);
+    const closeAction = await queue.resolveTemporaryRouteCloseAction?.();
+    if (closeAction?.kind === 'prompt') {
+      if (!this.deps.promptTemporaryRouteClose) {
+        return this.fail(action, 'temporary-route-dirty', '当前临时航线有改动，请先保存或丢弃', seedBlockId);
+      }
+      const closed = await closeTemporaryRouteWithPrompt(queue, this.deps.promptTemporaryRouteClose);
+      if (closed.status === 'cancelled') {
+        return this.fail(action, 'temporary-route-dirty', '已取消临时航线替换', seedBlockId);
+      }
+    }
+    if (closeAction?.kind === 'discard-clean') {
+      if (!queue.replaceActiveTemporaryRoute) {
+        return this.fail(action, 'queue-unavailable', '神经漫游航线替换不可用', seedBlockId);
+      }
+      await queue.replaceActiveTemporaryRoute({ name, seedBlockId });
+      return { ok: true };
+    }
+
+    await queue.createTemporaryRoute({
+      name,
+      seedBlockId,
+      previousRouteId: await this.resolveActiveRouteId(queue),
+    });
+    return { ok: true };
+  }
+
+  private async resolveActiveRouteId(queue: NeuralRoamEntryQueue): Promise<string | null> {
+    const routes = await queue.listRoutes?.();
+    const activeRoute = routes?.find((route) => route.isActive === true);
+    return activeRoute?.id ?? null;
+  }
+
+  private async buildTemporaryRouteName(seedBlockId: string): Promise<string> {
+    const title = await this.resolveRouteTitle(seedBlockId);
+    return `临时：${title}`;
+  }
+
+  private async resolveRouteTitle(seedBlockId: string): Promise<string> {
+    let fromResolver: string | null | undefined;
+    try {
+      fromResolver = await this.deps.resolveBlockTitle?.(seedBlockId);
+    } catch {
+      fromResolver = null;
+    }
+    const title = this.normalizeRouteTitle(fromResolver);
+    return title || seedBlockId;
+  }
+
+  private normalizeRouteTitle(value: unknown): string {
+    return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 48);
   }
 
   private getNeuralQueue(): NeuralRoamEntryQueue | null {

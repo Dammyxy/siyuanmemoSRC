@@ -338,6 +338,52 @@ export function confirmDialog(options: {
     });
 }
 
+export type ThreeChoiceDialogChoice = 'primary' | 'secondary' | 'cancel';
+
+export function threeChoiceDialog(options: {
+    title: string;
+    content: string;
+    primaryText: string;
+    secondaryText: string;
+    cancelText: string;
+    visualVariant?: DialogVisualVariant;
+}): Promise<ThreeChoiceDialogChoice> {
+    return new Promise((resolve) => {
+        const dialog = new Dialog({
+            title: options.title,
+            content: `
+        <div class="siyuanmemo-simple-dialog">
+          <div class="siyuanmemo-simple-dialog__content">
+            <p class="siyuanmemo-simple-dialog__copy ft__breakword">${escapeHtml(options.content)}</p>
+          </div>
+          <div class="siyuanmemo-simple-dialog__actions">
+            <button class="b3-button b3-button--cancel" data-choice="cancel">${escapeHtml(options.cancelText)}</button>
+            <button class="b3-button b3-button--outline" data-choice="secondary">${escapeHtml(options.secondaryText)}</button>
+            <button class="b3-button b3-button--text" data-choice="primary">${escapeHtml(options.primaryText)}</button>
+          </div>
+        </div>
+      `,
+            width: '440px',
+        });
+        applyDialogChrome(dialog, {
+            visualVariant: options.visualVariant || 'form',
+            containerClass: 'siyuanmemo-confirm-dialog-container',
+            contentClass: 'siyuanmemo-confirm-dialog-content',
+            dialogWidth: '440px',
+            dialogHeight: 'auto',
+        });
+
+        const buttons = Array.from(dialog.element.querySelectorAll('.b3-button'));
+        for (const button of buttons) {
+            button.addEventListener('click', () => {
+                const choice = (button as HTMLElement).dataset.choice as ThreeChoiceDialogChoice | undefined;
+                dialog.destroy();
+                resolve(choice || 'cancel');
+            });
+        }
+    });
+}
+
 /**
  * 创建输入对话框
  */

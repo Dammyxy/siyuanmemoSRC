@@ -64,6 +64,7 @@ import { CardEditorApplicationService } from '@/application/services/CardEditorA
 import { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import { SrsTransparencyApplicationService } from '@/application/services/SrsTransparencyApplicationService';
 import { NeuralRoamEntryActionService } from '@/application/services/NeuralRoamEntryActionService';
+import { threeChoiceDialog } from '@/utils/dialog';
 import { NeuralRoamRouteCatalog } from '@/core/queue/neural/routes';
 import {
   SyncConflictDirectionResolutionService,
@@ -583,6 +584,25 @@ export class ApplicationContext {
         siyuanApi,
         openNeuralRoamDialog: async (options) => {
           await context.getDialogManager().openNeuralRoamDialog(options);
+        },
+        resolveBlockTitle: async (blockId) => siyuanApi.getBlockText(blockId),
+        promptTemporaryRouteClose: async () => {
+          const i18n = context.getI18n();
+          const choice = await threeChoiceDialog({
+            title: i18n.temporaryRouteDirtyTitle || '临时航线有改动',
+            content: i18n.temporaryRouteDirtyClosePrompt || '当前临时航线已有新的概念、空间站或漫游记录。请选择保存为航线、丢弃，或取消当前操作。',
+            primaryText: i18n.saveAsRoute || '保存为航线',
+            secondaryText: i18n.discard || '丢弃',
+            cancelText: i18n.cancel || '取消',
+            visualVariant: 'workspace',
+          });
+          if (choice === 'primary') {
+            return 'save';
+          }
+          if (choice === 'secondary') {
+            return 'discard';
+          }
+          return 'cancel';
         },
       });
     });

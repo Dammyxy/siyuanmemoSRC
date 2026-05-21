@@ -36,6 +36,8 @@ function createService(options: {
   openNeuralRoamDialog?: ReturnType<typeof vi.fn>;
   createConceptCard?: ReturnType<typeof vi.fn>;
   updateFSRSCard?: ReturnType<typeof vi.fn>;
+  resolveBlockTitle?: ReturnType<typeof vi.fn>;
+  promptTemporaryRouteClose?: ReturnType<typeof vi.fn>;
 } = {}) {
   const storedCard = options.storedCard ?? card({ type: CardType.Concept });
   const queue = 'queue' in options ? options.queue : {
@@ -43,6 +45,9 @@ function createService(options: {
     setAnchorEntry: vi.fn(async () => undefined),
     getEngineMode: vi.fn(() => 'hyperspace'),
     setEngineMode: vi.fn(async () => undefined),
+    listRoutes: vi.fn(async () => [{ id: 'route-previous', isActive: true }]),
+    resolveTemporaryRouteCloseAction: vi.fn(async () => ({ kind: 'none' })),
+    createTemporaryRoute: vi.fn(async () => ({ metadata: { id: 'route-temp' } })),
   };
   const openNeuralRoamDialog = options.openNeuralRoamDialog ?? vi.fn(async () => undefined);
   const createConceptCard = options.createConceptCard ?? vi.fn(async () => ok({}));
@@ -59,6 +64,8 @@ function createService(options: {
       dataSourceManager: { getQueue } as any,
       siyuanApi: { BUILTIN_DECK_ID: 'deck', addRiffCards } as any,
       openNeuralRoamDialog,
+      resolveBlockTitle: options.resolveBlockTitle,
+      promptTemporaryRouteClose: options.promptTemporaryRouteClose,
     }),
     queue,
     openNeuralRoamDialog,
@@ -164,6 +171,135 @@ describe('NeuralRoamEntryActionService', () => {
     expect(openNeuralRoamDialog).not.toHaveBeenCalled();
   });
 
+  it('creates a temporary route before opening current-block temporary roam', async () => {
+    const resolveBlockTitle = vi.fn(async () => '当前块标题');
+    const { service, queue, openNeuralRoamDialog } = createService({ resolveBlockTitle });
+
+    const result = await service.startTemporaryCurrentBlockRoam({
+      blockId: 'current-block',
+      sourceReviewCardId: 'review-card',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: 'temporary-current-block-roam',
+      blockId: 'current-block',
+      cardId: 'review-card',
+      openedDialog: true,
+    });
+    expect(queue.createTemporaryRoute).toHaveBeenCalledWith({
+      name: '临时：当前块标题',
+      seedBlockId: 'current-block',
+      previousRouteId: 'route-previous',
+    });
+    expect(openNeuralRoamDialog).toHaveBeenCalledWith(expect.objectContaining({
+      focusBlockId: 'current-block',
+      seedBlockId: 'current-block',
+      sourceReviewCardId: 'review-card',
+      entrySessionKind: 'temporary-current-block',
+    }));
+  });
+
+  it('stops before replacing a dirty temporary route so the caller can prompt', async () => {
+    const queue = {
+      addCard: vi.fn(async () => undefined),
+      setAnchorEntry: vi.fn(async () => undefined),
+      getEngineMode: vi.fn(() => 'orbit'),
+      setEngineMode: vi.fn(async () => undefined),
+      listRoutes: vi.fn(async () => [{ id: 'route-temp', isActive: true }]),
+      resolveTemporaryRouteCloseAction: vi.fn(async () => ({
+        kind: 'prompt',
+        routeId: 'route-temp',
+        previousRouteId: 'route-previous',
+      })),
+      createTemporaryRoute: vi.fn(async () => ({ metadata: { id: 'route-new' } })),
+    };
+    const { service, openNeuralRoamDialog } = createService({ queue });
+
+    const result = await service.startTemporaryCurrentBlockRoam({ blockId: 'current-block' });
+
+    expect(result).toMatchObject({
+      ok: false,
+      action: 'temporary-current-block-roam',
+      code: 'temporary-route-dirty',
+      blockId: 'current-block',
+    });
+    expect(queue.createTemporaryRoute).not.toHaveBeenCalled();
+    expect(openNeuralRoamDialog).not.toHaveBeenCalled();
+  });
+
+  it('prompts before replacing a dirty temporary route and honors discard choice', async () => {
+    const queue = {
+      addCard: vi.fn(async () => undefined),
+      setAnchorEntry: vi.fn(async () => undefined),
+      getEngineMode: vi.fn(() => 'orbit'),
+      setEngineMode: vi.fn(async () => undefined),
+      listRoutes: vi.fn(async () => [{ id: 'route-previous', isActive: true }]),
+      resolveTemporaryRouteCloseAction: vi.fn(async () => ({
+        kind: 'prompt',
+        routeId: 'route-temp',
+        previousRouteId: 'route-previous',
+      })),
+      closeTemporaryRoute: vi.fn(async () => null),
+      createTemporaryRoute: vi.fn(async () => ({ metadata: { id: 'route-new' } })),
+    };
+    const promptTemporaryRouteClose = vi.fn(async () => 'discard' as const);
+    const { service, openNeuralRoamDialog } = createService({ queue, promptTemporaryRouteClose });
+
+    const result = await service.startTemporaryCurrentBlockRoam({ blockId: 'current-block' });
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: 'temporary-current-block-roam',
+      blockId: 'current-block',
+    });
+    expect(promptTemporaryRouteClose).toHaveBeenCalledWith({
+      routeId: 'route-temp',
+      previousRouteId: 'route-previous',
+    });
+    expect(queue.closeTemporaryRoute).toHaveBeenCalledWith({
+      action: 'discard',
+      routeId: 'route-temp',
+    });
+    expect(queue.createTemporaryRoute).toHaveBeenCalledWith({
+      name: '临时：current-block',
+      seedBlockId: 'current-block',
+      previousRouteId: 'route-previous',
+    });
+    expect(openNeuralRoamDialog).toHaveBeenCalled();
+  });
+
+  it('cancels temporary route replacement when the dirty-route prompt returns cancel', async () => {
+    const queue = {
+      addCard: vi.fn(async () => undefined),
+      setAnchorEntry: vi.fn(async () => undefined),
+      getEngineMode: vi.fn(() => 'orbit'),
+      setEngineMode: vi.fn(async () => undefined),
+      listRoutes: vi.fn(async () => [{ id: 'route-temp', isActive: true }]),
+      resolveTemporaryRouteCloseAction: vi.fn(async () => ({
+        kind: 'prompt',
+        routeId: 'route-temp',
+        previousRouteId: 'route-previous',
+      })),
+      closeTemporaryRoute: vi.fn(async () => null),
+      createTemporaryRoute: vi.fn(async () => ({ metadata: { id: 'route-new' } })),
+    };
+    const promptTemporaryRouteClose = vi.fn(async () => 'cancel' as const);
+    const { service, openNeuralRoamDialog } = createService({ queue, promptTemporaryRouteClose });
+
+    const result = await service.startTemporaryCurrentBlockRoam({ blockId: 'current-block' });
+
+    expect(result).toMatchObject({
+      ok: false,
+      action: 'temporary-current-block-roam',
+      code: 'temporary-route-dirty',
+      blockId: 'current-block',
+    });
+    expect(queue.closeTemporaryRoute).not.toHaveBeenCalled();
+    expect(queue.createTemporaryRoute).not.toHaveBeenCalled();
+    expect(openNeuralRoamDialog).not.toHaveBeenCalled();
+  });
+
   it('creates a concept card without adding it to the NeuralRoam queue', async () => {
     const concept = card({ id: 'concept-card', blockId: 'concept-block', type: CardType.Concept });
     const { service, queue } = createService({ storedCard: concept });
@@ -215,6 +351,11 @@ describe('NeuralRoamEntryActionService', () => {
       openedDialog: true,
     });
     expect(queue.setEngineMode).toHaveBeenCalledWith('orbit', { carryCurrentNode: true });
+    expect(queue.createTemporaryRoute).toHaveBeenCalledWith({
+      name: '临时：concept-block',
+      seedBlockId: 'concept-block',
+      previousRouteId: 'route-previous',
+    });
     expect(openNeuralRoamDialog).toHaveBeenCalledWith(expect.objectContaining({
       focusBlockId: 'concept-block',
       seedBlockId: 'concept-block',

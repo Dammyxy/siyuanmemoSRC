@@ -4,6 +4,16 @@ Last update: 2026-05-22 (Round 427)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-22 - NeuralRoam Temporary Route Lifecycle
+
+- Task: Continue OpenSpec `add-neural-roam-routes` by closing temporary route save/discard/prompt behavior and Review close reachability.
+- Touched slice: Queue/application/Review temporary route lifecycle; `src/core/queue/domain/NeuralRoamQueue.ts`, `src/application/services/NeuralRoamEntryActionService.ts`, `src/application/services/NeuralRoamTemporaryRouteLifecycle.ts`, `src/application/ApplicationContext.ts`, `src/ui/review/v2/ReviewView.vue`, i18n, focused tests, and OpenSpec task checklist.
+- Debt fixed now: Temporary route close behavior now distinguishes clean initial seed/focus state from real user delta, saves dirty temporary routes in place while preserving route ID/pools/sessions/history, silently discards clean temporary routes, and prompts `保存为航线 / 丢弃 / 取消` before close or replacement. Starting a new temporary route now goes through the same lifecycle instead of overwriting the active temporary route blindly. Review close lifecycle also routes through the temporary-route prompt and can cancel closing.
+- Debt deferred: Review route header/selector/counts, SRS Browser route management/pool/station/log UI, and backend route management commands remain open in the OpenSpec checklist.
+- Why deferred: This slice closed lifecycle semantics and Review close reachability only. Full route selector and Browser management need separate UI command wiring and tests to avoid mixing lifecycle rules with broader route-management controls.
+- Next safe step: Implement Review header route display/selector actions on top of the existing single-surface reset boundary, then add Browser NeuralRoam route management.
+- Validation: Focused NeuralRoam entry service, queue domain, Review menu/empty-state, route catalog, SQL repository tests passed; `pnpm run check:boundaries`; `pnpm build`.
+
 ### 2026-05-22 - NeuralRoam Single Review Surface
 
 - Task: Continue OpenSpec `add-neural-roam-routes` by enforcing the v1 single active NeuralRoam review surface lifecycle.

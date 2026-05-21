@@ -16,30 +16,30 @@
 
 ## 3. Shared Route Pools Across Engines
 
-- [ ] 3.1 Replace engine-global Orbit seed/station ownership with active-route shared concept pool and station pool.
-- [ ] 3.2 Make Hyperspace interpret the active route's shared concept pool/station pool through its source/anchor semantics without maintaining a separate route asset pool.
-- [ ] 3.3 Keep Orbit session state private to Orbit: current focus, visited, display path, navigation mode, and engine history.
-- [ ] 3.4 Keep Hyperspace session state private to Hyperspace: lead source, visited, frontier, display path, navigation mode, and engine history.
-- [ ] 3.5 Ensure switching Orbit/Hyperspace changes propulsion mode only and does not change `activeRouteId`.
+- [x] 3.1 Replace engine-global Orbit seed/station ownership with active-route shared concept pool and station pool.
+- [x] 3.2 Make Hyperspace interpret the active route's shared concept pool/station pool through its source/anchor semantics without maintaining a separate route asset pool.
+- [x] 3.3 Keep Orbit session state private to Orbit: current focus, visited, display path, navigation mode, and engine history.
+- [x] 3.4 Keep Hyperspace session state private to Hyperspace: lead source, visited, frontier, display path, navigation mode, and engine history.
+- [x] 3.5 Ensure switching Orbit/Hyperspace changes propulsion mode only and does not change `activeRouteId`.
 
 ## 4. Temporary Route Lifecycle
 
-- [ ] 4.1 Update `从当前块临时漫游` to create a temporary route, set it active, seed/focus it from the current block, and remember the previous route ID.
-- [ ] 4.2 Update `从概念临时漫游` to create a temporary route, set it active, seed/focus it from the selected concept, and remember the previous route ID.
-- [ ] 4.3 Do not show a naming prompt when starting a temporary route; generate `临时：{title}` from the entry context.
-- [ ] 4.4 Save a temporary route in place, preserving route ID, pools, engine sessions, and route history, and keep it active.
-- [ ] 4.5 Discard unsaved temporary routes on close when no user delta exists.
-- [ ] 4.6 Prompt `保存为航线 / 丢弃 / 取消` when closing or replacing a temporary route with user delta.
-- [ ] 4.7 When starting a new temporary route while another temporary route is active, discard the old one if clean or prompt if it has user delta.
+- [x] 4.1 Update `从当前块临时漫游` to create a temporary route, set it active, seed/focus it from the current block, and remember the previous route ID.
+- [x] 4.2 Update `从概念临时漫游` to create a temporary route, set it active, seed/focus it from the selected concept, and remember the previous route ID.
+- [x] 4.3 Do not show a naming prompt when starting a temporary route; generate `临时：{title}` from the entry context.
+- [x] 4.4 Save a temporary route in place, preserving route ID, pools, engine sessions, and route history, and keep it active.
+- [x] 4.5 Discard unsaved temporary routes on close when no user delta exists.
+- [x] 4.6 Prompt `保存为航线 / 丢弃 / 取消` when closing or replacing a temporary route with user delta.
+- [x] 4.7 When starting a new temporary route while another temporary route is active, discard the old one if clean or prompt if it has user delta.
 
 ## 5. Route History
 
-- [ ] 5.1 Append route history events whenever Orbit activates a node.
-- [ ] 5.2 Append route history events whenever Hyperspace activates a node.
+- [x] 5.1 Append route history events whenever Orbit activates a node.
+- [x] 5.2 Append route history events whenever Hyperspace activates a node.
 - [x] 5.3 Keep route history chronological and non-deduped so repeated node visits are preserved.
-- [ ] 5.4 Keep route history independent from engine recommendation state; it must not influence visited/frontier/dedupe decisions.
+- [x] 5.4 Keep route history independent from engine recommendation state; it must not influence visited/frontier/dedupe decisions.
 - [x] 5.5 Keep route history independent from engine history clearing; provide a separate clear-route-log operation if needed.
-- [ ] 5.6 Drop route history with an unsaved discarded temporary route and preserve it when a temporary route is saved.
+- [x] 5.6 Drop route history with an unsaved discarded temporary route and preserve it when a temporary route is saved.
 
 ## 6. SQL Persistence
 
@@ -58,7 +58,7 @@
 - [ ] 7.2 Add route selector menu with switch route, create route, rename route, delete route, save temporary route, open route log, and open Browser NeuralRoam panel actions.
 - [ ] 7.3 Switching routes from Review clears the current card and fetches from the selected route.
 - [ ] 7.4 Show current-route counts in the Review header and per-route counts in the route selector where available.
-- [ ] 7.5 Ensure temporary route close/save/discard prompts are reachable from Review close lifecycle.
+- [x] 7.5 Ensure temporary route close/save/discard prompts are reachable from Review close lifecycle.
 
 ## 8. SRS Browser NeuralRoam Panel
 
@@ -80,9 +80,9 @@
 - [x] 10.1 Add route domain tests for create/switch/delete/save/discard/default-route invariants.
 - [x] 10.2 Add legacy migration tests from v8 NeuralRoam state to `默认航线`.
 - [x] 10.3 Add Orbit tests proving active-route seed/station isolation and no fallback to another route.
-- [ ] 10.4 Add Hyperspace tests proving shared route assets and private Hyperspace session/frontier.
-- [ ] 10.5 Add temporary route tests for clean discard, delta prompt, save-in-place, and replacing one temporary route with another.
-- [ ] 10.6 Add route history tests for chronological non-deduped events across both engines and no recommendation impact.
+- [x] 10.4 Add Hyperspace tests proving shared route assets and private Hyperspace session/frontier.
+- [x] 10.5 Add temporary route tests for clean discard, delta prompt, save-in-place, and replacing one temporary route with another.
+- [x] 10.6 Add route history tests for chronological non-deduped events across both engines and no recommendation impact.
 - [x] 10.7 Add SQL repository tests for route metadata, pool entries, route history pagination, session snapshots, and delete/discard cleanup.
 - [ ] 10.8 Add Review header/selector tests for route display, switching reset, temporary save/discard actions, and route counts.
 - [ ] 10.9 Add SRS Browser NeuralRoam panel tests for route-aware concept pool/station management and route log browsing.

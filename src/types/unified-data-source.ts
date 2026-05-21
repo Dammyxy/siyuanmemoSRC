@@ -486,6 +486,27 @@ export interface HyperspaceExcerptInjectionContext {
 export interface NeuralRoamSessionQueue {
     listRoutes?(): Promise<import('@/core/queue/neural/routes').NeuralRoamRouteListItem[]>;
     switchRoute?(routeId: string): Promise<import('@/core/queue/neural/routes').NeuralRoamRouteSnapshot>;
+    resolveTemporaryRouteCloseAction?(): Promise<
+        | { kind: 'none' }
+        | { kind: 'discard-clean'; routeId: string; previousRouteId: string | null }
+        | { kind: 'prompt'; routeId: string; previousRouteId: string | null }
+    >;
+    closeTemporaryRoute?(input: {
+        action: 'save' | 'discard' | 'cancel';
+        routeId?: string | null;
+        name?: string | null;
+    }): Promise<import('@/core/queue/neural/routes').NeuralRoamRouteSnapshot | null>;
+    replaceActiveTemporaryRoute?(input: {
+        name?: string;
+        seedBlockId: string;
+    }): Promise<import('@/core/queue/neural/routes').NeuralRoamRouteSnapshot>;
+    createTemporaryRoute?(input: {
+        name?: string;
+        seedBlockId: string;
+        previousRouteId?: string | null;
+    }): Promise<import('@/core/queue/neural/routes').NeuralRoamRouteSnapshot>;
+    saveTemporaryRoute?(routeId?: string | null, name?: string | null): Promise<import('@/core/queue/neural/routes').NeuralRoamRouteSnapshot>;
+    discardTemporaryRoute?(routeId?: string | null): Promise<void>;
     getEngineMode(): NeuralEngineMode;
     setEngineMode(
         mode: NeuralEngineMode,

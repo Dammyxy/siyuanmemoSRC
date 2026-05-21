@@ -280,8 +280,9 @@ import {
   resolveReviewPresentationHeaderVariant,
 } from '@/types/review-presentation-semantics';
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
-import { confirmDialog, createVueDialog } from '@/utils/dialog';
+import { confirmDialog, createVueDialog, threeChoiceDialog } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
+import { closeTemporaryRouteWithPrompt } from '@/application/services/NeuralRoamTemporaryRouteLifecycle';
 import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
@@ -3121,7 +3122,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   logger.debug('[SiYuanMemo][ReviewView] handleToolbarAction called:', actionType);
 
   if (actionType === 'close-review') {
-    emit('close');
+    void closeCurrentReviewSurface();
     return;
   }
 
@@ -3199,7 +3200,11 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   }
 }
 
-function closeCurrentReviewSurface(): void {
+async function closeCurrentReviewSurface(): Promise<void> {
+  const closeResult = await closeActiveTemporaryRouteBeforeReviewClose();
+  if (closeResult === 'cancelled') {
+    return;
+  }
   if (props.mode === 'tab') {
     const tabManager = getTabManager();
     if (reviewSessionId.value && typeof tabManager?.closeReviewTab === 'function') {
@@ -3211,6 +3216,46 @@ function closeCurrentReviewSurface(): void {
     });
   }
   emit('close');
+}
+
+async function closeActiveTemporaryRouteBeforeReviewClose(): Promise<'closed-or-none' | 'cancelled'> {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue?.resolveTemporaryRouteCloseAction) {
+    return 'closed-or-none';
+  }
+  try {
+    const result = await closeTemporaryRouteWithPrompt(neuralQueue, async () => {
+      const choice = await threeChoiceDialog({
+        title: t('temporaryRouteDirtyTitle', '临时航线有改动'),
+        content: t(
+          'temporaryRouteDirtyClosePrompt',
+          '当前临时航线已有新的概念、空间站或漫游记录。请选择保存为航线、丢弃，或取消关闭。',
+        ),
+        primaryText: t('saveAsRoute', '保存为航线'),
+        secondaryText: t('discard', '丢弃'),
+        cancelText: t('cancel', '取消'),
+        visualVariant: 'workspace',
+      });
+      if (choice === 'primary') {
+        return 'save';
+      }
+      if (choice === 'secondary') {
+        return 'discard';
+      }
+      return 'cancel';
+    });
+    if (result.status === 'cancelled') {
+      return 'cancelled';
+    }
+    if (result.status === 'closed' && result.action === 'save') {
+      showMessage(t('temporaryRouteSaved', '临时航线已保存'), 2500, 'info');
+    }
+    return 'closed-or-none';
+  } catch (error) {
+    logger.error('[SiYuanMemo][ReviewView] Failed to close temporary NeuralRoam route:', error);
+    showMessage(t('temporaryRouteCloseFailed', '临时航线关闭处理失败'), 3000, 'error');
+    return 'cancelled';
+  }
 }
 
 function buildOpenAsMenuItems(): ReviewMenuItem[] {

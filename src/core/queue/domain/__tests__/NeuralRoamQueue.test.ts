@@ -1622,6 +1622,245 @@ describe('NeuralRoamQueue', () => {
       .toEqual(['concept-second']);
   });
 
+  it('keeps Hyperspace on the active route shared pool while preserving private Orbit session state', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [
+        conceptCard('concept-default'),
+        conceptCard('concept-second'),
+      ],
+    });
+    const { catalog, repository } = createRouteCatalog();
+    const queue = new NeuralRoamQueue(manager.manager, persistence, {
+      routeCatalog: catalog,
+    });
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.setSeedEntry('concept-default', true);
+    await queue.setAnchorEntry('station-default', true);
+    await queue.setCurrentFocus('concept-default', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    const secondRoute = await catalog.createRoute({ name: '第二航线' });
+    await queue.setSeedEntry('concept-second', true);
+    await queue.setAnchorEntry('station-second', true);
+    await queue.setCurrentFocus('concept-second', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    await queue.setEngineMode('hyperspace', { carryCurrentNode: false });
+    await queue.setCurrentFocus('concept-second', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    let state = await repository.loadState();
+    expect(state?.activeRouteId).toBe(secondRoute.metadata.id);
+    expect(state?.engineMode).toBe('hyperspace');
+    const activeRoute = state?.routes.find((route) => route.metadata.id === secondRoute.metadata.id);
+    expect(queue.getSourceSnapshot().map((entry) => entry.nodeId)).toEqual(['concept-second']);
+    expect(queue.getAnchorSnapshot().map((entry) => entry.nodeId)).toEqual(expect.arrayContaining([
+      'concept-second',
+      'station-second',
+    ]));
+    expect(activeRoute?.seedPool.map((entry) => entry.nodeId)).toEqual(['concept-second']);
+    expect(activeRoute?.anchorPool.map((entry) => entry.nodeId)).toEqual(expect.arrayContaining([
+      'concept-second',
+      'station-second',
+    ]));
+    expect(activeRoute?.sessions.orbit?.currentFocus).toBe('concept-second');
+    expect(activeRoute?.sessions.hyperspace?.currentLeadSource).toBe('concept-second');
+    expect(activeRoute?.sessions.hyperspace?.history.map((entry) => entry.nodeId)).toEqual(['concept-second']);
+
+    await queue.setEngineMode('orbit', { carryCurrentNode: false });
+    state = await repository.loadState();
+    expect(state?.activeRouteId).toBe(secondRoute.metadata.id);
+    expect(queue.getNavigationState().currentNodeId).toBe('concept-second');
+    expect(state?.routes.find((route) => route.metadata.id === DEFAULT_NEURAL_ROAM_ROUTE_ID)?.seedPool.map((entry) => entry.nodeId))
+      .toEqual(['concept-default']);
+    expect(state?.routes.find((route) => route.metadata.id === DEFAULT_NEURAL_ROAM_ROUTE_ID)?.sessions.orbit?.currentFocus)
+      .toBe('concept-default');
+  });
+
+  it('persists chronological route history events from Orbit and Hyperspace without using engine history as the route log', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [
+        conceptCard('concept-a'),
+        conceptCard('concept-b'),
+      ],
+    });
+    const { catalog, repository } = createRouteCatalog();
+    const queue = new NeuralRoamQueue(manager.manager, persistence, {
+      routeCatalog: catalog,
+    });
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    await queue.setEngineMode('hyperspace', { carryCurrentNode: false });
+    await queue.setCurrentFocus('concept-b', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    await queue.setCurrentFocus('concept-b', {
+      includeFocusAsFirst: true,
+      resetHistory: false,
+    });
+
+    let state = await repository.loadState();
+    const route = state?.routes.find((entry) => entry.metadata.id === DEFAULT_NEURAL_ROAM_ROUTE_ID);
+    expect(route?.history.map((entry) => [entry.engineMode, entry.nodeId])).toEqual([
+      ['orbit', 'concept-a'],
+      ['hyperspace', 'concept-b'],
+      ['hyperspace', 'concept-b'],
+    ]);
+    expect(new Set(route?.history.map((entry) => entry.eventId))).toHaveProperty('size', 3);
+
+    queue.clearHistory('all');
+
+    state = await repository.loadState();
+    const routeAfterEngineClear = state?.routes.find((entry) => entry.metadata.id === DEFAULT_NEURAL_ROAM_ROUTE_ID);
+    expect(queue.getHistorySnapshot()).toEqual([]);
+    expect(routeAfterEngineClear?.history.map((entry) => [entry.engineMode, entry.nodeId])).toEqual([
+      ['orbit', 'concept-a'],
+      ['hyperspace', 'concept-b'],
+      ['hyperspace', 'concept-b'],
+    ]);
+  });
+
+  it('handles temporary route lifecycle by clean discard, dirty prompt requirement, save-in-place, and clean replacement', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [
+        conceptCard('concept-temp'),
+        conceptCard('concept-replacement'),
+        conceptCard('concept-extra'),
+      ],
+    });
+    const { catalog, repository } = createRouteCatalog();
+    const queue = new NeuralRoamQueue(manager.manager, persistence, {
+      routeCatalog: catalog,
+    });
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    const cleanRoute = await queue.createTemporaryRoute({
+      name: '临时：干净',
+      seedBlockId: 'concept-temp',
+      previousRouteId: DEFAULT_NEURAL_ROAM_ROUTE_ID,
+    });
+    await queue.setCurrentFocus('concept-temp', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    expect(await queue.resolveTemporaryRouteCloseAction()).toMatchObject({
+      kind: 'discard-clean',
+      routeId: cleanRoute.metadata.id,
+      previousRouteId: DEFAULT_NEURAL_ROAM_ROUTE_ID,
+    });
+
+    await queue.closeTemporaryRoute({ action: 'discard' });
+    let state = await repository.loadState();
+    expect(state?.activeRouteId).toBe(DEFAULT_NEURAL_ROAM_ROUTE_ID);
+    expect(state?.routes.some((route) => route.metadata.id === cleanRoute.metadata.id)).toBe(false);
+
+    const dirtyRoute = await queue.createTemporaryRoute({
+      name: '临时：脏',
+      seedBlockId: 'concept-temp',
+      previousRouteId: DEFAULT_NEURAL_ROAM_ROUTE_ID,
+    });
+    await queue.setCurrentFocus('concept-temp', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    await queue.setSeedEntry('concept-extra', true);
+
+    expect(await queue.resolveTemporaryRouteCloseAction()).toMatchObject({
+      kind: 'prompt',
+      routeId: dirtyRoute.metadata.id,
+      previousRouteId: DEFAULT_NEURAL_ROAM_ROUTE_ID,
+    });
+
+    const saved = await queue.closeTemporaryRoute({ action: 'save', name: '保存航线' });
+    state = await repository.loadState();
+    const savedRoute = state?.routes.find((route) => route.metadata.id === dirtyRoute.metadata.id);
+    expect(saved?.metadata).toMatchObject({
+      id: dirtyRoute.metadata.id,
+      name: '保存航线',
+      temporary: false,
+      previousRouteId: null,
+    });
+    expect(state?.activeRouteId).toBe(dirtyRoute.metadata.id);
+    expect(savedRoute?.seedPool.map((entry) => entry.nodeId)).toEqual(expect.arrayContaining([
+      'concept-temp',
+      'concept-extra',
+    ]));
+    expect(savedRoute?.history.map((event) => event.nodeId)).toEqual(['concept-temp']);
+
+    const oldCleanRoute = await queue.createTemporaryRoute({
+      name: '临时：替换前',
+      seedBlockId: 'concept-temp',
+      previousRouteId: dirtyRoute.metadata.id,
+    });
+    const replaced = await queue.replaceActiveTemporaryRoute({
+      name: '临时：替换后',
+      seedBlockId: 'concept-replacement',
+    });
+    state = await repository.loadState();
+    expect(state?.routes.some((route) => route.metadata.id === oldCleanRoute.metadata.id)).toBe(false);
+    expect(state?.activeRouteId).toBe(replaced.metadata.id);
+    expect(replaced.metadata.previousRouteId).toBe(dirtyRoute.metadata.id);
+    expect(replaced.metadata.initialSeedNodeIds).toEqual(['concept-replacement']);
+  });
+
+  it('requires caller choice before replacing a dirty active temporary route', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [
+        conceptCard('concept-temp'),
+        conceptCard('concept-replacement'),
+        conceptCard('concept-extra'),
+      ],
+    });
+    const { catalog, repository } = createRouteCatalog();
+    const queue = new NeuralRoamQueue(manager.manager, persistence, {
+      routeCatalog: catalog,
+    });
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    const dirtyRoute = await queue.createTemporaryRoute({
+      name: '临时：脏',
+      seedBlockId: 'concept-temp',
+      previousRouteId: DEFAULT_NEURAL_ROAM_ROUTE_ID,
+    });
+    await queue.setSeedEntry('concept-extra', true);
+
+    await expect(queue.replaceActiveTemporaryRoute({
+      name: '临时：替换后',
+      seedBlockId: 'concept-replacement',
+    })).rejects.toMatchObject({
+      code: 'temporary-route-dirty',
+    });
+
+    const state = await repository.loadState();
+    expect(state?.activeRouteId).toBe(dirtyRoute.metadata.id);
+    expect(state?.routes.some((route) => route.metadata.name === '临时：替换后')).toBe(false);
+  });
+
   it('enforces the configured history limit on the active route log when saving route snapshots', async () => {
     const orbitHistory = Array.from({ length: 205 }, (_, index) => createHistoryEntry(index, {
       engineMode: 'orbit',
