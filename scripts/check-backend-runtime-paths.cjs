@@ -129,7 +129,12 @@ const runtimePaths = [
       },
       {
         file: 'worker/review/WorkerReviewFeedbackRuntime.ts',
-        tokens: ['export class WorkerReviewFeedbackRuntime', 'runTransaction(\'review.feedback\''],
+        tokens: ['export class WorkerReviewFeedbackRuntime', 'WorkerReviewCardMutationPersistenceModule'],
+        reason: 'review feedback runtime must delegate SQL mutation writes to the worker mutation module',
+      },
+      {
+        file: 'worker/review/WorkerReviewCardMutationPersistenceModule.ts',
+        tokens: ['export class WorkerReviewCardMutationPersistenceModule', 'runTransaction(\'review.feedback\''],
         reason: 'review feedback writes must be owned by the worker review transaction runtime',
       },
       {

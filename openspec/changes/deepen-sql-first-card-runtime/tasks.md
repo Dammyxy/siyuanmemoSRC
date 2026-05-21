@@ -30,9 +30,9 @@
 ## 5. Review Mutation Persistence
 
 - [x] 5.1 Select the first SQL-first review mutation slice and document why it is safe to migrate first.
-- [ ] 5.2 Introduce a review card-mutation persistence Module that commits SQL card state and returns sync/projection impact.
-- [ ] 5.3 Wire the selected mutation slice through the SQL-first Module without bypassing Review Transaction Safety Envelope.
-- [ ] 5.4 Update mutation and projection tests to prove persistence failure restores visible Review session state and does not leave hidden partial success.
+- [x] 5.2 Introduce a review card-mutation persistence Module that commits SQL card state and returns sync/projection impact.
+- [x] 5.3 Wire the selected mutation slice through the SQL-first Module without bypassing Review Transaction Safety Envelope.
+- [x] 5.4 Update mutation and projection tests to prove persistence failure restores visible Review session state and does not leave hidden partial success.
 
 ## 6. Xiuyuan SQL Persistence
 
@@ -43,8 +43,8 @@
 
 ## 7. Fallback Discipline And Documentation
 
-- [ ] 7.1 Replace hidden fallback behavior in migrated active paths with explicit unsupported, refresh-required, or unavailable diagnostics.
-- [ ] 7.2 Update hidden-fallback checks if new diagnostics or allowed migration/recovery paths need allowlist changes.
+- [x] 7.1 Replace hidden fallback behavior in migrated active paths with explicit unsupported, refresh-required, or unavailable diagnostics.
+- [x] 7.2 Update hidden-fallback checks if new diagnostics or allowed migration/recovery paths need allowlist changes.
 - [x] 7.3 Update `ARCHITECTURE.md` with SQL-first card runtime ownership and active path diagrams.
 - [x] 7.4 Update `docs/DDD_RESCAN_BACKLOG.md` with completed slices and any deliberately deferred debt.
 

@@ -5669,6 +5669,70 @@ describe('BackendKernel', () => {
     expect(remainingRow?.count).toBe(0);
   });
 
+  it('rolls back review feedback card and log writes when projection impact persistence fails', async () => {
+    const reviewedAt = Date.now();
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'card-impact-rollback',
+      blockId: 'block-impact-rollback',
+      due: reviewedAt - 10_000,
+      lastReview: reviewedAt - 86_400_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 4,
+    });
+    await database.upsertCards([card]);
+    await seedQueueProjection(database, {
+      generation: 1,
+      rows: [card],
+      updatedAt: reviewedAt,
+    });
+    const queueProjection = (database as unknown as {
+      queueProjection: { applyQueueProjectionDelta: (...args: unknown[]) => unknown };
+    }).queueProjection;
+    queueProjection.applyQueueProjectionDelta = () => {
+      throw new Error('forced projection persistence failure');
+    };
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-impact-rollback',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: card.id,
+        rating: 4,
+        queueType: 'retrieval-practice',
+        projectionGeneration: 1,
+        projectionPolicyHash: 'policy-a',
+        reviewedAt,
+      }],
+    });
+
+    expect('error' in response).toBe(true);
+    const storedCard = await database.getCard(card.id);
+    expect(storedCard).toMatchObject({
+      id: card.id,
+      due: card.due,
+      reps: card.reps,
+      stability: card.stability,
+      difficulty: card.difficulty,
+    });
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
+      [card.id],
+    )?.count).toBe(0);
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_operations WHERE entity_id = ?',
+      [card.id],
+    )?.count).toBe(0);
+    expect(database.getOne<{ generation: number }>(
+      'SELECT generation FROM queue_projection_counters WHERE queue_type = ? AND policy_hash = ?',
+      ['retrieval-practice', 'policy-a'],
+    )?.generation).toBe(1);
+  });
+
   it('rebuilds projection feedback impact from active-source cards only', async () => {
     const reviewedAt = Date.now();
     const persistenceBridge = createInMemorySqlitePersistenceBridge();

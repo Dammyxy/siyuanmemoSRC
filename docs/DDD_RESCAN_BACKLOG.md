@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-21 (Round 423)
+Last update: 2026-05-21 (Round 424)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-21 - Review Mutation Persistence Module
+
+- Task: Finish the remaining `deepen-sql-first-card-runtime` review mutation and fallback discipline tasks.
+- Touched slice: `review.feedback` worker mutation boundary; `worker/review/WorkerReviewCardMutationPersistenceModule.ts`, `worker/review/WorkerReviewFeedbackRuntime.ts`, `worker/__tests__/BackendKernel.test.ts`, `ARCHITECTURE.md`, and OpenSpec task checklist.
+- Debt fixed now: Extracted the SQL-first review mutation write boundary into `WorkerReviewCardMutationPersistenceModule`. It owns SchedulerRouter commit, card upsert, `review_events` append, domain sync ledger append, sync metadata touch, and idempotency replay/conflict checks while staying inside the existing `runTransaction('review.feedback')` owner. `WorkerReviewFeedbackRuntime` still owns queue mode/commit-policy validation and queue projection impact construction, passing the impact builder into the mutation module so projection delta remains in the same transaction. Added failure-injection coverage proving that if projection impact persistence throws after schedule/log writes, the card row, review event, domain sync operation, and projection counter generation all roll back together.
+- Debt deferred: None for this OpenSpec change; the remaining review mutation split is now bounded enough for the current SQL-first runtime goal. Larger future cleanup could split SRS projection impact builders from `WorkerReviewFeedbackRuntime`, but that is not needed to close this change.
+- Why deferred: Projection impact still shares queue-specific policy and row-delta logic with the feedback runtime; pulling that out further would be a separate queue projection write-module refactor.
+- Next safe step: Run final full validation and archive the OpenSpec change if no regressions surface.
+- Validation: Focused BackendKernel tests for successful `review.feedback`, projection row update, and projection-persistence rollback passed. Final validation also passed ReviewCommit/ReviewAttempt targeted tests, Xiuyuan SQL read tests, hidden fallback gate, boundary checks, and build. Build still reports existing non-blocking i18n hardcoded-string warnings, `package.zip` unlink EPERM zip-pack warnings, and Sass legacy API warnings.
 
 ### 2026-05-21 - Xiuyuan SQL Reads And Review Mutation Slice
 

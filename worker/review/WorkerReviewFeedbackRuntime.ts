@@ -1,12 +1,8 @@
 import { buildQueueProjectionRows } from '@/application/services/queue-projection/QueueProjectionBuilder';
 import type { QueueProjectionRow } from '@/application/ports/QueueProjectionPort';
 import { QueueType } from '@/types/unified-data-source';
-import { SchedulerRouter } from '@/core/scheduler';
-import type { SchedulerType } from '@/core/scheduler/schedulerPolicy';
-import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
-import { createReviewLogV2 } from '@/types/review';
 import { CardType, type FSRSCard } from '@/types/card';
-import { DEFAULT_SETTINGS, type FSRSParameters } from '@/types/settings';
+import { DEFAULT_SETTINGS } from '@/types/settings';
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { SqliteDatabaseService as RuntimeSqliteDatabaseService } from '@/infrastructure/persistence/sqlite';
 import type { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository';
@@ -20,6 +16,7 @@ import type {
 } from '../../packages/contracts/src/backend-rpc';
 import { DomainSyncLedger } from '../domain-sync/DomainSyncLedger';
 import { buildQueueProjectionCountersFromRows } from '../queue-projection/WorkerQueueProjectionRuntime';
+import { WorkerReviewCardMutationPersistenceModule } from './WorkerReviewCardMutationPersistenceModule';
 
 type ProjectionWorkerQueueType =
   | QueueType.RetrievalPractice
@@ -39,15 +36,6 @@ export type WorkerReviewFeedbackRuntimeDeps = {
   runtime: Pick<RuntimeSqliteDatabaseService, 'runTransaction' | 'run' | 'getOne'>;
   domainSyncLedger?: DomainSyncLedger;
   recordUnavailable?: () => void;
-};
-
-type ExistingReviewCommitRow = {
-  id: string;
-  card_id: string | null;
-  rating: number | null;
-  reviewed_at: number;
-  event_type: string;
-  payload_json: string;
 };
 
 export class WorkerReviewFeedbackRuntime {
@@ -113,190 +101,28 @@ export class WorkerReviewFeedbackRuntime {
       }
     }
 
-    const schedulerConfig = resolveWorkerReviewSchedulerConfig(request);
-    return await this.deps.runtime.runTransaction('review.feedback', async () => {
-      const domainSyncLedger = this.deps.domainSyncLedger ?? new DomainSyncLedger(this.deps.runtime);
-      const card = this.deps.repository.getCard(cardId);
-      if (!card) {
-        throw new Error(`review.feedback card not found: ${cardId}`);
-      }
-      const existingCommit = idempotencyKey
-        ? this.readExistingReviewCommit(idempotencyKey)
-        : null;
-      if (existingCommit) {
-        this.assertCompatibleDuplicateCommit(existingCommit, {
-          idempotencyKey,
-          cardId,
-          rating,
-          queueType,
-          queueMode,
-          commitPolicy,
-        });
-        return {
-          cardId,
-          committed: true,
-          reviewedAt: existingCommit.reviewedAt,
-          queueType,
-          updatedCard: card,
-          idempotencyKey,
-          duplicate: true,
-          queueImpact: null,
-        };
-      }
-
-      const scheduler = new SchedulerRouter(
-        {
-          defaultScheduler: schedulerConfig.defaultScheduler,
-          fsrsParams: schedulerConfig.fsrsParams,
-        },
-        {
-          batchUpdateCardsWithoutEvents: async (cards) => {
-            this.deps.repository.upsertCards(
-              cards.map((c) => canonicalizeSchedulingState(c, {
-                source: 'review-commit',
-                mode: 'assert-internal',
-              }).card),
-            );
-          },
-          addReviewLogV2: async () => undefined,
-        },
-      );
-
-      const decision = scheduler.answer(card, rating, {
+    const mutationModule = new WorkerReviewCardMutationPersistenceModule({
+      repository: this.deps.repository,
+      runtime: this.deps.runtime,
+      domainSyncLedger: this.deps.domainSyncLedger ?? new DomainSyncLedger(this.deps.runtime),
+    });
+    return await mutationModule.commitReviewFeedback(
+      {
+        request,
+        cardId,
         queueType,
         queueMode,
-        commitPolicy: commitPolicy as 'write-schedule' | 'preview-only' | 'drill-only',
-        source: 'queue',
-        sessionId: request.sessionId,
-        reviewTime: reviewedAt,
-      });
-      const commitResult = await scheduler.commit(decision);
-      if (commitResult.committed && commitResult.updatedCard) {
-        const log = createReviewLogV2({
-          attemptId: decision.attempt.id,
-          cardId: decision.attempt.cardId,
-          rating: decision.attempt.rating,
-          reviewedAt: decision.attempt.reviewedAt,
-          before: decision.before,
-          after: commitResult.updatedCard,
-          elapsedMs: decision.attempt.elapsedMs,
-          queueType: decision.attempt.queueType,
-          queueMode: decision.queueMode,
-          source: decision.attempt.source,
-          algorithm: decision.algorithm,
-          schedulerType: decision.schedulerType,
-          commitPolicy: decision.commitPolicy,
-          commitIdempotencyKey: idempotencyKey ?? undefined,
-          isDrill: decision.attempt.isDrill,
-          isFiltered: decision.attempt.isFiltered,
-          customStudy: decision.attempt.customStudy,
-        });
-        const month = new Date(log.reviewedAt);
-        this.deps.runtime.run(
-          `INSERT OR REPLACE INTO review_events
-            (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            log.id,
-            log.cardId,
-            log.attemptId,
-            log.rating,
-            log.reviewedAt,
-            idempotencyKey,
-            month.getFullYear(),
-            month.getMonth() + 1,
-            'review-v2',
-            JSON.stringify(log),
-          ],
-        );
-        domainSyncLedger.appendReviewCommitted({
-          reviewEventId: log.id,
-          card,
-          rating,
-          reviewedAt: log.reviewedAt,
-          queueType,
-          queueMode,
-          commitPolicy,
-          idempotencyKey: idempotencyKey ?? null,
-        });
-      }
-      const queueImpact = this.buildReviewFeedbackQueueImpact({
-        queueType,
-        request,
-        reviewedCard: card,
+        commitPolicy,
         reviewedAt,
-        committed: commitResult.committed,
-        updatedCard: commitResult.updatedCard ?? null,
-      });
-      if (commitResult.committed) {
-        await this.deps.repository.touchSyncMetadata({
-          modifiedAt: reviewedAt,
-          modifiedBy: 'srs-backend-worker:review.feedback',
-        });
-      }
-
-      return {
-        cardId,
-        committed: commitResult.committed,
-        reviewedAt,
-        queueType,
-        updatedCard: commitResult.updatedCard ?? null,
-        idempotencyKey: idempotencyKey ?? null,
-        duplicate: false,
-        queueImpact,
-      };
-    });
+        rating,
+        idempotencyKey,
+      },
+      (input) => this.buildReviewFeedbackQueueImpact(input),
+    );
   }
 
   private recordUnavailable(): void {
     this.deps.recordUnavailable?.();
-  }
-
-  private readExistingReviewCommit(idempotencyKey: string): {
-    reviewedAt: number;
-    payload: Record<string, unknown>;
-  } | null {
-    const row = this.deps.runtime.getOne<ExistingReviewCommitRow>(
-      `SELECT id, card_id, rating, reviewed_at, event_type, payload_json
-       FROM review_events
-       WHERE commit_idempotency_key = ?
-       ORDER BY reviewed_at, id
-       LIMIT 1`,
-      [idempotencyKey],
-    );
-    if (!row) {
-      return null;
-    }
-    return {
-      reviewedAt: Number(row.reviewed_at),
-      payload: parseJsonObject(row.payload_json),
-    };
-  }
-
-  private assertCompatibleDuplicateCommit(
-    existing: { payload: Record<string, unknown> },
-    request: {
-      idempotencyKey: string;
-      cardId: string;
-      rating: number;
-      queueType: string;
-      queueMode: string;
-      commitPolicy: string;
-    },
-  ): void {
-    const payload = existing.payload;
-    const mismatches = [
-      ['cardId', payload.cardId, request.cardId],
-      ['rating', payload.rating, request.rating],
-      ['queueType', payload.queueType, request.queueType],
-      ['queueMode', payload.queueMode, request.queueMode],
-      ['commitPolicy', payload.commitPolicy, request.commitPolicy],
-    ].filter(([, actual, expected]) => String(actual ?? '') !== String(expected ?? ''));
-    if (mismatches.length > 0) {
-      throw new Error(
-        `INVALID_REQUEST: conflicting review commit idempotency key: ${request.idempotencyKey}`,
-      );
-    }
   }
 
   private buildReviewFeedbackQueueImpact(input: {
@@ -816,48 +642,4 @@ function normalizeOptionalInteger(value: unknown): number | null {
 function normalizeOptionalString(value: unknown): string | null {
   const normalized = String(value ?? '').trim();
   return normalized || null;
-}
-
-function parseJsonObject(value: unknown): Record<string, unknown> {
-  if (typeof value !== 'string' || !value.trim()) {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function resolveWorkerReviewSchedulerConfig(request: BackendReviewFeedbackRequest): {
-  defaultScheduler: SchedulerType;
-  fsrsParams: FSRSParameters;
-} {
-  const scheduler = request.scheduler && typeof request.scheduler === 'object'
-    ? request.scheduler
-    : null;
-  const defaultScheduler = isSchedulerType(scheduler?.defaultScheduler)
-    ? scheduler.defaultScheduler
-    : 'fsrs-v6';
-  const candidate = scheduler?.fsrsParams && typeof scheduler.fsrsParams === 'object'
-    ? scheduler.fsrsParams as Partial<FSRSParameters>
-    : {};
-  const candidateWeights = Array.isArray(candidate.weights)
-    ? candidate.weights.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
-    : [];
-  return {
-    defaultScheduler,
-    fsrsParams: {
-      ...DEFAULT_SETTINGS.fsrs,
-      ...candidate,
-      weights: candidateWeights.length > 0 ? [...candidateWeights] : [...DEFAULT_SETTINGS.fsrs.weights],
-    },
-  };
-}
-
-function isSchedulerType(value: unknown): value is SchedulerType {
-  return value === 'fsrs-v6' || value === 'a-factor-v2';
 }
