@@ -136,4 +136,43 @@ describe('NeuralGraphProvider', () => {
       }),
     ]);
   });
+
+  it('resolves node priority from SQL card facts without querying legacy fsrs_cards', async () => {
+    const resolvePriority = vi.fn(async (blockId: string) => (blockId === 'source-1' ? 0.9 : 0.7));
+    const queryEngine = new ConceptQueryEngine({
+      cardFacts: {
+        resolveNodeType: vi.fn(async (blockId: string) => (blockId === 'concept-neighbor' ? 'concept' : 'item')),
+        resolvePriority,
+      },
+    });
+    vi.spyOn(queryEngine, 'fetchNeighbors').mockResolvedValue([
+      { id: 'concept-neighbor', type: 'backlink', weight: 15 },
+    ]);
+    vi.mocked(api.sql).mockImplementation(async (query: string) => {
+      if (query.includes("WHERE id = 'concept-neighbor'")) {
+        return [{ id: 'concept-neighbor', root_id: 'doc-1' }];
+      }
+      return [];
+    });
+
+    const provider = new NeuralGraphProvider(queryEngine);
+    const edges = await provider.fetchHyperspaceEdges('source-1', {
+      engineMode: 'hyperspace',
+      includeTreeChannels: {
+        blockTree: false,
+        documentTree: false,
+      },
+    });
+
+    expect(edges[0]).toEqual(expect.objectContaining({
+      nodeId: 'concept-neighbor',
+      sourcePriority: 0.9,
+      targetPriority: 0.7,
+    }));
+    expect(resolvePriority).toHaveBeenCalledWith('source-1');
+    expect(resolvePriority).toHaveBeenCalledWith('concept-neighbor');
+    for (const [stmt] of vi.mocked(api.sql).mock.calls) {
+      expect(String(stmt)).not.toContain('FROM fsrs_cards');
+    }
+  });
 });

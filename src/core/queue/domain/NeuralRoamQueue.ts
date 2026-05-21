@@ -47,6 +47,7 @@ import {
 } from '../neural/hyperspace/HyperspaceEngine';
 import { NeuralGraphProvider } from '../neural/graph/NeuralGraphProvider';
 import type { NeuralGraphQueryPort } from '../neural/NeuralGraphQueryPort';
+import type { NeuralRoamCardFacts } from '../neural/NeuralRoamCardFacts';
 import { createDependencyUnavailableError } from '../dependencyErrors';
 import { resolveCardId } from '../../../diagnostics/type-guards';
 import { createLogger } from '@/utils/logger';
@@ -115,6 +116,7 @@ interface NeuralRoamPersistedStateV8 {
 
 interface NeuralRoamQueueOptions {
   nodeTypeResolver?: NeuralRoamNodeTypeResolverPort;
+  cardFacts?: NeuralRoamCardFacts;
   getHistoryLimit?: () => number;
   getHyperspaceSettings?: () => HyperspaceSettings;
   graphQuery?: NeuralGraphQueryPort;
@@ -306,8 +308,12 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     this.nodeTypeResolver = options.nodeTypeResolver;
     this.getHistoryLimit = options.getHistoryLimit;
     this.getHyperspaceSettings = options.getHyperspaceSettings;
+    const cardFacts = options.cardFacts ?? (this.nodeTypeResolver
+      ? { resolveNodeType: (blockId: string) => this.nodeTypeResolver!.resolveNodeType(blockId) }
+      : undefined);
     this.queryEngine = new ConceptQueryEngine({
       nodeTypeResolver: this.nodeTypeResolver,
+      cardFacts,
       graphQuery: options.graphQuery,
     });
     this.conceptQueue = new ConceptNeuralQueue({

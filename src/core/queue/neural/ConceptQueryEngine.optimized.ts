@@ -33,7 +33,6 @@ export interface BlockData {
 
 type UnknownRecord = Record<string, unknown>;
 type IdRow = { id?: string };
-type LocalCardRow = { block_id?: string; type?: string; card_type_marker?: string };
 type BlockContentRow = { id?: string; content?: string; type?: string; parent_id?: string; root_id?: string };
 
 function isRecord(value: unknown): value is UnknownRecord {
@@ -248,25 +247,6 @@ export class ConceptQueryEngineOptimized {
           return [];
         }
 
-        try {
-          const idsStr = childIds.map((id) => `'${this.escapeSQL(id)}'`).join(',');
-          const localRows = await api.sql<IdRow>(`
-            SELECT DISTINCT block_id AS id
-            FROM fsrs_cards
-            WHERE block_id IN (${idsStr})
-              AND (type = 'descriptor' OR card_type_marker = 'descriptor')
-          `);
-          if (localRows && Array.isArray(localRows) && localRows.length > 0) {
-            const descriptorIds = localRows
-              .map((row) => (typeof row?.id === 'string' ? row.id : ''))
-              .filter((id): id is string => id.length > 0);
-            logger.debug(`Found ${descriptorIds.length} descriptors from local cards`);
-            return descriptorIds;
-          }
-        } catch {
-          // fsrs_cards table may be unavailable in some environments
-        }
-
         const syntaxRows = await api.sql<IdRow>(`
           SELECT DISTINCT id
           FROM blocks
@@ -300,48 +280,23 @@ export class ConceptQueryEngineOptimized {
     return PerformanceMonitor.measure('areConceptCards', async () => {
       try {
         const idsStr = blockIds.map(id => `'${this.escapeSQL(id)}'`).join(',');
-        let rows: LocalCardRow[] = [];
-        try {
-          rows = await api.sql<LocalCardRow>(`
-            SELECT block_id, type, card_type_marker
-            FROM fsrs_cards
-            WHERE block_id IN (${idsStr})
-          `);
-        } catch {
-          rows = [];
-        }
         const result = new Map<string, boolean>();
         
         // 初始化所有为 false
         for (const id of blockIds) {
           result.set(id, false);
         }
-        
-        // 设置概念卡为 true
-        for (const row of rows || []) {
-          const localBlockId = typeof row?.block_id === 'string' ? row.block_id : '';
-          if (!localBlockId) {
-            continue;
-          }
-          if (row?.type === 'concept' || row?.card_type_marker === 'concept') {
-            result.set(localBlockId, true);
-          }
-        }
 
-        const unresolvedIds = blockIds.filter((id) => result.get(id) !== true);
-        if (unresolvedIds.length > 0) {
-          const unresolvedStr = unresolvedIds.map((id) => `'${this.escapeSQL(id)}'`).join(',');
-          const syntaxRows = await api.sql<BlockContentRow>(`
-            SELECT id, content
-            FROM blocks
-            WHERE id IN (${unresolvedStr})
-          `);
-          for (const row of syntaxRows || []) {
-            const syntaxId = typeof row?.id === 'string' ? row.id : '';
-            const content = typeof row?.content === 'string' ? row.content : '';
-            if (syntaxId && hasConceptDefinitionSyntax(content)) {
-              result.set(syntaxId, true);
-            }
+        const syntaxRows = await api.sql<BlockContentRow>(`
+          SELECT id, content
+          FROM blocks
+          WHERE id IN (${idsStr})
+        `);
+        for (const row of syntaxRows || []) {
+          const syntaxId = typeof row?.id === 'string' ? row.id : '';
+          const content = typeof row?.content === 'string' ? row.content : '';
+          if (syntaxId && hasConceptDefinitionSyntax(content)) {
+            result.set(syntaxId, true);
           }
         }
 

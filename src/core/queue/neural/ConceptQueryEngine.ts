@@ -19,6 +19,7 @@ import { createLogger } from '@/utils/logger';
 import { QueryCache } from '@/utils/queryCache';
 import type { NeuralRoamNodeType, NeuralRoamNodeTypeResolverPort } from '../domain/ports';
 import { createDependencyUnavailableError } from '../dependencyErrors';
+import type { NeuralRoamCardFacts } from './NeuralRoamCardFacts';
 import {
   neuralGraphQueryFailed,
   resolveNeuralGraphQuery,
@@ -63,6 +64,7 @@ interface AttributeRow {
 
 export interface ConceptQueryEngineOptions {
   nodeTypeResolver?: NeuralRoamNodeTypeResolverPort;
+  cardFacts?: NeuralRoamCardFacts;
   graphQuery?: NeuralGraphQueryPort;
 }
 
@@ -85,8 +87,6 @@ export class ConceptQueryEngine {
   private readonly nodeTypeCache = new QueryCache<NeuralRoamNodeType>(30000, 300);
   private readonly formalReviewCardCache = new QueryCache<boolean>(30000, 300);
   private readonly progressiveExcerptRootCache = new Map<string, string | null>();
-  private fsrsCardsTableAvailable: boolean | null = null;
-  private hasLoggedMissingFsrsCardsTable = false;
 
   constructor(private readonly options: ConceptQueryEngineOptions = {}) {}
 
@@ -373,35 +373,6 @@ export class ConceptQueryEngine {
         )
       `;
 
-      if (this.fsrsCardsTableAvailable !== false) {
-        try {
-        const localRows = await api.sql(`
-          ${descriptorScopeCte}
-          SELECT DISTINCT fc.block_id AS id
-          FROM fsrs_cards fc
-          WHERE fc.block_id IN (SELECT id FROM descriptor_scope)
-            AND COALESCE(fc.type, '') NOT IN ('concept', 'topic')
-            AND COALESCE(fc.card_type_marker, '') != 'concept'
-        `);
-        this.fsrsCardsTableAvailable = true;
-        const descriptorIds = this.extractIds(localRows, conceptId);
-        if (descriptorIds.length > 0) {
-          logger.debug(`Found ${descriptorIds.length} descriptors from local cards`);
-          return descriptorIds;
-        }
-        } catch (error) {
-          if (this.isMissingFsrsCardsTableError(error)) {
-            this.fsrsCardsTableAvailable = false;
-            if (!this.hasLoggedMissingFsrsCardsTable) {
-              this.hasLoggedMissingFsrsCardsTable = true;
-              logger.warn('fsrs_cards table not found; descriptor SQL checks will skip local card lookup in this environment');
-            }
-          } else {
-            logger.error('Failed to fetch descriptors from local cards:', error);
-          }
-        }
-      }
-
       const syntaxRows = await api.sql(`
         ${descriptorScopeCte}
         SELECT DISTINCT b.id
@@ -437,44 +408,25 @@ export class ConceptQueryEngine {
       return graph.value;
     }
 
+    const cardFactType = await this.resolveNodeTypeFromCardFacts(blockId);
+    if (cardFactType !== 'unknown') {
+      return cardFactType === 'concept';
+    }
+
     const resolvedType = await this.resolveNodeTypeFromResolver(blockId);
     if (resolvedType !== 'unknown') {
       return resolvedType === 'concept';
     }
 
-    if (this.fsrsCardsTableAvailable === false) {
-      throw new Error('NEURAL_ROAM_SCHEMA_UNAVAILABLE: fsrs_cards is unavailable for concept checks');
+    return false;
+  }
+
+  async fetchNodePriority(blockId: string): Promise<number | null> {
+    const graph = await this.queryGraph<number | null>('fetchNodePriority', blockId, null);
+    if (graph.handled) {
+      return graph.value;
     }
-
-    try {
-      const stmt = `
-        SELECT COUNT(1) AS concept_count
-        FROM fsrs_cards
-        WHERE block_id = '${this.escapeSQL(blockId)}'
-          AND (type = 'concept' OR card_type_marker = 'concept')
-      `;
-
-      const rows = await api.sql(stmt);
-      this.fsrsCardsTableAvailable = true;
-      if (!Array.isArray(rows) || rows.length === 0) {
-        return false;
-      }
-
-      const row = rows[0] as UnknownRecord;
-      const conceptCount = Number(row.concept_count);
-      return Number.isFinite(conceptCount) && conceptCount > 0;
-    } catch (error) {
-      if (this.isFsrsCardsUnavailableError(error)) {
-        this.fsrsCardsTableAvailable = false;
-        if (!this.hasLoggedMissingFsrsCardsTable) {
-          this.hasLoggedMissingFsrsCardsTable = true;
-          logger.error('NEURAL_ROAM_SCHEMA_UNAVAILABLE: fsrs_cards SQL checks unavailable for concept checks');
-        }
-        throw new Error('NEURAL_ROAM_SCHEMA_UNAVAILABLE: fsrs_cards is unavailable for concept checks');
-      }
-      logger.error('Failed to check if concept card:', error);
-      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to check concept card ${blockId}`, error);
-    }
+    return this.options.cardFacts?.resolvePriority?.(blockId) ?? null;
   }
 
   private extractBacklinkCandidates(rows: unknown, excludeId?: string): BacklinkCandidate[] {
@@ -837,9 +789,9 @@ export class ConceptQueryEngine {
       return cached;
     }
 
-    let resolvedType = await this.resolveNodeTypeFromResolver(normalizedBlockId);
+    let resolvedType = await this.resolveNodeTypeFromCardFacts(normalizedBlockId);
     if (resolvedType === 'unknown') {
-      resolvedType = await this.resolveNodeTypeFromFsrsCards(normalizedBlockId);
+      resolvedType = await this.resolveNodeTypeFromResolver(normalizedBlockId);
     }
     if (resolvedType === 'unknown') {
       resolvedType = await this.resolveNodeTypeFromSyntax(normalizedBlockId);
@@ -862,53 +814,16 @@ export class ConceptQueryEngine {
     }
   }
 
-  private async resolveNodeTypeFromFsrsCards(blockId: string): Promise<NeuralRoamNodeType> {
-    if (this.fsrsCardsTableAvailable === false) {
-      throw new Error('NEURAL_ROAM_SCHEMA_UNAVAILABLE: fsrs_cards is unavailable for local roam-node type checks');
+  private async resolveNodeTypeFromCardFacts(blockId: string): Promise<NeuralRoamNodeType> {
+    if (!this.options.cardFacts) {
+      return 'unknown';
     }
 
     try {
-      const rows = await api.sql(`
-        SELECT type, card_type_marker
-        FROM fsrs_cards
-        WHERE block_id = '${this.escapeSQL(blockId)}'
-        LIMIT 1
-      `);
-      this.fsrsCardsTableAvailable = true;
-
-      if (!Array.isArray(rows) || rows.length === 0) {
-        return 'unknown';
-      }
-
-      const row = rows[0] as UnknownRecord;
-      const type = typeof row.type === 'string' ? row.type : '';
-      const marker = typeof row.card_type_marker === 'string' ? row.card_type_marker : '';
-
-      if (type === 'concept' || marker === 'concept') {
-        return 'concept';
-      }
-      if (type === 'descriptor' || marker === 'descriptor') {
-        return 'descriptor';
-      }
-      if (type === 'topic') {
-        return 'topic';
-      }
-      if (type.length > 0) {
-        return 'item';
-      }
-
-      return 'unknown';
+      return await this.options.cardFacts.resolveNodeType(blockId);
     } catch (error) {
-      if (this.isFsrsCardsUnavailableError(error)) {
-        this.fsrsCardsTableAvailable = false;
-        if (!this.hasLoggedMissingFsrsCardsTable) {
-          this.hasLoggedMissingFsrsCardsTable = true;
-          logger.error('NEURAL_ROAM_SCHEMA_UNAVAILABLE: fsrs_cards SQL checks unavailable for local roam-node type checks');
-        }
-        throw new Error('NEURAL_ROAM_SCHEMA_UNAVAILABLE: fsrs_cards is unavailable for local roam-node type checks');
-      }
-      logger.error(`Failed to resolve local roam node type for block ${blockId}:`, error);
-      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to resolve local roam node type for block ${blockId}`, error);
+      logger.warn(`Failed to resolve roam node type via SQL card facts for ${blockId}:`, error);
+      throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to resolve roam node type via SQL card facts for ${blockId}`, error);
     }
   }
 
@@ -1032,20 +947,4 @@ export class ConceptQueryEngine {
     return value.replace(/'/g, "''");
   }
 
-  private isMissingFsrsCardsTableError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error ?? '');
-    const normalized = message.toLowerCase();
-    return normalized.includes('no such table') && normalized.includes('fsrs_cards');
-  }
-
-  private isLegacyLocalCardSqlUnsupportedError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error ?? '');
-    const normalized = message.toLowerCase();
-    return normalized.includes('syntax error')
-      && (normalized.includes('near "limit"') || normalized.includes("near 'limit'"));
-  }
-
-  private isFsrsCardsUnavailableError(error: unknown): boolean {
-    return this.isMissingFsrsCardsTableError(error) || this.isLegacyLocalCardSqlUnsupportedError(error);
-  }
 }

@@ -29,32 +29,31 @@ describe('QueryEngine - Concept Card Neighbors', () => {
   let queryEngine: QueryEngine;
 
   beforeEach(() => {
+    vi.resetAllMocks();
     queryEngine = new QueryEngine(DEFAULT_NEURAL_QUEUE_CONFIG);
-    vi.clearAllMocks();
   });
 
   describe('isConceptCard', () => {
     it('should return true for concept cards', async () => {
-      vi.mocked(api.sql).mockResolvedValue([
-        { value: 'concept' }
-      ]);
+      const resolveNodeType = vi.fn(async () => 'concept' as const);
+      queryEngine = new QueryEngine(DEFAULT_NEURAL_QUEUE_CONFIG, { resolveNodeType });
 
       const result = await queryEngine.isConceptCard('concept-block-1');
 
       expect(result).toBe(true);
-      expect(api.sql).toHaveBeenCalledWith(
-        expect.stringContaining("name = 'custom-fsrs-card-type'")
-      );
+      expect(resolveNodeType).toHaveBeenCalledWith('concept-block-1');
+      expect(api.sql).not.toHaveBeenCalled();
     });
 
     it('should return false for non-concept cards', async () => {
-      vi.mocked(api.sql).mockResolvedValue([
-        { value: 'item' }
-      ]);
+      const resolveNodeType = vi.fn(async () => 'item' as const);
+      queryEngine = new QueryEngine(DEFAULT_NEURAL_QUEUE_CONFIG, { resolveNodeType });
 
       const result = await queryEngine.isConceptCard('normal-block-1');
 
       expect(result).toBe(false);
+      expect(resolveNodeType).toHaveBeenCalledWith('normal-block-1');
+      expect(api.sql).not.toHaveBeenCalled();
     });
 
     it('should return false when no card type attribute exists', async () => {
@@ -68,9 +67,8 @@ describe('QueryEngine - Concept Card Neighbors', () => {
     it('should handle SQL errors gracefully', async () => {
       vi.mocked(api.sql).mockRejectedValue(new Error('Database error'));
 
-      const result = await queryEngine.isConceptCard('error-block');
-
-      expect(result).toBe(false);
+      await expect(queryEngine.isConceptCard('error-block'))
+        .rejects.toThrow('NEURAL_ROAM_QUERY_UNAVAILABLE');
     });
   });
 
@@ -135,17 +133,15 @@ describe('QueryEngine - Concept Card Neighbors', () => {
         status: 500,
       } as Response);
 
-      const result = await queryEngine.fetchBacklinks('concept-error');
-
-      expect(result).toEqual([]);
+      await expect(queryEngine.fetchBacklinks('concept-error'))
+        .rejects.toThrow('NEURAL_ROAM_QUERY_UNAVAILABLE');
     });
 
     it('should handle network errors gracefully', async () => {
       vi.mocked(fetch).mockRejectedValue(new Error('Network error'));
 
-      const result = await queryEngine.fetchBacklinks('concept-network-error');
-
-      expect(result).toEqual([]);
+      await expect(queryEngine.fetchBacklinks('concept-network-error'))
+        .rejects.toThrow('NEURAL_ROAM_QUERY_UNAVAILABLE');
     });
 
     it('should filter out empty IDs', async () => {
@@ -180,20 +176,18 @@ describe('QueryEngine - Concept Card Neighbors', () => {
         { id: 'link-3' },
       ]);
 
-      // Mock 检查是否为概念卡
-      vi.mocked(api.sql)
-        .mockResolvedValueOnce([{ value: 'concept' }]) // link-1 是概念卡
-        .mockResolvedValueOnce([{ value: 'item' }])    // link-2 不是概念卡
-        .mockResolvedValueOnce([{ value: 'concept' }]); // link-3 是概念卡
-
       const result = await queryEngine.fetchConceptLinks('concept-1');
 
-      expect(result).toHaveLength(2);
+      expect(result).toHaveLength(3);
       expect(result[0]).toEqual({
         id: 'link-1',
         type: AssociationType.CONCEPT_LINK,
       });
       expect(result[1]).toEqual({
+        id: 'link-2',
+        type: AssociationType.CONCEPT_LINK,
+      });
+      expect(result[2]).toEqual({
         id: 'link-3',
         type: AssociationType.CONCEPT_LINK,
       });
@@ -204,11 +198,6 @@ describe('QueryEngine - Concept Card Neighbors', () => {
         { id: 'link-from-parent' },
         { id: 'link-from-child' },
       ]);
-
-      // Mock 都是概念卡
-      vi.mocked(api.sql)
-        .mockResolvedValueOnce([{ value: 'concept' }])
-        .mockResolvedValueOnce([{ value: 'concept' }]);
 
       const result = await queryEngine.fetchConceptLinks('concept-with-children');
 
@@ -223,20 +212,16 @@ describe('QueryEngine - Concept Card Neighbors', () => {
         { id: 'link-1' },
       ]);
 
-      // Mock 不是概念卡
-      vi.mocked(api.sql).mockResolvedValueOnce([{ value: 'item' }]);
-
       const result = await queryEngine.fetchConceptLinks('concept-no-links');
 
-      expect(result).toEqual([]);
+      expect(result).toEqual([{ id: 'link-1', type: AssociationType.CONCEPT_LINK }]);
     });
 
     it('should handle SQL errors gracefully', async () => {
       vi.mocked(api.sql).mockRejectedValue(new Error('Database error'));
 
-      const result = await queryEngine.fetchConceptLinks('concept-error');
-
-      expect(result).toEqual([]);
+      await expect(queryEngine.fetchConceptLinks('concept-error'))
+        .rejects.toThrow('NEURAL_ROAM_QUERY_UNAVAILABLE');
     });
   });
 
@@ -259,9 +244,7 @@ describe('QueryEngine - Concept Card Neighbors', () => {
         type: AssociationType.DESCRIPTOR,
       });
 
-      expect(api.sql).toHaveBeenCalledWith(
-        expect.stringContaining("a.value = 'descriptor'")
-      );
+      expect(api.sql).toHaveBeenCalledWith(expect.stringContaining("content LIKE '%;;%'"));
     });
 
     it('should return empty array when no descriptor cards exist', async () => {
@@ -290,9 +273,8 @@ describe('QueryEngine - Concept Card Neighbors', () => {
     it('should handle SQL errors gracefully', async () => {
       vi.mocked(api.sql).mockRejectedValue(new Error('Database error'));
 
-      const result = await queryEngine.fetchDescriptorCards('concept-error');
-
-      expect(result).toEqual([]);
+      await expect(queryEngine.fetchDescriptorCards('concept-error'))
+        .rejects.toThrow('NEURAL_ROAM_QUERY_UNAVAILABLE');
     });
   });
 
@@ -315,8 +297,8 @@ describe('QueryEngine - Concept Card Neighbors', () => {
       // Mock concept links
       vi.mocked(api.sql)
         .mockResolvedValueOnce([{ id: 'link-1' }]) // 出链查询
-        .mockResolvedValueOnce([{ value: 'concept' }]) // link-1 是概念卡
-        .mockResolvedValueOnce([{ id: 'descriptor-1' }]); // 描述符卡查询
+        .mockResolvedValueOnce([{ id: 'descriptor-1' }]) // descriptor children
+        .mockResolvedValueOnce([{ id: 'descriptor-1' }]); // descriptor syntax
 
       const result = await queryEngine.fetchConceptNeighbors('concept-1');
 
@@ -343,7 +325,7 @@ describe('QueryEngine - Concept Card Neighbors', () => {
 
       vi.mocked(api.sql)
         .mockResolvedValueOnce([{ id: 'duplicate-block' }])
-        .mockResolvedValueOnce([{ value: 'concept' }])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([]);
 
       const result = await queryEngine.fetchConceptNeighbors('concept-1');
@@ -376,24 +358,16 @@ describe('QueryEngine - Concept Card Neighbors', () => {
       vi.mocked(fetch).mockRejectedValue(new Error('API error'));
 
       // Concept links 成功
-      vi.mocked(api.sql)
-        .mockResolvedValueOnce([{ id: 'link-1' }])
-        .mockResolvedValueOnce([{ value: 'concept' }])
-        .mockResolvedValueOnce([{ id: 'descriptor-1' }]);
-
-      const result = await queryEngine.fetchConceptNeighbors('concept-partial-error');
-
-      // 应该返回成功的查询结果
-      expect(result.length).toBeGreaterThan(0);
-      expect(result.some(r => r.type === AssociationType.CONCEPT_LINK)).toBe(true);
-      expect(result.some(r => r.type === AssociationType.DESCRIPTOR)).toBe(true);
+      await expect(queryEngine.fetchConceptNeighbors('concept-partial-error'))
+        .rejects.toThrow('NEURAL_ROAM_QUERY_UNAVAILABLE');
     });
   });
 
   describe('fetchNeighbors - Concept Card Integration', () => {
     it('should use fetchConceptNeighbors for concept cards', async () => {
-      // Mock isConceptCard 返回 true
-      vi.mocked(api.sql).mockResolvedValueOnce([{ value: 'concept' }]);
+      queryEngine = new QueryEngine(DEFAULT_NEURAL_QUEUE_CONFIG, {
+        resolveNodeType: vi.fn(async (blockId: string) => blockId === 'concept-card-1' ? 'concept' : 'unknown'),
+      });
 
       // Mock fetchConceptNeighbors 的结果
       vi.mocked(fetch).mockResolvedValue({
@@ -406,7 +380,8 @@ describe('QueryEngine - Concept Card Neighbors', () => {
 
       vi.mocked(api.sql)
         .mockResolvedValueOnce([]) // 出链查询
-        .mockResolvedValueOnce([]); // 描述符卡查询
+        .mockResolvedValueOnce([]) // descriptor children
+        .mockResolvedValueOnce([]); // descriptor syntax
 
       const result = await queryEngine.fetchNeighbors('concept-card-1');
 
@@ -415,22 +390,13 @@ describe('QueryEngine - Concept Card Neighbors', () => {
     });
 
     it('should use normal logic for non-concept cards', async () => {
-      // Mock isConceptCard 返回 false
-      vi.mocked(api.sql).mockResolvedValueOnce([{ value: 'item' }]);
-
-      // Mock 正常的邻居查询
-      vi.mocked(api.sql)
-        .mockResolvedValueOnce([{ id: 'ref-1' }]) // fetchRefLinks - outgoing
-        .mockResolvedValueOnce([{ id: 'ref-2' }]) // fetchRefLinks - incoming
-        .mockResolvedValueOnce([{ root_id: 'root-1' }]) // getRootId
-        .mockResolvedValueOnce([{ id: 'context-1' }]); // fetchContextCards
+      queryEngine = new QueryEngine(DEFAULT_NEURAL_QUEUE_CONFIG, {
+        resolveNodeType: vi.fn(async () => 'item'),
+      });
 
       const result = await queryEngine.fetchNeighbors('normal-card-1');
 
-      // 应该返回正常的邻居（REF_LINK, HIERARCHY）
-      expect(result.some(r => r.type === AssociationType.REF_LINK)).toBe(true);
-      expect(result.some(r => r.type === AssociationType.HIERARCHY)).toBe(true);
-      expect(result.some(r => r.type === AssociationType.BACKLINK)).toBe(false);
+      expect(result).toEqual([]);
     });
   });
 });

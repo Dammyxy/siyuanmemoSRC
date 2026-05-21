@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-21 (Round 418)
+Last update: 2026-05-21 (Round 420)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-21 - NeuralRoam SQL Card Facts Slice
+
+- Task: Start `deepen-sql-first-card-runtime` with the NeuralRoam card-facts slice.
+- Touched slice: NeuralRoam graph/card facts; `src/core/queue/neural/NeuralRoamCardFacts.ts`, `ConceptQueryEngine`, `NeuralGraphProvider`, `QueryEngine`, `NeuralRoamQueue`, `UnifiedDataSourceManager`, `ApplicationContext`, `SiyuanNeuralRoamGraphQueryAdapter`, and focused NeuralRoam graph/query tests.
+- Debt fixed now: Concept-card identity and node priority now have a small `NeuralRoamCardFacts` Module. Runtime wiring injects SQL-active card facts from `UnifiedDataSourceManager`, so worker graph host effects and in-app NeuralRoam share node-type/priority semantics instead of probing renderer-side `fsrs_cards` for those card facts. The remaining normal-runtime NeuralRoam helpers no longer join or probe `fsrs_cards`; graph structure stays on SiYuan refs/blocks, and card facts come from SQL card facts or explicit syntax-derived block reads.
+- Debt deferred: `ConceptQueryEngine.optimized.ts` remains a non-active legacy variant instead of being deleted.
+- Why deferred: Deleting the legacy optimized class is separate cleanup; the task only required removing normal-runtime card-fact dependency and keeping behavior explicit.
+- Next safe step: Continue the change at Browser/Queue baseline tasks 1.1 and 1.2, or delete the unused optimized NeuralRoam class in a dedicated cleanup if `rg` continues to show no importer.
+- Validation: Focused ConceptQueryEngine card-facts tests, QueryEngine concept-neighbor tests, NeuralGraphProvider tests, and SiyuanNeuralRoamGraphQueryAdapter tests passed. Grep confirms no `fsrs_cards` references remain in NeuralRoam production slice, only tests that assert the old table is not used.
 
 ### 2026-05-21 - Manual Backup Inventory Deepened
 

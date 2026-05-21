@@ -29,6 +29,7 @@ import {
 } from '@/types/unified-data-source';
 import type { QueueProjectionLiveIdentityListener } from '@/types/queue-projection-live-identity';
 import type { QueueProjectionLiveIdentityEvent } from '@/types/queue-projection-live-identity';
+import { normalizeNeuralRoamPriority } from '@/core/queue/neural/NeuralRoamCardFacts';
 import type { FSRSCard } from '@/types/card';
 import type { DrillLogV2 } from '@/types/review';
 // ✅ DDD 架构：UnifiedDataSourceManager（应用层）直接创建队列，不依赖 QueueFactory（基础设施层）
@@ -1280,6 +1281,10 @@ export class UnifiedDataSourceManager {
                     nodeTypeResolver: {
                         resolveNodeType: async (blockId: string) => this.resolveNeuralRoamNodeType(blockId),
                     },
+                    cardFacts: {
+                        resolveNodeType: async (blockId: string) => this.resolveNeuralRoamNodeType(blockId),
+                        resolvePriority: async (blockId: string) => this.resolveNeuralRoamNodePriority(blockId),
+                    },
                     getHistoryLimit: () => this.getNeuralRoamHistoryMaxEntries(),
                     getHyperspaceSettings: () => this.getNeuralRoamHyperspaceSettings(),
                 });
@@ -1374,6 +1379,21 @@ export class UnifiedDataSourceManager {
         } catch (error) {
             logger.warn(`Failed to resolve neural roam node type from local card ${normalizedBlockId}:`, error);
             return 'unknown';
+        }
+    }
+
+    public async resolveNeuralRoamNodePriority(blockId: string): Promise<number | null> {
+        const normalizedBlockId = String(blockId || '').trim();
+        if (!normalizedBlockId) {
+            return null;
+        }
+
+        try {
+            const localCard = await this.findExactLocalCardByBlockId(normalizedBlockId);
+            return normalizeNeuralRoamPriority(localCard?.priority);
+        } catch (error) {
+            logger.warn(`Failed to resolve neural roam node priority from local card ${normalizedBlockId}:`, error);
+            throw new Error(`NEURAL_ROAM_QUERY_UNAVAILABLE: failed to resolve neural roam node priority for ${normalizedBlockId}: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 

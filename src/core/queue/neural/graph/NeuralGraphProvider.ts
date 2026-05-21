@@ -51,10 +51,6 @@ interface RefRow {
   def_block_id?: string;
 }
 
-interface PriorityRow {
-  priority?: number | string | null;
-}
-
 interface DocListItem {
   id?: string;
   path?: string;
@@ -88,17 +84,6 @@ function toNumber(value: unknown, fallback = 0): number {
 function toNonEmptyString(value: unknown): string | null {
   const normalized = typeof value === 'string' ? value.trim() : '';
   return normalized.length > 0 ? normalized : null;
-}
-
-function normalizePriorityValue(value: unknown): number | null {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return null;
-  }
-  if (parsed > 1) {
-    return clamp(parsed / 100, 0, 1);
-  }
-  return clamp(parsed, 0, 1);
 }
 
 function getParentListingPath(path: string): string {
@@ -493,18 +478,12 @@ export class NeuralGraphProvider {
       return this.nodePriorityCache.get(normalizedNodeId) ?? null;
     }
 
-    let normalizedPriority: number | null = null;
-    try {
-      const rows = await api.sql<PriorityRow>(`
-        SELECT priority
-        FROM fsrs_cards
-        WHERE block_id = '${escapeSql(normalizedNodeId)}'
-        LIMIT 1
-      `);
-      normalizedPriority = normalizePriorityValue(rows[0]?.priority);
-    } catch {
-      normalizedPriority = null;
-    }
+    const priorityReader = (this.queryEngine as ConceptQueryEngine & {
+      fetchNodePriority?: (blockId: string) => Promise<number | null>;
+    }).fetchNodePriority;
+    const normalizedPriority = typeof priorityReader === 'function'
+      ? await priorityReader.call(this.queryEngine, normalizedNodeId)
+      : null;
 
     this.nodePriorityCache.set(normalizedNodeId, normalizedPriority);
     return normalizedPriority;

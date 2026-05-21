@@ -27,4 +27,28 @@ describe('SiyuanNeuralRoamGraphQueryAdapter', () => {
     expect(resolveNodeType).toHaveBeenCalledWith('concept-1');
     expect(api.sql).not.toHaveBeenCalled();
   });
+
+  it('uses injected card facts for priority without legacy fsrs_cards SQL', async () => {
+    const resolvePriority = vi.fn(async () => 0.86);
+    const adapter = new SiyuanNeuralRoamGraphQueryAdapter({
+      cardFacts: {
+        resolveNodeType: vi.fn(async () => 'unknown'),
+        resolvePriority,
+      },
+    });
+    vi.mocked(api.sql).mockRejectedValue(new Error('Siyuan API Error: no such table: fsrs_cards'));
+
+    const result = await adapter.query<number | null>({
+      operation: 'fetchNodePriority',
+      blockId: 'concept-1',
+    });
+
+    expect(result).toMatchObject({
+      status: 'found',
+      blockId: 'concept-1',
+      data: 0.86,
+    });
+    expect(resolvePriority).toHaveBeenCalledWith('concept-1');
+    expect(api.sql).not.toHaveBeenCalled();
+  });
 });

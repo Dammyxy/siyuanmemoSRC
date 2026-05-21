@@ -12,6 +12,7 @@ import { AssociationType, NeighborQueryResult, NeuralQueueConfig, NeuralBlockTyp
 import { createLogger } from '@/utils/logger';
 import { hasConceptDefinitionSyntax } from '@/core/xiuyuan/cardMeta';
 import { createDependencyUnavailableError } from '../dependencyErrors';
+import type { NeuralRoamCardFacts } from './NeuralRoamCardFacts';
 
 const logger = createLogger('QueryEngine');
 
@@ -30,7 +31,6 @@ export interface CardData {
 type UnknownRecord = Record<string, unknown>;
 type IdRow = { id?: string };
 type BlockContentRow = { id?: string; content?: string };
-type LocalCardRow = { type?: string; card_type_marker?: string; block_id?: string; id?: string };
 type RootIdRow = { root_id?: string };
 type ParentIdRow = { parent_id?: string };
 type IalRow = { ial?: string };
@@ -61,7 +61,7 @@ export class QueryEngine {
   /** 配置 */
   private readonly config: NeuralQueueConfig;
 
-  constructor(config: NeuralQueueConfig) {
+  constructor(config: NeuralQueueConfig, private readonly cardFacts?: NeuralRoamCardFacts) {
     this.config = config;
   }
 
@@ -181,20 +181,11 @@ export class QueryEngine {
   async isConceptCard(blockId: string): Promise<boolean> {
     try {
       const escapedId = this.escapeSQL(blockId);
-      try {
-        const localRows = await api.sql<LocalCardRow>(`
-          SELECT type, card_type_marker
-          FROM fsrs_cards
-          WHERE block_id = '${escapedId}'
-          LIMIT 5
-        `);
-        if (Array.isArray(localRows) && localRows.length > 0) {
-          return localRows.some((row) =>
-            row?.type === 'concept' || row?.card_type_marker === 'concept'
-          );
+      if (this.cardFacts) {
+        const nodeType = await this.cardFacts.resolveNodeType(blockId);
+        if (nodeType !== 'unknown') {
+          return nodeType === 'concept';
         }
-      } catch {
-        // fsrs_cards table may be unavailable in some environments
       }
 
       const blockRows = await api.sql<BlockContentRow>(`
@@ -334,26 +325,12 @@ export class QueryEngine {
         return [];
       }
 
-      try {
-        const idList = childIds.map((id) => `'${this.escapeSQL(id)}'`).join(',');
-        const localRows = await api.sql<LocalCardRow>(`
-          SELECT DISTINCT block_id
-          FROM fsrs_cards
-          WHERE block_id IN (${idList})
-            AND (type = 'descriptor' OR card_type_marker = 'descriptor')
-        `);
-        const descriptorIds = localRows
-          .map((row) => (typeof row?.block_id === 'string' ? row.block_id : ''))
-          .filter((id): id is string => id.length > 0);
-
-        if (descriptorIds.length > 0) {
-          return descriptorIds.map((id) => ({
-            id,
-            type: AssociationType.DESCRIPTOR,
-          }));
-        }
-      } catch {
-        // fsrs_cards table may be unavailable in some environments
+      const factDescriptorIds = await this.filterByCardFactType(childIds, 'descriptor');
+      if (factDescriptorIds.length > 0) {
+        return factDescriptorIds.map((id) => ({
+          id,
+          type: AssociationType.DESCRIPTOR,
+        }));
       }
 
       // Syntax fallback: treat descriptor-like lines as descriptor cards.
@@ -388,17 +365,14 @@ export class QueryEngine {
       const allowedTypes = this.config.topicMode.allowedBlockTypes.map(t => `'${t}'`).join(',');
 
       if (!topicModeEnabled) {
-        // Local-card source only.
         const outgoingStmt = `
           SELECT DISTINCT r.def_block_id as id, 'ref' as type
           FROM refs r
-          INNER JOIN fsrs_cards c ON r.def_block_id = c.block_id
           WHERE r.block_id = '${this.escapeSQL(blockId)}'
         `;
         const incomingStmt = `
           SELECT DISTINCT r.block_id as id, 'ref' as type
           FROM refs r
-          INNER JOIN fsrs_cards c ON r.block_id = c.block_id
           WHERE r.def_block_id = '${this.escapeSQL(blockId)}'
         `;
         const outgoing = await api.sql<IdRow>(outgoingStmt);
@@ -417,15 +391,11 @@ export class QueryEngine {
           b.type as block_type,
           b.content,
           CASE 
-            WHEN fc.block_id IS NOT NULL THEN 1
+            WHEN b.id IS NOT NULL THEN 1
             ELSE 0
           END as has_flashcard
         FROM refs r
         INNER JOIN blocks b ON r.def_block_id = b.id
-        LEFT JOIN (
-          SELECT DISTINCT block_id
-          FROM fsrs_cards
-        ) fc ON b.id = fc.block_id
         WHERE r.block_id = '${this.escapeSQL(blockId)}'
           AND b.type IN (${allowedTypes})
           AND LENGTH(b.content) >= ${minLength}
@@ -438,15 +408,11 @@ export class QueryEngine {
           b.type as block_type,
           b.content,
           CASE 
-            WHEN fc.block_id IS NOT NULL THEN 1
+            WHEN b.id IS NOT NULL THEN 1
             ELSE 0
           END as has_flashcard
         FROM refs r
         INNER JOIN blocks b ON r.block_id = b.id
-        LEFT JOIN (
-          SELECT DISTINCT block_id
-          FROM fsrs_cards
-        ) fc ON b.id = fc.block_id
         WHERE r.def_block_id = '${this.escapeSQL(blockId)}'
           AND b.type IN (${allowedTypes})
           AND LENGTH(b.content) >= ${minLength}
@@ -484,11 +450,9 @@ export class QueryEngine {
       const allowedTypes = this.config.topicMode.allowedBlockTypes.map(t => `'${t}'`).join(',');
 
       if (!topicModeEnabled) {
-        // Local-card source only.
         const stmt = `
           SELECT DISTINCT b.id, 'context' as type
           FROM blocks b
-          INNER JOIN fsrs_cards c ON b.id = c.block_id
           WHERE b.root_id = '${this.escapeSQL(rootId)}'
             AND b.id != '${this.escapeSQL(blockId)}'
           LIMIT ${limit}
@@ -504,14 +468,10 @@ export class QueryEngine {
           'context' as type,
           b.type as block_type,
           CASE 
-            WHEN fc.block_id IS NOT NULL THEN 1
+            WHEN b.id IS NOT NULL THEN 1
             ELSE 0
           END as has_flashcard
         FROM blocks b
-        LEFT JOIN (
-          SELECT DISTINCT block_id
-          FROM fsrs_cards
-        ) fc ON b.id = fc.block_id
         WHERE b.root_id = '${this.escapeSQL(rootId)}'
           AND b.id != '${this.escapeSQL(blockId)}'
           AND b.type IN (${allowedTypes})
@@ -546,7 +506,6 @@ export class QueryEngine {
       const stmt = `
         SELECT DISTINCT b.id, 'tag' as type
         FROM blocks b
-        INNER JOIN fsrs_cards c ON b.id = c.block_id
         WHERE b.id != '${this.escapeSQL(blockId)}'
           AND b.ial LIKE '%#%'
         LIMIT ${limit}
@@ -577,7 +536,6 @@ export class QueryEngine {
       const stmt = `
         SELECT DISTINCT b.id, 'sibling' as type
         FROM blocks b
-        INNER JOIN fsrs_cards c ON b.id = c.block_id
         WHERE b.parent_id = '${this.escapeSQL(parentId)}'
           AND b.id != '${this.escapeSQL(blockId)}'
         LIMIT 10
@@ -599,21 +557,6 @@ export class QueryEngine {
    */
   async fetchRandomCard(): Promise<string | null> {
     try {
-      try {
-        const localRows = await api.sql<IdRow>(`
-          SELECT DISTINCT block_id AS id
-          FROM fsrs_cards
-          WHERE type = 'concept' OR card_type_marker = 'concept'
-          ORDER BY RANDOM()
-          LIMIT 1
-        `);
-        if (Array.isArray(localRows) && localRows.length > 0 && typeof localRows[0].id === 'string') {
-          return localRows[0].id;
-        }
-      } catch {
-        // fsrs_cards table may be unavailable in some environments
-      }
-
       const syntaxRows = await api.sql<IdRow>(`
         SELECT id
         FROM blocks
@@ -643,16 +586,8 @@ export class QueryEngine {
     try {
       const stmt = `
         SELECT 
-          b.*,
-          CASE 
-            WHEN fc.block_id IS NOT NULL THEN 1
-            ELSE 0
-          END as has_flashcard
+          b.*
         FROM blocks b
-        LEFT JOIN (
-          SELECT DISTINCT block_id
-          FROM fsrs_cards
-        ) fc ON b.id = fc.block_id
         WHERE b.id = '${this.escapeSQL(cardId)}'
       `;
 
@@ -660,7 +595,10 @@ export class QueryEngine {
       if (rows.length === 0) return null;
 
       const row = rows[0] as UnknownRecord;
-      const hasFlashcard = row.has_flashcard === 1;
+      const nodeType = await this.resolveCardFactNodeType(cardId);
+      const hasFlashcard = nodeType !== 'unknown'
+        ? nodeType !== 'topic'
+        : hasConceptDefinitionSyntax(typeof row.content === 'string' ? row.content : '');
       const siyuanBlockType = typeof row.type === 'string' ? row.type : '';
       const blockType = this.classifyBlock(siyuanBlockType, hasFlashcard);
 
@@ -775,6 +713,28 @@ export class QueryEngine {
       logger.error('Failed to extract tags:', error);
       throw createDependencyUnavailableError('NEURAL_ROAM_QUERY_UNAVAILABLE', `failed to extract tags for ${blockId}`, error);
     }
+  }
+
+  private async resolveCardFactNodeType(blockId: string): Promise<'concept' | 'descriptor' | 'topic' | 'item' | 'unknown'> {
+    if (!this.cardFacts) {
+      return 'unknown';
+    }
+    return this.cardFacts.resolveNodeType(blockId);
+  }
+
+  private async filterByCardFactType(
+    blockIds: string[],
+    expectedType: 'concept' | 'descriptor' | 'topic' | 'item',
+  ): Promise<string[]> {
+    if (!this.cardFacts) {
+      return [];
+    }
+
+    const results = await Promise.all(blockIds.map(async (id) => {
+      const nodeType = await this.resolveCardFactNodeType(id);
+      return nodeType === expectedType ? id : null;
+    }));
+    return results.filter((id): id is string => typeof id === 'string');
   }
 
   /**

@@ -5,6 +5,7 @@ import type {
 import { ConceptQueryEngine } from '@/core/queue/neural/ConceptQueryEngine';
 import { NeuralGraphProvider } from '@/core/queue/neural/graph/NeuralGraphProvider';
 import type { NeuralRoamNodeTypeResolverPort } from '@/core/queue/domain/ports';
+import type { NeuralRoamCardFacts } from '@/core/queue/neural/NeuralRoamCardFacts';
 import type { NeuralGraphQueryPort } from '@/core/queue/neural/NeuralGraphQueryPort';
 import { createLogger } from '@/utils/logger';
 
@@ -12,6 +13,7 @@ const logger = createLogger('SiyuanNeuralRoamGraphQueryAdapter');
 
 export interface SiyuanNeuralRoamGraphQueryAdapterOptions {
   nodeTypeResolver?: NeuralRoamNodeTypeResolverPort;
+  cardFacts?: NeuralRoamCardFacts;
 }
 
 export class SiyuanNeuralRoamGraphQueryAdapter implements NeuralGraphQueryPort {
@@ -19,8 +21,12 @@ export class SiyuanNeuralRoamGraphQueryAdapter implements NeuralGraphQueryPort {
   private readonly graphProvider: NeuralGraphProvider;
 
   constructor(options: SiyuanNeuralRoamGraphQueryAdapterOptions = {}) {
+    const cardFacts = options.cardFacts ?? (options.nodeTypeResolver
+      ? { resolveNodeType: (blockId: string) => options.nodeTypeResolver!.resolveNodeType(blockId) }
+      : undefined);
     this.queryEngine = new ConceptQueryEngine({
       nodeTypeResolver: options.nodeTypeResolver,
+      cardFacts,
     });
     this.graphProvider = new NeuralGraphProvider(this.queryEngine);
   }

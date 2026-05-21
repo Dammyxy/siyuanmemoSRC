@@ -1432,6 +1432,10 @@ export class ApplicationContext {
             nodeTypeResolver: {
               resolveNodeType: (blockId) => unifiedDataSourceManager.resolveNeuralRoamNodeType(blockId),
             },
+            cardFacts: {
+              resolveNodeType: (blockId) => unifiedDataSourceManager.resolveNeuralRoamNodeType(blockId),
+              resolvePriority: (blockId) => unifiedDataSourceManager.resolveNeuralRoamNodePriority(blockId),
+            },
           });
           const aiNetworkProxy = new KernelAINetworkProxyAdapter(kernelSidecarClient);
           srsBackendTransport = new BrowserSrsBackendWorkerTransport({
