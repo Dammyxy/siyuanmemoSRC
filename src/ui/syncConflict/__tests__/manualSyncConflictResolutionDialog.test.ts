@@ -2,6 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  BackendDomainSyncConflictSourceCleanupCandidatesResult,
   BackendDomainSyncRepairPreviewResult,
   BackendDomainSyncSanityStatus,
   BackendDomainSyncStatusResult,
@@ -143,6 +144,69 @@ function repairPreview(overrides: Partial<BackendDomainSyncRepairPreviewResult> 
   };
 }
 
+function cleanupCandidates(
+  overrides: Partial<BackendDomainSyncConflictSourceCleanupCandidatesResult> = {},
+): BackendDomainSyncConflictSourceCleanupCandidatesResult {
+  return {
+    ok: true,
+    sanityStatus: 'merged',
+    candidates: [{
+      sourceId: 'candidate-copy',
+      path: '/tmp/candidate-copy.db',
+      modifiedAt: 1_700_000_000_100,
+      size: 1024,
+      fingerprint: 'fp-candidate-copy',
+      processedSource: {
+        sourceId: 'candidate-copy',
+        sourceKind: 'siyuan-conflict-db',
+        fingerprint: 'fp-candidate-copy',
+        path: '/tmp/candidate-copy.db',
+        processedAt: 1,
+        importedOperations: 0,
+        ignoredOperations: 42,
+        importedReviewEvents: 0,
+        ignoredReviewEvents: 29,
+        importedCards: 0,
+        ignoredCards: 28,
+        skippedReason: null,
+        latestSanityStatus: 'merged',
+        cleanup: { eligible: true, reason: 'processed-resolved' },
+      },
+      cleanup: { eligible: true, reason: 'processed-resolved' },
+    }],
+    ...overrides,
+  };
+}
+
+function manualBackupPreview() {
+  return {
+    status: 'preview' as const,
+    retention: {
+      keepNewest: 3,
+      deleteOlderThanDays: 7,
+    },
+    candidates: [{
+      path: 'manual-sync-backups/siyuanmemo.db.2026-05-01T00-00-00-000Z.old.bak',
+      name: 'siyuanmemo.db.2026-05-01T00-00-00-000Z.old.bak',
+      size: 2048,
+      createdAt: Date.UTC(2026, 4, 1),
+      sourceId: 'old',
+      eligible: true,
+      reason: 'eligible-old' as const,
+    }, {
+      path: 'manual-sync-backups/siyuanmemo.db.pre-stale-source-cleanup.db',
+      name: 'siyuanmemo.db.pre-stale-source-cleanup.db',
+      size: 1024,
+      createdAt: null,
+      sourceId: null,
+      eligible: false,
+      reason: 'ignored-name' as const,
+    }],
+    eligibleCount: 1,
+    eligibleBytes: 2048,
+  };
+}
+
 function decision(kind: ReviewDomainSyncSafetyDecision['kind'], status?: BackendDomainSyncSanityStatus): ReviewDomainSyncSafetyDecision {
   return {
     kind,
@@ -208,12 +272,17 @@ function buildContext(overrides: Record<string, unknown> = {}) {
       domainSyncPreviewRepair: '预览修复',
       domainSyncApplyRepair: '应用修复',
       domainSyncCleanupSources: '清理已处理副本',
+      domainSyncCleanupEligible: '可清理的冲突副本',
+      domainSyncCleanupStateEligible: '已处理，可清理',
+      domainSyncImported: '已导入',
+      domainSyncIgnored: '已存在',
       domainSyncAffectedCards: '受影响卡片',
       domainSyncPlannedMutations: '计划变更',
       domainSyncUnrepairable: '不可修复',
       domainSyncPlanId: '计划 ID',
       domainSyncApplyConfirmTitle: '应用同步修复',
       domainSyncApplyConfirm: '应用修复计划 {planId}？这会根据复习历史更新卡片复习状态。',
+      domainSyncStillUnsafeAfterRepair: '同步修复已执行，但诊断仍不安全：{status}（可修复 {repairable}，分歧 {divergent}，跳过来源 {skipped}）。请继续处理剩余项。',
       domainSyncReviewEvents: '复习记录',
       domainSyncCardReps: '卡片复习次数',
       domainSyncReasonMissingCardState: '缺少卡片状态',
@@ -235,6 +304,13 @@ function buildContext(overrides: Record<string, unknown> = {}) {
       skippedCards: 0,
       invalidatedQueueProjections: 1,
     })),
+    previewManualSyncBackupRetention: vi.fn(async () => manualBackupPreview()),
+    applyManualSyncBackupRetention: vi.fn(async () => ({
+      status: 'applied',
+      deleted: [{ path: 'manual-sync-backups/siyuanmemo.db.2026-05-01T00-00-00-000Z.old.bak', size: 2048 }],
+      skipped: [],
+      failed: [],
+    })),
     ...overrides,
   } as any;
 }
@@ -242,6 +318,12 @@ function buildContext(overrides: Record<string, unknown> = {}) {
 async function click(element: Element | null): Promise<void> {
   expect(element).toBeTruthy();
   element!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+async function drainAsyncUi(): Promise<void> {
+  await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
 }
@@ -340,6 +422,7 @@ describe('openManualSyncConflictResolutionDialog', () => {
     expect(document.body.textContent).toContain('不可修复');
 
     await click(document.body.querySelector('.siyuanmemo-domain-sync-confirm [data-action="confirm-apply"]'));
+    await drainAsyncUi();
 
     expect(confirmSpy).not.toHaveBeenCalled();
     expect(context.applyDomainSyncRepair).toHaveBeenCalledWith(expect.objectContaining({
@@ -348,6 +431,51 @@ describe('openManualSyncConflictResolutionDialog', () => {
       confirmationText: expect.stringContaining('plan-preview'),
     }));
     expect(onDiagnosticsSafe).toHaveBeenCalledOnce();
+  });
+
+  it('reports remaining unsafe diagnostics after domain repair apply instead of implying Review is unblocked', async () => {
+    const { openManualSyncConflictResolutionDialog } = await loadModule();
+    const initialStatus = domainStatus('source-error');
+    initialStatus.sanity.repairableDivergenceCount = 2;
+    initialStatus.sanity.divergentCardCount = 2;
+    initialStatus.sanity.affectedCardIds = ['card-a', 'card-b'];
+    initialStatus.repair.available = true;
+    initialStatus.repair.repairableDivergenceCount = 2;
+    const context = buildContext({
+      applyDomainSyncRepair: vi.fn(async (request) => ({
+        ok: true,
+        status: 'applied',
+        planId: request.planId,
+        idempotencyKey: request.idempotencyKey,
+        appliedAt: request.confirmedAt,
+        appliedCards: 0,
+        skippedCards: 2,
+        invalidatedQueueProjections: 0,
+      })),
+      readDomainSyncDiagnostics: vi.fn(async () => domainStatus('source-error')),
+    });
+
+    await openManualSyncConflictResolutionDialog(context, {
+      initialDomainStatus: initialStatus,
+      reviewBlockDecision: decision('block-source-error', 'source-error'),
+    });
+    await click(document.body.querySelector('[data-action="domain-preview"]'));
+    await drainAsyncUi();
+    await click(document.body.querySelector('[data-action="domain-apply"]'));
+    await drainAsyncUi();
+    await click(document.body.querySelector('.siyuanmemo-domain-sync-confirm [data-action="confirm-apply"]'));
+    await drainAsyncUi();
+
+    expect(showMessageMock).toHaveBeenLastCalledWith(
+      expect.stringContaining('同步修复已应用：0 张卡片'),
+      7000,
+      'error',
+    );
+    expect(showMessageMock).toHaveBeenLastCalledWith(
+      expect.stringContaining('诊断仍不安全：来源读取异常'),
+      7000,
+      'error',
+    );
   });
 
   it('cleans eligible conflict copies through the bound application context method', async () => {
@@ -391,5 +519,163 @@ describe('openManualSyncConflictResolutionDialog', () => {
 
     expect(context.cleanupDomainSyncConflictSources).toHaveBeenCalledOnce();
     expect(showMessageMock).toHaveBeenCalledWith(expect.stringContaining('已清理 1'), 5000, 'info');
+  });
+
+  it('shows cleanup candidates that are not present in the recent diagnostics summary', async () => {
+    const { openManualSyncConflictResolutionDialog } = await loadModule();
+    const status = domainStatus('merged');
+    status.processedSources.recent = [];
+    const context = buildContext({
+      initialDomainStatus: status,
+      listDomainSyncConflictSourceCleanupCandidates: vi.fn(async () => cleanupCandidates()),
+      readDomainSyncDiagnostics: vi.fn(async () => domainStatus('clean')),
+    });
+    context.cleanupDomainSyncConflictSources = vi.fn(async (request: { sourceIds: string[] }) => {
+      expect(request.sourceIds).toEqual(['candidate-copy']);
+      return {
+        cleaned: [{ sourceId: 'candidate-copy' }],
+        skipped: [],
+        failed: [],
+      };
+    });
+
+    await openManualSyncConflictResolutionDialog(context, {
+      initialDomainStatus: status,
+      reviewBlockDecision: decision('allow', 'merged'),
+    });
+
+    expect(document.body.textContent).toContain('candidate-copy');
+    expect(document.body.textContent).toContain('已处理，可清理');
+    expect(document.body.querySelector('[data-action="domain-cleanup"]')?.hasAttribute('disabled')).toBe(false);
+
+    await click(document.body.querySelector('[data-action="domain-cleanup"]'));
+
+    expect(context.cleanupDomainSyncConflictSources).toHaveBeenCalledOnce();
+  });
+
+  it('offers cleanup for skipped source-error conflict sources when no repair is available', async () => {
+    const { openManualSyncConflictResolutionDialog } = await loadModule();
+    const status = domainStatus('source-error');
+    status.sanity.repairableDivergenceCount = 0;
+    status.sanity.divergentCardCount = 0;
+    status.repair.available = false;
+    status.repair.repairableDivergenceCount = 0;
+    status.processedSources.skipped = [{
+      sourceId: 'skipped-copy',
+      sourceKind: 'unknown',
+      fingerprint: 'fp-skipped-copy',
+      path: '/tmp/skipped-copy.db',
+      processedAt: 1,
+      importedOperations: 0,
+      ignoredOperations: 0,
+      importedReviewEvents: 0,
+      ignoredReviewEvents: 0,
+      importedCards: 0,
+      ignoredCards: 0,
+      skippedReason: 'unknown',
+      latestSanityStatus: 'source-error',
+      cleanup: { eligible: true, reason: 'skipped-source' },
+    }];
+    const context = buildContext({
+      initialDomainStatus: status,
+      readDomainSyncDiagnostics: vi.fn(async () => domainStatus('clean')),
+    });
+    context.cleanupDomainSyncConflictSources = vi.fn(async (request: { sourceIds: string[] }) => {
+      expect(request.sourceIds).toEqual(['skipped-copy']);
+      return { cleaned: [], skipped: [{ sourceId: 'skipped-copy' }], failed: [] };
+    });
+
+    await openManualSyncConflictResolutionDialog(context, {
+      initialDomainStatus: status,
+      reviewBlockDecision: decision('block-source-error', 'source-error'),
+    });
+
+    expect(document.body.querySelector('[data-action="domain-preview"]')?.hasAttribute('disabled')).toBe(true);
+    expect(document.body.querySelector('[data-action="domain-cleanup"]')?.hasAttribute('disabled')).toBe(false);
+    await click(document.body.querySelector('[data-action="domain-cleanup"]'));
+
+    expect(context.cleanupDomainSyncConflictSources).toHaveBeenCalledOnce();
+  });
+
+  it('shows manual sync backup retention only after explicit preview and keeps it separate from conflict copies', async () => {
+    const { openManualSyncConflictResolutionDialog } = await loadModule();
+    const context = buildContext();
+
+    await openManualSyncConflictResolutionDialog(context, {
+      initialDomainStatus: domainStatus('clean'),
+      reviewBlockDecision: decision('allow', 'clean'),
+    });
+
+    expect(document.body.textContent).toContain('手动同步备份');
+    expect(document.body.textContent).toContain('最近备份会保留，用于回滚误替换');
+    expect(document.body.textContent).not.toContain('siyuanmemo.db.2026-05-01T00-00-00-000Z.old.bak');
+    expect(context.applyManualSyncBackupRetention).not.toHaveBeenCalled();
+
+    await click(document.body.querySelector('[data-action="manual-backup-preview"]'));
+    await drainAsyncUi();
+
+    expect(context.previewManualSyncBackupRetention).toHaveBeenCalledOnce();
+    expect(document.body.textContent).toContain('保留最近 3 个备份');
+    expect(document.body.textContent).toContain('删除早于 7 天的备份');
+    expect(document.body.textContent).toContain('siyuanmemo.db.2026-05-01T00-00-00-000Z.old.bak');
+    expect(document.body.textContent).toContain('已忽略：非插件备份文件');
+    expect(document.body.textContent).toContain('source-a');
+  });
+
+  it('applies manual sync backup cleanup only after preview confirmation', async () => {
+    const { openManualSyncConflictResolutionDialog } = await loadModule();
+    const context = buildContext();
+
+    await openManualSyncConflictResolutionDialog(context, {
+      initialDomainStatus: domainStatus('clean'),
+      reviewBlockDecision: decision('allow', 'clean'),
+    });
+
+    expect(document.body.querySelector('[data-action="manual-backup-cleanup"]')?.hasAttribute('disabled')).toBe(true);
+
+    await click(document.body.querySelector('[data-action="manual-backup-preview"]'));
+    await drainAsyncUi();
+    expect(document.body.querySelector('[data-action="manual-backup-cleanup"]')?.hasAttribute('disabled')).toBe(false);
+
+    await click(document.body.querySelector('[data-action="manual-backup-cleanup"]'));
+    await drainAsyncUi();
+    expect(dialogRecords.at(-1)?.title).toBe('清理旧备份');
+
+    await click(document.body.querySelector('.siyuanmemo-domain-sync-confirm [data-action="confirm-apply"]'));
+    await drainAsyncUi();
+
+    expect(context.applyManualSyncBackupRetention).toHaveBeenCalledOnce();
+    expect(document.body.textContent).toContain('清理旧备份完成');
+  });
+
+  it('explains why manual backup cleanup stays disabled when no backup is eligible', async () => {
+    const { openManualSyncConflictResolutionDialog } = await loadModule();
+    const context = buildContext({
+      previewManualSyncBackupRetention: vi.fn(async () => ({
+        ...manualBackupPreview(),
+        candidates: [{
+          path: 'manual-sync-backups/siyuanmemo.db.2026-05-21T00-00-00-000Z.newest.bak',
+          name: 'siyuanmemo.db.2026-05-21T00-00-00-000Z.newest.bak',
+          size: 557056,
+          createdAt: Date.UTC(2026, 4, 21),
+          sourceId: 'newest',
+          eligible: false,
+          reason: 'retained-newest' as const,
+        }],
+        eligibleCount: 0,
+        eligibleBytes: 0,
+      })),
+    });
+
+    await openManualSyncConflictResolutionDialog(context, {
+      initialDomainStatus: domainStatus('clean'),
+      reviewBlockDecision: decision('allow', 'clean'),
+    });
+    await click(document.body.querySelector('[data-action="manual-backup-preview"]'));
+    await drainAsyncUi();
+
+    expect(document.body.textContent).toContain('544.0 KB');
+    expect(document.body.textContent).toContain('没有符合条件的旧备份');
+    expect(document.body.querySelector('[data-action="manual-backup-cleanup"]')?.hasAttribute('disabled')).toBe(true);
   });
 });

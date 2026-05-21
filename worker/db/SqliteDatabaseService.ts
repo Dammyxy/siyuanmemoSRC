@@ -41,6 +41,7 @@ import type {
   BackendDomainSyncRepairPreviewResult,
   BackendDomainSyncSanityStatus,
   BackendDomainSyncStatusResult,
+  BackendDomainSyncConflictSourceCleanupCandidatesResult,
   BackendDomainSyncConflictSourceCleanupRequest,
   BackendDomainSyncConflictSourceCleanupResult,
   BackendReviewSyncDivergenceAuditRequest,
@@ -403,6 +404,9 @@ function buildReviewCardDivergenceRecords(
     if (!cardId) {
       continue;
     }
+    if (toNullableBoolean(row.source_exists) === false) {
+      continue;
+    }
     const newestReviewEventAt = toNullableTimestamp(row.newest_reviewed_at);
     const cardLastReview = toNullableTimestamp(row.last_review);
     const reviewEventCount = Math.max(0, Math.floor(Number(row.review_event_count) || 0));
@@ -640,12 +644,19 @@ export class WorkerSqliteDatabaseService {
         sources.push(source);
       }
     }
+    const forgottenStaleSkippedSources = this.forgetStaleUnknownSkippedDomainSyncConflictSources(
+      conflictSources.map((source) => source.sourceId),
+    );
 
     if (sources.length === 0) {
+      if (forgottenStaleSkippedSources > 0) {
+        await this.runtime.persist();
+        await this.rememberPersistedHash();
+      }
       return {
         ok: true,
         checked: true,
-        changed: false,
+        changed: forgottenStaleSkippedSources > 0,
         mergedReviewEvents: 0,
         mergedCards: 0,
         ignoredReviewEvents: 0,
@@ -682,7 +693,8 @@ export class WorkerSqliteDatabaseService {
     )?.count ?? operationCountBeforeMerge;
     const changed = result.mergedReviewEvents > 0
       || result.mergedCards > 0
-      || Number(operationCountAfterMerge) > Number(operationCountBeforeMerge);
+      || Number(operationCountAfterMerge) > Number(operationCountBeforeMerge)
+      || forgottenStaleSkippedSources > 0;
     if (
       result.skippedSources.length === 0
       && changed
@@ -1439,6 +1451,7 @@ export class WorkerSqliteDatabaseService {
 
   async getDomainSyncStatus(checkedAt = Date.now()): Promise<BackendDomainSyncStatusResult> {
     await this.init();
+    await this.forgetStaleUnknownSkippedDomainSyncConflictSourcesFromHost();
     const operationRows = this.runtime.getAll<DomainSyncOperationSummaryRow>(
       `SELECT operation_type, COUNT(*) AS count, MAX(occurred_at) AS newest
        FROM domain_sync_operations
@@ -1945,8 +1958,83 @@ export class WorkerSqliteDatabaseService {
           ? 'cleaned'
           : 'invalid-request',
     };
+    this.forgetCleanedDomainSyncConflictSources([
+      ...hostResult.cleaned.map((item) => item.sourceId),
+      ...hostResult.skipped
+        .filter((item) => item.reason === 'source-not-found')
+        .map((item) => item.sourceId),
+    ]);
     this.domainSyncCleanupResultsByIdempotencyKey.set(idempotencyKey, result);
     return result;
+  }
+
+  async listDomainSyncConflictSourceCleanupCandidates(): Promise<BackendDomainSyncConflictSourceCleanupCandidatesResult> {
+    await this.init();
+    const status = await this.getDomainSyncStatus();
+    const conflictSources = await this.fileService.readSyncConflictDatabaseSources();
+    const rows = this.readDomainSyncProcessedSourcesForSourceIds(conflictSources.map((source) => source.sourceId));
+    const rowsById = new Map(rows.map((row) => [String(row.source_id || ''), row]));
+    const candidates = conflictSources.map((source) => {
+      const sourceId = String(source.sourceId || '').trim() || 'unknown';
+      const row = rowsById.get(sourceId) ?? null;
+      const fingerprint = hashBytes(source.bytes);
+      const processedSource = row ? this.toDomainSyncProcessedSource(row, status.sanity.status) : null;
+      const cleanup = this.resolveDomainSyncConflictCleanupCandidate(fingerprint, row, status.sanity.status);
+      return {
+        sourceId,
+        path: source.path ?? null,
+        modifiedAt: source.modifiedAt ?? null,
+        size: source.size ?? source.bytes.byteLength,
+        fingerprint,
+        processedSource,
+        cleanup,
+      };
+    });
+    return {
+      ok: true,
+      sanityStatus: status.sanity.status,
+      candidates,
+    };
+  }
+
+  private forgetCleanedDomainSyncConflictSources(sourceIds: string[]): void {
+    const uniqueIds = [...new Set(sourceIds.map((sourceId) => String(sourceId || '').trim()).filter(Boolean))];
+    if (uniqueIds.length === 0) {
+      return;
+    }
+    this.runtime.run(
+      `DELETE FROM domain_sync_processed_sources
+       WHERE source_id IN (${uniqueIds.map(() => '?').join(', ')})`,
+      uniqueIds,
+    );
+  }
+
+  private forgetStaleUnknownSkippedDomainSyncConflictSources(activeSourceIds: string[]): number {
+    const active = [...new Set(activeSourceIds.map((sourceId) => String(sourceId || '').trim()).filter(Boolean))];
+    const activeClause = active.length > 0
+      ? `AND source_id NOT IN (${active.map(() => '?').join(', ')})`
+      : '';
+    this.runtime.run(
+      `DELETE FROM domain_sync_processed_sources
+       WHERE source_id LIKE 'siyuan-sync-conflict:%'
+         AND skipped_reason = 'unknown'
+         AND (source_kind IS NULL OR source_kind = 'unknown')
+         ${activeClause}`,
+      active,
+    );
+    return Number(this.runtime.getOne<{ changed: number }>('SELECT changes() AS changed')?.changed ?? 0);
+  }
+
+  private async forgetStaleUnknownSkippedDomainSyncConflictSourcesFromHost(): Promise<number> {
+    const conflictSources = await this.fileService.readSyncConflictDatabaseSources();
+    const forgotten = this.forgetStaleUnknownSkippedDomainSyncConflictSources(
+      conflictSources.map((source) => source.sourceId),
+    );
+    if (forgotten > 0) {
+      await this.runtime.persist();
+      await this.rememberPersistedHash();
+    }
+    return forgotten;
   }
 
   async mergeSyncConflictDatabases(
@@ -2251,6 +2339,9 @@ export class WorkerSqliteDatabaseService {
     sanityStatus?: BackendDomainSyncSanityStatus,
   ): BackendDomainSyncProcessedSource['cleanup'] {
     if (row.skipped_reason) {
+      if (this.isDomainSyncConflictSourceRow(row) && String(row.path || '').trim()) {
+        return { eligible: true, reason: 'skipped-source' };
+      }
       return { eligible: false, reason: 'skipped-source' };
     }
     if (row.source_kind !== 'siyuan-conflict-db') {
@@ -2265,7 +2356,31 @@ export class WorkerSqliteDatabaseService {
     if (sanityStatus === 'source-error') {
       return { eligible: false, reason: 'source-error' };
     }
+    if (sanityStatus && sanityStatus !== 'clean' && sanityStatus !== 'merged') {
+      return { eligible: false, reason: 'unsafe-sanity-status' };
+    }
     return { eligible: true, reason: 'processed-resolved' };
+  }
+
+  private resolveDomainSyncConflictCleanupCandidate(
+    fingerprint: string,
+    row: DomainSyncProcessedSourceRow | null,
+    sanityStatus: BackendDomainSyncSanityStatus,
+  ): NonNullable<BackendDomainSyncProcessedSource['cleanup']> {
+    if (!row) {
+      return { eligible: false, reason: 'unprocessed' };
+    }
+    if (String(row.source_fingerprint || '') !== fingerprint) {
+      return { eligible: false, reason: 'fingerprint-mismatch' };
+    }
+    return this.resolveDomainSyncProcessedSourceCleanup(row, sanityStatus)
+      ?? { eligible: false, reason: 'unsupported-source-kind' };
+  }
+
+  private isDomainSyncConflictSourceRow(row: DomainSyncProcessedSourceRow): boolean {
+    const sourceKind = String(row.source_kind || '').trim();
+    const sourceId = String(row.source_id || '').trim();
+    return sourceKind === 'siyuan-conflict-db' || sourceId.startsWith('siyuan-sync-conflict:');
   }
 
   private countNeedsDirectionDomainSyncOperations(): number {
@@ -2718,6 +2833,7 @@ export class WorkerSqliteDatabaseService {
        FROM review_events e
        LEFT JOIN cards c ON c.id = e.card_id
        WHERE e.event_type = 'review-v2'
+         AND (c.source_exists IS NULL OR c.source_exists != 0)
          ${scope}
        GROUP BY e.card_id, c.updated_at, c.due, c.state, c.scheduled_days,
                 c.stability, c.difficulty, c.reps, c.last_review, c.block_id, c.scheduler_type

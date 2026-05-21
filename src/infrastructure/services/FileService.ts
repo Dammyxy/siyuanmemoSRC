@@ -18,8 +18,17 @@
 import type SiyuanMemoPlugin from '../../index';
 import { getPluginDataPath, putFile } from '@/infrastructure/siyuan/api';
 import { createLogger } from '@/utils/logger';
+import { ManualSyncBackupInventory } from './ManualSyncBackupInventory';
 
 const logger = createLogger('FileService');
+const SQLITE_DATABASE_HEADER = new TextEncoder().encode('SQLite format 3\0');
+
+function isSqliteDatabaseBytes(bytes: Uint8Array): boolean {
+  if (bytes.byteLength < SQLITE_DATABASE_HEADER.byteLength) {
+    return false;
+  }
+  return SQLITE_DATABASE_HEADER.every((byte, index) => bytes[index] === byte);
+}
 
 /**
  * 文件服务接口
@@ -408,6 +417,15 @@ export class FileService implements IFileService {
     await this.writeBinary('siyuanmemo.db', bytes);
   }
 
+  createManualSyncBackupInventory(): ManualSyncBackupInventory {
+    return new ManualSyncBackupInventory({
+      resolvePluginDataPath: (path) => this.resolvePluginDataPath(path),
+      readDir: (path) => this.readDir(path),
+      readBinary: (path) => this.readBinary(path),
+      deleteFile: (path) => this.deleteFile(path),
+    });
+  }
+
   private async readAbsoluteBinary(path: string): Promise<Uint8Array | null> {
     try {
       const response = await fetch('/api/file/getFile', {
@@ -422,7 +440,11 @@ export class FileService implements IFileService {
       if (buffer.byteLength === 0) {
         return null;
       }
-      return new Uint8Array(buffer);
+      const bytes = new Uint8Array(buffer);
+      if (!isSqliteDatabaseBytes(bytes)) {
+        return null;
+      }
+      return bytes;
     } catch {
       return null;
     }

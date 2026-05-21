@@ -973,8 +973,12 @@ describe('BackendKernel', () => {
   it('cleans only backend-eligible processed conflict sources and keeps idempotency bounded', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const cleanupSyncConflictDatabaseSources = vi.fn(async (sourceIds: string[]) => ({
-      cleaned: sourceIds.map((sourceId) => ({ sourceId, path: `/conflicts/${sourceId}.db` })),
-      skipped: [],
+      cleaned: sourceIds
+        .filter((sourceId) => sourceId !== 'skipped-source')
+        .map((sourceId) => ({ sourceId, path: `/conflicts/${sourceId}.db` })),
+      skipped: sourceIds.includes('skipped-source')
+        ? [{ sourceId: 'skipped-source', reason: 'source-not-found' }]
+        : [],
       failed: [],
     }));
     persistenceBridge.cleanupSyncConflictDatabaseSources = cleanupSyncConflictDatabaseSources;
@@ -1032,8 +1036,58 @@ describe('BackendKernel', () => {
       confirmedAt: 1_700_000_000_002,
     });
     expect(skipped.cleaned).toEqual([]);
-    expect(skipped.skipped).toEqual([{ sourceId: 'skipped-source', reason: 'skipped-source' }]);
-    expect(cleanupSyncConflictDatabaseSources).toHaveBeenCalledTimes(1);
+    expect(skipped.skipped).toEqual([{ sourceId: 'skipped-source', reason: 'source-not-found' }]);
+    expect(cleanupSyncConflictDatabaseSources).toHaveBeenCalledTimes(2);
+    expect(cleanupSyncConflictDatabaseSources).toHaveBeenLastCalledWith(['skipped-source']);
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_processed_sources WHERE source_id = ?',
+      ['skipped-source'],
+    )?.count).toBe(0);
+  });
+
+  it('lists existing processed conflict database copies as cleanup candidates', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await conflictDatabase.load();
+    await conflictDatabase.persist();
+    const conflictBytes = conflictBridge.snapshot().bytes;
+    expect(conflictBytes).toBeTruthy();
+    const source = {
+      sourceId: 'siyuan-sync-conflict:2026-05-21-151105:/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db',
+      bytes: conflictBytes!,
+      path: '/temp/repo/sync/conflicts/2026-05-21-151105/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db',
+      modifiedAt: 1_779_347_466_184,
+      size: conflictBytes!.byteLength,
+    };
+    await database.mergeSyncConflictDatabases({
+      mergedAt: 1_779_347_466_184,
+      sources: [source],
+    });
+    persistenceBridge.readSyncConflictDatabaseSources = vi.fn(async () => [source]);
+
+    const candidates = await database.listDomainSyncConflictSourceCleanupCandidates();
+
+    expect(candidates).toMatchObject({
+      ok: true,
+      sanityStatus: 'merged',
+      candidates: [
+        {
+          sourceId: source.sourceId,
+          path: source.path,
+          size: source.size,
+          processedSource: {
+            sourceKind: 'siyuan-conflict-db',
+            skippedReason: null,
+          },
+          cleanup: {
+            eligible: true,
+            reason: 'processed-resolved',
+          },
+        },
+      ],
+    });
   });
 
   it('keeps legacy DB merge behavior and backfills imported formal review events into the local ledger', async () => {
@@ -1284,6 +1338,60 @@ describe('BackendKernel', () => {
         available: true,
         repairableDivergenceCount: 1,
       },
+    });
+  });
+
+  it('does not offer domain sync repair for source-missing cards', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({
+      id: 'source-missing-repair-card',
+      blockId: 'source-missing-repair-block',
+      reps: 0,
+      lastReview: 0,
+      updatedAt: 1_700_001_050_000,
+    })]);
+    await seedReviewEvent(database, {
+      id: 'source-missing-repair-review-1',
+      cardId: 'source-missing-repair-card',
+      reviewedAt: 1_700_001_100_000,
+    });
+    await seedReviewEvent(database, {
+      id: 'source-missing-repair-review-2',
+      cardId: 'source-missing-repair-card',
+      reviewedAt: 1_700_001_110_000,
+    });
+    await database.runTransaction('seed.source-missing.repair-card', (db) => {
+      db.run(
+        `UPDATE cards
+         SET source_exists = 0,
+             source_checked_at = ?,
+             source_missing_at = ?
+         WHERE id = ?`,
+        [1_700_001_120_000, 1_700_001_120_000, 'source-missing-repair-card'],
+      );
+    });
+
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      sanity: {
+        status: 'clean',
+        repairableDivergenceCount: 0,
+        divergentCardCount: 0,
+      },
+      repair: {
+        available: false,
+        repairableDivergenceCount: 0,
+      },
+    });
+    await expect(database.previewDomainSyncRepair({
+      cardIds: ['source-missing-repair-card'],
+      includeUnrepairable: true,
+    }, 1_700_001_120_001)).resolves.toMatchObject({
+      status: 'no-repair',
+      affectedCardCount: 0,
+      evidence: [],
+      plannedMutations: [],
+      unrepairableReasons: [],
     });
   });
 
@@ -1610,6 +1718,66 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('applies repairable card mutations even when skipped sync sources keep diagnostics in source-error', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({
+      id: 'source-error-repair-card',
+      blockId: 'source-error-repair-block',
+      reps: 0,
+      lastReview: 1_700_002_110_000,
+      updatedAt: 1_700_002_110_000,
+    })]);
+    await seedReviewEvent(database, {
+      id: 'source-error-repair-review',
+      cardId: 'source-error-repair-card',
+      reviewedAt: 1_700_002_120_000,
+    });
+    await database.runTransaction('seed.source-error.repair-skipped-source', (db) => {
+      db.run(
+        `INSERT INTO domain_sync_processed_sources
+          (source_id, source_fingerprint, source_kind, path, processed_at,
+           imported_operations, ignored_operations, imported_review_events, ignored_review_events,
+           imported_cards, ignored_cards, skipped_reason, latest_sanity_status, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ['source-error-repair-skipped', 'fp-source-error-repair-skipped', 'siyuan-conflict-db', '/conflicts/source-error-repair-skipped.db', 1, 0, 0, 0, 0, 0, 0, 'parse-error', 'source-error', '{}'],
+      );
+    });
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      sanity: {
+        status: 'source-error',
+        skippedSourceCount: 1,
+        repairableDivergenceCount: 1,
+      },
+    });
+    const preview = await database.previewDomainSyncRepair({ cardIds: ['source-error-repair-card'] }, 1_700_002_120_001);
+
+    const applied = await database.applyDomainSyncRepair({
+      planId: preview.planId,
+      idempotencyKey: 'source-error-repair-key',
+      confirmedAt: 1_700_002_120_002,
+      confirmedBy: 'test',
+    }, 1_700_002_120_003);
+
+    expect(applied).toMatchObject({
+      ok: true,
+      status: 'applied',
+      appliedCards: 1,
+      skippedCards: 0,
+    });
+    await expect(database.getCard('source-error-repair-card')).resolves.toMatchObject({
+      reps: 1,
+      lastReview: 1_700_002_120_000,
+    });
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      sanity: {
+        status: 'source-error',
+        skippedSourceCount: 1,
+        repairableDivergenceCount: 0,
+      },
+    });
+  });
+
   it('rejects stale domain sync repair plans when card state changes after preview', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -1741,6 +1909,63 @@ describe('BackendKernel', () => {
         status: 'source-error',
         reasonCounts: { 'source-error': 1 },
       },
+    });
+  });
+
+  it('forgets stale unknown skipped conflict sources when the host no longer reports that conflict copy', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    persistenceBridge.readSyncConflictDatabaseSources = vi.fn(async () => []);
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.runTransaction('seed.stale-unknown-skipped-conflict-source', (db) => {
+      db.run(
+        `INSERT INTO domain_sync_processed_sources
+          (source_id, source_fingerprint, source_kind, path, processed_at,
+           imported_operations, ignored_operations, imported_review_events, ignored_review_events,
+           imported_cards, ignored_cards, skipped_reason, latest_sanity_status, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'siyuan-sync-conflict:2026-05-21-044935:/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db',
+          'stale-fp',
+          'unknown',
+          null,
+          1_700_001_210_000,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          'unknown',
+          'source-error',
+          JSON.stringify({ error: 'no such table: review_events' }),
+        ],
+      );
+    });
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_processed_sources WHERE skipped_reason IS NOT NULL',
+    )?.count).toBe(1);
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'trigger-stale-source-cleanup',
+      jsonrpc: '2.0',
+      method: 'domainSync.status',
+      params: [],
+    });
+
+    expect(response).toMatchObject({
+      result: {
+        sanity: { status: 'clean' },
+        processedSources: { totalSkipped: 0 },
+      },
+    });
+
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_processed_sources WHERE skipped_reason IS NOT NULL',
+    )?.count).toBe(0);
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      sanity: { status: 'clean' },
+      processedSources: { totalSkipped: 0 },
     });
   });
 

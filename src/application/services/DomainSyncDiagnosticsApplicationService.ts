@@ -4,6 +4,7 @@ import type {
   BackendDomainSyncRepairPreviewRequest,
   BackendDomainSyncRepairPreviewResult,
   BackendDomainSyncStatusResult,
+  BackendDomainSyncConflictSourceCleanupCandidatesResult,
   BackendDomainSyncConflictSourceCleanupRequest,
   BackendDomainSyncConflictSourceCleanupResult,
 } from '../../../packages/contracts/src/backend-rpc';
@@ -12,6 +13,7 @@ export interface DomainSyncDiagnosticsBackend {
   domainSyncStatus(): Promise<BackendDomainSyncStatusResult>;
   domainSyncRepairPreview(request?: BackendDomainSyncRepairPreviewRequest): Promise<BackendDomainSyncRepairPreviewResult>;
   domainSyncRepairApply(request: BackendDomainSyncRepairApplyRequest): Promise<BackendDomainSyncRepairApplyResult>;
+  domainSyncConflictSourceCleanupCandidates(): Promise<BackendDomainSyncConflictSourceCleanupCandidatesResult>;
   domainSyncConflictSourcesCleanup(request: BackendDomainSyncConflictSourceCleanupRequest): Promise<BackendDomainSyncConflictSourceCleanupResult>;
 }
 
@@ -65,6 +67,7 @@ export class DomainSyncDiagnosticsApplicationService {
 
   async applyRepair(request: BackendDomainSyncRepairApplyRequest): Promise<BackendDomainSyncRepairApplyResult> {
     const runtime = this.frontendRuntime;
+    let result: BackendDomainSyncRepairApplyResult;
     if (runtime?.getMode() === 'follower') {
       const instanceId = runtime.getInstanceId();
       if (!instanceId || !this.followerCommandClient) {
@@ -76,13 +79,23 @@ export class DomainSyncDiagnosticsApplicationService {
           reason: 'domainSync.repair.apply requires writer relay runtime',
         };
       }
-      return this.followerCommandClient.submitAndWait<BackendDomainSyncRepairApplyResult>({
+      result = await this.followerCommandClient.submitAndWait<BackendDomainSyncRepairApplyResult>({
         instanceId,
         method: 'domainSync.repair.apply',
         params: request,
       });
+    } else {
+      result = await this.backend.domainSyncRepairApply(request);
     }
-    return this.backend.domainSyncRepairApply(request);
+    this.logger.info('Domain sync repair apply result read', {
+      ok: result.ok,
+      status: result.status,
+      planId: result.planId,
+      appliedCards: result.ok ? result.appliedCards : null,
+      skippedCards: result.ok ? result.skippedCards : null,
+      reason: result.ok ? null : result.reason,
+    });
+    return result;
   }
 
   async cleanupConflictSources(
@@ -108,5 +121,15 @@ export class DomainSyncDiagnosticsApplicationService {
       });
     }
     return this.backend.domainSyncConflictSourcesCleanup(request);
+  }
+
+  async listCleanupCandidates(): Promise<BackendDomainSyncConflictSourceCleanupCandidatesResult> {
+    const result = await this.backend.domainSyncConflictSourceCleanupCandidates();
+    this.logger.info('Domain sync conflict source cleanup candidates read', {
+      sanityStatus: result.sanityStatus,
+      candidates: result.candidates.length,
+      eligible: result.candidates.filter((candidate) => candidate.cleanup.eligible).length,
+    });
+    return result;
   }
 }

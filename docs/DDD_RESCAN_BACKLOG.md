@@ -1,8 +1,58 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-21 (Round 415)
+Last update: 2026-05-21 (Round 418)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-21 - Manual Backup Inventory Deepened
+
+- Task: Deepen the manual sync backup inventory module after the retention preview size/eligibility bug.
+- Touched slice: Manual sync backup retention inventory; `src/infrastructure/services/ManualSyncBackupInventory.ts`, `src/infrastructure/services/FileService.ts`, `src/application/ApplicationContext.ts`, and focused inventory/retention/UI tests.
+- Debt fixed now: Manual backup path ownership, plugin `.bak` filename parsing, created-at/source-id extraction, readDir size fallback, and safe-delete validation moved behind a dedicated inventory module. `FileService` now only supplies low-level plugin-data adapter operations through `createManualSyncBackupInventory()`, and retention sees a small file-source interface instead of SiYuan file API quirks.
+- Debt deferred: The sync conflict dialog still owns several panels/actions in one large runtime module.
+- Why deferred: The current task only deepened the fresh backup inventory seam; splitting the whole dialog should be a separate UI runtime refactor.
+- Next safe step: Extract a `ManualSyncConflictDialogRuntime` if future recovery UI changes continue to touch domain repair, conflict-copy cleanup, and backup retention together.
+- Validation: Focused FileService, ManualSyncBackupInventory, ManualSyncBackupRetentionApplicationService, and manual sync conflict dialog tests; hidden fallback gate; boundary checks; build. Build exited 0 with existing non-blocking i18n hardcoded-string warnings and `package.zip` EPERM zip-pack warnings.
+
+### 2026-05-21 - Manual Backup Preview Shows Real Sizes
+
+- Task: Fix manual sync backup retention preview showing `0 B` sizes and making disabled cleanup look broken.
+- Touched slice: Manual sync backup retention inventory and sync conflict UI; `src/infrastructure/services/FileService.ts`, `src/ui/syncConflict/manualSyncConflictResolutionDialog.ts`, and focused tests.
+- Debt fixed now: Backup inventory now falls back to reading matching `.bak` bytes when SiYuan `readDir` omits or reports zero size, so preview can show real file sizes. The UI now explains when cleanup is disabled because no old backup is eligible under retention.
+- Debt deferred: Current default still keeps the newest 3 backups and does not delete diagnostic `.db` files.
+- Why deferred: This preserves the retention safety contract from the OpenSpec change.
+- Next safe step: Reload the plugin in `H:\闪卡同步测试`, click `预览清理`, and verify sizes show non-zero while the 3 current `.bak` files remain protected.
+- Validation: Focused FileService/manual sync conflict dialog/retention service tests, hidden fallback gate, boundary checks, and build. Build exited 0 with existing non-blocking i18n hardcoded-string warnings and `package.zip` EPERM zip-pack warnings.
+
+### 2026-05-21 - Manual Sync Backup Retention
+
+- Task: Add preview-first retention cleanup for manual sync rollback backups created before replacing the local database with a selected conflict copy.
+- Touched slice: Manual sync conflict recovery / plugin-data backup retention; `src/infrastructure/services/FileService.ts`, `src/application/services/ManualSyncBackupRetentionApplicationService.ts`, `src/application/ApplicationContext.ts`, `src/ui/syncConflict/manualSyncConflictResolutionDialog.ts`, and focused tests.
+- Debt fixed now: Manual replacement backups under `manual-sync-backups` now have a separate retention workflow that previews candidates, keeps the newest 3 backups, deletes only plugin-created `.bak` files older than 7 days and outside the newest set, ignores diagnostic/unknown files, and reports deletion failures without mixing rollback backups into domain sync conflict-copy cleanup.
+- Debt deferred: User-configurable retention settings and automatic startup cleanup remain out of scope.
+- Why deferred: First version needs explicit user preview and manual apply so backup deletion policy can be verified before automation.
+- Next safe step: Smoke the `手动同步备份` panel in `H:\闪卡同步测试` with real backup files and confirm only old `.bak` files are offered for cleanup.
+- Validation: Focused FileService backup inventory tests, retention application service tests, manual sync conflict dialog preview/apply tests, hidden fallback gate, boundary checks, and build. Build exited 0 with existing non-blocking i18n hardcoded-string warnings and `package.zip` EPERM zip-pack warnings.
+
+### 2026-05-21 - Sync Conflict Cleanup Lists Existing Processed Copies
+
+- Task: Make cleanup surface show currently existing processed conflict DB copies instead of only the recent domain-sync diagnostics subset.
+- Touched slice: Backend domain sync conflict-source cleanup candidates / manual conflict cleanup UI; `packages/contracts/src/backend-rpc.ts`, `worker/bootstrap/BackendKernel.ts`, `worker/db/SqliteDatabaseService.ts`, `src/application/{ApplicationContext.ts,clients/SrsBackendClient.ts,services/DomainSyncDiagnosticsApplicationService.ts}`, `src/ui/syncConflict/manualSyncConflictResolutionDialog.ts`, i18n, and focused tests.
+- Debt fixed now: Backend now exposes cleanup candidates by reading currently existing SiYuanMemo conflict DB files, matching them against processed-source fingerprints, and classifying each as processed-resolved, unprocessed, fingerprint-mismatch, or unsafe. The dialog uses this candidate list for the cleanup table and button, so processed copies outside the `processedSources.recent` window remain visible and cleanable.
+- Debt deferred: A separate bulk “delete all unprocessed conflict DBs” action remains out of scope.
+- Why deferred: Unprocessed conflict DBs may contain user data from another synced device and must be scanned/merged before deletion.
+- Next safe step: Smoke in `H:\闪卡同步测试` and verify the three 15:09-15:11 conflict DBs appear as cleanup candidates.
+- Validation: Focused backend cleanup-candidates regression and manual conflict dialog cleanup-candidate regression; full gate pending in current pass.
+
+### 2026-05-21 - Sync Repair Popup Explains Remaining Source Error
+
+- Task: Diagnose sync conflict recovery reopening after repair reported `0` repaired cards and diagnostics still showed `source-error`.
+- Touched slice: Manual sync conflict repair feedback / backend domain sync diagnostics and cleanup / SiYuan conflict DB file reads; `src/ui/syncConflict/manualSyncConflictResolutionDialog.ts`, `src/application/services/DomainSyncDiagnosticsApplicationService.ts`, `src/infrastructure/services/FileService.ts`, `worker/db/SqliteDatabaseService.ts`, `src/i18n/{zh_CN,en_US}.json`, focused UI/application tests, and backend regression coverage.
+- Debt fixed now: The repair apply path now logs the backend apply result (`status`, `appliedCards`, `skippedCards`, and failure reason) so live traces distinguish backend no-op from UI policy. The dialog no longer reports a plain success when post-apply diagnostics still block Review; it shows the remaining unsafe status and counts. Backend diagnostics no longer offers repair for source-missing/deleted cards, which caused the live `appliedCards=0/skippedCards=2` loop. User-triggered cleanup can now clear skipped/stale conflict source records when the host reports the conflict file is already gone. Sync conflict DB discovery now rejects non-SQLite `getFile` responses, preventing SiYuan HTTP 202 JSON error bodies for missing conflict files from being reprocessed as broken databases. Pre-request merge now forgets stale `unknown` skipped conflict-source rows that are no longer reported by the host, so an old bad row imported from a valid conflict copy cannot permanently hold Review in `source-error`.
+- Debt deferred: Automatic deletion/ignore of still-present unreadable conflict copies remains out of scope.
+- Why deferred: A present unreadable conflict copy may contain user data; only explicit cleanup should remove or forget it.
+- Next safe step: Deploy rebuilt plugin to the live `H:\闪卡同步测试` workspace, reload SiYuanMemo, click cleanup for stale/skipped conflict sources if offered, then retry Review.
+- Validation: Focused FileService conflict DB read regression, backend stale skipped-source cleanup regression, source-missing repair regression, source-error repair regression, cleanup regression, focused conflict dialog tests, focused diagnostics application service tests, hidden fallback gate, boundary checks, and build.
 
 ### 2026-05-21 - Sync Conflict Cleanup Keeps Application Context
 

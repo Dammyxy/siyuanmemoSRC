@@ -12,6 +12,7 @@ export type BackendRpcMethod =
   | 'domainSync.status'
   | 'domainSync.repair.preview'
   | 'domainSync.repair.apply'
+  | 'domainSync.conflictSources.cleanupCandidates'
   | 'domainSync.conflictSources.cleanup'
   | 'browser.deck.page'
   | 'browser.deck.matchedIds'
@@ -272,7 +273,7 @@ export interface BackendDomainSyncProcessedSource {
   latestSanityStatus?: BackendDomainSyncSanityStatus | null;
   cleanup?: {
     eligible: boolean;
-    reason: 'processed-resolved' | 'missing-path' | 'skipped-source' | 'needs-direction' | 'source-error' | 'unprocessed' | 'unsupported-source-kind';
+    reason: 'processed-resolved' | 'missing-path' | 'skipped-source' | 'needs-direction' | 'source-error' | 'unsafe-sanity-status' | 'unprocessed' | 'fingerprint-mismatch' | 'unsupported-source-kind';
   };
 }
 
@@ -387,6 +388,25 @@ export interface BackendDomainSyncConflictSourceCleanupRequest {
   sourceIds: string[];
   idempotencyKey: string;
   confirmedAt: number;
+}
+
+export interface BackendDomainSyncConflictSourceCleanupCandidate {
+  sourceId: string;
+  path: string | null;
+  modifiedAt: number | null;
+  size: number | null;
+  fingerprint: string;
+  processedSource: BackendDomainSyncProcessedSource | null;
+  cleanup: {
+    eligible: boolean;
+    reason: NonNullable<BackendDomainSyncProcessedSource['cleanup']>['reason'];
+  };
+}
+
+export interface BackendDomainSyncConflictSourceCleanupCandidatesResult {
+  ok: true;
+  sanityStatus: BackendDomainSyncSanityStatus;
+  candidates: BackendDomainSyncConflictSourceCleanupCandidate[];
 }
 
 export interface BackendDomainSyncConflictSourceCleanupResult {

@@ -41,6 +41,7 @@ import type {
   BackendDomainSyncRepairPreviewRequest,
   BackendDomainSyncRepairPreviewResult,
   BackendDomainSyncStatusResult,
+  BackendDomainSyncConflictSourceCleanupCandidatesResult,
   BackendDomainSyncConflictSourceCleanupRequest,
   BackendDomainSyncConflictSourceCleanupResult,
   BackendReviewSyncDivergenceAuditRequest,
@@ -125,6 +126,10 @@ export class SrsBackendClient {
     request: BackendDomainSyncConflictSourceCleanupRequest,
   ): Promise<BackendDomainSyncConflictSourceCleanupResult> {
     return this.call<BackendDomainSyncConflictSourceCleanupResult>('domainSync.conflictSources.cleanup', request);
+  }
+
+  async domainSyncConflictSourceCleanupCandidates(): Promise<BackendDomainSyncConflictSourceCleanupCandidatesResult> {
+    return this.call<BackendDomainSyncConflictSourceCleanupCandidatesResult>('domainSync.conflictSources.cleanupCandidates');
   }
 
   async browserDeckPage(

@@ -1,8 +1,14 @@
 import { Dialog, showMessage } from 'siyuan';
 import type { ApplicationContext } from '@/application/ApplicationContext';
+import type {
+  ManualSyncBackupRetentionApplyResult,
+  ManualSyncBackupRetentionPreviewResult,
+} from '@/application/services/ManualSyncBackupRetentionApplicationService';
 import type { SyncConflictDirectionApplyResult, SyncConflictDirectionPreview } from '@/application/services/SyncConflictDirectionResolutionService';
 import type {
+  BackendDomainSyncRepairApplyResult,
   BackendDomainSyncRepairPreviewResult,
+  BackendDomainSyncConflictSourceCleanupCandidatesResult,
   BackendDomainSyncStatusResult,
 } from '../../../packages/contracts/src/backend-rpc';
 import { applyDialogChrome } from '@/utils/dialog';
@@ -146,9 +152,75 @@ function reviewBlockDecisionMessage(
   }
 }
 
+function domainSyncUnsafeAfterRepairMessage(
+  decision: ReviewDomainSyncSafetyDecision,
+  i18n: Record<string, string>,
+): string {
+  return template(
+    i18n,
+    'domainSyncStillUnsafeAfterRepair',
+    '同步修复已执行，但诊断仍不安全：{status}（可修复 {repairable}，分歧 {divergent}，跳过来源 {skipped}）。请继续处理剩余项。',
+    {
+      status: domainSyncStatusLabel(decision.sanityStatus || 'source-error', i18n),
+      repairable: decision.repairableDivergenceCount,
+      divergent: decision.divergentCardCount,
+      skipped: decision.skippedSourceCount,
+    },
+  );
+}
+
+function domainSyncApplyMessage(
+  result: Extract<BackendDomainSyncRepairApplyResult, { ok: true }>,
+  decision: ReviewDomainSyncSafetyDecision,
+  i18n: Record<string, string>,
+): string {
+  const applied = (i18n.domainSyncApplyDone || '同步修复已应用：{cards} 张卡片')
+    .replace('{cards}', String(result.appliedCards));
+  return decision.canOpenReview
+    ? applied
+    : `${applied}；${domainSyncUnsafeAfterRepairMessage(decision, i18n)}`;
+}
+
+async function readCleanupCandidates(
+  context: ApplicationContext,
+  log: Pick<typeof logger, 'warn'>,
+): Promise<BackendDomainSyncConflictSourceCleanupCandidatesResult | null> {
+  const cleanupHost = context as unknown as {
+    listDomainSyncConflictSourceCleanupCandidates?: () => Promise<BackendDomainSyncConflictSourceCleanupCandidatesResult>;
+  };
+  if (!cleanupHost.listDomainSyncConflictSourceCleanupCandidates) {
+    return null;
+  }
+  try {
+    return await cleanupHost.listDomainSyncConflictSourceCleanupCandidates();
+  } catch (error) {
+    log.warn('Domain sync conflict source cleanup candidates unavailable:', error);
+    return null;
+  }
+}
+
+type DomainSyncCleanupCandidate = BackendDomainSyncConflictSourceCleanupCandidatesResult['candidates'][number];
+
+function domainSyncCleanupEligibleSources(
+  status: BackendDomainSyncStatusResult,
+  cleanupCandidates: BackendDomainSyncConflictSourceCleanupCandidatesResult | null,
+): Array<{ sourceId: string }> {
+  if (cleanupCandidates) {
+    return cleanupCandidates.candidates.filter((candidate) => candidate.cleanup.eligible);
+  }
+  const byId = new Map<string, BackendDomainSyncStatusResult['processedSources']['recent'][number]>();
+  for (const source of [...status.processedSources.recent, ...status.processedSources.skipped]) {
+    if (source.cleanup?.eligible === true) {
+      byId.set(source.sourceId, source);
+    }
+  }
+  return [...byId.values()];
+}
+
 function renderDomainSyncPanel(
   status: BackendDomainSyncStatusResult | null,
   repairPreview: BackendDomainSyncRepairPreviewResult | null,
+  cleanupCandidates: BackendDomainSyncConflictSourceCleanupCandidatesResult | null,
   i18n: Record<string, string>,
   options: {
     reviewBlockDecision?: ReviewDomainSyncSafetyDecision | null;
@@ -181,7 +253,24 @@ function renderDomainSyncPanel(
   `).join('') || '';
   const canPreview = status.repair.available || status.sanity.repairableDivergenceCount > 0;
   const canApply = repairPreview?.status === 'preview' && repairPreview.plannedMutations.length > 0;
-  const cleanupEligible = status.processedSources.recent.filter((source) => source.cleanup?.eligible === true);
+  const cleanupEligible = domainSyncCleanupEligibleSources(status, cleanupCandidates);
+  const cleanupRows = cleanupCandidates?.candidates.slice(0, 12).map((candidate: DomainSyncCleanupCandidate) => {
+    const processed = candidate.processedSource;
+    const imported = (processed?.importedOperations ?? 0) + (processed?.importedReviewEvents ?? 0) + (processed?.importedCards ?? 0);
+    const ignored = (processed?.ignoredOperations ?? 0) + (processed?.ignoredReviewEvents ?? 0) + (processed?.ignoredCards ?? 0);
+    const state = candidate.cleanup.eligible
+      ? (i18n.domainSyncCleanupStateEligible || '已处理，可清理')
+      : `${i18n.domainSyncCleanupStateBlocked || '不可清理'}: ${candidate.cleanup.reason}`;
+    return `
+      <tr>
+        <td class="ft__breakword">${escapeHtml(candidate.sourceId)}<br><span class="ft__on-surface">${escapeHtml(candidate.path || '')}</span></td>
+        <td>${fmtSize(candidate.size)}</td>
+        <td>${imported}</td>
+        <td>${ignored}</td>
+        <td>${escapeHtml(state)}</td>
+      </tr>
+    `;
+  }).join('') || '';
   return `
     <div class="siyuanmemo-domain-sync-panel" style="margin: 10px 0; padding: 10px; border: 1px solid var(--b3-border-color); border-radius: 6px;">
       ${options.reviewBlockDecision ? `
@@ -212,6 +301,22 @@ function renderDomainSyncPanel(
           ${escapeHtml(i18n.domainSyncCleanupEligible || '可清理的冲突副本')}: ${cleanupEligible.map((source) => escapeHtml(source.sourceId)).join(', ')}
         </div>
       ` : ''}
+      ${cleanupCandidates && cleanupCandidates.candidates.length > 0 ? `
+        <div style="margin-top: 8px; max-height: 180px; overflow: auto; border: 1px solid var(--b3-border-color); border-radius: 4px;">
+          <table class="b3-table" style="width: 100%; margin: 0;">
+            <thead>
+              <tr>
+                <th>${escapeHtml(i18n.syncConflictResolutionSource || '来源')}</th>
+                <th>${escapeHtml(i18n.syncConflictResolutionSize || '大小')}</th>
+                <th>${escapeHtml(i18n.domainSyncImported || '已导入')}</th>
+                <th>${escapeHtml(i18n.domainSyncIgnored || '已存在')}</th>
+                <th>${escapeHtml(i18n.status || '状态')}</th>
+              </tr>
+            </thead>
+            <tbody>${cleanupRows}</tbody>
+          </table>
+        </div>
+      ` : ''}
       ${skipped ? `<div style="margin-top: 8px;">${skipped}</div>` : ''}
       ${repairPreview ? `
         <div style="margin-top: 10px; max-height: 180px; overflow: auto; border: 1px solid var(--b3-border-color); border-radius: 4px;">
@@ -239,11 +344,99 @@ function renderDomainSyncPanel(
   `;
 }
 
+function manualSyncBackupReasonLabel(reason: string, i18n: Record<string, string>): string {
+  const labels: Record<string, [string, string]> = {
+    'eligible-old': ['manualSyncBackupRetentionEligibleOld', '可清理：早于保留天数'],
+    'retained-newest': ['manualSyncBackupRetentionRetainedNewest', '保留：最近备份'],
+    'retained-young': ['manualSyncBackupRetentionRetainedYoung', '保留：未超过保留天数'],
+    'ignored-name': ['manualSyncBackupRetentionIgnoredName', '已忽略：非插件备份文件'],
+    'invalid-metadata': ['manualSyncBackupRetentionInvalidMetadata', '已忽略：备份元数据无效'],
+  };
+  const pair = labels[reason];
+  return pair ? label(i18n, pair[0], pair[1]) : reason;
+}
+
+function renderManualSyncBackupRetentionPanel(
+  preview: ManualSyncBackupRetentionPreviewResult | null,
+  applyResult: ManualSyncBackupRetentionApplyResult | null,
+  i18n: Record<string, string>,
+): string {
+  const retainedNewest = preview?.candidates.filter((candidate) => candidate.reason === 'retained-newest').length ?? 0;
+  const ignored = preview?.candidates.filter((candidate) => candidate.reason === 'ignored-name' || candidate.reason === 'invalid-metadata').length ?? 0;
+  const rows = preview?.candidates.slice(0, 12).map((candidate) => `
+    <tr>
+      <td class="ft__breakword">${escapeHtml(candidate.name)}<br><span class="ft__on-surface">${escapeHtml(candidate.path)}</span></td>
+      <td>${fmtSize(candidate.size)}</td>
+      <td>${fmtTime(candidate.createdAt)}</td>
+      <td>${escapeHtml(candidate.sourceId || '-')}</td>
+      <td>${escapeHtml(manualSyncBackupReasonLabel(candidate.reason, i18n))}</td>
+    </tr>
+  `).join('') || '';
+  const cleanupDisabled = preview && preview.eligibleCount > 0 ? '' : 'disabled';
+  const noEligibleHint = preview && preview.eligibleCount === 0
+    ? (i18n.manualSyncBackupRetentionNoEligible || '没有符合条件的旧备份；最近 3 个备份会保留，用于回滚误替换。')
+    : '';
+  return `
+    <div class="siyuanmemo-manual-sync-backup-panel" style="margin: 10px 0; padding: 10px; border: 1px solid var(--b3-border-color); border-radius: 6px;">
+      <div class="fn__flex" style="justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap;">
+        <div>
+          <div style="font-weight: 600;">${escapeHtml(i18n.manualSyncBackupRetentionTitle || '手动同步备份')}</div>
+          <div class="ft__on-surface" style="font-size: 12px; margin-top: 4px;">
+            ${escapeHtml(i18n.manualSyncBackupRetentionHint || '最近备份会保留，用于回滚误替换。')}
+          </div>
+        </div>
+        <div class="fn__flex" style="gap: 8px; flex-wrap: wrap;">
+          <button class="b3-button b3-button--outline" data-action="manual-backup-preview">${escapeHtml(i18n.manualSyncBackupRetentionPreview || '预览清理')}</button>
+          <button class="b3-button b3-button--error" data-action="manual-backup-cleanup" ${cleanupDisabled}>${escapeHtml(i18n.manualSyncBackupRetentionCleanup || '清理旧备份')}</button>
+        </div>
+      </div>
+      ${preview ? `
+        <div class="ft__on-surface" style="margin-top: 8px; font-size: 12px;">
+          ${escapeHtml(i18n.manualSyncBackupRetentionKeepNewest || '保留最近 N 个备份').replace('N', String(preview.retention.keepNewest))}
+          · ${escapeHtml(i18n.manualSyncBackupRetentionDeleteOlderThan || '删除早于 N 天的备份').replace('N', String(preview.retention.deleteOlderThanDays))}
+          · ${escapeHtml(i18n.manualSyncBackupRetentionEligible || '可清理')}: ${preview.eligibleCount}
+          · ${escapeHtml(i18n.manualSyncBackupRetentionEligibleBytes || '可释放')}: ${fmtSize(preview.eligibleBytes)}
+          · ${escapeHtml(i18n.manualSyncBackupRetentionRetainedNewestCount || '最近保留')}: ${retainedNewest}
+          · ${escapeHtml(i18n.manualSyncBackupRetentionIgnored || '已忽略')}: ${ignored}
+        </div>
+        ${noEligibleHint ? `<div class="ft__on-surface" style="margin-top: 6px; font-size: 12px;">${escapeHtml(noEligibleHint)}</div>` : ''}
+        ${preview.candidates.length > 0 ? `
+          <div style="margin-top: 8px; max-height: 180px; overflow: auto; border: 1px solid var(--b3-border-color); border-radius: 4px;">
+            <table class="b3-table" style="width: 100%; margin: 0;">
+              <thead>
+                <tr>
+                  <th>${escapeHtml(i18n.fileName || '文件名')}</th>
+                  <th>${escapeHtml(i18n.syncConflictResolutionSize || '大小')}</th>
+                  <th>${escapeHtml(i18n.createdAt || '创建时间')}</th>
+                  <th>${escapeHtml(i18n.syncConflictResolutionSource || '来源')}</th>
+                  <th>${escapeHtml(i18n.status || '状态')}</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        ` : `<div class="ft__on-surface" style="margin-top: 8px;">${escapeHtml(i18n.manualSyncBackupRetentionEmpty || '未发现手动同步备份。')}</div>`}
+      ` : ''}
+      ${applyResult ? `
+        <div class="ft__on-surface" style="margin-top: 8px; font-size: 12px;">
+          ${escapeHtml(i18n.manualSyncBackupRetentionApplyDone || '清理旧备份完成')}:
+          ${escapeHtml(i18n.deleted || '已删除')} ${applyResult.deleted.length}
+          · ${escapeHtml(i18n.skipped || '已跳过')} ${applyResult.skipped.length}
+          · ${escapeHtml(i18n.failed || '失败')} ${applyResult.failed.length}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
 function renderPreview(
   preview: SyncConflictDirectionPreview,
   i18n: Record<string, string>,
   domainStatus: BackendDomainSyncStatusResult | null,
   repairPreview: BackendDomainSyncRepairPreviewResult | null,
+  cleanupCandidates: BackendDomainSyncConflictSourceCleanupCandidatesResult | null,
+  manualBackupPreview: ManualSyncBackupRetentionPreviewResult | null,
+  manualBackupApplyResult: ManualSyncBackupRetentionApplyResult | null,
   options: {
     reviewBlockDecision?: ReviewDomainSyncSafetyDecision | null;
     diagnosticsUnavailableReason?: string | null;
@@ -275,7 +468,8 @@ function renderPreview(
           <span>${escapeHtml(i18n.syncConflictResolutionLatest || '最新时间')}: ${fmtTime(current?.latestReviewTimestamp || current?.latestCardTimestamp)}</span>
         </div>
       </div>
-      ${renderDomainSyncPanel(domainStatus, repairPreview, i18n, options)}
+      ${renderDomainSyncPanel(domainStatus, repairPreview, cleanupCandidates, i18n, options)}
+      ${renderManualSyncBackupRetentionPanel(manualBackupPreview, manualBackupApplyResult, i18n)}
       ${preview.sources.length === 0 ? `
         <div class="b3-card b3-card--info" style="margin: 8px 0; padding: 10px;">
           ${escapeHtml(i18n.syncConflictManualMergeNoSources || '未发现 SiYuanMemo 同步冲突数据库')}
@@ -378,6 +572,9 @@ export async function openManualSyncConflictResolutionDialog(
   let preview: SyncConflictDirectionPreview;
   let domainStatus: BackendDomainSyncStatusResult | null = options.initialDomainStatus ?? null;
   let repairPreview: BackendDomainSyncRepairPreviewResult | null = null;
+  let cleanupCandidates: BackendDomainSyncConflictSourceCleanupCandidatesResult | null = null;
+  let manualBackupPreview: ManualSyncBackupRetentionPreviewResult | null = null;
+  let manualBackupApplyResult: ManualSyncBackupRetentionApplyResult | null = null;
   let diagnosticsUnavailableReason: string | null = options.diagnosticsUnavailableReason ?? null;
   try {
     preview = await context.previewSyncConflictDirectionResolution();
@@ -395,10 +592,13 @@ export async function openManualSyncConflictResolutionDialog(
       logger.warn('Domain sync diagnostics preview unavailable:', error);
     }
   }
+  if (domainStatus) {
+    cleanupCandidates = await readCleanupCandidates(context, logger);
+  }
 
   const dialog = new Dialog({
     title: i18n.syncConflictResolutionTitle || '处理 SiYuanMemo 同步冲突',
-    content: renderPreview(preview, i18n, domainStatus, repairPreview, {
+    content: renderPreview(preview, i18n, domainStatus, repairPreview, cleanupCandidates, manualBackupPreview, manualBackupApplyResult, {
       reviewBlockDecision: options.reviewBlockDecision ?? null,
       diagnosticsUnavailableReason,
     }),
@@ -468,12 +668,20 @@ export async function openManualSyncConflictResolutionDialog(
   function refreshDomainPanel(): void {
     const panel = dialog.element.querySelector('.siyuanmemo-domain-sync-panel');
     if (panel) {
-      panel.outerHTML = renderDomainSyncPanel(domainStatus, repairPreview, i18n, {
+      panel.outerHTML = renderDomainSyncPanel(domainStatus, repairPreview, cleanupCandidates, i18n, {
         reviewBlockDecision: options.reviewBlockDecision ?? null,
         diagnosticsUnavailableReason,
       });
     }
     bindDomainActions();
+  }
+
+  function refreshManualBackupPanel(): void {
+    const panel = dialog.element.querySelector('.siyuanmemo-manual-sync-backup-panel');
+    if (panel) {
+      panel.outerHTML = renderManualSyncBackupRetentionPanel(manualBackupPreview, manualBackupApplyResult, i18n);
+    }
+    bindManualBackupActions();
   }
 
   async function notifySafeDiagnosticsIfNeeded(): Promise<void> {
@@ -491,6 +699,7 @@ export async function openManualSyncConflictResolutionDialog(
       void (async () => {
         try {
           domainStatus = await context.readDomainSyncDiagnostics();
+          cleanupCandidates = await readCleanupCandidates(context, logger);
           diagnosticsUnavailableReason = null;
           repairPreview = null;
           refreshDomainPanel();
@@ -523,9 +732,7 @@ export async function openManualSyncConflictResolutionDialog(
         if (!domainStatus) {
           return;
         }
-        const sourceIds = domainStatus.processedSources.recent
-          .filter((source) => source.cleanup?.eligible === true)
-          .map((source) => source.sourceId);
+        const sourceIds = domainSyncCleanupEligibleSources(domainStatus, cleanupCandidates).map((source) => source.sourceId);
         if (sourceIds.length === 0) {
           return;
         }
@@ -546,6 +753,7 @@ export async function openManualSyncConflictResolutionDialog(
             confirmedAt: Date.now(),
           });
           domainStatus = await context.readDomainSyncDiagnostics();
+          cleanupCandidates = await readCleanupCandidates(context, logger);
           refreshDomainPanel();
           showMessage((i18n.domainSyncCleanupDone || '清理完成：已清理 {cleaned}，已跳过 {skipped}，失败 {failed}')
             .replace('{cleaned}', String(result.cleaned.length))
@@ -594,13 +802,64 @@ export async function openManualSyncConflictResolutionDialog(
             return;
           }
           domainStatus = await context.readDomainSyncDiagnostics();
+          cleanupCandidates = await readCleanupCandidates(context, logger);
           repairPreview = null;
           refreshDomainPanel();
+          const nextDecision = buildReviewDomainSyncSafetyDecision(domainStatus);
           await notifySafeDiagnosticsIfNeeded();
-          showMessage((i18n.domainSyncApplyDone || '同步修复已应用：{cards} 张卡片')
-            .replace('{cards}', String(result.appliedCards)), 5000, 'info');
+          showMessage(
+            domainSyncApplyMessage(result, nextDecision, i18n),
+            7000,
+            nextDecision.canOpenReview ? 'info' : 'error',
+          );
         } catch (error) {
           logger.error('Domain sync repair apply failed:', error);
+          showMessage(error instanceof Error ? error.message : String(error), 7000, 'error');
+        }
+      })();
+    });
+  }
+
+  function bindManualBackupActions(): void {
+    dialog.element.querySelector('[data-action="manual-backup-preview"]')?.addEventListener('click', () => {
+      void (async () => {
+        try {
+          manualBackupPreview = await context.previewManualSyncBackupRetention();
+          manualBackupApplyResult = null;
+          refreshManualBackupPanel();
+        } catch (error) {
+          logger.error('Manual sync backup retention preview failed:', error);
+          showMessage(error instanceof Error ? error.message : String(error), 7000, 'error');
+        }
+      })();
+    });
+    dialog.element.querySelector('[data-action="manual-backup-cleanup"]')?.addEventListener('click', () => {
+      void (async () => {
+        if (!manualBackupPreview || manualBackupPreview.eligibleCount === 0) {
+          return;
+        }
+        const confirmed = await openPluginConfirmation({
+          title: i18n.manualSyncBackupRetentionCleanupConfirmTitle || '清理旧备份',
+          body: i18n.manualSyncBackupRetentionCleanupConfirm
+            || '确认删除早于保留天数且不属于最近保留范围的手动同步备份？最近备份会保留，用于回滚误替换。',
+          confirmLabel: i18n.manualSyncBackupRetentionCleanup || '清理旧备份',
+          cancelLabel: i18n.cancel || '取消',
+          danger: true,
+          rows: [
+            { label: i18n.manualSyncBackupRetentionEligible || '可清理', value: manualBackupPreview.eligibleCount },
+            { label: i18n.manualSyncBackupRetentionEligibleBytes || '可释放', value: fmtSize(manualBackupPreview.eligibleBytes) },
+          ],
+        });
+        if (!confirmed) {
+          return;
+        }
+        try {
+          manualBackupApplyResult = await context.applyManualSyncBackupRetention();
+          manualBackupPreview = await context.previewManualSyncBackupRetention();
+          refreshManualBackupPanel();
+          showMessage(i18n.manualSyncBackupRetentionApplyDone || '清理旧备份完成', 5000, 'info');
+        } catch (error) {
+          logger.error('Manual sync backup retention cleanup failed:', error);
           showMessage(error instanceof Error ? error.message : String(error), 7000, 'error');
         }
       })();
@@ -613,4 +872,5 @@ export async function openManualSyncConflictResolutionDialog(
     });
   }
   bindDomainActions();
+  bindManualBackupActions();
 }

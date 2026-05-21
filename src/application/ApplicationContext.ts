@@ -72,6 +72,11 @@ import {
 import { SyncConflictMergeApplicationService } from '@/application/services/SyncConflictMergeApplicationService';
 import { ReviewSyncDivergenceAuditApplicationService } from '@/application/services/ReviewSyncDivergenceAuditApplicationService';
 import { DomainSyncDiagnosticsApplicationService } from '@/application/services/DomainSyncDiagnosticsApplicationService';
+import {
+  ManualSyncBackupRetentionApplicationService,
+  type ManualSyncBackupRetentionApplyResult,
+  type ManualSyncBackupRetentionPreviewResult,
+} from '@/application/services/ManualSyncBackupRetentionApplicationService';
 import { ReviewLogLearningCurveEvidenceReader } from '@/application/services/SrsTransparencyEvidenceReader';
 import {
   createReviewRenderServices as createInjectedReviewRenderServices,
@@ -176,6 +181,7 @@ import type {
   BackendDomainSyncRepairPreviewRequest,
   BackendDomainSyncRepairPreviewResult,
   BackendDomainSyncStatusResult,
+  BackendDomainSyncConflictSourceCleanupCandidatesResult,
   BackendDomainSyncConflictSourceCleanupRequest,
   BackendDomainSyncConflictSourceCleanupResult,
   BackendSyncConflictMergeResult,
@@ -2670,6 +2676,29 @@ export class ApplicationContext {
       this.followerCommandClient,
     );
     return service.cleanupConflictSources(request);
+  }
+
+  async listDomainSyncConflictSourceCleanupCandidates(): Promise<BackendDomainSyncConflictSourceCleanupCandidatesResult> {
+    const backendClient = this.getSrsBackendClient();
+    if (!backendClient) {
+      throw new Error('BACKEND_UNAVAILABLE: domain sync conflict source cleanup candidates require SRS backend');
+    }
+    const service = new DomainSyncDiagnosticsApplicationService(backendClient, logger);
+    return service.listCleanupCandidates();
+  }
+
+  async previewManualSyncBackupRetention(): Promise<ManualSyncBackupRetentionPreviewResult> {
+    const service = new ManualSyncBackupRetentionApplicationService(
+      this.getFileService().createManualSyncBackupInventory(),
+    );
+    return service.preview();
+  }
+
+  async applyManualSyncBackupRetention(): Promise<ManualSyncBackupRetentionApplyResult> {
+    const service = new ManualSyncBackupRetentionApplicationService(
+      this.getFileService().createManualSyncBackupInventory(),
+    );
+    return service.apply();
   }
 
   async previewSyncConflictDirectionResolution(): Promise<SyncConflictDirectionPreview> {

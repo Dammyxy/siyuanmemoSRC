@@ -63,7 +63,13 @@ describe('FileService', () => {
   });
 
   it('reads SiYuan sync conflict database copies from temp repo paths', async () => {
-    const dbBytes = new Uint8Array([1, 2, 3]);
+    const dbBytes = new Uint8Array([
+      ...Array.from(new TextEncoder().encode('SQLite format 3')),
+      0,
+      1,
+      2,
+      3,
+    ]);
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body || '{}')) as { path?: string };
       if (body.path === '/temp/repo/sync/conflicts') {
@@ -98,12 +104,49 @@ describe('FileService', () => {
     expect(sources[0].sourceId).toBe(
       'siyuan-sync-conflict:2026-05-19-231329:/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db',
     );
-    expect(Array.from(sources[0].bytes)).toEqual([1, 2, 3]);
+    expect(Array.from(sources[0].bytes)).toEqual(Array.from(dbBytes));
     expect(fetchMock).toHaveBeenCalledWith('/api/file/getFile', expect.objectContaining({
       body: JSON.stringify({
         path: '/temp/repo/sync/conflicts/2026-05-19-231329/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db',
       }),
     }));
+  });
+
+  it('ignores SiYuan getFile JSON error bodies for missing sync conflict databases', async () => {
+    const errorBytes = new TextEncoder().encode('{"code":404,"msg":"file does not exist","data":null}');
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as { path?: string };
+      if (body.path === '/temp/repo/sync/conflicts') {
+        return {
+          ok: true,
+          json: async () => ({
+            code: 0,
+            data: [{ name: '2026-05-21-044935', isDir: true }],
+          }),
+        } as Response;
+      }
+      if (
+        body.path
+          === '/temp/repo/sync/conflicts/2026-05-21-044935/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db'
+      ) {
+        return {
+          ok: true,
+          status: 202,
+          headers: new Headers({ 'content-type': 'application/json; charset=utf-8' }),
+          arrayBuffer: async () => errorBytes.buffer.slice(0),
+        } as Response;
+      }
+      return {
+        ok: false,
+        arrayBuffer: async () => new ArrayBuffer(0),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new FileService(createPlugin(vi.fn()));
+
+    const sources = await service.readSyncConflictDatabaseSources();
+
+    expect(sources).toEqual([]);
   });
 
   it('backs up the current sqlite database before replacement', async () => {

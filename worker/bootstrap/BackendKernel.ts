@@ -62,6 +62,7 @@ import {
   type BackendDomainSyncRepairPreviewRequest,
   type BackendDomainSyncRepairPreviewResult,
   type BackendDomainSyncConflictSourceCleanupRequest,
+  type BackendDomainSyncConflictSourceCleanupCandidatesResult,
   type BackendDomainSyncConflictSourceCleanupResult,
   type BackendPreRequestMergeDiagnostic,
   type BackendPreRequestMergeDiagnosticsState,
@@ -258,6 +259,8 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleDomainSyncRepairPreview(request.params));
         case 'domainSync.repair.apply':
           return buildSuccess(request.id, await this.handleDomainSyncRepairApply(request.params));
+        case 'domainSync.conflictSources.cleanupCandidates':
+          return buildSuccess(request.id, await this.handleDomainSyncConflictSourceCleanupCandidates());
         case 'domainSync.conflictSources.cleanup':
           return buildSuccess(request.id, await this.handleDomainSyncConflictSourceCleanup(request.params));
         case 'sync.reviewDivergence.audit':
@@ -402,6 +405,10 @@ export class BackendKernel {
   private async handleDomainSyncRepairApply(params: unknown): Promise<BackendDomainSyncRepairApplyResult> {
     const [request] = Array.isArray(params) ? params : [params];
     return this.deps.database.applyDomainSyncRepair((request ?? {}) as BackendDomainSyncRepairApplyRequest);
+  }
+
+  private async handleDomainSyncConflictSourceCleanupCandidates(): Promise<BackendDomainSyncConflictSourceCleanupCandidatesResult> {
+    return this.deps.database.listDomainSyncConflictSourceCleanupCandidates();
   }
 
   private async handleDomainSyncConflictSourceCleanup(params: unknown): Promise<BackendDomainSyncConflictSourceCleanupResult> {
