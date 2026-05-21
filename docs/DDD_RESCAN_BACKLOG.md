@@ -4,6 +4,16 @@ Last update: 2026-05-21 (Round 424)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-21 - SQL Runtime Guard And Ownership Anchors
+
+- Task: Close the remaining SQL-redemption layers by preventing new runtime msgpack access and pinning mutation ownership checkpoints.
+- Touched slice: Backend migration guardrails and SQL-first storage documentation; `scripts/check-no-runtime-msgpack.cjs`, `scripts/__tests__/check-no-runtime-msgpack.test.ts`, `scripts/check-backend-runtime-paths.cjs`, `package.json`, `src/core/storage/UnifiedStoragePersistence.ts`, `src/application/ApplicationContext.ts`, `src/core/storage/README.md`, and `ARCHITECTURE.md`.
+- Debt fixed now: Added a no-runtime-msgpack checker to `check:boundaries`; production runtime msgpack reads/writes now fail unless they are explicit low-level adapters, initial SQLite migration sources, old storage constants, or uninstall cleanup. `UnifiedStoragePersistence` no longer exposes a legacy msgpack save callback; it only loads old `unified-cards.msgpack` for SQLite migration. Backend runtime path checks now anchor Browser batch mutation, source-existence sweep, and sync conflict merge ownership through application/worker SQL paths.
+- Debt deferred: Larger real-user DB profiling is still evidence-dependent, and Xiuyuan full enumeration remains sync/management oriented until a hot UI caller appears.
+- Why deferred: Current guards prove no new old-storage runtime path and preserve ownership anchors, but they do not manufacture large-library performance evidence.
+- Next safe step: Run Runtime SQL profile against a larger user library DB; only then consider index tuning or deeper query interface changes.
+- Validation: Runtime msgpack checker tests, runtime path checker tests, QueuePersistence focused tests, SQLite/profile focused tests, Runtime SQL profile, standalone no-runtime-msgpack guard, hidden fallback gate, boundary checks, and build passed. Build still reports existing non-blocking i18n hardcoded-string warnings, `package.zip` unlink EPERM zip-pack warnings, and Sass legacy API warnings.
+
 ### 2026-05-21 - Queue Persistence Legacy Msgpack Retirement
 
 - Task: Close one SQL-redemption deferred debt by removing the queue persistence `queues.msgpack` fallback path from the active runtime Interface.

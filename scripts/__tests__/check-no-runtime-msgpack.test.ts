@@ -1,0 +1,60 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore cjs import
+import { evaluate } from '../check-no-runtime-msgpack.cjs';
+
+const tempDirs: string[] = [];
+
+function writeFile(rootDir: string, relativePath: string, content: string): void {
+  const absolute = path.join(rootDir, relativePath);
+  fs.mkdirSync(path.dirname(absolute), { recursive: true });
+  fs.writeFileSync(absolute, content);
+}
+
+function createFixtureRoot(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'no-runtime-msgpack-check-'));
+  tempDirs.push(dir);
+  return dir;
+}
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+describe('check-no-runtime-msgpack', () => {
+  it('fails runtime msgpack reads and writes outside explicit migration adapters', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/application/services/RuntimeStore.ts', `
+      export async function load(fileService: { readMsgpack: (path: string) => Promise<unknown> }) {
+        return fileService.readMsgpack('cards.msgpack');
+      }
+    `);
+    writeFile(rootDir, 'src/core/queue/RuntimeQueue.ts', `
+      export async function save(fileService: { writeMsgpack: (path: string, data: unknown) => Promise<void> }) {
+        return fileService.writeMsgpack('queues.msgpack', {});
+      }
+    `);
+
+    const failures = evaluate({ rootDir });
+    expect(failures).toEqual(expect.arrayContaining([
+      expect.stringContaining('src/application/services/RuntimeStore.ts'),
+      expect.stringContaining('src/core/queue/RuntimeQueue.ts'),
+    ]));
+  });
+
+  it('allows SQLite migration reads from old msgpack storage', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/infrastructure/persistence/sqlite/SqliteMigrationService.ts', `
+      export async function migrate(fileService: { readMsgpack: (path: string) => Promise<unknown> }) {
+        return fileService.readMsgpack('queues.msgpack');
+      }
+    `);
+
+    expect(evaluate({ rootDir })).toEqual([]);
+  });
+});

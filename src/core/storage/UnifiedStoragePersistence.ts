@@ -3,12 +3,12 @@
  * 
  * @module UnifiedStoragePersistence
  * @description
- * 连接 UnifiedStorageManager 和插件的 MessagePack 存储系统。
- * 提供 load 和 save 回调函数，用于持久化 unified-cards.msgpack 文件。
+ * 连接 SQLite 初始迁移和旧 MessagePack 存储系统。
+ * 只提供 load 回调，用于把 unified-cards.msgpack 作为迁移源导入 SQL。
  * 
  * **职责**：
- * - 使用插件的 loadData/saveData API 读写 MessagePack 文件
- * - 处理数据的序列化和反序列化
+ * - 使用插件的 loadData API 读取旧 MessagePack 文件
+ * - 处理旧数据的结构校验
  * - 提供错误处理和日志记录
  * 
  * **Validates: Requirements 1.1, 1.7**
@@ -18,7 +18,7 @@ import type { Plugin } from 'siyuan';
 import type { StorageLoadReason, UnifiedCardStore } from './UnifiedStorageManager';
 import { createLogger } from '@/utils/logger';
 
-type PersistencePlugin = Pick<Plugin, 'saveData' | 'loadData'>;
+type PersistencePlugin = Pick<Plugin, 'loadData'>;
 
 const logger = createLogger('UnifiedStoragePersistence');
 
@@ -26,30 +26,12 @@ const logger = createLogger('UnifiedStoragePersistence');
 export const UNIFIED_STORAGE_KEY = 'unified-cards.msgpack';
 
 /**
- * 创建持久化回调函数
+ * 创建旧统一存储加载回调函数
  * 
  * @param plugin - SiyuanMemo 插件实例
- * @returns 包含 save 和 load 回调的对象
+ * @returns 包含 load 回调的对象
  */
-export function createPersistenceCallbacks(plugin: PersistencePlugin) {
-  /**
-   * 保存回调：将数据序列化为 MessagePack 并保存到文件
-   */
-  const save = async (data: UnifiedCardStore): Promise<void> => {
-    try {
-      // 使用插件的 saveData API，会自动编码为 MessagePack 格式
-      await plugin.saveData(UNIFIED_STORAGE_KEY, data);
-      logger.info('Saved to msgpack', {
-        version: data.version,
-        xiuyuans: Object.keys(data.xiuyuans).length,
-        cards: Object.keys(data.cards).length,
-      });
-    } catch (error) {
-      logger.error('Failed to save', error);
-      throw error;
-    }
-  };
-
+export function createLegacyStorageLoader(plugin: PersistencePlugin) {
   /**
    * 加载回调：从 MessagePack 文件读取并反序列化数据
    */
@@ -71,7 +53,7 @@ export function createPersistenceCallbacks(plugin: PersistencePlugin) {
         }
 
         const loadLog = reason === 'pre-save-conflict-check' ? logger.debug.bind(logger) : logger.info.bind(logger);
-        loadLog('Loaded from msgpack', {
+        loadLog('Loaded legacy unified store from msgpack', {
           reason,
           version: data.version,
           xiuyuans: Object.keys(data.xiuyuans).length,
@@ -91,7 +73,7 @@ export function createPersistenceCallbacks(plugin: PersistencePlugin) {
     }
   };
 
-  return { save, load };
+  return { load };
 }
 
 /**

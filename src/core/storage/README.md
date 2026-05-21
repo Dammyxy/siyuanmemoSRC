@@ -6,7 +6,7 @@ UnifiedStorageManager 是 XiuYuan 统一化架构的核心组件，负责管理�
 
 ## 核心特性
 
-- **统一存储**: XiuYuan 和 Card 存储在同一个 MessagePack 文件 (`unified-cards.msgpack`)
+- **统一存储**: XiuYuan 和 Card 在当前运行时存储到 SQLite；旧 `unified-cards.msgpack` 只作为初始迁移来源
 - **内存索引**: 提供 O(1) 查询性能，支持 blockID、xiuyuanID、type、due、priority 索引
 - **防抖保存**: 1 秒延迟自动保存，避免频繁 I/O 操作
 - **数据一致性**: 自动检测和修复孤儿卡片、空 XiuYuan 等问题
@@ -18,7 +18,7 @@ UnifiedStorageManager 是 XiuYuan 统一化架构的核心组件，负责管理�
 
 ```typescript
 import { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
-import { createPersistenceCallbacks } from '@/core/storage/UnifiedStoragePersistence';
+import { createLegacyStorageLoader } from '@/core/storage/UnifiedStoragePersistence';
 import type SiyuanMemoPlugin from '@/index';
 
 // 在插件初始化时创建存储管理器
@@ -29,10 +29,10 @@ class SiyuanMemoPlugin extends Plugin {
     // 创建存储管理器
     this.unifiedStorage = new UnifiedStorageManager();
 
-    // 设置持久化回调
-    const { save, load } = createPersistenceCallbacks(this);
+    // 设置 SQL 持久化回调；旧 loader 只用于 SQLite 初始迁移
+    const { load } = createLegacyStorageLoader(this);
     this.unifiedStorage.setPersistenceCallbacks(
-      async (data) => await save(data),
+      async (data) => await sqlUnifiedRepository.saveStore(data),
       load
     );
 

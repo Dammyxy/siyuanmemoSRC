@@ -12,8 +12,8 @@
 import type { Plugin } from 'siyuan';
 import type SiyuanMemoPlugin from '@/index';
 import { StorageManager } from '@/core/storage';
-import { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
-import { createPersistenceCallbacks } from '@/core/storage/UnifiedStoragePersistence';
+import { UnifiedStorageManager, type UnifiedCardStore } from '@/core/storage/UnifiedStorageManager';
+import { createLegacyStorageLoader } from '@/core/storage/UnifiedStoragePersistence';
 import { SchedulerRouter, RescheduleService } from '@/core/scheduler';
 import { UnifiedStorageCardUpdateAdapter } from '@/core/scheduler/adapters/UnifiedStorageCardUpdateAdapter';
 import { SiyuanErrorNotificationAdapter } from '@/infrastructure/notifications/SiyuanErrorNotificationAdapter';
@@ -1085,9 +1085,9 @@ export class ApplicationContext {
     const storageManager = new StorageManager(config.plugin.name);
     await measureRuntimePerformance('startup', 'storage-manager.init', () => storageManager.init());
     const fileService = new FileService(config.plugin as unknown as SiyuanMemoPlugin);
-    const legacyPersistence = createPersistenceCallbacks(config.plugin);
+    const legacyPersistence = createLegacyStorageLoader(config.plugin);
     let sqlPersistence: SqlPersistenceBundle | undefined;
-    let unifiedSave = legacyPersistence.save;
+    let unifiedSave!: (data: UnifiedCardStore) => Promise<void>;
     let unifiedLoad = legacyPersistence.load;
 
     try {

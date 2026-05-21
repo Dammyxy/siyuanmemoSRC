@@ -217,6 +217,84 @@ const runtimePaths = [
     ],
   },
   {
+    id: 'browser-batch-mutation',
+    status: 'active',
+    anchors: [
+      {
+        file: 'src/application/queries/DataAccessFacade.ts',
+        tokens: ['async batchUpdateCards', 'async batchDeleteCards', 'cardService.batchUpdateCardsWithoutEvents'],
+        reason: 'Browser/card batch mutation must stay behind the application data router and card service',
+      },
+      {
+        file: 'src/application/services/UnifiedDataSourceManager.ts',
+        tokens: ['public async batchUpdateCards', 'router.batchUpdateCards', 'public async batchDeleteCards', 'router.batchDeleteCards'],
+        reason: 'Browser batch mutation entrypoints must route through the current data router and notify through the manager',
+      },
+      {
+        file: 'src/application/services/CardApplicationService.ts',
+        tokens: ['async batchDeleteCards', 'async batchUpdateCardsWithoutEvents', 'persistChanges'],
+        reason: 'card batch mutations must persist through CardApplicationService instead of UI/local storage writes',
+      },
+    ],
+  },
+  {
+    id: 'source-existence-sweep',
+    status: 'active',
+    anchors: [
+      {
+        file: 'packages/contracts/src/backend-rpc.ts',
+        tokens: ['browser.sourceExistence.applySweepHost', 'browser.sourceExistence.applySweep', 'BackendSourceExistenceSweepApplyResult'],
+        reason: 'source-existence sweep RPCs must stay in the shared backend contract',
+      },
+      {
+        file: 'worker/bootstrap/BackendKernel.ts',
+        tokens: ['case \'browser.sourceExistence.applySweepHost\'', 'case \'browser.sourceExistence.applySweep\'', 'handleSourceExistenceApplySweepHost'],
+        reason: 'backend kernel must dispatch source-existence sweep commands',
+      },
+      {
+        file: 'worker/db/SqliteDatabaseService.ts',
+        tokens: ['runTransaction(\'source-existence.sweep\'', 'updateSourceExistence', 'invalidateQueueProjectionsForSourceChanges'],
+        reason: 'source-existence sweep must update SQL and projection invalidation in one worker transaction',
+      },
+      {
+        file: 'src/application/services/BrowserApplicationService.ts',
+        tokens: ['scheduleSourceExistenceSweepFromBackend', 'browser.sourceExistence.applySweepHost', 'ensure-writable.source-existence-sweep'],
+        reason: 'Browser source-existence sweep must go through backend/writer relay instead of UI SQL or local patch writes',
+      },
+    ],
+  },
+  {
+    id: 'sync-conflict-merge',
+    status: 'active',
+    anchors: [
+      {
+        file: 'packages/contracts/src/backend-rpc.ts',
+        tokens: ['sync.conflict.merge', 'BackendSyncConflictMergeRequest', 'BackendSyncConflictMergeResult'],
+        reason: 'sync conflict merge must stay in the shared backend contract',
+      },
+      {
+        file: 'worker/bootstrap/BackendKernel.ts',
+        tokens: ['case \'sync.conflict.merge\'', 'handleSyncConflictMerge'],
+        reason: 'backend kernel must dispatch sync conflict merge to the database owner',
+      },
+      {
+        file: 'worker/db/SqliteDatabaseService.ts',
+        tokens: ['async mergeSyncConflictDatabases', 'runTransaction(\'sync.conflict.merge\'', 'invalidateQueueProjectionsForSyncConflictMerge'],
+        reason: 'sync conflict merge must import cards/review events and invalidate projections in one SQL transaction',
+      },
+      {
+        file: 'src/application/services/SyncConflictMergeApplicationService.ts',
+        tokens: ['export class SyncConflictMergeApplicationService', 'mergeSyncConflicts'],
+        reason: 'application conflict merge must be a thin command module over the backend owner',
+      },
+      {
+        file: 'src/application/ApplicationContext.ts',
+        tokens: ['mergeSyncConflictDatabasesNow', 'BACKEND_UNAVAILABLE: sync conflict merge requires SRS backend', 'new SyncConflictMergeApplicationService'],
+        reason: 'composition root must fail closed and route sync conflict merge through backend worker',
+      },
+    ],
+  },
+  {
     id: 'ai-backend-session-job',
     status: 'active',
     anchors: [
