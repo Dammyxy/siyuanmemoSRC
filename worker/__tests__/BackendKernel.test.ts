@@ -4409,6 +4409,277 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('returns orbit round progress and engine history after advancing from focus to neighbor', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const resolveNeuralGraphQuery = vi.fn(async (
+      request: BackendNeuralGraphQueryRequest,
+    ): Promise<BackendNeuralGraphQueryResult> => {
+      if (request.operation === 'fetchBlockData') {
+        const block = {
+          id: request.blockId,
+          content: `${request.blockId} content`,
+          type: 'p',
+        };
+        return { status: 'found', blockId: request.blockId, data: block, error: null };
+      }
+      if (request.operation === 'isConceptCard') {
+        return {
+          status: 'found',
+          blockId: request.blockId,
+          data: request.blockId === 'concept-source-1',
+          error: null,
+        };
+      }
+      if (request.operation === 'fetchNeighbors') {
+        return {
+          status: 'found',
+          blockId: request.blockId,
+          data: request.blockId === 'concept-source-1'
+            ? [{ id: 'orbit-neighbor-1', type: 'backlink', weight: 15 }]
+            : [],
+          error: null,
+        };
+      }
+      if (request.operation === 'fetchNodePriority') {
+        return { status: 'found', blockId: request.blockId, data: 0.9, error: null };
+      }
+      return { status: 'found', blockId: request.blockId, data: [], error: null };
+    });
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery,
+    });
+
+    const startResponse = await kernel.handle({
+      id: 'neural-advance-orbit-start-focus',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: null,
+        startFromFocus: {
+          blockId: 'concept-source-1',
+          includeFocusAsFirst: true,
+          startNewSession: true,
+        },
+      }],
+    });
+
+    expect('result' in startResponse).toBe(true);
+    if (!('result' in startResponse)) {
+      return;
+    }
+
+    const nextResponse = await kernel.handle({
+      id: 'neural-advance-orbit-next-neighbor',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: null,
+        currentItem: startResponse.result.nextItem,
+        feedback: { action: 'skip' },
+      }],
+    });
+
+    expect('result' in nextResponse).toBe(true);
+    if ('result' in nextResponse) {
+      expect(nextResponse.result).toMatchObject({
+        queueType: 'neural-roam',
+        status: 'advanced',
+        nextItem: {
+          blockId: 'orbit-neighbor-1',
+        },
+        sessionState: {
+          engineMode: 'orbit',
+          currentNodeId: 'orbit-neighbor-1',
+          pathLength: 2,
+          historyCount: 2,
+        },
+        queueState: {
+          version: 8,
+          engineMode: 'orbit',
+          orbit: {
+            anchorPool: [
+              expect.objectContaining({
+                nodeId: 'concept-source-1',
+                neighborsViewed: 1,
+              }),
+            ],
+            session: expect.objectContaining({
+              currentFocus: 'concept-source-1',
+              history: expect.arrayContaining([
+                expect.objectContaining({ nodeId: 'concept-source-1' }),
+                expect.objectContaining({ nodeId: 'orbit-neighbor-1' }),
+              ]),
+            }),
+          },
+        },
+      });
+    }
+  });
+
+  it('trusts neural-roam start conceptBlockId as the backend orbit seed for temporary current-block roam', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const resolveNeuralGraphQuery = vi.fn(async (
+      request: BackendNeuralGraphQueryRequest,
+    ): Promise<BackendNeuralGraphQueryResult> => {
+      if (request.operation === 'fetchBlockData') {
+        return {
+          status: 'found',
+          blockId: request.blockId,
+          data: {
+            id: request.blockId,
+            content: `${request.blockId} content`,
+            type: 'p',
+          },
+          error: null,
+        };
+      }
+      if (request.operation === 'isConceptCard') {
+        return {
+          status: 'found',
+          blockId: request.blockId,
+          data: request.blockId === 'concept-seed-1',
+          error: null,
+        };
+      }
+      if (request.operation === 'fetchNodePriority') {
+        return { status: 'found', blockId: request.blockId, data: 0.9, error: null };
+      }
+      return { status: 'found', blockId: request.blockId, data: [], error: null };
+    });
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery,
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-current-block-with-concept-seed',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: null,
+        startFromFocus: {
+          blockId: 'definition-block-1',
+          seedBlockId: 'concept-seed-1',
+          conceptBlockId: 'concept-seed-1',
+          includeFocusAsFirst: true,
+          startNewSession: true,
+          entrySessionKind: 'temporary-current-block',
+        },
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        status: 'advanced',
+        nextItem: {
+          blockId: 'definition-block-1',
+        },
+        queueState: {
+          version: 8,
+          engineMode: 'orbit',
+          orbit: {
+            seedPool: [
+              expect.objectContaining({
+                nodeId: 'concept-seed-1',
+              }),
+            ],
+            anchorPool: [
+              expect.objectContaining({
+                nodeId: 'definition-block-1',
+              }),
+            ],
+          },
+        },
+      });
+    }
+  });
+
+  it('uses neural-roam start seedBlockId as the backend orbit seed when conceptBlockId is absent', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const resolveNeuralGraphQuery = vi.fn(async (
+      request: BackendNeuralGraphQueryRequest,
+    ): Promise<BackendNeuralGraphQueryResult> => {
+      if (request.operation === 'fetchBlockData') {
+        return {
+          status: 'found',
+          blockId: request.blockId,
+          data: {
+            id: request.blockId,
+            content: `${request.blockId} content`,
+            type: 'p',
+          },
+          error: null,
+        };
+      }
+      if (request.operation === 'isConceptCard') {
+        return {
+          status: 'found',
+          blockId: request.blockId,
+          data: request.blockId === 'seed-only-concept',
+          error: null,
+        };
+      }
+      if (request.operation === 'fetchNodePriority') {
+        return { status: 'found', blockId: request.blockId, data: 0.9, error: null };
+      }
+      return { status: 'found', blockId: request.blockId, data: [], error: null };
+    });
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery,
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-current-block-with-seed-only',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: null,
+        startFromFocus: {
+          blockId: 'definition-block-1',
+          seedBlockId: 'seed-only-concept',
+          includeFocusAsFirst: true,
+          startNewSession: true,
+          entrySessionKind: 'temporary-current-block',
+        },
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        status: 'advanced',
+        nextItem: {
+          blockId: 'definition-block-1',
+        },
+        queueState: {
+          version: 8,
+          engineMode: 'orbit',
+          orbit: {
+            seedPool: [
+              expect.objectContaining({
+                nodeId: 'seed-only-concept',
+              }),
+            ],
+            anchorPool: [
+              expect.objectContaining({
+                nodeId: 'definition-block-1',
+              }),
+            ],
+          },
+        },
+      });
+    }
+  });
+
   it('uses SQL active route by default for backend neural-roam advance', async () => {
     const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
     await seedNeuralRoamRouteSource(database, 'route-b', 'route-b-source');
@@ -4477,6 +4748,49 @@ describe('BackendKernel', () => {
         status: 'mismatch',
         nextItem: null,
         unavailableReason: 'route-mismatch',
+      });
+    }
+  });
+
+  it('rejects stale backend neural-roam commands for an inactive route', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    await seedNeuralRoamRouteSource(database, 'route-a', 'route-a-source', 'default');
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({
+        'route-a-source': { id: 'route-a-source', content: 'Route A', type: 'p' },
+      }),
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-command-stale-route',
+      jsonrpc: '2.0',
+      method: 'neural-roam.command' as never,
+      params: [{
+        queueType: 'neural-roam',
+        command: {
+          type: 'set-anchor',
+          nodeId: 'route-a-source',
+          enabled: true,
+          routeId: 'route-a',
+        },
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        status: 'mismatch',
+        unavailableReason: 'route-mismatch',
+        viewState: {
+          route: {
+            id: 'default',
+          },
+        },
+        queueState: expect.objectContaining({
+          version: 8,
+        }),
       });
     }
   });

@@ -220,7 +220,7 @@ describe('browserLoadDataRuntime', () => {
     await vi.runAllTimersAsync();
 
     expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(3);
-    expect(deps.refreshNeuralSubviewData).toHaveBeenCalledTimes(2);
+    expect(deps.refreshNeuralSubviewData).toHaveBeenCalledTimes(1);
     expect(deps.currentDataSource.value?.id).toBe('neural-roam');
     vi.useRealTimers();
   });

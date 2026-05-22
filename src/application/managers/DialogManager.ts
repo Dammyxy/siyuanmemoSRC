@@ -1250,21 +1250,41 @@ export class DialogManager implements IDialogManager {
 
     try {
       const neuralQueue = this.context.getUnifiedDataSourceManager().getQueue(QueueType.NeuralRoam);
+      const neuralCommand = this.context.getUnifiedDataSourceManager().neuralRoamCommand;
       const focusBlockId = options?.focusBlockId;
       const includeFocusAsFirst = options?.includeFocusAsFirst ?? true;
       const resetHistory = options?.resetHistory === true;
       const startNewSession = options?.startNewSession === true;
       const semanticPinnedSessionId = String(options?.semanticPinnedSessionId || '').trim();
 
-      if (isNeuralRoamSessionQueue(neuralQueue)) {
+      if (typeof neuralCommand === 'function' && isNeuralRoamSessionQueue(neuralQueue)) {
         if (focusBlockId) {
-          await neuralQueue.startRoamingFromFocus(focusBlockId, {
-            includeFocusAsFirst,
-            resetHistory,
-            startNewSession,
+          const result = await neuralCommand({
+            queueType: 'neural-roam',
+            command: {
+              type: 'start-roaming-from-focus',
+              focusId: focusBlockId,
+              includeFocusAsFirst,
+              resetHistory,
+              startNewSession,
+            },
           });
+          if (result.queueState && typeof neuralQueue.syncFromBackendState === 'function') {
+            await neuralQueue.syncFromBackendState(result.queueState);
+          }
+          neuralQueue.setBackendViewState?.(result.viewState ?? null);
         } else if (resetHistory) {
-          await neuralQueue.clearHistory('all');
+          const result = await neuralCommand({
+            queueType: 'neural-roam',
+            command: {
+              type: 'clear-history',
+              scope: 'all',
+            },
+          });
+          if (result.queueState && typeof neuralQueue.syncFromBackendState === 'function') {
+            await neuralQueue.syncFromBackendState(result.queueState);
+          }
+          neuralQueue.setBackendViewState?.(result.viewState ?? null);
         }
       }
 

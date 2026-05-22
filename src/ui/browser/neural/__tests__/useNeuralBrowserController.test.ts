@@ -297,7 +297,7 @@ describe('useNeuralBrowserController', () => {
     ], expect.objectContaining({ applyQueryFilter: false }));
   });
 
-  it('warms neural queue load before reading source snapshot', async () => {
+  it('reads neural source snapshot without forcing queue warm-up', async () => {
     let hydrated = false;
     const queue = createQueue({
       getCards: vi.fn(async () => {
@@ -312,8 +312,8 @@ describe('useNeuralBrowserController', () => {
 
     await controller.refreshNeuralSubviewData();
 
-    expect(queue.getCards).toHaveBeenCalledTimes(1);
-    expect(controller.neuralSourceEntries.value).toHaveLength(1);
+    expect(queue.getCards).not.toHaveBeenCalled();
+    expect(controller.neuralSourceEntries.value).toHaveLength(0);
   });
 
   it('clears projected state when neural queue is unavailable', async () => {

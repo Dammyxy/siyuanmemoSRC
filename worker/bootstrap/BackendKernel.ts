@@ -21,6 +21,10 @@ import {
   type BackendNeuralGraphQueryResult,
   type BackendNeuralRoamAdvanceRequest,
   type BackendNeuralRoamAdvanceResult,
+  type BackendNeuralRoamCommandRequest,
+  type BackendNeuralRoamCommandResult,
+  type BackendNeuralRoamViewStateRequest,
+  type BackendNeuralRoamViewStateResult,
   type BackendBrowserDeckPageRequest,
   type BackendBrowserDeckSnapshotQuery,
   type BackendSourceExistenceSweepApplyRequest,
@@ -293,6 +297,10 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleQueueProjectionReplace(request.params));
         case 'neural-roam.advance':
           return buildSuccess(request.id, await this.handleNeuralRoamAdvance(request.params));
+        case 'neural-roam.viewState':
+          return buildSuccess(request.id, await this.handleNeuralRoamViewState(request.params));
+        case 'neural-roam.command':
+          return buildSuccess(request.id, await this.handleNeuralRoamCommand(request.params));
         case 'kernel.transaction.ingest':
           return buildSuccess(request.id, await this.handleKernelTransactionIngest(request.params));
         case 'kernel.transaction.dequeue':
@@ -668,6 +676,22 @@ export class BackendKernel {
       throw new Error('neural-roam.advance requires named params');
     }
     return this.neuralRoamRuntime.advance(named);
+  }
+
+  private async handleNeuralRoamViewState(params: unknown): Promise<BackendNeuralRoamViewStateResult> {
+    const named = this.readNamedParams<BackendNeuralRoamViewStateRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('neural-roam.viewState requires named params');
+    }
+    return this.neuralRoamRuntime.readViewState(named);
+  }
+
+  private async handleNeuralRoamCommand(params: unknown): Promise<BackendNeuralRoamCommandResult> {
+    const named = this.readNamedParams<BackendNeuralRoamCommandRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('neural-roam.command requires named params');
+    }
+    return this.neuralRoamRuntime.executeCommand(named);
   }
 
   private handleAiSessionCreate(params: unknown): BackendAiSessionResult {

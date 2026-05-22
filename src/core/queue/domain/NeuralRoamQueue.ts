@@ -59,6 +59,7 @@ import { createDependencyUnavailableError } from '../dependencyErrors';
 import { resolveCardId } from '../../../diagnostics/type-guards';
 import { createLogger } from '@/utils/logger';
 import type { HyperspaceSettings } from '@/types/settings';
+import type { BackendNeuralRoamViewState } from '../../../../packages/contracts/src/backend-rpc';
 
 const logger = createLogger('NeuralRoamQueue');
 
@@ -317,6 +318,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   private readonly getHyperspaceSettings?: () => HyperspaceSettings;
   private readonly routeCatalog?: NeuralRoamRouteCatalog;
   private activeRouteSnapshot: NeuralRoamRouteSnapshot | null = null;
+  private backendViewState: BackendNeuralRoamViewState | null = null;
   private persistedRouteHistoryEventIds = new Set<string>();
   private engineMode: NeuralEngineMode = 'orbit';
   private pendingAssociatedReviewCards: FSRSCard[] = [];
@@ -739,11 +741,20 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     if (!isNeuralRoamPersistedStateV8(rawState)) {
       throw new Error('NEURAL_ROAM_QUEUE_SYNC_UNAVAILABLE: backend queue state is missing or invalid');
     }
+    this.backendViewState = null;
     await this.restorePersistedState(this.sanitizeBackendStateAfterLocalClear(rawState), {
       fromStorage: false,
       normalizeSeedPool: false,
     });
     this.markInitialLoadCompleted();
+  }
+
+  public setBackendViewState(viewState: BackendNeuralRoamViewState | null): void {
+    this.backendViewState = viewState;
+  }
+
+  public getBackendViewState(): BackendNeuralRoamViewState | null {
+    return this.backendViewState;
   }
 
   public exportPersistedState(): Record<string, unknown> {

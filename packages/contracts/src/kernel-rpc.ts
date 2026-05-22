@@ -223,6 +223,8 @@ export const KERNEL_RELAY_METHODS = [
   'kernel.transaction.requeue',
   'queue.projection.replace',
   'neural-roam.advance',
+  'neural-roam.viewState',
+  'neural-roam.command',
   'ai.session.create',
   'ai.session.get',
   'ai.session.update',

@@ -1113,15 +1113,27 @@ export class TabManager {
 
     const queue = this.context.getUnifiedDataSourceManager().getQueue(QueueType.NeuralRoam) as {
       getEngineMode?: () => string;
-      setEngineMode?: (mode: 'orbit' | 'hyperspace', options?: { carryCurrentNode?: boolean }) => Promise<void>;
+      setBackendViewState?: (viewState: unknown) => void;
     };
-    if (typeof queue?.setEngineMode !== 'function') {
+    const command = this.context.getUnifiedDataSourceManager().neuralRoamCommand;
+    if (typeof command !== 'function') {
       return;
     }
     if (typeof queue.getEngineMode === 'function' && queue.getEngineMode() === previousMode) {
       return;
     }
-    void queue.setEngineMode(previousMode, { carryCurrentNode: true }).catch((error) => {
+    void command({
+      queueType: 'neural-roam',
+      command: {
+        type: 'switch-engine-mode',
+        mode: previousMode,
+        carryCurrentNode: true,
+      },
+    }).then((result) => {
+      if (result.queueState && typeof queue?.setBackendViewState === 'function') {
+        queue.setBackendViewState(result.viewState ?? null);
+      }
+    }).catch((error) => {
       logger.warn('Failed to restore temporary NeuralRoam engine mode on tab close', {
         previousMode,
         error,

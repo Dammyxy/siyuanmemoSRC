@@ -28,6 +28,10 @@ import type {
   BackendKernelTransactionRequeueResult,
   BackendNeuralRoamAdvanceRequest,
   BackendNeuralRoamAdvanceResult,
+  BackendNeuralRoamCommandRequest,
+  BackendNeuralRoamCommandResult,
+  BackendNeuralRoamViewStateRequest,
+  BackendNeuralRoamViewStateResult,
   BackendQueueProjectionRowsByIdsRequest,
   BackendQueueProjectionRowsByIdsResult,
   BackendQueueProjectionReplaceRequest,
@@ -261,6 +265,20 @@ export class SrsBackendClient {
     return this.validateNeuralRoamAdvanceResult(result);
   }
 
+  async neuralRoamViewState(
+    request: BackendNeuralRoamViewStateRequest,
+  ): Promise<BackendNeuralRoamViewStateResult> {
+    const result = await this.call<BackendNeuralRoamViewStateResult>('neural-roam.viewState', request);
+    return this.validateNeuralRoamViewStateResult(result);
+  }
+
+  async neuralRoamCommand(
+    request: BackendNeuralRoamCommandRequest,
+  ): Promise<BackendNeuralRoamCommandResult> {
+    const result = await this.call<BackendNeuralRoamCommandResult>('neural-roam.command', request);
+    return this.validateNeuralRoamCommandResult(result);
+  }
+
   async createAiSession(request: BackendAiSessionCreateRequest): Promise<BackendAiSessionResult> {
     return this.call<BackendAiSessionResult>('ai.session.create', request);
   }
@@ -459,6 +477,46 @@ export class SrsBackendClient {
       throw new Error('neural-roam.advance returned invalid payload');
     }
     return candidate as unknown as BackendNeuralRoamAdvanceResult;
+  }
+
+  private validateNeuralRoamViewStateResult(payload: unknown): BackendNeuralRoamViewStateResult {
+    const candidate = this.assertObjectResult<Record<string, unknown>>('neural-roam.viewState', payload);
+    const status = String(candidate.status || '').trim();
+    const validStatus = status === 'ready'
+      || status === 'unavailable'
+      || status === 'mismatch'
+      || status === 'failed';
+    if (candidate.queueType !== 'neural-roam' || !validStatus) {
+      throw new Error('neural-roam.viewState returned invalid payload');
+    }
+    if (status === 'ready') {
+      const viewState = candidate.viewState;
+      if (!viewState || typeof viewState !== 'object' || Number((viewState as Record<string, unknown>).version) !== 1) {
+        throw new Error('neural-roam.viewState returned invalid payload');
+      }
+    }
+    return candidate as unknown as BackendNeuralRoamViewStateResult;
+  }
+
+  private validateNeuralRoamCommandResult(payload: unknown): BackendNeuralRoamCommandResult {
+    const candidate = this.assertObjectResult<Record<string, unknown>>('neural-roam.command', payload);
+    const status = String(candidate.status || '').trim();
+    const validStatus = status === 'ok'
+      || status === 'unavailable'
+      || status === 'mismatch'
+      || status === 'failed';
+    if (candidate.queueType !== 'neural-roam' || !validStatus) {
+      throw new Error('neural-roam.command returned invalid payload');
+    }
+    if (status === 'ok') {
+      const viewState = candidate.viewState;
+      const queueState = candidate.queueState;
+      if (!viewState || typeof viewState !== 'object' || Number((viewState as Record<string, unknown>).version) !== 1
+          || !queueState || typeof queueState !== 'object') {
+        throw new Error('neural-roam.command returned invalid payload');
+      }
+    }
+    return candidate as unknown as BackendNeuralRoamCommandResult;
   }
 
   private validateAiJobResult(payload: unknown, method: string): BackendAiJobResult {

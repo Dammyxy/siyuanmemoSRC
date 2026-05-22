@@ -5,7 +5,7 @@ import {
 } from '@/core/queue/abstraction/Strategy';
 import type { QueueStats, QueueUIConfig } from '@/core/queue/types';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
-import type { DataChangeEvent, IDataSourceObserver, IReviewQueue, QueueCounterSnapshot, QueueReviewResult, QueueReviewSchedulingContext } from '@/types/unified-data-source';
+import type { DataChangeEvent, IDataSourceObserver, IReviewQueue, QueueCounterSnapshot, QueueReviewResult, QueueReviewSchedulingContext, NeuralRoamBatchSnapshot } from '@/types/unified-data-source';
 import type { ReviewQueueSessionSnapshot } from '@/types/review-tab';
 import { QueueType } from '@/types/unified-data-source';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
@@ -37,7 +37,10 @@ import { createLogger } from '@/utils/logger';
 import type {
     BackendNeuralRoamAdvanceRequest,
     BackendNeuralRoamAdvanceResult,
+    BackendNeuralRoamCommandResult,
+    BackendNeuralRoamCommandRequest,
     BackendNeuralRoamStartFromFocusRequest,
+    BackendNeuralRoamViewState,
 } from '../../../packages/contracts/src/backend-rpc';
 
 const logger = createLogger('UnifiedQueueStrategy');
@@ -71,10 +74,12 @@ type FeedbackMutationContext = {
 
 type NeuralRoamAdvanceManager = UnifiedDataSourceManager & {
     neuralRoamAdvance?: (request: BackendNeuralRoamAdvanceRequest) => Promise<BackendNeuralRoamAdvanceResult>;
+    neuralRoamCommand?: (request: BackendNeuralRoamCommandRequest) => Promise<BackendNeuralRoamCommandResult>;
 };
 
 type NeuralRoamBackendStateSyncQueue = IReviewQueue & {
     syncFromBackendState?: (state: Record<string, unknown>) => Promise<void>;
+    setBackendViewState?: (viewState: BackendNeuralRoamViewState | null) => void;
 };
 
 type NeuralRoamRouteSwitchQueue = IReviewQueue & {
@@ -100,6 +105,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
+function resolveNeuralRoamBatchSnapshot(queue: IReviewQueue): NeuralRoamBatchSnapshot | null {
+    const candidate = queue as Partial<IReviewQueue & {
+        getCurrentBatchSnapshot: () => NeuralRoamBatchSnapshot | null;
+    }>;
+    if (typeof candidate.getCurrentBatchSnapshot !== 'function') {
+        return null;
+    }
+    return candidate.getCurrentBatchSnapshot();
+}
+
 export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSourceObserver {
     private manager: UnifiedDataSourceManager;
     private schedulerRouter: ISchedulerRouter | null;
@@ -119,6 +134,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private readonly neuralRoamAdvanceOutcomePolicy = new NeuralRoamAdvanceOutcomePolicy();
     private readonly feedbackAdvancement: ReviewFeedbackAdvancementCoordinator;
     private readonly neuralRoamAdvance: NeuralRoamAdvanceCoordinator;
+    private lastNeuralRoamViewState: BackendNeuralRoamViewState | null = null;
 
     constructor(
         queueTypeOrQueue: QueueType | IReviewQueue,
@@ -595,28 +611,65 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     async getStats(): Promise<QueueStats> {
         try {
-            if (this.queueType === QueueType.NeuralRoam && !this.isProjectionBackedQueue()) {
-                if (this.cursor.counterSnapshot) {
-                    const stats = this.formatStatsFromCounterSnapshot(this.cursor.counterSnapshot);
+            if (this.queueType === QueueType.NeuralRoam) {
+                if (this.lastNeuralRoamViewState) {
+                    const progress = this.lastNeuralRoamViewState.batchProgress;
+                    const stats: QueueStats = {
+                        size: progress.viewedCount,
+                        label: `${this.lastNeuralRoamViewState.engineMode === 'hyperspace' ? '深度' : '已看'} ${progress.viewedCount}`,
+                        extra: `${this.lastNeuralRoamViewState.engineMode === 'hyperspace' ? '最大深度' : '本轮总数'} ${progress.totalCount}`,
+                    };
                     logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
                         queueType: this.queueType,
                         ...stats,
                     });
                     return stats;
                 }
-                const size = await this.queue.getSize();
-                const stats: QueueStats = {
-                    size,
-                    label: `${size} due`,
-                    extra: `${size} total`,
-                };
+                const batch = resolveNeuralRoamBatchSnapshot(this.queue);
+                if (batch) {
+                    const viewed = Math.max(0, Math.floor(Number(batch.viewedCount) || 0));
+                    const total = Math.max(0, Math.floor(Number(batch.roundSize) || 0));
+                    const label = batch.engineMode === 'hyperspace'
+                        ? '深度'
+                        : '已看';
+                    const scope = batch.engineMode === 'hyperspace'
+                        ? '最大深度'
+                        : '本轮总数';
+                    const stats: QueueStats = {
+                        size: viewed,
+                        label: `${label} ${viewed}`,
+                        extra: `${scope} ${total}`,
+                    };
+                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
+                        queueType: this.queueType,
+                        ...stats,
+                    });
+                    return stats;
+                }
 
-                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
-                    queueType: this.queueType,
-                    ...stats,
-                });
+                if (!this.isProjectionBackedQueue()) {
+                    if (this.cursor.counterSnapshot) {
+                        const stats = this.formatStatsFromCounterSnapshot(this.cursor.counterSnapshot);
+                        logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
+                            queueType: this.queueType,
+                            ...stats,
+                        });
+                        return stats;
+                    }
+                    const size = await this.queue.getSize();
+                    const stats: QueueStats = {
+                        size,
+                        label: `${size} due`,
+                        extra: `${size} total`,
+                    };
 
-                return stats;
+                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
+                        queueType: this.queueType,
+                        ...stats,
+                    });
+
+                    return stats;
+                }
             }
 
             const counterSnapshot = await this.getCounterSnapshot();
@@ -874,12 +927,14 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         if (this.queueType !== QueueType.NeuralRoam) {
             throw new Error(`Queue ${this.queueType} does not support NeuralRoam route switching`);
         }
-        const queue = this.queue as NeuralRoamRouteSwitchQueue;
-        if (typeof queue.switchRoute !== 'function') {
-            throw new Error('NEURAL_ROAM_ROUTE_UNAVAILABLE: queue route switch contract is unavailable');
+        const result = await this.submitNeuralRoamCommand({
+            queueType: 'neural-roam',
+            command: { type: 'switch-route', routeId },
+        });
+        if (result.status !== 'ok') {
+            throw new Error(`NEURAL_ROAM_ROUTE_UNAVAILABLE: ${result.message}`);
         }
-
-        await queue.switchRoute(routeId);
+        await this.syncNeuralRoamCommandResult(result);
         this.neuralRoamAdvance.setActiveRouteId(routeId);
         this.transactionRuntime.clear();
         this.feedbackMutation = null;
@@ -890,6 +945,28 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             queueType: this.queueType,
             routeId,
         });
+    }
+
+    private async submitNeuralRoamCommand(
+        request: BackendNeuralRoamCommandRequest,
+    ): Promise<BackendNeuralRoamCommandResult> {
+        const manager = this.manager as NeuralRoamAdvanceManager;
+        if (typeof manager.neuralRoamCommand !== 'function') {
+            throw new Error('NEURAL_ROAM_COMMAND_UNAVAILABLE: manager neural-roam.command contract is unavailable');
+        }
+        return manager.neuralRoamCommand(request);
+    }
+
+    private async syncNeuralRoamCommandResult(result: BackendNeuralRoamCommandResult): Promise<void> {
+        if (result.queueState) {
+            const queue = this.queue as NeuralRoamBackendStateSyncQueue;
+            if (typeof queue.syncFromBackendState === 'function') {
+                await queue.syncFromBackendState(result.queueState);
+            }
+        }
+        const queue = this.queue as NeuralRoamBackendStateSyncQueue;
+        queue.setBackendViewState?.(result.viewState ?? null);
+        this.lastNeuralRoamViewState = result.viewState ?? null;
     }
 
     private async handleNeuralRoamAdvanceFeedback(
@@ -966,6 +1043,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private async syncNeuralRoamQueueFromBackendState(result: BackendNeuralRoamAdvanceResult): Promise<void> {
+        this.lastNeuralRoamViewState = result.viewState ?? null;
         if (!result.queueState) {
             throw new Error('NEURAL_ROAM_QUEUE_SYNC_UNAVAILABLE: backend queue state is missing');
         }
@@ -974,6 +1052,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             throw new Error('NEURAL_ROAM_QUEUE_SYNC_UNAVAILABLE: local NeuralRoam queue sync contract is unavailable');
         }
         await queue.syncFromBackendState(result.queueState);
+        queue.setBackendViewState?.(result.viewState ?? null);
         this.neuralRoamAdvance.setActiveRouteId(result.routeId ?? result.sessionState.routeId ?? this.readActiveNeuralRoamRouteId());
     }
 
@@ -1594,6 +1673,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         this.feedbackMutation = null;
         this.clearCurrentItem();
         this.neuralRoamAdvance.reset();
+        this.lastNeuralRoamViewState = null;
         this.cursor.reset();
         this.cacheManager.clear();
         this.invalidateCache();

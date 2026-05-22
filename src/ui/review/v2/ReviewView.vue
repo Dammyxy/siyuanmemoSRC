@@ -1126,6 +1126,10 @@ function getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null {
   return contextFromProps?.getUnifiedDataSourceManager?.() || contextFromWindow?.getUnifiedDataSourceManager?.() || null;
 }
 
+function getNeuralRoamCommand() {
+  return getUnifiedDataSourceManager()?.neuralRoamCommand || null;
+}
+
 function getInitialReviewSessionState(): InitialReviewSessionState | undefined {
   const session = hook.context.value.session;
   if (!session) {
@@ -3428,6 +3432,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
       refreshNavigationState,
       showMessage,
       logger,
+      runNeuralRoamCommand: getNeuralRoamCommand() || undefined,
     });
   }
 }
@@ -3605,6 +3610,7 @@ function handleNeuralFocusMenu(ev: MouseEvent): void {
     showMessage,
     logger,
     openNeuralBrowserSubview,
+    runNeuralRoamCommand: getNeuralRoamCommand() || undefined,
   }));
 
   openMenuAtEvent(menu, ev);
@@ -3626,6 +3632,7 @@ function handleNeuralHistoryMenu(ev: MouseEvent): void {
     showMessage,
     logger,
     openNeuralBrowserSubview,
+    runNeuralRoamCommand: getNeuralRoamCommand() || undefined,
   }));
 
   openMenuAtEvent(menu, ev);

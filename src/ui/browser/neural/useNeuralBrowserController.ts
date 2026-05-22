@@ -5,10 +5,17 @@ import type {
   IReviewQueue,
   NeuralActivationTrace,
   NeuralNavigationState,
+  NeuralRoamAnchorEntry,
   NeuralRoamHistoryEntry,
   NeuralRoamSessionQueue,
+  NeuralRoamSourceEntry,
 } from '@/types/unified-data-source';
 import { isNeuralRoamSessionQueue } from '@/types/unified-data-source';
+import type {
+  BackendNeuralRoamCommand,
+  BackendNeuralRoamCommandResult,
+  BackendNeuralRoamViewState,
+} from '../../../../packages/contracts/src/backend-rpc';
 import type {
   NeuralActivationTraceViewModel,
   NeuralAnchorListEntry,
@@ -71,6 +78,8 @@ export type UseNeuralBrowserControllerDeps = {
   getCardLoadOptions: () => Partial<Pick<LoadBrowserCardsOptions, 'manager' | 'siyuanApi'>>;
   previewCard: Ref<BrowserCard | null>;
   refreshQueueCounts: () => Promise<void>;
+  readNeuralRoamViewState?: () => Promise<BackendNeuralRoamViewState | null>;
+  runNeuralRoamCommand?: (command: BackendNeuralRoamCommand) => Promise<BackendNeuralRoamCommandResult>;
   getReviewSurfaceDeps: () => NeuralReviewSurfaceHandoffDeps;
   confirmClearHistory: () => Promise<boolean>;
   confirmClearRouteHistory?: () => Promise<boolean>;
@@ -492,10 +501,17 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
       return;
     }
 
-    await neuralQueue.getCards();
     await refreshNeuralRoutes();
+    const backendViewState = await deps.readNeuralRoamViewState?.().catch((error) => {
+      deps.logError('Failed to read backend NeuralRoam view state:', error);
+      return null;
+    }) ?? null;
     const navState = neuralQueue.getNavigationState();
-    const sourceSnapshot = neuralQueue.getSourceSnapshot();
+    const viewNavState = backendViewState?.navigationState
+      ? backendViewState.navigationState as unknown as NeuralNavigationState
+      : navState;
+    const sourceSnapshot = (backendViewState?.sources as NeuralRoamSourceEntry[] | undefined)
+      ?? neuralQueue.getSourceSnapshot();
     const historyPageRequest = {
       offset: 0,
       limit: Math.max(historyPageSize, neuralHistoryRequestedCount.value),
@@ -503,11 +519,18 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
     const activeNeuralSubview = deps.getNeuralSubview?.() ?? 'engine-history';
     const usesRouteHistoryPage = activeNeuralSubview === 'roam-history'
       && typeof neuralQueue.getRouteHistoryPage === 'function';
-    const historyPage = usesRouteHistoryPage
-      ? await neuralQueue.getRouteHistoryPage(historyPageRequest)
-      : neuralQueue.getHistoryPage(historyPageRequest);
-    const anchorSnapshot = neuralQueue.getAnchorSnapshot();
-    await syncNeuralActivationTrace(neuralQueue, historyPage.entries, navState);
+    const historyPage = backendViewState
+      ? {
+          entries: (usesRouteHistoryPage ? backendViewState.routeHistory : backendViewState.engineHistory) as NeuralRoamHistoryEntry[],
+          totalCount: (usesRouteHistoryPage ? backendViewState.routeHistory : backendViewState.engineHistory).length,
+          hasMore: false,
+        }
+      : usesRouteHistoryPage
+        ? await neuralQueue.getRouteHistoryPage(historyPageRequest)
+        : neuralQueue.getHistoryPage(historyPageRequest);
+    const anchorSnapshot = (backendViewState?.anchors as NeuralRoamAnchorEntry[] | undefined)
+      ?? neuralQueue.getAnchorSnapshot();
+    await syncNeuralActivationTrace(neuralQueue, historyPage.entries, viewNavState);
     const anchorIds = new Set(anchorSnapshot.map((entry) => entry.nodeId));
     const routeHitCounts = new Map<string, number>();
     if (usesRouteHistoryPage) {
@@ -516,11 +539,11 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
       }
     }
     neuralSourceEntries.value = toNeuralSourceListEntries(sourceSnapshot, {
-      currentNodeId: navState.currentNodeId,
+      currentNodeId: viewNavState.currentNodeId,
     });
     neuralHistoryEntries.value = toNeuralHistoryListEntries(historyPage.entries, {
       anchorIds,
-      currentNodeId: navState.currentNodeId,
+      currentNodeId: viewNavState.currentNodeId,
       selectedEventId: selectedNeuralHistoryEventId.value,
       getRepeatHitCount: (nodeId) => usesRouteHistoryPage
         ? routeHitCounts.get(nodeId) || 0
@@ -530,15 +553,29 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
     neuralHistoryHasMore.value = historyPage.hasMore;
     const currentSessionNodeIds = new Set(
       historyPage.entries
-        .filter((entry) => usesRouteHistoryPage || entry.sessionId === navState.sessionId)
+        .filter((entry) => usesRouteHistoryPage || entry.sessionId === viewNavState.sessionId)
         .map((entry) => entry.nodeId),
     );
     neuralAnchorEntries.value = toNeuralAnchorListEntries(anchorSnapshot, {
       historyNodeIds: currentSessionNodeIds,
-      currentNodeId: navState.currentNodeId,
+      currentNodeId: viewNavState.currentNodeId,
     });
-    neuralCurrentNodeId.value = navState.currentNodeId;
-    neuralNavigationState.value = navState;
+    neuralCurrentNodeId.value = viewNavState.currentNodeId;
+    neuralNavigationState.value = viewNavState;
+  }
+
+  async function runBackendNeuralCommand(command: BackendNeuralRoamCommand): Promise<boolean> {
+    if (typeof deps.runNeuralRoamCommand !== 'function') {
+      return false;
+    }
+    const result = await deps.runNeuralRoamCommand(command);
+    if (result.status !== 'ok') {
+      await deps.pushError(result.message || deps.t('neuralRoamEntryActionUnavailable', '神经漫游动作不可用'));
+      return true;
+    }
+    await refreshNeuralSubviewData();
+    await deps.refreshQueueCounts();
+    return true;
   }
 
   async function handleNeuralSwitchRoute(routeId: string): Promise<void> {
@@ -564,7 +601,9 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
       }
 
       try {
-        await neuralQueue.switchRoute(normalizedRouteId);
+        if (!await runBackendNeuralCommand({ type: 'switch-route', routeId: normalizedRouteId })) {
+          await neuralQueue.switchRoute(normalizedRouteId);
+        }
         await refreshAfterRouteBoundary(reviewReset);
       } catch (error) {
         deps.logError('Failed to switch NeuralRoam route:', error);
@@ -594,7 +633,9 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
         if (!reviewReset.confirmed) {
           return;
         }
-        await neuralQueue.createRoute({ name: normalizedName });
+        if (!await runBackendNeuralCommand({ type: 'create-route', name: normalizedName })) {
+          await neuralQueue.createRoute({ name: normalizedName });
+        }
         await refreshAfterRouteBoundary(reviewReset);
       } catch (error) {
         deps.logError('Failed to create NeuralRoam route:', error);
@@ -626,7 +667,9 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
         return;
       }
       try {
-        await neuralQueue.renameRoute(route.id, normalizedName);
+        if (!await runBackendNeuralCommand({ type: 'rename-route', routeId: route.id, name: normalizedName })) {
+          await neuralQueue.renameRoute(route.id, normalizedName);
+        }
         await refreshNeuralRoutes();
       } catch (error) {
         deps.logError('Failed to rename NeuralRoam route:', error);
@@ -659,7 +702,9 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
         if (!reviewReset.confirmed) {
           return;
         }
-        await neuralQueue.deleteRoute(route.id);
+        if (!await runBackendNeuralCommand({ type: 'delete-route', routeId: route.id })) {
+          await neuralQueue.deleteRoute(route.id);
+        }
         await refreshAfterRouteBoundary(reviewReset);
       } catch (error) {
         deps.logError('Failed to delete NeuralRoam route:', error);
@@ -682,7 +727,9 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
         return;
       }
       try {
-        await neuralQueue.saveTemporaryRoute(route.id);
+        if (!await runBackendNeuralCommand({ type: 'save-temporary-route', routeId: route.id })) {
+          await neuralQueue.saveTemporaryRoute(route.id);
+        }
         await refreshNeuralRoutes();
         await deps.pushMessage(deps.t('temporaryRouteSaved', '临时航线已保存'));
       } catch (error) {
@@ -920,14 +967,41 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
   }
 
   async function handleNeuralSetCurrentFocus(nodeId: string): Promise<void> {
+    if (await runBackendNeuralCommand({
+      type: 'set-current-focus',
+      nodeId,
+      includeFocusAsFirst: false,
+      resetHistory: false,
+      bookmarkCurrentPath: true,
+    })) {
+      await handleNeuralPreview(nodeId);
+      await handoffNeuralReviewSurface(nodeId);
+      return;
+    }
     await runNeuralSetCurrentFocus(nodeId, createNeuralBrowserCommandDeps());
   }
 
   async function handleNeuralToggleSource(nodeId: string, enabled: boolean): Promise<void> {
+    if (await runBackendNeuralCommand({ type: 'set-source', nodeId, enabled })) {
+      return;
+    }
     await runNeuralToggleSource(nodeId, enabled, createNeuralBrowserCommandDeps());
   }
 
   async function handleNeuralToggleEngineMode(): Promise<void> {
+    const neuralQueue = getNeuralRoamQueue();
+    const currentMode = neuralNavigationState.value?.engineMode ?? neuralQueue?.getEngineMode();
+    if (currentMode === 'orbit' || currentMode === 'hyperspace') {
+      const nextMode = currentMode === 'hyperspace' ? 'orbit' : 'hyperspace';
+      if (await runBackendNeuralCommand({ type: 'switch-engine-mode', mode: nextMode, carryCurrentNode: true })) {
+        const currentNodeId = neuralCurrentNodeId.value;
+        if (currentNodeId) {
+          setSelectedNeuralTraceState({ selectedTraceEventId: null, selectedTraceNodeId: currentNodeId });
+          await handleNeuralPreview(currentNodeId);
+        }
+        return;
+      }
+    }
     await runNeuralToggleEngineMode(createNeuralNavigationCommandDeps());
   }
 
@@ -943,10 +1017,31 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
   }
 
   async function handleNeuralToggleAnchor(nodeId: string, enabled: boolean): Promise<void> {
+    if (await runBackendNeuralCommand({ type: 'set-anchor', nodeId, enabled })) {
+      return;
+    }
     await runNeuralToggleAnchor(nodeId, enabled, createNeuralBrowserCommandDeps());
   }
 
   async function handleNeuralClearHistory(): Promise<void> {
+    if (typeof deps.runNeuralRoamCommand === 'function') {
+      const ok = deps.getNeuralSubview?.() === 'roam-history'
+        ? await (deps.confirmClearRouteHistory?.() ?? deps.confirmClearHistory())
+        : await deps.confirmClearHistory();
+      if (!ok) {
+        return;
+      }
+      const command: BackendNeuralRoamCommand = deps.getNeuralSubview?.() === 'roam-history'
+        ? { type: 'clear-route-history' }
+        : { type: 'clear-history', scope: 'all' };
+      if (await runBackendNeuralCommand(command)) {
+        neuralHistoryRequestedCount.value = historyPageSize;
+        await deps.pushMessage(deps.getNeuralSubview?.() === 'roam-history'
+          ? deps.t('routeHistoryClearedSuccess', '航线日志已清空')
+          : deps.t('historyClearedSuccess', '轨迹历史已清空'));
+        return;
+      }
+    }
     if (deps.getNeuralSubview?.() === 'roam-history') {
       await runNeuralClearRouteHistory(createNeuralBrowserCommandDeps());
       return;

@@ -29,6 +29,8 @@ export type BackendRpcMethod =
   | 'queue.projection.rowsByIds'
   | 'queue.projection.replace'
   | 'neural-roam.advance'
+  | 'neural-roam.viewState'
+  | 'neural-roam.command'
   | 'kernel.transaction.ingest'
   | 'kernel.transaction.dequeue'
   | 'kernel.transaction.requeue'
@@ -1596,6 +1598,105 @@ export interface BackendNeuralRoamSessionState {
   policyHash: string | null;
 }
 
+export interface BackendNeuralRoamViewStateRoute {
+  id: string | null;
+  name: string | null;
+  temporary: boolean;
+  previousRouteId: string | null;
+}
+
+export interface BackendNeuralRoamViewStateProgress {
+  kind: 'orbit-round' | 'hyperspace-current-node' | 'none';
+  viewedCount: number;
+  totalCount: number;
+  remainingCount: number;
+  label: string;
+}
+
+export interface BackendNeuralRoamViewState {
+  version: 1;
+  queueType: 'neural-roam';
+  route: BackendNeuralRoamViewStateRoute;
+  engineMode: string | null;
+  currentNodeId: string | null;
+  currentEventId: string | null;
+  navigationState: Record<string, unknown> | null;
+  counters: BackendNeuralRoamCounters;
+  sources: unknown[];
+  anchors: unknown[];
+  engineHistory: unknown[];
+  routeHistory: unknown[];
+  batchProgress: BackendNeuralRoamViewStateProgress;
+  updatedAt: number;
+}
+
+export interface BackendNeuralRoamViewStateRequest {
+  queueType: 'neural-roam';
+  routeId?: string | null;
+  sessionId?: string | null;
+}
+
+export type BackendNeuralRoamViewStateResult =
+  | {
+      queueType: 'neural-roam';
+      status: 'ready';
+      viewState: BackendNeuralRoamViewState;
+      unavailableReason: null;
+      message?: string | null;
+    }
+  | {
+      queueType: 'neural-roam';
+      status: 'unavailable' | 'mismatch' | 'failed';
+      viewState: BackendNeuralRoamViewState | null;
+      unavailableReason: BackendNeuralRoamAdvanceUnavailableReason;
+      message: string;
+    };
+
+export type BackendNeuralRoamCommand =
+  | { type: 'start-roaming-from-focus'; focusId: string; includeFocusAsFirst?: boolean; resetHistory?: boolean; startNewSession?: boolean; routeId?: string | null }
+  | { type: 'switch-engine-mode'; mode: 'orbit' | 'hyperspace'; carryCurrentNode?: boolean; routeId?: string | null }
+  | { type: 'switch-route'; routeId: string }
+  | { type: 'create-route'; name?: string | null }
+  | { type: 'rename-route'; routeId: string; name: string }
+  | { type: 'delete-route'; routeId: string }
+  | { type: 'jump-history-node'; nodeId: string; routeId?: string | null }
+  | { type: 'set-navigation-mode'; mode: 'explore' | 'follow'; routeId?: string | null }
+  | { type: 'return-to-bookmark'; routeId?: string | null }
+  | { type: 'create-temporary-route'; name?: string | null; seedBlockId: string; previousRouteId?: string | null }
+  | { type: 'replace-active-temporary-route'; name?: string | null; seedBlockId: string }
+  | { type: 'save-temporary-route'; routeId?: string | null; name?: string | null }
+  | { type: 'close-temporary-route'; action: 'save' | 'discard' | 'cancel'; routeId?: string | null; name?: string | null }
+  | { type: 'set-source'; nodeId: string; enabled?: boolean; routeId?: string | null }
+  | { type: 'set-anchor'; nodeId: string; enabled?: boolean; routeId?: string | null }
+  | { type: 'set-current-focus'; nodeId: string; includeFocusAsFirst?: boolean; resetHistory?: boolean; bookmarkCurrentPath?: boolean; routeId?: string | null }
+  | { type: 'clear-history'; scope?: 'current' | 'all'; routeId?: string | null }
+  | { type: 'clear-route-history'; routeId?: string | null };
+
+export interface BackendNeuralRoamCommandRequest {
+  queueType: 'neural-roam';
+  sessionId?: string | null;
+  command: BackendNeuralRoamCommand;
+  idempotencyKey?: string | null;
+}
+
+export type BackendNeuralRoamCommandResult =
+  | {
+      queueType: 'neural-roam';
+      status: 'ok';
+      viewState: BackendNeuralRoamViewState;
+      queueState: Record<string, unknown> | null;
+      unavailableReason: null;
+      message?: string | null;
+    }
+  | {
+      queueType: 'neural-roam';
+      status: 'unavailable' | 'mismatch' | 'failed';
+      viewState: BackendNeuralRoamViewState | null;
+      queueState: Record<string, unknown> | null;
+      unavailableReason: BackendNeuralRoamAdvanceUnavailableReason;
+      message: string;
+    };
+
 export interface BackendNeuralRoamAdvanceResult {
   queueType: 'neural-roam';
   routeId: string | null;
@@ -1604,6 +1705,7 @@ export interface BackendNeuralRoamAdvanceResult {
   nextItem: BackendNeuralRoamItem | null;
   counters: BackendNeuralRoamCounters;
   sessionState: BackendNeuralRoamSessionState;
+  viewState?: BackendNeuralRoamViewState | null;
   queueState: Record<string, unknown> | null;
   projectionImpact: BackendReviewFeedbackQueueImpact | null;
   unavailableReason: BackendNeuralRoamAdvanceUnavailableReason | null;

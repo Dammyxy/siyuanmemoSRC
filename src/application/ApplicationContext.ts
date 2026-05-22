@@ -2029,6 +2029,22 @@ export class ApplicationContext {
         idempotencyKey?: string | null;
       });
     }
+    if (command.method === 'neural-roam.viewState') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: neural-roam.viewState relay requires params object');
+      }
+      return srsBackendClient.neuralRoamViewState(command.params as {
+        queueType: 'neural-roam';
+        routeId?: string | null;
+        sessionId?: string | null;
+      });
+    }
+    if (command.method === 'neural-roam.command') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: neural-roam.command relay requires params object');
+      }
+      return srsBackendClient.neuralRoamCommand(command.params as never);
+    }
     if (command.method === 'autocard.decision.resolve') {
       if (!command.params || typeof command.params !== 'object') {
         throw new Error('INVALID_REQUEST: autocard.decision.resolve relay requires params object');

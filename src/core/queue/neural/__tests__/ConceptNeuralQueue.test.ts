@@ -236,6 +236,32 @@ describe('ConceptNeuralQueue', () => {
     expect(batch?.recentPath.map((entry) => entry.nodeId)).toEqual(['concept-1', 'neighbor-1']);
   });
 
+  it('counts viewed neighbors for virtual orbit anchors', async () => {
+    mockQueryEngine.isConceptCard = vi.fn(async () => false);
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+    mockQueryEngine.fetchNeighbors = vi.fn().mockResolvedValue([
+      { id: 'virtual-neighbor-1', type: 'backlink', weight: 10 },
+    ]);
+
+    await queue.setAnchorEntry('virtual-anchor-1', true);
+    await queue.startRoamingFromFocus('virtual-anchor-1', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    await queue.getNextCard();
+
+    const batch = queue.getCurrentBatchSnapshot();
+
+    expect(batch).not.toBeNull();
+    expect(batch?.focusNodeId).toBe('virtual-anchor-1');
+    expect(batch?.viewedCount).toBe(1);
+    expect(batch?.remainingCount).toBe(4);
+  });
+
   it('selects next auto focus from seed pool only (anchors are ignored)', async () => {
     mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
     mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({

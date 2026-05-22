@@ -510,6 +510,10 @@ export class ConceptNeuralQueue {
     const isConcept = await this.isConceptCard(focusId);
     if (isConcept && !this.seedPool.has(focusId)) {
       await this.addConceptBlock(focusId, 'normal');
+    } else if (!isConcept && !this.anchorPool.has(focusId)) {
+      await this.setAnchorEntryInternal(focusId, true, {
+        preferredKind: 'virtual',
+      });
     }
 
     if (options.resetHistory) {
@@ -825,7 +829,7 @@ export class ConceptNeuralQueue {
       ? this.seedPool.get(focusNodeId) ?? this.anchorPool.get(focusNodeId) ?? null
       : null;
     const viewedCount = focusNodeId
-      ? Math.max(0, Number(this.seedPool.get(focusNodeId)?.neighborsViewed) || 0)
+      ? Math.max(0, Number(focusState?.neighborsViewed) || 0)
       : 0;
     const focusPreview = focusState?.preview
       ?? (focusNodeId ? this.findLatestHistoryEntry(focusNodeId)?.nodePreview ?? this.compressText(focusNodeId) : null);
@@ -1771,7 +1775,9 @@ export class ConceptNeuralQueue {
           continue;
         }
 
-        const focusState = focusId ? snapshot.seedPool.get(focusId) : null;
+        const focusState = focusId
+          ? snapshot.seedPool.get(focusId) ?? snapshot.anchorPool.get(focusId) ?? null
+          : null;
         if (focusState) {
           focusState.neighborsViewed += 1;
         }
@@ -1888,7 +1894,8 @@ export class ConceptNeuralQueue {
       return true;
     }
 
-    const focusState = snapshot.seedPool.get(snapshot.currentFocus);
+    const focusState = snapshot.seedPool.get(snapshot.currentFocus)
+      ?? snapshot.anchorPool.get(snapshot.currentFocus);
     if (!focusState) {
       return false;
     }
@@ -1899,8 +1906,11 @@ export class ConceptNeuralQueue {
   private rotateFocusState(snapshot: TraversalStateSnapshot): void {
     if (snapshot.currentFocus) {
       const focusState = snapshot.seedPool.get(snapshot.currentFocus);
+      const anchorFocusState = snapshot.anchorPool.get(snapshot.currentFocus);
       if (focusState) {
         focusState.neighborsViewed = 0;
+      } else if (anchorFocusState) {
+        anchorFocusState.neighborsViewed = 0;
       }
     }
     snapshot.currentFocus = null;

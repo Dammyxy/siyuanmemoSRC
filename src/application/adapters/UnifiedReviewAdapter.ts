@@ -14,9 +14,11 @@ import {
 import {
   isNeuralRoamSessionQueue,
   type NeuralRoamBatchSnapshot,
+  type NeuralNavigationState,
   type QueueCounterSnapshot,
   type ReviewQueueProgressSnapshot,
 } from '@/types/unified-data-source';
+import type { BackendNeuralRoamViewState } from '../../../packages/contracts/src/backend-rpc';
 import {
   type AdapterContext,
   type IAdapter,
@@ -53,6 +55,7 @@ type UnderlyingQueueLike = {
   getCards?: () => Promise<FSRSCard[]>;
   getNavigationState?: () => { engineMode?: string };
   getCurrentBatchSnapshot?: () => NeuralRoamBatchSnapshot | null;
+  getBackendViewState?: () => BackendNeuralRoamViewState | null;
 };
 
 type QueueWithUnderlying = {
@@ -138,6 +141,26 @@ function resolveNeuralRoamBatchSnapshot(queue: IQueueStrategy<UnifiedReviewItem>
   }
 
   try {
+    const backendViewState = underlying.getBackendViewState?.();
+    if (backendViewState?.batchProgress) {
+      const engineMode = backendViewState.engineMode === 'hyperspace' ? 'hyperspace' : 'orbit';
+      return {
+        kind: backendViewState.batchProgress.kind === 'hyperspace-current-node' ? 'hyperspace-current-node' : 'orbit-round',
+        engineMode,
+        navigationState: backendViewState.navigationState as unknown as NeuralNavigationState,
+        focusNodeId: backendViewState.currentNodeId,
+        focusNodePreview: null,
+        currentNodeId: backendViewState.currentNodeId,
+        roundSize: backendViewState.batchProgress.totalCount,
+        viewedCount: backendViewState.batchProgress.viewedCount,
+        remainingCount: backendViewState.batchProgress.remainingCount,
+        roundNodes: [],
+        recentPath: [],
+        sourceSnapshot: [],
+        seedSnapshot: [],
+        anchorSnapshot: [],
+      };
+    }
     return underlying.getCurrentBatchSnapshot();
   } catch (error) {
     logger.warn('Failed to resolve neural roam batch snapshot for header counts:', error);

@@ -5,6 +5,10 @@ import { CardType, type FSRSCard } from '@/types/card';
 import { isErr } from '@/types/result';
 import { QueueType, type IUnifiedDataSourceManagerFacade, type NeuralEngineMode } from '@/types/unified-data-source';
 import type { StorageManager } from '@/core/storage';
+import type {
+  BackendNeuralRoamCommandRequest,
+  BackendNeuralRoamCommandResult,
+} from '../../../packages/contracts/src/backend-rpc';
 import {
   closeTemporaryRouteWithPrompt,
   type NeuralRoamTemporaryRouteClosePrompt,
@@ -66,7 +70,7 @@ export interface NeuralRoamEntryActionServiceDeps {
   storage: Pick<StorageManager, 'getCardByBlockId'>;
   cardCreationHelper: Pick<CardCreationHelper, 'createConceptCard'>;
   cardService: Pick<CardApplicationService, 'updateFSRSCard'>;
-  dataSourceManager: Pick<IUnifiedDataSourceManagerFacade, 'getQueue'>;
+  dataSourceManager: Pick<IUnifiedDataSourceManagerFacade, 'getQueue' | 'neuralRoamCommand'>;
   siyuanApi: Pick<ManagerSiyuanPort, 'BUILTIN_DECK_ID' | 'addRiffCards'>;
   openNeuralRoamDialog: (options?: NeuralRoamOpenOptions) => Promise<void>;
   waitForConceptVisible?: (blockId: string) => Promise<boolean>;
@@ -221,12 +225,15 @@ export class NeuralRoamEntryActionService {
       return this.fail('establish-station', 'missing-block-id', '缺少可用块 ID');
     }
 
-    const queue = this.getNeuralQueue();
-    if (!queue?.setAnchorEntry) {
+    const result = await this.runBackendCommand({
+      type: 'set-anchor',
+      nodeId: normalizedBlockId,
+      enabled: true,
+    });
+    if (!result) {
       return this.fail('establish-station', 'queue-unavailable', '神经漫游队列不可用', normalizedBlockId);
     }
-
-    await queue.setAnchorEntry(normalizedBlockId, true);
+    await this.syncQueueFromBackendResult(result);
     return {
       ok: true,
       action: 'establish-station',
@@ -370,8 +377,15 @@ export class NeuralRoamEntryActionService {
   private async forceOrbit(): Promise<NeuralEngineMode | null> {
     const queue = this.getNeuralQueue();
     const modeBefore = queue?.getEngineMode?.() ?? null;
-    if (queue?.setEngineMode && modeBefore !== 'orbit') {
-      await queue.setEngineMode('orbit', { carryCurrentNode: true });
+    if (modeBefore !== 'orbit') {
+      const result = await this.runBackendCommand({
+        type: 'switch-engine-mode',
+        mode: 'orbit',
+        carryCurrentNode: true,
+      });
+      if (result) {
+        await this.syncQueueFromBackendResult(result);
+      }
     }
     return modeBefore;
   }
@@ -381,33 +395,55 @@ export class NeuralRoamEntryActionService {
     action: Extract<NeuralRoamEntryActionKind, 'temporary-current-block-roam' | 'temporary-concept-roam'>,
   ): Promise<{ ok: true } | Extract<NeuralRoamEntryActionResult, { ok: false }>> {
     const queue = this.getNeuralQueue();
-    if (!queue?.createTemporaryRoute) {
-      return this.fail(action, 'queue-unavailable', '神经漫游航线不可用', seedBlockId);
-    }
     const name = await this.buildTemporaryRouteName(seedBlockId);
-    const closeAction = await queue.resolveTemporaryRouteCloseAction?.();
+    const closeAction = await queue?.resolveTemporaryRouteCloseAction?.();
     if (closeAction?.kind === 'prompt') {
       if (!this.deps.promptTemporaryRouteClose) {
         return this.fail(action, 'temporary-route-dirty', '当前临时航线有改动，请先保存或丢弃', seedBlockId);
       }
-      const closed = await closeTemporaryRouteWithPrompt(queue, this.deps.promptTemporaryRouteClose);
+      const closed = await closeTemporaryRouteWithPrompt({
+        resolveTemporaryRouteCloseAction: async () => closeAction,
+        closeTemporaryRoute: async (input) => {
+          const result = await this.runBackendCommand({
+            type: 'close-temporary-route',
+            action: input.action,
+            routeId: input.routeId ?? closeAction.routeId,
+            name: input.name ?? null,
+          });
+          if (!result) {
+            throw new Error('NEURAL_ROAM_ROUTE_UNAVAILABLE: temporary route close command is unavailable');
+          }
+          await this.syncQueueFromBackendResult(result);
+          return null;
+        },
+      }, this.deps.promptTemporaryRouteClose);
       if (closed.status === 'cancelled') {
         return this.fail(action, 'temporary-route-dirty', '已取消临时航线替换', seedBlockId);
       }
     }
     if (closeAction?.kind === 'discard-clean') {
-      if (!queue.replaceActiveTemporaryRoute) {
+      const result = await this.runBackendCommand({
+        type: 'replace-active-temporary-route',
+        name,
+        seedBlockId,
+      });
+      if (!result) {
         return this.fail(action, 'queue-unavailable', '神经漫游航线替换不可用', seedBlockId);
       }
-      await queue.replaceActiveTemporaryRoute({ name, seedBlockId });
+      await this.syncQueueFromBackendResult(result);
       return { ok: true };
     }
 
-    await queue.createTemporaryRoute({
+    const result = await this.runBackendCommand({
+      type: 'create-temporary-route',
       name,
       seedBlockId,
       previousRouteId: await this.resolveActiveRouteId(queue),
     });
+    if (!result) {
+      return this.fail(action, 'queue-unavailable', '神经漫游航线不可用', seedBlockId);
+    }
+    await this.syncQueueFromBackendResult(result);
     return { ok: true };
   }
 
@@ -439,6 +475,28 @@ export class NeuralRoamEntryActionService {
 
   private getNeuralQueue(): NeuralRoamEntryQueue | null {
     return this.deps.dataSourceManager.getQueue(QueueType.NeuralRoam) as unknown as NeuralRoamEntryQueue | null;
+  }
+
+  private async runBackendCommand(command: BackendNeuralRoamCommandRequest['command']): Promise<BackendNeuralRoamCommandResult | null> {
+    const runner = this.deps.dataSourceManager.neuralRoamCommand;
+    if (typeof runner !== 'function') {
+      return null;
+    }
+    return runner({
+      queueType: 'neural-roam',
+      command,
+    });
+  }
+
+  private async syncQueueFromBackendResult(result: BackendNeuralRoamCommandResult | null): Promise<void> {
+    if (!result?.queueState) {
+      return;
+    }
+    const queue = this.getNeuralQueue();
+    if (queue && typeof (queue as { syncFromBackendState?: (state: Record<string, unknown>) => Promise<void> }).syncFromBackendState === 'function') {
+      await (queue as { syncFromBackendState: (state: Record<string, unknown>) => Promise<void> }).syncFromBackendState(result.queueState);
+    }
+    queue?.setBackendViewState?.(result.viewState ?? null);
   }
 
   private isConceptCard(card: FSRSCard): boolean {

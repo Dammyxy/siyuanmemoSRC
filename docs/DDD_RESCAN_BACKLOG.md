@@ -1,8 +1,38 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-22 (Round 436)
+Last update: 2026-05-23 (Round 437)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-23 - NeuralRoam Backend View-State and Command Ownership
+
+- Task: Move NeuralRoam read state and command authority into backend RPCs so Browser and Review consume backend-owned view state instead of stale local queue snapshots.
+- Touched slice: Backend neural-roam contract, worker advance/read/command handlers, Browser controller/runtime, Review stats and toolbar bridge, entry actions, Dialog/Tab managers, and backend/client plumbing; `packages/contracts/src/backend-rpc.ts`, `worker/bootstrap/BackendKernel.ts`, `worker/bootstrap/WorkerNeuralRoamAdvanceService.ts`, `src/application/clients/SrsBackendClient.ts`, `src/application/services/UnifiedDataSourceManager.ts`, `src/application/adapters/UnifiedQueueStrategy.ts`, `src/application/adapters/UnifiedReviewAdapter.ts`, `src/application/services/NeuralRoamEntryActionService.ts`, `src/application/managers/DialogManager.ts`, `src/application/managers/TabManager.ts`, `src/ui/review/v2/ReviewView.vue`, and `src/ui/review/v2/reviewNeuralCommands.ts`.
+- Debt fixed now: Backend now exposes `neural-roam.viewState` and a broader `neural-roam.command` surface, command results return both `viewState` and `queueState`, Browser source rails / anchors / history / counters hydrate from backend view state, Review toolbar and entry actions route mutations through backend commands, and Review header Orbit progress prefers backend batch progress over stale local snapshots.
+- Debt deferred: Browser/Review helper files still retain explicit local fallback branches for no-command test/offline wiring, but active runtime composition supplies backend command dependencies and boundary checks keep those fallbacks from becoming authority.
+- Why deferred: Removing the shim entirely would require a separate cleanup of older helper tests and offline construction paths; the current runtime path is already backend-owned.
+- Next safe step: Delete the remaining no-command fallback branches once Browser/Review helper tests are rewritten to construct command-capable dependencies by default.
+- Validation: `pnpm exec vitest run src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts src/ui/review/v2/__tests__/reviewNeuralCommands.test.ts`; `pnpm exec vitest run src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts src/application/__tests__/UnifiedReviewAdapter.neural-roam.test.ts src/ui/review/v2/__tests__/reviewNeuralCommands.test.ts worker/__tests__/BackendKernel.test.ts -t "neural-roam"`; `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts -t "stale backend neural-roam commands"`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-23 - NeuralRoam Backend Orbit Seed and Anchor State
+
+- Task: Fix Orbit review progress staying static and temporary current-block roam starting without backend-visible Orbit source state.
+- Touched slice: Backend neural-roam advance startup and Orbit engine state snapshots; `worker/bootstrap/WorkerNeuralRoamAdvanceService.ts`, `src/core/queue/neural/ConceptNeuralQueue.ts`, and backend regression tests.
+- Debt fixed now: `neural-roam.advance` now applies `startFromFocus.conceptBlockId` as a real backend concept seed before Orbit starts, falls back to graph-validated `startFromFocus.seedBlockId` when the concept field is absent, and tracks non-concept/current-block focus nodes in the Orbit anchor pool so `neighborsViewed` increments and survives `queueState` sync.
+- Debt deferred: Backend counter fields still keep their existing queue-pool semantics for compatibility; Orbit round progress continues to be read from `queueState.orbit` / batch snapshots.
+- Why deferred: Renaming or reinterpreting the shared counter contract would be wider than this defect and could break non-review callers.
+- Next safe step: Add a dedicated backend progress object if external consumers need Orbit `viewed / total` without reconstructing it from queue state.
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts -t "seedBlockId as the backend orbit seed" --reporter=verbose` failed before the seed fallback fix with empty `queueState.orbit.seedPool`; `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts -t "seedBlockId as the backend orbit seed|conceptBlockId as the backend orbit seed|orbit round progress" --reporter=verbose`; `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts -t "neural-roam" --reporter=dot`; `pnpm exec vitest run src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts src/ui/browser/neural/__tests__/useNeuralBrowserController.test.ts --reporter=dot`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-23 - NeuralRoam Orbit Round Counter Wiring
+
+- Task: Make Orbit neural-roam counters use `viewed / current round total` instead of static queue pool size.
+- Touched slice: NeuralRoam review strategy stats and Orbit engine batch snapshot; `src/application/adapters/UnifiedQueueStrategy.ts`, `src/core/queue/neural/ConceptNeuralQueue.ts`, and focused tests.
+- Debt fixed now: `UnifiedQueueStrategy.getStats()` now reads the active neural batch snapshot before falling back to queue-size counters, so Orbit reports `已看` and `本轮总数`; Orbit anchor/virtual focus rounds now increment and expose `neighborsViewed` from the active focus state instead of seed-only state.
+- Debt deferred: Backend `neural-roam.advance` counters still carry queue-pool counters for contract compatibility; the visible review/browser stats now use the batch snapshot instead.
+- Why deferred: Reinterpreting `BackendNeuralRoamCounters.remaining` as "viewed" would break callers that still treat it as queue remaining.
+- Next safe step: Add a dedicated semantic progress object to the backend neural-roam advance contract if non-UI consumers need the same Orbit/Hyperspace progress without reading queue state.
+- Validation: `pnpm exec vitest run src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`; `pnpm exec vitest run src/core/queue/neural/__tests__/ConceptNeuralQueue.test.ts`; `pnpm build`.
 
 ### 2026-05-23 - Browser Queue Live Identity Log Noise
 

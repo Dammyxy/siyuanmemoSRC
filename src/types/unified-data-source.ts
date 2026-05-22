@@ -18,6 +18,13 @@ import type {
     QueueProjectionReadinessRequest,
 } from '../../packages/contracts/src/backend-rpc';
 import type {
+    BackendNeuralRoamCommandRequest,
+    BackendNeuralRoamCommandResult,
+    BackendNeuralRoamViewState,
+    BackendNeuralRoamViewStateRequest,
+    BackendNeuralRoamViewStateResult,
+} from '../../packages/contracts/src/backend-rpc';
+import type {
     QueueProjectionLiveIdentityListener,
 } from './queue-projection-live-identity';
 
@@ -277,6 +284,8 @@ export interface IUnifiedDataSourceManagerFacade {
     getQueueProjectionRolloutDiagnostics?(queueType?: QueueType): QueueProjectionRolloutDiagnostic[];
     ensureQueueProjectionReady?(request: QueueProjectionReadinessRequest): Promise<QueueProjectionReadiness>;
     subscribeQueueProjectionLiveIdentityEvents?(listener: QueueProjectionLiveIdentityListener): () => void;
+    readNeuralRoamViewState?(request?: BackendNeuralRoamViewStateRequest): Promise<BackendNeuralRoamViewStateResult>;
+    neuralRoamCommand?(request: BackendNeuralRoamCommandRequest): Promise<BackendNeuralRoamCommandResult>;
     getAvailableQueueTypes(): QueueType[];
     registerObserver(observer: IDataSourceObserver): void;
     unregisterObserver(observer: IDataSourceObserver): void;
@@ -585,6 +594,8 @@ export interface NeuralRoamSessionQueue {
     returnToBookmark(): boolean;
     clearHistory(scope?: 'current' | 'all'): Promise<void>;
     clearRouteHistory?(): Promise<void>;
+    setBackendViewState?(viewState: BackendNeuralRoamViewState | null): void;
+    getBackendViewState?(): BackendNeuralRoamViewState | null;
 }
 
 export function isNeuralRoamSessionQueue(

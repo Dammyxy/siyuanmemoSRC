@@ -871,6 +871,35 @@ const {
   }),
   previewCard,
   refreshQueueCounts,
+  readNeuralRoamViewState: async () => {
+    const manager = pluginUnifiedDataSourceManager.value as unknown as {
+      readNeuralRoamViewState?: (request: { queueType: 'neural-roam' }) => Promise<{
+        status: string;
+        viewState: unknown | null;
+      }>;
+    } | null;
+    if (typeof manager?.readNeuralRoamViewState !== 'function') {
+      return null;
+    }
+    const result = await manager.readNeuralRoamViewState({ queueType: 'neural-roam' });
+    return result.status === 'ready' ? result.viewState as never : null;
+  },
+  runNeuralRoamCommand: async (command) => {
+    const manager = pluginUnifiedDataSourceManager.value as unknown as {
+      neuralRoamCommand?: (request: { queueType: 'neural-roam'; command: typeof command }) => Promise<unknown>;
+    } | null;
+    if (typeof manager?.neuralRoamCommand !== 'function') {
+      return {
+        queueType: 'neural-roam',
+        status: 'unavailable',
+        viewState: null,
+        queueState: null,
+        unavailableReason: 'advance-contract-unavailable',
+        message: t('neuralRoamEntryActionUnavailable', '神经漫游动作不可用'),
+      } as never;
+    }
+    return manager.neuralRoamCommand({ queueType: 'neural-roam', command }) as never;
+  },
   getReviewSurfaceDeps: () => ({
     tabManager: pluginContext.value?.getTabManager?.() ?? null,
     dialogManager: pluginContext.value?.getDialogManager?.() ?? null,

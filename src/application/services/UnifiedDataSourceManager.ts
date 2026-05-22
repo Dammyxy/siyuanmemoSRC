@@ -53,6 +53,10 @@ import type { HyperspaceSettings } from '@/types/settings';
 import type {
     BackendNeuralRoamAdvanceRequest,
     BackendNeuralRoamAdvanceResult,
+    BackendNeuralRoamCommandRequest,
+    BackendNeuralRoamCommandResult,
+    BackendNeuralRoamViewStateRequest,
+    BackendNeuralRoamViewStateResult,
     BackendQueueProjectionRowsByIdsResult,
     BackendQueueProjectionReplaceResult,
     BackendQueueProjectionSnapshotRequest,
@@ -141,6 +145,12 @@ interface UnifiedManagerPluginContextLike {
         neuralRoamAdvance?: (
             request: BackendNeuralRoamAdvanceRequest,
         ) => Promise<BackendNeuralRoamAdvanceResult>;
+        neuralRoamViewState?: (
+            request: BackendNeuralRoamViewStateRequest,
+        ) => Promise<BackendNeuralRoamViewStateResult>;
+        neuralRoamCommand?: (
+            request: BackendNeuralRoamCommandRequest,
+        ) => Promise<BackendNeuralRoamCommandResult>;
     } | null | undefined;
     getReviewLogService?: () => {
         addDrillLogV2?: (log: DrillLogV2) => Promise<void>;
@@ -505,6 +515,126 @@ export class UnifiedDataSourceManager {
         return backend.neuralRoamAdvance(normalizedRequest);
     }
 
+    public async readNeuralRoamViewState(
+        request: BackendNeuralRoamViewStateRequest = { queueType: 'neural-roam' },
+    ): Promise<BackendNeuralRoamViewStateResult> {
+        const normalizedRequest: BackendNeuralRoamViewStateRequest = {
+            ...request,
+            queueType: 'neural-roam',
+        };
+        const context = this.resolvePluginContext();
+        const runtime = context?.getFrontendInstanceRuntime?.();
+        if (runtime?.getMode?.() === 'follower' && typeof runtime.ensureWritable === 'function') {
+            try {
+                await runtime.ensureWritable();
+            } catch {
+                // Keep explicit follower relay/unavailable handling below.
+            }
+        }
+
+        if (runtime?.getMode?.() === 'follower') {
+            const follower = context?.getFollowerCommandClient?.();
+            const instanceId = String(runtime.getInstanceId?.() || '').trim();
+            if (!follower || typeof follower.submitAndWait !== 'function' || !instanceId) {
+                return {
+                    queueType: 'neural-roam',
+                    status: 'unavailable',
+                    viewState: null,
+                    unavailableReason: 'writer-unavailable',
+                    message: 'Writer relay unavailable for neural-roam.viewState',
+                };
+            }
+            try {
+                return await follower.submitAndWait<BackendNeuralRoamViewStateResult>({
+                    instanceId,
+                    method: 'neural-roam.viewState',
+                    params: normalizedRequest,
+                });
+            } catch (error) {
+                return {
+                    queueType: 'neural-roam',
+                    status: 'unavailable',
+                    viewState: null,
+                    unavailableReason: 'writer-unavailable',
+                    message: error instanceof Error ? error.message : String(error),
+                };
+            }
+        }
+
+        const backend = context?.getSrsBackendClient?.();
+        if (!backend || typeof backend.neuralRoamViewState !== 'function') {
+            return {
+                queueType: 'neural-roam',
+                status: 'unavailable',
+                viewState: null,
+                unavailableReason: 'advance-contract-unavailable',
+                message: 'SrsBackendClient neural-roam.viewState is unavailable',
+            };
+        }
+
+        return backend.neuralRoamViewState(normalizedRequest);
+    }
+
+    public async neuralRoamCommand(
+        request: BackendNeuralRoamCommandRequest,
+    ): Promise<BackendNeuralRoamCommandResult> {
+        const normalizedRequest: BackendNeuralRoamCommandRequest = {
+            ...request,
+            queueType: 'neural-roam',
+        };
+        const context = this.resolvePluginContext();
+        const runtime = context?.getFrontendInstanceRuntime?.();
+        if (runtime?.getMode?.() === 'follower' && typeof runtime.ensureWritable === 'function') {
+            try {
+                await runtime.ensureWritable();
+            } catch {
+                // Keep explicit follower relay/unavailable handling below.
+            }
+        }
+        if (runtime?.getMode?.() === 'follower') {
+            const follower = context?.getFollowerCommandClient?.();
+            const instanceId = String(runtime.getInstanceId?.() || '').trim();
+            if (!follower || typeof follower.submitAndWait !== 'function' || !instanceId) {
+                return {
+                    queueType: 'neural-roam',
+                    status: 'unavailable',
+                    viewState: null,
+                    queueState: null,
+                    unavailableReason: 'writer-unavailable',
+                    message: 'Writer relay unavailable for neural-roam.command',
+                };
+            }
+            try {
+                return await follower.submitAndWait<BackendNeuralRoamCommandResult>({
+                    instanceId,
+                    method: 'neural-roam.command',
+                    params: normalizedRequest,
+                });
+            } catch (error) {
+                return {
+                    queueType: 'neural-roam',
+                    status: 'unavailable',
+                    viewState: null,
+                    queueState: null,
+                    unavailableReason: 'writer-unavailable',
+                    message: error instanceof Error ? error.message : String(error),
+                };
+            }
+        }
+        const backend = context?.getSrsBackendClient?.();
+        if (!backend || typeof backend.neuralRoamCommand !== 'function') {
+            return {
+                queueType: 'neural-roam',
+                status: 'unavailable',
+                viewState: null,
+                queueState: null,
+                unavailableReason: 'advance-contract-unavailable',
+                message: 'SrsBackendClient neural-roam.command is unavailable',
+            };
+        }
+        return backend.neuralRoamCommand(normalizedRequest);
+    }
+
     private buildUnavailableNeuralRoamAdvanceResult(
         request: BackendNeuralRoamAdvanceRequest,
         unavailableReason: BackendNeuralRoamAdvanceResult['unavailableReason'],
@@ -540,6 +670,7 @@ export class UnifiedDataSourceManager {
                 policyHash: request.policyHash ?? null,
             },
             queueState: null,
+            viewState: null,
             routeId: request.routeId ?? null,
             projectionImpact: null,
             unavailableReason,

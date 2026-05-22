@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
-import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
+import { QueueType, type IReviewQueue, type NeuralRoamBatchSnapshot } from '@/types/unified-data-source';
 import { CardType, type FSRSCard } from '@/types/card';
 import type { QueueFeedback } from '@/core/queue/abstraction/Strategy';
 import type {
   BackendNeuralRoamAdvanceResult,
+  BackendNeuralRoamCommandResult,
   BackendNeuralRoamItem,
 } from '../../../packages/contracts/src/backend-rpc';
 
@@ -101,9 +102,40 @@ function createQueueStub(): IReviewQueue {
     insertAt: vi.fn(async () => {}),
     getRemainingSize: vi.fn(async () => 0),
     getActiveRouteId: vi.fn(() => 'route-a'),
+    getCurrentBatchSnapshot: vi.fn(() => null),
   } as unknown as IReviewQueue;
 
   return queue;
+}
+
+function createOrbitBatchSnapshot(overrides: Partial<NeuralRoamBatchSnapshot> = {}): NeuralRoamBatchSnapshot {
+  return {
+    kind: 'orbit-round',
+    engineMode: 'orbit',
+    navigationState: {
+      currentPathIndex: 0,
+      currentNodeId: 'orbit-node',
+      currentEventId: 'event-orbit-node',
+      navigationMode: 'explore',
+      engineMode: 'orbit',
+      engineSessionId: 'orbit-session',
+      hasBookmark: false,
+      pathLength: 3,
+      sessionId: 'orbit-session',
+    },
+    focusNodeId: 'orbit-focus',
+    focusNodePreview: 'Orbit Focus',
+    currentNodeId: 'orbit-node',
+    roundSize: 12,
+    viewedCount: 7,
+    remainingCount: 5,
+    roundNodes: [],
+    recentPath: [],
+    sourceSnapshot: [],
+    seedSnapshot: [],
+    anchorSnapshot: [],
+    ...overrides,
+  };
 }
 
 function createAdvanceItem(card: FSRSCard): BackendNeuralRoamItem {
@@ -160,6 +192,53 @@ function createAdvanceResult(
   };
 }
 
+function createCommandResult(overrides: Partial<BackendNeuralRoamCommandResult> = {}): BackendNeuralRoamCommandResult {
+  return {
+    queueType: 'neural-roam',
+    status: 'ok',
+    viewState: {
+      version: 1,
+      queueType: 'neural-roam',
+      route: {
+        id: 'route-new',
+        name: 'Route New',
+        temporary: false,
+        previousRouteId: null,
+      },
+      engineMode: 'orbit',
+      currentNodeId: null,
+      currentEventId: null,
+      navigationState: null,
+      counters: {
+        remaining: 0,
+        due: 0,
+        total: 0,
+        pendingAssociatedReview: 0,
+        sourceNodes: 0,
+      },
+      sources: [],
+      anchors: [],
+      engineHistory: [],
+      routeHistory: [],
+      batchProgress: {
+        kind: 'orbit-round',
+        viewedCount: 0,
+        totalCount: 0,
+        remainingCount: 0,
+        label: 'orbit-round',
+      },
+      updatedAt: Date.now(),
+    },
+    queueState: {
+      version: 8,
+      engineMode: 'orbit',
+    },
+    unavailableReason: null,
+    message: null,
+    ...overrides,
+  } as BackendNeuralRoamCommandResult;
+}
+
 function createStrategyWithQueue(
   queue: IReviewQueue,
   schedulerRouter: { preview: ReturnType<typeof vi.fn> } | null = null,
@@ -171,6 +250,7 @@ function createStrategyWithQueue(
     getCards: ReturnType<typeof vi.fn>;
     updateCard: ReturnType<typeof vi.fn>;
     neuralRoamAdvance: ReturnType<typeof vi.fn>;
+    neuralRoamCommand: ReturnType<typeof vi.fn>;
     getBlockContentsWithType: ReturnType<typeof vi.fn>;
   };
 } {
@@ -182,6 +262,7 @@ function createStrategyWithQueue(
     getCards: vi.fn(async () => []),
     updateCard: vi.fn(async () => {}),
     neuralRoamAdvance: vi.fn(async () => createAdvanceResult(null)),
+    neuralRoamCommand: vi.fn(async () => createCommandResult()),
     getBlockContentsWithType: vi.fn(async () => new Map()),
   };
 
@@ -281,23 +362,61 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
     await strategy.onFeedback(currentItem, { action: 'rate', rating: 3 });
   });
 
-  it('uses queue.getSize fast-path for neural stats', async () => {
+  it('uses orbit batch progress for neural stats', async () => {
     const queue = createQueueStub() as IReviewQueue & {
       getCards: ReturnType<typeof vi.fn>;
       getSize: ReturnType<typeof vi.fn>;
+      getCurrentBatchSnapshot: ReturnType<typeof vi.fn>;
     };
     queue.getSize.mockResolvedValue(42);
+    queue.getCurrentBatchSnapshot.mockReturnValue(createOrbitBatchSnapshot({
+      viewedCount: 7,
+      roundSize: 12,
+      remainingCount: 5,
+    }));
 
     const { strategy } = createStrategyWithQueue(queue);
     const stats = await strategy.getStats();
 
     expect(stats).toEqual({
-      size: 42,
-      label: '42 due',
-      extra: '42 total',
+      size: 7,
+      label: '已看 7',
+      extra: '本轮总数 12',
     });
-    expect(queue.getSize).toHaveBeenCalledTimes(1);
+    expect(queue.getCurrentBatchSnapshot).toHaveBeenCalledTimes(1);
+    expect(queue.getSize).not.toHaveBeenCalled();
     expect(queue.getCards).not.toHaveBeenCalled();
+  });
+
+  it('uses hyperspace depth progress for neural stats', async () => {
+    const queue = createQueueStub() as IReviewQueue & {
+      getSize: ReturnType<typeof vi.fn>;
+      getCurrentBatchSnapshot: ReturnType<typeof vi.fn>;
+    };
+    queue.getSize.mockResolvedValue(42);
+    queue.getCurrentBatchSnapshot.mockReturnValue(createOrbitBatchSnapshot({
+      kind: 'hyperspace-current-node',
+      engineMode: 'hyperspace',
+      navigationState: {
+        ...createOrbitBatchSnapshot().navigationState,
+        engineMode: 'hyperspace',
+        engineSessionId: 'hyperspace-session',
+        sessionId: 'hyperspace-session',
+      },
+      viewedCount: 3,
+      roundSize: 8,
+      remainingCount: 5,
+    }));
+
+    const { strategy } = createStrategyWithQueue(queue);
+    const stats = await strategy.getStats();
+
+    expect(stats).toEqual({
+      size: 3,
+      label: '深度 3',
+      extra: '最大深度 8',
+    });
+    expect(queue.getSize).not.toHaveBeenCalled();
   });
 
   it('uses backend neural-roam exhausted counters instead of stale local source pool stats', async () => {
@@ -399,9 +518,10 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
     expect(previous && 'nextDues' in previous).toBe(false);
   });
 
-  it('switches neural-roam route through queue contract and clears pending review advance state', async () => {
+  it('switches neural-roam route through backend command and clears pending review advance state', async () => {
     const queue = createQueueStub() as IReviewQueue & {
       switchRoute: ReturnType<typeof vi.fn>;
+      syncFromBackendState: ReturnType<typeof vi.fn>;
     };
     const active = createSyntheticNeuralCard({ id: 'active-node', blockId: 'active-node' });
     const pending = createSyntheticNeuralCard({ id: 'old-route-pending', blockId: 'old-route-pending' });
@@ -410,12 +530,35 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
     manager.neuralRoamAdvance.mockResolvedValueOnce(createAdvanceResult(createAdvanceItem(pending)));
 
     await strategy.onFeedback(active, { action: 'skip' });
+    manager.neuralRoamCommand.mockResolvedValueOnce(createCommandResult({
+      viewState: {
+        ...createCommandResult().viewState,
+        route: {
+          id: 'route-new',
+          name: 'Route New',
+          temporary: false,
+          previousRouteId: null,
+        },
+      },
+      queueState: {
+        version: 8,
+        engineMode: 'orbit',
+      },
+    }));
     await strategy.switchNeuralRoamRoute('route-new');
     manager.neuralRoamAdvance.mockResolvedValueOnce(createAdvanceResult(createAdvanceItem(newRouteNext)));
 
     const next = await strategy.next();
 
-    expect(queue.switchRoute).toHaveBeenCalledWith('route-new');
+    expect(manager.neuralRoamCommand).toHaveBeenCalledWith({
+      queueType: 'neural-roam',
+      command: { type: 'switch-route', routeId: 'route-new' },
+    });
+    expect(queue.switchRoute).not.toHaveBeenCalled();
+    expect(queue.syncFromBackendState).toHaveBeenCalledWith(expect.objectContaining({
+      version: 8,
+      engineMode: 'orbit',
+    }));
     expect(next?.id).toBe('new-route-node');
     expect(manager.neuralRoamAdvance).toHaveBeenLastCalledWith(expect.objectContaining({
       currentItem: null,
