@@ -58,6 +58,7 @@ function advanceItem(item: FSRSCard): BackendNeuralRoamItem {
 function advanceResult(nextItem: BackendNeuralRoamItem | null): BackendNeuralRoamAdvanceResult {
   return {
     queueType: 'neural-roam',
+    routeId: 'route-a',
     sessionId: null,
     status: nextItem ? 'advanced' : 'exhausted',
     nextItem,
@@ -70,6 +71,7 @@ function advanceResult(nextItem: BackendNeuralRoamItem | null): BackendNeuralRoa
     },
     sessionState: {
       sessionId: null,
+      routeId: 'route-a',
       engineMode: 'hyperspace',
       currentNodeId: nextItem?.blockId ?? null,
       currentEventId: null,
@@ -120,6 +122,26 @@ function createCoordinator() {
 }
 
 describe('NeuralRoamAdvanceCoordinator', () => {
+  it('includes the active route id in next and feedback advance requests', async () => {
+    const active = card('active-node');
+    const next = card('next-node');
+    const { coordinator, currentItem, submitAdvance } = createCoordinator();
+    coordinator.setActiveRouteId('route-a');
+    currentItem.select(active);
+    submitAdvance.mockResolvedValueOnce(advanceResult(advanceItem(next)));
+
+    await coordinator.handleFeedback(active, { action: 'rate', rating: 3 });
+
+    expect(submitAdvance).toHaveBeenCalledWith(expect.objectContaining({
+      routeId: 'route-a',
+      currentItem: expect.objectContaining({ id: active.id }),
+      feedback: expect.objectContaining({ action: 'rate' }),
+    }));
+
+    await coordinator.next();
+    expect(submitAdvance).toHaveBeenCalledTimes(1);
+  });
+
   it('sends focus-start intent through backend advance and applies the returned current item', async () => {
     const next = card('focus-node');
     const { coordinator, currentItem, submitAdvance, syncFromBackendState } = createCoordinator();

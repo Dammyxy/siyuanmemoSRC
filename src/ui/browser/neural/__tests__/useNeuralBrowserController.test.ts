@@ -95,6 +95,79 @@ function createQueue(overrides: Record<string, unknown> = {}) {
   };
 
   return {
+    listRoutes: vi.fn(async () => [
+      {
+        id: 'default',
+        name: '默认航线',
+        temporary: false,
+        previousRouteId: null,
+        initialSeedNodeIds: [],
+        createdAt: 1,
+        updatedAt: 1,
+        lastUsedAt: 1,
+        isActive: true,
+        stats: {
+          routeId: 'default',
+          seedCount: 1,
+          anchorCount: 1,
+          historyCount: historyEntries.length,
+          totalPoolEntries: 2,
+        },
+      },
+      {
+        id: 'route-b',
+        name: 'Route B',
+        temporary: false,
+        previousRouteId: null,
+        initialSeedNodeIds: [],
+        createdAt: 2,
+        updatedAt: 2,
+        lastUsedAt: 2,
+        isActive: false,
+        stats: {
+          routeId: 'route-b',
+          seedCount: 0,
+          anchorCount: 0,
+          historyCount: 0,
+          totalPoolEntries: 0,
+        },
+      },
+    ]),
+    switchRoute: vi.fn(async () => ({
+      metadata: {
+        id: 'route-b',
+        name: 'Route B',
+        temporary: false,
+        previousRouteId: null,
+        initialSeedNodeIds: [],
+        createdAt: 2,
+        updatedAt: 2,
+        lastUsedAt: 2,
+      },
+      seedPool: [],
+      anchorPool: [],
+      sessions: { orbit: null, hyperspace: null },
+      history: [],
+    })),
+    createRoute: vi.fn(async () => ({
+      metadata: {
+        id: 'route-created',
+        name: 'Created',
+        temporary: false,
+        previousRouteId: null,
+        initialSeedNodeIds: [],
+        createdAt: 3,
+        updatedAt: 3,
+        lastUsedAt: 3,
+      },
+      seedPool: [],
+      anchorPool: [],
+      sessions: { orbit: null, hyperspace: null },
+      history: [],
+    })),
+    renameRoute: vi.fn(async () => ({})),
+    deleteRoute: vi.fn(async () => undefined),
+    saveTemporaryRoute: vi.fn(async () => ({})),
     getEngineMode: vi.fn(() => 'hyperspace'),
     setEngineMode: vi.fn(async () => undefined),
     getSourceSnapshot: vi.fn(() => [
@@ -141,6 +214,11 @@ function createQueue(overrides: Record<string, unknown> = {}) {
 
 function createController(queue: Record<string, unknown> | null = createQueue()) {
   const previewCard = ref<BrowserCard | null>(null);
+  const refreshQueueCounts = vi.fn(async () => undefined);
+  const confirmRouteSwitchReviewReset = vi.fn(async () => true);
+  const promptRouteName = vi.fn(async () => 'Created Route');
+  const confirmDeleteRoute = vi.fn(async () => true);
+  const syncExistingNeuralReviewTabToCurrentNode = vi.fn(async () => 'synced' as const);
   const loadCardsByBlockIds = vi.fn(async (blockIds: string[]) => blockIds.map((blockId) => ({
     blockId,
     content: `Content ${blockId}`,
@@ -151,9 +229,17 @@ function createController(queue: Record<string, unknown> | null = createQueue())
     loadCardsByBlockIds: loadCardsByBlockIds as never,
     getCardLoadOptions: () => ({}),
     previewCard,
-    refreshQueueCounts: vi.fn(async () => undefined),
-    getReviewSurfaceDeps: () => ({}),
+    refreshQueueCounts,
+    getReviewSurfaceDeps: () => ({
+      tabManager: {
+        hasOpenNeuralReviewTab: vi.fn(() => false),
+        syncExistingNeuralReviewTabToCurrentNode,
+      },
+    }),
     confirmClearHistory: vi.fn(async () => true),
+    confirmRouteSwitchReviewReset,
+    promptRouteName,
+    confirmDeleteRoute,
     close: vi.fn(),
     getMode: () => 'tab',
     pushMessage: vi.fn(async () => undefined),
@@ -162,7 +248,16 @@ function createController(queue: Record<string, unknown> | null = createQueue())
     t,
     historyPageSize: 2,
   });
-  return { controller, previewCard, loadCardsByBlockIds };
+  return {
+    controller,
+    previewCard,
+    loadCardsByBlockIds,
+    refreshQueueCounts,
+    confirmRouteSwitchReviewReset,
+    promptRouteName,
+    confirmDeleteRoute,
+    syncExistingNeuralReviewTabToCurrentNode,
+  };
 }
 
 describe('useNeuralBrowserController', () => {
@@ -183,6 +278,7 @@ describe('useNeuralBrowserController', () => {
     });
     expect(controller.neuralActivationTrace.value?.targetTitle).toBe('Content target-node');
     expect(controller.selectedNeuralHistoryEventId.value).toBe('event-target');
+    expect(controller.neuralRoutes.value.map((route) => route.id)).toEqual(['default', 'route-b']);
     expect(loadCardsByBlockIds).toHaveBeenCalledWith([
       'source-node',
       'target-node',
@@ -218,5 +314,166 @@ describe('useNeuralBrowserController', () => {
     expect(queue.jumpToHistoryNode).toHaveBeenCalledWith('source-node');
     expect(previewCard.value?.blockId).toBe('target-node');
     expect(controller.selectedNeuralTraceNodeId.value).toBe('source-node');
+  });
+
+  it('switches routes through the queue contract and refreshes route-scoped pools and log', async () => {
+    const queue = createQueue({
+      listRoutes: vi.fn()
+        .mockResolvedValueOnce([
+          {
+            id: 'default',
+            name: '默认航线',
+            temporary: false,
+            previousRouteId: null,
+            initialSeedNodeIds: [],
+            createdAt: 1,
+            updatedAt: 1,
+            lastUsedAt: 1,
+            isActive: true,
+            stats: { routeId: 'default', seedCount: 1, anchorCount: 1, historyCount: 2, totalPoolEntries: 2 },
+          },
+          {
+            id: 'route-b',
+            name: 'Route B',
+            temporary: false,
+            previousRouteId: null,
+            initialSeedNodeIds: [],
+            createdAt: 2,
+            updatedAt: 2,
+            lastUsedAt: 2,
+            isActive: false,
+            stats: { routeId: 'route-b', seedCount: 1, anchorCount: 0, historyCount: 1, totalPoolEntries: 1 },
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: 'route-b',
+            name: 'Route B',
+            temporary: false,
+            previousRouteId: null,
+            initialSeedNodeIds: [],
+            createdAt: 2,
+            updatedAt: 2,
+            lastUsedAt: 3,
+            isActive: true,
+            stats: { routeId: 'route-b', seedCount: 1, anchorCount: 0, historyCount: 1, totalPoolEntries: 1 },
+          },
+          {
+            id: 'default',
+            name: '默认航线',
+            temporary: false,
+            previousRouteId: null,
+            initialSeedNodeIds: [],
+            createdAt: 1,
+            updatedAt: 1,
+            lastUsedAt: 1,
+            isActive: false,
+            stats: { routeId: 'default', seedCount: 1, anchorCount: 1, historyCount: 2, totalPoolEntries: 2 },
+          },
+        ]),
+      getSourceSnapshot: vi.fn()
+        .mockReturnValueOnce([{ nodeId: 'source-default', title: 'Default', visitedAt: 10 }])
+        .mockReturnValueOnce([{ nodeId: 'source-b', title: 'Route B source', visitedAt: 30 }]),
+      getAnchorSnapshot: vi.fn()
+        .mockReturnValueOnce([{ nodeId: 'target-node', title: 'Target', visitedAt: 20 }])
+        .mockReturnValueOnce([]),
+      getHistoryPage: vi.fn()
+        .mockReturnValueOnce({
+          entries: [createHistoryEntry('event-target', 'target-node', 20)],
+          totalCount: 1,
+          hasMore: false,
+        })
+        .mockReturnValueOnce({
+          entries: [createHistoryEntry('event-b', 'source-b', 30)],
+          totalCount: 1,
+          hasMore: false,
+        }),
+    });
+    const { controller, refreshQueueCounts } = createController(queue);
+
+    await controller.refreshNeuralSubviewData();
+    await controller.handleNeuralSwitchRoute('route-b');
+
+    expect(queue.switchRoute).toHaveBeenCalledWith('route-b');
+    expect(controller.neuralRoutes.value[0]).toMatchObject({ id: 'route-b', isActive: true });
+    expect(controller.neuralSourceEntries.value.map((entry) => entry.nodeId)).toEqual(['source-b']);
+    expect(controller.neuralHistoryEntries.value.map((entry) => entry.eventId)).toEqual(['event-b']);
+    expect(controller.neuralAnchorEntries.value).toEqual([]);
+    expect(refreshQueueCounts).toHaveBeenCalled();
+  });
+
+  it('confirms and syncs an open NeuralRoam review surface before applying a Browser route switch', async () => {
+    const queue = createQueue();
+    const confirmRouteSwitchReviewReset = vi.fn(async () => true);
+    const syncExistingNeuralReviewTabToCurrentNode = vi.fn(async () => 'synced' as const);
+    const previewCard = ref<BrowserCard | null>(null);
+    const controller = useNeuralBrowserController({
+      getQueueById: vi.fn((id: string) => id === 'neural-roam' ? queue : null),
+      loadCardsByBlockIds: vi.fn(async () => []) as never,
+      getCardLoadOptions: () => ({}),
+      previewCard,
+      refreshQueueCounts: vi.fn(async () => undefined),
+      getReviewSurfaceDeps: () => ({
+        tabManager: {
+          hasOpenNeuralReviewTab: () => true,
+          syncExistingNeuralReviewTabToCurrentNode,
+        },
+      }),
+      confirmClearHistory: vi.fn(async () => true),
+      confirmRouteSwitchReviewReset,
+      promptRouteName: vi.fn(async () => 'Route'),
+      confirmDeleteRoute: vi.fn(async () => true),
+      close: vi.fn(),
+      getMode: () => 'tab',
+      pushMessage: vi.fn(async () => undefined),
+      pushError: vi.fn(async () => undefined),
+      logError: vi.fn(),
+      t,
+      historyPageSize: 2,
+    });
+
+    await controller.refreshNeuralSubviewData();
+    await controller.handleNeuralSwitchRoute('route-b');
+
+    expect(confirmRouteSwitchReviewReset).toHaveBeenCalledTimes(1);
+    expect(queue.switchRoute).toHaveBeenCalledWith('route-b');
+    expect(syncExistingNeuralReviewTabToCurrentNode).toHaveBeenCalledWith({
+      fallbackNodeId: 'target-node',
+      focus: true,
+    });
+  });
+
+  it('does not switch routes when the open review reset confirmation is cancelled', async () => {
+    const queue = createQueue();
+    const previewCard = ref<BrowserCard | null>(null);
+    const controller = useNeuralBrowserController({
+      getQueueById: vi.fn((id: string) => id === 'neural-roam' ? queue : null),
+      loadCardsByBlockIds: vi.fn(async () => []) as never,
+      getCardLoadOptions: () => ({}),
+      previewCard,
+      refreshQueueCounts: vi.fn(async () => undefined),
+      getReviewSurfaceDeps: () => ({
+        tabManager: {
+          hasOpenNeuralReviewTab: () => true,
+          syncExistingNeuralReviewTabToCurrentNode: vi.fn(async () => 'synced' as const),
+        },
+      }),
+      confirmClearHistory: vi.fn(async () => true),
+      confirmRouteSwitchReviewReset: vi.fn(async () => false),
+      promptRouteName: vi.fn(async () => 'Route'),
+      confirmDeleteRoute: vi.fn(async () => true),
+      close: vi.fn(),
+      getMode: () => 'tab',
+      pushMessage: vi.fn(async () => undefined),
+      pushError: vi.fn(async () => undefined),
+      logError: vi.fn(),
+      t,
+      historyPageSize: 2,
+    });
+
+    await controller.refreshNeuralSubviewData();
+    await controller.handleNeuralSwitchRoute('route-b');
+
+    expect(queue.switchRoute).not.toHaveBeenCalled();
   });
 });

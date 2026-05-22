@@ -218,12 +218,15 @@ describe('DialogManager review header variants', () => {
       reviewOpenInNewTabByDefault: true,
     });
 
+    expect(dialogManager.hasOpenNeuralReviewDialog()).toBe(false);
+
     await dialogManager.openNeuralRoamDialog({
       focusBlockId: 'concept-block',
       includeFocusAsFirst: true,
       startNewSession: true,
     });
 
+    expect(dialogManager.hasOpenNeuralReviewDialog()).toBe(true);
     expect(tabManager.openReviewTabInNewTab).not.toHaveBeenCalled();
     expect(createUnifiedReviewDialog).toHaveBeenCalledWith(expect.objectContaining({
       headerVariant: 'neural-roam',

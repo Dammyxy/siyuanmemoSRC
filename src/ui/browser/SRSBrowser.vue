@@ -206,6 +206,17 @@
           @toggle-nav-mode="handleNeuralToggleNavigationMode"
           @return-bookmark="handleNeuralReturnToBookmark"
         />
+        <NeuralRouteBar
+          v-if="!isBrowserSemanticWorkspaceActive"
+          :i18n="props.i18n"
+          :routes="neuralRoutes"
+          :busy="neuralRouteBusy"
+          @switch-route="handleNeuralSwitchRoute"
+          @create-route="handleNeuralCreateRoute"
+          @rename-route="handleNeuralRenameRoute"
+          @delete-route="handleNeuralDeleteRoute"
+          @save-temporary-route="handleNeuralSaveTemporaryRoute"
+        />
         <section
           v-if="isBrowserSemanticWorkspaceActive"
           class="card-browser__semantic-workspace"
@@ -447,7 +458,7 @@ import type {
   SortChangedEvent,
 } from 'ag-grid-community';
 import { openTab, Protyle, type App } from 'siyuan';
-import { confirmDialog } from '@/utils/dialog';
+import { confirmDialog, inputDialog } from '@/utils/dialog';
 import {
   loadBrowserCardsByBlockIds,
   invalidateCardCache,
@@ -522,6 +533,7 @@ import NeuralActivationTracePanel from './neural/NeuralActivationTracePanel.vue'
 import NeuralFocusList from './neural/NeuralFocusList.vue';
 import NeuralHistoryList from './neural/NeuralHistoryList.vue';
 import NeuralNavigationBar from './neural/NeuralNavigationBar.vue';
+import NeuralRouteBar from './neural/NeuralRouteBar.vue';
 import NeuralSubviewTabs from './neural/NeuralSubviewTabs.vue';
 import { useNeuralBrowserController } from './neural/useNeuralBrowserController';
 import FilterDialog from './dialogs/FilterDialog.vue';
@@ -649,6 +661,7 @@ type BrowserTabApplicationServicePort = {
 };
 
 type BrowserDialogManagerPort = {
+  hasOpenNeuralReviewDialog?: () => boolean;
   openNeuralRoamDialog?: (options?: {
     focusBlockId?: string;
     includeFocusAsFirst?: boolean;
@@ -660,6 +673,7 @@ type BrowserDialogManagerPort = {
 };
 
 type BrowserTabManagerPort = {
+  hasOpenNeuralReviewTab?: () => boolean;
   syncExistingNeuralReviewTabToCurrentNode?: (options?: {
     fallbackNodeId?: string | null;
     focus?: boolean;
@@ -810,6 +824,8 @@ const browserSemanticController = ref<BrowserSemanticStateController | null>(nul
 
 const {
   neuralSourceEntries,
+  neuralRoutes,
+  neuralRouteBusy,
   neuralHistoryEntries,
   neuralHistoryTotalCount,
   neuralHistoryHasMore,
@@ -825,6 +841,11 @@ const {
   clearNeuralSubviewData,
   getNeuralRoamQueue,
   refreshNeuralSubviewData,
+  handleNeuralSwitchRoute,
+  handleNeuralCreateRoute,
+  handleNeuralRenameRoute,
+  handleNeuralDeleteRoute,
+  handleNeuralSaveTemporaryRoute,
   handleNeuralPreview,
   handleNeuralExternalNodePreview,
   handleNeuralSelectHistoryEntry,
@@ -861,6 +882,27 @@ const {
     content: t('confirmClearHistoryAll', '确认清空全部轨迹历史？'),
     confirmText: t('confirm', '确认'),
     cancelText: t('cancel', '取消'),
+  }),
+  confirmRouteSwitchReviewReset: () => confirmDialog({
+    title: t('routeSwitchReviewResetTitle', '切换航线'),
+    content: t('routeSwitchReviewResetPrompt', '已打开的神经漫游复习会重置到新航线。是否继续？'),
+    confirmText: t('confirm', '确认'),
+    cancelText: t('cancel', '取消'),
+  }),
+  promptRouteName: (options) => inputDialog({
+    title: options.title,
+    placeholder: options.placeholder,
+    defaultValue: options.defaultValue,
+    confirmText: t('confirm', '确认'),
+    cancelText: t('cancel', '取消'),
+    visualVariant: 'workspace',
+  }),
+  confirmDeleteRoute: () => confirmDialog({
+    title: t('deleteRoute', '删除航线'),
+    content: t('deleteRouteConfirm', '删除航线只会移除航线状态，不会删除卡片或思源块。是否继续？'),
+    confirmText: t('delete', '删除'),
+    cancelText: t('cancel', '取消'),
+    visualVariant: 'workspace',
   }),
   close: () => emit('close'),
   getMode: () => mode.value,

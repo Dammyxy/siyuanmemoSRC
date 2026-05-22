@@ -177,6 +177,7 @@ export class DialogManager implements IDialogManager {
   private arenaManagerDialog: VueDialogHandle | null = null;
   private progressiveSplitDialog: VueDialogHandle | null = null;
   private currentReviewDialog: VueDialogHandle | null = null;
+  private currentReviewDialogQueueType: QueueType | null = null;
   private readonly conceptCardEnsureInFlight = new Set<string>();
   
   // ========================================================================
@@ -402,7 +403,7 @@ export class DialogManager implements IDialogManager {
     }
 
     const createUnifiedReviewDialog = await loadCreateUnifiedReviewDialog();
-    this.registerCurrentReviewDialog((onClose) =>
+    this.registerCurrentReviewDialog(options.queueType, (onClose) =>
       createUnifiedReviewDialog({
         plugin: this.plugin,
         queueType: options.queueType,
@@ -1019,21 +1020,31 @@ export class DialogManager implements IDialogManager {
     const dialogHandle = this.currentReviewDialog;
     if (dialogHandle) {
       this.currentReviewDialog = null;
+      this.currentReviewDialogQueueType = null;
       dialogHandle.destroy();
     }
   }
 
-  private registerCurrentReviewDialog<T extends VueDialogHandle>(factory: (onClose: () => void) => T): T {
+  private registerCurrentReviewDialog<T extends VueDialogHandle>(
+    queueType: QueueType,
+    factory: (onClose: () => void) => T,
+  ): T {
     let dialogHandle: T | null = null;
     const clearIfCurrent = () => {
       if (this.currentReviewDialog === dialogHandle) {
         this.currentReviewDialog = null;
+        this.currentReviewDialogQueueType = null;
       }
     };
 
     dialogHandle = factory(clearIfCurrent);
     this.currentReviewDialog = dialogHandle;
+    this.currentReviewDialogQueueType = queueType;
     return dialogHandle;
+  }
+
+  hasOpenNeuralReviewDialog(): boolean {
+    return this.currentReviewDialog !== null && this.currentReviewDialogQueueType === QueueType.NeuralRoam;
   }
   
   /**
@@ -1312,7 +1323,7 @@ export class DialogManager implements IDialogManager {
       await manager.materializeQueueProjection?.(QueueType.Leech, queue);
 
       const createUnifiedReviewDialog = await loadCreateUnifiedReviewDialog();
-      this.registerCurrentReviewDialog((onClose) =>
+      this.registerCurrentReviewDialog(QueueType.Leech, (onClose) =>
         createUnifiedReviewDialog({
           plugin: this.plugin,
           queueType: QueueType.Leech,
@@ -1371,7 +1382,7 @@ export class DialogManager implements IDialogManager {
       );
 
       const createUnifiedReviewDialog = await loadCreateUnifiedReviewDialog();
-      this.registerCurrentReviewDialog((onClose) =>
+      this.registerCurrentReviewDialog(QueueType.FilterGroup, (onClose) =>
         createUnifiedReviewDialog({
           plugin: this.plugin,
           queueType: QueueType.FilterGroup,
@@ -1566,7 +1577,7 @@ export class DialogManager implements IDialogManager {
       );
 
       const createUnifiedReviewDialog = await loadCreateUnifiedReviewDialog();
-      this.registerCurrentReviewDialog((onClose) =>
+      this.registerCurrentReviewDialog(QueueType.FinalDrill, (onClose) =>
         createUnifiedReviewDialog({
           plugin: this.plugin,
           queueType: QueueType.FinalDrill,

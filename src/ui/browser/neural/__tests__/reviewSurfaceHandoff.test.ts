@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handoffNeuralNavigationToReviewSurface } from '../reviewSurfaceHandoff';
+import {
+  handoffNeuralNavigationToReviewSurface,
+  hasOpenNeuralReviewSurface,
+} from '../reviewSurfaceHandoff';
 
 describe('handoffNeuralNavigationToReviewSurface', () => {
   it('returns tab when an existing neural review tab syncs successfully', async () => {
@@ -65,5 +68,20 @@ describe('handoffNeuralNavigationToReviewSurface', () => {
     ).resolves.toBe('failed');
 
     expect(openNeuralRoamDialog).not.toHaveBeenCalled();
+  });
+
+  it('reports an open NeuralRoam review from either registered surface', () => {
+    expect(hasOpenNeuralReviewSurface({
+      tabManager: { hasOpenNeuralReviewTab: () => true },
+      dialogManager: { hasOpenNeuralReviewDialog: () => false },
+    })).toBe(true);
+    expect(hasOpenNeuralReviewSurface({
+      tabManager: { hasOpenNeuralReviewTab: () => false },
+      dialogManager: { hasOpenNeuralReviewDialog: () => true },
+    })).toBe(true);
+    expect(hasOpenNeuralReviewSurface({
+      tabManager: { hasOpenNeuralReviewTab: () => false },
+      dialogManager: { hasOpenNeuralReviewDialog: () => false },
+    })).toBe(false);
   });
 });

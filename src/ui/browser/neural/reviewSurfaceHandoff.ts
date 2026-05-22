@@ -1,13 +1,20 @@
 export interface NeuralReviewSurfaceHandoffDeps {
   tabManager?: {
+    hasOpenNeuralReviewTab?: () => boolean;
     syncExistingNeuralReviewTabToCurrentNode?: (options?: {
       fallbackNodeId?: string | null;
       focus?: boolean;
     }) => Promise<'synced' | 'missing' | 'failed'> | 'synced' | 'missing' | 'failed';
   } | null;
   dialogManager?: {
+    hasOpenNeuralReviewDialog?: () => boolean;
     openNeuralRoamDialog?: () => Promise<void> | void;
   } | null;
+}
+
+export function hasOpenNeuralReviewSurface(deps: NeuralReviewSurfaceHandoffDeps): boolean {
+  return deps.tabManager?.hasOpenNeuralReviewTab?.() === true
+    || deps.dialogManager?.hasOpenNeuralReviewDialog?.() === true;
 }
 
 export async function handoffNeuralNavigationToReviewSurface(

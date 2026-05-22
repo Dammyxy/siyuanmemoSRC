@@ -1524,6 +1524,7 @@ export interface BackendNeuralRoamFeedback {
 }
 
 export interface BackendNeuralRoamStartFromFocusRequest {
+  routeId?: string | null;
   blockId: string;
   seedBlockId?: string | null;
   sourceReviewCardId?: string | null;
@@ -1549,6 +1550,7 @@ export interface BackendNeuralRoamItem {
 
 export interface BackendNeuralRoamAdvanceRequest {
   queueType: 'neural-roam';
+  routeId?: string | null;
   sessionId?: string | null;
   currentItem?: BackendNeuralRoamItem | Record<string, unknown> | null;
   feedback?: BackendNeuralRoamFeedback | null;
@@ -1568,10 +1570,12 @@ export type BackendNeuralRoamAdvanceUnavailableReason =
   | 'source-block-missing'
   | 'generation-mismatch'
   | 'policy-mismatch'
+  | 'route-mismatch'
   | 'invalid-request'
   | 'failed';
 
 export interface BackendNeuralRoamCounters {
+  routeId?: string | null;
   remaining: number;
   due: number;
   total: number;
@@ -1581,6 +1585,7 @@ export interface BackendNeuralRoamCounters {
 
 export interface BackendNeuralRoamSessionState {
   sessionId: string | null;
+  routeId: string | null;
   engineMode: string | null;
   currentNodeId: string | null;
   currentEventId: string | null;
@@ -1593,6 +1598,7 @@ export interface BackendNeuralRoamSessionState {
 
 export interface BackendNeuralRoamAdvanceResult {
   queueType: 'neural-roam';
+  routeId: string | null;
   sessionId: string | null;
   status: 'advanced' | 'exhausted' | 'unavailable' | 'mismatch' | 'failed';
   nextItem: BackendNeuralRoamItem | null;

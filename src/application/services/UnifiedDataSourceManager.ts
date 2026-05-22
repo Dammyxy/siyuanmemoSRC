@@ -513,11 +513,14 @@ export class UnifiedDataSourceManager {
         return {
             queueType: 'neural-roam',
             sessionId: request.sessionId ?? null,
-            status: unavailableReason === 'generation-mismatch' || unavailableReason === 'policy-mismatch'
+            status: unavailableReason === 'generation-mismatch'
+                || unavailableReason === 'policy-mismatch'
+                || unavailableReason === 'route-mismatch'
                 ? 'mismatch'
                 : 'unavailable',
             nextItem: null,
             counters: {
+                routeId: request.routeId ?? null,
                 remaining: 0,
                 due: 0,
                 total: 0,
@@ -526,6 +529,7 @@ export class UnifiedDataSourceManager {
             },
             sessionState: {
                 sessionId: request.sessionId ?? null,
+                routeId: request.routeId ?? null,
                 engineMode: null,
                 currentNodeId: null,
                 currentEventId: null,
@@ -536,6 +540,7 @@ export class UnifiedDataSourceManager {
                 policyHash: request.policyHash ?? null,
             },
             queueState: null,
+            routeId: request.routeId ?? null,
             projectionImpact: null,
             unavailableReason,
             message,

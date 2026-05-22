@@ -4325,8 +4325,21 @@ export class WorkerSqliteDatabaseService {
     return this.runtime.runTransaction(label, writer);
   }
 
+  async write<T>(writer: (db: Database) => T | Promise<T>): Promise<T> {
+    await this.init();
+    return this.runtime.write(writer);
+  }
+
   getOne<T extends Record<string, SqlValue>>(sql: string, params?: SqlParams): T | null {
     return this.runtime.getOne<T>(sql, params);
+  }
+
+  getAll<T extends Record<string, SqlValue>>(sql: string, params?: SqlParams): T[] {
+    return this.runtime.getAll<T>(sql, params);
+  }
+
+  run(sql: string, params?: SqlParams): void {
+    this.runtime.run(sql, params);
   }
 
   dispose(): void {

@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { BackendKernel } from '../bootstrap/BackendKernel';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { createInMemorySqlitePersistenceBridge } from '../db/SqlitePersistenceBridge';
+import { SqlNeuralRoamRouteRepository } from '@/infrastructure/persistence/sqlite/SqlNeuralRoamRouteRepository';
+import { createDefaultRoute } from '@/core/queue/neural/routes';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { DEFAULT_SETTINGS } from '@/types/settings';
 import type {
@@ -230,6 +232,66 @@ async function seedNeuralRoamHyperspaceSource(
     },
     pendingAssociatedReviewCardIds: [],
     seenAssociatedReviewCardIds: [],
+  });
+}
+
+async function seedNeuralRoamRouteSource(
+  database: WorkerSqliteDatabaseService,
+  routeId: string,
+  sourceId: string,
+  activeRouteId = routeId,
+): Promise<void> {
+  await database.init();
+  const repository = new SqlNeuralRoamRouteRepository(database as never);
+  const now = 1_700_000_000_000;
+  const routes = [createDefaultRoute(now)];
+  if (routeId !== 'default') {
+    routes.push({
+      metadata: {
+        id: routeId,
+        name: routeId,
+        temporary: false,
+        previousRouteId: null,
+        initialSeedNodeIds: [],
+        createdAt: now,
+        updatedAt: now,
+        lastUsedAt: now,
+      },
+      seedPool: [{
+        routeId,
+        nodeId: sourceId,
+        kind: 'seed',
+        nodeKind: 'concept',
+        role: 'orbit-center',
+        priority: 0.9,
+        addedAt: 1_700_000_000_000,
+        visitedAt: null,
+        preview: sourceId,
+      }],
+      anchorPool: [],
+      sessions: { orbit: null, hyperspace: null },
+      history: [],
+    });
+  } else {
+    routes[0] = {
+      ...routes[0],
+      seedPool: [{
+        routeId,
+        nodeId: sourceId,
+        kind: 'seed',
+        nodeKind: 'concept',
+        role: 'orbit-center',
+        priority: 0.9,
+        addedAt: now,
+        visitedAt: null,
+        preview: sourceId,
+      }],
+    };
+  }
+  await repository.saveState({
+    activeRouteId,
+    engineMode: 'hyperspace',
+    routes,
   });
 }
 
@@ -4347,6 +4409,78 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('uses SQL active route by default for backend neural-roam advance', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    await seedNeuralRoamRouteSource(database, 'route-b', 'route-b-source');
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({
+        'route-b-source': { id: 'route-b-source', content: 'Route B', type: 'p' },
+      }),
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-active-route',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        sessionId: null,
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        routeId: 'route-b',
+        status: 'advanced',
+        nextItem: { blockId: 'route-b-source' },
+        sessionState: { routeId: 'route-b' },
+      });
+    }
+  });
+
+  it('rejects stale backend neural-roam feedback for an inactive route', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    await seedNeuralRoamRouteSource(database, 'route-a', 'route-a-source', 'default');
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({
+        'route-a-source': { id: 'route-a-source', content: 'Route A', type: 'p' },
+      }),
+    });
+
+    const response = await kernel.handle({
+      id: 'neural-advance-stale-route-feedback',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        routeId: 'route-a',
+        sessionId: null,
+        currentItem: {
+          id: 'route-a-source',
+          cardId: 'route-a-source',
+          blockId: 'route-a-source',
+          sourceKind: 'virtual',
+        },
+        feedback: { action: 'skip' },
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        queueType: 'neural-roam',
+        routeId: 'default',
+        status: 'mismatch',
+        nextItem: null,
+        unavailableReason: 'route-mismatch',
+      });
+    }
+  });
+
   it('starts backend neural-roam from a block seed while returning the source review card first', async () => {
     const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
     const resolveNeuralGraphQuery = createNeuralGraphResolver({
@@ -4683,7 +4817,7 @@ describe('BackendKernel', () => {
     expect(after?.reps).toBe(2);
   });
 
-  it('imports old neural-roam queue state into an absent backend session', async () => {
+  it('migrates old neural-roam queue state into SQL default route for backend advance', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
     await seedNeuralRoamHyperspaceSource(database, 'legacy-neural-source', 'neuralRoamQueue');
@@ -4711,17 +4845,19 @@ describe('BackendKernel', () => {
     expect('result' in response).toBe(true);
     if ('result' in response) {
       expect(response.result).toMatchObject({
+        routeId: 'default',
         status: 'advanced',
         nextItem: {
           blockId: 'legacy-neural-source',
         },
       });
     }
-    const imported = await database.getQueueStateValue<{ version?: number }>('neuralRoamQueue:imported-session');
-    expect(imported?.version).toBe(8);
+    const routes = await new SqlNeuralRoamRouteRepository(database as never).loadState();
+    expect(routes?.activeRouteId).toBe('default');
+    expect(routes?.routes[0]?.seedPool.map((entry) => entry.nodeId)).toContain('legacy-neural-source');
   });
 
-  it('keeps existing backend neural-roam session state ahead of old default state', async () => {
+  it('ignores old session-specific neural-roam state after route SQL ownership is active', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
     await seedNeuralRoamHyperspaceSource(database, 'legacy-neural-source', 'neuralRoamQueue');
@@ -4756,14 +4892,15 @@ describe('BackendKernel', () => {
     if ('result' in response) {
       expect(response.result).toMatchObject({
         status: 'advanced',
+        routeId: 'default',
         nextItem: {
-          blockId: 'backend-neural-source',
+          blockId: 'legacy-neural-source',
         },
       });
     }
   });
 
-  it('resets corrupted old neural-roam state into v8 backend session state', async () => {
+  it('resets corrupted old neural-roam state into SQL default route state', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
     await database.setQueueStateValue('neuralRoamQueue', {
@@ -4788,13 +4925,15 @@ describe('BackendKernel', () => {
     expect('result' in response).toBe(true);
     if ('result' in response) {
       expect(response.result).toMatchObject({
+        routeId: 'default',
         status: 'exhausted',
         nextItem: null,
         unavailableReason: null,
       });
     }
-    const imported = await database.getQueueStateValue<{ version?: number }>('neuralRoamQueue:corrupted-import-session');
-    expect(imported?.version).toBe(8);
+    const routes = await new SqlNeuralRoamRouteRepository(database as never).loadState();
+    expect(routes?.activeRouteId).toBe('default');
+    expect(routes?.routes[0]?.metadata.id).toBe('default');
   });
 
   it('returns deterministic candidate identity for duplicate decision requests', async () => {

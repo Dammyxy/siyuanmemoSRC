@@ -37,6 +37,7 @@ export class NeuralRoamAdvanceCoordinator {
   private pendingNext: FSRSCard | null = null;
   private pendingNextReady = false;
   private pendingStartFromFocus: BackendNeuralRoamStartFromFocusRequest | null = null;
+  private activeRouteId: string | null = null;
 
   constructor(private readonly deps: NeuralRoamAdvanceCoordinatorDependencies) {}
 
@@ -50,6 +51,11 @@ export class NeuralRoamAdvanceCoordinator {
     this.reset();
     this.deps.cursor.reset();
     this.deps.currentItem.clear();
+  }
+
+  setActiveRouteId(routeId: string | null | undefined): void {
+    const normalized = String(routeId || '').trim();
+    this.activeRouteId = normalized || null;
   }
 
   startFromFocusOnNextAdvance(request: BackendNeuralRoamStartFromFocusRequest | null | undefined): void {
@@ -94,6 +100,7 @@ export class NeuralRoamAdvanceCoordinator {
     this.pendingStartFromFocus = null;
     const result = await this.deps.submitAdvance({
       queueType: 'neural-roam',
+      routeId: startFromFocus?.routeId ?? this.activeRouteId,
       sessionId: null,
       currentItem: this.deps.currentItem.current ? this.toAdvanceItem(this.deps.currentItem.current) : null,
       feedback: null,
@@ -120,6 +127,7 @@ export class NeuralRoamAdvanceCoordinator {
 
     const result = await this.deps.submitAdvance({
       queueType: 'neural-roam',
+      routeId: this.activeRouteId,
       sessionId: null,
       currentItem: this.toAdvanceItem(activeItem),
       feedback: {

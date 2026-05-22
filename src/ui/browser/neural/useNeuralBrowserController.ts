@@ -23,6 +23,7 @@ import {
 } from './traceAggregation';
 import {
   handoffNeuralNavigationToReviewSurface,
+  hasOpenNeuralReviewSurface,
   type NeuralReviewSurfaceHandoffDeps,
 } from './reviewSurfaceHandoff';
 import {
@@ -53,6 +54,10 @@ import {
   runNeuralToggleEngineMode,
   runNeuralToggleNavigationMode,
 } from './neuralNavigationCommands';
+import {
+  DEFAULT_NEURAL_ROAM_ROUTE_ID,
+  type NeuralRoamRouteListItem,
+} from '@/core/queue/neural/routes';
 
 type LoadBrowserCardsByBlockIds = typeof loadBrowserCardsByBlockIdsFn;
 type LoadBrowserCardsOptions = NonNullable<Parameters<LoadBrowserCardsByBlockIds>[1]>;
@@ -66,6 +71,13 @@ export type UseNeuralBrowserControllerDeps = {
   refreshQueueCounts: () => Promise<void>;
   getReviewSurfaceDeps: () => NeuralReviewSurfaceHandoffDeps;
   confirmClearHistory: () => Promise<boolean>;
+  confirmRouteSwitchReviewReset: () => Promise<boolean>;
+  promptRouteName: (options: {
+    title: string;
+    placeholder: string;
+    defaultValue: string;
+  }) => Promise<string | null | undefined>;
+  confirmDeleteRoute: (route: NeuralRoamRouteListItem) => Promise<boolean>;
   close: () => void;
   getMode: () => BrowserMode;
   pushMessage: (message: string) => Promise<void>;
@@ -79,6 +91,8 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
   const historyPageSize = deps.historyPageSize ?? 200;
 
   const neuralSourceEntries = ref<NeuralSourceListEntry[]>([]);
+  const neuralRoutes = ref<NeuralRoamRouteListItem[]>([]);
+  const neuralRouteBusy = ref(false);
   const neuralHistoryEntries = ref<NeuralListEntry[]>([]);
   const neuralHistoryTotalCount = ref(0);
   const neuralHistoryHasMore = ref(false);
@@ -104,6 +118,78 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
       return null;
     }
     return queue;
+  }
+
+  async function refreshNeuralRoutes(): Promise<void> {
+    const neuralQueue = getNeuralRoamQueue();
+    if (!neuralQueue?.listRoutes) {
+      neuralRoutes.value = [];
+      return;
+    }
+    try {
+      neuralRoutes.value = await neuralQueue.listRoutes();
+    } catch (error) {
+      deps.logError('Failed to list NeuralRoam routes:', error);
+      neuralRoutes.value = [];
+    }
+  }
+
+  function getActiveNeuralRoute(): NeuralRoamRouteListItem | null {
+    return neuralRoutes.value.find((route) => route.isActive)
+      ?? neuralRoutes.value[0]
+      ?? null;
+  }
+
+  function formatRouteUnavailableMessage(key: string, fallback: string): string {
+    return deps.t(key, fallback);
+  }
+
+  async function withRouteBusy(task: () => Promise<void>): Promise<void> {
+    if (neuralRouteBusy.value) {
+      return;
+    }
+    neuralRouteBusy.value = true;
+    try {
+      await task();
+    } finally {
+      neuralRouteBusy.value = false;
+    }
+  }
+
+  async function confirmOpenReviewResetIfNeeded(): Promise<{
+    confirmed: boolean;
+    hadOpenReviewSurface: boolean;
+    reviewSurfaceDeps: NeuralReviewSurfaceHandoffDeps;
+  }> {
+    const reviewSurfaceDeps = deps.getReviewSurfaceDeps();
+    const hadOpenReviewSurface = hasOpenNeuralReviewSurface(reviewSurfaceDeps);
+    if (!hadOpenReviewSurface) {
+      return { confirmed: true, hadOpenReviewSurface, reviewSurfaceDeps };
+    }
+    const confirmed = await deps.confirmRouteSwitchReviewReset();
+    return { confirmed, hadOpenReviewSurface, reviewSurfaceDeps };
+  }
+
+  async function refreshAfterRouteBoundary(options: {
+    hadOpenReviewSurface: boolean;
+    reviewSurfaceDeps: NeuralReviewSurfaceHandoffDeps;
+  }): Promise<void> {
+    clearNeuralSubviewData();
+    await refreshNeuralSubviewData();
+    await deps.refreshQueueCounts();
+    if (!options.hadOpenReviewSurface) {
+      return;
+    }
+    const result = await handoffNeuralNavigationToReviewSurface(options.reviewSurfaceDeps, {
+      fallbackNodeId: neuralCurrentNodeId.value,
+    });
+    await runNeuralReviewSurfaceHandoff({
+      result,
+      mode: deps.getMode(),
+      close: deps.close,
+      pushError: deps.pushError,
+      t: deps.t,
+    });
   }
 
   function resetNeuralTraceConvergenceState(): void {
@@ -398,9 +484,11 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
     const neuralQueue = getNeuralRoamQueue();
     if (!neuralQueue) {
       clearNeuralSubviewData();
+      neuralRoutes.value = [];
       return;
     }
 
+    await refreshNeuralRoutes();
     const navState = neuralQueue.getNavigationState();
     const sourceSnapshot = neuralQueue.getSourceSnapshot();
     const historyPage = neuralQueue.getHistoryPage({
@@ -432,6 +520,157 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
     });
     neuralCurrentNodeId.value = navState.currentNodeId;
     neuralNavigationState.value = navState;
+  }
+
+  async function handleNeuralSwitchRoute(routeId: string): Promise<void> {
+    const normalizedRouteId = String(routeId || '').trim();
+    if (!normalizedRouteId) {
+      return;
+    }
+    const currentRoute = getActiveNeuralRoute();
+    if (currentRoute?.id === normalizedRouteId) {
+      return;
+    }
+
+    await withRouteBusy(async () => {
+      const neuralQueue = getNeuralRoamQueue();
+      if (!neuralQueue?.switchRoute) {
+        await deps.pushError(formatRouteUnavailableMessage('neuralRoamRouteSwitchUnavailable', '航线切换不可用'));
+        return;
+      }
+
+      const reviewReset = await confirmOpenReviewResetIfNeeded();
+      if (!reviewReset.confirmed) {
+        return;
+      }
+
+      try {
+        await neuralQueue.switchRoute(normalizedRouteId);
+        await refreshAfterRouteBoundary(reviewReset);
+      } catch (error) {
+        deps.logError('Failed to switch NeuralRoam route:', error);
+        await deps.pushError(formatRouteUnavailableMessage('neuralRoamRouteSwitchUnavailable', '航线切换不可用'));
+      }
+    });
+  }
+
+  async function handleNeuralCreateRoute(): Promise<void> {
+    await withRouteBusy(async () => {
+      const neuralQueue = getNeuralRoamQueue();
+      if (!neuralQueue?.createRoute) {
+        await deps.pushError(formatRouteUnavailableMessage('neuralRoamRouteCreateUnavailable', '航线创建不可用'));
+        return;
+      }
+      const name = await deps.promptRouteName({
+        title: deps.t('createRoute', '新建航线'),
+        placeholder: deps.t('routeNamePlaceholder', '航线名称'),
+        defaultValue: deps.t('newRoute', '新航线'),
+      });
+      const normalizedName = String(name || '').trim();
+      if (!normalizedName) {
+        return;
+      }
+      try {
+        const reviewReset = await confirmOpenReviewResetIfNeeded();
+        if (!reviewReset.confirmed) {
+          return;
+        }
+        await neuralQueue.createRoute({ name: normalizedName });
+        await refreshAfterRouteBoundary(reviewReset);
+      } catch (error) {
+        deps.logError('Failed to create NeuralRoam route:', error);
+        await deps.pushError(formatRouteUnavailableMessage('neuralRoamRouteCreateUnavailable', '航线创建不可用'));
+      }
+    });
+  }
+
+  async function handleNeuralRenameRoute(routeId?: string | null): Promise<void> {
+    const route = routeId
+      ? neuralRoutes.value.find((candidate) => candidate.id === routeId)
+      : getActiveNeuralRoute();
+    if (!route) {
+      return;
+    }
+    await withRouteBusy(async () => {
+      const neuralQueue = getNeuralRoamQueue();
+      if (!neuralQueue?.renameRoute) {
+        await deps.pushError(formatRouteUnavailableMessage('neuralRoamRouteRenameUnavailable', '航线重命名不可用'));
+        return;
+      }
+      const name = await deps.promptRouteName({
+        title: deps.t('renameRoute', '重命名航线'),
+        placeholder: deps.t('routeNamePlaceholder', '航线名称'),
+        defaultValue: route.name,
+      });
+      const normalizedName = String(name || '').trim();
+      if (!normalizedName) {
+        return;
+      }
+      try {
+        await neuralQueue.renameRoute(route.id, normalizedName);
+        await refreshNeuralRoutes();
+      } catch (error) {
+        deps.logError('Failed to rename NeuralRoam route:', error);
+        await deps.pushError(formatRouteUnavailableMessage('neuralRoamRouteRenameUnavailable', '航线重命名不可用'));
+      }
+    });
+  }
+
+  async function handleNeuralDeleteRoute(routeId?: string | null): Promise<void> {
+    const route = routeId
+      ? neuralRoutes.value.find((candidate) => candidate.id === routeId)
+      : getActiveNeuralRoute();
+    if (!route || route.id === DEFAULT_NEURAL_ROAM_ROUTE_ID) {
+      return;
+    }
+    await withRouteBusy(async () => {
+      const neuralQueue = getNeuralRoamQueue();
+      if (!neuralQueue?.deleteRoute) {
+        await deps.pushError(formatRouteUnavailableMessage('neuralRoamRouteDeleteUnavailable', '航线删除不可用'));
+        return;
+      }
+      const confirmed = await deps.confirmDeleteRoute(route);
+      if (!confirmed) {
+        return;
+      }
+      try {
+        const reviewReset = route.isActive
+          ? await confirmOpenReviewResetIfNeeded()
+          : { confirmed: true, hadOpenReviewSurface: false, reviewSurfaceDeps: {} };
+        if (!reviewReset.confirmed) {
+          return;
+        }
+        await neuralQueue.deleteRoute(route.id);
+        await refreshAfterRouteBoundary(reviewReset);
+      } catch (error) {
+        deps.logError('Failed to delete NeuralRoam route:', error);
+        await deps.pushError(formatRouteUnavailableMessage('neuralRoamRouteDeleteUnavailable', '航线删除不可用'));
+      }
+    });
+  }
+
+  async function handleNeuralSaveTemporaryRoute(routeId?: string | null): Promise<void> {
+    const route = routeId
+      ? neuralRoutes.value.find((candidate) => candidate.id === routeId)
+      : getActiveNeuralRoute();
+    if (!route?.temporary) {
+      return;
+    }
+    await withRouteBusy(async () => {
+      const neuralQueue = getNeuralRoamQueue();
+      if (!neuralQueue?.saveTemporaryRoute) {
+        await deps.pushError(formatRouteUnavailableMessage('neuralRoamRouteSaveUnavailable', '临时航线保存不可用'));
+        return;
+      }
+      try {
+        await neuralQueue.saveTemporaryRoute(route.id);
+        await refreshNeuralRoutes();
+        await deps.pushMessage(deps.t('temporaryRouteSaved', '临时航线已保存'));
+      } catch (error) {
+        deps.logError('Failed to save temporary NeuralRoam route:', error);
+        await deps.pushError(formatRouteUnavailableMessage('neuralRoamRouteSaveUnavailable', '临时航线保存不可用'));
+      }
+    });
   }
 
   async function handleNeuralPreview(nodeId: string): Promise<void> {
@@ -693,6 +932,8 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
 
   return {
     neuralSourceEntries,
+    neuralRoutes,
+    neuralRouteBusy,
     neuralHistoryEntries,
     neuralHistoryTotalCount,
     neuralHistoryHasMore,
@@ -707,7 +948,13 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
     selectedNeuralTraceEventId,
     clearNeuralSubviewData,
     getNeuralRoamQueue,
+    refreshNeuralRoutes,
     refreshNeuralSubviewData,
+    handleNeuralSwitchRoute,
+    handleNeuralCreateRoute,
+    handleNeuralRenameRoute,
+    handleNeuralDeleteRoute,
+    handleNeuralSaveTemporaryRoute,
     handleNeuralPreview,
     handleNeuralExternalNodePreview,
     handleNeuralSelectHistoryEntry,

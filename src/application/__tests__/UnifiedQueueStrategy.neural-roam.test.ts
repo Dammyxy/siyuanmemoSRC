@@ -99,6 +99,7 @@ function createQueueStub(): IReviewQueue {
     clearCustomOrder: vi.fn(),
     insertAt: vi.fn(async () => {}),
     getRemainingSize: vi.fn(async () => 0),
+    getActiveRouteId: vi.fn(() => 'route-a'),
   } as unknown as IReviewQueue;
 
   return queue;
@@ -125,6 +126,7 @@ function createAdvanceResult(
 ): BackendNeuralRoamAdvanceResult {
   return {
     queueType: 'neural-roam',
+    routeId: 'route-a',
     sessionId: null,
     status,
     nextItem,
@@ -137,6 +139,7 @@ function createAdvanceResult(
     },
     sessionState: {
       sessionId: null,
+      routeId: 'route-a',
       engineMode: 'hyperspace',
       currentNodeId: nextItem?.blockId ?? null,
       currentEventId: null,
@@ -240,6 +243,7 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
     expect((queue.handleReview as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
     expect(manager.neuralRoamAdvance).toHaveBeenCalledWith(expect.objectContaining({
       queueType: 'neural-roam',
+      routeId: 'route-a',
       currentItem: expect.objectContaining({
         id: currentItem.id,
         blockId: currentItem.blockId,

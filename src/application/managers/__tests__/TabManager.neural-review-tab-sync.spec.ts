@@ -131,11 +131,15 @@ describe('TabManager neural review tab sync', () => {
     mocks.nextMountedVm = bridge;
     await reviewRegistration.init.call(runtime);
 
+    expect(tabManager.hasOpenNeuralReviewTab()).toBe(true);
+
     await expect(
       tabManager.syncExistingNeuralReviewTabToCurrentNode({ fallbackNodeId: 'node-a' }),
     ).resolves.toBe('synced');
 
     reviewRegistration.destroy.call(runtime);
+
+    expect(tabManager.hasOpenNeuralReviewTab()).toBe(false);
 
     await expect(
       tabManager.syncExistingNeuralReviewTabToCurrentNode({ fallbackNodeId: 'node-a' }),

@@ -678,6 +678,10 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     return this.toPersistedState() as unknown as Record<string, unknown>;
   }
 
+  public getActiveRouteId(): string | null {
+    return this.activeRouteSnapshot?.metadata.id ?? null;
+  }
+
   private readHistoryClearedAt(state: Partial<NeuralRoamPersistedStateV8> | null | undefined): number {
     const clearedAt = Number(state?.historyClearedAt);
     return Number.isFinite(clearedAt) && clearedAt > 0 ? Math.floor(clearedAt) : 0;

@@ -9,12 +9,16 @@ import type {
   BackendReviewFeedbackQueueImpact,
 } from '../../packages/contracts/src/backend-rpc';
 import { NeuralRoamQueue } from '@/core/queue/domain/NeuralRoamQueue';
+import { NeuralRoamRouteCatalog } from '@/core/queue/neural/routes';
 import type { QueuePersistencePort } from '@/core/queue/domain/ports';
 import type { NeuralGraphQueryPort } from '@/core/queue/neural/NeuralGraphQueryPort';
 import { type CardFilter } from '@/types/unified-data-source';
 import { CardType, type FSRSCard } from '@/types/card';
 import type { StructuredCardQuery } from '@/types/card-query';
 import { DEFAULT_SETTINGS } from '@/types/settings';
+import { SqlNeuralRoamRouteRepository } from '@/infrastructure/persistence/sqlite/SqlNeuralRoamRouteRepository';
+import { SqlNeuralRoamRouteMigrationService } from '@/infrastructure/persistence/sqlite/SqlNeuralRoamRouteMigrationService';
+import { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite/SqlQueueStateRepository';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 
 interface WorkerNeuralRoamAdvanceServiceDeps {
@@ -71,6 +75,9 @@ export class WorkerNeuralRoamAdvanceService {
   private readonly idempotentResults = new Map<string, BackendNeuralRoamAdvanceResult>();
   private readonly graphQuery: NeuralGraphQueryPort;
   private readonly queuePersistence: QueuePersistencePort;
+  private readonly routeCatalog: NeuralRoamRouteCatalog;
+  private readonly routeRepository: SqlNeuralRoamRouteRepository;
+  private routeMigrationPromise: Promise<void> | null = null;
 
   constructor(private readonly deps: WorkerNeuralRoamAdvanceServiceDeps) {
     this.graphQuery = {
@@ -94,6 +101,10 @@ export class WorkerNeuralRoamAdvanceService {
         await this.deps.database.setQueueStateValue(key, value);
       },
     };
+    this.routeRepository = new SqlNeuralRoamRouteRepository(this.deps.database as never);
+    this.routeCatalog = new NeuralRoamRouteCatalog({
+      repository: this.routeRepository,
+    });
   }
 
   async advance(request: BackendNeuralRoamAdvanceRequest): Promise<BackendNeuralRoamAdvanceResult> {
@@ -119,6 +130,15 @@ export class WorkerNeuralRoamAdvanceService {
       }
 
       const queue = await this.getQueue(request.sessionId ?? null);
+      const routeMismatch = await this.resolveRouteMismatch(queue, request);
+      if (routeMismatch) {
+        return this.rememberIdempotentResult(idempotencyKey, await this.buildResult(request, queue, 'mismatch', {
+          nextItem: null,
+          projectionImpact: this.buildUnavailableProjectionImpact(request, routeMismatch),
+          unavailableReason: routeMismatch,
+          message: 'NeuralRoam advance request route is no longer active',
+        }));
+      }
       let projectionImpact: BackendReviewFeedbackQueueImpact | null = null;
       const focusStart = await this.applyStartFromFocusRequest(queue, request);
       if (focusStart.applied && focusStart.nextItem) {
@@ -212,6 +232,7 @@ export class WorkerNeuralRoamAdvanceService {
   }
 
   private async getQueue(sessionId: string | null): Promise<NeuralRoamQueue> {
+    await this.ensureRoutesMigrated();
     const storageKey = this.storageKeyForSession(sessionId);
     let queue = this.queues.get(storageKey) ?? null;
     if (!queue) {
@@ -223,6 +244,7 @@ export class WorkerNeuralRoamAdvanceService {
           storageKey,
           getHistoryLimit: () => DEFAULT_SETTINGS.queues.neuralRoam?.history?.maxEntries ?? 3000,
           getHyperspaceSettings: () => DEFAULT_SETTINGS.queues.neuralRoam!.hyperspace,
+          routeCatalog: this.routeCatalog,
         },
       );
       this.queues.set(storageKey, queue);
@@ -234,6 +256,20 @@ export class WorkerNeuralRoamAdvanceService {
       this.loadPromises.delete(storageKey);
     }
     return queue;
+  }
+
+  private async ensureRoutesMigrated(): Promise<void> {
+    if (!this.routeMigrationPromise) {
+      this.routeMigrationPromise = (async () => {
+        await this.deps.database.init();
+        const migration = new SqlNeuralRoamRouteMigrationService(
+          new SqlQueueStateRepository(this.deps.database as never),
+          this.routeRepository,
+        );
+        await migration.migrateIfNeeded();
+      })();
+    }
+    await this.routeMigrationPromise;
   }
 
   private async applyStartFromFocusRequest(
@@ -401,6 +437,19 @@ export class WorkerNeuralRoamAdvanceService {
     return this.toAdvanceItem(card);
   }
 
+  private async resolveRouteMismatch(
+    queue: NeuralRoamQueue,
+    request: BackendNeuralRoamAdvanceRequest,
+  ): Promise<BackendNeuralRoamAdvanceUnavailableReason | null> {
+    await this.routeCatalog.getState();
+    const requestedRouteId = normalizeString(request.routeId ?? request.startFromFocus?.routeId);
+    const activeRouteId = normalizeString(queue.getActiveRouteId());
+    if (!requestedRouteId || !activeRouteId || requestedRouteId === activeRouteId) {
+      return null;
+    }
+    return 'route-mismatch';
+  }
+
   private async ensureVirtualCurrentItemSession(
     queue: NeuralRoamQueue,
     item: BackendNeuralRoamItem | Record<string, unknown> | null | undefined,
@@ -455,6 +504,7 @@ export class WorkerNeuralRoamAdvanceService {
     const total = await queue.getSize();
     const sourceNodes = queue.getSourceSnapshot().length;
     return {
+      routeId: queue.getActiveRouteId(),
       remaining: total,
       due: total,
       total,
@@ -483,14 +533,17 @@ export class WorkerNeuralRoamAdvanceService {
       counters.pendingAssociatedReview = 0;
     }
     const sessionId = request.sessionId ?? navigation.sessionId ?? navigation.engineSessionId ?? null;
+    const routeId = queue.getActiveRouteId();
     return {
       queueType: 'neural-roam',
+      routeId,
       sessionId,
       status,
       nextItem: input.nextItem,
       counters,
       sessionState: {
         sessionId,
+        routeId,
         engineMode: navigation.engineMode ?? null,
         currentNodeId: navigation.currentNodeId ?? null,
         currentEventId: navigation.currentEventId ?? null,
@@ -515,7 +568,7 @@ export class WorkerNeuralRoamAdvanceService {
     const projectionImpact = this.buildUnavailableProjectionImpact(request, reason);
     const queue = this.queues.get(this.storageKeyForSession(request.sessionId ?? null)) ?? null;
     if (queue) {
-      return this.buildResult(request, queue, reason === 'generation-mismatch' || reason === 'policy-mismatch' ? 'mismatch' : 'unavailable', {
+      return this.buildResult(request, queue, this.isAdvanceMismatch(reason) ? 'mismatch' : 'unavailable', {
         nextItem: null,
         projectionImpact,
         unavailableReason: reason,
@@ -525,9 +578,10 @@ export class WorkerNeuralRoamAdvanceService {
     return {
       queueType: 'neural-roam',
       sessionId: request.sessionId ?? null,
-      status: reason === 'generation-mismatch' || reason === 'policy-mismatch' ? 'mismatch' : 'unavailable',
+      status: this.isAdvanceMismatch(reason) ? 'mismatch' : 'unavailable',
       nextItem: null,
       counters: {
+        routeId: request.routeId ?? null,
         remaining: 0,
         due: 0,
         total: 0,
@@ -536,6 +590,7 @@ export class WorkerNeuralRoamAdvanceService {
       },
       sessionState: {
         sessionId: request.sessionId ?? null,
+        routeId: request.routeId ?? null,
         engineMode: null,
         currentNodeId: null,
         currentEventId: null,
@@ -545,6 +600,7 @@ export class WorkerNeuralRoamAdvanceService {
         projectionGeneration: request.projectionGeneration ?? null,
         policyHash: request.policyHash ?? null,
       },
+      routeId: request.routeId ?? null,
       queueState: null,
       projectionImpact,
       unavailableReason: reason,
@@ -556,7 +612,7 @@ export class WorkerNeuralRoamAdvanceService {
     request: BackendNeuralRoamAdvanceRequest,
     reason: BackendNeuralRoamAdvanceUnavailableReason,
   ): BackendReviewFeedbackQueueImpact | null {
-    if (reason !== 'generation-mismatch' && reason !== 'policy-mismatch') {
+    if (reason !== 'generation-mismatch' && reason !== 'policy-mismatch' && reason !== 'route-mismatch') {
       return null;
     }
     return {
@@ -579,5 +635,11 @@ export class WorkerNeuralRoamAdvanceService {
         counters: null,
       }],
     };
+  }
+
+  private isAdvanceMismatch(reason: BackendNeuralRoamAdvanceUnavailableReason): boolean {
+    return reason === 'generation-mismatch'
+      || reason === 'policy-mismatch'
+      || reason === 'route-mismatch';
   }
 }

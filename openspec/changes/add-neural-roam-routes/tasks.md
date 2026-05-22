@@ -62,18 +62,18 @@
 
 ## 8. SRS Browser NeuralRoam Panel
 
-- [ ] 8.1 Add route selector, create, rename, delete, save temporary, and switch actions to the SRS Browser NeuralRoam panel.
-- [ ] 8.2 Make Browser concept pool management route-aware.
-- [ ] 8.3 Make Browser station management route-aware.
-- [ ] 8.4 Add route log browsing from the Browser NeuralRoam panel with paged SQL reads.
-- [ ] 8.5 Confirm route switching from Browser resets an open NeuralRoam Review before applying the global `activeRouteId` change.
+- [x] 8.1 Add route selector, create, rename, delete, save temporary, and switch actions to the SRS Browser NeuralRoam panel.
+- [x] 8.2 Make Browser concept pool management route-aware.
+- [x] 8.3 Make Browser station management route-aware.
+- [x] 8.4 Add route log browsing from the Browser NeuralRoam panel with paged SQL reads.
+- [x] 8.5 Confirm route switching from Browser resets an open NeuralRoam Review before applying the global `activeRouteId` change.
 
 ## 9. Contracts And Backend Runtime
 
-- [ ] 9.1 Extend backend NeuralRoam advance/read contracts with route ID where needed while keeping `activeRouteId` as the default.
-- [ ] 9.2 Ensure backend advance starts and feedback apply to the active route and cannot leak into another route.
-- [ ] 9.3 Add route management commands for Browser/Review UI without exposing direct SQL mutation from UI.
-- [ ] 9.4 Keep route operations inside the existing backend/application ownership path and avoid UI SQL access.
+- [x] 9.1 Extend backend NeuralRoam advance/read contracts with route ID where needed while keeping `activeRouteId` as the default.
+- [x] 9.2 Ensure backend advance starts and feedback apply to the active route and cannot leak into another route.
+- [x] 9.3 Add route management commands for Browser/Review UI without exposing direct SQL mutation from UI.
+- [x] 9.4 Keep route operations inside the existing backend/application ownership path and avoid UI SQL access.
 
 ## 10. Tests And Validation
 
@@ -85,6 +85,6 @@
 - [x] 10.6 Add route history tests for chronological non-deduped events across both engines and no recommendation impact.
 - [x] 10.7 Add SQL repository tests for route metadata, pool entries, route history pagination, session snapshots, and delete/discard cleanup.
 - [x] 10.8 Add Review header/selector tests for route display, switching reset, temporary save/discard actions, and route counts.
-- [ ] 10.9 Add SRS Browser NeuralRoam panel tests for route-aware concept pool/station management and route log browsing.
-- [ ] 10.10 Run targeted NeuralRoam, backend advance, Review, Browser, SQL repository, and migration tests.
-- [ ] 10.11 Run `pnpm run check:boundaries` and `pnpm build`.
+- [x] 10.9 Add SRS Browser NeuralRoam panel tests for route-aware concept pool/station management and route log browsing.
+- [x] 10.10 Run targeted NeuralRoam, backend advance, Review, Browser, SQL repository, and migration tests.
+- [x] 10.11 Run `pnpm run check:boundaries` and `pnpm build`.

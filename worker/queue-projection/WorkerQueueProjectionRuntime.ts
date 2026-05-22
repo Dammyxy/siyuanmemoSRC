@@ -83,8 +83,8 @@ export class WorkerQueueProjectionRuntime {
       offset: request.offset,
     });
     const cards = this.deps.repository.getCardsByIds(rows.map((row) => row.cardId));
-    const snapshotRows = buildProjectionSnapshotRows(rows, cards);
-    if (snapshotRows.length !== rows.length) {
+    const { rows: snapshotRows, missingCardCount } = buildProjectionSnapshotRows(rows, cards);
+    if (missingCardCount > 0) {
       return buildHydrationUnavailableProjectionSnapshotResult({
         queueType,
         policyHash,
@@ -180,7 +180,7 @@ export class WorkerQueueProjectionRuntime {
       policyHash,
       generation: requestedGeneration,
       status: 'ready',
-      rows: buildProjectionSnapshotRows(activeRows, cards),
+      rows: buildProjectionSnapshotRows(activeRows, cards).rows,
       cards,
     };
   }
@@ -391,16 +391,18 @@ function normalizeProjectionReplaceRows(input: {
 function buildProjectionSnapshotRows(
   projectionRows: QueueProjectionRow[],
   cards: FSRSCard[],
-): BackendQueueProjectionSnapshotRow[] {
+): { rows: BackendQueueProjectionSnapshotRow[]; missingCardCount: number } {
   const cardById = new Map<string, FSRSCard>();
   for (const card of cards) {
     cardById.set(String(card.id || ''), card);
   }
 
-  return projectionRows
+  let missingCardCount = 0;
+  const rows = projectionRows
     .map<BackendQueueProjectionSnapshotRow | null>((row, index) => {
       const card = cardById.get(row.cardId);
       if (!card) {
+        missingCardCount += 1;
         return null;
       }
       if (isStaleProjectionMembership(row, card)) {
@@ -421,6 +423,7 @@ function buildProjectionSnapshotRows(
       };
     })
     .filter((row): row is BackendQueueProjectionSnapshotRow => Boolean(row));
+  return { rows, missingCardCount };
 }
 
 function isStaleProjectionMembership(row: QueueProjectionRow, card: FSRSCard): boolean {

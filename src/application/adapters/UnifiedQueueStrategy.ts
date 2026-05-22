@@ -79,6 +79,7 @@ type NeuralRoamBackendStateSyncQueue = IReviewQueue & {
 
 type NeuralRoamRouteSwitchQueue = IReviewQueue & {
     switchRoute?: (routeId: string) => Promise<unknown>;
+    getActiveRouteId?: () => string | null;
 };
 
 function supportsInsertAt(queue: IReviewQueue): queue is QueueWithInsertAt {
@@ -844,6 +845,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private async nextFromNeuralRoamAdvance(): Promise<FSRSCard | null> {
+        this.neuralRoamAdvance.setActiveRouteId(this.readActiveNeuralRoamRouteId());
         const outcome = await this.neuralRoamAdvance.next();
         if (!outcome || outcome.kind === 'exhausted') {
             logger.info('[SiYuanMemo][UnifiedQueueStrategy] NeuralRoam advance queue exhausted');
@@ -877,6 +879,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         }
 
         await queue.switchRoute(routeId);
+        this.neuralRoamAdvance.setActiveRouteId(routeId);
         this.transactionRuntime.clear();
         this.feedbackMutation = null;
         this.neuralRoamAdvance.clearRouteBoundaryState();
@@ -892,6 +895,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         activeItem: FSRSCard,
         feedback: QueueFeedback,
     ): Promise<void> {
+        this.neuralRoamAdvance.setActiveRouteId(this.readActiveNeuralRoamRouteId());
         const outcome = await this.neuralRoamAdvance.handleFeedback(activeItem, feedback);
         if (outcome.kind === 'session-only') {
             logger.info('[SiYuanMemo][UnifiedQueueStrategy] NeuralRoam custom feedback handled as session-only action:', {
@@ -969,6 +973,16 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             throw new Error('NEURAL_ROAM_QUEUE_SYNC_UNAVAILABLE: local NeuralRoam queue sync contract is unavailable');
         }
         await queue.syncFromBackendState(result.queueState);
+        this.neuralRoamAdvance.setActiveRouteId(result.routeId ?? result.sessionState.routeId ?? this.readActiveNeuralRoamRouteId());
+    }
+
+    private readActiveNeuralRoamRouteId(): string | null {
+        if (this.queueType !== QueueType.NeuralRoam) {
+            return null;
+        }
+        const queue = this.queue as NeuralRoamRouteSwitchQueue;
+        const routeId = typeof queue.getActiveRouteId === 'function' ? queue.getActiveRouteId() : null;
+        return String(routeId || '').trim() || null;
     }
 
     private hasSessionExclusions(): boolean {

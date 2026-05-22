@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-22 (Round 428)
+Last update: 2026-05-22 (Round 430)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-22 - NeuralRoam Backend Route Contracts
+
+- Task: Continue OpenSpec `add-neural-roam-routes` by closing P9 backend NeuralRoam route contracts/runtime and final targeted route validation.
+- Touched slice: Queue/Review/backend worker route advance boundary; `packages/contracts/src/backend-rpc.ts`, `src/core/queue/domain/NeuralRoamQueue.ts`, `src/application/adapters/review-session/NeuralRoamAdvanceCoordinator.ts`, `src/application/adapters/UnifiedQueueStrategy.ts`, `src/application/services/UnifiedDataSourceManager.ts`, `worker/bootstrap/WorkerNeuralRoamAdvanceService.ts`, `worker/db/SqliteDatabaseService.ts`, `worker/queue-projection/WorkerQueueProjectionRuntime.ts`, backend/strategy tests, `ARCHITECTURE.md`, and OpenSpec tasks.
+- Debt fixed now: `neural-roam.advance` now carries `routeId` through request/result/counters/session state. Review strategy reads the active NeuralRoam route before next/feedback and after route switch, so stale pending feedback cannot silently land on another route. Worker advance now initializes `NeuralRoamQueue` with SQL-backed `NeuralRoamRouteCatalog`, migrates legacy `queue_state.neuralRoamQueue` into `默认航线` once, treats SQL `activeRouteId` as route authority, and returns explicit `route-mismatch` without advancing or mutating. Projection snapshot hydration now distinguishes missing cards from stale membership: missing cards still fail closed, stale rows are filtered to ready empty rows/counters.
+- Debt deferred: No multi-window route-bound NeuralRoam review support and no archive step for this OpenSpec change yet.
+- Why deferred: OpenSpec v1 explicitly keeps one global active route/review surface; archiving should happen only after final boundary/build gates and user approval.
+- Next safe step: Confirm OpenSpec 61/61, then archive when requested.
+- Validation: `pnpm vitest run worker\__tests__\BackendKernel.test.ts --testNamePattern "filters projection rows whose stored membership"`; `pnpm vitest run src\core\queue\domain\__tests__\NeuralRoamQueue.test.ts src\core\queue\neural\__tests__\NeuralRoamRouteCatalog.test.ts src\core\queue\neural\__tests__\NeuralRoamRouteLegacyMigration.test.ts src\infrastructure\persistence\sqlite\__tests__\SqlNeuralRoamRouteRepository.test.ts src\application\adapters\review-session\__tests__\NeuralRoamAdvanceCoordinator.test.ts src\application\__tests__\UnifiedQueueStrategy.neural-roam.test.ts worker\__tests__\BackendKernel.test.ts src\ui\review\v2\__tests__\ReviewHeader.spec.ts src\ui\review\v2\__tests__\ReviewView.queue-switch.spec.ts src\ui\browser\neural\__tests__\useNeuralBrowserController.test.ts src\ui\browser\neural\__tests__\NeuralRouteBar.test.ts src\ui\browser\neural\__tests__\reviewSurfaceHandoff.test.ts src\application\managers\__tests__\TabManager.neural-review-tab-sync.spec.ts src\application\managers\__tests__\DialogManager.review-header-variant.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed with existing non-blocking i18n hardcoded-string and Sass legacy API warnings).
+
+### 2026-05-22 - NeuralRoam Browser Route Panel
+
+- Task: Continue OpenSpec `add-neural-roam-routes` by closing P8 SRS Browser NeuralRoam route management, route-aware concept/station lists, route log browsing, and Browser-to-Review reset confirmation.
+- Touched slice: Browser/Review/Queue route UI boundary; `src/ui/browser/SRSBrowser.vue`, `src/ui/browser/SRSBrowser.scss`, `src/ui/browser/neural/NeuralRouteBar.vue`, `src/ui/browser/neural/useNeuralBrowserController.ts`, `src/ui/browser/neural/reviewSurfaceHandoff.ts`, `src/application/managers/DialogManager.ts`, `src/application/managers/TabManager.ts`, i18n, architecture doc, and focused Browser/Review/SQL tests.
+- Debt fixed now: Browser NeuralRoam panel now has a compact Siyuan-native route bar for select/create/rename/delete/save temporary/switch. Browser concept pool, station pool, and route log refresh through the active `NeuralRoamSessionQueue` route contract, so route switches redraw route-scoped source, anchor, and paged history data without UI SQL. Browser route switches/create/delete detect open NeuralRoam Review tabs/dialogs through manager probes, confirm the reset, then apply the global `activeRouteId` change and use the existing review-surface handoff to sync the open Review.
+- Debt deferred: Backend route advance/read contract tasks in OpenSpec P9 remain open; final P10.10/P10.11 checklist should be rerun after P9 even though this slice already ran those gates successfully.
+- Why deferred: This slice intentionally stayed in Browser/Review route controls and existing queue contract. P9 changes backend/worker contract ownership and should not be marked complete from UI work.
+- Next safe step: Close OpenSpec P9 backend NeuralRoam route command/advance contract tasks, then run final targeted tests, boundaries, and build before archiving.
+- Validation: `pnpm vitest run src\ui\browser\neural\__tests__\useNeuralBrowserController.test.ts src\ui\browser\neural\__tests__\NeuralRouteBar.test.ts src\ui\browser\neural\__tests__\reviewSurfaceHandoff.test.ts src\application\managers\__tests__\TabManager.neural-review-tab-sync.spec.ts src\application\managers\__tests__\DialogManager.review-header-variant.test.ts`; `pnpm vitest run src\core\queue\domain\__tests__\NeuralRoamQueue.test.ts src\core\queue\neural\__tests__\NeuralRoamRouteCatalog.test.ts src\ui\review\v2\__tests__\ReviewHeader.spec.ts src\ui\review\v2\__tests__\ReviewView.queue-switch.spec.ts src\infrastructure\persistence\sqlite\__tests__\SqlNeuralRoamRouteRepository.test.ts src\core\queue\neural\__tests__\NeuralRoamRouteLegacyMigration.test.ts src\application\adapters\review-session\__tests__\NeuralRoamAdvanceCoordinator.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-22 - NeuralRoam Review Route Selector
 

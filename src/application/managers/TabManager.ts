@@ -872,6 +872,10 @@ export class TabManager {
     }
   }
 
+  hasOpenNeuralReviewTab(): boolean {
+    return this.getLatestNeuralReviewTabRuntime() !== null;
+  }
+
   private getPluginI18n(): Record<string, string> {
     const candidate = (this.plugin as PluginWithI18n).i18n;
     return candidate && typeof candidate === 'object' ? candidate : {};
