@@ -4,6 +4,26 @@ Last update: 2026-05-22 (Round 433)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-22 - NeuralRoam Browser Compact Labels
+
+- Task: Remove redundant label copy in the NeuralRoam Browser panel.
+- Touched slice: Browser NeuralRoam list/route chrome; `src/ui/browser/neural/NeuralFocusList.vue`, `src/ui/browser/neural/NeuralAnchorList.vue`, `src/ui/browser/neural/NeuralRouteBar.vue`, and focused tests.
+- Debt fixed now: `概念卡：激活源` and `空间站` lists now show only `搜索：` above the search input, with no placeholder copy. The route bar no longer repeats the right-side `概念 / 空间站 / 日志` detail text beside the active route.
+- Debt deferred: The route selector dropdown still shows per-route counts for each option.
+- Why deferred: The request only called out the right-side route detail; the dropdown counts are still useful when switching routes.
+- Next safe step: If the dropdown also feels too noisy, trim the option labels in a separate pass.
+- Validation: `pnpm vitest run src/ui/browser/neural/__tests__/NeuralFocusList.test.ts src/ui/browser/neural/__tests__/NeuralAnchorList.test.ts src/ui/browser/neural/__tests__/NeuralRouteBar.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed with existing non-blocking i18n hardcoded-string/content warnings and Sass legacy API warnings).
+
+### 2026-05-22 - NeuralRoam Review New-Tab Respect
+
+- Task: Make NeuralRoam respect the Review setting that opens review surfaces in a new tab by default.
+- Touched slice: Application/Review NeuralRoam open-entry boundary; `src/application/managers/DialogManager.ts`, `src/application/managers/__tests__/DialogManager.review-header-variant.test.ts`.
+- Debt fixed now: `openNeuralRoamDialog()` no longer forces dialog mode when the global review setting prefers new tabs. On desktop, NeuralRoam now follows the same new-tab default as other review entries, while existing-tab reuse still wins first.
+- Debt deferred: Mobile launchers still use the same neural open entry, but `shouldOpenReviewInNewTabByDefault()` already excludes mobile.
+- Why deferred: No extra behavior change was needed for mobile; the current setting is desktop-only.
+- Next safe step: Verify the NeuralRoam launcher from menu, browser panel, and Review entry all land in tab mode when the setting is enabled.
+- Validation: `pnpm vitest run src/application/managers/__tests__/DialogManager.review-header-variant.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed with existing non-blocking i18n hardcoded-string/content warnings and Sass legacy API warnings).
+
 ### 2026-05-22 - NeuralRoam Browser Route Log Clear
 
 - Task: Add a clear action for the Browser NeuralRoam route log and simplify NeuralRoam history search labels.

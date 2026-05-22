@@ -102,4 +102,15 @@ describe('NeuralAnchorList', () => {
     expect(rows[0]?.classes()).not.toContain('neural-list__item--selected');
     expect(rows[1]?.classes()).toContain('neural-list__item--selected');
   });
+
+  it('renders a compact search label without placeholder copy', () => {
+    const wrapper = mount(NeuralAnchorList, {
+      props: {
+        entries,
+      },
+    });
+
+    expect(wrapper.find('.neural-anchor-list__search-label').text()).toBe('搜索：');
+    expect(wrapper.find('.neural-list__toolbar input').attributes('placeholder')).toBe('');
+  });
 });

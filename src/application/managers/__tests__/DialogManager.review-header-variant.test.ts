@@ -213,7 +213,7 @@ describe('DialogManager review header variants', () => {
     ]);
   });
 
-  it('keeps NeuralRoam in one dialog surface even when new-tab default is enabled', async () => {
+  it('opens NeuralRoam in a new tab when the new-tab default is enabled', async () => {
     const { dialogManager, tabManager } = createDialogManager({
       reviewOpenInNewTabByDefault: true,
     });
@@ -226,10 +226,10 @@ describe('DialogManager review header variants', () => {
       startNewSession: true,
     });
 
-    expect(dialogManager.hasOpenNeuralReviewDialog()).toBe(true);
-    expect(tabManager.openReviewTabInNewTab).not.toHaveBeenCalled();
-    expect(createUnifiedReviewDialog).toHaveBeenCalledWith(expect.objectContaining({
+    expect(dialogManager.hasOpenNeuralReviewDialog()).toBe(false);
+    expect(tabManager.openReviewTabInNewTab).toHaveBeenCalledWith(expect.objectContaining({
       headerVariant: 'neural-roam',
+      title: '神经漫游',
       neuralRoamStartFromFocus: expect.objectContaining({
         blockId: 'concept-block',
         includeFocusAsFirst: true,
@@ -237,6 +237,7 @@ describe('DialogManager review header variants', () => {
         startNewSession: true,
       }),
     }));
+    expect(createUnifiedReviewDialog).not.toHaveBeenCalled();
   });
 
   it('reuses an existing NeuralRoam review tab instead of opening a dialog', async () => {

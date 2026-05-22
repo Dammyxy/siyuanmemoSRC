@@ -390,7 +390,7 @@ export class DialogManager implements IDialogManager {
     }
 
     const allowNewTab = options.allowNewTab !== false;
-    if (allowNewTab && options.queueType !== QueueType.NeuralRoam && this.shouldOpenReviewInNewTabByDefault()) {
+    if (allowNewTab && this.shouldOpenReviewInNewTabByDefault()) {
       const tabManager = this.context.getTabManager?.();
       if (tabManager?.openReviewTabInNewTab) {
         tabManager.openReviewTabInNewTab(this.buildReviewTabOptions(options));

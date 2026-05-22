@@ -45,6 +45,7 @@ describe('NeuralRouteBar', () => {
     });
 
     expect(wrapper.text()).toContain('Route B · 概念 1 · 空间站 0 · 日志 3');
+    expect(wrapper.find('.neural-route-bar__detail').exists()).toBe(false);
 
     await wrapper.find('select').setValue('route-b');
 

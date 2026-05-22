@@ -1,10 +1,11 @@
 <template>
   <div class="neural-list neural-anchor-list">
     <div class="neural-list__toolbar neural-anchor-list__toolbar">
+      <span class="neural-anchor-list__search-label">{{ t('search', '搜索') }}：</span>
       <input
         v-model="search"
         class="b3-text-field"
-        :placeholder="t('searchPlaceholderAdvanced', 'Search...')"
+        placeholder=""
       >
     </div>
     <div class="neural-anchor-list__hint">

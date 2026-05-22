@@ -65,6 +65,13 @@ describe('NeuralFocusList', () => {
     expect(titles[0]).toContain('Beta node');
   });
 
+  it('renders a compact search label without placeholder copy', () => {
+    const wrapper = mountComponent();
+
+    expect(wrapper.find('.neural-focus-list__search-label').text()).toBe('搜索：');
+    expect(wrapper.find('.neural-list__toolbar input').attributes('placeholder')).toBe('');
+  });
+
   it('renders orbit-specific title and emits row actions', async () => {
     const wrapper = mountComponent();
 

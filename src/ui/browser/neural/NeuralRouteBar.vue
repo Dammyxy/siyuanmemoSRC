@@ -17,13 +17,6 @@
           {{ route.name }} · {{ formatRouteDetail(route) }}
         </option>
       </select>
-      <span
-        v-if="activeRoute"
-        class="neural-route-bar__detail"
-        :class="{ 'neural-route-bar__detail--temporary': activeRoute.temporary }"
-      >
-        {{ activeRoute.temporary ? t('temporaryRouteLabel', '临时') : formatRouteDetail(activeRoute) }}
-      </span>
     </div>
 
     <div class="neural-route-bar__actions">
