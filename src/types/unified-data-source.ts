@@ -563,6 +563,7 @@ export interface NeuralRoamSessionQueue {
     ): Promise<void>;
     getHistoryCount(sessionId?: string | null): number;
     getHistoryPage(request: NeuralHistoryPageRequest): NeuralHistoryPageResult;
+    getRouteHistoryPage?(request: NeuralHistoryPageRequest): NeuralHistoryPageResult | Promise<NeuralHistoryPageResult>;
     getHistorySnapshot(): NeuralRoamHistoryEntry[];
     getHistoryEntryByEventId(eventId: string): NeuralRoamHistoryEntry | null;
     getHistoryEntriesByNodeId(nodeId: string): NeuralRoamHistoryEntry[];

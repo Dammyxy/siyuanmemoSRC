@@ -491,10 +491,14 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
     await refreshNeuralRoutes();
     const navState = neuralQueue.getNavigationState();
     const sourceSnapshot = neuralQueue.getSourceSnapshot();
-    const historyPage = neuralQueue.getHistoryPage({
+    const historyPageRequest = {
       offset: 0,
       limit: Math.max(historyPageSize, neuralHistoryRequestedCount.value),
-    });
+    };
+    const usesRouteHistoryPage = typeof neuralQueue.getRouteHistoryPage === 'function';
+    const historyPage = usesRouteHistoryPage
+      ? await neuralQueue.getRouteHistoryPage(historyPageRequest)
+      : neuralQueue.getHistoryPage(historyPageRequest);
     const anchorSnapshot = neuralQueue.getAnchorSnapshot();
     await syncNeuralActivationTrace(neuralQueue, historyPage.entries, navState);
     const anchorIds = new Set(anchorSnapshot.map((entry) => entry.nodeId));
@@ -511,7 +515,7 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
     neuralHistoryHasMore.value = historyPage.hasMore;
     const currentSessionNodeIds = new Set(
       historyPage.entries
-        .filter((entry) => entry.sessionId === navState.sessionId)
+        .filter((entry) => usesRouteHistoryPage || entry.sessionId === navState.sessionId)
         .map((entry) => entry.nodeId),
     );
     neuralAnchorEntries.value = toNeuralAnchorListEntries(anchorSnapshot, {

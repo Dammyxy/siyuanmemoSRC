@@ -130,6 +130,7 @@ export class WorkerNeuralRoamAdvanceService {
       }
 
       const queue = await this.getQueue(request.sessionId ?? null);
+      await queue.syncActiveRouteState();
       const routeMismatch = await this.resolveRouteMismatch(queue, request);
       if (routeMismatch) {
         return this.rememberIdempotentResult(idempotencyKey, await this.buildResult(request, queue, 'mismatch', {

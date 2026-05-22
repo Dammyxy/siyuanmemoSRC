@@ -194,6 +194,11 @@ function createQueue(overrides: Record<string, unknown> = {}) {
       totalCount: historyEntries.length,
       hasMore: false,
     })),
+    getRouteHistoryPage: vi.fn(() => ({
+      entries: historyEntries,
+      totalCount: historyEntries.length,
+      hasMore: false,
+    })),
     getHistorySnapshot: vi.fn(() => historyEntries),
     getHistoryEntryByEventId: vi.fn((eventId: string) => historyEntries.find((entry) => entry.eventId === eventId) ?? null),
     getHistoryEntriesByNodeId: vi.fn((nodeId: string) => historyEntries.filter((entry) => entry.nodeId === nodeId)),
@@ -316,6 +321,41 @@ describe('useNeuralBrowserController', () => {
     expect(controller.selectedNeuralTraceNodeId.value).toBe('source-node');
   });
 
+  it('uses route-level history for the Browser route log instead of engine-local history', async () => {
+    const routeHistoryEntries = [
+      createHistoryEntry('route-orbit', 'orbit-node', 30),
+      createHistoryEntry('route-hyperspace', 'hyperspace-node', 20),
+    ].map((entry, index) => ({
+      ...entry,
+      engineMode: index === 0 ? 'orbit' : 'hyperspace',
+    }));
+    const queue = createQueue({
+      getHistoryPage: vi.fn(() => ({
+        entries: [createHistoryEntry('engine-only', 'engine-node', 10)],
+        totalCount: 1,
+        hasMore: false,
+      })),
+      getRouteHistoryPage: vi.fn(() => ({
+        entries: routeHistoryEntries,
+        totalCount: routeHistoryEntries.length,
+        hasMore: false,
+      })),
+      getHistoryHitCount: vi.fn((nodeId: string) => (
+        routeHistoryEntries.filter((entry) => entry.nodeId === nodeId).length
+      )),
+    });
+    const { controller } = createController(queue);
+
+    await controller.refreshNeuralSubviewData();
+
+    expect(queue.getRouteHistoryPage).toHaveBeenCalledWith({ offset: 0, limit: 2 });
+    expect(queue.getHistoryPage).not.toHaveBeenCalled();
+    expect(controller.neuralHistoryEntries.value.map((entry) => entry.eventId)).toEqual([
+      'route-orbit',
+      'route-hyperspace',
+    ]);
+  });
+
   it('switches routes through the queue contract and refreshes route-scoped pools and log', async () => {
     const queue = createQueue({
       listRoutes: vi.fn()
@@ -378,6 +418,17 @@ describe('useNeuralBrowserController', () => {
         .mockReturnValueOnce([{ nodeId: 'target-node', title: 'Target', visitedAt: 20 }])
         .mockReturnValueOnce([]),
       getHistoryPage: vi.fn()
+        .mockReturnValueOnce({
+          entries: [createHistoryEntry('event-target', 'target-node', 20)],
+          totalCount: 1,
+          hasMore: false,
+        })
+        .mockReturnValueOnce({
+          entries: [createHistoryEntry('event-b', 'source-b', 30)],
+          totalCount: 1,
+          hasMore: false,
+        }),
+      getRouteHistoryPage: vi.fn()
         .mockReturnValueOnce({
           entries: [createHistoryEntry('event-target', 'target-node', 20)],
           totalCount: 1,

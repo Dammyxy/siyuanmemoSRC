@@ -513,6 +513,60 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     logger.info(`Synchronized neural roam active route, activeRoute=${route.metadata.id}, engineMode=${this.engineMode}`);
   }
 
+  public async syncActiveRouteState(): Promise<void> {
+    await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
+  }
+
+  private normalizeRouteActivationKind(value: string): NeuralRoamHistoryEntry['activationKind'] {
+    switch (value) {
+      case 'focus-root':
+      case 'source-root':
+      case 'graph-edge':
+      case 'tree-edge':
+      case 'follow-path':
+      case 'manual-jump':
+        return value;
+      default:
+        return 'graph-edge';
+    }
+  }
+
+  private routeHistoryEventToHistoryEntry(event: NeuralRoamRouteHistoryEvent): NeuralRoamHistoryEntry {
+    const activationKind = this.normalizeRouteActivationKind(event.activationKind);
+    const associationType: NeuralRoamHistoryEntry['associationType'] = activationKind === 'source-root'
+      ? 'source'
+      : activationKind === 'focus-root'
+        ? 'focus'
+        : activationKind === 'manual-jump'
+          ? 'manual-jump'
+          : activationKind === 'follow-path'
+            ? 'follow-path'
+            : 'concept-link';
+    return {
+      eventId: event.eventId,
+      nodeId: event.nodeId,
+      cardId: event.cardId,
+      focusId: event.sourceNodeId,
+      sessionId: `route:${event.routeId}`,
+      associationType,
+      reason: event.activationKind || 'route-history',
+      visitedAt: event.visitedAt,
+      isVirtual: false,
+      nodePreview: event.title || event.nodeId,
+      traceQuality: 'legacy',
+      engineMode: event.engineMode,
+      sourceRole: null,
+      origin: null,
+      sourceNodeId: event.sourceNodeId,
+      sourceEventId: null,
+      branchRootNodeId: event.sourceNodeId,
+      activationKind,
+      depth: null,
+      conductionScore: null,
+    };
+  }
+
   private routePoolEntryToFocusPoolEntry(entry: NeuralRoamRoutePoolEntry): FocusPoolPersistedEntry {
     return {
       nodeId: entry.nodeId,
@@ -1976,6 +2030,25 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public getHistoryPage(request: NeuralHistoryPageRequest): NeuralHistoryPageResult {
     return this.getActiveEngine().getHistoryPage(request);
+  }
+
+  public async getRouteHistoryPage(request: NeuralHistoryPageRequest): Promise<NeuralHistoryPageResult> {
+    if (!this.routeCatalog) {
+      return this.getHistoryPage(request);
+    }
+
+    await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
+    const page = await this.routeCatalog.getRouteHistory({
+      routeId: this.activeRouteSnapshot?.metadata.id ?? undefined,
+      offset: request.offset,
+      limit: request.limit,
+    });
+    return {
+      entries: page.entries.map((event) => this.routeHistoryEventToHistoryEntry(event)),
+      totalCount: page.totalCount,
+      hasMore: page.hasMore,
+    };
   }
 
   public getHistoryEntryByEventId(eventId: string): NeuralRoamHistoryEntry | null {

@@ -4,7 +4,9 @@ import { QueueType } from '@/types/unified-data-source';
 
 const { createVueDialogMock, unifiedQueueStrategyMock, unifiedReviewAdapterMock, managerInstance } = vi.hoisted(() => ({
   createVueDialogMock: vi.fn(() => ({ destroy: vi.fn() })),
-  unifiedQueueStrategyMock: vi.fn().mockImplementation(() => ({})),
+  unifiedQueueStrategyMock: vi.fn().mockImplementation(() => ({
+    startNeuralRoamFromFocusOnNextAdvance: vi.fn(),
+  })),
   unifiedReviewAdapterMock: vi.fn().mockImplementation((options) => ({ options })),
   managerInstance: {},
 }));
@@ -72,6 +74,7 @@ describe('createUnifiedReviewDialog', () => {
     expect(createVueDialogMock).toHaveBeenCalledWith(expect.objectContaining({
       hideTitle: false,
       isReview: true,
+      disableClose: true,
       props: expect.objectContaining({
         mode: 'dialog',
         title: '提取练习',

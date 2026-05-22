@@ -4481,6 +4481,90 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('syncs cached backend neural-roam queue to the SQL active route before mismatch checks', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    await seedNeuralRoamRouteSource(database, 'route-a', 'route-a-source');
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({
+        'route-a-source': { id: 'route-a-source', content: 'Route A', type: 'p' },
+        'route-b-source': { id: 'route-b-source', content: 'Route B', type: 'p' },
+      }),
+    });
+
+    const firstResponse = await kernel.handle({
+      id: 'neural-advance-cache-route-a',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        routeId: 'route-a',
+        sessionId: null,
+      }],
+    });
+    expect('result' in firstResponse && firstResponse.result.routeId).toBe('route-a');
+
+    const repository = new SqlNeuralRoamRouteRepository(database as never);
+    const state = await repository.loadState();
+    expect(state).not.toBeNull();
+    const now = 1_700_000_000_100;
+    await repository.saveState({
+      activeRouteId: 'route-b',
+      engineMode: 'hyperspace',
+      routes: [
+        ...(state?.routes ?? []),
+        {
+          metadata: {
+            id: 'route-b',
+            name: 'route-b',
+            temporary: false,
+            previousRouteId: null,
+            initialSeedNodeIds: [],
+            createdAt: now,
+            updatedAt: now,
+            lastUsedAt: now,
+          },
+          seedPool: [{
+            routeId: 'route-b',
+            nodeId: 'route-b-source',
+            kind: 'seed',
+            nodeKind: 'concept',
+            role: 'orbit-center',
+            priority: 0.9,
+            addedAt: now,
+            visitedAt: null,
+            preview: 'route-b-source',
+          }],
+          anchorPool: [],
+          sessions: { orbit: null, hyperspace: null },
+          history: [],
+        },
+      ],
+    });
+
+    const secondResponse = await kernel.handle({
+      id: 'neural-advance-after-route-b-switch',
+      jsonrpc: '2.0',
+      method: 'neural-roam.advance' as never,
+      params: [{
+        queueType: 'neural-roam',
+        routeId: 'route-b',
+        sessionId: null,
+      }],
+    });
+
+    expect('result' in secondResponse).toBe(true);
+    if ('result' in secondResponse) {
+      expect(secondResponse.result).toMatchObject({
+        queueType: 'neural-roam',
+        routeId: 'route-b',
+        status: 'advanced',
+        nextItem: { blockId: 'route-b-source' },
+        sessionState: { routeId: 'route-b' },
+      });
+    }
+  });
+
   it('starts backend neural-roam from a block seed while returning the source review card first', async () => {
     const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
     const resolveNeuralGraphQuery = createNeuralGraphResolver({

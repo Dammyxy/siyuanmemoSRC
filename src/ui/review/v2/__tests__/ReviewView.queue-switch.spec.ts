@@ -73,9 +73,13 @@ const ReviewHeaderStub = defineComponent({
       required: false,
     },
   },
-  emits: ['queue-switch', 'route-menu'],
+  emits: ['queue-switch', 'route-menu', 'toolbar-action'],
   setup(props, { emit }) {
     return () => h('div', { class: 'review-header-stub' }, [
+      h('button', {
+        class: 'review-header-close',
+        onClick: () => emit('toolbar-action', 'close-review', new MouseEvent('click')),
+      }, 'close'),
       h('button', {
         class: 'review-header-queue-switch',
         onClick: (event: MouseEvent) => emit('queue-switch', event),
@@ -299,9 +303,10 @@ function trackWrapper<T extends VueWrapper>(wrapper: T): T {
 }
 
 async function flushTitlebarQueueSwitchSync(): Promise<void> {
-  for (let index = 0; index < 4; index += 1) {
+  for (let index = 0; index < 8; index += 1) {
     await nextTick();
     await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1);
     await vi.runAllTimersAsync();
   }
   await nextTick();
@@ -672,5 +677,48 @@ describe('ReviewView queue switch', () => {
       initialQueueId: 'neural-roam',
       initialNeuralSubview: 'concept-cards',
     });
+  });
+
+  it('keeps NeuralRoam Review open when dirty temporary route close prompt is cancelled', async () => {
+    const neuralQueue = createNeuralQueue();
+    neuralQueue.resolveTemporaryRouteCloseAction = vi.fn(async () => ({
+      kind: 'prompt' as const,
+      routeId: 'route-temp',
+      previousRouteId: 'default',
+    }));
+    neuralQueue.closeTemporaryRoute = vi.fn(async () => null);
+    reviewViewDialogMocks.threeChoiceDialog.mockResolvedValueOnce('cancel');
+    const strategy = createNeuralStrategy(neuralQueue);
+    const wrapper = trackWrapper(mount(ReviewView, {
+      attachTo: document.body,
+      props: {
+        app: {} as never,
+        queue: strategy as never,
+        adapter: createCompletedEmptyAdapter('神经漫游') as never,
+        mode: 'dialog',
+        title: '神经漫游',
+        headerVariant: 'neural-roam',
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          AiWorkbenchPane: true,
+          teleport: true,
+        },
+      },
+    }));
+
+    await flushPromises();
+    await wrapper.get('.review-header-close').trigger('click');
+    await flushPromises();
+
+    expect(reviewViewDialogMocks.threeChoiceDialog).toHaveBeenCalledWith(expect.objectContaining({
+      title: '临时航线有改动',
+    }));
+    expect(neuralQueue.closeTemporaryRoute).not.toHaveBeenCalled();
+    expect(wrapper.emitted('close')).toBeUndefined();
   });
 });
