@@ -921,13 +921,29 @@
 }
 
 .neural-subview-tabs__tab {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
   white-space: nowrap;
+  transition: border-color 0.12s ease, background-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.neural-subview-tabs__tab:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 28%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--b3-theme-primary) 86%, var(--b3-theme-on-surface));
 }
 
 .neural-subview-tabs__tab--active {
-  border-color: var(--b3-theme-primary);
-  background: var(--b3-theme-primary-lightest);
-  color: var(--b3-theme-primary);
+  border-color: var(--b3-theme-primary) !important;
+  background: var(--b3-theme-primary-lightest) !important;
+  color: var(--b3-theme-primary) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--b3-theme-primary) 22%, transparent);
+  font-weight: 600;
 }
 
 .card-browser__neural-subview {

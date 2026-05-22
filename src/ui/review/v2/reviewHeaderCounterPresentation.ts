@@ -17,7 +17,7 @@ export interface ReviewHeaderCounterBadgeInput {
 }
 
 export interface ReviewHeaderValueSummaryInput {
-  label: string;
+  label?: string;
   value: number | string;
   tooltip?: string;
   ariaLabel?: string;
@@ -107,15 +107,20 @@ export function createReviewHeaderValueSummary(
     ? Math.max(0, Math.trunc(input.value))
     : String(input.value ?? 0);
   const text = String(value);
-  const tooltip = input.tooltip || createAriaLabel(input.label, text);
-
-  return {
+  const tooltip = input.tooltip || (input.label ? createAriaLabel(input.label, text) : text);
+  const summary: ReviewHeaderCounterSummary = {
     kind: 'value',
     text,
     tooltip,
     ariaLabel: input.ariaLabel || tooltip,
     value,
   };
+
+  if (input.label) {
+    summary.label = input.label;
+  }
+
+  return summary;
 }
 
 export function createReviewHeaderCounterPresentation(

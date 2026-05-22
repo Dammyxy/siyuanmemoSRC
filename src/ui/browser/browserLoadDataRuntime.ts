@@ -34,6 +34,7 @@ type BrowserTranslate = (key: string, fallback: string) => string;
 
 type BrowserLogger = {
   error: (...args: unknown[]) => void;
+  debug?: (...args: unknown[]) => void;
   info: (...args: unknown[]) => void;
 };
 
@@ -152,7 +153,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
       if (plan.reason === 'hidden-browser-mode') {
         pendingHiddenLiveIdentityEvent = event;
       }
-      deps.logger.info('[SiYuanMemo][SRSBrowser] Ignored queue projection live identity event', {
+      deps.logger.debug?.('[SiYuanMemo][SRSBrowser] Ignored queue projection live identity event', {
         event,
         reason: plan.reason,
       });

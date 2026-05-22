@@ -74,6 +74,7 @@ export interface ReviewHeaderCounterSummary {
   text: string;
   tooltip: string;
   ariaLabel: string;
+  label?: string;
   value?: number | string;
   parts?: ReviewHeaderCounterSummaryPart[];
   total?: number;

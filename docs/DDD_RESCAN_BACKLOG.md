@@ -4,6 +4,16 @@ Last update: 2026-05-22 (Round 436)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-23 - Browser Queue Live Identity Log Noise
+
+- Task: Stop repeated Browser queue projection live-identity `queue-mismatch` ignores from flooding the console.
+- Touched slice: Browser queue live identity event handling; `src/ui/browser/browserLoadDataRuntime.ts` and `src/ui/browser/__tests__/browserLoadDataRuntime.test.ts`.
+- Debt fixed now: Normal ignored live-identity events now log only through optional debug logging instead of `info`, so unrelated queue broadcasts no longer spam normal console output.
+- Debt deferred: Other Browser queue-sync logs, such as real `loadData()` aborts, remain visible because they can indicate actual reload contention.
+- Why deferred: This task targets the confirmed benign mismatch event noise only.
+- Next safe step: If Browser logs remain noisy, capture the next repeated message and classify whether it is benign ignore, retry readiness, or real reload contention.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/browserLoadDataRuntime.test.ts`; `pnpm build`.
+
 ### 2026-05-23 - Review Header Route Counter Centering
 
 - Task: Center the NeuralRoam review header route/counter group in tab and native-dialog surfaces.

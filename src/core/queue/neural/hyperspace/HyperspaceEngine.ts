@@ -643,6 +643,8 @@ export class HyperspaceEngine {
     const currentEntry = navigationState.currentEventId
       ? this.findHistoryEntryByEventId(navigationState.currentEventId)
       : null;
+    const currentDepth = Math.max(0, Number(currentEntry?.depth) || 0);
+    const maxDepth = Math.max(0, Number(this.getSettingsSnapshot().maxTotalDepth) || 0);
     const roundNodes: NeuralRoamBatchNode[] = currentEntry ? [{
       eventId: currentEntry.eventId,
       nodeId: currentEntry.nodeId,
@@ -669,9 +671,9 @@ export class HyperspaceEngine {
       focusNodeId,
       focusNodePreview: focusPreview,
       currentNodeId: navigationState.currentNodeId,
-      roundSize: roundNodes.length,
-      viewedCount: roundNodes.length,
-      remainingCount: 0,
+      roundSize: maxDepth,
+      viewedCount: currentDepth,
+      remainingCount: Math.max(0, maxDepth - currentDepth),
       roundNodes,
       recentPath: this.buildRecentPathEntries(),
       sourceSnapshot: this.getSourceSnapshot(),

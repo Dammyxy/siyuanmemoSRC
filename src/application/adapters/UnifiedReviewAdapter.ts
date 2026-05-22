@@ -13,6 +13,7 @@ import {
 } from '@/types/review-presentation-semantics';
 import {
   isNeuralRoamSessionQueue,
+  type NeuralRoamBatchSnapshot,
   type QueueCounterSnapshot,
   type ReviewQueueProgressSnapshot,
 } from '@/types/unified-data-source';
@@ -51,6 +52,7 @@ type QueueWithType = {
 type UnderlyingQueueLike = {
   getCards?: () => Promise<FSRSCard[]>;
   getNavigationState?: () => { engineMode?: string };
+  getCurrentBatchSnapshot?: () => NeuralRoamBatchSnapshot | null;
 };
 
 type QueueWithUnderlying = {
@@ -124,6 +126,24 @@ function resolveUnderlyingQueue(queue: unknown): UnderlyingQueueLike | null {
     throw createReviewDependencyUnavailableError(
       'REVIEW_QUEUE_UNAVAILABLE',
       'failed to resolve underlying queue for header counts',
+      error,
+    );
+  }
+}
+
+function resolveNeuralRoamBatchSnapshot(queue: IQueueStrategy<UnifiedReviewItem>): NeuralRoamBatchSnapshot | null {
+  const underlying = resolveUnderlyingQueue(queue);
+  if (!underlying || typeof underlying.getCurrentBatchSnapshot !== 'function') {
+    return null;
+  }
+
+  try {
+    return underlying.getCurrentBatchSnapshot();
+  } catch (error) {
+    logger.warn('Failed to resolve neural roam batch snapshot for header counts:', error);
+    throw createReviewDependencyUnavailableError(
+      'REVIEW_COUNTER_UNAVAILABLE',
+      'failed to resolve neural roam batch snapshot for header counts',
       error,
     );
   }
@@ -660,6 +680,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     const cacheKey = resolveHeaderCacheKey(queueType, headerVariant, queue);
     const stats = normalizeStats(await queue.getStats?.());
     const safeContext = context ?? { showAnswer: false };
+    const neuralBatch = queueType === 'neural-roam' ? resolveNeuralRoamBatchSnapshot(queue) : null;
 
     let snapshot: QueueCounterSnapshot | null | undefined;
     if (typeof queue.getCounterSnapshot === 'function') {
@@ -674,8 +695,12 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         );
       }
     }
-    const overallRemaining = Math.max(0, Number(snapshot?.remaining) || stats.size);
-    const overallTotal = Math.max(0, Number(snapshot?.total) || overallRemaining);
+    const overallRemaining = queueType === 'neural-roam' && neuralBatch
+      ? Math.max(0, Number(neuralBatch.remainingCount) || 0)
+      : Math.max(0, Number(snapshot?.remaining) || stats.size);
+    const overallTotal = queueType === 'neural-roam' && neuralBatch
+      ? Math.max(0, Number(neuralBatch.roundSize) || 0)
+      : Math.max(0, Number(snapshot?.total) || overallRemaining);
     const presentation = this.buildCounterPresentation({
       headerVariant,
       queue,
@@ -683,9 +708,11 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       context: safeContext,
     });
     const surfaceTitle = resolveReviewSurfaceTitle({ i18n: this.i18n, queueType, headerVariant });
-    const label = snapshot
-      ? `${Math.max(0, Number(snapshot.due) || 0)} due · ${overallRemaining} remaining`
-      : (stats.label || `${overallRemaining} due`);
+    const label = neuralBatch
+      ? `${presentation.counterSummary?.label || ''} ${Math.max(0, Number(presentation.counterSummary?.value) || 0)}/${Math.max(0, Number(neuralBatch.roundSize) || 0)}`
+      : snapshot
+        ? `${Math.max(0, Number(snapshot.due) || 0)} due · ${overallRemaining} remaining`
+        : (stats.label || `${overallRemaining} due`);
 
     return this.cacheAndBuildAuxHeader(queueType, {
       cacheKey,
@@ -807,7 +834,6 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         return createReviewHeaderCounterPresentation({
           total,
           summaryValue: {
-            label: t(this.i18n, 'headerRemaining', 'Remaining'),
             value: remaining,
             tooltip: `${remaining} remaining · ${due} due`,
             ariaLabel: `${remaining} remaining · ${due} due`,
@@ -825,7 +851,6 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         return createReviewHeaderCounterPresentation({
           total,
           summaryValue: {
-            label: t(this.i18n, 'headerRemaining', 'Remaining'),
             value: remaining,
             tooltip: `${remaining} remaining`,
             ariaLabel: `${remaining} remaining`,
@@ -836,15 +861,26 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
           ],
         });
       case 'neural-roam': {
-        const roamedCount = this.getNeuralRoamedCount(queue);
-        const roamedTooltip = `${t(this.i18n, 'headerRoamed', '\u5df2\u6f2b\u6e38')} ${roamedCount} ${t(this.i18n, 'headerCardsUnit', '\u5f20\u5361')}`;
+        const batch = resolveNeuralRoamBatchSnapshot(queue);
+        const isHyperspaceBatch = batch?.engineMode === 'hyperspace' || batch?.kind === 'hyperspace-current-node';
+        const progressLabel = isHyperspaceBatch
+          ? t(this.i18n, 'headerDepth', '深度')
+          : t(this.i18n, 'headerViewed', '已看');
+        const scopeLabel = isHyperspaceBatch
+          ? t(this.i18n, 'headerMaxDepth', '最大深度')
+          : t(this.i18n, 'headerRoundTotal', '本轮总数');
+        const progressValue = Math.max(0, Number(batch?.viewedCount) || 0);
+        const totalValue = Math.max(0, Number(batch?.roundSize) || 0);
+        const progressTooltip = totalValue > 0
+          ? `${progressLabel} ${progressValue} / ${scopeLabel} ${totalValue}`
+          : `${progressLabel} ${progressValue}`;
         return createReviewHeaderCounterPresentation({
           total,
           summaryValue: {
-            label: t(this.i18n, 'headerRoamed', '\u5df2\u6f2b\u6e38'),
-            value: roamedCount,
-            tooltip: roamedTooltip,
-            ariaLabel: roamedTooltip,
+            label: progressLabel,
+            value: progressValue,
+            tooltip: progressTooltip,
+            ariaLabel: progressTooltip,
           },
         });
       }
@@ -855,7 +891,6 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         return createReviewHeaderCounterPresentation({
           total,
           summaryValue: {
-            label: t(this.i18n, 'headerRemaining', '\u5269\u4f59'),
             value: remaining,
             tooltip: `${remaining} remaining`,
             ariaLabel: `${remaining} remaining`,
@@ -865,14 +900,6 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
           ] : [],
         });
     }
-  }
-
-  private getNeuralRoamedCount(queue: IQueueStrategy<UnifiedReviewItem>): number {
-    const underlying = resolveUnderlyingQueue(queue);
-    if (underlying && isNeuralRoamSessionQueue(underlying)) {
-      return Math.max(0, underlying.getHistoryCount());
-    }
-    return 0;
   }
 
   private buildPriorityBadge(item: UnifiedReviewItem | null, queueType: string): ReviewHeaderPriorityBadge {

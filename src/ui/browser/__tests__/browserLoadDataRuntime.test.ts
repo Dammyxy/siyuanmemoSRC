@@ -11,6 +11,7 @@ function ref<T>(value: T): { value: T } {
 function createLogger() {
   return {
     error: vi.fn(),
+    debug: vi.fn(),
     info: vi.fn(),
   };
 }
@@ -476,5 +477,13 @@ describe('browserLoadDataRuntime', () => {
     })).toBe('ignored');
 
     expect(deps.rebuildInfiniteDatasource).not.toHaveBeenCalled();
+    expect(deps.logger.info).not.toHaveBeenCalledWith(
+      '[SiYuanMemo][SRSBrowser] Ignored queue projection live identity event',
+      expect.anything(),
+    );
+    expect(deps.logger.debug).toHaveBeenCalledWith(
+      '[SiYuanMemo][SRSBrowser] Ignored queue projection live identity event',
+      expect.objectContaining({ reason: 'queue-mismatch' }),
+    );
   });
 });

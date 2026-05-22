@@ -63,13 +63,40 @@ function createContext(overrides?: Partial<NonNullable<AdapterContext['session']
 function createNeuralUnderlyingQueue(
   pathLength = 5,
   currentPathIndex = 1,
-  historyLength = 0,
+  progressValue = 0,
   engineMode: 'orbit' | 'hyperspace' = 'orbit',
 ) {
+  const roundSize = Math.max(progressValue + 5, 5);
+  const historyLength = progressValue;
   const historyEntries = Array.from({ length: historyLength }, (_, index) => ({
     eventId: `event-${index}`,
     nodeId: `node-${index}`,
   }));
+  const batchSnapshot = {
+    kind: engineMode === 'hyperspace' ? 'hyperspace-current-node' as const : 'orbit-round' as const,
+    engineMode,
+    navigationState: {
+      currentPathIndex,
+      currentNodeId: 'concept-2',
+      currentEventId: historyEntries[0]?.eventId ?? null,
+      navigationMode: 'follow' as const,
+      engineMode,
+      hasBookmark: true,
+      pathLength,
+      sessionId: 'session-1',
+    },
+    focusNodeId: 'concept-1',
+    focusNodePreview: 'concept-1',
+    currentNodeId: 'concept-2',
+    roundSize,
+    viewedCount: Math.min(progressValue, roundSize),
+    remainingCount: Math.max(0, roundSize - Math.min(progressValue, roundSize)),
+    roundNodes: [],
+    recentPath: [],
+    sourceSnapshot: [],
+    seedSnapshot: [],
+    anchorSnapshot: [],
+  };
   return {
     getCards: async () => [
       createCard('concept-1', CardType.Concept),
@@ -84,7 +111,7 @@ function createNeuralUnderlyingQueue(
     getAnchorSnapshot: () => [],
     setAnchorEntry: async () => undefined,
     clearAnchors: async () => undefined,
-    getCurrentBatchSnapshot: () => null,
+    getCurrentBatchSnapshot: () => batchSnapshot,
     getConceptBlocks: () => [],
     getFocusPoolSnapshot: () => [],
     setFocusPoolEntry: async () => undefined,
@@ -498,7 +525,7 @@ describe('UnifiedReviewAdapter', () => {
     ]);
   });
 
-  it('builds neural-roam value summary from history count while hiding priority for non-flashcard nodes', async () => {
+  it('builds neural-roam progress summary from current batch state while hiding priority for non-flashcard nodes', async () => {
     const adapter = new UnifiedReviewAdapter({ headerVariant: 'neural-roam' });
     const currentItem = createCard('concept-1', CardType.Concept, {
       priority: 4,
@@ -526,8 +553,9 @@ describe('UnifiedReviewAdapter', () => {
     expect(ui.header.counterSummary).toEqual({
       kind: 'value',
       text: '40',
-      tooltip: '\u5df2\u6f2b\u6e38 40 \u5f20\u5361',
-      ariaLabel: '\u5df2\u6f2b\u6e38 40 \u5f20\u5361',
+      tooltip: '\u5df2\u770b 40 / \u672c\u8f6e\u603b\u6570 45',
+      ariaLabel: '\u5df2\u770b 40 / \u672c\u8f6e\u603b\u6570 45',
+      label: '\u5df2\u770b',
       value: 40,
     });
     expect(ui.header.counterBadges).toEqual([]);
@@ -573,6 +601,7 @@ describe('UnifiedReviewAdapter', () => {
     expect(hydratedHyperspaceUi?.header?.counterSummary).toMatchObject({
       kind: 'value',
       value: 9,
+      label: '\u6df1\u5ea6',
     });
   });
 
@@ -797,8 +826,9 @@ describe('UnifiedReviewAdapter', () => {
     expect(aux?.header?.counterSummary).toEqual({
       kind: 'value',
       text: '7',
-      tooltip: '\u5df2\u6f2b\u6e38 7 \u5f20\u5361',
-      ariaLabel: '\u5df2\u6f2b\u6e38 7 \u5f20\u5361',
+      tooltip: '\u5df2\u770b 7 / \u672c\u8f6e\u603b\u6570 12',
+      ariaLabel: '\u5df2\u770b 7 / \u672c\u8f6e\u603b\u6570 12',
+      label: '\u5df2\u770b',
       value: 7,
     });
   });

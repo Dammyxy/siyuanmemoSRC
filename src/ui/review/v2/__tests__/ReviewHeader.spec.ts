@@ -101,7 +101,7 @@ describe('ReviewHeader', () => {
     expect(summary.text()).toBe('3');
     expect(wrapper.find('.siyuanmemo-review-header__queue-switch').exists()).toBe(false);
     expect(wrapper.get('.siyuanmemo-review-header').classes()).toContain('siyuanmemo-review-header--native-dialog');
-    expect(summary.attributes('aria-label')).toBe('\u5269\u4f59 3\uff0c\u70b9\u51fb\u9690\u85cf\u5361\u7247\u6570\u91cf');
+    expect(summary.attributes('aria-label')).toBe('\u5269\u4f59 3 \u00b7 \u603b\u6570 3\uff0c\u70b9\u51fb\u9690\u85cf\u5361\u7247\u6570\u91cf');
     expect(summary.attributes('title')).toContain('\u603b\u6570 3');
     expect(summary.attributes('title')).toContain('\u60ac\u505c\u67e5\u770b\u590d\u4e60\u8be6\u60c5');
     expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(false);
@@ -284,15 +284,16 @@ describe('ReviewHeader', () => {
     expect(neuralWrapper.findAll('.siyuanmemo-review-header__toolbar-button').length).toBeGreaterThan(4);
   });
 
-  it('shows the neural-roam roamed count from the value summary instead of queue remaining', () => {
+  it('shows the neural-roam orbit progress from the value summary instead of queue remaining', () => {
     const header = createHeaderState();
     header.title = '神经漫游';
     header.counterSummary = {
       kind: 'value',
-      text: '42',
-      tooltip: '已漫游 42 张卡',
-      ariaLabel: '已漫游 42 张卡',
-      value: 42,
+      text: '3',
+      tooltip: '已看 3 / 本轮总数 5',
+      ariaLabel: '已看 3 / 本轮总数 5',
+      label: '已看',
+      value: 3,
     };
 
     const wrapper = mount(ReviewHeader, {
@@ -303,8 +304,8 @@ describe('ReviewHeader', () => {
           queueProgress: {
             queueType: 'neural-roam',
             queueLabel: 'neural-roam',
-            completed: 0,
-            remaining: 5,
+            completed: 3,
+            remaining: 2,
             total: 5,
           },
         },
@@ -313,7 +314,42 @@ describe('ReviewHeader', () => {
       },
     });
 
-    expect(wrapper.get('.siyuanmemo-review-header__summary').text()).toBe('42');
+    expect(wrapper.get('.siyuanmemo-review-header__summary').text()).toBe('3');
+    expect(wrapper.get('.siyuanmemo-review-header__summary').attributes('title')).toContain('已看 3/5');
+  });
+
+  it('shows the neural-roam hyperspace progress as depth instead of queue remaining', () => {
+    const header = createHeaderState();
+    header.title = '神经漫游';
+    header.counterSummary = {
+      kind: 'value',
+      text: '2',
+      tooltip: '深度 2 / 最大深度 8',
+      ariaLabel: '深度 2 / 最大深度 8',
+      label: '深度',
+      value: 2,
+    };
+
+    const wrapper = mount(ReviewHeader, {
+      props: {
+        header,
+        meta: {
+          transition: 'slide-left',
+          queueProgress: {
+            queueType: 'neural-roam',
+            queueLabel: 'neural-roam',
+            completed: 2,
+            remaining: 6,
+            total: 8,
+          },
+        },
+        isMobile: false,
+        mode: 'dialog',
+      },
+    });
+
+    expect(wrapper.get('.siyuanmemo-review-header__summary').text()).toBe('2');
+    expect(wrapper.get('.siyuanmemo-review-header__summary').attributes('title')).toContain('深度 2/8');
   });
 
   it('closes the counter popover on Escape', async () => {

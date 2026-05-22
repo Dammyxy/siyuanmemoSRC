@@ -367,11 +367,26 @@ const visibleCounterValue = computed(() => {
 const visibleCounterText = computed(() => String(visibleCounterValue.value));
 
 const queueProgress = computed(() => props.meta?.queueProgress || null);
+const isNeuralRoamQueue = computed(() => queueProgress.value?.queueType === 'neural-roam');
+const summaryLabel = computed(() => {
+  const explicit = String(counterSummary.value?.label || '').trim();
+  if (explicit) {
+    return explicit;
+  }
+  return isNeuralRoamQueue.value ? t('round', '轮次') : t('headerRemaining', '剩余');
+});
 
 const summaryMetricText = computed(() => {
   const progress = queueProgress.value;
+  const current = visibleCounterValue.value;
   const remaining = Math.max(0, Number(progress?.remaining) || visibleCounterValue.value);
   const total = Number(progress?.total);
+
+  if (isNeuralRoamQueue.value) {
+    return Number.isFinite(total) && total > 0
+      ? `${summaryLabel.value} ${current}/${Math.max(current, Math.trunc(total))}`
+      : `${summaryLabel.value} ${current}`;
+  }
 
   return Number.isFinite(total) && total > 0
     ? `${t('headerRemaining', '剩余')} ${remaining} · ${t('reviewTotalCards', '总数')} ${Math.max(remaining, Math.trunc(total))}`
@@ -381,8 +396,30 @@ const summaryMetricText = computed(() => {
 const progressMetrics = computed(() => {
   const progress = queueProgress.value;
   const completed = Math.max(0, Number(progress?.completed) || 0);
-  const remaining = Math.max(0, Number(progress?.remaining) || visibleCounterValue.value);
+  const remaining = Math.max(0, Number(progress?.remaining) || 0);
   const total = Number(progress?.total);
+
+  if (isNeuralRoamQueue.value) {
+    return [
+      {
+        id: 'completed',
+        label: summaryLabel.value,
+        value: String(visibleCounterValue.value),
+      },
+      {
+        id: 'remaining',
+        label: t('headerRemaining', '剩余'),
+        value: String(remaining),
+      },
+      ...(Number.isFinite(total) && total > 0
+        ? [{
+            id: 'total',
+            label: t('reviewTotalCards', '总数'),
+            value: String(Math.max(remaining, Math.trunc(total))),
+          }]
+        : []),
+    ];
+  }
 
   return [
     {
@@ -448,14 +485,14 @@ const summaryButtonTitle = computed(() => {
 
 const summaryButtonAriaLabel = computed(() => {
   if (props.isMobile) {
-    return `${t('headerRemaining', '剩余')} ${visibleCounterText.value}，${t('reviewCounterTapDetailsHint', '点击查看复习详情')}`;
+    return `${summaryMetricText.value}，${t('reviewCounterTapDetailsHint', '点击查看复习详情')}`;
   }
 
   if (isDesktopCounterValueHidden.value) {
     return `${t('reviewCounterHiddenState', '卡片计数已隐藏')}，${t('reviewCounterShowCountAction', '点击显示卡片数量')}`;
   }
 
-  return `${t('headerRemaining', '剩余')} ${visibleCounterText.value}，${t('reviewCounterHideCountAction', '点击隐藏卡片数量')}`;
+  return `${summaryMetricText.value}，${t('reviewCounterHideCountAction', '点击隐藏卡片数量')}`;
 });
 
 const neuralEngineIntro = computed(() => {
