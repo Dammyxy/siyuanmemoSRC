@@ -19,12 +19,6 @@ import { GetBrowserCardsQueryHandler } from '../queries/browser/GetBrowserCardsQ
 import { BrowserDeckQueryKernel } from '../queries/browser/shared/BrowserDeckQueryKernel';
 import { QueueBrowserQueryKernel } from '../queries/browser/shared/QueueBrowserQueryKernel';
 import {
-  createBrowserCountDifferenceDiagnostic,
-  type BrowserCountDifferenceCard,
-  type BrowserCountDifferenceDiagnostic,
-  type NativeCountDifferenceCard,
-} from './BrowserCountDifferenceDiagnostics';
-import {
   SOURCE_EXISTENCE_BATCH_SIZE,
   SOURCE_EXISTENCE_BACKGROUND_LIMIT,
   SOURCE_EXISTENCE_TTL_MS,
@@ -74,8 +68,6 @@ const EMPTY_QUEUE_COUNTS: Record<string, number> = Object.fromEntries(
 
 const logger = createLogger('BrowserApplicationService');
 const SOURCE_EXISTENCE_PAGE_REFRESH_DELAY_MS = 250;
-const BROWSER_COUNT_DIAGNOSTIC_BATCH_SIZE = 500;
-const UNSUPPORTED_NATIVE_RIFF_BLOCK_TYPES = ['query_embed', 'widget'];
 
 function normalizeSignatureValue(value: unknown): unknown {
   if (value instanceof Date) {
@@ -290,125 +282,11 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     return this.browserCardUniverseReadModule.readStats();
   }
 
-  async getBrowserCountDifferenceDiagnostic(): Promise<BrowserCountDifferenceDiagnostic> {
-    const [native, browser] = await Promise.all([
-      this.readNativeCountDifferenceEvidence(),
-      this.readBrowserCountDifferenceEvidence(),
-    ]);
-
-    return createBrowserCountDifferenceDiagnostic({
-      native,
-      browser,
-      unsupportedNativeBlockTypes: UNSUPPORTED_NATIVE_RIFF_BLOCK_TYPES,
-    });
-  }
-
   subscribeSourceExistenceUpdates(listener: (update: BrowserSourceExistenceUpdate) => void): () => void {
     this.sourceExistenceUpdateListeners.add(listener);
     return () => {
       this.sourceExistenceUpdateListeners.delete(listener);
     };
-  }
-
-  private async readNativeCountDifferenceEvidence(): Promise<
-    | { status: 'available'; cards: NativeCountDifferenceCard[]; total: number }
-    | { status: 'unavailable'; reason: string }
-  > {
-    const deckId = String(this.siyuanApi.BUILTIN_DECK_ID || '').trim();
-    if (!deckId || !this.siyuanApi.getRiffCards) {
-      return { status: 'unavailable', reason: 'native-riff-read-port-unavailable' };
-    }
-
-    try {
-      const riffCards = await this.siyuanApi.getRiffCards(deckId, { includeNew: true });
-      const cards = (riffCards || []).map((card) => ({
-        blockId: String(card.id || card.riffCard?.blockID || '').trim(),
-        cardId: String(card.riffCardID || card.riffCardId || card.riffCard?.id || '').trim(),
-        type: String(card.type || '').trim(),
-      }));
-      return {
-        status: 'available',
-        cards,
-        total: cards.length,
-      };
-    } catch (error) {
-      return {
-        status: 'unavailable',
-        reason: error instanceof Error ? error.message : String(error || 'native-riff-read-failed'),
-      };
-    }
-  }
-
-  private async readBrowserCountDifferenceEvidence(): Promise<
-    | { status: 'available'; cards: BrowserCountDifferenceCard[]; total: number; pendingProjectionBlockIds: string[] }
-    | { status: 'unavailable'; reason: string }
-  > {
-    try {
-      if (this.srsBackendClient) {
-        const [stats, ids] = await Promise.all([
-          this.srsBackendClient.browserStats(),
-          this.srsBackendClient.browserDeckMatchedIds({ preset: 'all' }),
-        ]);
-        const cards = await this.readBackendDiagnosticCardsByIds(ids);
-        return {
-          status: 'available',
-          cards: await this.attachSourceExistenceForDiagnosticCards(cards),
-          total: Math.max(0, Number(stats.totalCards) || ids.length),
-          pendingProjectionBlockIds: [],
-        };
-      }
-
-      const snapshot = await this.browserDeckQueryKernel.buildSnapshot({ preset: 'all' });
-      const ids = snapshot.rows.map((row) => row.id);
-      const rows = await this.browserDeckQueryKernel.getBrowserCardsByIds(ids);
-      return {
-        status: 'available',
-        cards: rows.map((row) => ({
-          id: String(row.id || row.fsrsCardId || '').trim(),
-          blockId: String(row.blockId || '').trim(),
-          cardType: String(row.cardType || '').trim() || undefined,
-          sourceExists: null,
-        })),
-        total: snapshot.total,
-        pendingProjectionBlockIds: [],
-      };
-    } catch (error) {
-      return {
-        status: 'unavailable',
-        reason: error instanceof Error ? error.message : String(error || 'browser-universe-read-failed'),
-      };
-    }
-  }
-
-  private async readBackendDiagnosticCardsByIds(ids: string[]): Promise<BrowserCountDifferenceCard[]> {
-    const cards: BrowserCountDifferenceCard[] = [];
-    for (let index = 0; index < ids.length; index += BROWSER_COUNT_DIAGNOSTIC_BATCH_SIZE) {
-      const batchIds = ids.slice(index, index + BROWSER_COUNT_DIAGNOSTIC_BATCH_SIZE);
-      const batchCards = await this.srsBackendClient!.browserDeckRowsByIds(batchIds);
-      for (const card of batchCards) {
-        cards.push({
-          id: String(card.id || '').trim(),
-          blockId: String(card.blockId || '').trim(),
-          cardType: typeof card.type === 'string' ? card.type : undefined,
-          sourceExists: null,
-        });
-      }
-    }
-    return cards;
-  }
-
-  private async attachSourceExistenceForDiagnosticCards(
-    cards: BrowserCountDifferenceCard[],
-  ): Promise<BrowserCountDifferenceCard[]> {
-    if (!this.srsBackendClient || cards.length === 0) {
-      return cards;
-    }
-    const blockIds = Array.from(new Set(cards.map((card) => card.blockId).filter(Boolean)));
-    const statusByBlockId = await this.srsBackendClient.browserSourceExistenceByBlockIds(blockIds);
-    return cards.map((card) => ({
-      ...card,
-      sourceExists: statusByBlockId.get(card.blockId) ?? null,
-    }));
   }
 
   private async refreshSourceExistenceForBackendBlockIds(

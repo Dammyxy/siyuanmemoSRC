@@ -206,6 +206,7 @@ describe('ReviewHeader', () => {
     });
 
     const routeButton = wrapper.get('.siyuanmemo-review-header__route');
+    expect(wrapper.find('.siyuanmemo-review-header__route-counter-group').exists()).toBe(true);
     expect(routeButton.text()).toContain('航线');
     expect(routeButton.text()).toContain('天体物理');
     expect(routeButton.attributes('title')).toContain('概念 3');

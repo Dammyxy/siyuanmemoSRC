@@ -57,7 +57,6 @@ function createRuntimeDeps(overrides: Record<string, unknown> = {}) {
   const deps = {
     applyRandomSort: vi.fn(),
     applySort: vi.fn(),
-    buildCardTypeSubmenu: vi.fn(() => [{ icon: 'iconFile', label: 'Topic' }]),
     currentDataSource: ref<ICardDataSource | null>(dataSource),
     createMenu: menuRecorder.createMenu,
     defer: (fn: () => void) => fn(),

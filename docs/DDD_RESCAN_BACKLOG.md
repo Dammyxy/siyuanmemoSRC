@@ -5725,6 +5725,16 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: Run a live Review smoke in SiYuan with an ordinary two-cloze card and then handle #61 as a separate OpenSpec change if formula cloze still passes plugin markers into KaTeX.
 - Validation: `pnpm run test:run -- src/core/card/multi-cloze/application/__tests__/MultiClozeCardRenderService.test.ts src/core/card/multi-cloze/application/__tests__/MultiClozeCardRenderService.inline-formula.test.ts src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts src/ui/review/v2/__tests__/reviewRenderPolicy.test.ts src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/ui/review/v2/__tests__/ReviewContent.render-profile-routing.test.ts src/ui/review/v2/__tests__/reviewPresentationPreparer.test.ts --reporter=verbose`; hidden-fallback/boundary/build/OpenSpec validation run in the implementation checklist.
 
+### 2026-05-22 - Browser native/manageable flashcard cleanup and neural-roam route counter
+
+- Task: Continue the Browser/Review follow-up after choosing option 1 for the neural-roam route+counter header, and remove redundant Browser-side native Riff/manageable flashcard controls.
+- Touched slice: Browser bounded context and Review header adapter; `BlockMenuHandler`, `BrowserApplicationService`, `IBrowserApplicationService`, `SRSBrowser`, `BrowserToolbar`, `browserActionMenuRuntime`, `UnifiedReviewAdapter`, `ReviewHeader`, i18n keys, and focused tests.
+- Debt fixed now: Removed Browser count-difference diagnostics and the Browser-only card management chain (`CardBrowserToolbar`, `useCardActions`, migrate/type/render/delete/reset menu hooks), so the Browser no longer presents redundant native-vs-managed flashcard management surfaces. Neural-roam header cache now keys by engine mode, using `getNavigationState().engineMode` or `getEngineMode()`, preventing orbit/hyperspace route counters from reusing stale cached header data.
+- Debt deferred: Browser Semantic remains available from the neural-roam semantic workspace/concept pool, but the old toolbar-start semantic tests were removed with the deleted toolbar action. A future UX pass can decide whether Semantic needs a new explicit non-toolbar entry outside the pool.
+- Why deferred: This change deliberately removes redundant card management surfaces and fixes route counter state. Reintroducing another Browser-level Semantic action would be a separate product decision and risks recreating toolbar clutter.
+- Next safe step: Run live Browser/Review smoke in SiYuan for neural-roam orbit/hyperspace switching and route counter display, then consider a small UX follow-up only if users still need a direct Browser Semantic shortcut.
+- Validation: `pnpm exec vitest run src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts src/ui/review/v2/__tests__/ReviewHeader.spec.ts src/ui/browser/__tests__/browserActionMenuRuntime.test.ts src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`; residual Browser management symbol scan; `git diff --check`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`.
+
 ## 1. Re-scan summary
 
 - Build verification: `pnpm build` passed.

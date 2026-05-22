@@ -260,7 +260,6 @@ const emit = defineEmits<{
   (e: 'applySortToQueue'): void;
   (e: 'toggleViewMode'): void;
   (e: 'forceRefresh'): void;
-  (e: 'migrateTopicItem'): void;
   (e: 'showPerformanceReport'): void;
   (e: 'convertToTab'): void;
   (e: 'toggleNavigator'): void;

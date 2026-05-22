@@ -60,7 +60,12 @@ function createContext(overrides?: Partial<NonNullable<AdapterContext['session']
   };
 }
 
-function createNeuralUnderlyingQueue(pathLength = 5, currentPathIndex = 1, historyLength = 0) {
+function createNeuralUnderlyingQueue(
+  pathLength = 5,
+  currentPathIndex = 1,
+  historyLength = 0,
+  engineMode: 'orbit' | 'hyperspace' = 'orbit',
+) {
   const historyEntries = Array.from({ length: historyLength }, (_, index) => ({
     eventId: `event-${index}`,
     nodeId: `node-${index}`,
@@ -70,7 +75,7 @@ function createNeuralUnderlyingQueue(pathLength = 5, currentPathIndex = 1, histo
       createCard('concept-1', CardType.Concept),
       createCard('concept-2', CardType.Concept),
     ],
-    getEngineMode: () => 'orbit' as const,
+    getEngineMode: () => engineMode,
     setEngineMode: async () => undefined,
     getSourceSnapshot: () => [],
     setSourceEntry: async () => undefined,
@@ -531,6 +536,43 @@ describe('UnifiedReviewAdapter', () => {
       value: '-',
       priority: null,
       ariaLabel: 'Priority -',
+    });
+  });
+
+  it('does not reuse the neural-roam header cache when orbit and hyperspace engine modes swap under the same queue type', async () => {
+    const adapter = new UnifiedReviewAdapter({ headerVariant: 'neural-roam' });
+    const currentItem = createCard('concept-1', CardType.Concept, {
+      meta: {
+        neuralContext: {
+          blockType: 'h',
+          isFlashcard: false,
+        },
+      },
+    });
+
+    const context = createContext();
+    const orbitQueue = createQueue({
+      queueType: 'neural-roam',
+      liveCards: [currentItem],
+      underlyingQueue: createNeuralUnderlyingQueue(5, 1, 3, 'orbit'),
+    });
+    const hyperspaceQueue = createQueue({
+      queueType: 'neural-roam',
+      liveCards: [currentItem],
+      underlyingQueue: createNeuralUnderlyingQueue(5, 1, 9, 'hyperspace'),
+    });
+
+    await adapter.fetchAuxiliaryData?.(currentItem as never, orbitQueue as never, context);
+    const hyperspaceUi = await adapter.toUIState(hyperspaceQueue as never, currentItem as never, context);
+
+    expect(hyperspaceUi.header.counterSummary).toBeNull();
+    expect(hyperspaceUi.meta.queueProgress?.remaining).toBe(0);
+    expect(hyperspaceUi.header.stats.current).toBe(0);
+
+    const hydratedHyperspaceUi = await adapter.fetchAuxiliaryData?.(currentItem as never, hyperspaceQueue as never, context);
+    expect(hydratedHyperspaceUi?.header?.counterSummary).toMatchObject({
+      kind: 'value',
+      value: 9,
     });
   });
 

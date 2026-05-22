@@ -209,13 +209,6 @@ vi.mock('../composables/useSorting', () => ({
   }),
 }));
 
-vi.mock('../composables/useCardActions', () => ({
-  useCardActions: () => ({
-    migrateTopicItem: vi.fn(async () => {}),
-    buildCardTypeSubmenu: vi.fn(() => []),
-  }),
-}));
-
 vi.mock('../composables/useCardTypeDetection', () => ({
   useCardTypeDetection: () => ({
     isDetecting: ref(false),
@@ -661,124 +654,6 @@ describe('SRSBrowser hierarchy regressions', () => {
     }));
     expect(neuralQueue.setSourceEntry).not.toHaveBeenCalled();
     expect(wrapper.get('.semantic-workbench-stub').text()).toContain('Visible Semantic Root');
-
-    wrapper.unmount();
-  });
-
-  it('mounts Browser Semantic Review from the selected Concept focus', async () => {
-    const conceptCard = buildConceptBrowserCard('concept-root');
-    createDeckDataSourceMock.mockReturnValue(createQueryableDataSource([conceptCard]));
-    const readMock = vi.fn(async (request: { rootFocusNodeId?: string; sessionId?: string }) => {
-      if (request.rootFocusNodeId) {
-        return { ...semanticReadResult('session-visible', request.rootFocusNodeId), activeSession: null, session: null, rootNode: null, currentNode: null };
-      }
-      return semanticReadResult('session-visible', request.sessionId ? conceptCard.blockId : conceptCard.blockId);
-    });
-    const executeMock = vi.fn(async () => ({
-      status: 'ok',
-      commandId: 'semantic-start',
-      writerInstanceId: 'writer-1',
-      changed: {},
-      session: {
-        sessionId: 'session-visible',
-        rootFocusNodeId: conceptCard.blockId,
-        currentNodeId: conceptCard.blockId,
-        activeLens: 'assimilation',
-        narrativePath: [{ nodeId: conceptCard.blockId, lens: 'assimilation', eventId: 'event-root', visitedAt: 1 }],
-        startedAt: 1,
-        endedAt: null,
-      },
-      diagnosticEventId: 'semantic-start-ok',
-    }));
-
-    const wrapper = mountBrowser({
-      plugin: mountSemanticPlugin(readMock, executeMock) as never,
-    });
-    await advance(0);
-    await advance(0);
-    await advance(200);
-
-    agGridClickRow = conceptCard;
-    await wrapper.get('.ag-grid-stub').trigger('click');
-    await nextTick();
-
-    expect(wrapper.get('.toolbar-start-semantic').attributes('disabled')).toBeUndefined();
-    await wrapper.get('.toolbar-start-semantic').trigger('click');
-    await flushPromises();
-    await nextTick();
-
-    expect(executeMock).toHaveBeenCalledWith(expect.objectContaining({
-      callerIntent: 'semantic.browser-concept.start',
-      command: expect.objectContaining({
-        type: 'start-session',
-        rootFocusNodeId: conceptCard.blockId,
-      }),
-    }));
-    expect(wrapper.get('.semantic-workbench-stub').text()).toContain('Visible Semantic Root');
-    expect(wrapper.get('.toolbar-start-semantic').attributes('data-active')).toBe('true');
-    expect(wrapper.find('.card-browser__content > .card-browser__semantic-workbench').exists()).toBe(false);
-
-    wrapper.unmount();
-  });
-
-  it('shows explicit Semantic unavailable for non-Concept Browser focus', async () => {
-    const reviewCard = buildBrowserCard('review-root', 'doc-1');
-    createDeckDataSourceMock.mockReturnValue(createQueryableDataSource([reviewCard]));
-    const readMock = vi.fn();
-    const executeMock = vi.fn();
-
-    const wrapper = mountBrowser({
-      plugin: mountSemanticPlugin(readMock, executeMock) as never,
-    });
-    await advance(0);
-    await advance(0);
-    await advance(200);
-
-    agGridClickRow = reviewCard;
-    await wrapper.get('.ag-grid-stub').trigger('click');
-    await nextTick();
-    await wrapper.get('.toolbar-start-semantic').trigger('click');
-    await flushPromises();
-    await nextTick();
-
-    expect(executeMock).not.toHaveBeenCalled();
-    expect(wrapper.text()).toContain('Browser Semantic requires a Concept card selection.');
-
-    wrapper.unmount();
-  });
-
-  it('renders count-difference diagnostics without changing browser row scope', async () => {
-    const rows = [buildBrowserCard('browser-card-1', 'doc-1')];
-    createDeckDataSourceMock.mockReturnValue(createQueryableDataSource(rows));
-    const browserService = {
-      ...createBrowserService(),
-      getBrowserCountDifferenceDiagnostic: vi.fn(async () => ({
-        status: 'difference',
-        nativeTotal: 3,
-        browserManageableTotal: 1,
-        browserOperationalTotal: 1,
-        differenceTotal: 2,
-        groups: [{
-          reason: 'missing-plugin-index',
-          count: 2,
-          sampleIds: ['native-block-1'],
-        }],
-        unavailable: [],
-      })),
-    };
-
-    const wrapper = mountBrowser({ browserService: browserService as never });
-    await advance(0);
-    await advance(0);
-    await advance(80);
-
-    expect(browserService.getBrowserCountDifferenceDiagnostic).toHaveBeenCalledTimes(1);
-    expect(wrapper.text()).toContain('Native Riff: 3');
-    expect(wrapper.text()).toContain('Browser: 1');
-    expect(wrapper.text()).toContain('Difference: 2');
-    expect(wrapper.text()).toContain('Missing plugin index: 2');
-    expect(wrapper.text()).toContain('native-block-1');
-    expect(wrapper.text()).toContain('doc-1:1');
 
     wrapper.unmount();
   });

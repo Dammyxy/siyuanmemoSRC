@@ -90,7 +90,6 @@ type BrowserPracticeDialogManager = {
 export type BrowserActionMenuRuntimeDeps = {
   applyRandomSort: () => Promise<void> | void;
   applySort: (field: string, order: 'asc' | 'desc') => void;
-  buildCardTypeSubmenu: (selected: BrowserCard[]) => BrowserMenuItem[];
   currentDataSource: ReadonlyRef<ICardDataSource | null>;
   createMenu?: (id: string) => BrowserMenuPort;
   defer?: (fn: () => void) => void;
@@ -536,13 +535,6 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
 
     addNeuralSeedMenuItems(menu, selected);
     addSortMenu(menu);
-
-    menu.addItem({
-      icon: 'iconHR',
-      label: deps.t('cardTypeMenu', 'Card Type'),
-      submenu: deps.buildCardTypeSubmenu(selected),
-    });
-    menu.addItem({ type: 'separator' });
 
     addDataSourceActionItems(menu, actions, selected, rowData);
 

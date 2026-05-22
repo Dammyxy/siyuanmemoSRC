@@ -30,22 +30,108 @@
         <span class="siyuanmemo-review-header__queue-switch-text">{{ displayTitle }}</span>
       </button>
 
-      <button
-        v-if="props.routeControl"
-        type="button"
-        class="siyuanmemo-review-header__route"
-        :class="{ 'siyuanmemo-review-header__route--temporary': props.routeControl.temporary }"
-        :title="routeControlTitle"
-        :aria-label="routeControlAriaLabel"
-        :disabled="props.routeControl.disabled"
-        @click="handleRouteClick"
-      >
-        <span class="siyuanmemo-review-header__route-label">{{ props.routeControl.label }}</span>
-        <span class="siyuanmemo-review-header__route-name">{{ props.routeControl.name }}</span>
-        <svg class="siyuanmemo-review-header__route-icon"><use xlink:href="#iconDown"></use></svg>
-      </button>
+      <div v-if="props.routeControl" class="siyuanmemo-review-header__route-counter-group">
+        <button
+          type="button"
+          class="siyuanmemo-review-header__route"
+          :class="{ 'siyuanmemo-review-header__route--temporary': props.routeControl.temporary }"
+          :title="routeControlTitle"
+          :aria-label="routeControlAriaLabel"
+          :disabled="props.routeControl.disabled"
+          @click="handleRouteClick"
+        >
+          <span class="siyuanmemo-review-header__route-label">{{ props.routeControl.label }}</span>
+          <span class="siyuanmemo-review-header__route-name">{{ props.routeControl.name }}</span>
+          <svg class="siyuanmemo-review-header__route-icon"><use xlink:href="#iconDown"></use></svg>
+        </button>
+
+        <div
+          ref="counterAreaRef"
+          class="siyuanmemo-review-header__summary-wrap siyuanmemo-review-header__summary-wrap--grouped"
+          @mouseenter="handleCounterMouseEnter"
+          @mouseleave="handleCounterMouseLeave"
+          @focusin="handleCounterFocusIn"
+          @focusout="handleCounterFocusOut"
+        >
+          <button
+            ref="counterTriggerRef"
+            type="button"
+            class="siyuanmemo-review-header__summary"
+            :class="{ 'siyuanmemo-review-header__summary--count-hidden': isDesktopCounterValueHidden }"
+            :aria-label="summaryButtonAriaLabel"
+            :title="summaryButtonTitle"
+            @pointerdown="handleCounterPointerDown"
+            @click.stop="handleCounterClick"
+          >
+            <svg class="siyuanmemo-review-header__summary-icon"><use xlink:href="#iconRiffCard"></use></svg>
+            <span v-if="!isDesktopCounterValueHidden" class="siyuanmemo-review-header__summary-count">{{ visibleCounterText }}</span>
+          </button>
+
+          <div
+            v-if="isCounterPopoverOpen"
+            ref="counterPopoverRef"
+            class="siyuanmemo-review-header__popover"
+            @click.stop
+          >
+            <div class="siyuanmemo-review-header__popover-header">
+              <span class="siyuanmemo-review-header__popover-title">{{ displayTitle }}</span>
+              <span class="siyuanmemo-review-header__popover-subtitle">{{ t('reviewCounterDetails', '复习详情') }}</span>
+            </div>
+
+            <section class="siyuanmemo-review-header__popover-section">
+              <div class="siyuanmemo-review-header__popover-section-title">{{ t('reviewQueueProgress', '队列进度') }}</div>
+              <div class="siyuanmemo-review-header__popover-grid">
+                <div
+                  v-for="metric in progressMetrics"
+                  :key="metric.id"
+                  class="siyuanmemo-review-header__popover-stat"
+                >
+                  <span class="siyuanmemo-review-header__popover-stat-label">{{ metric.label }}</span>
+                  <span class="siyuanmemo-review-header__popover-stat-value">{{ metric.value }}</span>
+                </div>
+              </div>
+              <div
+                v-if="summaryDescription"
+                class="siyuanmemo-review-header__popover-note"
+                :title="summaryDescription"
+              >
+                {{ summaryDescription }}
+              </div>
+            </section>
+
+            <section v-if="popoverCounters.length > 0" class="siyuanmemo-review-header__popover-section">
+              <div class="siyuanmemo-review-header__popover-section-title">{{ t('reviewCounterBreakdown', '卡片构成') }}</div>
+              <div class="siyuanmemo-review-header__popover-counter-list">
+                <div
+                  v-for="counter in popoverCounters"
+                  :key="counter.id"
+                  class="siyuanmemo-review-header__popover-counter"
+                  :style="getPopoverCounterStyle(counter.tone)"
+                >
+                  <span class="siyuanmemo-review-header__popover-counter-label">{{ counter.label }}</span>
+                  <span class="siyuanmemo-review-header__popover-counter-value">{{ counter.text }}</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="siyuanmemo-review-header__popover-section">
+              <div class="siyuanmemo-review-header__popover-section-title">{{ t('reviewCurrentCard', '当前卡片') }}</div>
+              <div
+                class="siyuanmemo-review-header__priority"
+                :style="priorityBadgeStyle"
+                :aria-label="header.priorityBadge.ariaLabel"
+                :title="header.priorityBadge.ariaLabel"
+              >
+                <span class="siyuanmemo-review-header__priority-label">{{ t('headerPriority', 'Priority') }}</span>
+                <span class="siyuanmemo-review-header__priority-value">{{ header.priorityBadge.value }}</span>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
 
       <div
+        v-else
         ref="counterAreaRef"
         class="siyuanmemo-review-header__summary-wrap"
         @mouseenter="handleCounterMouseEnter"
@@ -744,10 +830,9 @@ onUnmounted(() => {
 .siyuanmemo-review-header__route {
   position: relative;
   z-index: 3;
-  grid-column: 2;
+  grid-column: 1;
   display: inline-flex;
   align-items: center;
-  justify-self: end;
   gap: 6px;
   min-width: 0;
   max-width: min(220px, 100%);
@@ -803,6 +888,53 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+.siyuanmemo-review-header__route-counter-group {
+  position: relative;
+  z-index: 3;
+  grid-column: 2 / 4;
+  display: inline-flex;
+  align-items: stretch;
+  justify-self: end;
+  min-width: 0;
+  flex-shrink: 0;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  background: var(--b3-theme-background);
+  overflow: hidden;
+}
+
+.siyuanmemo-review-header__route-counter-group:hover,
+.siyuanmemo-review-header__route-counter-group:focus-within {
+  border-color: var(--b3-theme-primary);
+  background: var(--b3-list-hover);
+}
+
+.siyuanmemo-review-header__route-counter-group .siyuanmemo-review-header__route {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.siyuanmemo-review-header__route-counter-group .siyuanmemo-review-header__route:hover,
+.siyuanmemo-review-header__route-counter-group .siyuanmemo-review-header__route:focus-visible {
+  border-color: transparent;
+  background: transparent;
+}
+
+.siyuanmemo-review-header__route-counter-group .siyuanmemo-review-header__summary-wrap {
+  border-left: 1px solid var(--b3-border-color);
+}
+
+.siyuanmemo-review-header__route-counter-group .siyuanmemo-review-header__summary-wrap:hover,
+.siyuanmemo-review-header__route-counter-group .siyuanmemo-review-header__summary-wrap:focus-within {
+  background: transparent;
+}
+
+.siyuanmemo-review-header__summary-wrap--grouped {
+  position: relative;
+  justify-self: auto;
+}
+
 .siyuanmemo-review-header__queue-switch,
 .siyuanmemo-review-header__route,
 .siyuanmemo-review-header__summary-wrap,
@@ -846,6 +978,19 @@ onUnmounted(() => {
   min-height: 30px;
   min-width: 76px;
   padding: 0 10px;
+}
+
+.siyuanmemo-review-header__route-counter-group .siyuanmemo-review-header__summary {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.siyuanmemo-review-header__route-counter-group .siyuanmemo-review-header__summary:hover {
+  transform: none;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 .siyuanmemo-review-header__summary:hover {

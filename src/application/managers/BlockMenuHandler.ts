@@ -658,39 +658,6 @@ export class BlockMenuHandler {
     ];
   }
 
-  private buildDocBrowserActions(docId: string, scope: ReviewScopeSnapshot): SiyuanMenuItem[] {
-    const scopeDocIds = scope.scopeDocIds && scope.scopeDocIds.length > 0
-      ? [...scope.scopeDocIds]
-      : [docId];
-
-    return [
-      {
-        icon: 'iconSearch',
-        label: this.text('openDocTreeCardsInBrowser', '在 SRS 浏览器中查看文档树闪卡'),
-        click: async () => {
-          this.deps.dialogManager.openBrowserDialog({
-            initialOpenState: {
-              scopeDocIds,
-              preset: 'all',
-            },
-          });
-        },
-      },
-    ];
-  }
-
-  private buildDocBrowserLoadingActions(): SiyuanMenuItem[] {
-    const loadingText = this.deps.i18n?.loading || '加载中...';
-    const pendingSuffix = `<span class="ft__secondary">(${loadingText})</span>`;
-    return [
-      {
-        icon: 'iconSearch',
-        label: `${this.text('openDocTreeCardsInBrowser', '在 SRS 浏览器中查看文档树闪卡')} ${pendingSuffix}`,
-        disabled: true,
-      },
-    ];
-  }
-
   private buildDocMenuGroup(labelKey: string, fallback: string, icon: string, submenu: SiyuanMenuItem[]): SiyuanMenuItem {
     return {
       icon,
@@ -720,12 +687,6 @@ export class BlockMenuHandler {
           this.separator(),
           ...this.buildConceptActions(docId),
         ],
-      ),
-      this.buildDocMenuGroup(
-        'menuGroupBrowse',
-        '浏览',
-        'iconSearch',
-        this.buildDocBrowserActions(docId, scope),
       ),
       this.buildDocMenuGroup(
         'menuGroupDocumentProcessing',
@@ -764,12 +725,6 @@ export class BlockMenuHandler {
           this.separator(),
           ...this.buildConceptActions(docId),
         ],
-      ),
-      this.buildDocMenuGroup(
-        'menuGroupBrowse',
-        '浏览',
-        'iconSearch',
-        this.buildDocBrowserLoadingActions(),
       ),
       this.buildDocMenuGroup(
         'menuGroupDocumentProcessing',

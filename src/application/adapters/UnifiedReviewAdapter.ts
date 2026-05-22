@@ -50,6 +50,7 @@ type QueueWithType = {
 
 type UnderlyingQueueLike = {
   getCards?: () => Promise<FSRSCard[]>;
+  getNavigationState?: () => { engineMode?: string };
 };
 
 type QueueWithUnderlying = {
@@ -57,7 +58,7 @@ type QueueWithUnderlying = {
 };
 
 type CachedHeaderState = {
-  queueType: string;
+  cacheKey: string;
   stats: ReviewUIState['header']['stats'];
   counterSummary: ReviewUIState['header']['counterSummary'];
   counterBadges: ReviewUIState['header']['counterBadges'];
@@ -126,6 +127,25 @@ function resolveUnderlyingQueue(queue: unknown): UnderlyingQueueLike | null {
       error,
     );
   }
+}
+
+function resolveHeaderCacheKey(
+  queueType: string,
+  headerVariant: ReviewHeaderVariant,
+  queue: IQueueStrategy<UnifiedReviewItem>,
+): string {
+  if (queueType !== 'neural-roam') {
+    return `${queueType}::${headerVariant}`;
+  }
+
+  const underlying = resolveUnderlyingQueue(queue);
+  if (underlying && isNeuralRoamSessionQueue(underlying)) {
+    const navigationState = underlying.getNavigationState();
+    const engineMode = navigationState.engineMode ?? underlying.getEngineMode();
+    return `${queueType}::${headerVariant}::${engineMode}`;
+  }
+
+  return `${queueType}::${headerVariant}`;
 }
 
 function resolveBlockId(item: UnifiedReviewItem): string {
@@ -461,7 +481,9 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
   ): Promise<ReviewUIState> {
     const queueType = hasQueueType(queue) ? queue.getType() : '';
     const headerVariant = this.headerVariant || resolveReviewPresentationHeaderVariant(queueType);
+    const cacheKey = resolveHeaderCacheKey(queueType, headerVariant, queue);
     const { stats, counterSummary, counterBadges, queueSize, remainingSize, queueProgress } = this.resolveHeaderPlaceholder(
+      cacheKey,
       queueType,
       headerVariant,
       context,
@@ -635,6 +657,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
 
     const queueType = hasQueueType(queue) ? queue.getType() : '';
     const headerVariant = this.headerVariant || resolveReviewPresentationHeaderVariant(queueType);
+    const cacheKey = resolveHeaderCacheKey(queueType, headerVariant, queue);
     const stats = normalizeStats(await queue.getStats?.());
     const safeContext = context ?? { showAnswer: false };
 
@@ -665,6 +688,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       : (stats.label || `${overallRemaining} due`);
 
     return this.cacheAndBuildAuxHeader(queueType, {
+      cacheKey,
       stats: {
         current: overallRemaining,
         total: overallTotal,
@@ -685,11 +709,12 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
   }
 
   private resolveHeaderPlaceholder(
+    cacheKey: string,
     queueType: string,
     headerVariant: ReviewHeaderVariant,
     context: AdapterContext,
   ): Pick<ReviewUIState['header'], 'stats' | 'counterSummary' | 'counterBadges'> & Pick<ReviewUIState['meta'], 'queueSize' | 'remainingSize' | 'queueProgress'> {
-    if (this.cachedHeaderState && this.cachedHeaderState.queueType === queueType) {
+    if (this.cachedHeaderState && this.cachedHeaderState.cacheKey === cacheKey) {
       return {
         stats: this.cachedHeaderState.stats,
         counterSummary: this.cachedHeaderState.counterSummary,
@@ -723,10 +748,10 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
 
   private cacheAndBuildAuxHeader(
     queueType: string,
-    payload: Pick<ReviewUIState['header'], 'stats' | 'counterSummary' | 'counterBadges'>,
+    payload: Pick<ReviewUIState['header'], 'stats' | 'counterSummary' | 'counterBadges'> & { cacheKey: string },
   ): Partial<ReviewUIState> {
     this.cachedHeaderState = {
-      queueType,
+      cacheKey: payload.cacheKey,
       stats: payload.stats,
       counterSummary: payload.counterSummary,
       counterBadges: payload.counterBadges,
