@@ -8,6 +8,8 @@ type ReviewTranslate = (key: string, fallback: string) => string;
 type ReviewNeuralEntryActionServiceLike = {
   startTemporaryCurrentBlockRoam?: (input: {
     blockId: string;
+    seedBlockId?: string | null;
+    conceptBlockId?: string | null;
     sourceReviewCardId?: string | null;
   }) => Promise<{ ok: boolean; message?: string }>;
   startTemporaryConceptRoam?: (input: {
@@ -99,13 +101,16 @@ function group(label: string, submenu: Array<ReviewMenuItem | null>): ReviewMenu
 }
 
 export function buildReviewNeuralEntryMenuItems(input: BuildReviewNeuralEntryMenuItemsInput): ReviewMenuItem[] {
-  const { t, currentCard, currentBlockId, currentCardId, entryActionService, runAction } = input;
+  const { t, currentCard, currentBlockId, currentCardId, conceptTargets, entryActionService, runAction } = input;
   const blockId = normalizeId(currentBlockId);
   if (!blockId || !entryActionService) {
     return [];
   }
 
   const isConcept = isConceptReviewCard(currentCard);
+  const currentBlockSeedTarget = !isConcept && conceptTargets.length === 1
+    ? normalizeId(conceptTargets[0].focusBlockId)
+    : '';
   const temporaryItems: Array<ReviewMenuItem | null> = [
     isConcept || !entryActionService.startTemporaryCurrentBlockRoam
       ? null
@@ -118,6 +123,8 @@ export function buildReviewNeuralEntryMenuItems(input: BuildReviewNeuralEntryMen
             () => entryActionService.startTemporaryCurrentBlockRoam?.({
               blockId,
               sourceReviewCardId: currentCardId || null,
+              seedBlockId: currentBlockSeedTarget || null,
+              conceptBlockId: currentBlockSeedTarget || null,
             }),
           ),
         },

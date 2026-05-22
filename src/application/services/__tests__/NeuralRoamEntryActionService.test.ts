@@ -200,6 +200,38 @@ describe('NeuralRoamEntryActionService', () => {
     }));
   });
 
+  it('uses an explicit concept seed while keeping the CDF review block as the first focus', async () => {
+    const resolveBlockTitle = vi.fn(async (blockId: string) => blockId === 'concept-block' ? '概念块' : '当前块');
+    const { service, queue, openNeuralRoamDialog } = createService({ resolveBlockTitle });
+
+    const result = await service.startTemporaryCurrentBlockRoam({
+      blockId: 'definition-block',
+      seedBlockId: 'concept-block',
+      conceptBlockId: 'concept-block',
+      sourceReviewCardId: 'definition-card',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: 'temporary-current-block-roam',
+      blockId: 'definition-block',
+      cardId: 'definition-card',
+      openedDialog: true,
+    });
+    expect(queue.createTemporaryRoute).toHaveBeenCalledWith({
+      name: '临时：概念块',
+      seedBlockId: 'concept-block',
+      previousRouteId: 'route-previous',
+    });
+    expect(openNeuralRoamDialog).toHaveBeenCalledWith(expect.objectContaining({
+      focusBlockId: 'definition-block',
+      seedBlockId: 'concept-block',
+      conceptBlockId: 'concept-block',
+      sourceReviewCardId: 'definition-card',
+      entrySessionKind: 'temporary-current-block',
+    }));
+  });
+
   it('stops before replacing a dirty temporary route so the caller can prompt', async () => {
     const queue = {
       addCard: vi.fn(async () => undefined),

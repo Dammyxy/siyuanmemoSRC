@@ -469,6 +469,8 @@ type ReviewPluginContextLike = {
     | {
         startTemporaryCurrentBlockRoam?: (input: {
           blockId: string;
+          seedBlockId?: string | null;
+          conceptBlockId?: string | null;
           sourceReviewCardId?: string | null;
         }) => Promise<{ ok: boolean; message?: string }>;
         startTemporaryConceptRoam?: (input: {

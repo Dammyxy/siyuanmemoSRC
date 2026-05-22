@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-22 (Round 430)
+Last update: 2026-05-22 (Round 431)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-22 - NeuralRoam Review Entry Bugfixes
+
+- Task: Fix recent NeuralRoam route bugs: desktop Review dialog has no visible close affordance, CDF-related Review cards can fail `从当前块临时漫游` with `not a concept card`, and clarify route log location.
+- Touched slice: Review/application NeuralRoam entry boundary; `src/application/factories/createUnifiedReviewDialog.ts`, `src/ui/review/v2/reviewNeuralEntryMenuItems.ts`, `src/ui/review/v2/ReviewView.vue`, `src/application/services/NeuralRoamEntryActionService.ts`, and focused tests.
+- Debt fixed now: Desktop Review dialogs no longer set `disableClose`, so the native titlebar close affordance is available again. CDF-related current-block temporary roam now keeps the current CDF block as the first focus while passing its single resolved concept target as the temporary route seed, so route seed creation still uses the concept-only queue invariant instead of throwing on descriptor/definition blocks.
+- Debt deferred: No extra in-app route-log shortcut was added in this bugfix pass.
+- Why deferred: The Browser route log already exists under SRS Browser -> NeuralRoam -> `双链轨道`/route history, and adding a new shortcut is UI workflow work beyond the failing entry path.
+- Next safe step: If route log discoverability remains poor, add a small Review route-menu affordance that opens the Browser NeuralRoam route log directly.
+- Validation: `pnpm vitest src/ui/review/v2/__tests__/reviewNeuralEntryMenuItems.test.ts src/application/services/__tests__/NeuralRoamEntryActionService.test.ts src/application/factories/__tests__/createUnifiedReviewDialog.mode.test.ts --run`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build` (passed with existing non-blocking i18n hardcoded-string and Sass legacy API warnings).
 
 ### 2026-05-22 - NeuralRoam Backend Route Contracts
 

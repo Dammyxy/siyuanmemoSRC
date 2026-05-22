@@ -74,7 +74,7 @@ describe('createUnifiedReviewDialog', () => {
     expect(createVueDialogMock).toHaveBeenCalledWith(expect.objectContaining({
       hideTitle: false,
       isReview: true,
-      disableClose: true,
+      disableClose: false,
       props: expect.objectContaining({
         mode: 'dialog',
         title: '提取练习',

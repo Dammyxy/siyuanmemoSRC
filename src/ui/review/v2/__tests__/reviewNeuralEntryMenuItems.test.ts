@@ -114,4 +114,28 @@ describe('buildReviewNeuralEntryMenuItems', () => {
     const conceptItem = items[0].submenu?.find((item) => item.id === 'temporary-concept-roam');
     expect(conceptItem?.submenu?.map((item) => item.label)).toEqual(['概念 A', '概念 B']);
   });
+
+  it('seeds current-block temporary roam from the bound CDF concept target', () => {
+    const service = createService();
+    const runAction = vi.fn((_label, action) => void action());
+    const items = buildReviewNeuralEntryMenuItems({
+      t,
+      currentCard: card({ type: CardType.Descriptor }),
+      currentBlockId: 'descriptor-block',
+      currentCardId: 'descriptor-card',
+      conceptTargets: [{ focusBlockId: 'concept-block', label: '概念' }],
+      entryActionService: service,
+      runAction,
+    });
+
+    const currentBlockItem = items[0].submenu?.find((item) => item.id === 'temporary-current-block-roam');
+    currentBlockItem?.click?.();
+
+    expect(service.startTemporaryCurrentBlockRoam).toHaveBeenCalledWith({
+      blockId: 'descriptor-block',
+      sourceReviewCardId: 'descriptor-card',
+      seedBlockId: 'concept-block',
+      conceptBlockId: 'concept-block',
+    });
+  });
 });

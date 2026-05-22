@@ -260,6 +260,8 @@ export class NeuralRoamEntryActionService {
 
   async startTemporaryCurrentBlockRoam(input: {
     blockId: string;
+    seedBlockId?: string | null;
+    conceptBlockId?: string | null;
     sourceReviewCardId?: string | null;
   }): Promise<NeuralRoamEntryActionResult> {
     const normalizedBlockId = this.normalizeBlockId(input.blockId);
@@ -267,15 +269,18 @@ export class NeuralRoamEntryActionService {
       return this.fail('temporary-current-block-roam', 'missing-block-id', '缺少可用块 ID');
     }
 
+    const seedBlockId = this.normalizeBlockId(input.seedBlockId || '') || normalizedBlockId;
+    const conceptBlockId = this.normalizeBlockId(input.conceptBlockId || '') || null;
     const modeBefore = await this.forceOrbit();
-    const temporaryRoute = await this.createTemporaryRoute(normalizedBlockId, 'temporary-current-block-roam');
+    const temporaryRoute = await this.createTemporaryRoute(seedBlockId, 'temporary-current-block-roam');
     if (!temporaryRoute.ok) {
       return temporaryRoute;
     }
     await this.deps.openNeuralRoamDialog({
       focusBlockId: normalizedBlockId,
-      seedBlockId: normalizedBlockId,
+      seedBlockId,
       sourceReviewCardId: String(input.sourceReviewCardId || '').trim() || null,
+      conceptBlockId,
       previousEngineMode: modeBefore,
       includeFocusAsFirst: true,
       startNewSession: true,
