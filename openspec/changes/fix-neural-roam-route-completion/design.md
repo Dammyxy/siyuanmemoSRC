@@ -14,6 +14,7 @@ Review close handling exists in `ReviewView.closeCurrentReviewSurface()`, but na
 
 **Goals:**
 - Route log reads return active-route chronological route events across engines.
+- Browser and Review keep a separate engine-local `双链轨道` view; route log separation must not remove the old engine inspection surface.
 - Backend advance accepts the newly active route after a route switch and rejects only truly stale requests.
 - Renderer Review next/feedback synchronizes local active route state before sending backend advance requests.
 - Route log writes append new route events only; later route saves must not rebuild cleared route logs from engine-local history.
@@ -29,6 +30,7 @@ Review close handling exists in `ReviewView.closeCurrentReviewSurface()`, but na
 ## Decisions
 
 - Add route-log read methods to `NeuralRoamQueue` that map `NeuralRoamRouteHistoryEvent` into the existing Browser history view model shape. This keeps UI changes small while making the data source route-level.
+- Reuse the existing Browser history list for both surfaces, but route it by subview: `航线日志` reads route-owned `getRouteHistoryPage()`, and `双链轨道` reads current engine-local `getHistoryPage()`.
 - Keep activation trace lookup engine-local. Old route-level events may not have a live engine trace; Browser already tolerates missing trace by showing unavailable trace state.
 - Add a backend queue method that synchronizes cached active route state before mismatch comparison. This fixes route switch handoff without loosening mismatch protection.
 - Add a renderer Review sync boundary before `UnifiedQueueStrategy` sets `NeuralRoamAdvanceCoordinator` route ID. This prevents stale renderer route IDs from being submitted while preserving backend `route-mismatch` for truly stale requests.
@@ -38,5 +40,6 @@ Review close handling exists in `ReviewView.closeCurrentReviewSurface()`, but na
 ## Risks / Trade-offs
 
 - Route history events have less trace detail than engine history entries. Browser log rows will use route event metadata and may show unavailable trace detail for older/cross-engine entries.
+- Two adjacent history tabs increase UI surface area, but they preserve the domain split: propulsion engines own their local trace, route owns the cross-engine visited path.
 - Route event append still observes newly created engine history entries as the source of visit metadata, but ownership is one-way: engine history can add new route events, never reconstruct or clear route history after the fact.
 - Disabling native dialog close removes one close affordance from the titlebar, but it prevents data loss. The in-component Review close control remains available and already owns the temporary-route save/discard/cancel flow.

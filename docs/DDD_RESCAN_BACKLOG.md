@@ -1,18 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-22 (Round 432)
+Last update: 2026-05-22 (Round 433)
 
 ## 0. Task Deltas (newest first)
 
 ### 2026-05-22 - NeuralRoam Route Log Separation
 
 - Task: Fix NeuralRoam route-mismatch on Review open and separate route log ownership from engine-local 双链轨道.
-- Touched slice: Review/Queue/Browser NeuralRoam route boundary; `src/application/adapters/UnifiedQueueStrategy.ts`, `src/core/queue/domain/NeuralRoamQueue.ts`, `src/ui/browser/SRSBrowser.vue`, i18n labels/tests, `ARCHITECTURE.md`, and OpenSpec `fix-neural-roam-route-completion`.
-- Debt fixed now: Review next/feedback now synchronizes renderer `NeuralRoamQueue` active route state before submitting `neural-roam.advance`, preventing stale renderer route IDs from causing false `route-mismatch`. Route persistence no longer rebuilds route history by merging engine history snapshots; it appends new engine visit events into route-owned history and preserves the latest catalog route history when saving pools/sessions, so an explicitly cleared route log stays cleared. Browser NeuralRoam `roam-history` surface is now labeled `航线日志` / `Route Log` instead of `双链轨道` / `Trajectory Path`.
-- Debt deferred: No new dedicated engine-local 双链轨道 UI page was added in this pass.
-- Why deferred: The urgent bug is ownership and false mismatch. A separate engine-track inspection surface needs product/UI design so it does not get confused with route-level logs again.
-- Next safe step: If users still need engine-local inspection, add an explicit `双链轨道` engine diagnostic view beside `航线日志`, backed by `getHistoryPage()` and clearly scoped to current engine/session.
-- Validation: `pnpm vitest run src\application\__tests__\UnifiedQueueStrategy.neural-roam.test.ts src\core\queue\domain\__tests__\NeuralRoamQueue.test.ts src\i18n\__tests__\zh_CN.neural-roam-label.test.ts src\i18n\__tests__\en_US.neural-roam-label.test.ts src\ui\browser\neural\__tests__\useNeuralBrowserController.test.ts`; `openspec validate fix-neural-roam-route-completion --strict`; `pnpm run check:boundaries`; `pnpm build` (passed with existing non-blocking i18n hardcoded-string/content warnings and Sass legacy API warnings).
+- Touched slice: Review/Queue/Browser NeuralRoam route boundary; `src/application/adapters/UnifiedQueueStrategy.ts`, `src/core/queue/domain/NeuralRoamQueue.ts`, `src/ui/browser/SRSBrowser.vue`, `src/ui/browser/neural/useNeuralBrowserController.ts`, `src/ui/review/v2/reviewNeuralCommands.ts`, i18n labels/tests, `ARCHITECTURE.md`, and OpenSpec `fix-neural-roam-route-completion`.
+- Debt fixed now: Review next/feedback now synchronizes renderer `NeuralRoamQueue` active route state before submitting `neural-roam.advance`, preventing stale renderer route IDs from causing false `route-mismatch`. Route persistence no longer rebuilds route history by merging engine history snapshots; it appends new engine visit events into route-owned history and preserves the latest catalog route history when saving pools/sessions, so an explicitly cleared route log stays cleared. Browser/Review now expose `双链轨道` as a separate engine-local `getHistoryPage()` view while `航线日志` stays route-level `getRouteHistoryPage()`; route log no longer replaces the old engine trajectory view, and route-log UI cannot clear engine history.
+- Debt deferred: Route-level activation trace details for older/cross-engine route events remain limited because trace lookup is still engine-local.
+- Why deferred: Full route-owned trace persistence is a separate data-model change; current task only needed path visibility and ownership separation.
+- Next safe step: Add route-owned trace metadata to route history events if cross-engine route-log trace inspection becomes required.
+- Validation: `pnpm vitest run src\application\__tests__\UnifiedQueueStrategy.neural-roam.test.ts src\core\queue\domain\__tests__\NeuralRoamQueue.test.ts src\i18n\__tests__\zh_CN.neural-roam-label.test.ts src\i18n\__tests__\en_US.neural-roam-label.test.ts src\ui\browser\neural\__tests__\useNeuralBrowserController.test.ts`; `pnpm vitest run src\ui\browser\__tests__\browserSurfaceState.test.ts src\ui\browser\neural\__tests__\useNeuralBrowserController.test.ts src\ui\review\v2\__tests__\reviewNeuralCommands.test.ts src\ui\browser\neural\__tests__\NeuralHistoryList.test.ts src\i18n\__tests__\zh_CN.neural-roam-label.test.ts src\i18n\__tests__\en_US.neural-roam-label.test.ts`; `openspec validate fix-neural-roam-route-completion --strict`; `pnpm run check:boundaries`; `pnpm build` (passed with existing non-blocking i18n hardcoded-string/content warnings and Sass legacy API warnings).
 
 ### 2026-05-22 - NeuralRoam Review Entry Bugfixes
 

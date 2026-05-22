@@ -7,6 +7,7 @@ import type {
 } from '@/types/unified-data-source';
 import type { BrowserCard } from '../../types';
 import { useNeuralBrowserController } from '../useNeuralBrowserController';
+import type { NeuralSubview } from '../types';
 
 const t = (key: string, fallback: string) => `${key}:${fallback}`;
 
@@ -217,7 +218,10 @@ function createQueue(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createController(queue: Record<string, unknown> | null = createQueue()) {
+function createController(
+  queue: Record<string, unknown> | null = createQueue(),
+  options: { getNeuralSubview?: () => NeuralSubview | null | undefined } = {},
+) {
   const previewCard = ref<BrowserCard | null>(null);
   const refreshQueueCounts = vi.fn(async () => undefined);
   const confirmRouteSwitchReviewReset = vi.fn(async () => true);
@@ -252,6 +256,7 @@ function createController(queue: Record<string, unknown> | null = createQueue())
     logError: vi.fn(),
     t,
     historyPageSize: 2,
+    getNeuralSubview: options.getNeuralSubview,
   });
   return {
     controller,
@@ -344,7 +349,9 @@ describe('useNeuralBrowserController', () => {
         routeHistoryEntries.filter((entry) => entry.nodeId === nodeId).length
       )),
     });
-    const { controller } = createController(queue);
+    const { controller } = createController(queue, {
+      getNeuralSubview: () => 'roam-history',
+    });
 
     await controller.refreshNeuralSubviewData();
 
@@ -354,6 +361,36 @@ describe('useNeuralBrowserController', () => {
       'route-orbit',
       'route-hyperspace',
     ]);
+  });
+
+  it('uses engine-local history for the Browser trajectory path view', async () => {
+    const engineHistoryEntries = [
+      createHistoryEntry('engine-only', 'engine-node', 10),
+    ];
+    const queue = createQueue({
+      getHistoryPage: vi.fn(() => ({
+        entries: engineHistoryEntries,
+        totalCount: engineHistoryEntries.length,
+        hasMore: false,
+      })),
+      getRouteHistoryPage: vi.fn(() => ({
+        entries: [
+          createHistoryEntry('route-orbit', 'orbit-node', 30),
+          createHistoryEntry('route-hyperspace', 'hyperspace-node', 20),
+        ],
+        totalCount: 2,
+        hasMore: false,
+      })),
+    });
+    const { controller } = createController(queue, {
+      getNeuralSubview: () => 'engine-history',
+    });
+
+    await controller.refreshNeuralSubviewData();
+
+    expect(queue.getHistoryPage).toHaveBeenCalledWith({ offset: 0, limit: 2 });
+    expect(queue.getRouteHistoryPage).not.toHaveBeenCalled();
+    expect(controller.neuralHistoryEntries.value.map((entry) => entry.eventId)).toEqual(['engine-only']);
   });
 
   it('switches routes through the queue contract and refreshes route-scoped pools and log', async () => {

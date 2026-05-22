@@ -14,6 +14,8 @@ describe('zh_CN neural roam labels', () => {
   });
 
   it('renames route log and activation trace surfaces', () => {
+    expect(zhCN.engineHistory).toBe('双链轨道');
+    expect(zhCN.viewEngineHistory).toBe('查看双链轨道');
     expect(zhCN.roamHistory).toBe('航线日志');
     expect(zhCN.viewHistory).toBe('查看航线日志');
     expect(zhCN.neuralHistoryMenu).toBe('查看航线日志');

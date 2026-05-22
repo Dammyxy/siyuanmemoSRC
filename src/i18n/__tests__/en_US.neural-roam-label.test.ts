@@ -14,6 +14,8 @@ describe('en_US neural roam labels', () => {
     expect(enUS.neuralFocusMenu).toBe('View Source List');
     expect(enUS.viewSourceList).toBe('View Source List');
     expect(enUS.roamSeeds).toBe('Centers');
+    expect(enUS.engineHistory).toBe('Trajectory Path');
+    expect(enUS.viewEngineHistory).toBe('View Trajectory Path');
     expect(enUS.roamHistory).toBe('Route Log');
     expect(enUS.viewHistory).toBe('View Route Log');
     expect(enUS.neuralHistoryMenu).toBe('View Route Log');

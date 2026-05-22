@@ -266,6 +266,7 @@ describe('reviewNeuralCommands', () => {
     const loadCardByBlockId = vi.fn(async () => undefined);
     const refreshNavigationState = vi.fn();
     const showMessage = vi.fn();
+    const openNeuralBrowserSubview = vi.fn();
 
     const items = buildReviewNeuralHistoryMenuItems({
       t,
@@ -274,14 +275,19 @@ describe('reviewNeuralCommands', () => {
       refreshNavigationState,
       showMessage,
       logger: {},
-      openNeuralBrowserSubview: vi.fn(),
+      openNeuralBrowserSubview,
     });
 
-    await items[2].submenu?.[0].click?.();
+    items[0].click?.();
+    items[1].click?.();
+    expect(openNeuralBrowserSubview).toHaveBeenNthCalledWith(1, 'engine-history');
+    expect(openNeuralBrowserSubview).toHaveBeenNthCalledWith(2, 'roam-history');
+
+    await items[3].submenu?.[0].click?.();
     expect(queue.jumpToHistoryNode).toHaveBeenCalledWith('history-1');
     expect(loadCardByBlockId).toHaveBeenCalledWith('node-current');
 
-    items[3].click?.();
+    items[4].click?.();
     expect(queue.clearHistory).toHaveBeenCalledWith('all');
     expect(showMessage).toHaveBeenLastCalledWith('轨迹历史已清空', 3000, 'info');
   });

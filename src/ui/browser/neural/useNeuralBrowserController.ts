@@ -14,6 +14,7 @@ import type {
   NeuralAnchorListEntry,
   NeuralHistoryEventRef,
   NeuralListEntry,
+  NeuralSubview,
   NeuralSourceListEntry,
   NeuralTraceConvergenceViewModel,
 } from './types';
@@ -85,6 +86,7 @@ export type UseNeuralBrowserControllerDeps = {
   logError: (message: string, error: unknown) => void;
   t: NeuralTraceTranslator;
   historyPageSize?: number;
+  getNeuralSubview?: () => NeuralSubview | null | undefined;
 };
 
 export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps) {
@@ -437,7 +439,7 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
     historyEntries: Pick<NeuralRoamHistoryEntry, 'eventId' | 'nodeId'>[],
     navState: NeuralNavigationState,
   ): Promise<void> {
-    if (neuralQueue.getHistoryCount() === 0) {
+    if (historyEntries.length === 0) {
       selectedNeuralHistoryEventId.value = null;
       neuralActivationTrace.value = null;
       neuralTracePinnedToSelection.value = false;
@@ -495,13 +497,21 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
       offset: 0,
       limit: Math.max(historyPageSize, neuralHistoryRequestedCount.value),
     };
-    const usesRouteHistoryPage = typeof neuralQueue.getRouteHistoryPage === 'function';
+    const activeNeuralSubview = deps.getNeuralSubview?.() ?? 'engine-history';
+    const usesRouteHistoryPage = activeNeuralSubview === 'roam-history'
+      && typeof neuralQueue.getRouteHistoryPage === 'function';
     const historyPage = usesRouteHistoryPage
       ? await neuralQueue.getRouteHistoryPage(historyPageRequest)
       : neuralQueue.getHistoryPage(historyPageRequest);
     const anchorSnapshot = neuralQueue.getAnchorSnapshot();
     await syncNeuralActivationTrace(neuralQueue, historyPage.entries, navState);
     const anchorIds = new Set(anchorSnapshot.map((entry) => entry.nodeId));
+    const routeHitCounts = new Map<string, number>();
+    if (usesRouteHistoryPage) {
+      for (const entry of historyPage.entries) {
+        routeHitCounts.set(entry.nodeId, (routeHitCounts.get(entry.nodeId) || 0) + 1);
+      }
+    }
     neuralSourceEntries.value = toNeuralSourceListEntries(sourceSnapshot, {
       currentNodeId: navState.currentNodeId,
     });
@@ -509,7 +519,9 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
       anchorIds,
       currentNodeId: navState.currentNodeId,
       selectedEventId: selectedNeuralHistoryEventId.value,
-      getRepeatHitCount: (nodeId) => neuralQueue.getHistoryHitCount(nodeId),
+      getRepeatHitCount: (nodeId) => usesRouteHistoryPage
+        ? routeHitCounts.get(nodeId) || 0
+        : neuralQueue.getHistoryHitCount(nodeId),
     });
     neuralHistoryTotalCount.value = historyPage.totalCount;
     neuralHistoryHasMore.value = historyPage.hasMore;

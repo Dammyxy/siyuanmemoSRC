@@ -150,6 +150,17 @@ describe('NeuralHistoryList', () => {
     expect(wrapper.emitted('clear-history')?.[0]).toEqual([]);
   });
 
+  it('can hide the clear-history action for read-only route logs', () => {
+    const wrapper = mount(NeuralHistoryList, {
+      props: {
+        entries,
+        allowClearHistory: false,
+      },
+    });
+
+    expect(wrapper.find('.neural-list__toolbar-action').exists()).toBe(false);
+  });
+
   it('emits load-more when the older-history button is clicked', async () => {
     const wrapper = mount(NeuralHistoryList, {
       props: {

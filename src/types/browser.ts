@@ -292,7 +292,7 @@ export function getCardTypeFilterDisplayLabel(value: CardTypeFilter): string | u
 
 export type BrowserMode = 'dialog' | 'tab' | 'dock';
 export type BrowserGlobalScope = '__all__' | '__dismissed__';
-export type NeuralSubview = 'concept-cards' | 'roam-history' | 'worldline-anchors';
+export type NeuralSubview = 'concept-cards' | 'engine-history' | 'roam-history' | 'worldline-anchors';
 
 export interface BrowserOpenState {
   queueId?: string | null;

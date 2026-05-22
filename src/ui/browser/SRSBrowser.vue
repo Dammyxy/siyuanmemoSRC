@@ -194,7 +194,7 @@
       <div
         v-else
         class="card-browser__neural-subview"
-        :class="{ 'card-browser__neural-subview--roam-path': neuralSubview === 'roam-history' }"
+        :class="{ 'card-browser__neural-subview--roam-path': isNeuralHistorySubview }"
       >
         <NeuralNavigationBar
           :i18n="props.i18n"
@@ -281,9 +281,9 @@
           @set-current-focus="handleNeuralSetCurrentFocus"
           @toggle-source="handleNeuralToggleSource"
         />
-        <template v-else-if="neuralSubview === 'roam-history'">
+        <template v-else-if="isNeuralHistorySubview">
           <div v-if="showNarrowRoamLayout" class="card-browser__neural-roam-stack">
-            <div class="card-browser__neural-roam-segments" role="tablist" :aria-label="t('roamHistory', '航线日志')">
+            <div class="card-browser__neural-roam-segments" role="tablist" :aria-label="neuralHistorySubviewLabel">
               <button
                 type="button"
                 class="b3-button b3-button--outline card-browser__neural-roam-segment"
@@ -312,6 +312,7 @@
               :current-node-id="neuralCurrentNodeId"
               :selected-event-id="selectedNeuralHistoryEventId"
               :engine-mode="neuralNavigationState?.engineMode || 'orbit'"
+              :allow-clear-history="canClearNeuralHistory"
               @select="handleNeuralSelectHistoryEntry"
               @preview="handleNeuralPreview"
               @jump="handleNeuralJump"
@@ -345,6 +346,7 @@
               :current-node-id="neuralCurrentNodeId"
               :selected-event-id="selectedNeuralHistoryEventId"
               :engine-mode="neuralNavigationState?.engineMode || 'orbit'"
+              :allow-clear-history="canClearNeuralHistory"
               @select="handleNeuralSelectHistoryEntry"
               @preview="handleNeuralPreview"
               @jump="handleNeuralJump"
@@ -866,6 +868,7 @@ const {
   handleNeuralClearHistory,
 } = useNeuralBrowserController({
   getQueueById,
+  getNeuralSubview: () => neuralSubview.value,
   loadCardsByBlockIds: loadBrowserCardsByBlockIds,
   getCardLoadOptions: () => ({
     manager: pluginUnifiedDataSourceManager.value || undefined,
@@ -1269,9 +1272,19 @@ const firstPageState = computed(() => resolveBrowserGridFirstPageState({
 }));
 const neuralSubviewTabs = computed(() => ([
   { id: 'concept-cards' as const, label: resolveNeuralSourceLabels().sectionTitle },
+  { id: 'engine-history' as const, label: t('engineHistory', '双链轨道') },
   { id: 'roam-history' as const, label: t('roamHistory', '航线日志') },
   { id: 'worldline-anchors' as const, label: t('worldlineAnchors', '空间站') },
 ]));
+const isNeuralHistorySubview = computed(() =>
+  neuralSubview.value === 'engine-history' || neuralSubview.value === 'roam-history'
+);
+const neuralHistorySubviewLabel = computed(() =>
+  neuralSubview.value === 'engine-history'
+    ? t('engineHistory', '双链轨道')
+    : t('roamHistory', '航线日志')
+);
+const canClearNeuralHistory = computed(() => neuralSubview.value === 'engine-history');
 
 // 始终启用 sortable，过 canApplySortToQueue 控制按钮显示
 const defaultColDef: ColDef = {
@@ -2214,7 +2227,7 @@ watch(neuralSubview, () => {
   if (suspendBrowserStateBootstrap) {
     return;
   }
-  if (neuralSubview.value !== 'roam-history') {
+  if (!isNeuralHistorySubview.value) {
     selectedNeuralHistoryEventId.value = null;
     neuralActivationTrace.value = null;
     neuralTracePinnedToSelection.value = false;

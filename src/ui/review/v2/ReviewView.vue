@@ -443,7 +443,7 @@ type ReviewPluginContextLike = {
     | (ReviewOpenAsDialogManager & {
         openBrowserDialog?: (options?: {
           initialQueueId?: string;
-          initialNeuralSubview?: 'concept-cards' | 'roam-history' | 'worldline-anchors';
+          initialNeuralSubview?: 'concept-cards' | 'engine-history' | 'roam-history' | 'worldline-anchors';
         }) => void;
         openNeuralRoamDialog?: (options?: {
           focusBlockId?: string;
@@ -3335,6 +3335,11 @@ function handleNeuralRoamRouteMenu(ev: MouseEvent): void {
     icon: 'iconHistory',
     label: t('routeLog', '航线日志'),
     click: () => openNeuralBrowserSubview('roam-history'),
+  });
+  menu.addItem({
+    icon: 'iconHistory',
+    label: t('engineHistory', '双链轨道'),
+    click: () => openNeuralBrowserSubview('engine-history'),
   });
   menu.addItem({
     icon: 'iconDatabase',

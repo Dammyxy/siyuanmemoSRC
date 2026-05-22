@@ -115,7 +115,7 @@ export interface IDialogManager {
   openBrowserDialog(options?: {
     initialOpenState?: BrowserOpenState | null;
     initialQueueId?: string;
-    initialNeuralSubview?: 'concept-cards' | 'roam-history' | 'worldline-anchors';
+    initialNeuralSubview?: 'concept-cards' | 'engine-history' | 'roam-history' | 'worldline-anchors';
   }): Promise<void>;
 
   /**

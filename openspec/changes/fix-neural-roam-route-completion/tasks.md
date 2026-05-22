@@ -5,6 +5,7 @@
 - [x] 1.3 Add a regression test proving engine history clear does not remove Browser route log rows.
 - [x] 1.4 Add a regression test proving cleared route logs are not rebuilt from engine-local history on later route saves.
 - [x] 1.5 Preserve route-owned history from the latest route catalog snapshot and stop route snapshot replacement from merging engine histories into route history.
+- [x] 1.6 Restore a separate Browser/Review `双链轨道` view backed by engine-local `getHistoryPage()` while keeping `航线日志` backed by route-level `getRouteHistoryPage()`.
 
 ## 2. Backend Route Switch Completion
 
@@ -24,3 +25,4 @@
 - [x] 4.2 Run `openspec validate fix-neural-roam-route-completion --strict`.
 - [x] 4.3 Run `pnpm run check:boundaries` and `pnpm build`.
 - [x] 4.4 Re-run targeted route ownership, renderer route sync, i18n label, boundary, and build validation for the route-log separation follow-up.
+- [x] 4.5 Re-run Browser/Review/i18n tests for separate `双链轨道` and `航线日志` surfaces.

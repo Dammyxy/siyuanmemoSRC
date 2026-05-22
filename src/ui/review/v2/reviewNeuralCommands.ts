@@ -11,7 +11,7 @@ import type {
 } from '@/types/unified-data-source';
 import type { ReviewMenuItem } from './reviewMoreMenuItems';
 
-export type ReviewNeuralBrowserSubview = 'concept-cards' | 'roam-history' | 'worldline-anchors';
+export type ReviewNeuralBrowserSubview = 'concept-cards' | 'engine-history' | 'roam-history' | 'worldline-anchors';
 
 export type ReviewNeuralToolbarAction =
   | 'lock-focus'
@@ -380,6 +380,13 @@ export function buildReviewNeuralHistoryMenuItems(input: BuildReviewNeuralMenuIt
   }).entries.slice().reverse();
 
   return [
+    {
+      icon: 'iconHistory',
+      label: t('viewEngineHistory', '查看双链轨道'),
+      click: () => {
+        openNeuralBrowserSubview('engine-history');
+      },
+    },
     {
       icon: 'iconHistory',
       label: t('viewHistory', '查看航线日志'),

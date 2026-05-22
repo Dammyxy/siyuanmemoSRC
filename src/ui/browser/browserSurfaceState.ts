@@ -87,6 +87,7 @@ export function normalizeBrowserNeuralSubview(
 ): NeuralSubview | null {
   if (
     value === 'concept-cards'
+    || value === 'engine-history'
     || value === 'roam-history'
     || value === 'worldline-anchors'
   ) {

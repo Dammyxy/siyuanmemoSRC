@@ -19,6 +19,19 @@ The Browser NeuralRoam route log SHALL read active route-level history rather th
 - **THEN** route history SHALL remain cleared
 - **AND** the system SHALL NOT rebuild route history from engine-local history snapshots
 
+### Requirement: Browser exposes engine-local trajectory separately
+The Browser and Review NeuralRoam surfaces SHALL expose engine-local trajectory history separately from route-level logs.
+
+#### Scenario: Engine trajectory reads active engine history
+- **WHEN** a user opens `双链轨道`
+- **THEN** the Browser history list SHALL read from current engine-local history
+- **AND** it SHALL NOT replace that view with route-level history
+
+#### Scenario: Route log remains cross-engine route history
+- **WHEN** a user opens `航线日志`
+- **THEN** the Browser history list SHALL read active-route history events across propulsion engines
+- **AND** switching propulsion mode SHALL NOT truncate the route log to the current engine
+
 ### Requirement: Backend advance uses current active route before mismatch checks
 Backend NeuralRoam advance SHALL synchronize cached queue route state from SQL before comparing requested route IDs.
 

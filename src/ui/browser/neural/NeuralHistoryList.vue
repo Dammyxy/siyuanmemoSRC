@@ -7,6 +7,7 @@
         :placeholder="t('searchPlaceholderAdvanced', 'Search...')"
       >
       <button
+        v-if="showClearHistoryAction"
         type="button"
         class="b3-button b3-button--outline neural-list__toolbar-action"
         :disabled="!canClearHistory"
@@ -120,7 +121,7 @@ const VIRTUAL_ITEM_HEIGHT = 88;
 const VIRTUAL_OVERSCAN = 20;
 const DEFAULT_VIEWPORT_HEIGHT = VIRTUAL_ITEM_HEIGHT * 6;
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   i18n?: Record<string, string>;
   entries: NeuralListEntry[];
   totalCount?: number;
@@ -129,7 +130,10 @@ const props = defineProps<{
   currentNodeId?: string | null;
   selectedEventId?: string | null;
   engineMode?: 'orbit' | 'hyperspace';
-}>();
+  allowClearHistory?: boolean;
+}>(), {
+  allowClearHistory: true,
+});
 
 const emit = defineEmits<{
   (e: 'select', entry: NeuralListEntry): void;
@@ -179,6 +183,7 @@ const filteredEntries = computed(() =>
 );
 
 const canClearHistory = computed(() => filteredEntries.value.length > 0);
+const showClearHistoryAction = computed(() => props.allowClearHistory !== false);
 const labels = computed(() => getNeuralSourceLabelSet(props.engineMode || 'orbit', t));
 const totalVirtualHeight = computed(() => filteredEntries.value.length * VIRTUAL_ITEM_HEIGHT);
 const visibleRange = computed(() => {

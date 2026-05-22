@@ -25,6 +25,7 @@ describe('browserSurfaceState', () => {
     expect(normalizeBrowserQueueId(' neural ')).toBe('neural-roam');
     expect(normalizeBrowserQueueId('')).toBeNull();
     expect(normalizeBrowserStringArray([' doc-1 ', 'doc-2', 'doc-1', ''])).toEqual(['doc-1', 'doc-2']);
+    expect(normalizeBrowserNeuralSubview('engine-history')).toBe('engine-history');
     expect(normalizeBrowserNeuralSubview('worldline-anchors')).toBe('worldline-anchors');
     expect(normalizeBrowserNeuralSubview(null)).toBeNull();
   });
@@ -61,11 +62,11 @@ describe('browserSurfaceState', () => {
       preset: 'all',
       cardType: 'concept-only',
       filter,
-      neuralSubview: 'roam-history',
+      neuralSubview: 'engine-history',
     });
 
     expect(neuralState.filter).toBeNull();
-    expect(neuralState.neuralSubview).toBe('roam-history');
+    expect(neuralState.neuralSubview).toBe('engine-history');
   });
 
   it('resolves legacy missing-block state back to the default global projection', () => {
