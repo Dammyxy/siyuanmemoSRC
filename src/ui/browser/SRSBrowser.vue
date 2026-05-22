@@ -58,6 +58,7 @@
         :can-select-all-matching="canSelectAllMatching"
         :show-navigator-toggle="showNavigatorToggle"
         :navigator-open="navigatorOpen"
+        :ai-context-active="browserAiContextActive"
         @exitFocus="handleExitFocus"
         @openPracticeMenu="openPracticeMenu"
         @applySortToQueue="handleApplySortToQueue"
@@ -364,6 +365,50 @@
         />
       </div>
     </div>
+
+    <nav
+      v-if="isMobileMode"
+      class="card-browser__mobile-tabs"
+      :aria-label="t('mobileBrowserTabs', '浏览器切页')"
+    >
+      <button
+        type="button"
+        class="card-browser__mobile-tab"
+        :class="{ 'card-browser__mobile-tab--active': !navigatorOpen && !showPreview }"
+        @click="showMobileCardsPane"
+      >
+        <svg><use xlink:href="#iconList"></use></svg>
+        <span>{{ t('mobileBrowserCards', '卡片') }}</span>
+      </button>
+      <button
+        type="button"
+        class="card-browser__mobile-tab"
+        :class="{ 'card-browser__mobile-tab--active': navigatorOpen }"
+        @click="toggleMobileNavigator"
+      >
+        <svg><use xlink:href="#iconFiles"></use></svg>
+        <span>{{ t('mobileBrowserNavigator', '导航') }}</span>
+      </button>
+      <button
+        type="button"
+        class="card-browser__mobile-tab"
+        :class="{ 'card-browser__mobile-tab--active': showPreview }"
+        @click="toggleMobilePreview"
+      >
+        <svg><use xlink:href="#iconPreview"></use></svg>
+        <span>{{ t('preview', '预览') }}</span>
+      </button>
+      <button
+        type="button"
+        class="card-browser__mobile-tab"
+        :class="{ 'card-browser__mobile-tab--active': browserAiContextActive }"
+        :disabled="loading"
+        @click="handleOpenAiWorkbench"
+      >
+        <svg><use xlink:href="#iconSparkles"></use></svg>
+        <span>{{ t('aiWorkbench', 'AI') }}</span>
+      </button>
+    </nav>
 
     <!-- Drag resizer -->
     <div
@@ -945,16 +990,21 @@ const showInlineHierarchy = computed(() => {
   }
   return viewMode.value === 'hierarchy';
 });
-const showNavigatorDrawer = computed(() =>
-  !isMobileMode.value
-  && layoutProfile.value === 'tab-narrow'
-  && viewMode.value === 'hierarchy'
-  && navigatorOpen.value
-);
+const showNavigatorDrawer = computed(() => {
+  if (isMobileMode.value) {
+    return navigatorOpen.value;
+  }
+  return layoutProfile.value === 'tab-narrow'
+    && viewMode.value === 'hierarchy'
+    && navigatorOpen.value;
+});
 const showNarrowRoamLayout = computed(() =>
   layoutProfile.value === 'tab-narrow' && !isMobileMode.value
 );
 const browserSemanticTargetCard = computed(() => selectedRows.value[0] ?? previewCard.value ?? null);
+const browserAiContextActive = computed(() =>
+  globalSelection.selectedCount.value > 0 || Boolean(previewCard.value)
+);
 const canStartBrowserSemantic = computed(() =>
   Boolean(browserSemanticTargetCard.value) && !loading.value
 );
@@ -2986,6 +3036,25 @@ function toggleNavigator() {
 
 function closeNavigatorDrawer() {
   navigatorOpen.value = false;
+}
+
+function showMobileCardsPane() {
+  navigatorOpen.value = false;
+  showPreview.value = false;
+}
+
+function toggleMobileNavigator() {
+  navigatorOpen.value = !navigatorOpen.value;
+  if (navigatorOpen.value) {
+    showPreview.value = false;
+  }
+}
+
+function toggleMobilePreview() {
+  showPreview.value = !showPreview.value;
+  if (showPreview.value) {
+    navigatorOpen.value = false;
+  }
 }
 
 function getQueueById(id: string) {

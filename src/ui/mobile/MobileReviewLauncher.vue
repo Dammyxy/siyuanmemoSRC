@@ -1,13 +1,23 @@
 <template>
-  <div class="mobile-review-launcher" @click.self="emit('close')">
+  <div class="mobile-review-launcher">
     <div class="mobile-review-launcher__sheet">
       <header class="mobile-review-launcher__header">
-        <h3 class="mobile-review-launcher__title">
-          {{ t('mobileReviewLauncherTitle', '选择复习队列') }}
-        </h3>
-        <p class="mobile-review-launcher__hint">
-          {{ t('mobileReviewLauncherHint', '点击任意队列立即开始复习') }}
-        </p>
+        <div>
+          <h3 class="mobile-review-launcher__title">
+            {{ t('mobileReviewLauncherTitle', '选择复习队列') }}
+          </h3>
+          <p class="mobile-review-launcher__hint">
+            {{ t('mobileReviewLauncherHint', '点击任意队列立即开始复习') }}
+          </p>
+        </div>
+        <button
+          class="b3-button b3-button--text mobile-review-launcher__close"
+          type="button"
+          @click="emit('close')"
+          :title="t('mobileClose', '关闭')"
+        >
+          <svg><use xlink:href="#iconClose"></use></svg>
+        </button>
       </header>
 
       <div class="mobile-review-launcher__queues">
@@ -25,12 +35,15 @@
       </div>
 
       <footer class="mobile-review-launcher__actions">
+        <span class="mobile-review-launcher__tab-state mobile-review-launcher__tab-state--active">
+          {{ t('mobileReviewTab', '复习') }}
+        </span>
         <button
           class="b3-button b3-button--outline mobile-review-launcher__action"
           type="button"
           @click="emit('openBrowser')"
         >
-          {{ t('mobileOpenBrowser', '打开 Browser') }}
+          {{ t('mobileOpenBrowser', '浏览器') }}
         </button>
         <button
           class="b3-button b3-button--cancel mobile-review-launcher__action"
@@ -108,19 +121,20 @@ const queueItems = computed(() => [
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--b3-theme-background);
   z-index: 1;
 }
 
 .mobile-review-launcher__sheet {
   width: 100%;
-  max-height: min(84vh, 740px);
+  height: 100%;
+  max-height: none;
   background: var(--b3-theme-background);
-  border-radius: 16px 16px 0 0;
-  padding: 16px;
-  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  border-radius: 0;
+  padding: 12px;
+  padding-bottom: calc(72px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -128,8 +142,11 @@ const queueItems = computed(() => [
 
 .mobile-review-launcher__header {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--b3-border-color);
 }
 
 .mobile-review-launcher__title {
@@ -144,25 +161,46 @@ const queueItems = computed(() => [
   color: var(--b3-theme-on-surface-light);
 }
 
+.mobile-review-launcher__close {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+.mobile-review-launcher__close svg {
+  width: 14px;
+  height: 14px;
+}
+
 .mobile-review-launcher__queues {
   display: grid;
   grid-template-columns: 1fr;
   gap: 8px;
   overflow: auto;
+  min-height: 0;
 }
 
 .mobile-review-launcher__queue-card {
   width: 100%;
-  min-height: 56px;
+  min-height: 64px;
   justify-content: space-between;
   text-align: left;
-  padding: 10px 12px;
+  padding: 12px;
   display: grid;
   grid-template-columns: 1fr auto;
   grid-template-areas:
     'name count'
     'hint hint';
   gap: 4px 12px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  background: var(--b3-theme-surface);
+}
+
+.mobile-review-launcher__queue-card:first-child {
+  border-color: var(--b3-theme-primary-lighter);
+  background: var(--b3-theme-primary-lightest);
 }
 
 .mobile-review-launcher__queue-name {
@@ -183,12 +221,31 @@ const queueItems = computed(() => [
 }
 
 .mobile-review-launcher__actions {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: 0.9fr 1fr 0.8fr;
+  gap: 6px;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-background);
 }
 
+.mobile-review-launcher__tab-state,
 .mobile-review-launcher__action {
   min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+.mobile-review-launcher__tab-state--active {
+  border: 1px solid var(--b3-theme-primary-lighter);
+  background: var(--b3-theme-primary-lightest);
+  color: var(--b3-theme-primary);
+  font-weight: 600;
 }
 </style>

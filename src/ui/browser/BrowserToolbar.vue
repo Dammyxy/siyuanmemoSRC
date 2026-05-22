@@ -102,6 +102,7 @@
 
       <button
         class="b3-button b3-button--outline toolbar__action toolbar__action--practice"
+        :class="{ 'toolbar__action--active': isPracticeContextActive }"
         @click.stop.prevent="$emit('openPracticeMenu', $event)"
         :disabled="!hasPlugin"
         :title="t('startPractice', '开始练习')"
@@ -136,6 +137,7 @@
 
       <button
         class="b3-button b3-button--outline toolbar__action toolbar__action--view-toggle"
+        :class="{ 'b3-button--text': viewMode === 'hierarchy' }"
         @click="$emit('toggleViewMode')"
         :title="viewMode === 'flat' ? t('hierarchyView', '层级视图') : t('flatView', '平铺视图')"
       >
@@ -164,6 +166,7 @@
       <button
         v-if="!props.mobileMode"
         class="b3-button b3-button--outline toolbar__action toolbar__action--ai"
+        :class="{ 'toolbar__action--active': isAiContextActive }"
         @click="$emit('openAiWorkbench')"
         :disabled="loading"
         :title="t('aiWorkbench', 'AI 工作台')"
@@ -236,6 +239,7 @@ const props = defineProps<{
   canSelectAllMatching: boolean;
   showNavigatorToggle?: boolean;
   navigatorOpen?: boolean;
+  aiContextActive?: boolean;
 }>();
 
 const availableCardTypeFilters = computed(() => {
@@ -273,6 +277,8 @@ const emit = defineEmits<{
 
 const toolbarRootRef = ref<HTMLElement | null>(null);
 const isAllMatchingActive = computed(() => props.selectionMode === 'all-matching');
+const isPracticeContextActive = computed(() => Boolean(props.activeQueueId));
+const isAiContextActive = computed(() => props.aiContextActive === true);
 const toolbarDensity = ref<ToolbarDensity>('normal');
 let toolbarResizeObserver: ResizeObserver | null = null;
 

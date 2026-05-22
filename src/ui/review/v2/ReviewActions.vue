@@ -861,14 +861,18 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   display: grid;
   gap: 6px;
   padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-background);
 }
 
 .card__action--mobile.card__action--reveal {
-  grid-template-columns: minmax(0, 96px) minmax(0, 1fr) minmax(0, 128px);
+  grid-template-columns: minmax(0, 76px) minmax(0, 1fr) minmax(0, 96px);
 }
 
 .card__action--mobile.card__action--rating {
-  grid-template-columns: repeat(var(--review-rating-columns, 2), minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-height: 42vh;
+  overflow-y: auto;
 }
 
 .card__action--mobile .card__action-column > span {
@@ -878,7 +882,8 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 .card__action--mobile .card__action-main,
 .card__action--mobile .card__action-back {
   min-width: 0;
-  min-height: 44px;
+  min-height: 46px;
+  border-radius: 8px;
 }
 
 .card__action--mobile .card__action-back--stacked {
@@ -893,7 +898,8 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 }
 
 .card__action--mobile .card__action-skip :deep(.skip-menu-button) {
-  min-height: 44px;
+  min-height: 46px;
+  border-radius: 8px;
 }
 
 .card__action--mobile .card__icon {

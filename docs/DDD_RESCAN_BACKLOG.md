@@ -4,6 +4,16 @@ Last update: 2026-05-22 (Round 436)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-22 - Lumina Mobile Browser and Review UI Pass
+
+- Task: Apply Lumina-style active states to Browser / NeuralRoam controls and tighten mobile review/browser layout.
+- Touched slice: Browser toolbar and mobile Browser shell, NeuralRoam subview tabs, Mobile review launcher, Review v2 mobile action shell; `src/ui/browser/BrowserToolbar.vue`, `src/ui/browser/SRSBrowser.vue`, `src/ui/browser/SRSBrowser.scss`, `src/ui/mobile/MobileReviewLauncher.vue`, `src/ui/review/v2/ReviewActions.vue`, `src/ui/review/v2/ReviewView.vue`, and i18n labels.
+- Debt fixed now: Removed always-on desktop Browser practice/AI highlighting and tied those colors to active context; added persistent active background for NeuralRoam subview tabs; consolidated mobile Browser into one visible main pane with bottom tabs for cards/navigation/preview/AI; moved mobile review launcher and rating controls toward a denser bottom-navigation shape.
+- Debt deferred: Full visual screenshot review inside SiYuan mobile runtime is still pending.
+- Why deferred: The local mobile URL responded, but Playwright is not installed in this worktree, so automated screenshot smoke could not run here.
+- Next safe step: Run the mobile page in the real SiYuan shell and capture card list, navigator, preview, and review rating states for final spacing tweaks.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/BrowserToolbar.spec.ts src/ui/browser/__tests__/BrowserToolbar.selection.test.ts src/ui/browser/__tests__/BrowserToolbar.styles.spec.ts`; `pnpm vitest run src/ui/mobile/__tests__/MobileReviewLauncher.spec.ts`; `pnpm vitest run src/ui/review/v2/__tests__/ReviewActions.spec.ts src/ui/review/v2/__tests__/ReviewView.fullscreen-header.styles.spec.ts`; `pnpm vitest run src/ui/browser/neural/__tests__/NeuralNavigationBar.test.ts`; `pnpm vitest run src/ui/browser/__tests__/SRSBrowser.tab-layout.spec.ts src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts src/ui/browser/__tests__/browserSurfaceState.test.ts src/ui/browser/__tests__/BrowserPreview.spec.ts`; `pnpm run check:boundaries`; `pnpm build`; HTTP probe for `http://127.0.0.1:6806/stage/build/mobile/` returned 200.
+
 ### 2026-05-22 - Browser Queue Retry Timer Cleanup
 
 - Task: Stop stale Browser queue-projection retry timers from aborting newer `loadData()` calls after NeuralRoam concept hydration succeeds.
