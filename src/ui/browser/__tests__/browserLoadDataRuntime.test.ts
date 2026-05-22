@@ -310,6 +310,93 @@ describe('browserLoadDataRuntime', () => {
     vi.useRealTimers();
   });
 
+  it('reattaches live identity even before the browser has an attached projection identity', async () => {
+    vi.useFakeTimers();
+    const manager = {
+      ...createManager(),
+      ensureQueueProjectionReady: vi.fn(async () => ({
+        status: 'ready',
+        queueId: QueueType.NeuralRoam,
+        policyId: 'policy-neural',
+        generation: 4,
+      })),
+    };
+    const deps = createDeps({
+      activeQueueId: ref('neural-roam'),
+      currentQueueType: ref('neural-roam'),
+      currentProjectionIdentity: ref(null),
+      pluginUnifiedDataSourceManager: ref(manager as any),
+    });
+    const runtime = createBrowserLoadDataRuntime(deps);
+
+    expect(runtime.handleQueueProjectionLiveIdentityEvent({
+      type: 'queue-projection-live-identity',
+      queueId: QueueType.NeuralRoam,
+      queueType: QueueType.NeuralRoam,
+      policyId: 'policy-neural',
+      generation: 4,
+      reason: 'refreshed',
+      source: 'runtime',
+      timestamp: 1,
+    })).toBe('scheduled');
+
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(1);
+    expect(deps.currentProjectionIdentity.value).toEqual({
+      queueId: QueueType.NeuralRoam,
+      queueType: QueueType.NeuralRoam,
+      policyId: 'policy-neural',
+      generation: 4,
+    });
+    vi.useRealTimers();
+  });
+
+  it('replays hidden live identity after the browser becomes visible on neural-roam selection', async () => {
+    vi.useFakeTimers();
+    const manager = {
+      ...createManager(),
+      ensureQueueProjectionReady: vi.fn(async () => ({
+        status: 'ready',
+        queueId: QueueType.NeuralRoam,
+        policyId: 'policy-neural',
+        generation: 5,
+      })),
+    };
+    const deps = createDeps({
+      activeQueueId: ref<string | null>(null),
+      currentQueueType: ref(''),
+      currentProjectionIdentity: ref(null),
+      pluginUnifiedDataSourceManager: ref(manager as any),
+    });
+    const runtime = createBrowserLoadDataRuntime(deps);
+
+    expect(runtime.handleQueueProjectionLiveIdentityEvent({
+      type: 'queue-projection-live-identity',
+      queueId: QueueType.NeuralRoam,
+      queueType: QueueType.NeuralRoam,
+      policyId: 'policy-neural',
+      generation: 5,
+      reason: 'refreshed',
+      source: 'runtime',
+      timestamp: 1,
+    })).toBe('ignored');
+
+    deps.activeQueueId.value = 'neural-roam';
+    deps.currentQueueType.value = 'neural-roam';
+    await runtime.loadData(false, { origin: 'queue-sync' });
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(1);
+    expect(deps.currentProjectionIdentity.value).toEqual({
+      queueId: QueueType.NeuralRoam,
+      queueType: QueueType.NeuralRoam,
+      policyId: 'policy-neural',
+      generation: 5,
+    });
+    vi.useRealTimers();
+  });
+
   it('ignores live identity events outside the visible queue identity', () => {
     const deps = createDeps({
       activeQueueId: ref('retrieval'),

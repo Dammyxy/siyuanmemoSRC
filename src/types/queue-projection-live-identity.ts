@@ -140,13 +140,8 @@ export function compareQueueProjectionLiveIdentity(
     return { action: 'ignore', reason: 'missing-event-identity' };
   }
 
-  const attached = normalizeQueueProjectionIdentity(attachedIdentity);
-  if (!attached) {
-    return { action: 'ignore', reason: 'missing-attached-identity' };
-  }
-
   const eventQueueId = String(event.queueId || event.queueType || '').trim();
-  if (!eventQueueId || event.queueType !== attached.queueType || eventQueueId !== attached.queueId) {
+  if (!eventQueueId) {
     return { action: 'ignore', reason: 'queue-mismatch' };
   }
 
@@ -158,6 +153,23 @@ export function compareQueueProjectionLiveIdentity(
   const eventGeneration = Number(event.generation);
   if (!eventPolicyId || !Number.isFinite(eventGeneration) || eventGeneration <= 0) {
     return { action: 'ignore', reason: 'missing-event-identity' };
+  }
+
+  const attached = normalizeQueueProjectionIdentity(attachedIdentity);
+  if (!attached) {
+    return {
+      action: 'reattach',
+      identity: {
+        queueId: eventQueueId,
+        queueType: event.queueType,
+        policyId: eventPolicyId,
+        generation: Math.floor(eventGeneration),
+      },
+    };
+  }
+
+  if (event.queueType !== attached.queueType || eventQueueId !== attached.queueId) {
+    return { action: 'ignore', reason: 'queue-mismatch' };
   }
 
   if (eventPolicyId !== attached.policyId) {

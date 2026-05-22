@@ -4,6 +4,26 @@ Last update: 2026-05-22 (Round 436)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-22 - NeuralRoam Browser Hidden Identity Buffer
+
+- Task: Stop Browser NeuralRoam from losing the first live identity event while the queue panel is still hidden, and stop repeating the same readiness log every retry.
+- Touched slice: Browser queue-live identity handoff and readiness log path; `src/ui/browser/browserLoadDataRuntime.ts`, `src/ui/browser/BrowserQueueViewModule.ts`, and focused Browser tests.
+- Debt fixed now: Browser now buffers the first hidden live identity event, rebinds it when the NeuralRoam queue becomes visible, and dedupes the repeated `Queue projection is preparing` log by readiness fingerprint. That removes the hidden-first-event gap and the 300ms console spam loop.
+- Debt deferred: If projection readiness itself stays genuinely slow, the UI can still wait on backend materialization; this patch only prevents Browser from amplifying that wait into noise and lost identity.
+- Why deferred: The active-path fix is to preserve and reuse the first readable identity, not to invent a new readiness contract.
+- Next safe step: If NeuralRoam still feels slow after this, profile backend materialization separately from Browser retry behavior.
+- Validation: `pnpm exec vitest run src/types/__tests__/queue-projection-live-identity.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts`.
+
+### 2026-05-22 - NeuralRoam Browser Live Identity Attach Fix
+
+- Task: Stop Browser NeuralRoam from dropping the first readable live identity event while current projection identity is still unattached.
+- Touched slice: Queue live identity comparison and Browser queue-sync reload path; `src/types/queue-projection-live-identity.ts`, `src/types/__tests__/queue-projection-live-identity.test.ts`, and `src/ui/browser/__tests__/browserLoadDataRuntime.test.ts`.
+- Debt fixed now: When Browser has no attached projection identity yet, a valid readable live identity event now reattaches instead of being ignored as `missing-attached-identity`. That lets the first materialized/refreshed NeuralRoam identity drive the queue-sync reload path without waiting for a manual “双链轨道” click.
+- Debt deferred: Invalidated or malformed live identity events still stay bounded; no new fallback path was added for unreadable identities.
+- Why deferred: The bug only needed the first readable identity to be accepted; widening the invalidation contract would blur the active-path invariant.
+- Next safe step: If other Browser queue types show the same first-event gap, reuse the same attached-missing reattach rule at the shared live identity comparator.
+- Validation: `pnpm exec vitest run src/types/__tests__/queue-projection-live-identity.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts`.
+
 ### 2026-05-22 - NeuralRoam Browser First-Open Retry Guard
 
 - Task: Keep the Browser NeuralRoam view from giving up while queue projection is still materializing on first open.

@@ -133,6 +133,7 @@ export type BrowserQueueViewModuleDeps = {
 export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
   const maxReadinessRetries = deps.maxReadinessRetries ?? 4;
   const readinessRetryAttempts = new Map<string, number>();
+  const readinessLogFingerprint = new Map<string, string>();
 
   async function prepareQueueView(
     manager: IUnifiedDataSourceManagerFacade,
@@ -162,7 +163,17 @@ export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
         if (keepLoading) {
           readinessRetryAttempts.set(retryIdentity, attempts + 1);
         }
-        deps.logger.info('[SiYuanMemo][SRSBrowser] Queue projection is preparing', readiness);
+        const logFingerprint = [
+          readiness.status,
+          readiness.queueId,
+          readiness.policyId,
+          readiness.cause,
+          readiness.retryAfterMs ?? null,
+        ].join(':');
+        if (readinessLogFingerprint.get(retryIdentity) !== logFingerprint) {
+          readinessLogFingerprint.set(retryIdentity, logFingerprint);
+          deps.logger.info('[SiYuanMemo][SRSBrowser] Queue projection is preparing', readiness);
+        }
         return {
           status: 'refreshing',
           retryDelayMs: keepLoading ? readiness.retryAfterMs ?? 300 : null,
@@ -171,6 +182,7 @@ export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
       }
 
       readinessRetryAttempts.delete(retryIdentity);
+      readinessLogFingerprint.delete(retryIdentity);
       if (readiness.status === 'unavailable') {
         return {
           status: 'unavailable',

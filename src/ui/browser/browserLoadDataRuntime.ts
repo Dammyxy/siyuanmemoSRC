@@ -101,6 +101,7 @@ function getCardType(deps: BrowserLoadDataRuntimeDeps): BrowserCardTypeFilter {
 export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
   let loadDataAbortController: AbortController | null = null;
   let liveIdentityReloadTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingHiddenLiveIdentityEvent: QueueProjectionLiveIdentityEvent | null = null;
   const queueViewModule = createBrowserQueueViewModule({ logger: deps.logger });
 
   function abortLoadData(): void {
@@ -114,6 +115,24 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
     }
   }
 
+  function flushPendingHiddenLiveIdentityEvent(): void {
+    if (!pendingHiddenLiveIdentityEvent || !deps.activeQueueId.value) {
+      return;
+    }
+    const event = pendingHiddenLiveIdentityEvent;
+    pendingHiddenLiveIdentityEvent = null;
+    const plan = planQueueProjectionLiveIdentityForBrowserQueueView({
+      activeQueueId: deps.activeQueueId.value,
+      currentQueueType: deps.currentQueueType.value,
+      currentProjectionIdentity: deps.currentProjectionIdentity.value,
+      event,
+      visible: true,
+    });
+    if (plan.action === 'reattach') {
+      deps.currentProjectionIdentity.value = plan.identity;
+    }
+  }
+
   function handleQueueProjectionLiveIdentityEvent(event: QueueProjectionLiveIdentityEvent): 'ignored' | 'scheduled' {
     const plan = planQueueProjectionLiveIdentityForBrowserQueueView({
       activeQueueId: deps.activeQueueId.value,
@@ -123,6 +142,9 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
       visible: Boolean(deps.activeQueueId.value),
     });
     if (plan.action === 'ignore') {
+      if (plan.reason === 'hidden-browser-mode') {
+        pendingHiddenLiveIdentityEvent = event;
+      }
       deps.logger.info('[SiYuanMemo][SRSBrowser] Ignored queue projection live identity event', {
         event,
         reason: plan.reason,
@@ -138,7 +160,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
         origin: 'queue-sync',
         refreshQueueCounts: false,
       });
-    }, 0);
+      }, 0);
     return 'scheduled';
   }
 
@@ -186,6 +208,8 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
           clearBrowserRows(deps);
           return;
         }
+
+        flushPendingHiddenLiveIdentityEvent();
 
         const activeQueueId = deps.activeQueueId.value;
         const queueView = await measureRuntimePerformance('browser', 'load-data.prepare-queue-view', () => queueViewModule.prepareQueueView(
@@ -239,6 +263,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
       } else {
         deps.clearNeuralSubviewData();
         deps.currentProjectionIdentity.value = null;
+        pendingHiddenLiveIdentityEvent = null;
         const sqlStmt = deps.resolveActiveSqlStatement(deps.searchQuery.value);
         if (sqlStmt != null) {
           datasourceKind = 'sql-query';

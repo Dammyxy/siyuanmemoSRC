@@ -64,14 +64,19 @@ describe('queue projection live identity comparison', () => {
     });
   });
 
-  it('ignores missing event or attached identity safely', () => {
+  it('reattaches when live identity arrives before Browser attaches current identity', () => {
     expect(compareQueueProjectionLiveIdentity(event({ policyId: null }), attached)).toEqual({
       action: 'ignore',
       reason: 'missing-event-identity',
     });
     expect(compareQueueProjectionLiveIdentity(event(), null)).toEqual({
-      action: 'ignore',
-      reason: 'missing-attached-identity',
+      action: 'reattach',
+      identity: {
+        queueId: QueueType.RetrievalPractice,
+        queueType: QueueType.RetrievalPractice,
+        policyId: 'policy-a',
+        generation: 3,
+      },
     });
   });
 
