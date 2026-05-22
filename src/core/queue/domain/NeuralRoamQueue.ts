@@ -659,25 +659,40 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         orbit: this.conceptQueue.exportSessionState(),
         hyperspace: this.hyperspaceEngine.exportSessionState(),
       },
-      history: this.mergeRouteHistoryEvents(base.history),
+      history: base.history.map((event) => ({ ...event, routeId })),
     };
   }
 
-  private mergeRouteHistoryEvents(existing: NeuralRoamRouteHistoryEvent[]): NeuralRoamRouteHistoryEvent[] {
-    const routeId = this.activeRouteSnapshot?.metadata.id ?? existing[0]?.routeId ?? 'default';
-    const events = new Map<string, NeuralRoamRouteHistoryEvent>();
-    for (const event of existing) {
-      events.set(event.eventId, { ...event, routeId });
+  private async appendPendingRouteHistoryEvents(base: NeuralRoamRouteSnapshot): Promise<NeuralRoamRouteSnapshot> {
+    if (!this.routeCatalog) {
+      return base;
     }
-    for (const entry of [
+
+    const routeId = base.metadata.id;
+    const pendingEvents = [
       ...this.conceptQueue.getHistorySnapshot(),
       ...this.hyperspaceEngine.getHistorySnapshot(),
-    ]) {
-      events.set(entry.eventId, this.historyEntryToRouteHistoryEvent(routeId, entry));
+    ]
+      .filter((entry) => entry.eventId && !this.persistedRouteHistoryEventIds.has(entry.eventId))
+      .filter((entry) => !this.locallyClearedHistoryEventIds.has(entry.eventId))
+      .map((entry) => this.historyEntryToRouteHistoryEvent(routeId, entry))
+      .sort((left, right) => left.visitedAt - right.visitedAt);
+
+    if (pendingEvents.length === 0) {
+      return base;
     }
-    return Array.from(events.values())
-      .sort((left, right) => left.visitedAt - right.visitedAt)
-      .slice(-this.resolveRouteHistoryLimit());
+
+    for (const event of pendingEvents) {
+      await this.routeCatalog.appendRouteHistory({
+        routeId,
+        event,
+        maxEntries: this.resolveRouteHistoryLimit(),
+      });
+      this.persistedRouteHistoryEventIds.add(event.eventId);
+    }
+
+    const state = await this.routeCatalog.getState();
+    return state.routes.find((route) => route.metadata.id === routeId) ?? base;
   }
 
   private resolveRouteHistoryLimit(): number {
@@ -1007,8 +1022,12 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   async save(): Promise<void> {
     if (this.routeCatalog && this.activeRouteSnapshot) {
+      const currentState = await this.routeCatalog.getState();
+      const latestActiveRoute = currentState.routes.find((route) => route.metadata.id === this.activeRouteSnapshot?.metadata.id)
+        ?? this.activeRouteSnapshot;
+      const routeWithHistory = await this.appendPendingRouteHistoryEvents(latestActiveRoute);
       const saved = await this.routeCatalog.replaceActiveRoute({
-        route: this.createRouteSnapshotFromCurrentEngines(this.activeRouteSnapshot),
+        route: this.createRouteSnapshotFromCurrentEngines(routeWithHistory),
         engineMode: this.engineMode,
       });
       this.activeRouteSnapshot = saved;

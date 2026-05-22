@@ -283,7 +283,7 @@
         />
         <template v-else-if="neuralSubview === 'roam-history'">
           <div v-if="showNarrowRoamLayout" class="card-browser__neural-roam-stack">
-            <div class="card-browser__neural-roam-segments" role="tablist" :aria-label="t('roamHistory', '双链轨道')">
+            <div class="card-browser__neural-roam-segments" role="tablist" :aria-label="t('roamHistory', '航线日志')">
               <button
                 type="button"
                 class="b3-button b3-button--outline card-browser__neural-roam-segment"
@@ -1269,7 +1269,7 @@ const firstPageState = computed(() => resolveBrowserGridFirstPageState({
 }));
 const neuralSubviewTabs = computed(() => ([
   { id: 'concept-cards' as const, label: resolveNeuralSourceLabels().sectionTitle },
-  { id: 'roam-history' as const, label: t('roamHistory', '双链轨道') },
+  { id: 'roam-history' as const, label: t('roamHistory', '航线日志') },
   { id: 'worldline-anchors' as const, label: t('worldlineAnchors', '空间站') },
 ]));
 

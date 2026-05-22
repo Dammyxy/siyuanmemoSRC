@@ -12,6 +12,13 @@ The Browser NeuralRoam route log SHALL read active route-level history rather th
 - **WHEN** engine-specific history is cleared
 - **THEN** Browser route log reads SHALL still return route history events until route history is explicitly cleared or the route is deleted/discarded
 
+#### Scenario: Cleared route log is not rebuilt from engine history
+- **WHEN** route history is explicitly cleared
+- **AND** engine-local history still contains older Orbit or Hyperspace entries
+- **AND** the active route is later saved for pool or session changes
+- **THEN** route history SHALL remain cleared
+- **AND** the system SHALL NOT rebuild route history from engine-local history snapshots
+
 ### Requirement: Backend advance uses current active route before mismatch checks
 Backend NeuralRoam advance SHALL synchronize cached queue route state from SQL before comparing requested route IDs.
 
@@ -26,6 +33,17 @@ Backend NeuralRoam advance SHALL synchronize cached queue route state from SQL b
 - **WHEN** a backend advance request includes a route ID that is not the current active SQL route
 - **THEN** backend advance SHALL return `route-mismatch`
 - **AND** SHALL NOT apply feedback to the inactive route
+
+### Requirement: Renderer review advance uses synchronized active route
+Renderer Review NeuralRoam advance SHALL synchronize its local active route state before submitting backend next or feedback advance requests.
+
+#### Scenario: Review opens with stale renderer route snapshot
+- **WHEN** the renderer NeuralRoam queue has stale active route ID A
+- **AND** SQL/catalog active route is route B
+- **AND** Review opens and requests the first next card
+- **THEN** the renderer SHALL synchronize local active route state before submitting `neural-roam.advance`
+- **AND** the submitted request SHALL include route B
+- **AND** backend SHALL NOT reject the request as `route-mismatch` merely because the renderer snapshot was stale
 
 ### Requirement: Review close lifecycle protects dirty temporary routes
 Every Review close path that can close a NeuralRoam surface SHALL run the temporary-route close lifecycle before closing it. Native dialog chrome close SHALL NOT be enabled unless it is routed through the same lifecycle.

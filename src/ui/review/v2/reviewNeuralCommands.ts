@@ -382,7 +382,7 @@ export function buildReviewNeuralHistoryMenuItems(input: BuildReviewNeuralMenuIt
   return [
     {
       icon: 'iconHistory',
-      label: t('viewHistory', '查看双链轨道'),
+      label: t('viewHistory', '查看航线日志'),
       click: () => {
         openNeuralBrowserSubview('roam-history');
       },

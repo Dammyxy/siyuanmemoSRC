@@ -91,6 +91,7 @@ function createQueueStub(): IReviewQueue {
     getSize: vi.fn(async () => 0),
     switchRoute: vi.fn(async () => ({})),
     syncFromBackendState: vi.fn(async () => {}),
+    syncActiveRouteState: vi.fn(async () => {}),
     sort: vi.fn(async () => {}),
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
@@ -316,6 +317,37 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
       extra: '0 total',
     });
     expect(queue.getSize).not.toHaveBeenCalled();
+  });
+
+  it('syncs the local active route before requesting backend next', async () => {
+    const queue = createQueueStub() as IReviewQueue & {
+      getActiveRouteId: ReturnType<typeof vi.fn>;
+      syncActiveRouteState: ReturnType<typeof vi.fn>;
+    };
+    let activeRouteId = 'route-stale';
+    queue.getActiveRouteId.mockImplementation(() => activeRouteId);
+    queue.syncActiveRouteState.mockImplementationOnce(async () => {
+      activeRouteId = 'default';
+    });
+    const nextCard = createSyntheticNeuralCard({ id: 'default-node', blockId: 'default-node' });
+    const { strategy, manager } = createStrategyWithQueue(queue);
+    manager.neuralRoamAdvance.mockResolvedValueOnce({
+      ...createAdvanceResult(createAdvanceItem(nextCard)),
+      routeId: 'default',
+      sessionState: {
+        ...createAdvanceResult(createAdvanceItem(nextCard)).sessionState,
+        routeId: 'default',
+      },
+    });
+
+    await expect(strategy.next()).resolves.toMatchObject({ id: 'default-node' });
+
+    expect(queue.syncActiveRouteState).toHaveBeenCalledTimes(1);
+    expect(manager.neuralRoamAdvance).toHaveBeenCalledWith(expect.objectContaining({
+      routeId: 'default',
+      currentItem: null,
+      feedback: null,
+    }));
   });
 
   it('uses queue.getSize fast-path for neural remaining size', async () => {

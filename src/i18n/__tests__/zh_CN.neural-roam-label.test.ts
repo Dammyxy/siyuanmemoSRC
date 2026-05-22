@@ -13,10 +13,10 @@ describe('zh_CN neural roam labels', () => {
     expect(zhCN.cardTypeDescriptorOnly).toBe('仅 Descriptor');
   });
 
-  it('renames roam history and activation trace surfaces', () => {
-    expect(zhCN.roamHistory).toBe('双链轨道');
-    expect(zhCN.viewHistory).toBe('查看双链轨道');
-    expect(zhCN.neuralHistoryMenu).toBe('查看双链轨道');
+  it('renames route log and activation trace surfaces', () => {
+    expect(zhCN.roamHistory).toBe('航线日志');
+    expect(zhCN.viewHistory).toBe('查看航线日志');
+    expect(zhCN.neuralHistoryMenu).toBe('查看航线日志');
     expect(zhCN.activationTrace).toBe('激活链路');
     expect(zhCN.activationTraceEmpty).toBe('暂无可展示的激活链路。');
   });

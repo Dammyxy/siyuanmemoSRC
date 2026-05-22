@@ -1738,6 +1738,41 @@ describe('NeuralRoamQueue', () => {
     ]);
   });
 
+  it('does not rebuild a cleared route log from engine-local history on later route saves', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [
+        conceptCard('concept-a'),
+        conceptCard('concept-b'),
+      ],
+    });
+    const { catalog, repository } = createRouteCatalog();
+    const queue = new NeuralRoamQueue(manager.manager, persistence, {
+      routeCatalog: catalog,
+    });
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    let state = await repository.loadState();
+    expect(state?.routes.find((route) => route.metadata.id === DEFAULT_NEURAL_ROAM_ROUTE_ID)?.history.map((entry) => entry.nodeId))
+      .toEqual(['concept-a']);
+
+    await catalog.clearRouteHistory();
+    state = await repository.loadState();
+    expect(state?.routes.find((route) => route.metadata.id === DEFAULT_NEURAL_ROAM_ROUTE_ID)?.history).toEqual([]);
+
+    await queue.setAnchorEntry('concept-b', true);
+
+    state = await repository.loadState();
+    expect(state?.routes.find((route) => route.metadata.id === DEFAULT_NEURAL_ROAM_ROUTE_ID)?.history).toEqual([]);
+  });
+
   it('handles temporary route lifecycle by clean discard, dirty prompt requirement, save-in-place, and clean replacement', async () => {
     const { persistence } = createPersistence(undefined);
     const manager = createManager({
