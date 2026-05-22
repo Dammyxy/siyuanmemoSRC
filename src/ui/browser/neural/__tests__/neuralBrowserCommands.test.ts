@@ -66,7 +66,7 @@ describe('neuralBrowserCommands', () => {
       setSourceEntry: vi.fn(async () => undefined),
       setAnchorEntry: vi.fn(async () => undefined),
       setCurrentFocus: vi.fn(async () => undefined),
-      clearHistory: vi.fn(),
+      clearHistory: vi.fn(async () => undefined),
     };
     const deps = createDeps(queue);
 
@@ -85,6 +85,23 @@ describe('neuralBrowserCommands', () => {
     expect(queue.clearHistory).toHaveBeenCalledWith('all');
     expect(deps.resetHistoryRequest).toHaveBeenCalledTimes(1);
     expect(deps.pushMessage).toHaveBeenCalledWith('historyClearedSuccess:轨迹历史已清空');
+  });
+
+  it('does not refresh or show success until engine history persistence finishes', async () => {
+    const queue = {
+      clearHistory: vi.fn(async () => {
+        throw new Error('persist failed');
+      }),
+    };
+    const deps = createDeps(queue);
+
+    await runNeuralClearHistory(deps);
+
+    expect(queue.clearHistory).toHaveBeenCalledWith('all');
+    expect(deps.refreshNeuralSubviewData).not.toHaveBeenCalled();
+    expect(deps.refreshQueueCounts).not.toHaveBeenCalled();
+    expect(deps.pushMessage).not.toHaveBeenCalled();
+    expect(deps.pushError).toHaveBeenCalledWith('clearHistoryFailed:清空轨迹历史失败');
   });
 
   it('clears route history through the dedicated route confirmation', async () => {

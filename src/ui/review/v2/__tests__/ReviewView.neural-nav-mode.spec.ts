@@ -100,7 +100,7 @@ function createNeuralQueue(
     })),
     setNavigationMode: vi.fn(),
     returnToBookmark: vi.fn(() => true),
-    clearHistory: vi.fn(),
+    clearHistory: vi.fn(async () => undefined),
   };
 }
 

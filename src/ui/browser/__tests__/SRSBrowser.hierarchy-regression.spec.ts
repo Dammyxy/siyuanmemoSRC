@@ -426,7 +426,7 @@ function createNeuralQueueMock(overrides: Record<string, unknown> = {}) {
     })),
     setNavigationMode: vi.fn(),
     returnToBookmark: vi.fn(() => false),
-    clearHistory: vi.fn(),
+    clearHistory: vi.fn(async () => undefined),
     ...overrides,
   };
 }

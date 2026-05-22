@@ -1257,7 +1257,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     await this.save();
   }
 
-  public clearHistory(scope: 'current' | 'all' = 'current'): void {
+  public async clearHistory(scope: 'current' | 'all' = 'current'): Promise<void> {
     this.rememberLocalHistoryClear(scope);
     if (scope === 'all') {
       this.conceptQueue.clearHistory('all');
@@ -1266,9 +1266,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       this.getActiveEngine().clearHistory(scope);
     }
     this.resetAssociatedReviewState();
-    void this.save().catch((error) => {
-      logger.warn('Failed to persist neural roam state after clearHistory:', error);
-    });
+    await this.save();
   }
 
   public getConceptBlocks(): string[] {
@@ -2086,15 +2084,19 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
     await this.ensureInitialLoad();
     await this.syncActiveRouteStateIfChanged();
+    this.rememberLocalHistoryClear('all');
+    this.conceptQueue.clearHistory('all');
+    this.hyperspaceEngine.clearHistory('all');
+    this.resetAssociatedReviewState();
     await this.routeCatalog.clearRouteHistory(this.activeRouteSnapshot?.metadata.id ?? undefined);
     if (this.activeRouteSnapshot) {
-      this.activeRouteSnapshot = await this.routeCatalog.getActiveRoute();
-      this.persistedRouteHistoryEventIds = new Set(
-        [
-          ...this.conceptQueue.getHistorySnapshot(),
-          ...this.hyperspaceEngine.getHistorySnapshot(),
-        ].map((entry) => entry.eventId).filter((eventId): eventId is string => Boolean(eventId)),
-      );
+      const clearedRoute = await this.routeCatalog.getActiveRoute();
+      const saved = await this.routeCatalog.replaceActiveRoute({
+        route: this.createRouteSnapshotFromCurrentEngines(clearedRoute),
+        engineMode: this.engineMode,
+      });
+      this.activeRouteSnapshot = saved;
+      this.persistedRouteHistoryEventIds = new Set(saved.history.map((event) => event.eventId));
     }
   }
 

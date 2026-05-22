@@ -12,7 +12,7 @@ type NeuralBrowserCommandQueue = {
   ): Promise<void>;
   setSourceEntry(nodeId: string, enabled?: boolean): Promise<void>;
   setAnchorEntry(nodeId: string, enabled?: boolean): Promise<void>;
-  clearHistory(scope?: 'current' | 'all'): void;
+  clearHistory(scope?: 'current' | 'all'): Promise<void>;
   clearRouteHistory?(): Promise<void>;
   getNavigationState(): Pick<NeuralNavigationState, 'currentNodeId'>;
 };
@@ -138,7 +138,7 @@ export async function runNeuralClearHistory(deps: NeuralBrowserCommandDeps): Pro
 
   try {
     deps.resetHistoryRequest();
-    neuralQueue.clearHistory('all');
+    await neuralQueue.clearHistory('all');
     await deps.refreshNeuralSubviewData();
     await deps.refreshQueueCounts();
     await deps.pushMessage(translateNeuralCommandMessage(deps, 'historyClearedSuccess', '轨迹历史已清空'));

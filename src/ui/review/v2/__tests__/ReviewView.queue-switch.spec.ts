@@ -175,7 +175,7 @@ function createNeuralQueue() {
     })),
     setNavigationMode: vi.fn(),
     returnToBookmark: vi.fn(() => false),
-    clearHistory: vi.fn(),
+    clearHistory: vi.fn(async () => undefined),
     createRoute: vi.fn(async ({ name }: { name?: string } = {}) => ({
       metadata: {
         id: 'route-created',

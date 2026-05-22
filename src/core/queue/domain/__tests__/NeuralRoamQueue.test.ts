@@ -402,7 +402,7 @@ describe('NeuralRoamQueue', () => {
     const staleBackendState = queue.exportPersistedState();
     expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['concept-a']);
 
-    queue.clearHistory('all');
+    await queue.clearHistory('all');
     expect(queue.getHistorySnapshot()).toEqual([]);
 
     await queue.syncFromBackendState(staleBackendState);
@@ -932,13 +932,13 @@ describe('NeuralRoamQueue', () => {
     const historyBeforeClear = queue.getHistorySnapshot();
     expect(historyBeforeClear.map((entry) => entry.nodeId)).toEqual(['virtual-1', 'virtual-2']);
 
-    queue.clearHistory('current');
+    await queue.clearHistory('current');
     expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['virtual-1']);
     expect(queue.getHistoryCount()).toBe(1);
     expect(queue.getHistoryEntryByEventId(historyBeforeClear[1].eventId)).toBeNull();
     expect(queue.getHistoryPage({ offset: 0, limit: 5 }).entries.map((entry) => entry.nodeId)).toEqual(['virtual-1']);
 
-    queue.clearHistory('all');
+    await queue.clearHistory('all');
     expect(queue.getHistorySnapshot()).toEqual([]);
     expect(queue.getHistoryCount()).toBe(0);
     expect(queue.getHistoryEntriesByNodeId('virtual-1')).toEqual([]);
@@ -968,7 +968,7 @@ describe('NeuralRoamQueue', () => {
     });
     expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['concept-hyperspace']);
 
-    queue.clearHistory('all');
+    await queue.clearHistory('all');
 
     expect(queue.getHistorySnapshot()).toEqual([]);
     await queue.setEngineMode('orbit', { carryCurrentNode: false });
@@ -991,7 +991,7 @@ describe('NeuralRoamQueue', () => {
     });
     expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['concept-a']);
 
-    queue.clearHistory('all');
+    await queue.clearHistory('all');
     expect(queue.getHistorySnapshot()).toEqual([]);
 
     const conceptQueue = (queue as any).conceptQueue;
@@ -1792,7 +1792,7 @@ describe('NeuralRoamQueue', () => {
     ]);
     expect(new Set(route?.history.map((entry) => entry.eventId))).toHaveProperty('size', 3);
 
-    queue.clearHistory('all');
+    await queue.clearHistory('all');
 
     state = await repository.loadState();
     const routeAfterEngineClear = state?.routes.find((entry) => entry.metadata.id === DEFAULT_NEURAL_ROAM_ROUTE_ID);
@@ -1837,6 +1837,42 @@ describe('NeuralRoamQueue', () => {
 
     state = await repository.loadState();
     expect(state?.routes.find((route) => route.metadata.id === DEFAULT_NEURAL_ROAM_ROUTE_ID)?.history).toEqual([]);
+  });
+
+  it('does not resurrect a cleared route log from persisted route session snapshots after reload', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [
+        conceptCard('concept-a'),
+        conceptCard('concept-b'),
+      ],
+    });
+    const { catalog, repository } = createRouteCatalog();
+    const queue = new NeuralRoamQueue(manager.manager, persistence, {
+      routeCatalog: catalog,
+    });
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    await queue.clearRouteHistory();
+
+    const reloadedQueue = new NeuralRoamQueue(manager.manager, persistence, {
+      routeCatalog: catalog,
+    });
+    await reloadedQueue.load();
+    mockNeuralEngine(reloadedQueue);
+    await reloadedQueue.setAnchorEntry('concept-b', true);
+
+    const state = await repository.loadState();
+    const route = state?.routes.find((entry) => entry.metadata.id === DEFAULT_NEURAL_ROAM_ROUTE_ID);
+    expect(reloadedQueue.getHistorySnapshot()).toEqual([]);
+    expect(route?.history).toEqual([]);
+    expect(route?.sessions.orbit?.history).toEqual([]);
   });
 
   it('handles temporary route lifecycle by clean discard, dirty prompt requirement, save-in-place, and clean replacement', async () => {

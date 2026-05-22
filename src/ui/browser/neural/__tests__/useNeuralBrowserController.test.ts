@@ -213,7 +213,7 @@ function createQueue(overrides: Record<string, unknown> = {}) {
     getNavigationState: vi.fn(() => navState),
     setNavigationMode: vi.fn(),
     returnToBookmark: vi.fn(() => false),
-    clearHistory: vi.fn(),
+    clearHistory: vi.fn(async () => undefined),
     clearRouteHistory: vi.fn(async () => undefined),
     ...overrides,
   };

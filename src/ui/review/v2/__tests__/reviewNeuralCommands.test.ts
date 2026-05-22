@@ -113,7 +113,7 @@ function createQueue(options?: {
       navState = { ...navState, navigationMode: mode };
     }),
     returnToBookmark: vi.fn(() => true),
-    clearHistory: vi.fn(() => undefined),
+    clearHistory: vi.fn(async () => undefined),
   } as unknown as NeuralRoamSessionQueue;
 }
 
@@ -287,7 +287,7 @@ describe('reviewNeuralCommands', () => {
     expect(queue.jumpToHistoryNode).toHaveBeenCalledWith('history-1');
     expect(loadCardByBlockId).toHaveBeenCalledWith('node-current');
 
-    items[4].click?.();
+    await items[4].click?.();
     expect(queue.clearHistory).toHaveBeenCalledWith('all');
     expect(showMessage).toHaveBeenLastCalledWith('轨迹历史已清空', 3000, 'info');
   });

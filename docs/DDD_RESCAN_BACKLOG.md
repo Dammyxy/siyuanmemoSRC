@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-22 (Round 433)
+Last update: 2026-05-22 (Round 435)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-22 - NeuralRoam Clear History Awaited
+
+- Task: Make cleared NeuralRoam history persist before Browser/Review/UI commands continue.
+- Touched slice: Queue/Browser/Review NeuralRoam clear-history boundary; `src/core/queue/domain/NeuralRoamQueue.ts`, `src/types/unified-data-source.ts`, `src/ui/browser/neural/neuralBrowserCommands.ts`, `src/ui/review/v2/reviewNeuralCommands.ts`, `src/application/managers/DialogManager.ts`, and focused async-clear tests.
+- Debt fixed now: `clearHistory()` is now async and awaited at Browser, Review, and DialogManager call sites, so the clear/save finishes before refresh or success messaging. This closes the last sync gap that could leave a freshly-cleared local route log vulnerable to immediate rehydration on close/reopen.
+- Debt deferred: None identified.
+- Why deferred: N/A.
+- Next safe step: If any other queue commands still depend on fire-and-forget persistence, convert them to awaited commands with the same pattern.
+- Validation: `pnpm vitest run src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts src/ui/browser/neural/__tests__/neuralBrowserCommands.test.ts src/ui/review/v2/__tests__/reviewNeuralCommands.test.ts`; `pnpm build`.
+
+### 2026-05-22 - NeuralRoam Route Log Clear Persistence
+
+- Task: Fix cleared NeuralRoam 双链轨道/航线日志 history resurrecting from local persisted data.
+- Touched slice: Queue NeuralRoam route/session persistence; `src/core/queue/domain/NeuralRoamQueue.ts` and `src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts`.
+- Debt fixed now: `clearRouteHistory()` now clears engine-local session history and associated pending review state before rewriting the active route snapshot, so the SQL route log, route session snapshots, and in-memory 双链轨道 no longer disagree after clearing.
+- Debt deferred: Review-side `清空轨迹历史` still calls the synchronous engine-local `clearHistory('all')` path and does not await the async save.
+- Why deferred: This task fixed the confirmed route-log resurrection root cause; changing the Review command contract from sync to async touches UI command surfaces beyond the failing persistence path.
+- Next safe step: Convert `clearHistory()` to an awaited queue command if users still see engine-local history revive after closing immediately after clear.
+- Validation: `pnpm vitest src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts --run --testNamePattern "cleared route log|route history|route saves"`; `pnpm vitest src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts --run`.
 
 ### 2026-05-22 - NeuralRoam Browser Compact Labels
 

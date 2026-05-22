@@ -118,7 +118,7 @@ function createNeuralUnderlyingQueue(pathLength = 5, currentPathIndex = 1, histo
     }),
     setNavigationMode: () => undefined,
     returnToBookmark: () => false,
-    clearHistory: () => undefined,
+    clearHistory: async () => undefined,
   };
 }
 

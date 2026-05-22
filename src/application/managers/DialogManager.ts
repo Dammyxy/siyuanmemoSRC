@@ -1264,7 +1264,7 @@ export class DialogManager implements IDialogManager {
             startNewSession,
           });
         } else if (resetHistory) {
-          neuralQueue.clearHistory('all');
+          await neuralQueue.clearHistory('all');
         }
       }
 

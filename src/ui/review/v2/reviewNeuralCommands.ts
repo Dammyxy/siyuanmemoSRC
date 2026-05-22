@@ -422,8 +422,8 @@ export function buildReviewNeuralHistoryMenuItems(input: BuildReviewNeuralMenuIt
     {
       icon: 'iconClear',
       label: t('clearHistory', '清空轨迹历史'),
-      click: () => {
-        neuralQueue.clearHistory('all');
+      click: async () => {
+        await neuralQueue.clearHistory('all');
         refreshNavigationState();
         showMessage(t('historyClearedSuccess', '轨迹历史已清空'), 3000, 'info');
       },

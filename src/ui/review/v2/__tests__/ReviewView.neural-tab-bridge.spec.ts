@@ -111,7 +111,7 @@ function createNeuralQueue(currentNodeId: string | null, resolver?: (nodeId: str
     })),
     setNavigationMode: vi.fn(),
     returnToBookmark: vi.fn(() => true),
-    clearHistory: vi.fn(),
+    clearHistory: vi.fn(async () => undefined),
   };
 }
 
