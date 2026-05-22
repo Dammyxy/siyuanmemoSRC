@@ -209,6 +209,26 @@ describe('ReviewActions layout', () => {
     expect(root.find('.skip-menu-button-stub').exists()).toBe(true);
   });
 
+  it('spans the mobile topic next-card action across the rating area', () => {
+    const wrapper = mountReviewActions(createActions({
+      showAnswer: true,
+      cardMeta: {
+        type: 'topic',
+        cardType: 'topic',
+        blockID: 'block-topic',
+        cardID: 'card-topic',
+      },
+    }), true);
+
+    const root = wrapper.get('.card__action--rating');
+    const columns = root.findAll('.card__action-column');
+
+    expect(root.classes()).toContain('card__action--mobile');
+    expect(columns).toHaveLength(2);
+    expect(columns[1]?.classes()).toContain('card__action-column--topic-next');
+    expect(wrapper.get('button[data-type="3"]').text()).toContain('下一张');
+  });
+
   it('uses a native flex desktop layout for topic next-card mode without the mobile grid variable', () => {
     const wrapper = mountReviewActions(createActions({
       showAnswer: true,
@@ -231,14 +251,30 @@ describe('ReviewActions layout', () => {
     expect(wrapper.get('button[data-type="3"]').attributes('aria-label')).toBe('Space/Enter');
   });
 
-  it('keeps the mobile rating layout on the grid variable for compact screens', () => {
+  it('keeps native mobile rating density with back, skip, and due dates', () => {
     const wrapper = mountReviewActions(createActions({
       showAnswer: false,
+      grades: [
+        { label: 'Again', value: 1, color: 'red', kb: '1', emoji: 'A', nextDue: '2026-05-22' },
+        { label: 'Hard', value: 2, color: 'orange', kb: '2', emoji: 'H', nextDue: '2026-05-23' },
+        { label: 'Good', value: 3, color: 'blue', kb: '3', emoji: 'G', nextDue: '2026-05-24' },
+        { label: 'Easy', value: 4, color: 'green', kb: '4', emoji: 'E', nextDue: '2026-05-25' },
+      ],
     }), true);
 
     const root = wrapper.get('.card__action--rating');
+    const columns = root.findAll('.card__action-column');
+    const dueMeta = root.findAll('.card__action-meta')
+      .map((node) => node.text())
+      .filter((text) => text.length > 0);
+
     expect(root.classes()).toContain('card__action--mobile');
-    expect(root.attributes('style')).toContain('--review-rating-columns: 5');
+    expect(root.attributes('style') ?? '').not.toContain('--review-rating-columns');
+    expect(columns).toHaveLength(5);
+    expect(columns[0]?.classes()).toContain('card__action-column--stack');
+    expect(columns[0]?.find('.card__action-back--stacked').exists()).toBe(true);
+    expect(columns[0]?.findComponent({ name: 'SkipMenuButton' }).exists()).toBe(true);
+    expect(dueMeta).toEqual(['2026-05-22', '2026-05-23', '2026-05-24', '2026-05-25']);
   });
 
   it('blurs the topic next-card button after pointer clicks so the highlight does not stick', async () => {

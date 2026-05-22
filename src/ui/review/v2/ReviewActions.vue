@@ -92,7 +92,6 @@
       'card__action--desktop': !props.isMobile,
       'card__action--advancing': isAdvancing,
     }"
-    :style="ratingStageStyle"
   >
     <template v-if="props.isMobile">
       <div class="card__action-column card__action-column--stack">
@@ -123,7 +122,7 @@
       </div>
 
       <template v-if="isTopicCard">
-        <div class="card__action-column">
+        <div class="card__action-column card__action-column--topic-next">
           <span
             class="card__action-meta card__action-meta--placeholder"
             aria-hidden="true"
@@ -187,7 +186,7 @@
       </div>
 
       <template v-if="isTopicCard">
-        <div class="card__action-column">
+        <div class="card__action-column card__action-column--topic-next">
           <span
             class="card__action-meta card__action-meta--placeholder"
             aria-hidden="true"
@@ -329,16 +328,6 @@ const canBack = computed(() => props.meta?.canBack === true);
 const isAdvancing = computed(() => props.meta?.advancePending?.active === true);
 const showAdvanceHint = ref(false);
 let advanceHintTimer: ReturnType<typeof setTimeout> | null = null;
-
-const ratingStageColumns = computed(() => (
-  isTopicCard.value ? 2 : Math.max(props.actions.grades.length + 1, 2)
-));
-
-const ratingStageStyle = computed(() => (
-  props.isMobile
-    ? { '--review-rating-columns': String(ratingStageColumns.value) }
-    : undefined
-));
 
 const showInsertDialog = ref(false);
 const showScheduleDialog = ref(false);
@@ -867,28 +856,58 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 
 .card__action--mobile.card__action--reveal {
   grid-template-columns: minmax(0, 76px) minmax(0, 1fr) minmax(0, 96px);
+  padding-top: 30px;
 }
 
 .card__action--mobile.card__action--rating {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  max-height: 42vh;
-  overflow-y: auto;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: stretch;
 }
 
-.card__action--mobile .card__action-column > span {
-  display: none;
+.card__action--mobile.card__action--rating .card__action-column {
+  gap: 4px;
+  min-width: 0;
+}
+
+.card__action--mobile.card__action--rating .card__action-column--topic-next {
+  grid-column: span 4;
+}
+
+.card__action--mobile.card__action--rating .card__action-column > span {
+  display: flex;
+  height: 18px;
+  margin: 0;
+  justify-content: center;
+  align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  line-height: 18px;
 }
 
 .card__action--mobile .card__action-main,
 .card__action--mobile .card__action-back {
   min-width: 0;
-  min-height: 46px;
+  min-height: 64px;
   border-radius: 8px;
+}
+
+.card__action--mobile.card__action--rating .card__action-main {
+  flex: 1 1 auto;
+  min-height: 64px;
+  padding: 5px 0;
+  white-space: normal;
+  line-height: 1.15;
 }
 
 .card__action--mobile .card__action-back--stacked {
   flex: initial;
-  min-height: 24px;
+  min-height: 20px;
+  height: 20px;
+  margin-bottom: 0;
+  padding: 0;
+  font-size: 12px;
 }
 
 .card__action--mobile .card__action-back,
@@ -898,14 +917,42 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 }
 
 .card__action--mobile .card__action-skip :deep(.skip-menu-button) {
-  min-height: 46px;
+  min-height: 64px;
   border-radius: 8px;
 }
 
+.card__action--mobile.card__action--rating .card__action-skip :deep(.skip-menu-button) {
+  min-height: 40px;
+}
+
+.card__action--mobile.card__action--rating .card__action-skip :deep(.skip-menu-button__main),
+.card__action--mobile.card__action--rating .card__action-skip :deep(.skip-menu-button__trigger) {
+  min-height: 40px;
+}
+
+.card__action--mobile.card__action--rating .card__action-skip :deep(.skip-menu-button__main) {
+  padding-inline: 4px;
+  gap: 0;
+}
+
+.card__action--mobile.card__action--rating .card__action-skip :deep(.skip-menu-button__icon),
+.card__action--mobile.card__action--rating .card__action-skip :deep(.skip-menu-button__hint) {
+  display: none;
+}
+
+.card__action--mobile.card__action--rating .card__action-skip :deep(.skip-menu-button__copy) {
+  align-items: center;
+}
+
+.card__action--mobile.card__action--rating .card__action-skip :deep(.skip-menu-button__label) {
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .card__action--mobile .card__icon {
-  font-size: 22px;
-  line-height: 26px;
-  margin-bottom: 2px;
+  font-size: 18px;
+  line-height: 20px;
+  margin-bottom: 1px;
 }
 
 .siyuanmemo-dialog.b3-dialog {

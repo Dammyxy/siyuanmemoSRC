@@ -4,6 +4,16 @@ Last update: 2026-05-22 (Round 436)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-22 - Mobile Review Rating Density Fix
+
+- Task: Make mobile review UI less ugly and restore desktop-like due dates on rating buttons.
+- Touched slice: Review v2 mobile rating surface; `src/ui/review/v2/ReviewActions.vue` and `src/ui/review/v2/__tests__/ReviewActions.spec.ts`.
+- Debt fixed now: Mobile rating buttons now keep the due-date meta visible, use a SiYuan-native 5-column bottom strip with back + skip in the first column, align the rating buttons with that left action stack, keep the reveal stage height stable, widen topic next-card actions, and drop the dead mobile `--review-rating-columns` inline style.
+- Debt deferred: Full mobile review shell polish beyond the rating strip still needs a real device pass.
+- Why deferred: This task focused on the specific rating/date complaint; broader spacing and content hierarchy in the rest of the review screen should be tuned against a live mobile viewport.
+- Next safe step: Open mobile review in SiYuan and check the final spacing of top content, rating cards, and bottom safe-area padding.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewActions.spec.ts`; `pnpm build`.
+
 ### 2026-05-22 - Lumina Mobile Browser and Review UI Pass
 
 - Task: Apply Lumina-style active states to Browser / NeuralRoam controls and tighten mobile review/browser layout.
