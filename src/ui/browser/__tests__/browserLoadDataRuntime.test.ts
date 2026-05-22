@@ -219,7 +219,61 @@ describe('browserLoadDataRuntime', () => {
     await vi.runAllTimersAsync();
 
     expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(3);
+    expect(deps.refreshNeuralSubviewData).toHaveBeenCalledTimes(2);
     expect(deps.currentDataSource.value?.id).toBe('neural-roam');
+    vi.useRealTimers();
+  });
+
+  it('cancels stale queue-view retry timers when a newer load starts', async () => {
+    vi.useFakeTimers();
+    let resolveSecondReadiness: ((value: {
+      status: 'ready';
+      queueId: QueueType.NeuralRoam;
+      policyId: string;
+      generation: number;
+    }) => void) | null = null;
+    const secondReadiness = new Promise<{
+      status: 'ready';
+      queueId: QueueType.NeuralRoam;
+      policyId: string;
+      generation: number;
+    }>((resolve) => {
+      resolveSecondReadiness = resolve;
+    });
+    const manager = {
+      ...createManager(),
+      ensureQueueProjectionReady: vi.fn()
+        .mockResolvedValueOnce({
+          status: 'refreshing',
+          queueId: QueueType.NeuralRoam,
+          policyId: 'policy-neural',
+          cause: 'materialization_in_progress',
+          retryAfterMs: 25,
+        })
+        .mockReturnValueOnce(secondReadiness),
+    };
+    const deps = createDeps({
+      activeQueueId: ref('neural-roam'),
+      currentQueueType: ref('neural-roam'),
+      pluginUnifiedDataSourceManager: ref(manager as any),
+    });
+    const runtime = createBrowserLoadDataRuntime(deps);
+
+    await runtime.loadData();
+    const newerLoad = runtime.loadData(false, { origin: 'queue-sync' });
+    await vi.advanceTimersByTimeAsync(25);
+
+    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(2);
+    expect(deps.logger.info).not.toHaveBeenCalledWith('[SiYuanMemo][SRSBrowser] Previous loadData() aborted');
+
+    resolveSecondReadiness?.({
+      status: 'ready',
+      queueId: QueueType.NeuralRoam,
+      policyId: 'policy-neural',
+      generation: 2,
+    });
+    await newerLoad;
+
     vi.useRealTimers();
   });
 

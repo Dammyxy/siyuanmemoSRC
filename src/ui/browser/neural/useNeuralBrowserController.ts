@@ -492,6 +492,7 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
       return;
     }
 
+    await neuralQueue.getCards();
     await refreshNeuralRoutes();
     const navState = neuralQueue.getNavigationState();
     const sourceSnapshot = neuralQueue.getSourceSnapshot();

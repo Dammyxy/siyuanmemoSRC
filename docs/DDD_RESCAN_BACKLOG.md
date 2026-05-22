@@ -4,6 +4,46 @@ Last update: 2026-05-22 (Round 436)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-22 - Browser Queue Retry Timer Cleanup
+
+- Task: Stop stale Browser queue-projection retry timers from aborting newer `loadData()` calls after NeuralRoam concept hydration succeeds.
+- Touched slice: Browser load-data retry orchestration; `src/ui/browser/browserLoadDataRuntime.ts` and `src/ui/browser/__tests__/browserLoadDataRuntime.test.ts`.
+- Debt fixed now: Queue-view readiness retries now use a tracked timer that is cleared on explicit abort and whenever a newer `loadData()` starts. That prevents an old `refreshing` retry from waking after a newer load is already in progress and logging repeated `Previous loadData() aborted`.
+- Debt deferred: Other Browser reload triggers can still intentionally abort older in-flight loads when the user changes filters/search/queue.
+- Why deferred: Those are legitimate latest-request-wins transitions; this task only removes stale retry timers from the queue projection path.
+- Next safe step: If more abort logs appear, capture the `origin` and trigger at `loadData()` entry to distinguish real user-triggered latest-request-wins aborts from stale timers.
+- Validation: `pnpm exec vitest run src/ui/browser/__tests__/browserLoadDataRuntime.test.ts`; `pnpm exec vitest run src/ui/browser/neural/__tests__/useNeuralBrowserController.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts`; `pnpm build`.
+
+### 2026-05-22 - NeuralRoam Browser Eager Concept Hydration
+
+- Task: Fix NeuralRoam Browser concept pool not appearing on first open by hydrating neural subview data before queue projection becomes ready.
+- Touched slice: Browser load-data runtime and neural subview regression coverage; `src/ui/browser/browserLoadDataRuntime.ts` and `src/ui/browser/__tests__/browserLoadDataRuntime.test.ts`.
+- Debt fixed now: When NeuralRoam queue projection is still `refreshing`, Browser now starts `refreshNeuralSubviewData()` immediately on the first load cycle and only once per active queue refresh cycle. That lets the concept pool hydrate from the live NeuralRoam queue instead of waiting for projection readiness, so first-open NeuralRoam no longer stays blank until the user manually switches subviews.
+- Debt deferred: Queue projection readiness can still take time, and Browser still retries it separately for the main queue view.
+- Why deferred: The confirmed bug was the concept pool being gated behind projection readiness, not the backend projection itself.
+- Next safe step: If you still want less first-open waiting, profile the backend projection readiness path separately from the concept hydration path.
+- Validation: `pnpm exec vitest run src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/neural/__tests__/useNeuralBrowserController.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts`; `pnpm exec vitest run src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts`; `pnpm build`.
+
+### 2026-05-22 - NeuralRoam Browser Reentrant Load Guard
+
+- Task: Stop NeuralRoam Browser from aborting its own first load while queue projection is still materializing.
+- Touched slice: Browser queue-change reload gate and neural browser regression coverage; `src/ui/browser/SRSBrowser.vue` and `src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts`.
+- Debt fixed now: Browser now skips active queue reloads and mode-switch reloads while `loading` is already true, so a materializing NeuralRoam projection cannot trigger a second `loadData()` and abort the in-flight first load. The regression test now proves a queued `queue-changed` event during the first NeuralRoam projection wait does not cause a second readiness request.
+- Debt deferred: Backend projection materialization can still take time; Browser now waits through that phase instead of amplifying it into a self-abort loop.
+- Why deferred: The confirmed bug was Browser reentry during an active load, not a missing queue contract or a new fallback path.
+- Next safe step: If NeuralRoam still feels slow after this, profile backend materialization and queue-ready latency separately from Browser reload orchestration.
+- Validation: `pnpm exec vitest run src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts src/ui/browser/neural/__tests__/useNeuralBrowserController.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts`; `pnpm build`.
+
+### 2026-05-22 - NeuralRoam Browser Queue Warm-Up
+
+- Task: Fix NeuralRoam Browser concept pool loading by waiting for queue warm-up before reading source/history snapshots.
+- Touched slice: Browser NeuralRoam controller refresh path; `src/ui/browser/neural/useNeuralBrowserController.ts` and `src/ui/browser/neural/__tests__/useNeuralBrowserController.test.ts`.
+- Debt fixed now: `refreshNeuralSubviewData()` now awaits `neuralQueue.getCards()` before reading `getSourceSnapshot()` / `getHistoryPage()`. That forces the NeuralRoam queue to finish initial load and active-route sync first, so Browser no longer reads an empty snapshot and renders a blank concept pool on first open.
+- Debt deferred: Queue projection readiness can still be slow on backend materialization; this fix only removes Browser’s premature snapshot read, not backend latency itself.
+- Why deferred: The active-path bug was the Browser reading before warm-up, not a missing fallback or a new queue contract.
+- Next safe step: If NeuralRoam still feels slow after warm-up, profile `ensureQueueProjectionReady()` and backend materialization separately.
+- Validation: `pnpm exec vitest run src/ui/browser/neural/__tests__/useNeuralBrowserController.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts`.
+
 ### 2026-05-22 - NeuralRoam Browser Hidden Identity Buffer
 
 - Task: Stop Browser NeuralRoam from losing the first live identity event while the queue panel is still hidden, and stop repeating the same readiness log every retry.

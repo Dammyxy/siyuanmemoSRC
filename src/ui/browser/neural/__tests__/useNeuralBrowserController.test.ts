@@ -174,6 +174,7 @@ function createQueue(overrides: Record<string, unknown> = {}) {
     getSourceSnapshot: vi.fn(() => [
       { nodeId: 'source-node', title: 'Source', visitedAt: 10 },
     ]),
+    getCards: vi.fn(async () => []),
     setSourceEntry: vi.fn(async () => undefined),
     getSeedSnapshot: vi.fn(() => []),
     setSeedEntry: vi.fn(async () => undefined),
@@ -294,6 +295,25 @@ describe('useNeuralBrowserController', () => {
       'source-node',
       'target-node',
     ], expect.objectContaining({ applyQueryFilter: false }));
+  });
+
+  it('warms neural queue load before reading source snapshot', async () => {
+    let hydrated = false;
+    const queue = createQueue({
+      getCards: vi.fn(async () => {
+        hydrated = true;
+        return [];
+      }),
+      getSourceSnapshot: vi.fn(() => (hydrated
+        ? [{ nodeId: 'source-node', title: 'Source', visitedAt: 10 }]
+        : [])),
+    });
+    const { controller } = createController(queue);
+
+    await controller.refreshNeuralSubviewData();
+
+    expect(queue.getCards).toHaveBeenCalledTimes(1);
+    expect(controller.neuralSourceEntries.value).toHaveLength(1);
   });
 
   it('clears projected state when neural queue is unavailable', async () => {

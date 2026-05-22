@@ -101,7 +101,9 @@ function getCardType(deps: BrowserLoadDataRuntimeDeps): BrowserCardTypeFilter {
 export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
   let loadDataAbortController: AbortController | null = null;
   let liveIdentityReloadTimer: ReturnType<typeof setTimeout> | null = null;
+  let queueViewRetryTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingHiddenLiveIdentityEvent: QueueProjectionLiveIdentityEvent | null = null;
+  let neuralSubviewBootstrapQueueId: string | null = null;
   const queueViewModule = createBrowserQueueViewModule({ logger: deps.logger });
 
   function abortLoadData(): void {
@@ -113,6 +115,11 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
       clearTimeout(liveIdentityReloadTimer);
       liveIdentityReloadTimer = null;
     }
+    if (queueViewRetryTimer) {
+      clearTimeout(queueViewRetryTimer);
+      queueViewRetryTimer = null;
+    }
+    neuralSubviewBootstrapQueueId = null;
   }
 
   function flushPendingHiddenLiveIdentityEvent(): void {
@@ -178,6 +185,10 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
       loadDataAbortController.abort();
       deps.logger.info('[SiYuanMemo][SRSBrowser] Previous loadData() aborted');
     }
+    if (queueViewRetryTimer) {
+      clearTimeout(queueViewRetryTimer);
+      queueViewRetryTimer = null;
+    }
     deps.invalidateHierarchySnapshots();
 
     loadDataAbortController = new AbortController();
@@ -231,8 +242,13 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
         if (queueView.status === 'refreshing') {
           datasourceTriggered = true;
           deps.currentDataSource.value = null;
+          if (deps.currentQueueType.value === 'neural-roam' && neuralSubviewBootstrapQueueId !== activeQueueId) {
+            neuralSubviewBootstrapQueueId = activeQueueId;
+            void deps.refreshNeuralSubviewData();
+          }
           if (queueView.keepLoading && queueView.retryDelayMs != null && !currentController.signal.aborted) {
-            setTimeout(() => {
+            queueViewRetryTimer = setTimeout(() => {
+              queueViewRetryTimer = null;
               if (!currentController.signal.aborted) {
                 void loadData(forceRefresh, { ...options, origin: 'queue-sync' });
               }
@@ -246,6 +262,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
         if (queueView.status === 'unavailable') {
           deps.currentDataSource.value = null;
           deps.currentProjectionIdentity.value = null;
+          neuralSubviewBootstrapQueueId = null;
           await deps.pushErrMsg(queueView.message);
           clearBrowserRows(deps);
           return;
@@ -254,16 +271,19 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
         if (queueView.status === 'missing-datasource') {
           deps.logger.error('[SiYuanMemo][SRSBrowser] Failed to create data source for queue:', queueView.queueId);
           deps.currentProjectionIdentity.value = null;
+          neuralSubviewBootstrapQueueId = null;
           clearBrowserRows(deps);
           return;
         }
 
         deps.currentDataSource.value = queueView.datasource;
         deps.currentProjectionIdentity.value = queueView.projectionIdentity;
+        neuralSubviewBootstrapQueueId = null;
       } else {
         deps.clearNeuralSubviewData();
         deps.currentProjectionIdentity.value = null;
         pendingHiddenLiveIdentityEvent = null;
+        neuralSubviewBootstrapQueueId = null;
         const sqlStmt = deps.resolveActiveSqlStatement(deps.searchQuery.value);
         if (sqlStmt != null) {
           datasourceKind = 'sql-query';

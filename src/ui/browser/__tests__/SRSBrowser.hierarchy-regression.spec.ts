@@ -5,6 +5,7 @@ import { computed, defineComponent, h, nextTick, onMounted, ref } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserCard } from '../types';
 import { CardState } from '@/types/card';
+import { QueueType } from '@/types/unified-data-source';
 
 const setGlobalBrowserContextMock = vi.fn();
 const clearGlobalBrowserContextMock = vi.fn();
@@ -16,6 +17,17 @@ const createQueryDataSourceMock = vi.fn();
 const createFocusDataSourceMock = vi.fn();
 const getQueueByIdBridgeMock = vi.fn();
 const loadBrowserCardsByBlockIdsMock = vi.fn(async () => []);
+const browserAdapterSyncHarness = vi.hoisted(() => ({
+  options: null as null | {
+    onQueueChanged: (payload: {
+      affectedQueueTypes: QueueType[] | null;
+      invalidateAllCounts: boolean;
+      requiresFullRefresh: boolean;
+      forceRefreshCounts: boolean;
+    }) => void;
+    onModeSwitched: () => void;
+  },
+}));
 const agGridAttrsSeen: Array<Record<string, unknown>> = [];
 let agGridClickRow: BrowserCard | null = null;
 
@@ -235,10 +247,13 @@ vi.mock('../composables/useIncrementalGridUpdates', () => ({
 }));
 
 vi.mock('../composables/useBrowserAdapterSync', () => ({
-  useBrowserAdapterSync: () => ({
-    initBrowserAdapter: vi.fn(),
-    destroyBrowserAdapter: vi.fn(),
-  }),
+  useBrowserAdapterSync: (options: typeof browserAdapterSyncHarness.options) => {
+    browserAdapterSyncHarness.options = options;
+    return {
+      initBrowserAdapter: vi.fn(),
+      destroyBrowserAdapter: vi.fn(),
+    };
+  },
 }));
 
 vi.mock('../utils/dataSourceFactory', () => ({
@@ -380,6 +395,7 @@ function createNeuralQueueMock(overrides: Record<string, unknown> = {}) {
   return {
     getEngineMode: vi.fn(() => 'orbit'),
     setEngineMode: vi.fn(),
+    getCards: vi.fn(async () => []),
     getSourceSnapshot: vi.fn(() => []),
     setSourceEntry: vi.fn(),
     getSeedSnapshot: vi.fn(() => []),
@@ -540,6 +556,7 @@ describe('SRSBrowser hierarchy regressions', () => {
     createQueryDataSourceMock.mockReset();
     createFocusDataSourceMock.mockReset();
     createFocusDataSourceMock.mockReturnValue(null);
+    browserAdapterSyncHarness.options = null;
     agGridAttrsSeen.length = 0;
     agGridClickRow = null;
   });
@@ -654,6 +671,72 @@ describe('SRSBrowser hierarchy regressions', () => {
     }));
     expect(neuralQueue.setSourceEntry).not.toHaveBeenCalled();
     expect(wrapper.get('.semantic-workbench-stub').text()).toContain('Visible Semantic Root');
+
+    wrapper.unmount();
+  });
+
+  it('keeps the first NeuralRoam load from reentering while projection is still materializing', async () => {
+    let resolveProjectionReady: ((value: {
+      status: 'ready';
+      queueId: QueueType.NeuralRoam;
+      policyId: string;
+      generation: number;
+    }) => void) | null = null;
+    const projectionReady = new Promise<{
+      status: 'ready';
+      queueId: QueueType.NeuralRoam;
+      policyId: string;
+      generation: number;
+    }>((resolve) => {
+      resolveProjectionReady = resolve;
+    });
+    const neuralQueue = createNeuralQueueMock({
+      getCards: vi.fn(async () => []),
+      listRoutes: vi.fn(async () => []),
+      getRouteHistoryPage: vi.fn(() => ({ entries: [], totalCount: 0, hasMore: false })),
+    });
+    const manager = {
+      getQueue: vi.fn(() => neuralQueue),
+      ensureQueueProjectionReady: vi.fn(async () => projectionReady),
+    };
+    const wrapper = mountBrowser({
+      initialQueueId: 'neural-roam',
+      browserService: {
+        getStats: vi.fn(async () => ({
+          totalCards: 3,
+          suspendedCards: 1,
+          lostCards: 1,
+        })),
+        getUnifiedDataSourceManager: vi.fn(() => manager),
+        getSiyuanApi: vi.fn(() => ({
+          pushMsg: vi.fn(),
+          pushErrMsg: vi.fn(),
+        })),
+      } as never,
+    });
+
+    await advance(0);
+    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(1);
+
+    browserAdapterSyncHarness.options?.onQueueChanged({
+      affectedQueueTypes: [QueueType.NeuralRoam],
+      invalidateAllCounts: false,
+      requiresFullRefresh: false,
+      forceRefreshCounts: true,
+    });
+
+    await flushPromises();
+    await nextTick();
+
+    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(1);
+
+    resolveProjectionReady?.({
+      status: 'ready',
+      queueId: QueueType.NeuralRoam,
+      policyId: 'policy-neural',
+      generation: 1,
+    });
+    await advance(0);
 
     wrapper.unmount();
   });

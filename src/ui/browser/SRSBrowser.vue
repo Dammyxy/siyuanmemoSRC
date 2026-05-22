@@ -2691,6 +2691,10 @@ const {
       affectedQueueTypes,
     });
 
+    if (loading.value) {
+      return;
+    }
+
     const activeQueueType = activeQueueTypeForRefresh.value;
     const shouldRefreshActiveQueue = shouldRefreshQueueData(
       activeQueueId.value,
@@ -2729,6 +2733,9 @@ const {
     }
   },
   onModeSwitched: () => {
+    if (loading.value) {
+      return;
+    }
     logger.info('[SiYuanMemo][SRSBrowser] Reloading data due to mode switch');
     void loadData();
   },
