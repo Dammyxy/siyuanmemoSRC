@@ -4,6 +4,16 @@ Last update: 2026-05-22 (Round 436)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-23 - Review Header Route Counter Centering
+
+- Task: Center the NeuralRoam review header route/counter group in tab and native-dialog surfaces.
+- Touched slice: Review header shell centering and native-dialog grouped summary behavior; `src/ui/review/v2/ReviewHeader.vue` and `src/ui/review/v2/__tests__/ReviewHeader.styles.spec.ts`.
+- Debt fixed now: The route label plus counter chip now center as one grouped control in the review header, and native-dialog mode centers that grouped control while preserving the toolbar on the right.
+- Debt deferred: Very long route names can still approach the right-side toolbar; the current cap keeps them from colliding but does not redesign the header for arbitrarily long titles.
+- Why deferred: The active bug was left bias, not a broken route selector contract. The current width cap is enough for the existing review surfaces.
+- Next safe step: Open tab and native-dialog review surfaces with a long NeuralRoam route name and confirm the header still reads as centered without clipping the toolbar.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewHeader.spec.ts src/ui/review/v2/__tests__/ReviewHeader.styles.spec.ts`; `pnpm build`.
+
 ### 2026-05-22 - Mobile Review Rating Density Fix
 
 - Task: Make mobile review UI less ugly and restore desktop-like due dates on rating buttons.

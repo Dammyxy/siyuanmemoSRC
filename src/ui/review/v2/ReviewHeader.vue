@@ -891,12 +891,14 @@ onUnmounted(() => {
 .siyuanmemo-review-header__route-counter-group {
   position: relative;
   z-index: 3;
-  grid-column: 2 / 4;
+  grid-column: 2 / 5;
   display: inline-flex;
   align-items: stretch;
-  justify-self: end;
+  justify-self: center;
   min-width: 0;
   flex-shrink: 0;
+  width: fit-content;
+  max-width: min(100%, 520px);
   border: 1px solid var(--b3-border-color);
   border-radius: 4px;
   background: var(--b3-theme-background);
@@ -953,6 +955,32 @@ onUnmounted(() => {
   grid-column: auto;
   justify-self: auto;
   transform: translate(-50%, -50%);
+}
+
+.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__route-counter-group {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  grid-column: auto;
+  justify-self: auto;
+  width: fit-content;
+  max-width: calc(100% - 240px);
+  transform: translate(-50%, -50%);
+}
+
+.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__route-counter-group .siyuanmemo-review-header__summary-wrap {
+  position: static;
+  left: auto;
+  top: auto;
+  z-index: auto;
+  grid-column: auto;
+  justify-self: auto;
+  transform: none;
+}
+
+.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__route-counter-group .siyuanmemo-review-header__route {
+  max-width: min(220px, 100%);
 }
 
 .siyuanmemo-review-header__summary {

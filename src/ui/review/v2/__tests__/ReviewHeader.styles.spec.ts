@@ -8,15 +8,22 @@ const reviewHeaderSource = readFileSync(
 );
 
 describe('ReviewHeader native-dialog centering styles', () => {
-  it('keeps the native-dialog secondary row brand-free while absolutely centering the summary chip', () => {
+  it('keeps the native-dialog secondary row brand-free while centering the route-counter group and summary chip', () => {
     expect(reviewHeaderSource).toContain('.block__icons.siyuanmemo-review-header.siyuanmemo-review-header--native-dialog {');
     expect(reviewHeaderSource).toContain('justify-content: flex-end;');
     expect(reviewHeaderSource).toContain('.siyuanmemo-review-header__queue-switch {');
     expect(reviewHeaderSource).toContain('.siyuanmemo-review-header__queue-switch-text {');
+    expect(reviewHeaderSource).toContain('.siyuanmemo-review-header__route-counter-group {');
+    expect(reviewHeaderSource).toContain('grid-column: 2 / 5;');
+    expect(reviewHeaderSource).toContain('justify-self: center;');
+    expect(reviewHeaderSource).toContain('width: fit-content;');
     expect(reviewHeaderSource).toContain('.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__summary-wrap {');
     expect(reviewHeaderSource).toContain('left: 50%;');
     expect(reviewHeaderSource).toContain('top: 50%;');
     expect(reviewHeaderSource).toContain('transform: translate(-50%, -50%);');
+    expect(reviewHeaderSource).toContain('.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__route-counter-group {');
+    expect(reviewHeaderSource).toContain('max-width: calc(100% - 240px);');
+    expect(reviewHeaderSource).toContain('.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__route-counter-group .siyuanmemo-review-header__summary-wrap {');
     expect(reviewHeaderSource).toContain('.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__summary {');
     expect(reviewHeaderSource).toContain('.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__toolbar {');
     expect(reviewHeaderSource).toContain('margin-left: auto;');
