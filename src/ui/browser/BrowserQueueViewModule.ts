@@ -158,7 +158,7 @@ export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
       const readiness = await manager.ensureQueueProjectionReady(readinessRequest);
       if (readiness.status === 'refreshing') {
         const attempts = readinessRetryAttempts.get(retryIdentity) ?? 0;
-        const keepLoading = attempts < maxReadinessRetries;
+        const keepLoading = queueType === QueueType.NeuralRoam || attempts < maxReadinessRetries;
         if (keepLoading) {
           readinessRetryAttempts.set(retryIdentity, attempts + 1);
         }

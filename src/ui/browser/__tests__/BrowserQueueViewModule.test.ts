@@ -139,6 +139,56 @@ describe('BrowserQueueViewModule', () => {
     expect(fourth).toMatchObject({ status: 'refreshing', keepLoading: true, retryDelayMs: 333 });
   });
 
+  it('keeps neural-roam refreshing alive past the generic retry cap until it becomes ready', async () => {
+    const manager = createManager([
+      {
+        status: 'refreshing',
+        queueId: QueueType.NeuralRoam,
+        policyId: 'policy-neural',
+        cause: 'materialization_in_progress',
+        retryAfterMs: 111,
+      },
+      {
+        status: 'refreshing',
+        queueId: QueueType.NeuralRoam,
+        policyId: 'policy-neural',
+        cause: 'materialization_in_progress',
+        retryAfterMs: 222,
+      },
+      {
+        status: 'refreshing',
+        queueId: QueueType.NeuralRoam,
+        policyId: 'policy-neural',
+        cause: 'materialization_in_progress',
+        retryAfterMs: 333,
+      },
+      {
+        status: 'ready',
+        queueId: QueueType.NeuralRoam,
+        policyId: 'policy-neural',
+        generation: 9,
+      },
+    ]);
+    const module = createBrowserQueueViewModule({
+      logger: { info: vi.fn() },
+      maxReadinessRetries: 1,
+    });
+    const request = createRequest({
+      activeQueueId: 'neural-roam',
+      currentQueueType: QueueType.NeuralRoam,
+    });
+
+    const first = await module.prepareQueueView(manager, request);
+    const second = await module.prepareQueueView(manager, request);
+    const third = await module.prepareQueueView(manager, request);
+    const fourth = await module.prepareQueueView(manager, request);
+
+    expect(first).toMatchObject({ status: 'refreshing', keepLoading: true, retryDelayMs: 111 });
+    expect(second).toMatchObject({ status: 'refreshing', keepLoading: true, retryDelayMs: 222 });
+    expect(third).toMatchObject({ status: 'refreshing', keepLoading: true, retryDelayMs: 333 });
+    expect(fourth.status).toBe('ready');
+  });
+
   it('maps unavailable readiness to an explicit queue view error', async () => {
     const manager = createManager([{
       status: 'unavailable',

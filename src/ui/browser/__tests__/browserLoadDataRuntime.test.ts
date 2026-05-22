@@ -184,6 +184,45 @@ describe('browserLoadDataRuntime', () => {
     vi.useRealTimers();
   });
 
+  it('keeps neural-roam queue view retrying until projection becomes ready', async () => {
+    vi.useFakeTimers();
+    let readinessCalls = 0;
+    const manager = {
+      ...createManager(),
+      ensureQueueProjectionReady: vi.fn(async () => {
+        readinessCalls += 1;
+        if (readinessCalls < 3) {
+          return {
+            status: 'refreshing',
+            queueId: QueueType.NeuralRoam,
+            policyId: 'policy-neural',
+            cause: 'materialization_in_progress',
+            retryAfterMs: 25,
+          };
+        }
+        return {
+          status: 'ready',
+          queueId: QueueType.NeuralRoam,
+          policyId: 'policy-neural',
+          generation: 9,
+        };
+      }),
+    };
+    const deps = createDeps({
+      activeQueueId: ref('neural-roam'),
+      currentQueueType: ref('neural-roam'),
+      pluginUnifiedDataSourceManager: ref(manager as any),
+    });
+    const runtime = createBrowserLoadDataRuntime(deps);
+
+    await runtime.loadData();
+    await vi.runAllTimersAsync();
+
+    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(3);
+    expect(deps.currentDataSource.value?.id).toBe('neural-roam');
+    vi.useRealTimers();
+  });
+
   it('maps terminal projection unavailable to an explicit error state', async () => {
     const manager = {
       ...createManager(),

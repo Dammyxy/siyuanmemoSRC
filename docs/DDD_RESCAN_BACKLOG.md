@@ -4,6 +4,16 @@ Last update: 2026-05-22 (Round 436)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-22 - NeuralRoam Browser First-Open Retry Guard
+
+- Task: Keep the Browser NeuralRoam view from giving up while queue projection is still materializing on first open.
+- Touched slice: Browser queue-view readiness and browser load-data retry path; `src/ui/browser/BrowserQueueViewModule.ts`, `src/ui/browser/__tests__/BrowserQueueViewModule.test.ts`, and `src/ui/browser/__tests__/browserLoadDataRuntime.test.ts`.
+- Debt fixed now: Neural Roam queue readiness now keeps retrying while the view stays visible, instead of falling back to a blank/half-loaded browser after the generic retry cap. That keeps the concept card pane, engine switch, and route tabs waiting for the queue projection to finish instead of requiring a manual queue toggle to recover.
+- Debt deferred: The general retry cap still applies to non-Neural queues, and no extra backoff policy was introduced.
+- Why deferred: The bug only showed up on the Neural Roam first-open path; broader queue readiness policy tuning should be handled separately if other queues start exhibiting the same symptom.
+- Next safe step: If other queue types start timing out on first open, introduce a queue-specific readiness budget rather than widening the global retry behavior again.
+- Validation: `pnpm exec vitest run src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build` (passed with existing non-blocking i18n hardcoded-string/content warnings and Sass legacy API warnings).
+
 ### 2026-05-22 - Lumina-lite Settings and Browser Surfaces
 
 - Task: Refresh the settings page and SRS Browser chrome to a Lumina-lite SiYuan-native visual system.
