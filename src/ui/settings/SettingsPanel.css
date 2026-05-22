@@ -1466,3 +1466,108 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Lumina-lite closeout: compact native settings chrome with light emphasis only. */
+.settings-panel.siyuanmemo-settings-theme {
+  --memo-settings-radius-xs: 3px;
+  --memo-settings-radius-sm: 4px;
+  --memo-settings-radius-md: 6px;
+  --memo-settings-control-height: 32px;
+  color: var(--b3-theme-on-background);
+}
+
+.settings-panel.siyuanmemo-settings-theme .settings-tab {
+  border: 1px solid transparent;
+  border-radius: var(--memo-settings-radius-md);
+  background: transparent;
+}
+
+.settings-panel.siyuanmemo-settings-theme .settings-tab:hover {
+  border-color: var(--b3-border-color);
+  background: var(--b3-list-hover);
+}
+
+.settings-panel.siyuanmemo-settings-theme .settings-tab--active {
+  border-color: var(--b3-theme-primary-lighter);
+  background: var(--b3-theme-primary-lightest);
+  color: var(--b3-theme-primary);
+}
+
+.settings-panel.siyuanmemo-settings-theme .settings-subtab--active {
+  color: var(--b3-theme-primary);
+}
+
+.settings-panel.siyuanmemo-settings-theme .settings-card h3,
+.settings-panel.siyuanmemo-settings-theme .settings-card h4 {
+  color: var(--b3-theme-on-background);
+}
+
+.settings-panel.siyuanmemo-settings-theme .settings-card h4 {
+  border-bottom: 1px solid var(--b3-border-color);
+}
+
+.settings-panel.siyuanmemo-settings-theme .settings-foldout,
+.settings-panel.siyuanmemo-settings-theme .settings-foldout__summary,
+.settings-panel.siyuanmemo-settings-theme .ai-settings-manager__head,
+.settings-panel.siyuanmemo-settings-theme .ai-tool-group-card,
+.settings-panel.siyuanmemo-settings-theme .ai-prompt-preset-card,
+.settings-panel.siyuanmemo-settings-theme .ai-user-skill-card,
+.settings-panel.siyuanmemo-settings-theme .ai-prompt-preset-card__grid {
+  border: 1px solid var(--b3-border-color);
+  border-radius: var(--memo-settings-radius-sm);
+  background: var(--b3-theme-background);
+  box-shadow: none;
+}
+
+.settings-panel.siyuanmemo-settings-theme .settings-foldout__summary,
+.settings-panel.siyuanmemo-settings-theme .ai-tool-group-card__head,
+.settings-panel.siyuanmemo-settings-theme .ai-prompt-preset-card__head,
+.settings-panel.siyuanmemo-settings-theme .ai-user-skill-card__head {
+  background: var(--b3-theme-surface);
+}
+
+.settings-panel.siyuanmemo-settings-theme .ai-tool-row,
+.settings-panel.siyuanmemo-settings-theme .ai-prompt-preset-card__row,
+.settings-panel.siyuanmemo-settings-theme .ai-tool-card,
+.settings-panel.siyuanmemo-settings-theme .ai-tool-group {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-panel.siyuanmemo-settings-theme .ai-meta-chip,
+.settings-panel.siyuanmemo-settings-theme .ai-prompt-preset-card__status-badge,
+.settings-panel.siyuanmemo-settings-theme .ai-tool-group__count {
+  border: 1px solid var(--b3-border-color);
+  border-radius: var(--memo-settings-radius-xs);
+  background: var(--b3-theme-surface);
+  color: var(--b3-theme-on-surface-light);
+}
+
+.settings-panel.siyuanmemo-settings-theme .ai-meta-chip--accent,
+.settings-panel.siyuanmemo-settings-theme .ai-prompt-preset-card__status-badge--recommended {
+  border-color: var(--b3-theme-primary-lighter);
+  background: var(--b3-theme-primary-lightest);
+  color: var(--b3-theme-primary);
+}
+
+.settings-panel.siyuanmemo-settings-theme .ai-meta-chip--warn,
+.settings-panel.siyuanmemo-settings-theme .ai-prompt-preset-card__status-badge--custom {
+  border-color: var(--b3-card-warning-color);
+  background: var(--b3-card-warning-background);
+  color: var(--b3-card-warning-color);
+}
+
+.settings-panel.siyuanmemo-settings-theme .btn-primary,
+.settings-panel.siyuanmemo-settings-theme .btn-secondary,
+.settings-panel.siyuanmemo-settings-theme .btn-small,
+.settings-panel.siyuanmemo-settings-theme .ai-settings-manager__action,
+.settings-panel.siyuanmemo-settings-theme .ai-tool-group__toggle {
+  min-height: var(--memo-settings-control-height);
+  border-radius: var(--memo-settings-radius-sm);
+  box-shadow: none;
+}
+
+.settings-panel.siyuanmemo-settings-theme .form-quick-actions .btn-small {
+  border-radius: var(--memo-settings-radius-sm);
+}

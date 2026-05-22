@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-22 (Round 435)
+Last update: 2026-05-22 (Round 436)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-22 - Lumina-lite Settings and Browser Surfaces
+
+- Task: Refresh the settings page and SRS Browser chrome to a Lumina-lite SiYuan-native visual system.
+- Touched slice: Settings shell/AI manager visuals and Browser shell/toolbar/filter/preview/neural visuals; `src/ui/settings/SettingsPanel.css`, `src/ui/settings/__tests__/SettingsPanel.test.ts`, `src/ui/browser/SRSBrowser.scss`, `src/ui/browser/components/FilterButton.vue`, and `src/ui/browser/__tests__/BrowserToolbar.styles.spec.ts`.
+- Debt fixed now: The settings page now uses compact 4-6px routine radii, flat native surfaces, light primary active states, and toned-down AI card/chip chrome. The Browser toolbar now uses light primary emphasis for AI/practice/open actions, a squared toolbar center, flatter filter badges, and muted preview/navigator/neural surfaces without the previous decorative gradients or oversized pill chrome.
+- Debt deferred: Historical legacy rules still exist earlier in the same CSS files, but the later Lumina-lite pass now owns the active visual contract for these surfaces.
+- Why deferred: The task was to refresh the live settings and Browser presentation without rewriting unrelated legacy style history in the same files.
+- Next safe step: If the remaining legacy blocks become confusing, split the old and active style passes into explicit sections or delete the obsolete chunks in a follow-up cleanup.
+- Validation: `pnpm exec vitest run src/ui/settings/__tests__/SettingsPanel.test.ts`; `pnpm exec vitest run src/ui/browser/__tests__/BrowserToolbar.styles.spec.ts src/ui/browser/__tests__/BrowserToolbar.spec.ts src/ui/browser/__tests__/SRSBrowser.tab-layout.spec.ts src/ui/browser/__tests__/BrowserPreview.spec.ts`; `node scripts/check-hidden-fallbacks.cjs`; `openspec validate refresh-settings-page-lumina-style --strict`; `pnpm build` (passed with existing non-blocking i18n hardcoded-string/content warnings and Sass legacy API warnings).
 
 ### 2026-05-22 - NeuralRoam Clear History Awaited
 

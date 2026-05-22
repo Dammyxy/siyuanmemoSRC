@@ -520,9 +520,7 @@
   gap: 14px;
   padding: 28px;
   color: var(--b3-theme-on-surface);
-  background:
-    radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--b3-theme-error) 12%, transparent), transparent 32%),
-    linear-gradient(135deg, color-mix(in srgb, var(--b3-theme-surface-light) 55%, transparent), transparent);
+  background: var(--b3-theme-background);
 }
 
 .preview__missing-icon {
@@ -1275,12 +1273,8 @@
   width: clamp(260px, 38vw, 560px);
   height: clamp(220px, 52vh, 420px);
   max-height: calc(100% - 14px);
-  background: linear-gradient(
-    to top,
-    rgba(140, 176, 232, 0.07) 0%,
-    rgba(140, 176, 232, 0.14) 62%,
-    rgba(140, 176, 232, 0.22) 100%
-  );
+  border-left: 1px solid var(--b3-border-color);
+  background: transparent;
   clip-path: polygon(45% 100%, 55% 100%, 55% 30%, 74% 30%, 50% 0, 26% 30%, 45% 30%);
   transform: translateY(-50%);
   pointer-events: none;
@@ -1451,13 +1445,9 @@
   gap: 12px;
   overflow: hidden;
   border: 1px solid var(--b3-border-color);
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 12px;
-  background: linear-gradient(
-    180deg,
-    rgba(var(--b3-theme-primary-rgb), 0.04) 0%,
-    var(--b3-theme-background) 36%
-  );
+  background: var(--b3-theme-background);
 }
 
 .neural-trace-panel__header {
@@ -1831,12 +1821,8 @@
   width: clamp(210px, 54vw, 340px);
   height: clamp(160px, 34vh, 260px);
   max-height: calc(100% - 16px);
-  background: linear-gradient(
-    to top,
-    rgba(140, 176, 232, 0.06) 0%,
-    rgba(140, 176, 232, 0.12) 62%,
-    rgba(140, 176, 232, 0.19) 100%
-  );
+  border-left: 1px solid var(--b3-border-color);
+  background: transparent;
   transform: translateY(-50%);
 }
 
@@ -2185,34 +2171,34 @@
 
 .card-browser__toolbar .toolbar__action--ai,
 .b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--ai {
-  border-color: color-mix(in srgb, var(--toolbar-global-accent) 72%, var(--b3-border-color)) !important;
-  background: color-mix(in srgb, var(--toolbar-global-accent) 66%, var(--b3-theme-background)) !important;
-  color: var(--b3-theme-on-primary, #fff) !important;
+  border-color: var(--b3-theme-primary-lighter) !important;
+  background: var(--b3-theme-primary-lightest) !important;
+  color: var(--b3-theme-primary) !important;
 }
 
 .card-browser__toolbar .toolbar__action--practice,
 .b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--practice {
-  border-color: color-mix(in srgb, var(--toolbar-practice-accent) 76%, var(--b3-border-color)) !important;
-  background: color-mix(in srgb, var(--toolbar-practice-accent) 70%, var(--b3-theme-background)) !important;
-  color: var(--b3-theme-on-primary, #fff) !important;
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 36%, var(--b3-border-color)) !important;
+  background: color-mix(in srgb, var(--b3-theme-primary) 10%, var(--b3-theme-background)) !important;
+  color: var(--b3-theme-primary) !important;
 }
 
 .card-browser__toolbar .toolbar__action--ai:hover:not(:disabled),
 .card-browser__toolbar .toolbar__action--ai:active:not(:disabled),
 .b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--ai:hover:not(:disabled),
 .b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--ai:active:not(:disabled) {
-  border-color: color-mix(in srgb, var(--toolbar-global-accent) 84%, var(--b3-border-color)) !important;
-  background: color-mix(in srgb, var(--toolbar-global-accent) 78%, var(--b3-theme-background)) !important;
-  color: var(--b3-theme-on-primary, #fff) !important;
+  border-color: var(--b3-theme-primary) !important;
+  background: color-mix(in srgb, var(--b3-theme-primary) 14%, var(--b3-theme-background)) !important;
+  color: var(--b3-theme-primary) !important;
 }
 
 .card-browser__toolbar .toolbar__action--practice:hover:not(:disabled),
 .card-browser__toolbar .toolbar__action--practice:active:not(:disabled),
 .b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--practice:hover:not(:disabled),
 .b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--practice:active:not(:disabled) {
-  border-color: color-mix(in srgb, var(--toolbar-practice-accent) 86%, var(--b3-border-color)) !important;
-  background: color-mix(in srgb, var(--toolbar-practice-accent) 80%, var(--b3-theme-background)) !important;
-  color: var(--b3-theme-on-primary, #fff) !important;
+  border-color: var(--b3-theme-primary) !important;
+  background: color-mix(in srgb, var(--b3-theme-primary) 14%, var(--b3-theme-background)) !important;
+  color: var(--b3-theme-primary) !important;
 }
 
 .card-browser__toolbar .toolbar__center,
@@ -2224,8 +2210,8 @@
   min-height: calc(var(--toolbar-control-height) - 2px);
   padding: 0 10px;
   border: 1px solid color-mix(in srgb, var(--toolbar-page-accent) 16%, var(--b3-border-color));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--toolbar-page-accent) 6%, var(--b3-theme-background));
+  border-radius: 4px;
+  background: var(--b3-theme-background);
   color: color-mix(in srgb, var(--toolbar-page-accent) 28%, var(--b3-theme-on-surface-light));
   font-variant-numeric: tabular-nums;
 }
@@ -2258,15 +2244,16 @@
 
 .card-browser__toolbar .toolbar__left .filter-button.filter-button--active .filter-button__badge,
 .b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__left .filter-button.filter-button--active .filter-button__badge {
-  background: color-mix(in srgb, var(--toolbar-page-accent) 84%, var(--b3-theme-background));
-  color: var(--b3-theme-on-primary, #fff);
+  border-color: var(--b3-theme-primary-lighter);
+  background: var(--b3-theme-primary-lightest);
+  color: var(--b3-theme-primary);
 }
 
 .card-browser__toolbar .toolbar__right .b3-button--text,
 .b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__right .b3-button--text {
-  border-color: var(--b3-theme-primary);
-  background: var(--b3-theme-primary);
-  color: var(--b3-theme-on-primary, #fff);
+  border-color: var(--b3-theme-primary-lighter);
+  background: var(--b3-theme-primary-lightest);
+  color: var(--b3-theme-primary);
 }
 
 .toolbar__divider {
@@ -2338,5 +2325,58 @@
 .card-browser__navigator-drawer {
   border-right: 1px solid var(--b3-border-color);
   background: var(--b3-theme-background);
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+  box-shadow: none;
+}
+
+/* Lumina-lite pass: native SiYuan density, light state color, no decorative card chrome. */
+.card-browser {
+  --memo-browser-radius-sm: 4px;
+  --memo-browser-radius-md: 6px;
+  --memo-browser-row-bg: var(--b3-theme-background);
+  --memo-browser-row-hover: var(--b3-list-hover);
+  --memo-browser-active-bg: var(--b3-theme-primary-lightest);
+}
+
+.card-browser__semantic-root-pool,
+.neural-nav-bar,
+.neural-route-bar,
+.neural-list__section,
+.neural-trace-panel,
+.neural-trace-panel__card,
+.neural-trace-panel__step-card,
+.neural-trace-panel__route-card,
+.neural-trace-panel__empty {
+  border: 1px solid var(--b3-border-color);
+  border-radius: var(--memo-browser-radius-md);
+  background: var(--memo-browser-row-bg);
+  box-shadow: none;
+}
+
+.card-browser__semantic-root,
+.neural-list__item,
+.neural-anchor-list__item {
+  border-radius: var(--memo-browser-radius-sm);
+  background: transparent;
+  box-shadow: none;
+}
+
+.card-browser__semantic-root:hover,
+.card-browser__semantic-root--active,
+.neural-list__item-main:hover,
+.neural-list__item--active .neural-list__item-main,
+.neural-list__item--selected,
+.neural-anchor-list__item--current {
+  background: var(--memo-browser-active-bg);
+}
+
+.neural-focus-list__view-switch,
+.neural-focus-list__view-btn,
+.neural-list__tag,
+.neural-trace-panel__pill,
+.neural-history-list__timeline-dot {
+  border-radius: var(--memo-browser-radius-sm);
+}
+
+.preview__missing {
+  background: var(--b3-theme-background);
 }

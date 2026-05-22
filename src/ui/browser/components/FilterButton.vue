@@ -142,7 +142,8 @@ function t(key: string, fallback: string): string {
 }
 
 .filter-button--active:hover {
-  background: var(--b3-theme-primary-light);
+  background: color-mix(in srgb, var(--b3-theme-primary) 14%, var(--b3-theme-background));
+  border-color: var(--b3-theme-primary);
 }
 
 /**
@@ -152,18 +153,19 @@ function t(key: string, fallback: string): string {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  background: var(--b3-theme-primary);
-  color: white;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--b3-theme-primary-lighter);
+  background: var(--b3-theme-primary-lightest);
+  color: var(--b3-theme-primary);
   font-size: 11px;
   font-weight: 600;
-  border-radius: 9px;
+  border-radius: 3px;
   line-height: 1;
 }
 
 .filter-button--active .filter-button__badge {
-  background: var(--b3-theme-primary);
+  background: var(--b3-theme-primary-lightest);
 }
 </style>

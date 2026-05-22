@@ -194,6 +194,8 @@ describe('SettingsPanel', () => {
     const wrapper = mountPanel();
     await wrapper.vm.$nextTick();
 
+    expect(wrapper.find('.settings-panel.siyuanmemo-settings-theme').exists()).toBe(true);
+
     const tabLabels = wrapper.findAll('.settings-tab').map((tab) => tab.text());
     expect(tabLabels).toEqual([
       'Learning & Scheduling',
