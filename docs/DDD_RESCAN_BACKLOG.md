@@ -4,6 +4,26 @@ Last update: 2026-05-22 (Round 433)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-22 - NeuralRoam Browser Route Log Clear
+
+- Task: Add a clear action for the Browser NeuralRoam route log and simplify NeuralRoam history search labels.
+- Touched slice: Browser/Queue NeuralRoam route-log boundary; `src/ui/browser/SRSBrowser.vue`, `src/ui/browser/neural/NeuralHistoryList.vue`, `src/ui/browser/neural/useNeuralBrowserController.ts`, `src/ui/browser/neural/neuralBrowserCommands.ts`, `src/core/queue/domain/NeuralRoamQueue.ts`, `src/types/unified-data-source.ts`, i18n, and focused tests.
+- Debt fixed now: Browser `航线日志` can now clear route-owned history through the queue route contract without clearing the engine-local `双链轨道`. After clearing, current engine-local history event IDs are marked as already mirrored so later route saves do not repopulate the cleared route log from old visits. `双链轨道`/`航线日志` search controls now show only `搜索：` with no placeholder copy. Route-log clear uses dedicated confirmation/success/failure copy instead of the all-history wording.
+- Debt deferred: None identified.
+- Why deferred: N/A.
+- Next safe step: Verify in SiYuan Browser panel that `双链轨道` clear still clears engine-local history and `航线日志` clear only empties the active route log.
+- Validation: `pnpm vitest run src/ui/browser/neural/__tests__/neuralBrowserCommands.test.ts src/ui/browser/neural/__tests__/NeuralHistoryList.test.ts src/ui/browser/neural/__tests__/useNeuralBrowserController.test.ts src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts src/core/queue/neural/__tests__/NeuralRoamRouteCatalog.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed with existing non-blocking i18n hardcoded-string/content warnings and Sass legacy API warnings).
+
+### 2026-05-22 - NeuralRoam Advance Read Path
+
+- Task: Investigate and reduce delay after clicking next in NeuralRoam review.
+- Touched slice: Queue/Review NeuralRoam route state read path; `src/core/queue/neural/routes/NeuralRoamRouteCatalog.ts` and `src/core/queue/neural/__tests__/NeuralRoamRouteCatalog.test.ts`.
+- Debt fixed now: Valid route-state reads no longer call `saveState()`, avoiding repeated SQLite full route rewrites during `neural-roam.advance` route sync/mismatch/counter checks. Backend sync also stopped re-validating backend seed pools against renderer-local cards, so review feedback no longer pays a local concept-validation pass that can remove backend-owned seeds.
+- Debt deferred: NeuralRoam `save()` still persists route history/session snapshots after each activation, and associated-review lookup can still require graph/subtree/card reads.
+- Why deferred: Current symptom had a clear read-path and backend-sync write amplification root cause; changing write batching or UI prefetch is a larger Queue/Review contract change.
+- Next safe step: Profile one live advance after this fix; if delay remains, measure route save, graph query, associated-review lookup, backend sync, and `maybeAddNextDues()` separately.
+- Validation: `pnpm vitest run src/core/queue/neural/__tests__/NeuralRoamRouteCatalog.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed with existing non-blocking i18n hardcoded-string/content warnings and Sass legacy API warnings).
+
 ### 2026-05-22 - NeuralRoam Route Log Separation
 
 - Task: Fix NeuralRoam route-mismatch on Review open and separate route log ownership from engine-local 双链轨道.

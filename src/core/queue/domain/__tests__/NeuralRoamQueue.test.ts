@@ -411,6 +411,72 @@ describe('NeuralRoamQueue', () => {
     expect(queue.getNavigationState().currentNodeId).toBeNull();
   });
 
+  it('trusts backend seed pools during backend state sync without renderer-side concept validation', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager();
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    manager.getCards.mockClear();
+
+    await queue.syncFromBackendState({
+      version: 8,
+      engineMode: 'orbit',
+      orbit: {
+        seedPool: [{
+          nodeId: 'backend-only-concept',
+          nodeKind: 'concept',
+          priority: 0.7,
+          neighborsViewed: 0,
+          addedAt: 1,
+          nodePreview: 'Backend only concept',
+        }],
+        anchorPool: [],
+        session: {
+          displayPath: [],
+          displayPathEventIds: [],
+          currentPathIndex: -1,
+          navigationMode: 'explore',
+          bookmarkPathIndex: null,
+          history: [],
+          currentFocus: null,
+          currentFocusEventId: null,
+          branchRootNodeId: null,
+          currentSessionId: null,
+          visitedBlocks: [],
+          exhaustedFocuses: [],
+          currentRoundStartedAt: null,
+        },
+      },
+      hyperspace: {
+        sourcePool: [],
+        anchorPool: [],
+        session: {
+          displayPath: [],
+          displayPathEventIds: [],
+          currentPathIndex: -1,
+          navigationMode: 'explore',
+          bookmarkPathIndex: null,
+          history: [],
+          currentLeadSource: null,
+          currentLeadSourceEventId: null,
+          branchRootNodeId: null,
+          currentSessionId: null,
+          visitedBlocks: [],
+          frontier: [],
+          exhaustedSources: [],
+        },
+      },
+      pendingAssociatedReviewCardIds: [],
+      seenAssociatedReviewCardIds: [],
+    });
+
+    expect(manager.getCards).not.toHaveBeenCalled();
+    expect(queue.getSourceSnapshot()).toEqual([
+      expect.objectContaining({ nodeId: 'backend-only-concept' }),
+    ]);
+  });
+
   it('reuses a cached counter snapshot during review instead of force-refreshing cards', async () => {
     const { persistence } = createPersistence(undefined);
     const manager = createManager();
@@ -1763,7 +1829,7 @@ describe('NeuralRoamQueue', () => {
     expect(state?.routes.find((route) => route.metadata.id === DEFAULT_NEURAL_ROAM_ROUTE_ID)?.history.map((entry) => entry.nodeId))
       .toEqual(['concept-a']);
 
-    await catalog.clearRouteHistory();
+    await queue.clearRouteHistory();
     state = await repository.loadState();
     expect(state?.routes.find((route) => route.metadata.id === DEFAULT_NEURAL_ROAM_ROUTE_ID)?.history).toEqual([]);
 

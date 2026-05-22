@@ -1,10 +1,11 @@
 <template>
   <div class="neural-list neural-history-list">
     <div class="neural-list__toolbar neural-history-list__toolbar">
+      <span class="neural-history-list__search-label">{{ t('search', '搜索') }}：</span>
       <input
         v-model="search"
         class="b3-text-field"
-        :placeholder="t('searchPlaceholderAdvanced', 'Search...')"
+        placeholder=""
       >
       <button
         v-if="showClearHistoryAction"

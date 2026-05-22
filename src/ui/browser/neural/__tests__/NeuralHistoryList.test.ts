@@ -114,6 +114,17 @@ describe('NeuralHistoryList', () => {
     expect(titles[0]).toContain('Alpha history');
   });
 
+  it('renders a compact search label without placeholder copy', () => {
+    const wrapper = mount(NeuralHistoryList, {
+      props: {
+        entries,
+      },
+    });
+
+    expect(wrapper.find('.neural-history-list__search-label').text()).toBe('搜索：');
+    expect(wrapper.find('.neural-history-list__toolbar input').attributes('placeholder')).toBe('');
+  });
+
   it('shows repeat-hit count tags for nodes that were activated multiple times', () => {
     const wrapper = mount(NeuralHistoryList, {
       props: {

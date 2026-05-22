@@ -584,6 +584,7 @@ export interface NeuralRoamSessionQueue {
     setNavigationMode(mode: NeuralNavigationMode): void;
     returnToBookmark(): boolean;
     clearHistory(scope?: 'current' | 'all'): void;
+    clearRouteHistory?(): Promise<void>;
 }
 
 export function isNeuralRoamSessionQueue(

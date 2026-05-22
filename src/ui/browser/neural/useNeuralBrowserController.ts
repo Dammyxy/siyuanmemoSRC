@@ -44,6 +44,7 @@ import {
 } from './neuralTraceViewModel';
 import {
   runNeuralClearHistory,
+  runNeuralClearRouteHistory,
   runNeuralJump,
   runNeuralSetCurrentFocus,
   runNeuralToggleAnchor,
@@ -72,6 +73,7 @@ export type UseNeuralBrowserControllerDeps = {
   refreshQueueCounts: () => Promise<void>;
   getReviewSurfaceDeps: () => NeuralReviewSurfaceHandoffDeps;
   confirmClearHistory: () => Promise<boolean>;
+  confirmClearRouteHistory?: () => Promise<boolean>;
   confirmRouteSwitchReviewReset: () => Promise<boolean>;
   promptRouteName: (options: {
     title: string;
@@ -869,6 +871,7 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
       pushMessage: deps.pushMessage,
       pushError: deps.pushError,
       confirmClearHistory: deps.confirmClearHistory,
+      confirmClearRouteHistory: deps.confirmClearRouteHistory,
       resetHistoryRequest: () => {
         neuralHistoryRequestedCount.value = historyPageSize;
       },
@@ -943,6 +946,10 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
   }
 
   async function handleNeuralClearHistory(): Promise<void> {
+    if (deps.getNeuralSubview?.() === 'roam-history') {
+      await runNeuralClearRouteHistory(createNeuralBrowserCommandDeps());
+      return;
+    }
     await runNeuralClearHistory(createNeuralBrowserCommandDeps());
   }
 

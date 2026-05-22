@@ -731,7 +731,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       context: 'NeuralRoamQueue',
     });
 
-    await this.restorePersistedState(rawState, fromStorage);
+    await this.restorePersistedState(rawState, { fromStorage, normalizeSeedPool: true });
   }
 
   public async syncFromBackendState(rawState: unknown): Promise<void> {
@@ -739,7 +739,10 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     if (!isNeuralRoamPersistedStateV8(rawState)) {
       throw new Error('NEURAL_ROAM_QUEUE_SYNC_UNAVAILABLE: backend queue state is missing or invalid');
     }
-    await this.restorePersistedState(this.sanitizeBackendStateAfterLocalClear(rawState), false);
+    await this.restorePersistedState(this.sanitizeBackendStateAfterLocalClear(rawState), {
+      fromStorage: false,
+      normalizeSeedPool: false,
+    });
     this.markInitialLoadCompleted();
   }
 
@@ -865,13 +868,17 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     });
   }
 
-  private async restorePersistedState(rawState: unknown, fromStorage: boolean): Promise<void> {
+  private async restorePersistedState(
+    rawState: unknown,
+    options: { fromStorage: boolean; normalizeSeedPool: boolean },
+  ): Promise<void> {
     if (!rawState) {
       logger.info('No saved neural roam state found');
       return;
     }
 
     let persistRequired = false;
+    const { fromStorage, normalizeSeedPool } = options;
 
     if (isNeuralRoamPersistedStateV8(rawState)) {
       this.historyClearedAt = Math.max(this.historyClearedAt, this.readHistoryClearedAt(rawState));
@@ -983,14 +990,16 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       persistRequired = true;
     }
 
-    const normalization = await this.conceptQueue.normalizeSeedPoolToConceptCards({
-      validationErrorPolicy: 'keep',
-    });
-    if (normalization.changed) {
-      persistRequired = true;
-      logger.info(`Normalized neural roam seed pool after load, removed=${normalization.removedNodeIds.length}`, {
-        removedNodeIds: normalization.removedNodeIds,
+    if (normalizeSeedPool) {
+      const normalization = await this.conceptQueue.normalizeSeedPoolToConceptCards({
+        validationErrorPolicy: 'keep',
       });
+      if (normalization.changed) {
+        persistRequired = true;
+        logger.info(`Normalized neural roam seed pool after load, removed=${normalization.removedNodeIds.length}`, {
+          removedNodeIds: normalization.removedNodeIds,
+        });
+      }
     }
 
     if (persistRequired) {
@@ -2068,6 +2077,25 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       totalCount: page.totalCount,
       hasMore: page.hasMore,
     };
+  }
+
+  public async clearRouteHistory(): Promise<void> {
+    if (!this.routeCatalog) {
+      throw new Error('NEURAL_ROAM_ROUTE_UNAVAILABLE: route catalog is not configured');
+    }
+
+    await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
+    await this.routeCatalog.clearRouteHistory(this.activeRouteSnapshot?.metadata.id ?? undefined);
+    if (this.activeRouteSnapshot) {
+      this.activeRouteSnapshot = await this.routeCatalog.getActiveRoute();
+      this.persistedRouteHistoryEventIds = new Set(
+        [
+          ...this.conceptQueue.getHistorySnapshot(),
+          ...this.hyperspaceEngine.getHistorySnapshot(),
+        ].map((entry) => entry.eventId).filter((eventId): eventId is string => Boolean(eventId)),
+      );
+    }
   }
 
   public getHistoryEntryByEventId(eventId: string): NeuralRoamHistoryEntry | null {

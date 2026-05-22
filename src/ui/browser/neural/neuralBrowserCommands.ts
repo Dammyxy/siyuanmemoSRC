@@ -13,6 +13,7 @@ type NeuralBrowserCommandQueue = {
   setSourceEntry(nodeId: string, enabled?: boolean): Promise<void>;
   setAnchorEntry(nodeId: string, enabled?: boolean): Promise<void>;
   clearHistory(scope?: 'current' | 'all'): void;
+  clearRouteHistory?(): Promise<void>;
   getNavigationState(): Pick<NeuralNavigationState, 'currentNodeId'>;
 };
 
@@ -29,6 +30,7 @@ type NeuralBrowserCommandDeps = {
   pushMessage: (message: string) => Promise<void>;
   pushError: (message: string) => Promise<void>;
   confirmClearHistory: () => Promise<boolean>;
+  confirmClearRouteHistory?: () => Promise<boolean>;
   resetHistoryRequest: () => void;
   logError?: (message: string, error: unknown) => void;
   t?: (key: string, fallback: string) => string;
@@ -143,5 +145,32 @@ export async function runNeuralClearHistory(deps: NeuralBrowserCommandDeps): Pro
   } catch (error) {
     deps.logError?.('Failed to clear neural history:', error);
     await deps.pushError(translateNeuralCommandMessage(deps, 'clearHistoryFailed', '清空轨迹历史失败'));
+  }
+}
+
+export async function runNeuralClearRouteHistory(deps: NeuralBrowserCommandDeps): Promise<void> {
+  const neuralQueue = deps.getQueue();
+  if (!neuralQueue) {
+    return;
+  }
+  if (typeof neuralQueue.clearRouteHistory !== 'function') {
+    await deps.pushError(translateNeuralCommandMessage(deps, 'clearRouteHistoryFailed', '清空航线日志失败'));
+    return;
+  }
+
+  const ok = await (deps.confirmClearRouteHistory?.() ?? deps.confirmClearHistory());
+  if (!ok) {
+    return;
+  }
+
+  try {
+    deps.resetHistoryRequest();
+    await neuralQueue.clearRouteHistory();
+    await deps.refreshNeuralSubviewData();
+    await deps.refreshQueueCounts();
+    await deps.pushMessage(translateNeuralCommandMessage(deps, 'routeHistoryClearedSuccess', '航线日志已清空'));
+  } catch (error) {
+    deps.logError?.('Failed to clear neural route history:', error);
+    await deps.pushError(translateNeuralCommandMessage(deps, 'clearRouteHistoryFailed', '清空航线日志失败'));
   }
 }

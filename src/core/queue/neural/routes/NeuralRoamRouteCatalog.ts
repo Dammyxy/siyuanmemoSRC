@@ -277,25 +277,38 @@ export class NeuralRoamRouteCatalog {
   private async ensureState(): Promise<NeuralRoamRouteState> {
     const loaded = await this.repository.loadState();
     const now = this.clock.now();
+    let shouldSave = false;
     const state: NeuralRoamRouteState = loaded
-      ? {
-          activeRouteId: normalizeRouteId(loaded.activeRouteId) || DEFAULT_NEURAL_ROAM_ROUTE_ID,
-          engineMode: loaded.engineMode === 'hyperspace' ? 'hyperspace' : 'orbit',
-          routes: loaded.routes.map(cloneRouteSnapshot),
-        }
-      : {
-          activeRouteId: DEFAULT_NEURAL_ROAM_ROUTE_ID,
-          engineMode: 'orbit',
-          routes: [createDefaultRoute(now)],
-        };
+      ? (() => {
+          const activeRouteId = normalizeRouteId(loaded.activeRouteId) || DEFAULT_NEURAL_ROAM_ROUTE_ID;
+          const engineMode = loaded.engineMode === 'hyperspace' ? 'hyperspace' : 'orbit';
+          shouldSave = activeRouteId !== loaded.activeRouteId || engineMode !== loaded.engineMode;
+          return {
+            activeRouteId,
+            engineMode,
+            routes: loaded.routes.map(cloneRouteSnapshot),
+          };
+        })()
+      : (() => {
+          shouldSave = true;
+          return {
+            activeRouteId: DEFAULT_NEURAL_ROAM_ROUTE_ID,
+            engineMode: 'orbit',
+            routes: [createDefaultRoute(now)],
+          };
+        })();
 
     if (!state.routes.some((route) => route.metadata.id === DEFAULT_NEURAL_ROAM_ROUTE_ID)) {
       state.routes.unshift(createDefaultRoute(now));
+      shouldSave = true;
     }
     if (!state.routes.some((route) => route.metadata.id === state.activeRouteId)) {
       state.activeRouteId = DEFAULT_NEURAL_ROAM_ROUTE_ID;
+      shouldSave = true;
     }
-    await this.saveState(state);
+    if (shouldSave) {
+      await this.saveState(state);
+    }
     return state;
   }
 

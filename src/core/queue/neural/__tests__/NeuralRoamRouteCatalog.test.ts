@@ -5,6 +5,7 @@ import {
   InMemoryNeuralRoamRouteRepository,
   NeuralRoamRouteCatalog,
   NeuralRoamRouteError,
+  createDefaultRoute,
   type NeuralRoamRouteState,
 } from '../routes';
 
@@ -28,6 +29,31 @@ function createCatalog(initialState?: NeuralRoamRouteState | null) {
 }
 
 describe('NeuralRoamRouteCatalog', () => {
+  it('does not rewrite route storage for valid read-only state lookups', async () => {
+    const initialState: NeuralRoamRouteState = {
+      activeRouteId: DEFAULT_NEURAL_ROAM_ROUTE_ID,
+      engineMode: 'orbit',
+      routes: [createDefaultRoute(1_000)],
+    };
+    const repository = new InMemoryNeuralRoamRouteRepository(initialState);
+    let saveCount = 0;
+    const catalog = new NeuralRoamRouteCatalog({
+      repository: {
+        loadState: () => repository.loadState(),
+        saveState: async (state) => {
+          saveCount += 1;
+          await repository.saveState(state);
+        },
+      },
+      clock: { now: () => 2_000 },
+    });
+
+    await catalog.getState();
+    await catalog.getActiveRouteStats();
+
+    expect(saveCount).toBe(0);
+  });
+
   it('creates the default route when no route state exists', async () => {
     const { catalog } = createCatalog();
 

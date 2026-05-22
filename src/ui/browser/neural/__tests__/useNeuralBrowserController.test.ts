@@ -214,6 +214,7 @@ function createQueue(overrides: Record<string, unknown> = {}) {
     setNavigationMode: vi.fn(),
     returnToBookmark: vi.fn(() => false),
     clearHistory: vi.fn(),
+    clearRouteHistory: vi.fn(async () => undefined),
     ...overrides,
   };
 }
@@ -361,6 +362,19 @@ describe('useNeuralBrowserController', () => {
       'route-orbit',
       'route-hyperspace',
     ]);
+  });
+
+  it('clears the Browser route log through the route-level history contract', async () => {
+    const queue = createQueue();
+    const { controller, refreshQueueCounts } = createController(queue, {
+      getNeuralSubview: () => 'roam-history',
+    });
+
+    await controller.handleNeuralClearHistory();
+
+    expect(queue.clearRouteHistory).toHaveBeenCalledTimes(1);
+    expect(queue.clearHistory).not.toHaveBeenCalled();
+    expect(refreshQueueCounts).toHaveBeenCalled();
   });
 
   it('uses engine-local history for the Browser trajectory path view', async () => {

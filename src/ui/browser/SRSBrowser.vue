@@ -886,6 +886,12 @@ const {
     confirmText: t('confirm', '确认'),
     cancelText: t('cancel', '取消'),
   }),
+  confirmClearRouteHistory: () => confirmDialog({
+    title: t('clearRouteHistory', '清空航线日志'),
+    content: t('confirmClearRouteHistory', '确认清空当前航线日志？'),
+    confirmText: t('confirm', '确认'),
+    cancelText: t('cancel', '取消'),
+  }),
   confirmRouteSwitchReviewReset: () => confirmDialog({
     title: t('routeSwitchReviewResetTitle', '切换航线'),
     content: t('routeSwitchReviewResetPrompt', '已打开的神经漫游复习会重置到新航线。是否继续？'),
@@ -1284,7 +1290,9 @@ const neuralHistorySubviewLabel = computed(() =>
     ? t('engineHistory', '双链轨道')
     : t('roamHistory', '航线日志')
 );
-const canClearNeuralHistory = computed(() => neuralSubview.value === 'engine-history');
+const canClearNeuralHistory = computed(() =>
+  neuralSubview.value === 'engine-history' || neuralSubview.value === 'roam-history'
+);
 
 // 始终启用 sortable，过 canApplySortToQueue 控制按钮显示
 const defaultColDef: ColDef = {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   runNeuralClearHistory,
+  runNeuralClearRouteHistory,
   runNeuralJump,
   runNeuralSetCurrentFocus,
   runNeuralToggleAnchor,
@@ -84,6 +85,24 @@ describe('neuralBrowserCommands', () => {
     expect(queue.clearHistory).toHaveBeenCalledWith('all');
     expect(deps.resetHistoryRequest).toHaveBeenCalledTimes(1);
     expect(deps.pushMessage).toHaveBeenCalledWith('historyClearedSuccess:轨迹历史已清空');
+  });
+
+  it('clears route history through the dedicated route confirmation', async () => {
+    const queue = {
+      clearRouteHistory: vi.fn(async () => undefined),
+    };
+    const deps = {
+      ...createDeps(queue),
+      confirmClearRouteHistory: vi.fn(async () => true),
+    };
+
+    await runNeuralClearRouteHistory(deps);
+
+    expect(deps.confirmClearRouteHistory).toHaveBeenCalledTimes(1);
+    expect(deps.confirmClearHistory).not.toHaveBeenCalled();
+    expect(queue.clearRouteHistory).toHaveBeenCalledTimes(1);
+    expect(deps.resetHistoryRequest).toHaveBeenCalledTimes(1);
+    expect(deps.pushMessage).toHaveBeenCalledWith('routeHistoryClearedSuccess:航线日志已清空');
   });
 
   it('no-ops when neural queue is unavailable', async () => {
