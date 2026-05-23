@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-23 (Round 449)
+Last update: 2026-05-23 (Round 450)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-23 - Desktop Primary Writer Lease Stabilization
+
+- Task: Stabilize ordinary desktop writer ownership after background lease expiry by binding desktop writer eligibility to the Electron primary-app role and recovering empty writer leases without local fallback.
+- Touched slice: Kernel companion writer lease / frontend runtime / Review feedback / kernel transaction action pump; `src/kernel.ts`, `src/application/clients/FrontendInstanceRuntime.ts`, `src/application/usecases/review/ReviewCommitUseCase.ts`, `src/application/handlers/KernelTransactionActionPump.ts`, focused tests, `ARCHITECTURE.md`, and the writer lease investigation report.
+- Debt fixed now: Desktop document windows, auxiliary windows, and `std + browser-desktop` provisional frontends can no longer become ordinary desktop writers; hidden desktop primary-app/canonical can recover an empty lease only under the role-bound guard; Review feedback and ActionPump no-active-writer follower relay paths attempt `ensureWritable()` and only use local backend writes after runtime mode returns to writer; ActionPump now backs off repeated no-active-writer dequeue polling warnings.
+- Debt deferred: Docker/browser-only writer ownership remains intentionally undefined, and no long-duration live background repro has been run in a real SiYuan desktop session yet.
+- Why deferred: Browser-only writer semantics need separate backend/container evidence; long background repro is an environment smoke check rather than a unit-level code closure.
+- Next safe step: Run a manual desktop background smoke: primary app starts as writer, background past lease TTL, confirm hidden primary reacquires empty lease or visible Review feedback recovers before local commit.
+- Validation: `pnpm exec vitest run src/__tests__/kernelWriterLeasePolicy.test.ts --reporter=dot`; `pnpm exec vitest run src/application/clients/__tests__/FrontendInstanceRuntime.test.ts --reporter=dot`; `pnpm exec vitest run src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts --reporter=dot`; `pnpm exec vitest run src/application/handlers/__tests__/KernelTransactionActionPump.test.ts --reporter=dot`; targeted grep confirmed kernel companion has no `siyuanmemo.db`/SQLite/file-write hit.
 
 ### 2026-05-23 - Review AI Companion Tab Probe Binding
 

@@ -803,7 +803,7 @@ export class FrontendInstanceRuntime {
         return this.renewCurrentWriterLease(reason);
       }
       const observedOwnership = await this.observeCurrentLease(`${reason}:observe`);
-      if (observedOwnership.leaseHolder || isDocumentHidden()) {
+      if (!this.shouldAcquireWriterLeaseAfterObserve(reason, observedOwnership)) {
         return observedOwnership;
       }
       return this.acquireWriterLease(reason);
@@ -825,17 +825,18 @@ export class FrontendInstanceRuntime {
   }
 
   private shouldAcquireWriterLeaseAfterObserve(reason: string, ownership: FrontendOwnershipSnapshot): boolean {
-    if (isDocumentHidden()) {
-      return false;
-    }
     if (!ownership.leaseHolder) {
       const currentProfile = this.buildCurrentWriterProfile();
       if (
         currentProfile?.writerEligibility === 'follower-only'
+        || currentProfile?.writerEligibility === 'provisional-candidate'
         || currentProfile?.writerEligibility === 'never'
         || currentProfile?.writerEligibility === 'unavailable'
       ) {
         this.lastWriterUnavailableReason = `BACKEND_UNAVAILABLE: writer unavailable: ${currentProfile.reason}`;
+        return false;
+      }
+      if (isDocumentHidden()) {
         return false;
       }
       return true;
@@ -1041,7 +1042,7 @@ export class FrontendInstanceRuntime {
   }
 
   private shouldRecoverEmptyPrimaryWriterLeaseGap(ownership: FrontendOwnershipSnapshot): boolean {
-    if (this.mode !== 'writer' || ownership.leaseHolder || isDocumentHidden()) {
+    if (this.mode !== 'writer' || ownership.leaseHolder) {
       return false;
     }
     const currentProfile = this.buildCurrentWriterProfile();

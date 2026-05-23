@@ -1538,6 +1538,93 @@ describe('FrontendInstanceRuntime', () => {
     await runtime.dispose();
   });
 
+  it('keeps hidden canonical primary writer mode while recovering an empty lease after heartbeat renew failure', async () => {
+    vi.stubGlobal('document', {
+      visibilityState: 'visible',
+      hasFocus: vi.fn(() => false),
+      body: { className: 'fn__flex-column body--win32' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 SiYuan/3.6.5 Chrome/146 Electron/41 Safari/537.36',
+      platform: 'Win32',
+    });
+    vi.stubGlobal('window', {
+      location: { href: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const info = vi.fn();
+    const writerAcquireLease = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        lease: {
+          instanceId: 'primary-instance',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'primary-scope',
+        },
+        now: 1,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        lease: {
+          instanceId: 'primary-instance',
+          acquiredAt: 21_000,
+          expiresAt: 81_000,
+          lastHeartbeatAt: 21_000,
+          surfaceId: 'primary-scope',
+          visibilityState: 'hidden',
+          documentHasFocus: false,
+        },
+        now: 21_000,
+      });
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerRenewLease: vi.fn(async () => {
+        throw new Error('BACKEND_UNAVAILABLE: writer lease unavailable for renew; acquire lease first');
+      }),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 21_000 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 22_000 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'primary-instance',
+      runtimeScopeId: 'primary-scope',
+      backendContainer: 'std',
+      frontendKind: 'desktop',
+      isBrowser: false,
+      isMobile: false,
+      logger: { info, warn: vi.fn(), error: vi.fn() },
+    });
+
+    await runtime.start();
+    Object.defineProperty(document, 'visibilityState', {
+      value: 'hidden',
+      configurable: true,
+    });
+    await (runtime as unknown as {
+      refreshOwnership: (reason: string) => Promise<{ leaseHolder: string | null }>;
+    }).refreshOwnership('heartbeat');
+
+    expect(writerAcquireLease).toHaveBeenCalledTimes(2);
+    expect(writerAcquireLease).toHaveBeenLastCalledWith(expect.objectContaining({
+      visibilityState: 'hidden',
+      documentHasFocus: false,
+      writerProfile: expect.objectContaining({
+        surfaceRole: 'primary-app',
+        writerEligibility: 'canonical',
+      }),
+    }));
+    expect(runtime.getMode()).toBe('writer');
+    expect(info).not.toHaveBeenCalledWith(
+      '[FrontendInstanceRuntime] mode changed',
+      expect.objectContaining({ mode: 'follower' }),
+    );
+    await runtime.dispose();
+  });
+
   it('recovers canonical primary writer relay polling from an empty lease gap without dropping follower', async () => {
     vi.stubGlobal('document', {
       visibilityState: 'visible',
@@ -1975,6 +2062,88 @@ describe('FrontendInstanceRuntime', () => {
 
     await expect(runtime.ensureWritable()).rejects.toThrow(
       'BACKEND_UNAVAILABLE: writer unavailable: desktop Electron document window is follower-only',
+    );
+    expect(writerAcquireLease).not.toHaveBeenCalled();
+    expect(runtime.getMode()).toBe('follower');
+  });
+
+  it('hidden desktop document-window fails closed when no primary app writer is observed', async () => {
+    vi.stubGlobal('document', {
+      visibilityState: 'hidden',
+      hasFocus: vi.fn(() => false),
+      body: { className: 'fn__flex-column body--window body--win32' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 SiYuan/3.6.5 Chrome/146 Electron/41 Safari/537.36',
+      platform: 'Win32',
+    });
+    vi.stubGlobal('window', {
+      location: { href: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const writerAcquireLease = vi.fn(async () => {
+      throw new Error('hidden document-window must not acquire');
+    });
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 3 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'document-window-instance',
+      runtimeScopeId: 'document-window-scope',
+      backendContainer: 'std',
+      frontendKind: 'desktop-window',
+      isBrowser: true,
+      isMobile: false,
+    });
+
+    await expect(runtime.ensureWritable()).rejects.toThrow(
+      'BACKEND_UNAVAILABLE: writer unavailable: desktop Electron document window is follower-only',
+    );
+    expect(writerAcquireLease).not.toHaveBeenCalled();
+    expect(runtime.getMode()).toBe('follower');
+  });
+
+  it('std desktop browser frontend fails closed when no primary app writer is observed', async () => {
+    vi.stubGlobal('document', {
+      visibilityState: 'visible',
+      hasFocus: vi.fn(() => true),
+      body: { className: 'fn__flex-column body--toolbar-hide' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 Chrome/146 Safari/537.36',
+      platform: 'Win32',
+    });
+    vi.stubGlobal('window', {
+      location: { href: 'http://127.0.0.1:6806/stage/build/desktop/?r=abc' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const writerAcquireLease = vi.fn(async () => {
+      throw new Error('std desktop browser frontend must not acquire');
+    });
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 3 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'browser-instance',
+      runtimeScopeId: 'browser-scope',
+      backendContainer: 'std',
+      frontendKind: 'browser-desktop',
+      isBrowser: true,
+      isMobile: false,
+    });
+
+    await expect(runtime.ensureWritable()).rejects.toThrow(
+      'BACKEND_UNAVAILABLE: writer unavailable: browser frontend active-writer policy is provisional until backend-specific evidence exists',
     );
     expect(writerAcquireLease).not.toHaveBeenCalled();
     expect(runtime.getMode()).toBe('follower');

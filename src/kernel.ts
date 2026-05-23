@@ -501,6 +501,9 @@ function getWriterIneligibleReason(named) {
   if (eligibility === 'follower-only') {
     return 'writer unavailable: current runtime profile is follower-only';
   }
+  if (eligibility === 'provisional-candidate') {
+    return 'writer unavailable: current runtime profile is provisional-candidate';
+  }
   if (eligibility === 'never') {
     return 'writer unavailable: current runtime profile is never eligible';
   }
@@ -508,6 +511,15 @@ function getWriterIneligibleReason(named) {
     return 'writer unavailable: current runtime profile is unavailable';
   }
   return null;
+}
+
+function isHiddenCanonicalPrimaryEmptyLeaseRecoveryRequester(named) {
+  if (!isRequesterHidden(named)) {
+    return false;
+  }
+  const writerProfile = normalizeWriterProfile(named.writerProfile);
+  return writerProfile?.surfaceRole === 'primary-app'
+    && writerProfile.writerEligibility === 'canonical';
 }
 
 function buildWriterLeaseOwnerMetadata(activeLease, instanceId, at) {
@@ -876,7 +888,7 @@ async function writerAcquireLease(params) {
     }
   }
 
-  if (!activeLease && isRequesterHidden(named)) {
+  if (!activeLease && isRequesterHidden(named) && !isHiddenCanonicalPrimaryEmptyLeaseRecoveryRequester(named)) {
     return buildUnavailableEnvelope(
       'writer lease requester is hidden; foreground runtime required',
       null,

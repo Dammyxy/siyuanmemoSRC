@@ -98,6 +98,8 @@ export class KernelTransactionActionPump {
   private pollingInFlight = false;
   private emptyPollStreak = 0;
   private nextEmptyPollAllowedAt = 0;
+  private noWriterUnavailableStreak = 0;
+  private nextNoWriterUnavailablePollAllowedAt = 0;
   private pendingUpsert = false;
   private upsertInFlight = false;
   private upsertTimer: ReturnType<typeof setTimeout> | null = null;
@@ -149,6 +151,10 @@ export class KernelTransactionActionPump {
     if (!this.pollingTimer || this.pollingInFlight) {
       return;
     }
+    if (this.shouldSkipForNoWriterUnavailableBackoff()) {
+      incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-wake-bounded-by-no-writer-backoff');
+      return;
+    }
     if (this.shouldSkipForEmptyPollBackoff()) {
       incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-wake-bounded-by-empty-backoff');
       return;
@@ -158,6 +164,10 @@ export class KernelTransactionActionPump {
   }
 
   private async pollOnce(): Promise<void> {
+    if (this.shouldSkipForNoWriterUnavailableBackoff()) {
+      incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-no-writer-backoff-skips');
+      return;
+    }
     if (this.shouldSkipForEmptyPollBackoff()) {
       incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-empty-backoff-skips');
       return;
@@ -176,6 +186,7 @@ export class KernelTransactionActionPump {
     this.pollingInFlight = true;
     try {
       const result = await this.dequeueActions();
+      this.resetNoWriterUnavailableBackoff();
       const actions = result.actions || [];
       actionCount = actions.length;
       incrementRuntimePerformanceCounter('daily-editing', 'kernel-actions-dequeued', actions.length);
@@ -248,9 +259,11 @@ export class KernelTransactionActionPump {
     } catch (error) {
       pollStatus = 'error';
       this.resetEmptyPollBackoff();
-      logger.warn('Kernel transaction action polling failed', {
-        message: error instanceof Error ? error.message : String(error || ''),
-      });
+      if (this.recordNoWriterUnavailableBackoff(error)) {
+        logger.warn('Kernel transaction action polling failed', {
+          message: error instanceof Error ? error.message : String(error || ''),
+        });
+      }
     } finally {
       this.pollingInFlight = false;
       if (pollStatus === 'empty') {
@@ -289,6 +302,29 @@ export class KernelTransactionActionPump {
   private resetEmptyPollBackoff(): void {
     this.emptyPollStreak = 0;
     this.nextEmptyPollAllowedAt = 0;
+  }
+
+  private shouldSkipForNoWriterUnavailableBackoff(): boolean {
+    return Date.now() < this.nextNoWriterUnavailablePollAllowedAt;
+  }
+
+  private recordNoWriterUnavailableBackoff(error: unknown): boolean {
+    if (!this.isNoActiveWriterRelayUnavailableError(error)) {
+      this.resetNoWriterUnavailableBackoff();
+      return true;
+    }
+    this.noWriterUnavailableStreak += 1;
+    const delayMs = Math.min(
+      this.emptyPollBackoffMaxMs,
+      this.pollIntervalMs * (2 ** this.noWriterUnavailableStreak),
+    );
+    this.nextNoWriterUnavailablePollAllowedAt = Date.now() + delayMs;
+    return true;
+  }
+
+  private resetNoWriterUnavailableBackoff(): void {
+    this.noWriterUnavailableStreak = 0;
+    this.nextNoWriterUnavailablePollAllowedAt = 0;
   }
 
   private hasPendingFollowUpWork(): boolean {
@@ -399,11 +435,14 @@ export class KernelTransactionActionPump {
           this.relayTimeoutMs,
         ), { maxActions: this.maxActionsPerPoll });
       } catch (error) {
-        if (!this.isSelfRelaySubmissionError(error)) {
+        if (this.isSelfRelaySubmissionError(error)) {
+          await this.refreshStaleWriterModeAfterSelfRelay();
+        } else if (await this.tryRecoverNoActiveWriterDequeue(error)) {
+          // Runtime recovered writer ownership; fall through to local writer dequeue.
+        } else {
           this.reportDequeueWriterUnavailable(error);
           throw error;
         }
-        await this.refreshStaleWriterModeAfterSelfRelay();
       }
     }
     return measureRuntimePerformance(
@@ -436,8 +475,45 @@ export class KernelTransactionActionPump {
         message.includes('writer relay timeout')
         || message.includes('writer relay unavailable')
         || message.includes('writer unavailable')
+        || message.includes('writer command unavailable')
         || message.includes('writer lease')
       );
+  }
+
+  private async tryRecoverNoActiveWriterDequeue(error: unknown): Promise<boolean> {
+    if (!this.isNoActiveWriterRelayUnavailableError(error) || typeof this.runtime?.ensureWritable !== 'function') {
+      return false;
+    }
+    try {
+      await this.runtime.ensureWritable();
+    } catch (recoveryError) {
+      this.markNoActiveWriterRelayUnavailable(recoveryError);
+      this.reportDequeueWriterUnavailable(recoveryError);
+      throw recoveryError;
+    }
+    return this.runtime?.getMode?.() === 'writer';
+  }
+
+  private isNoActiveWriterRelayUnavailableError(error: unknown): boolean {
+    if (error && typeof error === 'object' && (error as { noActiveWriterRelay?: unknown }).noActiveWriterRelay === true) {
+      return true;
+    }
+    const message = error instanceof Error ? error.message : String(error || '');
+    return message.includes('writer command unavailable: no active writer lease');
+  }
+
+  private markNoActiveWriterRelayUnavailable(error: unknown): void {
+    if (!error || typeof error !== 'object') {
+      return;
+    }
+    try {
+      Object.defineProperty(error, 'noActiveWriterRelay', {
+        value: true,
+        configurable: true,
+      });
+    } catch {
+      // Diagnostic marker only; keep the original explicit unavailable error.
+    }
   }
 
   private readRelayErrorDiagnostics(error: unknown): Partial<KernelTransactionWriterUnavailableDetail> {

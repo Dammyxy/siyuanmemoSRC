@@ -1,9 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const actionPumpLoggerMocks = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
+
+vi.mock('@/utils/logger', () => ({
+  createLogger: () => actionPumpLoggerMocks,
+}));
+
 import { KernelTransactionActionPump } from '@/application/handlers/KernelTransactionActionPump';
 
 describe('KernelTransactionActionPump', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    actionPumpLoggerMocks.info.mockReset();
+    actionPumpLoggerMocks.warn.mockReset();
+    actionPumpLoggerMocks.error.mockReset();
+    actionPumpLoggerMocks.debug.mockReset();
   });
 
   afterEach(() => {
@@ -266,6 +282,139 @@ describe('KernelTransactionActionPump', () => {
       commandId: 'cmd-dequeue-timeout',
       timeoutMs: 1200,
     }));
+
+    await pump.dispose();
+  });
+
+  it('dequeues locally after no-active-writer follower relay recovery restores writer mode', async () => {
+    let mode: 'follower' | 'writer' = 'follower';
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [],
+      remaining: 0,
+    }));
+    const ensureWritable = vi.fn(async () => {
+      mode = 'writer';
+    });
+    const submitAndWait = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: writer command unavailable: no active writer lease');
+    });
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      {
+        getMode: () => mode,
+        getInstanceId: () => 'primary-instance',
+        ensureWritable,
+      },
+      { submitAndWait },
+      () => undefined,
+      () => undefined,
+      { pollIntervalMs: 250 },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+
+    expect(submitAndWait).toHaveBeenCalledTimes(1);
+    expect(ensureWritable).toHaveBeenCalledTimes(1);
+    expect(dequeueKernelTransactions).toHaveBeenCalledWith({ maxActions: 8 });
+    expect(ensureWritable.mock.invocationCallOrder[0]).toBeLessThan(
+      dequeueKernelTransactions.mock.invocationCallOrder[0],
+    );
+
+    await pump.dispose();
+  });
+
+  it('fails closed when no-active-writer follower relay recovery is rejected', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [],
+      remaining: 0,
+    }));
+    const onWriterUnavailable = vi.fn();
+    const ensureWritable = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: writer unavailable: desktop Electron document window is follower-only');
+    });
+    const submitAndWait = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: writer command unavailable: no active writer lease');
+    });
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      {
+        getMode: () => 'follower',
+        getInstanceId: () => 'document-window-instance',
+        ensureWritable,
+      },
+      { submitAndWait },
+      () => undefined,
+      () => undefined,
+      {
+        pollIntervalMs: 250,
+        onWriterUnavailable,
+      },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+
+    expect(submitAndWait).toHaveBeenCalledTimes(1);
+    expect(ensureWritable).toHaveBeenCalledTimes(1);
+    expect(dequeueKernelTransactions).not.toHaveBeenCalled();
+    expect(onWriterUnavailable).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'kernel.transaction.dequeue',
+      message: 'BACKEND_UNAVAILABLE: writer unavailable: desktop Electron document window is follower-only',
+      runtimeMode: 'follower',
+      instanceId: 'document-window-instance',
+    }));
+
+    await pump.dispose();
+  });
+
+  it('backs off repeated no-active-writer dequeue polling warnings', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [],
+      remaining: 0,
+    }));
+    const ensureWritable = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: writer unavailable: desktop Electron document window is follower-only');
+    });
+    const submitAndWait = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: writer command unavailable: no active writer lease');
+    });
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      {
+        getMode: () => 'follower',
+        getInstanceId: () => 'document-window-instance',
+        ensureWritable,
+      },
+      { submitAndWait },
+      () => undefined,
+      () => undefined,
+      {
+        pollIntervalMs: 250,
+        emptyPollBackoffMaxMs: 1_000,
+      },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect(submitAndWait).toHaveBeenCalledTimes(1);
+    expect(actionPumpLoggerMocks.warn).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect(submitAndWait).toHaveBeenCalledTimes(1);
+    expect(actionPumpLoggerMocks.warn).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect(submitAndWait).toHaveBeenCalledTimes(2);
+    expect(actionPumpLoggerMocks.warn).toHaveBeenCalledTimes(2);
 
     await pump.dispose();
   });

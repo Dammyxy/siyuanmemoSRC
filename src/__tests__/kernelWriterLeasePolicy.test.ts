@@ -112,6 +112,29 @@ describe('kernel writer lease profile policy', () => {
     });
   });
 
+  it('lets hidden desktop primary app recover an empty writer lease', async () => {
+    const { handlers } = await loadKernelHarness();
+
+    await expect(handlers['writer.acquireLease']({
+      instanceId: 'primary-app',
+      locationHref: 'http://127.0.0.1:61082/stage/build/app/?v=secret',
+      visibilityState: 'hidden',
+      documentHasFocus: false,
+      writerProfile: primaryProfile,
+    })).resolves.toMatchObject({
+      ok: true,
+      lease: {
+        instanceId: 'primary-app',
+        visibilityState: 'hidden',
+        documentHasFocus: false,
+        writerProfile: {
+          surfaceRole: 'primary-app',
+          writerEligibility: 'canonical',
+        },
+      },
+    });
+  });
+
   it('relays queue projection identity broadcasts without rows or DB ownership', async () => {
     const { handlers, broadcasts } = await loadKernelHarness();
 
@@ -169,6 +192,25 @@ describe('kernel writer lease profile policy', () => {
     });
   });
 
+  it('fails closed when a hidden desktop document window tries to acquire an empty writer lease', async () => {
+    const { handlers } = await loadKernelHarness();
+
+    await expect(handlers['writer.acquireLease']({
+      instanceId: 'doc-window',
+      locationHref: 'http://127.0.0.1:61082/stage/build/app/window.html?enhance=true',
+      visibilityState: 'hidden',
+      documentHasFocus: false,
+      writerProfile: documentWindowProfile,
+    })).resolves.toMatchObject({
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'writer unavailable: current runtime profile is follower-only',
+      },
+      lease: null,
+      ok: false,
+    });
+  });
+
   it('keeps document windows from reclaiming a primary-app owner', async () => {
     const { handlers } = await loadKernelHarness();
     await handlers['writer.acquireLease']({
@@ -198,7 +240,7 @@ describe('kernel writer lease profile policy', () => {
     });
   });
 
-  it('allows primary app to reclaim from a provisional active browser frontend', async () => {
+  it('rejects ordinary std desktop browser frontend as writer', async () => {
     const { handlers } = await loadKernelHarness();
     await expect(handlers['writer.acquireLease']({
       instanceId: 'browser-front',
@@ -206,30 +248,12 @@ describe('kernel writer lease profile policy', () => {
       visibilityState: 'visible',
       writerProfile: browserProfile,
     })).resolves.toMatchObject({
-      ok: true,
-      lease: {
-        instanceId: 'browser-front',
-        writerProfile: {
-          surfaceRole: 'active-frontend',
-          writerEligibility: 'provisional-candidate',
-        },
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'writer unavailable: current runtime profile is provisional-candidate',
       },
-    });
-
-    await expect(handlers['writer.acquireLease']({
-      instanceId: 'primary-app',
-      locationHref: 'http://127.0.0.1:61082/stage/build/app/',
-      visibilityState: 'visible',
-      writerProfile: primaryProfile,
-    })).resolves.toMatchObject({
-      ok: true,
-      lease: {
-        instanceId: 'primary-app',
-        writerProfile: {
-          surfaceRole: 'primary-app',
-          writerEligibility: 'canonical',
-        },
-      },
+      lease: null,
+      ok: false,
     });
   });
 

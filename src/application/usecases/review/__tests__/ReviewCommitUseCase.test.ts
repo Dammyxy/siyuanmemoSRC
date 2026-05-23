@@ -315,6 +315,88 @@ describe('ReviewCommitUseCase', () => {
     expect(reviewFeedback).not.toHaveBeenCalled();
   });
 
+  it('recovers stale follower primary app before local review feedback when relay has no active writer', async () => {
+    const before = createCard({ id: 'card-stale-follower-primary' });
+    const after = createCard({ id: before.id, due: before.due + 3 * 86_400_000 });
+    let mode: 'follower' | 'writer' = 'follower';
+    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after }));
+    const ensureWritable = vi.fn(async () => {
+      mode = 'writer';
+    });
+    const submitAndWait = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: writer command unavailable: no active writer lease');
+    });
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      srsBackend: { reviewFeedback },
+      writerLeaseGuard: {
+        ensureWritable,
+        getMode: () => mode,
+        getInstanceId: () => 'primary-instance',
+      } as never,
+      followerCommandClient: { submitAndWait },
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    const result = await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(result.committed).toBe(true);
+    expect(submitAndWait).toHaveBeenCalledTimes(1);
+    expect(ensureWritable).toHaveBeenCalledTimes(1);
+    expect(reviewFeedback).toHaveBeenCalledTimes(1);
+    expect(ensureWritable.mock.invocationCallOrder[0]).toBeLessThan(
+      reviewFeedback.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('fails closed for non-primary follower when no-active-writer recovery is rejected', async () => {
+    const before = createCard({ id: 'card-non-primary-follower' });
+    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: before }));
+    const ensureWritable = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: writer unavailable: desktop Electron document window is follower-only');
+    });
+    const submitAndWait = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: writer command unavailable: no active writer lease');
+    });
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      srsBackend: { reviewFeedback },
+      writerLeaseGuard: {
+        ensureWritable,
+        getMode: () => 'follower',
+        getInstanceId: () => 'document-window-instance',
+      } as never,
+      followerCommandClient: { submitAndWait },
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    await expect(useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    })).rejects.toThrow(
+      'BACKEND_UNAVAILABLE: writer unavailable: desktop Electron document window is follower-only',
+    );
+
+    expect(submitAndWait).toHaveBeenCalledTimes(1);
+    expect(ensureWritable).toHaveBeenCalledTimes(1);
+    expect(reviewFeedback).not.toHaveBeenCalled();
+  });
+
   it('carries review commit idempotency key through follower relay payload', async () => {
     const before = createCard({ id: 'card-follower-idempotency' });
     const after = createCard({ id: before.id, due: before.due + 3 * 86_400_000 });

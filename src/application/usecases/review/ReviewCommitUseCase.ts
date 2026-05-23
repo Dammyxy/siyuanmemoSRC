@@ -43,14 +43,18 @@ export interface ReviewCommitBackendFeedbackClient {
     projectionGeneration?: number;
     projectionPolicyHash?: string;
     scheduler?: BackendReviewSchedulerConfig;
-  }): Promise<{
-    committed: boolean;
-    updatedCard: unknown | null;
-    idempotencyKey?: string | null;
-    duplicate?: boolean;
-    queueImpact?: BackendReviewFeedbackQueueImpact | null;
-  }>;
+  }): Promise<ReviewFeedbackWriteResult>;
 }
+
+type ReviewFeedbackRequest = Parameters<ReviewCommitBackendFeedbackClient['reviewFeedback']>[0];
+
+type ReviewFeedbackWriteResult = {
+  committed: boolean;
+  updatedCard: unknown | null;
+  idempotencyKey?: string | null;
+  duplicate?: boolean;
+  queueImpact?: BackendReviewFeedbackQueueImpact | null;
+};
 
 export interface ReviewCommitWriterLeaseGuard {
   ensureWritable(): Promise<void>;
@@ -85,6 +89,7 @@ type ReviewPolicyDecisionReason =
   | 'backend-worker-unavailable'
   | 'follower-relay-unavailable'
   | 'follower-relay-timeout'
+  | 'follower-relay-no-active-writer-recovered'
   | 'writer-unavailable';
 
 type RelayRuntimeState =
@@ -191,13 +196,7 @@ export class ReviewCommitUseCase {
       ...(projectionPolicyHash ? { projectionPolicyHash } : {}),
       ...(schedulerConfig ? { scheduler: schedulerConfig } : {}),
     };
-    let result: {
-      committed: boolean;
-      updatedCard: unknown | null;
-      idempotencyKey?: string | null;
-      duplicate?: boolean;
-      queueImpact?: BackendReviewFeedbackQueueImpact | null;
-    };
+    let result: ReviewFeedbackWriteResult;
     if (relayRuntime.mode === 'follower') {
       if (!this.deps.followerCommandClient) {
         this.logPolicyDecision('follower-relay-unavailable', {
@@ -225,7 +224,18 @@ export class ReviewCommitUseCase {
             instanceId: relayRuntime.instanceId,
           });
         }
-        throw error;
+        const recoveredResult = await this.tryRecoverFollowerNoActiveWriterFeedback(
+          error,
+          relayRuntime,
+          requestPayload,
+          command,
+          workerContext,
+          rating,
+        );
+        if (!recoveredResult) {
+          throw error;
+        }
+        result = recoveredResult;
       }
     } else {
       if (relayRuntime.mode === 'unknown') {
@@ -245,17 +255,7 @@ export class ReviewCommitUseCase {
           throw error;
         }
       }
-      try {
-        result = await measureRuntimePerformance('review', 'feedback.backend-worker', () => this.deps.srsBackend!.reviewFeedback(requestPayload), {
-          cardId: command.cardId,
-          commitPolicy: workerContext.commitPolicy,
-          queueMode: workerContext.queueMode,
-          queueType: workerContext.queueType,
-          rating,
-        });
-      } catch (error) {
-        throw error;
-      }
+      result = await this.executeLocalWorkerFeedback(requestPayload, command, workerContext, rating);
     }
 
     const updatedCard = normalizeWorkerUpdatedCard(result.updatedCard, card);
@@ -269,6 +269,53 @@ export class ReviewCommitUseCase {
       committed: result.committed,
       queueImpact: result.queueImpact ?? null,
     };
+  }
+
+  private async tryRecoverFollowerNoActiveWriterFeedback(
+    error: unknown,
+    relayRuntime: Extract<RelayRuntimeState, { mode: 'follower' }>,
+    requestPayload: ReviewFeedbackRequest,
+    command: QueueReviewCommand,
+    workerContext: ReturnType<typeof resolveWorkerFeedbackContext>,
+    rating: Rating,
+  ): Promise<ReviewFeedbackWriteResult | null> {
+    if (!isNoActiveWriterRelayUnavailableError(error) || !this.deps.writerLeaseGuard) {
+      return null;
+    }
+    try {
+      await measureRuntimePerformance('relay', 'ensure-writable.review-feedback-recover', () => this.deps.writerLeaseGuard!.ensureWritable(), {
+        method: 'review.feedback',
+      });
+    } catch (recoveryError) {
+      this.logPolicyDecision('writer-unavailable', {
+        instanceId: relayRuntime.instanceId,
+        error: recoveryError instanceof Error ? recoveryError.message : String(recoveryError),
+      });
+      throw recoveryError;
+    }
+    const recoveredRuntime = resolveRelayRuntimeState(this.deps.writerLeaseGuard);
+    if (recoveredRuntime.mode !== 'writer') {
+      return null;
+    }
+    this.logPolicyDecision('follower-relay-no-active-writer-recovered', {
+      instanceId: relayRuntime.instanceId,
+    });
+    return this.executeLocalWorkerFeedback(requestPayload, command, workerContext, rating);
+  }
+
+  private async executeLocalWorkerFeedback(
+    requestPayload: ReviewFeedbackRequest,
+    command: QueueReviewCommand,
+    workerContext: ReturnType<typeof resolveWorkerFeedbackContext>,
+    rating: Rating,
+  ): Promise<ReviewFeedbackWriteResult> {
+    return measureRuntimePerformance('review', 'feedback.backend-worker', () => this.deps.srsBackend!.reviewFeedback(requestPayload), {
+      cardId: command.cardId,
+      commitPolicy: workerContext.commitPolicy,
+      queueMode: workerContext.queueMode,
+      queueType: workerContext.queueType,
+      rating,
+    });
   }
 
   private resolveRuntimeWriteReadiness(relayRuntime: RelayRuntimeState): {
@@ -381,6 +428,11 @@ function resolveRelayRuntimeState(
 function isWriterRelayTimeoutError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || '');
   return message.includes('BACKEND_UNAVAILABLE: writer relay timeout');
+}
+
+function isNoActiveWriterRelayUnavailableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return message.includes('writer command unavailable: no active writer lease');
 }
 
 function normalizeRelayFeedbackResult(payload: unknown): {
