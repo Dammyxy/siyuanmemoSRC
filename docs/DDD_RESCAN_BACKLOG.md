@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-23 (Round 450)
+Last update: 2026-05-24 (Round 451)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-24 - NeuralRoam Engine Boundary Pending Reset
+
+- Task: Diagnose orbit/hyperspace "next has no node" from real SiYuanMemo data and fix the stale exhausted pending state after engine mode switches.
+- Touched slice: Review / Queue NeuralRoam advance; `src/application/adapters/UnifiedQueueStrategy.ts`, `src/application/adapters/review-session/NeuralRoamAdvanceCoordinator.ts`, and `src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`.
+- Debt fixed now: Review advance now treats NeuralRoam route id plus engine mode as the frontend advance boundary. If orbit exhausts and the active route later switches to hyperspace, stale `pendingNextReady=null` is cleared before the next click so the strategy asks backend advance again instead of replaying the old exhausted result.
+- Debt deferred: Broader command-origin cleanup remains: NeuralRoam engine/focus commands can still be fired from review/browser UI helpers outside `UnifiedQueueStrategy`, so this fix guards the active review advance boundary rather than centralizing every command path.
+- Why deferred: Central command ownership would touch Review toolbar, Browser neural workspace, TabManager restore, and route command helpers; current bug closes with a narrow boundary invariant and regression test.
+- Next safe step: Consolidate NeuralRoam UI command result syncing behind one application adapter if future drift appears between command execution and review session advancement.
+- Validation: `pnpm vitest run src\application\__tests__\UnifiedQueueStrategy.neural-roam.test.ts` passed after failing red on the new regression.
 
 ### 2026-05-23 - Desktop Primary Writer Lease Stabilization
 

@@ -5,7 +5,7 @@ import {
 } from '@/core/queue/abstraction/Strategy';
 import type { QueueStats, QueueUIConfig } from '@/core/queue/types';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
-import type { DataChangeEvent, IDataSourceObserver, IReviewQueue, QueueCounterSnapshot, QueueReviewResult, QueueReviewSchedulingContext, NeuralRoamBatchSnapshot } from '@/types/unified-data-source';
+import type { DataChangeEvent, IDataSourceObserver, IReviewQueue, QueueCounterSnapshot, QueueReviewResult, QueueReviewSchedulingContext, NeuralEngineMode, NeuralRoamBatchSnapshot } from '@/types/unified-data-source';
 import type { ReviewQueueSessionSnapshot } from '@/types/review-tab';
 import { QueueType } from '@/types/unified-data-source';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
@@ -85,6 +85,7 @@ type NeuralRoamBackendStateSyncQueue = IReviewQueue & {
 type NeuralRoamRouteSwitchQueue = IReviewQueue & {
     switchRoute?: (routeId: string) => Promise<unknown>;
     getActiveRouteId?: () => string | null;
+    getEngineMode?: () => NeuralEngineMode | string;
     syncActiveRouteState?: () => Promise<void>;
 };
 
@@ -899,7 +900,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private async nextFromNeuralRoamAdvance(): Promise<FSRSCard | null> {
-        this.neuralRoamAdvance.setActiveRouteId(await this.syncAndReadActiveNeuralRoamRouteId());
+        const boundary = await this.syncAndReadActiveNeuralRoamRouteBoundary();
+        this.neuralRoamAdvance.setActiveRouteBoundary(boundary.routeId, boundary.engineMode);
         const outcome = await this.neuralRoamAdvance.next();
         if (!outcome || outcome.kind === 'exhausted') {
             logger.info('[SiYuanMemo][UnifiedQueueStrategy] NeuralRoam advance queue exhausted');
@@ -973,7 +975,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         activeItem: FSRSCard,
         feedback: QueueFeedback,
     ): Promise<void> {
-        this.neuralRoamAdvance.setActiveRouteId(await this.syncAndReadActiveNeuralRoamRouteId());
+        const boundary = await this.syncAndReadActiveNeuralRoamRouteBoundary();
+        this.neuralRoamAdvance.setActiveRouteBoundary(boundary.routeId, boundary.engineMode);
         const outcome = await this.neuralRoamAdvance.handleFeedback(activeItem, feedback);
         if (outcome.kind === 'session-only') {
             logger.info('[SiYuanMemo][UnifiedQueueStrategy] NeuralRoam custom feedback handled as session-only action:', {
@@ -1065,15 +1068,30 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         return String(routeId || '').trim() || null;
     }
 
-    private async syncAndReadActiveNeuralRoamRouteId(): Promise<string | null> {
+    private readActiveNeuralRoamEngineMode(): NeuralEngineMode | null {
         if (this.queueType !== QueueType.NeuralRoam) {
             return null;
+        }
+        const queue = this.queue as NeuralRoamRouteSwitchQueue;
+        const engineMode = typeof queue.getEngineMode === 'function' ? queue.getEngineMode() : null;
+        return engineMode === 'orbit' || engineMode === 'hyperspace' ? engineMode : null;
+    }
+
+    private async syncAndReadActiveNeuralRoamRouteBoundary(): Promise<{
+        routeId: string | null;
+        engineMode: NeuralEngineMode | null;
+    }> {
+        if (this.queueType !== QueueType.NeuralRoam) {
+            return { routeId: null, engineMode: null };
         }
         const queue = this.queue as NeuralRoamRouteSwitchQueue;
         if (typeof queue.syncActiveRouteState === 'function') {
             await queue.syncActiveRouteState();
         }
-        return this.readActiveNeuralRoamRouteId();
+        return {
+            routeId: this.readActiveNeuralRoamRouteId(),
+            engineMode: this.readActiveNeuralRoamEngineMode(),
+        };
     }
 
     private hasSessionExclusions(): boolean {

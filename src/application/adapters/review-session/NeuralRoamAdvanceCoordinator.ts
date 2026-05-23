@@ -3,7 +3,7 @@ import {
   type QueueFeedback,
 } from '@/core/queue/abstraction/Strategy';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
-import { QueueType, type QueueCounterSnapshot } from '@/types/unified-data-source';
+import { QueueType, type NeuralEngineMode, type QueueCounterSnapshot } from '@/types/unified-data-source';
 import type {
   BackendNeuralRoamAdvanceRequest,
   BackendNeuralRoamAdvanceResult,
@@ -38,6 +38,7 @@ export class NeuralRoamAdvanceCoordinator {
   private pendingNextReady = false;
   private pendingStartFromFocus: BackendNeuralRoamStartFromFocusRequest | null = null;
   private activeRouteId: string | null = null;
+  private activeEngineMode: NeuralEngineMode | null = null;
 
   constructor(private readonly deps: NeuralRoamAdvanceCoordinatorDependencies) {}
 
@@ -54,8 +55,31 @@ export class NeuralRoamAdvanceCoordinator {
   }
 
   setActiveRouteId(routeId: string | null | undefined): void {
+    this.setActiveRouteBoundary(routeId, null);
+  }
+
+  setActiveRouteBoundary(
+    routeId: string | null | undefined,
+    engineMode: string | null | undefined,
+  ): void {
     const normalized = String(routeId || '').trim();
-    this.activeRouteId = normalized || null;
+    const nextRouteId = normalized || null;
+    const nextEngineMode = normalizeEngineMode(engineMode);
+    const routeChanged = this.activeRouteId !== null
+      && nextRouteId !== null
+      && this.activeRouteId !== nextRouteId;
+    const engineModeChanged = this.activeEngineMode !== null
+      && nextEngineMode !== null
+      && this.activeEngineMode !== nextEngineMode;
+
+    if (routeChanged || engineModeChanged) {
+      this.reset();
+    }
+
+    this.activeRouteId = nextRouteId;
+    if (nextEngineMode) {
+      this.activeEngineMode = nextEngineMode;
+    }
   }
 
   startFromFocusOnNextAdvance(request: BackendNeuralRoamStartFromFocusRequest | null | undefined): void {
@@ -169,6 +193,7 @@ export class NeuralRoamAdvanceCoordinator {
     }
 
     await this.deps.syncFromBackendState(result);
+    this.acceptRouteBoundaryFromResult(result);
     this.deps.pushHistory(activeItem, null);
     this.deps.cursor.clearForward();
     this.deps.cursor.clearPendingRotation();
@@ -192,6 +217,7 @@ export class NeuralRoamAdvanceCoordinator {
     const outcome = this.deps.outcomePolicy.consume(result);
     if (outcome.kind === 'exhausted') {
       await this.deps.syncFromBackendState(result);
+      this.acceptRouteBoundaryFromResult(result);
       this.deps.currentItem.clear();
       return { kind: 'exhausted', source, status: result.status };
     }
@@ -202,6 +228,7 @@ export class NeuralRoamAdvanceCoordinator {
     }
 
     await this.deps.syncFromBackendState(result);
+    this.acceptRouteBoundaryFromResult(result);
     const nextCard = this.fromAdvanceItem(result.nextItem);
     const cardWithNextDues = await this.deps.addNextDues(nextCard);
     this.deps.currentItem.select(cardWithNextDues);
@@ -219,7 +246,16 @@ export class NeuralRoamAdvanceCoordinator {
     this.deps.cursor.clearPendingRotation();
     this.pendingNext = null;
     this.pendingNextReady = false;
-    this.setActiveRouteId(result.routeId ?? result.sessionState.routeId ?? this.activeRouteId);
+    this.acceptRouteBoundaryFromResult(result);
+  }
+
+  private acceptRouteBoundaryFromResult(result: BackendNeuralRoamAdvanceResult): void {
+    const routeId = String(result.routeId || result.sessionState.routeId || this.activeRouteId || '').trim();
+    this.activeRouteId = routeId || null;
+    const engineMode = normalizeEngineMode(result.sessionState.engineMode);
+    if (engineMode) {
+      this.activeEngineMode = engineMode;
+    }
   }
 
   private toAdvanceItem(card: FSRSCard): BackendNeuralRoamItem {
@@ -296,6 +332,10 @@ function toCounterSnapshot(result: BackendNeuralRoamAdvanceResult): QueueCounter
     },
     source: 'hot',
   };
+}
+
+function normalizeEngineMode(value: unknown): NeuralEngineMode | null {
+  return value === 'orbit' || value === 'hyperspace' ? value : null;
 }
 
 function normalizeAdvanceItemCardType(value: unknown): CardType {

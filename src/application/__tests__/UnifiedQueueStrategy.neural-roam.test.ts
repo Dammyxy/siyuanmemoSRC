@@ -587,6 +587,40 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
     }));
   });
 
+  it('clears an exhausted pending advance when the neural engine mode changes externally', async () => {
+    let engineMode: 'orbit' | 'hyperspace' = 'orbit';
+    const queue = createQueueStub() as IReviewQueue & {
+      getEngineMode: ReturnType<typeof vi.fn>;
+    };
+    queue.getEngineMode = vi.fn(() => engineMode);
+
+    const active = createSyntheticNeuralCard({ id: 'orbit-exhausted-node', blockId: 'orbit-exhausted-node' });
+    const hyperspaceNext = createSyntheticNeuralCard({ id: 'hyperspace-frontier-node', blockId: 'hyperspace-frontier-node' });
+    const exhaustedOrbit = createAdvanceResult(null, 'exhausted');
+    exhaustedOrbit.sessionState.engineMode = 'orbit';
+    exhaustedOrbit.queueState = {
+      version: 8,
+      engineMode: 'orbit',
+    };
+
+    const { strategy, manager } = createStrategyWithQueue(queue);
+    manager.neuralRoamAdvance.mockResolvedValueOnce(exhaustedOrbit);
+
+    await strategy.onFeedback(active, { action: 'rate', rating: 3 });
+
+    engineMode = 'hyperspace';
+    manager.neuralRoamAdvance.mockResolvedValueOnce(createAdvanceResult(createAdvanceItem(hyperspaceNext)));
+
+    const next = await strategy.next();
+
+    expect(next?.id).toBe('hyperspace-frontier-node');
+    expect(manager.neuralRoamAdvance).toHaveBeenCalledTimes(2);
+    expect(manager.neuralRoamAdvance).toHaveBeenLastCalledWith(expect.objectContaining({
+      currentItem: null,
+      feedback: null,
+    }));
+  });
+
   it('syncs the local neural queue after backend next advances the track state', async () => {
     const queue = createQueueStub() as IReviewQueue & {
       syncFromBackendState: ReturnType<typeof vi.fn>;
