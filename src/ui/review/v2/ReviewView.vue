@@ -313,6 +313,9 @@ import {
   type ReviewTabTransferState,
   type IUnifiedDataSourceManagerFacade,
   isNeuralRoamSessionQueue,
+  type BackendNeuralRoamCommandRequest,
+  type BackendNeuralRoamCommandResult,
+  type BackendNeuralRoamViewState,
   type NeuralNavigationState,
   type NeuralRoamBatchSnapshot,
   type NeuralRoamSessionQueue,
@@ -979,15 +982,6 @@ function getNeuralRoamQueue(): NeuralRoamSessionQueue | null {
   return underlyingQueue;
 }
 
-function getQueueStrategyWithNeuralRouteSwitch(): { switchNeuralRoamRoute?: (routeId: string) => Promise<void> } | null {
-  const strategy = hook.getQueueStrategy();
-  if (!isRecord(strategy)) {
-    return null;
-  }
-  const candidate = strategy as { switchNeuralRoamRoute?: (routeId: string) => Promise<void> };
-  return typeof candidate.switchNeuralRoamRoute === 'function' ? candidate : null;
-}
-
 function formatNeuralRoamRouteDetail(route: NeuralRoamRouteListItem): string {
   return [
     `${t('routeConceptCount', '概念')} ${Math.max(0, Number(route.stats?.seedCount) || 0)}`,
@@ -997,6 +991,11 @@ function formatNeuralRoamRouteDetail(route: NeuralRoamRouteListItem): string {
 }
 
 async function refreshNeuralRoamRoutes(): Promise<void> {
+  const backendViewState = getNeuralRoamViewState();
+  if (Array.isArray(backendViewState?.routes)) {
+    neuralRoamRoutes.value = backendViewState.routes as NeuralRoamRouteListItem[];
+    return;
+  }
   const neuralQueue = getNeuralRoamQueue();
   if (!neuralQueue?.listRoutes) {
     neuralRoamRoutes.value = [];
@@ -1007,6 +1006,39 @@ async function refreshNeuralRoamRoutes(): Promise<void> {
   } catch (error) {
     logger.warn('[SiYuanMemo][ReviewView] Failed to list NeuralRoam routes:', error);
     neuralRoamRoutes.value = [];
+  }
+}
+
+function getNeuralRoamViewState(): BackendNeuralRoamViewState | null {
+  return getNeuralRoamQueue()?.getBackendViewState?.() ?? null;
+}
+
+async function runBackendNeuralRoamRouteCommand(
+  command: BackendNeuralRoamCommandRequest['command'],
+): Promise<BackendNeuralRoamCommandResult | null> {
+  const runner = getNeuralRoamCommand();
+  if (typeof runner !== 'function') {
+    return null;
+  }
+  return runner({
+    queueType: 'neural-roam',
+    command,
+  });
+}
+
+async function syncNeuralRoamRouteCommandResult(result: BackendNeuralRoamCommandResult | null): Promise<void> {
+  if (!result) {
+    return;
+  }
+  const neuralQueue = getNeuralRoamQueue();
+  if (result.queueState && neuralQueue && typeof neuralQueue.syncFromBackendState === 'function') {
+    await neuralQueue.syncFromBackendState(result.queueState);
+  }
+  neuralQueue?.setBackendViewState?.(result.viewState ?? null);
+  if (Array.isArray(result.viewState?.routes)) {
+    neuralRoamRoutes.value = result.viewState.routes as NeuralRoamRouteListItem[];
+  } else {
+    await refreshNeuralRoamRoutes();
   }
 }
 
@@ -1145,7 +1177,8 @@ function getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null {
 }
 
 function getNeuralRoamCommand() {
-  return getUnifiedDataSourceManager()?.neuralRoamCommand || null;
+  const manager = getUnifiedDataSourceManager();
+  return manager ? manager.neuralRoamCommand.bind(manager) : null;
 }
 
 function getInitialReviewSessionState(): InitialReviewSessionState | undefined {
@@ -3298,19 +3331,23 @@ function handleNeuralRoamEntryMenu(ev: MouseEvent): void {
 }
 
 async function switchNeuralRoamRouteFromReview(routeId: string): Promise<void> {
-  const routeSwitchStrategy = getQueueStrategyWithNeuralRouteSwitch();
-  if (!routeSwitchStrategy?.switchNeuralRoamRoute) {
+  const result = await runBackendNeuralRoamRouteCommand({ type: 'switch-route', routeId });
+  if (!result) {
     showMessage(t('neuralRoamRouteSwitchUnavailable', '航线切换不可用'), 3000, 'error');
     return;
   }
-  await routeSwitchStrategy.switchNeuralRoamRoute(routeId);
+  if (result.status !== 'ok') {
+    showMessage(result.message || t('neuralRoamRouteSwitchUnavailable', '航线切换不可用'), 3000, 'error');
+    return;
+  }
+  await syncNeuralRoamRouteCommandResult(result);
   await refreshNeuralRoamRoutes();
   await hook.reload();
 }
 
 async function createNeuralRoamRouteFromReview(): Promise<void> {
-  const neuralQueue = getNeuralRoamQueue();
-  if (!neuralQueue?.createRoute) {
+  const runner = getNeuralRoamCommand();
+  if (!runner) {
     showMessage(t('neuralRoamRouteCreateUnavailable', '航线创建不可用'), 3000, 'error');
     return;
   }
@@ -3326,13 +3363,23 @@ async function createNeuralRoamRouteFromReview(): Promise<void> {
   if (!normalizedName) {
     return;
   }
-  const route = await neuralQueue.createRoute({ name: normalizedName });
-  await switchNeuralRoamRouteFromReview(route.metadata.id);
+  const result = await runBackendNeuralRoamRouteCommand({ type: 'create-route', name: normalizedName });
+  if (!result) {
+    showMessage(t('neuralRoamRouteCreateUnavailable', '航线创建不可用'), 3000, 'error');
+    return;
+  }
+  if (result.status !== 'ok') {
+    showMessage(result.message || t('neuralRoamRouteCreateUnavailable', '航线创建不可用'), 3000, 'error');
+    return;
+  }
+  await syncNeuralRoamRouteCommandResult(result);
+  await refreshNeuralRoamRoutes();
+  await hook.reload();
 }
 
 async function renameNeuralRoamRouteFromReview(route: NeuralRoamRouteListItem): Promise<void> {
-  const neuralQueue = getNeuralRoamQueue();
-  if (!neuralQueue?.renameRoute) {
+  const runner = getNeuralRoamCommand();
+  if (!runner) {
     showMessage(t('neuralRoamRouteRenameUnavailable', '航线重命名不可用'), 3000, 'error');
     return;
   }
@@ -3348,13 +3395,22 @@ async function renameNeuralRoamRouteFromReview(route: NeuralRoamRouteListItem): 
   if (!normalizedName) {
     return;
   }
-  await neuralQueue.renameRoute(route.id, normalizedName);
+  const result = await runBackendNeuralRoamRouteCommand({ type: 'rename-route', routeId: route.id, name: normalizedName });
+  if (!result) {
+    showMessage(t('neuralRoamRouteRenameUnavailable', '航线重命名不可用'), 3000, 'error');
+    return;
+  }
+  if (result.status !== 'ok') {
+    showMessage(result.message || t('neuralRoamRouteRenameUnavailable', '航线重命名不可用'), 3000, 'error');
+    return;
+  }
+  await syncNeuralRoamRouteCommandResult(result);
   await refreshNeuralRoamRoutes();
 }
 
 async function deleteNeuralRoamRouteFromReview(route: NeuralRoamRouteListItem): Promise<void> {
-  const neuralQueue = getNeuralRoamQueue();
-  if (!neuralQueue?.deleteRoute) {
+  const runner = getNeuralRoamCommand();
+  if (!runner) {
     showMessage(t('neuralRoamRouteDeleteUnavailable', '航线删除不可用'), 3000, 'error');
     return;
   }
@@ -3368,18 +3424,36 @@ async function deleteNeuralRoamRouteFromReview(route: NeuralRoamRouteListItem): 
   if (!confirmed) {
     return;
   }
-  await neuralQueue.deleteRoute(route.id);
+  const result = await runBackendNeuralRoamRouteCommand({ type: 'delete-route', routeId: route.id });
+  if (!result) {
+    showMessage(t('neuralRoamRouteDeleteUnavailable', '航线删除不可用'), 3000, 'error');
+    return;
+  }
+  if (result.status !== 'ok') {
+    showMessage(result.message || t('neuralRoamRouteDeleteUnavailable', '航线删除不可用'), 3000, 'error');
+    return;
+  }
+  await syncNeuralRoamRouteCommandResult(result);
   await refreshNeuralRoamRoutes();
   await hook.reload();
 }
 
 async function saveTemporaryNeuralRoamRouteFromReview(route: NeuralRoamRouteListItem): Promise<void> {
-  const neuralQueue = getNeuralRoamQueue();
-  if (!neuralQueue?.saveTemporaryRoute) {
+  const runner = getNeuralRoamCommand();
+  if (!runner) {
     showMessage(t('neuralRoamRouteSaveUnavailable', '临时航线保存不可用'), 3000, 'error');
     return;
   }
-  await neuralQueue.saveTemporaryRoute(route.id);
+  const result = await runBackendNeuralRoamRouteCommand({ type: 'save-temporary-route', routeId: route.id });
+  if (!result) {
+    showMessage(t('neuralRoamRouteSaveUnavailable', '临时航线保存不可用'), 3000, 'error');
+    return;
+  }
+  if (result.status !== 'ok') {
+    showMessage(result.message || t('neuralRoamRouteSaveUnavailable', '临时航线保存不可用'), 3000, 'error');
+    return;
+  }
+  await syncNeuralRoamRouteCommandResult(result);
   await refreshNeuralRoamRoutes();
   showMessage(t('temporaryRouteSaved', '临时航线已保存'), 2500, 'info');
 }

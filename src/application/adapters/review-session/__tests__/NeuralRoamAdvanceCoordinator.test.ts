@@ -88,6 +88,61 @@ function advanceResult(nextItem: BackendNeuralRoamItem | null): BackendNeuralRoa
   };
 }
 
+function routeMismatchResult(routeId: string): BackendNeuralRoamAdvanceResult {
+  return {
+    ...advanceResult(null),
+    routeId,
+    status: 'mismatch',
+    unavailableReason: 'route-mismatch',
+    message: 'NeuralRoam advance request route is no longer active',
+    viewState: {
+      version: 1,
+      queueType: 'neural-roam',
+      route: {
+        id: routeId,
+        name: routeId,
+        temporary: false,
+        previousRouteId: null,
+      },
+      engineMode: 'orbit',
+      currentNodeId: null,
+      currentEventId: null,
+      navigationState: {
+        currentNodeId: null,
+        currentEventId: null,
+        sessionId: null,
+        engineMode: 'orbit',
+        navigationMode: 'explore',
+        canReturnToBookmark: false,
+        bookmarkNodeId: null,
+        currentPathIndex: -1,
+        pathLength: 0,
+      },
+      counters: {
+        routeId,
+        remaining: 0,
+        due: 0,
+        total: 0,
+        pendingAssociatedReview: 0,
+        sourceNodes: 0,
+      },
+      sources: [],
+      anchors: [],
+      engineHistory: [],
+      routeHistory: [],
+      batchProgress: {
+        kind: 'none',
+        viewedCount: 0,
+        totalCount: 0,
+        remainingCount: 0,
+        label: '',
+      },
+      updatedAt: Date.now(),
+      routes: [],
+    },
+  };
+}
+
 function createCoordinator() {
   const cursor = new ReviewSessionCursor(QueueType.NeuralRoam);
   const currentItem = new ReviewCurrentItemCommand();
@@ -236,5 +291,29 @@ describe('NeuralRoamAdvanceCoordinator', () => {
       feedback: null,
       startFromFocus: null,
     }));
+  });
+
+  it('retries next once after a stale route mismatch advances the active route', async () => {
+    const next = card('next-node');
+    const { coordinator, submitAdvance, syncFromBackendState } = createCoordinator();
+    coordinator.setActiveRouteId('route-old');
+    submitAdvance
+      .mockResolvedValueOnce(routeMismatchResult('route-new'))
+      .mockResolvedValueOnce(advanceResult(advanceItem(next)));
+
+    const outcome = await coordinator.next();
+
+    expect(outcome?.kind).toBe('next');
+    expect(outcome?.card.id).toBe('next-node');
+    expect(submitAdvance).toHaveBeenCalledTimes(2);
+    expect(submitAdvance).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      routeId: 'route-old',
+      feedback: null,
+    }));
+    expect(submitAdvance).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      routeId: 'route-new',
+      feedback: null,
+    }));
+    expect(syncFromBackendState).toHaveBeenCalledTimes(2);
   });
 });

@@ -1115,7 +1115,8 @@ export class TabManager {
       getEngineMode?: () => string;
       setBackendViewState?: (viewState: unknown) => void;
     };
-    const command = this.context.getUnifiedDataSourceManager().neuralRoamCommand;
+    const neuralManager = this.context.getUnifiedDataSourceManager();
+    const command = neuralManager.neuralRoamCommand.bind(neuralManager);
     if (typeof command !== 'function') {
       return;
     }

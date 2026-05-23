@@ -5,6 +5,7 @@ import type {
   NeuralNavigationState,
   NeuralRoamHistoryEntry,
 } from '@/types/unified-data-source';
+import type { BackendNeuralRoamCommand, BackendNeuralRoamCommandResult } from '../../../../../packages/contracts/src/backend-rpc';
 import type { BrowserCard } from '../../types';
 import { useNeuralBrowserController } from '../useNeuralBrowserController';
 import type { NeuralSubview } from '../types';
@@ -220,9 +221,86 @@ function createQueue(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function createBackendRouteCommandResult(
+  routeId: string,
+  routeName: string,
+): BackendNeuralRoamCommandResult {
+  return {
+    status: 'ok',
+    viewState: {
+      version: 1,
+      queueType: 'neural-roam',
+      route: {
+        id: routeId,
+        name: routeName,
+        temporary: false,
+        previousRouteId: null,
+      },
+      engineMode: 'orbit',
+      currentNodeId: null,
+      currentEventId: null,
+      navigationState: {
+        currentNodeId: null,
+        currentEventId: null,
+        sessionId: 'session-a',
+        engineMode: 'orbit',
+        navigationMode: 'explore',
+        canReturnToBookmark: false,
+        bookmarkNodeId: null,
+        currentPathIndex: -1,
+        pathLength: 0,
+      },
+      counters: {
+        routeId,
+        remaining: 0,
+        due: 0,
+        total: 0,
+        pendingAssociatedReview: 0,
+        sourceNodes: 0,
+      },
+      sources: [],
+      anchors: [],
+      engineHistory: [],
+      routeHistory: [],
+      batchProgress: {
+        kind: 'none',
+        viewedCount: 0,
+        totalCount: 0,
+        remainingCount: 0,
+        label: '',
+      },
+      updatedAt: 1,
+      routes: [
+        {
+          id: routeId,
+          name: routeName,
+          temporary: false,
+          previousRouteId: null,
+          initialSeedNodeIds: [],
+          createdAt: 1,
+          updatedAt: 1,
+          lastUsedAt: 1,
+          isActive: true,
+          stats: {
+            routeId,
+            seedCount: 0,
+            anchorCount: 0,
+            historyCount: 0,
+            totalPoolEntries: 0,
+          },
+        },
+      ],
+    },
+  };
+}
+
 function createController(
   queue: Record<string, unknown> | null = createQueue(),
-  options: { getNeuralSubview?: () => NeuralSubview | null | undefined } = {},
+  options: {
+    getNeuralSubview?: () => NeuralSubview | null | undefined;
+    readNeuralRoamViewState?: () => Promise<{ version: 1; queueType: 'neural-roam'; routes?: unknown[] } | null>;
+    runNeuralRoamCommand?: (command: BackendNeuralRoamCommand) => Promise<BackendNeuralRoamCommandResult>;
+  } = {},
 ) {
   const previewCard = ref<BrowserCard | null>(null);
   const refreshQueueCounts = vi.fn(async () => undefined);
@@ -241,6 +319,8 @@ function createController(
     getCardLoadOptions: () => ({}),
     previewCard,
     refreshQueueCounts,
+    readNeuralRoamViewState: options.readNeuralRoamViewState,
+    runNeuralRoamCommand: options.runNeuralRoamCommand,
     getReviewSurfaceDeps: () => ({
       tabManager: {
         hasOpenNeuralReviewTab: vi.fn(() => false),
@@ -488,22 +568,117 @@ describe('useNeuralBrowserController', () => {
     expect(controller.neuralHistoryEntries.value.map((entry) => entry.eventId)).toEqual(['engine-only']);
   });
 
-  it('switches routes through the queue contract and refreshes route-scoped pools and log', async () => {
+  it('switches routes through the backend route command and refreshes route-scoped pools and log', async () => {
+    let activeRouteId = 'default';
     const queue = createQueue({
-      listRoutes: vi.fn()
-        .mockResolvedValueOnce([
-          {
-            id: 'default',
-            name: '默认航线',
-            temporary: false,
-            previousRouteId: null,
-            initialSeedNodeIds: [],
-            createdAt: 1,
-            updatedAt: 1,
-            lastUsedAt: 1,
-            isActive: true,
-            stats: { routeId: 'default', seedCount: 1, anchorCount: 1, historyCount: 2, totalPoolEntries: 2 },
-          },
+      listRoutes: vi.fn(async () => [
+        {
+          id: 'route-b',
+          name: 'Route B',
+          temporary: false,
+          previousRouteId: null,
+          initialSeedNodeIds: [],
+          createdAt: 2,
+          updatedAt: activeRouteId === 'route-b' ? 3 : 2,
+          lastUsedAt: activeRouteId === 'route-b' ? 3 : 2,
+          isActive: activeRouteId === 'route-b',
+          stats: { routeId: 'route-b', seedCount: 1, anchorCount: 0, historyCount: 1, totalPoolEntries: 1 },
+        },
+        {
+          id: 'default',
+          name: '默认航线',
+          temporary: false,
+          previousRouteId: null,
+          initialSeedNodeIds: [],
+          createdAt: 1,
+          updatedAt: 1,
+          lastUsedAt: 1,
+          isActive: activeRouteId !== 'route-b',
+          stats: { routeId: 'default', seedCount: 1, anchorCount: 1, historyCount: 2, totalPoolEntries: 2 },
+        },
+      ]),
+      getSourceSnapshot: vi.fn(() => (activeRouteId === 'route-b'
+        ? [{ nodeId: 'source-b', title: 'Route B source', visitedAt: 30 }]
+        : [{ nodeId: 'source-default', title: 'Default', visitedAt: 10 }])),
+      getAnchorSnapshot: vi.fn(() => (activeRouteId === 'route-b'
+        ? []
+        : [{ nodeId: 'target-node', title: 'Target', visitedAt: 20 }])),
+      getHistoryPage: vi.fn(() => (activeRouteId === 'route-b'
+        ? {
+            entries: [createHistoryEntry('event-b', 'source-b', 30)],
+            totalCount: 1,
+            hasMore: false,
+          }
+        : {
+            entries: [createHistoryEntry('event-target', 'target-node', 20)],
+            totalCount: 1,
+            hasMore: false,
+          })),
+      getRouteHistoryPage: vi.fn(() => (activeRouteId === 'route-b'
+        ? {
+            entries: [createHistoryEntry('event-b', 'source-b', 30)],
+            totalCount: 1,
+            hasMore: false,
+          }
+        : {
+            entries: [createHistoryEntry('event-target', 'target-node', 20)],
+            totalCount: 1,
+            hasMore: false,
+          })),
+    });
+    const routeCommand = vi.fn(async () => createBackendRouteCommandResult('route-b', 'Route B'));
+    const { controller, refreshQueueCounts } = createController(queue, {
+      runNeuralRoamCommand: routeCommand,
+      readNeuralRoamViewState: async () => ({
+        version: 1,
+        queueType: 'neural-roam',
+        route: {
+          id: 'route-b',
+          name: 'Route B',
+          temporary: false,
+          previousRouteId: null,
+        },
+        engineMode: 'orbit',
+        currentNodeId: 'target-node',
+        currentEventId: 'event-target',
+        navigationState: {
+          currentNodeId: 'target-node',
+          currentEventId: 'event-target',
+          sessionId: 'session-a',
+          engineMode: 'orbit',
+          navigationMode: 'explore',
+          canReturnToBookmark: false,
+          bookmarkNodeId: null,
+          currentPathIndex: -1,
+          pathLength: 0,
+        },
+        counters: {
+          routeId: 'route-b',
+          remaining: 0,
+          due: 0,
+          total: 0,
+          pendingAssociatedReview: 0,
+          sourceNodes: 0,
+        },
+        sources: [
+          { nodeId: 'source-b', title: 'Route B source', visitedAt: 30 },
+        ],
+        anchors: [],
+        engineHistory: [
+          createHistoryEntry('event-b', 'source-b', 30),
+        ],
+        routeHistory: [
+          createHistoryEntry('event-b', 'source-b', 30),
+        ],
+        batchProgress: {
+          kind: 'none',
+          viewedCount: 0,
+          totalCount: 0,
+          remainingCount: 0,
+          label: '',
+        },
+        updatedAt: 3,
+        routes: [
           {
             id: 'route-b',
             name: 'Route B',
@@ -511,24 +686,16 @@ describe('useNeuralBrowserController', () => {
             previousRouteId: null,
             initialSeedNodeIds: [],
             createdAt: 2,
-            updatedAt: 2,
-            lastUsedAt: 2,
-            isActive: false,
-            stats: { routeId: 'route-b', seedCount: 1, anchorCount: 0, historyCount: 1, totalPoolEntries: 1 },
-          },
-        ])
-        .mockResolvedValueOnce([
-          {
-            id: 'route-b',
-            name: 'Route B',
-            temporary: false,
-            previousRouteId: null,
-            initialSeedNodeIds: [],
-            createdAt: 2,
-            updatedAt: 2,
+            updatedAt: 3,
             lastUsedAt: 3,
             isActive: true,
-            stats: { routeId: 'route-b', seedCount: 1, anchorCount: 0, historyCount: 1, totalPoolEntries: 1 },
+            stats: {
+              routeId: 'route-b',
+              seedCount: 1,
+              anchorCount: 0,
+              historyCount: 1,
+              totalPoolEntries: 1,
+            },
           },
           {
             id: 'default',
@@ -540,44 +707,23 @@ describe('useNeuralBrowserController', () => {
             updatedAt: 1,
             lastUsedAt: 1,
             isActive: false,
-            stats: { routeId: 'default', seedCount: 1, anchorCount: 1, historyCount: 2, totalPoolEntries: 2 },
+            stats: {
+              routeId: 'default',
+              seedCount: 1,
+              anchorCount: 1,
+              historyCount: 2,
+              totalPoolEntries: 2,
+            },
           },
-        ]),
-      getSourceSnapshot: vi.fn()
-        .mockReturnValueOnce([{ nodeId: 'source-default', title: 'Default', visitedAt: 10 }])
-        .mockReturnValueOnce([{ nodeId: 'source-b', title: 'Route B source', visitedAt: 30 }]),
-      getAnchorSnapshot: vi.fn()
-        .mockReturnValueOnce([{ nodeId: 'target-node', title: 'Target', visitedAt: 20 }])
-        .mockReturnValueOnce([]),
-      getHistoryPage: vi.fn()
-        .mockReturnValueOnce({
-          entries: [createHistoryEntry('event-target', 'target-node', 20)],
-          totalCount: 1,
-          hasMore: false,
-        })
-        .mockReturnValueOnce({
-          entries: [createHistoryEntry('event-b', 'source-b', 30)],
-          totalCount: 1,
-          hasMore: false,
-        }),
-      getRouteHistoryPage: vi.fn()
-        .mockReturnValueOnce({
-          entries: [createHistoryEntry('event-target', 'target-node', 20)],
-          totalCount: 1,
-          hasMore: false,
-        })
-        .mockReturnValueOnce({
-          entries: [createHistoryEntry('event-b', 'source-b', 30)],
-          totalCount: 1,
-          hasMore: false,
-        }),
+        ],
+      }),
     });
-    const { controller, refreshQueueCounts } = createController(queue);
 
     await controller.refreshNeuralSubviewData();
+    activeRouteId = 'route-b';
     await controller.handleNeuralSwitchRoute('route-b');
 
-    expect(queue.switchRoute).toHaveBeenCalledWith('route-b');
+    expect(routeCommand).toHaveBeenCalledWith(expect.objectContaining({ type: 'switch-route', routeId: 'route-b' }));
     expect(controller.neuralRoutes.value[0]).toMatchObject({ id: 'route-b', isActive: true });
     expect(controller.neuralSourceEntries.value.map((entry) => entry.nodeId)).toEqual(['source-b']);
     expect(controller.neuralHistoryEntries.value.map((entry) => entry.eventId)).toEqual(['event-b']);
@@ -585,10 +731,175 @@ describe('useNeuralBrowserController', () => {
     expect(refreshQueueCounts).toHaveBeenCalled();
   });
 
+  it('uses backend view-state routes for the Browser route selector when available', async () => {
+    const queue = createQueue({
+      listRoutes: vi.fn(async () => [
+        {
+          id: 'stale-route',
+          name: 'Stale Route',
+          temporary: false,
+          previousRouteId: null,
+          initialSeedNodeIds: [],
+          createdAt: 1,
+          updatedAt: 1,
+          lastUsedAt: 1,
+          isActive: true,
+          stats: {
+            routeId: 'stale-route',
+            seedCount: 0,
+            anchorCount: 0,
+            historyCount: 0,
+            totalPoolEntries: 0,
+          },
+        },
+      ]),
+    });
+    const { controller } = createController(queue, {
+      readNeuralRoamViewState: async () => ({
+        version: 1,
+        queueType: 'neural-roam',
+        routes: [
+          {
+            id: 'route-backend',
+            name: 'Backend Route',
+            temporary: false,
+            previousRouteId: null,
+            initialSeedNodeIds: [],
+            createdAt: 2,
+            updatedAt: 3,
+            lastUsedAt: 4,
+            isActive: true,
+            stats: {
+              routeId: 'route-backend',
+              seedCount: 1,
+              anchorCount: 0,
+              historyCount: 2,
+              totalPoolEntries: 1,
+            },
+          },
+        ],
+        route: {
+          id: 'route-backend',
+          name: 'Backend Route',
+          temporary: false,
+          previousRouteId: null,
+        },
+        engineMode: 'orbit',
+        currentNodeId: null,
+        currentEventId: null,
+        navigationState: {
+          currentNodeId: null,
+          currentEventId: null,
+          sessionId: 'session-a',
+          engineMode: 'orbit',
+          navigationMode: 'explore',
+          canReturnToBookmark: false,
+          bookmarkNodeId: null,
+          currentPathIndex: -1,
+          pathLength: 0,
+        },
+        counters: {
+          routeId: 'route-backend',
+          remaining: 0,
+          due: 0,
+          total: 0,
+          pendingAssociatedReview: 0,
+          sourceNodes: 0,
+        },
+        sources: [],
+        anchors: [],
+        engineHistory: [],
+        routeHistory: [],
+        batchProgress: {
+          kind: 'none',
+          viewedCount: 0,
+          totalCount: 0,
+          remainingCount: 0,
+          label: '',
+        },
+        updatedAt: 5,
+      }),
+    });
+
+    await controller.refreshNeuralSubviewData();
+
+    expect(controller.neuralRoutes.value).toEqual([
+      expect.objectContaining({
+        id: 'route-backend',
+        name: 'Backend Route',
+        isActive: true,
+      }),
+    ]);
+  });
+
+  it('uses backend route commands for Browser route management instead of local mutation', async () => {
+    const queue = createQueue({
+      listRoutes: vi.fn(async () => [
+        {
+          id: 'default',
+          name: '默认航线',
+          temporary: false,
+          previousRouteId: null,
+          initialSeedNodeIds: [],
+          createdAt: 1,
+          updatedAt: 1,
+          lastUsedAt: 1,
+          isActive: true,
+          stats: { routeId: 'default', seedCount: 1, anchorCount: 1, historyCount: 1, totalPoolEntries: 1 },
+        },
+        {
+          id: 'route-temp',
+          name: 'Temp Route',
+          temporary: true,
+          previousRouteId: null,
+          initialSeedNodeIds: [],
+          createdAt: 2,
+          updatedAt: 2,
+          lastUsedAt: 2,
+          isActive: false,
+          stats: { routeId: 'route-temp', seedCount: 0, anchorCount: 0, historyCount: 0, totalPoolEntries: 0 },
+        },
+      ]),
+    });
+    const routeCommand = vi.fn(async (command: BackendNeuralRoamCommand) => {
+      if (command.type === 'create-route') {
+        return createBackendRouteCommandResult('route-created', command.name ?? 'Created');
+      }
+      if (command.type === 'rename-route') {
+        return createBackendRouteCommandResult(command.routeId, command.name);
+      }
+      if (command.type === 'delete-route') {
+        return createBackendRouteCommandResult('default', '默认航线');
+      }
+      return createBackendRouteCommandResult(command.routeId, 'Saved Route');
+    });
+    const { controller, promptRouteName, confirmDeleteRoute } = createController(queue, {
+      runNeuralRoamCommand: routeCommand,
+    });
+
+    await controller.handleNeuralCreateRoute();
+    await controller.refreshNeuralSubviewData();
+    await controller.handleNeuralRenameRoute('route-temp');
+    await controller.handleNeuralSaveTemporaryRoute('route-temp');
+    await controller.handleNeuralDeleteRoute('route-temp');
+
+    expect(routeCommand).toHaveBeenCalledWith(expect.objectContaining({ type: 'create-route' }));
+    expect(routeCommand).toHaveBeenCalledWith(expect.objectContaining({ type: 'rename-route' }));
+    expect(routeCommand).toHaveBeenCalledWith(expect.objectContaining({ type: 'save-temporary-route' }));
+    expect(routeCommand).toHaveBeenCalledWith(expect.objectContaining({ type: 'delete-route' }));
+    expect(queue.createRoute).not.toHaveBeenCalled();
+    expect(queue.renameRoute).not.toHaveBeenCalled();
+    expect(queue.saveTemporaryRoute).not.toHaveBeenCalled();
+    expect(queue.deleteRoute).not.toHaveBeenCalled();
+    expect(promptRouteName).toHaveBeenCalled();
+    expect(confirmDeleteRoute).toHaveBeenCalled();
+  });
+
   it('confirms and syncs an open NeuralRoam review surface before applying a Browser route switch', async () => {
     const queue = createQueue();
     const confirmRouteSwitchReviewReset = vi.fn(async () => true);
     const syncExistingNeuralReviewTabToCurrentNode = vi.fn(async () => 'synced' as const);
+    const routeCommand = vi.fn(async () => createBackendRouteCommandResult('route-b', 'Route B'));
     const previewCard = ref<BrowserCard | null>(null);
     const controller = useNeuralBrowserController({
       getQueueById: vi.fn((id: string) => id === 'neural-roam' ? queue : null),
@@ -596,6 +907,23 @@ describe('useNeuralBrowserController', () => {
       getCardLoadOptions: () => ({}),
       previewCard,
       refreshQueueCounts: vi.fn(async () => undefined),
+      runNeuralRoamCommand: routeCommand,
+      readNeuralRoamViewState: async () => ({
+        ...createBackendRouteCommandResult('route-b', 'Route B').viewState,
+        currentNodeId: 'target-node',
+        currentEventId: 'event-target',
+        navigationState: {
+          currentNodeId: 'target-node',
+          currentEventId: 'event-target',
+          sessionId: 'session-a',
+          engineMode: 'orbit',
+          navigationMode: 'explore',
+          canReturnToBookmark: false,
+          bookmarkNodeId: null,
+          currentPathIndex: -1,
+          pathLength: 0,
+        },
+      }),
       getReviewSurfaceDeps: () => ({
         tabManager: {
           hasOpenNeuralReviewTab: () => true,
@@ -619,7 +947,7 @@ describe('useNeuralBrowserController', () => {
     await controller.handleNeuralSwitchRoute('route-b');
 
     expect(confirmRouteSwitchReviewReset).toHaveBeenCalledTimes(1);
-    expect(queue.switchRoute).toHaveBeenCalledWith('route-b');
+    expect(routeCommand).toHaveBeenCalledWith(expect.objectContaining({ type: 'switch-route', routeId: 'route-b' }));
     expect(syncExistingNeuralReviewTabToCurrentNode).toHaveBeenCalledWith({
       fallbackNodeId: 'target-node',
       focus: true,

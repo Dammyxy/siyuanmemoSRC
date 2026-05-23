@@ -8,6 +8,7 @@ import type {
   BackendNeuralRoamCommandResult,
   BackendNeuralRoamCounters,
   BackendNeuralRoamItem,
+  BackendNeuralRoamRouteListItem,
   BackendNeuralRoamViewState,
   BackendNeuralRoamViewStateRequest,
   BackendNeuralRoamViewStateResult,
@@ -915,6 +916,7 @@ export class WorkerNeuralRoamAdvanceService {
         temporary: route?.temporary === true,
         previousRouteId: route?.previousRouteId ?? null,
       },
+      routes: routes.map((candidate) => this.toRouteListItem(candidate, routeId)),
       engineMode: navigation.engineMode ?? queue.getEngineMode?.() ?? null,
       currentNodeId: navigation.currentNodeId ?? null,
       currentEventId: navigation.currentEventId ?? null,
@@ -932,6 +934,41 @@ export class WorkerNeuralRoamAdvanceService {
         label: batch?.engineMode === 'hyperspace' ? 'depth' : batch ? 'orbit-round' : 'none',
       },
       updatedAt: Date.now(),
+    };
+  }
+
+  private toRouteListItem(
+    route: {
+      id: string;
+      name: string;
+      temporary?: boolean;
+      previousRouteId?: string | null;
+      initialSeedNodeIds?: string[];
+      createdAt?: number;
+      updatedAt?: number;
+      lastUsedAt?: number;
+      stats?: BackendNeuralRoamRouteListItem['stats'];
+      isActive?: boolean;
+    },
+    activeRouteId: string | null,
+  ): BackendNeuralRoamRouteListItem {
+    return {
+      id: route.id,
+      name: route.name,
+      temporary: route.temporary === true,
+      previousRouteId: route.previousRouteId ?? null,
+      initialSeedNodeIds: [...(route.initialSeedNodeIds ?? [])],
+      createdAt: Number(route.createdAt) || 0,
+      updatedAt: Number(route.updatedAt) || 0,
+      lastUsedAt: Number(route.lastUsedAt) || 0,
+      stats: route.stats ?? {
+        routeId: route.id,
+        seedCount: 0,
+        anchorCount: 0,
+        historyCount: 0,
+        totalPoolEntries: 0,
+      },
+      isActive: route.isActive === true || route.id === activeRouteId,
     };
   }
 

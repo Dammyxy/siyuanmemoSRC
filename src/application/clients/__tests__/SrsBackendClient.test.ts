@@ -896,4 +896,118 @@ describe('SrsBackendClient', () => {
       sessionId: 'session-1',
     })).rejects.toThrow('neural-roam.advance returned invalid payload');
   });
+
+  it('rejects neural-roam.viewState payload when backend route selector data is missing', async () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          queueType: 'neural-roam',
+          status: 'ready',
+          viewState: {
+            version: 1,
+            queueType: 'neural-roam',
+            route: {
+              id: 'route-a',
+              name: 'Route A',
+              temporary: false,
+              previousRouteId: null,
+            },
+            engineMode: 'orbit',
+            currentNodeId: null,
+            currentEventId: null,
+            navigationState: null,
+            counters: {
+              routeId: 'route-a',
+              remaining: 0,
+              due: 0,
+              total: 0,
+              pendingAssociatedReview: 0,
+              sourceNodes: 0,
+            },
+            sources: [],
+            anchors: [],
+            engineHistory: [],
+            routeHistory: [],
+            batchProgress: {
+              kind: 'none',
+              viewedCount: 0,
+              totalCount: 0,
+              remainingCount: 0,
+              label: '',
+            },
+            updatedAt: Date.now(),
+          },
+        },
+      })),
+    };
+    const client = new SrsBackendClient(transport);
+
+    await expect(client.neuralRoamViewState({
+      queueType: 'neural-roam',
+    })).rejects.toThrow('neural-roam.viewState returned invalid payload');
+  });
+
+  it('rejects neural-roam.command payload when backend route selector data is missing', async () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          queueType: 'neural-roam',
+          status: 'ok',
+          viewState: {
+            version: 1,
+            queueType: 'neural-roam',
+            route: {
+              id: 'route-a',
+              name: 'Route A',
+              temporary: false,
+              previousRouteId: null,
+            },
+            engineMode: 'orbit',
+            currentNodeId: null,
+            currentEventId: null,
+            navigationState: null,
+            counters: {
+              routeId: 'route-a',
+              remaining: 0,
+              due: 0,
+              total: 0,
+              pendingAssociatedReview: 0,
+              sourceNodes: 0,
+            },
+            sources: [],
+            anchors: [],
+            engineHistory: [],
+            routeHistory: [],
+            batchProgress: {
+              kind: 'none',
+              viewedCount: 0,
+              totalCount: 0,
+              remainingCount: 0,
+              label: '',
+            },
+            updatedAt: Date.now(),
+          },
+          queueState: {
+            version: 8,
+            engineMode: 'orbit',
+          },
+          unavailableReason: null,
+          message: null,
+        },
+      })),
+    };
+    const client = new SrsBackendClient(transport);
+
+    await expect(client.neuralRoamCommand({
+      queueType: 'neural-roam',
+      command: {
+        type: 'switch-route',
+        routeId: 'route-a',
+      },
+    })).rejects.toThrow('neural-roam.command returned invalid payload');
+  });
 });

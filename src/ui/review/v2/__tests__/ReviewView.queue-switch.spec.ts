@@ -213,6 +213,8 @@ function createNeuralQueue() {
     setNavigationMode: vi.fn(),
     returnToBookmark: vi.fn(() => false),
     clearHistory: vi.fn(async () => undefined),
+    syncFromBackendState: vi.fn(async () => undefined),
+    setBackendViewState: vi.fn(),
     createRoute: vi.fn(async ({ name }: { name?: string } = {}) => ({
       metadata: {
         id: 'route-created',
@@ -306,6 +308,78 @@ function createNeuralStrategy(neuralQueue: ReturnType<typeof createNeuralQueue>)
       await neuralQueue.switchRoute?.(routeId);
     }),
     reload: vi.fn(async () => undefined),
+  };
+}
+
+function createBackendRouteCommandResult(route: {
+  id: string;
+  name: string;
+  temporary?: boolean;
+  previousRouteId?: string | null;
+}) {
+  return {
+    queueType: 'neural-roam',
+    status: 'ok',
+    viewState: {
+      version: 1,
+      queueType: 'neural-roam',
+      route: {
+        id: route.id,
+        name: route.name,
+        temporary: route.temporary === true,
+        previousRouteId: route.previousRouteId ?? null,
+      },
+      routes: [
+        {
+          id: route.id,
+          name: route.name,
+          temporary: route.temporary === true,
+          previousRouteId: route.previousRouteId ?? null,
+          initialSeedNodeIds: [],
+          createdAt: 10,
+          updatedAt: 11,
+          lastUsedAt: 12,
+          isActive: true,
+          stats: {
+            routeId: route.id,
+            seedCount: 0,
+            anchorCount: 0,
+            historyCount: 0,
+            totalPoolEntries: 0,
+          },
+        },
+      ],
+      engineMode: 'orbit',
+      currentNodeId: null,
+      currentEventId: null,
+      navigationState: null,
+      counters: {
+        routeId: route.id,
+        remaining: 0,
+        due: 0,
+        total: 0,
+        pendingAssociatedReview: 0,
+        sourceNodes: 0,
+      },
+      sources: [],
+      anchors: [],
+      engineHistory: [],
+      routeHistory: [],
+      batchProgress: {
+        kind: 'none',
+        viewedCount: 0,
+        totalCount: 0,
+        remainingCount: 0,
+        label: '',
+      },
+      updatedAt: 12,
+    },
+    queueState: {
+      version: 8,
+      engineMode: 'orbit',
+    },
+    unavailableReason: null,
+    message: null,
   };
 }
 
@@ -535,6 +609,12 @@ describe('ReviewView queue switch', () => {
   it('shows active NeuralRoam route and switches routes through the review strategy boundary', async () => {
     const neuralQueue = createNeuralQueue();
     const strategy = createNeuralStrategy(neuralQueue);
+    const neuralRoamCommand = vi.fn(async (request) => createBackendRouteCommandResult({
+      id: request.command.type === 'switch-route' ? String(request.command.routeId) : 'route-created-backend',
+      name: request.command.type === 'switch-route' ? '数学' : '命名航线',
+      previousRouteId: null,
+      temporary: false,
+    }));
     const wrapper = trackWrapper(mount(ReviewView, {
       attachTo: document.body,
       props: {
@@ -544,6 +624,15 @@ describe('ReviewView queue switch', () => {
         mode: 'dialog',
         title: '神经漫游',
         headerVariant: 'neural-roam',
+        plugin: {
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => ({
+              neuralRoamCommand,
+              registerObserver: vi.fn(),
+              unregisterObserver: vi.fn(),
+            }),
+          }),
+        },
       },
       global: {
         stubs: {
@@ -582,7 +671,10 @@ describe('ReviewView queue switch', () => {
     await betaItem.click();
     await flushPromises();
 
-    expect(strategy.switchNeuralRoamRoute).toHaveBeenCalledWith('route-beta');
+    expect(neuralRoamCommand).toHaveBeenCalledWith({
+      queueType: 'neural-roam',
+      command: { type: 'switch-route', routeId: 'route-beta' },
+    });
     expect(strategy.next).toHaveBeenCalledTimes(2);
   });
 
@@ -627,6 +719,12 @@ describe('ReviewView queue switch', () => {
       },
     ]);
     const strategy = createNeuralStrategy(neuralQueue);
+    const neuralRoamCommand = vi.fn(async (request) => createBackendRouteCommandResult({
+      id: request.command.type === 'create-route' ? 'route-created-backend' : 'route-temp',
+      name: request.command.name ?? '命名航线',
+      temporary: request.command.type !== 'save-temporary-route',
+      previousRouteId: request.command.type === 'save-temporary-route' ? null : 'default',
+    }));
     const openBrowserDialog = vi.fn();
     const wrapper = trackWrapper(mount(ReviewView, {
       attachTo: document.body,
@@ -640,6 +738,11 @@ describe('ReviewView queue switch', () => {
         plugin: {
           getContext: () => ({
             getDialogManager: () => ({ openBrowserDialog }),
+            getUnifiedDataSourceManager: () => ({
+              neuralRoamCommand,
+              registerObserver: vi.fn(),
+              unregisterObserver: vi.fn(),
+            }),
           }),
         },
       },
@@ -690,25 +793,45 @@ describe('ReviewView queue switch', () => {
     const createItem = menu?.addItem.mock.calls.find(([item]) => item.label === '新建航线')?.[0];
     await createItem.click();
     await flushPromises();
-    expect(neuralQueue.createRoute).toHaveBeenCalledWith({ name: '命名航线' });
-    expect(strategy.switchNeuralRoamRoute).toHaveBeenCalledWith('route-created');
+    expect(neuralRoamCommand).toHaveBeenCalledWith({
+      queueType: 'neural-roam',
+      command: { type: 'create-route', name: '命名航线' },
+    });
+    expect(neuralQueue.createRoute).not.toHaveBeenCalled();
+    expect(strategy.switchNeuralRoamRoute).not.toHaveBeenCalledWith('route-created');
+    expect(neuralQueue.syncFromBackendState).toHaveBeenCalledWith(expect.objectContaining({ version: 8 }));
+    expect(neuralQueue.setBackendViewState).toHaveBeenCalledWith(expect.objectContaining({
+      route: expect.objectContaining({ id: 'route-created-backend' }),
+    }));
 
     const renameItem = menu?.addItem.mock.calls.find(([item]) => item.label === '重命名航线')?.[0];
     reviewViewDialogMocks.inputDialog.mockResolvedValueOnce('重命名后');
     await renameItem.click();
     await flushPromises();
-    expect(neuralQueue.renameRoute).toHaveBeenCalledWith('route-temp', '重命名后');
+    expect(neuralRoamCommand).toHaveBeenCalledWith({
+      queueType: 'neural-roam',
+      command: { type: 'rename-route', routeId: 'route-temp', name: '重命名后' },
+    });
+    expect(neuralQueue.renameRoute).not.toHaveBeenCalled();
 
     const saveItem = menu?.addItem.mock.calls.find(([item]) => item.label === '保存为航线')?.[0];
     await saveItem.click();
     await flushPromises();
-    expect(neuralQueue.saveTemporaryRoute).toHaveBeenCalledWith('route-temp');
+    expect(neuralRoamCommand).toHaveBeenCalledWith({
+      queueType: 'neural-roam',
+      command: { type: 'save-temporary-route', routeId: 'route-temp' },
+    });
+    expect(neuralQueue.saveTemporaryRoute).not.toHaveBeenCalled();
 
     const deleteItem = menu?.addItem.mock.calls.find(([item]) => item.label === '删除航线')?.[0];
     await deleteItem.click();
     await flushPromises();
     expect(reviewViewDialogMocks.confirmDialog).toHaveBeenCalled();
-    expect(neuralQueue.deleteRoute).toHaveBeenCalledWith('route-temp');
+    expect(neuralRoamCommand).toHaveBeenCalledWith({
+      queueType: 'neural-roam',
+      command: { type: 'delete-route', routeId: 'route-temp' },
+    });
+    expect(neuralQueue.deleteRoute).not.toHaveBeenCalled();
 
     menu?.addItem.mock.calls.find(([item]) => item.label === '航线日志')?.[0].click();
     menu?.addItem.mock.calls.find(([item]) => item.label === '打开浏览器神经漫游面板')?.[0].click();
@@ -720,6 +843,69 @@ describe('ReviewView queue switch', () => {
       initialQueueId: 'neural-roam',
       initialNeuralSubview: 'concept-cards',
     });
+  });
+
+  it('keeps Review route state unchanged when backend route creation fails', async () => {
+    const neuralQueue = createNeuralQueue();
+    const strategy = createNeuralStrategy(neuralQueue);
+    const neuralRoamCommand = vi.fn(async () => ({
+      queueType: 'neural-roam',
+      status: 'failed',
+      viewState: null,
+      queueState: null,
+      unavailableReason: 'failed',
+      message: 'NeuralRoam route not found',
+    }));
+    const wrapper = trackWrapper(mount(ReviewView, {
+      attachTo: document.body,
+      props: {
+        app: {} as never,
+        queue: strategy as never,
+        adapter: createCompletedEmptyAdapter('神经漫游') as never,
+        mode: 'dialog',
+        title: '神经漫游',
+        headerVariant: 'neural-roam',
+        plugin: {
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => ({
+              neuralRoamCommand,
+              registerObserver: vi.fn(),
+              unregisterObserver: vi.fn(),
+            }),
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          NeuralRoamJourneyHeader: NeuralRoamJourneyHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          AiWorkbenchPane: true,
+          teleport: true,
+        },
+      },
+    }));
+
+    await flushPromises();
+    await wrapper.get('.review-header-route-menu').trigger('click', {
+      clientX: 64,
+      clientY: 20,
+    });
+    const menu = reviewViewQueueSwitchMocks.instances.at(-1);
+    const createItem = menu?.addItem.mock.calls.find(([item]) => item.label === '新建航线')?.[0];
+    await createItem.click();
+    await flushPromises();
+
+    expect(neuralRoamCommand).toHaveBeenCalledWith({
+      queueType: 'neural-roam',
+      command: { type: 'create-route', name: '命名航线' },
+    });
+    expect(neuralQueue.createRoute).not.toHaveBeenCalled();
+    expect(neuralQueue.syncFromBackendState).not.toHaveBeenCalled();
+    expect(strategy.next).toHaveBeenCalledTimes(1);
+    expect(reviewViewQueueSwitchMocks.showMessage).toHaveBeenCalledWith('NeuralRoam route not found', 3000, 'error');
   });
 
   it('keeps NeuralRoam Review open when dirty temporary route close prompt is cancelled', async () => {

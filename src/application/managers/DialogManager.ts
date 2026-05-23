@@ -1250,7 +1250,8 @@ export class DialogManager implements IDialogManager {
 
     try {
       const neuralQueue = this.context.getUnifiedDataSourceManager().getQueue(QueueType.NeuralRoam);
-      const neuralCommand = this.context.getUnifiedDataSourceManager().neuralRoamCommand;
+      const neuralManager = this.context.getUnifiedDataSourceManager();
+      const neuralCommand = neuralManager.neuralRoamCommand.bind(neuralManager);
       const focusBlockId = options?.focusBlockId;
       const includeFocusAsFirst = options?.includeFocusAsFirst ?? true;
       const resetHistory = options?.resetHistory === true;

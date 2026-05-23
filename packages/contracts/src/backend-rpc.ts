@@ -1605,6 +1605,27 @@ export interface BackendNeuralRoamViewStateRoute {
   previousRouteId: string | null;
 }
 
+export interface BackendNeuralRoamRouteStats {
+  routeId: string;
+  seedCount: number;
+  anchorCount: number;
+  historyCount: number;
+  totalPoolEntries: number;
+}
+
+export interface BackendNeuralRoamRouteListItem {
+  id: string;
+  name: string;
+  temporary: boolean;
+  previousRouteId: string | null;
+  initialSeedNodeIds: string[];
+  createdAt: number;
+  updatedAt: number;
+  lastUsedAt: number;
+  stats: BackendNeuralRoamRouteStats;
+  isActive: boolean;
+}
+
 export interface BackendNeuralRoamViewStateProgress {
   kind: 'orbit-round' | 'hyperspace-current-node' | 'none';
   viewedCount: number;
@@ -1617,6 +1638,7 @@ export interface BackendNeuralRoamViewState {
   version: 1;
   queueType: 'neural-roam';
   route: BackendNeuralRoamViewStateRoute;
+  routes: BackendNeuralRoamRouteListItem[];
   engineMode: string | null;
   currentNodeId: string | null;
   currentEventId: string | null;

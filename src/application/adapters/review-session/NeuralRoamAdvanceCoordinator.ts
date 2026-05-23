@@ -98,14 +98,26 @@ export class NeuralRoamAdvanceCoordinator {
 
     const startFromFocus = this.pendingStartFromFocus;
     this.pendingStartFromFocus = null;
-    const result = await this.deps.submitAdvance({
+    const currentItem = this.deps.currentItem.current ? this.toAdvanceItem(this.deps.currentItem.current) : null;
+    const request: BackendNeuralRoamAdvanceRequest = {
       queueType: 'neural-roam',
       routeId: startFromFocus?.routeId ?? this.activeRouteId,
       sessionId: null,
-      currentItem: this.deps.currentItem.current ? this.toAdvanceItem(this.deps.currentItem.current) : null,
+      currentItem,
       feedback: null,
       startFromFocus,
-    });
+    };
+    const result = await this.deps.submitAdvance(request);
+    if (this.shouldRetryAfterRouteMismatch(result)) {
+      await this.syncRouteBoundaryFromResult(result);
+      const retryResult = await this.deps.submitAdvance({
+        ...request,
+        routeId: this.activeRouteId,
+        currentItem: this.deps.currentItem.current ? this.toAdvanceItem(this.deps.currentItem.current) : null,
+        startFromFocus,
+      });
+      return this.consumeAdvanceResult(retryResult, 'next');
+    }
     return this.consumeAdvanceResult(result, 'next');
   }
 
@@ -194,6 +206,20 @@ export class NeuralRoamAdvanceCoordinator {
     const cardWithNextDues = await this.deps.addNextDues(nextCard);
     this.deps.currentItem.select(cardWithNextDues);
     return { kind: 'next', card: cardWithNextDues, source, status: result.status };
+  }
+
+  private shouldRetryAfterRouteMismatch(result: BackendNeuralRoamAdvanceResult): boolean {
+    return result.status === 'mismatch' && result.unavailableReason === 'route-mismatch';
+  }
+
+  private async syncRouteBoundaryFromResult(result: BackendNeuralRoamAdvanceResult): Promise<void> {
+    await this.deps.syncFromBackendState(result);
+    this.deps.currentItem.clear();
+    this.deps.cursor.clearForward();
+    this.deps.cursor.clearPendingRotation();
+    this.pendingNext = null;
+    this.pendingNextReady = false;
+    this.setActiveRouteId(result.routeId ?? result.sessionState.routeId ?? this.activeRouteId);
   }
 
   private toAdvanceItem(card: FSRSCard): BackendNeuralRoamItem {

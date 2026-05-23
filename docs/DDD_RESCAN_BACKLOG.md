@@ -4,6 +4,14 @@ Last update: 2026-05-23 (Round 437)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-23 - NeuralRoam Route CRUD Backend Ownership
+
+- Task: Fix NeuralRoam new-route/rename/delete/save/switch commands so Browser and Review stop treating the renderer queue as route authority.
+- Touched slice: Backend route selector contract and validation, worker advance read state, Browser NeuralRoam controller, Review NeuralRoam route actions, and focused regression tests.
+- Debt fixed now: Browser/Review route selector reads now come from backend-owned `viewState.routes`, and route CRUD/switch actions go through backend `neural-roam.command` instead of local queue mutation fallbacks. The route-not-found error path now reflects backend authority instead of a stale renderer-only route id, so create/switch/delete/rename/save temporary all refresh from the same backend-owned route snapshot after success.
+- Debt deferred: Browser helper internals still keep renderer queue route methods for backend queue internals, migration helpers, and tests; they no longer participate in active UI fallback.
+- Validation: `pnpm vitest run src/ui/browser/neural/__tests__/useNeuralBrowserController.test.ts src/ui/review/v2/__tests__/ReviewView.queue-switch.spec.ts src/application/clients/__tests__/SrsBackendClient.test.ts worker/__tests__/BackendKernel.test.ts -t "returns backend-owned NeuralRoam route selector state after create and switch commands|uses backend route commands for Browser route management instead of local mutation"`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
+
 ### 2026-05-23 - NeuralRoam Dedicated Journey Header
 
 - Task: Replace the generic review counter route chip for NeuralRoam with a dedicated route/engine/progress header that makes Orbit and Hyperspace counts readable.

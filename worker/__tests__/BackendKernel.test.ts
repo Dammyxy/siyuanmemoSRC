@@ -4795,6 +4795,86 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('returns backend-owned NeuralRoam route selector state after create and switch commands', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({}),
+    });
+
+    const created = await kernel.handle({
+      id: 'neural-command-create-route-selector',
+      jsonrpc: '2.0',
+      method: 'neural-roam.command' as never,
+      params: [{
+        queueType: 'neural-roam',
+        command: {
+          type: 'create-route',
+          name: 'Backend Route',
+        },
+      }],
+    });
+
+    expect('result' in created).toBe(true);
+    let createdRouteId = '';
+    if ('result' in created) {
+      createdRouteId = String(created.result.viewState?.route.id || '');
+      expect(createdRouteId).toMatch(/^route-/);
+      expect(created.result.viewState).toMatchObject({
+        route: {
+          id: createdRouteId,
+          name: 'Backend Route',
+        },
+        routes: expect.arrayContaining([
+          expect.objectContaining({
+            id: createdRouteId,
+            name: 'Backend Route',
+            isActive: true,
+            stats: expect.objectContaining({
+              routeId: createdRouteId,
+            }),
+          }),
+          expect.objectContaining({
+            id: 'default',
+            isActive: false,
+          }),
+        ]),
+      });
+    }
+
+    const switched = await kernel.handle({
+      id: 'neural-command-switch-route-selector',
+      jsonrpc: '2.0',
+      method: 'neural-roam.command' as never,
+      params: [{
+        queueType: 'neural-roam',
+        command: {
+          type: 'switch-route',
+          routeId: 'default',
+        },
+      }],
+    });
+
+    expect('result' in switched).toBe(true);
+    if ('result' in switched) {
+      expect(switched.result.viewState).toMatchObject({
+        route: {
+          id: 'default',
+        },
+        routes: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'default',
+            isActive: true,
+          }),
+          expect.objectContaining({
+            id: createdRouteId,
+            isActive: false,
+          }),
+        ]),
+      });
+    }
+  });
+
   it('syncs cached backend neural-roam queue to the SQL active route before mismatch checks', async () => {
     const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
     await seedNeuralRoamRouteSource(database, 'route-a', 'route-a-source');

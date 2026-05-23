@@ -491,7 +491,7 @@ export class SrsBackendClient {
     }
     if (status === 'ready') {
       const viewState = candidate.viewState;
-      if (!viewState || typeof viewState !== 'object' || Number((viewState as Record<string, unknown>).version) !== 1) {
+      if (!this.isValidNeuralRoamViewState(viewState)) {
         throw new Error('neural-roam.viewState returned invalid payload');
       }
     }
@@ -511,12 +511,45 @@ export class SrsBackendClient {
     if (status === 'ok') {
       const viewState = candidate.viewState;
       const queueState = candidate.queueState;
-      if (!viewState || typeof viewState !== 'object' || Number((viewState as Record<string, unknown>).version) !== 1
+      if (!this.isValidNeuralRoamViewState(viewState)
           || !queueState || typeof queueState !== 'object') {
         throw new Error('neural-roam.command returned invalid payload');
       }
     }
     return candidate as unknown as BackendNeuralRoamCommandResult;
+  }
+
+  private isValidNeuralRoamViewState(viewState: unknown): viewState is BackendNeuralRoamViewState {
+    if (!viewState || typeof viewState !== 'object') {
+      return false;
+    }
+    const candidate = viewState as Record<string, unknown>;
+    if (Number(candidate.version) !== 1 || candidate.queueType !== 'neural-roam') {
+      return false;
+    }
+    if (!Array.isArray(candidate.routes)) {
+      return false;
+    }
+    for (const route of candidate.routes) {
+      if (!route || typeof route !== 'object') {
+        return false;
+      }
+      const routeCandidate = route as Record<string, unknown>;
+      if (typeof routeCandidate.id !== 'string'
+        || typeof routeCandidate.name !== 'string'
+        || typeof routeCandidate.temporary !== 'boolean'
+        || !Array.isArray(routeCandidate.initialSeedNodeIds)
+        || typeof routeCandidate.createdAt !== 'number'
+        || typeof routeCandidate.updatedAt !== 'number'
+        || typeof routeCandidate.lastUsedAt !== 'number'
+        || !routeCandidate.stats
+        || typeof routeCandidate.stats !== 'object'
+        || typeof (routeCandidate.stats as Record<string, unknown>).routeId !== 'string'
+        || typeof routeCandidate.isActive !== 'boolean') {
+        return false;
+      }
+    }
+    return true;
   }
 
   private validateAiJobResult(payload: unknown, method: string): BackendAiJobResult {
