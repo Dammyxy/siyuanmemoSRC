@@ -57,6 +57,10 @@ import type { RiffSyncState } from '@/core/storage/UnifiedStorageManager';
 import {
     inferXiuyuanOwnership,
 } from '@/core/storage/stability/logicalKeys';
+import { XiuyuanNativeRiffRemoveRuntime } from './XiuyuanNativeRiffRemoveRuntime';
+import { XiuyuanRiffBlacklistRuntime } from './XiuyuanRiffBlacklistRuntime';
+import { XiuyuanRiffInputRuntime } from './XiuyuanRiffInputRuntime';
+import { XiuyuanSyncApplyRuntime } from './XiuyuanSyncApplyRuntime';
 
 // ==================== Xiuyuan 同步服务 ====================
 const logger = createLogger('XiuyuanSyncService');
@@ -150,6 +154,10 @@ export class XiuyuanSyncService {
     private readonly inFlightSyncs: Map<SyncType, Promise<SyncResult>> = new Map();
     private readonly syncEventHandlers: Map<string, Map<(data: unknown) => void, EventHandler<DomainEvent>>> = new Map();
     private readonly postCreationPlanner = new QuickCardPostCreationPlanner();
+    private readonly riffInputRuntime: XiuyuanRiffInputRuntime;
+    private readonly riffBlacklistRuntime: XiuyuanRiffBlacklistRuntime<RiffBlock>;
+    private readonly nativeRiffRemoveRuntime: XiuyuanNativeRiffRemoveRuntime<Xiuyuan>;
+    private readonly syncApplyRuntime: XiuyuanSyncApplyRuntime;
     
     // 默认重试配置
     private readonly DEFAULT_RETRY_CONFIG = {
@@ -178,6 +186,21 @@ export class XiuyuanSyncService {
         this.xiuyuanRepository = xiuyuanRepository;
         this.deletionTracker = deletionTracker;
         this.syncStateStore = this.resolveSyncStateStore(config.storage);
+        this.riffInputRuntime = new XiuyuanRiffInputRuntime({
+            warn: (message, payload) => logger.warn(message, payload),
+        });
+        this.riffBlacklistRuntime = new XiuyuanRiffBlacklistRuntime<RiffBlock>({
+            filterBlacklist: (cards) => this.riffBlacklistService.filterBlacklist(cards),
+            getBlacklist: () => this.riffBlacklistService.getBlacklist(),
+        });
+        this.nativeRiffRemoveRuntime = new XiuyuanNativeRiffRemoveRuntime<Xiuyuan>({
+            findByBlockId: (blockId) => this.xiuyuanRepository.findByBlockId(blockId),
+            isManagedRiffXiuyuan: (xiuyuan) => this.isManagedRiffXiuyuan(xiuyuan),
+            warn: (message, payload) => logger.warn(message, payload),
+        });
+        this.syncApplyRuntime = new XiuyuanSyncApplyRuntime({
+            applySyncChangeSet: (changeSet) => this.xiuyuanRepository.applySyncChangeSet(changeSet),
+        });
     }
 
     private resolveSyncStateStore(storage: unknown): RiffSyncStateStore | undefined {
@@ -680,85 +703,11 @@ export class XiuyuanSyncService {
     }
 
     private prepareRiffBlocks(stage: RiffInputStage, riffBlocks: RiffBlock[]): PreparedRiffBlocks {
-        const preparedBlocks: RiffBlock[] = [];
-        let skippedCount = 0;
-
-        for (const riffBlock of riffBlocks) {
-            const normalizedId = String(normalizeBlockId(riffBlock) || '').trim();
-            const blockIdResult = BlockId.create(normalizedId);
-            if (!blockIdResult.ok) {
-                skippedCount++;
-                const errorMsg = blockIdResult.ok === false ? blockIdResult.error.message : 'Invalid BlockId';
-                this.logMalformedRiffBlock(stage, riffBlock, errorMsg);
-                continue;
-            }
-
-            if (!this.hasMeaningfulRiffQuestion(riffBlock.content)) {
-                skippedCount++;
-                this.logMalformedRiffBlock(stage, riffBlock, 'Question cannot be empty');
-                continue;
-            }
-
-            if (normalizedId === riffBlock.id) {
-                preparedBlocks.push(riffBlock);
-                continue;
-            }
-
-            preparedBlocks.push({
-                ...riffBlock,
-                id: normalizedId,
-            });
-        }
-
-        if (skippedCount > 0) {
-            logger.warn('[XiuyuanSyncService] Skipped malformed Riff blocks', {
-                stage,
-                skippedCount,
-            });
-        }
-
-        return {
-            blocks: preparedBlocks,
-            skippedCount,
-        };
-    }
-
-    private hasMeaningfulRiffQuestion(content: string | undefined): boolean {
-        return this.normalizeRiffQuestion(content).length > 0;
+        return this.riffInputRuntime.prepareRiffBlocks(stage, riffBlocks);
     }
 
     private normalizeRiffQuestion(content: string | undefined): string {
-        if (typeof content !== 'string') {
-            return '';
-        }
-
-        return content.replace(/\u200B/g, '').trim();
-    }
-
-    private logMalformedRiffBlock(stage: RiffInputStage, riffBlock: RiffBlock, reason: string): void {
-        const rawRiffBlock = riffBlock as unknown as Record<string, unknown>;
-        logger.warn('[XiuyuanSyncService] Skipping malformed Riff block', {
-            stage,
-            reason,
-            id: this.readRiffField(rawRiffBlock, 'id'),
-            blockID: this.readRiffField(rawRiffBlock, 'blockID'),
-            blockId: this.readRiffField(rawRiffBlock, 'blockId'),
-            riffCardID: this.readRiffField(rawRiffBlock, 'riffCardID'),
-            riffCardId: this.readRiffField(rawRiffBlock, 'riffCardId'),
-            path: this.readRiffField(rawRiffBlock, 'path'),
-            contentLength: typeof rawRiffBlock.content === 'string' ? rawRiffBlock.content.length : undefined,
-        });
-    }
-
-    private readRiffField(record: Record<string, unknown>, key: string): string | undefined {
-        const value = record[key];
-        if (typeof value === 'string') {
-            return value;
-        }
-        if (typeof value === 'number' || typeof value === 'boolean') {
-            return String(value);
-        }
-        return undefined;
+        return this.riffInputRuntime.normalizeRiffQuestion(content);
     }
 
     private resolveRiffRenderProfile(plan: PostCreationPlan): RiffRenderProfile | undefined {
@@ -1091,12 +1040,12 @@ export class XiuyuanSyncService {
         changeSet.stats.skippedCount += preparedRiffCards.skippedCount;
 
         this.reportProgress(onProgress, 'incremental', 'filtering', 2, 7, '正在过滤黑名单...');
-        let filteredCards = preparedRiffCards.blocks;
-        if (this.config.incrementalSync.useBlacklist) {
-            const beforeFilterCount = filteredCards.length;
-            filteredCards = await this.riffBlacklistService.filterBlacklist(filteredCards);
-            changeSet.stats.skippedCount += beforeFilterCount - filteredCards.length;
-        }
+        const blacklistResult = await this.riffBlacklistRuntime.filterCandidates({
+            enabled: this.config.incrementalSync.useBlacklist,
+            cards: preparedRiffCards.blocks,
+        });
+        const filteredCards = blacklistResult.cards;
+        changeSet.stats.skippedCount += blacklistResult.skippedCount;
 
         this.reportProgress(onProgress, 'incremental', 'adding', 3, 7, '正在规划新增/更新...');
         const seenBlockIds = new Set<string>();
@@ -1252,8 +1201,7 @@ export class XiuyuanSyncService {
 
             if (this.config.fullSync.cleanupBlacklist) {
                 this.reportProgress(onProgress, 'full', 'cleanup', 5, 7, '正在规划黑名单清理...');
-                const blacklist = await this.riffBlacklistService.getBlacklist();
-                changeSet.blacklistCleanup = Array.from(blacklist).filter(blockId => !riffBlockIds.has(blockId));
+                changeSet.blacklistCleanup = await this.riffBlacklistRuntime.planCleanup(riffBlockIds);
                 changeSet.stats.blacklistCleanedCount = changeSet.blacklistCleanup.length;
             }
         }
@@ -1267,50 +1215,9 @@ export class XiuyuanSyncService {
 
     private async buildNativeRiffRemoveChangeSet(blockIds: string[]): Promise<SyncChangeSet> {
         const changeSet = this.createEmptyChangeSet('delete');
-        const normalizedBlockIds = Array.from(new Set(
-            blockIds
-                .map((blockId) => String(blockId || '').trim())
-                .filter((blockId): blockId is string => Boolean(blockId)),
-        ));
-        const seenXiuyuanIds = new Set<string>();
-
-        for (const blockId of normalizedBlockIds) {
-            const blockIdResult = BlockId.create(blockId);
-            if (!blockIdResult.ok) {
-                changeSet.stats.skippedCount++;
-                logger.warn('[XiuyuanSyncService] Skip native riff remove for invalid block id', { blockId });
-                continue;
-            }
-
-            const xiuyuansResult = await this.xiuyuanRepository.findByBlockId(blockIdResult.value);
-            if (!xiuyuansResult.ok) {
-                changeSet.stats.skippedCount++;
-                logger.warn('[XiuyuanSyncService] Failed to inspect local Xiuyuan state for native riff remove', {
-                    blockId,
-                    error: xiuyuansResult.error,
-                });
-                continue;
-            }
-
-            const managedXiuyuans = xiuyuansResult.value.filter((xiuyuan) => this.isManagedRiffXiuyuan(xiuyuan));
-            if (managedXiuyuans.length === 0) {
-                changeSet.stats.skippedCount++;
-                continue;
-            }
-
-            for (const xiuyuan of managedXiuyuans) {
-                const xiuyuanId = xiuyuan.getId().getValue();
-                if (seenXiuyuanIds.has(xiuyuanId)) {
-                    continue;
-                }
-                seenXiuyuanIds.add(xiuyuanId);
-                changeSet.deletes.push({
-                    blockId,
-                    xiuyuanEntity: xiuyuan,
-                });
-            }
-        }
-
+        const removalPlan = await this.nativeRiffRemoveRuntime.planRemovals(blockIds);
+        changeSet.deletes.push(...removalPlan.deletes);
+        changeSet.stats.skippedCount += removalPlan.skippedCount;
         changeSet.stats.deletedCount = changeSet.deletes.length;
         return changeSet;
     }
@@ -1321,7 +1228,7 @@ export class XiuyuanSyncService {
     ): Promise<SyncResult> {
         this.reportProgress(onProgress, changeSet.syncType, 'saving', 6, 7, '正在提交同步变更...');
 
-        const applyResult = await this.xiuyuanRepository.applySyncChangeSet({
+        const appliedSummary = await this.syncApplyRuntime.apply({
             creates: changeSet.creates,
             metadataUpdates: changeSet.metadataUpdates,
             deletes: changeSet.deletes,
@@ -1329,9 +1236,6 @@ export class XiuyuanSyncService {
             checkpointAdvance: changeSet.checkpointAdvance,
             stats: changeSet.stats,
         });
-        if (!applyResult.ok) {
-            throw applyResult.error;
-        }
 
         let detectedCount = 0;
         if (this.config.incrementalSync.autoDetectCardType && changeSet.postDetectTargets.length > 0) {
@@ -1351,12 +1255,12 @@ export class XiuyuanSyncService {
 
         return {
             success: true,
-            addedCount: applyResult.value.createdCount,
-            updatedCount: applyResult.value.updatedCount,
-            deletedCount: applyResult.value.deletedCount,
+            addedCount: appliedSummary.createdCount,
+            updatedCount: appliedSummary.updatedCount,
+            deletedCount: appliedSummary.deletedCount,
             skippedCount: changeSet.stats.skippedCount,
             blacklistCleanedCount: changeSet.syncType === 'full'
-                ? applyResult.value.blacklistCleanedCount
+                ? appliedSummary.blacklistCleanedCount
                 : undefined,
             detectedCount,
         };

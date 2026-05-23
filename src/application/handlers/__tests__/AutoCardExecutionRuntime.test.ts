@@ -140,4 +140,31 @@ describe('AutoCardExecutionRuntime', () => {
       skipped: 0,
     });
   });
+
+  it('does not fall back to local planner execution when backend execute fails', async () => {
+    const executePlannerDecision = vi.fn(async () => true);
+    const executeViaBackend = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: writer relay unavailable');
+    });
+    const runtime = new AutoCardExecutionRuntime({
+      executePlannerDecision,
+      createTopicDerivedItem: vi.fn(async () => ({
+        created: 1,
+        skipped: 0,
+      })),
+      pushMsg: vi.fn(async () => undefined),
+      executeViaBackend,
+    });
+
+    await expect(runtime.executeWithResult({
+      kind: 'planner-decision',
+      blockId: 'block-5',
+      content: 'Alpha >> Beta',
+      decision: createDecision(),
+      source: 'symbol-listener',
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: writer relay unavailable');
+
+    expect(executeViaBackend).toHaveBeenCalledTimes(1);
+    expect(executePlannerDecision).not.toHaveBeenCalled();
+  });
 });

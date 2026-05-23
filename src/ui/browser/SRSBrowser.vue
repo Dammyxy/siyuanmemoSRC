@@ -527,16 +527,7 @@ import BrowserHierarchy from './BrowserHierarchy.vue';
 import BrowserPreview from './BrowserPreview.vue';
 import BrowserToolbar from './BrowserToolbar.vue';
 import BrowserSemanticNavigator from './semantic/BrowserSemanticNavigator.vue';
-import { BrowserSemanticBackendReadAdapter } from './semantic/BrowserSemanticBackendReadAdapter';
-import { BrowserSemanticEntryController } from './semantic/BrowserSemanticEntryController';
-import {
-  BrowserSemanticStateController,
-  type BrowserSemanticReviewHandoff,
-  type BrowserSemanticWorkbenchState,
-} from './semantic/BrowserSemanticStateController';
-import { openBrowserSemanticHandoffInReview } from './semantic/BrowserSemanticReviewHandoff';
-import { SemanticActivationSessionController } from '@/application/services/SemanticActivationSessionController';
-import { isBrowserSemanticConceptCard } from './semantic/browserSemanticFocus';
+import { createBrowserSemanticWorkspaceRuntime } from './semantic/BrowserSemanticWorkspaceRuntime';
 import NeuralAnchorList from './neural/NeuralAnchorList.vue';
 import NeuralActivationTracePanel from './neural/NeuralActivationTracePanel.vue';
 import NeuralFocusList from './neural/NeuralFocusList.vue';
@@ -544,6 +535,7 @@ import NeuralHistoryList from './neural/NeuralHistoryList.vue';
 import NeuralNavigationBar from './neural/NeuralNavigationBar.vue';
 import NeuralRouteBar from './neural/NeuralRouteBar.vue';
 import NeuralSubviewTabs from './neural/NeuralSubviewTabs.vue';
+import { createBrowserNeuralWorkspaceRuntime } from './neural/browserNeuralWorkspaceRuntime';
 import { useNeuralBrowserController } from './neural/useNeuralBrowserController';
 import FilterDialog from './dialogs/FilterDialog.vue';
 import SyncStatusIndicator from '../components/SyncStatusIndicator.vue';  // 🆕 导入同步状指示器
@@ -597,7 +589,7 @@ import {
   createBrowserLoadDataRuntime,
   type BrowserLoadDataOptions,
 } from './browserLoadDataRuntime';
-import { shouldReloadQueueAfterSourceExistenceUpdate } from './sourceExistenceUpdatePolicy';
+import { createBrowserSourceExistenceRuntime } from './browserSourceExistenceRuntime';
 import { openBrowserSpreadDialog } from './browserSpreadDialog';
 import {
   isNeuralQueueId,
@@ -621,7 +613,6 @@ import type {
   IBrowserApplicationService,
 } from '@/application/interfaces/IBrowserApplicationService';
 import { resolveQueueTypeForBrowserQueueId } from '@/types/browser-queue-identity';
-import { applyKnownSourceExistenceToRows } from '@/application/queries/browser/shared/MissingBlockMarker';
 import type { BrowserPreviewSiyuanPort } from '@/application/ports/BrowserPreviewSiyuanPort';
 import type { PresetFilter } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
@@ -810,14 +801,46 @@ let pendingGridModelUpdate: {
 
 const showPreview = ref(resolveDefaultBrowserShowPreview(layoutProfile.value));
 const previewCard = ref<BrowserCard | null>(null);
-const browserSemanticState = ref<BrowserSemanticWorkbenchState>({
-  status: 'idle',
-  activeSessionId: null,
-  model: null,
-  unavailable: null,
-  pendingCommand: null,
+const browserSemanticWorkspaceRuntime = createBrowserSemanticWorkspaceRuntime({
+  getCommandClient: () => pluginContext.value?.getSemanticActivationCommandClient?.() ?? null,
+  getReadClient: () => pluginContext.value?.getSemanticActivationBrowserReadClient?.() ?? null,
+  loadRootCard: async (nodeId) => {
+    const cards = await loadBrowserCardsByBlockIds([nodeId], {
+      applyQueryFilter: false,
+      manager: pluginUnifiedDataSourceManager.value || undefined,
+      siyuanApi: browserSiyuanApi.value || undefined,
+    });
+    return cards[0] ?? null;
+  },
+  openSemanticReviewSession: async (handoff) => {
+    const context = pluginContext.value;
+    const tabResult = await context?.getTabManager?.()?.focusSemanticReviewSession?.(handoff.sessionId, { focus: true });
+    if (tabResult === 'synced') {
+      return;
+    }
+    const dialogManager = context?.getDialogManager?.();
+    if (!dialogManager?.openNeuralRoamDialog) {
+      throw new Error(t(
+        'browserSemanticReviewHandoffUnavailable',
+        'Review Semantic handoff is not wired yet; continue in Browser Semantic Review.',
+      ));
+    }
+    await dialogManager.openNeuralRoamDialog({
+      focusBlockId: handoff.focusBlockId ?? handoff.currentNodeId,
+      includeFocusAsFirst: false,
+      resetHistory: false,
+      startNewSession: false,
+      semanticPinnedSessionId: handoff.sessionId,
+    });
+  },
+  pushErrMsg,
+  t,
 });
-const browserSemanticController = ref<BrowserSemanticStateController | null>(null);
+const browserSemanticState = browserSemanticWorkspaceRuntime.state;
+const browserNeuralWorkspaceRuntime = createBrowserNeuralWorkspaceRuntime({
+  getManager: () => pluginUnifiedDataSourceManager.value as IUnifiedDataSourceManagerFacade | null | undefined,
+  t,
+});
 
 const {
   neuralSourceEntries,
@@ -871,35 +894,8 @@ const {
   }),
   previewCard,
   refreshQueueCounts,
-  readNeuralRoamViewState: async () => {
-    const manager = pluginUnifiedDataSourceManager.value as unknown as {
-      readNeuralRoamViewState?: (request: { queueType: 'neural-roam' }) => Promise<{
-        status: string;
-        viewState: unknown | null;
-      }>;
-    } | null;
-    if (typeof manager?.readNeuralRoamViewState !== 'function') {
-      return null;
-    }
-    const result = await manager.readNeuralRoamViewState({ queueType: 'neural-roam' });
-    return result.status === 'ready' ? result.viewState as never : null;
-  },
-  runNeuralRoamCommand: async (command) => {
-    const manager = pluginUnifiedDataSourceManager.value as unknown as {
-      neuralRoamCommand?: (request: { queueType: 'neural-roam'; command: typeof command }) => Promise<unknown>;
-    } | null;
-    if (typeof manager?.neuralRoamCommand !== 'function') {
-      return {
-        queueType: 'neural-roam',
-        status: 'unavailable',
-        viewState: null,
-        queueState: null,
-        unavailableReason: 'advance-contract-unavailable',
-        message: t('neuralRoamEntryActionUnavailable', '神经漫游动作不可用'),
-      } as never;
-    }
-    return manager.neuralRoamCommand({ queueType: 'neural-roam', command }) as never;
-  },
+  readNeuralRoamViewState: () => browserNeuralWorkspaceRuntime.readViewState(),
+  runNeuralRoamCommand: (command) => browserNeuralWorkspaceRuntime.runCommand(command),
   getReviewSurfaceDeps: () => ({
     tabManager: pluginContext.value?.getTabManager?.() ?? null,
     dialogManager: pluginContext.value?.getDialogManager?.() ?? null,
@@ -1479,44 +1475,6 @@ function mergeLoadedRows(cards: BrowserCard[]): void {
   }
 }
 
-function patchSourceExistenceRows(
-  targetRows: BrowserCard[],
-  statusEntries: Array<readonly [string, boolean | null]>,
-  maxScan: number = Number.POSITIVE_INFINITY,
-): { rows: BrowserCard[]; updatedRows: BrowserCard[] } {
-  if (targetRows.length === 0 || statusEntries.length === 0) {
-    return { rows: targetRows, updatedRows: [] };
-  }
-
-  const scanLimit = Number.isFinite(maxScan) ? Math.max(0, Math.floor(maxScan)) : targetRows.length;
-  const end = Math.min(targetRows.length, scanLimit);
-  if (end === 0) {
-    return { rows: targetRows, updatedRows: [] };
-  }
-
-  const scanRows = targetRows.slice(0, end);
-  const patchedRows = applyKnownSourceExistenceToRows(scanRows, statusEntries);
-  if (patchedRows === scanRows) {
-    return { rows: targetRows, updatedRows: [] };
-  }
-
-  let nextRows = targetRows;
-  const updatedRows: BrowserCard[] = [];
-  for (let index = 0; index < patchedRows.length; index++) {
-    const patched = patchedRows[index];
-    if (patched === scanRows[index]) {
-      continue;
-    }
-    if (nextRows === targetRows) {
-      nextRows = [...targetRows];
-    }
-    nextRows[index] = patched;
-    updatedRows.push(patched);
-  }
-
-  return { rows: nextRows, updatedRows };
-}
-
 function patchGridRows(updatedRows: BrowserCard[]): number {
   if (updatedRows.length === 0) {
     return 0;
@@ -1548,63 +1506,47 @@ function patchGridRows(updatedRows: BrowserCard[]): number {
   return patched;
 }
 
+const browserSourceExistenceRuntime = createBrowserSourceExistenceRuntime({
+  getActiveQueueId: () => activeQueueId.value,
+  getRows: () => rows.value,
+  setRows: (nextRows) => {
+    rows.value = nextRows;
+  },
+  getRowsForFocus: () => rowsForFocus.value,
+  setRowsForFocus: (nextRows) => {
+    rowsForFocus.value = nextRows;
+  },
+  getAllRows: () => allRows.value,
+  setAllRows: (nextRows) => {
+    allRows.value = nextRows;
+  },
+  getLoadedRowByBlockId: (blockId) => loadedRowsByBlockId.get(blockId) ?? null,
+  setLoadedRowByBlockId: (blockId, row) => {
+    loadedRowsByBlockId.set(blockId, row);
+  },
+  patchGridRows,
+});
+
 function handleSourceExistenceUpdate(update: BrowserSourceExistenceUpdate): void {
-  const statusEntries = update.statuses
-    .map((status) => [String(status.blockId || '').trim(), status.exists] as const)
-    .filter(([blockId]) => Boolean(blockId));
-  if (statusEntries.length === 0) {
-    return;
-  }
-  const shouldReloadActiveQueue = shouldReloadQueueAfterSourceExistenceUpdate({
-    activeQueueId: activeQueueId.value,
-    statuses: update.statuses,
-  });
-
-  measureRuntimePerformance('source-existence', 'visible-rows-patch.apply', () => {
-    const updatedRows: BrowserCard[] = [];
-    const rowsPatch = patchSourceExistenceRows(rows.value, statusEntries);
-    if (rowsPatch.rows !== rows.value) {
-      rows.value = rowsPatch.rows;
-      updatedRows.push(...rowsPatch.updatedRows);
-    }
-
-    const focusPatch = patchSourceExistenceRows(rowsForFocus.value, statusEntries);
-    if (focusPatch.rows !== rowsForFocus.value) {
-      rowsForFocus.value = focusPatch.rows;
-      updatedRows.push(...focusPatch.updatedRows);
-    }
-
-    const allRowsPatch = patchSourceExistenceRows(allRows.value, statusEntries, 2000);
-    if (allRowsPatch.rows !== allRows.value) {
-      allRows.value = allRowsPatch.rows;
-      updatedRows.push(...allRowsPatch.updatedRows);
-    }
-
-    for (const [blockId] of statusEntries) {
-      const current = loadedRowsByBlockId.get(blockId);
-      if (!current) {
-        continue;
-      }
-      const [patched] = applyKnownSourceExistenceToRows([current], statusEntries);
-      if (patched !== current) {
-        loadedRowsByBlockId.set(blockId, patched);
-        updatedRows.push(patched);
-      }
-    }
-
-    const patchedGridRows = patchGridRows(updatedRows);
-    recordRuntimePerformanceSpan('source-existence', 'visible-rows-patch.grid', 0, {
-      patchedGridRows,
-      source: update.source,
-      statusCount: statusEntries.length,
-      updatedRows: updatedRows.length,
-    });
+  const result = measureRuntimePerformance('source-existence', 'visible-rows-patch.apply', () => {
+    return browserSourceExistenceRuntime.applyUpdate(update);
   }, {
     source: update.source,
-    statusCount: statusEntries.length,
+    statusCount: update.statuses.length,
   });
 
-  if (shouldReloadActiveQueue) {
+  if (result.status === 'ignored') {
+    return;
+  }
+
+  recordRuntimePerformanceSpan('source-existence', 'visible-rows-patch.grid', 0, {
+    patchedGridRows: result.patchedGridRows,
+    source: update.source,
+    statusCount: result.statusCount,
+    updatedRows: result.updatedRows,
+  });
+
+  if (result.shouldReloadActiveQueue) {
     void loadData(false, {
       origin: 'queue-sync',
       refreshQueueCounts: false,
@@ -3134,80 +3076,6 @@ async function handleOpenAiWorkbench(): Promise<void> {
   });
 }
 
-function setBrowserSemanticUnavailable(message: string): BrowserSemanticWorkbenchState {
-  const nextState: BrowserSemanticWorkbenchState = {
-    status: 'unavailable',
-    activeSessionId: browserSemanticState.value.activeSessionId,
-    model: browserSemanticState.value.model,
-    unavailable: {
-      status: 'unavailable',
-      reason: 'session-unavailable',
-      message,
-    },
-    pendingCommand: null,
-  };
-  browserSemanticState.value = nextState;
-  return nextState;
-}
-
-function ensureBrowserSemanticController(): BrowserSemanticStateController | null {
-  if (browserSemanticController.value) {
-    return browserSemanticController.value;
-  }
-
-  const commandClient = pluginContext.value?.getSemanticActivationCommandClient?.() ?? null;
-  const readClient = pluginContext.value?.getSemanticActivationBrowserReadClient?.() ?? null;
-  if (!commandClient || !readClient) {
-    return null;
-  }
-
-  const readAdapter = new BrowserSemanticBackendReadAdapter({ readClient });
-  const entryController = new BrowserSemanticEntryController({
-    createSemanticController: (activeSessionId) => new SemanticActivationSessionController({
-      commandClient,
-      activeSessionId,
-    }),
-    findActiveSessionByRoot: (rootFocusNodeId) => readAdapter.findActiveSessionByRoot(rootFocusNodeId),
-    loadReadModel: (sessionId) => readAdapter.loadReadModel(sessionId),
-  });
-
-  browserSemanticController.value = new BrowserSemanticStateController({
-    entryController,
-    openReviewSession: handleBrowserSemanticReviewHandoff,
-  });
-  return browserSemanticController.value;
-}
-
-async function startBrowserSemanticFromCard(targetCard: BrowserCard | null | undefined): Promise<void> {
-  if (!targetCard) {
-    setBrowserSemanticUnavailable(t('browserSemanticNoSelection', 'Select a Concept card before starting Semantic.'));
-    return;
-  }
-
-  if (!isBrowserSemanticConceptCard(targetCard)) {
-    browserSemanticState.value = {
-      status: 'unavailable',
-      activeSessionId: null,
-      model: null,
-      unavailable: {
-        status: 'unavailable',
-        reason: 'focus-unavailable',
-        message: t('browserSemanticConceptRequired', 'Browser Semantic requires a Concept card selection.'),
-      },
-      pendingCommand: null,
-    };
-    return;
-  }
-
-  const controller = ensureBrowserSemanticController();
-  if (!controller) {
-    setBrowserSemanticUnavailable(t('browserSemanticRuntimeUnavailable', 'Semantic runtime is unavailable in Browser.'));
-    return;
-  }
-
-  browserSemanticState.value = await controller.start(targetCard);
-}
-
 async function switchToBrowserSemanticWorkspace(): Promise<void> {
   neuralWorkspaceMode.value = 'semantic';
   if (!isNeuralRoamQueueActive.value) {
@@ -3219,25 +3087,11 @@ async function switchToBrowserSemanticWorkspace(): Promise<void> {
 async function handleStartBrowserSemantic(): Promise<void> {
   const targetCard = browserSemanticTargetCard.value;
   await switchToBrowserSemanticWorkspace();
-  await startBrowserSemanticFromCard(targetCard);
-}
-
-async function resolveBrowserSemanticCardFromNeuralRoot(nodeId: string): Promise<BrowserCard | null> {
-  const cards = await loadBrowserCardsByBlockIds([nodeId], {
-    applyQueryFilter: false,
-    manager: pluginUnifiedDataSourceManager.value || undefined,
-    siyuanApi: browserSiyuanApi.value || undefined,
-  });
-  return cards[0] ?? null;
+  await browserSemanticWorkspaceRuntime.startFromCard(targetCard);
 }
 
 async function handleBrowserSemanticStartFromNeuralRoot(nodeId: string): Promise<void> {
-  const targetCard = await resolveBrowserSemanticCardFromNeuralRoot(nodeId);
-  if (!targetCard) {
-    setBrowserSemanticUnavailable(t('browserSemanticRootUnavailable', 'Semantic root cannot be resolved from this concept pool item.'));
-    return;
-  }
-  await startBrowserSemanticFromCard(targetCard);
+  await browserSemanticWorkspaceRuntime.startFromNeuralRoot(nodeId);
 }
 
 async function handleSelectNeuralWorkspaceMode(mode: BrowserNeuralWorkspaceMode): Promise<void> {
@@ -3246,19 +3100,7 @@ async function handleSelectNeuralWorkspaceMode(mode: BrowserNeuralWorkspaceMode)
     if (isNeuralRoamQueueActive.value) {
       await refreshNeuralSubviewData();
     }
-    if (browserSemanticState.value.status === 'idle') {
-      browserSemanticState.value = {
-        status: 'unavailable',
-        activeSessionId: null,
-        model: null,
-        unavailable: {
-          status: 'unavailable',
-          reason: 'focus-unavailable',
-          message: t('browserSemanticNoSession', 'Select a Concept from the pool to start Semantic.'),
-        },
-        pendingCommand: null,
-      };
-    }
+    browserSemanticWorkspaceRuntime.activateEmptyWorkspace();
     return;
   }
 
@@ -3269,77 +3111,32 @@ async function handleSelectNeuralWorkspaceMode(mode: BrowserNeuralWorkspaceMode)
   }
 }
 
-async function runBrowserSemanticAction(
-  action: (controller: BrowserSemanticStateController) => Promise<BrowserSemanticWorkbenchState>,
-): Promise<void> {
-  const controller = ensureBrowserSemanticController();
-  if (!controller) {
-    setBrowserSemanticUnavailable(t('browserSemanticRuntimeUnavailable', 'Semantic runtime is unavailable in Browser.'));
-    return;
-  }
-  browserSemanticState.value = await action(controller);
-}
-
 async function handleBrowserSemanticFollow(candidateId: string, lens: BackendSemanticLens): Promise<void> {
-  await runBrowserSemanticAction((controller) => controller.followCandidate(candidateId, lens));
+  await browserSemanticWorkspaceRuntime.follow(candidateId, lens);
 }
 
 async function handleBrowserSemanticCreateStation(stationType: BackendSemanticStationType): Promise<void> {
-  await runBrowserSemanticAction((controller) => controller.createStation(stationType));
+  await browserSemanticWorkspaceRuntime.createStation(stationType);
 }
 
 async function handleBrowserSemanticArchiveStation(stationId: string): Promise<void> {
-  await runBrowserSemanticAction((controller) => controller.archiveStation(stationId));
+  await browserSemanticWorkspaceRuntime.archiveStation(stationId);
 }
 
 async function handleBrowserSemanticOpenNodeStation(nodeId: string): Promise<void> {
-  await runBrowserSemanticAction((controller) => controller.openNodeStation(nodeId));
+  await browserSemanticWorkspaceRuntime.openNodeStation(nodeId);
 }
 
 async function handleBrowserSemanticRestorePathStation(stationId: string): Promise<void> {
-  await runBrowserSemanticAction((controller) => controller.restorePathStation(stationId));
+  await browserSemanticWorkspaceRuntime.restorePathStation(stationId);
 }
 
 async function handleBrowserSemanticEndSession(): Promise<void> {
-  await runBrowserSemanticAction((controller) => controller.endSession());
+  await browserSemanticWorkspaceRuntime.endSession();
 }
 
 async function handleBrowserSemanticOpenInReview(): Promise<void> {
-  await runBrowserSemanticAction((controller) => controller.openInReview());
-}
-
-async function handleBrowserSemanticReviewHandoff(_handoff: BrowserSemanticReviewHandoff): Promise<void> {
-  const opened = await openBrowserSemanticHandoffInReview(_handoff, {
-    openSemanticReviewSession: async (handoff) => {
-      const context = pluginContext.value;
-      const tabResult = await context?.getTabManager?.()?.focusSemanticReviewSession?.(handoff.sessionId, { focus: true });
-      if (tabResult === 'synced') {
-        return;
-      }
-      const dialogManager = context?.getDialogManager?.();
-      if (!dialogManager?.openNeuralRoamDialog) {
-        throw new Error(t(
-          'browserSemanticReviewHandoffUnavailable',
-          'Review Semantic handoff is not wired yet; continue in Browser Semantic Review.',
-        ));
-      }
-      await dialogManager.openNeuralRoamDialog({
-        focusBlockId: handoff.focusBlockId,
-        includeFocusAsFirst: false,
-        resetHistory: false,
-        startNewSession: false,
-        semanticPinnedSessionId: handoff.sessionId,
-      });
-    },
-    pushErrMsg,
-    t,
-  });
-  if (!opened) {
-    setBrowserSemanticUnavailable(t(
-      'browserSemanticReviewHandoffUnavailable',
-      'Review Semantic handoff is not wired yet; continue in Browser Semantic Review.',
-    ));
-  }
+  await browserSemanticWorkspaceRuntime.openInReview();
 }
 
 async function loadAllRowsForCurrentView(sortModel: SortModel[] = []): Promise<BrowserCard[]> {

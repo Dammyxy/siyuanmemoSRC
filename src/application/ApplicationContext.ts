@@ -57,14 +57,11 @@ import { CardReadModel } from '@/infrastructure/queries/CardReadModel';
 import { SqlCardReadModel } from '@/infrastructure/queries/SqlCardReadModel';
 import { CardCreationHelper } from '@/application/helpers/CardCreationHelper';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
-import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
-import { CardSortService } from '@/core/card/domain/services/CardSortService';
-import { BrowserApplicationService } from '@/application/services/BrowserApplicationService';
-import { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
-import { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
-import { SrsTransparencyApplicationService } from '@/application/services/SrsTransparencyApplicationService';
-import { NeuralRoamEntryActionService } from '@/application/services/NeuralRoamEntryActionService';
-import { threeChoiceDialog } from '@/utils/dialog';
+import type { BrowserApplicationService } from '@/application/services/BrowserApplicationService';
+import type { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
+import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
+import type { SrsTransparencyApplicationService } from '@/application/services/SrsTransparencyApplicationService';
+import type { NeuralRoamEntryActionService } from '@/application/services/NeuralRoamEntryActionService';
 import { NeuralRoamRouteCatalog } from '@/core/queue/neural/routes';
 import {
   SyncConflictDirectionResolutionService,
@@ -80,16 +77,22 @@ import {
   type ManualSyncBackupRetentionApplyResult,
   type ManualSyncBackupRetentionPreviewResult,
 } from '@/application/services/ManualSyncBackupRetentionApplicationService';
-import { ReviewLogLearningCurveEvidenceReader } from '@/application/services/SrsTransparencyEvidenceReader';
 import {
   createReviewRenderServices as createInjectedReviewRenderServices,
   type ReviewRenderServices,
 } from '@/application/factories/createReviewRenderServices';
+import { createAIServiceBundle } from '@/application/factories/createAIServiceBundle';
+import {
+  createAutoCardKernelXiuyuanServiceBundle,
+  type AutoCardKernelXiuyuanServiceBundle,
+} from '@/application/factories/createAutoCardKernelXiuyuanServiceBundle';
+import { createReviewBrowserServiceBundle } from '@/application/factories/createReviewBrowserServiceBundle';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
 
 // ✅ DDD 重构服务导入
 import { FileService } from '@/infrastructure/services/FileService';
 import { QueuePersistenceService } from '@/infrastructure/services/QueuePersistenceService';
+import { executeWriterRelayCommand } from '@/application/commands/writerRelayCommandDispatcher';
 import {
   SqlArenaRepository,
   SqliteDatabaseService,
@@ -106,13 +109,10 @@ import { ReviewLogService } from '@/application/services/ReviewLogService';
 import { RiffBlacklistService } from '@/application/services/RiffBlacklistService';
 import { ReviewQueuePreparationService } from '@/application/services/ReviewQueuePreparationService';
 import { CardContentQueryService } from '@/application/queries/CardContentQueryService';
-import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
-import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
-import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { BrowserSiyuanAdapter } from '@/infrastructure/siyuan/BrowserSiyuanAdapter';
-import { SiyuanNeuralRoamGraphQueryAdapter } from '@/infrastructure/siyuan/SiyuanNeuralRoamGraphQueryAdapter';
-import { ReviewSiyuanAdapter } from '@/infrastructure/siyuan/ReviewSiyuanAdapter';
+import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
+import { ReviewSiyuanAdapter } from '@/infrastructure/siyuan/ReviewSiyuanAdapter';
 import { HostBlockQuerySiyuanAdapter } from '@/infrastructure/siyuan/HostBlockQuerySiyuanAdapter';
 import { DocTreeReviewScopeService } from '@/application/services/DocTreeReviewScopeService';
 import { ExcerptRecordService } from '@/application/services/ExcerptRecordService';
@@ -122,27 +122,23 @@ import { SelectionExcerptService } from '@/application/services/SelectionExcerpt
 import { SelectionTopicContinuationService } from '@/application/services/SelectionTopicContinuationService';
 import { TopicDerivedItemService } from '@/application/services/TopicDerivedItemService';
 import { ConfiguredCaptureStorageService } from '@/application/services/ConfiguredCaptureStorageService';
-import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
-import { AIWorkbenchSessionStoreService } from '@/application/services/AIWorkbenchSessionStoreService';
-import { ArenaKernelService } from '@/application/services/ArenaKernelService';
-import { ArenaStoreService } from '@/application/services/ArenaStoreService';
-import { ReviewAIWorkbenchRegistry } from '@/application/services/ReviewAIWorkbenchRegistry';
-import { AIBackendSessionService } from '@/application/services/AIBackendSessionService';
+import type { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
+import type { AIWorkbenchSessionStoreService } from '@/application/services/AIWorkbenchSessionStoreService';
+import type { ArenaKernelService } from '@/application/services/ArenaKernelService';
+import type { ArenaStoreService } from '@/application/services/ArenaStoreService';
+import type { ReviewAIWorkbenchRegistry } from '@/application/services/ReviewAIWorkbenchRegistry';
 import { PrivateApiAuditService } from '@/application/services/PrivateApiAuditService';
 import { PrivateApiService } from '@/application/services/PrivateApiService';
 import { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
 import { ProgressiveNativeRiffAdapter } from '@/infrastructure/siyuan/ProgressiveNativeRiffAdapter';
-import { AISiyuanAdapter } from '@/infrastructure/siyuan/AISiyuanAdapter';
 import { ConfiguredCaptureStorageSiyuanAdapter } from '@/infrastructure/siyuan/ConfiguredCaptureStorageSiyuanAdapter';
 import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKernelCompanionAdapter';
-import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
-import { OpenAICompatibleLLMAdapter } from '@/infrastructure/llm/OpenAICompatibleLLMAdapter';
+import { SiyuanNeuralRoamGraphQueryAdapter } from '@/infrastructure/siyuan/SiyuanNeuralRoamGraphQueryAdapter';
 import { KernelAINetworkProxyAdapter } from '@/infrastructure/ai/KernelAINetworkProxyAdapter';
+import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
 import { SiyuanBlockAdapter as QuickCardSiyuanBlockAdapter } from '@/core/card/quick-card/infrastructure/SiyuanBlockAdapter';
 import { SiyuanBlockAdapter as DescriptorCardSiyuanBlockAdapter } from '@/core/card/descriptor-card/infrastructure/SiyuanBlockAdapter';
-import { AutoCardSiyuanAdapter } from '@/infrastructure/siyuan/AutoCardSiyuanAdapter';
-import { AutoCardRiffAdapter } from '@/infrastructure/siyuan/AutoCardRiffAdapter';
 import { CardCreationSiyuanAdapter } from '@/infrastructure/siyuan/CardCreationSiyuanAdapter';
 import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
@@ -151,20 +147,19 @@ import {
   measureRuntimePerformance,
   startRuntimePerformanceSpan,
 } from '@/utils/runtimePerformanceDiagnostics';
-import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
 import { DEFAULT_SETTINGS } from '@/types/settings';
 import type { HybridSyncConfig } from '@/application/services/XiuyuanSyncService.types';
 import { isErr } from '@/types/result';
 import type { KernelCompanionPort } from '@/application/ports/KernelCompanionPort';
-import { SrsBackendClient, type SrsBackendTransport } from '@/application/clients/SrsBackendClient';
-import {
-  BrowserSrsBackendWorkerTransport,
-  type BrowserSrsBackendWorkerDiagnostics,
-} from '@/application/clients/BrowserSrsBackendWorkerTransport';
+import { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
 import { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
 import { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
+import {
+  createApplicationBackendRuntimeBundle,
+  type ApplicationBackendRuntimeTransport,
+} from '@/application/factories/createApplicationBackendRuntimeBundle';
 import { PrivateApiClient } from '@/application/clients/PrivateApiClient';
 import { SemanticActivationCommandClient } from '@/application/clients/SemanticActivationCommandClient';
 import { SemanticActivationBrowserReadClient } from '@/application/clients/SemanticActivationBrowserReadClient';
@@ -173,12 +168,7 @@ import {
   listMigratedStateFamilies,
   type MigratedStateFamily,
 } from '@/application/backendMigration/ownershipMap';
-import {
-  collectBackendMigrationRuntimeEnv,
-  resolveBackendMigrationRuntimePolicy,
-  type BackendMigrationRuntimePolicy,
-} from '@/application/backendMigration/runtimePolicy';
-import type { SqlitePersistenceBridge } from '../../worker/db/SqlitePersistenceBridge';
+import type { BackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
 import type {
   BackendReviewSyncDivergenceAuditRequest,
   BackendReviewSyncDivergenceAuditResult,
@@ -260,10 +250,7 @@ interface SqlPersistenceBundle {
   xiuyuanRead: SqlXiuyuanReadRepository;
 }
 
-type DisposableSrsBackendTransport = SrsBackendTransport & {
-  dispose?: () => void;
-  getDiagnostics?: () => BrowserSrsBackendWorkerDiagnostics;
-};
+type DisposableSrsBackendTransport = ApplicationBackendRuntimeTransport;
 
 /**
  * 应用配置接口
@@ -335,6 +322,7 @@ export class ApplicationContext {
   private followerCommandClient: FollowerCommandClient | null = null;
   private kernelSidecarClient: KernelSidecarClient;
   private readonly backendMigrationRuntimePolicy: BackendMigrationRuntimePolicy;
+  private readonly autoCardKernelXiuyuanServiceBundle: AutoCardKernelXiuyuanServiceBundle;
   
   // ========================================================================
   // 服务容器
@@ -438,6 +426,21 @@ export class ApplicationContext {
     this.followerCommandClient = services.followerCommandClient ?? null;
     this.kernelSidecarClient = services.kernelSidecarClient;
     this.backendMigrationRuntimePolicy = services.backendMigrationRuntimePolicy;
+    this.autoCardKernelXiuyuanServiceBundle = createAutoCardKernelXiuyuanServiceBundle({
+      plugin: this.config.plugin,
+      getUnifiedStorage: () => this.unifiedStorageManager,
+      getUnifiedDataSourceManager: () => this.unifiedDataSourceManager,
+      getSqlXiuyuanReadRepository: () => this.sqlPersistence?.xiuyuanRead ?? null,
+      getCardTypeDetectionService: () => this.getCardTypeDetectionService(),
+      getEventBus: () => this.getEventBus(),
+      getRiffBlacklistService: () => this.getRiffBlacklistService(),
+      getDeletionTracker: () => {
+        if (!this.deletionTracker) {
+          throw new Error('[ApplicationContext] deletionTracker should have been created during initialization');
+        }
+        return this.deletionTracker;
+      },
+    });
     
     // ✅ 保存 sharedEventBus 引用（如果提供）
     if (services.sharedEventBus) {
@@ -524,6 +527,28 @@ export class ApplicationContext {
       return new SiyuanKernelCompanionAdapter();
     });
 
+    const reviewBrowserServiceBundle = createReviewBrowserServiceBundle({
+      getStorage: () => this.getStorage(),
+      getCardService: () => this.getCardService(),
+      getUnifiedStorage: () => this.getUnifiedStorage(),
+      getUnifiedDataSourceManager: () => this.getUnifiedDataSourceManager(),
+      getScheduler: () => this.getScheduler(),
+      getReviewService: () => this.getReviewService(),
+      getArenaKernelService: () => this.getArenaKernelService(),
+      getReviewLogService: () => this.getReviewLogService(),
+      getI18n: () => this.getI18n(),
+      getBrowserDeckReadPort: () => this.sqlPersistence?.unified ?? null,
+      getSrsBackendClient: () => this.srsBackendClient,
+      getFrontendInstanceRuntime: () => this.frontendInstanceRuntime,
+      getFollowerCommandClient: () => this.followerCommandClient,
+      createManagerSiyuanPort: () => new ManagerSiyuanAdapter(),
+      createBrowserSiyuanPort: () => new BrowserSiyuanAdapter(),
+      createReviewSiyuanPort: () => new ReviewSiyuanAdapter(),
+      openNeuralRoamDialog: async (options) => {
+        await this.getDialogManager().openNeuralRoamDialog(options);
+      },
+    });
+
     this.registerServiceFactory('excerptRecordService', (context) => {
       return new ExcerptRecordService(context.getFileService());
     });
@@ -574,37 +599,8 @@ export class ApplicationContext {
       );
     });
 
-    this.registerServiceFactory('neuralRoamEntryActionService', (context) => {
-      const siyuanApi = new ManagerSiyuanAdapter();
-      return new NeuralRoamEntryActionService({
-        storage: context.getStorage(),
-        cardCreationHelper: new CardCreationHelper(context.getCardService()),
-        cardService: context.getCardService(),
-        dataSourceManager: context.getUnifiedDataSourceManager(),
-        siyuanApi,
-        openNeuralRoamDialog: async (options) => {
-          await context.getDialogManager().openNeuralRoamDialog(options);
-        },
-        resolveBlockTitle: async (blockId) => siyuanApi.getBlockText(blockId),
-        promptTemporaryRouteClose: async () => {
-          const i18n = context.getI18n();
-          const choice = await threeChoiceDialog({
-            title: i18n.temporaryRouteDirtyTitle || '临时航线有改动',
-            content: i18n.temporaryRouteDirtyClosePrompt || '当前临时航线已有新的概念、空间站或漫游记录。请选择保存为航线、丢弃，或取消当前操作。',
-            primaryText: i18n.saveAsRoute || '保存为航线',
-            secondaryText: i18n.discard || '丢弃',
-            cancelText: i18n.cancel || '取消',
-            visualVariant: 'workspace',
-          });
-          if (choice === 'primary') {
-            return 'save';
-          }
-          if (choice === 'secondary') {
-            return 'discard';
-          }
-          return 'cancel';
-        },
-      });
+    this.registerServiceFactory('neuralRoamEntryActionService', () => {
+      return reviewBrowserServiceBundle.createNeuralRoamEntryActionService();
     });
     
     this.registerServiceFactory('reviewQueuePreparationService', (context) => {
@@ -663,79 +659,39 @@ export class ApplicationContext {
       return new CardContentQueryService(new QuerySiyuanAdapter());
     });
 
-    this.registerServiceFactory('aiWorkbenchSessionStoreService', (context) => {
-      return new AIWorkbenchSessionStoreService(context.getFileService());
+    const aiServiceBundle = createAIServiceBundle({
+      getFileService: () => this.getFileService(),
+      getSqlArenaRepository: () => this.sqlPersistence?.arena ?? null,
+      getSettingsService: () => this.getSettingsService(),
+      getReviewLogService: () => this.getReviewLogService(),
+      getPluginApp: () => this.getPlugin().app,
+      getCardContentQueryService: () => this.getCardContentQueryService(),
+      getXiuyuanApplicationService: () => this.getXiuyuanApplicationService(),
+      getSelectionExcerptService: () => this.getSelectionExcerptService(),
+      getSelectionTopicContinuationService: () => this.getSelectionTopicContinuationService(),
+      getAIWorkbenchSessionStoreService: () => this.getAIWorkbenchSessionStoreService(),
+      getArenaStoreService: () => this.getArenaStoreService(),
+      getArenaKernelService: () => this.getArenaKernelService(),
+      getReviewAIWorkbenchRegistry: () => this.getReviewAIWorkbenchRegistry(),
+      getBackendMigrationRuntimePolicy: () => this.getBackendMigrationRuntimePolicy(),
+      getSrsBackendClient: () => this.srsBackendClient,
+      getKernelSidecarClient: () => this.getKernelSidecarClient(),
     });
 
-    this.registerServiceFactory('arenaStoreService', (context) => {
-      return new ArenaStoreService(context.getFileService(), context.sqlPersistence?.arena ?? null);
+    this.registerServiceFactory('aiWorkbenchSessionStoreService', () => {
+      return aiServiceBundle.createAIWorkbenchSessionStoreService();
     });
 
-    this.registerServiceFactory('arenaKernelService', (context) => {
-      return new ArenaKernelService({
-        getArenaSettings: () => context.getSettingsService().getSettings().arena,
-        updateArenaSettings: async (updater) => {
-          const settingsService = context.getSettingsService();
-          await settingsService.updateSettings({
-            arena: updater(settingsService.getSettings().arena),
-          });
-        },
-        getFsrsParams: () => context.getSettingsService().getSettings().fsrs,
-        arenaStore: context.getArenaStoreService(),
-        evidenceReader: new ReviewLogLearningCurveEvidenceReader(context.getReviewLogService()),
-      });
+    this.registerServiceFactory('arenaStoreService', () => {
+      return aiServiceBundle.createArenaStoreService();
     });
 
-    this.registerServiceFactory('reviewAIWorkbenchRegistry', (context) => {
-      const siyuanPort = new AISiyuanAdapter(context.getPlugin().app);
-      const runtimePolicy = context.getBackendMigrationRuntimePolicy();
-      const aiBackendSessionService = runtimePolicy.capabilities.aiBackendSessionEnabled
-        && context.srsBackendClient
-        ? new AIBackendSessionService({
-            backendClient: context.srsBackendClient,
-            networkProxy: new KernelAINetworkProxyAdapter(context.getKernelSidecarClient()),
-            resolveSecret: (name) => {
-              const key = String(name || '').trim();
-              if (!key) {
-                return null;
-              }
-              const settings = context.getSettingsService().getSettings().ai;
-              const providers = Array.isArray(settings?.providers) ? settings.providers : [];
-              for (const provider of providers) {
-                const providerRecord = provider as Record<string, unknown>;
-                const providerApiKey = String(providerRecord.apiKey || '').trim();
-                if (key === 'apiKey' && providerApiKey) {
-                  return providerApiKey;
-                }
-                const providerId = String(providerRecord.id || '').trim();
-                if (providerId && key === `${providerId}:apiKey` && providerApiKey) {
-                  return providerApiKey;
-                }
-              }
-              return null;
-            },
-          })
-        : undefined;
-      return new ReviewAIWorkbenchRegistry({
-        getAISettings: () => context.getSettingsService().getSettings().ai,
-        updateAISettings: async (updater) => {
-          const settingsService = context.getSettingsService();
-          const currentAi = settingsService.getSettings().ai;
-          await settingsService.updateSettings({
-            ai: updater(currentAi),
-          });
-        },
-        cardContentQueryService: context.getCardContentQueryService(),
-        siyuanPort,
-        llmPort: new OpenAICompatibleLLMAdapter(),
-        getXiuyuanApplicationService: () => context.getXiuyuanApplicationService(),
-        getSelectionExcerptService: () => context.getSelectionExcerptService(),
-        getSelectionTopicContinuationService: () => context.getSelectionTopicContinuationService(),
-        sessionStore: context.getAIWorkbenchSessionStoreService(),
-        arenaKernel: context.getArenaKernelService(),
-        backendRuntimeEnabled: runtimePolicy.flags.aiBackendRuntime,
-        backendSessionService: aiBackendSessionService,
-      });
+    this.registerServiceFactory('arenaKernelService', () => {
+      return aiServiceBundle.createArenaKernelService();
+    });
+
+    this.registerServiceFactory('reviewAIWorkbenchRegistry', () => {
+      return aiServiceBundle.createReviewAIWorkbenchRegistry();
     });
 
     this.registerServiceFactory('privateApiAuditService', () => {
@@ -793,8 +749,8 @@ export class ApplicationContext {
       });
     });
 
-    this.registerServiceFactory('aiWorkbenchService', (context) => {
-      return context.getReviewAIWorkbenchRegistry().getStandaloneService();
+    this.registerServiceFactory('aiWorkbenchService', () => {
+      return aiServiceBundle.createAIWorkbenchService();
     });
 
     this.registerServiceFactory('sharedReviewSessionRegistry', () => {
@@ -914,50 +870,21 @@ export class ApplicationContext {
     });
     
     // ✅ 注册浏览器应用服务工厂
-    this.registerServiceFactory('browserService', (context) => {
-      // 创建领域服务
-      const cardScheduleService = new CardScheduleService();
-      const cardFilterService = new CardFilterService();
-      const cardSortService = new CardSortService();
-
-      // 创建应用服务
-      return new BrowserApplicationService(
-        context.getUnifiedStorage(),  // ✅ 使用 UnifiedStorageManager
-        cardScheduleService,
-        cardFilterService,
-        cardSortService,
-        context.getUnifiedDataSourceManager(),  // ✅ 传入 UnifiedDataSourceManager
-        new BrowserSiyuanAdapter(),
-        null,
-        context.sqlPersistence?.unified ?? null,
-        context.srsBackendClient,
-        context.frontendInstanceRuntime,
-        context.followerCommandClient,
-      );
+    this.registerServiceFactory('browserService', () => {
+      return reviewBrowserServiceBundle.createBrowserApplicationService();
     });
     
     // ✅ 注册复习应用服务工厂
-    this.registerServiceFactory('reviewService', (context) => {
-      return new ReviewApplicationService(
-        context.getUnifiedDataSourceManager(),
-        context.getScheduler(),
-        new ReviewSiyuanAdapter()
-      );
+    this.registerServiceFactory('reviewService', () => {
+      return reviewBrowserServiceBundle.createReviewApplicationService();
     });
 
-    this.registerServiceFactory('cardEditorService', (context) => {
-      return new CardEditorApplicationService(
-        context.getUnifiedDataSourceManager(),
-        context.getReviewService()
-      );
+    this.registerServiceFactory('cardEditorService', () => {
+      return reviewBrowserServiceBundle.createCardEditorApplicationService();
     });
 
-    this.registerServiceFactory('srsTransparencyService', (context) => {
-      return new SrsTransparencyApplicationService(
-        context.getScheduler(),
-        context.getArenaKernelService(),
-        new ReviewLogLearningCurveEvidenceReader(context.getReviewLogService()),
-      );
+    this.registerServiceFactory('srsTransparencyService', () => {
+      return reviewBrowserServiceBundle.createSrsTransparencyApplicationService();
     });
     
     // TODO: Phase 3 - 注册其他应用服务工厂
@@ -1441,146 +1368,37 @@ export class ApplicationContext {
     const unifiedDataSourceManager = UnifiedDataSourceManager.getInstance();
 
     let contextRef: ApplicationContext | null = null;
-    let srsBackendClient: SrsBackendClient | null = null;
-    let srsBackendTransport: DisposableSrsBackendTransport | null = null;
-    let frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
-    let followerCommandClient: FollowerCommandClient | null = null;
-    const kernelSidecarClient = new KernelSidecarClient(new SiyuanKernelCompanionAdapter());
-    const siyuanBackendContainer = ApplicationContext.resolveSiyuanBackendContainer();
-    const pluginRuntimeSurface = config.plugin as unknown as { isBrowser?: boolean; isMobile?: boolean };
-    const backendMigrationRuntimePolicy = resolveBackendMigrationRuntimePolicy(
-      collectBackendMigrationRuntimeEnv(
-        typeof import.meta !== 'undefined' && import.meta.env
-          ? import.meta.env as Record<string, string | undefined>
-          : {},
-        typeof process !== 'undefined' && process.env
-          ? process.env as Record<string, string | undefined>
-          : {},
-      ),
-      {
-        backendContainer: siyuanBackendContainer,
-        frontendKind: config.frontendKind,
-        isMobile: pluginRuntimeSurface.isMobile,
-        locationHref: ApplicationContext.resolveWindowLocationHref(),
-        userAgent: ApplicationContext.resolveNavigatorUserAgent(),
-        bodyClass: ApplicationContext.resolveDocumentBodyClass(),
+    const backendRuntimeBundle = await createApplicationBackendRuntimeBundle({
+      config,
+      fileService,
+      unifiedDataSourceManager,
+      executeAutoCard: async (request) => {
+        if (!contextRef) {
+          throw new Error('SrsBackendWorker autocard.execute unavailable: application context is not ready');
+        }
+        const autoCardHandler = contextRef.getAutoCardHandler();
+        if (!autoCardHandler) {
+          throw new Error('SrsBackendWorker autocard.execute unavailable: auto-card handler is not active');
+        }
+        return autoCardHandler.executeEnvelopeFromBackend(request);
       },
-    );
-    logger.info('[ApplicationContext] Backend migration runtime policy resolved', {
-      flags: backendMigrationRuntimePolicy.flags,
-      capabilities: backendMigrationRuntimePolicy.capabilities,
+      executeWriterRelayCommand,
+      notifyKernelTransactionIngested: () => contextRef?.kernelTransactionActionPump?.notifyActivity('relay-ingest'),
+      kernelSidecarClient: new KernelSidecarClient(new SiyuanKernelCompanionAdapter()),
+      createBlockExistenceSiyuanPort: () => new BrowserSiyuanAdapter(),
+      createNeuralRoamGraphQuery: (deps) => new SiyuanNeuralRoamGraphQueryAdapter(deps),
+      createAiNetworkProxy: (kernelSidecarClient) => new KernelAINetworkProxyAdapter(kernelSidecarClient),
+      resolveKernelWriterLeaseInstanceId: () => ApplicationContext.resolveKernelWriterLeaseInstanceId(),
+      resolveKernelWriterLeaseTtlMs: () => ApplicationContext.resolveKernelWriterLeaseTtlMs(),
     });
-    if (backendMigrationRuntimePolicy.capabilities.backendWorkerAvailable) {
-      try {
-        await measureRuntimePerformance('startup', 'backend-worker.bootstrap', async () => {
-          const bridge = ApplicationContext.createWorkerPersistenceBridge(fileService);
-          const browserSiyuanApi = new BrowserSiyuanAdapter();
-          const neuralRoamGraphQuery = new SiyuanNeuralRoamGraphQueryAdapter({
-            nodeTypeResolver: {
-              resolveNodeType: (blockId) => unifiedDataSourceManager.resolveNeuralRoamNodeType(blockId),
-            },
-            cardFacts: {
-              resolveNodeType: (blockId) => unifiedDataSourceManager.resolveNeuralRoamNodeType(blockId),
-              resolvePriority: (blockId) => unifiedDataSourceManager.resolveNeuralRoamNodePriority(blockId),
-            },
-          });
-          const aiNetworkProxy = new KernelAINetworkProxyAdapter(kernelSidecarClient);
-          srsBackendTransport = new BrowserSrsBackendWorkerTransport({
-            hostEffects: {
-              readBinary: (path) => bridge.readBinary(path),
-              writeBinary: (path, bytes) => bridge.writeBinary(path, bytes),
-              readJSON: <T>(path: string) => bridge.readJSON?.<T>(path) ?? Promise.resolve(null),
-              writeJSON: (path, value) => {
-                if (!bridge.writeJSON) {
-                  return Promise.reject(new Error(`SrsBackendWorker JSON persistence unavailable for ${path}`));
-                }
-                return bridge.writeJSON(path, value);
-              },
-              readSyncConflictDatabaseSources: () => bridge.readSyncConflictDatabaseSources?.() ?? Promise.resolve([]),
-              cleanupSyncConflictDatabaseSources: (sourceIds) => bridge.cleanupSyncConflictDatabaseSources?.(sourceIds) ?? Promise.resolve({
-                cleaned: [],
-                skipped: sourceIds.map((sourceId) => ({ sourceId, reason: 'cleanup host effect unavailable' })),
-                failed: [],
-              }),
-              resolveExistingBlockIds: (blockIds: string[]) => ApplicationContext.resolveExistingBlockIdsViaSiyuan(
-                browserSiyuanApi,
-                blockIds,
-              ),
-              resolveNeuralGraphQuery: (request) => neuralRoamGraphQuery.query(request),
-              executeAutoCard: async (request) => {
-                if (!contextRef) {
-                  throw new Error('SrsBackendWorker autocard.execute unavailable: application context is not ready');
-                }
-                const autoCardHandler = contextRef.getAutoCardHandler();
-                if (!autoCardHandler) {
-                  throw new Error('SrsBackendWorker autocard.execute unavailable: auto-card handler is not active');
-                }
-                return autoCardHandler.executeEnvelopeFromBackend(request);
-              },
-              executeAiPrompt: async (request, context) => aiNetworkProxy.execute({
-                ...request,
-                streamId: context.streamId,
-                sessionId: context.sessionId,
-                jobId: context.jobId,
-              }),
-            },
-          });
-          srsBackendClient = new SrsBackendClient(srsBackendTransport);
-        });
-        logger.info('[ApplicationContext] ✅ SRS backend browser Worker transport bootstrap enabled by feature flag');
-      } catch (error) {
-        srsBackendTransport?.dispose?.();
-        srsBackendTransport = null;
-        logger.error('[ApplicationContext] Failed to bootstrap SRS backend browser Worker transport; backend runtime remains unavailable:', error);
-      }
-    }
-
-    if (srsBackendClient && backendMigrationRuntimePolicy.capabilities.writerRelayRuntimeEnabled) {
-      try {
-        await measureRuntimePerformance('startup', 'frontend-instance-runtime.start', async () => {
-          frontendInstanceRuntime = new FrontendInstanceRuntime(kernelSidecarClient, {
-            instanceId: ApplicationContext.resolveKernelWriterLeaseInstanceId(),
-            leaseTtlMs: ApplicationContext.resolveKernelWriterLeaseTtlMs(),
-            backendContainer: siyuanBackendContainer,
-            frontendKind: config.frontendKind,
-            isBrowser: pluginRuntimeSurface.isBrowser,
-            isMobile: pluginRuntimeSurface.isMobile,
-            backendWorkerHealth: () => {
-              const diagnostics = srsBackendTransport?.getDiagnostics?.();
-              if (!diagnostics) {
-                return { healthy: false, reason: 'diagnostics-unavailable' };
-              }
-              const healthy = diagnostics.health === 'healthy' || diagnostics.health === 'starting';
-              return {
-                healthy,
-                reason: healthy
-                  ? null
-                  : diagnostics.lastTerminalError || diagnostics.health,
-                diagnostics,
-              };
-            },
-            writerCommandHandler: (command) => ApplicationContext.executeWriterRelayCommand(
-              srsBackendClient!,
-              command,
-              {
-                onKernelTransactionIngested: () => this.kernelTransactionActionPump?.notifyActivity('relay-ingest'),
-              },
-            ),
-          });
-          followerCommandClient = new FollowerCommandClient(kernelSidecarClient);
-          await frontendInstanceRuntime.start();
-        });
-        logger.info('[ApplicationContext] ✅ Frontend instance runtime started for kernel writer lease', {
-          instanceId: frontendInstanceRuntime.getInstanceId(),
-          runtimeScopeId: frontendInstanceRuntime.getRuntimeScopeId(),
-          mode: frontendInstanceRuntime.getMode(),
-        });
-      } catch (error) {
-        frontendInstanceRuntime = null;
-        followerCommandClient = null;
-        logger.warn('[ApplicationContext] Frontend instance runtime unavailable; backend write families fail closed with explicit unavailable', error);
-      }
-    }
+    const {
+      srsBackendClient,
+      srsBackendTransport,
+      frontendInstanceRuntime,
+      followerCommandClient,
+      kernelSidecarClient,
+      backendMigrationRuntimePolicy,
+    } = backendRuntimeBundle;
 
     // 创建 CardCreationHelper
     const cardCreationHelper = new CardCreationHelper(cardApplicationService);
@@ -1720,50 +1538,7 @@ export class ApplicationContext {
     logger.info('[ApplicationContext] Checking riffConfig:', { hasRiffConfig: !!riffConfig });
     if (riffConfig) {
       logger.info('[ApplicationContext] Initializing HybridSyncService...');
-      const syncSiyuanApi = new XiuyuanSyncSiyuanAdapter();
-      
-      // 获取依赖服务
-      const eventBus = context.getEventBus();
-      
-      // ✅ 创建 CardTypeDetectionService
-      const cardTypeDetectionService2 = context.getCardTypeDetectionService();
-      
-      // ✅ 创建 XiuyuanRepository
-      const xiuyuanRepository = new XiuyuanRepository(
-        unifiedStorageManager,
-        cardTypeDetectionService2,  // ✅ 注入 CardTypeDetectionService
-        sqlPersistence?.xiuyuanRead ?? null,
-      );
-      const cardTypeDetectionService = context.getCardTypeDetectionService();
-      
-      // ✅ 复用已创建的 DeletionTracker
-      const deletionTracker = context.deletionTracker;
-      if (!deletionTracker) {
-        throw new Error('[ApplicationContext] deletionTracker should have been created during initialization');
-      }
-      logger.info('[ApplicationContext] Reusing existing InMemoryDeletionTracker in initializeRiffSync');
-      
-      // 创建 HybridSyncService
-      // 构造函数签名：(config, eventBus, xiuyuanRepository, riffBlacklistService, cardTypeDetectionService, deletionTracker, siyuanApi)
-      hybridSyncService = new XiuyuanSyncService(
-        {
-          deckId: syncSiyuanApi.BUILTIN_DECK_ID,
-          storage: unifiedStorageManager as unknown as StorageManager,  // ✅ 使用新架构 UnifiedStorageManager
-          riffBlacklistService: context.getRiffBlacklistService(),
-          incrementalSync: {
-            ...riffConfig.incrementalSync,
-            autoDetectCardType: true,
-          },
-          fullSync: riffConfig.fullSync,
-          deleteSync: riffConfig.deleteSync,
-        },
-        eventBus,                              // ✅ 第2个参数：EventBus
-        xiuyuanRepository,                     // ✅ 第3个参数：XiuyuanRepository
-        context.getRiffBlacklistService(),     // ✅ 第4个参数：RiffBlacklistService
-        cardTypeDetectionService,              // ✅ 第5个参数：CardTypeDetectionService
-        deletionTracker,
-        syncSiyuanApi
-      );
+      hybridSyncService = context.autoCardKernelXiuyuanServiceBundle.createXiuyuanSyncService(riffConfig);
       
       // 将 HybridSyncService 设置到 context（使用类型断言）
       context.hybridSyncService = hybridSyncService;
@@ -1808,348 +1583,6 @@ export class ApplicationContext {
     return context;
   }
 
-  private static createWorkerPersistenceBridge(fileService: FileService): SqlitePersistenceBridge {
-    return {
-      readBinary: async (path: string) => {
-        if (!fileService.readBinary) {
-          return null;
-        }
-        return fileService.readBinary(path);
-      },
-      writeBinary: async (path: string, bytes: Uint8Array) => {
-        if (!fileService.writeBinary) {
-          throw new Error('FileService.writeBinary is unavailable');
-        }
-        await fileService.writeBinary(path, bytes);
-      },
-      readJSON: <T>(path: string) => fileService.readJSON<T>(path),
-      writeJSON: (path: string, value: unknown) => fileService.writeJSON(path, value),
-      readSyncConflictDatabaseSources: () => fileService.readSyncConflictDatabaseSources(),
-      cleanupSyncConflictDatabaseSources: (sourceIds: string[]) => fileService.cleanupSyncConflictDatabaseSources(sourceIds),
-    };
-  }
-
-  private static async resolveExistingBlockIdsViaSiyuan(
-    siyuanApi: Pick<BrowserSiyuanAdapter, 'sql'>,
-    blockIds: string[],
-  ): Promise<string[]> {
-    const normalized = Array.from(new Set(
-      blockIds.map((blockId) => String(blockId || '').trim()).filter(Boolean),
-    ));
-    if (normalized.length === 0) {
-      return [];
-    }
-
-    const existing: string[] = [];
-    const batchSize = 500;
-    for (let index = 0; index < normalized.length; index += batchSize) {
-      const batch = normalized.slice(index, index + batchSize);
-      const sql = `
-        SELECT id
-        FROM blocks
-        WHERE id IN (${batch.map((id) => `'${id.replace(/'/g, "''")}'`).join(',')})
-      `;
-      const rows = await siyuanApi.sql<{ id?: unknown }>(sql);
-      for (const row of rows) {
-        const id = String(row.id || '').trim();
-        if (id) {
-          existing.push(id);
-        }
-      }
-    }
-
-    return Array.from(new Set(existing));
-  }
-
-  private static async executeWriterRelayCommand(
-    srsBackendClient: SrsBackendClient,
-    command: {
-      method: string;
-      params?: unknown;
-    },
-    hooks: {
-      onKernelTransactionIngested?: () => void;
-    } = {},
-  ): Promise<unknown> {
-    if (command.method === 'review.feedback') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: review.feedback relay requires params object');
-      }
-      return srsBackendClient.reviewFeedback(command.params as {
-        cardId: string;
-        rating: 1 | 2 | 3 | 4;
-        queueType?: string;
-        queueMode?: string;
-        commitPolicy?: string;
-        sessionId?: string;
-        reviewedAt?: number;
-        scheduler?: {
-          defaultScheduler?: 'fsrs-v6' | 'a-factor-v2';
-          fsrsParams?: Record<string, unknown>;
-        };
-      });
-    }
-    if (command.method === 'domainSync.repair.apply') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: domainSync.repair.apply relay requires params object');
-      }
-      return srsBackendClient.domainSyncRepairApply(command.params as {
-        planId: string;
-        idempotencyKey: string;
-        confirmedAt: number;
-        confirmedBy?: string | null;
-        confirmationText?: string | null;
-      });
-    }
-    if (command.method === 'browser.sourceExistence.applySweepHost') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: browser.sourceExistence.applySweepHost relay requires params object');
-      }
-      const params = command.params as {
-        request?: {
-          blockIds?: string[];
-          limit?: number;
-          staleBefore?: number;
-          includeKnownMissing?: boolean;
-          force?: boolean;
-        };
-        checkedAt?: number;
-      };
-      return srsBackendClient.browserSourceExistenceApplySweepHost(
-        params.request ?? {},
-        Number(params.checkedAt || Date.now()),
-      );
-    }
-    if (command.method === 'browser.sourceExistence.update') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: browser.sourceExistence.update relay requires params object');
-      }
-      const params = command.params as {
-        updates?: Array<{
-          cardId?: string;
-          blockId: string;
-          exists: boolean;
-        }>;
-        checkedAt?: number;
-      };
-      return srsBackendClient.browserSourceExistenceUpdate(
-        Array.isArray(params.updates) ? params.updates : [],
-        Number(params.checkedAt || Date.now()),
-      );
-    }
-    if (command.method === 'browser.sourceExistence.applySweep') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: browser.sourceExistence.applySweep relay requires params object');
-      }
-      const params = command.params as {
-        request?: {
-          blockIds?: string[];
-          limit?: number;
-          staleBefore?: number;
-          includeKnownMissing?: boolean;
-          force?: boolean;
-        };
-        existingBlockIds?: string[];
-        checkedAt?: number;
-      };
-      return srsBackendClient.browserSourceExistenceApplySweep(
-        params.request ?? {},
-        Array.isArray(params.existingBlockIds) ? params.existingBlockIds : [],
-        Number(params.checkedAt || Date.now()),
-      );
-    }
-    if (command.method === 'kernel.transaction.ingest') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: kernel.transaction.ingest relay requires params object');
-      }
-      const result = await srsBackendClient.ingestKernelTransactions(command.params as {
-        source?: 'kernel-sidecar' | 'ws-main';
-        transactions?: unknown[];
-        receivedAt?: number;
-        idempotencyKey?: string;
-      });
-      hooks.onKernelTransactionIngested?.();
-      return result;
-    }
-    if (command.method === 'kernel.transaction.dequeue') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: kernel.transaction.dequeue relay requires params object');
-      }
-      return srsBackendClient.dequeueKernelTransactions(command.params as {
-        maxActions?: number;
-      });
-    }
-    if (command.method === 'kernel.transaction.requeue') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: kernel.transaction.requeue relay requires params object');
-      }
-      return srsBackendClient.requeueKernelTransactions(command.params as {
-        actions?: Array<{
-          type: 'native-riff-remove' | 'native-riff-upsert' | 'auto-card-candidates';
-          blockIds?: string[];
-          operations?: Array<{
-            action: 'insert' | 'update' | 'delete';
-            blockId: string;
-          }>;
-          source: 'kernel-sidecar' | 'ws-main';
-          receivedAt: number;
-          idempotencyKey: string;
-        }>;
-      });
-    }
-    if (command.method === 'queue.projection.replace') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: queue.projection.replace relay requires params object');
-      }
-      return srsBackendClient.queueProjectionReplace(command.params as {
-        queueType: string;
-        policyHash: string;
-        generation?: number | null;
-        reason?: string | null;
-        rows: Array<Record<string, unknown>>;
-        metadata?: Record<string, unknown> | null;
-      });
-    }
-    if (command.method === 'neural-roam.advance') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: neural-roam.advance relay requires params object');
-      }
-      return srsBackendClient.neuralRoamAdvance(command.params as {
-        queueType: 'neural-roam';
-        sessionId?: string | null;
-        currentItem?: Record<string, unknown> | null;
-        feedback?: {
-          action: 'rate' | 'skip' | 'custom';
-          rating?: 1 | 2 | 3 | 4;
-          customActionId?: string | null;
-        } | null;
-        projectionGeneration?: number | null;
-        policyHash?: string | null;
-        reviewedAt?: number | null;
-        idempotencyKey?: string | null;
-      });
-    }
-    if (command.method === 'neural-roam.viewState') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: neural-roam.viewState relay requires params object');
-      }
-      return srsBackendClient.neuralRoamViewState(command.params as {
-        queueType: 'neural-roam';
-        routeId?: string | null;
-        sessionId?: string | null;
-      });
-    }
-    if (command.method === 'neural-roam.command') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: neural-roam.command relay requires params object');
-      }
-      return srsBackendClient.neuralRoamCommand(command.params as never);
-    }
-    if (command.method === 'autocard.decision.resolve') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: autocard.decision.resolve relay requires params object');
-      }
-      return srsBackendClient.resolveAutoCardDecision(command.params as {
-        blockId: string;
-        content: string;
-        blockType?: string;
-        resolvedCardType?: 'topic' | 'item';
-        source?: 'symbol-listener' | 'doc-oneclick-scan';
-        hasParentTopicCard?: boolean;
-        settings?: {
-          enabledSymbols?: {
-            basic?: boolean;
-            concept?: boolean;
-            descriptor?: boolean;
-            cloze?: boolean;
-            multiLine?: boolean;
-          };
-          topicDerivation?: {
-            enabled?: boolean;
-          };
-        };
-      });
-    }
-    if (command.method === 'autocard.execute') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: autocard.execute relay requires params object');
-      }
-      return srsBackendClient.executeAutoCard(command.params as {
-        envelope: {
-          kind: 'planner-decision' | 'topic-derived';
-        };
-      });
-    }
-    if (command.method === 'private.command.execute') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: private.command.execute relay requires params object');
-      }
-      return srsBackendClient.privateCommand(command.params as {
-        requestId: string;
-        method: 'private.command.execute';
-        callerIntent: string;
-        idempotencyKey: string;
-        capabilityResult?: {
-          available: boolean;
-          reason: string | null;
-          kernelSidecarAvailable: boolean;
-          backendWorkerAvailable: boolean;
-          writerAvailable: boolean;
-          methodAllowed: boolean;
-        };
-        params?: Record<string, unknown>;
-        auditContext?: Record<string, unknown>;
-      });
-    }
-    if (command.method === 'semantic.command.execute') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: semantic.command.execute relay requires params object');
-      }
-      return srsBackendClient.semanticCommand(command.params as {
-        requestId: string;
-        method: 'semantic.command.execute';
-        callerIntent: string;
-        idempotencyKey: string;
-        command: Record<string, unknown>;
-      });
-    }
-    if (command.method === 'ai.session.create') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: ai.session.create relay requires params object');
-      }
-      return srsBackendClient.createAiSession(command.params as {
-        sessionId: string;
-        surfaceId: string;
-        reviewSessionId?: string | null;
-      });
-    }
-    if (command.method === 'ai.session.get') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: ai.session.get relay requires params object');
-      }
-      return srsBackendClient.getAiSession(command.params as { sessionId: string });
-    }
-    if (command.method === 'ai.session.update') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: ai.session.update relay requires params object');
-      }
-      return srsBackendClient.updateAiSession(command.params as {
-        sessionId: string;
-        state?: 'active' | 'streaming' | 'completed' | 'canceled' | 'expired' | 'unavailable' | 'failed';
-      });
-    }
-    if (command.method === 'ai.session.cancel') {
-      if (!command.params || typeof command.params !== 'object') {
-        throw new Error('INVALID_REQUEST: ai.session.cancel relay requires params object');
-      }
-      return srsBackendClient.cancelAiSession(command.params as {
-        sessionId: string;
-        reason?: string;
-      });
-    }
-    throw new Error(`BACKEND_UNAVAILABLE: unsupported writer relay method ${String(command.method || '')}`);
-  }
-
   private static resolveKernelWriterLeaseInstanceId(): string | undefined {
     const raw = ApplicationContext.readEnvValue(ApplicationContext.KERNEL_WRITER_LEASE_INSTANCE_ID_ENV_KEY, false);
     const value = String(raw || '').trim();
@@ -2166,53 +1599,6 @@ export class ApplicationContext {
       return undefined;
     }
     return Math.max(3_000, Math.floor(ttlMs));
-  }
-
-  private static resolveSiyuanBackendContainer(): string {
-    try {
-      const system = (globalThis as unknown as {
-        window?: {
-          siyuan?: {
-            config?: {
-              system?: {
-                container?: unknown;
-              };
-            };
-          };
-        };
-      }).window?.siyuan?.config?.system;
-      const container = String(system?.container || '').trim();
-      return container || 'unknown';
-    } catch {
-      return 'unknown';
-    }
-  }
-
-  private static resolveWindowLocationHref(): string {
-    try {
-      const runtime = globalThis as unknown as { window?: { location?: { href?: unknown } } };
-      return String(runtime.window?.location?.href || '');
-    } catch {
-      return '';
-    }
-  }
-
-  private static resolveNavigatorUserAgent(): string {
-    try {
-      const runtime = globalThis as unknown as { navigator?: { userAgent?: unknown } };
-      return String(runtime.navigator?.userAgent || '');
-    } catch {
-      return '';
-    }
-  }
-
-  private static resolveDocumentBodyClass(): string {
-    try {
-      const runtime = globalThis as unknown as { document?: { body?: { className?: unknown } } };
-      return String(runtime.document?.body?.className || '');
-    } catch {
-      return '';
-    }
   }
 
   private static shouldEnableKernelTransactionIngestListener(input: {
@@ -2340,35 +1726,7 @@ export class ApplicationContext {
    */
   async getXiuyuanApplicationService(): Promise<XiuyuanApplicationService> {
     if (!this.xiuyuanApplicationService) {
-      // 懒加载：首次调用时创建
-      
-      // 创建 CardTypeDetectionService（领域服务）
-      const cardTypeDetectionService = this.getCardTypeDetectionService();
-      
-      // 创建 XiuyuanRepository
-      const xiuyuanRepository = new XiuyuanRepository(
-        this.unifiedStorageManager,
-        cardTypeDetectionService,  // ✅ 注入 CardTypeDetectionService
-        this.sqlPersistence?.xiuyuanRead ?? null,
-      );
-      
-      // ✅ 从代码导入模板（硬编码，不需要持久化）
-      const { ALL_TEMPLATES } = await import('@/core/xiuyuan');
-      const { BUILTIN_CONCEPT_TEMPLATE } = await import('@/core/xiuyuan/templates/builtin-concept');
-      const templateRegistry = new Map<string, ICardTemplate>();
-      // 使用 ALL_TEMPLATES 来包含内部使用的变体模板
-      for (const template of ALL_TEMPLATES) {
-        templateRegistry.set(template.id, template);
-      }
-      // 概念描述符流程会依赖内部概念模板（不在 ALL_TEMPLATES 内）
-      templateRegistry.set(BUILTIN_CONCEPT_TEMPLATE.id, BUILTIN_CONCEPT_TEMPLATE);
-      
-      this.xiuyuanApplicationService = new XiuyuanApplicationService(
-        xiuyuanRepository,
-        templateRegistry,
-        this.getEventBus(),
-        new XiuyuanSiyuanAdapter()
-      );
+      this.xiuyuanApplicationService = await this.autoCardKernelXiuyuanServiceBundle.createXiuyuanApplicationService();
     }
     return this.xiuyuanApplicationService;
   }
@@ -2617,12 +1975,7 @@ export class ApplicationContext {
 
   async createAutoCardHandler(): Promise<AutoCardHandler> {
     this.ensureNotDisposed();
-    const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
-    return new AutoCardHandler(this.config.plugin as unknown as SiyuanMemoPlugin, {
-      siyuanApi: new AutoCardSiyuanAdapter(),
-      riffApi: new AutoCardRiffAdapter(),
-      hostBlockQuery: new HostBlockQuerySiyuanAdapter(),
-    });
+    return this.autoCardKernelXiuyuanServiceBundle.createAutoCardHandler();
   }
   
   /**

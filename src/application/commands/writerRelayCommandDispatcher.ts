@@ -1,0 +1,294 @@
+import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+
+export interface WriterRelayCommand {
+  method: string;
+  params?: unknown;
+}
+
+export interface WriterRelayDispatchHooks {
+  onKernelTransactionIngested?: () => void;
+}
+
+export async function executeWriterRelayCommand(
+  srsBackendClient: SrsBackendClient,
+  command: WriterRelayCommand,
+  hooks: WriterRelayDispatchHooks = {},
+): Promise<unknown> {
+  if (command.method === 'review.feedback') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: review.feedback relay requires params object');
+    }
+    return srsBackendClient.reviewFeedback(command.params as {
+      cardId: string;
+      rating: 1 | 2 | 3 | 4;
+      queueType?: string;
+      queueMode?: string;
+      commitPolicy?: string;
+      sessionId?: string;
+      reviewedAt?: number;
+      scheduler?: {
+        defaultScheduler?: 'fsrs-v6' | 'a-factor-v2';
+        fsrsParams?: Record<string, unknown>;
+      };
+    });
+  }
+  if (command.method === 'domainSync.repair.apply') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: domainSync.repair.apply relay requires params object');
+    }
+    return srsBackendClient.domainSyncRepairApply(command.params as {
+      planId: string;
+      idempotencyKey: string;
+      confirmedAt: number;
+      confirmedBy?: string | null;
+      confirmationText?: string | null;
+    });
+  }
+  if (command.method === 'browser.sourceExistence.applySweepHost') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: browser.sourceExistence.applySweepHost relay requires params object');
+    }
+    const params = command.params as {
+      request?: {
+        blockIds?: string[];
+        limit?: number;
+        staleBefore?: number;
+        includeKnownMissing?: boolean;
+        force?: boolean;
+      };
+      checkedAt?: number;
+    };
+    return srsBackendClient.browserSourceExistenceApplySweepHost(
+      params.request ?? {},
+      Number(params.checkedAt || Date.now()),
+    );
+  }
+  if (command.method === 'browser.sourceExistence.update') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: browser.sourceExistence.update relay requires params object');
+    }
+    const params = command.params as {
+      updates?: Array<{
+        cardId?: string;
+        blockId: string;
+        exists: boolean;
+      }>;
+      checkedAt?: number;
+    };
+    return srsBackendClient.browserSourceExistenceUpdate(
+      Array.isArray(params.updates) ? params.updates : [],
+      Number(params.checkedAt || Date.now()),
+    );
+  }
+  if (command.method === 'browser.sourceExistence.applySweep') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: browser.sourceExistence.applySweep relay requires params object');
+    }
+    const params = command.params as {
+      request?: {
+        blockIds?: string[];
+        limit?: number;
+        staleBefore?: number;
+        includeKnownMissing?: boolean;
+        force?: boolean;
+      };
+      existingBlockIds?: string[];
+      checkedAt?: number;
+    };
+    return srsBackendClient.browserSourceExistenceApplySweep(
+      params.request ?? {},
+      Array.isArray(params.existingBlockIds) ? params.existingBlockIds : [],
+      Number(params.checkedAt || Date.now()),
+    );
+  }
+  if (command.method === 'kernel.transaction.ingest') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: kernel.transaction.ingest relay requires params object');
+    }
+    const result = await srsBackendClient.ingestKernelTransactions(command.params as {
+      source?: 'kernel-sidecar' | 'ws-main';
+      transactions?: unknown[];
+      receivedAt?: number;
+      idempotencyKey?: string;
+    });
+    hooks.onKernelTransactionIngested?.();
+    return result;
+  }
+  if (command.method === 'kernel.transaction.dequeue') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: kernel.transaction.dequeue relay requires params object');
+    }
+    return srsBackendClient.dequeueKernelTransactions(command.params as {
+      maxActions?: number;
+    });
+  }
+  if (command.method === 'kernel.transaction.requeue') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: kernel.transaction.requeue relay requires params object');
+    }
+    return srsBackendClient.requeueKernelTransactions(command.params as {
+      actions?: Array<{
+        type: 'native-riff-remove' | 'native-riff-upsert' | 'auto-card-candidates';
+        blockIds?: string[];
+        operations?: Array<{
+          action: 'insert' | 'update' | 'delete';
+          blockId: string;
+        }>;
+        source: 'kernel-sidecar' | 'ws-main';
+        receivedAt: number;
+        idempotencyKey: string;
+      }>;
+    });
+  }
+  if (command.method === 'queue.projection.replace') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: queue.projection.replace relay requires params object');
+    }
+    return srsBackendClient.queueProjectionReplace(command.params as {
+      queueType: string;
+      policyHash: string;
+      generation?: number | null;
+      reason?: string | null;
+      rows: Array<Record<string, unknown>>;
+      metadata?: Record<string, unknown> | null;
+    });
+  }
+  if (command.method === 'neural-roam.advance') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: neural-roam.advance relay requires params object');
+    }
+    return srsBackendClient.neuralRoamAdvance(command.params as {
+      queueType: 'neural-roam';
+      sessionId?: string | null;
+      currentItem?: Record<string, unknown> | null;
+      feedback?: {
+        action: 'rate' | 'skip' | 'custom';
+        rating?: 1 | 2 | 3 | 4;
+        customActionId?: string | null;
+      } | null;
+      projectionGeneration?: number | null;
+      policyHash?: string | null;
+      reviewedAt?: number | null;
+      idempotencyKey?: string | null;
+    });
+  }
+  if (command.method === 'neural-roam.viewState') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: neural-roam.viewState relay requires params object');
+    }
+    return srsBackendClient.neuralRoamViewState(command.params as {
+      queueType: 'neural-roam';
+      routeId?: string | null;
+      sessionId?: string | null;
+    });
+  }
+  if (command.method === 'neural-roam.command') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: neural-roam.command relay requires params object');
+    }
+    return srsBackendClient.neuralRoamCommand(command.params as never);
+  }
+  if (command.method === 'autocard.decision.resolve') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: autocard.decision.resolve relay requires params object');
+    }
+    return srsBackendClient.resolveAutoCardDecision(command.params as {
+      blockId: string;
+      content: string;
+      blockType?: string;
+      resolvedCardType?: 'topic' | 'item';
+      source?: 'symbol-listener' | 'doc-oneclick-scan';
+      hasParentTopicCard?: boolean;
+      settings?: {
+        enabledSymbols?: {
+          basic?: boolean;
+          concept?: boolean;
+          descriptor?: boolean;
+          cloze?: boolean;
+          multiLine?: boolean;
+        };
+        topicDerivation?: {
+          enabled?: boolean;
+        };
+      };
+    });
+  }
+  if (command.method === 'autocard.execute') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: autocard.execute relay requires params object');
+    }
+    return srsBackendClient.executeAutoCard(command.params as {
+      envelope: {
+        kind: 'planner-decision' | 'topic-derived';
+      };
+    });
+  }
+  if (command.method === 'private.command.execute') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: private.command.execute relay requires params object');
+    }
+    return srsBackendClient.privateCommand(command.params as {
+      requestId: string;
+      method: 'private.command.execute';
+      callerIntent: string;
+      idempotencyKey: string;
+      capabilityResult?: {
+        available: boolean;
+        reason: string | null;
+        kernelSidecarAvailable: boolean;
+        backendWorkerAvailable: boolean;
+        writerAvailable: boolean;
+        methodAllowed: boolean;
+      };
+      params?: Record<string, unknown>;
+      auditContext?: Record<string, unknown>;
+    });
+  }
+  if (command.method === 'semantic.command.execute') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: semantic.command.execute relay requires params object');
+    }
+    return srsBackendClient.semanticCommand(command.params as {
+      requestId: string;
+      method: 'semantic.command.execute';
+      callerIntent: string;
+      idempotencyKey: string;
+      command: Record<string, unknown>;
+    });
+  }
+  if (command.method === 'ai.session.create') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: ai.session.create relay requires params object');
+    }
+    return srsBackendClient.createAiSession(command.params as {
+      sessionId: string;
+      surfaceId: string;
+      reviewSessionId?: string | null;
+    });
+  }
+  if (command.method === 'ai.session.get') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: ai.session.get relay requires params object');
+    }
+    return srsBackendClient.getAiSession(command.params as { sessionId: string });
+  }
+  if (command.method === 'ai.session.update') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: ai.session.update relay requires params object');
+    }
+    return srsBackendClient.updateAiSession(command.params as {
+      sessionId: string;
+      state?: 'active' | 'streaming' | 'completed' | 'canceled' | 'expired' | 'unavailable' | 'failed';
+    });
+  }
+  if (command.method === 'ai.session.cancel') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: ai.session.cancel relay requires params object');
+    }
+    return srsBackendClient.cancelAiSession(command.params as {
+      sessionId: string;
+      reason?: string;
+    });
+  }
+  throw new Error(`BACKEND_UNAVAILABLE: unsupported writer relay method ${String(command.method || '')}`);
+}

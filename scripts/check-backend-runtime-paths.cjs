@@ -46,7 +46,7 @@ const runtimePaths = [
         reason: 'application must use typed backend client methods instead of transport literals',
       },
       {
-        file: 'src/application/ApplicationContext.ts',
+        file: 'src/application/commands/writerRelayCommandDispatcher.ts',
         tokens: ['command.method === \'queue.projection.replace\'', 'srsBackendClient.queueProjectionReplace'],
         reason: 'writer relay must own follower-origin projection replacement',
       },
@@ -88,8 +88,13 @@ const runtimePaths = [
       },
       {
         file: 'src/application/ApplicationContext.ts',
-        tokens: ['SiyuanNeuralRoamGraphQueryAdapter', 'command.method === \'neural-roam.advance\'', 'srsBackendClient.neuralRoamAdvance'],
-        reason: 'composition root must wire graph host effects and writer relay for neural advance',
+        tokens: ['SiyuanNeuralRoamGraphQueryAdapter', 'createNeuralRoamGraphQuery', 'executeWriterRelayCommand'],
+        reason: 'composition root must wire graph host effects and delegate writer relay dispatch for neural advance',
+      },
+      {
+        file: 'src/application/commands/writerRelayCommandDispatcher.ts',
+        tokens: ['command.method === \'neural-roam.advance\'', 'srsBackendClient.neuralRoamAdvance'],
+        reason: 'writer relay dispatcher must route neural advance commands',
       },
       {
         file: 'src/application/services/UnifiedDataSourceManager.ts',
@@ -143,7 +148,7 @@ const runtimePaths = [
         reason: 'review commit use case must fail closed instead of local scheduler fallback',
       },
       {
-        file: 'src/application/ApplicationContext.ts',
+        file: 'src/application/commands/writerRelayCommandDispatcher.ts',
         tokens: ['command.method === \'review.feedback\'', 'srsBackendClient.reviewFeedback'],
         reason: 'follower review feedback must route through writer relay',
       },
@@ -174,7 +179,7 @@ const runtimePaths = [
         reason: 'AutoCard handler must make local decision a named non-relay path only',
       },
       {
-        file: 'src/application/ApplicationContext.ts',
+        file: 'src/application/commands/writerRelayCommandDispatcher.ts',
         tokens: ['command.method === \'autocard.decision.resolve\'', 'command.method === \'autocard.execute\''],
         reason: 'writer relay must support AutoCard decision and execute commands',
       },
@@ -211,8 +216,13 @@ const runtimePaths = [
       },
       {
         file: 'src/application/ApplicationContext.ts',
-        tokens: ['PrivateApiClient', 'PrivateApiService', 'command.method === \'private.command.execute\''],
-        reason: 'composition root must wire private API service and relay command',
+        tokens: ['PrivateApiClient', 'PrivateApiService', 'executeWriterRelayCommand'],
+        reason: 'composition root must wire private API service and delegate relay dispatch',
+      },
+      {
+        file: 'src/application/commands/writerRelayCommandDispatcher.ts',
+        tokens: ['command.method === \'private.command.execute\''],
+        reason: 'writer relay dispatcher must route private API commands',
       },
     ],
   },
@@ -329,9 +339,14 @@ const runtimePaths = [
         reason: 'AI workbench must wire backend session hooks into active session lifecycle',
       },
       {
-        file: 'src/application/ApplicationContext.ts',
-        tokens: ['new AIBackendSessionService', 'KernelAINetworkProxyAdapter', 'command.method === \'ai.session.create\''],
-        reason: 'composition root must wire AI backend session service and relay session commands',
+        file: 'src/application/factories/createAIServiceBundle.ts',
+        tokens: ['new AIBackendSessionService', 'KernelAINetworkProxyAdapter'],
+        reason: 'AI bounded-context factory must wire backend session service',
+      },
+      {
+        file: 'src/application/commands/writerRelayCommandDispatcher.ts',
+        tokens: ['command.method === \'ai.session.create\''],
+        reason: 'writer relay dispatcher must route AI backend session commands',
       },
     ],
   },

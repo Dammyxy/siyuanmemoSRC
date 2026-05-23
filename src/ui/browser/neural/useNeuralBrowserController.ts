@@ -50,18 +50,7 @@ import {
   withNeuralTraceRepeatHitState,
 } from './neuralTraceViewModel';
 import {
-  runNeuralClearHistory,
-  runNeuralClearRouteHistory,
-  runNeuralJump,
-  runNeuralSetCurrentFocus,
-  runNeuralToggleAnchor,
-  runNeuralToggleSource,
-} from './neuralBrowserCommands';
-import {
-  runNeuralReturnToBookmark,
   runNeuralReviewSurfaceHandoff,
-  runNeuralToggleEngineMode,
-  runNeuralToggleNavigationMode,
 } from './neuralNavigationCommands';
 import {
   DEFAULT_NEURAL_ROAM_ROUTE_ID,
@@ -71,6 +60,15 @@ import {
 type LoadBrowserCardsByBlockIds = typeof loadBrowserCardsByBlockIdsFn;
 type LoadBrowserCardsOptions = NonNullable<Parameters<LoadBrowserCardsByBlockIds>[1]>;
 type NeuralRoamQueue = IReviewQueue & NeuralRoamSessionQueue;
+type BackendNeuralCommandOutcome = {
+  ok: boolean;
+  result: BackendNeuralRoamCommandResult | null;
+};
+type BackendNeuralCommandOptions = {
+  unavailableKey?: string;
+  unavailableFallback?: string;
+  refreshQueueCounts?: boolean;
+};
 
 export type UseNeuralBrowserControllerDeps = {
   getQueueById: (id: string) => unknown | null;
@@ -567,18 +565,27 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
     neuralNavigationState.value = viewNavState;
   }
 
-  async function runBackendNeuralCommand(command: BackendNeuralRoamCommand): Promise<boolean> {
+  async function runBackendNeuralCommand(
+    command: BackendNeuralRoamCommand,
+    options: BackendNeuralCommandOptions = {},
+  ): Promise<BackendNeuralCommandOutcome> {
+    const unavailableMessage = options.unavailableKey && options.unavailableFallback
+      ? deps.t(options.unavailableKey, options.unavailableFallback)
+      : deps.t('neuralRoamEntryActionUnavailable', '神经漫游动作不可用');
     if (typeof deps.runNeuralRoamCommand !== 'function') {
-      return false;
+      await deps.pushError(unavailableMessage);
+      return { ok: false, result: null };
     }
     const result = await deps.runNeuralRoamCommand(command);
     if (result.status !== 'ok') {
-      await deps.pushError(result.message || deps.t('neuralRoamEntryActionUnavailable', '神经漫游动作不可用'));
-      return true;
+      await deps.pushError(result.message || unavailableMessage);
+      return { ok: false, result };
     }
     await refreshNeuralSubviewData();
-    await deps.refreshQueueCounts();
-    return true;
+    if (options.refreshQueueCounts !== false) {
+      await deps.refreshQueueCounts();
+    }
+    return { ok: true, result };
   }
 
   async function runBackendNeuralRouteCommand(
@@ -586,11 +593,11 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
     unavailableKey: string,
     unavailableFallback: string,
   ): Promise<boolean> {
-    if (await runBackendNeuralCommand(command)) {
-      return true;
-    }
-    await deps.pushError(formatRouteUnavailableMessage(unavailableKey, unavailableFallback));
-    return false;
+    const outcome = await runBackendNeuralCommand(command, {
+      unavailableKey,
+      unavailableFallback,
+    });
+    return outcome.ok;
   }
 
   async function handleNeuralSwitchRoute(routeId: string): Promise<void> {
@@ -939,37 +946,13 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
     }
   }
 
-  function createNeuralBrowserCommandDeps() {
-    return {
-      getQueue: getNeuralRoamQueue,
-      setSelectedTraceState: setSelectedNeuralTraceState,
-      previewNode: handleNeuralPreview,
-      refreshNeuralSubviewData,
-      refreshQueueCounts: deps.refreshQueueCounts,
-      handoffReviewSurface: handoffNeuralReviewSurface,
-      pushMessage: deps.pushMessage,
-      pushError: deps.pushError,
-      confirmClearHistory: deps.confirmClearHistory,
-      confirmClearRouteHistory: deps.confirmClearRouteHistory,
-      resetHistoryRequest: () => {
-        neuralHistoryRequestedCount.value = historyPageSize;
-      },
-      logError: deps.logError,
-      t: deps.t,
-    };
-  }
-
-  function createNeuralNavigationCommandDeps() {
-    return {
-      getQueue: getNeuralRoamQueue,
-      setSelectedTraceState: setSelectedNeuralTraceState,
-      previewNode: handleNeuralPreview,
-      refreshNeuralSubviewData,
-      refreshQueueCounts: deps.refreshQueueCounts,
-      pushMessage: deps.pushMessage,
-      pushError: deps.pushError,
-      t: deps.t,
-    };
+  function resolveCommandCurrentNodeId(result: BackendNeuralRoamCommandResult | null): string | null {
+    const navigationState = result?.viewState?.navigationState as { currentNodeId?: unknown } | null | undefined;
+    if (typeof navigationState?.currentNodeId === 'string' && navigationState.currentNodeId) {
+      return navigationState.currentNodeId;
+    }
+    const currentNodeId = result?.viewState?.currentNodeId;
+    return typeof currentNodeId === 'string' && currentNodeId ? currentNodeId : null;
   }
 
   async function handoffNeuralReviewSurface(fallbackNodeId?: string | null): Promise<void> {
@@ -990,7 +973,24 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
   }
 
   async function handleNeuralJump(nodeId: string): Promise<void> {
-    await runNeuralJump(nodeId, createNeuralBrowserCommandDeps());
+    setSelectedNeuralTraceState({
+      selectedTraceEventId: null,
+      selectedTraceNodeId: nodeId,
+    });
+    await handleNeuralPreview(nodeId);
+    const outcome = await runBackendNeuralCommand(
+      { type: 'jump-history-node', nodeId },
+      {
+        unavailableKey: 'jumpHistoryNodeFailed',
+        unavailableFallback: 'Failed to jump trajectory node',
+      },
+    );
+    if (!outcome.ok) {
+      return;
+    }
+    const currentNodeId = resolveCommandCurrentNodeId(outcome.result) ?? nodeId;
+    await handleNeuralPreview(currentNodeId);
+    await handoffNeuralReviewSurface(currentNodeId);
   }
 
   async function handleNeuralJumpAnchor(nodeId: string): Promise<void> {
@@ -998,25 +998,22 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
   }
 
   async function handleNeuralSetCurrentFocus(nodeId: string): Promise<void> {
-    if (await runBackendNeuralCommand({
+    const outcome = await runBackendNeuralCommand({
       type: 'set-current-focus',
       nodeId,
       includeFocusAsFirst: false,
       resetHistory: false,
       bookmarkCurrentPath: true,
-    })) {
-      await handleNeuralPreview(nodeId);
-      await handoffNeuralReviewSurface(nodeId);
+    });
+    if (!outcome.ok) {
       return;
     }
-    await runNeuralSetCurrentFocus(nodeId, createNeuralBrowserCommandDeps());
+    await handleNeuralPreview(nodeId);
+    await handoffNeuralReviewSurface(nodeId);
   }
 
   async function handleNeuralToggleSource(nodeId: string, enabled: boolean): Promise<void> {
-    if (await runBackendNeuralCommand({ type: 'set-source', nodeId, enabled })) {
-      return;
-    }
-    await runNeuralToggleSource(nodeId, enabled, createNeuralBrowserCommandDeps());
+    await runBackendNeuralCommand({ type: 'set-source', nodeId, enabled });
   }
 
   async function handleNeuralToggleEngineMode(): Promise<void> {
@@ -1024,60 +1021,88 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
     const currentMode = neuralNavigationState.value?.engineMode ?? neuralQueue?.getEngineMode();
     if (currentMode === 'orbit' || currentMode === 'hyperspace') {
       const nextMode = currentMode === 'hyperspace' ? 'orbit' : 'hyperspace';
-      if (await runBackendNeuralCommand({ type: 'switch-engine-mode', mode: nextMode, carryCurrentNode: true })) {
-        const currentNodeId = neuralCurrentNodeId.value;
-        if (currentNodeId) {
-          setSelectedNeuralTraceState({ selectedTraceEventId: null, selectedTraceNodeId: currentNodeId });
-          await handleNeuralPreview(currentNodeId);
-        }
+      const outcome = await runBackendNeuralCommand({
+        type: 'switch-engine-mode',
+        mode: nextMode,
+        carryCurrentNode: true,
+      });
+      if (!outcome.ok) {
         return;
       }
+      const currentNodeId = resolveCommandCurrentNodeId(outcome.result) ?? neuralCurrentNodeId.value;
+      if (currentNodeId) {
+        setSelectedNeuralTraceState({ selectedTraceEventId: null, selectedTraceNodeId: currentNodeId });
+        await handleNeuralPreview(currentNodeId);
+      }
+      return;
     }
-    await runNeuralToggleEngineMode(createNeuralNavigationCommandDeps());
+    await deps.pushError(deps.t('neuralRoamEntryActionUnavailable', '神经漫游动作不可用'));
   }
 
   async function handleNeuralToggleNavigationMode(): Promise<void> {
-    await runNeuralToggleNavigationMode(createNeuralNavigationCommandDeps());
+    const neuralQueue = getNeuralRoamQueue();
+    const currentMode = neuralNavigationState.value?.navigationMode
+      ?? neuralQueue?.getNavigationState().navigationMode;
+    if (currentMode !== 'follow' && currentMode !== 'explore') {
+      await deps.pushError(deps.t('neuralRoamEntryActionUnavailable', '神经漫游动作不可用'));
+      return;
+    }
+    const nextMode = currentMode === 'follow' ? 'explore' : 'follow';
+    const outcome = await runBackendNeuralCommand(
+      { type: 'set-navigation-mode', mode: nextMode },
+      { refreshQueueCounts: false },
+    );
+    if (!outcome.ok) {
+      return;
+    }
+    const modeText = nextMode === 'follow'
+      ? deps.t('navModeFollow', '沿当前路径')
+      : deps.t('navModeExplore', '自由航行');
+    await deps.pushMessage(deps.t('navModeSwitched', '已切换为：{mode}').replace('{mode}', modeText));
   }
 
   async function handleNeuralReturnToBookmark(): Promise<void> {
-    const result = await runNeuralReturnToBookmark(createNeuralNavigationCommandDeps());
-    if (result.moved) {
-      await handoffNeuralReviewSurface(result.currentNodeId);
+    if (neuralNavigationState.value?.canReturnToBookmark === false) {
+      return;
+    }
+    const outcome = await runBackendNeuralCommand({ type: 'return-to-bookmark' });
+    if (!outcome.ok) {
+      return;
+    }
+    const currentNodeId = resolveCommandCurrentNodeId(outcome.result);
+    if (currentNodeId) {
+      setSelectedNeuralTraceState({
+        selectedTraceEventId: null,
+        selectedTraceNodeId: currentNodeId,
+      });
+      await handleNeuralPreview(currentNodeId);
+      await handoffNeuralReviewSurface(currentNodeId);
     }
   }
 
   async function handleNeuralToggleAnchor(nodeId: string, enabled: boolean): Promise<void> {
-    if (await runBackendNeuralCommand({ type: 'set-anchor', nodeId, enabled })) {
-      return;
-    }
-    await runNeuralToggleAnchor(nodeId, enabled, createNeuralBrowserCommandDeps());
+    await runBackendNeuralCommand({ type: 'set-anchor', nodeId, enabled });
   }
 
   async function handleNeuralClearHistory(): Promise<void> {
-    if (typeof deps.runNeuralRoamCommand === 'function') {
-      const ok = deps.getNeuralSubview?.() === 'roam-history'
-        ? await (deps.confirmClearRouteHistory?.() ?? deps.confirmClearHistory())
-        : await deps.confirmClearHistory();
-      if (!ok) {
-        return;
-      }
-      const command: BackendNeuralRoamCommand = deps.getNeuralSubview?.() === 'roam-history'
-        ? { type: 'clear-route-history' }
-        : { type: 'clear-history', scope: 'all' };
-      if (await runBackendNeuralCommand(command)) {
-        neuralHistoryRequestedCount.value = historyPageSize;
-        await deps.pushMessage(deps.getNeuralSubview?.() === 'roam-history'
-          ? deps.t('routeHistoryClearedSuccess', '航线日志已清空')
-          : deps.t('historyClearedSuccess', '轨迹历史已清空'));
-        return;
-      }
-    }
-    if (deps.getNeuralSubview?.() === 'roam-history') {
-      await runNeuralClearRouteHistory(createNeuralBrowserCommandDeps());
+    const isRouteHistory = deps.getNeuralSubview?.() === 'roam-history';
+    const ok = isRouteHistory
+      ? await (deps.confirmClearRouteHistory?.() ?? deps.confirmClearHistory())
+      : await deps.confirmClearHistory();
+    if (!ok) {
       return;
     }
-    await runNeuralClearHistory(createNeuralBrowserCommandDeps());
+    const command: BackendNeuralRoamCommand = isRouteHistory
+      ? { type: 'clear-route-history' }
+      : { type: 'clear-history', scope: 'all' };
+    const outcome = await runBackendNeuralCommand(command);
+    if (!outcome.ok) {
+      return;
+    }
+    neuralHistoryRequestedCount.value = historyPageSize;
+    await deps.pushMessage(isRouteHistory
+      ? deps.t('routeHistoryClearedSuccess', '航线日志已清空')
+      : deps.t('historyClearedSuccess', '轨迹历史已清空'));
   }
 
   return {

@@ -37,7 +37,7 @@ export interface BrowserSemanticStateControllerDeps {
     | 'restorePathStation'
     | 'endSession'
   >;
-  openReviewSession?: (handoff: BrowserSemanticReviewHandoff) => Promise<void> | void;
+  openReviewSession?: (handoff: BrowserSemanticReviewHandoff) => Promise<boolean | void> | boolean | void;
 }
 
 function emptyState(): BrowserSemanticWorkbenchState {
@@ -150,13 +150,19 @@ export class BrowserSemanticStateController {
       this.stateValue = unavailableState('session-unavailable', 'Semantic session is not ready for Review handoff');
       return this.stateValue;
     }
-    await this.deps.openReviewSession?.({
+    const opened = await this.deps.openReviewSession?.({
       sessionId: this.stateValue.activeSessionId,
       currentNodeId: this.stateValue.model.session.currentNodeId,
       blockId: this.stateValue.model.currentNode.blockId,
       cardId: this.stateValue.model.currentNode.cardId,
       isReviewCard: this.stateValue.model.currentNode.isReviewCard,
     });
+    if (opened === false) {
+      this.stateValue = unavailableState(
+        'session-unavailable',
+        'Review Semantic handoff is not wired yet; continue in Browser Semantic Review.',
+      );
+    }
     return this.stateValue;
   }
 

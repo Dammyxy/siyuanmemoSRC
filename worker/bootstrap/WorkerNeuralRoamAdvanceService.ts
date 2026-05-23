@@ -6,9 +6,7 @@ import type {
   BackendNeuralRoamAdvanceUnavailableReason,
   BackendNeuralRoamCommandRequest,
   BackendNeuralRoamCommandResult,
-  BackendNeuralRoamCounters,
   BackendNeuralRoamItem,
-  BackendNeuralRoamRouteListItem,
   BackendNeuralRoamViewState,
   BackendNeuralRoamViewStateRequest,
   BackendNeuralRoamViewStateResult,
@@ -26,6 +24,25 @@ import { SqlNeuralRoamRouteRepository } from '@/infrastructure/persistence/sqlit
 import { SqlNeuralRoamRouteMigrationService } from '@/infrastructure/persistence/sqlite/SqlNeuralRoamRouteMigrationService';
 import { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite/SqlQueueStateRepository';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
+import { applyWorkerNeuralRoamCommand } from './neuralRoamCommandPolicy';
+import {
+  WorkerNeuralRoamAdvanceResultCache,
+  buildWorkerNeuralRoamAdvanceResult,
+  buildWorkerNeuralRoamUnavailableAdvanceResult,
+  buildWorkerNeuralRoamUnavailableProjectionImpact,
+  readWorkerNeuralRoamNextItem,
+  resolveWorkerNeuralRoamProjectionMismatch,
+} from './neuralRoamAdvancePolicy';
+import {
+  isWorkerNeuralRoamAdvanceMismatchReason,
+  resolveWorkerNeuralRoamAdvanceRequestedRouteId,
+  resolveWorkerNeuralRoamCommandRouteMismatch,
+  resolveWorkerNeuralRoamRouteMismatch,
+  resolveWorkerNeuralRoamViewStateRequestedRouteId,
+} from './neuralRoamRoutePolicy';
+import {
+  buildWorkerNeuralRoamViewState,
+} from './neuralRoamViewStateBuilder';
 
 interface WorkerNeuralRoamAdvanceServiceDeps {
   database: WorkerSqliteDatabaseService;
@@ -78,7 +95,7 @@ function mapCardFilterToStructuredQuery(filter?: CardFilter): StructuredCardQuer
 export class WorkerNeuralRoamAdvanceService {
   private readonly queues = new Map<string, NeuralRoamQueue>();
   private readonly loadPromises = new Map<string, Promise<void>>();
-  private readonly idempotentResults = new Map<string, BackendNeuralRoamAdvanceResult>();
+  private readonly idempotentResults = new WorkerNeuralRoamAdvanceResultCache();
   private readonly graphQuery: NeuralGraphQueryPort;
   private readonly queuePersistence: QueuePersistencePort;
   private readonly routeCatalog: NeuralRoamRouteCatalog;
@@ -130,20 +147,25 @@ export class WorkerNeuralRoamAdvanceService {
     }
 
     try {
-      const mismatch = await this.resolveProjectionMismatch(request);
+      const mismatch = await resolveWorkerNeuralRoamProjectionMismatch(this.deps.database, request);
       if (mismatch) {
         return this.unavailable(request, mismatch, `NeuralRoam advance request is stale: ${mismatch}`);
       }
 
       const queue = await this.getQueue(request.sessionId ?? null);
       await queue.syncActiveRouteState();
-      const routeMismatch = await this.resolveRouteMismatch(queue, request);
+      await this.routeCatalog.getState();
+      const routeMismatch = resolveWorkerNeuralRoamRouteMismatch({
+        requestKind: 'advance',
+        requestedRouteId: resolveWorkerNeuralRoamAdvanceRequestedRouteId(request),
+        activeRouteId: queue.getActiveRouteId(),
+      });
       if (routeMismatch) {
         return this.rememberIdempotentResult(idempotencyKey, await this.buildResult(request, queue, 'mismatch', {
           nextItem: null,
-          projectionImpact: this.buildUnavailableProjectionImpact(request, routeMismatch),
-          unavailableReason: routeMismatch,
-          message: 'NeuralRoam advance request route is no longer active',
+          projectionImpact: buildWorkerNeuralRoamUnavailableProjectionImpact(request, routeMismatch.reason),
+          unavailableReason: routeMismatch.reason,
+          message: routeMismatch.message,
         }));
       }
       let projectionImpact: BackendReviewFeedbackQueueImpact | null = null;
@@ -225,17 +247,7 @@ export class WorkerNeuralRoamAdvanceService {
     idempotencyKey: string,
     result: BackendNeuralRoamAdvanceResult,
   ): BackendNeuralRoamAdvanceResult {
-    if (!idempotencyKey) {
-      return result;
-    }
-    this.idempotentResults.set(idempotencyKey, result);
-    if (this.idempotentResults.size > 500) {
-      const firstKey = this.idempotentResults.keys().next().value;
-      if (firstKey) {
-        this.idempotentResults.delete(firstKey);
-      }
-    }
-    return result;
+    return this.idempotentResults.remember(idempotencyKey, result);
   }
 
   private async getQueue(sessionId: string | null): Promise<NeuralRoamQueue> {
@@ -287,21 +299,24 @@ export class WorkerNeuralRoamAdvanceService {
     try {
       const queue = await this.getQueue(request.sessionId ?? null);
       await queue.syncActiveRouteState();
-      const activeRouteId = normalizeString(queue.getActiveRouteId());
-      const requestedRouteId = normalizeString(request.routeId);
-      if (requestedRouteId && activeRouteId && requestedRouteId !== activeRouteId) {
+      const routeMismatch = resolveWorkerNeuralRoamRouteMismatch({
+        requestKind: 'view-state',
+        requestedRouteId: resolveWorkerNeuralRoamViewStateRequestedRouteId(request),
+        activeRouteId: queue.getActiveRouteId(),
+      });
+      if (routeMismatch) {
         return {
           queueType: 'neural-roam',
           status: 'mismatch',
-          viewState: await this.buildViewState(queue),
-          unavailableReason: 'route-mismatch',
-          message: 'NeuralRoam view-state request route is no longer active',
+          viewState: await buildWorkerNeuralRoamViewState(queue),
+          unavailableReason: routeMismatch.reason,
+          message: routeMismatch.message,
         };
       }
       return {
         queueType: 'neural-roam',
         status: 'ready',
-        viewState: await this.buildViewState(queue),
+        viewState: await buildWorkerNeuralRoamViewState(queue),
         unavailableReason: null,
         message: null,
       };
@@ -326,113 +341,29 @@ export class WorkerNeuralRoamAdvanceService {
     try {
       const queue = await this.getQueue(request.sessionId ?? null);
       await queue.syncActiveRouteState();
-      const requestedRouteId = normalizeString((request.command as { routeId?: unknown }).routeId);
-      const activeRouteId = normalizeString(queue.getActiveRouteId());
-      if (requestedRouteId && activeRouteId && requestedRouteId !== activeRouteId && request.command.type !== 'switch-route') {
+      const routeMismatch = resolveWorkerNeuralRoamCommandRouteMismatch(request.command, queue.getActiveRouteId());
+      if (routeMismatch) {
         return {
           queueType: 'neural-roam',
           status: 'mismatch',
-          viewState: await this.buildViewState(queue),
+          viewState: await buildWorkerNeuralRoamViewState(queue),
           queueState: queue.exportPersistedState() as Record<string, unknown>,
-          unavailableReason: 'route-mismatch',
-          message: 'NeuralRoam command route is no longer active',
+          unavailableReason: routeMismatch.reason,
+          message: routeMismatch.message,
         };
       }
-      await this.applyCommand(queue, request.command);
+      await applyWorkerNeuralRoamCommand(queue, request.command);
       await queue.syncActiveRouteState();
       return {
         queueType: 'neural-roam',
         status: 'ok',
-        viewState: await this.buildViewState(queue),
+        viewState: await buildWorkerNeuralRoamViewState(queue),
         queueState: queue.exportPersistedState() as Record<string, unknown>,
         unavailableReason: null,
         message: null,
       };
     } catch (error) {
       return this.commandUnavailable(null, 'failed', error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  private async applyCommand(
-    queue: NeuralRoamQueue,
-    command: BackendNeuralRoamCommandRequest['command'],
-  ): Promise<void> {
-    switch (command.type) {
-      case 'switch-engine-mode':
-        await queue.setEngineMode(command.mode, { carryCurrentNode: command.carryCurrentNode !== false });
-        return;
-      case 'start-roaming-from-focus':
-        await queue.startRoamingFromFocus(command.focusId, {
-          includeFocusAsFirst: command.includeFocusAsFirst,
-          resetHistory: command.resetHistory,
-          startNewSession: command.startNewSession,
-        });
-        return;
-      case 'switch-route':
-        await queue.switchRoute(command.routeId);
-        return;
-      case 'create-route':
-        await queue.createRoute({ name: command.name ?? undefined });
-        return;
-      case 'rename-route':
-        await queue.renameRoute(command.routeId, command.name);
-        return;
-      case 'delete-route':
-        await queue.deleteRoute(command.routeId);
-        return;
-      case 'jump-history-node':
-        await queue.jumpToHistoryNode(command.nodeId);
-        return;
-      case 'set-navigation-mode':
-        queue.setNavigationMode(command.mode);
-        return;
-      case 'return-to-bookmark':
-        queue.returnToBookmark();
-        return;
-      case 'create-temporary-route':
-        await queue.createTemporaryRoute({
-          name: command.name ?? undefined,
-          seedBlockId: command.seedBlockId,
-          previousRouteId: command.previousRouteId ?? null,
-        });
-        return;
-      case 'replace-active-temporary-route':
-        await queue.replaceActiveTemporaryRoute({
-          name: command.name ?? undefined,
-          seedBlockId: command.seedBlockId,
-        });
-        return;
-      case 'save-temporary-route':
-        await queue.saveTemporaryRoute(command.routeId, command.name);
-        return;
-      case 'close-temporary-route':
-        await queue.closeTemporaryRoute({
-          action: command.action,
-          routeId: command.routeId ?? null,
-          name: command.name ?? null,
-        });
-        return;
-      case 'set-source':
-        await queue.setSourceEntry(command.nodeId, command.enabled !== false);
-        return;
-      case 'set-anchor':
-        await queue.setAnchorEntry(command.nodeId, command.enabled !== false);
-        return;
-      case 'set-current-focus':
-        await queue.setCurrentFocus(command.nodeId, {
-          includeFocusAsFirst: command.includeFocusAsFirst,
-          resetHistory: command.resetHistory,
-          bookmarkCurrentPath: command.bookmarkCurrentPath,
-        });
-        return;
-      case 'clear-history':
-        await queue.clearHistory(command.scope ?? 'all');
-        return;
-      case 'clear-route-history':
-        await queue.clearRouteHistory();
-        return;
-      default:
-        throw new Error(`INVALID_REQUEST: unsupported neural-roam command: ${(command as { type?: unknown }).type}`);
     }
   }
 
@@ -443,7 +374,7 @@ export class WorkerNeuralRoamAdvanceService {
   ): BackendNeuralRoamCommandResult {
     return {
       queueType: 'neural-roam',
-      status: this.isAdvanceMismatch(reason) ? 'mismatch' : reason === 'failed' ? 'failed' : 'unavailable',
+      status: isWorkerNeuralRoamAdvanceMismatchReason(reason) ? 'mismatch' : reason === 'failed' ? 'failed' : 'unavailable',
       viewState,
       queueState: null,
       unavailableReason: reason,
@@ -597,30 +528,6 @@ export class WorkerNeuralRoamAdvanceService {
     return normalized ? `neuralRoamQueue:${normalized}` : 'neuralRoamQueue';
   }
 
-  private async resolveProjectionMismatch(
-    request: BackendNeuralRoamAdvanceRequest,
-  ): Promise<BackendNeuralRoamAdvanceUnavailableReason | null> {
-    const requestedGeneration = Number(request.projectionGeneration);
-    const requestedPolicyHash = normalizeString(request.policyHash);
-    if ((!Number.isFinite(requestedGeneration) || requestedGeneration <= 0) && !requestedPolicyHash) {
-      return null;
-    }
-
-    const current = await this.deps.database.getQueueProjectionGeneration('neural-roam');
-    if (!current || current.status !== 'ready') {
-      return 'generation-mismatch';
-    }
-    if (Number.isFinite(requestedGeneration)
-        && requestedGeneration > 0
-        && current.generation !== Math.floor(requestedGeneration)) {
-      return 'generation-mismatch';
-    }
-    if (requestedPolicyHash && current.policyHash !== requestedPolicyHash) {
-      return 'policy-mismatch';
-    }
-    return null;
-  }
-
   private createManagerFacade(): {
     getCards(filter?: CardFilter): Promise<FSRSCard[]>;
     getCard(cardId: string, options?: { silent?: boolean }): Promise<FSRSCard | null>;
@@ -678,24 +585,7 @@ export class WorkerNeuralRoamAdvanceService {
   }
 
   private async readNextItem(queue: NeuralRoamQueue): Promise<BackendNeuralRoamItem | null> {
-    const card = await queue.getNextCard();
-    if (!card) {
-      return null;
-    }
-    return this.toAdvanceItem(card);
-  }
-
-  private async resolveRouteMismatch(
-    queue: NeuralRoamQueue,
-    request: BackendNeuralRoamAdvanceRequest,
-  ): Promise<BackendNeuralRoamAdvanceUnavailableReason | null> {
-    await this.routeCatalog.getState();
-    const requestedRouteId = normalizeString(request.routeId ?? request.startFromFocus?.routeId);
-    const activeRouteId = normalizeString(queue.getActiveRouteId());
-    if (!requestedRouteId || !activeRouteId || requestedRouteId === activeRouteId) {
-      return null;
-    }
-    return 'route-mismatch';
+    return readWorkerNeuralRoamNextItem(queue, (card) => this.toAdvanceItem(card));
   }
 
   private async ensureVirtualCurrentItemSession(
@@ -748,19 +638,6 @@ export class WorkerNeuralRoamAdvanceService {
     };
   }
 
-  private async readCounters(queue: NeuralRoamQueue): Promise<BackendNeuralRoamCounters> {
-    const total = await queue.getSize();
-    const sourceNodes = queue.getSourceSnapshot().length;
-    return {
-      routeId: queue.getActiveRouteId(),
-      remaining: total,
-      due: total,
-      total,
-      pendingAssociatedReview: Math.max(0, total - sourceNodes),
-      sourceNodes,
-    };
-  }
-
   private async buildResult(
     request: BackendNeuralRoamAdvanceRequest,
     queue: NeuralRoamQueue,
@@ -772,42 +649,15 @@ export class WorkerNeuralRoamAdvanceService {
       message?: string | null;
     },
   ): Promise<BackendNeuralRoamAdvanceResult> {
-    const navigation = queue.getNavigationState();
-    const counters = await this.readCounters(queue);
-    if (status === 'exhausted') {
-      counters.remaining = 0;
-      counters.due = 0;
-      counters.total = 0;
-      counters.pendingAssociatedReview = 0;
-    }
-    const sessionId = request.sessionId ?? navigation.sessionId ?? navigation.engineSessionId ?? null;
-    const routeId = queue.getActiveRouteId();
-    const viewState = await this.buildViewState(queue, counters);
-    return {
-      queueType: 'neural-roam',
-      routeId,
-      sessionId,
+    return buildWorkerNeuralRoamAdvanceResult({
+      request,
+      queue,
       status,
       nextItem: input.nextItem,
-      counters,
-      sessionState: {
-        sessionId,
-        routeId,
-        engineMode: navigation.engineMode ?? null,
-        currentNodeId: navigation.currentNodeId ?? null,
-        currentEventId: navigation.currentEventId ?? null,
-        pathLength: Math.max(0, Math.floor(Number(navigation.pathLength || 0))),
-        historyCount: queue.getHistoryCount(navigation.sessionId ?? null),
-        exhausted: status === 'exhausted',
-        projectionGeneration: request.projectionGeneration ?? null,
-        policyHash: request.policyHash ?? null,
-      },
-      viewState,
-      queueState: queue.exportPersistedState(),
       projectionImpact: input.projectionImpact,
       unavailableReason: input.unavailableReason,
-      message: input.message ?? null,
-    };
+      message: input.message,
+    });
   }
 
   private async unavailable(
@@ -815,166 +665,12 @@ export class WorkerNeuralRoamAdvanceService {
     reason: BackendNeuralRoamAdvanceUnavailableReason,
     message: string,
   ): Promise<BackendNeuralRoamAdvanceResult> {
-    const projectionImpact = this.buildUnavailableProjectionImpact(request, reason);
     const queue = this.queues.get(this.storageKeyForSession(request.sessionId ?? null)) ?? null;
-    if (queue) {
-      return this.buildResult(request, queue, this.isAdvanceMismatch(reason) ? 'mismatch' : 'unavailable', {
-        nextItem: null,
-        projectionImpact,
-        unavailableReason: reason,
-        message,
-      });
-    }
-    return {
-      queueType: 'neural-roam',
-      sessionId: request.sessionId ?? null,
-      status: this.isAdvanceMismatch(reason) ? 'mismatch' : 'unavailable',
-      nextItem: null,
-      counters: {
-        routeId: request.routeId ?? null,
-        remaining: 0,
-        due: 0,
-        total: 0,
-        pendingAssociatedReview: 0,
-        sourceNodes: 0,
-      },
-      sessionState: {
-        sessionId: request.sessionId ?? null,
-        routeId: request.routeId ?? null,
-        engineMode: null,
-        currentNodeId: null,
-        currentEventId: null,
-        pathLength: 0,
-        historyCount: 0,
-        exhausted: false,
-        projectionGeneration: request.projectionGeneration ?? null,
-        policyHash: request.policyHash ?? null,
-      },
-      viewState: null,
-      routeId: request.routeId ?? null,
-      queueState: null,
-      projectionImpact,
-      unavailableReason: reason,
+    return buildWorkerNeuralRoamUnavailableAdvanceResult({
+      request,
+      queue,
+      reason,
       message,
-    };
-  }
-
-  private buildUnavailableProjectionImpact(
-    request: BackendNeuralRoamAdvanceRequest,
-    reason: BackendNeuralRoamAdvanceUnavailableReason,
-  ): BackendReviewFeedbackQueueImpact | null {
-    if (reason !== 'generation-mismatch' && reason !== 'policy-mismatch' && reason !== 'route-mismatch') {
-      return null;
-    }
-    return {
-      hotPatchable: false,
-      refreshRequired: true,
-      affectedQueues: [{
-        queueType: 'neural-roam',
-        policyHash: request.policyHash ?? null,
-        generation: null,
-        currentGeneration: null,
-        requestedGeneration: request.projectionGeneration ?? null,
-        hotPatchable: false,
-        refreshRequired: true,
-        reason,
-        removedRowIds: [],
-        insertedRows: [],
-        updatedRows: [],
-        reorderHints: [],
-        counterGeneration: null,
-        counters: null,
-      }],
-    };
-  }
-
-  private async buildViewState(
-    queue: NeuralRoamQueue,
-    counters?: BackendNeuralRoamCounters,
-  ): Promise<BackendNeuralRoamViewState> {
-    const navigation = queue.getNavigationState();
-    const routeId = queue.getActiveRouteId();
-    const routes = typeof queue.listRoutes === 'function'
-      ? await queue.listRoutes()
-      : [];
-    const route = routes.find((candidate) => candidate.isActive)
-      ?? routes.find((candidate) => candidate.id === routeId)
-      ?? null;
-    const historyRequest = { offset: 0, limit: 200 };
-    const engineHistory = queue.getHistoryPage(historyRequest).entries;
-    const routeHistory = typeof queue.getRouteHistoryPage === 'function'
-      ? (await queue.getRouteHistoryPage(historyRequest)).entries
-      : engineHistory;
-    const batch = queue.getCurrentBatchSnapshot();
-    const resolvedCounters = counters ?? await this.readCounters(queue);
-    return {
-      version: 1,
-      queueType: 'neural-roam',
-      route: {
-        id: route?.id ?? routeId ?? null,
-        name: route?.name ?? null,
-        temporary: route?.temporary === true,
-        previousRouteId: route?.previousRouteId ?? null,
-      },
-      routes: routes.map((candidate) => this.toRouteListItem(candidate, routeId)),
-      engineMode: navigation.engineMode ?? queue.getEngineMode?.() ?? null,
-      currentNodeId: navigation.currentNodeId ?? null,
-      currentEventId: navigation.currentEventId ?? null,
-      navigationState: { ...navigation },
-      counters: { ...resolvedCounters },
-      sources: queue.getSourceSnapshot().map((entry) => ({ ...entry })),
-      anchors: queue.getAnchorSnapshot().map((entry) => ({ ...entry })),
-      engineHistory: engineHistory.map((entry) => ({ ...entry })),
-      routeHistory: routeHistory.map((entry) => ({ ...entry })),
-      batchProgress: {
-        kind: batch?.kind ?? 'none',
-        viewedCount: Math.max(0, Math.floor(Number(batch?.viewedCount) || 0)),
-        totalCount: Math.max(0, Math.floor(Number(batch?.roundSize) || 0)),
-        remainingCount: Math.max(0, Math.floor(Number(batch?.remainingCount) || 0)),
-        label: batch?.engineMode === 'hyperspace' ? 'depth' : batch ? 'orbit-round' : 'none',
-      },
-      updatedAt: Date.now(),
-    };
-  }
-
-  private toRouteListItem(
-    route: {
-      id: string;
-      name: string;
-      temporary?: boolean;
-      previousRouteId?: string | null;
-      initialSeedNodeIds?: string[];
-      createdAt?: number;
-      updatedAt?: number;
-      lastUsedAt?: number;
-      stats?: BackendNeuralRoamRouteListItem['stats'];
-      isActive?: boolean;
-    },
-    activeRouteId: string | null,
-  ): BackendNeuralRoamRouteListItem {
-    return {
-      id: route.id,
-      name: route.name,
-      temporary: route.temporary === true,
-      previousRouteId: route.previousRouteId ?? null,
-      initialSeedNodeIds: [...(route.initialSeedNodeIds ?? [])],
-      createdAt: Number(route.createdAt) || 0,
-      updatedAt: Number(route.updatedAt) || 0,
-      lastUsedAt: Number(route.lastUsedAt) || 0,
-      stats: route.stats ?? {
-        routeId: route.id,
-        seedCount: 0,
-        anchorCount: 0,
-        historyCount: 0,
-        totalPoolEntries: 0,
-      },
-      isActive: route.isActive === true || route.id === activeRouteId,
-    };
-  }
-
-  private isAdvanceMismatch(reason: BackendNeuralRoamAdvanceUnavailableReason): boolean {
-    return reason === 'generation-mismatch'
-      || reason === 'policy-mismatch'
-      || reason === 'route-mismatch';
+    });
   }
 }

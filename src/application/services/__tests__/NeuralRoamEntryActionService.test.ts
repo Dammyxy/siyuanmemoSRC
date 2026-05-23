@@ -3,6 +3,10 @@ import { NeuralRoamEntryActionService } from '../NeuralRoamEntryActionService';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { ok } from '@/types/result';
 import { QueueType } from '@/types/unified-data-source';
+import type {
+  BackendNeuralRoamCommandRequest,
+  BackendNeuralRoamCommandResult,
+} from '../../../../packages/contracts/src/backend-rpc';
 
 function card(overrides: Partial<FSRSCard> = {}): FSRSCard {
   return {
@@ -54,6 +58,7 @@ function createService(options: {
   const updateFSRSCard = options.updateFSRSCard ?? vi.fn(async () => ok({}));
   const getCardByBlockId = vi.fn(() => storedCard);
   const getQueue = vi.fn(() => queue);
+  const neuralRoamCommand = createNeuralRoamCommandRunner(queue);
   const addRiffCards = vi.fn(async () => ({ name: 'deck', size: 1 }));
 
   return {
@@ -61,7 +66,7 @@ function createService(options: {
       storage: { getCardByBlockId } as any,
       cardCreationHelper: { createConceptCard } as any,
       cardService: { updateFSRSCard } as any,
-      dataSourceManager: { getQueue } as any,
+      dataSourceManager: { getQueue, neuralRoamCommand } as any,
       siyuanApi: { BUILTIN_DECK_ID: 'deck', addRiffCards } as any,
       openNeuralRoamDialog,
       resolveBlockTitle: options.resolveBlockTitle,
@@ -73,8 +78,67 @@ function createService(options: {
     updateFSRSCard,
     getCardByBlockId,
     getQueue,
+    neuralRoamCommand,
     addRiffCards,
   };
+}
+
+function createNeuralRoamCommandRunner(queue: Record<string, unknown> | null | undefined) {
+  return vi.fn(async (
+    request: BackendNeuralRoamCommandRequest,
+  ): Promise<BackendNeuralRoamCommandResult | null> => {
+    if (!queue) {
+      return null;
+    }
+    const command = request.command;
+    if (command.type === 'set-anchor') {
+      await (queue.setAnchorEntry as ((nodeId: string, enabled: boolean) => Promise<void>) | undefined)?.(
+        command.nodeId,
+        command.enabled !== false,
+      );
+    } else if (command.type === 'switch-engine-mode') {
+      await (queue.setEngineMode as ((mode: string, options: { carryCurrentNode: boolean }) => Promise<void>) | undefined)?.(
+        command.mode,
+        { carryCurrentNode: command.carryCurrentNode !== false },
+      );
+    } else if (command.type === 'create-temporary-route') {
+      await (queue.createTemporaryRoute as ((input: {
+        name?: string | null;
+        seedBlockId: string;
+        previousRouteId?: string | null;
+      }) => Promise<unknown>) | undefined)?.({
+        name: command.name,
+        seedBlockId: command.seedBlockId,
+        previousRouteId: command.previousRouteId ?? null,
+      });
+    } else if (command.type === 'replace-active-temporary-route') {
+      await (queue.replaceActiveTemporaryRoute as ((input: {
+        name?: string | null;
+        seedBlockId: string;
+      }) => Promise<unknown>) | undefined)?.({
+        name: command.name,
+        seedBlockId: command.seedBlockId,
+      });
+    } else if (command.type === 'close-temporary-route') {
+      await (queue.closeTemporaryRoute as ((input: {
+        action: 'save' | 'discard' | 'cancel';
+        routeId?: string | null;
+        name?: string | null;
+      }) => Promise<unknown>) | undefined)?.({
+        action: command.action,
+        routeId: command.routeId ?? null,
+        name: command.name ?? null,
+      });
+    }
+    return {
+      queueType: 'neural-roam',
+      status: 'ok',
+      viewState: null as never,
+      queueState: { version: 8 },
+      unavailableReason: null,
+      message: null,
+    };
+  });
 }
 
 describe('NeuralRoamEntryActionService', () => {
@@ -292,6 +356,7 @@ describe('NeuralRoamEntryActionService', () => {
     expect(queue.closeTemporaryRoute).toHaveBeenCalledWith({
       action: 'discard',
       routeId: 'route-temp',
+      name: null,
     });
     expect(queue.createTemporaryRoute).toHaveBeenCalledWith({
       name: '临时：current-block',

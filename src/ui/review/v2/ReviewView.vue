@@ -313,8 +313,6 @@ import {
   type ReviewTabTransferState,
   type IUnifiedDataSourceManagerFacade,
   isNeuralRoamSessionQueue,
-  type BackendNeuralRoamCommandRequest,
-  type BackendNeuralRoamCommandResult,
   type BackendNeuralRoamViewState,
   type NeuralNavigationState,
   type NeuralRoamBatchSnapshot,
@@ -322,7 +320,7 @@ import {
   type QueueReviewSchedulingContext,
   type ReviewQueueProgressSnapshot,
 } from '@/types/unified-data-source';
-import { DEFAULT_NEURAL_ROAM_ROUTE_ID, type NeuralRoamRouteListItem } from '@/core/queue/neural/routes';
+import type { NeuralRoamRouteListItem } from '@/core/queue/neural/routes';
 import type { FSRSCard } from '@/types/card';
 import type { SrsArenaRecommendation } from '@/types/arena';
 import type { ReviewQueueSessionSnapshot, ReviewTabRuntimeState } from '@/types/review-tab';
@@ -336,16 +334,20 @@ import {
   openReviewAIAssistantCommand,
   resolveDefaultReviewAIEntryView as resolveDefaultReviewAIEntryViewFromSettings,
   resolveReviewAIEntryView as resolveReviewAIEntryViewFromState,
-  syncReviewAIContextIfNeededCommand,
   type ReviewAIRegistryLike,
   type ReviewAIRequestedView,
   type ReviewAISurface,
 } from './reviewAICommands';
-import { resolveReviewKeyAction } from './reviewKeyActionResolver';
 import {
-  resolveReviewWriterUnavailableRecovery,
-  type ReviewWriterUnavailableRecoveryNotice,
-} from './reviewWriterUnavailableRecovery';
+  resolveReviewSideAreaTabAfterAIClose,
+  resolveReviewSideAreaTabForVisibility,
+  syncReviewAISideAreaContextIfNeeded,
+  type ReviewSideAreaTab,
+} from './reviewAISideAreaRuntime';
+import { createReviewWriterRecoveryRuntime } from './reviewWriterRecoveryRuntime';
+import { createReviewTabTransferRuntime } from './reviewTabTransferRuntime';
+import { resolveReviewKeyAction } from './reviewKeyActionResolver';
+import type { ReviewWriterUnavailableRecoveryNotice } from './reviewWriterUnavailableRecovery';
 import {
   createReviewKernelTransactionWriterActionTracker,
   resolveReviewActionForKernelTransactionWriterUnavailable,
@@ -372,6 +374,15 @@ import {
   isReviewNeuralToolbarAction,
   type ReviewNeuralBrowserSubview,
 } from './reviewNeuralCommands';
+import {
+  createReviewNeuralRouteCommandRuntime,
+  formatReviewNeuralRouteDetail,
+  isReviewNeuralRouteMenuSeparator,
+} from './reviewNeuralRouteCommands';
+import {
+  createReviewSemanticTemporaryRuntime,
+  type ReviewSemanticTemporaryView,
+} from './reviewSemanticTemporaryRuntime';
 import { SemanticActivationSessionController } from '@/application/services/SemanticActivationSessionController';
 import type { SemanticActivationCommandClient } from '@/application/clients/SemanticActivationCommandClient';
 import {
@@ -627,22 +638,6 @@ type ScheduledReviewCardPayload = {
   dueTimestamp?: number;
 };
 
-type SemanticTemporaryReviewView = {
-  nodeId: string;
-  blockId: string;
-  title: string;
-  card: FSRSCard | null;
-  uiState: ReviewUIState | null;
-  showAnswer: boolean;
-  status: 'block' | 'card' | 'scoring' | 'error';
-  error?: string;
-};
-
-type QueueWithSemanticTemporaryReview = {
-  onFeedback?: (currentItem: FSRSCard | null, feedback: { action: 'rate'; rating: number }) => Promise<void> | void;
-  suppressReviewedCardForCurrentSession?: (card: FSRSCard) => boolean;
-};
-
 type DismissedReviewCardPayload = {
   cardId?: string;
   blockId?: string;
@@ -793,8 +788,8 @@ const reviewAISidebarOpen = ref(false);
 const reviewSemanticInitialPinnedSessionId = String(props.initialSemanticPinnedSessionId || '').trim();
 const reviewSemanticSidebarOpen = ref(Boolean(reviewSemanticInitialPinnedSessionId));
 const reviewSemanticPinnedSessionId = ref<string | null>(reviewSemanticInitialPinnedSessionId || null);
-const reviewSemanticTemporaryView = ref<SemanticTemporaryReviewView | null>(null);
-const activeReviewSideAreaTab = ref<'ai' | 'semantic'>('ai');
+const reviewSemanticTemporaryView = ref<ReviewSemanticTemporaryView | null>(null);
+const activeReviewSideAreaTab = ref<ReviewSideAreaTab>('ai');
 const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1440);
 
 const rootRef = ref<HTMLDivElement | null>(null);
@@ -982,64 +977,12 @@ function getNeuralRoamQueue(): NeuralRoamSessionQueue | null {
   return underlyingQueue;
 }
 
-function formatNeuralRoamRouteDetail(route: NeuralRoamRouteListItem): string {
-  return [
-    `${t('routeConceptCount', '概念')} ${Math.max(0, Number(route.stats?.seedCount) || 0)}`,
-    `${t('routeStationCount', '空间站')} ${Math.max(0, Number(route.stats?.anchorCount) || 0)}`,
-    `${t('routeHistoryCount', '日志')} ${Math.max(0, Number(route.stats?.historyCount) || 0)}`,
-  ].join(' · ');
-}
-
 async function refreshNeuralRoamRoutes(): Promise<void> {
-  const backendViewState = getNeuralRoamViewState();
-  if (Array.isArray(backendViewState?.routes)) {
-    neuralRoamRoutes.value = backendViewState.routes as NeuralRoamRouteListItem[];
-    return;
-  }
-  const neuralQueue = getNeuralRoamQueue();
-  if (!neuralQueue?.listRoutes) {
-    neuralRoamRoutes.value = [];
-    return;
-  }
-  try {
-    neuralRoamRoutes.value = await neuralQueue.listRoutes();
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewView] Failed to list NeuralRoam routes:', error);
-    neuralRoamRoutes.value = [];
-  }
+  await neuralRouteCommandRuntime.refreshRoutes();
 }
 
 function getNeuralRoamViewState(): BackendNeuralRoamViewState | null {
   return getNeuralRoamQueue()?.getBackendViewState?.() ?? null;
-}
-
-async function runBackendNeuralRoamRouteCommand(
-  command: BackendNeuralRoamCommandRequest['command'],
-): Promise<BackendNeuralRoamCommandResult | null> {
-  const runner = getNeuralRoamCommand();
-  if (typeof runner !== 'function') {
-    return null;
-  }
-  return runner({
-    queueType: 'neural-roam',
-    command,
-  });
-}
-
-async function syncNeuralRoamRouteCommandResult(result: BackendNeuralRoamCommandResult | null): Promise<void> {
-  if (!result) {
-    return;
-  }
-  const neuralQueue = getNeuralRoamQueue();
-  if (result.queueState && neuralQueue && typeof neuralQueue.syncFromBackendState === 'function') {
-    await neuralQueue.syncFromBackendState(result.queueState);
-  }
-  neuralQueue?.setBackendViewState?.(result.viewState ?? null);
-  if (Array.isArray(result.viewState?.routes)) {
-    neuralRoamRoutes.value = result.viewState.routes as NeuralRoamRouteListItem[];
-  } else {
-    await refreshNeuralRoamRoutes();
-  }
 }
 
 function getDialogManager() {
@@ -1217,61 +1160,12 @@ function buildReviewQueueSessionSnapshot(): ReviewQueueSessionSnapshot | null {
   }
 }
 
-function withCurrentSessionTransferState(transferState: ReviewTabTransferState): ReviewTabTransferState {
-  const session = getInitialReviewSessionState();
-  if (transferState.kind === 'static-subset-session') {
-    return {
-      ...transferState,
-      blockIds: [...transferState.blockIds],
-      cardIds: transferState.cardIds ? [...transferState.cardIds] : undefined,
-      session,
-    };
-  }
-
-  return {
-    ...transferState,
-    session,
-  };
-}
-
 function buildReviewTabRuntimeState(): ReviewTabRuntimeState | null {
-  if (props.mode !== 'tab') {
-    return null;
-  }
-
-  const reference = getCurrentReviewCardReference();
-
-  return {
-    version: 1,
-    showAnswer: hook.context.value.showAnswer === true,
-    sharedReviewSessionId: sharedReviewSessionId.value || undefined,
-    currentCardId: reference.cardId || undefined,
-    currentBlockId: reference.blockId || undefined,
-    session: getInitialReviewSessionState(),
-    queueSnapshot: buildReviewQueueSessionSnapshot(),
-  };
+  return reviewTabTransferRuntime.buildRuntimeState();
 }
 
 function buildReviewTabTransferState(): ReviewTabTransferState | undefined {
-  if (props.transferState) {
-    return withCurrentSessionTransferState(props.transferState);
-  }
-
-  const filterQueue = getFilterGroupQueue();
-  if (!filterQueue || typeof filterQueue.serializeSessionSnapshot !== 'function') {
-    return undefined;
-  }
-
-  try {
-    return {
-      kind: 'filter-group-session',
-      filterSession: filterQueue.serializeSessionSnapshot(),
-      session: getInitialReviewSessionState(),
-    };
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewView] Failed to serialize filter-group transfer state:', error);
-    return undefined;
-  }
+  return reviewTabTransferRuntime.buildTransferState();
 }
 
 function buildReviewTabOpenOptions(overrides?: {
@@ -1279,63 +1173,15 @@ function buildReviewTabOpenOptions(overrides?: {
   sharedReviewSessionId?: string | null;
   reviewState?: ReviewTabRuntimeState | null;
 }): ReviewTabOpenOptions {
-  const resolvedSharedReviewSessionId = overrides?.sharedReviewSessionId ?? sharedReviewSessionId.value;
-  return {
-    queue: props.queue,
-    adapter: props.adapter,
-    title: props.title || t('reviewTitle', 'Review'),
-    headerVariant: props.headerVariant,
-    position: overrides?.position,
-    sharedReviewSessionId: String(resolvedSharedReviewSessionId || '').trim() || null,
-    transferState: buildReviewTabTransferState(),
-    reviewState: overrides?.reviewState ?? buildReviewTabRuntimeState(),
-  };
+  return reviewTabTransferRuntime.buildOpenOptions(overrides);
 }
 
 function ensureSharedReviewSessionPromotion(): string | null {
-  const normalizedExistingId = String(sharedReviewSessionId.value || '').trim();
-  if (normalizedExistingId) {
-    const registry = getSharedReviewSessionRegistry();
-    const existing = registry?.getSession<unknown>(normalizedExistingId);
-    if (registry && !isReviewSessionControllerLike(existing)) {
-      registry.registerSession(normalizedExistingId, reviewSessionController);
-    }
-    return normalizedExistingId;
-  }
-
-  const registry = getSharedReviewSessionRegistry();
-  if (!registry) {
-    return null;
-  }
-
-  const nextSharedSessionId = createSharedReviewSessionId();
-  const registered = registry.registerSession(nextSharedSessionId, reviewSessionController);
-  if (!isReviewSessionControllerLike(registered)) {
-    return null;
-  }
-
-  sharedReviewSessionId.value = nextSharedSessionId;
-  return nextSharedSessionId;
+  return reviewTabTransferRuntime.ensureSharedSessionPromotion();
 }
 
 function openManagedReviewSplit(position: 'right' | 'bottom'): void {
-  const tabManager = getTabManager();
-  if (!tabManager?.openReviewTab) {
-    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-    return;
-  }
-
-  const managedSharedSessionId = ensureSharedReviewSessionPromotion();
-  if (!managedSharedSessionId) {
-    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-    return;
-  }
-
-  tabManager.openReviewTab(buildReviewTabOpenOptions({
-    position,
-    sharedReviewSessionId: managedSharedSessionId,
-    reviewState: buildReviewTabRuntimeState(),
-  }));
+  reviewTabTransferRuntime.openManagedSplit(position);
 }
 
 function resolveStandardReviewDialogTarget(): { queueType: QueueType; headerVariant: ReviewHeaderVariant } | null {
@@ -1649,9 +1495,76 @@ const hook = useReviewSession(
 );
 const state = hook.state;
 const neuralRoamRoutes = ref<NeuralRoamRouteListItem[]>([]);
+const neuralRouteCommandRuntime = createReviewNeuralRouteCommandRuntime({
+  t,
+  getNeuralQueue: () => getNeuralRoamQueue(),
+  getRouteCommand: () => getNeuralRoamCommand(),
+  getRoutes: () => neuralRoamRoutes.value,
+  setRoutes: (routes) => {
+    neuralRoamRoutes.value = routes;
+  },
+  showMessage,
+  reload: () => hook.reload(),
+  promptRouteName: inputDialog,
+  confirmRouteDelete: confirmDialog,
+  openNeuralBrowserSubview,
+  logger,
+});
+const reviewSemanticTemporaryRuntime = createReviewSemanticTemporaryRuntime({
+  t,
+  getTemporaryView: () => reviewSemanticTemporaryView.value,
+  setTemporaryView: (temporaryView) => {
+    reviewSemanticTemporaryView.value = temporaryView;
+  },
+  getReviewQueue: () => props.queue as never,
+  resolveCardByBlockId: findSemanticTemporaryCard,
+  renderItemPreview: (card, options) => hook.renderItemPreview(card, options as never),
+  getSession: () => hook.context.value.session,
+  showMessage,
+});
 const app = props.app;
 const reviewWriterUnavailableNotice = ref<ReviewWriterUnavailableRecoveryNotice | null>(null);
 const lastReviewWriterRecoveryAction = ref<ReviewSessionRetryAction | null>(null);
+const reviewWriterRecoveryRuntime = createReviewWriterRecoveryRuntime({
+  t,
+  getAction: () => lastReviewWriterRecoveryAction.value,
+  setAction: (action) => {
+    lastReviewWriterRecoveryAction.value = action;
+  },
+  setNotice: (notice) => {
+    reviewWriterUnavailableNotice.value = notice;
+  },
+  notifyReviewMessage,
+  grade: (rating) => hook.grade(rating),
+  skip: () => hook.skip(),
+  executeCommand: (commandId) => hook.executeCommand(commandId),
+  reload: () => hook.reload(),
+});
+const reviewTabTransferRuntime = createReviewTabTransferRuntime({
+  mode: props.mode || 'dialog',
+  queue: props.queue,
+  adapter: props.adapter,
+  title: props.title,
+  headerVariant: props.headerVariant,
+  transferState: props.transferState,
+  getSharedReviewSessionId: () => sharedReviewSessionId.value,
+  setSharedReviewSessionId: (sessionId) => {
+    sharedReviewSessionId.value = sessionId;
+  },
+  createSharedReviewSessionId,
+  getInitialSessionState: getInitialReviewSessionState,
+  getQueueSessionSnapshot: buildReviewQueueSessionSnapshot,
+  getFilterSessionSnapshot: () => getFilterGroupQueue()?.serializeSessionSnapshot?.() ?? null,
+  getCurrentReference: getCurrentReviewCardReference,
+  isShowingAnswer: () => hook.context.value.showAnswer === true,
+  getReviewSessionController: () => reviewSessionController,
+  isReviewSessionControllerLike,
+  getSharedReviewSessionRegistry,
+  getTabManager,
+  t,
+  showMessage,
+  logger,
+});
 const kernelTransactionWriterActionTracker = createReviewKernelTransactionWriterActionTracker(
   reviewSessionId.value,
   30_000,
@@ -1783,7 +1696,7 @@ const neuralRoamRouteControl = computed<ReviewHeaderRouteControl | null>(() => {
   return {
     label: t('route', '航线'),
     name: route.name,
-    detail: formatNeuralRoamRouteDetail(route),
+    detail: formatReviewNeuralRouteDetail(route, t),
     temporary: route.temporary === true,
     disabled: false,
   };
@@ -1982,15 +1895,7 @@ function getReviewActionErrorMessage(payload: ReviewSessionActionError<ActiveRev
 }
 
 function handleReviewSessionActionError(payload: ReviewSessionActionError<ActiveReviewItem>): void {
-  const notice = resolveReviewWriterUnavailableRecovery({
-    reason: payload.reason,
-    error: payload.error,
-    t,
-  });
-  if (notice.kind !== 'generic-error') {
-    reviewWriterUnavailableNotice.value = notice;
-    lastReviewWriterRecoveryAction.value = payload.action ?? null;
-    notifyReviewMessage(`${notice.title}: ${notice.message}`, 5000, 'warning');
+  if (reviewWriterRecoveryRuntime.showActionError(payload)) {
     return;
   }
 
@@ -2007,43 +1912,23 @@ function handleKernelTransactionWriterUnavailable(event: Event): void {
   if (!action) {
     return;
   }
-  const notice = resolveReviewWriterUnavailableRecovery({
+  reviewWriterRecoveryRuntime.showRecovery({
     reason: action.type,
     error: new Error(detail?.message || 'BACKEND_UNAVAILABLE: writer relay timeout'),
-    t,
+    action,
   });
-  if (notice.kind === 'generic-error') {
-    return;
-  }
-  reviewWriterUnavailableNotice.value = notice;
-  lastReviewWriterRecoveryAction.value = action;
-  notifyReviewMessage(`${notice.title}: ${notice.message}`, 5000, 'warning');
 }
 
 function dismissReviewWriterRecoveryNotice(): void {
-  reviewWriterUnavailableNotice.value = null;
+  reviewWriterRecoveryRuntime.dismiss();
 }
 
 async function retryReviewWriterRecoveryAction(): Promise<void> {
-  const action = lastReviewWriterRecoveryAction.value;
-  if (!action) {
-    return;
-  }
-  reviewWriterUnavailableNotice.value = null;
-  if (action.type === 'grade') {
-    await hook.grade(action.rating);
-    return;
-  }
-  if (action.type === 'skip') {
-    await hook.skip();
-    return;
-  }
-  await hook.executeCommand(action.commandId);
+  await reviewWriterRecoveryRuntime.retry();
 }
 
 async function reloadReviewWriterRecoverySurface(): Promise<void> {
-  reviewWriterUnavailableNotice.value = null;
-  await hook.reload();
+  await reviewWriterRecoveryRuntime.reloadSurface();
 }
 
 async function prepareReviewStateBeforeCommit(
@@ -2579,12 +2464,7 @@ function handleKeyDown(e: KeyboardEvent) {
 }
 
 function handleReveal(): void {
-  const temporary = reviewSemanticTemporaryView.value;
-  if (temporary?.card) {
-    reviewSemanticTemporaryView.value = {
-      ...temporary,
-      showAnswer: true,
-    };
+  if (reviewSemanticTemporaryRuntime.revealTemporaryView()) {
     return;
   }
   clearSemanticTemporaryView();
@@ -2592,44 +2472,9 @@ function handleReveal(): void {
   hook.reveal();
 }
 
-async function gradeSemanticTemporaryReview(rating: number): Promise<void> {
-  const temporary = reviewSemanticTemporaryView.value;
-  if (!temporary?.card) {
-    return;
-  }
-
-  const normalizedRating = Math.max(1, Math.min(4, Math.floor(rating)));
-  reviewSemanticTemporaryView.value = {
-    ...temporary,
-    status: 'scoring',
-    error: undefined,
-  };
-
-  try {
-    const queue = props.queue as QueueWithSemanticTemporaryReview | null | undefined;
-    if (typeof queue?.onFeedback !== 'function') {
-      throw new Error('SEMANTIC_TEMPORARY_REVIEW_UNAVAILABLE: review queue cannot score temporary card');
-    }
-    await queue.onFeedback(temporary.card, { action: 'rate', rating: normalizedRating });
-    queue.suppressReviewedCardForCurrentSession?.(temporary.card);
-    clearSemanticTemporaryView();
-  } catch (error) {
-    reviewSemanticTemporaryView.value = {
-      ...temporary,
-      status: 'error',
-      error: error instanceof Error ? error.message : String(error),
-    };
-    showMessage(
-      `${t('semanticTemporaryReviewFailed', 'Temporary Semantic review failed')}: ${reviewSemanticTemporaryView.value.error}`,
-      5000,
-      'error',
-    );
-  }
-}
-
 function handleGrade(rating: number): void {
   if (reviewSemanticTemporaryView.value?.card) {
-    void gradeSemanticTemporaryReview(rating);
+    void reviewSemanticTemporaryRuntime.gradeTemporaryReview(rating);
     return;
   }
   clearSemanticTemporaryView();
@@ -2878,26 +2723,21 @@ function updateReviewDialogContainerLayout(): void {
 
 function closeReviewAISidebar(): void {
   reviewAISidebarOpen.value = false;
-  if (activeReviewSideAreaTab.value === 'ai' && showReviewSemanticSidePanel.value) {
-    activeReviewSideAreaTab.value = 'semantic';
-  }
+  activeReviewSideAreaTab.value = resolveReviewSideAreaTabAfterAIClose({
+    currentTab: activeReviewSideAreaTab.value,
+    semanticVisible: showReviewSemanticSidePanel.value,
+  });
   updateReviewDialogContainerLayout();
-}
-
-function isReviewAIContextSyncVisible(surface: ReviewAISurface): boolean {
-  if (surface === 'review-dialog-sidecar') {
-    return showReviewAISidecar.value;
-  }
-  return getTabManager()?.hasReviewAICompanionTab?.(reviewSessionId.value) === true;
 }
 
 async function syncReviewAIContextIfNeeded(surface: ReviewAISurface): Promise<void> {
   const activeView = resolveReviewAIEntryView();
-  await syncReviewAIContextIfNeededCommand({
-    visible: isReviewAIContextSyncVisible(surface),
+  await syncReviewAISideAreaContextIfNeeded({
+    surface,
+    sidecarVisible: showReviewAISidecar.value,
+    hasCompanionTab: getTabManager()?.hasReviewAICompanionTab,
     registry: getReviewAIWorkbenchRegistry(),
     sessionId: reviewSessionId.value,
-    surface,
     activeView,
     buildOptions: buildReviewAIOptions,
     onService: (service) => {
@@ -3217,62 +3057,11 @@ function findSemanticTemporaryCard(blockId: string): FSRSCard | null {
 }
 
 async function handleSemanticSidebarViewNode(nodeId: string, title?: string, sourceBlockId?: string): Promise<void> {
-  const normalizedNodeId = String(nodeId || '').trim();
-  if (!normalizedNodeId) {
-    showMessage(t('semanticTemporaryViewPending', 'Temporary Semantic node view is not wired yet.'), 3000, 'info');
-    return;
-  }
-  const normalizedBlockId = String(sourceBlockId || normalizedNodeId).trim() || normalizedNodeId;
-  const temporaryTitle = String(title || normalizedNodeId).trim() || normalizedNodeId;
-  const card = findSemanticTemporaryCard(normalizedBlockId);
-  reviewSemanticTemporaryView.value = {
-    nodeId: normalizedNodeId,
-    blockId: normalizedBlockId,
-    title: temporaryTitle,
-    card,
-    uiState: null,
-    showAnswer: false,
-    status: card ? 'card' : 'block',
-  };
-
-  if (!card) {
-    return;
-  }
-
-  try {
-    const uiState = await hook.renderItemPreview(card, {
-      showAnswer: false,
-      session: hook.context.value.session,
-    });
-    const current = reviewSemanticTemporaryView.value;
-    if (!current || current.nodeId !== normalizedNodeId || current.blockId !== normalizedBlockId) {
-      return;
-    }
-    reviewSemanticTemporaryView.value = {
-      ...current,
-      uiState,
-    };
-  } catch (error) {
-    reviewSemanticTemporaryView.value = {
-      nodeId: normalizedNodeId,
-      blockId: normalizedBlockId,
-      title: temporaryTitle,
-      card,
-      uiState: null,
-      showAnswer: false,
-      status: 'error',
-      error: error instanceof Error ? error.message : String(error),
-    };
-    showMessage(
-      `${t('semanticTemporaryViewFailed', 'Temporary Semantic card view failed')}: ${reviewSemanticTemporaryView.value.error}`,
-      5000,
-      'error',
-    );
-  }
+  await reviewSemanticTemporaryRuntime.viewNode(nodeId, title, sourceBlockId);
 }
 
 function clearSemanticTemporaryView(): void {
-  reviewSemanticTemporaryView.value = null;
+  reviewSemanticTemporaryRuntime.clearTemporaryView();
 }
 
 function handleNeuralEngineModeMenu(ev: MouseEvent): void {
@@ -3330,134 +3119,6 @@ function handleNeuralRoamEntryMenu(ev: MouseEvent): void {
   openMenuAtEvent(menu, ev);
 }
 
-async function switchNeuralRoamRouteFromReview(routeId: string): Promise<void> {
-  const result = await runBackendNeuralRoamRouteCommand({ type: 'switch-route', routeId });
-  if (!result) {
-    showMessage(t('neuralRoamRouteSwitchUnavailable', '航线切换不可用'), 3000, 'error');
-    return;
-  }
-  if (result.status !== 'ok') {
-    showMessage(result.message || t('neuralRoamRouteSwitchUnavailable', '航线切换不可用'), 3000, 'error');
-    return;
-  }
-  await syncNeuralRoamRouteCommandResult(result);
-  await refreshNeuralRoamRoutes();
-  await hook.reload();
-}
-
-async function createNeuralRoamRouteFromReview(): Promise<void> {
-  const runner = getNeuralRoamCommand();
-  if (!runner) {
-    showMessage(t('neuralRoamRouteCreateUnavailable', '航线创建不可用'), 3000, 'error');
-    return;
-  }
-  const name = await inputDialog({
-    title: t('createRoute', '新建航线'),
-    placeholder: t('routeNamePlaceholder', '航线名称'),
-    defaultValue: t('newRoute', '新航线'),
-    confirmText: t('confirm', '确认'),
-    cancelText: t('cancel', '取消'),
-    visualVariant: 'workspace',
-  });
-  const normalizedName = String(name || '').trim();
-  if (!normalizedName) {
-    return;
-  }
-  const result = await runBackendNeuralRoamRouteCommand({ type: 'create-route', name: normalizedName });
-  if (!result) {
-    showMessage(t('neuralRoamRouteCreateUnavailable', '航线创建不可用'), 3000, 'error');
-    return;
-  }
-  if (result.status !== 'ok') {
-    showMessage(result.message || t('neuralRoamRouteCreateUnavailable', '航线创建不可用'), 3000, 'error');
-    return;
-  }
-  await syncNeuralRoamRouteCommandResult(result);
-  await refreshNeuralRoamRoutes();
-  await hook.reload();
-}
-
-async function renameNeuralRoamRouteFromReview(route: NeuralRoamRouteListItem): Promise<void> {
-  const runner = getNeuralRoamCommand();
-  if (!runner) {
-    showMessage(t('neuralRoamRouteRenameUnavailable', '航线重命名不可用'), 3000, 'error');
-    return;
-  }
-  const name = await inputDialog({
-    title: t('renameRoute', '重命名航线'),
-    placeholder: t('routeNamePlaceholder', '航线名称'),
-    defaultValue: route.name,
-    confirmText: t('confirm', '确认'),
-    cancelText: t('cancel', '取消'),
-    visualVariant: 'workspace',
-  });
-  const normalizedName = String(name || '').trim();
-  if (!normalizedName) {
-    return;
-  }
-  const result = await runBackendNeuralRoamRouteCommand({ type: 'rename-route', routeId: route.id, name: normalizedName });
-  if (!result) {
-    showMessage(t('neuralRoamRouteRenameUnavailable', '航线重命名不可用'), 3000, 'error');
-    return;
-  }
-  if (result.status !== 'ok') {
-    showMessage(result.message || t('neuralRoamRouteRenameUnavailable', '航线重命名不可用'), 3000, 'error');
-    return;
-  }
-  await syncNeuralRoamRouteCommandResult(result);
-  await refreshNeuralRoamRoutes();
-}
-
-async function deleteNeuralRoamRouteFromReview(route: NeuralRoamRouteListItem): Promise<void> {
-  const runner = getNeuralRoamCommand();
-  if (!runner) {
-    showMessage(t('neuralRoamRouteDeleteUnavailable', '航线删除不可用'), 3000, 'error');
-    return;
-  }
-  const confirmed = await confirmDialog({
-    title: t('deleteRoute', '删除航线'),
-    content: t('deleteRouteConfirm', '删除航线只会移除航线状态，不会删除卡片或思源块。是否继续？'),
-    confirmText: t('delete', '删除'),
-    cancelText: t('cancel', '取消'),
-    visualVariant: 'workspace',
-  });
-  if (!confirmed) {
-    return;
-  }
-  const result = await runBackendNeuralRoamRouteCommand({ type: 'delete-route', routeId: route.id });
-  if (!result) {
-    showMessage(t('neuralRoamRouteDeleteUnavailable', '航线删除不可用'), 3000, 'error');
-    return;
-  }
-  if (result.status !== 'ok') {
-    showMessage(result.message || t('neuralRoamRouteDeleteUnavailable', '航线删除不可用'), 3000, 'error');
-    return;
-  }
-  await syncNeuralRoamRouteCommandResult(result);
-  await refreshNeuralRoamRoutes();
-  await hook.reload();
-}
-
-async function saveTemporaryNeuralRoamRouteFromReview(route: NeuralRoamRouteListItem): Promise<void> {
-  const runner = getNeuralRoamCommand();
-  if (!runner) {
-    showMessage(t('neuralRoamRouteSaveUnavailable', '临时航线保存不可用'), 3000, 'error');
-    return;
-  }
-  const result = await runBackendNeuralRoamRouteCommand({ type: 'save-temporary-route', routeId: route.id });
-  if (!result) {
-    showMessage(t('neuralRoamRouteSaveUnavailable', '临时航线保存不可用'), 3000, 'error');
-    return;
-  }
-  if (result.status !== 'ok') {
-    showMessage(result.message || t('neuralRoamRouteSaveUnavailable', '临时航线保存不可用'), 3000, 'error');
-    return;
-  }
-  await syncNeuralRoamRouteCommandResult(result);
-  await refreshNeuralRoamRoutes();
-  showMessage(t('temporaryRouteSaved', '临时航线已保存'), 2500, 'info');
-}
-
 function handleNeuralRoamRouteMenu(ev: MouseEvent): void {
   const neuralQueue = getNeuralRoamQueue();
   if (!neuralQueue) {
@@ -3465,78 +3126,14 @@ function handleNeuralRoamRouteMenu(ev: MouseEvent): void {
     return;
   }
   void refreshNeuralRoamRoutes();
-  const routes = neuralRoamRoutes.value;
-  const activeRoute = activeNeuralRoamRoute.value;
   const menu = new Menu('neural-roam-route-menu');
-
-  for (const route of routes) {
-    menu.addItem({
-      icon: route.isActive ? 'iconCheck' : undefined,
-      label: route.name,
-      accelerator: formatNeuralRoamRouteDetail(route),
-      disabled: route.isActive,
-      click: () => {
-        void switchNeuralRoamRouteFromReview(route.id);
-      },
-    });
-  }
-
-  if (routes.length > 0) {
-    menu.addSeparator();
-  }
-
-  menu.addItem({
-    icon: 'iconAdd',
-    label: t('createRoute', '新建航线'),
-    click: () => {
-      void createNeuralRoamRouteFromReview();
-    },
-  });
-
-  if (activeRoute) {
-    menu.addItem({
-      icon: 'iconEdit',
-      label: t('renameRoute', '重命名航线'),
-      click: () => {
-        void renameNeuralRoamRouteFromReview(activeRoute);
-      },
-    });
-    if (activeRoute.temporary) {
-      menu.addItem({
-        icon: 'iconSave',
-        label: t('saveAsRoute', '保存为航线'),
-        click: () => {
-          void saveTemporaryNeuralRoamRouteFromReview(activeRoute);
-        },
-      });
+  for (const item of neuralRouteCommandRuntime.buildMenuItems()) {
+    if (isReviewNeuralRouteMenuSeparator(item)) {
+      menu.addSeparator();
+      continue;
     }
-    if (activeRoute.id !== DEFAULT_NEURAL_ROAM_ROUTE_ID) {
-      menu.addItem({
-        icon: 'iconTrashcan',
-        label: t('deleteRoute', '删除航线'),
-        click: () => {
-          void deleteNeuralRoamRouteFromReview(activeRoute);
-        },
-      });
-    }
+    menu.addItem(item);
   }
-
-  menu.addSeparator();
-  menu.addItem({
-    icon: 'iconHistory',
-    label: t('routeLog', '航线日志'),
-    click: () => openNeuralBrowserSubview('roam-history'),
-  });
-  menu.addItem({
-    icon: 'iconHistory',
-    label: t('engineHistory', '双链轨道'),
-    click: () => openNeuralBrowserSubview('engine-history'),
-  });
-  menu.addItem({
-    icon: 'iconDatabase',
-    label: t('openBrowserNeuralRoamPanel', '打开浏览器神经漫游面板'),
-    click: () => openNeuralBrowserSubview('concept-cards'),
-  });
 
   openMenuAtEvent(menu, ev);
 }
@@ -3624,11 +3221,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   }
 }
 
-async function closeCurrentReviewSurface(): Promise<void> {
-  const closeResult = await closeActiveTemporaryRouteBeforeReviewClose();
-  if (closeResult === 'cancelled') {
-    return;
-  }
+function closeReviewSurfaceAfterTemporaryRouteClose(): void {
   if (props.mode === 'tab') {
     const tabManager = getTabManager();
     if (reviewSessionId.value && typeof tabManager?.closeReviewTab === 'function') {
@@ -3640,6 +3233,20 @@ async function closeCurrentReviewSurface(): Promise<void> {
     });
   }
   emit('close');
+}
+
+function closeCurrentReviewSurface(): void {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue?.resolveTemporaryRouteCloseAction) {
+    closeReviewSurfaceAfterTemporaryRouteClose();
+    return;
+  }
+
+  void closeActiveTemporaryRouteBeforeReviewClose().then((closeResult) => {
+    if (closeResult !== 'cancelled') {
+      closeReviewSurfaceAfterTemporaryRouteClose();
+    }
+  });
 }
 
 async function closeActiveTemporaryRouteBeforeReviewClose(): Promise<'closed-or-none' | 'cancelled'> {
@@ -4070,13 +3677,11 @@ watch(
 watch(
   [showReviewAISidecar, showReviewSemanticSidePanel],
   ([aiVisible, semanticVisible]) => {
-    if (activeReviewSideAreaTab.value === 'ai' && !aiVisible && semanticVisible) {
-      activeReviewSideAreaTab.value = 'semantic';
-      return;
-    }
-    if (activeReviewSideAreaTab.value === 'semantic' && !semanticVisible && aiVisible) {
-      activeReviewSideAreaTab.value = 'ai';
-    }
+    activeReviewSideAreaTab.value = resolveReviewSideAreaTabForVisibility({
+      currentTab: activeReviewSideAreaTab.value,
+      aiVisible,
+      semanticVisible,
+    });
   },
 );
 

@@ -1,8 +1,118 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-23 (Round 437)
+Last update: 2026-05-23 (Round 448)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-23 - Xiuyuan Riff Sync Runtime Stages
+
+- Task: Deepen Xiuyuan/Riff sync by moving malformed input, blacklist, native remove, and sync apply stages behind focused runtime modules.
+- Touched slice: Xiuyuan/Riff sync; `src/application/services/XiuyuanSyncService.ts`, `src/application/services/XiuyuanRiffInputRuntime.ts`, `src/application/services/XiuyuanRiffBlacklistRuntime.ts`, `src/application/services/XiuyuanNativeRiffRemoveRuntime.ts`, `src/application/services/XiuyuanSyncApplyRuntime.ts`, and `src/application/services/__tests__/XiuyuanSyncRuntimeModules.test.ts`.
+- Debt fixed now: `XiuyuanSyncService` remains the public sync façade, but malformed legacy Riff input rejection, blacklist filtering/cleanup planning, native Riff remove planning, and final `SyncChangeSet` apply now have narrow tested interfaces. Blacklisted cards do not reach apply, malformed input does not synthesize placeholder cards, and native remove only plans local `riff-managed` deletes.
+- Debt deferred: Xiuyuan/Riff sync is still application-owned rather than worker-owned; broader backend command ownership for sync writes remains staged migration work.
+- Why deferred: This change deepened current application runtime modules without changing write ownership or Riff public contracts.
+- Next safe step: If sync ownership moves later, introduce a worker command contract first and keep these stage modules as the application-side policy source.
+- Validation: `pnpm vitest run src/application/services/__tests__/XiuyuanSyncRuntimeModules.test.ts`; targeted Xiuyuan sync suite for malformed input, native semantic routing, card-type sync, and quick-render hint passed.
+
+### 2026-05-23 - AI Flashcard Tool Runtime Modules
+
+- Task: Deepen AI flashcard tool execution by separating target resolution, markdown insertion, card/CDF config, tool recommendation, and Xiuyuan writes.
+- Touched slice: AI flashcard tools; `src/application/services/AIFlashcardToolService.ts`, `AIFlashcardTargetRuntime.ts`, `AIFlashcardMarkdownInsertionRuntime.ts`, `AIFlashcardCardResolutionRuntime.ts`, `AIFlashcardToolDecisionRuntime.ts`, `AIFlashcardXiuyuanWriteRuntime.ts`, and `src/application/services/__tests__/AIFlashcardToolRuntimeModules.test.ts`.
+- Debt fixed now: `AIFlashcardToolService` now delegates default target memory/override resolution, detailed mutation row loading, inline/CDF template resolution, tool decision policy, and Xiuyuan application writes to focused runtimes. Xiuyuan writes still route through `XiuyuanApplicationService`; UI and AI executor code do not assemble write commands directly.
+- Debt deferred: The broad public AI flashcard façade still owns mode-specific tool methods and some CDF source-tree assembly; collapsing every tool into one command router is left out.
+- Why deferred: The OpenSpec scope was phase extraction behind the existing interface, not a public tool API redesign.
+- Next safe step: Extract a tool command dispatcher only if new tool modes start duplicating the same phase ordering.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIFlashcardToolRuntimeModules.test.ts`; targeted AI suite for `AIFlashcardToolService`, `AIChatToolExecutorService`, and `AISelfTestCardCreationService` passed.
+
+### 2026-05-23 - AutoCard Planner Execution Runtime
+
+- Task: Deepen local AutoCard planner execution out of `AutoCardHandler`.
+- Touched slice: AutoCard runtime; `src/application/handlers/AutoCardHandler.ts`, `src/application/handlers/AutoCardPlannerExecutionRuntime.ts`, `src/application/handlers/AutoCardExecutionRuntime.ts`, `src/application/handlers/__tests__/AutoCardPlannerExecutionRuntime.test.ts`, and `src/application/handlers/__tests__/AutoCardExecutionRuntime.test.ts`.
+- Debt fixed now: Local planner execution sequencing, attrs/binding guards, existing-card checks, structural list/CDF creation callbacks, callback failure surfacing, and result normalization now live behind `AutoCardPlannerExecutionRuntime`. `AutoCardExecutionRuntime` delegates planner envelopes there, and backend execute failure does not fall back to local planner execution.
+- Debt deferred: AutoCard Xiuyuan/TopicDerived side effects are still executed by application callbacks rather than moved into real worker-side mutation ownership.
+- Why deferred: Moving those writes into the worker would change ownership and require a separate backend command/data-owner design.
+- Next safe step: Keep tightening application execution seams until a worker-owned AutoCard mutation contract is proposed and accepted.
+- Validation: `pnpm vitest run src/application/handlers/__tests__/AutoCardPlannerExecutionRuntime.test.ts`; targeted AutoCard relay/execution/listener/backend-execute suite passed.
+
+### 2026-05-23 - Backend NeuralRoam Worker Policy Modules
+
+- Task: Deepen `WorkerNeuralRoamAdvanceService` by extracting route identity, view-state/progress, command apply, and advance result policy.
+- Touched slice: Backend NeuralRoam; `worker/bootstrap/WorkerNeuralRoamAdvanceService.ts`, `worker/bootstrap/neuralRoamRoutePolicy.ts`, `worker/bootstrap/neuralRoamViewStateBuilder.ts`, `worker/bootstrap/neuralRoamCommandPolicy.ts`, `worker/bootstrap/neuralRoamAdvancePolicy.ts`, and worker/backend NeuralRoam tests.
+- Debt fixed now: `neural-roam.advance`, `neural-roam.viewState`, and `neural-roam.command` still use the same backend RPC contracts, but route mismatch, projection mismatch, view-state/progress build, command-to-queue mutation, idempotency, and unavailable result shaping now have focused modules and tests.
+- Debt deferred: `WorkerNeuralRoamAdvanceService` remains the RPC façade and queue instance coordinator; route catalog persistence and broader Semantic/Neural convergence are not split here.
+- Why deferred: The accepted boundary keeps worker RPC ownership stable while reducing internal policy breadth.
+- Next safe step: Split route catalog persistence only if it gains independent write rules beyond current queue state.
+- Validation: targeted worker NeuralRoam tests plus `BackendKernel`, `NeuralRoamAdvanceCoordinator`, and `NeuralRoamEntryActionService` suites passed.
+
+### 2026-05-23 - ApplicationContext Factory Bundle Split
+
+- Task: Deepen `ApplicationContext` composition by moving bounded-context wiring and writer relay dispatch into typed modules.
+- Touched slice: Application composition; `src/application/ApplicationContext.ts`, `src/application/factories/createApplicationBackendRuntimeBundle.ts`, `createReviewBrowserServiceBundle.ts`, `createAIServiceBundle.ts`, `createAutoCardKernelXiuyuanServiceBundle.ts`, `src/application/commands/writerRelayCommandDispatcher.ts`, and factory/composition tests.
+- Debt fixed now: Backend runtime, Review/Browser services, AI/Arena services, AutoCard/kernel/Xiuyuan services, and writer relay method dispatch now live behind explicit typed bundles/dispatcher. `ApplicationContext` keeps lifecycle ownership, public accessor compatibility, lazy cache, and disposal; factories do not become global service locators.
+- Debt deferred: `ApplicationContext` still has many lazy getters and remains the single large composition root; this change intentionally avoids replacing it with a container framework.
+- Why deferred: Replacing the composition root would be wider than the OpenSpec goal and would risk ownership drift.
+- Next safe step: Continue extracting bounded-context bundles only when a service family gains real wiring policy or disposal complexity.
+- Validation: `pnpm vitest run src/application/__tests__/ApplicationContext.writer-relay.test.ts src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts src/application/__tests__/ApplicationContext.storage-fail-closed.test.ts` and focused factory tests passed.
+
+### 2026-05-23 - Browser Neural And Semantic Workspace Runtimes
+
+- Task: Deepen Browser Neural workspace backend command/read orchestration and Browser Semantic root exploration / Review handoff orchestration out of `SRSBrowser.vue`.
+- Touched slice: Browser Queue And Workspace; `src/ui/browser/SRSBrowser.vue`, `src/ui/browser/neural/browserNeuralWorkspaceRuntime.ts`, `src/ui/browser/neural/useNeuralBrowserController.ts`, `src/ui/browser/neural/__tests__/browserNeuralWorkspaceRuntime.test.ts`, `src/ui/browser/neural/__tests__/useNeuralBrowserController.test.ts`, `src/ui/browser/semantic/BrowserSemanticWorkspaceRuntime.ts`, `src/ui/browser/semantic/BrowserSemanticStateController.ts`, and `src/ui/browser/semantic/__tests__/BrowserSemanticWorkspaceRuntime.test.ts`.
+- Debt fixed now: Browser Neural command/read adapter logic now lives behind `browserNeuralWorkspaceRuntime.ts`; missing backend command capability returns explicit unavailable and `useNeuralBrowserController.ts` no longer falls back to local queue mutation for jump/focus/source/anchor/history clear/engine mode/navigation/bookmark commands. Browser Semantic start/root-card resolution/action dispatch/Review handoff now lives behind `BrowserSemanticWorkspaceRuntime.ts`; `SRSBrowser.vue` renders runtime state and dispatches UI events only.
+- Debt deferred: Browser Semantic still keeps the existing read model builder and entry/state controllers as separate modules rather than merging all Semantic read/action state into one deeper application-level module; broader ApplicationContext composition splitting, backend NeuralRoam worker splitting, AutoCard execution cleanup, AI flashcard tool phase extraction, and Xiuyuan/Riff sync stage extraction remain in the OpenSpec change.
+- Why deferred: This slice closed Browser workspace tasks 3.3-3.6 only. Moving Semantic read/action ownership further down would cross into backend Semantic runtime and ApplicationContext factory work.
+- Next safe step: Continue OpenSpec task 4.1 with ApplicationContext wiring tests for the first extracted bounded-context factory bundle.
+- Validation: `pnpm vitest run src/ui/browser/neural/__tests__/browserNeuralWorkspaceRuntime.test.ts src/ui/browser/neural/__tests__/useNeuralBrowserController.test.ts`; `pnpm vitest run src/ui/browser/neural/__tests__`; `pnpm vitest run src/ui/browser/semantic/__tests__/BrowserSemanticWorkspaceRuntime.test.ts`; `pnpm vitest run src/ui/browser/semantic/__tests__ src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts`; `pnpm vitest run src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts src/ui/browser/__tests__/SRSBrowser.tab-layout.spec.ts`.
+
+### 2026-05-23 - Browser Source Existence Runtime
+
+- Task: Deepen Browser source-existence update policy and active queue reload orchestration from `SRSBrowser.vue` into a focused runtime.
+- Touched slice: Browser Queue View Lifecycle source-existence updates; `src/ui/browser/SRSBrowser.vue`, `src/ui/browser/browserSourceExistenceRuntime.ts`, `src/ui/browser/sourceExistenceUpdatePolicy.ts`, `src/ui/browser/__tests__/browserSourceExistenceRuntime.test.ts`, `src/ui/browser/__tests__/sourceExistenceUpdatePolicy.test.ts`, and `src/ui/browser/__tests__/BrowserQueueViewModule.test.ts`.
+- Debt fixed now: Source-existence updates now patch visible rows, focus rows, bounded allRows cache, loaded-row cache, and AG Grid nodes through `browserSourceExistenceRuntime.ts`; the runtime returns the active queue reload decision without interpreting projection readiness. `BrowserQueueViewModule.ts` remains the sole Browser queue readiness/datasource attach owner.
+- Debt deferred: Browser workspace command/read and Semantic handoff debt was closed by the later Browser Neural And Semantic Workspace Runtimes slice; broader ApplicationContext composition and backend/AI/Xiuyuan slices remain.
+- Why deferred: Source-existence intentionally stayed inside Browser Queue View Lifecycle and did not cross into workspace command orchestration.
+- Next safe step: Continue the active OpenSpec change with ApplicationContext composition tasks.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/browserSourceExistenceRuntime.test.ts`; `pnpm vitest run src/ui/browser/__tests__/browserSourceExistenceRuntime.test.ts src/ui/browser/__tests__/sourceExistenceUpdatePolicy.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts src/ui/browser/__tests__/SRSBrowser.tab-layout.spec.ts`.
+
+### 2026-05-23 - Review Writer Recovery And Tab Transfer Runtime
+
+- Task: Deepen Review writer recovery and dialog-to-tab transfer orchestration from `ReviewView.vue` into focused runtimes.
+- Touched slice: Review writer/backend unavailable recovery and review tab transfer; `src/ui/review/v2/ReviewView.vue`, `src/ui/review/v2/reviewWriterRecoveryRuntime.ts`, `src/ui/review/v2/reviewTabTransferRuntime.ts`, `src/ui/review/v2/__tests__/reviewWriterRecoveryRuntime.test.ts`, and `src/ui/review/v2/__tests__/reviewTabTransferRuntime.test.ts`.
+- Debt fixed now: Writer/backend unavailable classification now enters `reviewWriterRecoveryRuntime.ts`, which owns notice state handoff, retry action retention, dismiss, reload, and retry dispatch through existing `hook.grade/skip/executeCommand/reload` only; tab snapshot, transfer state, shared review session promotion, and managed split open now live behind `reviewTabTransferRuntime.ts`. `ReviewView.vue` keeps template wrappers and injected dependencies instead of duplicating retry/snapshot/session-promotion rules.
+- Debt deferred: Broader Browser workspace deepening, ApplicationContext composition splitting, backend NeuralRoam module splitting, AutoCard execution cleanup, AI flashcard tool phase extraction, and Xiuyuan/Riff sync stage extraction remain in the OpenSpec change.
+- Why deferred: This slice closed Review Surface tasks 2.7-2.9 only; the remaining OpenSpec tasks touch separate bounded contexts with different validation sets.
+- Next safe step: Start Browser Queue And Workspace tasks 3.1-3.7, beginning with source-existence update policy tests before editing `SRSBrowser.vue`.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/reviewWriterRecoveryRuntime.test.ts src/ui/review/v2/__tests__/reviewTabTransferRuntime.test.ts src/ui/review/v2/__tests__/ReviewView.open-as-menu.spec.ts src/ui/review/v2/__tests__/ReviewView.queue-switch.spec.ts`; `pnpm vitest run src/ui/review/v2/__tests__/useReviewSession.spec.ts src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts src/ui/review/v2/__tests__/NeuralRoamJourneyHeader.spec.ts`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`; workspace-root `openspec validate deepen-runtime-architecture-modules --strict`; `git diff --check`.
+
+### 2026-05-23 - Review AI Side-Area Runtime
+
+- Task: Deepen Review AI side-area context sync and AI/Semantic tab-selection orchestration from `ReviewView.vue` into a focused runtime.
+- Touched slice: Review AI workbench sidecar and companion-tab context sync; `src/ui/review/v2/ReviewView.vue`, `src/ui/review/v2/reviewAISideAreaRuntime.ts`, and `src/ui/review/v2/__tests__/reviewAISideAreaRuntime.test.ts`.
+- Debt fixed now: Dialog sidecar visibility, tab companion visibility, visible-only AI context sync, service update handoff, AI close tab fallback, and AI/Semantic visible-tab fallback now live behind `reviewAISideAreaRuntime.ts`; `ReviewView.vue` keeps Vue refs and dispatches UI events instead of duplicating registry/context visibility rules.
+- Debt deferred: Broader Semantic session start/restore orchestration still lives in `ReviewView.vue`; writer recovery and dialog-to-tab transfer were closed by Round 441.
+- Why deferred: Semantic session start/restore involves backend Semantic session command/read clients and remains a separate Review side-area path.
+- Next safe step: If Review continues before Browser, extract broader Semantic session start/restore orchestration with focused tests.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/reviewAISideAreaRuntime.test.ts`; `pnpm vitest run src/ui/review/v2/__tests__/reviewAISideAreaRuntime.test.ts src/ui/review/v2/__tests__/reviewAICommands.test.ts src/ui/review/v2/__tests__/ReviewView.queue-switch.spec.ts`.
+
+### 2026-05-23 - Review Semantic Temporary Runtime
+
+- Task: Deepen Review Semantic temporary node view and scoring orchestration from `ReviewView.vue` into a focused runtime.
+- Touched slice: Review Semantic sidebar handoff and temporary review path; `src/ui/review/v2/ReviewView.vue`, `src/ui/review/v2/reviewSemanticTemporaryRuntime.ts`, and `src/ui/review/v2/__tests__/reviewSemanticTemporaryRuntime.test.ts`.
+- Debt fixed now: Sidebar `view-node` now delegates temporary card lookup, preview rendering, reveal state, temporary-card scoring, scoring error state, and current-session suppression to `reviewSemanticTemporaryRuntime.ts`; scoring a temporary Semantic card calls the Review queue feedback path for that temporary card only and does not advance the original Review current item.
+- Debt deferred: Starting/restoring Semantic activation sessions, side-area tab selection, and Semantic path analysis AI handoff still live in `ReviewView.vue`.
+- Why deferred: Those paths involve backend Semantic session command/read clients and AI side-area state, which are the next Review side-area slice rather than temporary review scoring.
+- Next safe step: Extract Review AI/Semantic side-area context and tab-selection runtime with focused tests.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/reviewSemanticTemporaryRuntime.test.ts`; `pnpm vitest run src/ui/review/v2/__tests__/reviewSemanticTemporaryRuntime.test.ts src/ui/review/v2/__tests__/ReviewView.queue-switch.spec.ts`.
+
+### 2026-05-23 - Review NeuralRoam Route Command Runtime
+
+- Task: Deepen Review NeuralRoam route command handling from `ReviewView.vue` into a focused route command runtime.
+- Touched slice: Review NeuralRoam route selector and backend command path; `src/ui/review/v2/ReviewView.vue`, `src/ui/review/v2/reviewNeuralRouteCommands.ts`, and `src/ui/review/v2/__tests__/reviewNeuralRouteCommands.test.ts`.
+- Debt fixed now: Route switch/create/rename/delete/save temporary, backend result synchronization, route mismatch/unavailable messages, route detail formatting, and route menu item projection now live behind `reviewNeuralRouteCommands.ts`; `ReviewView.vue` only holds Vue refs, opens the SiYuan menu, and delegates to backend `neural-roam.command`.
+- Debt deferred: Review Semantic session start/restore orchestration still lives in `ReviewView.vue`; Review AI side-area, writer recovery, and tab-transfer orchestration were closed by later Round 440-441 slices.
+- Why deferred: This slice intentionally kept to Review NeuralRoam route commands so backend route ownership and mismatch behavior could be tested without expanding into unrelated Review surfaces.
+- Next safe step: Extract broader Review Semantic session start/restore orchestration if Review surface deepening continues after the current Browser slice.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/reviewNeuralRouteCommands.test.ts`; `pnpm vitest run src/ui/review/v2/__tests__/reviewNeuralRouteCommands.test.ts src/ui/review/v2/__tests__/ReviewView.queue-switch.spec.ts`.
 
 ### 2026-05-23 - NeuralRoam Route CRUD Backend Ownership
 

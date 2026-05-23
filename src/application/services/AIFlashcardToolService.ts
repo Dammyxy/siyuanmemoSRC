@@ -9,10 +9,22 @@ import type { XiuyuanApplicationService } from '@/application/services/XiuyuanAp
 import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase';
 import { findConceptByUpwardSearch } from '@/application/usecases/xiuyuan/shared/ConceptLocator';
 import { detectDescriptorOrDefinitionKind } from '@/application/usecases/xiuyuan/shared/DescriptorTemplateStrategy';
-import { detectAnswerSyntax } from '@/core/card-type/detectionRules';
 import type { CdfNodeKind, CdfScanNode, CdfScanResult } from '@/application/usecases/xiuyuan/shared/CdfMultilineScanner';
 import { parseCueAndAnswer } from '@/core/xiuyuan/parseCueAndAnswer';
-import { ClozeDetector } from '@/utils/cloze-detector';
+import {
+  AIFlashcardCardResolutionRuntime,
+  parseClozeMarkers,
+} from './AIFlashcardCardResolutionRuntime';
+import {
+  AIFlashcardMarkdownInsertionRuntime,
+  type AIFlashcardMutationRow,
+} from './AIFlashcardMarkdownInsertionRuntime';
+import {
+  AIFlashcardTargetRuntime,
+  type AIFlashcardResolvedWriteTarget,
+} from './AIFlashcardTargetRuntime';
+import { AIFlashcardToolDecisionRuntime } from './AIFlashcardToolDecisionRuntime';
+import { AIFlashcardXiuyuanWriteRuntime } from './AIFlashcardXiuyuanWriteRuntime';
 import type {
   AICdfAnchor,
   AICdfAnchorResolution,
@@ -28,7 +40,7 @@ import type {
 } from '@/types/ai';
 
 type AIFlashcardXiuyuanService = Pick<XiuyuanApplicationService, 'createFromBlocks' | 'createListTemplateCards'>;
-type MutationRow = AISiyuanBlockRow & { sort?: string | number };
+type MutationRow = AIFlashcardMutationRow;
 type SemanticCdfTreeNode = {
   listItemId: string;
   paragraphId: string;
@@ -46,11 +58,7 @@ type SemanticCdfPlan = {
   definitionText: string;
   descriptorGroups: SemanticCdfDescriptorGroupPlan[];
 };
-type ResolvedWriteTarget = {
-  memory: AIWorkbenchSelfTestCardTargetMemory;
-  targetBlockId: string;
-  writeMode: 'append' | 'after';
-};
+type ResolvedWriteTarget = AIFlashcardResolvedWriteTarget;
 
 type ResolvedSelectionInput = {
   sourceBlockId: string;
@@ -117,37 +125,6 @@ function normalizeSelectionOrigin(
     : fallback;
 }
 
-function parseTargetInput(args: Record<string, unknown>): AIWorkbenchSelfTestCardTargetInput | null {
-  const targetMode = normalizeString(args.targetMode);
-  if (!targetMode || targetMode === 'default') {
-    return null;
-  }
-  return {
-    mode: targetMode === 'block' ? 'block' : 'daily-note',
-    notebookId: normalizeString(args.notebookId),
-    notebookName: normalizeString(args.notebookName),
-    targetBlockId: normalizeString(args.targetBlockId) || null,
-    targetLabel: normalizeString(args.targetLabel),
-  };
-}
-
-function parseClozeMarkers(content: string): Array<{ text: string; start: number; end: number; type: string }> {
-  const markers: Array<{ text: string; start: number; end: number; type: string }> = [];
-  const regex = /==([\s\S]+?)==/g;
-  let match: RegExpExecArray | null = regex.exec(content);
-  while (match) {
-    const raw = match[1] || '';
-    markers.push({
-      text: raw,
-      start: match.index,
-      end: match.index + match[0].length,
-      type: 'text',
-    });
-    match = regex.exec(content);
-  }
-  return markers;
-}
-
 function waitFor(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -155,6 +132,12 @@ function waitFor(ms: number): Promise<void> {
 }
 
 export class AIFlashcardToolService {
+  private readonly cardResolutionRuntime = new AIFlashcardCardResolutionRuntime();
+  private readonly toolDecisionRuntime = new AIFlashcardToolDecisionRuntime();
+  private readonly markdownRuntime: AIFlashcardMarkdownInsertionRuntime;
+  private readonly targetRuntime: AIFlashcardTargetRuntime;
+  private readonly xiuyuanWriteRuntime: AIFlashcardXiuyuanWriteRuntime;
+
   constructor(private readonly deps: {
     siyuanPort: AISiyuanPort;
     getXiuyuanApplicationService: () => Promise<AIFlashcardXiuyuanService>;
@@ -162,7 +145,22 @@ export class AIFlashcardToolService {
     saveDefaultTarget: (target: AIWorkbenchSelfTestCardTargetMemory) => Promise<AIWorkbenchSelfTestCardTargetMemory | null>;
     getSelectionExcerptService?: () => SelectionExcerptService;
     getSelectionTopicContinuationService?: () => SelectionTopicContinuationService;
-  }) {}
+  }) {
+    this.markdownRuntime = new AIFlashcardMarkdownInsertionRuntime({
+      appendBlockUnderParentDetailed: (markdown, parentId) => this.deps.siyuanPort.appendBlockUnderParentDetailed(markdown, parentId),
+      insertBlockAfterDetailed: (markdown, previousId) => this.deps.siyuanPort.insertBlockAfterDetailed(markdown, previousId),
+      sql: (stmt) => this.deps.siyuanPort.sql(stmt),
+    });
+    this.targetRuntime = new AIFlashcardTargetRuntime({
+      loadDefaultTarget: () => this.deps.loadDefaultTarget(),
+      saveDefaultTarget: (target) => this.deps.saveDefaultTarget(target),
+      ensureTodayDailyNote: (notebookId) => this.deps.siyuanPort.ensureTodayDailyNote(notebookId),
+      loadTargetBlock: (blockId) => this.loadTargetBlock(blockId),
+    });
+    this.xiuyuanWriteRuntime = new AIFlashcardXiuyuanWriteRuntime({
+      getXiuyuanApplicationService: () => this.deps.getXiuyuanApplicationService(),
+    });
+  }
 
   async decideStudyAction(
     args: Record<string, unknown>,
@@ -206,7 +204,11 @@ export class AIFlashcardToolService {
     }
 
     if (wantsCard) {
-      const cardDecision = this.resolveCardCreationDecision(request, selection, canContinue?.available === true);
+      const cardDecision = this.toolDecisionRuntime.resolveCardCreationDecision({
+        request,
+        selection,
+        continuationAvailable: canContinue?.available === true,
+      });
       return {
         action: 'create-card',
         recommendedTool: cardDecision.recommendedTool,
@@ -230,7 +232,11 @@ export class AIFlashcardToolService {
       };
     }
 
-    const cardDecision = this.resolveCardCreationDecision(request, selection, canContinue?.available === true);
+    const cardDecision = this.toolDecisionRuntime.resolveCardCreationDecision({
+      request,
+      selection,
+      continuationAvailable: canContinue?.available === true,
+    });
     return {
       action: 'create-card',
       recommendedTool: cardDecision.recommendedTool,
@@ -319,8 +325,7 @@ export class AIFlashcardToolService {
       throw new Error('items 不能为空。');
     }
     const mode = normalizeString(args.mode) === 'bidirectional' ? 'bidirectional' : 'basic-qa';
-    const target = await this.resolveWriteTarget(args);
-    const xiuyuanService = await this.deps.getXiuyuanApplicationService();
+    const target = await this.targetRuntime.resolveWriteTarget(args);
     const deckId = this.resolveDeckId(args, runtime);
     let previousSiblingId = target.targetBlockId;
 
@@ -332,12 +337,12 @@ export class AIFlashcardToolService {
         results.push({ status: 'skipped', front, back, error: 'front / back 不能为空。' });
         continue;
       }
-      const mutation = await this.insertMarkdown(
+      const mutation = await this.markdownRuntime.insertMarkdown(
         this.buildPairMarkdown(front, back),
         target,
         previousSiblingId,
       );
-      const rows = await this.loadMutationRows(mutation);
+      const rows = await this.markdownRuntime.loadMutationRows(mutation);
       const pair = this.resolvePairBlocks(rows);
       previousSiblingId = pair.insertedRootBlockId || previousSiblingId;
       const command: CreateXiuyuanFromBlocksCommand = {
@@ -353,7 +358,7 @@ export class AIFlashcardToolService {
         creationMode: `ai-tool:${mode}`,
         duplicatePolicy: 'reuse-existing',
       };
-      const creation = await xiuyuanService.createFromBlocks(command);
+      const creation = await this.xiuyuanWriteRuntime.createFromBlocks(command);
       if (!creation.ok) {
         results.push({
           status: 'failed',
@@ -376,7 +381,7 @@ export class AIFlashcardToolService {
       });
     }
 
-    await this.persistSuccessfulTarget(target, results);
+    await this.targetRuntime.persistSuccessfulTarget(target, results);
     return {
       mode,
       target: target.memory,
@@ -396,18 +401,9 @@ export class AIFlashcardToolService {
       throw new Error('items 不能为空。');
     }
     const mode = normalizeString(args.mode) || 'quick';
-    const config = {
-      quick: { templateId: 'builtin-quick-card', cardType: 'item' as const, creationMode: 'ai-tool:quick-card' },
-      'bidirectional-single': { templateId: 'builtin-bidirectional-single', cardType: 'item' as const, creationMode: 'ai-tool:bidirectional-single' },
-      'multi-cloze': { templateId: 'builtin-multi-cloze', cardType: 'cloze' as const, creationMode: 'ai-tool:multi-cloze' },
-      concept: { templateId: 'builtin-concept-simple', cardType: 'concept' as const, creationMode: 'ai-tool:concept-card' },
-    }[mode as 'quick' | 'bidirectional-single' | 'multi-cloze' | 'concept'];
-    if (!config) {
-      throw new Error(`不支持的 inline 模式：${mode}`);
-    }
+    const config = this.cardResolutionRuntime.resolveInlineCardConfig(mode);
 
-    const target = await this.resolveWriteTarget(args);
-    const xiuyuanService = await this.deps.getXiuyuanApplicationService();
+    const target = await this.targetRuntime.resolveWriteTarget(args);
     const deckId = this.resolveDeckId(args, runtime);
     let previousSiblingId = target.targetBlockId;
     const results = [];
@@ -418,8 +414,8 @@ export class AIFlashcardToolService {
         results.push({ status: 'skipped', error: 'content 不能为空。' });
         continue;
       }
-      const mutation = await this.insertMarkdown(content, target, previousSiblingId);
-      const rows = await this.loadMutationRows(mutation);
+      const mutation = await this.markdownRuntime.insertMarkdown(content, target, previousSiblingId);
+      const rows = await this.markdownRuntime.loadMutationRows(mutation);
       const blockId = this.resolveFirstTextBlock(rows);
       previousSiblingId = blockId || previousSiblingId;
       const command: CreateXiuyuanFromBlocksCommand = {
@@ -450,7 +446,7 @@ export class AIFlashcardToolService {
           command.clozeRenderMode = 'inline-formula-cloze';
         }
       }
-      const creation = await xiuyuanService.createFromBlocks(command);
+      const creation = await this.xiuyuanWriteRuntime.createFromBlocks(command);
       if (!creation.ok) {
         results.push({
           status: 'failed',
@@ -470,7 +466,7 @@ export class AIFlashcardToolService {
       });
     }
 
-    await this.persistSuccessfulTarget(target, results);
+    await this.targetRuntime.persistSuccessfulTarget(target, results);
     return {
       mode,
       target: target.memory,
@@ -489,8 +485,7 @@ export class AIFlashcardToolService {
     if (items.length === 0) {
       throw new Error('items 不能为空。');
     }
-    const target = await this.resolveWriteTarget(args);
-    const xiuyuanService = await this.deps.getXiuyuanApplicationService();
+    const target = await this.targetRuntime.resolveWriteTarget(args);
     const deckId = this.resolveDeckId(args, runtime);
     let previousSiblingId = target.targetBlockId;
     const results = [];
@@ -503,8 +498,8 @@ export class AIFlashcardToolService {
         results.push({ status: 'skipped', concept, definition, error: 'concept / definition 不能为空。' });
         continue;
       }
-      const mutation = await this.insertMarkdown(this.buildPairMarkdown(concept, definition), target, previousSiblingId);
-      const rows = await this.loadMutationRows(mutation);
+      const mutation = await this.markdownRuntime.insertMarkdown(this.buildPairMarkdown(concept, definition), target, previousSiblingId);
+      const rows = await this.markdownRuntime.loadMutationRows(mutation);
       const pair = this.resolvePairBlocks(rows);
       previousSiblingId = pair.insertedRootBlockId || previousSiblingId;
       const templateId = direction === 'forward'
@@ -512,7 +507,7 @@ export class AIFlashcardToolService {
         : direction === 'reverse'
           ? 'builtin-concept-definition-reverse'
           : 'builtin-concept-definition';
-      const creation = await xiuyuanService.createFromBlocks({
+      const creation = await this.xiuyuanWriteRuntime.createFromBlocks({
         blockIds: [pair.frontBlockId, pair.backBlockId],
         templateId,
         fieldMapping: {
@@ -548,7 +543,7 @@ export class AIFlashcardToolService {
       });
     }
 
-    await this.persistSuccessfulTarget(target, results);
+    await this.targetRuntime.persistSuccessfulTarget(target, results);
     return {
       target: target.memory,
       createdCount: results.filter((item) => item.status === 'created').length,
@@ -566,8 +561,7 @@ export class AIFlashcardToolService {
     if (items.length === 0) {
       throw new Error('items 不能为空。');
     }
-    const target = await this.resolveWriteTarget(args);
-    const xiuyuanService = await this.deps.getXiuyuanApplicationService();
+    const target = await this.targetRuntime.resolveWriteTarget(args);
     const deckId = this.resolveDeckId(args, runtime);
     let previousSiblingId = target.targetBlockId;
     const results = [];
@@ -581,18 +575,18 @@ export class AIFlashcardToolService {
         continue;
       }
 
-      const conceptMutation = await this.insertMarkdown(concept, target, previousSiblingId);
-      const conceptRows = await this.loadMutationRows(conceptMutation);
+      const conceptMutation = await this.markdownRuntime.insertMarkdown(concept, target, previousSiblingId);
+      const conceptRows = await this.markdownRuntime.loadMutationRows(conceptMutation);
       const conceptBlockId = this.resolveFirstTextBlock(conceptRows);
       previousSiblingId = conceptBlockId || previousSiblingId;
 
       let definitionResult: { xiuyuanId?: string; cardIds?: string[]; blockId?: string } | null = null;
       if (definition) {
-        const definitionMutation = await this.insertMarkdown(definition, target, previousSiblingId);
-        const definitionRows = await this.loadMutationRows(definitionMutation);
+        const definitionMutation = await this.markdownRuntime.insertMarkdown(definition, target, previousSiblingId);
+        const definitionRows = await this.markdownRuntime.loadMutationRows(definitionMutation);
         const definitionBlockId = this.resolveFirstTextBlock(definitionRows);
         previousSiblingId = definitionBlockId || previousSiblingId;
-        const creation = await xiuyuanService.createFromBlocks({
+        const creation = await this.xiuyuanWriteRuntime.createFromBlocks({
           blockIds: [conceptBlockId, definitionBlockId],
           templateId: 'builtin-concept-definition',
           fieldMapping: {
@@ -629,8 +623,8 @@ export class AIFlashcardToolService {
           : direction === 'both'
             ? `${cue};<>${answer}`
             : `${cue};;${answer}`;
-        const descriptorMutation = await this.insertMarkdown(descriptorContent, target, previousSiblingId);
-        const descriptorRows = await this.loadMutationRows(descriptorMutation);
+        const descriptorMutation = await this.markdownRuntime.insertMarkdown(descriptorContent, target, previousSiblingId);
+        const descriptorRows = await this.markdownRuntime.loadMutationRows(descriptorMutation);
         const descriptorBlockId = this.resolveFirstTextBlock(descriptorRows);
         previousSiblingId = descriptorBlockId || previousSiblingId;
         const templateId = direction === 'reverse'
@@ -638,7 +632,7 @@ export class AIFlashcardToolService {
           : direction === 'both'
             ? 'builtin-concept-descriptor-both'
             : 'builtin-concept-descriptor';
-        const creation = await xiuyuanService.createFromBlocks({
+        const creation = await this.xiuyuanWriteRuntime.createFromBlocks({
           blockIds: [conceptBlockId, descriptorBlockId],
           templateId,
           fieldMapping: {
@@ -683,7 +677,7 @@ export class AIFlashcardToolService {
       });
     }
 
-    await this.persistSuccessfulTarget(target, results);
+    await this.targetRuntime.persistSuccessfulTarget(target, results);
     return {
       target: target.memory,
       createdCount: results.filter((item) => item.status === 'created').length,
@@ -700,8 +694,7 @@ export class AIFlashcardToolService {
     if (items.length === 0) {
       throw new Error('items 不能为空。');
     }
-    const target = await this.resolveWriteTarget(args);
-    const xiuyuanService = await this.deps.getXiuyuanApplicationService();
+    const target = await this.targetRuntime.resolveWriteTarget(args);
     const deckId = this.resolveDeckId(args, runtime);
     let previousSiblingId = target.targetBlockId;
     const results = [];
@@ -715,8 +708,8 @@ export class AIFlashcardToolService {
         results.push({ status: 'skipped', parent, children, error: 'parent 不能为空，children 至少需要 2 项。' });
         continue;
       }
-      const mutation = await this.insertMarkdown(this.buildListMarkdown(parent, children), target, previousSiblingId);
-      const rows = await this.loadMutationRows(mutation);
+      const mutation = await this.markdownRuntime.insertMarkdown(this.buildListMarkdown(parent, children), target, previousSiblingId);
+      const rows = await this.markdownRuntime.loadMutationRows(mutation);
       const structure = this.resolveListStructure(rows);
       previousSiblingId = structure.parentListItemId || previousSiblingId;
       const command: CreateListTemplateCardsCommand = {
@@ -726,10 +719,10 @@ export class AIFlashcardToolService {
         ...(deckId ? { deckId } : {}),
         ...(normalizePriority(args.priority) ? { priority: normalizePriority(args.priority) } : {}),
         creationMode: normalizeString(item.creationMode) === 'summary-v1' ? 'summary-v1' : 'split-v2',
-        cardType: normalizeString(item.cardType) === 'descriptor' ? 'descriptor' : 'item',
+        cardType: this.cardResolutionRuntime.resolveListCardType(item.cardType),
         listKind: 'default',
       };
-      const creation = await xiuyuanService.createListTemplateCards(command);
+      const creation = await this.xiuyuanWriteRuntime.createListTemplateCards(command);
       if (!creation.ok) {
         results.push({
           status: 'failed',
@@ -751,7 +744,7 @@ export class AIFlashcardToolService {
       });
     }
 
-    await this.persistSuccessfulTarget(target, results);
+    await this.targetRuntime.persistSuccessfulTarget(target, results);
     return {
       target: target.memory,
       createdCount: results.filter((item) => item.status === 'created').length,
@@ -768,14 +761,14 @@ export class AIFlashcardToolService {
     if (items.length === 0) {
       throw new Error('items 不能为空。');
     }
-    const target = await this.resolveWriteTarget(args);
-    const xiuyuanService = await this.deps.getXiuyuanApplicationService();
+    const target = await this.targetRuntime.resolveWriteTarget(args);
     const deckId = this.resolveDeckId(args, runtime);
     let previousSiblingId = target.targetBlockId;
     const results = [];
 
     for (const item of items) {
-      const mode = normalizeString(item.mode) === 'descriptor-multiline' ? 'descriptor-multiline' : 'concept-multiline';
+      const mode = this.cardResolutionRuntime.resolveCdfMode(item.mode);
+      const cdfConfig = this.cardResolutionRuntime.resolveCdfListConfig(mode);
       const concept = normalizeListText(normalizeString(item.concept));
       const parent = normalizeListText(normalizeString(item.parent));
       const children = Array.isArray(item.children)
@@ -789,8 +782,8 @@ export class AIFlashcardToolService {
       const markdown = mode === 'descriptor-multiline'
         ? this.buildDescriptorMultilineMarkdown(concept, parent, children)
         : this.buildConceptMultilineMarkdown(concept || parent, children);
-      const mutation = await this.insertMarkdown(markdown, target, previousSiblingId);
-      const rows = await this.loadMutationRows(mutation);
+      const mutation = await this.markdownRuntime.insertMarkdown(markdown, target, previousSiblingId);
+      const rows = await this.markdownRuntime.loadMutationRows(mutation);
       const structure = mode === 'descriptor-multiline'
         ? this.resolveDescriptorMultilineStructure(rows)
         : this.resolveListStructure(rows);
@@ -798,17 +791,15 @@ export class AIFlashcardToolService {
       const command: CreateListTemplateCardsCommand = {
         parentBlockId: structure.parentListItemId,
         childBlockIds: structure.childListItemIds,
-        templateId: mode === 'descriptor-multiline'
-          ? 'builtin-list-descriptor-multiline'
-          : 'builtin-list-concept-multiline',
+        templateId: cdfConfig.templateId,
         ...(deckId ? { deckId } : {}),
         ...(normalizePriority(args.priority) ? { priority: normalizePriority(args.priority) } : {}),
         creationMode: 'split-v2',
-        cardType: mode === 'descriptor-multiline' ? 'descriptor' : 'item',
-        listKind: mode,
+        cardType: cdfConfig.cardType,
+        listKind: cdfConfig.listKind,
         ...(structure.conceptBlockId ? { conceptBlockId: structure.conceptBlockId } : {}),
       };
-      const creation = await xiuyuanService.createListTemplateCards(command);
+      const creation = await this.xiuyuanWriteRuntime.createListTemplateCards(command);
       if (!creation.ok) {
         results.push({
           status: 'failed',
@@ -834,7 +825,7 @@ export class AIFlashcardToolService {
       });
     }
 
-    await this.persistSuccessfulTarget(target, results);
+    await this.targetRuntime.persistSuccessfulTarget(target, results);
     return {
       target: target.memory,
       createdCount: results.filter((item) => item.status === 'created').length,
@@ -851,8 +842,7 @@ export class AIFlashcardToolService {
     if (items.length === 0) {
       throw new Error('items 不能为空。');
     }
-    const target = await this.resolveWriteTarget(args);
-    const xiuyuanService = await this.deps.getXiuyuanApplicationService();
+    const target = await this.targetRuntime.resolveWriteTarget(args);
     const deckId = this.resolveDeckId(args, runtime);
     let previousSiblingId = target.targetBlockId;
     const results = [];
@@ -866,9 +856,10 @@ export class AIFlashcardToolService {
       }
 
       const mode = draftMarkdown.includes(';;;') ? 'descriptor-multiline' : 'concept-multiline';
+      const cdfConfig = this.cardResolutionRuntime.resolveCdfListConfig(mode);
       try {
-        const mutation = await this.insertMarkdown(draftMarkdown, target, previousSiblingId);
-        const rows = await this.loadMutationRows(mutation);
+        const mutation = await this.markdownRuntime.insertMarkdown(draftMarkdown, target, previousSiblingId);
+        const rows = await this.markdownRuntime.loadMutationRows(mutation);
         const structure = mode === 'descriptor-multiline'
           ? this.resolveDescriptorMultilineStructure(rows)
           : this.resolveListStructure(rows);
@@ -876,17 +867,15 @@ export class AIFlashcardToolService {
         const command: CreateListTemplateCardsCommand = {
           parentBlockId: structure.parentListItemId,
           childBlockIds: structure.childListItemIds,
-          templateId: mode === 'descriptor-multiline'
-            ? 'builtin-list-descriptor-multiline'
-            : 'builtin-list-concept-multiline',
+          templateId: cdfConfig.templateId,
           ...(deckId ? { deckId } : {}),
           ...(normalizePriority(args.priority) ? { priority: normalizePriority(args.priority) } : {}),
           creationMode: 'split-v2',
-          cardType: mode === 'descriptor-multiline' ? 'descriptor' : 'item',
-          listKind: mode,
+          cardType: cdfConfig.cardType,
+          listKind: cdfConfig.listKind,
           ...(structure.conceptBlockId ? { conceptBlockId: structure.conceptBlockId } : {}),
         };
-        const creation = await xiuyuanService.createListTemplateCards(command);
+        const creation = await this.xiuyuanWriteRuntime.createListTemplateCards(command);
         if (!creation.ok) {
           results.push({
             status: 'failed',
@@ -931,7 +920,7 @@ export class AIFlashcardToolService {
       }
     }
 
-    await this.persistSuccessfulTarget(target, results);
+    await this.targetRuntime.persistSuccessfulTarget(target, results);
     return {
       mode: 'cdf-multiline',
       target: target.memory,
@@ -991,8 +980,8 @@ export class AIFlashcardToolService {
     const resolvedStructure = await this.resolveSemanticCdfStructure(structure, target, runtime.context, {
       preserveManualResolution: true,
     });
-    const resolvedTarget = await this.resolveTargetFromInput(target);
-    const xiuyuanService = await this.deps.getXiuyuanApplicationService();
+    const resolvedTarget = await this.targetRuntime.resolveTargetFromInput(target);
+    const xiuyuanService = await this.xiuyuanWriteRuntime.getService();
     const createCdfMultilineUseCase = new CreateCdfMultilineCardsUseCase(
       { createFromBlocks: xiuyuanService.createFromBlocks.bind(xiuyuanService) },
       this.deps.siyuanPort,
@@ -1080,7 +1069,7 @@ export class AIFlashcardToolService {
           selectedDescriptorGroups,
         );
         const draftMarkdown = this.buildSemanticCdfMarkdown(semanticPlan);
-        const mutation = await this.insertMarkdown(draftMarkdown, resolvedTarget, previousSiblingId);
+        const mutation = await this.markdownRuntime.insertMarkdown(draftMarkdown, resolvedTarget, previousSiblingId);
         insertedRootBlockId = await this.resolveInsertedListRootItemIdWithFallback(mutation);
         previousSiblingId = insertedRootBlockId || previousSiblingId;
 
@@ -1145,7 +1134,7 @@ export class AIFlashcardToolService {
       });
     }
 
-    await this.persistSuccessfulTarget(resolvedTarget, itemResults);
+    await this.targetRuntime.persistSuccessfulTarget(resolvedTarget, itemResults);
     const createdDefinitionCount = itemResults.reduce((total, item) => total + item.createdDefinitionCount, 0);
     const createdDescriptorCount = itemResults.reduce((total, item) => total + item.createdDescriptorCount, 0);
     return {
@@ -1166,7 +1155,7 @@ export class AIFlashcardToolService {
     query: string,
     limit = 8,
   ): Promise<AIWorkbenchConceptDocumentSearchResult[]> {
-    const normalizedTarget = this.normalizeTargetMemory(target, Date.now());
+    const normalizedTarget = this.targetRuntime.normalizeTargetMemory(target, Date.now());
     if (!normalizedTarget?.notebookId) {
       throw new Error('搜索概念文档前请先设置目标笔记本。');
     }
@@ -1202,7 +1191,7 @@ export class AIFlashcardToolService {
     target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
     conceptName: string,
   ): Promise<{ document: AIWorkbenchConceptDocumentSearchResult; reused: boolean }> {
-    const normalizedTarget = this.normalizeTargetMemory(target, Date.now());
+    const normalizedTarget = this.targetRuntime.normalizeTargetMemory(target, Date.now());
     if (!normalizedTarget?.notebookId) {
       throw new Error('新建概念文档前请先设置目标笔记本。');
     }
@@ -1259,7 +1248,7 @@ export class AIFlashcardToolService {
     if (items.length === 0) {
       throw new Error('items 不能为空。');
     }
-    const target = await this.resolveWriteTarget(args);
+    const target = await this.targetRuntime.resolveWriteTarget(args);
     const deckId = this.resolveDeckId(args, runtime) || this.deps.siyuanPort.BUILTIN_DECK_ID;
     let previousSiblingId = target.targetBlockId;
     const results = [];
@@ -1276,7 +1265,7 @@ export class AIFlashcardToolService {
         if (mode === 'mark' && parseClozeMarkers(draftMarkdown).length === 0) {
           throw new Error('mark 模式的草稿必须包含合法的 ==标记==。');
         }
-        const mutation = await this.insertMarkdown(draftMarkdown, target, previousSiblingId);
+        const mutation = await this.markdownRuntime.insertMarkdown(draftMarkdown, target, previousSiblingId);
         const resolved = await this.resolveNativeRiffStructureWithFallback(mode, mutation);
         previousSiblingId = resolved.insertedRootBlockId || previousSiblingId;
         await this.deps.siyuanPort.addRiffCards(deckId, [resolved.riffBlockId]);
@@ -1309,7 +1298,7 @@ export class AIFlashcardToolService {
       }
     }
 
-    await this.persistSuccessfulTarget(target, results);
+    await this.targetRuntime.persistSuccessfulTarget(target, results);
     return {
       mode,
       target: target.memory,
@@ -1329,7 +1318,7 @@ export class AIFlashcardToolService {
       preserveManualResolution?: boolean;
     },
   ): Promise<AICdfStructure> {
-    const normalizedTarget = this.normalizeTargetMemory(target, Date.now());
+    const normalizedTarget = this.targetRuntime.normalizeTargetMemory(target, Date.now());
     if (!normalizedTarget?.notebookId) {
       throw new Error('CDF 制卡前请先设置目标笔记本。');
     }
@@ -1650,7 +1639,7 @@ export class AIFlashcardToolService {
     let lastError: unknown = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        const rows = await this.loadMutationRows(mutation);
+        const rows = await this.markdownRuntime.loadMutationRows(mutation);
         if (rows.length > 0) {
           return rows;
         }
@@ -2024,239 +2013,6 @@ export class AIFlashcardToolService {
     }
   }
 
-  private resolveCardCreationDecision(
-    request: string,
-    selection: ResolvedSelectionInput,
-    continuationAvailable: boolean,
-  ): {
-    recommendedTool: string;
-    cardFamily: string;
-    reason: string;
-  } {
-    const content = selection.selectedText;
-    const blockType = normalizeString(selection.blockType);
-    const descriptorKind = detectDescriptorOrDefinitionKind(content);
-    const answerSyntax = detectAnswerSyntax(content, content, 'extended');
-    const cueAnswer = parseCueAndAnswer(content);
-    const lowerRequest = request.toLowerCase();
-
-    if (continuationAvailable && /继续|已有\s*topic|topic\s*下|item|alt\+z|⌥⇧z/i.test(request)) {
-      return {
-        recommendedTool: 'CreateTopicItems',
-        cardFamily: 'topic-item',
-        reason: '当前请求明确指向已有 Topic 下的继续提取，优先沿用 Topic continuation。',
-      };
-    }
-
-    if (/:::/u.test(content)) {
-      return {
-        recommendedTool: 'CreateCdfMultilineCards',
-        cardFamily: 'cdf-concept-multiline',
-        reason: '材料已经带有 ::: 概念多行结构，最适合走 CDF multiline 工具。',
-      };
-    }
-
-    if (descriptorKind === 'descriptor-multiline') {
-      return {
-        recommendedTool: 'CreateCdfMultilineCards',
-        cardFamily: 'cdf-descriptor-multiline',
-        reason: '材料带有 ;;; 描述符分组结构，适合直接走 CDF multiline 工具。',
-      };
-    }
-
-    if (descriptorKind.startsWith('definition-')) {
-      return {
-        recommendedTool: 'CreateConceptDefinitionCards',
-        cardFamily: 'concept-definition',
-        reason: '材料里已经有概念与定义方向标记，最适合创建概念定义卡。',
-      };
-    }
-
-    if (descriptorKind.startsWith('descriptor-')) {
-      return {
-        recommendedTool: 'CreateDescriptorCards',
-        cardFamily: 'descriptor',
-        reason: '材料里已经有描述符方向标记，最适合创建描述符卡。',
-      };
-    }
-
-    if (ClozeDetector.hasClozes(content)) {
-      return {
-        recommendedTool: 'CreateInlineCards',
-        cardFamily: 'inline-multi-cloze',
-        reason: '材料里已经有挖空标记，适合直接创建单块挖空卡。',
-      };
-    }
-
-    if (blockType === 'h') {
-      return {
-        recommendedTool: 'CreateNativeHeadingCards',
-        cardFamily: 'native-heading',
-        reason: '当前块是标题块，优先使用原生标题卡工具能更贴近思源结构。',
-      };
-    }
-
-    if (blockType === 's') {
-      return {
-        recommendedTool: 'CreateNativeSuperBlockCards',
-        cardFamily: 'native-super-block',
-        reason: '当前块是超级块，优先使用原生超级块卡工具。',
-      };
-    }
-
-    if (blockType === 'i') {
-      return {
-        recommendedTool: 'CreateNativeListItemCards',
-        cardFamily: 'native-list-item',
-        reason: '当前块是列表项，优先尝试原生列表项卡工具。',
-      };
-    }
-
-    if (answerSyntax === 'mark-equals' || answerSyntax === 'siyuan-mark-span') {
-      return {
-        recommendedTool: 'CreateNativeMarkCards',
-        cardFamily: 'native-mark',
-        reason: '材料里已经有高亮挖空标记，更适合原生标记卡工具。',
-      };
-    }
-
-    if (content.includes('<>') || content.includes('<<')) {
-      return {
-        recommendedTool: 'CreateInlineCards',
-        cardFamily: 'inline-bidirectional',
-        reason: '材料里已经包含双向提示符，适合单块双向卡。',
-      };
-    }
-
-    if (content.includes('>>')) {
-      return {
-        recommendedTool: 'CreateInlineCards',
-        cardFamily: 'inline-quick',
-        reason: '材料里已经包含快速问答提示符，适合单块 quick card。',
-      };
-    }
-
-    if (/概念卡|concept/i.test(lowerRequest) && !cueAnswer.cue && content.length <= 80) {
-      return {
-        recommendedTool: 'CreateInlineCards',
-        cardFamily: 'inline-concept',
-        reason: '请求明显偏向概念卡，且材料较短，适合用单块 concept 卡。',
-      };
-    }
-
-    return {
-      recommendedTool: 'CreatePairCards',
-      cardFamily: cueAnswer.cue && cueAnswer.answer ? 'pair-basic' : 'pair-basic-qa',
-      reason: '当前材料更像普通问答或术语解释，优先走成对卡工具最稳妥。',
-    };
-  }
-
-  private async resolveWriteTarget(args: Record<string, unknown>): Promise<ResolvedWriteTarget> {
-    const override = parseTargetInput(args);
-    if (override) {
-      return this.resolveTargetFromInput(override);
-    }
-    const memory = await this.deps.loadDefaultTarget();
-    if (!memory) {
-      throw new Error('请先在 AI 工作台设置默认制卡位置，或在工具参数里显式指定 targetMode。');
-    }
-    return this.resolveTargetFromInput(memory);
-  }
-
-  private async resolveTargetFromInput(
-    target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
-  ): Promise<ResolvedWriteTarget> {
-    const memory = this.normalizeTargetMemory(target, Date.now());
-    if (!memory) {
-      throw new Error('制卡目标不完整。');
-    }
-    if (memory.mode === 'daily-note') {
-      const dailyNoteId = await this.deps.siyuanPort.ensureTodayDailyNote(memory.notebookId);
-      return {
-        memory: {
-          ...memory,
-          targetBlockId: null,
-          targetLabel: memory.targetLabel || `${memory.notebookName} · 今日日记`,
-        },
-        targetBlockId: dailyNoteId,
-        writeMode: 'append',
-      };
-    }
-    if (!memory.targetBlockId) {
-      throw new Error('block 模式必须提供 targetBlockId。');
-    }
-    const targetBlock = await this.loadTargetBlock(memory.targetBlockId);
-    return {
-      memory: {
-        ...memory,
-        notebookId: normalizeString(targetBlock.box) || memory.notebookId,
-        targetLabel: memory.targetLabel || normalizeString(targetBlock.hpath) || normalizeString(targetBlock.content) || memory.targetBlockId,
-      },
-      targetBlockId: memory.targetBlockId,
-      writeMode: this.isAppendableTarget(targetBlock) ? 'append' : 'after',
-    };
-  }
-
-  private normalizeTargetMemory(
-    target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
-    updatedAt: number,
-  ): AIWorkbenchSelfTestCardTargetMemory | null {
-    const mode = target.mode === 'block' ? 'block' : 'daily-note';
-    const notebookId = normalizeString(target.notebookId);
-    if (!notebookId) {
-      return null;
-    }
-    const targetBlockId = normalizeString(target.targetBlockId) || null;
-    if (mode === 'block' && !targetBlockId) {
-      return null;
-    }
-    const notebookName = normalizeString(target.notebookName) || notebookId;
-    const targetLabel = normalizeString(target.targetLabel)
-      || (mode === 'daily-note' ? `${notebookName} · 今日日记` : `${notebookName} · ${targetBlockId}`);
-    return {
-      mode,
-      notebookId,
-      notebookName,
-      targetBlockId: mode === 'block' ? targetBlockId : null,
-      targetLabel,
-      updatedAt,
-    };
-  }
-
-  private async persistSuccessfulTarget(target: ResolvedWriteTarget, results: unknown[]): Promise<void> {
-    if (!results.some((item) => normalizeString((item as { status?: unknown }).status) === 'created')) {
-      return;
-    }
-    await this.deps.saveDefaultTarget(target.memory);
-  }
-
-  private async insertMarkdown(
-    markdown: string,
-    target: ResolvedWriteTarget,
-    previousSiblingId: string,
-  ): Promise<AISiyuanMutationResult> {
-    if (target.writeMode === 'append') {
-      return this.deps.siyuanPort.appendBlockUnderParentDetailed(markdown, target.targetBlockId);
-    }
-    return this.deps.siyuanPort.insertBlockAfterDetailed(markdown, previousSiblingId);
-  }
-
-  private async loadMutationRows(result: AISiyuanMutationResult): Promise<MutationRow[]> {
-    const blockIds = uniqueIds(result.doOperations.map((operation) => normalizeString(operation.id)));
-    if (blockIds.length === 0) {
-      throw new Error('未能解析插入后的块 ID。');
-    }
-    const escapedIds = blockIds.map((id) => `'${escapeSql(id)}'`).join(', ');
-    const rows = await this.deps.siyuanPort.sql<MutationRow>(`
-      SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort
-      FROM blocks
-      WHERE id IN (${escapedIds})
-      ORDER BY sort ASC, id ASC
-      LIMIT ${Math.max(blockIds.length, 1)}
-    `);
-    return rows;
-  }
-
   private resolveFirstTextBlock(rows: MutationRow[]): string {
     const first = this.sortedRows(rows).find((row) => {
       const type = normalizeString(row.type);
@@ -2319,7 +2075,7 @@ export class AIFlashcardToolService {
   ): Promise<string> {
     let lastError: unknown = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const rows = await this.loadMutationRows(mutation);
+      const rows = await this.markdownRuntime.loadMutationRows(mutation);
       if (rows.length > 0) {
         try {
           return this.resolveRootListItemId(rows);
@@ -2429,7 +2185,7 @@ export class AIFlashcardToolService {
   }> {
     let lastError: unknown = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const rows = await this.loadMutationRows(mutation);
+      const rows = await this.markdownRuntime.loadMutationRows(mutation);
       if (rows.length > 0) {
         try {
           return this.resolveNativeRiffStructure(mode, rows);
@@ -2585,11 +2341,6 @@ export class AIFlashcardToolService {
       throw new Error('未找到目标文档或块，请检查块 ID 是否有效。');
     }
     return row;
-  }
-
-  private isAppendableTarget(block: AISiyuanBlockRow): boolean {
-    const type = normalizeString(block.type);
-    return type === 'd' || type === 'h' || type === 'l' || type === 'i' || type === 's';
   }
 
   private summarizeDraftMarkdown(markdown: string): string {

@@ -26,7 +26,6 @@ import { UnifiedPostCreationPlanner } from '@/core/card/post-creation/UnifiedPos
 import type { CreationDecision } from '@/core/card/post-creation/contracts';
 import {
     parseBasicDirectionContent,
-    selectPreferredInlineSymbolLine,
 } from '@/core/card/post-creation/rules/rule-utils';
 import { PostCreationConflictMediator } from '@/application/services/PostCreationConflictMediator';
 import { DocumentPostCreationScanService } from '@/application/services/DocumentPostCreationScanService';
@@ -58,6 +57,12 @@ import {
     type QuickCardSettings,
 } from './AutoCardDecisionRelayRuntime';
 import { AutoCardExecuteRelayRuntime } from './AutoCardExecuteRelayRuntime';
+import {
+    AutoCardPlannerExecutionRuntime,
+    hasXiuyuanBinding as hasPlannerXiuyuanBinding,
+    normalizeTopicItemCardType,
+    type AutoCardPlannerExecutionInput,
+} from './AutoCardPlannerExecutionRuntime';
 import {
     AutoCardListenerCandidateRuntime,
     type AutoCardCheckStatus,
@@ -288,6 +293,7 @@ export class AutoCardHandler implements ITransactionHandler {
     private readonly postCreationPlanner = new UnifiedPostCreationPlanner();
     private readonly conflictMediator = new PostCreationConflictMediator();
     private readonly executionRuntime: AutoCardExecutionRuntime;
+    private readonly plannerExecutionRuntime: AutoCardPlannerExecutionRuntime;
     private readonly decisionRelayRuntime: AutoCardDecisionRelayRuntime;
     private readonly executeRelayRuntime: AutoCardExecuteRelayRuntime;
     private readonly listenerCandidateRuntime: AutoCardListenerCandidateRuntime;
@@ -329,6 +335,67 @@ export class AutoCardHandler implements ITransactionHandler {
         this.siyuanApi = ports.siyuanApi;
         this.riffApi = ports.riffApi;
         this.hostBlockQuery = ports.hostBlockQuery ?? createUnavailableHostBlockQueryPort('AutoCardHandler was constructed without HostBlockQueryPort');
+        this.plannerExecutionRuntime = new AutoCardPlannerExecutionRuntime({
+            getBlockAttrs: (blockId) => this.siyuanApi.getBlockAttrs(blockId),
+            getLocalCardsByBlockId: (blockId) => this.getLocalCardsByBlockId(blockId),
+            createBasicCard: (input) => this.createBasicCard(
+                input.blockId,
+                input.direction,
+                input.content,
+                input.cardType,
+                input.actualSymbol,
+                input.source,
+                input.decision,
+            ),
+            createClozeCard: (input) => this.createClozeCard(
+                input.blockId,
+                input.content,
+                input.cardType,
+                input.decision,
+                input.source,
+            ),
+            createConceptCard: (input) => this.createConceptCard(
+                input.blockId,
+                input.content,
+                input.actualSymbol,
+                input.direction,
+                input.source,
+                input.options,
+                input.decision,
+            ),
+            createDescriptorCard: (input) => this.createDescriptorCard(
+                input.blockId,
+                input.content,
+                input.actualSymbol,
+                input.direction,
+                input.source,
+                input.options,
+                input.decision,
+            ),
+            resolveListChildrenBySubtype: (parentBlockId) => resolveListChildrenBySubtype(parentBlockId, this.siyuanApi as never),
+            createListTemplateCards: (input) => this.createListTemplateCards(
+                input.parentBlockId,
+                input.childBlocks,
+                input.cardType,
+            ),
+            createCdfMultilineCards: async (input) => {
+                const xiuyuanAppService = await this.requireXiuyuanApplicationService();
+                const useCase = new CreateCdfMultilineCardsUseCase(
+                    xiuyuanAppService,
+                    {
+                        BUILTIN_DECK_ID: this.riffApi.BUILTIN_DECK_ID,
+                        getBlockAttrs: (blockId: string) => this.siyuanApi.getBlockAttrs(blockId),
+                        getBlockKramdown: (blockId: string) => this.siyuanApi.getBlockKramdown(blockId),
+                    },
+                    this.hostBlockQuery,
+                );
+                return useCase.execute({
+                    parentBlockId: input.parentBlockId,
+                    templateId: input.templateId,
+                    deckId: this.riffApi.BUILTIN_DECK_ID,
+                });
+            },
+        });
         this.executionRuntime = new AutoCardExecutionRuntime({
             executePlannerDecision: async (input) => this.executePlannerDecision(input),
             createTopicDerivedItem: async (input) => this.getTopicDerivedItemService().createFromTopicSource(input),
@@ -919,15 +986,11 @@ export class AutoCardHandler implements ITransactionHandler {
     }
 
     private normalizeTopicItemCardType(cardType: string | undefined): 'topic' | 'item' {
-        return cardType === 'topic' ? 'topic' : 'item';
+        return normalizeTopicItemCardType(cardType);
     }
 
     private hasXiuyuanBinding(attrs: Record<string, string> | null | undefined): boolean {
-        if (!attrs) {
-            return false;
-        }
-        const xiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
-        return typeof xiuyuanId === 'string' && xiuyuanId.trim().length > 0;
+        return hasPlannerXiuyuanBinding(attrs);
     }
 
     private getLocalCardByBlockId(blockId: string): unknown {
@@ -1767,212 +1830,8 @@ export class AutoCardHandler implements ITransactionHandler {
         }
     }
 
-    private async executePlannerDecision(params: {
-        blockId: string;
-        content: string;
-        decision: CreationDecision;
-        source: AutoCardExecutionSource;
-        docRootId?: string;
-    }): Promise<boolean> {
-        const { blockId, content, decision, source, docRootId } = params;
-        const inlineContent = this.normalizeInlineSymbolContent(content);
-        const clozeContent = this.normalizeClozeSymbolContent(content);
-        const attrs = await this.siyuanApi.getBlockAttrs(blockId);
-
-        if (this.hasXiuyuanBinding(attrs)) {
-            logger.debug('[SiYuanMemo][AutoCard] Skip planner decision: block already has Xiuyuan binding', {
-                blockId,
-                source,
-                ruleId: decision.id,
-                executorKind: decision.executorKind,
-            });
-            return false;
-        }
-
-        const existedBefore = this.getLocalCardsByBlockId(blockId).length > 0;
-        if (existedBefore) {
-            logger.debug('[SiYuanMemo][AutoCard] Skip planner decision: card already exists in local storage', {
-                blockId,
-                source,
-                ruleId: decision.id,
-            });
-            return false;
-        }
-
-        switch (decision.executorKind) {
-            case 'quick-basic': {
-                const direction = decision.direction || 'forward';
-                await this.createBasicCard(
-                    blockId,
-                    direction,
-                    inlineContent,
-                    this.normalizeTopicItemCardType(decision.cardType),
-                    undefined,
-                    source,
-                    decision
-                );
-                break;
-            }
-            case 'quick-cloze': {
-                logger.debug('[SiYuanMemo][AutoCard] Executing quick-cloze decision with normalized content', {
-                    blockId,
-                    executorKind: decision.executorKind,
-                    rawLength: String(content || '').length,
-                    clozeContentLength: clozeContent.length,
-                    firstLinePreview: clozeContent.split('\n')[0]?.slice(0, 80) || '',
-                });
-                await this.createClozeCard(
-                    blockId,
-                    clozeContent,
-                    this.normalizeTopicItemCardType(decision.cardType),
-                    decision,
-                    source
-                );
-                break;
-            }
-            case 'concept-definition-inline': {
-                const direction = decision.direction === 'backward'
-                    ? 'reverse'
-                    : decision.direction === 'forward'
-                        ? 'forward'
-                        : 'both';
-                await this.createConceptCard(blockId, inlineContent, undefined, direction, source, {
-                    skipEnsureConceptDocumentBlockId: source === 'doc-oneclick-scan' ? docRootId : undefined,
-                }, decision);
-                break;
-            }
-            case 'descriptor-inline': {
-                const direction = decision.direction === 'backward'
-                    ? 'reverse'
-                    : decision.direction === 'both'
-                        ? 'both'
-                        : 'forward';
-                await this.createDescriptorCard(blockId, inlineContent, undefined, direction, source, {
-                    skipDocumentConceptAutoCreateBlockId: source === 'doc-oneclick-scan' ? docRootId : undefined,
-                }, decision);
-                break;
-            }
-            case 'list-template-structural': {
-                if (source === 'symbol-listener') {
-                    logger.debug('[SiYuanMemo][AutoCard] Structural list-template rule is disabled for symbol-listener source', {
-                        blockId,
-                        ruleId: decision.id,
-                    });
-                    return false;
-                }
-                return this.createListTemplateCardsByPlanner(
-                    blockId,
-                    this.normalizeTopicItemCardType(decision.cardType)
-                );
-            }
-            case 'cdf-multiline-structural': {
-                if (source === 'symbol-listener') {
-                    logger.debug('[SiYuanMemo][AutoCard] Structural CDF rule is disabled for symbol-listener source', {
-                        blockId,
-                        ruleId: decision.id,
-                    });
-                    return false;
-                }
-                return this.createCdfMultilineCardsByPlanner(blockId, decision.templateId);
-            }
-            default: {
-                logger.debug('[SiYuanMemo][AutoCard] Unsupported planner decision for auto-card execution', {
-                    blockId,
-                    source,
-                    ruleId: decision.id,
-                    executorKind: decision.executorKind,
-                });
-                return false;
-            }
-        }
-
-        const existedAfter = this.getLocalCardsByBlockId(blockId).length > 0;
-        return !existedBefore && existedAfter;
-    }
-
-    private async createListTemplateCardsByPlanner(
-        parentBlockId: string,
-        cardType: 'topic' | 'item'
-    ): Promise<boolean> {
-        const resolvedChildren = await resolveListChildrenBySubtype(parentBlockId, this.siyuanApi as never);
-        const childBlocks = [...resolvedChildren.orderedChildren, ...resolvedChildren.unorderedChildren]
-            .map((child) => ({ id: child.id }));
-
-        if (childBlocks.length < 2) {
-            logger.debug('[SiYuanMemo][AutoCard] Structural list-template skipped: not enough child list items', {
-                parentBlockId,
-                childCount: childBlocks.length,
-            });
-            return false;
-        }
-
-        const cardService = this.getCardService();
-        const existingBefore = childBlocks.reduce((count, child) => (
-            cardService.getCardByBlockId(child.id) ? count + 1 : count
-        ), 0);
-
-        await this.createListTemplateCards(parentBlockId, childBlocks, cardType);
-
-        const existingAfter = childBlocks.reduce((count, child) => (
-            cardService.getCardByBlockId(child.id) ? count + 1 : count
-        ), 0);
-
-        return existingAfter > existingBefore;
-    }
-
-    private async createCdfMultilineCardsByPlanner(
-        parentBlockId: string,
-        templateId: string
-    ): Promise<boolean> {
-        if (templateId !== 'builtin-list-concept-multiline' && templateId !== 'builtin-list-descriptor-multiline') {
-            logger.warn('[SiYuanMemo][AutoCard] Unexpected CDF template id from planner decision', {
-                parentBlockId,
-                templateId,
-            });
-            return false;
-        }
-
-        const xiuyuanAppService = await this.requireXiuyuanApplicationService();
-        const useCase = new CreateCdfMultilineCardsUseCase(
-            xiuyuanAppService,
-            {
-                BUILTIN_DECK_ID: this.riffApi.BUILTIN_DECK_ID,
-                getBlockAttrs: (blockId: string) => this.siyuanApi.getBlockAttrs(blockId),
-                getBlockKramdown: (blockId: string) => this.siyuanApi.getBlockKramdown(blockId),
-            },
-            this.hostBlockQuery,
-        );
-
-        const result = await useCase.execute({
-            parentBlockId,
-            templateId,
-            deckId: this.riffApi.BUILTIN_DECK_ID,
-        });
-
-        if (isErr(result)) {
-            logger.warn('[SiYuanMemo][AutoCard] Failed to create CDF multiline cards by planner:', {
-                parentBlockId,
-                templateId,
-                error: result.error,
-            });
-            return false;
-        }
-
-        const payload = result.value;
-        const created = payload.createdDefinition + payload.createdDescriptor;
-        if (created === 0) {
-            return false;
-        }
-
-        logger.info('[SiYuanMemo][AutoCard] Created CDF multiline cards by planner', {
-            parentBlockId,
-            templateId,
-            createdDefinition: payload.createdDefinition,
-            createdDescriptor: payload.createdDescriptor,
-            skipped: payload.skipped,
-            failed: payload.failed,
-        });
-        return true;
+    private async executePlannerDecision(params: AutoCardPlannerExecutionInput): Promise<boolean> {
+        return this.plannerExecutionRuntime.execute(params);
     }
 
     private isQuickSymbolSupportedBlockType(blockType: string): boolean {
@@ -3125,17 +2984,6 @@ export class AutoCardHandler implements ITransactionHandler {
             logger.warn('[SiYuanMemo][AutoCard] Failed to resolve document root id, fallback to input id:', normalizedNodeId, error);
             return normalizedNodeId;
         }
-    }
-
-    private normalizeInlineSymbolContent(content: string): string {
-        return selectPreferredInlineSymbolLine(content);
-    }
-
-    private normalizeClozeSymbolContent(content: string): string {
-        return String(content || '')
-            .replace(/\{:[^{}\n]*\}/g, '')
-            .replace(/\r/g, '')
-            .trim();
     }
 
     // Normalize unknown error input to a readable message.

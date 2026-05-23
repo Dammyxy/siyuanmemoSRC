@@ -1,7 +1,22 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { ApplicationContext } from '../ApplicationContext';
+import { executeWriterRelayCommand } from '../commands/writerRelayCommandDispatcher';
+
+function readApplicationContextSource(): string {
+  return readFileSync(resolve(process.cwd(), 'src/application/ApplicationContext.ts'), 'utf8');
+}
 
 describe('ApplicationContext writer relay command dispatch', () => {
+  it('keeps writer relay dispatch outside ApplicationContext composition root', () => {
+    const source = readApplicationContextSource();
+
+    expect(source).toContain("from '@/application/commands/writerRelayCommandDispatcher'");
+    expect(source).not.toContain('private static async executeWriterRelayCommand');
+    expect(source).not.toContain('unsupported writer relay method');
+  });
+
   it('does not enable kernel transaction ingest listener when only review source refresh needs ws-main', () => {
     expect((ApplicationContext as unknown as {
       shouldEnableKernelTransactionIngestListener: (input: {
@@ -95,13 +110,7 @@ describe('ApplicationContext writer relay command dispatch', () => {
       ingestKernelTransactions: (request: unknown) => Promise<unknown>;
     };
 
-    await (ApplicationContext as unknown as {
-      executeWriterRelayCommand: (
-        backend: unknown,
-        command: { method: string; params?: unknown },
-        hooks?: { onKernelTransactionIngested?: () => void },
-      ) => Promise<unknown>;
-    }).executeWriterRelayCommand(client, {
+    await executeWriterRelayCommand(client, {
       method: 'kernel.transaction.ingest',
       params: {
         source: 'ws-main',
@@ -136,9 +145,7 @@ describe('ApplicationContext writer relay command dispatch', () => {
       resolveAutoCardDecision: (request: unknown) => Promise<unknown>;
     };
 
-    const result = await (ApplicationContext as unknown as {
-      executeWriterRelayCommand: (backend: unknown, command: { method: string; params?: unknown }) => Promise<unknown>;
-    }).executeWriterRelayCommand(client, {
+    const result = await executeWriterRelayCommand(client, {
       method: 'autocard.decision.resolve',
       params: {
         blockId: 'block-1',
@@ -172,9 +179,7 @@ describe('ApplicationContext writer relay command dispatch', () => {
       executeAutoCard: (request: unknown) => Promise<unknown>;
     };
 
-    const result = await (ApplicationContext as unknown as {
-      executeWriterRelayCommand: (backend: unknown, command: { method: string; params?: unknown }) => Promise<unknown>;
-    }).executeWriterRelayCommand(client, {
+    const result = await executeWriterRelayCommand(client, {
       method: 'autocard.execute',
       params: {
         envelope: {
@@ -215,9 +220,7 @@ describe('ApplicationContext writer relay command dispatch', () => {
       executeAutoCard: vi.fn(),
     };
 
-    await expect((ApplicationContext as unknown as {
-      executeWriterRelayCommand: (backend: unknown, command: { method: string; params?: unknown }) => Promise<unknown>;
-    }).executeWriterRelayCommand(client, {
+    await expect(executeWriterRelayCommand(client, {
       method: 'autocard.execute',
       params: 'invalid',
     })).rejects.toThrow('INVALID_REQUEST: autocard.execute relay requires params object');
@@ -229,9 +232,7 @@ describe('ApplicationContext writer relay command dispatch', () => {
       resolveAutoCardDecision: vi.fn(),
     };
 
-    await expect((ApplicationContext as unknown as {
-      executeWriterRelayCommand: (backend: unknown, command: { method: string; params?: unknown }) => Promise<unknown>;
-    }).executeWriterRelayCommand(client, {
+    await expect(executeWriterRelayCommand(client, {
       method: 'autocard.decision.resolve',
       params: 'invalid',
     })).rejects.toThrow('INVALID_REQUEST: autocard.decision.resolve relay requires params object');
@@ -252,9 +253,7 @@ describe('ApplicationContext writer relay command dispatch', () => {
       privateCommand,
     };
 
-    const result = await (ApplicationContext as unknown as {
-      executeWriterRelayCommand: (backend: unknown, command: { method: string; params?: unknown }) => Promise<unknown>;
-    }).executeWriterRelayCommand(client, {
+    const result = await executeWriterRelayCommand(client, {
       method: 'private.command.execute',
       params: {
         requestId: 'req-1',
@@ -284,9 +283,7 @@ describe('ApplicationContext writer relay command dispatch', () => {
       semanticCommand,
     };
 
-    const result = await (ApplicationContext as unknown as {
-      executeWriterRelayCommand: (backend: unknown, command: { method: string; params?: unknown }) => Promise<unknown>;
-    }).executeWriterRelayCommand(client, {
+    const result = await executeWriterRelayCommand(client, {
       method: 'semantic.command.execute',
       params: {
         requestId: 'semantic-req-1',

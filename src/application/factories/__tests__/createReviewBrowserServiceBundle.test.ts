@@ -1,0 +1,50 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
+import { BrowserApplicationService } from '@/application/services/BrowserApplicationService';
+import { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
+import { NeuralRoamEntryActionService } from '@/application/services/NeuralRoamEntryActionService';
+import { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
+import { SrsTransparencyApplicationService } from '@/application/services/SrsTransparencyApplicationService';
+import { createReviewBrowserServiceBundle } from '../createReviewBrowserServiceBundle';
+
+describe('createReviewBrowserServiceBundle', () => {
+  it('creates typed Review and Browser service factories without ApplicationContext locator access', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/application/factories/createReviewBrowserServiceBundle.ts'),
+      'utf8',
+    );
+    const unifiedDataSourceManager = {
+      getQueue: vi.fn(),
+      neuralRoamCommand: vi.fn(),
+    };
+    const reviewSiyuanApi = {
+      getBlockAttrs: vi.fn(async () => ({})),
+      getBlockKramdown: vi.fn(async () => ({ kramdown: '' })),
+    };
+    const bundle = createReviewBrowserServiceBundle({
+      getStorage: () => ({ getCardByBlockId: vi.fn() } as never),
+      getCardService: () => ({ updateFSRSCard: vi.fn() } as never),
+      getUnifiedStorage: () => ({ getAllCards: vi.fn(() => []) } as never),
+      getUnifiedDataSourceManager: () => unifiedDataSourceManager as never,
+      getScheduler: () => ({ getSchedulerType: vi.fn(), preview: vi.fn() } as never),
+      getReviewService: () => ({ getSiyuanApi: () => reviewSiyuanApi } as never),
+      getArenaKernelService: () => ({ buildSrsRecommendation: vi.fn() } as never),
+      getReviewLogService: () => ({ listReviewLogsForCard: vi.fn(async () => []) } as never),
+      getI18n: () => ({}),
+      getBrowserDeckReadPort: () => null,
+      getSrsBackendClient: () => null,
+      getFrontendInstanceRuntime: () => null,
+      getFollowerCommandClient: () => null,
+      openNeuralRoamDialog: vi.fn(async () => undefined),
+    });
+
+    expect(source).toContain('ReviewBrowserServiceBundle');
+    expect(source).not.toContain('ApplicationContext');
+    expect(bundle.createNeuralRoamEntryActionService()).toBeInstanceOf(NeuralRoamEntryActionService);
+    expect(bundle.createBrowserApplicationService()).toBeInstanceOf(BrowserApplicationService);
+    expect(bundle.createReviewApplicationService()).toBeInstanceOf(ReviewApplicationService);
+    expect(bundle.createCardEditorApplicationService()).toBeInstanceOf(CardEditorApplicationService);
+    expect(bundle.createSrsTransparencyApplicationService()).toBeInstanceOf(SrsTransparencyApplicationService);
+  });
+});

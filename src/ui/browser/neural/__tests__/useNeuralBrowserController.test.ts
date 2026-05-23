@@ -308,6 +308,7 @@ function createController(
   const promptRouteName = vi.fn(async () => 'Created Route');
   const confirmDeleteRoute = vi.fn(async () => true);
   const syncExistingNeuralReviewTabToCurrentNode = vi.fn(async () => 'synced' as const);
+  const pushError = vi.fn(async () => undefined);
   const loadCardsByBlockIds = vi.fn(async (blockIds: string[]) => blockIds.map((blockId) => ({
     blockId,
     content: `Content ${blockId}`,
@@ -334,7 +335,7 @@ function createController(
     close: vi.fn(),
     getMode: () => 'tab',
     pushMessage: vi.fn(async () => undefined),
-    pushError: vi.fn(async () => undefined),
+    pushError,
     logError: vi.fn(),
     t,
     historyPageSize: 2,
@@ -349,6 +350,7 @@ function createController(
     promptRouteName,
     confirmDeleteRoute,
     syncExistingNeuralReviewTabToCurrentNode,
+    pushError,
   };
 }
 
@@ -406,7 +408,7 @@ describe('useNeuralBrowserController', () => {
     expect(controller.neuralCurrentNodeId.value).toBeNull();
   });
 
-  it('routes jump handlers through preview, queue move, refresh, and current-node preview', async () => {
+  it('routes jump handlers through backend command, refresh, and current-node preview', async () => {
     const queue = createQueue({
       getNavigationState: vi.fn(() => ({
         currentNodeId: 'target-node',
@@ -418,11 +420,26 @@ describe('useNeuralBrowserController', () => {
         bookmarkNodeId: null,
       })),
     });
-    const { controller, previewCard } = createController(queue);
+    const routeResult = createBackendRouteCommandResult('default', '默认航线');
+    const runNeuralRoamCommand = vi.fn(async () => ({
+      ...routeResult,
+      viewState: {
+        ...routeResult.viewState,
+        currentNodeId: 'target-node',
+        navigationState: {
+          ...routeResult.viewState.navigationState,
+          currentNodeId: 'target-node',
+        },
+      },
+    }));
+    const { controller, previewCard } = createController(queue, {
+      runNeuralRoamCommand,
+    });
 
     await controller.handleNeuralJump('source-node');
 
-    expect(queue.jumpToHistoryNode).toHaveBeenCalledWith('source-node');
+    expect(runNeuralRoamCommand).toHaveBeenCalledWith({ type: 'jump-history-node', nodeId: 'source-node' });
+    expect(queue.jumpToHistoryNode).not.toHaveBeenCalled();
     expect(previewCard.value?.blockId).toBe('target-node');
     expect(controller.selectedNeuralTraceNodeId.value).toBe('source-node');
   });
@@ -525,15 +542,18 @@ describe('useNeuralBrowserController', () => {
     expect(controller.neuralActivationTrace.value?.targetEventId).toBe('engine-target');
   });
 
-  it('clears the Browser route log through the route-level history contract', async () => {
+  it('clears the Browser route log through the backend route-level history command', async () => {
     const queue = createQueue();
+    const runNeuralRoamCommand = vi.fn(async () => createBackendRouteCommandResult('default', '默认航线'));
     const { controller, refreshQueueCounts } = createController(queue, {
       getNeuralSubview: () => 'roam-history',
+      runNeuralRoamCommand,
     });
 
     await controller.handleNeuralClearHistory();
 
-    expect(queue.clearRouteHistory).toHaveBeenCalledTimes(1);
+    expect(runNeuralRoamCommand).toHaveBeenCalledWith({ type: 'clear-route-history' });
+    expect(queue.clearRouteHistory).not.toHaveBeenCalled();
     expect(queue.clearHistory).not.toHaveBeenCalled();
     expect(refreshQueueCounts).toHaveBeenCalled();
   });
@@ -893,6 +913,16 @@ describe('useNeuralBrowserController', () => {
     expect(queue.deleteRoute).not.toHaveBeenCalled();
     expect(promptRouteName).toHaveBeenCalled();
     expect(confirmDeleteRoute).toHaveBeenCalled();
+  });
+
+  it('reports backend command capability missing without mutating the local neural queue', async () => {
+    const queue = createQueue();
+    const { controller, pushError } = createController(queue);
+
+    await controller.handleNeuralToggleSource('source-node', false);
+
+    expect(queue.setSourceEntry).not.toHaveBeenCalled();
+    expect(pushError).toHaveBeenCalledWith('neuralRoamEntryActionUnavailable:神经漫游动作不可用');
   });
 
   it('confirms and syncs an open NeuralRoam review surface before applying a Browser route switch', async () => {
