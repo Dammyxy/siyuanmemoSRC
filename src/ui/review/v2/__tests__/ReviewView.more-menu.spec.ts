@@ -53,6 +53,8 @@ const reviewViewDialogMocks = vi.hoisted(() => ({
     destroy: vi.fn(),
   })),
   confirmDialogMock: vi.fn(async () => true),
+  inputDialogMock: vi.fn(async () => null),
+  threeChoiceDialogMock: vi.fn(async () => 'cancel'),
 }));
 
 const reviewViewLoggerMocks = vi.hoisted(() => ({
@@ -72,6 +74,8 @@ vi.mock('siyuan', () => ({
 vi.mock('@/utils/dialog', () => ({
   createVueDialog: reviewViewDialogMocks.createVueDialogMock,
   confirmDialog: reviewViewDialogMocks.confirmDialogMock,
+  inputDialog: reviewViewDialogMocks.inputDialogMock,
+  threeChoiceDialog: reviewViewDialogMocks.threeChoiceDialogMock,
 }));
 
 vi.mock('@/utils/logger', () => ({
@@ -1150,12 +1154,22 @@ describe('ReviewView more menu', () => {
     expect(registry.updateReviewSessionContext).not.toHaveBeenCalled();
     hiddenCompanion.wrapper.unmount();
 
+    const reviewAICompanionRuntimes = {
+      has: vi.fn(() => true),
+    };
+    const hasReviewAICompanionTab = vi.fn(function (
+      this: { reviewAICompanionRuntimes: { has: (reviewSessionId: string) => boolean } },
+      reviewSessionId: string,
+    ) {
+      return this.reviewAICompanionRuntimes.has(reviewSessionId);
+    });
     const visibleCompanion = mountReviewView({
       mode: 'tab',
       registry,
       tabManager: {
-        hasReviewAICompanionTab: vi.fn(() => true),
-      },
+        reviewAICompanionRuntimes,
+        hasReviewAICompanionTab,
+      } as never,
     });
     await flushPromises();
     registry.updateReviewSessionContext.mockClear();
@@ -1167,8 +1181,8 @@ describe('ReviewView more menu', () => {
 
     expect(registry.updateReviewSessionContext).toHaveBeenCalledWith(expect.objectContaining({
       surface: 'review-tab-companion',
-      currentBlockId: 'block-2',
     }));
+    expect(reviewAICompanionRuntimes.has).toHaveBeenCalled();
     visibleCompanion.wrapper.unmount();
   });
 });

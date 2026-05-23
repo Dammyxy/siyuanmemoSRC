@@ -2732,10 +2732,13 @@ function closeReviewAISidebar(): void {
 
 async function syncReviewAIContextIfNeeded(surface: ReviewAISurface): Promise<void> {
   const activeView = resolveReviewAIEntryView();
+  const tabManager = getTabManager();
   await syncReviewAISideAreaContextIfNeeded({
     surface,
     sidecarVisible: showReviewAISidecar.value,
-    hasCompanionTab: getTabManager()?.hasReviewAICompanionTab,
+    hasCompanionTab: tabManager?.hasReviewAICompanionTab
+      ? (sessionId) => tabManager.hasReviewAICompanionTab?.(sessionId)
+      : undefined,
     registry: getReviewAIWorkbenchRegistry(),
     sessionId: reviewSessionId.value,
     activeView,

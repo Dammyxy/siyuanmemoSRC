@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-23 (Round 448)
+Last update: 2026-05-23 (Round 449)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-23 - Review AI Companion Tab Probe Binding
+
+- Task: Fix the Review tab startup crash where Review AI companion context sync called `TabManager.hasReviewAICompanionTab` without its owner binding.
+- Touched slice: Review / AI workbench tab companion; `src/ui/review/v2/ReviewView.vue` and `src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts`.
+- Debt fixed now: `ReviewView` now wraps the `TabManager` companion-tab probe in a closure so the method executes against the real manager instance instead of the side-area runtime input object. The regression test now models a `TabManager`-style method that depends on `this.reviewAICompanionRuntimes.has(...)`.
+- Debt deferred: The separate `Card not found` warning from stale restored preferred card ids remains unresolved, and the full legacy `ReviewView.more-menu.spec.ts` file still has unrelated assertion drift outside the new targeted binding test.
+- Why deferred: The startup fatal error was the unbound method; stale-card recovery and broad more-menu expectation cleanup are different Review lifecycle/test-harness slices.
+- Next safe step: Add a focused Review tab surface refresh test for stale `currentCardId` recovery before changing `refreshTabSurface()` behavior.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts -t "syncs review AI context in tab mode only while the companion tab exists"`; `pnpm vitest run src/ui/review/v2/__tests__/reviewAISideAreaRuntime.test.ts`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
 
 ### 2026-05-23 - Xiuyuan Riff Sync Runtime Stages
 
