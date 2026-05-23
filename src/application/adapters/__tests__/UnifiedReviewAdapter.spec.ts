@@ -605,6 +605,62 @@ describe('UnifiedReviewAdapter', () => {
     });
   });
 
+  it('does not reuse the neural-roam header cache when the orbit center and current event change inside the same engine mode', async () => {
+    const adapter = new UnifiedReviewAdapter({ headerVariant: 'neural-roam' });
+    const currentItem = createCard('concept-1', CardType.Concept, {
+      meta: {
+        neuralContext: {
+          blockType: 'h',
+          isFlashcard: false,
+        },
+      },
+    });
+
+    const context = createContext();
+    const firstQueue = createQueue({
+      queueType: 'neural-roam',
+      liveCards: [currentItem],
+      underlyingQueue: createNeuralUnderlyingQueue(5, 1, 3, 'orbit'),
+    });
+    const secondQueue = createQueue({
+      queueType: 'neural-roam',
+      liveCards: [currentItem],
+      underlyingQueue: {
+        ...createNeuralUnderlyingQueue(8, 4, 7, 'orbit'),
+        getCurrentBatchSnapshot: () => ({
+          ...createNeuralUnderlyingQueue(8, 4, 7, 'orbit').getCurrentBatchSnapshot(),
+          focusNodeId: 'concept-2',
+          focusNodePreview: 'concept-2',
+          currentNodeId: 'concept-3',
+          currentEventId: 'event-3',
+          viewedCount: 7,
+          roundSize: 12,
+          remainingCount: 5,
+          navigationState: {
+            ...createNeuralUnderlyingQueue(8, 4, 7, 'orbit').getCurrentBatchSnapshot().navigationState,
+            currentNodeId: 'concept-3',
+            currentEventId: 'event-3',
+            pathLength: 8,
+          },
+        }),
+      },
+    });
+
+    await adapter.fetchAuxiliaryData?.(currentItem as never, firstQueue as never, context);
+    const secondUi = await adapter.toUIState(secondQueue as never, currentItem as never, context);
+
+    expect(secondUi.header.stats.current).toBe(0);
+    expect(secondUi.header.stats.total).toBe(0);
+    expect(secondUi.header.counterSummary).toBeNull();
+
+    const hydratedSecondUi = await adapter.fetchAuxiliaryData?.(currentItem as never, secondQueue as never, context);
+    expect(hydratedSecondUi?.header?.counterSummary).toMatchObject({
+      kind: 'value',
+      value: 7,
+      label: '已看',
+    });
+  });
+
   it('maps neural-roam non-flashcard item nodes to topic actions', async () => {
     const adapter = new UnifiedReviewAdapter({ headerVariant: 'neural-roam' });
     const currentItem = createCard('native-list-node', CardType.Item, {

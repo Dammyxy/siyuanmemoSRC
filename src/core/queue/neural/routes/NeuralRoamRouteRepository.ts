@@ -57,6 +57,13 @@ export interface AppendNeuralRoamRouteHistoryInput {
     title?: string | null;
     activationKind?: string | null;
     sourceNodeId?: string | null;
+    sourceEventId?: string | null;
+    branchRootNodeId?: string | null;
+    sourceRole?: 'orbit-center' | 'activation-source' | null;
+    origin?: string | null;
+    traceQuality?: 'exact' | 'legacy' | 'synthetic-root' | null;
+    depth?: number | null;
+    conductionScore?: number | null;
     visitedAt: number;
   };
   maxEntries?: number | null;

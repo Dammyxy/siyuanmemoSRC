@@ -108,6 +108,12 @@ export interface ReviewHeaderRouteControl {
   disabled?: boolean;
 }
 
+export interface ReviewNeuralRoamJourneyProgress {
+  viewedCount: number;
+  totalCount: number;
+  remainingCount: number;
+}
+
 const DEFAULT_REVIEW_HEADER_VARIANT_BY_QUEUE_TYPE: Record<QueueType, ReviewHeaderVariant> = {
   'retrieval-practice': 'retrieval-practice',
   'incremental-learning': 'incremental-learning',

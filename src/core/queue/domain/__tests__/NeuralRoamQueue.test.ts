@@ -1493,6 +1493,79 @@ describe('NeuralRoamQueue', () => {
     expect(trace?.steps[0]?.nodeId).toBe('concept-a');
   });
 
+  it('resolves activation traces from the inactive neural engine', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [
+        conceptCard('concept-a'),
+        conceptCard('concept-b'),
+      ],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    const orbitEventId = queue.getNavigationState().currentEventId!;
+    await queue.setEngineMode('hyperspace', { carryCurrentNode: false });
+    await queue.setCurrentFocus('concept-b', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    expect(queue.getNavigationState().engineMode).toBe('hyperspace');
+    expect(queue.getActivationTrace(orbitEventId)?.steps.at(-1)).toEqual(expect.objectContaining({
+      eventId: orbitEventId,
+      nodeId: 'concept-a',
+      engineMode: 'orbit',
+    }));
+  });
+
+  it('reconstructs activation traces from preserved route history when engine history is gone', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [
+        conceptCard('concept-a'),
+        conceptCard('concept-b'),
+      ],
+    });
+    const { catalog } = createRouteCatalog();
+    const queue = new NeuralRoamQueue(manager.manager, persistence, {
+      routeCatalog: catalog,
+    });
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    const rootEventId = queue.getNavigationState().currentEventId!;
+    (queue as any).conceptQueue.recordAssociatedReviewVisit({
+      nodeId: 'concept-b',
+      cardId: 'card-concept-b',
+      nodePreview: 'Concept B',
+      associationType: 'associated-review',
+      sourceNodeId: 'concept-a',
+      sourceEventId: rootEventId,
+      reason: 'associated review',
+    });
+    await queue.save();
+    const routeEventId = (await queue.getRouteHistoryPage({ offset: 0, limit: 1 })).entries[0].eventId;
+
+    await queue.clearHistory('all');
+
+    expect(queue.getActivationTrace(routeEventId)?.steps.map((step) => step.nodeId)).toEqual([
+      'concept-a',
+      'concept-b',
+    ]);
+  });
+
   it('exposes paged history lookups without requiring a full history snapshot', async () => {
     const { persistence } = createPersistence(undefined);
     const manager = createManager({
@@ -1802,6 +1875,56 @@ describe('NeuralRoamQueue', () => {
       ['hyperspace', 'concept-b'],
       ['hyperspace', 'concept-b'],
     ]);
+  });
+
+  it('persists route history with exact activation lineage from engine events', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [
+        conceptCard('concept-a'),
+        conceptCard('concept-b'),
+      ],
+    });
+    const { catalog, repository } = createRouteCatalog();
+    const queue = new NeuralRoamQueue(manager.manager, persistence, {
+      routeCatalog: catalog,
+    });
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    await queue.setEngineMode('hyperspace', { carryCurrentNode: false });
+    await queue.setCurrentFocus('concept-b', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    const hyperspaceRootEventId = queue.getNavigationState().currentEventId;
+    (queue as any).hyperspaceEngine.recordAssociatedReviewVisit({
+      nodeId: 'concept-b-child',
+      cardId: 'card-concept-b-child',
+      nodePreview: 'Concept B Child',
+      associationType: 'associated-review',
+      sourceNodeId: 'concept-b',
+      sourceEventId: hyperspaceRootEventId,
+      reason: 'associated review',
+    });
+    await queue.save();
+
+    const state = await repository.loadState();
+    const route = state?.routes.find((entry) => entry.metadata.id === DEFAULT_NEURAL_ROAM_ROUTE_ID);
+    const hyperspaceChild = route?.history.find((entry) => entry.engineMode === 'hyperspace' && entry.sourceEventId);
+
+    expect(hyperspaceChild).toEqual(expect.objectContaining({
+      sourceNodeId: 'concept-b',
+      branchRootNodeId: 'concept-b',
+      traceQuality: 'exact',
+      depth: expect.any(Number),
+    }));
+    expect(hyperspaceChild?.sourceEventId).toBe(hyperspaceRootEventId);
   });
 
   it('does not rebuild a cleared route log from engine-local history on later route saves', async () => {

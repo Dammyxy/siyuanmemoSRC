@@ -141,6 +141,13 @@ export const SQL_SCHEMA_STATEMENTS = [
     title TEXT NOT NULL,
     activation_kind TEXT NOT NULL,
     source_node_id TEXT,
+    source_event_id TEXT,
+    branch_root_node_id TEXT,
+    source_role TEXT,
+    origin TEXT,
+    trace_quality TEXT,
+    depth INTEGER,
+    conduction_score REAL,
     visited_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_neural_roam_route_history_route

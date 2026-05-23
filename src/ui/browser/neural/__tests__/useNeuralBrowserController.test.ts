@@ -384,6 +384,67 @@ describe('useNeuralBrowserController', () => {
     ]);
   });
 
+  it('syncs the wake panel from the Browser route log selection', async () => {
+    const routeTrace = createTrace();
+    const routeEntry = createHistoryEntry('route-target', 'target-node', 30);
+    const queue = createQueue({
+      getRouteHistoryPage: vi.fn(() => ({
+        entries: [routeEntry],
+        totalCount: 1,
+        hasMore: false,
+      })),
+      getActivationTrace: vi.fn((eventId: string) => (
+        eventId === 'route-target'
+          ? { ...routeTrace, targetEventId: 'route-target' }
+          : null
+      )),
+      getHistoryEntryByEventId: vi.fn((eventId: string) => (
+        eventId === 'route-target' ? routeEntry : null
+      )),
+    });
+    const { controller } = createController(queue, {
+      getNeuralSubview: () => 'roam-history',
+    });
+
+    await controller.refreshNeuralSubviewData();
+    await controller.handleNeuralSelectHistoryEntry(routeEntry);
+
+    expect(queue.getRouteHistoryPage).toHaveBeenCalled();
+    expect(queue.getActivationTrace).toHaveBeenCalledWith('route-target');
+    expect(controller.selectedNeuralHistoryEventId.value).toBe('route-target');
+    expect(controller.neuralActivationTrace.value?.targetEventId).toBe('route-target');
+  });
+
+  it('syncs the wake panel from the Browser double-link track selection', async () => {
+    const engineEntry = createHistoryEntry('engine-target', 'target-node', 30);
+    const queue = createQueue({
+      getHistoryPage: vi.fn(() => ({
+        entries: [engineEntry],
+        totalCount: 1,
+        hasMore: false,
+      })),
+      getActivationTrace: vi.fn((eventId: string) => (
+        eventId === 'engine-target'
+          ? { ...createTrace(), targetEventId: 'engine-target' }
+          : null
+      )),
+      getHistoryEntryByEventId: vi.fn((eventId: string) => (
+        eventId === 'engine-target' ? engineEntry : null
+      )),
+    });
+    const { controller } = createController(queue, {
+      getNeuralSubview: () => 'engine-history',
+    });
+
+    await controller.refreshNeuralSubviewData();
+    await controller.handleNeuralSelectHistoryEntry(engineEntry);
+
+    expect(queue.getHistoryPage).toHaveBeenCalled();
+    expect(queue.getActivationTrace).toHaveBeenCalledWith('engine-target');
+    expect(controller.selectedNeuralHistoryEventId.value).toBe('engine-target');
+    expect(controller.neuralActivationTrace.value?.targetEventId).toBe('engine-target');
+  });
+
   it('clears the Browser route log through the route-level history contract', async () => {
     const queue = createQueue();
     const { controller, refreshQueueCounts } = createController(queue, {

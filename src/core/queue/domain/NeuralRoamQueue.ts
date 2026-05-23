@@ -6,6 +6,7 @@ import { BaseReviewQueue } from './BaseReviewQueue';
 import {
   type HyperspaceExcerptInjectionContext,
   type NeuralActivationTrace,
+  type NeuralActivationTraceStep,
   type NeuralEngineMode,
   type NeuralRoamSourceEntry,
   QueueAddSource,
@@ -368,6 +369,12 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     return this.engineMode === 'hyperspace' ? this.hyperspaceEngine : this.conceptQueue;
   }
 
+  private getEngineSearchOrder(): Array<ConceptNeuralQueue | HyperspaceEngine> {
+    return this.engineMode === 'hyperspace'
+      ? [this.hyperspaceEngine, this.conceptQueue]
+      : [this.conceptQueue, this.hyperspaceEngine];
+  }
+
   private getCurrentNodeIdFromEngine(mode: NeuralEngineMode): string | null {
     const engine = mode === 'hyperspace' ? this.hyperspaceEngine : this.conceptQueue;
     return engine.getNavigationState().currentNodeId;
@@ -556,16 +563,98 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       visitedAt: event.visitedAt,
       isVirtual: false,
       nodePreview: event.title || event.nodeId,
-      traceQuality: 'legacy',
+      traceQuality: event.traceQuality ?? (event.sourceEventId ? 'exact' : 'legacy'),
       engineMode: event.engineMode,
-      sourceRole: null,
-      origin: null,
+      sourceRole: event.sourceRole ?? null,
+      origin: event.origin ?? null,
       sourceNodeId: event.sourceNodeId,
-      sourceEventId: null,
-      branchRootNodeId: event.sourceNodeId,
+      sourceEventId: event.sourceEventId ?? null,
+      branchRootNodeId: event.branchRootNodeId ?? event.sourceNodeId,
       activationKind,
-      depth: null,
-      conductionScore: null,
+      depth: event.depth ?? null,
+      conductionScore: event.conductionScore ?? null,
+    };
+  }
+
+  private routeHistoryEventToTraceStep(event: NeuralRoamRouteHistoryEvent): NeuralActivationTraceStep {
+    return {
+      eventId: event.eventId,
+      nodeId: event.nodeId,
+      cardId: event.cardId ?? null,
+      nodePreview: event.title || event.nodeId,
+      isVirtual: false,
+      associationType: event.activationKind === 'source-root'
+        ? 'source'
+        : event.activationKind === 'focus-root'
+          ? 'focus'
+          : event.activationKind === 'manual-jump'
+            ? 'manual-jump'
+            : event.activationKind === 'follow-path'
+              ? 'follow-path'
+              : 'concept-link',
+      reason: event.activationKind || 'route-history',
+      activationKind: event.activationKind as NeuralActivationTraceStep['activationKind'],
+      visitedAt: event.visitedAt,
+      focusId: event.branchRootNodeId ?? event.sourceNodeId,
+      engineMode: event.engineMode,
+      sourceRole: event.sourceRole ?? null,
+      origin: event.origin ?? null,
+      sourceNodeId: event.sourceNodeId ?? null,
+      sourceEventId: event.sourceEventId ?? null,
+      branchRootNodeId: event.branchRootNodeId ?? event.sourceNodeId ?? null,
+      traceQuality: event.traceQuality ?? (event.sourceEventId ? 'exact' : 'legacy'),
+      depth: event.depth ?? null,
+      conductionScore: event.conductionScore ?? null,
+      isSyntheticRoot: false,
+    };
+  }
+
+  private buildRouteHistoryActivationTrace(eventId: string): NeuralActivationTrace | null {
+    const routeHistory = this.activeRouteSnapshot?.history ?? [];
+    const target = routeHistory.find((entry) => entry.eventId === eventId) ?? null;
+    if (!target) {
+      return null;
+    }
+
+    const map = new Map(routeHistory.map((entry) => [entry.eventId, entry] as const));
+    const seen = new Set<string>();
+    const reversedSteps: NeuralActivationTraceStep[] = [];
+    let current: NeuralRoamRouteHistoryEvent | null = target;
+    let degradedReason: string | null = null;
+
+    while (current) {
+      if (seen.has(current.eventId)) {
+        degradedReason = degradedReason ?? 'cycle-detected';
+        break;
+      }
+      seen.add(current.eventId);
+      reversedSteps.push(this.routeHistoryEventToTraceStep(current));
+
+      if (!current.sourceEventId) {
+        if (current.sourceNodeId && current.sourceNodeId !== current.nodeId) {
+          degradedReason = degradedReason ?? 'missing-source-event';
+        }
+        break;
+      }
+
+      const sourceEntry = map.get(current.sourceEventId) ?? null;
+      if (!sourceEntry) {
+        degradedReason = degradedReason ?? 'missing-source-event';
+        break;
+      }
+      current = sourceEntry;
+    }
+
+    const steps = reversedSteps.reverse();
+    const branchRootNodeId = target.branchRootNodeId ?? target.sourceNodeId;
+    const isExact = degradedReason === null && steps.every((step) => step.traceQuality === 'exact');
+    return {
+      targetEventId: target.eventId,
+      targetNodeId: target.nodeId,
+      branchRootNodeId,
+      isExact,
+      degradedReason,
+      steps,
     };
   }
 
@@ -715,6 +804,13 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       title: entry.nodePreview || entry.nodeId,
       activationKind: entry.activationKind || entry.associationType || 'unknown',
       sourceNodeId: entry.sourceNodeId ?? null,
+      sourceEventId: entry.sourceEventId ?? null,
+      branchRootNodeId: entry.branchRootNodeId ?? null,
+      sourceRole: entry.sourceRole ?? null,
+      origin: entry.origin ?? null,
+      traceQuality: entry.traceQuality ?? 'legacy',
+      depth: entry.depth ?? null,
+      conductionScore: entry.conductionScore ?? null,
       visitedAt: entry.visitedAt,
     };
   }
@@ -2112,19 +2208,50 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   }
 
   public getHistoryEntryByEventId(eventId: string): NeuralRoamHistoryEntry | null {
-    return this.getActiveEngine().getHistoryEntryByEventId(eventId);
+    const normalizedEventId = String(eventId || '').trim();
+    if (!normalizedEventId) {
+      return null;
+    }
+    for (const engine of this.getEngineSearchOrder()) {
+      const entry = engine.getHistoryEntryByEventId(normalizedEventId);
+      if (entry) {
+        return entry;
+      }
+    }
+    return null;
   }
 
   public getHistoryEntriesByNodeId(nodeId: string): NeuralRoamHistoryEntry[] {
-    return this.getActiveEngine().getHistoryEntriesByNodeId(nodeId);
+    const normalizedNodeId = String(nodeId || '').trim();
+    if (!normalizedNodeId) {
+      return [];
+    }
+    return this.getEngineSearchOrder()
+      .flatMap((engine) => engine.getHistoryEntriesByNodeId(normalizedNodeId))
+      .sort((left, right) => left.visitedAt - right.visitedAt);
   }
 
   public getHistoryHitCount(nodeId: string): number {
-    return this.getActiveEngine().getHistoryHitCount(nodeId);
+    const normalizedNodeId = String(nodeId || '').trim();
+    if (!normalizedNodeId) {
+      return 0;
+    }
+    return this.getEngineSearchOrder()
+      .reduce((sum, engine) => sum + engine.getHistoryHitCount(normalizedNodeId), 0);
   }
 
   public getActivationTrace(eventId: string): NeuralActivationTrace | null {
-    return this.getActiveEngine().getActivationTrace(eventId);
+    const normalizedEventId = String(eventId || '').trim();
+    if (!normalizedEventId) {
+      return null;
+    }
+    for (const engine of this.getEngineSearchOrder()) {
+      const trace = engine.getActivationTrace(normalizedEventId);
+      if (trace) {
+        return trace;
+      }
+    }
+    return this.buildRouteHistoryActivationTrace(normalizedEventId);
   }
 
   public getSessionFocusStack(): NeuralRoamHistoryEntry[] {

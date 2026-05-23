@@ -44,6 +44,13 @@ type HistoryEventRow = Record<string, string | number | null> & {
   title: string;
   activation_kind: string;
   source_node_id: string | null;
+  source_event_id: string | null;
+  branch_root_node_id: string | null;
+  source_role: string | null;
+  origin: string | null;
+  trace_quality: string | null;
+  depth: number | null;
+  conduction_score: number | null;
   visited_at: number;
 };
 
@@ -139,7 +146,8 @@ export class SqlNeuralRoamRouteRepository {
     );
     const rows = this.database.getAll<HistoryEventRow>(
       `SELECT event_id, route_id, engine_mode, node_id, card_id, title, activation_kind,
-              source_node_id, visited_at
+              source_node_id, source_event_id, branch_root_node_id, source_role, origin,
+              trace_quality, depth, conduction_score, visited_at
        FROM neural_roam_route_history_events
        WHERE route_id = ?
        ORDER BY visited_at DESC, event_id DESC
@@ -245,7 +253,8 @@ export class SqlNeuralRoamRouteRepository {
   private readHistoryEvents(routeId: string): NeuralRoamRouteHistoryEvent[] {
     const rows = this.database.getAll<HistoryEventRow>(
       `SELECT event_id, route_id, engine_mode, node_id, card_id, title, activation_kind,
-              source_node_id, visited_at
+              source_node_id, source_event_id, branch_root_node_id, source_role, origin,
+              trace_quality, depth, conduction_score, visited_at
        FROM neural_roam_route_history_events
        WHERE route_id = ?
        ORDER BY visited_at ASC, event_id ASC`,
@@ -258,8 +267,9 @@ export class SqlNeuralRoamRouteRepository {
     this.database.run(
       `INSERT INTO neural_roam_route_history_events (
         event_id, route_id, engine_mode, node_id, card_id, title, activation_kind,
-        source_node_id, visited_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        source_node_id, source_event_id, branch_root_node_id, source_role, origin,
+        trace_quality, depth, conduction_score, visited_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         event.eventId,
         event.routeId,
@@ -269,6 +279,13 @@ export class SqlNeuralRoamRouteRepository {
         event.title,
         event.activationKind,
         event.sourceNodeId,
+        event.sourceEventId ?? null,
+        event.branchRootNodeId ?? null,
+        event.sourceRole ?? null,
+        event.origin ?? null,
+        event.traceQuality ?? (event.sourceEventId ? 'exact' : 'legacy'),
+        event.depth ?? null,
+        event.conductionScore ?? null,
         event.visitedAt,
       ],
     );
@@ -322,6 +339,17 @@ function historyRowToEvent(row: HistoryEventRow): NeuralRoamRouteHistoryEvent {
     title: row.title,
     activationKind: row.activation_kind,
     sourceNodeId: row.source_node_id,
+    sourceEventId: row.source_event_id,
+    branchRootNodeId: row.branch_root_node_id,
+    sourceRole: row.source_role === 'orbit-center' || row.source_role === 'activation-source'
+      ? row.source_role
+      : null,
+    origin: row.origin,
+    traceQuality: row.trace_quality === 'exact' || row.trace_quality === 'synthetic-root'
+      ? row.trace_quality
+      : 'legacy',
+    depth: typeof row.depth === 'number' ? row.depth : null,
+    conductionScore: typeof row.conduction_score === 'number' ? row.conduction_score : null,
     visitedAt: Number(row.visited_at) || 0,
   };
 }

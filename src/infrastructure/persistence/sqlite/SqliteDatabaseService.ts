@@ -344,6 +344,7 @@ export class SqliteDatabaseService {
     }
     this.ensureCardsProjectionColumns(db);
     this.ensureReviewEventCommitIdempotencyColumn(db);
+    this.ensureNeuralRoamRouteHistoryLineageColumns(db);
     for (const statement of CARD_PROJECTION_INDEX_STATEMENTS) {
       db.run(statement);
     }
@@ -394,6 +395,25 @@ export class SqliteDatabaseService {
       `CREATE INDEX IF NOT EXISTS idx_review_events_commit_idempotency
         ON review_events(commit_idempotency_key)`,
     );
+  }
+
+  private ensureNeuralRoamRouteHistoryLineageColumns(db: Database): void {
+    const rows = this.getAll<{ name: string }>('PRAGMA table_info(neural_roam_route_history_events)');
+    const existingColumns = new Set(rows.map((row) => row.name).filter((name): name is string => typeof name === 'string'));
+    const columns = [
+      { name: 'source_event_id', definition: 'source_event_id TEXT' },
+      { name: 'branch_root_node_id', definition: 'branch_root_node_id TEXT' },
+      { name: 'source_role', definition: 'source_role TEXT' },
+      { name: 'origin', definition: 'origin TEXT' },
+      { name: 'trace_quality', definition: 'trace_quality TEXT' },
+      { name: 'depth', definition: 'depth INTEGER' },
+      { name: 'conduction_score', definition: 'conduction_score REAL' },
+    ];
+    for (const column of columns) {
+      if (!existingColumns.has(column.name)) {
+        db.run(`ALTER TABLE neural_roam_route_history_events ADD COLUMN ${column.definition}`);
+      }
+    }
   }
 
   private seedAlgorithmRegistry(): void {

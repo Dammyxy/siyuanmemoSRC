@@ -183,9 +183,18 @@ function resolveHeaderCacheKey(
 
   const underlying = resolveUnderlyingQueue(queue);
   if (underlying && isNeuralRoamSessionQueue(underlying)) {
-    const navigationState = underlying.getNavigationState();
+    const backendViewState = underlying.getBackendViewState?.() ?? null;
+    const navigationState = backendViewState?.navigationState as NeuralNavigationState | undefined
+      ?? underlying.getNavigationState();
     const engineMode = navigationState.engineMode ?? underlying.getEngineMode();
-    return `${queueType}::${headerVariant}::${engineMode}`;
+    const routeId = backendViewState?.route?.id ?? '';
+    const currentNodeId = navigationState.currentNodeId ?? '';
+    const currentEventId = navigationState.currentEventId ?? '';
+    const currentPathIndex = navigationState.currentPathIndex ?? -1;
+    const progressKey = backendViewState?.batchProgress
+      ? `${backendViewState.batchProgress.viewedCount}:${backendViewState.batchProgress.totalCount}:${backendViewState.batchProgress.remainingCount}`
+      : '';
+    return `${queueType}::${headerVariant}::${engineMode}::${routeId}::${currentNodeId}::${currentEventId}::${currentPathIndex}::${progressKey}`;
   }
 
   return `${queueType}::${headerVariant}`;

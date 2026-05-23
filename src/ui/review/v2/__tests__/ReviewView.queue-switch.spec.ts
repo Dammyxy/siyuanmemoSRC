@@ -72,6 +72,10 @@ const ReviewHeaderStub = defineComponent({
       type: Object,
       required: false,
     },
+    progress: {
+      type: Object,
+      required: false,
+    },
   },
   emits: ['queue-switch', 'route-menu', 'toolbar-action'],
   setup(props, { emit }) {
@@ -93,6 +97,39 @@ const ReviewHeaderStub = defineComponent({
     ]);
   },
 });
+
+const NeuralRoamJourneyHeaderStub = defineComponent({
+  name: 'NeuralRoamJourneyHeader',
+  props: {
+    routeControl: {
+      type: Object,
+      required: false,
+    },
+  },
+  emits: ['route-menu', 'toolbar-action', 'engine-mode-select'],
+  setup(props, { emit }) {
+    return () => h('div', { class: 'neural-roam-journey-header-stub' }, [
+      h('button', {
+        class: 'review-header-close',
+        onClick: () => emit('toolbar-action', 'close-review', new MouseEvent('click')),
+      }, 'close'),
+      props.routeControl
+        ? h('button', {
+            class: 'review-header-route-menu',
+            onClick: (event: MouseEvent) => emit('route-menu', event),
+          }, String((props.routeControl as { name?: string }).name || ''))
+        : null,
+    ]);
+  },
+});
+
+function getNeuralRouteControl(wrapper: VueWrapper): { name?: string; detail?: string; temporary?: boolean } {
+  return wrapper.getComponent(NeuralRoamJourneyHeaderStub).props('routeControl') as {
+    name?: string;
+    detail?: string;
+    temporary?: boolean;
+  };
+}
 
 const ReviewContentStub = defineComponent({
   name: 'ReviewContent',
@@ -511,6 +548,7 @@ describe('ReviewView queue switch', () => {
       global: {
         stubs: {
           ReviewHeader: ReviewHeaderStub,
+          NeuralRoamJourneyHeader: NeuralRoamJourneyHeaderStub,
           ReviewContent: ReviewContentStub,
           ReviewActions: ReviewActionsStub,
           FilterDialog: true,
@@ -522,11 +560,15 @@ describe('ReviewView queue switch', () => {
 
     await flushPromises();
 
-    const routeControl = wrapper.getComponent(ReviewHeaderStub).props('routeControl') as { name?: string; detail?: string };
+    const routeControl = getNeuralRouteControl(wrapper);
     expect(routeControl).toMatchObject({
       name: '天体物理',
       detail: '概念 3 · 空间站 2 · 日志 7',
     });
+
+    wrapper.getComponent(NeuralRoamJourneyHeaderStub).vm.$emit('engine-mode-select', 'hyperspace');
+    await flushPromises();
+    expect(neuralQueue.setEngineMode).toHaveBeenCalledWith('hyperspace', { carryCurrentNode: true });
 
     await wrapper.get('.review-header-route-menu').trigger('click', {
       clientX: 64,
@@ -604,6 +646,7 @@ describe('ReviewView queue switch', () => {
       global: {
         stubs: {
           ReviewHeader: ReviewHeaderStub,
+          NeuralRoamJourneyHeader: NeuralRoamJourneyHeaderStub,
           ReviewContent: ReviewContentStub,
           ReviewActions: ReviewActionsStub,
           FilterDialog: true,
@@ -615,7 +658,7 @@ describe('ReviewView queue switch', () => {
 
     await flushPromises();
 
-    const routeControl = wrapper.getComponent(ReviewHeaderStub).props('routeControl') as { name?: string; detail?: string; temporary?: boolean };
+    const routeControl = getNeuralRouteControl(wrapper);
     expect(routeControl).toMatchObject({
       name: '临时：星云',
       detail: '概念 2 · 空间站 1 · 日志 3',
@@ -702,6 +745,7 @@ describe('ReviewView queue switch', () => {
       global: {
         stubs: {
           ReviewHeader: ReviewHeaderStub,
+          NeuralRoamJourneyHeader: NeuralRoamJourneyHeaderStub,
           ReviewContent: ReviewContentStub,
           ReviewActions: ReviewActionsStub,
           FilterDialog: true,

@@ -370,6 +370,17 @@ export class NeuralRoamRouteCatalog {
       title: normalizeRouteName(input.title, nodeId),
       activationKind: normalizeRouteId(input.activationKind) || 'unknown',
       sourceNodeId: normalizeRouteId(input.sourceNodeId) || null,
+      sourceEventId: normalizeRouteId(input.sourceEventId) || null,
+      branchRootNodeId: normalizeRouteId(input.branchRootNodeId) || null,
+      sourceRole: input.sourceRole === 'orbit-center' || input.sourceRole === 'activation-source'
+        ? input.sourceRole
+        : null,
+      origin: normalizeRouteId(input.origin) || null,
+      traceQuality: input.traceQuality === 'legacy' || input.traceQuality === 'synthetic-root'
+        ? input.traceQuality
+        : 'exact',
+      depth: Number.isFinite(Number(input.depth)) ? Number(input.depth) : null,
+      conductionScore: Number.isFinite(Number(input.conductionScore)) ? Number(input.conductionScore) : null,
       visitedAt: Number.isFinite(Number(input.visitedAt)) ? Number(input.visitedAt) : this.clock.now(),
     };
   }

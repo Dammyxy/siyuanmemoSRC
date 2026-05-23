@@ -251,6 +251,43 @@ describe('NeuralRoamRouteCatalog', () => {
     expect(history.totalCount).toBe(2);
   });
 
+  it('preserves activation lineage fields on route history events', async () => {
+    const { catalog } = createCatalog();
+
+    await catalog.appendRouteHistory({
+      event: {
+        eventId: 'event-child',
+        engineMode: 'hyperspace',
+        nodeId: 'concept-child',
+        title: 'Concept Child',
+        activationKind: 'graph-edge',
+        sourceNodeId: 'concept-root',
+        sourceEventId: 'event-root',
+        branchRootNodeId: 'concept-root',
+        sourceRole: null,
+        origin: 'direct-ref',
+        traceQuality: 'exact',
+        depth: 2,
+        conductionScore: 0.72,
+        visitedAt: 40,
+      },
+    });
+
+    const history = await catalog.getRouteHistory({ limit: 10 });
+
+    expect(history.entries[0]).toEqual(expect.objectContaining({
+      eventId: 'event-child',
+      sourceNodeId: 'concept-root',
+      sourceEventId: 'event-root',
+      branchRootNodeId: 'concept-root',
+      sourceRole: null,
+      origin: 'direct-ref',
+      traceQuality: 'exact',
+      depth: 2,
+      conductionScore: 0.72,
+    }));
+  });
+
   it('clamps route history to the configured limit and clears it independently', async () => {
     const { catalog } = createCatalog();
 

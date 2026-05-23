@@ -1,4 +1,4 @@
-import type { NeuralEngineMode } from '@/types/unified-data-source';
+import type { NeuralEngineMode, NeuralRoamHistoryEntry } from '@/types/unified-data-source';
 import type {
   ConceptNeuralSessionState,
   FocusPoolPersistedEntry,
@@ -47,6 +47,13 @@ export interface NeuralRoamRouteHistoryEvent {
   title: string;
   activationKind: string;
   sourceNodeId: string | null;
+  sourceEventId?: string | null;
+  branchRootNodeId?: string | null;
+  sourceRole?: NeuralRoamHistoryEntry['sourceRole'] | null;
+  origin?: NeuralRoamHistoryEntry['origin'] | null;
+  traceQuality?: NeuralRoamHistoryEntry['traceQuality'];
+  depth?: number | null;
+  conductionScore?: number | null;
   visitedAt: number;
 }
 

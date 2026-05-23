@@ -9,7 +9,22 @@
     <div class="fsrs-review-v2__workspace" :class="{ 'fsrs-review-v2__workspace--with-side-area': showReviewSideArea }">
       <!-- 📝 复习内容区 -->
       <div class="fsrs-review-v2__content-wrapper">
+        <NeuralRoamJourneyHeader
+          v-if="showNeuralRoamJourneyHeader"
+          :header="displayedReviewHeader"
+          :i18n="i18n"
+          :is-mobile="props.isMobile"
+          :navigation-state="neuralNavigationState"
+          :route-control="neuralRoamRouteControl"
+          :batch="neuralRoamBatch"
+          :progress="neuralRoamJourneyProgress"
+          @toolbar-action="handleToolbarAction"
+          @engine-mode-select="handleNeuralRoamEngineModeSelect"
+          @route-menu="handleNeuralRoamRouteMenu"
+        />
+
         <ReviewHeader
+          v-else
           :header="displayedReviewHeader"
           :meta="state.meta"
           :i18n="i18n"
@@ -252,6 +267,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
+import NeuralRoamJourneyHeader from './NeuralRoamJourneyHeader.vue';
 import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
 import AiWorkbenchPane from '@/ui/ai/AiWorkbenchPane.vue';
 import LargeTextEditorDialog from '@/ui/shared/LargeTextEditorDialog.vue';
@@ -274,6 +290,7 @@ import {
   type ReviewEditableSource,
   type ReviewHeaderVariant,
   type ReviewHeaderRouteControl,
+  type ReviewNeuralRoamJourneyProgress,
   type ReviewNativeSplitGuardState,
   type ReviewUIState,
   type ReviewViewTabBridge,
@@ -297,6 +314,7 @@ import {
   type IUnifiedDataSourceManagerFacade,
   isNeuralRoamSessionQueue,
   type NeuralNavigationState,
+  type NeuralRoamBatchSnapshot,
   type NeuralRoamSessionQueue,
   type QueueReviewSchedulingContext,
   type ReviewQueueProgressSnapshot,
@@ -1738,6 +1756,20 @@ const neuralRoamRouteControl = computed<ReviewHeaderRouteControl | null>(() => {
   };
 });
 
+const neuralRoamBatch = computed<NeuralRoamBatchSnapshot | null>(() => {
+  void state.value.content.id;
+  void hook.context.value.showAnswer;
+  void neuralNavigationState.value?.currentNodeId;
+  void neuralNavigationState.value?.currentEventId;
+  return getNeuralRoamQueue()?.getCurrentBatchSnapshot?.() ?? null;
+});
+
+const showNeuralRoamJourneyHeader = computed(() => (
+  Boolean(neuralNavigationState.value && neuralRoamRouteControl.value)
+));
+
+const neuralRoamHeaderCounterFocusKey = ref<string | null>(null);
+
 const displayedReviewContent = computed<ReviewUIState['content']>(() => {
   const temporary = reviewSemanticTemporaryView.value;
   if (!temporary) {
@@ -1778,6 +1810,83 @@ const displayedReviewHeader = computed<ReviewUIState['header']>(() => {
       ...toolbar.slice(1),
     ],
   };
+});
+
+function toJourneyCount(value: number | string | null | undefined): number | null {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return null;
+  }
+  return Math.trunc(numeric);
+}
+
+function resolveNeuralRoamJourneyFocusKey(
+  batch: NeuralRoamBatchSnapshot | null,
+  navigationState: NeuralNavigationState | null,
+): string {
+  return String(
+    batch?.focusNodeId
+    || batch?.currentNodeId
+    || navigationState?.currentNodeId
+    || '',
+  ).trim();
+}
+
+function resolveHeaderJourneyProgress(header: ReviewUIState['header']): ReviewNeuralRoamJourneyProgress | null {
+  const viewedCount = toJourneyCount(header.counterSummary?.value);
+  if (viewedCount === null) {
+    return null;
+  }
+  const totalCount = toJourneyCount(header.stats.total);
+  const remainingCount = toJourneyCount(header.stats.current);
+  return {
+    viewedCount,
+    totalCount: totalCount ?? viewedCount,
+    remainingCount: remainingCount ?? Math.max(0, (totalCount ?? viewedCount) - viewedCount),
+  };
+}
+
+function resolveBatchJourneyProgress(batch: NeuralRoamBatchSnapshot | null): ReviewNeuralRoamJourneyProgress | null {
+  const viewedCount = toJourneyCount(batch?.viewedCount);
+  const totalCount = toJourneyCount(batch?.roundSize);
+  if (viewedCount === null || totalCount === null) {
+    return null;
+  }
+  return {
+    viewedCount,
+    totalCount,
+    remainingCount: toJourneyCount(batch?.remainingCount) ?? Math.max(0, totalCount - viewedCount),
+  };
+}
+
+const neuralRoamJourneyFocusKey = computed(() => resolveNeuralRoamJourneyFocusKey(
+  neuralRoamBatch.value,
+  neuralNavigationState.value,
+));
+
+watch(
+  () => ({
+    header: displayedReviewHeader.value,
+    focusKey: neuralRoamJourneyFocusKey.value,
+  }),
+  (current, previous) => {
+    if (current.header === previous?.header || !resolveHeaderJourneyProgress(current.header)) {
+      return;
+    }
+    neuralRoamHeaderCounterFocusKey.value = current.focusKey || null;
+  },
+  { immediate: true },
+);
+
+const neuralRoamJourneyProgress = computed<ReviewNeuralRoamJourneyProgress | null>(() => {
+  const headerProgress = resolveHeaderJourneyProgress(displayedReviewHeader.value);
+  const batchProgress = resolveBatchJourneyProgress(neuralRoamBatch.value);
+  const focusKey = neuralRoamJourneyFocusKey.value;
+  const headerFocusKey = neuralRoamHeaderCounterFocusKey.value;
+  if (headerProgress && (!focusKey || headerFocusKey === focusKey)) {
+    return headerProgress;
+  }
+  return batchProgress ?? headerProgress;
 });
 
 const displayedReviewActions = computed<ReviewUIState['actions']>(() => {
@@ -2971,6 +3080,21 @@ async function persistPreferredNeuralRoamMode(mode: NeuralRoamUserMode): Promise
   await settingsService?.updateSettings?.({ queues: next.queues });
 }
 
+async function handleNeuralRoamEngineModeSelect(mode: NeuralRoamUserMode): Promise<void> {
+  props.onNeuralRoamEngineModeTouched?.();
+  await handleReviewNeuralEngineModeSelection({
+    t,
+    selectedMode: mode,
+    neuralQueue: getNeuralRoamQueue(),
+    currentBlockId: resolveCurrentReviewBlockId(),
+    loadCardByBlockId: (blockId) => hook.loadCardByBlockId(blockId),
+    refreshNavigationState,
+    showMessage,
+    logger,
+    persistPreferredMode: persistPreferredNeuralRoamMode,
+  });
+}
+
 async function startSemanticActivationEntry(conceptFocusOverride?: { focusBlockId: string } | null): Promise<void> {
   const controller = getSemanticActivationController();
   if (!controller) {
@@ -3124,18 +3248,7 @@ function handleNeuralEngineModeMenu(ev: MouseEvent): void {
     t,
     currentMode: resolveCurrentNeuralRoamUserMode(),
     onSelect: async (mode) => {
-      props.onNeuralRoamEngineModeTouched?.();
-      await handleReviewNeuralEngineModeSelection({
-        t,
-        selectedMode: mode,
-        neuralQueue: getNeuralRoamQueue(),
-        currentBlockId: resolveCurrentReviewBlockId(),
-        loadCardByBlockId: (blockId) => hook.loadCardByBlockId(blockId),
-        refreshNavigationState,
-        showMessage,
-        logger,
-        persistPreferredMode: persistPreferredNeuralRoamMode,
-      });
+      await handleNeuralRoamEngineModeSelect(mode);
     },
   }));
   openMenuAtEvent(menu, ev);

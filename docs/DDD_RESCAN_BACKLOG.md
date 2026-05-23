@@ -4,6 +4,16 @@ Last update: 2026-05-23 (Round 437)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-23 - NeuralRoam Dedicated Journey Header
+
+- Task: Replace the generic review counter route chip for NeuralRoam with a dedicated route/engine/progress header that makes Orbit and Hyperspace counts readable.
+- Touched slice: Review NeuralRoam UI header and route menu tests; `src/ui/review/v2/NeuralRoamJourneyHeader.vue`, `src/ui/review/v2/ReviewView.vue`, `src/ui/review/v2/__tests__/NeuralRoamJourneyHeader.spec.ts`, `src/ui/review/v2/__tests__/ReviewView.queue-switch.spec.ts`, and i18n labels.
+- Debt fixed now: NeuralRoam review no longer presents route identity and engine progress as a generic single-number review counter; Orbit now shows current center plus dot progress for viewed/current round, Hyperspace shows activation source plus depth ladder, route controls continue to use the existing ReviewView route menu and toolbar action boundaries, and `ReviewView` now resolves one focus-bound journey progress model for the dedicated header. Refreshed `header.counterSummary` / `header.stats` counters win only while they are bound to the current focus key; when Orbit switches center before the adapter header refreshes, the header immediately uses the new batch progress so the center and `已看 / 本轮` reset together. The dedicated header expanded state now also exposes Orbit `roundNodes` and Hyperspace `recentPath` lineage instead of collapsing both into a single number.
+- Debt deferred: Hyperspace still does not expose frontier size in the main header because the current `NeuralRoamBatchSnapshot` does not include frontier count.
+- Why deferred: Adding frontier metrics requires a core Hyperspace snapshot contract change; this task deliberately stayed in the UI slice and reused existing batch/nav state.
+- Next safe step: Add `frontierCount` to the Hyperspace batch/view-state contract if the UI should show `当前深度 · 前沿` as a second-stage enhancement.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/NeuralRoamJourneyHeader.spec.ts`; `pnpm exec vitest run src/ui/review/v2/__tests__/ReviewView.queue-switch.spec.ts`; `pnpm exec vitest run src/ui/review/v2/__tests__/ReviewView.queue-switch.spec.ts src/ui/review/v2/__tests__/NeuralRoamJourneyHeader.spec.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
 ### 2026-05-23 - NeuralRoam Backend View-State and Command Ownership
 
 - Task: Move NeuralRoam read state and command authority into backend RPCs so Browser and Review consume backend-owned view state instead of stale local queue snapshots.
