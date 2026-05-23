@@ -4,6 +4,16 @@ Last update: 2026-05-24 (Round 451)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-24 - Review NeuralRoam Engine Command Boundary
+
+- Task: Diagnose and fix Review Hyperspace switching that locally changed engine mode, then let backend advance continue in Orbit and return exhausted.
+- Touched slice: Review / NeuralRoam command boundary; `src/ui/review/v2/ReviewView.vue` and `src/ui/review/v2/__tests__/ReviewView.queue-switch.spec.ts`.
+- Debt fixed now: Review top JourneyHeader engine-mode selection now goes through backend `neural-roam.command` and syncs returned `queueState`; ReviewView now separates request-shaped route command runner from bare command runner used by review neural toolbar/menu helpers, removing the command double-shape drift.
+- Debt deferred: `neural-roam.advance` still does not carry an explicit engine-mode assertion, so backend/frontend engine drift is prevented at the Review command boundary rather than by an advance-contract mismatch guard.
+- Why deferred: Adding engine-mode to advance RPC affects contracts, worker mismatch policy, clients, and tests outside this UI command bug; current root cause was local-only Review engine switching.
+- Next safe step: Add engine-mode assertion to `BackendNeuralRoamAdvanceRequest` only if future drift appears from non-Review command sources.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/ReviewView.queue-switch.spec.ts`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`.
+
 ### 2026-05-24 - NeuralRoam Engine Boundary Pending Reset
 
 - Task: Diagnose orbit/hyperspace "next has no node" from real SiYuanMemo data and fix the stale exhausted pending state after engine mode switches.

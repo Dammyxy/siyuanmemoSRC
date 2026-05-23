@@ -348,6 +348,7 @@ import { createReviewWriterRecoveryRuntime } from './reviewWriterRecoveryRuntime
 import { createReviewTabTransferRuntime } from './reviewTabTransferRuntime';
 import { resolveReviewKeyAction } from './reviewKeyActionResolver';
 import type { ReviewWriterUnavailableRecoveryNotice } from './reviewWriterUnavailableRecovery';
+import type { BackendNeuralRoamCommand } from '../../../../packages/contracts/src/backend-rpc';
 import {
   createReviewKernelTransactionWriterActionTracker,
   resolveReviewActionForKernelTransactionWriterUnavailable,
@@ -1119,9 +1120,23 @@ function getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null {
   return contextFromProps?.getUnifiedDataSourceManager?.() || contextFromWindow?.getUnifiedDataSourceManager?.() || null;
 }
 
-function getNeuralRoamCommand() {
+function getNeuralRoamCommandRequestRunner() {
   const manager = getUnifiedDataSourceManager();
-  return manager ? manager.neuralRoamCommand.bind(manager) : null;
+  if (!manager || typeof manager.neuralRoamCommand !== 'function') {
+    return null;
+  }
+  return manager.neuralRoamCommand.bind(manager);
+}
+
+function getNeuralRoamCommand() {
+  const runner = getNeuralRoamCommandRequestRunner();
+  if (!runner) {
+    return null;
+  }
+  return (command: BackendNeuralRoamCommand) => runner({
+    queueType: 'neural-roam',
+    command,
+  });
 }
 
 function getInitialReviewSessionState(): InitialReviewSessionState | undefined {
@@ -1498,7 +1513,7 @@ const neuralRoamRoutes = ref<NeuralRoamRouteListItem[]>([]);
 const neuralRouteCommandRuntime = createReviewNeuralRouteCommandRuntime({
   t,
   getNeuralQueue: () => getNeuralRoamQueue(),
-  getRouteCommand: () => getNeuralRoamCommand(),
+  getRouteCommand: () => getNeuralRoamCommandRequestRunner(),
   getRoutes: () => neuralRoamRoutes.value,
   setRoutes: (routes) => {
     neuralRoamRoutes.value = routes;
@@ -2968,6 +2983,7 @@ async function handleNeuralRoamEngineModeSelect(mode: NeuralRoamUserMode): Promi
     showMessage,
     logger,
     persistPreferredMode: persistPreferredNeuralRoamMode,
+    runNeuralRoamCommand: getNeuralRoamCommand() || undefined,
   });
 }
 

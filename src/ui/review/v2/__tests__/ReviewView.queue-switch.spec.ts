@@ -316,7 +316,9 @@ function createBackendRouteCommandResult(route: {
   name: string;
   temporary?: boolean;
   previousRouteId?: string | null;
+  engineMode?: 'orbit' | 'hyperspace';
 }) {
+  const engineMode = route.engineMode ?? 'orbit';
   return {
     queueType: 'neural-roam',
     status: 'ok',
@@ -349,7 +351,7 @@ function createBackendRouteCommandResult(route: {
           },
         },
       ],
-      engineMode: 'orbit',
+      engineMode,
       currentNodeId: null,
       currentEventId: null,
       navigationState: null,
@@ -376,7 +378,7 @@ function createBackendRouteCommandResult(route: {
     },
     queueState: {
       version: 8,
-      engineMode: 'orbit',
+      engineMode,
     },
     unavailableReason: null,
     message: null,
@@ -609,12 +611,23 @@ describe('ReviewView queue switch', () => {
   it('shows active NeuralRoam route and switches routes through the review strategy boundary', async () => {
     const neuralQueue = createNeuralQueue();
     const strategy = createNeuralStrategy(neuralQueue);
-    const neuralRoamCommand = vi.fn(async (request) => createBackendRouteCommandResult({
-      id: request.command.type === 'switch-route' ? String(request.command.routeId) : 'route-created-backend',
-      name: request.command.type === 'switch-route' ? '数学' : '命名航线',
-      previousRouteId: null,
-      temporary: false,
-    }));
+    const neuralRoamCommand = vi.fn(async (request) => {
+      if (request.command.type === 'switch-engine-mode') {
+        return createBackendRouteCommandResult({
+          id: 'route-alpha',
+          name: '天体物理',
+          previousRouteId: null,
+          temporary: false,
+          engineMode: request.command.mode,
+        });
+      }
+      return createBackendRouteCommandResult({
+        id: request.command.type === 'switch-route' ? String(request.command.routeId) : 'route-created-backend',
+        name: request.command.type === 'switch-route' ? '数学' : '命名航线',
+        previousRouteId: null,
+        temporary: false,
+      });
+    });
     const wrapper = trackWrapper(mount(ReviewView, {
       attachTo: document.body,
       props: {
@@ -657,7 +670,14 @@ describe('ReviewView queue switch', () => {
 
     wrapper.getComponent(NeuralRoamJourneyHeaderStub).vm.$emit('engine-mode-select', 'hyperspace');
     await flushPromises();
-    expect(neuralQueue.setEngineMode).toHaveBeenCalledWith('hyperspace', { carryCurrentNode: true });
+    expect(neuralRoamCommand).toHaveBeenCalledWith({
+      queueType: 'neural-roam',
+      command: { type: 'switch-engine-mode', mode: 'hyperspace', carryCurrentNode: true },
+    });
+    expect(neuralQueue.setEngineMode).not.toHaveBeenCalled();
+    expect(neuralQueue.syncFromBackendState).toHaveBeenCalledWith(expect.objectContaining({
+      engineMode: 'hyperspace',
+    }));
 
     await wrapper.get('.review-header-route-menu').trigger('click', {
       clientX: 64,
