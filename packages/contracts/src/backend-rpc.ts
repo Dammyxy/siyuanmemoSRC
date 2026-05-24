@@ -42,6 +42,8 @@ export type BackendRpcMethod =
   | 'ai.session.update'
   | 'ai.session.cancel'
   | 'ai.prompt.execute'
+  | 'ai.tool.job.execute'
+  | 'ai.tool.job.approval'
   | 'ai.stream.start'
   | 'ai.stream.cancel'
   | 'job.get'
@@ -62,6 +64,8 @@ export type BackendRpcMethod =
   | 'xiuyuan.sync.execute'
   | 'progressive.command.execute'
   | 'topic-derived.command.execute'
+  | 'review.riffFeedback.execute'
+  | 'review.sourceRefresh.execute'
   | 'browser.aggregate.snapshot'
   | 'browser.aggregate.page'
   | 'browser.aggregate.focus'
@@ -1215,7 +1219,7 @@ export interface BackendAiStreamResult {
 
 export interface BackendAiJobRecord {
   jobId: string;
-  kind: 'ai-stream';
+  kind: 'ai-stream' | 'ai-tool-job';
   owner: 'application' | 'backend';
   idempotencyKey: string;
   state: BackendAiJobState;
@@ -1240,6 +1244,108 @@ export interface BackendAiJobCancelRequest {
 export interface BackendAiJobResult {
   ok: true;
   job: BackendAiJobRecord;
+}
+
+export type BackendAiToolJobPhase =
+  | 'provider-execution'
+  | 'approval-wait'
+  | 'write-preparation'
+  | 'writer-commit'
+  | 'terminal';
+
+export interface BackendAiToolJobExecuteRequest {
+  jobId: string;
+  sessionId: string;
+  commandId: string;
+  idempotencyKey: string;
+  toolName: string;
+  providerId?: string | null;
+  modelId?: string | null;
+  phase?: BackendAiToolJobPhase | null;
+  requiresApproval?: boolean | null;
+  approvalState?: 'not-required' | 'pending' | 'approved' | 'rejected' | 'canceled' | null;
+  writeIntent?: {
+    kind: 'none' | 'progressive' | 'topic-derived' | 'flashcard' | 'markdown-insertion';
+    sourceId?: string | null;
+    targetBlockId?: string | null;
+    cardCount?: number | null;
+  } | null;
+  deadlineAt?: number | null;
+}
+
+export interface BackendAiToolJobApprovalRequest {
+  jobId: string;
+  sessionId: string;
+  commandId: string;
+  idempotencyKey: string;
+  decision: 'approved' | 'rejected' | 'canceled';
+  decidedAt: number;
+}
+
+export interface BackendAiToolJobResult {
+  status: 'queued' | 'waiting-for-user-approval' | 'completed' | 'duplicate' | 'rejected' | 'canceled' | 'unavailable' | 'failed';
+  jobId: string;
+  sessionId: string;
+  commandId: string;
+  phase: BackendAiToolJobPhase;
+  unavailableClass?: BackendUnavailableClass | null;
+  reason?: string | null;
+  progress: BackendHotspotCommandProgress;
+  diagnostics: BackendHotspotCommandDiagnostics;
+}
+
+export interface BackendReviewRiffFeedbackExecuteRequest {
+  commandId: string;
+  idempotencyKey: string;
+  sessionId?: string | null;
+  action: 'rate' | 'skip';
+  deckId: string;
+  riffCardId: string;
+  rating?: number | null;
+  deadlineAt?: number | null;
+}
+
+export interface BackendReviewRiffFeedbackExecuteResult {
+  status: 'completed' | 'duplicate' | 'unavailable' | 'failed';
+  commandId: string;
+  idempotencyKey: string;
+  action: 'rate' | 'skip';
+  updated: number;
+  skipped: number;
+  unavailableClass?: BackendUnavailableClass | null;
+  reason?: string | null;
+  queueImpact: {
+    refreshRequired: boolean;
+    projectionChanged: boolean;
+    removedFromQueue: boolean;
+  };
+  diagnostics: BackendHotspotCommandDiagnostics;
+}
+
+export interface BackendReviewSourceRefreshExecuteRequest {
+  commandId: string;
+  idempotencyKey: string;
+  sessionId?: string | null;
+  currentCardId?: string | null;
+  currentBlockId?: string | null;
+  changedBlockIds: string[];
+  dependencyBlockIds: string[];
+  missingSourceBlockIds?: string[] | null;
+  deadlineAt?: number | null;
+}
+
+export interface BackendReviewSourceRefreshExecuteResult {
+  status: 'refresh-required' | 'no-op' | 'missing-source' | 'unavailable' | 'failed';
+  commandId: string;
+  idempotencyKey: string;
+  matchedBlockIds: string[];
+  unavailableClass?: BackendUnavailableClass | null;
+  reason?: string | null;
+  impact: {
+    refreshVisibleContent: boolean;
+    cleanupMissingSource: boolean;
+  };
+  diagnostics: BackendHotspotCommandDiagnostics;
 }
 
 export interface PrivateApiCapabilityResult {

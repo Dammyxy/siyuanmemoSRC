@@ -824,6 +824,9 @@ const reviewSourceRefreshRuntime = createReviewSourceRefreshRuntime({
   isAdvancePending: isReviewAdvancePending,
   getCurrentReference: getCurrentReviewCardReference,
   getDependencyBlockIds: getReviewSourceDependencyBlockIds,
+  resolveBackendImpact(request) {
+    return getReviewService().executeReviewSourceRefresh(request);
+  },
   isMainProtyleEditing() {
     const currentEditorState = editorState.value;
     return currentEditorState.renderer === 'main-protyle'

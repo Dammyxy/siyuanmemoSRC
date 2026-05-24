@@ -72,6 +72,7 @@ export interface CreateApplicationBackendRuntimeBundleOptions {
   executeAutoCard: NonNullable<BrowserSrsBackendWorkerHostEffects['executeAutoCard']>;
   executeProgressiveCommand?: BrowserSrsBackendWorkerHostEffects['executeProgressiveCommand'];
   executeTopicDerivedCommand?: BrowserSrsBackendWorkerHostEffects['executeTopicDerivedCommand'];
+  executeReviewRiffFeedback?: BrowserSrsBackendWorkerHostEffects['executeReviewRiffFeedback'];
   executeWriterRelayCommand: (
     backendClient: SrsBackendClient,
     command: ApplicationBackendWriterRelayCommand,
@@ -166,6 +167,7 @@ export async function createApplicationBackendRuntimeBundle(
             executeAutoCard: options.executeAutoCard,
             executeProgressiveCommand: options.executeProgressiveCommand,
             executeTopicDerivedCommand: options.executeTopicDerivedCommand,
+            executeReviewRiffFeedback: options.executeReviewRiffFeedback,
             executeAiPrompt: async (request, context) => aiNetworkProxy.execute({
               ...request,
               streamId: context.streamId,

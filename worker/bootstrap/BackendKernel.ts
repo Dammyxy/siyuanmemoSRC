@@ -2,6 +2,9 @@ import {
   BACKEND_RPC_VERSION,
   type BackendAiPromptExecuteRequest,
   type BackendAiPromptExecuteResult,
+  type BackendAiToolJobApprovalRequest,
+  type BackendAiToolJobExecuteRequest,
+  type BackendAiToolJobResult,
   type BackendAiJobCancelRequest,
   type BackendAiJobGetRequest,
   type BackendAiJobResult,
@@ -48,6 +51,10 @@ import {
   type BackendKernelTransactionRequeueRequest,
   type BackendKernelTransactionRequeueResult,
   type BackendReviewFeedbackResult,
+  type BackendReviewRiffFeedbackExecuteRequest,
+  type BackendReviewRiffFeedbackExecuteResult,
+  type BackendReviewSourceRefreshExecuteRequest,
+  type BackendReviewSourceRefreshExecuteResult,
   type BackendReviewSyncDivergenceAuditRequest,
   type BackendReviewSyncDivergenceAuditResult,
   type BackendSyncConflictMergeRequest,
@@ -144,6 +151,9 @@ interface BackendKernelDependencies {
   executeTopicDerivedCommand?: (
     request: BackendTopicDerivedCommandExecuteRequest,
   ) => Promise<BackendTopicDerivedCommandExecuteResult>;
+  executeReviewRiffFeedback?: (
+    request: BackendReviewRiffFeedbackExecuteRequest,
+  ) => Promise<BackendReviewRiffFeedbackExecuteResult>;
 }
 
 function buildSuccess<TResult>(
@@ -229,6 +239,9 @@ export class BackendKernel {
   private readonly xiuyuanSyncResultsByIdempotencyKey = new Map<string, BackendXiuyuanSyncExecuteResult>();
   private readonly progressiveCommandResultsByIdempotencyKey = new Map<string, BackendProgressiveCommandExecuteResult>();
   private readonly topicDerivedCommandResultsByIdempotencyKey = new Map<string, BackendTopicDerivedCommandExecuteResult>();
+  private readonly aiToolJobResultsByIdempotencyKey = new Map<string, BackendAiToolJobResult>();
+  private readonly reviewRiffFeedbackResultsByIdempotencyKey = new Map<string, BackendReviewRiffFeedbackExecuteResult>();
+  private readonly reviewSourceRefreshResultsByIdempotencyKey = new Map<string, BackendReviewSourceRefreshExecuteResult>();
   private readonly preRequestMergeDiagnostics: BackendPreRequestMergeDiagnostic[] = [];
   private readonly aiRuntime: BackendJobRuntime;
   private readonly hotspotRuntime: BackendHotspotCommandRuntime;
@@ -367,6 +380,10 @@ export class BackendKernel {
           return buildSuccess(request.id, this.handleAiSessionCancel(request.params));
         case 'ai.prompt.execute':
           return buildSuccess(request.id, await this.handleAiPromptExecute(request.params));
+        case 'ai.tool.job.execute':
+          return buildSuccess(request.id, this.handleAiToolJobExecute(request.params));
+        case 'ai.tool.job.approval':
+          return buildSuccess(request.id, this.handleAiToolJobApproval(request.params));
         case 'ai.stream.start':
           return buildSuccess(request.id, this.handleAiStreamStart(request.params));
         case 'ai.stream.cancel':
@@ -385,6 +402,10 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleProgressiveCommandExecute(request.params));
         case 'topic-derived.command.execute':
           return buildSuccess(request.id, await this.handleTopicDerivedCommandExecute(request.params));
+        case 'review.riffFeedback.execute':
+          return buildSuccess(request.id, await this.handleReviewRiffFeedbackExecute(request.params));
+        case 'review.sourceRefresh.execute':
+          return buildSuccess(request.id, await this.handleReviewSourceRefreshExecute(request.params));
         case 'browser.aggregate.snapshot':
           return buildSuccess(request.id, await this.handleBrowserAggregateSnapshot(request.params));
         case 'browser.aggregate.page':
@@ -797,6 +818,87 @@ export class BackendKernel {
     return this.aiRuntime.executePrompt(named, this.deps.executeAiPrompt);
   }
 
+  private handleAiToolJobExecute(params: unknown): BackendAiToolJobResult {
+    const named = this.readNamedParams<BackendAiToolJobExecuteRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: ai.tool.job.execute requires named params');
+    }
+    const cached = this.aiToolJobResultsByIdempotencyKey.get(String(named.idempotencyKey || '').trim());
+    if (cached) {
+      return cached.status === 'completed' ? { ...cached, status: 'duplicate' } : cached;
+    }
+    const now = Date.now();
+    const requiresApproval = named.requiresApproval === true && named.approvalState !== 'approved';
+    const writeKind = named.writeIntent?.kind ?? 'none';
+    const result: BackendAiToolJobResult = {
+      status: requiresApproval ? 'waiting-for-user-approval' : 'completed',
+      jobId: String(named.jobId || ''),
+      sessionId: String(named.sessionId || ''),
+      commandId: String(named.commandId || ''),
+      phase: requiresApproval ? 'approval-wait' : (writeKind === 'none' ? 'terminal' : 'write-preparation'),
+      reason: requiresApproval ? 'approval required before generated flashcard write' : null,
+      progress: {
+        state: requiresApproval ? 'waiting-for-user-approval' : 'succeeded',
+        currentStep: requiresApproval ? 'approval-wait' : 'terminal',
+        completedUnits: requiresApproval ? 0 : 1,
+        totalUnits: 1,
+        updatedAt: now,
+      },
+      diagnostics: {
+        diagnosticEventId: `ai-tool-job:${String(named.commandId || 'unknown')}:${now}`,
+        family: 'ai.tool-job',
+        commandId: String(named.commandId || ''),
+        timing: {
+          submittedAt: now,
+          deadlineAt: named.deadlineAt ?? null,
+          completedAt: requiresApproval ? null : now,
+        },
+        counters: {
+          writeIntentCount: writeKind === 'none' ? 0 : 1,
+        },
+        errorCategory: null,
+      },
+    };
+    this.aiToolJobResultsByIdempotencyKey.set(String(named.idempotencyKey || '').trim(), result);
+    return result;
+  }
+
+  private handleAiToolJobApproval(params: unknown): BackendAiToolJobResult {
+    const named = this.readNamedParams<BackendAiToolJobApprovalRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: ai.tool.job.approval requires named params');
+    }
+    const now = Date.now();
+    const status = named.decision === 'approved' ? 'completed' : named.decision;
+    const result: BackendAiToolJobResult = {
+      status,
+      jobId: String(named.jobId || ''),
+      sessionId: String(named.sessionId || ''),
+      commandId: String(named.commandId || ''),
+      phase: 'terminal',
+      reason: named.decision === 'approved' ? null : `approval ${named.decision}`,
+      progress: {
+        state: named.decision === 'approved' ? 'succeeded' : named.decision === 'canceled' ? 'canceled' : 'validation-failed',
+        currentStep: 'approval-decision',
+        completedUnits: 1,
+        totalUnits: 1,
+        updatedAt: now,
+      },
+      diagnostics: {
+        diagnosticEventId: `ai-tool-approval:${String(named.commandId || 'unknown')}:${now}`,
+        family: 'ai.tool-job',
+        commandId: String(named.commandId || ''),
+        timing: {
+          submittedAt: named.decidedAt || now,
+          completedAt: now,
+        },
+        errorCategory: named.decision === 'approved' ? null : 'VALIDATION_FAILED',
+      },
+    };
+    this.aiToolJobResultsByIdempotencyKey.set(String(named.idempotencyKey || '').trim(), result);
+    return result;
+  }
+
   private handleAiStreamStart(params: unknown): BackendAiStreamResult {
     const named = this.readNamedParams<BackendAiStreamStartRequest>(params);
     if (!named || typeof named !== 'object') {
@@ -896,6 +998,155 @@ export class BackendKernel {
     const result = await this.deps.executeTopicDerivedCommand(named);
     this.topicDerivedCommandResultsByIdempotencyKey.set(named.idempotencyKey, result);
     return result;
+  }
+
+  private async handleReviewRiffFeedbackExecute(params: unknown): Promise<BackendReviewRiffFeedbackExecuteResult> {
+    const named = this.readNamedParams<BackendReviewRiffFeedbackExecuteRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: review.riffFeedback.execute requires named params');
+    }
+    const key = String(named.idempotencyKey || '').trim();
+    const cached = this.reviewRiffFeedbackResultsByIdempotencyKey.get(key);
+    if (cached) {
+      return cached.status === 'completed' ? { ...cached, status: 'duplicate' } : cached;
+    }
+    if (typeof this.deps.executeReviewRiffFeedback !== 'function') {
+      const result = this.createReviewRiffFeedbackUnavailable(named, 'review.riffFeedback.execute host effect unavailable');
+      this.reviewRiffFeedbackResultsByIdempotencyKey.set(key, result);
+      return result;
+    }
+    try {
+      const result = await this.deps.executeReviewRiffFeedback(named);
+      this.reviewRiffFeedbackResultsByIdempotencyKey.set(key, result);
+      return result;
+    } catch (error) {
+      const result = this.createReviewRiffFeedbackUnavailable(
+        named,
+        error instanceof Error ? error.message : String(error || 'review riff feedback failed'),
+        'FAILED',
+      );
+      this.reviewRiffFeedbackResultsByIdempotencyKey.set(key, result);
+      return result;
+    }
+  }
+
+  private async handleReviewSourceRefreshExecute(params: unknown): Promise<BackendReviewSourceRefreshExecuteResult> {
+    const named = this.readNamedParams<BackendReviewSourceRefreshExecuteRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: review.sourceRefresh.execute requires named params');
+    }
+    const key = String(named.idempotencyKey || '').trim();
+    const cached = this.reviewSourceRefreshResultsByIdempotencyKey.get(key);
+    if (cached) {
+      return cached;
+    }
+    const changed = new Set((named.changedBlockIds || []).map((id) => String(id || '').trim()).filter(Boolean));
+    const matchedBlockIds = (named.dependencyBlockIds || [])
+      .map((id) => String(id || '').trim())
+      .filter((id) => id && changed.has(id));
+    const now = Date.now();
+    const currentBlockId = String(named.currentBlockId || '').trim();
+    const missingSourceBlockIds = new Set(
+      (named.missingSourceBlockIds || [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean),
+    );
+    if (currentBlockId && missingSourceBlockIds.has(currentBlockId)) {
+      await this.deps.database.updateSourceExistence([{
+        cardId: String(named.currentCardId || '').trim() || undefined,
+        blockId: currentBlockId,
+        exists: false,
+      }], now);
+      const missingResult: BackendReviewSourceRefreshExecuteResult = {
+        status: 'missing-source',
+        commandId: String(named.commandId || ''),
+        idempotencyKey: key,
+        matchedBlockIds: [currentBlockId],
+        impact: {
+          refreshVisibleContent: false,
+          cleanupMissingSource: true,
+        },
+        diagnostics: {
+          diagnosticEventId: `review-source-refresh:${String(named.commandId || 'unknown')}:${now}`,
+          family: 'review.source-refresh',
+          commandId: String(named.commandId || ''),
+          timing: {
+            submittedAt: now,
+            deadlineAt: named.deadlineAt ?? null,
+            completedAt: now,
+          },
+          counters: {
+            changedBlockIds: changed.size,
+            matchedBlockIds: 1,
+            missingSourceBlockIds: missingSourceBlockIds.size,
+          },
+          errorCategory: null,
+        },
+      };
+      this.reviewSourceRefreshResultsByIdempotencyKey.set(key, missingResult);
+      return missingResult;
+    }
+    const result: BackendReviewSourceRefreshExecuteResult = {
+      status: matchedBlockIds.length > 0 ? 'refresh-required' : 'no-op',
+      commandId: String(named.commandId || ''),
+      idempotencyKey: key,
+      matchedBlockIds,
+      impact: {
+        refreshVisibleContent: matchedBlockIds.length > 0,
+        cleanupMissingSource: false,
+      },
+      diagnostics: {
+        diagnosticEventId: `review-source-refresh:${String(named.commandId || 'unknown')}:${now}`,
+        family: 'review.source-refresh',
+        commandId: String(named.commandId || ''),
+        timing: {
+          submittedAt: now,
+          deadlineAt: named.deadlineAt ?? null,
+          completedAt: now,
+        },
+        counters: {
+          changedBlockIds: changed.size,
+          matchedBlockIds: matchedBlockIds.length,
+        },
+        errorCategory: null,
+      },
+    };
+    this.reviewSourceRefreshResultsByIdempotencyKey.set(key, result);
+    return result;
+  }
+
+  private createReviewRiffFeedbackUnavailable(
+    request: BackendReviewRiffFeedbackExecuteRequest,
+    reason: string,
+    unavailableClass: BackendReviewRiffFeedbackExecuteResult['unavailableClass'] = 'BACKEND_UNAVAILABLE',
+  ): BackendReviewRiffFeedbackExecuteResult {
+    const now = Date.now();
+    return {
+      status: unavailableClass === 'FAILED' ? 'failed' : 'unavailable',
+      commandId: String(request.commandId || ''),
+      idempotencyKey: String(request.idempotencyKey || ''),
+      action: request.action,
+      updated: 0,
+      skipped: 1,
+      unavailableClass,
+      reason,
+      queueImpact: {
+        refreshRequired: false,
+        projectionChanged: false,
+        removedFromQueue: false,
+      },
+      diagnostics: {
+        diagnosticEventId: `review-riff-feedback:${String(request.commandId || 'unknown')}:${now}`,
+        family: 'review.riff-feedback',
+        commandId: String(request.commandId || ''),
+        timing: {
+          submittedAt: now,
+          deadlineAt: request.deadlineAt ?? null,
+          completedAt: now,
+        },
+        errorCategory: unavailableClass,
+      },
+    };
   }
 
   private createProgressiveCommandUnavailable(

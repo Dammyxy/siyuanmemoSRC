@@ -1,8 +1,38 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-25 (Round 456)
+Last update: 2026-05-25 (Round 457)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-25 - Kernel Riff Proxy Live Smoke And Final P7/P9 Closure
+
+- Task: Finish OpenSpec `backendize-runtime-hotspots` remaining live-smoke debt, closing `7.8` and `9.8`.
+- Touched slice: `src/kernel.ts`, `src/__tests__/kernelWriterLeasePolicy.test.ts`, `ARCHITECTURE.md`, `docs/KERNEL_PLUGIN_SYSTEM_RESEARCH.md`, and the OpenSpec task ledger.
+- Debt fixed now: kernel companion now exposes live `riff.read` / `riff.audit` RPCs with `riffReadAuditProxy=true`; real SiYuan smoke confirmed the active plugin can call `plugin.getContext().getKernelSidecarClient().call('riff.read'|'riff.audit')`, return native Riff card facts, keep `content` / `path` / `hPath` out of the payload, and report normalized/malformed counts from the same narrow proxy. Provider-backed non-streaming AI smoke and streaming/progress smoke were also completed in the live session that preceded this checkpoint.
+- Debt deferred: Broader Browser performance debt remains elsewhere; this slice did not change it.
+- Why deferred: The remaining Browser work is a separate performance follow-up, not part of kernel Riff proxy closure.
+- Next safe step: Archive the OpenSpec change after a final validation pass if no other task debt reopens.
+- Validation: `pnpm exec vitest run src/__tests__/kernelWriterLeasePolicy.test.ts`; `pnpm build`; `node scripts/siyuan-plugin-state.cjs status`; live CDP smoke via `plugin.getContext().getKernelSidecarClient().call('riff.read'|'riff.audit')` against deck `20260310141720-6p03hor`, which returned `riffReadAuditProxy=true`, `methodsHasRiff=true`, `read.total=1`, `read.hasContentField=false`, and `audit.normalized=1/malformed=0`.
+
+### 2026-05-25 - AI Tool Job Facade And Review Missing-Source Cleanup
+
+- Task: Continue OpenSpec `backendize-runtime-hotspots` remaining P7/P8 tasks after live smoke, closing `7.6`, `7.7`, and `8.3`.
+- Touched slice: `AIChatToolExecutorService`, `AIWorkbenchService`, `createAIServiceBundle`, `backend-rpc` Review source-refresh contract, `BackendKernel`, AI executor tests, BackendKernel hotspot tests, and OpenSpec task ledger.
+- Debt fixed now: AI Workbench production write tools now require `ai.tool.job` backend authority before executing actual Siyuan/flashcard writes; missing backend job authority, provider/job failure, writer unavailable, and kernel sidecar unavailable all fail closed without local write. Existing UI approval still gates execution, and approved write tools submit backend approval facts before continuing. Review source refresh now accepts backend-authored missing-source evidence and mutates source-existence projection through Backend Worker before returning `missing-source + cleanupMissingSource`.
+- Debt deferred: Provider-backed live non-streaming AI job smoke remains pending; kernel-sidecar Riff read/audit proxy is still `not-configured`; Browser performance smoke evidence remains red.
+- Why deferred: These require external runtime capability or performance work, not more local command wiring.
+- Next safe step: Rerun full targeted P7/P8/P9 validation, then run live provider/kernel smoke when credentials and kernel proxy support exist.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/AIChatToolExecutorService.test.ts`; `pnpm exec vitest run worker/__tests__/BackendKernel.hotspot-command.test.ts`.
+
+### 2026-05-25 - AI Tool Job And Review Hotspot Command Slice
+
+- Task: Continue OpenSpec `backendize-runtime-hotspots` P7/P8/P9 by adding backend command contracts for AI tool jobs, FinalDrill Riff feedback, and Review source refresh, then validating the migrated Review production paths.
+- Touched slice: `packages/contracts/src/backend-rpc.ts`, `packages/contracts/src/kernel-rpc.ts`, `SrsBackendClient`, `BrowserSrsBackendWorkerTransport`, `BackendKernel`, `backend-worker.entry`, `ApplicationContext`, `writerRelayCommandDispatcher`, `ReviewApplicationService`, `FinalDrillV2Session`, `reviewSourceRefreshRuntime`, `ReviewView`, boundary script, focused Worker/client/Review tests, `ARCHITECTURE.md`, and `docs/KERNEL_PLUGIN_SYSTEM_RESEARCH.md`.
+- Debt fixed now: AI tool jobs now have typed backend execute/approval contracts, Worker-owned idempotent lifecycle state, approval-wait/terminal phases, writer relay allowlist, and content-safe diagnostics. FinalDrill rating/skip now goes through `ReviewApplicationService -> review.riffFeedback.execute` and fails closed with the existing drill error instead of direct Riff fallback. Review source refresh production wiring now asks backend for `refresh-required/no-op/unavailable/failed` impact before reloading visible content. Boundary checks now reject newly introduced non-owner direct native Riff feedback calls. Hidden fallback fixtures now cover migrated Xiuyuan, Browser aggregate, Graph, AI tool, and Review hotspot local fallback classes.
+- Debt deferred: Full AI Workbench write-tool replacement is not complete; direct markdown/document/block write tools still need a separate `ai.tool.job` facade before P7 can be closed end-to-end. Live SiYuan smoke covered backend health, private API, approved Xiuyuan Riff read/audit dry-run, Browser aggregate page, graph query, AI stream start/cancel, AI tool approval/cancel, Review source refresh, and Review Riff skip command shape; kernel-sidecar `riffReadAuditProxy` stayed `not-configured`, Browser open remained red, and real provider-backed non-streaming AI job smoke was not run.
+- Why deferred: Rewriting every AI tool write path behind `ai.tool.job` has wider UX/tool approval blast radius than the Review command cutover. Provider-backed AI smoke still needs usable credentials and a controlled prompt; kernel Riff proxy needs sidecar support instead of the approved renderer host-effect adapter.
+- Next safe step: Add the AI Workbench write-tool job facade around `AIChatToolExecutorService` / `AIFlashcardToolService`, then run provider-backed non-streaming AI job smoke and kernel-sidecar Riff proxy smoke.
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.hotspot-command.test.ts`; `pnpm exec vitest run src/ui/review/v2/__tests__/FinalDrillV2Session.characterization.test.ts src/ui/review/v2/__tests__/reviewSourceRefreshRuntime.test.ts`; `pnpm exec vitest run src/application/clients/__tests__/SrsBackendClient.test.ts`; `pnpm exec vitest run src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts`; `pnpm exec vitest run packages/contracts/src/__tests__/kernel-rpc.test.ts`; `pnpm exec vitest run scripts/__tests__/check-hidden-fallbacks.test.ts`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate backendize-runtime-hotspots --strict`; live `node scripts/live-low-end-smoke.cjs --label backendize-runtime-hotspots-p9`; CDP capability smoke on `127.0.0.1:9222`. `pnpm exec tsc --noEmit --pretty false` still fails on existing global TS/test debts; local touched-file hits were limited to test fixture typing and were fixed before build.
 
 ### 2026-05-25 - Browser Aggregate And Graph Query Read Models
 

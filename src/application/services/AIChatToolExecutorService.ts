@@ -1,5 +1,6 @@
 import type { AISiyuanBlockRow, AISiyuanMutationResult, AISiyuanPort } from '@/application/ports/AISiyuanPort';
 import type { LLMUsage } from '@/application/ports/LLMPort';
+import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 import type { AIFlashcardToolService } from '@/application/services/AIFlashcardToolService';
 import type { AIChatToolRegistry } from '@/application/services/AIChatToolRegistry';
 import type { AIChatVarStoreService } from '@/application/services/AIChatVarStoreService';
@@ -16,6 +17,11 @@ import type {
   AIWorkbenchContextSnapshot,
 } from '@/types/ai';
 import type { AISettings } from '@/types/settings';
+import type {
+  BackendAiToolJobApprovalRequest,
+  BackendAiToolJobExecuteRequest,
+  BackendAiToolJobResult,
+} from '../../../packages/contracts/src/backend-rpc';
 
 export interface AIChatToolRuntimeContext {
   context: AIWorkbenchContextSnapshot | null;
@@ -31,6 +37,8 @@ export interface AIChatToolExecutionInput {
   llmUsage?: LLMUsage;
   approvals?: AIChatToolApprovalCallbacks;
 }
+
+type AIChatToolJobClient = Pick<SrsBackendClient, 'executeAiToolJob' | 'submitAiToolJobApproval'>;
 
 function normalizeString(value: unknown): string {
   return String(value ?? '').trim();
@@ -171,6 +179,7 @@ export class AIChatToolExecutorService {
       varStore: AIChatVarStoreService;
       siyuanPort: AISiyuanPort;
       flashcardTools?: AIFlashcardToolService;
+      aiToolJobClient?: AIChatToolJobClient | null;
       getAISettings: () => AISettings;
     },
   ) {}
@@ -217,28 +226,44 @@ export class AIChatToolExecutorService {
       });
     }
 
-    const executionApproval = await this.maybeRequestExecutionApproval(
-      descriptor,
-      toolCall,
-      args,
-      argsText,
-      argsVarRef,
-      input?.approvals,
-    );
-    if (executionApproval) {
-      return this.buildResult(toolCall, {
-        status: executionApproval.approved ? 'success' : 'execution-rejected',
-        group: descriptor.group,
+    if (this.requiresBackendAiToolJob(descriptor, args)) {
+      const backendGateResult = await this.prepareBackendAiToolJob(
+        descriptor,
+        toolCall,
         args,
         argsText,
         argsVarRef,
-        finalText: executionApproval.approved ? '' : executionApproval.rejectReason || '用户拒绝执行。',
-        resultText: executionApproval.approved ? '' : executionApproval.rejectReason || '用户拒绝执行。',
-        error: executionApproval.approved ? undefined : executionApproval.rejectReason || '用户拒绝执行。',
-        durationMs: Date.now() - startAt,
-        roundIndex: input?.roundIndex,
-        llmUsage: input?.llmUsage,
-      });
+        runtime,
+        input,
+        startAt,
+      );
+      if (backendGateResult) {
+        return backendGateResult;
+      }
+    } else {
+      const executionApproval = await this.maybeRequestExecutionApproval(
+        descriptor,
+        toolCall,
+        args,
+        argsText,
+        argsVarRef,
+        input?.approvals,
+      );
+      if (executionApproval) {
+        return this.buildResult(toolCall, {
+          status: executionApproval.approved ? 'success' : 'execution-rejected',
+          group: descriptor.group,
+          args,
+          argsText,
+          argsVarRef,
+          finalText: executionApproval.approved ? '' : executionApproval.rejectReason || '用户拒绝执行。',
+          resultText: executionApproval.approved ? '' : executionApproval.rejectReason || '用户拒绝执行。',
+          error: executionApproval.approved ? undefined : executionApproval.rejectReason || '用户拒绝执行。',
+          durationMs: Date.now() - startAt,
+          roundIndex: input?.roundIndex,
+          llmUsage: input?.llmUsage,
+        });
+      }
     }
 
     try {
@@ -299,6 +324,237 @@ export class AIChatToolExecutorService {
       });
       return this.maybeRequestResultApproval(descriptor, toolCall, failureResult, input?.approvals);
     }
+  }
+
+  private async prepareBackendAiToolJob(
+    descriptor: AIChatToolDescriptor,
+    toolCall: AIChatToolCall,
+    args: Record<string, unknown>,
+    argsText: string,
+    argsVarRef: string | undefined,
+    runtime: AIChatToolRuntimeContext,
+    input: AIChatToolExecutionInput | undefined,
+    startAt: number,
+  ): Promise<AIChatToolExecutionResult | null> {
+    const client = this.deps.aiToolJobClient;
+    if (!client) {
+      return this.buildResult(toolCall, {
+        status: 'error',
+        group: descriptor.group,
+        args,
+        argsText,
+        argsVarRef,
+        finalText: 'AI_TOOL_JOB_UNAVAILABLE: backend AI tool job authority unavailable.',
+        resultText: 'AI_TOOL_JOB_UNAVAILABLE: backend AI tool job authority unavailable.',
+        error: 'AI_TOOL_JOB_UNAVAILABLE: backend AI tool job authority unavailable.',
+        durationMs: Date.now() - startAt,
+        roundIndex: input?.roundIndex,
+        llmUsage: input?.llmUsage,
+      });
+    }
+
+    const job = this.createBackendAiToolJobRequest(descriptor, toolCall, args, runtime);
+    let jobResult: BackendAiToolJobResult;
+    try {
+      jobResult = await client.executeAiToolJob(job);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return this.buildBackendAiToolJobError(toolCall, descriptor, args, argsText, argsVarRef, startAt, input, `AI_TOOL_JOB_UNAVAILABLE: ${message}`);
+    }
+
+    if (this.isBackendAiToolJobTerminalFailure(jobResult)) {
+      return this.buildBackendAiToolJobError(
+        toolCall,
+        descriptor,
+        args,
+        argsText,
+        argsVarRef,
+        startAt,
+        input,
+        this.formatBackendAiToolJobFailure(jobResult),
+      );
+    }
+
+    if (job.requiresApproval) {
+      const executionApproval = await this.maybeRequestExecutionApproval(
+        descriptor,
+        toolCall,
+        args,
+        argsText,
+        argsVarRef,
+        input?.approvals,
+      );
+      const approved = executionApproval === null || executionApproval.approved === true;
+      const approvalRequest: BackendAiToolJobApprovalRequest = {
+        jobId: job.jobId,
+        sessionId: job.sessionId,
+        commandId: job.commandId,
+        idempotencyKey: `${job.idempotencyKey}:approval`,
+        decision: approved ? 'approved' : 'rejected',
+        decidedAt: Date.now(),
+      };
+      let approvalResult: BackendAiToolJobResult;
+      try {
+        approvalResult = await client.submitAiToolJobApproval(approvalRequest);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return this.buildBackendAiToolJobError(toolCall, descriptor, args, argsText, argsVarRef, startAt, input, `AI_TOOL_JOB_APPROVAL_UNAVAILABLE: ${message}`);
+      }
+      if (this.isBackendAiToolJobTerminalFailure(approvalResult)) {
+        return this.buildBackendAiToolJobError(
+          toolCall,
+          descriptor,
+          args,
+          argsText,
+          argsVarRef,
+          startAt,
+          input,
+          this.formatBackendAiToolJobFailure(approvalResult),
+        );
+      }
+      if (!approved) {
+        const reason = executionApproval?.rejectReason || '用户拒绝执行。';
+        return this.buildResult(toolCall, {
+          status: 'execution-rejected',
+          group: descriptor.group,
+          args,
+          argsText,
+          argsVarRef,
+          finalText: reason,
+          resultText: reason,
+          error: reason,
+          durationMs: Date.now() - startAt,
+          roundIndex: input?.roundIndex,
+          llmUsage: input?.llmUsage,
+        });
+      }
+    } else if (jobResult.status !== 'completed' && jobResult.status !== 'duplicate' && jobResult.status !== 'queued') {
+      return this.buildBackendAiToolJobError(
+        toolCall,
+        descriptor,
+        args,
+        argsText,
+        argsVarRef,
+        startAt,
+        input,
+        this.formatBackendAiToolJobFailure(jobResult),
+      );
+    }
+
+    return null;
+  }
+
+  private requiresBackendAiToolJob(
+    descriptor: AIChatToolDescriptor,
+    args: Record<string, unknown>,
+  ): boolean {
+    if (descriptor.name === 'DecideStudyAction') {
+      return false;
+    }
+    if (descriptor.group === 'flashcard-write') {
+      return true;
+    }
+    if (descriptor.name === 'AppendContent' || descriptor.name === 'CreateNewDoc') {
+      return true;
+    }
+    if (descriptor.name === 'ApplyBlockDiff') {
+      return args.dryRun !== true;
+    }
+    return false;
+  }
+
+  private createBackendAiToolJobRequest(
+    descriptor: AIChatToolDescriptor,
+    toolCall: AIChatToolCall,
+    args: Record<string, unknown>,
+    runtime: AIChatToolRuntimeContext,
+  ): BackendAiToolJobExecuteRequest {
+    const sessionId = this.resolveBackendAiToolSessionId(runtime);
+    const jobId = `ai-tool-job:${toolCall.id}`;
+    const commandId = `ai-tool-command:${toolCall.id}`;
+    const requiresApproval = descriptor.executionPolicy !== 'auto';
+    return {
+      jobId,
+      sessionId,
+      commandId,
+      idempotencyKey: `${jobId}:${descriptor.name}`,
+      toolName: descriptor.name,
+      phase: requiresApproval ? 'approval-wait' : 'write-preparation',
+      requiresApproval,
+      approvalState: requiresApproval ? 'pending' : 'not-required',
+      writeIntent: this.createBackendAiToolWriteIntent(descriptor, args),
+      deadlineAt: Date.now() + 60_000,
+    };
+  }
+
+  private resolveBackendAiToolSessionId(runtime: AIChatToolRuntimeContext): string {
+    const reviewSessionId = (runtime.context as { reviewSessionId?: unknown } | null)?.reviewSessionId;
+    const normalizedReviewSessionId = normalizeString(reviewSessionId);
+    if (normalizedReviewSessionId) {
+      return `ai-tool-session:review:${normalizedReviewSessionId}`;
+    }
+    return `ai-tool-session:${runtime.context?.source || 'standalone'}`;
+  }
+
+  private createBackendAiToolWriteIntent(
+    descriptor: AIChatToolDescriptor,
+    args: Record<string, unknown>,
+  ): BackendAiToolJobExecuteRequest['writeIntent'] {
+    const targetBlockId = normalizeString(args.targetBlockId) || normalizeString(args.parentBlockId) || normalizeString(args.blockId) || null;
+    if (descriptor.name === 'CreateExcerptTopic') {
+      return { kind: 'progressive', targetBlockId, sourceId: normalizeString(args.sourceBlockId) || null, cardCount: this.countToolItems(args) };
+    }
+    if (descriptor.name === 'CreateTopicItems') {
+      return { kind: 'topic-derived', targetBlockId, sourceId: normalizeString(args.sourceBlockId) || null, cardCount: this.countToolItems(args) };
+    }
+    if (descriptor.name === 'AppendContent' || descriptor.name === 'CreateNewDoc' || descriptor.name === 'ApplyBlockDiff') {
+      return { kind: 'markdown-insertion', targetBlockId, sourceId: null, cardCount: null };
+    }
+    return { kind: 'flashcard', targetBlockId, sourceId: null, cardCount: this.countToolItems(args) };
+  }
+
+  private countToolItems(args: Record<string, unknown>): number | null {
+    if (Array.isArray(args.items)) {
+      return args.items.length;
+    }
+    if (Array.isArray(args.cards)) {
+      return args.cards.length;
+    }
+    return null;
+  }
+
+  private isBackendAiToolJobTerminalFailure(result: BackendAiToolJobResult): boolean {
+    return result.status === 'unavailable' || result.status === 'failed' || result.status === 'canceled' || result.status === 'rejected';
+  }
+
+  private formatBackendAiToolJobFailure(result: BackendAiToolJobResult): string {
+    const reason = normalizeString(result.reason) || result.status;
+    return `AI_TOOL_JOB_${String(result.unavailableClass || result.status).toUpperCase()}: ${reason}`;
+  }
+
+  private buildBackendAiToolJobError(
+    toolCall: AIChatToolCall,
+    descriptor: AIChatToolDescriptor,
+    args: Record<string, unknown>,
+    argsText: string,
+    argsVarRef: string | undefined,
+    startAt: number,
+    input: AIChatToolExecutionInput | undefined,
+    message: string,
+  ): AIChatToolExecutionResult {
+    return this.buildResult(toolCall, {
+      status: 'error',
+      group: descriptor.group,
+      args,
+      argsText,
+      argsVarRef,
+      finalText: message,
+      resultText: message,
+      error: message,
+      durationMs: Date.now() - startAt,
+      roundIndex: input?.roundIndex,
+      llmUsage: input?.llmUsage,
+    });
   }
 
   private async maybeRequestExecutionApproval(

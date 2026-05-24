@@ -15,6 +15,8 @@
 3. 前端新增 `KernelPluginPort` 与 `KernelPluginRpcAdapter`，保持 `ui -> application -> infrastructure` 边界。
 4. kernel companion 只调用思源 kernel REST/Riff API 和自身 `siyuan.storage`，不直接读写 SiYuanMemo 主 SQLite 文件。
 
+2026-05-25 runtime update: `backendize-runtime-hotspots` 继续维持这个边界。`kernel.js` 仍只做 writer lease / relay / private network or SSE coordination；AI tool jobs、Review Riff feedback、Review source refresh、Browser aggregate reads、Graph query read models 都由 `SrsBackendWorker` / application writer owner 处理。FinalDrill Riff feedback 当前通过 backend Worker host-effect 回到组合根批准的 `ReviewSiyuanPort`，不是 kernel-sidecar business API；kernel Riff proxy 现在只补 `riff.read` / `riff.audit` 两个窄读 RPC，live smoke 已确认它可用且不回传 block content；它仍不能承接 scheduler、queue projection、AI job state 或 `siyuanmemo.db` 写入。
+
 ## 调研来源
 
 - PR 本地摘要: `docs/UPSTREAM_PR_17487_SUMMARY.md`

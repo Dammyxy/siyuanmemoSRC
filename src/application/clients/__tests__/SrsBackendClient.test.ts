@@ -278,6 +278,137 @@ describe('SrsBackendClient', () => {
     ]);
   });
 
+  it('routes AI tool jobs and Review backend commands through typed RPC methods', async () => {
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => {
+        requests.push({ method: request.method, params: request.params });
+        switch (request.method) {
+          case 'ai.tool.job.execute':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                status: 'waiting-for-user-approval',
+                jobId: 'job-1',
+                sessionId: 'session-1',
+                commandId: 'command-1',
+                phase: 'approval-wait',
+                progress: { state: 'waiting-for-user-approval', updatedAt: 1 },
+                diagnostics: {
+                  diagnosticEventId: 'diag-ai-tool-1',
+                  family: 'ai.tool-job',
+                  commandId: 'command-1',
+                },
+              },
+            };
+          case 'ai.tool.job.approval':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                status: 'completed',
+                jobId: 'job-1',
+                sessionId: 'session-1',
+                commandId: 'command-1',
+                phase: 'terminal',
+                progress: { state: 'succeeded', updatedAt: 2 },
+                diagnostics: {
+                  diagnosticEventId: 'diag-ai-tool-2',
+                  family: 'ai.tool-job',
+                  commandId: 'command-1',
+                },
+              },
+            };
+          case 'review.riffFeedback.execute':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                status: 'completed',
+                commandId: 'riff-1',
+                idempotencyKey: 'riff-key-1',
+                action: 'rate',
+                updated: 1,
+                skipped: 0,
+                queueImpact: {
+                  refreshRequired: true,
+                  projectionChanged: true,
+                  removedFromQueue: true,
+                },
+                diagnostics: {
+                  diagnosticEventId: 'diag-riff-1',
+                  family: 'review.riff-feedback',
+                  commandId: 'riff-1',
+                },
+              },
+            };
+          case 'review.sourceRefresh.execute':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                status: 'refresh-required',
+                commandId: 'refresh-1',
+                idempotencyKey: 'refresh-key-1',
+                matchedBlockIds: ['block-1'],
+                impact: {
+                  refreshVisibleContent: true,
+                  cleanupMissingSource: false,
+                },
+                diagnostics: {
+                  diagnosticEventId: 'diag-refresh-1',
+                  family: 'review.source-refresh',
+                  commandId: 'refresh-1',
+                },
+              },
+            };
+          default:
+            return { jsonrpc: '2.0', id: request.id, error: { code: 'METHOD_NOT_FOUND', message: 'not mocked' } };
+        }
+      }),
+    };
+    const client = new SrsBackendClient(transport);
+
+    await expect(client.executeAiToolJob({
+      jobId: 'job-1',
+      sessionId: 'session-1',
+      commandId: 'command-1',
+      idempotencyKey: 'ai-key-1',
+      toolName: 'flashcard.create',
+      requiresApproval: true,
+    })).resolves.toMatchObject({ status: 'waiting-for-user-approval' });
+    await expect(client.submitAiToolJobApproval({
+      jobId: 'job-1',
+      sessionId: 'session-1',
+      commandId: 'command-1',
+      idempotencyKey: 'ai-key-1',
+      decision: 'approved',
+      decidedAt: 2,
+    })).resolves.toMatchObject({ status: 'completed' });
+    await expect(client.executeReviewRiffFeedback({
+      commandId: 'riff-1',
+      idempotencyKey: 'riff-key-1',
+      action: 'rate',
+      deckId: 'deck-1',
+      riffCardId: 'card-1',
+      rating: 4,
+    })).resolves.toMatchObject({ status: 'completed', updated: 1 });
+    await expect(client.executeReviewSourceRefresh({
+      commandId: 'refresh-1',
+      idempotencyKey: 'refresh-key-1',
+      changedBlockIds: ['block-1'],
+      dependencyBlockIds: ['block-1'],
+    })).resolves.toMatchObject({ status: 'refresh-required', matchedBlockIds: ['block-1'] });
+
+    expect(requests.map((request) => request.method)).toEqual([
+      'ai.tool.job.execute',
+      'ai.tool.job.approval',
+      'review.riffFeedback.execute',
+      'review.sourceRefresh.execute',
+    ]);
+  });
+
   it('reads domain sync diagnostics through the backend RPC', async () => {
     const transport: SrsBackendTransport = {
       request: vi.fn(async (request) => ({

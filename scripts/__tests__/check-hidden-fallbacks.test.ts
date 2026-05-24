@@ -266,4 +266,33 @@ describe('check-hidden-fallbacks', () => {
       }),
     ]));
   });
+
+  it('fails migrated hotspot local fallback fixtures with slice-specific violation classes', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/application/services/XiuyuanSyncService.ts', `
+      logger.warn('backend xiuyuan sync unavailable; falling back to local riff sync');
+    `);
+    writeFile(rootDir, 'src/application/services/BrowserApplicationService.ts', `
+      logger.warn('backend aggregate snapshot failed; fallback to renderer allRows full snapshot');
+    `);
+    writeFile(rootDir, 'worker/graph/WorkerGraphQueryService.ts', `
+      logger.warn('backend graph query failed; fallback to renderer SQL host effect');
+    `);
+    writeFile(rootDir, 'src/application/services/AIChatToolExecutorService.ts', `
+      logger.warn('ai tool backend job failed; fallback to direct flashcard write');
+    `);
+    writeFile(rootDir, 'src/application/services/ReviewApplicationService.ts', `
+      logger.warn('review riff/source refresh backend command failed; fallback to local review source refresh');
+    `);
+
+    const result = evaluate({ rootDir, allowEntries: [] });
+
+    expect(result.failures).toEqual(expect.arrayContaining([
+      expect.stringContaining('xiuyuan-sync-local-fallback'),
+      expect.stringContaining('browser-aggregate-local-fallback'),
+      expect.stringContaining('graph-query-renderer-fallback'),
+      expect.stringContaining('ai-tool-direct-write-fallback'),
+      expect.stringContaining('review-hotspot-local-fallback'),
+    ]));
+  });
 });

@@ -11,6 +11,8 @@ import type {
   BackendTopicDerivedCommandExecuteResult,
   BackendNeuralGraphQueryRequest,
   BackendNeuralGraphQueryResult,
+  BackendReviewRiffFeedbackExecuteRequest,
+  BackendReviewRiffFeedbackExecuteResult,
   BackendRpcRequest,
   BackendRpcResponse,
   BackendXiuyuanRiffReadAuditRequest,
@@ -18,7 +20,6 @@ import type {
 } from '../../../packages/contracts/src/backend-rpc';
 import type {
   BackendWorkerHostEffect,
-  BackendWorkerHostEffectResultMessage,
   BackendWorkerMainToWorkerMessage,
   BackendWorkerToMainMessage,
 } from '../../../worker/bootstrap/BackendWorkerProtocol';
@@ -54,6 +55,9 @@ export interface BrowserSrsBackendWorkerHostEffects {
   executeTopicDerivedCommand?: (
     request: BackendTopicDerivedCommandExecuteRequest,
   ) => Promise<BackendTopicDerivedCommandExecuteResult>;
+  executeReviewRiffFeedback?: (
+    request: BackendReviewRiffFeedbackExecuteRequest,
+  ) => Promise<BackendReviewRiffFeedbackExecuteResult>;
   executeAiPrompt?: (
     request: BackendAiPromptExecuteRequest['request'],
     context: BackendAiPromptExecuteRequest,
@@ -388,6 +392,11 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           throw unavailable('topic-derived.command.execute host effect unavailable');
         }
         return this.options.hostEffects.executeTopicDerivedCommand(effect.request);
+      case 'review.riffFeedback.execute':
+        if (!this.options.hostEffects.executeReviewRiffFeedback) {
+          throw unavailable('review.riffFeedback.execute host effect unavailable');
+        }
+        return this.options.hostEffects.executeReviewRiffFeedback(effect.request);
       case 'ai.prompt.execute':
         if (!this.options.hostEffects.executeAiPrompt) {
           throw unavailable('ai.prompt.execute host effect unavailable');

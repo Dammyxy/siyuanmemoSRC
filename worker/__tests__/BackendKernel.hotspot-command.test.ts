@@ -42,6 +42,10 @@ function createKernel(): BackendKernel {
   });
 }
 
+function createKernelWithDatabase(database: WorkerSqliteDatabaseService): BackendKernel {
+  return new BackendKernel({ database });
+}
+
 describe('BackendKernel hotspot command runtime', () => {
   it('accepts hotspot commands and replays duplicate idempotency keys without creating another command', async () => {
     const kernel = createKernel();
@@ -545,5 +549,225 @@ describe('BackendKernel hotspot command runtime', () => {
     }));
     expect(progressive).toHaveBeenCalledTimes(1);
     expect(topic).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps AI tool job lifecycle backend-authoritative and content-safe', async () => {
+    const kernel = createKernel();
+    const execute = await kernel.handle({
+      id: 'ai-tool-1',
+      jsonrpc: '2.0',
+      method: 'ai.tool.job.execute',
+      params: [{
+        jobId: 'job-1',
+        sessionId: 'session-1',
+        commandId: 'command-1',
+        idempotencyKey: 'ai-tool-key-1',
+        toolName: 'flashcard.create',
+        providerId: 'openai',
+        modelId: 'model-a',
+        requiresApproval: true,
+        writeIntent: {
+          kind: 'flashcard',
+          sourceId: 'source-1',
+          cardCount: 2,
+        },
+      }],
+    });
+    const duplicate = await kernel.handle({
+      id: 'ai-tool-dup',
+      jsonrpc: '2.0',
+      method: 'ai.tool.job.execute',
+      params: [{
+        jobId: 'job-1',
+        sessionId: 'session-1',
+        commandId: 'command-1',
+        idempotencyKey: 'ai-tool-key-1',
+        toolName: 'flashcard.create',
+        requiresApproval: true,
+      }],
+    });
+    const rejected = await kernel.handle({
+      id: 'ai-tool-reject',
+      jsonrpc: '2.0',
+      method: 'ai.tool.job.approval',
+      params: [{
+        jobId: 'job-1',
+        sessionId: 'session-1',
+        commandId: 'command-1',
+        idempotencyKey: 'ai-tool-key-1',
+        decision: 'rejected',
+        decidedAt: 2,
+      }],
+    });
+
+    expect(execute).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'waiting-for-user-approval',
+        phase: 'approval-wait',
+        progress: expect.objectContaining({ state: 'waiting-for-user-approval' }),
+      }),
+    }));
+    expect(duplicate).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'waiting-for-user-approval',
+      }),
+    }));
+    expect(rejected).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'rejected',
+        phase: 'terminal',
+        diagnostics: expect.objectContaining({
+          family: 'ai.tool-job',
+          errorCategory: 'VALIDATION_FAILED',
+        }),
+      }),
+    }));
+    expect(JSON.stringify((execute as { result: unknown }).result)).not.toContain('source document body');
+  });
+
+  it('executes Review Riff feedback through host effect idempotently and fails closed when unavailable', async () => {
+    const executeReviewRiffFeedback = vi.fn(async (request) => ({
+      status: 'completed' as const,
+      commandId: request.commandId,
+      idempotencyKey: request.idempotencyKey,
+      action: request.action,
+      updated: request.action === 'rate' ? 1 : 0,
+      skipped: request.action === 'skip' ? 1 : 0,
+      queueImpact: {
+        refreshRequired: true,
+        projectionChanged: true,
+        removedFromQueue: request.action === 'rate' && Number(request.rating) >= 4,
+      },
+      diagnostics: {
+        diagnosticEventId: 'diag-riff-1',
+        family: 'review.riff-feedback' as const,
+        commandId: request.commandId,
+        errorCategory: null,
+      },
+    }));
+    const kernel = new BackendKernel({
+      database: new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge()),
+      executeReviewRiffFeedback,
+    });
+    const request = {
+      commandId: 'riff-command-1',
+      idempotencyKey: 'riff-key-1',
+      action: 'rate',
+      deckId: 'deck-1',
+      riffCardId: 'riff-card-1',
+      rating: 4,
+    };
+
+    const first = await kernel.handle({
+      id: 'riff-1',
+      jsonrpc: '2.0',
+      method: 'review.riffFeedback.execute',
+      params: [request],
+    });
+    const duplicate = await kernel.handle({
+      id: 'riff-2',
+      jsonrpc: '2.0',
+      method: 'review.riffFeedback.execute',
+      params: [request],
+    });
+    const unavailable = await createKernel().handle({
+      id: 'riff-unavailable',
+      jsonrpc: '2.0',
+      method: 'review.riffFeedback.execute',
+      params: [request],
+    });
+
+    expect(first).toEqual(expect.objectContaining({
+      result: expect.objectContaining({ status: 'completed', updated: 1 }),
+    }));
+    expect(duplicate).toEqual(expect.objectContaining({
+      result: expect.objectContaining({ status: 'duplicate', updated: 1 }),
+    }));
+    expect(unavailable).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'unavailable',
+        unavailableClass: 'BACKEND_UNAVAILABLE',
+      }),
+    }));
+    expect(executeReviewRiffFeedback).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns backend-authored Review source refresh impact', async () => {
+    const kernel = createKernel();
+
+    const refresh = await kernel.handle({
+      id: 'refresh-1',
+      jsonrpc: '2.0',
+      method: 'review.sourceRefresh.execute',
+      params: [{
+        commandId: 'refresh-command-1',
+        idempotencyKey: 'refresh-key-1',
+        currentCardId: 'card-1',
+        changedBlockIds: ['block-2', 'block-3'],
+        dependencyBlockIds: ['block-1', 'block-2'],
+      }],
+    });
+    const noOp = await kernel.handle({
+      id: 'refresh-2',
+      jsonrpc: '2.0',
+      method: 'review.sourceRefresh.execute',
+      params: [{
+        commandId: 'refresh-command-2',
+        idempotencyKey: 'refresh-key-2',
+        currentCardId: 'card-1',
+        changedBlockIds: ['block-3'],
+        dependencyBlockIds: ['block-1', 'block-2'],
+      }],
+    });
+
+    expect(refresh).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'refresh-required',
+        matchedBlockIds: ['block-2'],
+        impact: expect.objectContaining({ refreshVisibleContent: true }),
+      }),
+    }));
+    expect(noOp).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'no-op',
+        matchedBlockIds: [],
+        impact: expect.objectContaining({ refreshVisibleContent: false }),
+      }),
+    }));
+  });
+
+  it('routes Review missing-source cleanup through backend source-existence mutation', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const updateSourceExistence = vi.spyOn(database, 'updateSourceExistence').mockResolvedValue();
+    const kernel = createKernelWithDatabase(database);
+
+    const result = await kernel.handle({
+      id: 'refresh-missing-source',
+      jsonrpc: '2.0',
+      method: 'review.sourceRefresh.execute',
+      params: [{
+        commandId: 'refresh-command-missing',
+        idempotencyKey: 'refresh-key-missing',
+        currentCardId: 'card-missing',
+        currentBlockId: 'block-missing',
+        changedBlockIds: ['block-missing'],
+        dependencyBlockIds: ['block-missing'],
+        missingSourceBlockIds: ['block-missing'],
+      }],
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'missing-source',
+        matchedBlockIds: ['block-missing'],
+        impact: expect.objectContaining({
+          refreshVisibleContent: false,
+          cleanupMissingSource: true,
+        }),
+      }),
+    }));
+    expect(updateSourceExistence).toHaveBeenCalledWith([
+      { cardId: 'card-missing', blockId: 'block-missing', exists: false },
+    ], expect.any(Number));
   });
 });

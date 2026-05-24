@@ -1,4 +1,8 @@
 import type { TransactionClassification } from '@/core/infrastructure/websocket/transaction-classifier';
+import type {
+  BackendReviewSourceRefreshExecuteRequest,
+  BackendReviewSourceRefreshExecuteResult,
+} from '../../../../packages/contracts/src/backend-rpc';
 
 type TimerId = ReturnType<typeof globalThis.setTimeout>;
 
@@ -41,6 +45,9 @@ export type ReviewSourceRefreshRuntimeOptions = {
   isAdvancePending: () => boolean;
   getCurrentReference: () => ReviewSourceRefreshReference;
   getDependencyBlockIds: () => string[];
+  resolveBackendImpact?: (
+    request: BackendReviewSourceRefreshExecuteRequest,
+  ) => Promise<BackendReviewSourceRefreshExecuteResult>;
   isMainProtyleEditing: () => boolean;
   refreshVisibleContent: (reason: 'source-transaction') => Promise<unknown> | unknown;
   logger?: ReviewSourceRefreshLogger;
@@ -202,13 +209,36 @@ export function createReviewSourceRefreshRuntime(
       return;
     }
 
-    const matchedBlockIds = effectiveBlockIds.filter((blockId) => dependencyBlockIds.has(blockId));
-    if (matchedBlockIds.length === 0) {
+    const currentReference = normalizeReference(options.getCurrentReference());
+    if (!currentReference.cardId && !currentReference.blockId) {
       return;
     }
 
-    const currentReference = normalizeReference(options.getCurrentReference());
-    if (!currentReference.cardId && !currentReference.blockId) {
+    const request: BackendReviewSourceRefreshExecuteRequest = {
+      commandId: `review-source-refresh:${currentReference.cardId || currentReference.blockId}:${timestamp}`,
+      idempotencyKey: `review-source-refresh:${currentReference.cardId || currentReference.blockId}:${effectiveBlockIds.join(',')}:${timestamp}`,
+      sessionId: 'review-v2',
+      currentCardId: currentReference.cardId || null,
+      currentBlockId: currentReference.blockId || null,
+      changedBlockIds: effectiveBlockIds,
+      dependencyBlockIds: Array.from(dependencyBlockIds),
+    };
+    const impact = options.resolveBackendImpact
+      ? await options.resolveBackendImpact(request)
+      : null;
+    const matchedBlockIds = impact
+      ? impact.matchedBlockIds
+      : effectiveBlockIds.filter((blockId) => dependencyBlockIds.has(blockId));
+    if (matchedBlockIds.length === 0 || impact?.impact.refreshVisibleContent === false) {
+      return;
+    }
+    if (impact?.status === 'unavailable' || impact?.status === 'failed') {
+      options.logger?.debug?.('[SiYuanMemo][ReviewView] Source refresh backend impact unavailable:', {
+        status: impact.status,
+        reason: impact.reason,
+        currentCardId: currentReference.cardId,
+        currentBlockId: currentReference.blockId,
+      });
       return;
     }
 

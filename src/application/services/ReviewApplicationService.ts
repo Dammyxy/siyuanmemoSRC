@@ -1,8 +1,18 @@
 import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
+import type { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
+import type { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
+import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 import type { SchedulerRouter } from '@/core/scheduler';
 import type { FSRSCard, Rating } from '@/types';
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
+import type {
+  BackendReviewRiffFeedbackExecuteRequest,
+  BackendReviewRiffFeedbackExecuteResult,
+  BackendReviewSourceRefreshExecuteRequest,
+  BackendReviewSourceRefreshExecuteResult,
+  BackendUnavailableClass,
+} from '../../../packages/contracts/src/backend-rpc';
 
 const logger = createLogger('ReviewApplicationService');
 
@@ -38,6 +48,9 @@ export class ReviewApplicationService {
     private readonly manager: IUnifiedDataSourceManagerFacade,
     private readonly schedulerRouter: SchedulerRouter,
     private readonly siyuanApi: ReviewSiyuanPort,
+    private readonly backendClient: Pick<SrsBackendClient, 'executeReviewRiffFeedback' | 'executeReviewSourceRefresh'> | null = null,
+    private readonly frontendInstanceRuntime: Pick<FrontendInstanceRuntime, 'getMode' | 'getInstanceId'> | null = null,
+    private readonly followerCommandClient: Pick<FollowerCommandClient, 'submitAndWait'> | null = null,
   ) {}
 
   async rescheduleCard(cardId: string, options: RescheduleOptions): Promise<FSRSCard> {
@@ -100,6 +113,116 @@ export class ReviewApplicationService {
 
   async updateBlockMarkdown(blockId: string, markdown: string): Promise<string> {
     return this.siyuanApi.updateBlockMarkdown(blockId, markdown);
+  }
+
+  async executeFinalDrillRiffFeedback(
+    request: BackendReviewRiffFeedbackExecuteRequest,
+  ): Promise<BackendReviewRiffFeedbackExecuteResult> {
+    return this.executeReviewBackendCommand(
+      'review.riffFeedback.execute',
+      request,
+      (client, params) => client.executeReviewRiffFeedback(params),
+      () => this.createReviewRiffFeedbackUnavailable(request, 'review.riffFeedback.execute backend authority unavailable'),
+    );
+  }
+
+  async executeReviewSourceRefresh(
+    request: BackendReviewSourceRefreshExecuteRequest,
+  ): Promise<BackendReviewSourceRefreshExecuteResult> {
+    return this.executeReviewBackendCommand(
+      'review.sourceRefresh.execute',
+      request,
+      (client, params) => client.executeReviewSourceRefresh(params),
+      () => this.createReviewSourceRefreshUnavailable(request, 'review.sourceRefresh.execute backend authority unavailable'),
+    );
+  }
+
+  private async executeReviewBackendCommand<TRequest, TResult>(
+    method: 'review.riffFeedback.execute' | 'review.sourceRefresh.execute',
+    request: TRequest,
+    execute: (
+      client: Pick<SrsBackendClient, 'executeReviewRiffFeedback' | 'executeReviewSourceRefresh'>,
+      request: TRequest,
+    ) => Promise<TResult>,
+    unavailable: () => TResult,
+  ): Promise<TResult> {
+    const runtime = this.frontendInstanceRuntime;
+    if (runtime?.getMode() === 'follower' && this.followerCommandClient) {
+      return this.followerCommandClient.submitAndWait<TResult>({
+        instanceId: runtime.getInstanceId(),
+        method,
+        params: request,
+      });
+    }
+    if (!this.backendClient) {
+      return unavailable();
+    }
+    return execute(this.backendClient, request);
+  }
+
+  private createReviewRiffFeedbackUnavailable(
+    request: BackendReviewRiffFeedbackExecuteRequest,
+    reason: string,
+    unavailableClass: BackendUnavailableClass = 'BACKEND_UNAVAILABLE',
+  ): BackendReviewRiffFeedbackExecuteResult {
+    const now = Date.now();
+    return {
+      status: 'unavailable',
+      commandId: request.commandId,
+      idempotencyKey: request.idempotencyKey,
+      action: request.action,
+      updated: 0,
+      skipped: 0,
+      unavailableClass,
+      reason,
+      queueImpact: {
+        refreshRequired: false,
+        projectionChanged: false,
+        removedFromQueue: false,
+      },
+      diagnostics: {
+        diagnosticEventId: `review-riff-feedback:${request.commandId}:${now}`,
+        family: 'review.riff-feedback',
+        commandId: request.commandId,
+        timing: {
+          submittedAt: now,
+          deadlineAt: request.deadlineAt ?? null,
+          completedAt: now,
+        },
+        errorCategory: unavailableClass,
+      },
+    };
+  }
+
+  private createReviewSourceRefreshUnavailable(
+    request: BackendReviewSourceRefreshExecuteRequest,
+    reason: string,
+    unavailableClass: BackendUnavailableClass = 'BACKEND_UNAVAILABLE',
+  ): BackendReviewSourceRefreshExecuteResult {
+    const now = Date.now();
+    return {
+      status: 'unavailable',
+      commandId: request.commandId,
+      idempotencyKey: request.idempotencyKey,
+      matchedBlockIds: [],
+      unavailableClass,
+      reason,
+      impact: {
+        refreshVisibleContent: false,
+        cleanupMissingSource: false,
+      },
+      diagnostics: {
+        diagnosticEventId: `review-source-refresh:${request.commandId}:${now}`,
+        family: 'review.source-refresh',
+        commandId: request.commandId,
+        timing: {
+          submittedAt: now,
+          deadlineAt: request.deadlineAt ?? null,
+          completedAt: now,
+        },
+        errorCategory: unavailableClass,
+      },
+    };
   }
 
   private async reconcileQueueMembershipAfterReschedule(card: FSRSCard): Promise<void> {

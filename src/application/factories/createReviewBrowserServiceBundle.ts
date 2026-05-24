@@ -106,6 +106,9 @@ export function createReviewBrowserServiceBundle(
       deps.getUnifiedDataSourceManager(),
       deps.getScheduler(),
       deps.createReviewSiyuanPort(),
+      deps.getSrsBackendClient(),
+      deps.getFrontendInstanceRuntime(),
+      deps.getFollowerCommandClient(),
     ),
     createCardEditorApplicationService: () => new CardEditorApplicationService(
       deps.getUnifiedDataSourceManager(),

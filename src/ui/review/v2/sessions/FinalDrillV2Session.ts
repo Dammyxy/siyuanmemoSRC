@@ -3,6 +3,7 @@ import { StorageFileJsonAdapter } from '../../../../core/queue/adapters/storageF
 import type { QueueItem, QueueUIConfig } from '../../../../core/queue/types.ts';
 import type { IQueueStrategy, QueueFeedback } from '../../../../core/queue/abstraction/Strategy.ts';
 import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
+import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import { createLogger } from '../../../../utils/logger.ts';
 
 const logger = createLogger('FinalDrillV2Session');
@@ -33,11 +34,11 @@ type QueueItemWithLegacyIds = QueueItem & {
 
 type PluginLike = {
   getContext?: () => {
-    getReviewService?: () => {
-      getSiyuanApi?: () => Pick<ReviewSiyuanPort, 'reviewRiffCard' | 'skipReviewRiffCard' | 'pushErrMsg'>;
-    };
+    getReviewService?: () => Pick<ReviewApplicationService, 'executeFinalDrillRiffFeedback' | 'getSiyuanApi'>;
   };
 };
+
+type FinalDrillReviewService = Pick<ReviewApplicationService, 'executeFinalDrillRiffFeedback' | 'getSiyuanApi'>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -75,7 +76,8 @@ function resolveDeckID(item: QueueItem): string {
 export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
   private readonly queue: FinalDrillQueueLike;
   private readonly i18n?: Record<string, string>;
-  private readonly siyuanApi: Pick<ReviewSiyuanPort, 'reviewRiffCard' | 'skipReviewRiffCard' | 'pushErrMsg'>;
+  private readonly reviewService: FinalDrillReviewService;
+  private readonly siyuanApi: Pick<ReviewSiyuanPort, 'pushErrMsg'>;
   private readonly progressAdapter: StorageFileJsonAdapter<ProgressSnapshot> | null;
   private cachedItems: QueueItem[] = [];
 
@@ -97,17 +99,21 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     storage?: PluginFilePort;
     i18n?: Record<string, string>;
     plugin?: unknown;
-    siyuanApi?: Pick<ReviewSiyuanPort, 'reviewRiffCard' | 'skipReviewRiffCard' | 'pushErrMsg'>;
+    reviewService?: FinalDrillReviewService;
+    siyuanApi?: Pick<ReviewSiyuanPort, 'pushErrMsg'>;
   }) {
     this.queue = options.queue;
     this.i18n = options.i18n;
 
-    const contextSiyuanApi = (options.plugin as PluginLike | undefined)
+    const contextReviewService = (options.plugin as PluginLike | undefined)
       ?.getContext?.()
-      ?.getReviewService?.()
-      ?.getSiyuanApi?.();
+      ?.getReviewService?.();
 
-    this.siyuanApi = options.siyuanApi || contextSiyuanApi;
+    this.reviewService = options.reviewService || contextReviewService;
+    this.siyuanApi = options.siyuanApi || this.reviewService?.getSiyuanApi?.();
+    if (!this.reviewService) {
+      throw new Error('FinalDrillV2Session requires review application service');
+    }
     if (!this.siyuanApi) {
       throw new Error('FinalDrillV2Session requires review siyuan api');
     }
@@ -203,9 +209,15 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
       const cardID = resolveCardID(currentItem);
       const deckID = resolveDeckID(currentItem);
       if (cardID && deckID) {
-        await this.siyuanApi.skipReviewRiffCard(deckID, cardID).catch(async () => {
-          await this.siyuanApi.pushErrMsg(this.t('drillFailed', '最终冲刺操作失败'));
+        const ok = await this.executeRiffFeedback({
+          action: 'skip',
+          deckId: deckID,
+          riffCardId: cardID,
         });
+        if (!ok) {
+          await this.siyuanApi.pushErrMsg(this.t('drillFailed', '最终冲刺操作失败'));
+          return;
+        }
       }
       await this.rotateToEnd(currentItem);
       await this.saveProgress();
@@ -227,9 +239,16 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
       this.progress.initialTotal = this.progress.answered + this.cachedItems.length;
     }
 
-    await this.siyuanApi.reviewRiffCard(deckID, cardID, rating).catch(async () => {
-      await this.siyuanApi.pushErrMsg(this.t('drillFailed', '最终冲刺操作失败'));
+    const ok = await this.executeRiffFeedback({
+      action: 'rate',
+      deckId: deckID,
+      riffCardId: cardID,
+      rating,
     });
+    if (!ok) {
+      await this.siyuanApi.pushErrMsg(this.t('drillFailed', '最终冲刺操作失败'));
+      return;
+    }
 
     this.progress.answered += 1;
     if (rating >= 3) this.progress.correct += 1;
@@ -319,5 +338,30 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
 
   private t(key: string, fallback: string): string {
     return this.i18n?.[key] || fallback;
+  }
+
+  private async executeRiffFeedback(input: {
+    action: 'rate' | 'skip';
+    deckId: string;
+    riffCardId: string;
+    rating?: number;
+  }): Promise<boolean> {
+    const now = Date.now();
+    const commandId = `final-drill:${input.action}:${input.deckId}:${input.riffCardId}:${now}`;
+    try {
+      const result = await this.reviewService.executeFinalDrillRiffFeedback({
+        commandId,
+        idempotencyKey: commandId,
+        sessionId: 'final-drill',
+        action: input.action,
+        deckId: input.deckId,
+        riffCardId: input.riffCardId,
+        rating: input.rating ?? null,
+      });
+      return result.status === 'completed' || result.status === 'duplicate';
+    } catch (error) {
+      logger.error('FinalDrill backend Riff feedback failed', error);
+      return false;
+    }
   }
 }

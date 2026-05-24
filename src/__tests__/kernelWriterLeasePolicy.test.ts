@@ -8,6 +8,7 @@ type RpcHandler = (params?: unknown) => unknown | Promise<unknown>;
 interface KernelHarness {
   handlers: Record<string, RpcHandler>;
   broadcasts: Array<{ method: string; params: unknown }>;
+  clientFetch: ReturnType<typeof vi.fn>;
 }
 
 const primaryProfile = {
@@ -43,7 +44,11 @@ const browserProfile = {
 async function loadKernelHarness(): Promise<KernelHarness> {
   const handlers: Record<string, RpcHandler> = {};
   const broadcasts: Array<{ method: string; params: unknown }> = [];
+  const clientFetch = vi.fn();
   const siyuan = {
+    client: {
+      fetch: clientFetch,
+    },
     logger: {
       info: vi.fn(async () => undefined),
       warn: vi.fn(async () => undefined),
@@ -87,7 +92,7 @@ async function loadKernelHarness(): Promise<KernelHarness> {
   const source = readFileSync(resolve(process.cwd(), 'src/kernel.ts'), 'utf8');
   new Script(source, { filename: 'src/kernel.ts' }).runInContext(context);
   await siyuan.plugin.lifecycle.onload();
-  return { handlers, broadcasts };
+  return { handlers, broadcasts, clientFetch };
 }
 
 describe('kernel writer lease profile policy', () => {
@@ -262,8 +267,132 @@ describe('kernel writer lease profile policy', () => {
 
     await expect(handlers.capabilities()).resolves.toMatchObject({
       writesSiyuanMemoDb: false,
+      riffReadAuditProxy: true,
+      methods: expect.arrayContaining(['riff.read', 'riff.audit']),
       writerLease: {
         payloadFields: expect.arrayContaining(['leaseEpoch', 'ownerChangedAt']),
+      },
+    });
+  });
+
+  it('reads native Riff cards through the kernel API without returning block content', async () => {
+    const { handlers, clientFetch } = await loadKernelHarness();
+    clientFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn(async () => ({
+        code: 0,
+        data: {
+          total: 1,
+          pageCount: 1,
+          blocks: [
+            {
+              id: '20260525120000-cardaaa',
+              type: 'l',
+              content: 'secret question text',
+              path: '/secret/path',
+              hPath: '/secret/hpath',
+              riffCardID: 'riff-card-a',
+              riffCard: {
+                id: 'riff-card-a',
+                blockID: '20260525120000-cardaaa',
+                deckID: '20210808180117-czj9bvb',
+                state: 2,
+                due: '2026-05-25',
+                reps: 3,
+                lapses: 1,
+              },
+            },
+          ],
+        },
+      })),
+    });
+
+    await expect(handlers['riff.read']({
+      requestId: 'riff-read-test',
+      deckId: '20210808180117-czj9bvb',
+      pageSize: 1,
+      maxPages: 1,
+    })).resolves.toMatchObject({
+      requestId: 'riff-read-test',
+      deckId: '20210808180117-czj9bvb',
+      status: 'ready',
+      total: 1,
+      pageCount: 1,
+      blocks: [
+        {
+          id: '20260525120000-cardaaa',
+          type: 'l',
+          riffCardID: 'riff-card-a',
+          riffCard: {
+            id: 'riff-card-a',
+            blockID: '20260525120000-cardaaa',
+            deckID: '20210808180117-czj9bvb',
+          },
+        },
+      ],
+      diagnostics: {
+        returned: 1,
+        contentReturned: false,
+      },
+    });
+    expect(clientFetch).toHaveBeenCalledWith('/api/riff/getRiffCards', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        id: '20210808180117-czj9bvb',
+        page: 1,
+        pageSize: 1,
+      }),
+    }));
+    const result = await handlers['riff.read']({
+      requestId: 'riff-read-test-2',
+      deckId: '20210808180117-czj9bvb',
+      pageSize: 1,
+      maxPages: 1,
+    });
+    expect(JSON.stringify(result)).not.toContain('secret question text');
+    expect(JSON.stringify(result)).not.toContain('/secret/path');
+  });
+
+  it('audits native Riff cards with normalized and malformed counts', async () => {
+    const { handlers, clientFetch } = await loadKernelHarness();
+    clientFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn(async () => ({
+        code: 0,
+        data: {
+          total: 2,
+          pageCount: 1,
+          blocks: [
+            {
+              id: '20260525120000-cardaaa',
+              riffCardID: 'riff-card-a',
+            },
+            {
+              id: '20260525120000-cardbbb',
+              content: 'malformed card content',
+            },
+          ],
+        },
+      })),
+    });
+
+    await expect(handlers['riff.audit']({
+      requestId: 'riff-audit-test',
+      deckId: '20210808180117-czj9bvb',
+      pageSize: 2,
+      maxPages: 1,
+    })).resolves.toMatchObject({
+      requestId: 'riff-audit-test',
+      deckId: '20210808180117-czj9bvb',
+      status: 'ready',
+      total: 2,
+      normalized: 2,
+      malformed: 1,
+      diagnostics: {
+        returned: 2,
+        contentReturned: false,
       },
     });
   });

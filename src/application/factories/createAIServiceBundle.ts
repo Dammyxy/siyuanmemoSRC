@@ -96,6 +96,7 @@ export function createAIServiceBundle(deps: CreateAIServiceBundleDeps): AIServic
         arenaKernel: deps.getArenaKernelService(),
         backendRuntimeEnabled: runtimePolicy.flags.aiBackendRuntime,
         backendSessionService: aiBackendSessionService,
+        aiToolJobClient: runtimePolicy.capabilities.aiBackendSessionEnabled ? backendClient : null,
       });
     },
     createAIWorkbenchService: () => deps.getReviewAIWorkbenchRegistry().getStandaloneService(),

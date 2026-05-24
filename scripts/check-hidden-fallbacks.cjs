@@ -307,6 +307,86 @@ function classifyKeywordLine(relativePath, line, lineNumber) {
     });
   }
 
+  if (
+    relativePath.endsWith('XiuyuanSyncService.ts')
+    && /\b(falling back|fall back|fallback to)\b/i.test(line)
+    && /xiuyuan|riff|sync|local/i.test(line)
+  ) {
+    return createHit({
+      file: relativePath,
+      line: lineNumber,
+      kind: 'xiuyuan-sync-local-fallback',
+      symbol: line.trim(),
+      risk: 'P1',
+      inferredClass: 'explicit-unavailable',
+      requiresClassification: true,
+    });
+  }
+
+  if (
+    relativePath.endsWith('BrowserApplicationService.ts')
+    && /\b(falling back|fall back|fallback to)\b/i.test(line)
+    && /aggregate|snapshot|allRows|full snapshot/i.test(line)
+  ) {
+    return createHit({
+      file: relativePath,
+      line: lineNumber,
+      kind: 'browser-aggregate-local-fallback',
+      symbol: line.trim(),
+      risk: 'P1',
+      inferredClass: 'explicit-unavailable',
+      requiresClassification: true,
+    });
+  }
+
+  if (
+    relativePath.endsWith('WorkerGraphQueryService.ts')
+    && /\b(falling back|fall back|fallback to)\b/i.test(line)
+    && /graph|renderer|sql|host effect/i.test(line)
+  ) {
+    return createHit({
+      file: relativePath,
+      line: lineNumber,
+      kind: 'graph-query-renderer-fallback',
+      symbol: line.trim(),
+      risk: 'P1',
+      inferredClass: 'explicit-unavailable',
+      requiresClassification: true,
+    });
+  }
+
+  if (
+    relativePath.endsWith('AIChatToolExecutorService.ts')
+    && /\b(falling back|fall back|fallback to)\b/i.test(line)
+    && /ai|tool|flashcard|write|direct/i.test(line)
+  ) {
+    return createHit({
+      file: relativePath,
+      line: lineNumber,
+      kind: 'ai-tool-direct-write-fallback',
+      symbol: line.trim(),
+      risk: 'P1',
+      inferredClass: 'explicit-unavailable',
+      requiresClassification: true,
+    });
+  }
+
+  if (
+    relativePath.endsWith('ReviewApplicationService.ts')
+    && /\b(falling back|fall back|fallback to)\b/i.test(line)
+    && /review|riff|source refresh|source-refresh/i.test(line)
+  ) {
+    return createHit({
+      file: relativePath,
+      line: lineNumber,
+      kind: 'review-hotspot-local-fallback',
+      symbol: line.trim(),
+      risk: 'P1',
+      inferredClass: 'explicit-unavailable',
+      requiresClassification: true,
+    });
+  }
+
   if (relativePath.endsWith('DocTreeReviewScopeService.ts') && /storage scan|SQL.*failed/i.test(line)) {
     return createHit({
       file: relativePath,

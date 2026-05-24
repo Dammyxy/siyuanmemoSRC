@@ -222,6 +222,7 @@ export interface WriterRelayCommandPayload {
 export const KERNEL_RELAY_METHODS = [
   'review.feedback',
   'domainSync.repair.apply',
+  'domainSync.conflictSources.cleanup',
   'browser.sourceExistence.applySweepHost',
   'browser.sourceExistence.update',
   'browser.sourceExistence.applySweep',
@@ -238,9 +239,13 @@ export const KERNEL_RELAY_METHODS = [
   'ai.session.get',
   'ai.session.update',
   'ai.session.cancel',
+  'ai.tool.job.execute',
+  'ai.tool.job.approval',
   'hotspot.command.submit',
   'progressive.command.execute',
   'topic-derived.command.execute',
+  'review.riffFeedback.execute',
+  'review.sourceRefresh.execute',
   'private.command.execute',
   'semantic.command.execute',
 ] as const;

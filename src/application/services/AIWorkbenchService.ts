@@ -1,6 +1,7 @@
 import { reactive } from 'vue';
 import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import type { CardContentQueryService } from '@/application/queries/CardContentQueryService';
+import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 import type { AISiyuanBlockRow, AISiyuanPort } from '@/application/ports/AISiyuanPort';
 import type { LLMPort } from '@/application/ports/LLMPort';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
@@ -200,6 +201,7 @@ export type AIWorkbenchServiceDeps = {
     | 'getJob'
     | 'proxyNetwork'
   >;
+  aiToolJobClient?: Pick<SrsBackendClient, 'executeAiToolJob' | 'submitAiToolJobApproval'> | null;
   backendRuntimeEnabled?: boolean;
 };
 
@@ -459,6 +461,7 @@ export class AIWorkbenchService {
       varStore: this.varStore,
       siyuanPort: this.deps.siyuanPort,
       flashcardTools: this.flashcardTools,
+      aiToolJobClient: this.deps.aiToolJobClient,
       getAISettings: this.deps.getAISettings,
     });
     this.approvalRuntime = new AIWorkbenchApprovalRuntime({

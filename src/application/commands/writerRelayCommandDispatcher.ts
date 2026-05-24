@@ -44,6 +44,12 @@ export async function executeWriterRelayCommand(
       confirmationText?: string | null;
     });
   }
+  if (command.method === 'domainSync.conflictSources.cleanup') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: domainSync.conflictSources.cleanup relay requires params object');
+    }
+    return srsBackendClient.domainSyncConflictSourcesCleanup(command.params as Parameters<SrsBackendClient['domainSyncConflictSourcesCleanup']>[0]);
+  }
   if (command.method === 'browser.sourceExistence.applySweepHost') {
     if (!command.params || typeof command.params !== 'object') {
       throw new Error('INVALID_REQUEST: browser.sourceExistence.applySweepHost relay requires params object');
@@ -273,6 +279,30 @@ export async function executeWriterRelayCommand(
       throw new Error('INVALID_REQUEST: topic-derived.command.execute relay requires params object');
     }
     return srsBackendClient.executeTopicDerivedCommand(command.params as Parameters<SrsBackendClient['executeTopicDerivedCommand']>[0]);
+  }
+  if (command.method === 'ai.tool.job.execute') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: ai.tool.job.execute relay requires params object');
+    }
+    return srsBackendClient.executeAiToolJob(command.params as Parameters<SrsBackendClient['executeAiToolJob']>[0]);
+  }
+  if (command.method === 'ai.tool.job.approval') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: ai.tool.job.approval relay requires params object');
+    }
+    return srsBackendClient.submitAiToolJobApproval(command.params as Parameters<SrsBackendClient['submitAiToolJobApproval']>[0]);
+  }
+  if (command.method === 'review.riffFeedback.execute') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: review.riffFeedback.execute relay requires params object');
+    }
+    return srsBackendClient.executeReviewRiffFeedback(command.params as Parameters<SrsBackendClient['executeReviewRiffFeedback']>[0]);
+  }
+  if (command.method === 'review.sourceRefresh.execute') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: review.sourceRefresh.execute relay requires params object');
+    }
+    return srsBackendClient.executeReviewSourceRefresh(command.params as Parameters<SrsBackendClient['executeReviewSourceRefresh']>[0]);
   }
   if (command.method === 'ai.session.create') {
     if (!command.params || typeof command.params !== 'object') {

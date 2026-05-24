@@ -14,6 +14,9 @@ import type {
   BackendAiSessionCreateRequest,
   BackendAiPromptExecuteRequest,
   BackendAiPromptExecuteResult,
+  BackendAiToolJobApprovalRequest,
+  BackendAiToolJobExecuteRequest,
+  BackendAiToolJobResult,
   BackendAiSessionGetRequest,
   BackendAiSessionResult,
   BackendAiSessionUpdateRequest,
@@ -46,6 +49,10 @@ import type {
   BackendQueueProjectionSnapshotResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendReviewRiffFeedbackExecuteRequest,
+  BackendReviewRiffFeedbackExecuteResult,
+  BackendReviewSourceRefreshExecuteRequest,
+  BackendReviewSourceRefreshExecuteResult,
   BackendDomainSyncRepairApplyRequest,
   BackendDomainSyncRepairApplyResult,
   BackendDomainSyncRepairPreviewRequest,
@@ -318,6 +325,14 @@ export class SrsBackendClient {
     return this.validateAiPromptExecuteResult(result, 'ai.prompt.execute');
   }
 
+  async executeAiToolJob(request: BackendAiToolJobExecuteRequest): Promise<BackendAiToolJobResult> {
+    return this.call<BackendAiToolJobResult>('ai.tool.job.execute', request);
+  }
+
+  async submitAiToolJobApproval(request: BackendAiToolJobApprovalRequest): Promise<BackendAiToolJobResult> {
+    return this.call<BackendAiToolJobResult>('ai.tool.job.approval', request);
+  }
+
   async startAiStream(request: BackendAiStreamStartRequest): Promise<BackendAiStreamResult> {
     const result = await this.call<BackendAiStreamResult>('ai.stream.start', request);
     return this.validateAiStreamResult(result, 'ai.stream.start');
@@ -386,6 +401,18 @@ export class SrsBackendClient {
     request: BackendTopicDerivedCommandExecuteRequest,
   ): Promise<BackendTopicDerivedCommandExecuteResult<TResult>> {
     return this.call<BackendTopicDerivedCommandExecuteResult<TResult>>('topic-derived.command.execute', request);
+  }
+
+  async executeReviewRiffFeedback(
+    request: BackendReviewRiffFeedbackExecuteRequest,
+  ): Promise<BackendReviewRiffFeedbackExecuteResult> {
+    return this.call<BackendReviewRiffFeedbackExecuteResult>('review.riffFeedback.execute', request);
+  }
+
+  async executeReviewSourceRefresh(
+    request: BackendReviewSourceRefreshExecuteRequest,
+  ): Promise<BackendReviewSourceRefreshExecuteResult> {
+    return this.call<BackendReviewSourceRefreshExecuteResult>('review.sourceRefresh.execute', request);
   }
 
   async browserAggregateSnapshot(
