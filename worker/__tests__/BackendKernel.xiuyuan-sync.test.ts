@@ -246,4 +246,66 @@ describe('BackendKernel xiuyuan.sync.execute', () => {
       "SELECT payload_json FROM xiuyuans WHERE id = 'xy-existing'",
     )?.payload_json).toContain('Existing backend-applied content');
   });
+
+  it('replays duplicate non-dry-run sync commands by idempotency key without applying twice', async () => {
+    const database = await createSeededDatabase();
+    const readXiuyuanRiffFacts = vi.fn(async (request) => ({
+      status: 'ready' as const,
+      requestId: request.requestId,
+      mode: request.mode,
+      deckId: request.deckId,
+      readAt: 1_700_000_000_100,
+      blocks: [
+        { id: 'block-existing', content: 'Existing duplicate-safe content', riffCardID: 'riff-existing' },
+        { id: 'block-new', content: 'New duplicate-safe content', riffCardID: 'riff-new' },
+      ],
+      diagnostics: {
+        source: 'renderer-host-effect' as const,
+        blockCount: 2,
+        normalizedBlockCount: 2,
+        malformedBlockCount: 0,
+        truncated: false,
+      },
+    }));
+    const kernel = new BackendKernel({
+      database,
+      readXiuyuanRiffFacts,
+    });
+    const params = {
+      requestId: 'sync-request-duplicate',
+      commandId: 'sync-command-duplicate',
+      idempotencyKey: 'sync-key-duplicate',
+      mode: 'full' as const,
+      dryRun: false,
+      deckId: 'deck-a',
+      requestedAt: 1_700_000_000_000,
+    };
+
+    const first = await kernel.handle({
+      id: 'xiuyuan-sync-duplicate-1',
+      jsonrpc: '2.0',
+      method: 'xiuyuan.sync.execute',
+      params: [params],
+    });
+    const second = await kernel.handle({
+      id: 'xiuyuan-sync-duplicate-2',
+      jsonrpc: '2.0',
+      method: 'xiuyuan.sync.execute',
+      params: [params],
+    });
+
+    expect(first).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'applied',
+        idempotencyKey: 'sync-key-duplicate',
+      }),
+    }));
+    expect(second).toEqual(expect.objectContaining({
+      result: first.result,
+    }));
+    expect(readXiuyuanRiffFacts).toHaveBeenCalledTimes(1);
+    expect(database.getOne<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM cards WHERE block_id = 'block-new'",
+    )?.count).toBe(1);
+  });
 });

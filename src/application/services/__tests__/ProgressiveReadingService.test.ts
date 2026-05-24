@@ -121,6 +121,16 @@ function createServiceUnderTest(
   ownershipBoundaryClient?: {
     p6OwnershipQuery?: ReturnType<typeof vi.fn>;
   },
+  backendClient?: {
+    executeProgressiveCommand?: ReturnType<typeof vi.fn>;
+  },
+  commandRelayRuntime?: {
+    getMode?: ReturnType<typeof vi.fn>;
+    getInstanceId?: ReturnType<typeof vi.fn>;
+  },
+  followerCommandClient?: {
+    submitAndWait?: ReturnType<typeof vi.fn>;
+  },
 ) {
   const excerptRecordService = new ExcerptRecordService(fileService);
   return new ProgressiveReadingService(
@@ -133,6 +143,9 @@ function createServiceUnderTest(
     excerptRecordService,
     undefined,
     ownershipBoundaryClient as never,
+    backendClient as never,
+    commandRelayRuntime as never,
+    followerCommandClient as never,
   );
 }
 
@@ -292,6 +305,142 @@ describe('ProgressiveReadingService', () => {
       surface: 'progressive',
       operation: 'read-block-meta',
       payload: expect.objectContaining({ blockId: 'source-boundary-1' }),
+    }));
+  });
+
+  it('executes child doc creation through the backend progressive command facade', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'source-block-1'")) {
+          return [
+            { id: 'source-block-1', root_id: 'doc-1', parent_id: 'doc-1', box: 'nb', type: 'p', content: 'text', markdown: 'text' },
+          ];
+        }
+        if (stmt.includes("WHERE id = 'doc-1'")) {
+          return [
+            { id: 'doc-1', root_id: 'doc-1', parent_id: '', box: 'nb', type: 'd', content: 'Doc 1', markdown: 'Doc 1' },
+          ];
+        }
+        if (stmt.includes("WHERE type = 'd'") || stmt.includes("WHERE b.type = 'd'")) {
+          return [];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+    });
+    const { service: cardService } = createCardServiceMock();
+    const backendClient = {
+      executeProgressiveCommand: vi.fn(async () => ({
+        status: 'completed' as const,
+        commandId: 'progressive:create-child-doc:1',
+        idempotencyKey: 'progressive:create-child-doc:source-block-1:1',
+        operation: 'create-child-doc' as const,
+        result: {
+          docId: 'created-via-backend',
+          parentDocId: 'doc-1',
+          storageMode: 'workbench',
+          sequence: 1,
+          contentBlockId: 'created-block-via-backend',
+        },
+        rollback: { attempted: false, status: 'not-needed' as const },
+        progress: {
+          state: 'succeeded' as const,
+          updatedAt: 1,
+        },
+        diagnostics: {
+          diagnosticEventId: 'progressive:create-child-doc:1',
+          family: 'progressive.command' as const,
+          commandId: 'progressive:create-child-doc:1',
+          errorCategory: null,
+        },
+      })),
+    };
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService,
+      createSettingsProviderMock(),
+      createConfiguredCaptureStorageServiceMock(),
+      createProgressiveNativeRiffPortMock(),
+      undefined,
+      backendClient,
+    );
+
+    const result = await service.createChildDocFromSource({
+      sourceDocId: 'doc-1',
+      kind: 'derived-item-doc',
+      titlePrefix: 'Item',
+      previewText: 'preview',
+      contentMarkdown: 'content',
+      attrs: {},
+    });
+
+    expect(result.docId).toBe('created-via-backend');
+    expect(port.createDocWithMarkdown).not.toHaveBeenCalled();
+    expect(backendClient.executeProgressiveCommand).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'create-child-doc',
+      input: expect.objectContaining({
+        sourceDocId: 'doc-1',
+        kind: 'derived-item-doc',
+        titlePrefix: 'Item',
+      }),
+    }));
+  });
+
+  it('relays backend progressive commands when current window is follower', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock();
+    const { service: cardService } = createCardServiceMock();
+    const backendClient = {
+      executeProgressiveCommand: vi.fn(async () => {
+        throw new Error('writer should own follower progressive command');
+      }),
+    };
+    const followerCommandClient = {
+      submitAndWait: vi.fn(async () => ({
+        status: 'completed' as const,
+        commandId: 'progressive-relayed',
+        idempotencyKey: 'progressive-relayed-key',
+        operation: 'delete-artifact' as const,
+        result: null,
+        rollback: { attempted: false, status: 'not-needed' as const },
+        progress: { state: 'succeeded' as const, updatedAt: 1 },
+        diagnostics: {
+          diagnosticEventId: 'progressive-relayed',
+          family: 'progressive.command' as const,
+          commandId: 'progressive-relayed',
+          errorCategory: null,
+        },
+      })),
+    };
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService,
+      createSettingsProviderMock(),
+      createConfiguredCaptureStorageServiceMock(),
+      createProgressiveNativeRiffPortMock(),
+      undefined,
+      backendClient,
+      { getMode: vi.fn(() => 'follower'), getInstanceId: vi.fn(() => 'follower-1') },
+      followerCommandClient,
+    );
+
+    await service.deleteProgressiveArtifact('block-relay-1');
+
+    expect(backendClient.executeProgressiveCommand).not.toHaveBeenCalled();
+    expect(port.deleteBlock).not.toHaveBeenCalled();
+    expect(followerCommandClient.submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'follower-1',
+      method: 'progressive.command.execute',
+      params: expect.objectContaining({
+        operation: 'delete-artifact',
+        input: { blockId: 'block-relay-1' },
+        caller: expect.objectContaining({
+          runtimeRole: 'follower',
+          instanceId: 'follower-1',
+        }),
+      }),
     }));
   });
 

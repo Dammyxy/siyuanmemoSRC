@@ -70,6 +70,8 @@ export interface CreateApplicationBackendRuntimeBundleOptions {
   fileService: FileService;
   unifiedDataSourceManager: UnifiedDataSourceManager;
   executeAutoCard: NonNullable<BrowserSrsBackendWorkerHostEffects['executeAutoCard']>;
+  executeProgressiveCommand?: BrowserSrsBackendWorkerHostEffects['executeProgressiveCommand'];
+  executeTopicDerivedCommand?: BrowserSrsBackendWorkerHostEffects['executeTopicDerivedCommand'];
   executeWriterRelayCommand: (
     backendClient: SrsBackendClient,
     command: ApplicationBackendWriterRelayCommand,
@@ -162,6 +164,8 @@ export async function createApplicationBackendRuntimeBundle(
             resolveNeuralGraphQuery: (request) => neuralRoamGraphQuery.query(request),
             readXiuyuanRiffFacts: (request) => readXiuyuanRiffFactsViaApprovedAdapter(request),
             executeAutoCard: options.executeAutoCard,
+            executeProgressiveCommand: options.executeProgressiveCommand,
+            executeTopicDerivedCommand: options.executeTopicDerivedCommand,
             executeAiPrompt: async (request, context) => aiNetworkProxy.execute({
               ...request,
               streamId: context.streamId,

@@ -431,6 +431,7 @@ export class ApplicationContext {
       getUnifiedStorage: () => this.unifiedStorageManager,
       getUnifiedDataSourceManager: () => this.unifiedDataSourceManager,
       getSqlXiuyuanReadRepository: () => this.sqlPersistence?.xiuyuanRead ?? null,
+      getSrsBackendClient: () => this.srsBackendClient,
       getCardTypeDetectionService: () => this.getCardTypeDetectionService(),
       getEventBus: () => this.getEventBus(),
       getRiffBlacklistService: () => this.getRiffBlacklistService(),
@@ -563,7 +564,10 @@ export class ApplicationContext {
         context.getConfiguredCaptureStorageService(),
         context.getExcerptRecordService(),
         context.getDocTreeReviewScopeService(),
+        undefined,
         context.srsBackendClient || undefined,
+        context.frontendInstanceRuntime,
+        context.followerCommandClient,
       );
     });
 
@@ -595,7 +599,10 @@ export class ApplicationContext {
         context.getProgressiveReadingService(),
         new ProgressiveNativeRiffAdapter(),
         context.getSettingsService(),
+        undefined,
         context.srsBackendClient || undefined,
+        context.frontendInstanceRuntime,
+        context.followerCommandClient,
       );
     });
 
@@ -1381,6 +1388,18 @@ export class ApplicationContext {
           throw new Error('SrsBackendWorker autocard.execute unavailable: auto-card handler is not active');
         }
         return autoCardHandler.executeEnvelopeFromBackend(request);
+      },
+      executeProgressiveCommand: async (request) => {
+        if (!contextRef) {
+          throw new Error('SrsBackendWorker progressive.command.execute unavailable: application context is not ready');
+        }
+        return contextRef.getProgressiveReadingService().executeFromBackend(request);
+      },
+      executeTopicDerivedCommand: async (request) => {
+        if (!contextRef) {
+          throw new Error('SrsBackendWorker topic-derived.command.execute unavailable: application context is not ready');
+        }
+        return contextRef.getTopicDerivedItemService().executeFromBackend(request);
       },
       executeWriterRelayCommand,
       notifyKernelTransactionIngested: () => contextRef?.kernelTransactionActionPump?.notifyActivity('relay-ingest'),

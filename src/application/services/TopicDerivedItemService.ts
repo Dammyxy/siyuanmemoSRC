@@ -1,5 +1,11 @@
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
+import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type {
+  BackendTopicDerivedCommandExecuteRequest,
+  BackendTopicDerivedCommandExecuteResult,
+  BackendUnavailableClass,
+} from '../../../packages/contracts/src/backend-rpc';
 import {
   type ProgressiveChildDocStorageMode,
   ProgressiveReadingService,
@@ -52,6 +58,19 @@ type TopicDerivedOwnershipBoundaryClient = {
     payload?: Record<string, unknown>;
     idempotencyKey: string;
   }) => Promise<unknown>;
+};
+
+type TopicDerivedCommandRelayRuntime = {
+  getMode?: () => string;
+  getInstanceId?: () => string;
+};
+
+type TopicDerivedCommandFollowerClient = {
+  submitAndWait?: <TResult>(request: {
+    instanceId: string;
+    method: 'topic-derived.command.execute';
+    params: BackendTopicDerivedCommandExecuteRequest;
+  }) => Promise<TResult>;
 };
 
 type DerivedCandidate = {
@@ -111,9 +130,19 @@ export class TopicDerivedItemService {
     private readonly nativeRiffApi: ProgressiveNativeRiffPort,
     private readonly settingsProvider: TopicDerivationSettingsProvider,
     private readonly ownershipBoundaryClient?: TopicDerivedOwnershipBoundaryClient,
+    private readonly backendClient?: Pick<SrsBackendClient, 'executeTopicDerivedCommand'>,
+    private readonly commandRelayRuntime?: TopicDerivedCommandRelayRuntime | null,
+    private readonly followerCommandClient?: TopicDerivedCommandFollowerClient | null,
   ) {}
 
   async createFromTopicSource(input: TopicDerivedItemInput): Promise<TopicDerivedItemResult> {
+    if (this.backendClient) {
+      return this.executeTopicDerivedCommandFacade(input);
+    }
+    return this.createFromTopicSourceLocal(input);
+  }
+
+  async createFromTopicSourceLocal(input: TopicDerivedItemInput): Promise<TopicDerivedItemResult> {
     const sourceBlockId = String(input.sourceBlockId || '').trim();
     const sourceDocId = String(input.sourceDocId || '').trim();
     const parentTopicCardId = String(input.parentTopicCardId || '').trim();
@@ -594,5 +623,138 @@ export class TopicDerivedItemService {
     } catch (error) {
       logger.warn('Failed to report topic-derived ownership command', { payload, error });
     }
+  }
+
+  async executeFromBackend(
+    request: BackendTopicDerivedCommandExecuteRequest,
+  ): Promise<BackendTopicDerivedCommandExecuteResult<TopicDerivedItemResult>> {
+    const now = Date.now();
+    try {
+      const result = await this.createFromTopicSourceLocal(request.input as TopicDerivedItemInput);
+      return {
+        status: 'completed',
+        commandId: request.commandId,
+        idempotencyKey: request.idempotencyKey,
+        operation: 'create-from-topic-source',
+        result,
+        audit: {
+          created: result.created,
+          skipped: result.skipped,
+          nativeRiffRegistered: result.created,
+        },
+        rollback: { attempted: false, status: 'not-needed' },
+        progress: { state: 'succeeded', currentStep: 'completed', updatedAt: now },
+        diagnostics: {
+          diagnosticEventId: `topic-derived:${request.commandId}:${now}`,
+          family: 'topic-derived.command',
+          commandId: request.commandId,
+          timing: {
+            submittedAt: Number(request.requestedAt) || now,
+            deadlineAt: Number.isFinite(Number(request.deadlineAt)) ? Number(request.deadlineAt) : null,
+            completedAt: now,
+          },
+          errorCategory: null,
+        },
+      };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error || 'topic-derived command failed');
+      return this.createTopicDerivedFailureResult(request, 'failed', reason, 'FAILED', false);
+    }
+  }
+
+  private async executeTopicDerivedCommandFacade(input: TopicDerivedItemInput): Promise<TopicDerivedItemResult> {
+    if (!this.backendClient) {
+      throw new Error('TOPIC_DERIVED_COMMAND_UNAVAILABLE: backend client is unavailable');
+    }
+    const now = Date.now();
+    const commandId = `topic-derived:create:${now}`;
+    const idempotencySeed = [
+      input.sourceBlockId,
+      input.sourceDocId,
+      input.parentTopicCardId,
+      input.parentExcerptId || '',
+      input.mode || 'planner-derived',
+      input.answerFingerprint || '',
+    ].join(':');
+    const request: BackendTopicDerivedCommandExecuteRequest = {
+      requestId: commandId,
+      commandId,
+      idempotencyKey: `topic-derived:${idempotencySeed}:${now}`,
+      operation: 'create-from-topic-source',
+      input: input as unknown as Record<string, unknown>,
+      requestedAt: now,
+      deadlineAt: now + 60_000,
+      caller: {
+        instanceId: 'application-context',
+        runtimeRole: 'single-window',
+        surface: 'review',
+      },
+    };
+    const result = await this.executeTopicDerivedCommandViaAuthority(request);
+    if (result.status !== 'completed' && result.status !== 'duplicate') {
+      throw new Error(`TOPIC_DERIVED_COMMAND_UNAVAILABLE: ${result.reason}`);
+    }
+    return result.result;
+  }
+
+  private async executeTopicDerivedCommandViaAuthority(
+    request: BackendTopicDerivedCommandExecuteRequest,
+  ): Promise<BackendTopicDerivedCommandExecuteResult<TopicDerivedItemResult>> {
+    const mode = String(this.commandRelayRuntime?.getMode?.() || '').trim();
+    if (mode === 'follower') {
+      const instanceId = String(this.commandRelayRuntime?.getInstanceId?.() || '').trim();
+      if (!instanceId || typeof this.followerCommandClient?.submitAndWait !== 'function') {
+        throw new Error('WRITER_UNAVAILABLE: topic-derived.command.execute relay is unavailable in follower mode');
+      }
+      return this.followerCommandClient.submitAndWait<BackendTopicDerivedCommandExecuteResult<TopicDerivedItemResult>>({
+        instanceId,
+        method: 'topic-derived.command.execute',
+        params: {
+          ...request,
+          caller: {
+            ...(request.caller ?? {
+              instanceId,
+              surface: 'review',
+            }),
+            instanceId,
+            runtimeRole: 'follower',
+          },
+        },
+      });
+    }
+    return this.backendClient!.executeTopicDerivedCommand<TopicDerivedItemResult>(request);
+  }
+
+  private createTopicDerivedFailureResult(
+    request: BackendTopicDerivedCommandExecuteRequest,
+    status: 'unavailable' | 'validation-failed' | 'failed',
+    reason: string,
+    unavailableClass: BackendUnavailableClass | null,
+    recoverable: boolean,
+  ): BackendTopicDerivedCommandExecuteResult<TopicDerivedItemResult> {
+    const now = Date.now();
+    return {
+      status,
+      commandId: request.commandId,
+      idempotencyKey: request.idempotencyKey,
+      operation: 'create-from-topic-source',
+      unavailableClass,
+      reason,
+      recoverable,
+      audit: { created: 0, skipped: 0, nativeRiffRegistered: 0 },
+      rollback: { attempted: status === 'failed', status: status === 'failed' ? 'failed' : 'not-needed', reason },
+      progress: { state: status === 'validation-failed' ? 'validation-failed' : 'failed', currentStep: status, updatedAt: now },
+      diagnostics: {
+        diagnosticEventId: `topic-derived:${request.commandId}:${now}`,
+        family: 'topic-derived.command',
+        commandId: request.commandId,
+        timing: {
+          submittedAt: Number(request.requestedAt) || now,
+          deadlineAt: Number.isFinite(Number(request.deadlineAt)) ? Number(request.deadlineAt) : null,
+          completedAt: now,
+        },
+        errorCategory: unavailableClass,
+      },
+    };
   }
 }

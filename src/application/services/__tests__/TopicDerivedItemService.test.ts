@@ -161,6 +161,151 @@ describe('TopicDerivedItemService', () => {
     }));
   });
 
+  it('executes topic-derived creation through the backend command facade', async () => {
+    const cardService = createCardServiceMock();
+    const progressiveReadingService = createProgressiveReadingServiceMock();
+    const nativeRiffApi = createNativeRiffPortMock();
+    const backendClient = {
+      executeTopicDerivedCommand: vi.fn(async () => ({
+        status: 'completed' as const,
+        commandId: 'topic-derived:create:1',
+        idempotencyKey: 'topic-derived:source-block-1:doc-root-1:topic-card-1::planner-derived::1',
+        operation: 'create-from-topic-source' as const,
+        result: {
+          created: 1,
+          skipped: 0,
+          items: [{
+            derivedDocId: 'derived-doc-backend',
+            derivedBlockId: 'derived-block-backend',
+            derivedCardId: 'derived-card-backend',
+            sourceBlockId: 'source-block-1',
+            storageMode: 'workbench',
+            creationRuleId: 'InlineClozeRule',
+            answerFingerprint: 'fingerprint-backend',
+          }],
+        },
+        audit: { created: 1, skipped: 0, nativeRiffRegistered: 1 },
+        rollback: { attempted: false, status: 'not-needed' as const },
+        progress: {
+          state: 'succeeded' as const,
+          updatedAt: 1,
+        },
+        diagnostics: {
+          diagnosticEventId: 'topic-derived:create:1',
+          family: 'topic-derived.command' as const,
+          commandId: 'topic-derived:create:1',
+          errorCategory: null,
+        },
+      })),
+    };
+    const service = new TopicDerivedItemService(
+      cardService.service,
+      progressiveReadingService.service,
+      nativeRiffApi,
+      createSettingsProvider(),
+      undefined,
+      backendClient,
+    );
+
+    const result = await service.createFromTopicSource({
+      sourceBlockId: 'source-block-1',
+      sourceDocId: 'doc-root-1',
+      parentTopicCardId: 'topic-card-1',
+      plannerContent: 'Alpha ==Beta==',
+      decisions: [CLOZE_DECISION],
+    });
+
+    expect(result.created).toBe(1);
+    expect(progressiveReadingService.service.createChildDocFromSource).not.toHaveBeenCalled();
+    expect(backendClient.executeTopicDerivedCommand).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'create-from-topic-source',
+      input: expect.objectContaining({
+        sourceBlockId: 'source-block-1',
+        sourceDocId: 'doc-root-1',
+        parentTopicCardId: 'topic-card-1',
+      }),
+    }));
+  });
+
+  it('relays topic-derived backend commands when current window is follower', async () => {
+    const cardService = createCardServiceMock();
+    const progressiveReadingService = createProgressiveReadingServiceMock();
+    const nativeRiffApi = createNativeRiffPortMock();
+    const backendClient = {
+      executeTopicDerivedCommand: vi.fn(async () => {
+        throw new Error('writer should own follower topic-derived command');
+      }),
+    };
+    const followerCommandClient = {
+      submitAndWait: vi.fn(async () => ({
+        status: 'completed' as const,
+        commandId: 'topic-relayed',
+        idempotencyKey: 'topic-relayed-key',
+        operation: 'create-from-topic-source' as const,
+        result: {
+          created: 1,
+          skipped: 0,
+          items: [{
+            derivedDocId: 'derived-doc-relayed',
+            derivedBlockId: 'derived-block-relayed',
+            derivedCardId: 'derived-card-relayed',
+            sourceBlockId: 'source-block-relay',
+            storageMode: 'workbench',
+            creationRuleId: 'InlineClozeRule',
+            answerFingerprint: 'fingerprint-relayed',
+          }],
+        },
+        audit: { created: 1, skipped: 0, nativeRiffRegistered: 1 },
+        rollback: { attempted: false, status: 'not-needed' as const },
+        progress: { state: 'succeeded' as const, updatedAt: 1 },
+        diagnostics: {
+          diagnosticEventId: 'topic-relayed',
+          family: 'topic-derived.command' as const,
+          commandId: 'topic-relayed',
+          errorCategory: null,
+        },
+      })),
+    };
+    const service = new TopicDerivedItemService(
+      cardService.service,
+      progressiveReadingService.service,
+      nativeRiffApi,
+      createSettingsProvider(),
+      undefined,
+      backendClient,
+      { getMode: vi.fn(() => 'follower'), getInstanceId: vi.fn(() => 'follower-1') },
+      followerCommandClient,
+    );
+
+    const result = await service.createFromTopicSource({
+      sourceBlockId: 'source-block-relay',
+      sourceDocId: 'doc-root-relay',
+      parentTopicCardId: 'topic-card-relay',
+      plannerContent: 'Alpha ==Beta==',
+      decisions: [CLOZE_DECISION],
+    });
+
+    expect(result.created).toBe(1);
+    expect(backendClient.executeTopicDerivedCommand).not.toHaveBeenCalled();
+    expect(progressiveReadingService.service.createChildDocFromSource).not.toHaveBeenCalled();
+    expect(followerCommandClient.submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'follower-1',
+      method: 'topic-derived.command.execute',
+      params: expect.objectContaining({
+        operation: 'create-from-topic-source',
+        input: expect.objectContaining({
+          sourceBlockId: 'source-block-relay',
+          sourceDocId: 'doc-root-relay',
+          parentTopicCardId: 'topic-card-relay',
+        }),
+        caller: expect.objectContaining({
+          runtimeRole: 'follower',
+          instanceId: 'follower-1',
+        }),
+      }),
+    }));
+  });
+
   it('creates one derived item per cloze and keeps only the target answer marked in each child doc', async () => {
     const cardService = createCardServiceMock();
     const progressiveReadingService = createProgressiveReadingServiceMock();

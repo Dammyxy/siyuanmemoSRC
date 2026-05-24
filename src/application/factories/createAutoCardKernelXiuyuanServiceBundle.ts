@@ -19,12 +19,14 @@ import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { SqlXiuyuanReadRepository } from '@/infrastructure/persistence/sqlite';
+import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 
 export interface CreateAutoCardKernelXiuyuanServiceBundleDeps {
   plugin: Plugin;
   getUnifiedStorage: () => UnifiedStorageManager;
   getUnifiedDataSourceManager: () => UnifiedDataSourceManager;
   getSqlXiuyuanReadRepository: () => SqlXiuyuanReadRepository | null;
+  getSrsBackendClient: () => SrsBackendClient | null;
   getCardTypeDetectionService: () => CardTypeDetectionService;
   getEventBus: () => EventBus;
   getRiffBlacklistService: () => RiffBlacklistService;
@@ -78,6 +80,7 @@ export function createAutoCardKernelXiuyuanServiceBundle(
         deps.getCardTypeDetectionService(),
         deps.getDeletionTracker(),
         syncSiyuanApi,
+        deps.getSrsBackendClient() || undefined,
       );
     },
     createAutoCardHandler: async () => {

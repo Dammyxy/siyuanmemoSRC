@@ -1,6 +1,12 @@
 import type { ProgressiveExcerptSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
 import type { ProgressiveBlockRow, ProgressiveDocInfo, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
+import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type {
+  BackendProgressiveCommandExecuteRequest,
+  BackendProgressiveCommandExecuteResult,
+  BackendUnavailableClass,
+} from '../../../packages/contracts/src/backend-rpc';
 import { ConfiguredCaptureStorageService } from '@/application/services/ConfiguredCaptureStorageService';
 import {
   ExcerptRecordService,
@@ -173,6 +179,19 @@ type ProgressiveOwnershipBoundaryClient = {
     payload?: Record<string, unknown>;
     idempotencyKey?: string;
   }) => Promise<unknown>;
+};
+
+type ProgressiveCommandRelayRuntime = {
+  getMode?: () => string;
+  getInstanceId?: () => string;
+};
+
+type ProgressiveCommandFollowerClient = {
+  submitAndWait?: <TResult>(request: {
+    instanceId: string;
+    method: 'progressive.command.execute';
+    params: BackendProgressiveCommandExecuteRequest;
+  }) => Promise<TResult>;
 };
 
 export interface ProgressiveSplitResult {
@@ -356,6 +375,9 @@ export class ProgressiveReadingService {
     private readonly excerptRecordService: ExcerptRecordService,
     private readonly docTreeScopeRefresher?: ProgressiveDocTreeScopeRefresher,
     private readonly ownershipBoundaryClient?: ProgressiveOwnershipBoundaryClient,
+    private readonly backendClient?: Pick<SrsBackendClient, 'executeProgressiveCommand'>,
+    private readonly commandRelayRuntime?: ProgressiveCommandRelayRuntime | null,
+    private readonly followerCommandClient?: ProgressiveCommandFollowerClient | null,
   ) {}
 
   async splitDocument(
@@ -672,6 +694,17 @@ export class ProgressiveReadingService {
   }
 
   async createExcerptFromSelection(input: ProgressiveExcerptInput): Promise<ProgressiveExcerptCreationResult> {
+    if (this.backendClient) {
+      return this.executeProgressiveCommandFacade<ProgressiveExcerptInput, ProgressiveExcerptCreationResult>(
+        'create-excerpt',
+        input,
+        String(input.sourceBlockId || '').trim() || 'unknown',
+      );
+    }
+    return this.createExcerptFromSelectionLocal(input);
+  }
+
+  async createExcerptFromSelectionLocal(input: ProgressiveExcerptInput): Promise<ProgressiveExcerptCreationResult> {
     const sourceBlockId = String(input.sourceBlockId || '').trim();
     const sourceBlockIds = normalizeExcerptBlockIds(input.sourceBlockIds, input.sourceBlockId);
     const selectedText = this.toExcerptMarkdown(input.selectedText);
@@ -857,11 +890,38 @@ export class ProgressiveReadingService {
     if (!normalizedBlockId) {
       return;
     }
+    if (this.backendClient) {
+      await this.executeProgressiveCommandFacade<{ blockId: string }, null>(
+        'delete-artifact',
+        { blockId: normalizedBlockId },
+        normalizedBlockId,
+      );
+      return;
+    }
+    await this.deleteProgressiveArtifactLocal(normalizedBlockId);
+  }
+
+  async deleteProgressiveArtifactLocal(blockId: string): Promise<void> {
+    const normalizedBlockId = String(blockId || '').trim();
+    if (!normalizedBlockId) {
+      return;
+    }
     await this.siyuanApi.deleteBlock(normalizedBlockId);
     this.docTreeScopeRefresher?.scheduleRebuild();
   }
 
   async createChildDocFromSource(input: ProgressiveChildDocInput): Promise<ProgressiveChildDocResult> {
+    if (this.backendClient) {
+      return this.executeProgressiveCommandFacade<ProgressiveChildDocInput, ProgressiveChildDocResult>(
+        'create-child-doc',
+        input,
+        String(input.sourceDocId || '').trim() || 'unknown',
+      );
+    }
+    return this.createChildDocFromSourceLocal(input);
+  }
+
+  async createChildDocFromSourceLocal(input: ProgressiveChildDocInput): Promise<ProgressiveChildDocResult> {
     const sourceDocId = String(input.sourceDocId || '').trim();
     if (!sourceDocId) {
       throw new Error('sourceDocId is required');
@@ -2556,6 +2616,140 @@ export class ProgressiveReadingService {
         error,
       });
     }
+  }
+
+  async executeFromBackend(
+    request: BackendProgressiveCommandExecuteRequest,
+  ): Promise<BackendProgressiveCommandExecuteResult> {
+    const now = Date.now();
+    try {
+      let result: unknown;
+      if (request.operation === 'create-excerpt') {
+        result = await this.createExcerptFromSelectionLocal(request.input as ProgressiveExcerptInput);
+      } else if (request.operation === 'create-child-doc') {
+        result = await this.createChildDocFromSourceLocal(request.input as ProgressiveChildDocInput);
+      } else if (request.operation === 'delete-artifact') {
+        const input = request.input as { blockId?: unknown };
+        await this.deleteProgressiveArtifactLocal(String(input.blockId || ''));
+        result = null;
+      } else {
+        return this.createProgressiveFailureResult(request, 'validation-failed', 'unsupported progressive command operation', null, false);
+      }
+      return {
+        status: 'completed',
+        commandId: request.commandId,
+        idempotencyKey: request.idempotencyKey,
+        operation: request.operation,
+        result,
+        rollback: { attempted: false, status: 'not-needed' },
+        progress: { state: 'succeeded', currentStep: 'completed', updatedAt: now },
+        diagnostics: {
+          diagnosticEventId: `progressive:${request.commandId}:${now}`,
+          family: 'progressive.command',
+          commandId: request.commandId,
+          timing: {
+            submittedAt: Number(request.requestedAt) || now,
+            deadlineAt: Number.isFinite(Number(request.deadlineAt)) ? Number(request.deadlineAt) : null,
+            completedAt: now,
+          },
+          errorCategory: null,
+        },
+      };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error || 'progressive command failed');
+      return this.createProgressiveFailureResult(request, 'failed', reason, 'FAILED', false);
+    }
+  }
+
+  private async executeProgressiveCommandFacade<TInput, TResult>(
+    operation: BackendProgressiveCommandExecuteRequest['operation'],
+    input: TInput,
+    idempotencySeed: string,
+  ): Promise<TResult> {
+    if (!this.backendClient) {
+      throw new Error('PROGRESSIVE_COMMAND_UNAVAILABLE: backend client is unavailable');
+    }
+    const now = Date.now();
+    const commandId = `progressive:${operation}:${now}`;
+    const request: BackendProgressiveCommandExecuteRequest = {
+      requestId: commandId,
+      commandId,
+      idempotencyKey: `progressive:${operation}:${idempotencySeed}:${now}`,
+      operation,
+      input: input as Record<string, unknown>,
+      requestedAt: now,
+      deadlineAt: now + 60_000,
+      caller: {
+        instanceId: 'application-context',
+        runtimeRole: 'single-window',
+        surface: 'review',
+      },
+    };
+    const result = await this.executeProgressiveCommandViaAuthority<TResult>(request);
+    if (result.status !== 'completed' && result.status !== 'duplicate') {
+      throw new Error(`PROGRESSIVE_COMMAND_UNAVAILABLE: ${result.reason}`);
+    }
+    return result.result as TResult;
+  }
+
+  private async executeProgressiveCommandViaAuthority<TResult>(
+    request: BackendProgressiveCommandExecuteRequest,
+  ): Promise<BackendProgressiveCommandExecuteResult<TResult>> {
+    const mode = String(this.commandRelayRuntime?.getMode?.() || '').trim();
+    if (mode === 'follower') {
+      const instanceId = String(this.commandRelayRuntime?.getInstanceId?.() || '').trim();
+      if (!instanceId || typeof this.followerCommandClient?.submitAndWait !== 'function') {
+        throw new Error('WRITER_UNAVAILABLE: progressive.command.execute relay is unavailable in follower mode');
+      }
+      return this.followerCommandClient.submitAndWait<BackendProgressiveCommandExecuteResult<TResult>>({
+        instanceId,
+        method: 'progressive.command.execute',
+        params: {
+          ...request,
+          caller: {
+            ...(request.caller ?? {
+              instanceId,
+              surface: 'review',
+            }),
+            instanceId,
+            runtimeRole: 'follower',
+          },
+        },
+      });
+    }
+    return this.backendClient!.executeProgressiveCommand<TResult>(request);
+  }
+
+  private createProgressiveFailureResult(
+    request: BackendProgressiveCommandExecuteRequest,
+    status: 'unavailable' | 'validation-failed' | 'failed',
+    reason: string,
+    unavailableClass: BackendUnavailableClass | null,
+    recoverable: boolean,
+  ): BackendProgressiveCommandExecuteResult {
+    const now = Date.now();
+    return {
+      status,
+      commandId: request.commandId,
+      idempotencyKey: request.idempotencyKey,
+      operation: request.operation,
+      unavailableClass,
+      reason,
+      recoverable,
+      rollback: { attempted: status === 'failed', status: status === 'failed' ? 'failed' : 'not-needed', reason },
+      progress: { state: status === 'validation-failed' ? 'validation-failed' : 'failed', currentStep: status, updatedAt: now },
+      diagnostics: {
+        diagnosticEventId: `progressive:${request.commandId}:${now}`,
+        family: 'progressive.command',
+        commandId: request.commandId,
+        timing: {
+          submittedAt: Number(request.requestedAt) || now,
+          deadlineAt: Number.isFinite(Number(request.deadlineAt)) ? Number(request.deadlineAt) : null,
+          completedAt: now,
+        },
+        errorCategory: unavailableClass,
+      },
+    };
   }
 
   private escapeSql(value: string): string {

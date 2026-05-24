@@ -5,6 +5,10 @@ import type {
   BackendAiPromptNetworkResponse,
   BackendAutoCardExecuteRequest,
   BackendAutoCardExecuteResult,
+  BackendProgressiveCommandExecuteRequest,
+  BackendProgressiveCommandExecuteResult,
+  BackendTopicDerivedCommandExecuteRequest,
+  BackendTopicDerivedCommandExecuteResult,
   BackendNeuralGraphQueryRequest,
   BackendNeuralGraphQueryResult,
   BackendRpcRequest,
@@ -44,6 +48,12 @@ export interface BrowserSrsBackendWorkerHostEffects {
     request: BackendXiuyuanRiffReadAuditRequest,
   ) => Promise<BackendXiuyuanRiffReadAuditResult>;
   executeAutoCard?: (request: BackendAutoCardExecuteRequest) => Promise<BackendAutoCardExecuteResult>;
+  executeProgressiveCommand?: (
+    request: BackendProgressiveCommandExecuteRequest,
+  ) => Promise<BackendProgressiveCommandExecuteResult>;
+  executeTopicDerivedCommand?: (
+    request: BackendTopicDerivedCommandExecuteRequest,
+  ) => Promise<BackendTopicDerivedCommandExecuteResult>;
   executeAiPrompt?: (
     request: BackendAiPromptExecuteRequest['request'],
     context: BackendAiPromptExecuteRequest,
@@ -368,6 +378,16 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           throw unavailable('autocard.execute host effect unavailable');
         }
         return this.options.hostEffects.executeAutoCard(effect.request);
+      case 'progressive.command.execute':
+        if (!this.options.hostEffects.executeProgressiveCommand) {
+          throw unavailable('progressive.command.execute host effect unavailable');
+        }
+        return this.options.hostEffects.executeProgressiveCommand(effect.request);
+      case 'topic-derived.command.execute':
+        if (!this.options.hostEffects.executeTopicDerivedCommand) {
+          throw unavailable('topic-derived.command.execute host effect unavailable');
+        }
+        return this.options.hostEffects.executeTopicDerivedCommand(effect.request);
       case 'ai.prompt.execute':
         if (!this.options.hostEffects.executeAiPrompt) {
           throw unavailable('ai.prompt.execute host effect unavailable');

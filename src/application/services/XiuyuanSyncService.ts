@@ -32,6 +32,11 @@ import type {
     SyncChangeSet,
     XiuyuanOwnership,
 } from './XiuyuanSyncService.types';
+import type {
+    BackendHotspotCallerIdentity,
+    BackendXiuyuanSyncExecuteRequest,
+    BackendXiuyuanSyncExecuteResult,
+} from '../../../packages/contracts/src/backend-rpc';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
 import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
@@ -61,6 +66,7 @@ import { XiuyuanNativeRiffRemoveRuntime } from './XiuyuanNativeRiffRemoveRuntime
 import { XiuyuanRiffBlacklistRuntime } from './XiuyuanRiffBlacklistRuntime';
 import { XiuyuanRiffInputRuntime } from './XiuyuanRiffInputRuntime';
 import { XiuyuanSyncApplyRuntime } from './XiuyuanSyncApplyRuntime';
+import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 
 // ==================== Xiuyuan 同步服务 ====================
 const logger = createLogger('XiuyuanSyncService');
@@ -158,6 +164,7 @@ export class XiuyuanSyncService {
     private readonly riffBlacklistRuntime: XiuyuanRiffBlacklistRuntime<RiffBlock>;
     private readonly nativeRiffRemoveRuntime: XiuyuanNativeRiffRemoveRuntime<Xiuyuan>;
     private readonly syncApplyRuntime: XiuyuanSyncApplyRuntime;
+    private readonly srsBackendClient?: Pick<SrsBackendClient, 'executeXiuyuanSync'>;
     
     // 默认重试配置
     private readonly DEFAULT_RETRY_CONFIG = {
@@ -173,7 +180,8 @@ export class XiuyuanSyncService {
         riffBlacklistService: RiffBlacklistService,
         cardTypeDetectionService: CardTypeDetectionService,
         deletionTracker: IDeletionTracker,
-        siyuanApi: XiuyuanSyncSiyuanPort
+        siyuanApi: XiuyuanSyncSiyuanPort,
+        srsBackendClient?: Pick<SrsBackendClient, 'executeXiuyuanSync'>
     ) {
         this.config = {
             ...config,
@@ -201,6 +209,7 @@ export class XiuyuanSyncService {
         this.syncApplyRuntime = new XiuyuanSyncApplyRuntime({
             applySyncChangeSet: (changeSet) => this.xiuyuanRepository.applySyncChangeSet(changeSet),
         });
+        this.srsBackendClient = srsBackendClient;
     }
 
     private resolveSyncStateStore(storage: unknown): RiffSyncStateStore | undefined {
@@ -1276,6 +1285,9 @@ export class XiuyuanSyncService {
      * @param onProgress 进度回调函数（可选）
      */
     async incrementalSync(onProgress?: ProgressCallback, options?: IncrementalSyncOptions): Promise<SyncResult> {
+        if (this.srsBackendClient) {
+            return this.runBackendSync('incremental', onProgress, options);
+        }
         return this.runSyncExclusive('incremental', async () => {
             return this.withRetry('incremental', async () => {
                 const startTime = this.beginSync('incremental');
@@ -1369,6 +1381,9 @@ export class XiuyuanSyncService {
      * @param onProgress 进度回调函数（可选）
      */
     async fullSync(onProgress?: ProgressCallback): Promise<SyncResult> {
+        if (this.srsBackendClient) {
+            return this.runBackendSync('full', onProgress);
+        }
         return this.runSyncExclusive('full', async () => {
             return this.withRetry('full', async () => {
                 const startTime = this.beginSync('full');
@@ -1388,6 +1403,111 @@ export class XiuyuanSyncService {
                 }
             });
         });
+    }
+
+    private async runBackendSync(
+        type: 'incremental' | 'full',
+        onProgress: ProgressCallback | undefined,
+        options?: IncrementalSyncOptions,
+    ): Promise<SyncResult> {
+        return this.runSyncExclusive(type, async () => {
+            return this.withRetry(type, async () => {
+                const startTime = this.beginSync(type);
+                try {
+                    this.reportProgress(onProgress, type, 'fetching', 1, 4, '正在提交后端同步命令...');
+                    const request = this.buildBackendSyncRequest(type, startTime, options);
+                    const result = await this.srsBackendClient!.executeXiuyuanSync(request);
+                    const mapped = this.mapBackendSyncResult(type, result, startTime, onProgress, options);
+                    return this.completeSync(
+                        type,
+                        startTime,
+                        mapped,
+                        type === 'full'
+                            ? `Full sync completed via backend command: added ${mapped.addedCount}, updated ${mapped.updatedCount || 0}, deleted ${mapped.deletedCount}, skipped ${mapped.skippedCount}, blacklistCleaned ${mapped.blacklistCleanedCount || 0}, detected ${mapped.detectedCount || 0}`
+                            : `Incremental sync completed via backend command: added ${mapped.addedCount}, updated ${mapped.updatedCount || 0}, deleted ${mapped.deletedCount}, skipped ${mapped.skippedCount}, detected ${mapped.detectedCount || 0}`,
+                    );
+                } catch (error) {
+                    return this.failSync(type, error);
+                }
+            });
+        });
+    }
+
+    private buildBackendSyncRequest(
+        type: 'incremental' | 'full',
+        startTime: number,
+        options?: IncrementalSyncOptions,
+    ): BackendXiuyuanSyncExecuteRequest {
+        const caller: BackendHotspotCallerIdentity = {
+            instanceId: 'application-context',
+            runtimeRole: 'worker',
+            surface: 'background',
+        };
+        return {
+            requestId: `xiuyuan-sync:${type}:${startTime}`,
+            commandId: `xiuyuan-sync:${type}:${startTime}`,
+            idempotencyKey: `xiuyuan-sync:${type}:${options?.source || 'manual'}:${startTime}`,
+            mode: type === 'full' ? 'full' : 'incremental',
+            dryRun: false,
+            deckId: this.config.deckId,
+            requestedAt: startTime,
+            since: type === 'incremental' ? this.getIncrementalSinceFromCheckpoint() ?? null : null,
+            scope: type === 'full'
+                ? {
+                    includeNew: true,
+                    dueOnly: false,
+                    notebook: null,
+                    rootId: null,
+                    blockIds: null,
+                }
+                : {
+                    includeNew: true,
+                    dueOnly: false,
+                    notebook: null,
+                    rootId: null,
+                    blockIds: null,
+                },
+            caller,
+        };
+    }
+
+    private mapBackendSyncResult(
+        type: 'incremental' | 'full',
+        result: BackendXiuyuanSyncExecuteResult,
+        startTime: number,
+        onProgress: ProgressCallback | undefined,
+        options?: IncrementalSyncOptions,
+    ): SyncResult {
+        if (result.status !== 'applied' || !result.applyImpact.applied) {
+            const reason = 'unavailableClass' in result
+                ? `${result.unavailableClass}: ${result.reason}`
+                : 'backend sync did not apply changes';
+            throw new Error(reason);
+        }
+
+        const progressState = result.progress?.state === 'succeeded' ? 'saving' : 'saving';
+        this.reportProgress(onProgress, type, progressState, result.progress?.completedUnits ?? 4, result.progress?.totalUnits ?? 4, '正在提交同步变更...');
+        const skippedCount = Math.max(
+            0,
+            (result.plan.skippedLocalOwnedCount || 0)
+            + (result.plan.malformedNativeRiffCount || 0)
+            + (result.plan.duplicateNativeRiffCount || 0),
+        );
+        if (type === 'full') {
+            this.lastFullSyncTime = startTime;
+        }
+        this.rememberVolatileSyncState(type === 'full'
+            ? { lastSuccessfulFullAt: startTime }
+            : { lastSuccessfulIncrementalAt: startTime, lastSuccessfulIncrementalCursor: String(startTime) });
+        return {
+            success: true,
+            addedCount: result.plan.createCount,
+            updatedCount: result.plan.updateCount,
+            deletedCount: result.plan.deleteCount,
+            skippedCount,
+            blacklistCleanedCount: type === 'full' ? 0 : undefined,
+            detectedCount: 0,
+        };
     }
     
     /**

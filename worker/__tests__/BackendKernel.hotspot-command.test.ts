@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BackendKernel } from '../bootstrap/BackendKernel';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { createInMemorySqlitePersistenceBridge } from '../db/SqlitePersistenceBridge';
@@ -214,5 +214,100 @@ describe('BackendKernel hotspot command runtime', () => {
         unavailableClass: 'BACKEND_UNAVAILABLE',
       }),
     }));
+  });
+
+  it('executes progressive and topic-derived command callbacks idempotently', async () => {
+    const progressive = vi.fn(async (request) => ({
+      status: 'completed' as const,
+      commandId: request.commandId,
+      idempotencyKey: request.idempotencyKey,
+      operation: request.operation,
+      result: { docId: 'progressive-doc-1' },
+      rollback: { attempted: false, status: 'not-needed' as const },
+      progress: { state: 'succeeded' as const, updatedAt: 1 },
+      diagnostics: {
+        diagnosticEventId: 'diag-progressive-1',
+        family: 'progressive.command' as const,
+        commandId: request.commandId,
+        errorCategory: null,
+      },
+    }));
+    const topic = vi.fn(async (request) => ({
+      status: 'completed' as const,
+      commandId: request.commandId,
+      idempotencyKey: request.idempotencyKey,
+      operation: 'create-from-topic-source' as const,
+      result: { created: 1, skipped: 0, items: [] },
+      audit: { created: 1, skipped: 0, nativeRiffRegistered: 1 },
+      rollback: { attempted: false, status: 'not-needed' as const },
+      progress: { state: 'succeeded' as const, updatedAt: 1 },
+      diagnostics: {
+        diagnosticEventId: 'diag-topic-1',
+        family: 'topic-derived.command' as const,
+        commandId: request.commandId,
+        errorCategory: null,
+      },
+    }));
+    const kernel = new BackendKernel({
+      database: new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge()),
+      executeProgressiveCommand: progressive,
+      executeTopicDerivedCommand: topic,
+    });
+    const progressiveParams = {
+      requestId: 'progressive-request-1',
+      commandId: 'progressive-command-1',
+      idempotencyKey: 'progressive-key-1',
+      operation: 'create-child-doc',
+      input: { sourceDocId: 'doc-1' },
+      requestedAt: 1,
+    };
+    const topicParams = {
+      requestId: 'topic-request-1',
+      commandId: 'topic-command-1',
+      idempotencyKey: 'topic-key-1',
+      operation: 'create-from-topic-source',
+      input: { sourceBlockId: 'block-1' },
+      requestedAt: 1,
+    };
+
+    const firstProgressive = await kernel.handle({
+      id: 'progressive-1',
+      jsonrpc: '2.0',
+      method: 'progressive.command.execute',
+      params: [progressiveParams],
+    });
+    const duplicateProgressive = await kernel.handle({
+      id: 'progressive-2',
+      jsonrpc: '2.0',
+      method: 'progressive.command.execute',
+      params: [progressiveParams],
+    });
+    const firstTopic = await kernel.handle({
+      id: 'topic-1',
+      jsonrpc: '2.0',
+      method: 'topic-derived.command.execute',
+      params: [topicParams],
+    });
+    const duplicateTopic = await kernel.handle({
+      id: 'topic-2',
+      jsonrpc: '2.0',
+      method: 'topic-derived.command.execute',
+      params: [topicParams],
+    });
+
+    expect(firstProgressive).toEqual(expect.objectContaining({
+      result: expect.objectContaining({ status: 'completed', commandId: 'progressive-command-1' }),
+    }));
+    expect(duplicateProgressive).toEqual(expect.objectContaining({
+      result: expect.objectContaining({ status: 'duplicate', commandId: 'progressive-command-1' }),
+    }));
+    expect(firstTopic).toEqual(expect.objectContaining({
+      result: expect.objectContaining({ status: 'completed', commandId: 'topic-command-1' }),
+    }));
+    expect(duplicateTopic).toEqual(expect.objectContaining({
+      result: expect.objectContaining({ status: 'duplicate', commandId: 'topic-command-1' }),
+    }));
+    expect(progressive).toHaveBeenCalledTimes(1);
+    expect(topic).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-24 (Round 455)
+Last update: 2026-05-25 (Round 456)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-25 - Progressive/Topic Backend Command Cutover
+
+- Task: Complete OpenSpec `backendize-runtime-hotspots` P4 by moving Progressive Reading and Topic-derived mutation entrypoints behind backend command execution and writer relay.
+- Touched slice: `packages/contracts/src/backend-rpc.ts`, `packages/contracts/src/kernel-rpc.ts`, `SrsBackendClient`, `BrowserSrsBackendWorkerTransport`, `BackendKernel`, `backend-worker.entry`, `writerRelayCommandDispatcher`, `ApplicationContext`, `ProgressiveReadingService`, `TopicDerivedItemService`, focused worker/client/service/relay tests, and `ARCHITECTURE.md`.
+- Debt fixed now: `progressive.command.execute` and `topic-derived.command.execute` are typed terminal command RPCs with idempotency, deadline/caller fields, rollback/audit result shape, and explicit unavailable states; Worker dispatch now executes them through approved host-effect callbacks and idempotency replay; production Progressive/Topic public write entrypoints no longer submit a generic accepted marker and then keep writing locally when backend is available; follower windows route these command families through writer relay instead of using follower-local Worker authority.
+- Debt deferred: Live SiYuan smoke for Xiuyuan Riff read/audit and incremental sync is still pending; Progressive/Topic live two-window smoke and native Riff unavailable smoke are also pending because no controlled running SiYuan runtime was available in this command session.
+- Why deferred: Unit/build validation can prove contract, idempotency, relay routing, and fail-closed behavior, but it cannot honestly produce privacy-safe live SiYuan evidence without an attached SiYuan/plugin runtime.
+- Next safe step: Run live SiYuan smoke for `siyuan.riff.readAudit`, one Xiuyuan incremental sync, and one follower-window Progressive/Topic creation path; record only command ids/counts/unavailable classes, not content.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.hotspot-command.test.ts src/application/services/__tests__/ProgressiveReadingService.test.ts src/application/services/__tests__/TopicDerivedItemService.test.ts src/application/__tests__/ApplicationContext.writer-relay.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts`; `pnpm build`.
 
 ### 2026-05-24 - Xiuyuan/Riff Sync Backend Apply Slice
 
@@ -6179,6 +6189,8 @@ Do not add an entry for skill-only or docs-only work.
 | P2 | AI kernel SSE fast path now exists for GET SSE relay and private stream fanout, but real POST/body provider token delta remains unsupported by the inspected SiYuan `/es/network/proxy` source and still lacks live provider smoke | `src/infrastructure/ai/KernelAINetworkProxyAdapter.ts`, `src/infrastructure/siyuan/SiyuanKernelCompanionAdapter.ts`, `kernel.js`, `specs/001-backend-migration-next/quickstart.md` | Confirm real provider streaming in SiYuan; if provider requires POST SSE, add/confirm kernel POST streaming support or design a separate safe transport before declaring token delta default-on |
 | P2 | AI Workbench stale dialog can hold a disposed `ApplicationContext` after plugin reload | `src/ui/ai`, `src/application/services/AIWorkbenchPromptRuntime.ts`, dialog lifecycle wiring | Add a reload/dispose guard that closes or rebuilds stale AI panes before submit; current workaround is refresh page and reopen AI Workbench |
 | P2 | AutoCard listener live smoke is 10/10 after bounded retry, but the earlier merge-style storage conflict warning still needs classification if it repeats | `src/application/handlers/AutoCardHandler.ts`, `src/core/storage/UnifiedStorageManager.ts`, `specs/001-backend-migration-next/quickstart.md` | Keep listener diagnostics available during future live smoke; classify merge warnings as expected cross-window merge vs remaining un-tokened write entrance only if they recur |
+| P1 | Xiuyuan sync backend facade has worker/idempotency/unit coverage, but live SiYuan Riff read/audit smoke is still pending | `XiuyuanSyncService`, `BackendKernel`, `WorkerXiuyuanSyncPlanner`, `XiuyuanSyncSiyuanAdapter` | Run the privacy-safe SiYuan smoke for `siyuan.riff.readAudit` plus one incremental sync before checking OpenSpec 3.8 |
+| P1 | Progressive/Topic-derived commands now execute through typed backend command RPC + writer relay with unit/build coverage, but live two-window SiYuan smoke for real document/card/attr/native Riff side effects is still pending | `src/application/services/{ProgressiveReadingService,TopicDerivedItemService}.ts`, `BackendKernel`, `BrowserSrsBackendWorkerTransport`, `writerRelayCommandDispatcher` | Run privacy-safe live SiYuan smoke for one Progressive creation and one Topic-derived creation from a follower window, recording command ids/counts/unavailable classes only |
 | P2 | P6 broader backend-command ownership remains staged after direct SQL/helper boundary closure | `src/application/usecases/xiuyuan/*`, `src/application/services/{ProgressiveReadingService,TopicDerivedItemService}.ts`, `src/application/handlers/AutoCardHandler.ts`, `src/application/managers/{BlockMenuHandler,DialogManager}.ts` | Current owner is explicit app query boundary + writer relay; only open a follow-up if these side effects must become backend-worker commands rather than writer-relayed application commands |
 
 ## 4. Next convergence batch

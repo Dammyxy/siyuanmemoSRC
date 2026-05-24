@@ -88,6 +88,10 @@ import type {
   BackendHotspotCommandSubmitResult,
   BackendHotspotJobGetRequest,
   BackendHotspotJobGetResult,
+  BackendProgressiveCommandExecuteRequest,
+  BackendProgressiveCommandExecuteResult,
+  BackendTopicDerivedCommandExecuteRequest,
+  BackendTopicDerivedCommandExecuteResult,
   BackendXiuyuanSyncExecuteRequest,
   BackendXiuyuanSyncExecuteResult,
   BackendRpcRequest,
@@ -370,6 +374,18 @@ export class SrsBackendClient {
     request: BackendXiuyuanSyncExecuteRequest,
   ): Promise<BackendXiuyuanSyncExecuteResult> {
     return this.call<BackendXiuyuanSyncExecuteResult>('xiuyuan.sync.execute', request);
+  }
+
+  async executeProgressiveCommand<TResult = unknown>(
+    request: BackendProgressiveCommandExecuteRequest,
+  ): Promise<BackendProgressiveCommandExecuteResult<TResult>> {
+    return this.call<BackendProgressiveCommandExecuteResult<TResult>>('progressive.command.execute', request);
+  }
+
+  async executeTopicDerivedCommand<TResult = unknown>(
+    request: BackendTopicDerivedCommandExecuteRequest,
+  ): Promise<BackendTopicDerivedCommandExecuteResult<TResult>> {
+    return this.call<BackendTopicDerivedCommandExecuteResult<TResult>>('topic-derived.command.execute', request);
   }
 
   async browserAggregateSnapshot(

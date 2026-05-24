@@ -83,6 +83,10 @@ import {
   type BackendHotspotCommandSubmitResult,
   type BackendHotspotJobGetRequest,
   type BackendHotspotJobGetResult,
+  type BackendProgressiveCommandExecuteRequest,
+  type BackendProgressiveCommandExecuteResult,
+  type BackendTopicDerivedCommandExecuteRequest,
+  type BackendTopicDerivedCommandExecuteResult,
   type BackendXiuyuanRiffReadAuditRequest,
   type BackendXiuyuanRiffReadAuditResult,
   type BackendXiuyuanSyncExecuteRequest,
@@ -132,6 +136,12 @@ interface BackendKernelDependencies {
   readXiuyuanRiffFacts?: (
     request: BackendXiuyuanRiffReadAuditRequest,
   ) => Promise<BackendXiuyuanRiffReadAuditResult>;
+  executeProgressiveCommand?: (
+    request: BackendProgressiveCommandExecuteRequest,
+  ) => Promise<BackendProgressiveCommandExecuteResult>;
+  executeTopicDerivedCommand?: (
+    request: BackendTopicDerivedCommandExecuteRequest,
+  ) => Promise<BackendTopicDerivedCommandExecuteResult>;
 }
 
 function buildSuccess<TResult>(
@@ -214,6 +224,9 @@ export class BackendKernel {
     timestamp: number;
   }> = [];
   private readonly privateCommandResultsByIdempotencyKey = new Map<string, PrivateApiMutationResult>();
+  private readonly xiuyuanSyncResultsByIdempotencyKey = new Map<string, BackendXiuyuanSyncExecuteResult>();
+  private readonly progressiveCommandResultsByIdempotencyKey = new Map<string, BackendProgressiveCommandExecuteResult>();
+  private readonly topicDerivedCommandResultsByIdempotencyKey = new Map<string, BackendTopicDerivedCommandExecuteResult>();
   private readonly preRequestMergeDiagnostics: BackendPreRequestMergeDiagnostic[] = [];
   private readonly aiRuntime: BackendJobRuntime;
   private readonly hotspotRuntime: BackendHotspotCommandRuntime;
@@ -360,6 +373,10 @@ export class BackendKernel {
           return buildSuccess(request.id, this.handleHotspotJobGet(request.params));
         case 'xiuyuan.sync.execute':
           return buildSuccess(request.id, await this.handleXiuyuanSyncExecute(request.params));
+        case 'progressive.command.execute':
+          return buildSuccess(request.id, await this.handleProgressiveCommandExecute(request.params));
+        case 'topic-derived.command.execute':
+          return buildSuccess(request.id, await this.handleTopicDerivedCommandExecute(request.params));
         case 'browser.aggregate.snapshot':
           return buildSuccess(request.id, this.handleBrowserAggregateSnapshot(request.params));
         case 'browser.aggregate.page':
@@ -825,12 +842,111 @@ export class BackendKernel {
     if (!named || typeof named !== 'object') {
       throw new Error('INVALID_REQUEST: xiuyuan.sync.execute requires named params');
     }
+    const cached = this.xiuyuanSyncResultsByIdempotencyKey.get(named.idempotencyKey);
+    if (cached) {
+      return cached;
+    }
     const planner = new WorkerXiuyuanSyncPlanner({
       loadLocalFacts: () => this.deps.database.readXiuyuanSyncLocalFacts(),
       readNativeRiffFacts: this.deps.readXiuyuanRiffFacts,
       applySyncPlan: (input) => this.deps.database.applyXiuyuanSyncPlan(input),
     });
-    return planner.execute(named);
+    const result = await planner.execute(named);
+    this.xiuyuanSyncResultsByIdempotencyKey.set(named.idempotencyKey, result);
+    return result;
+  }
+
+  private async handleProgressiveCommandExecute(params: unknown): Promise<BackendProgressiveCommandExecuteResult> {
+    const named = this.readNamedParams<BackendProgressiveCommandExecuteRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: progressive.command.execute requires named params');
+    }
+    const cached = this.progressiveCommandResultsByIdempotencyKey.get(String(named.idempotencyKey || '').trim());
+    if (cached) {
+      return cached.status === 'completed' ? { ...cached, status: 'duplicate' } : cached;
+    }
+    if (typeof this.deps.executeProgressiveCommand !== 'function') {
+      return this.createProgressiveCommandUnavailable(named, 'progressive.command.execute host effect unavailable');
+    }
+    const result = await this.deps.executeProgressiveCommand(named);
+    this.progressiveCommandResultsByIdempotencyKey.set(named.idempotencyKey, result);
+    return result;
+  }
+
+  private async handleTopicDerivedCommandExecute(params: unknown): Promise<BackendTopicDerivedCommandExecuteResult> {
+    const named = this.readNamedParams<BackendTopicDerivedCommandExecuteRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: topic-derived.command.execute requires named params');
+    }
+    const cached = this.topicDerivedCommandResultsByIdempotencyKey.get(String(named.idempotencyKey || '').trim());
+    if (cached) {
+      return cached.status === 'completed' ? { ...cached, status: 'duplicate' } : cached;
+    }
+    if (typeof this.deps.executeTopicDerivedCommand !== 'function') {
+      return this.createTopicDerivedCommandUnavailable(named, 'topic-derived.command.execute host effect unavailable');
+    }
+    const result = await this.deps.executeTopicDerivedCommand(named);
+    this.topicDerivedCommandResultsByIdempotencyKey.set(named.idempotencyKey, result);
+    return result;
+  }
+
+  private createProgressiveCommandUnavailable(
+    request: BackendProgressiveCommandExecuteRequest,
+    reason: string,
+  ): BackendProgressiveCommandExecuteResult {
+    const now = Date.now();
+    return {
+      status: 'unavailable',
+      commandId: String(request.commandId || ''),
+      idempotencyKey: String(request.idempotencyKey || ''),
+      operation: request.operation,
+      unavailableClass: 'BACKEND_UNAVAILABLE',
+      reason,
+      recoverable: true,
+      rollback: { attempted: false, status: 'not-needed' },
+      progress: { state: 'unavailable', currentStep: 'unavailable', updatedAt: now },
+      diagnostics: {
+        diagnosticEventId: `progressive:${String(request.commandId || 'unknown')}:${now}`,
+        family: 'progressive.command',
+        commandId: String(request.commandId || ''),
+        timing: {
+          submittedAt: Number(request.requestedAt) || now,
+          deadlineAt: Number.isFinite(Number(request.deadlineAt)) ? Number(request.deadlineAt) : null,
+          completedAt: now,
+        },
+        errorCategory: 'BACKEND_UNAVAILABLE',
+      },
+    };
+  }
+
+  private createTopicDerivedCommandUnavailable(
+    request: BackendTopicDerivedCommandExecuteRequest,
+    reason: string,
+  ): BackendTopicDerivedCommandExecuteResult {
+    const now = Date.now();
+    return {
+      status: 'unavailable',
+      commandId: String(request.commandId || ''),
+      idempotencyKey: String(request.idempotencyKey || ''),
+      operation: 'create-from-topic-source',
+      unavailableClass: 'BACKEND_UNAVAILABLE',
+      reason,
+      recoverable: true,
+      audit: { created: 0, skipped: 0, nativeRiffRegistered: 0 },
+      rollback: { attempted: false, status: 'not-needed' },
+      progress: { state: 'unavailable', currentStep: 'unavailable', updatedAt: now },
+      diagnostics: {
+        diagnosticEventId: `topic-derived:${String(request.commandId || 'unknown')}:${now}`,
+        family: 'topic-derived.command',
+        commandId: String(request.commandId || ''),
+        timing: {
+          submittedAt: Number(request.requestedAt) || now,
+          deadlineAt: Number.isFinite(Number(request.deadlineAt)) ? Number(request.deadlineAt) : null,
+          completedAt: now,
+        },
+        errorCategory: 'BACKEND_UNAVAILABLE',
+      },
+    };
   }
 
   private handleBrowserAggregateSnapshot(params: unknown): BackendBrowserAggregateSnapshotResult {

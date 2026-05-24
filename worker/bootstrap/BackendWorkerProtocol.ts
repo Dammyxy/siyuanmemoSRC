@@ -2,6 +2,8 @@ import type {
   BackendAiPromptExecuteRequest,
   BackendAiPromptNetworkRequest,
   BackendAutoCardExecuteRequest,
+  BackendProgressiveCommandExecuteRequest,
+  BackendTopicDerivedCommandExecuteRequest,
   BackendNeuralGraphQueryRequest,
   BackendXiuyuanRiffReadAuditRequest,
   BackendRpcRequest,
@@ -19,6 +21,8 @@ export type BackendWorkerHostEffect =
   | { kind: 'siyuan.neuralGraph.query'; request: BackendNeuralGraphQueryRequest }
   | { kind: 'siyuan.riff.readAudit'; request: BackendXiuyuanRiffReadAuditRequest }
   | { kind: 'autocard.execute'; request: BackendAutoCardExecuteRequest }
+  | { kind: 'progressive.command.execute'; request: BackendProgressiveCommandExecuteRequest }
+  | { kind: 'topic-derived.command.execute'; request: BackendTopicDerivedCommandExecuteRequest }
   | { kind: 'ai.prompt.execute'; request: BackendAiPromptNetworkRequest; context: BackendAiPromptExecuteRequest };
 
 export type BackendWorkerRequestMessage = {

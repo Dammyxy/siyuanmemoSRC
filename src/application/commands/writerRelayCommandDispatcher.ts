@@ -262,6 +262,18 @@ export async function executeWriterRelayCommand(
     }
     return srsBackendClient.submitHotspotCommand(command.params as Parameters<SrsBackendClient['submitHotspotCommand']>[0]);
   }
+  if (command.method === 'progressive.command.execute') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: progressive.command.execute relay requires params object');
+    }
+    return srsBackendClient.executeProgressiveCommand(command.params as Parameters<SrsBackendClient['executeProgressiveCommand']>[0]);
+  }
+  if (command.method === 'topic-derived.command.execute') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: topic-derived.command.execute relay requires params object');
+    }
+    return srsBackendClient.executeTopicDerivedCommand(command.params as Parameters<SrsBackendClient['executeTopicDerivedCommand']>[0]);
+  }
   if (command.method === 'ai.session.create') {
     if (!command.params || typeof command.params !== 'object') {
       throw new Error('INVALID_REQUEST: ai.session.create relay requires params object');

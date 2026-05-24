@@ -4,7 +4,11 @@ import {
   type BackendAutoCardExecuteResult,
   type BackendNeuralGraphQueryRequest,
   type BackendNeuralGraphQueryResult,
+  type BackendProgressiveCommandExecuteRequest,
+  type BackendProgressiveCommandExecuteResult,
   type BackendRpcResponse,
+  type BackendTopicDerivedCommandExecuteRequest,
+  type BackendTopicDerivedCommandExecuteResult,
   type BackendXiuyuanRiffReadAuditRequest,
   type BackendXiuyuanRiffReadAuditResult,
 } from '../../packages/contracts/src/backend-rpc';
@@ -128,6 +132,14 @@ const backendKernel = new BackendKernel({
   }),
   executeAutoCard: (request) => requestHostEffect<BackendAutoCardExecuteResult>({
     kind: 'autocard.execute',
+    request,
+  }),
+  executeProgressiveCommand: (request: BackendProgressiveCommandExecuteRequest) => requestHostEffect<BackendProgressiveCommandExecuteResult>({
+    kind: 'progressive.command.execute',
+    request,
+  }),
+  executeTopicDerivedCommand: (request: BackendTopicDerivedCommandExecuteRequest) => requestHostEffect<BackendTopicDerivedCommandExecuteResult>({
+    kind: 'topic-derived.command.execute',
     request,
   }),
   executeAiPrompt: (request, context) => requestHostEffect<BackendAiPromptNetworkResponse>({

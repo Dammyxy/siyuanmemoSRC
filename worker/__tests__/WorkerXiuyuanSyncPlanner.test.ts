@@ -197,6 +197,73 @@ describe('WorkerXiuyuanSyncPlanner', () => {
       },
     });
   });
+
+  it('returns typed unavailable when apply authority is missing for non-dry-run sync', async () => {
+    const planner = new WorkerXiuyuanSyncPlanner({
+      loadLocalFacts: vi.fn(async () => localFacts()),
+      readNativeRiffFacts: vi.fn(async () => nativeReady()),
+    });
+
+    const result = await planner.execute({
+      requestId: 'sync-request-missing-writer',
+      commandId: 'sync-command-missing-writer',
+      idempotencyKey: 'sync-key-missing-writer',
+      mode: 'full',
+      dryRun: false,
+      deckId: 'deck-a',
+      requestedAt: 1_700_000_000_000,
+    });
+
+    expect(result).toMatchObject({
+      status: 'unavailable',
+      unavailableClass: 'BACKEND_UNAVAILABLE',
+      reason: 'Xiuyuan sync apply authority unavailable',
+      progress: {
+        state: 'unavailable',
+        currentStep: 'apply-sync-plan',
+      },
+      applyImpact: {
+        requested: true,
+        applied: false,
+        reason: 'read-unavailable',
+      },
+    });
+  });
+
+  it('returns typed unavailable when apply authority fails mid-commit', async () => {
+    const planner = new WorkerXiuyuanSyncPlanner({
+      loadLocalFacts: vi.fn(async () => localFacts()),
+      readNativeRiffFacts: vi.fn(async () => nativeReady()),
+      applySyncPlan: vi.fn(async () => {
+        throw new Error('apply failed');
+      }),
+    });
+
+    const result = await planner.execute({
+      requestId: 'sync-request-rollback',
+      commandId: 'sync-command-rollback',
+      idempotencyKey: 'sync-key-rollback',
+      mode: 'full',
+      dryRun: false,
+      deckId: 'deck-a',
+      requestedAt: 1_700_000_000_000,
+    });
+
+    expect(result).toMatchObject({
+      status: 'unavailable',
+      unavailableClass: 'FAILED',
+      reason: 'apply failed',
+      progress: {
+        state: 'unavailable',
+        currentStep: 'apply-sync-plan',
+      },
+      applyImpact: {
+        requested: true,
+        applied: false,
+        reason: 'read-unavailable',
+      },
+    });
+  });
 });
 
 describe('WorkerSqliteDatabaseService Xiuyuan sync local facts', () => {

@@ -60,6 +60,8 @@ export type BackendRpcMethod =
   | 'hotspot.command.submit'
   | 'hotspot.job.get'
   | 'xiuyuan.sync.execute'
+  | 'progressive.command.execute'
+  | 'topic-derived.command.execute'
   | 'browser.aggregate.snapshot'
   | 'browser.aggregate.page'
   | 'browser.aggregate.focus'
@@ -822,6 +824,107 @@ export type BackendXiuyuanSyncExecuteResult =
       progress: BackendHotspotCommandProgress;
       applyImpact: BackendXiuyuanSyncApplyImpact;
       diagnostics: BackendXiuyuanSyncDiagnostics;
+    };
+
+export type BackendProgressiveCommandOperation =
+  | 'create-excerpt'
+  | 'create-child-doc'
+  | 'delete-artifact';
+
+export interface BackendProgressiveCommandExecuteRequest<TInput = Record<string, unknown>> {
+  requestId: string;
+  commandId: string;
+  idempotencyKey: string;
+  operation: BackendProgressiveCommandOperation;
+  input: TInput;
+  requestedAt: number;
+  deadlineAt?: number | null;
+  caller?: BackendHotspotCallerIdentity | null;
+}
+
+export type BackendProgressiveCommandExecuteResult<TResult = unknown> =
+  | {
+      status: 'completed' | 'duplicate';
+      commandId: string;
+      idempotencyKey: string;
+      operation: BackendProgressiveCommandOperation;
+      result: TResult;
+      rollback: {
+        attempted: boolean;
+        status: 'not-needed' | 'completed' | 'failed';
+        reason?: string | null;
+      };
+      progress: BackendHotspotCommandProgress;
+      diagnostics: BackendHotspotCommandDiagnostics;
+    }
+  | {
+      status: 'unavailable' | 'validation-failed' | 'failed';
+      commandId: string;
+      idempotencyKey: string;
+      operation: BackendProgressiveCommandOperation;
+      unavailableClass: BackendUnavailableClass | null;
+      reason: string;
+      recoverable: boolean;
+      rollback: {
+        attempted: boolean;
+        status: 'not-needed' | 'completed' | 'failed';
+        reason?: string | null;
+      };
+      progress: BackendHotspotCommandProgress;
+      diagnostics: BackendHotspotCommandDiagnostics;
+    };
+
+export interface BackendTopicDerivedCommandExecuteRequest<TInput = Record<string, unknown>> {
+  requestId: string;
+  commandId: string;
+  idempotencyKey: string;
+  operation: 'create-from-topic-source';
+  input: TInput;
+  requestedAt: number;
+  deadlineAt?: number | null;
+  caller?: BackendHotspotCallerIdentity | null;
+}
+
+export type BackendTopicDerivedCommandExecuteResult<TResult = unknown> =
+  | {
+      status: 'completed' | 'duplicate';
+      commandId: string;
+      idempotencyKey: string;
+      operation: 'create-from-topic-source';
+      result: TResult;
+      audit: {
+        created: number;
+        skipped: number;
+        nativeRiffRegistered: number;
+      };
+      rollback: {
+        attempted: boolean;
+        status: 'not-needed' | 'completed' | 'failed';
+        reason?: string | null;
+      };
+      progress: BackendHotspotCommandProgress;
+      diagnostics: BackendHotspotCommandDiagnostics;
+    }
+  | {
+      status: 'unavailable' | 'validation-failed' | 'failed';
+      commandId: string;
+      idempotencyKey: string;
+      operation: 'create-from-topic-source';
+      unavailableClass: BackendUnavailableClass | null;
+      reason: string;
+      recoverable: boolean;
+      audit: {
+        created: number;
+        skipped: number;
+        nativeRiffRegistered: number;
+      };
+      rollback: {
+        attempted: boolean;
+        status: 'not-needed' | 'completed' | 'failed';
+        reason?: string | null;
+      };
+      progress: BackendHotspotCommandProgress;
+      diagnostics: BackendHotspotCommandDiagnostics;
     };
 
 export type BackendBrowserAggregateStatus =
