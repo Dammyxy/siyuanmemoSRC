@@ -2,6 +2,39 @@ import { describe, expect, it, vi } from 'vitest';
 import { BackendKernel } from '../bootstrap/BackendKernel';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { createInMemorySqlitePersistenceBridge } from '../db/SqlitePersistenceBridge';
+import { CardState, CardType, type FSRSCard } from '@/types/card';
+import type {
+  BackendNeuralGraphQueryRequest,
+  BackendNeuralGraphQueryResult,
+} from '../../packages/contracts/src/backend-rpc';
+
+function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
+  const now = 1_700_000_000_000;
+  return {
+    id: overrides.id ?? 'card-1',
+    xiuyuanID: overrides.xiuyuanID ?? 'xiuyuan-1',
+    blockId: overrides.blockId ?? overrides.id ?? 'block-1',
+    due: overrides.due ?? now + 86_400_000,
+    stability: overrides.stability ?? 4,
+    difficulty: overrides.difficulty ?? 5,
+    reps: overrides.reps ?? 3,
+    lapses: overrides.lapses ?? 1,
+    state: overrides.state ?? CardState.Review,
+    lastReview: overrides.lastReview ?? now,
+    elapsedDays: overrides.elapsedDays ?? 0,
+    scheduledDays: overrides.scheduledDays ?? 7,
+    priority: overrides.priority ?? 19,
+    type: overrides.type ?? CardType.Item,
+    tags: overrides.tags ?? [],
+    neuralRoamSeed: overrides.neuralRoamSeed ?? false,
+    leechCount: overrides.leechCount ?? 0,
+    isLeech: overrides.isLeech ?? false,
+    skipped: overrides.skipped ?? false,
+    createdAt: overrides.createdAt ?? now,
+    updatedAt: overrides.updatedAt ?? now,
+    meta: overrides.meta ?? {},
+  };
+}
 
 function createKernel(): BackendKernel {
   return new BackendKernel({
@@ -134,15 +167,18 @@ describe('BackendKernel hotspot command runtime', () => {
     });
   });
 
-  it('returns typed unavailable placeholders for aggregate and graph reads', async () => {
-    const kernel = createKernel();
-    const identity = {
-      snapshotId: 'snapshot-1',
-      generation: 1,
-      datasourceId: 'deck:all',
-      policyHash: 'policy-1',
-      queryFingerprint: 'query-1',
-    };
+  it('serves backend Browser aggregate snapshot, page, focus, and stale generation results', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({ database });
+    const cards = Array.from({ length: 130 }, (_, index) => buildCard({
+      id: `card-${String(index + 1).padStart(3, '0')}`,
+      blockId: `block-${String(index + 1).padStart(3, '0')}`,
+      meta: { rootId: 'root-1', parentId: index > 0 ? `block-${String(index).padStart(3, '0')}` : null },
+    }));
+    await database.upsertCards(cards);
+    await database.updateSourceExistence([
+      { blockId: 'block-065', exists: true },
+    ], 1_700_000_100_000);
 
     const snapshot = await kernel.handle({
       id: 'aggregate-snapshot',
@@ -151,8 +187,25 @@ describe('BackendKernel hotspot command runtime', () => {
       params: [{
         requestId: 'aggregate-request-1',
         datasourceId: 'deck:all',
+        scope: { pageSize: 50 },
       }],
     });
+    expect(snapshot).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'ready',
+        totalCount: 130,
+        pageSize: 50,
+        identity: expect.objectContaining({
+          datasourceId: 'deck:all',
+          generation: 1,
+        }),
+      }),
+    }));
+    if (!('result' in snapshot) || !snapshot.result.identity) {
+      throw new Error('expected aggregate identity');
+    }
+    const identity = snapshot.result.identity;
+
     const page = await kernel.handle({
       id: 'aggregate-page',
       jsonrpc: '2.0',
@@ -170,48 +223,231 @@ describe('BackendKernel hotspot command runtime', () => {
       params: [{
         requestId: 'focus-request-1',
         identity,
-        focus: { type: 'card', cardId: 'card-1' },
+        focus: { type: 'card', cardId: 'card-065' },
+        limitBefore: 1,
+        limitAfter: 1,
       }],
     });
-    const graph = await kernel.handle({
-      id: 'graph-query',
+
+    await kernel.handle({
+      id: 'aggregate-snapshot-new-generation',
       jsonrpc: '2.0',
-      method: 'graph.query',
+      method: 'browser.aggregate.snapshot',
       params: [{
-        queryId: 'graph-1',
-        kind: 'neighbors',
-        sourceNodeId: 'block-1',
+        requestId: 'aggregate-request-2',
+        datasourceId: 'deck:all',
+        scope: { pageSize: 50 },
+      }],
+    });
+    const stalePage = await kernel.handle({
+      id: 'aggregate-page-stale',
+      jsonrpc: '2.0',
+      method: 'browser.aggregate.page',
+      params: [{
+        requestId: 'page-request-stale',
+        identity,
+        limit: 50,
+      }],
+    });
+
+    expect(page).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'ready',
+        identity,
+        rows: expect.arrayContaining([expect.objectContaining({ id: 'card-001' })]),
+        totalCount: 130,
+        nextCursor: '50',
+      }),
+    }));
+    expect(focus).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'ready',
+        identity,
+        focusFound: true,
+        rows: expect.arrayContaining([expect.objectContaining({ id: 'card-065' })]),
+        hierarchy: expect.objectContaining({
+          rootId: 'root-1',
+          parentId: 'block-064',
+        }),
+        sourceExistence: expect.objectContaining({
+          'block-065': true,
+        }),
+      }),
+    }));
+    expect(stalePage).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'stale-generation',
+        unavailableClass: 'INVALID_REQUEST',
+      }),
+    }));
+  });
+
+  it('returns ready-empty Browser aggregate snapshots without renderer fallback', async () => {
+    const kernel = createKernel();
+
+    const snapshot = await kernel.handle({
+      id: 'aggregate-empty',
+      jsonrpc: '2.0',
+      method: 'browser.aggregate.snapshot',
+      params: [{
+        requestId: 'aggregate-empty-1',
+        datasourceId: 'deck:empty',
       }],
     });
 
     expect(snapshot).toEqual(expect.objectContaining({
       result: expect.objectContaining({
-        status: 'unavailable',
-        unavailableClass: 'BACKEND_UNAVAILABLE',
+        status: 'ready-empty',
         totalCount: 0,
+        pageSize: expect.any(Number),
+        identity: expect.objectContaining({
+          datasourceId: 'deck:empty',
+        }),
       }),
     }));
-    expect(page).toEqual(expect.objectContaining({
-      result: expect.objectContaining({
-        status: 'unavailable',
-        identity,
-        rows: [],
-      }),
-    }));
-    expect(focus).toEqual(expect.objectContaining({
-      result: expect.objectContaining({
-        status: 'unavailable',
-        identity,
-        focusFound: false,
-        rows: [],
-      }),
-    }));
-    expect(graph).toEqual(expect.objectContaining({
-      result: expect.objectContaining({
-        status: 'unavailable',
-        queryId: 'graph-1',
+  });
+
+  it('serves backend graph query presentation models with limit and content-safe diagnostics', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const blocks = {
+      source: { id: 'source', content: 'Private source body should stay out of diagnostics', type: 'd' },
+      target1: { id: 'target1', content: 'Target one title', type: 'p', parent_id: 'source', root_id: 'source' },
+      target2: { id: 'target2', content: 'Target two title', type: 'i', parent_id: 'source', root_id: 'source' },
+    };
+    const resolveNeuralGraphQuery = vi.fn(async (
+      request: BackendNeuralGraphQueryRequest,
+    ): Promise<BackendNeuralGraphQueryResult> => {
+      if (request.operation === 'fetchBlockData') {
+        const block = blocks[request.blockId as keyof typeof blocks];
+        return block
+          ? { status: 'found', blockId: request.blockId, data: block, error: null }
+          : { status: 'known-missing', blockId: request.blockId, data: null, error: null };
+      }
+      if (request.operation === 'fetchNeighbors') {
+        return {
+          status: 'found',
+          blockId: request.blockId,
+          data: [
+            { id: 'target1', type: 'backlink', weight: 15 },
+            { id: 'target2', type: 'outgoing-direct', weight: 10 },
+          ],
+          error: null,
+        };
+      }
+      return { status: 'found', blockId: request.blockId, data: [], error: null };
+    });
+    const kernel = new BackendKernel({ database, resolveNeuralGraphQuery });
+
+    const response = await kernel.handle({
+      id: 'graph-ready',
+      jsonrpc: '2.0',
+      method: 'graph.query',
+      params: [{
+        queryId: 'graph-ready-1',
         kind: 'neighbors',
+        sourceNodeId: 'source',
+        limit: 1,
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'partial',
+        queryId: 'graph-ready-1',
+        kind: 'neighbors',
+        limitReached: true,
+        continuation: '1',
+        nodes: expect.arrayContaining([
+          expect.objectContaining({ nodeId: 'source', title: 'Private source body should stay out of diagnostics' }),
+          expect.objectContaining({ nodeId: 'target1', title: 'Target one title' }),
+        ]),
+        edges: [expect.objectContaining({
+          sourceNodeId: 'source',
+          targetNodeId: 'target1',
+          kind: 'backlink',
+        })],
+        diagnostics: expect.objectContaining({
+          nodeCount: 2,
+          edgeCount: 1,
+          sourceAvailability: 'available',
+        }),
+      }),
+    }));
+    expect(JSON.stringify((response as { result: unknown }).result).includes('Private source body should stay out of diagnostics')).toBe(true);
+    expect(JSON.stringify((response as { result: { diagnostics: unknown } }).result.diagnostics)).not.toContain('Private source body');
+  });
+
+  it('classifies graph query unavailable, missing, and unreadable historical nodes explicitly', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const unavailableKernel = new BackendKernel({ database });
+    const unavailable = await unavailableKernel.handle({
+      id: 'graph-unavailable',
+      jsonrpc: '2.0',
+      method: 'graph.query',
+      params: [{ queryId: 'graph-unavailable-1', kind: 'neighbors', sourceNodeId: 'source' }],
+    });
+    expect(unavailable).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'unavailable',
         unavailableClass: 'BACKEND_UNAVAILABLE',
+      }),
+    }));
+
+    const resolveNeuralGraphQuery = vi.fn(async (
+      request: BackendNeuralGraphQueryRequest,
+    ): Promise<BackendNeuralGraphQueryResult> => {
+      if (request.operation === 'fetchBlockData') {
+        if (request.blockId === 'source-missing') {
+          return { status: 'known-missing', blockId: request.blockId, data: null, error: null };
+        }
+        if (request.blockId === 'target-unreadable') {
+          return { status: 'failed', blockId: request.blockId, data: null, error: 'read failed: sensitive body omitted' };
+        }
+        return { status: 'found', blockId: request.blockId, data: { id: request.blockId, content: 'Readable title', type: 'p' }, error: null };
+      }
+      return {
+        status: 'found',
+        blockId: request.blockId,
+        data: [{ id: 'target-unreadable', type: 'backlink', weight: 1 }],
+        error: null,
+      };
+    });
+    const kernel = new BackendKernel({ database, resolveNeuralGraphQuery });
+
+    const missing = await kernel.handle({
+      id: 'graph-missing',
+      jsonrpc: '2.0',
+      method: 'graph.query',
+      params: [{ queryId: 'graph-missing-1', kind: 'neighbors', sourceNodeId: 'source-missing' }],
+    });
+    const unreadable = await kernel.handle({
+      id: 'graph-unreadable',
+      jsonrpc: '2.0',
+      method: 'graph.query',
+      params: [{ queryId: 'graph-unreadable-1', kind: 'neighbors', sourceNodeId: 'source' }],
+    });
+
+    expect(missing).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'partial',
+        nodes: [expect.objectContaining({
+          nodeId: 'source-missing',
+          availability: 'unavailable',
+          unavailableReason: 'known-missing',
+        })],
+      }),
+    }));
+    expect(unreadable).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'partial',
+        nodes: expect.arrayContaining([
+          expect.objectContaining({
+            nodeId: 'target-unreadable',
+            availability: 'unavailable',
+            title: 'Unavailable node',
+            unavailableReason: 'unreadable',
+          }),
+        ]),
       }),
     }));
   });

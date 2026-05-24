@@ -1,14 +1,18 @@
 import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type {
+  BrowserDeckLiteRow,
   BrowserDeckPageRequest,
   BrowserDeckPageResult,
   BrowserDeckSnapshotQuery,
+  BrowserDeckSnapshotResult,
 } from '@/application/queries/browser/browser-deck-query';
 import type { BrowserDeckQueryKernel } from '@/application/queries/browser/shared/BrowserDeckQueryKernel';
+import type { BackendBrowserAggregateIdentity } from '../../../../packages/contracts/src/backend-rpc';
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { FSRSCard } from '@/types/card';
 import type { BrowserCard } from '@/types/browser';
+import { resolveBrowserCardStableId } from '@/types/browser';
 import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics';
 
 export type BrowserCardUniverseReadModuleDeps = {
@@ -38,7 +42,96 @@ export function toBrowserCardUniverseUnavailable(operation: string, error?: unkn
 }
 
 export class BrowserCardUniverseReadModule {
+  private readonly aggregateSnapshots = new Map<string, BackendBrowserAggregateIdentity>();
+
   constructor(private readonly deps: BrowserCardUniverseReadModuleDeps) {}
+
+  async readAggregatePage(
+    query: BrowserDeckSnapshotQuery,
+    page: BrowserDeckPageRequest,
+  ): Promise<BrowserDeckPageResult> {
+    const startRow = Math.max(0, Math.floor(Number(page.startRow) || 0));
+    const endRow = Math.max(startRow, Math.floor(Number(page.endRow) || startRow));
+    const limit = Math.max(1, endRow - startRow);
+    const identity = await this.ensureAggregateSnapshot(query, limit);
+    try {
+      const aggregatePage = await measureRuntimePerformance('browser', 'backend.aggregate-page', () => this.requireBackend('browser.aggregate.page').browserAggregatePage<FSRSCard>({
+        requestId: `browser-aggregate-page:${Date.now()}`,
+        identity,
+        offset: startRow,
+        limit,
+      }), {
+        endRow,
+        startRow,
+      });
+      if (aggregatePage.status === 'stale-generation') {
+        this.aggregateSnapshots.delete(this.aggregateKey(query));
+        throw toBrowserCardUniverseUnavailable('browser.aggregate.page', aggregatePage.reason || 'stale aggregate generation');
+      }
+      if (aggregatePage.status !== 'ready' && aggregatePage.status !== 'ready-empty') {
+        throw toBrowserCardUniverseUnavailable('browser.aggregate.page', aggregatePage.reason || aggregatePage.status);
+      }
+      const cards = aggregatePage.rows as FSRSCard[];
+      this.deps.scheduleSourceExistenceRefreshForCards(cards, {
+        limit: this.deps.sourceExistenceBatchSize,
+      });
+      return {
+        rows: await this.mapBackendCards(cards, 'aggregate-page'),
+        total: aggregatePage.totalCount ?? cards.length,
+      };
+    } catch (error) {
+      throw toBrowserCardUniverseUnavailable('browser.aggregate.page', error);
+    }
+  }
+
+  async readAggregateSnapshot(query: BrowserDeckSnapshotQuery): Promise<BrowserDeckSnapshotResult> {
+    const pageSize = 256;
+    const identity = await this.ensureAggregateSnapshot(query, pageSize);
+    const rows: BrowserDeckLiteRow[] = [];
+    let offset = 0;
+    let total = 0;
+    try {
+      while (true) {
+        const page = await measureRuntimePerformance('browser', 'backend.aggregate-snapshot-page', () => this.requireBackend('browser.aggregate.page').browserAggregatePage<FSRSCard>({
+          requestId: `browser-aggregate-snapshot-page:${Date.now()}:${offset}`,
+          identity,
+          offset,
+          limit: pageSize,
+        }), { offset, pageSize });
+        if (page.status === 'stale-generation') {
+          this.aggregateSnapshots.delete(this.aggregateKey(query));
+          throw toBrowserCardUniverseUnavailable('browser.aggregate.snapshot', page.reason || 'stale aggregate generation');
+        }
+        if (page.status !== 'ready' && page.status !== 'ready-empty') {
+          throw toBrowserCardUniverseUnavailable('browser.aggregate.snapshot', page.reason || page.status);
+        }
+        total = page.totalCount ?? total;
+        const browserRows = await this.mapBackendCards(page.rows as FSRSCard[], 'aggregate-snapshot');
+        rows.push(...browserRows.map((row) => ({
+          id: resolveBrowserCardStableId(row),
+          blockId: String(row.blockId || ''),
+          fsrsCardId: String(row.fsrsCardId || ''),
+          actionTarget: {
+            id: String(row.id || ''),
+            blockId: String(row.blockId || ''),
+            fsrsCardId: String(row.fsrsCardId || '') || undefined,
+            cardType: row.cardType,
+            priority: typeof row.priority === 'number' ? row.priority : undefined,
+          },
+        })));
+        if (!page.nextCursor || rows.length >= total) {
+          break;
+        }
+        offset = Number(page.nextCursor);
+        if (!Number.isFinite(offset)) {
+          break;
+        }
+      }
+      return { rows, total };
+    } catch (error) {
+      throw toBrowserCardUniverseUnavailable('browser.aggregate.snapshot', error);
+    }
+  }
 
   async readPage(
     query: BrowserDeckSnapshotQuery,
@@ -130,5 +223,68 @@ export class BrowserCardUniverseReadModule {
       throw toBrowserCardUniverseUnavailable(operation);
     }
     return this.deps.backendClient;
+  }
+
+  private async ensureAggregateSnapshot(
+    query: BrowserDeckSnapshotQuery,
+    pageSize: number,
+  ): Promise<BackendBrowserAggregateIdentity> {
+    const key = this.aggregateKey(query);
+    const current = this.aggregateSnapshots.get(key);
+    if (current) {
+      return current;
+    }
+    const snapshot = await measureRuntimePerformance('browser', 'backend.aggregate-snapshot', () => this.requireBackend('browser.aggregate.snapshot').browserAggregateSnapshot({
+      requestId: `browser-aggregate-snapshot:${Date.now()}`,
+      datasourceId: `deck:${key}`,
+      scope: {
+        preset: query.preset,
+        docId: query.docId,
+        scopeDocIds: query.scopeDocIds ?? null,
+        pageSize,
+      },
+      filter: {
+        searchText: query.searchText,
+        states: query.states,
+        cardTypes: query.cardTypes,
+        deckIds: query.deckIds,
+        tags: query.tags,
+      },
+      sort: {
+        sortModel: query.sortModel,
+      },
+    }), { pageSize });
+    if ((snapshot.status !== 'ready' && snapshot.status !== 'ready-empty') || !snapshot.identity) {
+      throw toBrowserCardUniverseUnavailable('browser.aggregate.snapshot', snapshot.reason || snapshot.status);
+    }
+    this.aggregateSnapshots.set(key, snapshot.identity);
+    return snapshot.identity;
+  }
+
+  private async mapBackendCards(cards: FSRSCard[], reason: string): Promise<BrowserCard[]> {
+    const rows = await measureRuntimePerformance(
+      'browser',
+      `${reason}.map-browser-rows`,
+      () => this.deps.browserDeckQueryKernel.getBrowserCardsFromCards(cards, { markMissing: false }),
+      { rowCount: cards.length },
+    );
+    return this.deps.reuseBrowserRowProjections(
+      await this.deps.markRowsFromBackendSourceExistence(rows),
+      reason,
+    );
+  }
+
+  private aggregateKey(query: BrowserDeckSnapshotQuery): string {
+    return JSON.stringify({
+      preset: query.preset ?? null,
+      searchText: query.searchText ?? '',
+      docId: query.docId ?? null,
+      scopeDocIds: query.scopeDocIds ?? null,
+      states: query.states ?? null,
+      cardTypes: query.cardTypes ?? null,
+      deckIds: query.deckIds ?? null,
+      tags: query.tags ?? null,
+      sortModel: query.sortModel ?? [],
+    });
   }
 }

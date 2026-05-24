@@ -25,7 +25,7 @@ import {
   type QueueAddRoute,
   type PluginLike as MenuActionPluginLike,
 } from './MenuActions';
-import type { IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
+import type { IUnifiedDataSourceManagerFacade, QueueAddSource } from '@/types/unified-data-source';
 import type { RescheduleService } from '@/core/scheduler/rescheduleService';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import type { FSRSCard } from '@/types/card';
@@ -110,9 +110,9 @@ type DeckDataSourceDependencies = {
   browserService?: DeckBrowserService | null;
 };
 
-type DeckBrowserService = Pick<IBrowserApplicationService, 'getDeckRowsByIds'> & Partial<Pick<
+type DeckBrowserService = Partial<Pick<
   IBrowserApplicationService,
-  'getDeckPage' | 'getDeckMatchedIds' | 'getDeckQuerySnapshot'
+  'getDeckAggregatePage' | 'getDeckAggregateSnapshot' | 'getDeckPage' | 'getDeckMatchedIds' | 'getDeckQuerySnapshot' | 'getDeckRowsByIds'
 >>;
 
 type I18nContextLike = {
@@ -165,6 +165,19 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     try {
       const sortModel = normalizeBrowserQuerySortModel(params?.sortModel as SortModel[] | undefined);
       this.lastSortModel = sortModel;
+      if (this.browserService?.getDeckAggregatePage) {
+        const result = await this.browserService.getDeckAggregatePage(
+          this.buildBrowserServiceQuery(sortModel),
+          {
+            startRow: params?.startRow,
+            endRow: params?.endRow,
+          },
+        );
+        return {
+          rows: result.rows,
+          totalCount: result.total,
+        };
+      }
       if (this.browserService?.getDeckPage) {
         const result = await this.browserService.getDeckPage(
           this.buildBrowserServiceQuery(sortModel),
@@ -201,14 +214,14 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   }
 
   async getRowsByIds(ids: string[]): Promise<BrowserCard[]> {
-    if (this.browserService?.getDeckPage && this.browserService?.getDeckRowsByIds) {
+    if ((this.browserService?.getDeckAggregatePage || this.browserService?.getDeckPage) && this.browserService?.getDeckRowsByIds) {
       return this.browserService.getDeckRowsByIds(normalizeBrowserQueryIds(ids));
     }
     return this.querySession.getRowsByIds(ids, this.buildSessionOptions(this.lastSortModel));
   }
 
   async getActionTargetsByIds(ids: string[]): Promise<BrowserActionTarget[]> {
-    if (this.browserService?.getDeckPage && this.browserService?.getDeckRowsByIds) {
+    if ((this.browserService?.getDeckAggregatePage || this.browserService?.getDeckPage) && this.browserService?.getDeckRowsByIds) {
       const rows = await this.browserService.getDeckRowsByIds(normalizeBrowserQueryIds(ids));
       return rows.map((row) => ({
         id: String(row.id || ''),
@@ -334,7 +347,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   }
 
   private async handleQueueAddAction(route: QueueAddRoute, selectedRows: BrowserActionTarget[]): Promise<unknown> {
-    const source = route.actionType === 'neural-roam' ? 'browser' : route.source ?? 'manual';
+    const source: QueueAddSource = route.actionType === 'neural-roam' ? 'manual' : route.source ?? 'manual';
     const queueTarget = route.actionType === 'neural-roam'
       ? this.getNeuralRoamEntryActionService()
       : typeof this.manager.batchAddToQueue === 'function'
@@ -349,7 +362,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
           ),
         }
       : undefined;
-    const result = await addToQueue(queueTarget, selectedRows, route.actionType, source);
+    const result = await addToQueue(queueTarget as Parameters<typeof addToQueue>[0], selectedRows, route.actionType, source);
     this.invalidateQuerySession();
     return result;
   }
@@ -453,11 +466,13 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   }
 
   private buildSessionOptions(sortModel: SortModel[]) {
-    if (this.browserService?.getDeckQuerySnapshot && this.browserService?.getDeckRowsByIds) {
+    const snapshotReader = this.browserService?.getDeckAggregateSnapshot ?? this.browserService?.getDeckQuerySnapshot;
+    if (snapshotReader && this.browserService?.getDeckRowsByIds) {
       return {
         queryFingerprint: this.buildQueryFingerprint(sortModel),
         buildLiteRows: async () => {
-          const snapshot = await this.browserService!.getDeckQuerySnapshot(
+          const snapshot = await snapshotReader.call(
+            this.browserService,
             this.buildBrowserServiceQuery(sortModel)
           );
           return snapshot.rows;

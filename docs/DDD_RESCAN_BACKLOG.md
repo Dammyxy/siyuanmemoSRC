@@ -4,6 +4,16 @@ Last update: 2026-05-25 (Round 456)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-25 - Browser Aggregate And Graph Query Read Models
+
+- Task: Complete OpenSpec `backendize-runtime-hotspots` P5/P6 backend read-model cutover work.
+- Touched slice: `BackendKernel`, `WorkerBrowserAggregateReadService`, `WorkerGraphQueryService`, `BrowserCardUniverseReadModule`, `BrowserApplicationService`, `IBrowserApplicationService`, `DeckDataSource`, focused Browser/Worker tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Browser aggregate snapshot/page/focus RPCs now execute in Backend Worker over backend-owned card/source-existence data with snapshot identity, generation, stale-generation rejection, ready-empty state, focus hierarchy, and source-existence facts; deck datasource lifecycle now prefers `browser.aggregate.*` through application service instead of legacy deck page/full snapshot authority; bulk deck action preparation continues to bind to explicit backend-validated card ids; `graph.query` now returns presentation-ready nodes/edges, limit metadata, explicit missing/unreadable node state, and content-safe diagnostics.
+- Debt deferred: Live Browser open/first-page performance smoke and live graph-query smoke are still pending; graph facts still use the typed `resolveNeuralGraphQuery` migration host effect until approved kernel/private graph read adapters are available; queue datasource aggregate parity remains on existing backend projection contracts rather than the deck aggregate service.
+- Why deferred: Unit/build validation can prove backend contracts and fail-closed behavior, but live performance evidence needs a running SiYuan/plugin runtime; replacing the graph host effect needs a separate approved kernel/private read surface.
+- Next safe step: Run live SiYuan Browser aggregate open + graph query smoke and record only timings/counts/status/unavailable classes; then add a boundary check that rejects renderer graph SQL authority once the kernel/private read adapter lands.
+- Validation: `pnpm exec vitest run src/ui/browser/datasource/__tests__/DeckDataSource.query-snapshot.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts worker/__tests__/BackendKernel.hotspot-command.test.ts`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`; `pnpm exec tsc --noEmit --pretty false` still fails on existing global TS/test debts, with remaining local-filter hits only in pre-existing `DeckDataSource.neural-add-card-type-consistency.test.ts` card-type fixtures.
+
 ### 2026-05-25 - Progressive/Topic Backend Command Cutover
 
 - Task: Complete OpenSpec `backendize-runtime-hotspots` P4 by moving Progressive Reading and Topic-derived mutation entrypoints behind backend command execution and writer relay.

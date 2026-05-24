@@ -111,6 +111,8 @@ import type { StructuredCardQuery } from '@/types/card-query';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { BackendHotspotCommandRuntime } from './BackendHotspotCommandRuntime';
 import { BackendJobRuntime } from './BackendJobRuntime';
+import { WorkerBrowserAggregateReadService } from './WorkerBrowserAggregateReadService';
+import { WorkerGraphQueryService } from './WorkerGraphQueryService';
 import { WorkerNeuralRoamAdvanceService } from './WorkerNeuralRoamAdvanceService';
 import { WorkerXiuyuanSyncPlanner } from '../xiuyuan/WorkerXiuyuanSyncPlanner';
 import {
@@ -230,6 +232,8 @@ export class BackendKernel {
   private readonly preRequestMergeDiagnostics: BackendPreRequestMergeDiagnostic[] = [];
   private readonly aiRuntime: BackendJobRuntime;
   private readonly hotspotRuntime: BackendHotspotCommandRuntime;
+  private readonly browserAggregateReadService: WorkerBrowserAggregateReadService;
+  private readonly graphQueryService: WorkerGraphQueryService;
   private readonly neuralRoamRuntime: WorkerNeuralRoamAdvanceService;
 
   constructor(private readonly deps: BackendKernelDependencies) {
@@ -246,6 +250,10 @@ export class BackendKernel {
       onJobFailed: () => this.deps.database.recordAiJobOutcome('failed'),
     });
     this.hotspotRuntime = new BackendHotspotCommandRuntime();
+    this.browserAggregateReadService = new WorkerBrowserAggregateReadService(this.deps.database);
+    this.graphQueryService = new WorkerGraphQueryService({
+      resolveNeuralGraphQuery: this.deps.resolveNeuralGraphQuery,
+    });
     this.neuralRoamRuntime = new WorkerNeuralRoamAdvanceService({
       database: this.deps.database,
       resolveNeuralGraphQuery: this.deps.resolveNeuralGraphQuery,
@@ -378,13 +386,13 @@ export class BackendKernel {
         case 'topic-derived.command.execute':
           return buildSuccess(request.id, await this.handleTopicDerivedCommandExecute(request.params));
         case 'browser.aggregate.snapshot':
-          return buildSuccess(request.id, this.handleBrowserAggregateSnapshot(request.params));
+          return buildSuccess(request.id, await this.handleBrowserAggregateSnapshot(request.params));
         case 'browser.aggregate.page':
-          return buildSuccess(request.id, this.handleBrowserAggregatePage(request.params));
+          return buildSuccess(request.id, await this.handleBrowserAggregatePage(request.params));
         case 'browser.aggregate.focus':
-          return buildSuccess(request.id, this.handleBrowserAggregateFocus(request.params));
+          return buildSuccess(request.id, await this.handleBrowserAggregateFocus(request.params));
         case 'graph.query':
-          return buildSuccess(request.id, this.handleGraphQuery(request.params));
+          return buildSuccess(request.id, await this.handleGraphQuery(request.params));
         case 'private.health':
           return buildSuccess(request.id, this.handlePrivateHealth());
         case 'private.diagnostics.status':
@@ -949,62 +957,36 @@ export class BackendKernel {
     };
   }
 
-  private handleBrowserAggregateSnapshot(params: unknown): BackendBrowserAggregateSnapshotResult {
+  private async handleBrowserAggregateSnapshot(params: unknown): Promise<BackendBrowserAggregateSnapshotResult> {
     const named = this.readNamedParams<BackendBrowserAggregateSnapshotRequest>(params);
-    return {
-      status: 'unavailable',
-      identity: null,
-      totalCount: 0,
-      pageSize: 0,
-      unavailableClass: 'BACKEND_UNAVAILABLE',
-      reason: named?.datasourceId
-        ? 'browser aggregate read model unavailable'
-        : 'browser aggregate snapshot requires datasource identity',
-    };
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: browser.aggregate.snapshot requires named params');
+    }
+    return this.browserAggregateReadService.snapshot(named);
   }
 
-  private handleBrowserAggregatePage(params: unknown): BackendBrowserAggregatePageResult {
+  private async handleBrowserAggregatePage(params: unknown): Promise<BackendBrowserAggregatePageResult> {
     const named = this.readNamedParams<BackendBrowserAggregatePageRequest>(params);
-    return {
-      status: 'unavailable',
-      identity: named?.identity ?? null,
-      rows: [],
-      nextCursor: null,
-      totalCount: 0,
-      unavailableClass: 'BACKEND_UNAVAILABLE',
-      reason: 'browser aggregate page read model unavailable',
-    };
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: browser.aggregate.page requires named params');
+    }
+    return this.browserAggregateReadService.page(named);
   }
 
-  private handleBrowserAggregateFocus(params: unknown): BackendBrowserAggregateFocusResult {
+  private async handleBrowserAggregateFocus(params: unknown): Promise<BackendBrowserAggregateFocusResult> {
     const named = this.readNamedParams<BackendBrowserAggregateFocusRequest>(params);
-    return {
-      status: 'unavailable',
-      identity: named?.identity ?? null,
-      focusFound: false,
-      rows: [],
-      hierarchy: null,
-      sourceExistence: null,
-      unavailableClass: 'BACKEND_UNAVAILABLE',
-      reason: 'browser aggregate focus read model unavailable',
-    };
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: browser.aggregate.focus requires named params');
+    }
+    return this.browserAggregateReadService.focus(named);
   }
 
-  private handleGraphQuery(params: unknown): BackendGraphQueryResult {
+  private async handleGraphQuery(params: unknown): Promise<BackendGraphQueryResult> {
     const named = this.readNamedParams<BackendGraphQueryRequest>(params);
-    return {
-      status: 'unavailable',
-      queryId: String(named?.queryId || '').trim() || 'unknown-query',
-      kind: named?.kind || 'neighbors',
-      unavailableClass: 'BACKEND_UNAVAILABLE',
-      reason: 'graph read model unavailable',
-      recoverable: true,
-      diagnostics: {
-        timingMs: 0,
-        sourceAvailability: 'unavailable',
-        errorCategory: 'BACKEND_UNAVAILABLE',
-      },
-    };
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: graph.query requires named params');
+    }
+    return this.graphQueryService.query(named);
   }
 
   private async handleKernelTransactionIngest(params: unknown): Promise<BackendKernelTransactionIngestResult> {

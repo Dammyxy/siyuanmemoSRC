@@ -39,6 +39,7 @@ import type {
   IUnifiedDataSourceManagerFacade,
   QueueType,
 } from '@/types/unified-data-source';
+import type { BrowserQueueId } from '@/types/browser-queue-identity';
 export type { BrowserQueueId } from '@/types/browser-queue-identity';
 import type { BrowserSiyuanPort } from '../ports/BrowserSiyuanPort';
 
@@ -102,6 +103,10 @@ export interface IBrowserApplicationService {
   getBrowserCards(query?: GetBrowserCardsQuery): Promise<GetBrowserCardsQueryResult>;
 
   getDeckQuerySnapshot(query: BrowserDeckSnapshotQuery): Promise<BrowserDeckSnapshotResult>;
+
+  getDeckAggregateSnapshot(query: BrowserDeckSnapshotQuery): Promise<BrowserDeckSnapshotResult>;
+
+  getDeckAggregatePage(query: BrowserDeckSnapshotQuery, page: BrowserDeckPageRequest): Promise<BrowserDeckPageResult>;
 
   getDeckPage(query: BrowserDeckSnapshotQuery, page: BrowserDeckPageRequest): Promise<BrowserDeckPageResult>;
 

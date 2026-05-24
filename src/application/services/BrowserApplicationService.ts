@@ -241,6 +241,17 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     return this.browserDeckQueryKernel.buildSnapshot(query);
   }
 
+  async getDeckAggregateSnapshot(query: BrowserDeckSnapshotQuery): Promise<BrowserDeckSnapshotResult> {
+    return this.browserCardUniverseReadModule.readAggregateSnapshot(query);
+  }
+
+  async getDeckAggregatePage(
+    query: BrowserDeckSnapshotQuery,
+    page: BrowserDeckPageRequest,
+  ): Promise<BrowserDeckPageResult> {
+    return this.browserCardUniverseReadModule.readAggregatePage(query, page);
+  }
+
   async getDeckPage(
     query: BrowserDeckSnapshotQuery,
     page: BrowserDeckPageRequest,
