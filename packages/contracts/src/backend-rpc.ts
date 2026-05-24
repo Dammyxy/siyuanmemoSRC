@@ -784,8 +784,8 @@ export interface BackendXiuyuanSyncPlan {
 
 export interface BackendXiuyuanSyncApplyImpact {
   requested: boolean;
-  applied: false;
-  reason: 'dry-run' | 'apply-not-implemented' | 'read-unavailable';
+  applied: boolean;
+  reason: 'applied' | 'dry-run' | 'read-unavailable';
   changed: MutationChangedSet;
 }
 
@@ -800,7 +800,7 @@ export interface BackendXiuyuanSyncDiagnostics {
 
 export type BackendXiuyuanSyncExecuteResult =
   | {
-      status: 'planned';
+      status: 'planned' | 'applied';
       commandId: string;
       idempotencyKey: string;
       mode: BackendXiuyuanSyncMode;

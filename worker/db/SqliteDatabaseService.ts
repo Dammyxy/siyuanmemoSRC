@@ -62,8 +62,10 @@ import type {
   BackendSemanticSidebarReadResult,
   BackendSemanticSessionReadRequest,
   BackendSemanticSessionReadResult,
+  BackendXiuyuanNativeRiffBlockFacts,
   BackendXiuyuanSyncLocalFacts,
 } from '../../packages/contracts/src/backend-rpc';
+import type { WorkerXiuyuanSyncApplyInput } from '../xiuyuan/WorkerXiuyuanSyncPlanner';
 import type {
   SemanticEvent,
   SemanticLens,
@@ -4362,6 +4364,163 @@ export class WorkerSqliteDatabaseService {
       return 0;
     }
     return Math.max(0, Math.min(1, value));
+  }
+
+  async applyXiuyuanSyncPlan(input: WorkerXiuyuanSyncApplyInput): Promise<{
+    blockIds: string[];
+    cardIds: string[];
+  }> {
+    await this.init();
+    const nativeByBlockId = new Map(input.nativeBlocks.map((block) => [normalizeString(block.id), block]));
+    const localCardByBlockId = new Map(input.localFacts.cards.map((card) => [normalizeString(card.blockId), card]));
+    const localXiuyuanByBlockId = new Map<string, BackendXiuyuanSyncLocalFacts['xiuyuans'][number]>();
+    for (const xiuyuan of input.localFacts.xiuyuans) {
+      for (const blockId of xiuyuan.blockIds) {
+        const normalized = normalizeString(blockId);
+        if (normalized && !localXiuyuanByBlockId.has(normalized)) {
+          localXiuyuanByBlockId.set(normalized, xiuyuan);
+        }
+      }
+      const representative = normalizeString(xiuyuan.representativeBlockId);
+      if (representative && !localXiuyuanByBlockId.has(representative)) {
+        localXiuyuanByBlockId.set(representative, xiuyuan);
+      }
+    }
+    const changedBlockIds = uniqueStrings([
+      ...input.plan.candidateBlockIds.update,
+      ...input.plan.candidateBlockIds.delete,
+      ...input.plan.candidateBlockIds.create,
+    ]);
+    const changedCardIds: string[] = [];
+
+    await this.runtime.runTransaction('xiuyuan.sync.apply', () => {
+      for (const blockId of input.plan.candidateBlockIds.update) {
+        const nativeBlock = nativeByBlockId.get(blockId);
+        if (!nativeBlock) {
+          continue;
+        }
+        const card = localCardByBlockId.get(blockId);
+        const xiuyuan = localXiuyuanByBlockId.get(blockId);
+        const cardId = normalizeString(card?.id) || `card-${blockId}`;
+        const xiuyuanId = normalizeString(xiuyuan?.id ?? card?.xiuyuanId) || `xy-${blockId}`;
+        this.upsertXiuyuanSyncRows({
+          block: nativeBlock,
+          cardId,
+          xiuyuanId,
+          deckId: input.request.deckId,
+          updatedAt: input.appliedAt,
+        });
+        changedCardIds.push(cardId);
+      }
+
+      for (const blockId of input.plan.candidateBlockIds.delete) {
+        const card = localCardByBlockId.get(blockId);
+        const xiuyuan = localXiuyuanByBlockId.get(blockId);
+        const cardId = normalizeString(card?.id) || `card-${blockId}`;
+        const xiuyuanId = normalizeString(xiuyuan?.id ?? card?.xiuyuanId) || `xy-${blockId}`;
+        this.runtime.run('DELETE FROM cards WHERE id = ?', [cardId]);
+        this.runtime.run('DELETE FROM xiuyuans WHERE id = ?', [xiuyuanId]);
+        this.runtime.run(
+          `INSERT OR REPLACE INTO tombstones (kind, id, deleted_at, deleted_by, payload_json)
+           VALUES (?, ?, ?, ?, ?)`,
+          ['card', cardId, input.appliedAt, 'xiuyuan.sync.execute', JSON.stringify({ blockId, commandId: input.request.commandId })],
+        );
+        this.runtime.run(
+          `INSERT OR REPLACE INTO tombstones (kind, id, deleted_at, deleted_by, payload_json)
+           VALUES (?, ?, ?, ?, ?)`,
+          ['xiuyuan', xiuyuanId, input.appliedAt, 'xiuyuan.sync.execute', JSON.stringify({ blockId, commandId: input.request.commandId })],
+        );
+        changedCardIds.push(cardId);
+      }
+
+      for (const blockId of input.plan.candidateBlockIds.create) {
+        const nativeBlock = nativeByBlockId.get(blockId);
+        if (!nativeBlock) {
+          continue;
+        }
+        const cardId = `card-${blockId}`;
+        const xiuyuanId = `xy-${blockId}`;
+        this.upsertXiuyuanSyncRows({
+          block: nativeBlock,
+          cardId,
+          xiuyuanId,
+          deckId: input.request.deckId,
+          updatedAt: input.appliedAt,
+        });
+        changedCardIds.push(cardId);
+      }
+    });
+
+    return {
+      blockIds: changedBlockIds,
+      cardIds: uniqueStrings(changedCardIds),
+    };
+  }
+
+  private upsertXiuyuanSyncRows(input: {
+    block: BackendXiuyuanNativeRiffBlockFacts;
+    cardId: string;
+    xiuyuanId: string;
+    deckId: string;
+    updatedAt: number;
+  }): void {
+    const riffCardId = normalizeString(input.block.riffCardID)
+      || normalizeString(input.block.riffCardId)
+      || normalizeString(input.block.riffCard?.id)
+      || input.block.id;
+    const xiuyuanPayload = {
+      id: input.xiuyuanId,
+      blockIDs: [input.block.id],
+      templateID: 'builtin-riff-sync',
+      content: input.block.content,
+      updatedAt: input.updatedAt,
+      meta: {
+        ownership: 'riff-managed',
+        source: 'riff-sync',
+        riffCardId,
+        deckId: input.deckId,
+      },
+    };
+    const cardPayload = {
+      id: input.cardId,
+      blockId: input.block.id,
+      xiuyuanID: input.xiuyuanId,
+      riffCardId,
+      schedulerType: 'fsrs-v6',
+      updatedAt: input.updatedAt,
+      content: input.block.content,
+      meta: {
+        templateID: 'builtin-riff-sync',
+        ownership: 'riff-managed',
+        source: 'riff-sync',
+        riffCardId,
+        deckId: input.deckId,
+      },
+    };
+    this.runtime.run(
+      `INSERT OR REPLACE INTO xiuyuans (id, updated_at, payload_json)
+       VALUES (?, ?, ?)`,
+      [input.xiuyuanId, input.updatedAt, JSON.stringify(xiuyuanPayload)],
+    );
+    this.runtime.run(
+      `INSERT OR REPLACE INTO cards (
+        id, block_id, xiuyuan_id, scheduler_type, updated_at, deck_id, content_text, search_text, payload_json, dto_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.cardId,
+        input.block.id,
+        input.xiuyuanId,
+        'fsrs-v6',
+        input.updatedAt,
+        input.deckId,
+        input.block.content,
+        input.block.content,
+        JSON.stringify(cardPayload),
+        JSON.stringify(cardPayload),
+      ],
+    );
+    this.runtime.run('DELETE FROM tombstones WHERE kind = ? AND id IN (?, ?)', ['card', input.cardId, input.xiuyuanId]);
+    this.runtime.run('DELETE FROM tombstones WHERE kind = ? AND id = ?', ['xiuyuan', input.xiuyuanId]);
   }
 
   async readXiuyuanSyncLocalFacts(): Promise<BackendXiuyuanSyncLocalFacts> {

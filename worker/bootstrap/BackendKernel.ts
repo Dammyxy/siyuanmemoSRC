@@ -828,6 +828,7 @@ export class BackendKernel {
     const planner = new WorkerXiuyuanSyncPlanner({
       loadLocalFacts: () => this.deps.database.readXiuyuanSyncLocalFacts(),
       readNativeRiffFacts: this.deps.readXiuyuanRiffFacts,
+      applySyncPlan: (input) => this.deps.database.applyXiuyuanSyncPlan(input),
     });
     return planner.execute(named);
   }

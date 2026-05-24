@@ -12,13 +12,23 @@ import type {
   BackendXiuyuanSyncLocalXiuyuanFact,
   BackendXiuyuanSyncMode,
   BackendXiuyuanSyncPlan,
+  MutationChangedSet,
 } from '../../packages/contracts/src/backend-rpc';
+
+export interface WorkerXiuyuanSyncApplyInput {
+  request: BackendXiuyuanSyncExecuteRequest;
+  plan: BackendXiuyuanSyncPlan;
+  localFacts: BackendXiuyuanSyncLocalFacts;
+  nativeBlocks: BackendXiuyuanNativeRiffBlockFacts[];
+  appliedAt: number;
+}
 
 export interface WorkerXiuyuanSyncPlannerDependencies {
   loadLocalFacts: () => Promise<BackendXiuyuanSyncLocalFacts>;
   readNativeRiffFacts?: (
     request: BackendXiuyuanRiffReadAuditRequest,
   ) => Promise<BackendXiuyuanRiffReadAuditResult>;
+  applySyncPlan?: (input: WorkerXiuyuanSyncApplyInput) => Promise<MutationChangedSet>;
   now?: () => number;
 }
 
@@ -244,6 +254,60 @@ export class WorkerXiuyuanSyncPlanner {
 
     const native = normalizeNativeRiffBlocks(nativeResult.blocks);
     const plan = this.buildPlan(request.mode, localFacts, native, nativeResult.blocks.length);
+    if (request.dryRun !== true) {
+      if (!this.deps.applySyncPlan) {
+        return this.unavailable(
+          request,
+          'BACKEND_UNAVAILABLE',
+          'Xiuyuan sync apply authority unavailable',
+          'apply-sync-plan',
+          true,
+          startedAt,
+        );
+      }
+
+      try {
+        const changed = await this.deps.applySyncPlan({
+          request,
+          plan,
+          localFacts,
+          nativeBlocks: native.blocks,
+          appliedAt: this.now(),
+        });
+        return {
+          status: 'applied',
+          commandId: request.commandId,
+          idempotencyKey: request.idempotencyKey,
+          mode: request.mode,
+          dryRun: request.dryRun,
+          progress: progress('succeeded', 'applied', 4, 4, this.now()),
+          plan,
+          applyImpact: {
+            requested: true,
+            applied: true,
+            reason: 'applied',
+            changed,
+          },
+          diagnostics: {
+            diagnosticEventId: this.diagnosticEventId(request),
+            readSource: nativeResult.diagnostics.source,
+            localLoadedAt: localFacts.loadedAt,
+            nativeReadAt: nativeResult.readAt,
+            timingMs: Math.max(0, this.now() - startedAt),
+            errorCategory: null,
+          },
+        };
+      } catch (error) {
+        return this.unavailable(
+          request,
+          'FAILED',
+          error instanceof Error ? error.message : String(error),
+          'apply-sync-plan',
+          false,
+          startedAt,
+        );
+      }
+    }
 
     return {
       status: 'planned',
@@ -256,7 +320,7 @@ export class WorkerXiuyuanSyncPlanner {
       applyImpact: {
         requested: request.dryRun !== true,
         applied: false,
-        reason: request.dryRun === true ? 'dry-run' : 'apply-not-implemented',
+        reason: 'dry-run',
         changed: {},
       },
       diagnostics: {

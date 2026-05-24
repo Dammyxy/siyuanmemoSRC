@@ -144,4 +144,106 @@ describe('BackendKernel xiuyuan.sync.execute', () => {
       }),
     }));
   });
+
+  it('applies non-dry-run sync through backend Worker DB authority', async () => {
+    const database = await createSeededDatabase();
+    const now = 1_700_000_000_000;
+    database.run('INSERT INTO xiuyuans (id, updated_at, payload_json) VALUES (?, ?, ?)', [
+      'xy-gone',
+      now,
+      JSON.stringify({
+        id: 'xy-gone',
+        blockIDs: ['block-gone'],
+        templateID: 'builtin-riff-sync',
+        meta: {
+          ownership: 'riff-managed',
+          source: 'riff-sync',
+        },
+      }),
+    ]);
+    database.run(
+      `INSERT INTO cards (id, block_id, xiuyuan_id, scheduler_type, updated_at, payload_json, dto_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'card-gone',
+        'block-gone',
+        'xy-gone',
+        'fsrs-v6',
+        now,
+        JSON.stringify({
+          id: 'card-gone',
+          blockId: 'block-gone',
+          xiuyuanID: 'xy-gone',
+          meta: {
+            templateID: 'builtin-riff-sync',
+            ownership: 'riff-managed',
+            source: 'riff-sync',
+          },
+        }),
+        null,
+      ],
+    );
+    const readXiuyuanRiffFacts = vi.fn(async (request) => ({
+      status: 'ready' as const,
+      requestId: request.requestId,
+      mode: request.mode,
+      deckId: request.deckId,
+      readAt: 1_700_000_000_100,
+      blocks: [
+        { id: 'block-existing', content: 'Existing backend-applied content', riffCardID: 'riff-existing' },
+        { id: 'block-new', content: 'New backend-applied content', riffCardID: 'riff-new' },
+      ],
+      diagnostics: {
+        source: 'renderer-host-effect' as const,
+        blockCount: 2,
+        normalizedBlockCount: 2,
+        malformedBlockCount: 0,
+        truncated: false,
+      },
+    }));
+    const kernel = new BackendKernel({
+      database,
+      readXiuyuanRiffFacts,
+    });
+
+    const response = await kernel.handle({
+      id: 'xiuyuan-sync-apply',
+      jsonrpc: '2.0',
+      method: 'xiuyuan.sync.execute',
+      params: [{
+        requestId: 'sync-request-apply',
+        commandId: 'sync-command-apply',
+        idempotencyKey: 'sync-key-apply',
+        mode: 'full',
+        dryRun: false,
+        deckId: 'deck-a',
+        requestedAt: now,
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'applied',
+        commandId: 'sync-command-apply',
+        applyImpact: {
+          requested: true,
+          applied: true,
+          reason: 'applied',
+          changed: {
+            blockIds: ['block-existing', 'block-gone', 'block-new'],
+            cardIds: ['card-existing', 'card-gone', 'card-block-new'],
+          },
+        },
+      }),
+    }));
+    expect(database.getOne<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM cards WHERE block_id = 'block-new'",
+    )?.count).toBe(1);
+    expect(database.getOne<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM tombstones WHERE kind = 'card' AND id = 'card-gone'",
+    )?.count).toBe(1);
+    expect(database.getOne<{ payload_json: string }>(
+      "SELECT payload_json FROM xiuyuans WHERE id = 'xy-existing'",
+    )?.payload_json).toContain('Existing backend-applied content');
+  });
 });

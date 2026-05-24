@@ -4,14 +4,24 @@ Last update: 2026-05-24 (Round 455)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-24 - Xiuyuan/Riff Sync Backend Apply Slice
+
+- Task: Continue OpenSpec change `backendize-runtime-hotspots` task 3.4 by moving non-dry-run Xiuyuan sync apply out of the renderer/application placeholder and into Backend Worker authority.
+- Touched slice: `xiuyuan.sync.execute` contract/result shape, `WorkerXiuyuanSyncPlanner`, `WorkerSqliteDatabaseService.applyXiuyuanSyncPlan`, `BackendKernel`, focused worker tests, and `ARCHITECTURE.md`.
+- Debt fixed now: `dryRun=false` no longer returns `apply-not-implemented`; the Worker now applies planned managed-Riff create/update/delete impact in one backend transaction, preserves existing card/Xiuyuan ids for updates/deletes, writes new managed-Riff rows, records tombstones for full-sync deletes, and reports changed ids through `applyImpact`.
+- Debt deferred: Production `XiuyuanSyncService` full/incremental entrypoints still call the application sync facade; native Riff registration/removal and block attrs still need writer-relay/live SiYuan validation; idempotent duplicate commands, malformed input hardening, blacklist cleanup, missing writer, kernel proxy unavailable, and rollback failure coverage remain for tasks 3.5-3.8.
+- Why deferred: Task 3.4 is the backend apply authority move; cutting over UI/application entrypoints and live native Riff mutation semantics are separate acceptance items with broader runtime blast radius.
+- Next safe step: Replace `XiuyuanSyncService` production full/incremental entrypoints with the backend command facade while preserving current progress/error behavior.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.xiuyuan-sync.test.ts`; `pnpm vitest run worker/__tests__/WorkerXiuyuanSyncPlanner.test.ts worker/__tests__/BackendKernel.xiuyuan-sync.test.ts`.
+
 ### 2026-05-24 - Xiuyuan/Riff Sync Backend Read-Plan Slice
 
 - Task: Continue OpenSpec change `backendize-runtime-hotspots` P3 by landing the read/planning half of Xiuyuan/Riff sync backendization.
 - Touched slice: `xiuyuan.sync.execute` contracts, `SrsBackendClient`, backend Worker kernel dispatch, `WorkerXiuyuanSyncPlanner`, SQLite local Xiuyuan/card fact reader, browser Worker host-effect bridge, approved `XiuyuanSyncSiyuanAdapter` Riff read/audit proxy, focused tests, `ARCHITECTURE.md`, and OpenSpec task status.
 - Debt fixed now: The Worker can read local Xiuyuan/card facts from `siyuanmemo.db`, request native Riff facts through an explicit approved adapter host effect, normalize malformed/duplicate facts without logging card content, and return a dry-run/audit plan with typed unavailable states instead of falling back to renderer-local sync logic or `METHOD_NOT_FOUND`.
-- Debt deferred: Sync apply ordering, card/attr/tombstone/hide/delete/native Riff writes, production `XiuyuanSyncService` entrypoint replacement, idempotent command persistence, missing-writer behavior, rollback handling, blacklist coverage, full fallback classification, and live SiYuan smoke remain pending.
+- Debt deferred: Production `XiuyuanSyncService` entrypoint replacement, idempotent command persistence, missing-writer behavior, rollback handling, blacklist coverage, full fallback classification, native Riff live mutation smoke, and live SiYuan smoke remain pending.
 - Why deferred: This slice establishes the read/audit proxy and backend plan boundary first; moving writes now would mix authority migration with native Riff mutation semantics and needs separate rollback/idempotency tests plus live SiYuan evidence.
-- Next safe step: Move Xiuyuan sync apply ordering behind Backend Worker/writer relay, then replace the production full/incremental sync facade and classify the old local branches before running a live incremental sync smoke.
+- Next safe step: Replace the production full/incremental sync facade and classify the old local branches before running a live incremental sync smoke.
 - Validation: `pnpm vitest run packages/contracts/src/__tests__/backend-rpc.test.ts worker/__tests__/WorkerXiuyuanSyncPlanner.test.ts worker/__tests__/BackendKernel.xiuyuan-sync.test.ts src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate backendize-runtime-hotspots --strict`.
 
 ### 2026-05-24 - Backend Runtime Hotspot Foundation
