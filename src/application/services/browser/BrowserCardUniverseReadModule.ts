@@ -22,9 +22,9 @@ export type BrowserCardUniverseReadModuleDeps = {
     cards: Array<{ blockId?: unknown }>,
     options?: { limit?: number },
   ) => void;
-  markRowsFromBackendSourceExistence: <TRow extends { blockId?: unknown; blockType?: string | null; meta?: unknown }>(
+  markRowsFromKnownSourceExistence: <TRow extends { blockId?: unknown; blockType?: string | null; meta?: unknown }>(
     rows: TRow[],
-  ) => Promise<TRow[]>;
+  ) => TRow[];
   reuseBrowserRowProjections: (rows: BrowserCard[], reason: string) => BrowserCard[];
   scheduleSourceExistenceSweep: () => void;
   sourceExistenceBatchSize: number;
@@ -155,7 +155,7 @@ export class BrowserCardUniverseReadModule {
       );
       return {
         rows: this.deps.reuseBrowserRowProjections(
-          await this.deps.markRowsFromBackendSourceExistence(rows),
+          this.deps.markRowsFromKnownSourceExistence(rows),
           'deck-page',
         ),
         total: initialPage.total,
@@ -190,7 +190,7 @@ export class BrowserCardUniverseReadModule {
         { rowCount: cards.length },
       );
       return this.deps.reuseBrowserRowProjections(
-        await this.deps.markRowsFromBackendSourceExistence(rows),
+        this.deps.markRowsFromKnownSourceExistence(rows),
         'deck-rows-by-ids',
       );
     } catch (error) {
@@ -269,7 +269,7 @@ export class BrowserCardUniverseReadModule {
       { rowCount: cards.length },
     );
     return this.deps.reuseBrowserRowProjections(
-      await this.deps.markRowsFromBackendSourceExistence(rows),
+      this.deps.markRowsFromKnownSourceExistence(rows),
       reason,
     );
   }

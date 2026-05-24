@@ -1,0 +1,234 @@
+{
+  "label": "browser-grid-first-paint-budget-browser-only",
+  "generatedAt": "2026-05-24T20:52:35.210Z",
+  "phases": [
+    {
+      "name": "browser open cold-ish",
+      "waitState": {
+        "elapsedMs": 3016.7999999523163,
+        "root": true,
+        "rows": 0,
+        "clicked": true
+      },
+      "eventCount": 22,
+      "firstRowsMs": 0,
+      "firstRowsRowCount": 0,
+      "longtaskCount": 9,
+      "longtaskMaxMs": 2200,
+      "totalBlockingEstimateMs": 5177,
+      "gridGetRowsMaxMs": 17.9,
+      "gridFetchRowsMaxMs": 9.8,
+      "successCallbackMaxMs": 0,
+      "modelUpdatedMaxElapsedMs": 5018.7,
+      "modelUpdatedCount": 1,
+      "applyDatasourceMaxMs": 597.9,
+      "snapshotAllRowsMaxMs": 0,
+      "focusRowsMaxMs": 0,
+      "hydrateChunkMaxMs": 0,
+      "sourceRefreshMaxMs": 0,
+      "sourcePatchApplyMaxMs": 0,
+      "sourcePatchCoalesced": 0,
+      "sourcePatchDeferred": 0,
+      "slowest": [
+        {
+          "path": "relay",
+          "operation": "writer.take-command",
+          "durationMs": 3695.5
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 2200
+        },
+        {
+          "path": "browser",
+          "operation": "open.shell-attached",
+          "durationMs": 2103.6
+        },
+        {
+          "path": "browser",
+          "operation": "grid.model-updated",
+          "durationMs": 1865.8
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 812
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 809
+        },
+        {
+          "path": "browser",
+          "operation": "grid.apply-datasource",
+          "durationMs": 597.9
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 550
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 511
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 386
+        }
+      ]
+    },
+    {
+      "name": "browser search-clear",
+      "eventCount": 33,
+      "firstRowsMs": 0,
+      "firstRowsRowCount": 0,
+      "longtaskCount": 10,
+      "longtaskMaxMs": 2235,
+      "totalBlockingEstimateMs": 5703,
+      "gridGetRowsMaxMs": 16.1,
+      "gridFetchRowsMaxMs": 6.4,
+      "successCallbackMaxMs": 0,
+      "modelUpdatedMaxElapsedMs": 14847.5,
+      "modelUpdatedCount": 2,
+      "applyDatasourceMaxMs": 612.3,
+      "snapshotAllRowsMaxMs": 0,
+      "focusRowsMaxMs": 0,
+      "hydrateChunkMaxMs": 0,
+      "sourceRefreshMaxMs": 0,
+      "sourcePatchApplyMaxMs": 0,
+      "sourcePatchCoalesced": 0,
+      "sourcePatchDeferred": 0,
+      "slowest": [
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 2235
+        },
+        {
+          "path": "browser",
+          "operation": "grid.model-updated",
+          "durationMs": 1474.2
+        },
+        {
+          "path": "browser",
+          "operation": "grid.model-updated",
+          "durationMs": 1301.1
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 844
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 796
+        },
+        {
+          "path": "browser",
+          "operation": "grid.apply-datasource",
+          "durationMs": 612.3
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 607
+        },
+        {
+          "path": "browser",
+          "operation": "grid.apply-datasource",
+          "durationMs": 563.7
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 554
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 447
+        }
+      ]
+    },
+    {
+      "name": "browser force-refresh",
+      "eventCount": 25,
+      "firstRowsMs": 0,
+      "firstRowsRowCount": 0,
+      "longtaskCount": 9,
+      "longtaskMaxMs": 1437,
+      "totalBlockingEstimateMs": 4555,
+      "gridGetRowsMaxMs": 20.9,
+      "gridFetchRowsMaxMs": 12,
+      "successCallbackMaxMs": 0,
+      "modelUpdatedMaxElapsedMs": 20333.5,
+      "modelUpdatedCount": 1,
+      "applyDatasourceMaxMs": 454.1,
+      "snapshotAllRowsMaxMs": 0,
+      "focusRowsMaxMs": 0,
+      "hydrateChunkMaxMs": 0,
+      "sourceRefreshMaxMs": 0,
+      "sourcePatchApplyMaxMs": 0,
+      "sourcePatchCoalesced": 0,
+      "sourcePatchDeferred": 0,
+      "slowest": [
+        {
+          "path": "browser",
+          "operation": "backend.stats",
+          "durationMs": 12589.7
+        },
+        {
+          "path": "relay",
+          "operation": "writer.command-handler",
+          "durationMs": 10563.8
+        },
+        {
+          "path": "relay",
+          "operation": "writer.complete-command",
+          "durationMs": 3391.6
+        },
+        {
+          "path": "relay",
+          "operation": "writer.take-command",
+          "durationMs": 2959.4
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 1437
+        },
+        {
+          "path": "browser",
+          "operation": "grid.model-updated",
+          "durationMs": 993
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 971
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 671
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 550
+        },
+        {
+          "path": "renderer",
+          "operation": "longtask",
+          "durationMs": 460
+        }
+      ]
+    }
+  ]
+}

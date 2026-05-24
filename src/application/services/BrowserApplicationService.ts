@@ -68,6 +68,7 @@ const EMPTY_QUEUE_COUNTS: Record<string, number> = Object.fromEntries(
 
 const logger = createLogger('BrowserApplicationService');
 const SOURCE_EXISTENCE_PAGE_REFRESH_DELAY_MS = 250;
+const SOURCE_EXISTENCE_STATUS_CACHE_MAX_SIZE = 4096;
 
 function normalizeSignatureValue(value: unknown): unknown {
   if (value instanceof Date) {
@@ -135,6 +136,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private readonly queueCountCache = new Map<BrowserQueueId, { value: number; timestamp: number }>();
   private sourceExistenceSweepInFlight: Promise<unknown> | null = null;
   private readonly sourceExistenceUpdateListeners = new Set<(update: BrowserSourceExistenceUpdate) => void>();
+  private readonly sourceExistenceStatusCache = new Map<string, boolean | null>();
   private static readonly QUEUE_COUNTS_CACHE_TTL_MS = 150;
   private static readonly BROWSER_ROW_PROJECTION_CACHE_MAX_SIZE = 4096;
   private readonly browserRowProjectionCache = new Map<string, { signature: string; row: BrowserCard }>();
@@ -187,7 +189,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       backendClient: srsBackendClient,
       browserDeckQueryKernel: this.browserDeckQueryKernel,
       scheduleSourceExistenceRefreshForCards: (cards, options) => this.scheduleSourceExistenceRefreshForBackendCards(cards, options),
-      markRowsFromBackendSourceExistence: (rows) => this.markRowsFromBackendSourceExistence(rows),
+      markRowsFromKnownSourceExistence: (rows) => this.markRowsFromKnownSourceExistence(rows),
       reuseBrowserRowProjections: (rows, reason) => this.reuseBrowserRowProjections(rows, reason),
       scheduleSourceExistenceSweep: () => this.scheduleSourceExistenceSweepFromBackend(),
       sourceExistenceBatchSize: SOURCE_EXISTENCE_BATCH_SIZE,
@@ -414,28 +416,42 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     return Array.from(new Set(blockIds.map((blockId) => String(blockId || '').trim()).filter(Boolean)));
   }
 
-  private async markRowsFromBackendSourceExistence<TRow extends { blockId?: unknown; blockType?: string | null; meta?: unknown }>(
+  private markRowsFromKnownSourceExistence<TRow extends { blockId?: unknown; blockType?: string | null; meta?: unknown }>(
     rows: TRow[],
-  ): Promise<TRow[]> {
-    if (!this.srsBackendClient || rows.length === 0) {
+  ): TRow[] {
+    if (rows.length === 0 || this.sourceExistenceStatusCache.size === 0) {
       return rows;
     }
 
-    try {
-      const blockIds = Array.from(new Set(rows.map((row) => String(row.blockId || '').trim()).filter(Boolean)));
-      if (blockIds.length === 0) {
-        return rows;
+    const statusEntries: Array<[string, boolean | null]> = [];
+    for (const row of rows) {
+      const blockId = String(row.blockId || '').trim();
+      if (!blockId || !this.sourceExistenceStatusCache.has(blockId)) {
+        continue;
       }
-      const statusByBlockId = await measureRuntimePerformance(
-        'source-existence',
-        'mark-rows.status-by-block-ids',
-        () => this.srsBackendClient!.browserSourceExistenceByBlockIds(blockIds),
-        { blockCount: blockIds.length },
-      );
-      return applyKnownSourceExistenceToRows(rows, statusByBlockId.entries());
-    } catch (error) {
-      logger.debug('Worker source existence mark failed; keeping rows fail-open', { error });
+      statusEntries.push([blockId, this.sourceExistenceStatusCache.get(blockId) ?? null]);
+    }
+    if (statusEntries.length === 0) {
       return rows;
+    }
+    return applyKnownSourceExistenceToRows(rows, statusEntries);
+  }
+
+  private cacheSourceExistenceStatuses(statuses: Iterable<readonly [string, boolean | null]>): void {
+    for (const [rawBlockId, exists] of statuses) {
+      const blockId = String(rawBlockId || '').trim();
+      if (!blockId) {
+        continue;
+      }
+      this.sourceExistenceStatusCache.set(blockId, exists);
+    }
+
+    while (this.sourceExistenceStatusCache.size > SOURCE_EXISTENCE_STATUS_CACHE_MAX_SIZE) {
+      const oldestKey = this.sourceExistenceStatusCache.keys().next().value;
+      if (!oldestKey) {
+        break;
+      }
+      this.sourceExistenceStatusCache.delete(oldestKey);
     }
   }
 
@@ -493,7 +509,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     blockIds: string[],
     source: BrowserSourceExistenceUpdate['source'],
   ): Promise<void> {
-    if (!this.srsBackendClient || this.sourceExistenceUpdateListeners.size === 0 || blockIds.length === 0) {
+    if (!this.srsBackendClient || blockIds.length === 0) {
       return;
     }
 
@@ -512,10 +528,14 @@ export class BrowserApplicationService implements IBrowserApplicationService {
           source,
         },
       );
+      this.cacheSourceExistenceStatuses(statusByBlockId.entries());
       const statuses: BrowserSourceExistenceStatus[] = uniqueBlockIds.map((blockId) => ({
         blockId,
         exists: statusByBlockId.get(blockId) ?? null,
       }));
+      if (this.sourceExistenceUpdateListeners.size === 0) {
+        return;
+      }
       const update: BrowserSourceExistenceUpdate = {
         source,
         statuses,

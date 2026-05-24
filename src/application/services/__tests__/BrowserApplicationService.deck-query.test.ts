@@ -530,6 +530,7 @@ describe('BrowserApplicationService deck query kernel', () => {
     expect(page.total).toBe(2);
     expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['card-worker-missing', 'card-worker-active']);
     expect(backendClient.browserDeckPage).toHaveBeenCalledTimes(1);
+    expect(backendClient.browserSourceExistenceByBlockIds).not.toHaveBeenCalled();
     await flushBackgroundTimers();
     expect(backendClient.browserSourceExistenceApplySweepHost).toHaveBeenCalledWith(
       expect.objectContaining({ blockIds: ['block-worker-missing', 'block-worker-active'], force: true }),
@@ -591,7 +592,6 @@ describe('BrowserApplicationService deck query kernel', () => {
       blockId: 'block-worker-visible-patch',
       meta: { content: 'Worker visible patch card', rootId: 'doc-worker' },
     });
-    let statusReadCount = 0;
     const backendClient: Pick<SrsBackendClient,
       | 'browserDeckPage'
       | 'browserSourceExistenceApplySweepHost'
@@ -605,12 +605,9 @@ describe('BrowserApplicationService deck query kernel', () => {
         changedToMissing: true,
         changedBlockIds: ['block-worker-visible-patch'],
       })),
-      browserSourceExistenceByBlockIds: vi.fn(async () => {
-        statusReadCount += 1;
-        return new Map([
-          ['block-worker-visible-patch', statusReadCount === 1 ? true : false],
-        ]);
-      }),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['block-worker-visible-patch', false],
+      ])),
     };
 
     const service = new BrowserApplicationService(
@@ -665,8 +662,9 @@ describe('BrowserApplicationService deck query kernel', () => {
       browserSourceExistenceApplySweepHost: vi.fn(async () => ({
         checked: 1,
         updated: 1,
-        changed: false,
-        changedToMissing: false,
+        changed: true,
+        changedToMissing: true,
+        changedBlockIds: ['block-worker-row-cache-missing'],
       })),
       browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
         ['block-worker-row-cache', true],
@@ -718,8 +716,9 @@ describe('BrowserApplicationService deck query kernel', () => {
       browserSourceExistenceApplySweepHost: vi.fn(async () => ({
         checked: 1,
         updated: 1,
-        changed: false,
-        changedToMissing: false,
+        changed: true,
+        changedToMissing: true,
+        changedBlockIds: ['block-worker-row-cache-missing'],
       })),
       browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
         ['block-worker-row-cache-missing', sourceExists],
@@ -746,6 +745,7 @@ describe('BrowserApplicationService deck query kernel', () => {
 
     const first = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
     sourceExists = false;
+    await flushBackgroundTimers();
     const second = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
 
     expect(second.rows[0]).not.toBe(first.rows[0]);

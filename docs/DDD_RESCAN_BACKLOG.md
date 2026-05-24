@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-25 (Round 457)
+Last update: 2026-05-25 (Round 458)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-25 - Browser Grid First-Paint Budget Follow-Up
+
+- Task: Execute OpenSpec `browser-grid-first-paint-budget` to remove remaining Browser source/snapshot overlap from the first-paint path and record the residual AG Grid red debt.
+- Touched slice: Browser deck read application path in `src/application/services/{BrowserApplicationService.ts,browser/BrowserCardUniverseReadModule.ts}`; Browser grid/source patch runtime in `src/ui/browser/{SRSBrowser.vue,BrowserGridDatasourceLifecycle.ts}`; focused Browser tests; Browser-only live smoke evidence; and `ARCHITECTURE.md`.
+- Debt fixed now: Deck page and rows-by-ids reads no longer synchronously await backend source-existence status reads before returning first rows; they only apply known source status cache, schedule coalesced background refresh, and let changed block ids fill the cache/visible patch lane later. Visible-row source-existence patching now coalesces per mounted Browser view, defers while first rows are still pending up to a bounded wait, and records coalesced/deferred/overlap metadata. Datasource rebuild coverage now proves repeated pending datasource rebuilds commit only the latest generation.
+- Debt deferred: 4x live Browser-only smoke still shows AG Grid `apply-datasource` / `model-updated` and startup/relay/backend stats spans as the remaining red path; `grid.get-rows` / `grid.fetch-rows` are now low in the captured run, and snapshot/source refresh did not overlap.
+- Why deferred: This slice intentionally removed source/snapshot work from first paint; the remaining red work is AG Grid model commit and unrelated startup/relay/backend stats work, which needs a separate first-page presentation or grid-row-model strategy instead of more background-lane tweaks.
+- Next safe step: Prototype a custom first-page presentation or AG Grid row-model strategy behind an explicit Browser flag/test seam, then compare live 4x open/search/force-refresh against the saved Browser-only smoke JSON.
+- Validation: `pnpm vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/ui/browser/__tests__/BrowserGridDatasourceLifecycle.test.ts src/ui/browser/__tests__/browserDataSnapshots.test.ts src/ui/browser/__tests__/browserSourceExistenceRuntime.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/browserSelectionScope.test.ts src/ui/browser/composables/__tests__/useGlobalSelection.test.ts`; `pnpm run check:boundaries`; `pnpm build`; `/api/ui/reloadUI`; Browser-only CDP smoke saved to `docs/performance/browser-grid-first-paint-budget-browser-only-2026-05-25.json`.
 
 ### 2026-05-25 - Kernel Riff Proxy Live Smoke And Final P7/P9 Closure
 

@@ -609,6 +609,7 @@ import { useGlobalSelection } from './composables/useGlobalSelection';
 import { createLogger } from '@/utils/logger';
 import type {
   BrowserQueueCountsRequest,
+  BrowserSourceExistenceStatus,
   BrowserSourceExistenceUpdate,
   IBrowserApplicationService,
 } from '@/application/interfaces/IBrowserApplicationService';
@@ -953,13 +954,20 @@ const randomSortRows = ref<BrowserCard[] | null>(null);
 const currentProjectionIdentity = ref<QueueProjectionIdentity | null>(null);
 const SNAPSHOT_HYDRATE_CHUNK_SIZE = 24;
 const SNAPSHOT_FIRST_ROWS_POLL_MS = 50;
+const SOURCE_EXISTENCE_PATCH_DELAY_MS = 32;
+const SOURCE_EXISTENCE_FIRST_ROWS_MAX_WAIT_MS = 1000;
 
 const loadedRowsByBlockId = new Map<string, BrowserCard>();
+const pendingSourceExistenceStatuses = new Map<string, BrowserSourceExistenceStatus>();
+const pendingSourceExistenceSources = new Set<BrowserSourceExistenceUpdate['source']>();
 let datasourceVersion = 0;
 let allRowsSnapshotTaskId = 0;
 let allRowsSnapshotPromise: Promise<void> | null = null;
 let focusRowsTaskId = 0;
 let backgroundSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
+let sourceExistencePatchTimer: ReturnType<typeof setTimeout> | null = null;
+let sourceExistencePatchCoalescedCount = 0;
+let sourceExistencePatchStartedAt = 0;
 let globalStatsAfterFirstRowsTimer: ReturnType<typeof setTimeout> | null = null;
 let resolveGlobalStatsAfterFirstRows: (() => void) | null = null;
 let globalStatsAfterFirstRowsSequence = 0;
@@ -1528,10 +1536,88 @@ const browserSourceExistenceRuntime = createBrowserSourceExistenceRuntime({
 });
 
 function handleSourceExistenceUpdate(update: BrowserSourceExistenceUpdate): void {
+  if (update.statuses.length === 0) {
+    return;
+  }
+  for (const status of update.statuses) {
+    const blockId = String(status.blockId || '').trim();
+    if (!blockId) {
+      continue;
+    }
+    pendingSourceExistenceStatuses.set(blockId, { blockId, exists: status.exists });
+  }
+  pendingSourceExistenceSources.add(update.source);
+  if (sourceExistencePatchTimer) {
+    sourceExistencePatchCoalescedCount += 1;
+    recordRuntimePerformanceSpan('source-existence', 'visible-rows-patch.coalesced', 0, {
+      coalescedCount: sourceExistencePatchCoalescedCount,
+      pendingStatusCount: pendingSourceExistenceStatuses.size,
+      source: update.source,
+    });
+    return;
+  }
+  sourceExistencePatchStartedAt = browserPerfNow();
+  scheduleSourceExistencePatchFlush();
+}
+
+function scheduleSourceExistencePatchFlush(delayMs = SOURCE_EXISTENCE_PATCH_DELAY_MS): void {
+  sourceExistencePatchTimer = setTimeout(flushPendingSourceExistencePatch, delayMs);
+}
+
+function flushPendingSourceExistencePatch(): void {
+  sourceExistencePatchTimer = null;
+  if (pendingSourceExistenceStatuses.size === 0) {
+    sourceExistencePatchCoalescedCount = 0;
+    pendingSourceExistenceSources.clear();
+    sourceExistencePatchStartedAt = 0;
+    return;
+  }
+
+  const elapsedMs = Math.max(0, browserPerfNow() - sourceExistencePatchStartedAt);
+  if (loading.value && !hasFirstDataBlockLoaded.value && elapsedMs < SOURCE_EXISTENCE_FIRST_ROWS_MAX_WAIT_MS) {
+    recordRuntimePerformanceSpan('source-existence', 'visible-rows-patch.defer-first-rows', 0, {
+      coalescedCount: sourceExistencePatchCoalescedCount,
+      elapsedMs,
+      pendingStatusCount: pendingSourceExistenceStatuses.size,
+    });
+    scheduleSourceExistencePatchFlush(SNAPSHOT_FIRST_ROWS_POLL_MS);
+    return;
+  }
+
+  const statuses = Array.from(pendingSourceExistenceStatuses.values());
+  const sources = Array.from(pendingSourceExistenceSources);
+  const source: BrowserSourceExistenceUpdate['source'] = sources.includes('page-refresh')
+    ? 'page-refresh'
+    : 'background-sweep';
+  const coalescedCount = sourceExistencePatchCoalescedCount;
+  const overlappedFirstRows = !hasFirstDataBlockLoaded.value;
+  pendingSourceExistenceStatuses.clear();
+  pendingSourceExistenceSources.clear();
+  sourceExistencePatchCoalescedCount = 0;
+  sourceExistencePatchStartedAt = 0;
+
+  applySourceExistenceUpdate({
+    source,
+    statuses,
+  }, {
+    coalescedCount,
+    overlappedFirstRows,
+    sourceCount: sources.length,
+  });
+}
+
+function applySourceExistenceUpdate(
+  update: BrowserSourceExistenceUpdate,
+  metadata: { coalescedCount: number; overlappedFirstRows: boolean; sourceCount: number },
+): void {
   const result = measureRuntimePerformance('source-existence', 'visible-rows-patch.apply', () => {
     return browserSourceExistenceRuntime.applyUpdate(update);
   }, {
+    coalescedCount: metadata.coalescedCount,
+    firstRowsLoaded: hasFirstDataBlockLoaded.value,
+    overlappedFirstRows: metadata.overlappedFirstRows,
     source: update.source,
+    sourceCount: metadata.sourceCount,
     statusCount: update.statuses.length,
   });
 
@@ -1540,6 +1626,9 @@ function handleSourceExistenceUpdate(update: BrowserSourceExistenceUpdate): void
   }
 
   recordRuntimePerformanceSpan('source-existence', 'visible-rows-patch.grid', 0, {
+    coalescedCount: metadata.coalescedCount,
+    firstRowsLoaded: hasFirstDataBlockLoaded.value,
+    overlappedFirstRows: metadata.overlappedFirstRows,
     patchedGridRows: result.patchedGridRows,
     source: update.source,
     statusCount: result.statusCount,
@@ -2872,6 +2961,14 @@ onBeforeUnmount(() => {
     clearTimeout(loadedRowsFlushTimer);
     loadedRowsFlushTimer = null;
   }
+  if (sourceExistencePatchTimer) {
+    clearTimeout(sourceExistencePatchTimer);
+    sourceExistencePatchTimer = null;
+  }
+  pendingSourceExistenceStatuses.clear();
+  pendingSourceExistenceSources.clear();
+  sourceExistencePatchCoalescedCount = 0;
+  sourceExistencePatchStartedAt = 0;
   loadedRowsDirty = false;
 
   if (unsubscribe) {

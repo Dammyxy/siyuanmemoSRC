@@ -207,4 +207,31 @@ describe('BrowserGridDatasourceLifecycle', () => {
     expect(gridApi.setGridOption).toHaveBeenCalledWith('datasource', expect.any(Object));
     vi.useRealTimers();
   });
+
+  it('coalesces repeated datasource rebuilds and applies only the latest generation', () => {
+    vi.useFakeTimers();
+    const { gridApi, lifecycle } = createHarness();
+    const dataSourceA = { fetchRows: vi.fn() } as unknown as ICardDataSource;
+    const dataSourceB = { fetchRows: vi.fn() } as unknown as ICardDataSource;
+
+    lifecycle.rebuildInfiniteDatasource({
+      currentDataSource: dataSourceA,
+      totalRowCount: ref(0),
+      version: 1,
+    });
+    lifecycle.rebuildInfiniteDatasource({
+      currentDataSource: dataSourceB,
+      totalRowCount: ref(0),
+      version: 2,
+    });
+
+    vi.runOnlyPendingTimers();
+
+    expect(gridApi.setGridOption).toHaveBeenCalledTimes(1);
+    const appliedDatasource = gridApi.setGridOption.mock.calls[0]?.[1];
+    appliedDatasource.getRows(createParams());
+    expect(dataSourceA.fetchRows).not.toHaveBeenCalled();
+    expect(dataSourceB.fetchRows).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
 });
