@@ -9,6 +9,8 @@ import type {
   BackendNeuralGraphQueryResult,
   BackendRpcRequest,
   BackendRpcResponse,
+  BackendXiuyuanRiffReadAuditRequest,
+  BackendXiuyuanRiffReadAuditResult,
 } from '../../../packages/contracts/src/backend-rpc';
 import type {
   BackendWorkerHostEffect,
@@ -38,6 +40,9 @@ export interface BrowserSrsBackendWorkerHostEffects {
   resolveNeuralGraphQuery?: (
     request: BackendNeuralGraphQueryRequest,
   ) => Promise<BackendNeuralGraphQueryResult>;
+  readXiuyuanRiffFacts?: (
+    request: BackendXiuyuanRiffReadAuditRequest,
+  ) => Promise<BackendXiuyuanRiffReadAuditResult>;
   executeAutoCard?: (request: BackendAutoCardExecuteRequest) => Promise<BackendAutoCardExecuteResult>;
   executeAiPrompt?: (
     request: BackendAiPromptExecuteRequest['request'],
@@ -353,6 +358,11 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           throw unavailable('neural graph query host effect unavailable');
         }
         return this.options.hostEffects.resolveNeuralGraphQuery(effect.request);
+      case 'siyuan.riff.readAudit':
+        if (!this.options.hostEffects.readXiuyuanRiffFacts) {
+          throw unavailable('Xiuyuan native Riff read/audit host effect unavailable');
+        }
+        return this.options.hostEffects.readXiuyuanRiffFacts(effect.request);
       case 'autocard.execute':
         if (!this.options.hostEffects.executeAutoCard) {
           throw unavailable('autocard.execute host effect unavailable');

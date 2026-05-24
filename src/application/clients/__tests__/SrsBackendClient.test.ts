@@ -2,6 +2,80 @@ import { describe, expect, it, vi } from 'vitest';
 import { SrsBackendClient, type SrsBackendTransport } from '../SrsBackendClient';
 
 describe('SrsBackendClient', () => {
+  it('routes xiuyuan.sync.execute through the typed backend RPC method', async () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          status: 'planned',
+          commandId: 'sync-command-1',
+          idempotencyKey: 'sync-key-1',
+          mode: 'audit',
+          dryRun: true,
+          progress: {
+            state: 'succeeded',
+            currentStep: 'planned',
+            completedUnits: 3,
+            totalUnits: 3,
+            updatedAt: 1,
+          },
+          plan: {
+            localXiuyuanCount: 0,
+            localCardCount: 0,
+            localManagedRiffCount: 0,
+            nativeRiffCount: 0,
+            normalizedNativeRiffCount: 0,
+            malformedNativeRiffCount: 0,
+            duplicateNativeRiffCount: 0,
+            createCount: 0,
+            updateCount: 0,
+            deleteCount: 0,
+            skippedLocalOwnedCount: 0,
+            candidateBlockIds: {
+              create: [],
+              update: [],
+              delete: [],
+              skippedLocalOwned: [],
+            },
+          },
+          applyImpact: {
+            requested: false,
+            applied: false,
+            reason: 'dry-run',
+            changed: {},
+          },
+          diagnostics: {
+            diagnosticEventId: 'xiuyuan-sync:sync-command-1',
+            readSource: 'renderer-host-effect',
+            timingMs: 1,
+          },
+        },
+      })),
+    };
+    const client = new SrsBackendClient(transport);
+
+    await expect(client.executeXiuyuanSync({
+      requestId: 'sync-request-1',
+      commandId: 'sync-command-1',
+      idempotencyKey: 'sync-key-1',
+      mode: 'audit',
+      dryRun: true,
+      deckId: 'deck-a',
+      requestedAt: 1,
+    })).resolves.toMatchObject({
+      status: 'planned',
+      commandId: 'sync-command-1',
+    });
+    expect(transport.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'xiuyuan.sync.execute',
+      params: [expect.objectContaining({
+        mode: 'audit',
+        deckId: 'deck-a',
+      })],
+    }));
+  });
+
   it('routes backendized hotspot, aggregate, and graph placeholder contracts through typed RPC methods', async () => {
     const requests: Array<{ method: string; params: unknown }> = [];
     const aggregateIdentity = {

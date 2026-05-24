@@ -5,6 +5,8 @@ import {
   type BackendNeuralGraphQueryRequest,
   type BackendNeuralGraphQueryResult,
   type BackendRpcResponse,
+  type BackendXiuyuanRiffReadAuditRequest,
+  type BackendXiuyuanRiffReadAuditResult,
 } from '../../packages/contracts/src/backend-rpc';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { BackendKernel } from './BackendKernel';
@@ -132,6 +134,10 @@ const backendKernel = new BackendKernel({
     kind: 'ai.prompt.execute',
     request,
     context,
+  }),
+  readXiuyuanRiffFacts: (request: BackendXiuyuanRiffReadAuditRequest) => requestHostEffect<BackendXiuyuanRiffReadAuditResult>({
+    kind: 'siyuan.riff.readAudit',
+    request,
   }),
 });
 

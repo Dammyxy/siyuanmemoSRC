@@ -59,6 +59,7 @@ export type BackendRpcMethod =
   | 'semantic.browser.read'
   | 'hotspot.command.submit'
   | 'hotspot.job.get'
+  | 'xiuyuan.sync.execute'
   | 'browser.aggregate.snapshot'
   | 'browser.aggregate.page'
   | 'browser.aggregate.focus'
@@ -635,6 +636,192 @@ export type BackendHotspotJobGetResult<TResult = unknown> =
       unavailableClass: BackendUnavailableClass;
       reason: string;
       recoverable: boolean;
+    };
+
+export type BackendXiuyuanSyncMode = 'incremental' | 'full' | 'audit';
+
+export interface BackendXiuyuanSyncScope {
+  blockIds?: string[] | null;
+  dueOnly?: boolean | null;
+  notebook?: string | null;
+  rootId?: string | null;
+  includeNew?: boolean | null;
+}
+
+export interface BackendXiuyuanNativeRiffCardFacts {
+  id?: string | null;
+  blockID?: string | null;
+  deckID?: string | null;
+  due?: string | null;
+  reps?: number | null;
+  lapses?: number | null;
+  state?: number | null;
+  lastReview?: string | null;
+  stability?: number | null;
+  difficulty?: number | null;
+  elapsedDays?: number | null;
+  scheduledDays?: number | null;
+}
+
+export interface BackendXiuyuanNativeRiffBlockFacts {
+  id: string;
+  content: string;
+  ial?: Record<string, string>;
+  riffCardID?: string | null;
+  riffCardId?: string | null;
+  riffCard?: BackendXiuyuanNativeRiffCardFacts;
+}
+
+export interface BackendXiuyuanRiffReadAuditRequest {
+  requestId: string;
+  mode: BackendXiuyuanSyncMode;
+  deckId: string;
+  since?: number | null;
+  scope?: BackendXiuyuanSyncScope | null;
+  deadlineAt?: number | null;
+}
+
+export type BackendXiuyuanRiffReadAuditSource =
+  | 'kernel-sidecar'
+  | 'renderer-host-effect';
+
+export type BackendXiuyuanRiffReadAuditResult =
+  | {
+      status: 'ready';
+      requestId: string;
+      mode: BackendXiuyuanSyncMode;
+      deckId: string;
+      readAt: number;
+      blocks: BackendXiuyuanNativeRiffBlockFacts[];
+      diagnostics: {
+        source: BackendXiuyuanRiffReadAuditSource;
+        blockCount: number;
+        normalizedBlockCount: number;
+        malformedBlockCount: number;
+        truncated: boolean;
+      };
+    }
+  | {
+      status: 'unavailable' | 'failed';
+      requestId: string;
+      mode: BackendXiuyuanSyncMode;
+      deckId: string;
+      unavailableClass: BackendUnavailableClass;
+      reason: string;
+      recoverable: boolean;
+      blocks: [];
+      diagnostics: {
+        source: BackendXiuyuanRiffReadAuditSource | 'none';
+        blockCount: 0;
+        normalizedBlockCount: 0;
+        malformedBlockCount: 0;
+        truncated: false;
+        errorCategory: BackendUnavailableClass;
+      };
+    };
+
+export interface BackendXiuyuanSyncLocalXiuyuanFact {
+  id: string;
+  blockIds: string[];
+  representativeBlockId?: string | null;
+  templateId?: string | null;
+  ownership?: string | null;
+  source?: string | null;
+  updatedAt?: number | null;
+}
+
+export interface BackendXiuyuanSyncLocalCardFact {
+  id: string;
+  xiuyuanId?: string | null;
+  blockId: string;
+  riffCardId?: string | null;
+  templateId?: string | null;
+  ownership?: string | null;
+  source?: string | null;
+  schedulerType?: string | null;
+  updatedAt?: number | null;
+}
+
+export interface BackendXiuyuanSyncLocalFacts {
+  loadedAt: number;
+  xiuyuans: BackendXiuyuanSyncLocalXiuyuanFact[];
+  cards: BackendXiuyuanSyncLocalCardFact[];
+}
+
+export interface BackendXiuyuanSyncExecuteRequest {
+  requestId: string;
+  commandId: string;
+  idempotencyKey: string;
+  mode: BackendXiuyuanSyncMode;
+  dryRun: boolean;
+  deckId: string;
+  requestedAt: number;
+  since?: number | null;
+  scope?: BackendXiuyuanSyncScope | null;
+  deadlineAt?: number | null;
+  caller?: BackendHotspotCallerIdentity | null;
+}
+
+export interface BackendXiuyuanSyncPlan {
+  localXiuyuanCount: number;
+  localCardCount: number;
+  localManagedRiffCount: number;
+  nativeRiffCount: number;
+  normalizedNativeRiffCount: number;
+  malformedNativeRiffCount: number;
+  duplicateNativeRiffCount: number;
+  createCount: number;
+  updateCount: number;
+  deleteCount: number;
+  skippedLocalOwnedCount: number;
+  candidateBlockIds: {
+    create: string[];
+    update: string[];
+    delete: string[];
+    skippedLocalOwned: string[];
+  };
+}
+
+export interface BackendXiuyuanSyncApplyImpact {
+  requested: boolean;
+  applied: false;
+  reason: 'dry-run' | 'apply-not-implemented' | 'read-unavailable';
+  changed: MutationChangedSet;
+}
+
+export interface BackendXiuyuanSyncDiagnostics {
+  diagnosticEventId: string;
+  readSource: BackendXiuyuanRiffReadAuditSource | 'none';
+  localLoadedAt?: number | null;
+  nativeReadAt?: number | null;
+  timingMs: number;
+  errorCategory?: BackendUnavailableClass | null;
+}
+
+export type BackendXiuyuanSyncExecuteResult =
+  | {
+      status: 'planned';
+      commandId: string;
+      idempotencyKey: string;
+      mode: BackendXiuyuanSyncMode;
+      dryRun: boolean;
+      progress: BackendHotspotCommandProgress;
+      plan: BackendXiuyuanSyncPlan;
+      applyImpact: BackendXiuyuanSyncApplyImpact;
+      diagnostics: BackendXiuyuanSyncDiagnostics;
+    }
+  | {
+      status: 'unavailable' | 'failed';
+      commandId: string;
+      idempotencyKey: string;
+      mode: BackendXiuyuanSyncMode;
+      dryRun: boolean;
+      unavailableClass: BackendUnavailableClass;
+      reason: string;
+      recoverable: boolean;
+      progress: BackendHotspotCommandProgress;
+      applyImpact: BackendXiuyuanSyncApplyImpact;
+      diagnostics: BackendXiuyuanSyncDiagnostics;
     };
 
 export type BackendBrowserAggregateStatus =

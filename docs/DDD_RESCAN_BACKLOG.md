@@ -4,6 +4,16 @@ Last update: 2026-05-24 (Round 455)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-24 - Xiuyuan/Riff Sync Backend Read-Plan Slice
+
+- Task: Continue OpenSpec change `backendize-runtime-hotspots` P3 by landing the read/planning half of Xiuyuan/Riff sync backendization.
+- Touched slice: `xiuyuan.sync.execute` contracts, `SrsBackendClient`, backend Worker kernel dispatch, `WorkerXiuyuanSyncPlanner`, SQLite local Xiuyuan/card fact reader, browser Worker host-effect bridge, approved `XiuyuanSyncSiyuanAdapter` Riff read/audit proxy, focused tests, `ARCHITECTURE.md`, and OpenSpec task status.
+- Debt fixed now: The Worker can read local Xiuyuan/card facts from `siyuanmemo.db`, request native Riff facts through an explicit approved adapter host effect, normalize malformed/duplicate facts without logging card content, and return a dry-run/audit plan with typed unavailable states instead of falling back to renderer-local sync logic or `METHOD_NOT_FOUND`.
+- Debt deferred: Sync apply ordering, card/attr/tombstone/hide/delete/native Riff writes, production `XiuyuanSyncService` entrypoint replacement, idempotent command persistence, missing-writer behavior, rollback handling, blacklist coverage, full fallback classification, and live SiYuan smoke remain pending.
+- Why deferred: This slice establishes the read/audit proxy and backend plan boundary first; moving writes now would mix authority migration with native Riff mutation semantics and needs separate rollback/idempotency tests plus live SiYuan evidence.
+- Next safe step: Move Xiuyuan sync apply ordering behind Backend Worker/writer relay, then replace the production full/incremental sync facade and classify the old local branches before running a live incremental sync smoke.
+- Validation: `pnpm vitest run packages/contracts/src/__tests__/backend-rpc.test.ts worker/__tests__/WorkerXiuyuanSyncPlanner.test.ts worker/__tests__/BackendKernel.xiuyuan-sync.test.ts src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate backendize-runtime-hotspots --strict`.
+
 ### 2026-05-24 - Backend Runtime Hotspot Foundation
 
 - Task: Start OpenSpec change `backendize-runtime-hotspots` by landing the shared backend/writer/kernel foundation for the six runtime hotspot migrations.

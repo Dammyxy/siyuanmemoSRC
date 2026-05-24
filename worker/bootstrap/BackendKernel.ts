@@ -83,6 +83,10 @@ import {
   type BackendHotspotCommandSubmitResult,
   type BackendHotspotJobGetRequest,
   type BackendHotspotJobGetResult,
+  type BackendXiuyuanRiffReadAuditRequest,
+  type BackendXiuyuanRiffReadAuditResult,
+  type BackendXiuyuanSyncExecuteRequest,
+  type BackendXiuyuanSyncExecuteResult,
   type BackendRpcRequest,
   type BackendRpcResponse,
   type BackendSemanticCommandRequest,
@@ -104,6 +108,7 @@ import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { BackendHotspotCommandRuntime } from './BackendHotspotCommandRuntime';
 import { BackendJobRuntime } from './BackendJobRuntime';
 import { WorkerNeuralRoamAdvanceService } from './WorkerNeuralRoamAdvanceService';
+import { WorkerXiuyuanSyncPlanner } from '../xiuyuan/WorkerXiuyuanSyncPlanner';
 import {
   createUnavailableSqlitePersistenceBridge,
   type SqlitePersistenceBridge,
@@ -124,6 +129,9 @@ interface BackendKernelDependencies {
     headers: Record<string, string>;
     body: string;
   }>;
+  readXiuyuanRiffFacts?: (
+    request: BackendXiuyuanRiffReadAuditRequest,
+  ) => Promise<BackendXiuyuanRiffReadAuditResult>;
 }
 
 function buildSuccess<TResult>(
@@ -350,6 +358,8 @@ export class BackendKernel {
           return buildSuccess(request.id, this.handleHotspotCommandSubmit(request.params));
         case 'hotspot.job.get':
           return buildSuccess(request.id, this.handleHotspotJobGet(request.params));
+        case 'xiuyuan.sync.execute':
+          return buildSuccess(request.id, await this.handleXiuyuanSyncExecute(request.params));
         case 'browser.aggregate.snapshot':
           return buildSuccess(request.id, this.handleBrowserAggregateSnapshot(request.params));
         case 'browser.aggregate.page':
@@ -808,6 +818,18 @@ export class BackendKernel {
       throw new Error('INVALID_REQUEST: hotspot.job.get requires named params');
     }
     return this.hotspotRuntime.get(named);
+  }
+
+  private async handleXiuyuanSyncExecute(params: unknown): Promise<BackendXiuyuanSyncExecuteResult> {
+    const named = this.readNamedParams<BackendXiuyuanSyncExecuteRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: xiuyuan.sync.execute requires named params');
+    }
+    const planner = new WorkerXiuyuanSyncPlanner({
+      loadLocalFacts: () => this.deps.database.readXiuyuanSyncLocalFacts(),
+      readNativeRiffFacts: this.deps.readXiuyuanRiffFacts,
+    });
+    return planner.execute(named);
   }
 
   private handleBrowserAggregateSnapshot(params: unknown): BackendBrowserAggregateSnapshotResult {

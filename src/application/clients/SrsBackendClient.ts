@@ -88,6 +88,8 @@ import type {
   BackendHotspotCommandSubmitResult,
   BackendHotspotJobGetRequest,
   BackendHotspotJobGetResult,
+  BackendXiuyuanSyncExecuteRequest,
+  BackendXiuyuanSyncExecuteResult,
   BackendRpcRequest,
   BackendRpcResponse,
   BackendRpcSuccess,
@@ -362,6 +364,12 @@ export class SrsBackendClient {
     request: BackendHotspotJobGetRequest,
   ): Promise<BackendHotspotJobGetResult<TResult>> {
     return this.call<BackendHotspotJobGetResult<TResult>>('hotspot.job.get', request);
+  }
+
+  async executeXiuyuanSync(
+    request: BackendXiuyuanSyncExecuteRequest,
+  ): Promise<BackendXiuyuanSyncExecuteResult> {
+    return this.call<BackendXiuyuanSyncExecuteResult>('xiuyuan.sync.execute', request);
   }
 
   async browserAggregateSnapshot(

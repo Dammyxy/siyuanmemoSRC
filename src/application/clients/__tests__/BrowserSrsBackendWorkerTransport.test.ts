@@ -220,6 +220,75 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
+  it('serves Xiuyuan native Riff read/audit host effects through the typed bridge', async () => {
+    const worker = new FakeWorker();
+    const readXiuyuanRiffFacts = vi.fn(async () => ({
+      status: 'ready' as const,
+      requestId: 'riff-read-1',
+      mode: 'audit' as const,
+      deckId: 'deck-a',
+      readAt: 1_700_000_000_100,
+      blocks: [
+        { id: 'block-a', content: 'Q <> A' },
+      ],
+      diagnostics: {
+        source: 'renderer-host-effect' as const,
+        blockCount: 1,
+        normalizedBlockCount: 1,
+        malformedBlockCount: 0,
+        truncated: false,
+      },
+    }));
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { readXiuyuanRiffFacts },
+    });
+    const request = {
+      requestId: 'riff-read-1',
+      mode: 'audit' as const,
+      deckId: 'deck-a',
+      scope: {
+        blockIds: ['block-a'],
+      },
+    };
+
+    worker.emit({ kind: 'ready' });
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-xiuyuan-riff-1',
+      effect: {
+        kind: 'siyuan.riff.readAudit',
+        request,
+      },
+    });
+
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+    expect(readXiuyuanRiffFacts).toHaveBeenCalledWith(request);
+    expect(worker.posted[0]).toEqual({
+      kind: 'host-effect-result',
+      effectId: 'effect-xiuyuan-riff-1',
+      ok: true,
+      result: {
+        status: 'ready',
+        requestId: 'riff-read-1',
+        mode: 'audit',
+        deckId: 'deck-a',
+        readAt: 1_700_000_000_100,
+        blocks: [
+          { id: 'block-a', content: 'Q <> A' },
+        ],
+        diagnostics: {
+          source: 'renderer-host-effect',
+          blockCount: 1,
+          normalizedBlockCount: 1,
+          malformedBlockCount: 0,
+          truncated: false,
+        },
+      },
+    });
+    transport.dispose();
+  });
+
   it('posts explicit unavailable when neural graph query host effect is absent', async () => {
     const worker = new FakeWorker();
     const transport = new BrowserSrsBackendWorkerTransport({

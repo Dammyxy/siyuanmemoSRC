@@ -62,6 +62,7 @@ import type {
   BackendSemanticSidebarReadResult,
   BackendSemanticSessionReadRequest,
   BackendSemanticSessionReadResult,
+  BackendXiuyuanSyncLocalFacts,
 } from '../../packages/contracts/src/backend-rpc';
 import type {
   SemanticEvent,
@@ -325,6 +326,65 @@ function parseJsonObject<T>(value: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function parseSqlJsonRecord(value: string | null | undefined): Record<string, unknown> {
+  const parsed = parseJsonObject<unknown>(String(value || '').trim() || '{}', {});
+  return isRecord(parsed) ? parsed : {};
+}
+
+function readRecordString(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const normalized = normalizeString(record[key]);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+function readRecordNumber(record: Record<string, unknown>, keys: string[], defaultValue?: unknown): number | null {
+  for (const key of keys) {
+    const numeric = Number(record[key]);
+    if (Number.isFinite(numeric)) {
+      return numeric;
+    }
+  }
+  const defaultNumeric = Number(defaultValue);
+  return Number.isFinite(defaultNumeric) ? defaultNumeric : null;
+}
+
+function readMetaRecord(payload: Record<string, unknown>): Record<string, unknown> {
+  return isRecord(payload.meta) ? payload.meta : {};
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return uniqueStrings(value);
+}
+
+function extractXiuyuanBlockIds(payload: Record<string, unknown>): string[] {
+  const direct = readStringArray(payload.blockIDs).concat(readStringArray(payload.blockIds));
+  const fromFields: string[] = [];
+  if (Array.isArray(payload.fields)) {
+    for (const field of payload.fields) {
+      if (!isRecord(field)) {
+        continue;
+      }
+      const blockId = readRecordString(field, ['blockID', 'blockId', 'id']);
+      if (blockId) {
+        fromFields.push(blockId);
+      }
+    }
+  }
+  return uniqueStrings([...direct, ...fromFields]);
+}
+
+function extractPayloadTemplateId(payload: Record<string, unknown>, meta: Record<string, unknown>): string | null {
+  return readRecordString(payload, ['templateID', 'templateId'])
+    ?? readRecordString(meta, ['templateID', 'templateId']);
 }
 
 function positiveNumber(value: unknown): number {
@@ -4302,6 +4362,97 @@ export class WorkerSqliteDatabaseService {
       return 0;
     }
     return Math.max(0, Math.min(1, value));
+  }
+
+  async readXiuyuanSyncLocalFacts(): Promise<BackendXiuyuanSyncLocalFacts> {
+    await this.init();
+    const loadedAt = Date.now();
+    const xiuyuanRows = this.runtime.getAll<{
+      id: string;
+      updated_at: number | null;
+      payload_json: string;
+    }>(
+      `SELECT id, updated_at, payload_json
+       FROM xiuyuans
+       WHERE NOT EXISTS (
+         SELECT 1 FROM tombstones t
+         WHERE t.kind = 'xiuyuan' AND t.id = xiuyuans.id
+       )
+       ORDER BY id ASC`,
+    );
+    const cardRows = this.runtime.getAll<{
+      id: string;
+      block_id: string | null;
+      xiuyuan_id: string | null;
+      scheduler_type: string | null;
+      updated_at: number | null;
+      payload_json: string;
+      dto_json: string | null;
+    }>(
+      `SELECT id, block_id, xiuyuan_id, scheduler_type, updated_at, payload_json, dto_json
+       FROM cards
+       WHERE NOT EXISTS (
+         SELECT 1 FROM tombstones t
+         WHERE t.kind = 'card' AND t.id = cards.id
+       )
+       ORDER BY id ASC`,
+    );
+
+    return {
+      loadedAt,
+      xiuyuans: xiuyuanRows
+        .map((row) => {
+          const payload = parseSqlJsonRecord(row.payload_json);
+          const meta = readMetaRecord(payload);
+          const id = normalizeString(row.id) || readRecordString(payload, ['id']);
+          if (!id) {
+            return null;
+          }
+          const blockIds = extractXiuyuanBlockIds(payload);
+          const representativeBlockId = blockIds[0] ?? null;
+          return {
+            id,
+            blockIds,
+            representativeBlockId,
+            templateId: extractPayloadTemplateId(payload, meta),
+            ownership: readRecordString(meta, ['ownership']),
+            source: readRecordString(meta, ['source']),
+            updatedAt: readRecordNumber(payload, ['updatedAt', 'updated_at'], row.updated_at),
+          };
+        })
+        .filter((fact): fact is BackendXiuyuanSyncLocalFacts['xiuyuans'][number] => Boolean(fact)),
+      cards: cardRows
+        .map((row) => {
+          const payload = parseSqlJsonRecord(row.dto_json) || parseSqlJsonRecord(row.payload_json);
+          const payloadJsonRecord = parseSqlJsonRecord(row.payload_json);
+          const effectivePayload = Object.keys(payload).length > 0 ? payload : payloadJsonRecord;
+          const meta = readMetaRecord(effectivePayload);
+          const id = normalizeString(row.id) || readRecordString(effectivePayload, ['id']);
+          const blockId = normalizeString(row.block_id)
+            || readRecordString(effectivePayload, ['blockId', 'blockID'])
+            || null;
+          if (!id || !blockId) {
+            return null;
+          }
+          return {
+            id,
+            xiuyuanId: normalizeString(row.xiuyuan_id)
+              || readRecordString(effectivePayload, ['xiuyuanID', 'xiuyuanId'])
+              || null,
+            blockId,
+            riffCardId: readRecordString(effectivePayload, ['riffCardId', 'riffCardID'])
+              ?? readRecordString(meta, ['riffCardId', 'riffCardID', 'riffPrimaryCardId']),
+            templateId: extractPayloadTemplateId(effectivePayload, meta),
+            ownership: readRecordString(meta, ['ownership']),
+            source: readRecordString(meta, ['source']),
+            schedulerType: normalizeString(row.scheduler_type)
+              || readRecordString(effectivePayload, ['schedulerType'])
+              || null,
+            updatedAt: readRecordNumber(effectivePayload, ['updatedAt', 'updated_at'], row.updated_at),
+          };
+        })
+        .filter((fact): fact is BackendXiuyuanSyncLocalFacts['cards'][number] => Boolean(fact)),
+    };
   }
 
   private semanticFailed(
