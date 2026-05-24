@@ -142,16 +142,16 @@ export function resolveBrowserCardId(card: BrowserActionTarget): string {
 }
 
 export async function removeCardsFromQueue(
-  queue: QueueRemoveLike | undefined,
+  removalPort: QueueRemoveLike | null | undefined,
   selectedRows: BrowserActionTarget[],
   options?: { scope?: string; resolveId?: (row: BrowserActionTarget) => string }
 ): Promise<QueueRemovalResult> {
   const scope = options?.scope || 'DataSource';
-  if (!queue || (typeof queue.removeCards !== 'function' && typeof queue.removeCard !== 'function')) {
+  if (!removalPort || (typeof removalPort.removeCards !== 'function' && typeof removalPort.removeCard !== 'function')) {
     throw new Error(`[${scope}] Queue removeCard is unavailable`);
   }
 
-  if (typeof queue.removeCards === 'function') {
+  if (typeof removalPort.removeCards === 'function') {
     const failedIds: string[] = [];
     const cardIds: string[] = [];
     for (const row of selectedRows || []) {
@@ -173,7 +173,7 @@ export async function removeCardsFromQueue(
     }
 
     try {
-      const result = await Promise.resolve(queue.removeCards(uniqueCardIds));
+      const result = await Promise.resolve(removalPort.removeCards(uniqueCardIds));
       const resultFailedIds = Array.isArray(result.failedIds) ? result.failedIds : [];
       const mergedFailedIds = uniqueStrings([...failedIds, ...resultFailedIds]);
       return {
@@ -201,7 +201,7 @@ export async function removeCardsFromQueue(
     }
 
     try {
-      await Promise.resolve(queue.removeCard(cardId));
+      await Promise.resolve(removalPort.removeCard(cardId));
       removedCount++;
     } catch (error) {
       failedIds.push(cardId);
@@ -219,13 +219,13 @@ export async function removeCardsFromQueue(
 export function resolveQueueRemovalTarget(
   manager: IUnifiedDataSourceManagerFacade,
   queueType: QueueType
-): QueueRemoveLike {
+): QueueRemoveLike | null {
   if (typeof manager.batchRemoveFromQueue === 'function') {
     return {
       removeCards: (cardIdsOrBlockIds: string[]) => manager.batchRemoveFromQueue!(queueType, cardIdsOrBlockIds),
     };
   }
-  return manager.getQueue(queueType);
+  return null;
 }
 
 export async function insertCardsIntoQueue(

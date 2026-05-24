@@ -306,9 +306,9 @@ import { closeTemporaryRouteWithPrompt } from '@/application/services/NeuralRoam
 import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
+import type { IBrowserApplicationService } from '@/application/interfaces/IBrowserApplicationService';
 import {
   QueueType,
-  type FilterGroupQueueSessionSnapshot,
   type InitialReviewSessionState,
   type ReviewTabTransferState,
   type IUnifiedDataSourceManagerFacade,
@@ -323,7 +323,7 @@ import {
 import type { NeuralRoamRouteListItem } from '@/core/queue/neural/routes';
 import type { FSRSCard } from '@/types/card';
 import type { SrsArenaRecommendation } from '@/types/arena';
-import type { ReviewQueueSessionSnapshot, ReviewTabRuntimeState } from '@/types/review-tab';
+import type { ReviewTabRuntimeState } from '@/types/review-tab';
 import { isTopicLikeCard } from './reviewCardSemantics';
 import { resolveReviewDialogEscapeKeydown, shouldResetReviewDialogEscapeLatch } from './reviewDialogEscape';
 import { createReviewEditorState, type ReviewEditorState } from './reviewEditorState';
@@ -463,7 +463,7 @@ import {
 } from './reviewArenaCommands';
 import { createReviewCardActionRuntime, type ReviewCardPeerInfo } from './reviewCardActionCommands';
 import { createReviewCurrentContentEditorRuntime } from './reviewCurrentContentEditorRuntime';
-import { createReviewFilterRuntime, type ReviewFilterGroupQueueLike } from './reviewFilterCommands';
+import { createReviewFilterRuntime, type ReviewFilterCommandClient, type ReviewFilterGroupQueueLike } from './reviewFilterCommands';
 import { createReviewDataObserverRuntime } from './reviewDataObserverRuntime';
 import { createReviewNativeSplitRuntime } from './reviewNativeSplitRuntime';
 import { buildReviewDomainSyncSafetyDecision } from '@/application/services/ReviewDomainSyncSafetyService';
@@ -549,6 +549,7 @@ type ReviewPluginContextLike = {
   getTransactionWebSocketService?: () => ReviewTransactionWebSocketServiceLike | undefined;
   getCardService?: () => CardApplicationService | undefined;
   getCardEditorService?: () => CardEditorApplicationService | undefined;
+  getBrowserService?: () => Pick<IBrowserApplicationService, 'setFilterGroupFilter' | 'rebuildFilterGroupQueue'> | undefined;
   getArenaKernelService?: () => {
     buildSrsRecommendation?: (
       card: FSRSCard,
@@ -590,7 +591,6 @@ type UnderlyingQueueLike = {
 
 type FilterGroupQueueLike = ReviewFilterGroupQueueLike & {
   getSize?: () => Promise<number>;
-  serializeSessionSnapshot?: () => FilterGroupQueueSessionSnapshot;
 };
 
 type QueueStrategyWithUnderlying = {
@@ -603,10 +603,6 @@ type QueueStrategyWithInsertAt = {
 
 type QueueStrategyWithTailAppend = {
   appendCardsToTail?: (cards: FSRSCard[]) => number;
-};
-
-type QueueStrategyWithSessionSnapshot = {
-  serializeSessionSnapshot?: () => ReviewQueueSessionSnapshot;
 };
 
 type QueueStrategyWithLearnAhead = {
@@ -964,7 +960,7 @@ function getFilterGroupQueue(): FilterGroupQueueLike | null {
     return null;
   }
   const candidate = queue as FilterGroupQueueLike;
-  if (typeof candidate.setFilter !== 'function' || typeof candidate.rebuild !== 'function') {
+  if (typeof candidate.getFilter !== 'function') {
     return null;
   }
   return candidate;
@@ -1120,6 +1116,12 @@ function getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null {
   return contextFromProps?.getUnifiedDataSourceManager?.() || contextFromWindow?.getUnifiedDataSourceManager?.() || null;
 }
 
+function getReviewFilterCommandClient(): ReviewFilterCommandClient | null {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  return contextFromProps?.getBrowserService?.() || contextFromWindow?.getBrowserService?.() || null;
+}
+
 function getNeuralRoamCommandRequestRunner() {
   const manager = getUnifiedDataSourceManager();
   if (!manager || typeof manager.neuralRoamCommand !== 'function') {
@@ -1158,21 +1160,6 @@ function getInitialReviewSessionState(): InitialReviewSessionState | undefined {
     answeredCount,
     correctCount,
   };
-}
-
-function buildReviewQueueSessionSnapshot(): ReviewQueueSessionSnapshot | null {
-  const activeQueue = props.queue;
-  const snapshotCarrier = activeQueue as QueueStrategyWithSessionSnapshot | null | undefined;
-  if (!snapshotCarrier || typeof snapshotCarrier.serializeSessionSnapshot !== 'function') {
-    return null;
-  }
-
-  try {
-    return snapshotCarrier.serializeSessionSnapshot();
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewView] Failed to serialize review queue session snapshot:', error);
-    return null;
-  }
 }
 
 function buildReviewTabRuntimeState(): ReviewTabRuntimeState | null {
@@ -1568,8 +1555,8 @@ const reviewTabTransferRuntime = createReviewTabTransferRuntime({
   },
   createSharedReviewSessionId,
   getInitialSessionState: getInitialReviewSessionState,
-  getQueueSessionSnapshot: buildReviewQueueSessionSnapshot,
-  getFilterSessionSnapshot: () => getFilterGroupQueue()?.serializeSessionSnapshot?.() ?? null,
+  getQueueSessionSource: () => props.queue,
+  getFilterSessionSource: getFilterGroupQueue,
   getCurrentReference: getCurrentReviewCardReference,
   isShowingAnswer: () => hook.context.value.showAnswer === true,
   getReviewSessionController: () => reviewSessionController,
@@ -1589,6 +1576,7 @@ const reviewFilterRuntime = createReviewFilterRuntime({
   showMessage,
   logger,
   getFilterGroupQueue,
+  getFilterCommandClient: getReviewFilterCommandClient,
   reload: () => hook.reload(),
 });
 const showReviewFilterDialog = reviewFilterRuntime.dialogOpen;
@@ -1640,6 +1628,7 @@ const reviewDataObserverRuntime = createReviewDataObserverRuntime({
   logger,
   getManager: getUnifiedDataSourceManager,
   getFilterGroupQueue,
+  getFilterCommandClient: getReviewFilterCommandClient,
   getQueueStrategyWithTailAppend,
   getActiveQueueStrategy,
   getCurrentReference: getCurrentReviewCardReference,
@@ -3523,6 +3512,7 @@ async function handleProgressiveExcerptFromReview(trigger: ReviewProgressiveExce
       return host ? getProtyleFromHost(host) : null;
     },
     filterQueue: getFilterGroupQueue(),
+    filterCommandClient: getReviewFilterCommandClient(),
     queueStrategy: getQueueStrategyWithInsertAt(),
     setAppliedReviewFilter: (filter) => {
       appliedReviewFilter.value = { ...filter };

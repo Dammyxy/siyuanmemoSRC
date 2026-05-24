@@ -50,7 +50,7 @@ describe('reviewDataObserverRuntime', () => {
     const currentCard = card({ id: 'current', blockId: 'current-block' });
     const created = card({ id: 'created', blockId: 'created-block', meta: { rootId: 'doc-1' } });
     const outOfScope = card({ id: 'outside', blockId: 'outside-block', meta: { rootId: 'doc-2' } });
-    const setFilter = vi.fn();
+    const setFilterGroupFilter = vi.fn(async () => true);
     const appendCardsToTail = vi.fn(() => 1);
     const refreshCurrentItem = vi.fn();
     const session = { initialTotal: 2 };
@@ -67,9 +67,8 @@ describe('reviewDataObserverRuntime', () => {
       getManager: () => manager as never,
       getFilterGroupQueue: () => ({
         getFilter: () => ({ scopeDocIds: ['doc-1'], blockIds: ['existing-block'], cardType: CardType.Item }),
-        setFilter,
-        rebuild: vi.fn(),
       }),
+      getFilterCommandClient: () => ({ setFilterGroupFilter }),
       getQueueStrategyWithTailAppend: () => ({ appendCardsToTail }),
       getActiveQueueStrategy: () => null,
       getCurrentReference: () => ({ cardId: 'current', blockId: 'current-block' }),
@@ -93,7 +92,7 @@ describe('reviewDataObserverRuntime', () => {
 
     expect(manager.registerObserver).toHaveBeenCalledTimes(1);
     expect(observerBox.value).toBe(runtime.observer);
-    expect(setFilter).toHaveBeenCalledWith({
+    expect(setFilterGroupFilter).toHaveBeenCalledWith({
       scopeDocIds: ['doc-1'],
       blockIds: ['existing-block', 'created-block'],
       cardType: CardType.Item,
@@ -114,6 +113,7 @@ describe('reviewDataObserverRuntime', () => {
       logger: {},
       getManager: () => null,
       getFilterGroupQueue: () => null,
+      getFilterCommandClient: () => null,
       getQueueStrategyWithTailAppend: () => null,
       getActiveQueueStrategy: () => null,
       getCurrentReference: () => ({ cardId: 'current', blockId: 'block-current' }),

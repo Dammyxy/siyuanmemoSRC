@@ -208,4 +208,26 @@ describe('DeckDataSource set-priority regression', () => {
     expect(manager.getQueue).not.toHaveBeenCalled();
     expect(result).toEqual({ added: 1, message: '已加入 1 张卡片到提取练习队列' });
   });
+
+  it('fails queue add closed when the manager batch command is missing', async () => {
+    const selectedRow = {
+      id: 'row-1',
+      fsrsCardId: 'card-1',
+      blockId: 'block-1',
+      priority: 50,
+      cardType: 'item',
+    };
+    const manager = {
+      getQueue: vi.fn(() => {
+        throw new Error('live queue should not be read');
+      }),
+      getCards: vi.fn(async () => []),
+    };
+
+    const ds = new DeckDataSource(manager as never, { preset: 'all' });
+    const result = await ds.performAction('add-to-retrieval-queue', [selectedRow] as never[]);
+
+    expect(manager.getQueue).not.toHaveBeenCalled();
+    expect(result).toEqual({ added: 0, message: '提取练习队列不可用' });
+  });
 });

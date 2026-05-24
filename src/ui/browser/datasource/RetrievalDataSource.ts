@@ -14,16 +14,13 @@ import {
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import {
   adjustBrowserCardsPriorityRelative,
-  applyQueueFilters,
   deleteBrowserCards,
   removeCardsFromQueue,
   resolveQueueRemovalTarget,
   setBrowserCardsPriority,
-  sortBrowserCards,
   toggleBrowserCardsSuspended,
 } from './DataSourceUtils';
 import { getRelativePriorityDelta } from '../browserActionFeedback';
-import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import { createLogger } from '@/utils/logger';
 import {
   BaseQueueSnapshotDataSource,
@@ -160,15 +157,11 @@ export class RetrievalDataSource
     return 'retrieval' as const;
   }
 
-  protected async buildLegacyOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
-    const queue = this.manager.getQueue(QueueType.RetrievalPractice);
-    const cards = await queue.getCards();
-    const browserCards = cards.map((card) =>
-      mapQueueFsrsCardToBrowserCard(card, {
-        firstReviewMode: 'created-or-last',
-      })
-    );
-    const filtered = applyQueueFilters(browserCards, this.options, 'headline');
-    return sortBrowserCards(filtered, sortModel);
+  protected override allowLegacyQueueFallback(): boolean {
+    return false;
+  }
+
+  protected async buildLegacyOrderedRows(_sortModel: SortModel[]): Promise<BrowserCard[]> {
+    throw new Error('QUEUE_PROJECTION_UNAVAILABLE: retrieval browser snapshot unavailable');
   }
 }

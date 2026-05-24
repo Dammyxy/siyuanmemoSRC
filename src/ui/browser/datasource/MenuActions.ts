@@ -558,12 +558,12 @@ export async function adjustTime(
  * 加入队列（用于 DeckDataSource）
  */
 async function addCardsDeterministically(
-  queue: QueueAddLike | undefined,
+  membershipPort: QueueAddLike | undefined,
   items: QueueCandidate[],
   resolveAddInput: (item: QueueCandidate) => QueueAddInput,
   source: QueueAddSource
 ) : Promise<{ added: number; failed: number; firstError?: string; conceptTypeConflict: number }> {
-  if (!queue || (typeof queue.addCard !== 'function' && typeof queue.addCards !== 'function')) {
+  if (!membershipPort || (typeof membershipPort.addCard !== 'function' && typeof membershipPort.addCards !== 'function')) {
     throw new Error('Queue unavailable');
   }
 
@@ -572,7 +572,7 @@ async function addCardsDeterministically(
   let firstError: string | undefined;
   let conceptTypeConflict = 0;
 
-  if (typeof queue.addCards === 'function') {
+  if (typeof membershipPort.addCards === 'function') {
     const addInputs: QueueAddInput[] = [];
 
     for (const item of items) {
@@ -590,7 +590,7 @@ async function addCardsDeterministically(
     }
 
     try {
-      const result = await Promise.resolve(queue.addCards(addInputs, source));
+      const result = await Promise.resolve(membershipPort.addCards(addInputs, source));
       added = result.changedCount;
       const failedItems = Array.isArray(result.failedItems) ? result.failedItems : [];
       for (const item of failedItems) {
@@ -621,7 +621,7 @@ async function addCardsDeterministically(
       continue;
     }
     try {
-      await Promise.resolve(queue.addCard(addInput, source));
+      await Promise.resolve(membershipPort.addCard(addInput, source));
       added++;
     } catch (error) {
       failed++;
@@ -666,7 +666,7 @@ function filterQueueItems(
 }
 
 export async function addToQueue(
-  queue: QueueAddLike | undefined,
+  membershipPort: QueueAddLike | undefined,
   selectedRows: BrowserActionTarget[],
   queueType: QueueActionType,
   source: QueueAddSource = 'manual'
@@ -676,7 +676,7 @@ export async function addToQueue(
     selectedCount: selectedRows?.length ?? 0,
   });
 
-  if (queueType === 'neural-roam' && typeof queue?.addConceptBlocksToCurrentRoute !== 'function') {
+  if (queueType === 'neural-roam' && typeof membershipPort?.addConceptBlocksToCurrentRoute !== 'function') {
     return { added: 0, message: queueUnavailableMessage[queueType] };
   }
 
@@ -693,7 +693,7 @@ export async function addToQueue(
   let addResult: { added: number; failed: number; firstError?: string; conceptTypeConflict: number };
   try {
     if (queueType === 'neural-roam') {
-      const routeResult = await queue.addConceptBlocksToCurrentRoute(
+      const routeResult = await membershipPort.addConceptBlocksToCurrentRoute(
         filtered.items.map((item) => item.blockId),
         { source, enabled: true },
       );
@@ -703,7 +703,7 @@ export async function addToQueue(
       };
     }
     addResult = await addCardsDeterministically(
-      queue,
+      membershipPort,
       filtered.items,
       queueType === 'neural-roam'
         ? (item) => ({

@@ -11,6 +11,7 @@ import type { ProgressiveExcerptCreationResult } from '@/application/services/Pr
 import type { FSRSCard } from '@/types/card';
 import type { CardFilter, NeuralRoamSessionQueue } from '@/types/unified-data-source';
 import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
+import type { ReviewFilterCommandClient } from './reviewFilterCommands';
 
 export type ReviewProgressiveExcerptTrigger = 'hotkey' | 'toolbar' | 'command';
 
@@ -87,7 +88,6 @@ export type ReviewProgressiveContextLike = {
 
 export type ReviewProgressiveFilterQueueLike = {
   getFilter?: () => CardFilter;
-  setFilter?: (filter: CardFilter) => Promise<void> | void;
 };
 
 export type ReviewProgressiveInsertQueueStrategy = {
@@ -108,6 +108,7 @@ export type ReviewProgressiveExcerptCommandInput = {
   resolveSelection: (options: ReviewProgressiveSelectionResolveOptions) => ProgressiveExcerptSelectionSnapshot | null;
   resolveProtyle: (commonElement: HTMLElement) => unknown;
   filterQueue: ReviewProgressiveFilterQueueLike | null | undefined;
+  filterCommandClient: ReviewFilterCommandClient | null | undefined;
   queueStrategy: ReviewProgressiveInsertQueueStrategy | null | undefined;
   setAppliedReviewFilter: (filter: CardFilter) => void;
   neuralQueue: NeuralRoamSessionQueue | null;
@@ -135,6 +136,7 @@ type RouteReviewProgressiveExcerptInput = {
   excerptEntityId: string;
   currentCard: FSRSCard | null | undefined;
   filterQueue: ReviewProgressiveFilterQueueLike | null | undefined;
+  filterCommandClient: ReviewFilterCommandClient | null | undefined;
   queueStrategy: ReviewProgressiveInsertQueueStrategy | null | undefined;
   setAppliedReviewFilter: (filter: CardFilter) => void;
   neuralQueue: NeuralRoamSessionQueue | null;
@@ -284,6 +286,7 @@ export async function enqueueExcerptIntoCurrentProgressiveReview(input: {
   excerptEntityId: string;
   currentCard: FSRSCard | null | undefined;
   filterQueue: ReviewProgressiveFilterQueueLike | null | undefined;
+  filterCommandClient: ReviewFilterCommandClient | null | undefined;
   queueStrategy: ReviewProgressiveInsertQueueStrategy | null | undefined;
   setAppliedReviewFilter: (filter: CardFilter) => void;
 }): Promise<boolean> {
@@ -297,8 +300,13 @@ export async function enqueueExcerptIntoCurrentProgressiveReview(input: {
   }
 
   const filterQueue = input.filterQueue;
+  const filterCommandClient = input.filterCommandClient;
   const queueStrategy = input.queueStrategy;
-  if (!filterQueue?.getFilter || !filterQueue.setFilter || !queueStrategy?.insertAt) {
+  if (
+    !filterQueue?.getFilter
+    || typeof filterCommandClient?.setFilterGroupFilter !== 'function'
+    || !queueStrategy?.insertAt
+  ) {
     return false;
   }
 
@@ -317,7 +325,10 @@ export async function enqueueExcerptIntoCurrentProgressiveReview(input: {
       ...currentFilter,
       blockIds: nextBlockIds,
     };
-    await filterQueue.setFilter(nextFilter);
+    const updated = await filterCommandClient.setFilterGroupFilter(nextFilter);
+    if (updated === false) {
+      return false;
+    }
     input.setAppliedReviewFilter(nextFilter);
   }
 
@@ -539,6 +550,7 @@ export async function runReviewProgressiveExcerptCommand(
       excerptEntityId,
       currentCard,
       filterQueue: input.filterQueue,
+      filterCommandClient: input.filterCommandClient,
       queueStrategy: input.queueStrategy,
       setAppliedReviewFilter: input.setAppliedReviewFilter,
       neuralQueue: input.neuralQueue,

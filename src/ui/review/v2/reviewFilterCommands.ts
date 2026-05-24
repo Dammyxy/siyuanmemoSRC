@@ -7,9 +7,12 @@ type ReviewFilterLogger = {
 };
 
 export type ReviewFilterGroupQueueLike = {
-  setFilter?: (filter: CardFilter) => Promise<void> | void;
   getFilter?: () => CardFilter;
-  rebuild?: () => Promise<void> | void;
+};
+
+export type ReviewFilterCommandClient = {
+  setFilterGroupFilter?: (filter: CardFilter) => Promise<boolean> | boolean;
+  rebuildFilterGroupQueue?: () => Promise<boolean> | boolean;
 };
 
 export type ReviewFilterRuntimeOptions = {
@@ -17,6 +20,7 @@ export type ReviewFilterRuntimeOptions = {
   showMessage: (message: string, timeout?: number, type?: 'info' | 'error' | 'warning') => void;
   logger?: ReviewFilterLogger;
   getFilterGroupQueue: () => ReviewFilterGroupQueueLike | null;
+  getFilterCommandClient: () => ReviewFilterCommandClient | null;
   reload: () => Promise<void>;
 };
 
@@ -40,16 +44,32 @@ export function createReviewFilterRuntime(options: ReviewFilterRuntimeOptions) {
     }
   }
 
+  function showUnavailable(): void {
+    options.showMessage(options.t('filterQueueUnavailable', '筛选复习队列不可用'), 3000, 'error');
+  }
+
   async function applyAndReload(filter: CardFilter): Promise<void> {
-    const filterQueue = options.getFilterGroupQueue();
-    if (!filterQueue) {
-      options.showMessage(options.t('filterQueueUnavailable', '筛选复习队列不可用'), 3000, 'error');
+    const commandClient = options.getFilterCommandClient();
+    if (!commandClient || typeof commandClient.setFilterGroupFilter !== 'function') {
+      showUnavailable();
       return;
     }
 
     try {
-      await filterQueue.setFilter?.(filter);
-      await filterQueue.rebuild?.();
+      const updated = await commandClient.setFilterGroupFilter(filter);
+      if (updated === false) {
+        showUnavailable();
+        return;
+      }
+
+      if (typeof commandClient.rebuildFilterGroupQueue === 'function') {
+        const rebuilt = await commandClient.rebuildFilterGroupQueue();
+        if (rebuilt === false) {
+          showUnavailable();
+          return;
+        }
+      }
+
       appliedFilter.value = Object.keys(filter).length > 0 ? { ...filter } : null;
       dialogOpen.value = false;
       await options.reload();
@@ -68,14 +88,18 @@ export function createReviewFilterRuntime(options: ReviewFilterRuntimeOptions) {
   }
 
   async function handleRebuild(): Promise<void> {
-    const filterQueue = options.getFilterGroupQueue();
-    if (!filterQueue) {
-      options.showMessage(options.t('filterQueueUnavailable', '筛选复习队列不可用'), 3000, 'error');
+    const commandClient = options.getFilterCommandClient();
+    if (!commandClient || typeof commandClient.rebuildFilterGroupQueue !== 'function') {
+      showUnavailable();
       return;
     }
 
     try {
-      await filterQueue.rebuild?.();
+      const rebuilt = await commandClient.rebuildFilterGroupQueue();
+      if (rebuilt === false) {
+        showUnavailable();
+        return;
+      }
       syncFromQueue();
       await options.reload();
     } catch (error) {

@@ -362,7 +362,7 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
             source
           ),
         }
-      : this.manager?.getQueue(route.queueType);
+      : undefined;
     const result = await addToQueue(queueTarget, selectedRows, route.actionType, source);
     this.invalidateQuerySession();
     return result;

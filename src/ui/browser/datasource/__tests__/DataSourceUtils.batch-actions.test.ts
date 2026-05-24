@@ -182,4 +182,17 @@ describe('DataSourceUtils batch actions', () => {
       failedIds: [],
     });
   });
+
+  it('does not fall back to a live queue when manager batch removal is missing', () => {
+    const manager = {
+      getQueue: vi.fn(() => {
+        throw new Error('live queue should not be read');
+      }),
+    };
+
+    const target = resolveQueueRemovalTarget(manager as never, QueueType.IncrementalLearning);
+
+    expect(target).toBeNull();
+    expect(manager.getQueue).not.toHaveBeenCalled();
+  });
 });

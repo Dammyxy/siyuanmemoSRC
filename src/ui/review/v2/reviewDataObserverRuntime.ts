@@ -6,7 +6,7 @@ import type {
 } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
 import type { RefreshCurrentItemOptions } from './types';
-import type { ReviewFilterGroupQueueLike } from './reviewFilterCommands';
+import type { ReviewFilterCommandClient, ReviewFilterGroupQueueLike } from './reviewFilterCommands';
 import { isProgressiveExcerptCard } from './reviewProgressiveExcerptCommands';
 
 type ReviewDataObserverLogger = {
@@ -31,6 +31,7 @@ export type ReviewDataObserverRuntimeOptions = {
   logger?: ReviewDataObserverLogger;
   getManager: () => IUnifiedDataSourceManagerFacade | null;
   getFilterGroupQueue: () => ReviewFilterGroupQueueLike | null;
+  getFilterCommandClient: () => ReviewFilterCommandClient | null;
   getQueueStrategyWithTailAppend: () => ReviewTailAppendQueueStrategyLike | null;
   getActiveQueueStrategy: () => ReviewActiveQueueLike | null;
   getCurrentReference: () => { cardId: string; blockId: string };
@@ -83,7 +84,7 @@ export function createReviewDataObserverRuntime(options: ReviewDataObserverRunti
     const manager = subscribedManager;
     const filterQueue = options.getFilterGroupQueue();
     const queueStrategy = options.getQueueStrategyWithTailAppend();
-    if (!manager || !filterQueue || typeof filterQueue.getFilter !== 'function' || typeof filterQueue.setFilter !== 'function' || !queueStrategy?.appendCardsToTail) {
+    if (!manager || !filterQueue || typeof filterQueue.getFilter !== 'function' || !queueStrategy?.appendCardsToTail) {
       return;
     }
 
@@ -143,7 +144,23 @@ export function createReviewDataObserverRuntime(options: ReviewDataObserverRunti
         };
 
     if (nextFilter !== currentFilter) {
-      await filterQueue.setFilter(nextFilter);
+      const commandClient = options.getFilterCommandClient();
+      if (!commandClient || typeof commandClient.setFilterGroupFilter !== 'function') {
+        options.logger?.warn?.('[SiYuanMemo][ReviewView] Filter-group command unavailable for doc-scope enqueue');
+        return;
+      }
+
+      try {
+        const updated = await commandClient.setFilterGroupFilter(nextFilter);
+        if (updated === false) {
+          options.logger?.warn?.('[SiYuanMemo][ReviewView] Filter-group command rejected doc-scope enqueue filter update');
+          return;
+        }
+      } catch (error) {
+        options.logger?.warn?.('[SiYuanMemo][ReviewView] Failed to update filter-group filter through command client:', error);
+        return;
+      }
+
       options.setAppliedFilter(nextFilter);
     }
 

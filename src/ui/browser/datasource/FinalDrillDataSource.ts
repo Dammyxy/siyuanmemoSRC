@@ -8,7 +8,6 @@ import type {
 } from './types';
 import { buildQueueActions } from './MenuActions';
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
-import type { FSRSCard } from '../../../types/card';
 import {
   adjustBrowserCardsPriorityRelative,
   deleteBrowserCards,
@@ -32,10 +31,6 @@ type FinalDrillActionContext = {
   priority?: number;
 };
 
-type ReorderableQueueLike = {
-  reorder?: (cards: FSRSCard[]) => Promise<unknown> | unknown;
-};
-
 // 五重筛选：支持的筛选参数
 export type FinalDrillDataSourceOptions = {
   docId?: string;
@@ -43,10 +38,6 @@ export type FinalDrillDataSourceOptions = {
   queryText?: string;
   cardType?: QueueCardTypeFilter;
 };
-
-function hasReorder(value: unknown): value is Required<ReorderableQueueLike> {
-  return typeof value === 'object' && value !== null && typeof (value as ReorderableQueueLike).reorder === 'function';
-}
 
 export class FinalDrillDataSource
   extends BaseQueueSnapshotDataSource<unknown>
@@ -138,24 +129,9 @@ export class FinalDrillDataSource
       }
 
       if (actionId === 'auto-sort') {
-        const queue = this.manager.getQueue(QueueType.FinalDrill);
-        const cards = await queue.getCards();
-        const sorted = cards.sort((a, b) => {
-          const priorityDiff = a.priority - b.priority;
-          if (priorityDiff !== 0) {
-            return priorityDiff;
-          }
-          return a.due - b.due;
-        });
-
-        if (!hasReorder(queue)) {
-          logger.warn('Queue reorder is unavailable');
-          return;
-        }
-
-        await Promise.resolve(queue.reorder(sorted));
+        logger.warn('FinalDrill auto-sort unavailable without an application reorder command');
         this.invalidateQuerySession();
-        return;
+        return { updated: 0, skipped: selectedRows.length };
       }
     } catch (error) {
       logger.error('Failed to perform action', { actionId, error });

@@ -36,8 +36,6 @@ function buildCard(id: string, blockId: string, options?: { rootId?: string; typ
 
 function createQueue(initialCard: ReturnType<typeof buildCard>, filterQueue: {
   getFilter: () => { blockIds?: string[]; scopeDocIds?: string[]; cardType?: string };
-  setFilter: ReturnType<typeof vi.fn>;
-  rebuild: ReturnType<typeof vi.fn>;
   getSize: ReturnType<typeof vi.fn>;
 }) {
   return {
@@ -139,12 +137,12 @@ describe('ReviewView doc-scope card-created sync', () => {
     };
     const filterQueue = {
       getFilter: vi.fn(() => currentFilter),
-      setFilter: vi.fn(async (nextFilter) => {
-        currentFilter.blockIds = nextFilter.blockIds;
-      }),
-      rebuild: vi.fn(async () => undefined),
       getSize: vi.fn(async () => 2),
     };
+    const setFilterGroupFilter = vi.fn(async (nextFilter) => {
+      currentFilter.blockIds = nextFilter.blockIds;
+      return true;
+    });
     const queue = createQueue(currentCard, filterQueue);
     const adapter = createAdapter();
     let observer: { onDataChanged: (event: { type: string; cardIds?: string[]; timestamp: number }) => void } | null = null;
@@ -166,6 +164,9 @@ describe('ReviewView doc-scope card-created sync', () => {
         plugin: {
           getContext: () => ({
             getUnifiedDataSourceManager: () => manager,
+            getBrowserService: () => ({
+              setFilterGroupFilter,
+            }),
             getStorage: () => ({
               getSettings: () => ({}),
             }),
@@ -194,7 +195,7 @@ describe('ReviewView doc-scope card-created sync', () => {
     await flushPromises();
 
     expect(manager.getCard).toHaveBeenCalledWith('item-card-2', { silent: true });
-    expect(filterQueue.setFilter).toHaveBeenCalledWith({
+    expect(setFilterGroupFilter).toHaveBeenCalledWith({
       blockIds: ['topic-block-1', 'item-block-2'],
       scopeDocIds: ['doc-1'],
     });

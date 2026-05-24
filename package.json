@@ -22,7 +22,7 @@
     "diagnostics:algorithm-state": "node --loader ts-node/esm/transpile-only --experimental-specifier-resolution=node src/diagnostics/cli.ts algorithm-state",
     "diagnostics:browser-sql-profile": "node --loader ts-node/esm/transpile-only --experimental-specifier-resolution=node src/diagnostics/cli.ts browser-sql-profile",
     "diagnostics:runtime-sql-profile": "node --loader ts-node/esm/transpile-only --experimental-specifier-resolution=node src/diagnostics/cli.ts runtime-sql-profile",
-    "check:boundaries": "node scripts/check-boundaries.cjs && node scripts/check-no-ui-sql.cjs && node scripts/check-no-kernel-db-owner.cjs && node scripts/check-backend-migration-cutover.cjs && node scripts/check-backend-runtime-paths.cjs && node scripts/check-no-runtime-msgpack.cjs && node scripts/check-hidden-fallbacks.cjs && pnpm run check:srs-runtime-hygiene",
+    "check:boundaries": "node scripts/check-boundaries.cjs && node scripts/check-public-review-queue-api.cjs && node scripts/check-no-ui-sql.cjs && node scripts/check-no-kernel-db-owner.cjs && node scripts/check-backend-migration-cutover.cjs && node scripts/check-backend-runtime-paths.cjs && node scripts/check-no-runtime-msgpack.cjs && node scripts/check-hidden-fallbacks.cjs && pnpm run check:srs-runtime-hygiene",
     "check:srs-runtime-hygiene": "node scripts/check-srs-runtime-hygiene.cjs",
     "check:srs-dist-hygiene": "node scripts/check-srs-runtime-hygiene.cjs --dist",
     "release": "node ./release.js",

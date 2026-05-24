@@ -41,11 +41,15 @@ function createDeps(overrides: Partial<ReviewTabTransferRuntimeDeps> = {}) {
     setSharedReviewSessionId: vi.fn(),
     createSharedReviewSessionId: vi.fn(() => 'shared-review-new'),
     getInitialSessionState: vi.fn(() => session),
-    getQueueSessionSnapshot: vi.fn(() => ({ version: 1, queueType: 'retrieval-practice' }) as never),
-    getFilterSessionSnapshot: vi.fn(() => ({
-      filter: { blockIds: ['block-1'] },
-      visibleCardIds: ['card-1'],
-    }) as never),
+    getQueueSessionSource: vi.fn(() => ({
+      serializeSessionSnapshot: vi.fn(() => ({ version: 1, queueType: 'retrieval-practice' }) as never),
+    })),
+    getFilterSessionSource: vi.fn(() => ({
+      serializeSessionSnapshot: vi.fn(() => ({
+        filter: { blockIds: ['block-1'] },
+        visibleCardIds: ['card-1'],
+      }) as never),
+    })),
     getCurrentReference: vi.fn(() => ({ cardId: 'card-1', blockId: 'block-1' })),
     isShowingAnswer: vi.fn(() => true),
     getReviewSessionController: vi.fn(() => controllerLike()),
@@ -92,11 +96,17 @@ describe('reviewTabTransferRuntime', () => {
         correctCount: 2,
       },
     });
-    expect(deps.getFilterSessionSnapshot).not.toHaveBeenCalled();
+    expect(deps.getFilterSessionSource).not.toHaveBeenCalled();
   });
 
-  it('builds filter-group transfer state when no provided transfer state exists', () => {
-    const deps = createDeps();
+  it('builds filter-group transfer state from a runtime-owned snapshot source', () => {
+    const serializeSessionSnapshot = vi.fn(() => ({
+      filter: { blockIds: ['block-1'] },
+      visibleCardIds: ['card-1'],
+    }) as never);
+    const deps = createDeps({
+      getFilterSessionSource: vi.fn(() => ({ serializeSessionSnapshot })),
+    });
     const runtime = createReviewTabTransferRuntime(deps);
 
     expect(runtime.buildTransferState()).toEqual({
@@ -111,11 +121,15 @@ describe('reviewTabTransferRuntime', () => {
         correctCount: 2,
       },
     });
+    expect(deps.getFilterSessionSource).toHaveBeenCalledTimes(1);
+    expect(serializeSessionSnapshot).toHaveBeenCalledTimes(1);
   });
 
   it('builds tab runtime state only for tab surfaces', () => {
+    const serializeSessionSnapshot = vi.fn(() => ({ version: 1, queueType: 'retrieval-practice' }) as never);
     const tabRuntime = createReviewTabTransferRuntime(createDeps({
       getSharedReviewSessionId: vi.fn(() => 'shared-review-1'),
+      getQueueSessionSource: vi.fn(() => ({ serializeSessionSnapshot })),
     }));
 
     expect(tabRuntime.buildRuntimeState()).toEqual({
@@ -134,6 +148,7 @@ describe('reviewTabTransferRuntime', () => {
         queueType: 'retrieval-practice',
       },
     });
+    expect(serializeSessionSnapshot).toHaveBeenCalledTimes(1);
 
     expect(createReviewTabTransferRuntime(createDeps({ mode: 'dialog' })).buildRuntimeState()).toBeNull();
   });

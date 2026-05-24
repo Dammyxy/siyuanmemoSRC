@@ -13,9 +13,8 @@ describe('reviewFilterCommands', () => {
       logger: {},
       getFilterGroupQueue: () => ({
         getFilter: () => filter,
-        setFilter: vi.fn(),
-        rebuild: vi.fn(),
       }),
+      getFilterCommandClient: () => null,
       reload: vi.fn(),
     });
 
@@ -27,22 +26,23 @@ describe('reviewFilterCommands', () => {
   });
 
   it('applies filter, rebuilds queue, closes dialog, and reloads review', async () => {
-    const setFilter = vi.fn();
-    const rebuild = vi.fn();
+    const setFilterGroupFilter = vi.fn(async () => true);
+    const rebuildFilterGroupQueue = vi.fn(async () => true);
     const reload = vi.fn();
     const runtime = createReviewFilterRuntime({
       t,
       showMessage: vi.fn(),
       logger: {},
-      getFilterGroupQueue: () => ({ setFilter, rebuild }),
+      getFilterGroupQueue: () => null,
+      getFilterCommandClient: () => ({ setFilterGroupFilter, rebuildFilterGroupQueue }),
       reload,
     });
 
     runtime.dialogOpen.value = true;
     await runtime.handleApply({ cardType: 'item' });
 
-    expect(setFilter).toHaveBeenCalledWith({ cardType: 'item' });
-    expect(rebuild).toHaveBeenCalledTimes(1);
+    expect(setFilterGroupFilter).toHaveBeenCalledWith({ cardType: 'item' });
+    expect(rebuildFilterGroupQueue).toHaveBeenCalledTimes(1);
     expect(runtime.dialogOpen.value).toBe(false);
     expect(runtime.appliedFilter.value).toEqual({ cardType: 'item' });
     expect(reload).toHaveBeenCalledTimes(1);
@@ -56,6 +56,7 @@ describe('reviewFilterCommands', () => {
       showMessage,
       logger: {},
       getFilterGroupQueue: () => null,
+      getFilterCommandClient: () => null,
       reload,
     });
 

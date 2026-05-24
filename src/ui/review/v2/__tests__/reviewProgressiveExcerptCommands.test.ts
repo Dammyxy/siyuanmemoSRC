@@ -125,7 +125,9 @@ describe('reviewProgressiveExcerptCommands', () => {
     const filter: CardFilter = { blockIds: ['piece-doc-1'] };
     const filterQueue = {
       getFilter: vi.fn(() => filter),
-      setFilter: vi.fn(async () => undefined),
+    };
+    const filterCommandClient = {
+      setFilterGroupFilter: vi.fn(async () => true),
     };
     const queueStrategy = {
       insertAt: vi.fn(async () => undefined),
@@ -137,6 +139,7 @@ describe('reviewProgressiveExcerptCommands', () => {
       excerptEntityId: 'excerpt-doc-1',
       currentCard: topicCard({ progressive: { kind: 'piece' } }),
       filterQueue,
+      filterCommandClient,
       queueStrategy,
       setAppliedReviewFilter,
       neuralQueue,
@@ -144,7 +147,7 @@ describe('reviewProgressiveExcerptCommands', () => {
     });
 
     expect(routed).toBe('progressive');
-    expect(filterQueue.setFilter).toHaveBeenCalledWith({
+    expect(filterCommandClient.setFilterGroupFilter).toHaveBeenCalledWith({
       blockIds: ['piece-doc-1', 'excerpt-doc-1'],
     });
     expect(setAppliedReviewFilter).toHaveBeenCalledWith({
@@ -161,6 +164,7 @@ describe('reviewProgressiveExcerptCommands', () => {
       excerptEntityId: 'excerpt-doc-1',
       currentCard: topicCard(),
       filterQueue: null,
+      filterCommandClient: null,
       queueStrategy: null,
       setAppliedReviewFilter: vi.fn(),
       neuralQueue,

@@ -457,6 +457,28 @@ describe('QueryDataSource queryable path', () => {
     expect(manager.getQueue).not.toHaveBeenCalled();
   });
 
+  it('fails queue add closed when the manager batch command is missing', async () => {
+    const manager = createManager([makeFsrsCard('card-a', 'block-a')]);
+    manager.getQueue.mockImplementation(() => {
+      throw new Error('live queue should not be read');
+    });
+    const dataSource = new QueryDataSource('select * from blocks', {
+      manager: manager as never,
+      siyuanApi: testSiyuanApi,
+    });
+    const selectedRow = {
+      id: 'card-a',
+      fsrsCardId: 'card-a',
+      blockId: 'block-a',
+      cardType: 'item',
+    };
+
+    const result = await dataSource.performAction('add-to-retrieval-queue', [selectedRow] as never[]) as { added: number; message: string };
+
+    expect(manager.getQueue).not.toHaveBeenCalled();
+    expect(result).toEqual({ added: 0, message: '提取练习队列不可用' });
+  });
+
   it('delegates SQL result priority changes to the unified card manager', async () => {
     const manager = {
       getCard: vi.fn(),

@@ -95,24 +95,7 @@ describe('queue snapshot datasource path', () => {
     expect(browserService.getQueueRowsByIds).toHaveBeenNthCalledWith(2, expect.any(String), ['card-1']);
   });
 
-  it('falls back to legacy queue.getCards path when browserService is missing', async () => {
-    const queue = {
-      getCards: vi.fn(async () => []),
-    };
-    const manager = {
-      getQueue: vi.fn(() => queue),
-    } as never;
-
-    const dataSource = new RetrievalDataSource(manager);
-    await dataSource.fetchRows({ startRow: 0, endRow: 20, sortModel: [], filterModel: {} });
-
-    expect(queue.getCards).toHaveBeenCalledOnce();
-  });
-
-  it.each([
-    ['final-drill', FinalDrillDataSource],
-    ['filter-group', FilterGroupDataSource],
-  ] as const)('%s fails closed when browserService is missing', async (_queueId, DataSourceCtor) => {
+  it.each(DATA_SOURCE_CASES)('%s fails closed when browserService is missing', async (_queueId, DataSourceCtor) => {
     const manager = {
       getQueue: vi.fn(() => {
         throw new Error('legacy queue.getCards path should not run for projection-backed queues');
@@ -122,6 +105,7 @@ describe('queue snapshot datasource path', () => {
     const dataSource = new DataSourceCtor(manager);
     await expect(dataSource.fetchRows({ startRow: 0, endRow: 20, sortModel: [], filterModel: {} }))
       .rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
+    expect(manager.getQueue).not.toHaveBeenCalled();
   });
 
   it('passes cloneable browserService query payloads when Vue reactive arrays reach the data source', async () => {

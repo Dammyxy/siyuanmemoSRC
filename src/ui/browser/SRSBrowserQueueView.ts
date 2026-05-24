@@ -9,21 +9,31 @@
  * @see .kiro/specs/unified-data-source-architecture/design.md - SRS 浏览器队列视图集成
  */
 
-import type { IUnifiedDataSourceManagerFacade, IDataSourceObserver, DataChangeEvent, QueueType, CardFilter } from '@/types/unified-data-source';
+import type {
+    IUnifiedDataSourceManagerFacade,
+    IDataSourceObserver,
+    DataChangeEvent,
+    QueueType,
+    CardFilter,
+    QueueProjectionSnapshot,
+} from '@/types/unified-data-source';
 import type { GridApi } from 'ag-grid-community';
 import { filterService } from './services/FilterService';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SRSBrowserQueueView');
 
-type FilterGroupQueueLike = {
-    setFilter: (filter: CardFilter) => Promise<void>;
+type QueueProjectionReadManager = IUnifiedDataSourceManagerFacade & {
+    readQueueProjectionSnapshot?: (
+        queueType: QueueType,
+        options?: { forceRefresh?: boolean }
+    ) => Promise<QueueProjectionSnapshot | null>;
 };
 
-function hasSetFilter(queue: unknown): queue is FilterGroupQueueLike {
-    const candidate = queue as Partial<FilterGroupQueueLike>;
-    return typeof candidate?.setFilter === 'function';
-}
+type QueueFilterCommandManager = IUnifiedDataSourceManagerFacade & {
+    setFilterGroupFilter?: (filter: CardFilter) => Promise<boolean>;
+    rebuildFilterGroupQueue?: () => Promise<boolean>;
+};
 
 /**
  * SRS 浏览器队列视图
@@ -117,20 +127,28 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
         try {
             logger.info(`[SRSBrowserQueueView] Loading queue data for: ${this.currentQueueType}`);
             
-            // 获取队列实例
-            const queue = this.manager.getQueue(this.currentQueueType);
-            
-            // 获取队列中的所有卡片
-            const cards = await queue.getCards();
-            
-            logger.info(`[SRSBrowserQueueView] Loaded ${cards.length} cards from queue`);
+            const projectionReader = this.manager as QueueProjectionReadManager;
+            if (typeof projectionReader.readQueueProjectionSnapshot !== 'function') {
+                throw new Error(`QUEUE_PROJECTION_UNAVAILABLE: ${this.currentQueueType} browser snapshot unavailable`);
+            }
+
+            const snapshot = await projectionReader.readQueueProjectionSnapshot(this.currentQueueType, {
+                forceRefresh: true,
+            });
+            if (!snapshot) {
+                throw new Error(`QUEUE_PROJECTION_UNAVAILABLE: ${this.currentQueueType} browser snapshot unavailable`);
+            }
+
+            const rows = snapshot.rows || [];
+
+            logger.info(`[SRSBrowserQueueView] Loaded ${rows.length} projection rows`);
             
             // 更新 AG-Grid
             if (this.gridApi) {
                 const gridApi = this.gridApi as GridApi & {
                     setGridOption?: (key: 'rowData', value: unknown[]) => void;
                 };
-                gridApi.setGridOption?.('rowData', cards);
+                gridApi.setGridOption?.('rowData', rows);
                 logger.info('[SRSBrowserQueueView] Grid updated with queue data');
             } else {
                 logger.warn('[SRSBrowserQueueView] Grid API not initialized');
@@ -180,11 +198,14 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
         try {
             logger.info(`[SRSBrowserQueueView] Adding card ${cardId} to queue ${this.currentQueueType}`);
             
-            // 获取队列实例
-            const queue = this.manager.getQueue(this.currentQueueType);
-            
-            // 添加卡片到队列
-            await queue.addCard(cardId);
+            if (typeof this.manager.batchAddToQueue !== 'function') {
+                throw new Error(`QUEUE_COMMAND_UNAVAILABLE: ${this.currentQueueType} add command unavailable`);
+            }
+
+            const result = await this.manager.batchAddToQueue(this.currentQueueType, [cardId], 'manual');
+            if (result.changedCount <= 0) {
+                throw new Error(`QUEUE_COMMAND_UNAVAILABLE: ${this.currentQueueType} add command rejected card ${cardId}`);
+            }
             
             logger.info(`[SRSBrowserQueueView] Card ${cardId} added to queue`);
             
@@ -260,16 +281,19 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
         try {
             logger.info('[SRSBrowserQueueView] Applying filter:', filter);
             
+            const commandManager = this.manager as QueueFilterCommandManager;
+            if (typeof commandManager.setFilterGroupFilter !== 'function') {
+                throw new Error('QUEUE_FILTER_COMMAND_UNAVAILABLE: filter-group command unavailable');
+            }
+
+            const applied = await commandManager.setFilterGroupFilter(filter);
+            if (!applied) {
+                throw new Error('QUEUE_FILTER_COMMAND_UNAVAILABLE: filter-group command rejected filter');
+            }
+            await commandManager.rebuildFilterGroupQueue?.();
+
             // 保存过滤条件
             this.appliedFilter = filter;
-            
-            // 获取队列实例
-            const queue = this.manager.getQueue(this.currentQueueType);
-            
-            // 设置过滤条件（假设 FilterGroupQueue 有 setFilter 方法）
-            if (hasSetFilter(queue)) {
-                await queue.setFilter(filter);
-            }
             
             // 刷新队列显示
             await this.loadQueueData();
@@ -298,16 +322,19 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
         try {
             logger.info('[SRSBrowserQueueView] Clearing filter');
             
+            const commandManager = this.manager as QueueFilterCommandManager;
+            if (typeof commandManager.setFilterGroupFilter !== 'function') {
+                throw new Error('QUEUE_FILTER_COMMAND_UNAVAILABLE: filter-group command unavailable');
+            }
+
+            const cleared = await commandManager.setFilterGroupFilter({});
+            if (!cleared) {
+                throw new Error('QUEUE_FILTER_COMMAND_UNAVAILABLE: filter-group command rejected clear');
+            }
+            await commandManager.rebuildFilterGroupQueue?.();
+
             // 清除过滤条件
             this.appliedFilter = null;
-            
-            // 获取队列实例
-            const queue = this.manager.getQueue(this.currentQueueType);
-            
-            // 清除过滤条件
-            if (hasSetFilter(queue)) {
-                await queue.setFilter({});
-            }
             
             // 刷新队列显示
             await this.loadQueueData();

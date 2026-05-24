@@ -23,6 +23,14 @@ type ReviewTabTransferRegistry = {
   registerSession: <TSession>(sessionId: string, session: TSession) => TSession;
 };
 
+type ReviewQueueSessionSnapshotSource = {
+  serializeSessionSnapshot?: () => ReviewQueueSessionSnapshot;
+};
+
+type FilterGroupSessionSnapshotSource = {
+  serializeSessionSnapshot?: () => FilterGroupQueueSessionSnapshot;
+};
+
 export type ReviewTabTransferReference = {
   cardId?: string;
   blockId?: string;
@@ -39,8 +47,8 @@ export type ReviewTabTransferRuntimeDeps = {
   setSharedReviewSessionId: (sessionId: string) => void;
   createSharedReviewSessionId: () => string;
   getInitialSessionState: () => InitialReviewSessionState | undefined;
-  getQueueSessionSnapshot: () => ReviewQueueSessionSnapshot | null;
-  getFilterSessionSnapshot: () => FilterGroupQueueSessionSnapshot | null | undefined;
+  getQueueSessionSource: () => unknown;
+  getFilterSessionSource: () => unknown;
   getCurrentReference: () => ReviewTabTransferReference;
   isShowingAnswer: () => boolean;
   getReviewSessionController: () => unknown;
@@ -77,26 +85,49 @@ function normalizeSharedReviewSessionId(value: unknown): string | null {
 }
 
 export function createReviewTabTransferRuntime(deps: ReviewTabTransferRuntimeDeps) {
+  function readQueueSessionSnapshot(): ReviewQueueSessionSnapshot | null {
+    const source = deps.getQueueSessionSource() as ReviewQueueSessionSnapshotSource | null | undefined;
+    if (!source || typeof source.serializeSessionSnapshot !== 'function') {
+      return null;
+    }
+
+    try {
+      return source.serializeSessionSnapshot();
+    } catch (error) {
+      deps.logger?.warn?.('[SiYuanMemo][ReviewView] Failed to serialize review queue session snapshot:', error);
+      return null;
+    }
+  }
+
+  function readFilterSessionSnapshot(): FilterGroupQueueSessionSnapshot | null {
+    const source = deps.getFilterSessionSource() as FilterGroupSessionSnapshotSource | null | undefined;
+    if (!source || typeof source.serializeSessionSnapshot !== 'function') {
+      return null;
+    }
+
+    try {
+      return source.serializeSessionSnapshot();
+    } catch (error) {
+      deps.logger?.warn?.('[SiYuanMemo][ReviewView] Failed to serialize filter-group transfer state:', error);
+      return null;
+    }
+  }
+
   function buildTransferState(): ReviewTabTransferState | undefined {
     const session = deps.getInitialSessionState();
     if (deps.transferState) {
       return cloneTransferStateWithSession(deps.transferState, session);
     }
 
-    try {
-      const filterSession = deps.getFilterSessionSnapshot();
-      if (!filterSession) {
-        return undefined;
-      }
-      return {
-        kind: 'filter-group-session',
-        filterSession,
-        session,
-      };
-    } catch (error) {
-      deps.logger?.warn?.('[SiYuanMemo][ReviewView] Failed to serialize filter-group transfer state:', error);
+    const filterSession = readFilterSessionSnapshot();
+    if (!filterSession) {
       return undefined;
     }
+    return {
+      kind: 'filter-group-session',
+      filterSession,
+      session,
+    };
   }
 
   function buildRuntimeState(): ReviewTabRuntimeState | null {
@@ -113,7 +144,7 @@ export function createReviewTabTransferRuntime(deps: ReviewTabTransferRuntimeDep
       currentCardId: String(reference.cardId || '').trim() || undefined,
       currentBlockId: String(reference.blockId || '').trim() || undefined,
       session: deps.getInitialSessionState(),
-      queueSnapshot: deps.getQueueSessionSnapshot(),
+      queueSnapshot: readQueueSessionSnapshot(),
     };
   }
 
@@ -191,5 +222,7 @@ export function createReviewTabTransferRuntime(deps: ReviewTabTransferRuntimeDep
     buildTransferState,
     ensureSharedSessionPromotion,
     openManagedSplit,
+    readFilterSessionSnapshot,
+    readQueueSessionSnapshot,
   };
 }
