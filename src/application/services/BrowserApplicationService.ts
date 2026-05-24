@@ -725,17 +725,51 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       const snapshot = await queue.getCounterSnapshot(forceRefresh);
       return Math.max(0, Number(snapshot.remaining) || 0);
     } catch (error) {
-      logger.error('QUEUE_COUNT_UNAVAILABLE: failed to read queue counter snapshot:', {
-        queueId,
-        projectionBacked,
-        error,
-      });
       throw new Error(
         projectionBacked
           ? `QUEUE_PROJECTION_UNAVAILABLE: ${queueId} projection counter snapshot unavailable`
           : `QUEUE_COUNT_UNAVAILABLE: ${queueId} counter snapshot unavailable`,
       );
     }
+  }
+
+  private isTransientQueueCountUnavailableError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    const candidate = error as { code?: unknown; message?: unknown; cause?: unknown };
+    if (
+      candidate.code === 'QUEUE_PROJECTION_NOT_READY'
+      || candidate.code === 'QUEUE_PROJECTION_UNAVAILABLE'
+    ) {
+      return true;
+    }
+
+    if (typeof candidate.message === 'string') {
+      if (
+        candidate.message.startsWith('QUEUE_PROJECTION_NOT_READY:')
+        || candidate.message.startsWith('QUEUE_PROJECTION_UNAVAILABLE:')
+      ) {
+        return true;
+      }
+
+      if (
+        candidate.message.startsWith('QUEUE_COUNT_UNAVAILABLE:')
+        && (
+          candidate.message.includes('QUEUE_PROJECTION_NOT_READY')
+          || candidate.message.includes('QUEUE_PROJECTION_UNAVAILABLE')
+        )
+      ) {
+        return true;
+      }
+    }
+
+    if (candidate.cause && candidate.cause !== error) {
+      return this.isTransientQueueCountUnavailableError(candidate.cause);
+    }
+
+    return false;
   }
 
   private isProjectionBackedBrowserQueue(queueId: string): boolean {
@@ -792,6 +826,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         return normalized;
       })
       .catch((error) => {
+        if (this.isTransientQueueCountUnavailableError(error)) {
+          const fallback = Math.max(0, Number(this.queueCountCache.get(queueId)?.value) || 0);
+          this.queueCountCache.set(queueId, {
+            value: fallback,
+            timestamp: Date.now(),
+          });
+          return fallback;
+        }
+
         this.queueCountCache.delete(queueId);
         logger.error('QUEUE_COUNT_UNAVAILABLE: failed to get queue count:', { queueId, error });
         throw error;
@@ -818,7 +861,6 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     const affectedQueueIds = this.resolveAffectedBrowserQueueIds(request.affectedQueueTypes);
     if (request.forceRefresh) {
       for (const queueId of affectedQueueIds) {
-        this.queueCountCache.delete(queueId);
         this.queueCountInFlight.delete(queueId);
       }
     }

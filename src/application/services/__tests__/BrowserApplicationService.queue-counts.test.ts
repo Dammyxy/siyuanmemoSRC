@@ -160,7 +160,7 @@ describe('BrowserApplicationService queue counts', () => {
     expect(neuralQueue.getConceptBlocks).not.toHaveBeenCalled();
   });
 
-  it('fails closed instead of falling back when a projection-backed queue count is unavailable', async () => {
+  it('falls back to zero instead of rejecting when a projection-backed queue count is unavailable before cache exists', async () => {
     const retrievalQueue = createQueue(1, 1, 11);
     retrievalQueue.getCounterSnapshot.mockRejectedValueOnce(new Error('projection unavailable'));
     manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
@@ -178,11 +178,47 @@ describe('BrowserApplicationService queue counts', () => {
     });
     queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
 
-    await expect(service.getQueueCounts({
+    const counts = await service.getQueueCounts({
       forceRefresh: true,
       affectedQueueTypes: [QueueType.RetrievalPractice],
-    })).rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
+    });
 
+    expect(counts.retrieval).toBe(0);
+    expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
+    expect(retrievalQueue.getSize).not.toHaveBeenCalled();
+  });
+
+  it('keeps the last known projection-backed queue count when a refresh is temporarily unavailable', async () => {
+    const retrievalQueue = createQueue(3, 3, 11);
+    manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
+      if (queueType === QueueType.RetrievalPractice) {
+        return [{
+          queueType: QueueType.RetrievalPractice,
+          projectionBacked: true,
+          state: 'backend-projection',
+          readPath: 'backend-projection',
+          reason: 'rollout-enabled',
+          nextCoverageTask: null,
+        }];
+      }
+      return [];
+    });
+    queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
+
+    const initialCounts = await service.getQueueCounts({
+      forceRefresh: true,
+      affectedQueueTypes: [QueueType.RetrievalPractice],
+    });
+    expect(initialCounts.retrieval).toBe(3);
+
+    retrievalQueue.getCounterSnapshot.mockRejectedValueOnce(new Error('projection unavailable'));
+
+    const refreshedCounts = await service.getQueueCounts({
+      forceRefresh: true,
+      affectedQueueTypes: [QueueType.RetrievalPractice],
+    });
+
+    expect(refreshedCounts.retrieval).toBe(3);
     expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
     expect(retrievalQueue.getSize).not.toHaveBeenCalled();
   });

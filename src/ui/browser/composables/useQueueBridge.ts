@@ -61,9 +61,6 @@ export function useQueueBridge(options: UseQueueBridgeOptions) {
     }
 
     try {
-      if (refreshOptions.forceRefresh) {
-        service.invalidateQueueCountsCache();
-      }
       target.value = await service.getQueueCounts(refreshOptions);
     } catch (error) {
       logger.error('failed to refresh counts via browserService:', error);

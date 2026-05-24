@@ -1,8 +1,17 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-24 (Round 454)
+Last update: 2026-05-24 (Round 455)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-24 - Browser Queue Count Transient Projection Fallback
+
+- Task: Stop Browser count refresh from surfacing a red error when a projection-backed queue counter is still warming up.
+- Touched slice: `BrowserApplicationService` queue-count read path, queue-count regression tests, and architecture/backlog docs.
+- Debt fixed now: Projection-backed queue counts now keep the last cached value or zero when `QUEUE_PROJECTION_NOT_READY` / `QUEUE_PROJECTION_UNAVAILABLE` appears during a refresh, so Browser open no longer logs the transient projection warmup as a hard error.
+- Debt deferred: Projection readiness still matters for rows/hydration and other queue reads; count badges remain best-effort, not authority.
+- Why deferred: Queue counts are chrome-level signal, so preserving UI continuity is better than blocking Browser entry on a transient projection warmup.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts`; `pnpm build`.
 
 ### 2026-05-24 - Public Review Queue API Runtime Retirement
 
@@ -2124,7 +2133,7 @@ Last update: 2026-05-24 (Round 454)
 
 - Task: User asked to clear the remaining classified hidden fallback allowlist debt instead of leaving it as deferred work.
 - Touched slice: Hidden fallback gate / Browser queue counts / DocTree review scope / Topic-derived item / Xiuyuan CDF multiline / NeuralRoam concept query；`scripts/check-hidden-fallbacks.cjs`、`scripts/hidden-fallback-allowlist.json`、`src/application/services/BrowserApplicationService.ts`、`src/application/services/DocTreeReviewScopeService.ts`、`src/application/services/TopicDerivedItemService.ts`、`src/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase.ts`、`src/core/queue/neural/ConceptQueryEngine.ts`、focused tests、`ARCHITECTURE.md`。
-- Debt fixed now: `scripts/hidden-fallback-allowlist.json` now has `entries: []`, and the hidden fallback gate fails if entries are reintroduced. Browser queue counts no longer cascade through alternate count APIs or return zero after dependency failure; they surface `QUEUE_COUNT_UNAVAILABLE` / `QUEUE_PROJECTION_UNAVAILABLE`. DocTree scope no longer scans storage after projection/rootless read failure; it surfaces `DOC_TREE_SCOPE_UNAVAILABLE`. Topic-derived item creation no longer defaults settings failure to `workbench`; it surfaces `TOPIC_DERIVED_SETTINGS_UNAVAILABLE`. CDF multiline creation no longer catches `getBlockAttrs` failure and queries SQL attrs; it surfaces `CDF_ATTRS_UNAVAILABLE`. NeuralRoam no longer hides missing `fsrs_cards` behind resolver/syntax continuation; it surfaces `NEURAL_ROAM_SCHEMA_UNAVAILABLE`.
+- Debt fixed now: `scripts/hidden-fallback-allowlist.json` now has `entries: []`, and the hidden fallback gate fails if entries are reintroduced. Browser queue counts now keep cached or zero fallback on transient projection-not-ready refreshes instead of surfacing a red error; non-transient dependency failure still surfaces `QUEUE_COUNT_UNAVAILABLE` / `QUEUE_PROJECTION_UNAVAILABLE`. DocTree scope no longer scans storage after projection/rootless read failure; it surfaces `DOC_TREE_SCOPE_UNAVAILABLE`. Topic-derived item creation no longer defaults settings failure to `workbench`; it surfaces `TOPIC_DERIVED_SETTINGS_UNAVAILABLE`. CDF multiline creation no longer catches `getBlockAttrs` failure and queries SQL attrs; it surfaces `CDF_ATTRS_UNAVAILABLE`. NeuralRoam no longer hides missing `fsrs_cards` behind resolver/syntax continuation; it surfaces `NEURAL_ROAM_SCHEMA_UNAVAILABLE`.
 - Debt deferred: No runtime debt remains in `scripts/hidden-fallback-allowlist.json`. Non-allowlist info-level vocabulary remains in the gate report for UI label defaults, parser normalization defaults, test/comment fixtures, and explicit inline-marked operator rollback/unavailable contracts.
 - Why deferred: N/A for allowlist runtime debt. The remaining report entries are outside this allowlist-retirement scope and are either non-runtime defaults or explicit contracts already governed by the gate.
 - Next safe step: Keep `pnpm run check:boundaries` as the default guard for runtime work; any new automatic fallback must be fixed at the active path or fail the gate.
