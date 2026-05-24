@@ -1,6 +1,12 @@
 import type {
   BackendAutoCardExecuteRequest,
   BackendAutoCardExecuteResult,
+  BackendBrowserAggregateFocusRequest,
+  BackendBrowserAggregateFocusResult,
+  BackendBrowserAggregatePageRequest,
+  BackendBrowserAggregatePageResult,
+  BackendBrowserAggregateSnapshotRequest,
+  BackendBrowserAggregateSnapshotResult,
   BackendAiJobCancelRequest,
   BackendAiJobGetRequest,
   BackendAiJobResult,
@@ -76,6 +82,12 @@ import type {
   BackendSourceExistenceUpdate,
   BackendDiagnosticsStatusResult,
   BackendHealthResult,
+  BackendGraphQueryRequest,
+  BackendGraphQueryResult,
+  BackendHotspotCommandSubmitRequest,
+  BackendHotspotCommandSubmitResult,
+  BackendHotspotJobGetRequest,
+  BackendHotspotJobGetResult,
   BackendRpcRequest,
   BackendRpcResponse,
   BackendRpcSuccess,
@@ -338,6 +350,40 @@ export class SrsBackendClient {
 
   async privateCommand(request: PrivateApiMutationRequest): Promise<PrivateApiMutationResult> {
     return this.call<PrivateApiMutationResult>(request.method, request);
+  }
+
+  async submitHotspotCommand<TResult = unknown>(
+    request: BackendHotspotCommandSubmitRequest,
+  ): Promise<BackendHotspotCommandSubmitResult<TResult>> {
+    return this.call<BackendHotspotCommandSubmitResult<TResult>>('hotspot.command.submit', request);
+  }
+
+  async getHotspotJob<TResult = unknown>(
+    request: BackendHotspotJobGetRequest,
+  ): Promise<BackendHotspotJobGetResult<TResult>> {
+    return this.call<BackendHotspotJobGetResult<TResult>>('hotspot.job.get', request);
+  }
+
+  async browserAggregateSnapshot(
+    request: BackendBrowserAggregateSnapshotRequest,
+  ): Promise<BackendBrowserAggregateSnapshotResult> {
+    return this.call<BackendBrowserAggregateSnapshotResult>('browser.aggregate.snapshot', request);
+  }
+
+  async browserAggregatePage<TRow = unknown>(
+    request: BackendBrowserAggregatePageRequest,
+  ): Promise<BackendBrowserAggregatePageResult<TRow>> {
+    return this.call<BackendBrowserAggregatePageResult<TRow>>('browser.aggregate.page', request);
+  }
+
+  async browserAggregateFocus<TRow = unknown>(
+    request: BackendBrowserAggregateFocusRequest,
+  ): Promise<BackendBrowserAggregateFocusResult<TRow>> {
+    return this.call<BackendBrowserAggregateFocusResult<TRow>>('browser.aggregate.focus', request);
+  }
+
+  async graphQuery(request: BackendGraphQueryRequest): Promise<BackendGraphQueryResult> {
+    return this.call<BackendGraphQueryResult>('graph.query', request);
   }
 
   async semanticCommand(request: BackendSemanticCommandRequest): Promise<BackendSemanticCommandResult> {

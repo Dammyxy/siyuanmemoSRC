@@ -4,6 +4,16 @@ Last update: 2026-05-24 (Round 455)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-24 - Backend Runtime Hotspot Foundation
+
+- Task: Start OpenSpec change `backendize-runtime-hotspots` by landing the shared backend/writer/kernel foundation for the six runtime hotspot migrations.
+- Touched slice: backend migration ownership map, backend/kernel RPC contracts, `SrsBackendClient`, writer relay dispatcher, `BackendKernel`, kernel companion capability diagnostics, focused tests, `ARCHITECTURE.md`, and OpenSpec task status.
+- Debt fixed now: The six hotspot families now have owner/runtime/contract/writer-relay/kernel-proxy/idempotency/removal-condition metadata plus retained-effect checklist entries; backend RPC has shared hotspot command/job envelopes, Browser aggregate placeholder contracts, and graph query placeholder contracts; worker accepts hotspot commands with idempotency replay and diagnostics counters; aggregate/graph placeholders fail closed with typed unavailable instead of `METHOD_NOT_FOUND`; follower relay allowlists `hotspot.command.submit`; kernel capability diagnostics now distinguish network proxy, private HTTP/SSE, and Riff read/audit proxy state.
+- Debt deferred: Xiuyuan/Riff sync, Progressive Reading, Topic-derived item writes, Browser aggregate read models, Neural/Semantic graph read models, AI write jobs, FinalDrill Riff feedback, and Review source refresh are not cut over yet.
+- Why deferred: This change established the shared command/read/capability foundation first; each hotspot still needs its own domain service move, production entrypoint replacement, hidden-fallback guard, targeted tests, and live SiYuan smoke evidence.
+- Next safe step: Implement the first vertical slice, preferably Xiuyuan/Riff sync planner and kernel Riff read/audit proxy, then remove or classify the old sync apply fallback before marking the slice migrated.
+- Validation: `pnpm vitest run packages/contracts/src/__tests__/kernel-rpc.test.ts src/infrastructure/siyuan/__tests__/SiyuanKernelCompanionAdapter.test.ts worker/__tests__/BackendKernel.hotspot-command.test.ts src/application/__tests__/ApplicationContext.writer-relay.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts packages/contracts/src/__tests__/backend-rpc.test.ts src/application/__tests__/backendMigrationOwnership.test.ts`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate backendize-runtime-hotspots --strict`.
+
 ### 2026-05-24 - Browser Queue Count Transient Projection Fallback
 
 - Task: Stop Browser count refresh from surfacing a red error when a projection-backed queue counter is still warming up.

@@ -259,8 +259,11 @@ describe('SiyuanKernelCompanionAdapter', () => {
       capabilities: {
         rpcWebSocketPush: { state: 'available' },
         backendRealWorkerTransport: { state: 'unknown' },
+        kernelNetworkProxy: { state: 'unknown' },
         kernelNetworkSse: { state: 'unknown' },
+        privateHttp: { state: 'unknown' },
         privateSse: { state: 'unknown' },
+        riffReadAuditProxy: { state: 'unknown' },
         aiKernelStreaming: { state: 'unknown' },
       },
     });
@@ -289,8 +292,11 @@ describe('SiyuanKernelCompanionAdapter', () => {
         jsonrpc: '2.0',
         result: {
           methods: ['network.streamExternal'],
+          kernelNetworkProxy: true,
           kernelNetworkSse: true,
+          privateHttp: true,
           privateSse: true,
+          riffReadAuditProxy: false,
           aiStreaming: true,
         },
         id: 1,
@@ -301,8 +307,11 @@ describe('SiyuanKernelCompanionAdapter', () => {
     await expect(adapter.getStatus()).resolves.toMatchObject({
       kind: 'available',
       capabilities: {
+        kernelNetworkProxy: { state: 'available' },
         kernelNetworkSse: { state: 'available' },
+        privateHttp: { state: 'available' },
         privateSse: { state: 'available' },
+        riffReadAuditProxy: { state: 'unavailable' },
         aiKernelStreaming: { state: 'available' },
       },
     });

@@ -795,7 +795,7 @@ function buildHealth() {
 
 function buildCapabilities() {
   return {
-    version: 6,
+    version: 7,
     methods: [
       'health',
       'version',
@@ -819,8 +819,11 @@ function buildCapabilities() {
     storage: 'siyuan.storage',
     rpc: 'json-rpc-2.0',
     writesSiyuanMemoDb: false,
+    kernelNetworkProxy: true,
     kernelNetworkSse: true,
+    privateHttp: Boolean(siyuan.server?.private?.http),
     privateSse: Boolean(siyuan.server?.private?.es),
+    riffReadAuditProxy: false,
     aiStreaming: true,
     writerLease: {
       defaultTtlMs: WRITER_LEASE_DEFAULT_TTL_MS,

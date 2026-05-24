@@ -19,6 +19,7 @@ describe('kernel relay contract', () => {
       'kernel.transaction.requeue',
       'autocard.decision.resolve',
       'autocard.execute',
+      'hotspot.command.submit',
       'private.command.execute',
       'semantic.command.execute',
     ]));
@@ -28,8 +29,11 @@ describe('kernel relay contract', () => {
     expect(KERNEL_FAST_PATH_CAPABILITY_KEYS).toEqual([
       'rpcWebSocketPush',
       'backendRealWorkerTransport',
+      'kernelNetworkProxy',
       'kernelNetworkSse',
+      'privateHttp',
       'privateSse',
+      'riffReadAuditProxy',
       'aiKernelStreaming',
     ]);
   });

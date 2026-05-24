@@ -46,8 +46,11 @@ interface KernelHealthResult {
 
 interface KernelCapabilitiesResult {
   methods?: string[];
+  kernelNetworkProxy?: boolean;
   privateSse?: boolean;
+  privateHttp?: boolean;
   kernelNetworkSse?: boolean;
+  riffReadAuditProxy?: boolean;
   aiStreaming?: boolean;
 }
 
@@ -116,11 +119,23 @@ function buildUnknownFastPathCapabilities(): KernelFastPathCapabilities {
       state: 'unknown',
       reason: 'not-configured',
     },
+    kernelNetworkProxy: {
+      state: 'unknown',
+      reason: 'smoke-required',
+    },
     kernelNetworkSse: {
       state: 'unknown',
       reason: 'smoke-required',
     },
+    privateHttp: {
+      state: 'unknown',
+      reason: 'smoke-required',
+    },
     privateSse: {
+      state: 'unknown',
+      reason: 'smoke-required',
+    },
+    riffReadAuditProxy: {
       state: 'unknown',
       reason: 'smoke-required',
     },
@@ -148,13 +163,31 @@ function buildUnavailableFastPathCapabilities(
       reason: 'not-configured',
       checkedAt,
     },
+    kernelNetworkProxy: {
+      state: 'unavailable',
+      reason,
+      message,
+      checkedAt,
+    },
     kernelNetworkSse: {
       state: 'unavailable',
       reason,
       message,
       checkedAt,
     },
+    privateHttp: {
+      state: 'unavailable',
+      reason,
+      message,
+      checkedAt,
+    },
     privateSse: {
+      state: 'unavailable',
+      reason,
+      message,
+      checkedAt,
+    },
+    riffReadAuditProxy: {
       state: 'unavailable',
       reason,
       message,
@@ -176,6 +209,13 @@ function buildAvailableCompanionFastPathCapabilities(
   const methods = new Set((capabilities?.methods || []).map((method) => String(method)));
   const aiStreamingAvailable = capabilities?.aiStreaming === true
     || (methods.has('network.streamExternal') && capabilities?.privateSse === true);
+  const kernelNetworkProxyAvailable = capabilities?.kernelNetworkProxy === true
+    || methods.has('network.fetchExternal');
+  const privateHttpAvailable = capabilities?.privateHttp === true
+    || (methods.has('private.http.status') && methods.has('private.http.command'));
+  const riffReadAuditProxyAvailable = capabilities?.riffReadAuditProxy === true
+    || (methods.has('riff.read') && methods.has('riff.audit'));
+  const riffReadAuditProxyExplicitlyUnavailable = capabilities?.riffReadAuditProxy === false;
   return {
     ...buildUnknownFastPathCapabilities(),
     rpcWebSocketPush: {
@@ -187,14 +227,33 @@ function buildAvailableCompanionFastPathCapabilities(
       reason: 'not-configured',
       checkedAt,
     },
+    kernelNetworkProxy: {
+      state: kernelNetworkProxyAvailable ? 'available' : 'unknown',
+      reason: kernelNetworkProxyAvailable ? undefined : 'smoke-required',
+      checkedAt,
+    },
     kernelNetworkSse: {
       state: capabilities?.kernelNetworkSse === true || methods.has('network.streamExternal') ? 'available' : 'unknown',
       reason: capabilities?.kernelNetworkSse === true || methods.has('network.streamExternal') ? undefined : 'smoke-required',
       checkedAt,
     },
+    privateHttp: {
+      state: privateHttpAvailable ? 'available' : 'unknown',
+      reason: privateHttpAvailable ? undefined : 'smoke-required',
+      checkedAt,
+    },
     privateSse: {
       state: capabilities?.privateSse === true ? 'available' : 'unknown',
       reason: capabilities?.privateSse === true ? undefined : 'smoke-required',
+      checkedAt,
+    },
+    riffReadAuditProxy: {
+      state: riffReadAuditProxyAvailable
+        ? 'available'
+        : (riffReadAuditProxyExplicitlyUnavailable ? 'unavailable' : 'unknown'),
+      reason: riffReadAuditProxyAvailable
+        ? undefined
+        : (riffReadAuditProxyExplicitlyUnavailable ? 'not-configured' : 'smoke-required'),
       checkedAt,
     },
     aiKernelStreaming: {

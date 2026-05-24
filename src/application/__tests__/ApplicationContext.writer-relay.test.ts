@@ -300,4 +300,72 @@ describe('ApplicationContext writer relay command dispatch', () => {
       commandId: 'semantic-cmd-1',
     });
   });
+
+  it('dispatches hotspot.command.submit to backend client', async () => {
+    const submitHotspotCommand = vi.fn(async () => ({
+      accepted: true,
+      commandId: 'topic-command-1',
+      jobId: 'topic-command-1',
+      state: 'accepted',
+      submittedAt: 10,
+      updatedAt: 10,
+      result: null,
+      diagnostics: {
+        traceId: 'trace-hotspot-1',
+        unavailableClass: null,
+        errorCategory: null,
+      },
+    }));
+    const client = {
+      submitHotspotCommand,
+    };
+
+    const params = {
+      envelope: {
+        family: 'topic-derived',
+        commandId: 'topic-command-1',
+        idempotencyKey: 'topic-command-1',
+        caller: {
+          instanceId: 'follower-1',
+          runtimeRole: 'follower',
+          surface: 'review',
+        },
+        writerExpectation: {
+          mode: 'required',
+          expectedWriterInstanceId: 'writer-1',
+          relayAllowed: true,
+        },
+        deadlineAt: 100,
+        submittedAt: 10,
+        payload: {
+          blockId: 'block-1',
+        },
+      },
+    };
+
+    const result = await executeWriterRelayCommand(client, {
+      method: 'hotspot.command.submit',
+      params,
+    });
+
+    expect(submitHotspotCommand).toHaveBeenCalledTimes(1);
+    expect(submitHotspotCommand).toHaveBeenCalledWith(params);
+    expect(result).toMatchObject({
+      accepted: true,
+      commandId: 'topic-command-1',
+      state: 'accepted',
+    });
+  });
+
+  it('rejects hotspot.command.submit relay when params is not an object', async () => {
+    const client = {
+      submitHotspotCommand: vi.fn(),
+    };
+
+    await expect(executeWriterRelayCommand(client, {
+      method: 'hotspot.command.submit',
+      params: 'invalid',
+    })).rejects.toThrow('INVALID_REQUEST: hotspot.command.submit relay requires params object');
+    expect(client.submitHotspotCommand).not.toHaveBeenCalled();
+  });
 });

@@ -57,6 +57,12 @@ export type BackendRpcMethod =
   | 'semantic.session.read'
   | 'semantic.sidebar.read'
   | 'semantic.browser.read'
+  | 'hotspot.command.submit'
+  | 'hotspot.job.get'
+  | 'browser.aggregate.snapshot'
+  | 'browser.aggregate.page'
+  | 'browser.aggregate.focus'
+  | 'graph.query'
   | 'p6.ownership.query'
   | 'p6.ownership.command';
 
@@ -475,6 +481,19 @@ export interface BackendDiagnosticsStatusResult {
     jobTimeoutTotal: number;
     jobFailedTotal: number;
   };
+  hotspot?: {
+    submittedTotal: number;
+    idempotencyHitTotal: number;
+    acceptedLatencyMsTotal: number;
+    lastAcceptedLatencyMs: number;
+    pendingCount: number;
+    terminalCount: number;
+    unavailableTotal: number;
+    timeoutTotal: number;
+    canceledTotal: number;
+    writerRelayFailureTotal: number;
+    kernelProxyFailureTotal: number;
+  };
   preRequestMerge?: BackendPreRequestMergeDiagnosticsState;
   domainSync?: BackendDomainSyncStatusResult;
 }
@@ -491,6 +510,283 @@ export type BackendUnavailableClass =
   | 'CANCELED'
   | 'INVALID_REQUEST'
   | 'FAILED';
+
+export type BackendHotspotCommandFamily =
+  | 'xiuyuan.sync'
+  | 'progressive.command'
+  | 'topic-derived.command'
+  | 'ai.tool-job'
+  | 'review.riff-feedback'
+  | 'review.source-refresh';
+
+export type BackendHotspotCommandState =
+  | 'accepted'
+  | 'running'
+  | 'waiting-for-renderer-facts'
+  | 'waiting-for-user-approval'
+  | 'succeeded'
+  | 'failed'
+  | 'unavailable'
+  | 'timeout'
+  | 'canceled'
+  | 'duplicate'
+  | 'stale-generation'
+  | 'validation-failed';
+
+export interface BackendHotspotCallerIdentity {
+  instanceId: string;
+  runtimeRole: 'writer' | 'follower' | 'single-window' | 'worker' | 'unknown';
+  surface: 'browser' | 'review' | 'ai-workbench' | 'mobile' | 'background' | 'private-api' | 'unknown';
+}
+
+export interface BackendHotspotWriterExpectation {
+  mode: 'required' | 'preferred' | 'not-required';
+  expectedWriterInstanceId?: string | null;
+  relayAllowed: boolean;
+}
+
+export interface BackendHotspotCommandDiagnostics {
+  diagnosticEventId: string;
+  family: BackendHotspotCommandFamily;
+  commandId: string;
+  timing?: {
+    submittedAt: number;
+    deadlineAt?: number | null;
+    completedAt?: number | null;
+  };
+  counters?: Record<string, number>;
+  errorCategory?: BackendUnavailableClass | 'VALIDATION_FAILED' | 'UNKNOWN' | null;
+}
+
+export interface BackendHotspotCommandProgress {
+  state: BackendHotspotCommandState;
+  currentStep?: string | null;
+  completedUnits?: number | null;
+  totalUnits?: number | null;
+  updatedAt: number;
+}
+
+export interface BackendHotspotCommandEnvelope<TPayload = unknown> {
+  family: BackendHotspotCommandFamily;
+  commandId: string;
+  idempotencyKey: string;
+  caller: BackendHotspotCallerIdentity;
+  writerExpectation: BackendHotspotWriterExpectation;
+  deadlineAt: number;
+  submittedAt: number;
+  payload: TPayload;
+  diagnostics?: Partial<BackendHotspotCommandDiagnostics>;
+}
+
+export interface BackendHotspotCommandSubmitRequest<TPayload = unknown> {
+  envelope: BackendHotspotCommandEnvelope<TPayload>;
+}
+
+export type BackendHotspotCommandTerminalResult<TResult = unknown> =
+  | {
+      ok: true;
+      family: BackendHotspotCommandFamily;
+      commandId: string;
+      idempotencyKey: string;
+      state: 'succeeded' | 'duplicate';
+      result: TResult;
+      progress: BackendHotspotCommandProgress;
+      diagnostics: BackendHotspotCommandDiagnostics;
+    }
+  | {
+      ok: false;
+      family: BackendHotspotCommandFamily;
+      commandId: string;
+      idempotencyKey: string;
+      state: Exclude<BackendHotspotCommandState, 'accepted' | 'running' | 'waiting-for-renderer-facts' | 'waiting-for-user-approval' | 'succeeded' | 'duplicate'>;
+      unavailableClass: BackendUnavailableClass | null;
+      reason: string;
+      recoverable: boolean;
+      progress: BackendHotspotCommandProgress;
+      diagnostics: BackendHotspotCommandDiagnostics;
+    };
+
+export type BackendHotspotCommandSubmitResult<TResult = unknown> =
+  | {
+      ok: true;
+      accepted: true;
+      family: BackendHotspotCommandFamily;
+      commandId: string;
+      idempotencyKey: string;
+      state: 'accepted' | 'running' | 'waiting-for-renderer-facts' | 'waiting-for-user-approval';
+      progress: BackendHotspotCommandProgress;
+      diagnostics: BackendHotspotCommandDiagnostics;
+    }
+  | BackendHotspotCommandTerminalResult<TResult>;
+
+export interface BackendHotspotJobGetRequest {
+  family: BackendHotspotCommandFamily;
+  commandId: string;
+  idempotencyKey?: string | null;
+}
+
+export type BackendHotspotJobGetResult<TResult = unknown> =
+  | BackendHotspotCommandSubmitResult<TResult>
+  | {
+      ok: false;
+      family: BackendHotspotCommandFamily;
+      commandId: string;
+      state: 'unavailable' | 'failed';
+      unavailableClass: BackendUnavailableClass;
+      reason: string;
+      recoverable: boolean;
+    };
+
+export type BackendBrowserAggregateStatus =
+  | 'ready'
+  | 'refreshing'
+  | 'unavailable'
+  | 'stale-generation'
+  | 'ready-empty';
+
+export interface BackendBrowserAggregateIdentity {
+  snapshotId: string;
+  generation: number;
+  datasourceId: string;
+  policyHash: string;
+  queryFingerprint: string;
+}
+
+export interface BackendBrowserAggregateSnapshotRequest {
+  requestId: string;
+  datasourceId: string;
+  queueType?: string | null;
+  scope?: Record<string, unknown> | null;
+  sort?: Record<string, unknown> | null;
+  filter?: Record<string, unknown> | null;
+  deadlineAt?: number | null;
+}
+
+export interface BackendBrowserAggregateSnapshotResult {
+  status: BackendBrowserAggregateStatus;
+  identity: BackendBrowserAggregateIdentity | null;
+  totalCount: number;
+  pageSize: number;
+  unavailableClass?: BackendUnavailableClass | null;
+  reason?: string | null;
+}
+
+export interface BackendBrowserAggregatePageRequest {
+  requestId: string;
+  identity: BackendBrowserAggregateIdentity;
+  cursor?: string | null;
+  offset?: number | null;
+  limit: number;
+  deadlineAt?: number | null;
+}
+
+export interface BackendBrowserAggregatePageResult<TRow = unknown> {
+  status: BackendBrowserAggregateStatus;
+  identity: BackendBrowserAggregateIdentity | null;
+  rows: TRow[];
+  nextCursor?: string | null;
+  totalCount?: number | null;
+  unavailableClass?: BackendUnavailableClass | null;
+  reason?: string | null;
+}
+
+export interface BackendBrowserAggregateFocusRequest {
+  requestId: string;
+  identity: BackendBrowserAggregateIdentity;
+  focus:
+    | { type: 'card'; cardId: string }
+    | { type: 'block'; blockId: string }
+    | { type: 'source'; sourceId: string };
+  limitBefore?: number | null;
+  limitAfter?: number | null;
+  deadlineAt?: number | null;
+}
+
+export interface BackendBrowserAggregateFocusResult<TRow = unknown> {
+  status: BackendBrowserAggregateStatus;
+  identity: BackendBrowserAggregateIdentity | null;
+  focusFound: boolean;
+  rows: TRow[];
+  hierarchy?: Record<string, unknown> | null;
+  sourceExistence?: Record<string, unknown> | null;
+  unavailableClass?: BackendUnavailableClass | null;
+  reason?: string | null;
+}
+
+export type BackendGraphQueryKind =
+  | 'neighbors'
+  | 'backlinks'
+  | 'outgoing-links'
+  | 'descriptors'
+  | 'subtree-ids'
+  | 'generic-edges'
+  | 'hyperspace-edges'
+  | 'concept-map-edges'
+  | 'element-link-edges'
+  | 'block-tree-edges'
+  | 'document-tree-edges'
+  | 'node-priority';
+
+export interface BackendGraphQueryRequest {
+  queryId: string;
+  kind: BackendGraphQueryKind;
+  sourceNodeId: string;
+  scope?: Record<string, unknown> | null;
+  limit?: number | null;
+  deadlineAt?: number | null;
+  cacheGeneration?: number | null;
+}
+
+export interface BackendGraphPresentationNode {
+  nodeId: string;
+  kind: 'flashcard' | 'block' | 'document' | 'heading' | 'list-item' | 'paragraph' | 'concept' | 'unknown';
+  title: string;
+  summary?: string | null;
+  sourceIdentity?: Record<string, unknown> | null;
+  breadcrumb?: string[] | null;
+  availability: 'available' | 'unavailable';
+  unavailableReason?: string | null;
+  debugId?: string | null;
+}
+
+export interface BackendGraphPresentationEdge {
+  edgeId: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  kind: string;
+  rationale?: string | null;
+  evidence?: Record<string, unknown> | null;
+}
+
+export type BackendGraphQueryResult =
+  | {
+      status: 'ready' | 'partial';
+      queryId: string;
+      kind: BackendGraphQueryKind;
+      nodes: BackendGraphPresentationNode[];
+      edges: BackendGraphPresentationEdge[];
+      limitReached: boolean;
+      continuation?: string | null;
+      diagnostics: {
+        timingMs: number;
+        nodeCount: number;
+        edgeCount: number;
+        sourceAvailability: 'available' | 'partial' | 'unavailable';
+      };
+    }
+  | {
+      status: 'unavailable' | 'failed';
+      queryId: string;
+      kind: BackendGraphQueryKind;
+      unavailableClass: BackendUnavailableClass | null;
+      reason: string;
+      recoverable: boolean;
+      diagnostics: {
+        timingMs: number;
+        sourceAvailability: 'unavailable' | 'unknown';
+        errorCategory: string;
+      };
+    };
 
 export type BackendAiSessionState =
   | 'active'

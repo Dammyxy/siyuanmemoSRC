@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type {
+  BackendBrowserAggregateFocusRequest,
+  BackendBrowserAggregatePageResult,
+  BackendGraphQueryRequest,
+  BackendGraphQueryResult,
+  BackendHotspotCommandSubmitRequest,
+  BackendHotspotCommandSubmitResult,
   BackendDomainSyncRepairApplyRequest,
   BackendDomainSyncRepairApplyResult,
   BackendDomainSyncRepairPreviewRequest,
@@ -44,6 +50,158 @@ describe('backend queue projection readiness contract', () => {
   it('uses machine-readable causes instead of UI copy strings', () => {
     const cause: QueueProjectionReadinessCause = 'contract_mismatch';
     expect(cause).toBe('contract_mismatch');
+  });
+});
+
+describe('backend hotspot command placeholder contracts', () => {
+  it('serializes command envelope, writer expectation, progress, and terminal unavailable result', () => {
+    const request = {
+      envelope: {
+        family: 'xiuyuan.sync',
+        commandId: 'sync-1',
+        idempotencyKey: 'xiuyuan-sync:deck-a:generation-1',
+        caller: {
+          instanceId: 'instance-a',
+          runtimeRole: 'follower',
+          surface: 'background',
+        },
+        writerExpectation: {
+          mode: 'required',
+          expectedWriterInstanceId: 'writer-a',
+          relayAllowed: true,
+        },
+        deadlineAt: 1_700_000_100_000,
+        submittedAt: 1_700_000_000_000,
+        payload: {
+          mode: 'incremental',
+          dryRun: false,
+        },
+      },
+    } satisfies BackendHotspotCommandSubmitRequest;
+
+    const result = {
+      ok: false,
+      family: 'xiuyuan.sync',
+      commandId: 'sync-1',
+      idempotencyKey: 'xiuyuan-sync:deck-a:generation-1',
+      state: 'unavailable',
+      unavailableClass: 'WRITER_UNAVAILABLE',
+      reason: 'writer relay unavailable',
+      recoverable: true,
+      progress: {
+        state: 'unavailable',
+        currentStep: 'writer-relay',
+        completedUnits: 0,
+        totalUnits: 1,
+        updatedAt: 1_700_000_000_100,
+      },
+      diagnostics: {
+        diagnosticEventId: 'hotspot:sync-1',
+        family: 'xiuyuan.sync',
+        commandId: 'sync-1',
+        errorCategory: 'WRITER_UNAVAILABLE',
+      },
+    } satisfies BackendHotspotCommandSubmitResult;
+
+    expect(JSON.parse(JSON.stringify({ request, result }))).toMatchObject({
+      request: {
+        envelope: {
+          family: 'xiuyuan.sync',
+          caller: { runtimeRole: 'follower' },
+          writerExpectation: { relayAllowed: true },
+        },
+      },
+      result: {
+        ok: false,
+        state: 'unavailable',
+        unavailableClass: 'WRITER_UNAVAILABLE',
+      },
+    });
+  });
+});
+
+describe('backend Browser aggregate placeholder contracts', () => {
+  it('binds aggregate pages and focus reads to snapshot identity', () => {
+    const identity = {
+      snapshotId: 'snapshot-a',
+      generation: 3,
+      datasourceId: 'deck:deck-a',
+      policyHash: 'policy-a',
+      queryFingerprint: 'query-a',
+    };
+    const page = {
+      status: 'ready',
+      identity,
+      rows: [{ cardId: 'card-a' }],
+      nextCursor: 'cursor-b',
+      totalCount: 120,
+    } satisfies BackendBrowserAggregatePageResult;
+    const focus = {
+      requestId: 'focus-a',
+      identity,
+      focus: { type: 'card', cardId: 'card-a' },
+      limitBefore: 5,
+      limitAfter: 5,
+    } satisfies BackendBrowserAggregateFocusRequest;
+
+    expect(JSON.parse(JSON.stringify({ page, focus }))).toMatchObject({
+      page: { identity: { snapshotId: 'snapshot-a', generation: 3 } },
+      focus: { focus: { type: 'card', cardId: 'card-a' } },
+    });
+  });
+});
+
+describe('backend graph query placeholder contracts', () => {
+  it('returns presentation-ready graph read models and content-safe diagnostics', () => {
+    const request = {
+      queryId: 'graph-a',
+      kind: 'neighbors',
+      sourceNodeId: 'block-a',
+      limit: 20,
+      deadlineAt: 1_700_000_000_200,
+    } satisfies BackendGraphQueryRequest;
+    const result = {
+      status: 'ready',
+      queryId: 'graph-a',
+      kind: 'neighbors',
+      nodes: [
+        {
+          nodeId: 'block-b',
+          kind: 'concept',
+          title: 'Concept B',
+          summary: 'display-safe summary',
+          sourceIdentity: { blockId: 'block-b' },
+          breadcrumb: ['Notebook', 'Doc'],
+          availability: 'available',
+          debugId: 'node:block-b',
+        },
+      ],
+      edges: [
+        {
+          edgeId: 'edge-a',
+          sourceNodeId: 'block-a',
+          targetNodeId: 'block-b',
+          kind: 'backlink',
+          rationale: 'linked source',
+        },
+      ],
+      limitReached: false,
+      diagnostics: {
+        timingMs: 12,
+        nodeCount: 1,
+        edgeCount: 1,
+        sourceAvailability: 'available',
+      },
+    } satisfies BackendGraphQueryResult;
+
+    expect(JSON.parse(JSON.stringify({ request, result }))).toMatchObject({
+      request: { kind: 'neighbors', sourceNodeId: 'block-a' },
+      result: {
+        status: 'ready',
+        nodes: [{ title: 'Concept B', availability: 'available' }],
+        diagnostics: { nodeCount: 1, edgeCount: 1 },
+      },
+    });
   });
 });
 

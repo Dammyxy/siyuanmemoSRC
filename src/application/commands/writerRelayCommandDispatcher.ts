@@ -256,6 +256,12 @@ export async function executeWriterRelayCommand(
       command: Record<string, unknown>;
     });
   }
+  if (command.method === 'hotspot.command.submit') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: hotspot.command.submit relay requires params object');
+    }
+    return srsBackendClient.submitHotspotCommand(command.params as Parameters<SrsBackendClient['submitHotspotCommand']>[0]);
+  }
   if (command.method === 'ai.session.create') {
     if (!command.params || typeof command.params !== 'object') {
       throw new Error('INVALID_REQUEST: ai.session.create relay requires params object');

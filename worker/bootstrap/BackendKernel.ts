@@ -25,6 +25,12 @@ import {
   type BackendNeuralRoamCommandResult,
   type BackendNeuralRoamViewStateRequest,
   type BackendNeuralRoamViewStateResult,
+  type BackendBrowserAggregateFocusRequest,
+  type BackendBrowserAggregateFocusResult,
+  type BackendBrowserAggregatePageRequest,
+  type BackendBrowserAggregatePageResult,
+  type BackendBrowserAggregateSnapshotRequest,
+  type BackendBrowserAggregateSnapshotResult,
   type BackendBrowserDeckPageRequest,
   type BackendBrowserDeckSnapshotQuery,
   type BackendSourceExistenceSweepApplyRequest,
@@ -71,6 +77,12 @@ import {
   type BackendPreRequestMergeDiagnostic,
   type BackendPreRequestMergeDiagnosticsState,
   type BackendHealthResult,
+  type BackendGraphQueryRequest,
+  type BackendGraphQueryResult,
+  type BackendHotspotCommandSubmitRequest,
+  type BackendHotspotCommandSubmitResult,
+  type BackendHotspotJobGetRequest,
+  type BackendHotspotJobGetResult,
   type BackendRpcRequest,
   type BackendRpcResponse,
   type BackendSemanticCommandRequest,
@@ -89,6 +101,7 @@ import {
 } from '../../packages/contracts/src/backend-rpc';
 import type { StructuredCardQuery } from '@/types/card-query';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
+import { BackendHotspotCommandRuntime } from './BackendHotspotCommandRuntime';
 import { BackendJobRuntime } from './BackendJobRuntime';
 import { WorkerNeuralRoamAdvanceService } from './WorkerNeuralRoamAdvanceService';
 import {
@@ -195,6 +208,7 @@ export class BackendKernel {
   private readonly privateCommandResultsByIdempotencyKey = new Map<string, PrivateApiMutationResult>();
   private readonly preRequestMergeDiagnostics: BackendPreRequestMergeDiagnostic[] = [];
   private readonly aiRuntime: BackendJobRuntime;
+  private readonly hotspotRuntime: BackendHotspotCommandRuntime;
   private readonly neuralRoamRuntime: WorkerNeuralRoamAdvanceService;
 
   constructor(private readonly deps: BackendKernelDependencies) {
@@ -210,6 +224,7 @@ export class BackendKernel {
       onJobTimeout: () => this.deps.database.recordAiJobOutcome('timeout'),
       onJobFailed: () => this.deps.database.recordAiJobOutcome('failed'),
     });
+    this.hotspotRuntime = new BackendHotspotCommandRuntime();
     this.neuralRoamRuntime = new WorkerNeuralRoamAdvanceService({
       database: this.deps.database,
       resolveNeuralGraphQuery: this.deps.resolveNeuralGraphQuery,
@@ -331,6 +346,18 @@ export class BackendKernel {
           return buildSuccess(request.id, this.handleAiJobGet(request.params));
         case 'job.cancel':
           return buildSuccess(request.id, this.handleAiJobCancel(request.params));
+        case 'hotspot.command.submit':
+          return buildSuccess(request.id, this.handleHotspotCommandSubmit(request.params));
+        case 'hotspot.job.get':
+          return buildSuccess(request.id, this.handleHotspotJobGet(request.params));
+        case 'browser.aggregate.snapshot':
+          return buildSuccess(request.id, this.handleBrowserAggregateSnapshot(request.params));
+        case 'browser.aggregate.page':
+          return buildSuccess(request.id, this.handleBrowserAggregatePage(request.params));
+        case 'browser.aggregate.focus':
+          return buildSuccess(request.id, this.handleBrowserAggregateFocus(request.params));
+        case 'graph.query':
+          return buildSuccess(request.id, this.handleGraphQuery(request.params));
         case 'private.health':
           return buildSuccess(request.id, this.handlePrivateHealth());
         case 'private.diagnostics.status':
@@ -396,6 +423,7 @@ export class BackendKernel {
       autoCard: status.autoCard,
       review: status.review,
       ai: status.ai,
+      hotspot: this.hotspotRuntime.getDiagnostics(),
       preRequestMerge: this.getPreRequestMergeDiagnostics(),
       domainSync: await this.deps.database.getDomainSyncStatus(),
     };
@@ -764,6 +792,80 @@ export class BackendKernel {
       throw new Error('job.cancel requires named params');
     }
     return this.aiRuntime.cancelJob(named);
+  }
+
+  private handleHotspotCommandSubmit(params: unknown): BackendHotspotCommandSubmitResult {
+    const named = this.readNamedParams<BackendHotspotCommandSubmitRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: hotspot.command.submit requires named params');
+    }
+    return this.hotspotRuntime.submit(named);
+  }
+
+  private handleHotspotJobGet(params: unknown): BackendHotspotJobGetResult {
+    const named = this.readNamedParams<BackendHotspotJobGetRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: hotspot.job.get requires named params');
+    }
+    return this.hotspotRuntime.get(named);
+  }
+
+  private handleBrowserAggregateSnapshot(params: unknown): BackendBrowserAggregateSnapshotResult {
+    const named = this.readNamedParams<BackendBrowserAggregateSnapshotRequest>(params);
+    return {
+      status: 'unavailable',
+      identity: null,
+      totalCount: 0,
+      pageSize: 0,
+      unavailableClass: 'BACKEND_UNAVAILABLE',
+      reason: named?.datasourceId
+        ? 'browser aggregate read model unavailable'
+        : 'browser aggregate snapshot requires datasource identity',
+    };
+  }
+
+  private handleBrowserAggregatePage(params: unknown): BackendBrowserAggregatePageResult {
+    const named = this.readNamedParams<BackendBrowserAggregatePageRequest>(params);
+    return {
+      status: 'unavailable',
+      identity: named?.identity ?? null,
+      rows: [],
+      nextCursor: null,
+      totalCount: 0,
+      unavailableClass: 'BACKEND_UNAVAILABLE',
+      reason: 'browser aggregate page read model unavailable',
+    };
+  }
+
+  private handleBrowserAggregateFocus(params: unknown): BackendBrowserAggregateFocusResult {
+    const named = this.readNamedParams<BackendBrowserAggregateFocusRequest>(params);
+    return {
+      status: 'unavailable',
+      identity: named?.identity ?? null,
+      focusFound: false,
+      rows: [],
+      hierarchy: null,
+      sourceExistence: null,
+      unavailableClass: 'BACKEND_UNAVAILABLE',
+      reason: 'browser aggregate focus read model unavailable',
+    };
+  }
+
+  private handleGraphQuery(params: unknown): BackendGraphQueryResult {
+    const named = this.readNamedParams<BackendGraphQueryRequest>(params);
+    return {
+      status: 'unavailable',
+      queryId: String(named?.queryId || '').trim() || 'unknown-query',
+      kind: named?.kind || 'neighbors',
+      unavailableClass: 'BACKEND_UNAVAILABLE',
+      reason: 'graph read model unavailable',
+      recoverable: true,
+      diagnostics: {
+        timingMs: 0,
+        sourceAvailability: 'unavailable',
+        errorCategory: 'BACKEND_UNAVAILABLE',
+      },
+    };
   }
 
   private async handleKernelTransactionIngest(params: unknown): Promise<BackendKernelTransactionIngestResult> {

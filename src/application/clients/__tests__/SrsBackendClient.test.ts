@@ -2,6 +2,208 @@ import { describe, expect, it, vi } from 'vitest';
 import { SrsBackendClient, type SrsBackendTransport } from '../SrsBackendClient';
 
 describe('SrsBackendClient', () => {
+  it('routes backendized hotspot, aggregate, and graph placeholder contracts through typed RPC methods', async () => {
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const aggregateIdentity = {
+      snapshotId: 'snapshot-a',
+      generation: 1,
+      datasourceId: 'deck:deck-a',
+      policyHash: 'policy-a',
+      queryFingerprint: 'query-a',
+    };
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => {
+        requests.push({ method: request.method, params: request.params });
+        switch (request.method) {
+          case 'hotspot.command.submit':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                ok: true,
+                accepted: true,
+                family: 'progressive.command',
+                commandId: 'progressive-1',
+                idempotencyKey: 'progressive-key-1',
+                state: 'accepted',
+                progress: {
+                  state: 'accepted',
+                  currentStep: 'queued',
+                  completedUnits: 0,
+                  totalUnits: 1,
+                  updatedAt: 1,
+                },
+                diagnostics: {
+                  diagnosticEventId: 'hotspot:progressive-1',
+                  family: 'progressive.command',
+                  commandId: 'progressive-1',
+                },
+              },
+            };
+          case 'hotspot.job.get':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                ok: false,
+                family: 'progressive.command',
+                commandId: 'progressive-1',
+                idempotencyKey: 'progressive-key-1',
+                state: 'stale-generation',
+                unavailableClass: 'INVALID_REQUEST',
+                reason: 'stale selection facts',
+                recoverable: true,
+                progress: {
+                  state: 'stale-generation',
+                  currentStep: 'validate-renderer-facts',
+                  completedUnits: 0,
+                  totalUnits: 1,
+                  updatedAt: 2,
+                },
+                diagnostics: {
+                  diagnosticEventId: 'hotspot:progressive-1',
+                  family: 'progressive.command',
+                  commandId: 'progressive-1',
+                  errorCategory: 'INVALID_REQUEST',
+                },
+              },
+            };
+          case 'browser.aggregate.snapshot':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                status: 'ready',
+                identity: aggregateIdentity,
+                totalCount: 1,
+                pageSize: 50,
+              },
+            };
+          case 'browser.aggregate.page':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                status: 'ready',
+                identity: aggregateIdentity,
+                rows: [{ cardId: 'card-1' }],
+                nextCursor: null,
+                totalCount: 1,
+              },
+            };
+          case 'browser.aggregate.focus':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                status: 'ready',
+                identity: aggregateIdentity,
+                focusFound: true,
+                rows: [{ cardId: 'card-1' }],
+                hierarchy: { parentIds: [] },
+                sourceExistence: { 'block-1': true },
+              },
+            };
+          case 'graph.query':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                status: 'unavailable',
+                queryId: 'graph-1',
+                kind: 'neighbors',
+                unavailableClass: 'BACKEND_UNAVAILABLE',
+                reason: 'graph read model unavailable',
+                recoverable: true,
+                diagnostics: {
+                  timingMs: 5,
+                  sourceAvailability: 'unavailable',
+                  errorCategory: 'BACKEND_UNAVAILABLE',
+                },
+              },
+            };
+          default:
+            return { jsonrpc: '2.0', id: request.id, error: { code: 'METHOD_NOT_FOUND', message: 'not mocked' } };
+        }
+      }),
+    };
+    const client = new SrsBackendClient(transport);
+
+    await expect(client.submitHotspotCommand({
+      envelope: {
+        family: 'progressive.command',
+        commandId: 'progressive-1',
+        idempotencyKey: 'progressive-key-1',
+        caller: {
+          instanceId: 'instance-a',
+          runtimeRole: 'writer',
+          surface: 'review',
+        },
+        writerExpectation: {
+          mode: 'required',
+          relayAllowed: true,
+        },
+        deadlineAt: 10,
+        submittedAt: 1,
+        payload: {
+          sourceBlockId: 'block-1',
+        },
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      family: 'progressive.command',
+      state: 'accepted',
+    });
+    await expect(client.getHotspotJob({
+      family: 'progressive.command',
+      commandId: 'progressive-1',
+      idempotencyKey: 'progressive-key-1',
+    })).resolves.toMatchObject({
+      ok: false,
+      state: 'stale-generation',
+      unavailableClass: 'INVALID_REQUEST',
+    });
+    await expect(client.browserAggregateSnapshot({
+      requestId: 'snapshot-req-1',
+      datasourceId: 'deck:deck-a',
+    })).resolves.toMatchObject({
+      status: 'ready',
+      identity: aggregateIdentity,
+    });
+    await expect(client.browserAggregatePage({
+      requestId: 'page-req-1',
+      identity: aggregateIdentity,
+      limit: 50,
+    })).resolves.toMatchObject({
+      rows: [{ cardId: 'card-1' }],
+    });
+    await expect(client.browserAggregateFocus({
+      requestId: 'focus-req-1',
+      identity: aggregateIdentity,
+      focus: { type: 'card', cardId: 'card-1' },
+    })).resolves.toMatchObject({
+      focusFound: true,
+      rows: [{ cardId: 'card-1' }],
+    });
+    await expect(client.graphQuery({
+      queryId: 'graph-1',
+      kind: 'neighbors',
+      sourceNodeId: 'block-1',
+    })).resolves.toMatchObject({
+      status: 'unavailable',
+      unavailableClass: 'BACKEND_UNAVAILABLE',
+    });
+
+    expect(requests.map((request) => request.method)).toEqual([
+      'hotspot.command.submit',
+      'hotspot.job.get',
+      'browser.aggregate.snapshot',
+      'browser.aggregate.page',
+      'browser.aggregate.focus',
+      'graph.query',
+    ]);
+  });
+
   it('reads domain sync diagnostics through the backend RPC', async () => {
     const transport: SrsBackendTransport = {
       request: vi.fn(async (request) => ({

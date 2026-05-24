@@ -12,13 +12,22 @@ export interface KernelCapabilitiesPayload {
   storage: string;
   rpc: string;
   writesSiyuanMemoDb: false;
+  kernelNetworkProxy?: boolean;
+  kernelNetworkSse?: boolean;
+  privateHttp?: boolean;
+  privateSse?: boolean;
+  riffReadAuditProxy?: boolean;
+  aiStreaming?: boolean;
 }
 
 export const KERNEL_FAST_PATH_CAPABILITY_KEYS = [
   'rpcWebSocketPush',
   'backendRealWorkerTransport',
+  'kernelNetworkProxy',
   'kernelNetworkSse',
+  'privateHttp',
   'privateSse',
+  'riffReadAuditProxy',
   'aiKernelStreaming',
 ] as const;
 
@@ -229,6 +238,7 @@ export const KERNEL_RELAY_METHODS = [
   'ai.session.get',
   'ai.session.update',
   'ai.session.cancel',
+  'hotspot.command.submit',
   'private.command.execute',
   'semantic.command.execute',
 ] as const;
