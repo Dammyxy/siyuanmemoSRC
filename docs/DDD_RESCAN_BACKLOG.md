@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-25 (Round 458)
+Last update: 2026-05-25 (Round 459)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-25 - Browser Grid Model And Pump Health Noise
+
+- Task: Execute OpenSpec `reduce-browser-grid-model-and-pump-noise` to bound remaining Browser datasource model work and repeated kernel action-pump backend health warnings.
+- Touched slice: Browser grid lifecycle in `src/ui/browser/BrowserGridDatasourceLifecycle.ts`; kernel action polling in `src/application/handlers/KernelTransactionActionPump.ts`; focused Browser/Pump tests; and the OpenSpec change artifacts.
+- Debt fixed now: Browser datasource attach now clears pending datasource state after successful AG Grid attach, while keeping latest datasource generation pending until a live grid API exists. Kernel action polling now classifies generic backend unavailable / timeout failures separately from writer-relay ownership errors, backs off repeated backend-health dequeue attempts, suppresses repeated warning spam during the backoff window, and resets the health episode after a successful dequeue.
+- Debt deferred: Live Browser 4x smoke may still show AG Grid `model-updated` work, because this slice tightened stale/pending datasource attach semantics rather than replacing AG Grid's first-page row model or adding a custom first-page presenter.
+- Why deferred: Replacing or front-running AG Grid first-page rendering has larger UI/runtime blast radius and needs a separate prototype plus live smoke comparison.
+- Next safe step: Run Browser-only low-end smoke again against the saved first-paint budget JSON, then decide whether a custom first-page presenter or AG Grid row-model strategy is justified.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/BrowserGridDatasourceLifecycle.test.ts src/application/handlers/__tests__/KernelTransactionActionPump.test.ts`; `openspec validate reduce-browser-grid-model-and-pump-noise --strict`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-25 - Browser Grid First-Paint Budget Follow-Up
 

@@ -28,6 +28,7 @@ async function flush(): Promise<void> {
 function createHarness(overrides: {
   currentVersion?: number;
   fetchRowsWithReadinessRetry?: any;
+  gridApi?: any;
   randomRows?: BrowserCard[] | null;
   sortRevision?: { value: number };
 } = {}) {
@@ -48,13 +49,14 @@ function createHarness(overrides: {
     isDestroyed: vi.fn(() => false),
     setGridOption: vi.fn(),
   } as any;
+  const gridApiRef = ref(overrides.gridApi === undefined ? gridApi : overrides.gridApi);
   const lifecycle = createBrowserGridDatasourceLifecycle({
     currentSortModel: ref([]),
     fetchRowsWithReadinessRetry: overrides.fetchRowsWithReadinessRetry,
     firstRowsLifecycle,
     getCurrentVersion: () => currentVersion.value,
     getFirstRowsLoaded: () => false,
-    getGridApi: () => gridApi,
+    getGridApi: () => gridApiRef.value,
     getSortRevision: () => sortRevision.value,
     isGridApiAlive: (api) => Boolean(api && !api.isDestroyed?.()),
     measureRuntimePerformance: (_category, _operation, fn) => fn(),
@@ -63,7 +65,7 @@ function createHarness(overrides: {
     startGridModelUpdate: vi.fn(),
     startRuntimePerformanceSpan: vi.fn(() => vi.fn()),
   });
-  return { currentVersion, firstRowsLifecycle, gridApi, lifecycle, sortRevision };
+  return { currentVersion, firstRowsLifecycle, gridApi, gridApiRef, lifecycle, sortRevision };
 }
 
 describe('BrowserGridDatasourceLifecycle', () => {
@@ -205,6 +207,41 @@ describe('BrowserGridDatasourceLifecycle', () => {
     vi.runOnlyPendingTimers();
 
     expect(gridApi.setGridOption).toHaveBeenCalledWith('datasource', expect.any(Object));
+    expect(lifecycle.hasPendingDatasource()).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('keeps latest datasource pending until grid api becomes alive', () => {
+    vi.useFakeTimers();
+    const { gridApi, gridApiRef, lifecycle } = createHarness({ gridApi: null });
+    const dataSourceA = { fetchRows: vi.fn() } as unknown as ICardDataSource;
+    const dataSourceB = { fetchRows: vi.fn() } as unknown as ICardDataSource;
+
+    lifecycle.rebuildInfiniteDatasource({
+      currentDataSource: dataSourceA,
+      totalRowCount: ref(0),
+      version: 1,
+    });
+    lifecycle.rebuildInfiniteDatasource({
+      currentDataSource: dataSourceB,
+      totalRowCount: ref(0),
+      version: 2,
+    });
+    vi.runOnlyPendingTimers();
+
+    expect(gridApi.setGridOption).not.toHaveBeenCalled();
+    expect(lifecycle.hasPendingDatasource()).toBe(true);
+
+    gridApiRef.value = gridApi;
+    lifecycle.applyPendingDatasourceToGrid();
+    vi.runOnlyPendingTimers();
+
+    expect(gridApi.setGridOption).toHaveBeenCalledTimes(1);
+    const appliedDatasource = gridApi.setGridOption.mock.calls[0]?.[1];
+    appliedDatasource.getRows(createParams());
+    expect(dataSourceA.fetchRows).not.toHaveBeenCalled();
+    expect(dataSourceB.fetchRows).toHaveBeenCalledTimes(1);
+    expect(lifecycle.hasPendingDatasource()).toBe(false);
     vi.useRealTimers();
   });
 

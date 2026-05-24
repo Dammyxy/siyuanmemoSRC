@@ -193,6 +193,9 @@ export function createBrowserGridDatasourceLifecycle(deps: BrowserGridDatasource
       }
       deps.startGridModelUpdate('apply-datasource', { version: deps.getCurrentVersion() });
       deps.measureRuntimePerformance('browser', 'grid.apply-datasource', () => api?.setGridOption?.('datasource', datasource));
+      if (pendingGridDatasource === datasource) {
+        pendingGridDatasource = null;
+      }
     }, 0);
   }
 

@@ -100,6 +100,8 @@ export class KernelTransactionActionPump {
   private nextEmptyPollAllowedAt = 0;
   private noWriterUnavailableStreak = 0;
   private nextNoWriterUnavailablePollAllowedAt = 0;
+  private backendHealthUnavailableStreak = 0;
+  private nextBackendHealthUnavailablePollAllowedAt = 0;
   private pendingUpsert = false;
   private upsertInFlight = false;
   private upsertTimer: ReturnType<typeof setTimeout> | null = null;
@@ -155,6 +157,10 @@ export class KernelTransactionActionPump {
       incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-wake-bounded-by-no-writer-backoff');
       return;
     }
+    if (this.shouldSkipForBackendHealthUnavailableBackoff()) {
+      incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-wake-bounded-by-backend-health-backoff');
+      return;
+    }
     if (this.shouldSkipForEmptyPollBackoff()) {
       incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-wake-bounded-by-empty-backoff');
       return;
@@ -166,6 +172,10 @@ export class KernelTransactionActionPump {
   private async pollOnce(): Promise<void> {
     if (this.shouldSkipForNoWriterUnavailableBackoff()) {
       incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-no-writer-backoff-skips');
+      return;
+    }
+    if (this.shouldSkipForBackendHealthUnavailableBackoff()) {
+      incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-backend-health-backoff-skips');
       return;
     }
     if (this.shouldSkipForEmptyPollBackoff()) {
@@ -187,6 +197,7 @@ export class KernelTransactionActionPump {
     try {
       const result = await this.dequeueActions();
       this.resetNoWriterUnavailableBackoff();
+      this.resetBackendHealthUnavailableBackoff();
       const actions = result.actions || [];
       actionCount = actions.length;
       incrementRuntimePerformanceCounter('daily-editing', 'kernel-actions-dequeued', actions.length);
@@ -263,6 +274,14 @@ export class KernelTransactionActionPump {
         logger.warn('Kernel transaction action polling failed', {
           message: error instanceof Error ? error.message : String(error || ''),
         });
+      } else if (this.recordBackendHealthUnavailableBackoff(error)) {
+        logger.warn('Kernel transaction action polling failed', {
+          message: error instanceof Error ? error.message : String(error || ''),
+        });
+      } else {
+        logger.warn('Kernel transaction action polling failed', {
+          message: error instanceof Error ? error.message : String(error || ''),
+        });
       }
     } finally {
       this.pollingInFlight = false;
@@ -308,10 +327,14 @@ export class KernelTransactionActionPump {
     return Date.now() < this.nextNoWriterUnavailablePollAllowedAt;
   }
 
+  private shouldSkipForBackendHealthUnavailableBackoff(): boolean {
+    return Date.now() < this.nextBackendHealthUnavailablePollAllowedAt;
+  }
+
   private recordNoWriterUnavailableBackoff(error: unknown): boolean {
     if (!this.isNoActiveWriterRelayUnavailableError(error)) {
       this.resetNoWriterUnavailableBackoff();
-      return true;
+      return false;
     }
     this.noWriterUnavailableStreak += 1;
     const delayMs = Math.min(
@@ -322,9 +345,28 @@ export class KernelTransactionActionPump {
     return true;
   }
 
+  private recordBackendHealthUnavailableBackoff(error: unknown): boolean {
+    if (!this.isBackendHealthUnavailableError(error)) {
+      this.resetBackendHealthUnavailableBackoff();
+      return false;
+    }
+    this.backendHealthUnavailableStreak += 1;
+    const delayMs = Math.min(
+      this.emptyPollBackoffMaxMs,
+      this.pollIntervalMs * (2 ** this.backendHealthUnavailableStreak),
+    );
+    this.nextBackendHealthUnavailablePollAllowedAt = Date.now() + delayMs;
+    return true;
+  }
+
   private resetNoWriterUnavailableBackoff(): void {
     this.noWriterUnavailableStreak = 0;
     this.nextNoWriterUnavailablePollAllowedAt = 0;
+  }
+
+  private resetBackendHealthUnavailableBackoff(): void {
+    this.backendHealthUnavailableStreak = 0;
+    this.nextBackendHealthUnavailablePollAllowedAt = 0;
   }
 
   private hasPendingFollowUpWork(): boolean {
@@ -478,6 +520,15 @@ export class KernelTransactionActionPump {
         || message.includes('writer command unavailable')
         || message.includes('writer lease')
       );
+  }
+
+  private isBackendHealthUnavailableError(error: unknown): boolean {
+    if (this.isNoActiveWriterRelayUnavailableError(error) || this.isWriterUnavailableError(error)) {
+      return false;
+    }
+    const message = error instanceof Error ? error.message : String(error || '');
+    return message.startsWith('BACKEND_UNAVAILABLE:')
+      || /timeout/i.test(message);
   }
 
   private async tryRecoverNoActiveWriterDequeue(error: unknown): Promise<boolean> {

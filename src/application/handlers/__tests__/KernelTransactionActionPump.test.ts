@@ -419,6 +419,79 @@ describe('KernelTransactionActionPump', () => {
     await pump.dispose();
   });
 
+  it('backs off repeated backend-unavailable dequeue health warnings without fallback', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: backend worker unhealthy');
+    });
+    const requeueKernelTransactions = vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 }));
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions },
+      null,
+      null,
+      () => undefined,
+      () => undefined,
+      {
+        pollIntervalMs: 250,
+        emptyPollBackoffMaxMs: 1_000,
+      },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect(dequeueKernelTransactions).toHaveBeenCalledTimes(1);
+    expect(actionPumpLoggerMocks.warn).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect(dequeueKernelTransactions).toHaveBeenCalledTimes(1);
+    expect(actionPumpLoggerMocks.warn).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect(dequeueKernelTransactions).toHaveBeenCalledTimes(2);
+    expect(actionPumpLoggerMocks.warn).toHaveBeenCalledTimes(2);
+    expect(requeueKernelTransactions).not.toHaveBeenCalled();
+
+    await pump.dispose();
+  });
+
+  it('resets backend health warning backoff after a successful dequeue', async () => {
+    const dequeueKernelTransactions = vi.fn()
+      .mockRejectedValueOnce(new Error('TIMEOUT: backend dequeue timed out'))
+      .mockResolvedValueOnce({ actions: [], remaining: 0 })
+      .mockRejectedValueOnce(new Error('TIMEOUT: backend dequeue timed out'));
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      null,
+      null,
+      () => undefined,
+      () => undefined,
+      {
+        pollIntervalMs: 250,
+        emptyPollBackoffMaxMs: 1_000,
+      },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect(actionPumpLoggerMocks.warn).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    expect(dequeueKernelTransactions).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    expect(dequeueKernelTransactions).toHaveBeenCalledTimes(3);
+    expect(actionPumpLoggerMocks.warn).toHaveBeenCalledTimes(2);
+
+    await pump.dispose();
+  });
+
   it('wakes immediately before empty backoff is established', async () => {
     const dequeueKernelTransactions = vi.fn(async () => ({
       actions: [],
