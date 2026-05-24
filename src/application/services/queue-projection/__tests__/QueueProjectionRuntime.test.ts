@@ -112,135 +112,7 @@ describe('QueueProjectionRuntime', () => {
     });
   });
 
-  it('materializes through writer relay and serves same-generation echo for snapshot and rows', async () => {
-    const card = createCard({
-      id: 'echo-card',
-      blockId: 'echo-block',
-      meta: { content: 'echo content', deckId: 'deck-echo', rootId: 'doc-echo' },
-    });
-    const backend = {
-      queueProjectionSnapshot: vi.fn(async () => ({
-        queueType: QueueType.FilterGroup,
-        status: 'unavailable',
-        policyHash: null,
-        generation: null,
-        rows: [],
-        counters: null,
-      })),
-      queueProjectionRowsByIds: vi.fn(async () => ({
-        queueType: QueueType.FilterGroup,
-        status: 'unavailable',
-        policyHash: null,
-        generation: null,
-        rows: [],
-        cards: [],
-      })),
-      queueProjectionReplace: vi.fn(async () => {
-        throw new Error('local replace must not run');
-      }),
-    };
-    const follower = {
-      submitAndWait: vi.fn(async () => ({
-        queueType: QueueType.FilterGroup,
-        status: 'ready',
-        policyHash: 'filter-policy',
-        generation: 2,
-        rows: 1,
-        counters: {
-          queueType: QueueType.FilterGroup,
-          policyHash: 'filter-policy',
-          generation: 2,
-          version: 2,
-          remaining: 1,
-          due: 1,
-          total: 1,
-          buckets: { all: 1, item: 1, descriptor: 0, topic: 0, concept: 0 },
-          updatedAt: 1_700_000_100_000,
-        },
-      })),
-    };
-    const { runtime } = createRuntime({
-      backend,
-      follower,
-      frontendRuntime: { getMode: () => 'follower', getInstanceId: () => 'follower-a' },
-      queueCards: [card],
-    });
-
-    const snapshot = await runtime.readSnapshot(QueueType.FilterGroup);
-    expect(snapshot).toMatchObject({
-      policyHash: 'filter-policy',
-      generation: 2,
-      rows: [expect.objectContaining({ fsrsCardId: 'echo-card', blockId: 'echo-block' })],
-    });
-    expect(follower.submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
-      method: 'queue.projection.replace',
-      params: expect.objectContaining({
-        queueType: QueueType.FilterGroup,
-        rows: [expect.objectContaining({ cardId: 'echo-card' })],
-      }),
-    }));
-    expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
-
-    await expect(runtime.getCardsBySnapshotIds(
-      QueueType.FilterGroup,
-      snapshot?.rows.map((row) => row.id) ?? [],
-    )).resolves.toEqual([expect.objectContaining({ id: 'echo-card' })]);
-    expect(backend.queueProjectionRowsByIds).not.toHaveBeenCalled();
-  });
-
-  it('clears materialized echo after explicit invalidation', async () => {
-    const card = createCard({ id: 'clear-card', blockId: 'clear-block' });
-    const backend = {
-      queueProjectionSnapshot: vi.fn(async () => ({
-        queueType: QueueType.FilterGroup,
-        status: 'unavailable',
-        policyHash: null,
-        generation: null,
-        rows: [],
-        counters: null,
-      })),
-      queueProjectionRowsByIds: vi.fn(async () => ({
-        queueType: QueueType.FilterGroup,
-        status: 'ready',
-        policyHash: 'filter-policy',
-        generation: 1,
-        rows: [],
-        cards: [createCard({ id: 'backend-card', blockId: 'backend-block' })],
-      })),
-      queueProjectionReplace: vi.fn(async () => ({
-        queueType: QueueType.FilterGroup,
-        status: 'ready',
-        policyHash: 'filter-policy',
-        generation: 1,
-        rows: 1,
-        counters: {
-          queueType: QueueType.FilterGroup,
-          policyHash: 'filter-policy',
-          generation: 1,
-          version: 1,
-          remaining: 1,
-          due: 1,
-          total: 1,
-          buckets: { all: 1, item: 1, descriptor: 0, topic: 0, concept: 0 },
-          updatedAt: 1_700_000_100_000,
-        },
-      })),
-    };
-    const { runtime } = createRuntime({ backend, queueCards: [card] });
-
-    const snapshot = await runtime.readSnapshot(QueueType.FilterGroup);
-    const rowIds = snapshot?.rows.map((row) => row.id) ?? [];
-    await expect(runtime.getCardsBySnapshotIds(QueueType.FilterGroup, rowIds))
-      .resolves.toEqual([expect.objectContaining({ id: 'clear-card' })]);
-
-    runtime.clearMaterializedProjectionEcho(QueueType.FilterGroup);
-
-    await expect(runtime.getCardsBySnapshotIds(QueueType.FilterGroup, rowIds))
-      .resolves.toEqual([expect.objectContaining({ id: 'backend-card' })]);
-    expect(backend.queueProjectionRowsByIds).toHaveBeenCalledTimes(1);
-  });
-
-  it('emits content-free live identity events for materialized and invalidated projections', async () => {
+  it('does not emit local repair identity events for non-ready projections', async () => {
     const backend = {
       queueProjectionSnapshot: vi.fn(async () => ({
         queueType: QueueType.FilterGroup,
@@ -250,53 +122,14 @@ describe('QueueProjectionRuntime', () => {
         rows: [],
         counters: null,
       })),
-      queueProjectionReplace: vi.fn(async () => ({
-        queueType: QueueType.FilterGroup,
-        status: 'ready',
-        policyHash: 'filter-policy',
-        generation: 1,
-        rows: 1,
-        counters: {
-          queueType: QueueType.FilterGroup,
-          policyHash: 'filter-policy',
-          generation: 1,
-          version: 1,
-          remaining: 1,
-          due: 1,
-          total: 1,
-          buckets: { all: 1, item: 1, descriptor: 0, topic: 0, concept: 0 },
-          updatedAt: 1,
-        },
-      })),
     };
-    const { runtime } = createRuntime({ backend, queueCards: [createCard({ id: 'event-card' })] });
+    const { runtime } = createRuntime({ backend });
     const events: unknown[] = [];
     runtime.subscribeLiveIdentityEvents((event) => events.push(event));
 
     await runtime.readSnapshot(QueueType.FilterGroup);
-    runtime.clearMaterializedProjectionEcho(QueueType.FilterGroup);
 
-    expect(events).toEqual([
-      expect.objectContaining({
-        type: 'queue-projection-live-identity',
-        queueId: QueueType.FilterGroup,
-        queueType: QueueType.FilterGroup,
-        policyId: 'filter-policy',
-        generation: 1,
-        reason: 'materialized',
-        source: 'backend',
-      }),
-      expect.objectContaining({
-        type: 'queue-projection-live-identity',
-        queueId: QueueType.FilterGroup,
-        queueType: QueueType.FilterGroup,
-        policyId: null,
-        generation: null,
-        reason: 'echo-cleared',
-        source: 'runtime',
-      }),
-    ]);
-    expect(JSON.stringify(events)).not.toContain('event-card');
+    expect(events).toEqual([]);
   });
 
   it('emits refreshed live identity once and suppresses unavailable ready events', async () => {
@@ -436,8 +269,7 @@ describe('QueueProjectionRuntime', () => {
       ]);
   });
 
-  it('repairs non-ready row hydration and reports unavailable without strategy fallback', async () => {
-    const card = createCard({ id: 'repair-card', blockId: 'repair-block' });
+  it('reports unavailable row hydration without strategy fallback', async () => {
     const backend = {
       queueProjectionRowsByIds: vi.fn(async () => ({
         queueType: QueueType.FilterGroup,
@@ -447,29 +279,13 @@ describe('QueueProjectionRuntime', () => {
         rows: [],
         cards: [],
       })),
-      queueProjectionReplace: vi.fn(async () => ({
-        queueType: QueueType.FilterGroup,
-        status: 'ready',
-        policyHash: 'policy-old',
-        generation: 5,
-        rows: 1,
-        counters: {
-          queueType: QueueType.FilterGroup,
-          policyHash: 'policy-old',
-          generation: 5,
-          version: 5,
-          remaining: 1,
-          due: 1,
-          total: 1,
-          buckets: { all: 1, item: 1, descriptor: 0, topic: 0, concept: 0 },
-          updatedAt: 1,
-        },
-      })),
     };
-    const { runtime } = createRuntime({ backend, queueCards: [card] });
+    const { runtime } = createRuntime({ backend });
 
     await expect(runtime.getCardsBySnapshotIds(QueueType.FilterGroup, ['repair-card']))
-      .resolves.toEqual([expect.objectContaining({ id: 'repair-card' })]);
+      .resolves.toEqual([]);
+    expect(backend.queueProjectionRowsByIds).toHaveBeenCalledTimes(1);
+    expect(backend.queueProjectionReplace).toBeUndefined();
 
     const unavailableRuntime = createRuntime({
       backend: {

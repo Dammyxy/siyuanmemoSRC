@@ -96,6 +96,10 @@ implements ICardDataSource, IBrowserQueryableDataSource {
 
   protected abstract buildLegacyOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]>;
 
+  protected allowLegacyQueueFallback(): boolean {
+    return true;
+  }
+
   protected buildQueryFingerprint(sortModel: SortModel[]): string {
     return JSON.stringify({
       dataSource: this.id,
@@ -120,6 +124,15 @@ implements ICardDataSource, IBrowserQueryableDataSource {
           this.getQueueBrowserId(),
           ids,
         ),
+      };
+    }
+
+    if (!this.allowLegacyQueueFallback()) {
+      return {
+        queryFingerprint: this.buildQueryFingerprint(sortModel),
+        buildLiteRows: async () => {
+          throw new Error(`QUEUE_PROJECTION_UNAVAILABLE: ${this.getQueueBrowserId()} browser snapshot unavailable`);
+        },
       };
     }
 

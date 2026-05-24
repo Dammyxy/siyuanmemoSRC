@@ -11,16 +11,13 @@ import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified
 import type { FSRSCard } from '../../../types/card';
 import {
   adjustBrowserCardsPriorityRelative,
-  applyQueueFilters,
   deleteBrowserCards,
   removeCardsFromQueue,
   resolveQueueRemovalTarget,
   setBrowserCardsPriority,
-  sortBrowserCards,
   toggleBrowserCardsSuspended,
 } from './DataSourceUtils';
 import { getRelativePriorityDelta } from '../browserActionFeedback';
-import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import { createLogger } from '@/utils/logger';
 import {
   BaseQueueSnapshotDataSource,
@@ -170,11 +167,11 @@ export class FinalDrillDataSource
     return 'final-drill' as const;
   }
 
+  protected allowLegacyQueueFallback(): boolean {
+    return false;
+  }
+
   protected async buildLegacyOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
-    const queue = this.manager.getQueue(QueueType.FinalDrill);
-    const cards = await queue.getCards();
-    const browserCards = cards.map((card) => mapQueueFsrsCardToBrowserCard(card));
-    const filtered = applyQueueFilters(browserCards, this.options, 'headline');
-    return sortBrowserCards(filtered, sortModel);
+    throw new Error('QUEUE_PROJECTION_UNAVAILABLE: final-drill browser snapshot unavailable');
   }
 }

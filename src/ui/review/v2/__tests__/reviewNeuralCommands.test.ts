@@ -12,6 +12,10 @@ import type {
   NeuralRoamSessionQueue,
   NeuralRoamSourceEntry,
 } from '@/types/unified-data-source';
+import type {
+  BackendNeuralRoamCommand,
+  BackendNeuralRoamCommandResult,
+} from '../../../../../packages/contracts/src/backend-rpc';
 
 const t = (_key: string, fallback: string) => fallback;
 
@@ -117,6 +121,19 @@ function createQueue(options?: {
   } as unknown as NeuralRoamSessionQueue;
 }
 
+function commandResult(): BackendNeuralRoamCommandResult {
+  return {
+    queueType: 'neural-roam',
+    status: 'ok',
+    viewState: null,
+    queueState: null,
+  };
+}
+
+function createCommandRunner() {
+  return vi.fn(async (_command: BackendNeuralRoamCommand) => commandResult());
+}
+
 describe('reviewNeuralCommands', () => {
   it('builds a Neural Roam picker without Semantic Activation', async () => {
     const onSelect = vi.fn(async () => undefined);
@@ -141,6 +158,7 @@ describe('reviewNeuralCommands', () => {
     const persistPreferredMode = vi.fn(async () => undefined);
     const loadCardByBlockId = vi.fn(async () => undefined);
     const refreshNavigationState = vi.fn();
+    const runNeuralRoamCommand = createCommandRunner();
 
     await handleReviewNeuralEngineModeSelection({
       t,
@@ -152,11 +170,16 @@ describe('reviewNeuralCommands', () => {
       showMessage: vi.fn(),
       logger: {},
       persistPreferredMode,
-      startSemanticActivation: vi.fn(async () => undefined),
+      runNeuralRoamCommand,
     });
 
     expect(persistPreferredMode).toHaveBeenCalledWith('hyperspace');
-    expect(queue.setEngineMode).toHaveBeenCalledWith('hyperspace', { carryCurrentNode: true });
+    expect(runNeuralRoamCommand).toHaveBeenCalledWith({
+      type: 'switch-engine-mode',
+      mode: 'hyperspace',
+      carryCurrentNode: true,
+    });
+    expect(queue.setEngineMode).not.toHaveBeenCalled();
     expect(refreshNavigationState).toHaveBeenCalledTimes(1);
     expect(loadCardByBlockId).toHaveBeenCalledWith('node-current');
   });
@@ -164,6 +187,7 @@ describe('reviewNeuralCommands', () => {
   it('coerces direct Semantic Activation selection to Orbit', async () => {
     const queue = createQueue({ navState: navigationState({ engineMode: 'hyperspace' }) });
     const persistPreferredMode = vi.fn(async () => undefined);
+    const runNeuralRoamCommand = createCommandRunner();
 
     await handleReviewNeuralEngineModeSelection({
       t,
@@ -175,10 +199,36 @@ describe('reviewNeuralCommands', () => {
       showMessage: vi.fn(),
       logger: {},
       persistPreferredMode,
+      runNeuralRoamCommand,
     });
 
     expect(persistPreferredMode).toHaveBeenCalledWith('orbit');
-    expect(queue.setEngineMode).toHaveBeenCalledWith('orbit', { carryCurrentNode: true });
+    expect(runNeuralRoamCommand).toHaveBeenCalledWith({
+      type: 'switch-engine-mode',
+      mode: 'orbit',
+      carryCurrentNode: true,
+    });
+    expect(queue.setEngineMode).not.toHaveBeenCalled();
+  });
+
+  it('does not mutate local queue when backend command runner is missing', async () => {
+    const queue = createQueue({ navState: navigationState({ engineMode: 'orbit' }) });
+    const showMessage = vi.fn();
+
+    await handleReviewNeuralEngineModeSelection({
+      t,
+      selectedMode: 'hyperspace',
+      neuralQueue: queue,
+      currentBlockId: 'block-1',
+      loadCardByBlockId: vi.fn(async () => undefined),
+      refreshNavigationState: vi.fn(),
+      showMessage,
+      logger: {},
+      persistPreferredMode: vi.fn(async () => undefined),
+    });
+
+    expect(queue.setEngineMode).not.toHaveBeenCalled();
+    expect(showMessage).toHaveBeenCalledWith('神经漫游动作不可用', 3000, 'error');
   });
 
   it('builds focus menu actions that start from and remove source nodes', async () => {
@@ -191,6 +241,7 @@ describe('reviewNeuralCommands', () => {
     const loadCardByBlockId = vi.fn(async () => undefined);
     const refreshNavigationState = vi.fn();
     const showMessage = vi.fn();
+    const runNeuralRoamCommand = createCommandRunner();
 
     const items = buildReviewNeuralFocusMenuItems({
       t,
@@ -200,6 +251,7 @@ describe('reviewNeuralCommands', () => {
       showMessage,
       logger: {},
       openNeuralBrowserSubview: vi.fn(),
+      runNeuralRoamCommand,
     });
 
     expect(items[1].submenu?.map((item) => item.label)).toEqual([
@@ -208,16 +260,24 @@ describe('reviewNeuralCommands', () => {
     ]);
 
     await items[1].submenu?.[0].click?.();
-    expect(queue.setCurrentFocus).toHaveBeenCalledWith('new', {
+    expect(runNeuralRoamCommand).toHaveBeenCalledWith({
+      type: 'set-current-focus',
+      nodeId: 'new',
       includeFocusAsFirst: true,
       resetHistory: false,
       bookmarkCurrentPath: true,
     });
+    expect(queue.setCurrentFocus).not.toHaveBeenCalled();
     expect(loadCardByBlockId).toHaveBeenCalledWith('new');
     expect(refreshNavigationState).toHaveBeenCalledTimes(1);
 
     await items[2].submenu?.[0].click?.();
-    expect(queue.setSourceEntry).toHaveBeenCalledWith('new', false);
+    expect(runNeuralRoamCommand).toHaveBeenCalledWith({
+      type: 'set-source',
+      nodeId: 'new',
+      enabled: false,
+    });
+    expect(queue.setSourceEntry).not.toHaveBeenCalled();
     expect(showMessage).toHaveBeenLastCalledWith('已移除概念卡：轨道中心 new', 3000, 'info');
   });
 
@@ -226,6 +286,7 @@ describe('reviewNeuralCommands', () => {
     const loadCardByBlockId = vi.fn(async () => undefined);
     const refreshNavigationState = vi.fn();
     const showMessage = vi.fn();
+    const runNeuralRoamCommand = createCommandRunner();
 
     await handleReviewNeuralToolbarAction('neural-nav-mode', {
       t,
@@ -235,14 +296,23 @@ describe('reviewNeuralCommands', () => {
       refreshNavigationState,
       showMessage,
       logger: {},
+      runNeuralRoamCommand,
     });
 
-    expect(queue.setAnchorEntry).toHaveBeenCalledWith('block-1', true);
-    expect(queue.setCurrentFocus).toHaveBeenCalledWith('block-1', {
+    expect(runNeuralRoamCommand).toHaveBeenCalledWith({
+      type: 'set-anchor',
+      nodeId: 'block-1',
+      enabled: true,
+    });
+    expect(runNeuralRoamCommand).toHaveBeenCalledWith({
+      type: 'set-current-focus',
+      nodeId: 'block-1',
       includeFocusAsFirst: false,
       resetHistory: false,
       bookmarkCurrentPath: true,
     });
+    expect(queue.setAnchorEntry).not.toHaveBeenCalled();
+    expect(queue.setCurrentFocus).not.toHaveBeenCalled();
     expect(showMessage).toHaveBeenLastCalledWith('已切换为：自由航行', 2000, 'info');
 
     await handleReviewNeuralToolbarAction('neural-return-bookmark', {
@@ -253,10 +323,12 @@ describe('reviewNeuralCommands', () => {
       refreshNavigationState,
       showMessage,
       logger: {},
+      runNeuralRoamCommand,
     });
 
-    expect(queue.returnToBookmark).toHaveBeenCalled();
-    expect(loadCardByBlockId).toHaveBeenCalledWith('block-1');
+    expect(runNeuralRoamCommand).toHaveBeenCalledWith({ type: 'return-to-bookmark' });
+    expect(queue.returnToBookmark).not.toHaveBeenCalled();
+    expect(loadCardByBlockId).toHaveBeenCalledWith('node-current');
   });
 
   it('builds history menu actions for jump and clear', async () => {
@@ -267,6 +339,7 @@ describe('reviewNeuralCommands', () => {
     const refreshNavigationState = vi.fn();
     const showMessage = vi.fn();
     const openNeuralBrowserSubview = vi.fn();
+    const runNeuralRoamCommand = createCommandRunner();
 
     const items = buildReviewNeuralHistoryMenuItems({
       t,
@@ -276,6 +349,7 @@ describe('reviewNeuralCommands', () => {
       showMessage,
       logger: {},
       openNeuralBrowserSubview,
+      runNeuralRoamCommand,
     });
 
     items[0].click?.();
@@ -284,11 +358,19 @@ describe('reviewNeuralCommands', () => {
     expect(openNeuralBrowserSubview).toHaveBeenNthCalledWith(2, 'roam-history');
 
     await items[3].submenu?.[0].click?.();
-    expect(queue.jumpToHistoryNode).toHaveBeenCalledWith('history-1');
+    expect(runNeuralRoamCommand).toHaveBeenCalledWith({
+      type: 'jump-history-node',
+      nodeId: 'history-1',
+    });
+    expect(queue.jumpToHistoryNode).not.toHaveBeenCalled();
     expect(loadCardByBlockId).toHaveBeenCalledWith('node-current');
 
     await items[4].click?.();
-    expect(queue.clearHistory).toHaveBeenCalledWith('all');
+    expect(runNeuralRoamCommand).toHaveBeenCalledWith({
+      type: 'clear-history',
+      scope: 'all',
+    });
+    expect(queue.clearHistory).not.toHaveBeenCalled();
     expect(showMessage).toHaveBeenLastCalledWith('轨迹历史已清空', 3000, 'info');
   });
 });

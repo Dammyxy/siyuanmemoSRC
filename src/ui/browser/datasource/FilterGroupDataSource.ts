@@ -14,16 +14,13 @@ import {
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import {
   adjustBrowserCardsPriorityRelative,
-  applyQueueFilters,
   deleteBrowserCards,
   removeCardsFromQueue,
   resolveQueueRemovalTarget,
   setBrowserCardsPriority,
-  sortBrowserCards,
   toggleBrowserCardsSuspended,
 } from './DataSourceUtils';
 import { getRelativePriorityDelta } from '../browserActionFeedback';
-import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import { createLogger } from '@/utils/logger';
 import {
   BaseQueueSnapshotDataSource,
@@ -167,11 +164,11 @@ export class FilterGroupDataSource
     return 'filter-group' as const;
   }
 
+  protected allowLegacyQueueFallback(): boolean {
+    return false;
+  }
+
   protected async buildLegacyOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
-    const queue = this.manager.getQueue(QueueType.FilterGroup);
-    const cards = await queue.getCards();
-    const browserCards = cards.map((card, index) => mapQueueFsrsCardToBrowserCard(card, { queueIndex: index + 1 }));
-    const filtered = applyQueueFilters(browserCards, this.options, 'headline');
-    return sortBrowserCards(filtered, sortModel);
+    throw new Error('QUEUE_PROJECTION_UNAVAILABLE: filter-group browser snapshot unavailable');
   }
 }

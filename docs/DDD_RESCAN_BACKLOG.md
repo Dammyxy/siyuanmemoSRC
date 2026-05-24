@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-24 (Round 452)
+Last update: 2026-05-24 (Round 453)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-24 - Backend-Owned Review Queue Read Closure
+
+- Task: Cut the remaining front-end repair/fallback paths out of backend-owned review queues and NeuralRoam command handling.
+- Touched slice: queue-projection runtime/readiness, Browser `FilterGroup`/`FinalDrill` datasource reads, Review NeuralRoam command runtime, focused regression coverage, and architecture/backlog docs.
+- Debt fixed now: `FilterGroup` / `FinalDrill` / `Leech` browser snapshots now fail closed when backend projection is not ready or browser service is missing instead of rebuilding rows from local queue cards; Review NeuralRoam commands now require backend command capability and no longer mutate local queue state on fallback.
+- Debt deferred: One-shot local session surfaces still exist as intentional compatibility paths and are not part of this backend-owned closure.
+- Why deferred: Those temporary surfaces are explicitly short-lived and not the active long-lived review authority.
+- Next safe step: If another queue becomes backend-owned, give it the same fail-closed read/command path and keep local queue mutation out of the active runtime.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/reviewNeuralCommands.test.ts src/application/services/queue-projection/__tests__/QueueProjectionReadinessService.test.ts src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts src/ui/browser/datasource/__tests__/QueueSnapshotDataSources.query-snapshot.test.ts`; `pnpm build`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`.
 
 ### 2026-05-24 - NeuralRoam Journey Header Track Scroll
 

@@ -149,17 +149,6 @@ export class QueueProjectionRuntime {
   constructor(private readonly deps: QueueProjectionRuntimeDeps) {
     this.queueProjectionReadiness = new QueueProjectionReadinessService({
       readSnapshot: async (request) => this.readRawQueueProjectionSnapshot(request),
-      materialize: async (request) => {
-        const queueType = this.normalizeQueueType(request.queueType);
-        if (!queueType) {
-          return null;
-        }
-        return this.tryMaterializeQueueProjection(queueType, this.deps.getBackendClient(), {
-          currentPolicyHash: request.currentPolicyHash,
-          currentGeneration: request.currentGeneration,
-          reason: 'ensure-ready',
-        });
-      },
     });
   }
 
@@ -232,44 +221,11 @@ export class QueueProjectionRuntime {
 
     try {
       let result = await backend.queueProjectionSnapshot({ queueType });
-      let materializedEcho: MaterializedQueueProjectionEcho | null = null;
       if (
         result.status !== 'ready'
         || !this.isValidProjectionPolicyHash(result.policyHash)
         || !this.isValidProjectionGeneration(result.generation)
       ) {
-        const materialized = await this.tryMaterializeQueueProjection(queueType, backend, {
-          currentPolicyHash: result.policyHash,
-          currentGeneration: result.generation,
-          reason: 'snapshot-refresh',
-        });
-        if (materialized) {
-          materializedEcho = this.getMaterializedProjectionEcho(
-            queueType,
-            materialized.policyHash,
-            materialized.generation,
-          );
-          if (materializedEcho && this.isCurrentInstanceFollower()) {
-            this.clearQueueProjectionUnavailable(queueType);
-            return this.cloneQueueProjectionSnapshot(materializedEcho.snapshot);
-          }
-          result = await backend.queueProjectionSnapshot({
-            queueType,
-            policyHash: materialized.policyHash,
-            generation: materialized.generation,
-          });
-        }
-      }
-
-      if (
-        result.status !== 'ready'
-        || !this.isValidProjectionPolicyHash(result.policyHash)
-        || !this.isValidProjectionGeneration(result.generation)
-      ) {
-        if (materializedEcho) {
-          this.clearQueueProjectionUnavailable(queueType);
-          return this.cloneQueueProjectionSnapshot(materializedEcho.snapshot);
-        }
         this.deps.logger.info('Queue projection snapshot is not ready', {
           queueType,
           status: result.status,
@@ -336,18 +292,6 @@ export class QueueProjectionRuntime {
     try {
       const result = await backend.queueProjectionRowsByIds({ queueType, ids: orderedIds });
       if (result.status !== 'ready') {
-        const materialized = await this.tryMaterializeQueueProjection(queueType, backend, {
-          currentPolicyHash: result.policyHash,
-          currentGeneration: result.generation,
-          reason: 'row-hydration-refresh',
-        });
-        if (materialized) {
-          const materializedCards = this.getMaterializedProjectionEchoCards(queueType, orderedIds);
-          if (materializedCards) {
-            this.clearQueueProjectionUnavailable(queueType);
-            return materializedCards;
-          }
-        }
         this.deps.logger.info('Queue projection row hydration is not ready', {
           queueType,
           status: result.status,
@@ -476,6 +420,10 @@ export class QueueProjectionRuntime {
     } = {},
   ): Promise<BackendQueueProjectionReplaceResult | null> {
     if (!this.isQueueProjectionReadable(queueType)) {
+      return null;
+    }
+    if (QUEUE_PROJECTION_BACKED_TYPES.has(queueType)) {
+      this.deps.logger.debug('Queue projection repair is disabled for backend-owned queue type', { queueType });
       return null;
     }
     if (!backend || typeof backend.queueProjectionReplace !== 'function') {

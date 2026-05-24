@@ -12,7 +12,7 @@
 - [x] 2.2 Add backend view-state builder covering route identity, engine mode, current node, counters, route history, engine history, sources, anchors, and batch progress.
 - [x] 2.3 Include `viewState` in successful and unavailable `neural-roam.advance` responses whenever backend queue state is available.
 - [x] 2.4 Add a backend read method for current NeuralRoam view state without advancing the queue.
-- [ ] 2.5 Add backend tests for Orbit and Hyperspace view-state parity.
+- [x] 2.5 Add backend tests for Orbit and Hyperspace view-state parity.
 
 ## 3. Browser And Review Consumption
 

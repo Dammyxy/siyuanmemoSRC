@@ -221,6 +221,90 @@ describe('Worker NeuralRoam runtime modules', () => {
     });
   });
 
+  it('builds parity view-state surfaces for Orbit and Hyperspace engines', async () => {
+    const createEngineQueue = (engineMode: 'orbit' | 'hyperspace') => createViewStateQueue({
+      getNavigationState: vi.fn(() => ({
+        sessionId: `${engineMode}-session`,
+        engineSessionId: `${engineMode}-engine-session`,
+        engineMode,
+        currentNodeId: `${engineMode}-current`,
+        currentEventId: `${engineMode}-event-current`,
+        navigationMode: engineMode === 'orbit' ? 'explore' : 'source',
+        canReturnToBookmark: false,
+        bookmarkNodeId: null,
+        currentPathIndex: 1,
+        pathLength: 2,
+      })),
+      getEngineMode: vi.fn(() => engineMode),
+      getSourceSnapshot: vi.fn(() => [
+        { nodeId: `${engineMode}-source`, nodeKind: 'concept' },
+      ]),
+      getAnchorSnapshot: vi.fn(() => [
+        { nodeId: `${engineMode}-anchor`, nodeKind: 'concept' },
+      ]),
+      getHistoryPage: vi.fn(() => ({
+        entries: [{ nodeId: `${engineMode}-engine-history` }],
+        total: 1,
+        offset: 0,
+        limit: 200,
+      })),
+      getRouteHistoryPage: vi.fn(async () => ({
+        entries: [{ nodeId: `${engineMode}-route-history` }],
+        total: 1,
+        offset: 0,
+        limit: 200,
+      })),
+      getCurrentBatchSnapshot: vi.fn(() => ({
+        kind: engineMode === 'orbit' ? 'orbit-round' : 'hyperspace-depth',
+        engineMode,
+        viewedCount: engineMode === 'orbit' ? 2 : 1,
+        roundSize: engineMode === 'orbit' ? 5 : 3,
+        remainingCount: engineMode === 'orbit' ? 3 : 2,
+      })),
+    });
+    const orbitViewState = await buildWorkerNeuralRoamViewState(createEngineQueue('orbit'));
+    const hyperspaceViewState = await buildWorkerNeuralRoamViewState(createEngineQueue('hyperspace'));
+
+    expect(orbitViewState).toMatchObject({
+      engineMode: 'orbit',
+      currentNodeId: 'orbit-current',
+      sources: [{ nodeId: 'orbit-source' }],
+      anchors: [{ nodeId: 'orbit-anchor' }],
+      engineHistory: [{ nodeId: 'orbit-engine-history' }],
+      routeHistory: [{ nodeId: 'orbit-route-history' }],
+      batchProgress: {
+        kind: 'orbit-round',
+        viewedCount: 2,
+        totalCount: 5,
+        remainingCount: 3,
+        label: 'orbit-round',
+      },
+      counters: {
+        sourceNodes: 1,
+        total: 4,
+      },
+    });
+    expect(hyperspaceViewState).toMatchObject({
+      engineMode: 'hyperspace',
+      currentNodeId: 'hyperspace-current',
+      sources: [{ nodeId: 'hyperspace-source' }],
+      anchors: [{ nodeId: 'hyperspace-anchor' }],
+      engineHistory: [{ nodeId: 'hyperspace-engine-history' }],
+      routeHistory: [{ nodeId: 'hyperspace-route-history' }],
+      batchProgress: {
+        kind: 'hyperspace-depth',
+        viewedCount: 1,
+        totalCount: 3,
+        remainingCount: 2,
+        label: 'depth',
+      },
+      counters: {
+        sourceNodes: 1,
+        total: 4,
+      },
+    });
+  });
+
   it('returns explicit unavailable advance results without static projection fallback', async () => {
     const cache = new WorkerNeuralRoamAdvanceResultCache();
     const request: BackendNeuralRoamAdvanceRequest = {

@@ -3,7 +3,6 @@ import { QueueProjectionReadinessService } from '../QueueProjectionReadinessServ
 
 describe('QueueProjectionReadinessService', () => {
   it('maps a ready snapshot to readiness identity without creating a new generation', async () => {
-    const materialize = vi.fn();
     const service = new QueueProjectionReadinessService({
       readSnapshot: vi.fn(async () => ({
         queueType: 'retrieval-practice',
@@ -13,7 +12,6 @@ describe('QueueProjectionReadinessService', () => {
         rows: [],
         counters: null,
       })),
-      materialize,
     });
 
     await expect(service.ensureReady({ queueType: 'retrieval-practice' })).resolves.toEqual({
@@ -22,13 +20,11 @@ describe('QueueProjectionReadinessService', () => {
       policyId: 'policy-existing',
       generation: 7,
     });
-    expect(materialize).not.toHaveBeenCalled();
   });
 
   it('generates canonical policy identity independent of caller object key order', () => {
     const service = new QueueProjectionReadinessService({
       readSnapshot: vi.fn(),
-      materialize: vi.fn(),
     });
 
     expect(service.buildPolicyId({
@@ -42,41 +38,27 @@ describe('QueueProjectionReadinessService', () => {
     }));
   });
 
-  it('single-flights same-identity materialization and clears in-flight state after completion', async () => {
-    let resolveMaterialize: ((value: unknown) => void) | null = null;
-    const materialize = vi.fn(() => new Promise((resolve) => {
-      resolveMaterialize = resolve;
-    }) as Promise<any>);
-    const service = new QueueProjectionReadinessService({
-      shortAwaitMs: 1,
-      readSnapshot: vi.fn(async () => ({
-        queueType: 'retrieval-practice',
-        policyHash: null,
-        generation: null,
-        status: 'unavailable',
-        rows: [],
-        counters: null,
-      })),
-      materialize,
-    });
-
-    const first = service.ensureReady({ queueType: 'retrieval-practice' });
-    const second = service.ensureReady({ queueType: 'retrieval-practice' });
-    await Promise.all([first, second]);
-    expect(materialize).toHaveBeenCalledTimes(1);
-
-    resolveMaterialize?.({
+  it('returns refreshing for non-ready snapshots without local repair', async () => {
+    const readSnapshot = vi.fn(async () => ({
       queueType: 'retrieval-practice',
-      policyHash: 'policy-next',
-      generation: 1,
-      status: 'ready',
-      rows: 0,
-      counters: { remaining: 0 },
+      policyHash: null,
+      generation: null,
+      status: 'unavailable',
+      rows: [],
+      counters: null,
+    }));
+    const service = new QueueProjectionReadinessService({
+      readSnapshot,
     });
-    await Promise.resolve();
 
-    await service.ensureReady({ queueType: 'retrieval-practice' });
-    expect(materialize).toHaveBeenCalledTimes(2);
+    await expect(service.ensureReady({ queueType: 'retrieval-practice' })).resolves.toEqual({
+      status: 'refreshing',
+      queueId: 'retrieval-practice',
+      policyId: service.buildPolicyId({ queueType: 'retrieval-practice' }),
+      cause: 'projection_unavailable',
+      retryAfterMs: 300,
+    });
+    expect(readSnapshot).toHaveBeenCalledTimes(1);
   });
 
   it('returns recoverable unavailable with machine cause when backend read fails', async () => {
@@ -84,7 +66,6 @@ describe('QueueProjectionReadinessService', () => {
       readSnapshot: vi.fn(async () => {
         throw new Error('backend down');
       }),
-      materialize: vi.fn(),
     });
 
     await expect(service.ensureReady({ queueType: 'retrieval-practice' })).resolves.toMatchObject({

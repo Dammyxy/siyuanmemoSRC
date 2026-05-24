@@ -1,5 +1,4 @@
 import type {
-  BackendQueueProjectionReplaceResult,
   BackendQueueProjectionSnapshotResult,
   QueueProjectionReadiness,
   QueueProjectionReadinessCause,
@@ -10,14 +9,8 @@ export type QueueProjectionReadinessSnapshotReader = (
   request: { queueType: string; policyHash?: string | null; generation?: number | null },
 ) => Promise<BackendQueueProjectionSnapshotResult | null>;
 
-export type QueueProjectionReadinessMaterializer = (
-  request: { queueType: string; currentPolicyHash?: string | null; currentGeneration?: number | null },
-) => Promise<BackendQueueProjectionReplaceResult | null>;
-
 export type QueueProjectionReadinessServiceDeps = {
   readSnapshot: QueueProjectionReadinessSnapshotReader;
-  materialize: QueueProjectionReadinessMaterializer;
-  shortAwaitMs?: number;
   retryAfterMs?: number;
 };
 
@@ -30,18 +23,12 @@ type CanonicalRequest = Required<Pick<QueueProjectionReadinessRequest, 'queueTyp
   source: string | null;
 };
 
-type InFlightMaterialization = Promise<BackendQueueProjectionReplaceResult | null>;
-
-const DEFAULT_SHORT_AWAIT_MS = 120;
 const DEFAULT_RETRY_AFTER_MS = 300;
 
 export class QueueProjectionReadinessService {
-  private readonly inFlightMaterializations = new Map<string, InFlightMaterialization>();
-  private readonly shortAwaitMs: number;
   private readonly retryAfterMs: number;
 
   constructor(private readonly deps: QueueProjectionReadinessServiceDeps) {
-    this.shortAwaitMs = normalizePositiveInteger(deps.shortAwaitMs, DEFAULT_SHORT_AWAIT_MS);
     this.retryAfterMs = normalizePositiveInteger(deps.retryAfterMs, DEFAULT_RETRY_AFTER_MS);
   }
 
@@ -69,36 +56,12 @@ export class QueueProjectionReadinessService {
       return ready;
     }
 
-    const materialization = this.ensureMaterialization(
-      canonical.queueType,
-      policyId,
-      snapshot,
-    );
-    const materialized = await this.awaitBriefly(materialization);
-    if (materialized === 'timeout') {
-      return {
-        status: 'refreshing',
-        queueId: canonical.queueType,
-        policyId,
-        cause: 'materialization_in_progress',
-        retryAfterMs: this.retryAfterMs,
-      };
-    }
-
-    if (!materialized) {
-      return this.unavailable(
-        canonical.queueType,
-        'materialization_failed',
-        'queue projection materialization did not return a committed generation',
-        true,
-      );
-    }
-
     return {
-      status: 'ready',
+      status: 'refreshing',
       queueId: canonical.queueType,
-      policyId: materialized.policyHash,
-      generation: materialized.generation,
+      policyId,
+      cause: this.resolveRefreshingCause(snapshot),
+      retryAfterMs: this.retryAfterMs,
     };
   }
 
@@ -107,46 +70,17 @@ export class QueueProjectionReadinessService {
     return `queue-projection:${stableStringify(canonical)}`;
   }
 
-  private ensureMaterialization(
-    queueType: string,
-    policyId: string,
-    snapshot: BackendQueueProjectionSnapshotResult | null,
-  ): InFlightMaterialization {
-    const key = `${queueType}:${policyId}`;
-    const existing = this.inFlightMaterializations.get(key);
-    if (existing) {
-      return existing;
+  private resolveRefreshingCause(snapshot: BackendQueueProjectionSnapshotResult | null): QueueProjectionReadinessCause {
+    if (!snapshot) {
+      return 'projection_unavailable';
     }
-
-    const materialization = this.deps.materialize({
-      queueType,
-      currentPolicyHash: isNonEmptyString(snapshot?.policyHash) ? snapshot!.policyHash : policyId,
-      currentGeneration: isPositiveInteger(snapshot?.generation) ? Number(snapshot!.generation) : null,
-    }).catch((error) => {
-      throw error;
-    }).finally(() => {
-      this.inFlightMaterializations.delete(key);
-    });
-    this.inFlightMaterializations.set(key, materialization);
-    return materialization;
-  }
-
-  private async awaitBriefly(
-    materialization: InFlightMaterialization,
-  ): Promise<BackendQueueProjectionReplaceResult | null | 'timeout'> {
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const timeout = new Promise<'timeout'>((resolve) => {
-      timeoutId = setTimeout(() => resolve('timeout'), this.shortAwaitMs);
-    });
-    try {
-      return await Promise.race([materialization, timeout]);
-    } catch (error) {
-      return null;
-    } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
+    if (snapshot.status === 'invalidated' || snapshot.status === 'rebuilding' || snapshot.status === 'repairing') {
+      return 'materialization_in_progress';
     }
+    if (snapshot.status === 'unavailable') {
+      return 'projection_unavailable';
+    }
+    return 'materialization_in_progress';
   }
 
   private toReadyReadiness(
@@ -219,15 +153,18 @@ function normalizeString(value: unknown): string | null {
 
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(',')}]`;
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
   }
   if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(',')}}`;
+    const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`).join(',')}}`;
   }
   return JSON.stringify(value);
 }
 
 function formatUnknownError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return String(error);
 }

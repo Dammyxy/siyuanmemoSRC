@@ -183,14 +183,31 @@ async function syncNeuralQueueFromBackendResult(
   neuralQueue?.setBackendViewState?.(result.viewState ?? null);
 }
 
-async function runBackendNeuralCommand(
+async function runRequiredBackendNeuralCommand(
   deps: ReviewNeuralCommandDeps,
+  neuralQueue: NeuralRoamSessionQueue | null,
   command: BackendNeuralRoamCommand,
 ): Promise<BackendNeuralRoamCommandResult | null> {
   if (!deps.runNeuralRoamCommand) {
+    deps.showMessage(
+      deps.t('neuralRoamEntryActionUnavailable', '神经漫游动作不可用'),
+      3000,
+      'error',
+    );
     return null;
   }
-  return deps.runNeuralRoamCommand(command);
+
+  const result = await deps.runNeuralRoamCommand(command);
+  await syncNeuralQueueFromBackendResult(neuralQueue, result);
+  if (result.status !== 'ok') {
+    deps.showMessage(
+      result.message || deps.t('neuralRoamEntryActionUnavailable', '神经漫游动作不可用'),
+      3000,
+      'error',
+    );
+    return null;
+  }
+  return result;
 }
 
 function buildSeedMenuLabel(entry: NeuralRoamSourceEntry, t: ReviewTranslate): string {
@@ -229,25 +246,19 @@ function buildHistoryLabel(entry: NeuralRoamHistoryEntry, absoluteIndex: number,
 export async function startWorldlineFromCurrentNode(
   neuralQueue: NeuralRoamSessionQueue,
   blockId: string,
-  deps?: Pick<ReviewNeuralCommandDeps, 'runNeuralRoamCommand'>,
+  deps: ReviewNeuralCommandDeps,
 ): Promise<void> {
-  const runCommand = deps?.runNeuralRoamCommand;
-  if (runCommand) {
-    const anchorResult = await runCommand({ type: 'set-anchor', nodeId: blockId, enabled: true });
-    await syncNeuralQueueFromBackendResult(neuralQueue, anchorResult);
-    const focusResult = await runCommand({
-      type: 'set-current-focus',
-      nodeId: blockId,
-      includeFocusAsFirst: false,
-      resetHistory: false,
-      bookmarkCurrentPath: true,
-    });
-    await syncNeuralQueueFromBackendResult(neuralQueue, focusResult);
+  const anchorResult = await runRequiredBackendNeuralCommand(
+    deps,
+    neuralQueue,
+    { type: 'set-anchor', nodeId: blockId, enabled: true },
+  );
+  if (!anchorResult) {
     return;
   }
-
-  await neuralQueue.setAnchorEntry(blockId, true);
-  await neuralQueue.setCurrentFocus(blockId, {
+  await runRequiredBackendNeuralCommand(deps, neuralQueue, {
+    type: 'set-current-focus',
+    nodeId: blockId,
     includeFocusAsFirst: false,
     resetHistory: false,
     bookmarkCurrentPath: true,
@@ -259,14 +270,13 @@ async function switchNeuralEngineMode(
   deps: ReviewNeuralCommandDeps & { neuralQueue: NeuralRoamSessionQueue },
 ): Promise<void> {
   const { neuralQueue, refreshNavigationState, loadCardByBlockId, showMessage, t } = deps;
-  const backendResult = await runBackendNeuralCommand(deps, {
+  const backendResult = await runRequiredBackendNeuralCommand(deps, neuralQueue, {
     type: 'switch-engine-mode',
     mode: nextMode,
     carryCurrentNode: true,
   });
-  await syncNeuralQueueFromBackendResult(neuralQueue, backendResult);
   if (!backendResult) {
-    await neuralQueue.setEngineMode(nextMode, { carryCurrentNode: true });
+    return;
   }
   refreshNavigationState();
   const navState = neuralQueue.getNavigationState();
@@ -344,13 +354,12 @@ export async function handleReviewNeuralToolbarAction(
       return;
     }
 
-    const backendResult = await runBackendNeuralCommand(deps, {
+    const backendResult = await runRequiredBackendNeuralCommand(deps, neuralQueue, {
       type: 'set-navigation-mode',
       mode: newMode,
     });
-    await syncNeuralQueueFromBackendResult(neuralQueue, backendResult);
     if (!backendResult) {
-      neuralQueue.setNavigationMode(newMode);
+      return;
     }
     refreshNavigationState();
     const modeText = newMode === 'follow'
@@ -361,12 +370,10 @@ export async function handleReviewNeuralToolbarAction(
   }
 
   logger?.debug?.('[SiYuanMemo][ReviewView] Return to bookmark button clicked');
-  const backendResult = await runBackendNeuralCommand(deps, {
+  const backendResult = await runRequiredBackendNeuralCommand(deps, neuralQueue, {
     type: 'return-to-bookmark',
   });
-  await syncNeuralQueueFromBackendResult(neuralQueue, backendResult);
-  const success = backendResult ? true : neuralQueue.returnToBookmark();
-  if (!success) {
+  if (!backendResult) {
     return;
   }
   const navState = neuralQueue.getNavigationState();
@@ -398,20 +405,15 @@ export function buildReviewNeuralFocusMenuItems(input: BuildReviewNeuralMenuItem
         label: buildSeedMenuLabel(entry, t),
         click: async () => {
           try {
-            const backendResult = await runBackendNeuralCommand(input, {
+            const backendResult = await runRequiredBackendNeuralCommand(input, neuralQueue, {
               type: 'set-current-focus',
               nodeId: entry.nodeId,
               includeFocusAsFirst: true,
               resetHistory: false,
               bookmarkCurrentPath: true,
             });
-            await syncNeuralQueueFromBackendResult(neuralQueue, backendResult);
             if (!backendResult) {
-              await neuralQueue.setCurrentFocus(entry.nodeId, {
-                includeFocusAsFirst: true,
-                resetHistory: false,
-                bookmarkCurrentPath: true,
-              });
+              return;
             }
             await loadCardByBlockId(entry.nodeId);
             refreshNavigationState();
@@ -431,14 +433,13 @@ export function buildReviewNeuralFocusMenuItems(input: BuildReviewNeuralMenuItem
         label: buildSeedMenuLabel(entry, t),
         click: async () => {
           try {
-            const backendResult = await runBackendNeuralCommand(input, {
+            const backendResult = await runRequiredBackendNeuralCommand(input, neuralQueue, {
               type: 'set-source',
               nodeId: entry.nodeId,
               enabled: false,
             });
-            await syncNeuralQueueFromBackendResult(neuralQueue, backendResult);
             if (!backendResult) {
-              await neuralQueue.setSourceEntry(entry.nodeId, false);
+              return;
             }
             refreshNavigationState();
             showMessage(getSourceRemovedMessage(entry.nodeId, neuralQueue, t), 3000, 'info');
@@ -489,14 +490,11 @@ export function buildReviewNeuralHistoryMenuItems(input: BuildReviewNeuralMenuIt
       submenu: jumpCandidates.map((entry, index) => ({
         label: buildHistoryLabel(entry, totalHistoryCount - jumpCandidates.length + index + 1, t),
         click: async () => {
-          const backendResult = await runBackendNeuralCommand(input, {
+          const backendResult = await runRequiredBackendNeuralCommand(input, neuralQueue, {
             type: 'jump-history-node',
             nodeId: entry.nodeId,
           });
-          await syncNeuralQueueFromBackendResult(neuralQueue, backendResult);
-          const jumped = backendResult ? backendResult.status === 'ok' : await neuralQueue.jumpToHistoryNode(entry.nodeId);
-          if (!jumped) {
-            showMessage(t('jumpHistoryNodeFailed', '跳转轨迹节点失败'), 3000, 'error');
+          if (!backendResult) {
             return;
           }
           const currentNodeId = neuralQueue.getNavigationState().currentNodeId || entry.nodeId;
@@ -509,13 +507,12 @@ export function buildReviewNeuralHistoryMenuItems(input: BuildReviewNeuralMenuIt
       icon: 'iconClear',
       label: t('clearHistory', '清空轨迹历史'),
       click: async () => {
-        const backendResult = await runBackendNeuralCommand(input, {
+        const backendResult = await runRequiredBackendNeuralCommand(input, neuralQueue, {
           type: 'clear-history',
           scope: 'all',
         });
-        await syncNeuralQueueFromBackendResult(neuralQueue, backendResult);
         if (!backendResult) {
-          await neuralQueue.clearHistory('all');
+          return;
         }
         refreshNavigationState();
         showMessage(t('historyClearedSuccess', '轨迹历史已清空'), 3000, 'info');

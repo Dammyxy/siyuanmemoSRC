@@ -109,6 +109,21 @@ describe('queue snapshot datasource path', () => {
     expect(queue.getCards).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    ['final-drill', FinalDrillDataSource],
+    ['filter-group', FilterGroupDataSource],
+  ] as const)('%s fails closed when browserService is missing', async (_queueId, DataSourceCtor) => {
+    const manager = {
+      getQueue: vi.fn(() => {
+        throw new Error('legacy queue.getCards path should not run for projection-backed queues');
+      }),
+    } as never;
+
+    const dataSource = new DataSourceCtor(manager);
+    await expect(dataSource.fetchRows({ startRow: 0, endRow: 20, sortModel: [], filterModel: {} }))
+      .rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
+  });
+
   it('passes cloneable browserService query payloads when Vue reactive arrays reach the data source', async () => {
     const manager = {
       getQueue: vi.fn(() => {
