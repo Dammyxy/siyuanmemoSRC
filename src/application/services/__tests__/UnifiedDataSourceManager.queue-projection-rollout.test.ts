@@ -187,6 +187,56 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     expect(followerCommandClient.submitAndWait).not.toHaveBeenCalled();
   });
 
+  it('keeps neural-roam read and command methods bound when extracted from the manager', async () => {
+    const manager = UnifiedDataSourceManager.getInstance();
+    const backendViewStateResult = {
+      queueType: 'neural-roam',
+      status: 'ready',
+      viewState: {
+        queueType: 'neural-roam',
+        route: {
+          id: 'route-a',
+        },
+      },
+      unavailableReason: null,
+      message: null,
+    };
+    const backendCommandResult = {
+      queueType: 'neural-roam',
+      status: 'ok',
+      viewState: null,
+      queueState: { version: 8 },
+      unavailableReason: null,
+      message: null,
+    };
+    const backend = {
+      neuralRoamViewState: vi.fn(async () => backendViewStateResult),
+      neuralRoamCommand: vi.fn(async () => backendCommandResult),
+    };
+    manager.setAdvancedRouter(createRouterWithBackend(backend));
+
+    const readNeuralRoamViewState = manager.readNeuralRoamViewState;
+    const neuralRoamCommand = manager.neuralRoamCommand;
+
+    await expect(readNeuralRoamViewState()).resolves.toBe(backendViewStateResult);
+    await expect(neuralRoamCommand({
+      queueType: 'neural-roam',
+      command: {
+        type: 'switch-route',
+        routeId: 'route-b',
+      },
+    } as never)).resolves.toBe(backendCommandResult);
+
+    expect(backend.neuralRoamViewState).toHaveBeenCalledWith({ queueType: 'neural-roam' });
+    expect(backend.neuralRoamCommand).toHaveBeenCalledWith({
+      queueType: 'neural-roam',
+      command: {
+        type: 'switch-route',
+        routeId: 'route-b',
+      },
+    });
+  });
+
   it('keeps follower relay when writer lease reacquire still leaves runtime as follower', async () => {
     const manager = UnifiedDataSourceManager.getInstance();
     const relayResult = {

@@ -136,7 +136,7 @@ export function buildAddToQueueAction(
     logger.debug('[MenuActions] ✅ 添加神经漫游');
     queueActions.push({
       id: 'add-to-neural-roam-queue',
-      label: translate('addToNeuralRoamQueue', '神经漫游'),
+      label: translate('addToNeuralRoamQueue', '神经漫游当前航线'),
       icon: 'iconGraph',
     });
   }
@@ -278,6 +278,10 @@ type QueueAddInput = string | {
 type QueueAddLike = {
   addCard?: (card: QueueAddInput, source?: QueueAddSource) => Promise<void> | void;
   addCards?: (cards: QueueAddInput[], source?: QueueAddSource) => Promise<QueueBulkMutationResult> | QueueBulkMutationResult;
+  addConceptBlocksToCurrentRoute?: (
+    blockIds: string[],
+    options?: { source?: QueueAddSource; enabled?: boolean },
+  ) => Promise<{ added: number; message: string }> | { added: number; message: string };
 };
 
 type UnifiedStorageLike = CardReadPort & {
@@ -323,13 +327,13 @@ const queueUnavailableMessage: Record<QueueActionType, string> = {
   incremental: '渐进学习队列不可用',
   'final-drill': '刻意练习队列不可用',
   'filter-group': '筛选复习队列不可用',
-  'neural-roam': '神经漫游队列不可用',
+  'neural-roam': '神经漫游当前航线不可用',
 };
 
 const conceptOnlyMessage: Record<'retrieval' | 'final-drill' | 'neural-roam', string> = {
   retrieval: 'Concept 卡片不能加入提取练习队列',
   'final-drill': 'Concept 卡片不能加入刻意练习队列',
-  'neural-roam': '神经漫游队列只接受 Concept 卡片',
+  'neural-roam': '神经漫游当前航线只接受 Concept 卡片',
 };
 
 function resolveCardId(card: BrowserActionTarget): string {
@@ -672,6 +676,10 @@ export async function addToQueue(
     selectedCount: selectedRows?.length ?? 0,
   });
 
+  if (queueType === 'neural-roam' && typeof queue?.addConceptBlocksToCurrentRoute !== 'function') {
+    return { added: 0, message: queueUnavailableMessage[queueType] };
+  }
+
   const items = prepareQueueItems(selectedRows);
   const filtered = filterQueueItems(queueType, items);
 
@@ -684,6 +692,16 @@ export async function addToQueue(
 
   let addResult: { added: number; failed: number; firstError?: string; conceptTypeConflict: number };
   try {
+    if (queueType === 'neural-roam') {
+      const routeResult = await queue.addConceptBlocksToCurrentRoute(
+        filtered.items.map((item) => item.blockId),
+        { source, enabled: true },
+      );
+      return {
+        added: routeResult.added,
+        message: routeResult.message,
+      };
+    }
     addResult = await addCardsDeterministically(
       queue,
       filtered.items,
@@ -718,7 +736,7 @@ export async function addToQueue(
   }
 
   if (queueType === 'neural-roam') {
-    let message = `已将 ${addResult.added} 张卡片加入起点`;
+    let message = `已将 ${addResult.added} 张卡片加入神经漫游当前航线`;
     if (filtered.skippedConceptCount > 0) {
       message += `（过滤了 ${filtered.skippedConceptCount} 张非 Concept 卡片）`;
     }

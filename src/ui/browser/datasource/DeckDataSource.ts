@@ -53,6 +53,7 @@ import {
   normalizeBrowserQueryScopeDocIds,
   normalizeBrowserQuerySortModel,
 } from './shared/browserQueryPayload';
+import type { NeuralRoamEntryActionService } from '@/application/services/NeuralRoamEntryActionService';
 
 const logger = createLogger('DeckDataSource');
 
@@ -81,8 +82,8 @@ type DeckCardRecord = FSRSCard & {
 };
 
 type DeckPluginLike = Omit<MenuActionPluginLike, 'context' | 'getContext'> & {
-  context?: NonNullable<MenuActionPluginLike['context']> & I18nContextLike;
-  getContext?: () => (NonNullable<MenuActionPluginLike['context']> & I18nContextLike) | undefined;
+  context?: NonNullable<MenuActionPluginLike['context']> & I18nContextLike & DeckPluginContextLike;
+  getContext?: () => (NonNullable<MenuActionPluginLike['context']> & I18nContextLike & DeckPluginContextLike) | undefined;
   i18n?: Record<string, string>;
   storage?: unknown;
   rescheduleService?: RescheduleService;
@@ -116,6 +117,10 @@ type DeckBrowserService = Pick<IBrowserApplicationService, 'getDeckRowsByIds'> &
 
 type I18nContextLike = {
   getI18n?: () => Record<string, string> | undefined;
+};
+
+type DeckPluginContextLike = {
+  getNeuralRoamEntryActionService?: () => Pick<NeuralRoamEntryActionService, 'addConceptBlocksToCurrentRoute'> | null | undefined;
 };
 
 export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSource {
@@ -329,7 +334,10 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   }
 
   private async handleQueueAddAction(route: QueueAddRoute, selectedRows: BrowserActionTarget[]): Promise<unknown> {
-    const queueTarget = typeof this.manager.batchAddToQueue === 'function'
+    const source = route.actionType === 'neural-roam' ? 'browser' : route.source ?? 'manual';
+    const queueTarget = route.actionType === 'neural-roam'
+      ? this.getNeuralRoamEntryActionService()
+      : typeof this.manager.batchAddToQueue === 'function'
       ? {
           addCards: (
             cards: unknown[],
@@ -341,7 +349,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
           ),
         }
       : this.manager.getQueue(route.queueType);
-    const result = await addToQueue(queueTarget, selectedRows, route.actionType, route.source ?? 'manual');
+    const result = await addToQueue(queueTarget, selectedRows, route.actionType, source);
     this.invalidateQuerySession();
     return result;
   }
@@ -633,5 +641,10 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     }
 
     return this.plugin?.i18n?.[key] || fallback;
+  }
+
+  private getNeuralRoamEntryActionService(): Pick<NeuralRoamEntryActionService, 'addConceptBlocksToCurrentRoute'> | null {
+    const context = this.plugin?.getContext?.();
+    return context?.getNeuralRoamEntryActionService?.() ?? null;
   }
 }

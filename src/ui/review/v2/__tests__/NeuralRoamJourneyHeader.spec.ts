@@ -1,8 +1,18 @@
+import { readFileSync } from 'node:fs';
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import NeuralRoamJourneyHeader from '../NeuralRoamJourneyHeader.vue';
 import type { NeuralNavigationState, NeuralRoamBatchSnapshot } from '@/types/unified-data-source';
 import type { ReviewHeaderRouteControl, ReviewUIState } from '../types';
+
+const componentSource = readFileSync('src/ui/review/v2/NeuralRoamJourneyHeader.vue', 'utf8');
+
+function readCssRule(selector: string): string {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = componentSource.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`));
+  expect(match, `missing CSS rule for ${selector}`).not.toBeNull();
+  return match?.[1] ?? '';
+}
 
 function createNavigationState(engineMode: 'orbit' | 'hyperspace'): NeuralNavigationState {
   return {
@@ -352,6 +362,21 @@ describe('NeuralRoamJourneyHeader', () => {
     expect(wrapper.text()).toContain('深度 1');
     expect(wrapper.findAll('.siyuanmemo-neural-journey__depth-node--done')).toHaveLength(3);
     expect(wrapper.find('.siyuanmemo-neural-journey__depth-node--current').text()).toBe('2');
+  });
+
+  it('keeps the expanded track list as the scroll container', () => {
+    const popoverRule = readCssRule('.siyuanmemo-neural-journey__popover');
+    const trackRule = readCssRule('.siyuanmemo-neural-journey__track');
+    const trackListRule = readCssRule('.siyuanmemo-neural-journey__track-list');
+    const mobileTrackListRule = readCssRule('.siyuanmemo-neural-journey--mobile .siyuanmemo-neural-journey__track-list');
+
+    expect(popoverRule).toContain('grid-template-rows: auto minmax(0, 1fr);');
+    expect(trackRule).toContain('min-height: 0;');
+    expect(trackListRule).toContain('max-height: clamp(140px, 30vh, 280px);');
+    expect(trackListRule).toContain('overflow-y: auto;');
+    expect(trackListRule).toContain('overscroll-behavior: contain;');
+    expect(trackListRule).toContain('scrollbar-gutter: stable;');
+    expect(mobileTrackListRule).toContain('max-height: min(42vh, 240px);');
   });
 
   it('expands and collapses when the header body is clicked', async () => {

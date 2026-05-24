@@ -11,8 +11,19 @@ function readFile(rootDir, relativePath) {
   return fs.readFileSync(absolute, 'utf8');
 }
 
+function matchesToken(text, token) {
+  if (token instanceof RegExp) {
+    return token.test(text);
+  }
+  return text.includes(token);
+}
+
+function formatToken(token) {
+  return token instanceof RegExp ? token.toString() : JSON.stringify(token);
+}
+
 function includesAll(text, tokens) {
-  return tokens.every((token) => text.includes(token));
+  return tokens.every((token) => matchesToken(text, token));
 }
 
 const runtimePaths = [
@@ -98,7 +109,11 @@ const runtimePaths = [
       },
       {
         file: 'src/application/services/UnifiedDataSourceManager.ts',
-        tokens: ['public async neuralRoamAdvance', 'method: \'neural-roam.advance\'', 'backend.neuralRoamAdvance'],
+        tokens: [
+          /public\s+(?:readonly\s+)?(?:async\s+neuralRoamAdvance|neuralRoamAdvance\s*=\s*async)/,
+          'method: \'neural-roam.advance\'',
+          'backend.neuralRoamAdvance',
+        ],
         reason: 'UI/review code must enter neural advance through the application manager',
       },
       {
@@ -403,8 +418,8 @@ function evaluate(options = {}) {
         continue;
       }
       if (!includesAll(text, anchor.tokens || [])) {
-        const missing = (anchor.tokens || []).filter((token) => !text.includes(token));
-        failures.push(`${runtimePath.id}: ${anchor.file}: missing ${missing.map((token) => JSON.stringify(token)).join(', ')} (${anchor.reason})`);
+        const missing = (anchor.tokens || []).filter((token) => !matchesToken(text, token));
+        failures.push(`${runtimePath.id}: ${anchor.file}: missing ${missing.map((token) => formatToken(token)).join(', ')} (${anchor.reason})`);
       }
     }
 
@@ -414,9 +429,9 @@ function evaluate(options = {}) {
         failures.push(`${runtimePath.id}: ${anchor.file}: file missing (${anchor.reason})`);
         continue;
       }
-      const present = (anchor.tokens || []).filter((token) => text.includes(token));
+      const present = (anchor.tokens || []).filter((token) => matchesToken(text, token));
       if (present.length > 0) {
-        failures.push(`${runtimePath.id}: ${anchor.file}: unexpected active-path token(s) ${present.map((token) => JSON.stringify(token)).join(', ')} (${anchor.reason})`);
+        failures.push(`${runtimePath.id}: ${anchor.file}: unexpected active-path token(s) ${present.map((token) => formatToken(token)).join(', ')} (${anchor.reason})`);
       }
     }
   }

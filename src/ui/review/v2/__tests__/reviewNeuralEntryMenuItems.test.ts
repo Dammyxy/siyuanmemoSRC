@@ -79,6 +79,8 @@ describe('buildReviewNeuralEntryMenuItems', () => {
       'make-concept',
       'make-concept-and-add-to-queue',
     ]);
+    expect(items[2].submenu?.find((item) => item.id === 'make-concept-and-add-to-queue')?.label)
+      .toBe('制作为概念卡并加入当前航线');
   });
 
   it('shows existing concept-card actions without duplicate current-block temporary roam', () => {
@@ -95,6 +97,8 @@ describe('buildReviewNeuralEntryMenuItems', () => {
     expect(items[0].submenu?.map((item) => item.id)).toEqual(['temporary-concept-roam']);
     expect(items[1].submenu?.map((item) => item.id)).toEqual(['concept-card-and-roam']);
     expect(items[2].submenu?.map((item) => item.id)).toEqual(['add-existing-concept-to-queue']);
+    expect(items[1].submenu?.[0]?.label).toBe('加入神经漫游当前航线并立即漫游');
+    expect(items[2].submenu?.[0]?.label).toBe('加入神经漫游当前航线');
   });
 
   it('uses a concept-target submenu when multiple CDF targets exist', () => {

@@ -461,9 +461,9 @@ export class UnifiedDataSourceManager {
         return result;
     }
 
-    public async neuralRoamAdvance(
+    public readonly neuralRoamAdvance = async (
         request: BackendNeuralRoamAdvanceRequest,
-    ): Promise<BackendNeuralRoamAdvanceResult> {
+    ): Promise<BackendNeuralRoamAdvanceResult> => {
         const normalizedRequest: BackendNeuralRoamAdvanceRequest = {
             ...request,
             queueType: 'neural-roam',
@@ -513,11 +513,11 @@ export class UnifiedDataSourceManager {
         }
 
         return backend.neuralRoamAdvance(normalizedRequest);
-    }
+    };
 
-    public async readNeuralRoamViewState(
+    public readonly readNeuralRoamViewState = async (
         request: BackendNeuralRoamViewStateRequest = { queueType: 'neural-roam' },
-    ): Promise<BackendNeuralRoamViewStateResult> {
+    ): Promise<BackendNeuralRoamViewStateResult> => {
         const normalizedRequest: BackendNeuralRoamViewStateRequest = {
             ...request,
             queueType: 'neural-roam',
@@ -573,11 +573,11 @@ export class UnifiedDataSourceManager {
         }
 
         return backend.neuralRoamViewState(normalizedRequest);
-    }
+    };
 
-    public async neuralRoamCommand(
+    public readonly neuralRoamCommand = async (
         request: BackendNeuralRoamCommandRequest,
-    ): Promise<BackendNeuralRoamCommandResult> {
+    ): Promise<BackendNeuralRoamCommandResult> => {
         const normalizedRequest: BackendNeuralRoamCommandRequest = {
             ...request,
             queueType: 'neural-roam',
@@ -633,7 +633,7 @@ export class UnifiedDataSourceManager {
             };
         }
         return backend.neuralRoamCommand(normalizedRequest);
-    }
+    };
 
     private buildUnavailableNeuralRoamAdvanceResult(
         request: BackendNeuralRoamAdvanceRequest,

@@ -54,7 +54,7 @@ const ACTION_LABELS: Record<string, { fallback: string; key: string }> = {
   'add-to-incremental-queue-all': { key: 'addToIncrementalQueueAll', fallback: '渐进学习（含今日已复习）' },
   'add-to-final-drill-queue': { key: 'addToFinalDrillQueue', fallback: '刻意练习' },
   'add-to-filter-group-queue': { key: 'addToFilterGroupQueue', fallback: 'Filter Group Review' },
-  'add-to-neural-roam-queue': { key: 'addToNeuralRoamQueue', fallback: '神经漫游' },
+  'add-to-neural-roam-queue': { key: 'addToNeuralRoamQueue', fallback: '神经漫游当前航线' },
   'insert-at': { key: 'insertAt', fallback: 'Insert at' },
   'set-priority': { key: 'setPriority', fallback: 'Set Priority' },
   [PRIORITY_INCREASE_ACTION_ID]: { key: 'priorityPlus10', fallback: 'Priority +10' },

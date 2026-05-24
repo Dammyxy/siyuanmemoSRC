@@ -7,7 +7,7 @@ function createHandler(entryActionService: Record<string, ReturnType<typeof vi.f
   const handler = new BlockMenuHandler({
     app: {} as never,
     i18n: {
-      makeConceptAndAddToQueue: '制作为概念卡并加入队列',
+      makeConceptAndAddToQueue: '制作为概念卡并加入当前航线',
       makeConceptAndStartRoam: '制作为概念卡并立即漫游',
     },
     dialogManager: {} as never,
@@ -39,7 +39,7 @@ describe('BlockMenuHandler NeuralRoam entry actions', () => {
     }).buildConceptActions('block-1');
 
     expect(actions.map((action) => action.label)).toEqual([
-      '制作为概念卡并加入队列',
+      '制作为概念卡并加入当前航线',
       '制作为概念卡并立即漫游',
     ]);
 
@@ -48,7 +48,7 @@ describe('BlockMenuHandler NeuralRoam entry actions', () => {
 
     expect(entryActionService.makeConceptAndAddToQueue).toHaveBeenCalledWith('block-1', { priority: 'normal' });
     expect(entryActionService.makeConceptAndStartRoam).toHaveBeenCalledWith('block-1');
-    expect(pushMsg).toHaveBeenCalledWith('📍 已加入漫游队列');
-    expect(pushMsg).toHaveBeenCalledWith('🚀 已加入漫游队列（高优先级），正在打开神经漫游...');
+    expect(pushMsg).toHaveBeenCalledWith('📍 已加入神经漫游当前航线');
+    expect(pushMsg).toHaveBeenCalledWith('🚀 已加入神经漫游当前航线（高优先级），正在打开神经漫游...');
   });
 });

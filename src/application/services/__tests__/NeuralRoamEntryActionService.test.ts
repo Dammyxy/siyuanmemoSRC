@@ -42,6 +42,7 @@ function createService(options: {
   updateFSRSCard?: ReturnType<typeof vi.fn>;
   resolveBlockTitle?: ReturnType<typeof vi.fn>;
   promptTemporaryRouteClose?: ReturnType<typeof vi.fn>;
+  dataSourceManager?: Record<string, unknown>;
 } = {}) {
   const storedCard = options.storedCard ?? card({ type: CardType.Concept });
   const queue = 'queue' in options ? options.queue : {
@@ -66,7 +67,7 @@ function createService(options: {
       storage: { getCardByBlockId } as any,
       cardCreationHelper: { createConceptCard } as any,
       cardService: { updateFSRSCard } as any,
-      dataSourceManager: { getQueue, neuralRoamCommand } as any,
+      dataSourceManager: (options.dataSourceManager ?? { getQueue, neuralRoamCommand }) as any,
       siyuanApi: { BUILTIN_DECK_ID: 'deck', addRiffCards } as any,
       openNeuralRoamDialog,
       resolveBlockTitle: options.resolveBlockTitle,
@@ -142,7 +143,7 @@ function createNeuralRoamCommandRunner(queue: Record<string, unknown> | null | u
 }
 
 describe('NeuralRoamEntryActionService', () => {
-  it('adds an existing concept card to the NeuralRoam queue without creating a duplicate concept card', async () => {
+  it('adds an existing concept card to the NeuralRoam current route through backend command authority', async () => {
     const existingConcept = card({ id: 'concept-card', blockId: 'concept-block', type: CardType.Concept });
     const { service, queue, createConceptCard } = createService({ storedCard: existingConcept });
 
@@ -155,13 +156,13 @@ describe('NeuralRoamEntryActionService', () => {
       cardId: 'concept-card',
       queueChanged: true,
     });
-    expect(queue.addCard).toHaveBeenCalledWith(existingConcept, 'normal');
+    expect(queue.addCard).not.toHaveBeenCalled();
     expect(createConceptCard).not.toHaveBeenCalled();
   });
 
-  it('opens immediate concept roam from explicit concept focus with high-priority queue insertion', async () => {
+  it('adds a concept card and starts roam through backend command authority instead of local queue mutation', async () => {
     const concept = card({ id: 'concept-card', blockId: 'concept-block', type: CardType.Concept });
-    const { service, queue, openNeuralRoamDialog } = createService({ storedCard: concept });
+    const { service, queue, openNeuralRoamDialog, neuralRoamCommand, createConceptCard } = createService({ storedCard: concept });
 
     const result = await service.makeConceptAndStartRoam('concept-block');
 
@@ -172,7 +173,15 @@ describe('NeuralRoamEntryActionService', () => {
       conceptBlockId: 'concept-block',
       openedDialog: true,
     });
-    expect(queue.addCard).toHaveBeenCalledWith(concept, 'high');
+    expect(queue.addCard).not.toHaveBeenCalled();
+    expect(neuralRoamCommand).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: 'neural-roam',
+      command: expect.objectContaining({
+        type: 'set-sources',
+        nodeIds: ['concept-block'],
+      }),
+    }));
+    expect(createConceptCard).not.toHaveBeenCalled();
     expect(queue.setEngineMode).toHaveBeenCalledWith('orbit', { carryCurrentNode: true });
     expect(openNeuralRoamDialog).toHaveBeenCalledWith(expect.objectContaining({
       focusBlockId: 'concept-block',
@@ -182,6 +191,68 @@ describe('NeuralRoamEntryActionService', () => {
       startNewSession: true,
       entrySessionKind: 'concept-card-roam',
     }));
+  });
+
+  it('returns explicit current-route failure instead of throwing when backend sync fails', async () => {
+    const queue = {
+      addCard: vi.fn(async () => undefined),
+      syncFromBackendState: vi.fn(async () => {
+        throw new Error('sync failed');
+      }),
+      setBackendViewState: vi.fn(),
+    };
+    const { service } = createService({ queue });
+
+    const result = await service.addConceptBlocksToCurrentRoute(['concept-block'], {
+      source: 'browser',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'failed',
+      blockIds: ['concept-block'],
+      added: 0,
+      message: '神经漫游当前航线不可用',
+    });
+  });
+
+  it('keeps UnifiedDataSourceManager method context when adding concept blocks to the current route', async () => {
+    const queue = {
+      syncFromBackendState: vi.fn(async () => undefined),
+      setBackendViewState: vi.fn(),
+    };
+    const dataSourceManager = {
+      calls: [] as BackendNeuralRoamCommandRequest[],
+      getQueue: vi.fn(() => queue),
+      async neuralRoamCommand(request: BackendNeuralRoamCommandRequest): Promise<BackendNeuralRoamCommandResult> {
+        this.calls.push(request);
+        return {
+          queueType: 'neural-roam',
+          status: 'ok',
+          viewState: null as never,
+          queueState: { version: 8 },
+          unavailableReason: null,
+          message: null,
+        };
+      },
+    };
+    const { service } = createService({ dataSourceManager });
+
+    const result = await service.addConceptBlocksToCurrentRoute(['concept-block'], {
+      source: 'browser',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      status: 'ok',
+      blockIds: ['concept-block'],
+      added: 1,
+    });
+    expect(dataSourceManager.calls).toHaveLength(1);
+    expect(dataSourceManager.calls[0]?.command).toMatchObject({
+      type: 'set-sources',
+      nodeIds: ['concept-block'],
+    });
   });
 
   it('establishes a station without opening NeuralRoam', async () => {

@@ -63,9 +63,12 @@ describe('MenuActions.addToQueue neural-roam', () => {
     expect(queue.addCard).not.toHaveBeenCalled();
   });
 
-  it('passes trusted concept payload when adding concept card to neural-roam queue', async () => {
+  it('passes trusted concept ids to the shared current-route add service', async () => {
     const queue = {
-      addCard: vi.fn(async () => undefined),
+      addConceptBlocksToCurrentRoute: vi.fn(async () => ({
+        added: 1,
+        message: '已将 1 张 Concept 卡片加入神经漫游当前航线',
+      })),
     };
     const selectedRows: BrowserCard[] = [
       createBrowserCard({
@@ -78,19 +81,13 @@ describe('MenuActions.addToQueue neural-roam', () => {
     const result = await addToQueue(queue, selectedRows, 'neural-roam', 'manual');
 
     expect(result.added).toBe(1);
-    expect(queue.addCard).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'block-1',
-        blockId: 'block-1',
-        type: 'concept',
-        cardType: 'concept',
-        cardTypeMarker: 'concept',
-      }),
-      'manual'
-    );
+    expect(queue.addConceptBlocksToCurrentRoute).toHaveBeenCalledWith(['block-1'], {
+      source: 'manual',
+      enabled: true,
+    });
   });
 
-  it('rejects non-concept card before queue add for neural-roam', async () => {
+  it('returns current-route unavailable when the shared service is missing', async () => {
     const queue = {
       addCard: vi.fn(async () => undefined),
     };
@@ -106,6 +103,6 @@ describe('MenuActions.addToQueue neural-roam', () => {
 
     expect(result.added).toBe(0);
     expect(queue.addCard).not.toHaveBeenCalled();
-    expect(result.message).toBe('神经漫游队列只接受 Concept 卡片');
+    expect(result.message).toBe('神经漫游当前航线不可用');
   });
 });

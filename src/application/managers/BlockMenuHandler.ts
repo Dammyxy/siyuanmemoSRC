@@ -624,7 +624,7 @@ export class BlockMenuHandler {
     return [
       {
         icon: 'iconMark',
-        label: this.deps.i18n?.makeConceptAndAddToQueue || '📍 制作为概念卡并加入队列',
+        label: this.deps.i18n?.makeConceptAndAddToQueue || '📍 制作为概念卡并加入当前航线',
         click: async () => {
           await this.makeConceptAndAddToRoam(blockId, 'normal');
         },
@@ -1590,9 +1590,9 @@ export class BlockMenuHandler {
       }
 
       if (priority === 'high') {
-        await this.siyuanApi.pushMsg('🚀 已加入漫游队列（高优先级），正在打开神经漫游...');
+        await this.siyuanApi.pushMsg('🚀 已加入神经漫游当前航线（高优先级），正在打开神经漫游...');
       } else {
-        await this.siyuanApi.pushMsg('📍 已加入漫游队列');
+        await this.siyuanApi.pushMsg('📍 已加入神经漫游当前航线');
       }
 
       logger.info(`[BlockMenuHandler] Added concept card to neural roam: ${blockId} (priority: ${priority})`);

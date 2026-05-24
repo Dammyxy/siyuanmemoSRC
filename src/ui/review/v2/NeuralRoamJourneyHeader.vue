@@ -707,6 +707,7 @@ const actionButtons = computed<ToolbarButton[]>(() => [
 
 .siyuanmemo-neural-journey__popover {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
   margin: 0 10px 10px;
   padding: 10px;
@@ -750,6 +751,7 @@ const actionButtons = computed<ToolbarButton[]>(() => [
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-height: 0;
   min-width: 0;
 }
 
@@ -763,6 +765,13 @@ const actionButtons = computed<ToolbarButton[]>(() => [
 .siyuanmemo-neural-journey__track-list {
   display: grid;
   gap: 6px;
+  max-height: clamp(140px, 30vh, 280px);
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  scrollbar-gutter: stable;
 }
 
 .siyuanmemo-neural-journey__track-item {
@@ -956,6 +965,10 @@ const actionButtons = computed<ToolbarButton[]>(() => [
 
 .siyuanmemo-neural-journey--mobile .siyuanmemo-neural-journey__popover-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.siyuanmemo-neural-journey--mobile .siyuanmemo-neural-journey__track-list {
+  max-height: min(42vh, 240px);
 }
 
 .siyuanmemo-neural-journey--mobile .siyuanmemo-neural-journey__track-item {

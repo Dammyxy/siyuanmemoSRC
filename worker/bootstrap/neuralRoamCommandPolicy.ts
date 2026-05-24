@@ -29,6 +29,7 @@ export interface WorkerNeuralRoamCommandQueue {
     routeId: string | null;
     name: string | null;
   }) => Promise<unknown>;
+  setSourceEntries?: (nodeIds: string[], enabled: boolean) => Promise<void>;
   setSourceEntry?: (nodeId: string, enabled: boolean) => Promise<void>;
   setAnchorEntry?: (nodeId: string, enabled: boolean) => Promise<void>;
   setCurrentFocus?: (nodeId: string, options: {
@@ -107,6 +108,21 @@ export async function applyWorkerNeuralRoamCommand(
         name: command.name ?? null,
       });
       return;
+    case 'set-sources': {
+      const uniqueNodeIds = normalizeUniqueNodeIds(command.nodeIds);
+      if (uniqueNodeIds.length === 0) {
+        return;
+      }
+      if (typeof queue.setSourceEntries === 'function') {
+        await queue.setSourceEntries(uniqueNodeIds, command.enabled !== false);
+        return;
+      }
+      const setSourceEntry = requireCommandMethod(queue.setSourceEntry, 'setSourceEntry');
+      for (const nodeId of uniqueNodeIds) {
+        await setSourceEntry.call(queue, nodeId, command.enabled !== false);
+      }
+      return;
+    }
     case 'set-source':
       await requireCommandMethod(queue.setSourceEntry, 'setSourceEntry').call(queue, command.nodeId, command.enabled !== false);
       return;
@@ -143,4 +159,12 @@ function requireCommandMethod<TMethod extends (...args: never[]) => unknown>(
     throw new Error(`NeuralRoam command queue method is unavailable: ${name}`);
   }
   return method;
+}
+
+function normalizeUniqueNodeIds(nodeIds: readonly unknown[]): string[] {
+  return Array.from(new Set(
+    nodeIds
+      .map((nodeId) => String(nodeId || '').trim())
+      .filter((nodeId) => nodeId.length > 0),
+  ));
 }

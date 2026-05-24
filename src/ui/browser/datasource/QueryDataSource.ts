@@ -41,6 +41,7 @@ import {
   buildTemplateBackedBrowserRowFromCard,
 } from '@/types/memory-content-payload-seam';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
+import type { NeuralRoamEntryActionService } from '@/application/services/NeuralRoamEntryActionService';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('QueryDataSource');
@@ -69,9 +70,13 @@ type BrowserServiceContextLike = {
 };
 
 type QueryPluginLike = Omit<MenuActionPluginLike, 'context' | 'getContext'> & {
-  context?: NonNullable<MenuActionPluginLike['context']> & I18nContextLike & BrowserServiceContextLike;
-  getContext?: () => (NonNullable<MenuActionPluginLike['context']> & I18nContextLike & BrowserServiceContextLike) | undefined;
+  context?: NonNullable<MenuActionPluginLike['context']> & I18nContextLike & BrowserServiceContextLike & QueryPluginContextLike;
+  getContext?: () => (NonNullable<MenuActionPluginLike['context']> & I18nContextLike & BrowserServiceContextLike & QueryPluginContextLike) | undefined;
   i18n?: Record<string, string>;
+};
+
+type QueryPluginContextLike = {
+  getNeuralRoamEntryActionService?: () => Pick<NeuralRoamEntryActionService, 'addConceptBlocksToCurrentRoute'> | null | undefined;
 };
 
 type QueryDataSourceBatchManager = {
@@ -343,7 +348,10 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
   }
 
   private async handleQueueAddAction(route: QueueAddRoute, selectedRows: BrowserActionTarget[]): Promise<unknown> {
-    const queueTarget = this.manager && typeof this.manager.batchAddToQueue === 'function'
+    const source = route.actionType === 'neural-roam' ? 'browser' : route.source ?? 'manual';
+    const queueTarget = route.actionType === 'neural-roam'
+      ? this.getNeuralRoamEntryActionService()
+      : this.manager && typeof this.manager.batchAddToQueue === 'function'
       ? {
           addCards: (
             cards: unknown[],
@@ -355,7 +363,7 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
           ),
         }
       : this.manager?.getQueue(route.queueType);
-    const result = await addToQueue(queueTarget, selectedRows, route.actionType, route.source ?? 'manual');
+    const result = await addToQueue(queueTarget, selectedRows, route.actionType, source);
     this.invalidateQuerySession();
     return result;
   }
@@ -432,6 +440,11 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
     return this.siyuanApi
       ?? this.plugin?.getContext?.()?.getBrowserService?.()?.getSiyuanApi?.()
       ?? null;
+  }
+
+  private getNeuralRoamEntryActionService(): Pick<NeuralRoamEntryActionService, 'addConceptBlocksToCurrentRoute'> | null {
+    const context = this.plugin?.getContext?.();
+    return context?.getNeuralRoamEntryActionService?.() ?? null;
   }
 
   private buildQueryFingerprint(sortModel: SortModel[]): string {

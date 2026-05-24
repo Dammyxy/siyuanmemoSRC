@@ -1,8 +1,48 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-24 (Round 451)
+Last update: 2026-05-24 (Round 452)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-24 - NeuralRoam Journey Header Track Scroll
+
+- Task: Keep NeuralRoam expanded header statistic cards fixed while long orbit/hyperspace node tracks scroll internally.
+- Touched slice: Review UI JourneyHeader; `src/ui/review/v2/NeuralRoamJourneyHeader.vue` and focused SFC regression coverage.
+- Debt fixed now: The expanded header now constrains only `.siyuanmemo-neural-journey__track-list` with an internal scroll container, while the statistic grid remains outside that scroll area; mobile gets its own height cap.
+- Debt deferred: No live SiYuan desktop screenshot smoke was added in this patch.
+- Why deferred: The change is a scoped SFC layout fix with deterministic CSS regression coverage; live plugin visual smoke needs a running SiYuan review session and is better done manually against the user's screenshot scenario.
+- Next safe step: In a real review session with a long orbit/hyperspace route, expand the header and confirm the node list scrolls while statistic cards remain visible.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/NeuralRoamJourneyHeader.spec.ts`; `pnpm build`.
+
+### 2026-05-24 - NeuralRoam Current-Route Manager Context Binding
+
+- Task: Fix Browser and BlockMenu current-route add failures caused by `UnifiedDataSourceManager` NeuralRoam port methods losing their instance context.
+- Touched slice: `src/application/services/NeuralRoamEntryActionService.ts` and focused service regression coverage.
+- Debt fixed now: `UnifiedDataSourceManager.neuralRoamAdvance()`, `readNeuralRoamViewState()`, and `neuralRoamCommand()` are now bound instance functions, so extracted NeuralRoam port calls keep `this.resolvePluginContext()` intact; `NeuralRoamEntryActionService` also keeps invoking the manager as an object method.
+- Debt deferred: No broader command-adapter redesign; existing bound call sites in `DialogManager` and `TabManager` stay as-is.
+- Why deferred: The runtime defect was the unbound manager method in the shared entry-action service. Other searched call sites already bind or wrap commands.
+- Next safe step: If another entry action receives a manager method, prefer an application port with bound methods over storing raw class methods.
+- Validation: `pnpm vitest run src/application/services/__tests__/NeuralRoamEntryActionService.test.ts`; `pnpm vitest run src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts src/application/services/__tests__/NeuralRoamEntryActionService.test.ts`; `pnpm vitest run src/application/services/__tests__/NeuralRoamEntryActionService.test.ts src/ui/browser/datasource/__tests__/MenuActions.neural-roam.test.ts src/ui/browser/datasource/__tests__/DeckDataSource.neural-add-card-type-consistency.test.ts src/ui/browser/datasource/__tests__/QueryDataSource.queryable.test.ts src/application/managers/__tests__/BlockMenuHandler.neural-entry-actions.test.ts`.
+
+### 2026-05-24 - NeuralRoam Current-Route Add Exception Closure
+
+- Task: Stop Browser current-route add from bubbling service exceptions back into `MenuActions` as a generic queue-unavailable warn.
+- Touched slice: `src/application/services/NeuralRoamEntryActionService.ts`, focused service regression coverage, and the Browser current-route add path that consumes the shared service.
+- Debt fixed now: `addConceptBlocksToCurrentRoute()` now catches backend/sync exceptions and returns an explicit current-route failure result instead of rejecting the Browser action promise, so Browser right-click add no longer falls into the generic `MenuActions` catch path.
+- Debt deferred: The Browser action layer still relies on the shared service to report explicit failure/unavailable results; it does not yet add a separate retry policy for transient backend errors.
+- Why deferred: The active bug was the exception leak, not retry orchestration. Keeping the failure explicit is enough for the current Browser path.
+- Next safe step: If more transient failures show up, add a dedicated retry or diagnostics policy around the shared service result rather than reintroducing local queue fallbacks.
+- Validation: `pnpm vitest run src/application/services/__tests__/NeuralRoamEntryActionService.test.ts src/ui/browser/datasource/__tests__/MenuActions.neural-roam.test.ts`; `pnpm vitest run src/ui/browser/datasource/__tests__/DeckDataSource.neural-add-card-type-consistency.test.ts src/ui/browser/datasource/__tests__/QueryDataSource.queryable.test.ts`.
+
+### 2026-05-24 - NeuralRoam Current-Route Add Entry Unification
+
+- Task: Unify Browser, Review, and block-menu NeuralRoam entry actions behind one current-route add path and stop treating the renderer queue as the authority for these add flows.
+- Touched slice: Browser datasource add actions, Review neural entry menu, BlockMenu concept add/start, `NeuralRoamEntryActionService`, backend `set-sources` contract/policy, `NeuralRoamQueue` source-entry mutation, and current-route wording / docs.
+- Debt fixed now: `add-to-neural-roam-queue` and the Review/BlockMenu concept add actions now route through `NeuralRoamEntryActionService.addConceptBlocksToCurrentRoute()` and backend `set-sources`; the backend batch command normalizes duplicate node ids, validates route mismatch, and updates the active route state; Browser `neural-roam` add flows now return explicit unavailable when the shared service is missing instead of falling back to local queue mutation.
+- Debt deferred: Other runtime `queue.addCard()` / `queue.addCards()` callers still exist in unrelated queue paths, core worker/domain behavior, and test helpers; this change intentionally did not try to remove the queue API globally.
+- Why deferred: The accepted scope was the NeuralRoam entry-action family. Global queue API removal needs a separate classification pass so unrelated queue mutations are not broken in the same sweep.
+- Next safe step: Classify the remaining runtime callers by bounded context and only then decide whether any broader queue API cleanup is worth doing.
+- Validation: `pnpm vitest run src/application/services/__tests__/NeuralRoamEntryActionService.test.ts src/ui/browser/datasource/__tests__/MenuActions.neural-roam.test.ts src/ui/browser/datasource/__tests__/DeckDataSource.neural-add-card-type-consistency.test.ts src/ui/browser/datasource/__tests__/QueryDataSource.queryable.test.ts src/ui/review/v2/__tests__/reviewNeuralEntryMenuItems.test.ts src/application/managers/__tests__/BlockMenuHandler.neural-entry-actions.test.ts`; `pnpm vitest run worker/bootstrap/__tests__/WorkerNeuralRoamRuntimeModules.test.ts`; `openspec validate unify-neural-roam-current-route-add --strict`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-24 - Review NeuralRoam Engine Command Boundary
 

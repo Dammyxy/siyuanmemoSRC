@@ -69,6 +69,32 @@ describe('check-backend-runtime-paths', () => {
     ]));
   });
 
+  it('accepts bound neural-roam manager ports', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/application/services/UnifiedDataSourceManager.ts', `
+      export class UnifiedDataSourceManager {
+        public readonly neuralRoamAdvance = async () => undefined;
+      }
+    `);
+
+    const failures = evaluate({
+      rootDir,
+      runtimePaths: [{
+        id: 'neural-roam-advance',
+        status: 'active',
+        anchors: [{
+          file: 'src/application/services/UnifiedDataSourceManager.ts',
+          tokens: [
+            /public\s+(?:readonly\s+)?(?:async\s+neuralRoamAdvance|neuralRoamAdvance\s*=\s*async)/,
+          ],
+          reason: 'neural roam advance must be exposed as a stable callable port',
+        }],
+      }],
+    });
+
+    expect(failures).toEqual([]);
+  });
+
   it('fails when a deferred foundation is wired as active runtime without updating the path contract', () => {
     const rootDir = createFixtureRoot();
     writeFile(rootDir, 'src/application/ApplicationContext.ts', `

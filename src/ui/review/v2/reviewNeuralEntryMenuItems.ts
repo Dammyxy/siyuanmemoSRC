@@ -137,9 +137,9 @@ export function buildReviewNeuralEntryMenuItems(input: BuildReviewNeuralEntryMen
           ? {
               id: 'concept-card-and-roam',
               icon: 'iconPlay',
-              label: t('addConceptToNeuralQueueAndRoam', '加入神经漫游队列并立即漫游'),
+              label: t('addConceptToNeuralQueueAndRoam', '加入神经漫游当前航线并立即漫游'),
               click: () => runAction(
-                t('addConceptToNeuralQueueAndRoam', '加入神经漫游队列并立即漫游'),
+                t('addConceptToNeuralQueueAndRoam', '加入神经漫游当前航线并立即漫游'),
                 () => entryActionService.makeConceptAndStartRoam?.(blockId),
               ),
             }
@@ -176,9 +176,9 @@ export function buildReviewNeuralEntryMenuItems(input: BuildReviewNeuralEntryMen
           ? {
               id: 'add-existing-concept-to-queue',
               icon: 'iconRiffCard',
-              label: t('addToNeuralRoamQueue', '加入神经漫游队列'),
+              label: t('addToNeuralRoamQueue', '加入神经漫游当前航线'),
               click: () => runAction(
-                t('addToNeuralRoamQueue', '加入神经漫游队列'),
+                t('addToNeuralRoamQueue', '加入神经漫游当前航线'),
                 () => entryActionService.addExistingConceptToQueue?.(blockId),
               ),
             }
@@ -211,9 +211,9 @@ export function buildReviewNeuralEntryMenuItems(input: BuildReviewNeuralEntryMen
           ? {
               id: 'make-concept-and-add-to-queue',
               icon: 'iconRiffCard',
-              label: t('makeConceptCardAndAddToQueue', '制作为概念卡并加入队列'),
+              label: t('makeConceptCardAndAddToQueue', '制作为概念卡并加入当前航线'),
               click: () => runAction(
-                t('makeConceptCardAndAddToQueue', '制作为概念卡并加入队列'),
+                t('makeConceptCardAndAddToQueue', '制作为概念卡并加入当前航线'),
                 () => entryActionService.makeConceptAndAddToQueue?.(blockId),
               ),
             }

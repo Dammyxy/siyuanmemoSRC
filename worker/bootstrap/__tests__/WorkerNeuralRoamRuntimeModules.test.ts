@@ -114,6 +114,17 @@ describe('Worker NeuralRoam runtime modules', () => {
       message: 'NeuralRoam command route is no longer active',
     });
 
+    const staleBatchSourceCommand: BackendNeuralRoamCommand = {
+      type: 'set-sources',
+      nodeIds: ['source-a'],
+      enabled: true,
+      routeId: 'route-old',
+    };
+    expect(resolveWorkerNeuralRoamCommandRouteMismatch(staleBatchSourceCommand, 'route-new')).toEqual({
+      reason: 'route-mismatch',
+      message: 'NeuralRoam command route is no longer active',
+    });
+
     const switchRoute: BackendNeuralRoamCommand = {
       type: 'switch-route',
       routeId: 'route-old',
@@ -148,6 +159,27 @@ describe('Worker NeuralRoam runtime modules', () => {
       resetHistory: true,
       bookmarkCurrentPath: true,
     });
+  });
+
+  it('applies batch source route commands with duplicate normalization and explicit remove', async () => {
+    const queue = {
+      setSourceEntries: vi.fn(async () => undefined),
+    };
+
+    await applyWorkerNeuralRoamCommand(queue, {
+      type: 'set-sources',
+      nodeIds: ['source-a', 'source-a', '', 'source-b'],
+      routeId: 'route-a',
+    });
+    await applyWorkerNeuralRoamCommand(queue, {
+      type: 'set-sources',
+      nodeIds: ['source-b'],
+      enabled: false,
+      routeId: 'route-a',
+    });
+
+    expect(queue.setSourceEntries).toHaveBeenNthCalledWith(1, ['source-a', 'source-b'], true);
+    expect(queue.setSourceEntries).toHaveBeenNthCalledWith(2, ['source-b'], false);
   });
 
   it('builds backend view-state with route counters and progress semantics', async () => {

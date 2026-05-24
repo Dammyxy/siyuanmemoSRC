@@ -1688,6 +1688,7 @@ export type BackendNeuralRoamCommand =
   | { type: 'replace-active-temporary-route'; name?: string | null; seedBlockId: string }
   | { type: 'save-temporary-route'; routeId?: string | null; name?: string | null }
   | { type: 'close-temporary-route'; action: 'save' | 'discard' | 'cancel'; routeId?: string | null; name?: string | null }
+  | { type: 'set-sources'; nodeIds: string[]; enabled?: boolean; routeId?: string | null }
   | { type: 'set-source'; nodeId: string; enabled?: boolean; routeId?: string | null }
   | { type: 'set-anchor'; nodeId: string; enabled?: boolean; routeId?: string | null }
   | { type: 'set-current-focus'; nodeId: string; includeFocusAsFirst?: boolean; resetHistory?: boolean; bookmarkCurrentPath?: boolean; routeId?: string | null }

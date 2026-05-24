@@ -2036,6 +2036,24 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     await this.save();
   }
 
+  public async setSourceEntries(nodeIds: string[], enabled = true): Promise<void> {
+    await this.ensureInitialLoad();
+    await this.syncActiveRouteStateIfChanged();
+    const uniqueNodeIds = Array.from(new Set(
+      nodeIds
+        .map((nodeId) => String(nodeId || '').trim())
+        .filter((nodeId) => nodeId.length > 0),
+    ));
+    if (uniqueNodeIds.length === 0) {
+      return;
+    }
+    for (const nodeId of uniqueNodeIds) {
+      await this.conceptQueue.setSeedEntry(nodeId, enabled);
+      await this.hyperspaceEngine.setSourceEntry(nodeId, enabled);
+    }
+    await this.save();
+  }
+
   public async injectExcerptIntoHyperspace(
     excerptNodeId: string,
     context: HyperspaceExcerptInjectionContext = {},

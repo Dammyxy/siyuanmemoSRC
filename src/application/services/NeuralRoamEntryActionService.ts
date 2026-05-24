@@ -20,9 +20,29 @@ type EntryActionFailureCode =
   | 'concept-update-failed'
   | 'concept-card-unavailable'
   | 'queue-unavailable'
+  | 'route-mismatch'
+  | 'command-failed'
   | 'dialog-unavailable'
   | 'temporary-route-dirty'
   | 'unexpected-error';
+
+export type NeuralRoamCurrentRouteAddStatus =
+  | 'ok'
+  | 'skipped'
+  | 'unavailable'
+  | 'mismatch'
+  | 'failed';
+
+export type NeuralRoamCurrentRouteAddResult = {
+  ok: boolean;
+  status: NeuralRoamCurrentRouteAddStatus;
+  blockIds: string[];
+  added: number;
+  skipped: number;
+  routeId: string | null;
+  message: string;
+  error?: unknown;
+};
 
 export type NeuralRoamEntryActionKind =
   | 'make-concept'
@@ -70,7 +90,7 @@ export interface NeuralRoamEntryActionServiceDeps {
   storage: Pick<StorageManager, 'getCardByBlockId'>;
   cardCreationHelper: Pick<CardCreationHelper, 'createConceptCard'>;
   cardService: Pick<CardApplicationService, 'updateFSRSCard'>;
-  dataSourceManager: Pick<IUnifiedDataSourceManagerFacade, 'getQueue' | 'neuralRoamCommand'>;
+  dataSourceManager: Pick<IUnifiedDataSourceManagerFacade, 'getQueue' | 'neuralRoamCommand' | 'readNeuralRoamViewState'>;
   siyuanApi: Pick<ManagerSiyuanPort, 'BUILTIN_DECK_ID' | 'addRiffCards'>;
   openNeuralRoamDialog: (options?: NeuralRoamOpenOptions) => Promise<void>;
   waitForConceptVisible?: (blockId: string) => Promise<boolean>;
@@ -80,6 +100,7 @@ export interface NeuralRoamEntryActionServiceDeps {
 
 type NeuralRoamEntryQueue = {
   addCard?(card: FSRSCard | string, priority?: 'normal' | 'high'): Promise<void>;
+  getActiveRouteId?(): string | null;
   setSeedEntry?(nodeId: string, enabled?: boolean): Promise<void>;
   setAnchorEntry?(nodeId: string, enabled?: boolean): Promise<void>;
   getEngineMode?(): NeuralEngineMode;
@@ -143,19 +164,26 @@ export class NeuralRoamEntryActionService {
       return concept;
     }
 
-    const queue = this.getNeuralQueue();
-    if (!queue?.addCard) {
-      return this.fail('make-concept-and-add-to-queue', 'queue-unavailable', '神经漫游队列不可用', normalizedBlockId);
+    const added = await this.addConceptBlocksToCurrentRoute([normalizedBlockId], {
+      priority,
+      source: 'block-menu',
+    });
+    if (!added.ok) {
+      return this.fail(
+        'make-concept-and-add-to-queue',
+        this.mapCurrentRouteAddFailureCode(added.status),
+        added.message,
+        normalizedBlockId,
+        added.error,
+      );
     }
-
-    await queue.addCard(concept.card ?? normalizedBlockId, priority);
     return {
       ok: true,
       action: 'make-concept-and-add-to-queue',
       blockId: normalizedBlockId,
       conceptBlockId: normalizedBlockId,
       cardId: concept.card?.id,
-      queueChanged: true,
+      queueChanged: added.added > 0,
     };
   }
 
@@ -203,20 +231,92 @@ export class NeuralRoamEntryActionService {
       return this.fail('add-existing-concept-to-queue', 'concept-card-unavailable', '当前块不是概念卡', normalizedBlockId);
     }
 
-    const queue = this.getNeuralQueue();
-    if (!queue?.addCard) {
-      return this.fail('add-existing-concept-to-queue', 'queue-unavailable', '神经漫游队列不可用', normalizedBlockId);
+    const added = await this.addConceptBlocksToCurrentRoute([normalizedBlockId], {
+      source: 'review',
+    });
+    if (!added.ok) {
+      return this.fail(
+        'add-existing-concept-to-queue',
+        this.mapCurrentRouteAddFailureCode(added.status),
+        added.message,
+        normalizedBlockId,
+        added.error,
+      );
     }
-
-    await queue.addCard(card, 'normal');
     return {
       ok: true,
       action: 'add-existing-concept-to-queue',
       blockId: normalizedBlockId,
       conceptBlockId: normalizedBlockId,
       cardId: card.id,
-      queueChanged: true,
+      queueChanged: added.added > 0,
     };
+  }
+
+  async addConceptBlocksToCurrentRoute(
+    blockIds: string[],
+    options: {
+      enabled?: boolean;
+      priority?: 'normal' | 'high';
+      source?: 'browser' | 'review' | 'block-menu';
+      routeId?: string | null;
+    } = {},
+  ): Promise<NeuralRoamCurrentRouteAddResult> {
+    const normalizedBlockIds = Array.from(new Set(
+      blockIds
+        .map((blockId) => this.normalizeBlockId(blockId))
+        .filter((blockId) => blockId.length > 0),
+    ));
+    if (normalizedBlockIds.length === 0) {
+      return {
+        ok: true,
+        status: 'skipped',
+        blockIds: [],
+        added: 0,
+        skipped: 0,
+        routeId: null,
+        message: '没有可加入的 Concept 卡片',
+      };
+    }
+
+    const routeId = options.routeId ?? await this.resolveCurrentRouteId();
+    try {
+      const result = await this.runBackendCommand({
+        type: 'set-sources',
+        nodeIds: normalizedBlockIds,
+        enabled: options.enabled !== false,
+        routeId: routeId ?? undefined,
+      });
+      if (!result) {
+        return this.buildCurrentRouteAddUnavailableResult(normalizedBlockIds, routeId, '神经漫游当前航线不可用');
+      }
+      if (result.status !== 'ok') {
+        return this.buildCurrentRouteAddFailureResult(normalizedBlockIds, routeId, result.status, result.message, result);
+      }
+      await this.syncQueueFromBackendResult(result);
+      const resolvedRouteId = result.viewState?.route?.id ?? routeId;
+      const addedCount = normalizedBlockIds.length;
+      const message = options.enabled === false
+        ? `已从神经漫游当前航线移除 ${addedCount} 张 Concept 卡片`
+        : `已将 ${addedCount} 张 Concept 卡片加入神经漫游当前航线`;
+      return {
+        ok: true,
+        status: 'ok',
+        blockIds: normalizedBlockIds,
+        added: options.enabled === false ? 0 : addedCount,
+        skipped: 0,
+        routeId: resolvedRouteId ?? null,
+        message,
+      };
+    } catch (error) {
+      return this.buildCurrentRouteAddFailureResult(
+        normalizedBlockIds,
+        routeId,
+        'failed',
+        '神经漫游当前航线不可用',
+        error,
+      );
+    }
   }
 
   async establishStation(blockId: string): Promise<NeuralRoamEntryActionResult> {
@@ -477,12 +577,30 @@ export class NeuralRoamEntryActionService {
     return this.deps.dataSourceManager.getQueue(QueueType.NeuralRoam) as unknown as NeuralRoamEntryQueue | null;
   }
 
+  private async resolveCurrentRouteId(): Promise<string | null> {
+    const dataSourceManager = this.deps.dataSourceManager;
+    if (typeof dataSourceManager.readNeuralRoamViewState === 'function') {
+      try {
+        const result = await dataSourceManager.readNeuralRoamViewState({ queueType: 'neural-roam' });
+        if (result.status === 'ready') {
+          const routeId = this.normalizeBlockId(result.viewState.route.id);
+          if (routeId) {
+            return routeId;
+          }
+        }
+      } catch {
+        // fallback below
+      }
+    }
+    return this.getNeuralQueue()?.getActiveRouteId?.() ?? null;
+  }
+
   private async runBackendCommand(command: BackendNeuralRoamCommandRequest['command']): Promise<BackendNeuralRoamCommandResult | null> {
-    const runner = this.deps.dataSourceManager.neuralRoamCommand;
-    if (typeof runner !== 'function') {
+    const dataSourceManager = this.deps.dataSourceManager;
+    if (typeof dataSourceManager.neuralRoamCommand !== 'function') {
       return null;
     }
-    return runner({
+    return dataSourceManager.neuralRoamCommand({
       queueType: 'neural-roam',
       command,
     });
@@ -497,6 +615,52 @@ export class NeuralRoamEntryActionService {
       await (queue as { syncFromBackendState: (state: Record<string, unknown>) => Promise<void> }).syncFromBackendState(result.queueState);
     }
     queue?.setBackendViewState?.(result.viewState ?? null);
+  }
+
+  private buildCurrentRouteAddUnavailableResult(
+    blockIds: string[],
+    routeId: string | null,
+    message: string,
+  ): NeuralRoamCurrentRouteAddResult {
+    return {
+      ok: false,
+      status: 'unavailable',
+      blockIds,
+      added: 0,
+      skipped: blockIds.length,
+      routeId,
+      message,
+    };
+  }
+
+  private buildCurrentRouteAddFailureResult(
+    blockIds: string[],
+    routeId: string | null,
+    status: Exclude<BackendNeuralRoamCommandResult['status'], 'ok'>,
+    message: string,
+    error?: unknown,
+  ): NeuralRoamCurrentRouteAddResult {
+    const normalizedStatus: NeuralRoamCurrentRouteAddStatus = status === 'mismatch' ? 'mismatch' : 'failed';
+    return {
+      ok: false,
+      status: normalizedStatus,
+      blockIds,
+      added: 0,
+      skipped: blockIds.length,
+      routeId,
+      message,
+      error,
+    };
+  }
+
+  private mapCurrentRouteAddFailureCode(status: NeuralRoamCurrentRouteAddStatus): EntryActionFailureCode {
+    if (status === 'mismatch') {
+      return 'route-mismatch';
+    }
+    if (status === 'unavailable') {
+      return 'queue-unavailable';
+    }
+    return 'command-failed';
   }
 
   private isConceptCard(card: FSRSCard): boolean {

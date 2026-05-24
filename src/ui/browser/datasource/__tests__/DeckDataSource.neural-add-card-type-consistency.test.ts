@@ -133,32 +133,44 @@ describe('DeckDataSource neural-roam card type consistency', () => {
       blockId: 'block-2',
       cardType: 'concept',
     });
+    const addConceptBlocksToCurrentRoute = vi.fn(async () => ({
+      ok: true,
+      status: 'ok',
+      blockIds: ['block-2'],
+      added: 1,
+      skipped: 0,
+      routeId: 'route-current',
+      message: '已将 1 张 Concept 卡片加入神经漫游当前航线',
+    }));
     const deps: CardTypeConsistencyDependencies = {
       detectTypes: vi.fn(async () => new Map()),
     };
     const ctx = createManager({
       cards: [buildFsrsCard({ id: 'card-2', blockId: 'block-2', type: 'item' })],
     });
+    const plugin = {
+      getContext: () => ({
+        getNeuralRoamEntryActionService: () => ({
+          addConceptBlocksToCurrentRoute,
+        }),
+      }),
+    };
 
     const ds = new DeckDataSource(
       ctx.manager,
       { preset: 'all' },
-      undefined,
+      plugin as never,
       { cardTypeConsistencyDeps: deps }
     );
 
     const result = await ds.performAction('add-to-neural-roam-queue', [selectedRow]) as { added: number; message: string };
 
     expect(result.added).toBe(1);
-    expect(ctx.queueAddCard).toHaveBeenCalledTimes(1);
-    expect(ctx.queueAddCard).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'block-2',
-        blockId: 'block-2',
-        type: 'concept',
-      }),
-      'manual'
-    );
+    expect(addConceptBlocksToCurrentRoute).toHaveBeenCalledWith(['block-2'], {
+      source: 'browser',
+      enabled: true,
+    });
+    expect(ctx.queueAddCard).not.toHaveBeenCalled();
     expect(deps.detectTypes).not.toHaveBeenCalled();
     expect(ctx.updateCard).not.toHaveBeenCalled();
   });

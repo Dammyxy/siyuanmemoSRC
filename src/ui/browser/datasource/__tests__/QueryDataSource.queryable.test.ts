@@ -373,6 +373,8 @@ describe('QueryDataSource queryable path', () => {
       'delete-card',
       'add-to-queue',
       'set-priority',
+      'priority-plus-10',
+      'priority-minus-10',
       'postpone',
       'advance',
       'spread',
@@ -390,6 +392,69 @@ describe('QueryDataSource queryable path', () => {
       'add-to-filter-group-queue',
       'add-to-neural-roam-queue',
     ]);
+  });
+
+  it('routes concept rows to the shared neural-roam current-route add service', async () => {
+    const manager = createManager([makeFsrsCard('card-a', 'block-a')]);
+    const addConceptBlocksToCurrentRoute = vi.fn(async () => ({
+      ok: true,
+      status: 'ok',
+      blockIds: ['block-a'],
+      added: 1,
+      skipped: 0,
+      routeId: 'route-current',
+      message: '已将 1 张 Concept 卡片加入神经漫游当前航线',
+    }));
+    const dataSource = new QueryDataSource('select * from blocks', {
+      manager: manager as never,
+      siyuanApi: testSiyuanApi,
+      plugin: {
+        getContext: () => ({
+          getNeuralRoamEntryActionService: () => ({
+            addConceptBlocksToCurrentRoute,
+          }),
+        }),
+      } as never,
+    });
+    const selectedRow = {
+      id: 'card-a',
+      fsrsCardId: 'card-a',
+      blockId: 'block-a',
+      deckId: 'deck-a',
+      content: 'content',
+      fullContent: 'content',
+      rootId: 'doc-a',
+      state: 0,
+      stateLabel: 'New',
+      due: new Date(),
+      dueFormatted: '',
+      stability: 1,
+      difficulty: 1,
+      retrievability: 0.8,
+      reps: 0,
+      lapses: 0,
+      elapsedDays: 0,
+      scheduledDays: 0,
+      lastReview: null,
+      lastReviewFormatted: '',
+      interval: 0,
+      firstReview: null,
+      firstReviewFormatted: '',
+      priority: 50,
+      suspended: false,
+      tags: [],
+      note: '',
+      cardType: 'concept',
+    };
+
+    const result = await dataSource.performAction('add-to-neural-roam-queue', [selectedRow]) as { added: number; message: string };
+
+    expect(result.added).toBe(1);
+    expect(addConceptBlocksToCurrentRoute).toHaveBeenCalledWith(['block-a'], {
+      source: 'browser',
+      enabled: true,
+    });
+    expect(manager.getQueue).not.toHaveBeenCalled();
   });
 
   it('delegates SQL result priority changes to the unified card manager', async () => {
