@@ -49,6 +49,46 @@ describe('browserGlobalStatsRuntime', () => {
     });
   });
 
+  it('keeps default all-cards total unknown until aggregate total loads', () => {
+    expect(applyBackendBrowserStats({
+      dismissed: 0,
+      lost: 0,
+      total: null,
+    }, defaultScope, {
+      dueCards: 0,
+      learningCards: 0,
+      lostCards: 3,
+      newCards: 0,
+      reviewCards: 0,
+      suspendedCards: 4,
+      totalCards: 70,
+    }, null)).toEqual({
+      dismissed: 4,
+      lost: 3,
+      total: null,
+    });
+  });
+
+  it('accepts a ready-empty aggregate total as authoritative', () => {
+    expect(applyBackendBrowserStats({
+      dismissed: 0,
+      lost: 0,
+      total: null,
+    }, defaultScope, {
+      dueCards: 0,
+      learningCards: 0,
+      lostCards: 0,
+      newCards: 0,
+      reviewCards: 0,
+      suspendedCards: 0,
+      totalCards: 70,
+    }, 0)).toEqual({
+      dismissed: 0,
+      lost: 0,
+      total: 0,
+    });
+  });
+
   it('uses backend stats outside the default all-cards scope', () => {
     expect(applyLoadedAllCardsTotal({
       dismissed: 0,

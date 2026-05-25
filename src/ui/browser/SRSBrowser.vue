@@ -1812,7 +1812,7 @@ async function refreshGlobalStats(force = false): Promise<void> {
         reviewCards: 0,
         suspendedCards: Number(normalized.suspendedCards) || 0,
         totalCards: Number(normalized.totalCards) || 0,
-      }, totalRowCount.value));
+      }, hasFirstDataBlockLoaded.value ? totalRowCount.value : null));
       return;
     } catch (error) {
       if (taskId !== globalStatsTaskId) {

@@ -89,6 +89,27 @@ describe('BrowserGridFirstRowsLifecycle', () => {
     }));
   });
 
+  it('does not publish total for a stale datasource generation', () => {
+    const onTotalCountLoaded = vi.fn();
+    const { calls, lifecycle, state } = createLifecycle({ onTotalCountLoaded });
+    const rows = [{ id: 'stale', blockId: 'stale' }] as BrowserCard[];
+
+    const status = lifecycle.applyLoadedRows({
+      isCurrentVersion: () => false,
+      rowsForBlock: rows,
+      successCallback: calls.successCallback,
+      totalCount: 70,
+      version: 4,
+    });
+
+    expect(status).toBe('loaded');
+    expect(calls.successCallback).toHaveBeenCalledWith(rows, 70);
+    expect(state.totalRowCount.value).toBe(0);
+    expect(onTotalCountLoaded).not.toHaveBeenCalled();
+    expect(state.rows.value).toEqual([]);
+  });
+
+
   it('maps projection-not-ready errors to quiet failure without first-row empty state', () => {
     const { calls, lifecycle, state } = createLifecycle();
 

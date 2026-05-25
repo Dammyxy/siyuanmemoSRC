@@ -759,7 +759,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         cardType: 'all',
         forceRefresh,
       });
-      return Math.max(0, Number(snapshot.total) || 0);
+      const visibleTotal = Math.max(0, Number(snapshot.total) || 0);
+      const counterSnapshot = await queue.getCounterSnapshot(false);
+      const counterTotal = counterSnapshot.total == null
+        ? Number(counterSnapshot.remaining)
+        : Number(counterSnapshot.total);
+      const normalizedCounterTotal = Math.max(0, Number.isFinite(counterTotal) ? counterTotal : 0);
+      return normalizedCounterTotal === visibleTotal
+        ? normalizedCounterTotal
+        : visibleTotal;
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       const unavailable = new Error(

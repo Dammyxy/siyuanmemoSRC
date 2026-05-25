@@ -4,6 +4,16 @@ Last update: 2026-05-25 (Round 465)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-25 - Browser Count Authority
+
+- Task: Stop Browser left `ALL` and projection-backed queue counts from drifting against their authoritative row sources during backend convergence.
+- Touched slice: Browser global stats runtime in `src/ui/browser/{SRSBrowser.vue,browserGlobalStatsRuntime.ts,BrowserHierarchy.vue}`; queue count reads in `src/application/services/BrowserApplicationService.ts`; focused Browser/count tests.
+- Debt fixed now: Default all-cards `ALL` stays unknown until an active aggregate total exists, then keeps that loaded total instead of letting smaller stale `browser.stats` overwrite it. Projection-backed queue counts now read snapshot rows and counter snapshot together, then accept the counter only when it matches the visible snapshot total; otherwise the visible snapshot total wins. Neural-roam stays on concept-block count semantics and does not fall through to generic size APIs.
+- Debt deferred: `browser.stats` still exists as a separate backend shape for non-default scope metadata; long-term it should carry aggregate identity/generation or be derived from the same aggregate read model.
+- Why deferred: Changing `browser.stats` contract is a broader backend migration slice. This change closes the visible drift and mismatch without inventing a second fallback path.
+- Next safe step: Reload Browser, watch left `ALL` jump from `...` directly to the authoritative total, then switch queues and confirm count stays aligned with visible rows.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/browserGlobalStatsRuntime.test.ts src/ui/browser/__tests__/BrowserGridFirstRowsLifecycle.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
 ### 2026-05-25 - Browser Left All Count Readiness
 
 - Task: Stop the Browser left `All flashcards` count from drifting upward after open by separating unknown/readiness state from stale backend stats.

@@ -108,7 +108,7 @@ describe('BrowserApplicationService queue counts', () => {
     );
   });
 
-  it('reads counts from browser-visible queue snapshots instead of stale counter snapshots', async () => {
+  it('reads counts from browser-visible queue snapshots when projection counters are stale', async () => {
     const retrievalQueue = createQueue(59, 59, 59, { snapshotRowCount: 29 });
     const finalQueue = createQueue(8, 8, 8, { snapshotRowCount: 7 });
     const neuralQueue = createQueue(77, 77, 77, {
@@ -134,12 +134,32 @@ describe('BrowserApplicationService queue counts', () => {
     });
 
     expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
     expect(finalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(finalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
     expect(neuralQueue.getConceptBlocks).toHaveBeenCalledTimes(1);
     expect(neuralQueue.getCounterSnapshot).not.toHaveBeenCalled();
     expect(filterQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(filterQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
     expect(incrementalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(incrementalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
     expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
+  });
+
+  it('uses projection counter totals when counters match browser-visible snapshot rows', async () => {
+    const retrievalQueue = createQueue(6, 6, 99, { snapshotRowCount: 6 });
+    queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
+
+    const counts = await service.getQueueCounts({
+      forceRefresh: true,
+      affectedQueueTypes: [QueueType.RetrievalPractice],
+    });
+
+    expect(counts.retrieval).toBe(6);
+    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledWith(true);
+    expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
+    expect(retrievalQueue.getSize).not.toHaveBeenCalled();
   });
 
   it('keeps neural-roam count on session concepts even when projection diagnostics exist', async () => {
