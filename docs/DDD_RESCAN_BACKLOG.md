@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-25 (Round 463)
+Last update: 2026-05-25 (Round 464)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-25 - Browser Missing Source And Filter Queue Load
+
+- Task: Fix Browser all-card rows showing cards whose source SiYuan block no longer exists, and fix filter-group browser queue staying unable to load while projection readiness is invalidated.
+- Touched slice: Browser/card source-existence SQL projection in `src/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository.ts`; queue projection readiness/materialization in `src/application/services/queue-projection/QueueProjectionRuntime.ts`; focused repository, Browser deck, queue query, datasource, and projection runtime tests.
+- Debt fixed now: Browser active-source reads now treat `source_exists = 0` as missing regardless of stale cached renderable content, so deleted source blocks leave normal all-card pages/counts and move to lost scope. Filter-group readiness now uses the same writer-owned `queue.projection.replace` repair path as retrieval/incremental/final queues when its projection is invalidated, instead of waiting in refreshing state.
+- Debt deferred: Existing unknown `source_exists IS NULL` rows still fail open until the background/page source-existence sweep checks them against SiYuan.
+- Why deferred: Treating unknown source status as missing would hide legitimate newly synced cards before SiYuan's block index catches up. The bounded fix only changes confirmed-missing semantics.
+- Next safe step: Reload SiYuanMemo, open Browser all-cards and filter-group; if stale rows remain, force a source-existence sweep/reopen after the backend refresh has checked those block IDs.
+- Validation: `pnpm vitest run src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts`; `pnpm vitest run src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts`; `pnpm vitest run src/ui/browser/datasource/__tests__/QueueSnapshotDataSources.query-snapshot.test.ts src/application/queries/__tests__/DataAccessFacade.missing-block-filter.test.ts`; `pnpm vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts`; `pnpm run check:boundaries`.
+
+### 2026-05-25 - Browser Renderable Card Source Repair
+
+- Task: Fix post-backendization Browser all-card count drift, blank rows, filter-group/neural-roam visible pool issues caused by SQL projections treating renderable card payloads as blank or stale-missing.
+- Touched slice: Browser/card projection seam in `src/types/browser.ts`, `src/types/memory-content-payload-seam.ts` tests, SQL browser read model in `src/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository.ts`, and neural browser subview initialization in `src/ui/browser/neural/useNeuralBrowserController.ts`.
+- Debt fixed now: Card full-content resolution now reads the selected `meta.faces[faceIndex].question/answer` when `meta.content/title` is absent, so Riff-sync/multi-face cards no longer render as empty rows. SQL card projection uses the same renderable-content resolver. Browser active-source SQL no longer lets stale `source_exists=0` hide locally renderable cards from all-card stats/pages/queue hydration, while truly non-renderable missing-source rows remain in lost scope. Neural-roam Browser subview now warms the queue before reading initial concept/source snapshots, fixing the initial empty concept pool path.
+- Debt deferred: Existing persisted rows with blank `content_text` but renderable `payload_json.meta.faces` are fixed for Browser rendering through payload hydration, but SQL-only search/count can only use face content after the row is rewritten by normal persistence.
+- Why deferred: Adding a broad one-off SQL JSON repair migration would mutate user data during a live bugfix and needs its own backup/rollback plan.
+- Next safe step: Reload SiYuanMemo, open Browser all-cards/filter-group/neural-roam, and confirm all-card total is closer to the real active set, blank rows show face content, and neural concept pool is populated on first entry.
+- Validation: `pnpm vitest run src/types/__tests__/memory-content-payload-seam.test.ts`; `pnpm vitest run src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts`; `pnpm vitest run src/ui/browser/neural/__tests__/useNeuralBrowserController.test.ts`; real DB read-only estimate old active 247 -> new active 382 and new missing 103; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-25 - Browser Queue Counter Projection Repair
 

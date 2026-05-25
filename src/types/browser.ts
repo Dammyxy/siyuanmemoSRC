@@ -249,6 +249,30 @@ function readBrowserProjectionString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function readBrowserProjectionNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : null;
+}
+
+function readBrowserFaceContent(meta: Record<string, unknown>): string {
+  const faces = Array.isArray(meta.faces) ? meta.faces : [];
+  if (faces.length === 0) {
+    return '';
+  }
+
+  const faceIndex = readBrowserProjectionNumber(meta.faceIndex) ?? 0;
+  const face = faces[Math.min(faceIndex, faces.length - 1)];
+  if (!face || typeof face !== 'object') {
+    return '';
+  }
+
+  const record = face as Record<string, unknown>;
+  return [
+    readBrowserProjectionString(record.question),
+    readBrowserProjectionString(record.answer),
+  ].filter(Boolean).join('\n').trim();
+}
+
 export function resolveBrowserCardFullContent(input: {
   meta?: Record<string, unknown> | null;
   content?: unknown;
@@ -260,6 +284,7 @@ export function resolveBrowserCardFullContent(input: {
     readBrowserProjectionString(meta.content)
     || readBrowserProjectionString(meta.title)
     || readBrowserProjectionString(meta.imageOcclusionPrompt)
+    || readBrowserFaceContent(meta)
     || readBrowserProjectionString(input.content)
     || readBrowserProjectionString(input.title)
     || readBrowserProjectionString(input.imageOcclusionPrompt)

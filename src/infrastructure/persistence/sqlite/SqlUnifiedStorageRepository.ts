@@ -20,7 +20,7 @@ import { CardState, type FSRSCard } from '@/types/card';
 import type { IXiuyuan } from '@/core/xiuyuan/types';
 import type { StructuredCardQuery } from '@/types/card-query';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
-import { parseQuery } from '@/types/browser';
+import { parseQuery, resolveBrowserCardFullContent } from '@/types/browser';
 import { stringifyJson, parseJson } from './json';
 import type { SqliteDatabaseService } from './SqliteDatabaseService';
 import {
@@ -103,6 +103,9 @@ const ACTIVE_CARD_NOT_TOMBSTONED_SQL = `NOT EXISTS (
     AND card_tombstone.id = cards.id
     AND card_tombstone.deleted_at >= COALESCE(cards.updated_at, 0)
 )`;
+const CARD_HAS_RENDERABLE_CONTENT_SQL = "TRIM(COALESCE(content_text, '')) != ''";
+const ACTIVE_SOURCE_STATUS_SQL = `(source_exists IS NULL OR source_exists = 1)`;
+const MISSING_SOURCE_STATUS_SQL = `source_exists = 0`;
 
 export interface AlgorithmCardStateDiagnosticSummary {
   total: number;
@@ -296,8 +299,10 @@ function createCardProjection(card: FSRSCard, dto?: CardPersistenceDTO): CardPro
     || readStringField(card, 'deckID');
   const rootId = readStringField(meta, 'rootId')
     || readStringField(card, 'rootId');
-  const contentText = readStringField(meta, 'content')
-    || readStringField(card, 'content');
+  const contentText = resolveBrowserCardFullContent({
+    meta: isObjectRecord(meta) ? meta : null,
+    content: readStringField(card, 'content'),
+  });
   const aFactor = normalizeNumber(card.aFactor ?? dto?.aFactor);
 
   return {
@@ -581,7 +586,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       `SELECT payload_json FROM cards
        WHERE (id IN (${placeholders}) OR block_id IN (${placeholders}))
          AND ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}
-         AND (source_exists IS NULL OR source_exists = 1)`,
+         AND ${ACTIVE_SOURCE_STATUS_SQL}`,
       [...uniqueIds, ...uniqueIds],
     );
     const cardById = new Map<string, FSRSCard>();
@@ -705,13 +710,13 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       lostCards: number;
     }>(
       `SELECT
-        COALESCE(SUM(CASE WHEN source_exists IS NULL OR source_exists = 1 THEN 1 ELSE 0 END), 0) AS totalCards,
-        COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND due <= ? AND suspended = 0 THEN 1 ELSE 0 END), 0) AS dueCards,
-        COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND state = ? THEN 1 ELSE 0 END), 0) AS newCards,
-        COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND state = ? THEN 1 ELSE 0 END), 0) AS learningCards,
-        COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND state = ? THEN 1 ELSE 0 END), 0) AS reviewCards,
-        COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND suspended = 1 THEN 1 ELSE 0 END), 0) AS suspendedCards,
-        COALESCE(SUM(CASE WHEN source_exists = 0 THEN 1 ELSE 0 END), 0) AS lostCards
+        COALESCE(SUM(CASE WHEN ${ACTIVE_SOURCE_STATUS_SQL} THEN 1 ELSE 0 END), 0) AS totalCards,
+        COALESCE(SUM(CASE WHEN ${ACTIVE_SOURCE_STATUS_SQL} AND due <= ? AND suspended = 0 THEN 1 ELSE 0 END), 0) AS dueCards,
+        COALESCE(SUM(CASE WHEN ${ACTIVE_SOURCE_STATUS_SQL} AND state = ? THEN 1 ELSE 0 END), 0) AS newCards,
+        COALESCE(SUM(CASE WHEN ${ACTIVE_SOURCE_STATUS_SQL} AND state = ? THEN 1 ELSE 0 END), 0) AS learningCards,
+        COALESCE(SUM(CASE WHEN ${ACTIVE_SOURCE_STATUS_SQL} AND state = ? THEN 1 ELSE 0 END), 0) AS reviewCards,
+        COALESCE(SUM(CASE WHEN ${ACTIVE_SOURCE_STATUS_SQL} AND suspended = 1 THEN 1 ELSE 0 END), 0) AS suspendedCards,
+        COALESCE(SUM(CASE WHEN ${MISSING_SOURCE_STATUS_SQL} THEN 1 ELSE 0 END), 0) AS lostCards
        FROM cards
        WHERE ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}`,
       [now, CardState.New, CardState.Learning, CardState.Review],
@@ -822,7 +827,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       `SELECT
         COALESCE(SUM(CASE WHEN source_checked_at IS NULL THEN 1 ELSE 0 END), 0) AS unknown,
         COALESCE(SUM(CASE WHEN source_checked_at IS NOT NULL AND source_checked_at < ? THEN 1 ELSE 0 END), 0) AS stale,
-        COALESCE(SUM(CASE WHEN source_exists = 0 THEN 1 ELSE 0 END), 0) AS missing
+        COALESCE(SUM(CASE WHEN ${MISSING_SOURCE_STATUS_SQL} THEN 1 ELSE 0 END), 0) AS missing
        FROM cards
        WHERE ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}`,
       [staleBefore],
@@ -846,7 +851,12 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       block_id: string;
       source_exists: number | null;
     }>(
-      `SELECT block_id, source_exists FROM cards
+      `SELECT block_id,
+              CASE
+                WHEN source_exists = 0 AND ${CARD_HAS_RENDERABLE_CONTENT_SQL} THEN NULL
+                ELSE source_exists
+              END AS source_exists
+       FROM cards
        WHERE block_id IN (${placeholders})
          AND ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}`,
       normalized,
@@ -889,7 +899,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
          AND block_id IS NOT NULL
          AND block_id != ''
          AND ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}
-         AND (source_exists IS NULL OR source_exists = 1)
+         AND ${ACTIVE_SOURCE_STATUS_SQL}
        ORDER BY id ASC
        LIMIT ?`,
       [Math.max(1, Math.floor(Number(limit) || 5000))],
@@ -1441,10 +1451,10 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
   ): void {
     switch (sourceStatus) {
       case 'active':
-        clauses.push('(source_exists IS NULL OR source_exists = 1)');
+        clauses.push(ACTIVE_SOURCE_STATUS_SQL);
         break;
       case 'missing':
-        clauses.push('source_exists = 0');
+        clauses.push(MISSING_SOURCE_STATUS_SQL);
         break;
       case 'all':
       default:

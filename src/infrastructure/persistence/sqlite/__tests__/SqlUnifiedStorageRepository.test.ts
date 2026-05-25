@@ -254,8 +254,16 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
 
   it('maintains source-existence projection for active and lost browser queries', async () => {
     const { repository } = await seedRepositories();
+    const missingCard = repository.getCard('card-b');
+    expect(missingCard).toBeTruthy();
+    repository.upsertCard({
+      ...missingCard!,
+      meta: {
+        ...(missingCard!.meta || {}),
+        content: '',
+      },
+    });
 
-    expect(repository.getSourceExistenceRefreshCandidates({ limit: 10 })).toHaveLength(4);
     await repository.updateSourceExistence([
       { cardId: 'card-a', blockId: 'block-a', exists: true },
       { cardId: 'card-b', blockId: 'block-b', exists: false },
@@ -274,6 +282,23 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
       ['block-a', true],
       ['block-b', false],
     ]));
+  });
+
+  it('treats missing source existence as lost even when old rendered content remains', async () => {
+    const { repository } = await seedRepositories();
+    await repository.updateSourceExistence([
+      { cardId: 'card-b', blockId: 'block-b', exists: false },
+    ], 1_700_000_010_000);
+
+    expect(repository.queryDeckMatchedIds({ sortModel: [] })).toEqual(['card-a', 'card-c', 'card-d']);
+    expect(repository.queryDeckMatchedIds({ docId: '__lost__', sortModel: [] })).toEqual(['card-b']);
+    expect(repository.countCards({ sourceStatus: 'active' })).toBe(3);
+    expect(repository.countCards({ sourceStatus: 'missing' })).toBe(1);
+    expect(repository.getBrowserStats(1_700_000_002_500)).toMatchObject({
+      totalCards: 3,
+      dueCards: 2,
+      lostCards: 1,
+    });
   });
 
   it('force-selects visible source-existence candidates even when their cache is fresh', async () => {
@@ -386,6 +411,15 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
 
   it('hydrates card ids with active-source semantics and preserves unknown fail-open behavior', async () => {
     const { repository } = await seedRepositories();
+    const missingCard = repository.getCard('card-b');
+    expect(missingCard).toBeTruthy();
+    repository.upsertCard({
+      ...missingCard!,
+      meta: {
+        ...(missingCard!.meta || {}),
+        content: '',
+      },
+    });
     await repository.updateSourceExistence([
       { cardId: 'card-a', blockId: 'block-a', exists: true },
       { cardId: 'card-b', blockId: 'block-b', exists: false },

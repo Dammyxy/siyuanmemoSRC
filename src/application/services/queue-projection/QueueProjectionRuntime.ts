@@ -127,6 +127,7 @@ const QUEUE_PROJECTION_READINESS_MATERIALIZABLE_TYPES = new Set<QueueType>([
   QueueType.RetrievalPractice,
   QueueType.IncrementalLearning,
   QueueType.FinalDrill,
+  QueueType.FilterGroup,
 ]);
 
 const DEFAULT_QUEUE_PROJECTION_ROLLOUT_STATES: Record<QueueType, QueueProjectionRolloutState> = {

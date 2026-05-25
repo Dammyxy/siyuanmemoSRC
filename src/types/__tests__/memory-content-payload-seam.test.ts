@@ -94,6 +94,31 @@ describe('memory content payload seam', () => {
     vi.useRealTimers();
   });
 
+  it('uses the selected rendered face when card content projection is absent', () => {
+    const card = buildCard({
+      meta: {
+        content: '',
+        faceIndex: 1,
+        faces: [
+          {
+            question: 'front 0',
+            answer: 'back 0',
+          },
+          {
+            question: 'front 1',
+            answer: 'back 1',
+          },
+        ],
+      },
+    });
+
+    const source = buildSourceContentProjectionFromCard(card);
+
+    expect(source.fullContent).toBe('front 1\nback 1');
+    expect(source.content).toBe('front 1 back 1');
+    expect(source.existence).toBe('present');
+  });
+
   it('composes queue snapshot and browser rows without changing observable fields', () => {
     vi.setSystemTime(1_700_000_000_000);
     const card = buildCard();

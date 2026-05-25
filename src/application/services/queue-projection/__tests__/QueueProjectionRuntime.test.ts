@@ -83,7 +83,7 @@ describe('QueueProjectionRuntime', () => {
 
     const refreshingBackend = {
       queueProjectionSnapshot: vi.fn(async () => ({
-        queueType: QueueType.FilterGroup,
+        queueType: QueueType.Leech,
         status: 'invalidated',
         policyHash: null,
         generation: null,
@@ -93,11 +93,11 @@ describe('QueueProjectionRuntime', () => {
       queueProjectionReplace: vi.fn(() => new Promise(() => {})),
     };
     await expect(createRuntime({ backend: refreshingBackend }).runtime.ensureReady({
-      queueType: QueueType.FilterGroup,
+      queueType: QueueType.Leech,
       source: 'browser',
     })).resolves.toMatchObject({
       status: 'refreshing',
-      queueId: QueueType.FilterGroup,
+      queueId: QueueType.Leech,
       cause: 'materialization_in_progress',
     });
 
@@ -186,6 +186,65 @@ describe('QueueProjectionRuntime', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('materializes invalidated filter-group projection during readiness instead of leaving browser load stuck', async () => {
+    const card = createCard({
+      id: 'filter-card',
+      blockId: 'filter-block',
+      due: 1_700_000_000_000,
+      meta: { rootId: 'doc-a', deckId: 'deck-a', content: 'filter projection' },
+    });
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.FilterGroup,
+        status: 'invalidated',
+        policyHash: null,
+        generation: null,
+        rows: [],
+        counters: null,
+      })),
+      queueProjectionReplace: vi.fn(async (request: { policyHash: string; generation?: number | null; rows: unknown[] }) => ({
+        queueType: QueueType.FilterGroup,
+        status: 'ready',
+        policyHash: request.policyHash,
+        generation: request.generation ?? 1,
+        rows: request.rows.length,
+        counters: {
+          queueType: QueueType.FilterGroup,
+          policyHash: request.policyHash,
+          generation: request.generation ?? 1,
+          version: request.generation ?? 1,
+          remaining: request.rows.length,
+          due: request.rows.length,
+          total: request.rows.length,
+          buckets: { all: request.rows.length, item: request.rows.length, descriptor: 0, topic: 0, concept: 0 },
+          updatedAt: 1_700_000_100_000,
+        },
+      })),
+    };
+    const { queue, runtime } = createRuntime({
+      backend,
+      queueCards: [card],
+    });
+
+    await expect(runtime.ensureReady({
+      queueType: QueueType.FilterGroup,
+      preset: 'all',
+      cardType: 'all',
+      source: 'browser',
+    })).resolves.toMatchObject({
+      status: 'ready',
+      queueId: QueueType.FilterGroup,
+    });
+
+    expect(queue.getCards).toHaveBeenCalledTimes(1);
+    expect(backend.queueProjectionReplace).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.FilterGroup,
+      policyHash: 'queue-projection:{"cardType":"all","docId":null,"preset":"all","queueType":"filter-group","scopeDocIds":[],"searchText":null,"source":"browser"}',
+      generation: expect.any(Number),
+      reason: 'materialization_in_progress',
+    }));
   });
 
   it('materializes invalidated projection during forced snapshot reads for queue counters', async () => {

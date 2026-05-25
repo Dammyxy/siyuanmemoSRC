@@ -227,6 +227,17 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
     resetNeuralTraceConvergenceState();
   }
 
+  async function waitForNeuralQueueInitialLoad(neuralQueue: NeuralRoamQueue): Promise<void> {
+    if (typeof neuralQueue.getSize !== 'function') {
+      return;
+    }
+    try {
+      await neuralQueue.getSize();
+    } catch (error) {
+      deps.logError('Failed to warm NeuralRoam queue before reading browser snapshots:', error);
+    }
+  }
+
   function resolveNeuralHistoryEventRef(
     neuralQueue: NeuralRoamQueue | null,
     historyEntries: Pick<NeuralRoamHistoryEntry, 'eventId' | 'nodeId'>[],
@@ -499,6 +510,7 @@ export function useNeuralBrowserController(deps: UseNeuralBrowserControllerDeps)
       return;
     }
 
+    await waitForNeuralQueueInitialLoad(neuralQueue);
     await refreshNeuralRoutes();
     const backendViewState = await deps.readNeuralRoamViewState?.().catch((error) => {
       deps.logError('Failed to read backend NeuralRoam view state:', error);
