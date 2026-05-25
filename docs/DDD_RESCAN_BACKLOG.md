@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-25 (Round 464)
+Last update: 2026-05-25 (Round 465)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-25 - Browser Aggregate Refresh And Sort Stale Generation
+
+- Task: Fix all-card Browser count staying on an old aggregate page after refresh and column sorting throwing `BACKEND_UNAVAILABLE: browser.aggregate.page unavailable (stale browser aggregate snapshot generation)`.
+- Touched slice: Browser aggregate read path in `src/application/services/browser/BrowserCardUniverseReadModule.ts`; Deck datasource query contract in `src/ui/browser/datasource/DeckDataSource.ts`; grid datasource rebuild in `src/ui/browser/{SRSBrowser.vue,BrowserGridDatasourceLifecycle.ts}`; focused Browser application/datasource/grid tests.
+- Debt fixed now: Deck aggregate page requests now carry forced-refresh intent from Browser reload into the application read module. Forced refresh invalidates the cached aggregate identity once, coalesces concurrent forced snapshot creation, and prevents late stale in-flight snapshots from overwriting the current identity. Grid datasource generations now consume `forceRefresh` only on the first block request, so multi-block AG Grid reads do not create competing aggregate generations and invalidate each other.
+- Debt deferred: First open can still briefly reflect whatever the backend read model has materialized at that instant if a separate backend migration/sync is still running; this slice fixes stale aggregate identity reuse and refresh/sort invalidation, not the broader startup synchronization policy.
+- Why deferred: Browser open logs show auto-sync is not configured. Forcing a full backend sync on every open would be a product/runtime policy change with larger cost than this stale snapshot bugfix.
+- Next safe step: Deploy/reload, open Browser all-cards, click a numeric column sort, then press force refresh once; count should not bounce through a stale aggregate generation and console should not log `browser.aggregate.page unavailable (stale browser aggregate snapshot generation)`.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/BrowserGridDatasourceLifecycle.test.ts`; `pnpm vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`; `pnpm vitest run src/ui/browser/datasource/__tests__/DeckDataSource.query-snapshot.test.ts`.
 
 ### 2026-05-25 - Browser Missing Source And Filter Queue Load
 
@@ -6282,6 +6292,16 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: Run live SiYuan Browser smoke opening the card browser and switching deck/filter/sort once the plugin build is deployed.
 - Validation: `pnpm vitest run src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/ui/browser/datasource/__tests__/DeckDataSource.query-snapshot.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
+### 2026-05-25 - Browser aggregate sort contract completion
+
+- Task: Fix all-card Browser column sorting throwing `BACKEND_UNAVAILABLE: browser.aggregate.snapshot unavailable (browser aggregate snapshot query unavailable)`.
+- Touched slice: Browser aggregate SQL read model in `src/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository.ts`, worker aggregate command coverage, and focused SQL/Browser aggregate tests.
+- Debt fixed now: Backend aggregate snapshot queries now support the visible Browser grid sort contract for `stateLabel` and computed `retrievability`; aggregate sorting no longer reports the whole snapshot query unavailable when users click status/retrievability-backed columns.
+- Debt deferred: No live SiYuan Browser click-smoke was run in this command session; runtime confirmation still depends on deploying the build and clicking visible columns in the plugin.
+- Why deferred: Unit and worker tests cover the active backend failure class; live UI smoke needs the running SiYuan/plugin surface.
+- Next safe step: After deployment, open Browser all-cards and click `Type`, `Retr`, and normal numeric/date columns once, checking that no aggregate snapshot unavailable log appears.
+- Validation: `pnpm vitest run src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts`; `pnpm vitest run worker/__tests__/BackendKernel.hotspot-command.test.ts`; `pnpm vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`; `pnpm vitest run src/ui/browser/datasource/__tests__/DeckDataSource.query-snapshot.test.ts`.
+
 ### 2026-05-15 - ordinary multi-cloze review focus rendering
 
 - Task: Execute OpenSpec change `fix-multicloze-review-rendering` for GitHub issue #63 so ordinary multi-cloze review focuses exactly one cloze per card.
@@ -6301,6 +6321,16 @@ Do not add an entry for skill-only or docs-only work.
 - Why deferred: This change deliberately removes redundant card management surfaces and fixes route counter state. Reintroducing another Browser-level Semantic action would be a separate product decision and risks recreating toolbar clutter.
 - Next safe step: Run live Browser/Review smoke in SiYuan for neural-roam orbit/hyperspace switching and route counter display, then consider a small UX follow-up only if users still need a direct Browser Semantic shortcut.
 - Validation: `pnpm exec vitest run src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts src/ui/review/v2/__tests__/ReviewHeader.spec.ts src/ui/browser/__tests__/browserActionMenuRuntime.test.ts src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`; residual Browser management symbol scan; `git diff --check`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-25 - Browser queue snapshot/count convergence after backend migration
+
+- Task: Fix Browser queue count drift and queue switching latency after queue projection/backend migration.
+- Touched slice: Browser + Queue bounded context; queue snapshot query contract, Browser queue count service, queue datasource/session refresh, queue view preparation, first-row lifecycle count propagation, and focused Browser/queue tests.
+- Debt fixed now: Queue count force refresh now reaches `queue.getSnapshotRows(true)` instead of only clearing the Browser service cache. Active queue badge count is updated from the grid's loaded `totalCount` when the view represents the unfiltered queue, so the current queue list and left count share the same Browser-visible fact. Queue view preparation no longer blocks foreground switching on `ensureQueueProjectionReady`; readiness is triggered in the background while datasource creation proceeds.
+- Debt deferred: Broad live SiYuan smoke for first-open all-cards count drift, rapid queue switching, and projection materialization timing is still needed after deploying the built plugin.
+- Why deferred: Command-side tests prove the active runtime path and build, but the original symptom depends on live backend projection timing and user data size.
+- Next safe step: Open Browser in SiYuan, record first-open count transitions, switch retrieval/incremental/final/filter/neural queues, and compare left badge with first loaded grid total.
+- Validation: `pnpm vitest run src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts src/ui/browser/__tests__/BrowserGridFirstRowsLifecycle.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/BrowserGridDatasourceLifecycle.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ## 1. Re-scan summary
 

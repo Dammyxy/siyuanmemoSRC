@@ -37,7 +37,7 @@ export class QueueBrowserQueryKernel {
 
   async buildSnapshot(query: QueueBrowserSnapshotQuery): Promise<QueueBrowserSnapshotResult> {
     const queue = this.resolveQueue(query.queueId);
-    const rows = await this.markMissingRows(await queue.getSnapshotRows());
+    const rows = await this.markMissingRows(await queue.getSnapshotRows(query.forceRefresh === true));
     const filteredRows = applyQueueFiltersToSnapshotRows(
       rows,
       {

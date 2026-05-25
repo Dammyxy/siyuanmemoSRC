@@ -43,6 +43,8 @@ export function toBrowserCardUniverseUnavailable(operation: string, error?: unkn
 
 export class BrowserCardUniverseReadModule {
   private readonly aggregateSnapshots = new Map<string, BackendBrowserAggregateIdentity>();
+  private readonly aggregateSnapshotInFlight = new Map<string, Promise<BackendBrowserAggregateIdentity>>();
+  private readonly aggregateSnapshotForceInFlightKeys = new Set<string>();
 
   constructor(private readonly deps: BrowserCardUniverseReadModuleDeps) {}
 
@@ -65,7 +67,7 @@ export class BrowserCardUniverseReadModule {
         startRow,
       });
       if (aggregatePage.status === 'stale-generation') {
-        this.aggregateSnapshots.delete(this.aggregateKey(query));
+        this.forgetAggregateSnapshot(query, identity);
         throw toBrowserCardUniverseUnavailable('browser.aggregate.page', aggregatePage.reason || 'stale aggregate generation');
       }
       if (aggregatePage.status !== 'ready' && aggregatePage.status !== 'ready-empty') {
@@ -99,7 +101,7 @@ export class BrowserCardUniverseReadModule {
           limit: pageSize,
         }), { offset, pageSize });
         if (page.status === 'stale-generation') {
-          this.aggregateSnapshots.delete(this.aggregateKey(query));
+          this.forgetAggregateSnapshot(query, identity);
           throw toBrowserCardUniverseUnavailable('browser.aggregate.snapshot', page.reason || 'stale aggregate generation');
         }
         if (page.status !== 'ready' && page.status !== 'ready-empty') {
@@ -230,35 +232,67 @@ export class BrowserCardUniverseReadModule {
     pageSize: number,
   ): Promise<BackendBrowserAggregateIdentity> {
     const key = this.aggregateKey(query);
+    if (query.forceRefresh) {
+      const forceInFlight = this.aggregateSnapshotForceInFlightKeys.has(key)
+        ? this.aggregateSnapshotInFlight.get(key)
+        : null;
+      if (forceInFlight) {
+        return forceInFlight;
+      }
+      this.aggregateSnapshots.delete(key);
+      this.aggregateSnapshotInFlight.delete(key);
+      this.aggregateSnapshotForceInFlightKeys.delete(key);
+    }
     const current = this.aggregateSnapshots.get(key);
     if (current) {
       return current;
     }
-    const snapshot = await measureRuntimePerformance('browser', 'backend.aggregate-snapshot', () => this.requireBackend('browser.aggregate.snapshot').browserAggregateSnapshot({
-      requestId: `browser-aggregate-snapshot:${Date.now()}`,
-      datasourceId: `deck:${key}`,
-      scope: {
-        preset: query.preset,
-        docId: query.docId,
-        scopeDocIds: query.scopeDocIds ?? null,
-        pageSize,
-      },
-      filter: {
-        searchText: query.searchText,
-        states: query.states,
-        cardTypes: query.cardTypes,
-        deckIds: query.deckIds,
-        tags: query.tags,
-      },
-      sort: {
-        sortModel: query.sortModel,
-      },
-    }), { pageSize });
-    if ((snapshot.status !== 'ready' && snapshot.status !== 'ready-empty') || !snapshot.identity) {
-      throw toBrowserCardUniverseUnavailable('browser.aggregate.snapshot', snapshot.reason || snapshot.status);
+    const inFlight = this.aggregateSnapshotInFlight.get(key);
+    if (inFlight) {
+      return inFlight;
     }
-    this.aggregateSnapshots.set(key, snapshot.identity);
-    return snapshot.identity;
+
+    const request = measureRuntimePerformance('browser', 'backend.aggregate-snapshot', () => this.requireBackend('browser.aggregate.snapshot').browserAggregateSnapshot({
+        requestId: `browser-aggregate-snapshot:${Date.now()}`,
+        datasourceId: `deck:${key}`,
+        scope: {
+          preset: query.preset,
+          docId: query.docId,
+          scopeDocIds: query.scopeDocIds ?? null,
+          pageSize,
+        },
+        filter: {
+          searchText: query.searchText,
+          states: query.states,
+          cardTypes: query.cardTypes,
+          deckIds: query.deckIds,
+          tags: query.tags,
+        },
+        sort: {
+          sortModel: query.sortModel,
+        },
+      }), { pageSize })
+      .then((snapshot) => {
+        if ((snapshot.status !== 'ready' && snapshot.status !== 'ready-empty') || !snapshot.identity) {
+          throw toBrowserCardUniverseUnavailable('browser.aggregate.snapshot', snapshot.reason || snapshot.status);
+        }
+        if (this.aggregateSnapshotInFlight.get(key) === request) {
+          this.aggregateSnapshots.set(key, snapshot.identity);
+        }
+        return snapshot.identity;
+      })
+      .finally(() => {
+        if (this.aggregateSnapshotInFlight.get(key) === request) {
+          this.aggregateSnapshotInFlight.delete(key);
+          this.aggregateSnapshotForceInFlightKeys.delete(key);
+        }
+      });
+
+    this.aggregateSnapshotInFlight.set(key, request);
+    if (query.forceRefresh) {
+      this.aggregateSnapshotForceInFlightKeys.add(key);
+    }
+    return request;
   }
 
   private async mapBackendCards(cards: FSRSCard[], reason: string): Promise<BrowserCard[]> {
@@ -286,5 +320,17 @@ export class BrowserCardUniverseReadModule {
       tags: query.tags ?? null,
       sortModel: query.sortModel ?? [],
     });
+  }
+
+  private forgetAggregateSnapshot(
+    query: BrowserDeckSnapshotQuery,
+    staleIdentity: BackendBrowserAggregateIdentity,
+  ): void {
+    const key = this.aggregateKey(query);
+    const current = this.aggregateSnapshots.get(key);
+    if (!current || current.snapshotId !== staleIdentity.snapshotId || current.generation !== staleIdentity.generation) {
+      return;
+    }
+    this.aggregateSnapshots.delete(key);
   }
 }

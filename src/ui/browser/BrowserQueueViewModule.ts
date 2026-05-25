@@ -99,21 +99,6 @@ export function planQueueProjectionLiveIdentityForBrowserQueueView(
   return decision;
 }
 
-function mapReadinessUnavailableMessage(cause: string): string {
-  switch (cause) {
-    case 'writer_unavailable':
-      return 'Queue projection writer is unavailable';
-    case 'backend_unavailable':
-      return 'Queue projection backend is unavailable';
-    case 'invalid_queue':
-      return 'Queue projection is not available for this queue';
-    case 'contract_mismatch':
-      return 'Queue projection contract mismatch';
-    default:
-      return 'Queue projection is unavailable';
-  }
-}
-
 function normalizeReadinessIdentity(request: QueueProjectionReadinessRequest): string {
   return JSON.stringify({
     cardType: request.cardType ?? null,
@@ -153,50 +138,23 @@ export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
 
     if (queueType !== QueueType.NeuralRoam && readinessRequest && typeof manager.ensureQueueProjectionReady === 'function') {
       const retryIdentity = normalizeReadinessIdentity(readinessRequest);
-      const readiness = await manager.ensureQueueProjectionReady(readinessRequest);
-      if (readiness.status === 'refreshing') {
-        const logFingerprint = [
-          readiness.status,
-          readiness.queueId,
-          readiness.policyId,
-          readiness.cause,
-          readiness.retryAfterMs ?? null,
-        ].join(':');
-        if (readinessLogFingerprint.get(retryIdentity) !== logFingerprint) {
-          readinessLogFingerprint.set(retryIdentity, logFingerprint);
-          deps.logger.info('[SiYuanMemo][SRSBrowser] Queue projection is preparing', readiness);
-        }
-        return {
-          status: 'refreshing',
-          retryDelayMs: readiness.retryAfterMs ?? 300,
-          keepLoading: true,
-        };
-      }
-
-      readinessLogFingerprint.delete(retryIdentity);
-      if (readiness.status === 'unavailable') {
-        return {
-          status: 'unavailable',
-          message: mapReadinessUnavailableMessage(readiness.cause),
-        };
-      }
-      if (readiness.status === 'ready') {
-        const generation = Number(readiness.generation);
-        const policyId = String(readiness.policyId || '').trim();
-        if (
-          Object.values(QueueType).includes(queueType as QueueType)
-          && policyId
-          && Number.isFinite(generation)
-          && generation > 0
-        ) {
-          projectionIdentity = {
-            queueId: queueType,
-            queueType: queueType as QueueType,
-            policyId,
-            generation: Math.floor(generation),
-          };
-        }
-      }
+      void manager.ensureQueueProjectionReady(readinessRequest)
+        .then((readiness) => {
+          const logFingerprint = [
+            readiness.status,
+            readiness.queueId,
+            readiness.policyId,
+            readiness.cause,
+            readiness.retryAfterMs ?? null,
+          ].join(':');
+          if (readinessLogFingerprint.get(retryIdentity) !== logFingerprint) {
+            readinessLogFingerprint.set(retryIdentity, logFingerprint);
+            deps.logger.info('[SiYuanMemo][SRSBrowser] Queue projection is preparing', readiness);
+          }
+        })
+        .catch((error) => {
+          deps.logger.error('[SiYuanMemo][SRSBrowser] Queue projection readiness check failed', error);
+        });
     }
 
     const datasource = createQueueDataSource(

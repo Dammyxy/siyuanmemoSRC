@@ -71,7 +71,12 @@ export function createBrowserGridDatasourceLifecycle(deps: BrowserGridDatasource
     return version === deps.getCurrentVersion();
   }
 
-  function createInfiniteDatasource(version: number, dataSourceSnapshot: ICardDataSource | null): IDatasource {
+  function createInfiniteDatasource(
+    version: number,
+    dataSourceSnapshot: ICardDataSource | null,
+    forceRefresh = false,
+  ): IDatasource {
+    let shouldForceRefreshNextFetch = forceRefresh;
     return {
       getRows: (params: IGetRowsParams) => {
         void (async () => {
@@ -110,11 +115,14 @@ export function createBrowserGridDatasourceLifecycle(deps: BrowserGridDatasource
                 api: deps.getGridApi(),
               });
               requestSortRevision = deps.getSortRevision();
+              const requestForceRefresh = shouldForceRefreshNextFetch;
+              shouldForceRefreshNextFetch = false;
               const fetchOptions = {
                 sortModel: effectiveSortModel,
                 filterModel: params.filterModel || {},
                 startRow: params.startRow,
                 endRow: params.endRow,
+                forceRefresh: requestForceRefresh,
               };
               const result = await deps.measureRuntimePerformance('browser', 'grid.fetch-rows', () => fetchRows(
                 dataSource,
@@ -202,10 +210,11 @@ export function createBrowserGridDatasourceLifecycle(deps: BrowserGridDatasource
   function rebuildInfiniteDatasource(params: {
     currentDataSource: ICardDataSource | null;
     totalRowCount: MutableRef<number>;
+    forceRefresh?: boolean;
     version: number;
   }): void {
     params.totalRowCount.value = deps.randomSortRows.value?.length || 0;
-    pendingGridDatasource = createInfiniteDatasource(params.version, params.currentDataSource);
+    pendingGridDatasource = createInfiniteDatasource(params.version, params.currentDataSource, Boolean(params.forceRefresh));
     applyPendingDatasourceToGrid();
   }
 

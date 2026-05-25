@@ -62,7 +62,8 @@ describe('BrowserGridFirstRowsLifecycle', () => {
   });
 
   it('applies loaded rows and updates visible Browser state', () => {
-    const { calls, lifecycle, state } = createLifecycle();
+    const onTotalCountLoaded = vi.fn();
+    const { calls, lifecycle, state } = createLifecycle({ onTotalCountLoaded });
     const rows = [{ id: 'a', blockId: 'a' }] as BrowserCard[];
 
     const status = lifecycle.applyLoadedRows({
@@ -78,6 +79,7 @@ describe('BrowserGridFirstRowsLifecycle', () => {
     expect(state.rows.value).toBe(rows);
     expect(state.rowsForFocus.value).toEqual(rows);
     expect(state.totalRowCount.value).toBe(4);
+    expect(onTotalCountLoaded).toHaveBeenCalledWith(4);
     expect(calls.mergeLoadedRows).toHaveBeenCalledWith(rows);
     expect(calls.applyGlobalSelectionToLoadedRows).toHaveBeenCalledTimes(1);
     expect(calls.recordFirstRowsVisible).toHaveBeenCalledWith(expect.objectContaining({

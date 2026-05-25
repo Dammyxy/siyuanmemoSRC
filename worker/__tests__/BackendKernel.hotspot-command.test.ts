@@ -286,6 +286,52 @@ describe('BackendKernel hotspot command runtime', () => {
     }));
   });
 
+  it('accepts browser aggregate sorting on state label and retrievability projections', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({ database });
+    await database.upsertCards([
+      buildCard({
+        id: 'card-sorted-a',
+        blockId: 'block-sorted-a',
+        state: CardState.New,
+        stability: 10,
+      }),
+      buildCard({
+        id: 'card-sorted-b',
+        blockId: 'block-sorted-b',
+        state: CardState.Review,
+        stability: 1,
+      }),
+    ]);
+
+    const snapshot = await kernel.handle({
+      id: 'aggregate-sort',
+      jsonrpc: '2.0',
+      method: 'browser.aggregate.snapshot',
+      params: [{
+        requestId: 'aggregate-sort-1',
+        datasourceId: 'deck:all',
+        scope: { pageSize: 50 },
+        sort: {
+          sortModel: [
+            { colId: 'stateLabel', sort: 'asc' },
+            { colId: 'retrievability', sort: 'desc' },
+          ],
+        },
+      }],
+    });
+
+    expect(snapshot).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'ready',
+        totalCount: 2,
+        identity: expect.objectContaining({
+          datasourceId: 'deck:all',
+        }),
+      }),
+    }));
+  });
+
   it('returns ready-empty Browser aggregate snapshots without renderer fallback', async () => {
     const kernel = createKernel();
 

@@ -8,6 +8,7 @@ export interface QueueBrowserSnapshotQuery {
   docId?: string;
   scopeDocIds?: string[] | null;
   cardType?: string;
+  forceRefresh?: boolean;
   sortModel?: SortModel[];
 }
 

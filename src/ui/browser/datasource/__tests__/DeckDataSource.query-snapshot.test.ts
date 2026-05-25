@@ -208,6 +208,46 @@ describe('DeckDataSource query snapshot path', () => {
     expectLegacyGetCardsUnused(manager);
   });
 
+  it('passes forceRefresh to aggregate deck page queries', async () => {
+    const manager = {
+      getCards: vi.fn(() => {
+        throw new Error('legacy getCards should not be used when aggregate browserService is available');
+      }),
+      updateCard: vi.fn(),
+      deleteCard: vi.fn(),
+      getQueue: vi.fn(),
+    } as never;
+    const browserService = {
+      getDeckAggregatePage: vi.fn(async () => ({
+        total: 1,
+        rows: [makeBrowserCard('card-force-refresh')],
+      })),
+    };
+
+    const dataSource = new DeckDataSource(
+      manager,
+      { preset: 'all' },
+      undefined,
+      { browserService },
+    );
+
+    await dataSource.fetchRows({
+      sortModel: [{ colId: 'reps', sort: 'asc' }],
+      filterModel: {},
+      startRow: 0,
+      endRow: 1,
+      forceRefresh: true,
+    });
+
+    expect(browserService.getDeckAggregatePage).toHaveBeenCalledWith(expect.objectContaining({
+      forceRefresh: true,
+      sortModel: [{ colId: 'reps', sort: 'asc' }],
+    }), {
+      startRow: 0,
+      endRow: 1,
+    });
+  });
+
   it('passes cloneable browserService query payloads when Vue reactive arrays reach the data source', async () => {
     const manager = {
       getCards: vi.fn(() => {

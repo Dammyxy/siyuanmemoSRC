@@ -211,6 +211,60 @@ describe('BrowserGridDatasourceLifecycle', () => {
     vi.useRealTimers();
   });
 
+  it('passes rebuild forceRefresh to the applied infinite datasource fetch', async () => {
+    vi.useFakeTimers();
+    const dataSource = {
+      fetchRows: vi.fn(async () => ({ rows: [] as BrowserCard[], totalCount: 0 })),
+    } as unknown as ICardDataSource;
+    const fetchRowsWithReadinessRetry = vi.fn((source, options) => source.fetchRows(options));
+    const { gridApi, lifecycle } = createHarness({ fetchRowsWithReadinessRetry });
+
+    lifecycle.rebuildInfiniteDatasource({
+      currentDataSource: dataSource,
+      forceRefresh: true,
+      totalRowCount: ref(0),
+      version: 1,
+    });
+    vi.runOnlyPendingTimers();
+    const appliedDatasource = gridApi.setGridOption.mock.calls[0]?.[1];
+    appliedDatasource.getRows(createParams());
+    await flush();
+
+    expect(fetchRowsWithReadinessRetry).toHaveBeenCalledWith(dataSource, expect.objectContaining({
+      forceRefresh: true,
+    }), expect.any(Function));
+    vi.useRealTimers();
+  });
+
+  it('consumes rebuild forceRefresh only once per infinite datasource generation', async () => {
+    vi.useFakeTimers();
+    const dataSource = {
+      fetchRows: vi.fn(async () => ({ rows: [] as BrowserCard[], totalCount: 0 })),
+    } as unknown as ICardDataSource;
+    const fetchRowsWithReadinessRetry = vi.fn((source, options) => source.fetchRows(options));
+    const { gridApi, lifecycle } = createHarness({ fetchRowsWithReadinessRetry });
+
+    lifecycle.rebuildInfiniteDatasource({
+      currentDataSource: dataSource,
+      forceRefresh: true,
+      totalRowCount: ref(0),
+      version: 1,
+    });
+    vi.runOnlyPendingTimers();
+    const appliedDatasource = gridApi.setGridOption.mock.calls[0]?.[1];
+    appliedDatasource.getRows(createParams({ startRow: 0, endRow: 1 }));
+    appliedDatasource.getRows(createParams({ startRow: 1, endRow: 2 }));
+    await flush();
+
+    expect(fetchRowsWithReadinessRetry).toHaveBeenNthCalledWith(1, dataSource, expect.objectContaining({
+      forceRefresh: true,
+    }), expect.any(Function));
+    expect(fetchRowsWithReadinessRetry).toHaveBeenNthCalledWith(2, dataSource, expect.objectContaining({
+      forceRefresh: false,
+    }), expect.any(Function));
+    vi.useRealTimers();
+  });
+
   it('keeps latest datasource pending until grid api becomes alive', () => {
     vi.useFakeTimers();
     const { gridApi, gridApiRef, lifecycle } = createHarness({ gridApi: null });

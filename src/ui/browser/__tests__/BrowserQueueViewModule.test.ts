@@ -46,7 +46,7 @@ describe('BrowserQueueViewModule', () => {
     expect(resolveQueueTypeForBrowserQueueView('', QueueType.FinalDrill)).toBeNull();
   });
 
-  it('returns a datasource only after readiness is ready', async () => {
+  it('returns a datasource immediately and kicks readiness in background', async () => {
     const manager = createManager([{
       status: 'ready',
       queueId: QueueType.RetrievalPractice,
@@ -63,12 +63,7 @@ describe('BrowserQueueViewModule', () => {
     }));
     expect(result.status).toBe('ready');
     expect(result.status === 'ready' ? result.datasource.id : null).toBe('retrieval');
-    expect(result.status === 'ready' ? result.projectionIdentity : null).toEqual({
-      queueId: QueueType.RetrievalPractice,
-      queueType: QueueType.RetrievalPractice,
-      policyId: 'policy-a',
-      generation: 7,
-    });
+    expect(result.status === 'ready' ? result.projectionIdentity : null).toBeNull();
   });
 
   it('normalizes neural aliases without gating the datasource on projection readiness', async () => {
@@ -92,7 +87,7 @@ describe('BrowserQueueViewModule', () => {
     expect(result.status === 'ready' ? result.projectionIdentity : null).toBeNull();
   });
 
-  it('keeps non-neural queue refreshing alive until it becomes ready', async () => {
+  it('loads non-neural queue view without blocking on readiness', async () => {
     const manager = createManager([
       {
         status: 'refreshing',
@@ -127,13 +122,10 @@ describe('BrowserQueueViewModule', () => {
 
     const first = await module.prepareQueueView(manager, request);
     const second = await module.prepareQueueView(manager, request);
-    const third = await module.prepareQueueView(manager, request);
-    const fourth = await module.prepareQueueView(manager, request);
-
-    expect(first).toMatchObject({ status: 'refreshing', keepLoading: true, retryDelayMs: 111 });
-    expect(second).toMatchObject({ status: 'refreshing', keepLoading: true, retryDelayMs: 222 });
-    expect(third).toMatchObject({ status: 'refreshing', keepLoading: true, retryDelayMs: 333 });
-    expect(fourth.status).toBe('ready');
+    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(2);
+    expect(first.status).toBe('ready');
+    expect(first.status === 'ready' ? first.datasource.id : null).toBe('retrieval');
+    expect(second.status).toBe('ready');
   });
 
   it('loads neural-roam browser view even when projection readiness would still be refreshing', async () => {
@@ -180,7 +172,7 @@ describe('BrowserQueueViewModule', () => {
     expect(result.status === 'ready' ? result.projectionIdentity : null).toBeNull();
   });
 
-  it('maps unavailable readiness to an explicit queue view error', async () => {
+  it('loads queue view even when readiness reports unavailable later', async () => {
     const manager = createManager([{
       status: 'unavailable',
       queueId: QueueType.RetrievalPractice,
@@ -193,10 +185,10 @@ describe('BrowserQueueViewModule', () => {
 
     const result = await module.prepareQueueView(manager, createRequest());
 
-    expect(result).toEqual({
-      status: 'unavailable',
-      message: 'Queue projection backend is unavailable',
-    });
+    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe('ready');
+    expect(result.status === 'ready' ? result.datasource.id : null).toBe('retrieval');
+    expect(result.status === 'ready' ? result.projectionIdentity : null).toBeNull();
   });
 
   it('plans live identity reattach only for newer visible matching queue events', () => {

@@ -478,6 +478,188 @@ describe('BrowserApplicationService deck query kernel', () => {
     expect(backendClient.browserAggregatePage).toHaveBeenCalledTimes(1);
   });
 
+  it('deduplicates concurrent aggregate snapshot creation for the same sorted deck query', async () => {
+    const cards = [
+      buildCard({
+        id: 'card-aggregate-concurrent-1',
+        blockId: 'block-aggregate-concurrent-1',
+        meta: { content: 'Aggregate concurrent card 1', rootId: 'doc-worker' },
+      }),
+      buildCard({
+        id: 'card-aggregate-concurrent-2',
+        blockId: 'block-aggregate-concurrent-2',
+        meta: { content: 'Aggregate concurrent card 2', rootId: 'doc-worker' },
+      }),
+    ];
+    const identity = {
+      snapshotId: 'browser-aggregate:concurrent',
+      generation: 1,
+      datasourceId: 'deck:all',
+      policyHash: 'policy',
+      queryFingerprint: 'fingerprint',
+    };
+    let resolveSnapshot: ((value: Awaited<ReturnType<SrsBackendClient['browserAggregateSnapshot']>>) => void) | null = null;
+    const snapshotPromise = new Promise<Awaited<ReturnType<SrsBackendClient['browserAggregateSnapshot']>>>((resolve) => {
+      resolveSnapshot = resolve;
+    });
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserAggregateSnapshot'
+      | 'browserAggregatePage'
+      | 'browserSourceExistenceApplySweepHost'
+      | 'browserSourceExistenceByBlockIds'
+    > = {
+      browserAggregateSnapshot: vi.fn(async () => snapshotPromise),
+      browserAggregatePage: vi.fn(async (request: { offset?: number; limit?: number }) => ({
+        status: 'ready',
+        identity,
+        totalCount: 2,
+        rows: cards.slice(request.offset || 0, (request.offset || 0) + (request.limit || 1)),
+        nextCursor: null,
+      })),
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
+        checked: 2,
+        updated: 2,
+        changed: false,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['block-aggregate-concurrent-1', true],
+        ['block-aggregate-concurrent-2', true],
+      ])),
+    };
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      {
+        sql: vi.fn(async () => [{ id: 'block-aggregate-concurrent-1' }, { id: 'block-aggregate-concurrent-2' }]),
+      } as never,
+      null,
+      null,
+      backendClient as SrsBackendClient,
+    );
+    const query = {
+      preset: 'all' as const,
+      sortModel: [{ colId: 'reps', sort: 'asc' as const }],
+    };
+
+    const first = service.getDeckAggregatePage(query, { startRow: 0, endRow: 1 });
+    const second = service.getDeckAggregatePage(query, { startRow: 1, endRow: 2 });
+    await Promise.resolve();
+    resolveSnapshot?.({
+      status: 'ready',
+      identity,
+      totalCount: 2,
+      pageSize: 1,
+    });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ total: 2, rows: [expect.objectContaining({ fsrsCardId: 'card-aggregate-concurrent-1' })] }),
+      expect.objectContaining({ total: 2, rows: [expect.objectContaining({ fsrsCardId: 'card-aggregate-concurrent-2' })] }),
+    ]);
+    expect(backendClient.browserAggregateSnapshot).toHaveBeenCalledTimes(1);
+    expect(backendClient.browserAggregatePage).toHaveBeenCalledTimes(2);
+  });
+
+  it('force refreshes aggregate deck snapshots without fragmenting the cache key', async () => {
+    const card = buildCard({
+      id: 'card-aggregate-force-refresh',
+      blockId: 'block-aggregate-force-refresh',
+      meta: { content: 'Aggregate force refresh card', rootId: 'doc-worker' },
+    });
+    const firstIdentity = {
+      snapshotId: 'browser-aggregate:force-refresh:first',
+      generation: 1,
+      datasourceId: 'deck:all',
+      policyHash: 'policy',
+      queryFingerprint: 'fingerprint',
+    };
+    const secondIdentity = {
+      ...firstIdentity,
+      snapshotId: 'browser-aggregate:force-refresh:second',
+      generation: 2,
+    };
+    const identities = [firstIdentity, secondIdentity];
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserAggregateSnapshot'
+      | 'browserAggregatePage'
+      | 'browserSourceExistenceApplySweepHost'
+      | 'browserSourceExistenceByBlockIds'
+    > = {
+      browserAggregateSnapshot: vi.fn(async () => {
+        const identity = identities.shift() ?? secondIdentity;
+        return {
+          status: 'ready',
+          identity,
+          totalCount: 1,
+          pageSize: 1,
+        };
+      }),
+      browserAggregatePage: vi.fn(async (request: { identity: typeof firstIdentity }) => ({
+        status: 'ready',
+        identity: request.identity,
+        totalCount: 1,
+        rows: [card],
+        nextCursor: null,
+      })),
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
+        checked: 1,
+        updated: 1,
+        changed: false,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['block-aggregate-force-refresh', true],
+      ])),
+    };
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      {
+        sql: vi.fn(async () => [{ id: 'block-aggregate-force-refresh' }]),
+      } as never,
+      null,
+      null,
+      backendClient as SrsBackendClient,
+    );
+    const query = {
+      preset: 'all' as const,
+      sortModel: [{ colId: 'reps', sort: 'asc' as const }],
+    };
+
+    await service.getDeckAggregatePage(query, { startRow: 0, endRow: 1 });
+    await service.getDeckAggregatePage(query, { startRow: 0, endRow: 1 });
+    await service.getDeckAggregatePage({ ...query, forceRefresh: true }, { startRow: 0, endRow: 1 });
+    await service.getDeckAggregatePage(query, { startRow: 0, endRow: 1 });
+
+    expect(backendClient.browserAggregateSnapshot).toHaveBeenCalledTimes(2);
+    expect(backendClient.browserAggregatePage).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      identity: firstIdentity,
+    }));
+    expect(backendClient.browserAggregatePage).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      identity: firstIdentity,
+    }));
+    expect(backendClient.browserAggregatePage).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      identity: secondIdentity,
+    }));
+    expect(backendClient.browserAggregatePage).toHaveBeenNthCalledWith(4, expect.objectContaining({
+      identity: secondIdentity,
+    }));
+  });
+
   it('returns explicit unavailable when backend deck query fails', async () => {
     const backendClient: Pick<SrsBackendClient, 'browserDeckPage'> = {
       browserDeckPage: vi.fn(async () => {

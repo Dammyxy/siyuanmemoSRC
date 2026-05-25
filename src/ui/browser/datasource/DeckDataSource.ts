@@ -167,7 +167,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
       this.lastSortModel = sortModel;
       if (this.browserService?.getDeckAggregatePage) {
         const result = await this.browserService.getDeckAggregatePage(
-          this.buildBrowserServiceQuery(sortModel),
+          this.buildBrowserServiceQuery(sortModel, Boolean(params?.forceRefresh)),
           {
             startRow: params?.startRow,
             endRow: params?.endRow,
@@ -436,7 +436,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     return sortBrowserCards(rows, sortModel);
   }
 
-  private buildBrowserServiceQuery(sortModel: SortModel[]): BrowserDeckSnapshotQuery {
+  private buildBrowserServiceQuery(sortModel: SortModel[], forceRefresh = false): BrowserDeckSnapshotQuery {
     const cardTypes = this.mapCardTypeFilterToQueryCardTypes(this.options.cardType);
     return {
       preset: this.options.preset as BrowserDeckSnapshotQuery['preset'],
@@ -445,6 +445,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
       searchText: this.options.queryText,
       cardTypes,
       sortModel: normalizeBrowserQuerySortModel(sortModel),
+      forceRefresh: forceRefresh || undefined,
     };
   }
 

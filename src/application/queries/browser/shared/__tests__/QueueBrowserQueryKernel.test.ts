@@ -142,6 +142,26 @@ describe('QueueBrowserQueryKernel', () => {
     expect(queue.getSnapshotRows).toHaveBeenCalled();
   });
 
+  it('passes forceRefresh through to the queue snapshot reader', async () => {
+    const queue = {
+      getSnapshotRows: vi.fn(async () => [
+        buildSnapshotRow('row-a', { fsrsCardId: 'card-a' }),
+      ]),
+      getCardsBySnapshotIds: vi.fn(async () => []),
+    };
+    const manager = {
+      getQueue: vi.fn(() => queue),
+    } as never;
+    const kernel = new QueueBrowserQueryKernel(manager);
+
+    await kernel.buildSnapshot({
+      queueId: 'retrieval',
+      forceRefresh: true,
+    });
+
+    expect(queue.getSnapshotRows).toHaveBeenCalledWith(true);
+  });
+
   it('marks missing source blocks before queue filtering and hydration', async () => {
     const snapshotRows = [
       buildSnapshotRow('row-existing', {

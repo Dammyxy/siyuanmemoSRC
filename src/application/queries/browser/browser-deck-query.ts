@@ -14,6 +14,7 @@ export interface BrowserDeckSnapshotQuery {
   deckIds?: string[];
   tags?: string[];
   sortModel?: SortModel[];
+  forceRefresh?: boolean;
 }
 
 export interface BrowserDeckLiteRow {

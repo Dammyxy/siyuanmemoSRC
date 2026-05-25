@@ -1609,6 +1609,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
 
   private resolveSortColumn(colId: unknown): string | null {
     const normalized = normalizeString(colId);
+    const now = Date.now();
     const columns: Record<string, string | null> = {
       id: 'id',
       fsrsCardId: 'id',
@@ -1619,6 +1620,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       fullContent: 'content_text',
       priority: 'priority',
       state: 'state',
+      stateLabel: 'state',
       cardType: 'type',
       type: 'type',
       due: 'due',
@@ -1633,9 +1635,19 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       lastReviewFormatted: 'last_review',
       firstReview: 'created_at',
       firstReviewFormatted: 'created_at',
+      retrievability: `(CASE
+        WHEN stability IS NULL OR stability <= 0 THEN 0
+        ELSE 1.0 / (
+          1.0 + (
+            CASE
+              WHEN last_review IS NULL OR last_review <= 0 THEN 0
+              ELSE CAST(((${now} - last_review) / 86400000.0) AS INTEGER)
+            END
+          ) / (9.0 * stability)
+        )
+      END)`,
       suspended: 'suspended',
       aFactor: 'a_factor',
-      retrievability: null,
     };
     return Object.prototype.hasOwnProperty.call(columns, normalized)
       ? columns[normalized]

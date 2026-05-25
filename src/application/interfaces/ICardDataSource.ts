@@ -51,6 +51,8 @@ export interface FetchRowsOptions {
   /** 结束行（可选，用于分页） */
   /** Required semantic in production infinite-row browser path. */
   endRow?: number;
+  /** 强制刷新底层快照 */
+  forceRefresh?: boolean;
 }
 
 /**

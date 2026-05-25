@@ -713,7 +713,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private async readQueueVisibleCount(
     queue: IReviewQueue | null,
     queueId: string,
-    _forceRefresh = false,
+    forceRefresh = false,
   ): Promise<number> {
     if (!queue) {
       return 0;
@@ -757,6 +757,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         docId: null,
         scopeDocIds: null,
         cardType: 'all',
+        forceRefresh,
       });
       return Math.max(0, Number(snapshot.total) || 0);
     } catch (error) {

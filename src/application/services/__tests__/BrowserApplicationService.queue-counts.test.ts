@@ -352,6 +352,7 @@ describe('BrowserApplicationService queue counts', () => {
     expect(counts.retrieval).toBe(1);
     expect(counts['final-drill']).toBe(2);
     expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledWith(true);
     expect(finalQueue.getSnapshotRows).not.toHaveBeenCalled();
   });
 });

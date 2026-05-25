@@ -23,6 +23,7 @@ type BrowserGridFirstRowsLifecycleDeps = {
   measureUiUpdate?: (operation: () => void, metadata: Record<string, unknown>) => void;
   mergeLoadedRows: (rows: BrowserCard[]) => void;
   nextTick: (callback: () => void) => void;
+  onTotalCountLoaded?: (totalCount: number) => void;
   onStatusChange?: (status: BrowserGridRowsLifecycleStatus) => void;
   recordFirstRowsVisible: (metadata: Record<string, unknown>) => void;
   rows: MutableRef<BrowserCard[]>;
@@ -81,6 +82,7 @@ export function createBrowserGridFirstRowsLifecycle(deps: BrowserGridFirstRowsLi
       }
       const applyUiUpdate = () => {
         deps.totalRowCount.value = params.totalCount;
+        deps.onTotalCountLoaded?.(params.totalCount);
         deps.hasFirstDataBlockLoaded.value = true;
         deps.rows.value = params.rowsForBlock;
         if (!deps.shouldFocusDocList.value && !deps.activeDocId.value) {

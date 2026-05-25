@@ -1958,6 +1958,22 @@ const gridFirstRowsLifecycle = createBrowserGridFirstRowsLifecycle({
   measureUiUpdate: (operation, metadata) => measureRuntimePerformance('browser', 'grid.datasource-ui-update', operation, metadata),
   mergeLoadedRows,
   nextTick: (callback) => void nextTick(callback),
+  onTotalCountLoaded: (count) => {
+    const queueId = normalizeBrowserQueueId(activeQueueId.value);
+    if (
+      queueId
+      && activeDocId.value === null
+      && !activeScopeDocIds.value?.length
+      && currentPreset.value === 'all'
+      && currentCardType.value === 'all'
+      && !String(searchQuery.value || '').trim()
+    ) {
+      queueCounts.value = {
+        ...queueCounts.value,
+        [queueId]: Math.max(0, Number(count) || 0),
+      };
+    }
+  },
   onStatusChange: (status) => {
     firstRowsStatus.value = status;
   },
@@ -1985,7 +2001,6 @@ const gridDatasourceLifecycle = createBrowserGridDatasourceLifecycle({
 });
 
 function rebuildInfiniteDatasource(forceRefresh = false): void {
-  void forceRefresh;
   const version = ++datasourceVersion;
   loading.value = true;
   hasFirstDataBlockLoaded.value = false;
@@ -1993,6 +2008,7 @@ function rebuildInfiniteDatasource(forceRefresh = false): void {
   clearLoadedRowsCache();
   gridDatasourceLifecycle.rebuildInfiniteDatasource({
     currentDataSource: currentDataSource.value,
+    forceRefresh,
     totalRowCount,
     version,
   });

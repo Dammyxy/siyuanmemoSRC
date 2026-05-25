@@ -219,6 +219,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
           return;
         }
 
+        deps.currentProjectionIdentity.value = null;
         flushPendingHiddenLiveIdentityEvent();
 
         const activeQueueId = deps.activeQueueId.value;
@@ -270,7 +271,9 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
         }
 
         deps.currentDataSource.value = queueView.datasource;
-        deps.currentProjectionIdentity.value = queueView.projectionIdentity;
+        if (queueView.projectionIdentity) {
+          deps.currentProjectionIdentity.value = queueView.projectionIdentity;
+        }
       } else {
         deps.clearNeuralSubviewData();
         deps.currentProjectionIdentity.value = null;

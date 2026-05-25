@@ -88,12 +88,7 @@ describe('browserLoadDataRuntime', () => {
     await runtime.loadData(true, { origin: 'queue-sync', snapshotDelayMs: 25 });
 
     expect(deps.currentDataSource.value?.id).toBe('retrieval');
-    expect(deps.currentProjectionIdentity.value).toEqual({
-      queueId: QueueType.RetrievalPractice,
-      queueType: QueueType.RetrievalPractice,
-      policyId: 'policy-a',
-      generation: 1,
-    });
+    expect(deps.currentProjectionIdentity.value).toBeNull();
     expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledWith(true);
     expect(deps.startFocusRowsSnapshot).toHaveBeenCalledWith(25);
     expect(deps.scheduleAllRowsSnapshot).not.toHaveBeenCalled();
@@ -150,9 +145,8 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.loading.value).toBe(false);
   });
 
-  it('keeps queue view preparing instead of attaching datasource or emptying rows while projection refreshes', async () => {
+  it('attaches queue datasource immediately while projection readiness runs in background', async () => {
     vi.useFakeTimers();
-    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
     const manager = {
       ...createManager(),
       ensureQueueProjectionReady: vi.fn(async () => ({
@@ -174,14 +168,11 @@ describe('browserLoadDataRuntime', () => {
 
     await runtime.loadData();
 
-    expect(deps.currentDataSource.value).toBeNull();
-    expect(deps.rebuildInfiniteDatasource).not.toHaveBeenCalled();
+    expect(deps.currentDataSource.value?.id).toBe('retrieval');
+    expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(1);
     expect(deps.rows.value).toEqual([{ id: 'existing', blockId: 'existing' }]);
     expect(deps.totalRowCount.value).toBe(1);
     expect(deps.loading.value).toBe(true);
-    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 300);
-
-    setTimeoutSpy.mockRestore();
     vi.useRealTimers();
   });
 
@@ -210,29 +201,16 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.currentDataSource.value?.id).toBe('neural-roam');
   });
 
-  it('keeps retrieval queue view retrying past the generic cap until projection becomes ready', async () => {
-    vi.useFakeTimers();
-    let readinessCalls = 0;
+  it('loads retrieval queue view without waiting for projection readiness', async () => {
     const manager = {
       ...createManager(),
-      ensureQueueProjectionReady: vi.fn(async () => {
-        readinessCalls += 1;
-        if (readinessCalls < 6) {
-          return {
-            status: 'refreshing',
-            queueId: QueueType.RetrievalPractice,
-            policyId: 'policy-retrieval',
-            cause: 'materialization_in_progress',
-            retryAfterMs: 25,
-          };
-        }
-        return {
-          status: 'ready',
-          queueId: QueueType.RetrievalPractice,
-          policyId: 'policy-retrieval',
-          generation: 9,
-        };
-      }),
+      ensureQueueProjectionReady: vi.fn(async () => ({
+        status: 'refreshing',
+        queueId: QueueType.RetrievalPractice,
+        policyId: 'policy-retrieval',
+        cause: 'materialization_in_progress',
+        retryAfterMs: 25,
+      })),
     };
     const deps = createDeps({
       activeQueueId: ref('retrieval'),
@@ -242,47 +220,22 @@ describe('browserLoadDataRuntime', () => {
     const runtime = createBrowserLoadDataRuntime(deps);
 
     await runtime.loadData();
-    await vi.runAllTimersAsync();
 
-    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(6);
+    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(1);
     expect(deps.currentDataSource.value?.id).toBe('retrieval');
-    expect(deps.currentProjectionIdentity.value).toEqual({
-      queueId: QueueType.RetrievalPractice,
-      queueType: QueueType.RetrievalPractice,
-      policyId: 'policy-retrieval',
-      generation: 9,
-    });
     expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(1);
-    vi.useRealTimers();
   });
 
-  it('cancels stale queue-view retry timers when a newer load starts', async () => {
-    vi.useFakeTimers();
-    let resolveSecondReadiness: ((value: {
-      status: 'ready';
-      queueId: QueueType.NeuralRoam;
-      policyId: string;
-      generation: number;
-    }) => void) | null = null;
-    const secondReadiness = new Promise<{
-      status: 'ready';
-      queueId: QueueType.NeuralRoam;
-      policyId: string;
-      generation: number;
-    }>((resolve) => {
-      resolveSecondReadiness = resolve;
-    });
+  it('does not hold stale queue-view retries open during a newer load', async () => {
     const manager = {
       ...createManager(),
-      ensureQueueProjectionReady: vi.fn()
-        .mockResolvedValueOnce({
-          status: 'refreshing',
-          queueId: QueueType.RetrievalPractice,
-          policyId: 'policy-retrieval',
-          cause: 'materialization_in_progress',
-          retryAfterMs: 25,
-        })
-        .mockReturnValueOnce(secondReadiness),
+      ensureQueueProjectionReady: vi.fn(async () => ({
+        status: 'refreshing',
+        queueId: QueueType.RetrievalPractice,
+        policyId: 'policy-retrieval',
+        cause: 'materialization_in_progress',
+        retryAfterMs: 25,
+      })),
     };
     const deps = createDeps({
       activeQueueId: ref('retrieval'),
@@ -292,21 +245,10 @@ describe('browserLoadDataRuntime', () => {
     const runtime = createBrowserLoadDataRuntime(deps);
 
     await runtime.loadData();
-    const newerLoad = runtime.loadData(false, { origin: 'queue-sync' });
-    await vi.advanceTimersByTimeAsync(25);
+    await runtime.loadData(false, { origin: 'queue-sync' });
 
     expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(2);
-    expect(deps.logger.info).not.toHaveBeenCalledWith('[SiYuanMemo][SRSBrowser] Previous loadData() aborted');
-
-    resolveSecondReadiness?.({
-      status: 'ready',
-      queueId: QueueType.RetrievalPractice,
-      policyId: 'policy-retrieval',
-      generation: 2,
-    });
-    await newerLoad;
-
-    vi.useRealTimers();
+    expect(deps.currentDataSource.value?.id).toBe('retrieval');
   });
 
   it('maps terminal projection unavailable to an explicit error state', async () => {
@@ -332,10 +274,10 @@ describe('browserLoadDataRuntime', () => {
 
     await runtime.loadData();
 
-    expect(deps.pushErrMsg).toHaveBeenCalledWith('Queue projection contract mismatch');
-    expect(deps.currentDataSource.value).toBeNull();
-    expect(deps.rows.value).toEqual([]);
-    expect(deps.totalRowCount.value).toBe(0);
+    expect(deps.pushErrMsg).not.toHaveBeenCalled();
+    expect(deps.currentDataSource.value?.id).toBe('retrieval');
+    expect(deps.rows.value).toEqual([{ id: 'existing', blockId: 'existing' }]);
+    expect(deps.totalRowCount.value).toBe(1);
   });
 
   it('schedules one queue-sync reload for matching live identity events', async () => {
@@ -387,12 +329,7 @@ describe('browserLoadDataRuntime', () => {
 
     expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(1);
     expect(deps.globalSelection.clear).not.toHaveBeenCalled();
-    expect(deps.currentProjectionIdentity.value).toEqual({
-      queueId: QueueType.RetrievalPractice,
-      queueType: QueueType.RetrievalPractice,
-      policyId: 'policy-a',
-      generation: 3,
-    });
+    expect(deps.currentProjectionIdentity.value).toBeNull();
     vi.useRealTimers();
   });
 
@@ -429,12 +366,7 @@ describe('browserLoadDataRuntime', () => {
     await vi.runOnlyPendingTimersAsync();
 
     expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(1);
-    expect(deps.currentProjectionIdentity.value).toEqual({
-      queueId: QueueType.RetrievalPractice,
-      queueType: QueueType.RetrievalPractice,
-      policyId: 'policy-retrieval',
-      generation: 4,
-    });
+    expect(deps.currentProjectionIdentity.value).toBeNull();
     vi.useRealTimers();
   });
 

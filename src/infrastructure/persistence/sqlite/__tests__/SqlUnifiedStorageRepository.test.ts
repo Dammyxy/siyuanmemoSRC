@@ -208,6 +208,58 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     })).toEqual(['card-a', 'card-d', 'card-b']);
   });
 
+  it('supports browser grid sort columns without returning unavailable for aggregate snapshot queries', async () => {
+    const { repository } = await seedRepositories();
+
+    const sortableColumns = [
+      'content',
+      'priority',
+      'interval',
+      'lastReview',
+      'due',
+      'reps',
+      'lapses',
+      'stateLabel',
+      'cardType',
+      'firstReview',
+      'retrievability',
+      'difficulty',
+      'stability',
+    ];
+
+    for (const colId of sortableColumns) {
+      expect(repository.queryDeckMatchedIds({ sortModel: [{ colId, sort: 'asc' }] })).not.toBeNull();
+    }
+  });
+
+  it('sorts retrievability by computed FSRS projection rather than rejecting the query', async () => {
+    const { repository } = await seedRepositories();
+    const now = 1_700_000_010_000;
+
+    repository.upsertCard({
+      ...(repository.getCard('card-a')!),
+      stability: 10,
+      lastReview: now - 86_400_000,
+      updatedAt: now,
+      meta: {
+        ...(repository.getCard('card-a')?.meta || {}),
+      },
+    });
+    repository.upsertCard({
+      ...(repository.getCard('card-b')!),
+      stability: 1,
+      lastReview: now - 86_400_000,
+      updatedAt: now,
+      meta: {
+        ...(repository.getCard('card-b')?.meta || {}),
+      },
+    });
+
+    expect(repository.queryDeckMatchedIds({
+      sortModel: [{ colId: 'retrievability', sort: 'desc' }],
+    })).toEqual(['card-a', 'card-c', 'card-d', 'card-b']);
+  });
+
   it('updates projection columns on upsert and serves missing-block SQL pages from source cache', async () => {
     const { repository } = await seedRepositories();
     const card = repository.getCard('card-a');

@@ -61,7 +61,7 @@ implements ICardDataSource, IBrowserQueryableDataSource {
     const sortModel = normalizeBrowserQuerySortModel(params?.sortModel as SortModel[] | undefined);
     this.lastSortModel = sortModel;
     return this.querySession.fetchRows({
-      ...this.buildSessionOptions(sortModel),
+      ...this.buildSessionOptions(sortModel, Boolean(params?.forceRefresh)),
       startRow: params?.startRow,
       endRow: params?.endRow,
     });
@@ -100,23 +100,24 @@ implements ICardDataSource, IBrowserQueryableDataSource {
     return true;
   }
 
-  protected buildQueryFingerprint(sortModel: SortModel[]): string {
+  protected buildQueryFingerprint(sortModel: SortModel[], forceRefresh = false): string {
     return JSON.stringify({
       dataSource: this.id,
       queueId: this.getQueueBrowserId(),
       options: this.options,
       sortModel,
+      forceRefresh,
       generation: this.dataGeneration,
     });
   }
 
-  protected buildSessionOptions(sortModel: SortModel[]) {
+  protected buildSessionOptions(sortModel: SortModel[], forceRefresh = false) {
     if (this.browserService?.getQueueQuerySnapshot && this.browserService?.getQueueRowsByIds) {
       return {
-        queryFingerprint: this.buildQueryFingerprint(sortModel),
+        queryFingerprint: this.buildQueryFingerprint(sortModel, forceRefresh),
         buildLiteRows: async () => {
           const snapshot = await this.browserService!.getQueueQuerySnapshot(
-            this.buildBrowserServiceQuery(sortModel),
+            this.buildBrowserServiceQuery(sortModel, forceRefresh),
           );
           return snapshot.rows;
         },
@@ -129,7 +130,7 @@ implements ICardDataSource, IBrowserQueryableDataSource {
 
     if (!this.allowLegacyQueueFallback()) {
       return {
-        queryFingerprint: this.buildQueryFingerprint(sortModel),
+        queryFingerprint: this.buildQueryFingerprint(sortModel, forceRefresh),
         buildLiteRows: async () => {
           throw new Error(`QUEUE_PROJECTION_UNAVAILABLE: ${this.getQueueBrowserId()} browser snapshot unavailable`);
         },
@@ -137,7 +138,7 @@ implements ICardDataSource, IBrowserQueryableDataSource {
     }
 
     return {
-      queryFingerprint: this.buildQueryFingerprint(sortModel),
+      queryFingerprint: this.buildQueryFingerprint(sortModel, forceRefresh),
       buildLiteRows: async () => {
         const rows = await this.buildLegacyOrderedRows(sortModel);
         return rows.map(toLiteRowFromBrowserCard);
@@ -145,7 +146,7 @@ implements ICardDataSource, IBrowserQueryableDataSource {
     };
   }
 
-  private buildBrowserServiceQuery(sortModel: SortModel[]): QueueBrowserSnapshotQuery {
+  private buildBrowserServiceQuery(sortModel: SortModel[], forceRefresh = false): QueueBrowserSnapshotQuery {
     return {
       queueId: this.getQueueBrowserId(),
       preset: this.options.preset,
@@ -153,6 +154,7 @@ implements ICardDataSource, IBrowserQueryableDataSource {
       docId: this.options.docId,
       scopeDocIds: normalizeBrowserQueryScopeDocIds(this.options.scopeDocIds),
       cardType: this.options.cardType,
+      forceRefresh,
       sortModel: normalizeBrowserQuerySortModel(sortModel),
     };
   }
