@@ -31,4 +31,24 @@ describe('BrowserHierarchy global scopes', () => {
     expect(wrapper.text()).not.toContain('Missing blocks');
     expect(wrapper.text()).not.toContain('3');
   });
+
+  it('shows an unknown marker before the all flashcards count is authoritative', () => {
+    const wrapper = mount(BrowserHierarchy, {
+      props: {
+        cards: [],
+        queues: { active: '', counts: {} },
+        globalStats: { total: null, dismissed: 0, lost: 0 },
+        i18n: {
+          all: 'All',
+          allFlashcards: 'All flashcards',
+          filterPresetSuspended: 'Suspended',
+          queues: 'Queues',
+          documents: 'Documents',
+        },
+      },
+    });
+
+    expect(wrapper.findAll('.b3-list-item').map((item) => item.text()))
+      .toContain('All flashcards...');
+  });
 });

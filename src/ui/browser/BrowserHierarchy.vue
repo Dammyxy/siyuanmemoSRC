@@ -21,7 +21,7 @@
       <div class="b3-list b3-list--background">
         <div class="b3-list-item" :class="{ 'b3-list-item--focus': props.activeGlobal === '__all__' }" @click="emit('selectGlobal', '__all__')">
           <span class="b3-list-item__text">{{ t('allFlashcards', 'All flashcards') }}</span>
-          <span class="b3-list-item__meta">{{ globalStats.total }}</span>
+          <span class="b3-list-item__meta">{{ globalStats.total ?? '...' }}</span>
         </div>
         <div class="b3-list-item" :class="{ 'b3-list-item--focus': props.activeGlobal === '__dismissed__' }" @click="emit('selectGlobal', '__dismissed__')">
           <span class="b3-list-item__text">{{ t('filterPresetSuspended', 'Suspended') }}</span>
@@ -59,7 +59,7 @@ const props = defineProps<{
   queues: { active: string; counts: Record<string, number> };
   mobileMode?: boolean;
   focusedDocIds?: string[] | null;
-  globalStats: { total: number; lost: number; dismissed: number };
+  globalStats: { total: number | null; lost: number; dismissed: number };
   activeGlobal?: '__all__' | '__dismissed__' | null;
   activeDocId?: string | null;
   i18n?: Record<string, string>;

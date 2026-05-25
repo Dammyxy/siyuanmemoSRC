@@ -488,6 +488,11 @@ import {
 } from '@/utils/runtimePerformanceDiagnostics';
 import { runBrowserForceRefresh } from './forceRefreshDataPlan';
 import {
+  applyBackendBrowserStats,
+  applyLoadedAllCardsTotal,
+  type BrowserGlobalStatsScope,
+} from './browserGlobalStatsRuntime';
+import {
   type BrowserCard,
   type BrowserMode,
   type BrowserOpenState,
@@ -1405,7 +1410,7 @@ const focusedDocIds = computed(() => {
 });
 
 const globalStats = computed(() => {
-  const total = globalTotalCount.value ?? 0;
+  const total = globalTotalCount.value;
   const lost = globalLostCount.value ?? 0;
   const dismissed = globalDismissedCount.value ?? 0;
   return {
@@ -1429,6 +1434,23 @@ const activeGlobalScope = computed<'__all__' | '__dismissed__' | null>(() => {
   }
   return null;
 });
+
+function currentGlobalStatsScope(): BrowserGlobalStatsScope {
+  return {
+    activeDocId: activeDocId.value,
+    activeQueueId: activeQueueId.value,
+    activeScopeDocIds: activeScopeDocIds.value,
+    currentCardType: currentCardType.value,
+    currentPreset: currentPreset.value,
+    searchQuery: searchQuery.value,
+  };
+}
+
+function applyGlobalStatsState(next: { total: number | null; lost: number; dismissed: number }): void {
+  globalTotalCount.value = next.total;
+  globalLostCount.value = next.lost;
+  globalDismissedCount.value = next.dismissed;
+}
 
 const showToolbarExitScope = computed(() => (
   shouldFocusDocList.value
@@ -1778,10 +1800,19 @@ async function refreshGlobalStats(force = false): Promise<void> {
         suspendedCards?: number;
         lostCards?: number;
       };
-      const lostCards = Number(normalized.lostCards) || 0;
-      globalTotalCount.value = Math.max(0, Number(normalized.totalCards) || 0);
-      globalLostCount.value = lostCards;
-      globalDismissedCount.value = Number(normalized.suspendedCards) || 0;
+      applyGlobalStatsState(applyBackendBrowserStats({
+        dismissed: globalDismissedCount.value,
+        lost: globalLostCount.value,
+        total: globalTotalCount.value,
+      }, currentGlobalStatsScope(), {
+        dueCards: 0,
+        learningCards: 0,
+        lostCards: Number(normalized.lostCards) || 0,
+        newCards: 0,
+        reviewCards: 0,
+        suspendedCards: Number(normalized.suspendedCards) || 0,
+        totalCards: Number(normalized.totalCards) || 0,
+      }, totalRowCount.value));
       return;
     } catch (error) {
       if (taskId !== globalStatsTaskId) {
@@ -1959,6 +1990,11 @@ const gridFirstRowsLifecycle = createBrowserGridFirstRowsLifecycle({
   mergeLoadedRows,
   nextTick: (callback) => void nextTick(callback),
   onTotalCountLoaded: (count) => {
+    applyGlobalStatsState(applyLoadedAllCardsTotal({
+      dismissed: globalDismissedCount.value,
+      lost: globalLostCount.value,
+      total: globalTotalCount.value,
+    }, currentGlobalStatsScope(), count));
     const queueId = normalizeBrowserQueueId(activeQueueId.value);
     if (
       queueId

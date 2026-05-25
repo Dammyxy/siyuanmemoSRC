@@ -176,7 +176,7 @@ vi.mock('../BrowserHierarchy.vue', () => ({
         h('button', {
           class: 'select-global-all',
           onClick: () => emit('selectGlobal', '__all__'),
-        }, `All flashcards ${String((props.globalStats as { total: number }).total ?? 0)}`),
+        }, `All flashcards ${String((props.globalStats as { total: number | null }).total ?? '...')}`),
         h('button', {
           class: 'select-global-suspended',
           onClick: () => emit('selectGlobal', '__dismissed__'),

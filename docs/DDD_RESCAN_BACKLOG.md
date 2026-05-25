@@ -4,6 +4,16 @@ Last update: 2026-05-25 (Round 465)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-25 - Browser Left All Count Readiness
+
+- Task: Stop the Browser left `All flashcards` count from drifting upward after open by separating unknown/readiness state from stale backend stats.
+- Touched slice: Browser global stats read path in `src/ui/browser/{SRSBrowser.vue,browserGlobalStatsRuntime.ts,BrowserHierarchy.vue}` and focused Browser hierarchy regression tests.
+- Debt fixed now: Default all-cards scope now treats the first loaded aggregate total as the immediate visible left-side total, shows `...` while total is still unknown, and refuses to let a smaller stale backend `browser.stats` result overwrite the already-authoritative loaded total. Outside the default all-cards scope, backend stats still remain the source of truth.
+- Debt deferred: Live Browser startup still depends on the backend read model eventually converging; this slice removes the misleading shrinking/expanding visible count, but does not rewrite the backend migration/sync policy itself.
+- Why deferred: Backend merge/sweep cadence is a broader runtime policy, not the visible-count contract. The UI contract fix is enough to stop the user-facing drift without inventing another fallback path.
+- Next safe step: Reload Browser and verify left `All flashcards` stays `...` briefly, then jumps directly to the authoritative total instead of stepping through smaller intermediate numbers.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/browserGlobalStatsRuntime.test.ts src/ui/browser/__tests__/BrowserHierarchy.missing-blocks.spec.ts src/ui/browser/__tests__/BrowserGridFirstRowsLifecycle.test.ts src/ui/browser/__tests__/BrowserGridDatasourceLifecycle.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
 ### 2026-05-25 - Domain Sync Repair Evidence Classification
 
 - Task: Fix Review blocked by domain sync repairable status after repair apply skipped deleted or unrepairable cards.
