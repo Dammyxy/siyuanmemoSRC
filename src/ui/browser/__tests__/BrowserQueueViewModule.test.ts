@@ -92,7 +92,7 @@ describe('BrowserQueueViewModule', () => {
     expect(result.status === 'ready' ? result.datasource.id : null).toBe('neural-roam');
   });
 
-  it('bounds refreshing retries and resets them after ready', async () => {
+  it('keeps non-neural queue refreshing alive until it becomes ready', async () => {
     const manager = createManager([
       {
         status: 'refreshing',
@@ -109,23 +109,20 @@ describe('BrowserQueueViewModule', () => {
         retryAfterMs: 222,
       },
       {
-        status: 'ready',
-        queueId: QueueType.RetrievalPractice,
-        policyId: 'policy-a',
-        generation: 8,
-      },
-      {
         status: 'refreshing',
         queueId: QueueType.RetrievalPractice,
         policyId: 'policy-a',
         cause: 'materialization_in_progress',
         retryAfterMs: 333,
       },
+      {
+        status: 'ready',
+        queueId: QueueType.RetrievalPractice,
+        policyId: 'policy-a',
+        generation: 8,
+      },
     ]);
-    const module = createBrowserQueueViewModule({
-      logger: { info: vi.fn() },
-      maxReadinessRetries: 1,
-    });
+    const module = createBrowserQueueViewModule({ logger: { info: vi.fn() } });
     const request = createRequest();
 
     const first = await module.prepareQueueView(manager, request);
@@ -134,12 +131,12 @@ describe('BrowserQueueViewModule', () => {
     const fourth = await module.prepareQueueView(manager, request);
 
     expect(first).toMatchObject({ status: 'refreshing', keepLoading: true, retryDelayMs: 111 });
-    expect(second).toMatchObject({ status: 'refreshing', keepLoading: false, retryDelayMs: null });
-    expect(third.status).toBe('ready');
-    expect(fourth).toMatchObject({ status: 'refreshing', keepLoading: true, retryDelayMs: 333 });
+    expect(second).toMatchObject({ status: 'refreshing', keepLoading: true, retryDelayMs: 222 });
+    expect(third).toMatchObject({ status: 'refreshing', keepLoading: true, retryDelayMs: 333 });
+    expect(fourth.status).toBe('ready');
   });
 
-  it('keeps neural-roam refreshing alive past the generic retry cap until it becomes ready', async () => {
+  it('keeps neural-roam refreshing alive until it becomes ready', async () => {
     const manager = createManager([
       {
         status: 'refreshing',
@@ -169,10 +166,7 @@ describe('BrowserQueueViewModule', () => {
         generation: 9,
       },
     ]);
-    const module = createBrowserQueueViewModule({
-      logger: { info: vi.fn() },
-      maxReadinessRetries: 1,
-    });
+    const module = createBrowserQueueViewModule({ logger: { info: vi.fn() } });
     const request = createRequest({
       activeQueueId: 'neural-roam',
       currentQueueType: QueueType.NeuralRoam,

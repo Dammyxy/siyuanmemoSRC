@@ -249,4 +249,44 @@ describe('RetrievalPracticeQueue addCard', () => {
     expect(manager.getCards).not.toHaveBeenCalledWith();
     expect(persistence.set).not.toHaveBeenCalledWith('retrievalPracticeQueue', []);
   });
+
+  it('cleans stale missing manual cards and keeps materialization working', async () => {
+    const reviewedToday = createCard({
+      id: 'card-reviewed-today',
+      blockId: 'block-reviewed-today',
+      due: getCurrentDayEnd(4) + 60_000,
+      lastReview: Date.now(),
+      scheduledDays: 2,
+      stability: 2.3065,
+    });
+    const persistence = createPersistenceStub(['missing-manual-card', reviewedToday.id]);
+    const manager = {
+      getCard: vi.fn(async (id: string) => {
+        if (id === reviewedToday.id) {
+          return reviewedToday;
+        }
+        throw new Error(`获取卡片失败 (${id}): Card not found: ${id}`);
+      }),
+      getCards: vi.fn(async (filter?: Record<string, unknown>) => {
+        if (Array.isArray(filter?.blockIds) && filter.blockIds.includes(reviewedToday.blockId)) {
+          return [reviewedToday];
+        }
+        return [];
+      }),
+      updateCard: vi.fn(async (_card: FSRSCard) => {}),
+      notifyObservers: vi.fn(),
+      getDayStartHour: vi.fn(() => 4),
+      getPriorityRandomness: vi.fn(() => 0),
+      getAutoSortEnabled: vi.fn(() => true),
+      getAddToOutstandingEveryNth: vi.fn(() => 2),
+    };
+
+    const queue = new RetrievalPracticeQueue(manager as never, persistence);
+    await queue.load();
+
+    const cards = await queue.getCards();
+
+    expect(cards.map((card) => card.id)).toContain(reviewedToday.id);
+    expect(persistence.set).toHaveBeenCalledWith('retrievalPracticeQueue', [reviewedToday.id]);
+  });
 });

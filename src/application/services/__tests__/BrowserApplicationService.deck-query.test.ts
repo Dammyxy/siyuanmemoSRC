@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { reactive } from 'vue';
 import { BrowserApplicationService } from '../BrowserApplicationService';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
@@ -399,6 +400,82 @@ describe('BrowserApplicationService deck query kernel', () => {
       expect.objectContaining({ blockIds: ['block-worker-1', 'block-worker-2'], force: true }),
       expect.any(Number),
     );
+  });
+
+  it('keeps backend aggregate page payloads structured-clone safe after reactive service wrapping', async () => {
+    const card = buildCard({
+      id: 'card-aggregate-clone-safe',
+      blockId: 'block-aggregate-clone-safe',
+      meta: { content: 'Aggregate clone safe card', rootId: 'doc-worker' },
+    });
+    const identity = {
+      snapshotId: 'browser-aggregate:test',
+      generation: 1,
+      datasourceId: 'deck:all',
+      policyHash: 'policy',
+      queryFingerprint: 'fingerprint',
+    };
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserAggregateSnapshot'
+      | 'browserAggregatePage'
+      | 'browserSourceExistenceApplySweepHost'
+      | 'browserSourceExistenceByBlockIds'
+    > = {
+      browserAggregateSnapshot: vi.fn(async () => ({
+        status: 'ready',
+        identity,
+        totalCount: 1,
+        pageSize: 20,
+      })),
+      browserAggregatePage: vi.fn(async (request: unknown) => {
+        expect(() => structuredClone(request)).not.toThrow();
+        return {
+          status: 'ready',
+          identity,
+          totalCount: 1,
+          rows: [card],
+          nextCursor: null,
+        };
+      }),
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
+        checked: 1,
+        updated: 1,
+        changed: false,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['block-aggregate-clone-safe', true],
+      ])),
+    };
+    const service = reactive(new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      {
+        sql: vi.fn(async () => [{ id: 'block-aggregate-clone-safe' }]),
+      } as never,
+      null,
+      null,
+      backendClient as SrsBackendClient,
+    )) as BrowserApplicationService;
+
+    const page = await service.getDeckAggregatePage({
+      preset: 'all',
+      scopeDocIds: reactive(['doc-a']) as unknown as string[],
+      sortModel: reactive([{ colId: 'priority', sort: 'desc' }]) as never,
+    }, {
+      startRow: 0,
+      endRow: 20,
+    });
+
+    expect(page.total).toBe(1);
+    expect(backendClient.browserAggregatePage).toHaveBeenCalledTimes(1);
   });
 
   it('returns explicit unavailable when backend deck query fails', async () => {

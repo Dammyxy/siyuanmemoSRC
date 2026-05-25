@@ -127,12 +127,9 @@ function normalizeReadinessIdentity(request: QueueProjectionReadinessRequest): s
 
 export type BrowserQueueViewModuleDeps = {
   logger: BrowserQueueViewModuleLogger;
-  maxReadinessRetries?: number;
 };
 
 export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
-  const maxReadinessRetries = deps.maxReadinessRetries ?? 4;
-  const readinessRetryAttempts = new Map<string, number>();
   const readinessLogFingerprint = new Map<string, string>();
 
   async function prepareQueueView(
@@ -158,11 +155,6 @@ export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
       const retryIdentity = normalizeReadinessIdentity(readinessRequest);
       const readiness = await manager.ensureQueueProjectionReady(readinessRequest);
       if (readiness.status === 'refreshing') {
-        const attempts = readinessRetryAttempts.get(retryIdentity) ?? 0;
-        const keepLoading = queueType === QueueType.NeuralRoam || attempts < maxReadinessRetries;
-        if (keepLoading) {
-          readinessRetryAttempts.set(retryIdentity, attempts + 1);
-        }
         const logFingerprint = [
           readiness.status,
           readiness.queueId,
@@ -176,12 +168,11 @@ export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
         }
         return {
           status: 'refreshing',
-          retryDelayMs: keepLoading ? readiness.retryAfterMs ?? 300 : null,
-          keepLoading,
+          retryDelayMs: readiness.retryAfterMs ?? 300,
+          keepLoading: true,
         };
       }
 
-      readinessRetryAttempts.delete(retryIdentity);
       readinessLogFingerprint.delete(retryIdentity);
       if (readiness.status === 'unavailable') {
         return {

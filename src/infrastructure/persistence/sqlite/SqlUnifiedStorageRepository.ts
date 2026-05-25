@@ -705,12 +705,12 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       lostCards: number;
     }>(
       `SELECT
-        COALESCE(SUM(CASE WHEN source_exists IS NULL OR source_exists = 1 THEN 1 ELSE 0 END), 0) AS totalCards,
-        COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND due <= ? AND suspended = 0 THEN 1 ELSE 0 END), 0) AS dueCards,
-        COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND state = ? THEN 1 ELSE 0 END), 0) AS newCards,
-        COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND state = ? THEN 1 ELSE 0 END), 0) AS learningCards,
-        COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND state = ? THEN 1 ELSE 0 END), 0) AS reviewCards,
-        COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND suspended = 1 THEN 1 ELSE 0 END), 0) AS suspendedCards,
+        COUNT(*) AS totalCards,
+        COALESCE(SUM(CASE WHEN due <= ? AND suspended = 0 THEN 1 ELSE 0 END), 0) AS dueCards,
+        COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS newCards,
+        COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS learningCards,
+        COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS reviewCards,
+        COALESCE(SUM(CASE WHEN suspended = 1 THEN 1 ELSE 0 END), 0) AS suspendedCards,
         COALESCE(SUM(CASE WHEN source_exists = 0 THEN 1 ELSE 0 END), 0) AS lostCards
        FROM cards
        WHERE ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}`,

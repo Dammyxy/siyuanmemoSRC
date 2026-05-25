@@ -121,6 +121,7 @@
           rowModelType="infinite"
           :pagination="desktopPaginationEnabled"
           :paginationPageSize="desktopPageSize"
+          :paginationPageSizeSelector="[20, 32, 50, 100]"
           :cacheBlockSize="gridCacheBlockSize"
           :maxBlocksInCache="gridMaxBlocksInCache"
           :infiniteInitialRowCount="gridCacheBlockSize"

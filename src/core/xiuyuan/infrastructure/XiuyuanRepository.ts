@@ -713,12 +713,44 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    */
   async saveMany(xiuyuans: Xiuyuan[]): Promise<Result<void>> {
     try {
-      for (const xiuyuan of xiuyuans) {
-        const result = await this.save(xiuyuan);
-        if (!result.ok) {
-          return result;
-        }
+      if (xiuyuans.length === 0) {
+        return ok(undefined);
       }
+
+      const transactionalResult = await this.storage.runWriteTransaction('xiuyuan-repository.saveMany', async (transaction) => {
+        const rollbackSnapshot = this.cloneStorageSnapshot();
+        const deferredSideEffects = this.createDeferredSideEffects();
+
+        try {
+          for (const xiuyuan of xiuyuans) {
+            const stagedResult = await this.stageSaveXiuyuanMutation(xiuyuan, transaction);
+            if (!stagedResult.ok) {
+              this.restoreStorageSnapshot(rollbackSnapshot, 'saveMany', stagedResult.error);
+              return stagedResult;
+            }
+            this.mergeDeferredSideEffects(deferredSideEffects, stagedResult.value);
+          }
+
+          const saveResult = await this.storage.save({ transaction });
+          if (isErr(saveResult)) {
+            const error = saveResult.error || new Error('Failed to persist xiuyuan batch snapshot');
+            logger.error('Failed to persist xiuyuan batch snapshot:', error);
+            this.restoreStorageSnapshot(rollbackSnapshot, 'saveMany', error);
+            return err(error);
+          }
+
+          return ok(deferredSideEffects);
+        } catch (error) {
+          this.restoreStorageSnapshot(rollbackSnapshot, 'saveMany', error);
+          return err(error instanceof Error ? error : new Error(String(error)));
+        }
+      });
+
+      if (!transactionalResult.ok) {
+        return transactionalResult;
+      }
+
+      await this.runDeferredSideEffects(transactionalResult.value);
       return ok(undefined);
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));

@@ -112,6 +112,82 @@ describe('QueueProjectionRuntime', () => {
     });
   });
 
+  it('materializes invalidated retrieval projection during readiness instead of leaving it refreshing', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(7);
+    const card = createCard({
+      id: 'retrieval-card',
+      blockId: 'retrieval-block',
+      due: 1_700_000_000_000,
+      meta: { rootId: 'doc-a', deckId: 'deck-a', content: 'retrieval projection' },
+    });
+    const backend = {
+      queueProjectionSnapshot: vi.fn()
+        .mockResolvedValueOnce({
+          queueType: QueueType.RetrievalPractice,
+          status: 'invalidated',
+          policyHash: 'old-policy',
+          generation: 7,
+          rows: [],
+          counters: null,
+        })
+        .mockResolvedValueOnce({
+          queueType: QueueType.RetrievalPractice,
+          status: 'ready',
+          policyHash: 'queue-projection:{"cardType":"all","docId":null,"preset":"all","queueType":"retrieval-practice","scopeDocIds":[],"searchText":null,"source":"browser"}',
+          generation: 8,
+          rows: [],
+          counters: null,
+        }),
+      queueProjectionReplace: vi.fn(async (request: { policyHash: string; generation?: number | null; rows: unknown[] }) => ({
+        queueType: QueueType.RetrievalPractice,
+        status: 'ready',
+        policyHash: request.policyHash,
+        generation: request.generation ?? 8,
+        rows: request.rows.length,
+        counters: {
+          queueType: QueueType.RetrievalPractice,
+          policyHash: request.policyHash,
+          generation: request.generation ?? 8,
+          version: request.generation ?? 8,
+          remaining: request.rows.length,
+          due: request.rows.length,
+          total: request.rows.length,
+          buckets: { all: request.rows.length, item: request.rows.length, descriptor: 0, topic: 0, concept: 0 },
+          updatedAt: 1_700_000_100_000,
+        },
+      })),
+    };
+    const { queue, runtime } = createRuntime({
+      backend,
+      queueCards: [card],
+    });
+
+    try {
+      await expect(runtime.ensureReady({
+        queueType: QueueType.RetrievalPractice,
+        preset: 'all',
+        cardType: 'all',
+        source: 'browser',
+      })).resolves.toMatchObject({
+        status: 'ready',
+        queueId: QueueType.RetrievalPractice,
+        generation: 8,
+      });
+
+      expect(queue.getCards).toHaveBeenCalledTimes(1);
+      expect(backend.queueProjectionReplace).toHaveBeenCalledTimes(1);
+      expect(backend.queueProjectionReplace).toHaveBeenCalledWith(expect.objectContaining({
+        queueType: QueueType.RetrievalPractice,
+        policyHash: 'queue-projection:{"cardType":"all","docId":null,"preset":"all","queueType":"retrieval-practice","scopeDocIds":[],"searchText":null,"source":"browser"}',
+        generation: 8,
+        reason: 'materialization_in_progress',
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not emit local repair identity events for non-ready projections', async () => {
     const backend = {
       queueProjectionSnapshot: vi.fn(async () => ({

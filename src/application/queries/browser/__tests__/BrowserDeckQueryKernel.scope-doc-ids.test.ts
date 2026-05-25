@@ -129,4 +129,41 @@ describe('BrowserDeckQueryKernel scopeDocIds', () => {
     const hydrated = await kernel.getBrowserCardsByIds(['card-missing']);
     expect(hydrated[0]?.meta?.blockType).toBe('missing');
   });
+
+  it('hydrates riff-managed cards from riffCardId content when the local block payload is blank', async () => {
+    const card = {
+      ...buildCard('card-riff', 'card-riff', '', Date.now(), ''),
+      riffCardId: 'riff-source',
+      meta: { rootId: '', deckId: 'deck-a', content: '' },
+    } as FSRSCard;
+    const storageManager = {
+      queryCards: vi.fn(() => [card]),
+      getAllCards: vi.fn(() => [card]),
+      getCard: vi.fn(() => card),
+      getCardByBlockId: vi.fn(() => card),
+    };
+    const siyuanApi = {
+      ATTR_CARD_TYPE: 'custom-card-type',
+      sql: vi.fn(async (sql: string) => {
+        if (sql.includes("WHERE b.id IN ('card-riff','riff-source')")) {
+          return [{ id: 'riff-source', root_id: 'doc-riff', content: 'riff source content', attrs: null }];
+        }
+        return [];
+      }),
+    };
+    const kernel = new BrowserDeckQueryKernel(
+      storageManager as never,
+      {} as never,
+      {} as never,
+      siyuanApi as never,
+    );
+
+    const rows = await kernel.getBrowserCardsFromCards([card], { markMissing: false });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.content).toBe('riff source content');
+    expect(rows[0]?.fullContent).toBe('riff source content');
+    expect(rows[0]?.rootId).toBe('doc-riff');
+    expect(rows[0]?.meta?.content).toBe('riff source content');
+  });
 });

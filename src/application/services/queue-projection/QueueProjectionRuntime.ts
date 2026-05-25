@@ -123,6 +123,12 @@ const QUEUE_PROJECTION_READABLE_TYPES = new Set<QueueType>([
   QueueType.NeuralRoam,
 ]);
 
+const QUEUE_PROJECTION_READINESS_MATERIALIZABLE_TYPES = new Set<QueueType>([
+  QueueType.RetrievalPractice,
+  QueueType.IncrementalLearning,
+  QueueType.FinalDrill,
+]);
+
 const DEFAULT_QUEUE_PROJECTION_ROLLOUT_STATES: Record<QueueType, QueueProjectionRolloutState> = {
   [QueueType.RetrievalPractice]: 'backend-projection',
   [QueueType.IncrementalLearning]: 'backend-projection',
@@ -186,6 +192,49 @@ export class QueueProjectionRuntime {
         policyHash: readiness.policyId,
         generation: null,
       });
+      if (this.shouldMaterializeDuringReadiness(queueType, readiness)) {
+        try {
+          const result = await this.tryMaterializeQueueProjection(queueType, this.deps.getBackendClient(), {
+            currentPolicyHash: readiness.policyId,
+            currentGeneration: Date.now(),
+            reason: readiness.cause,
+          });
+          if (result && result.status === 'ready') {
+            this.clearQueueProjectionUnavailable(queueType);
+            return {
+              status: 'ready',
+              queueId: queueType,
+              policyId: result.policyHash,
+              generation: result.generation,
+            };
+          }
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          const cause = this.isCurrentInstanceFollower()
+            ? 'writer_unavailable'
+            : 'materialization_failed';
+          this.deps.logger.warn('Queue projection materialization failed during readiness', {
+            queueType,
+            cause,
+            reason,
+          });
+          this.recordQueueProjectionUnavailable(queueType, 'projection-unavailable', {
+            unavailableReason: cause,
+            backendStatus: 'unavailable',
+            policyHash: readiness.policyId,
+            generation: null,
+          });
+          return {
+            status: 'unavailable',
+            queueId: queueType,
+            policyId: readiness.policyId,
+            cause,
+            reason,
+            recoverable: true,
+            retryAfterMs: 300,
+          };
+        }
+      }
       return readiness;
     }
 
@@ -422,10 +471,6 @@ export class QueueProjectionRuntime {
     if (!this.isQueueProjectionReadable(queueType)) {
       return null;
     }
-    if (QUEUE_PROJECTION_BACKED_TYPES.has(queueType)) {
-      this.deps.logger.debug('Queue projection repair is disabled for backend-owned queue type', { queueType });
-      return null;
-    }
     if (!backend || typeof backend.queueProjectionReplace !== 'function') {
       this.deps.logger.debug('Queue projection replace backend is unavailable', { queueType });
       return null;
@@ -504,6 +549,19 @@ export class QueueProjectionRuntime {
   private isCurrentInstanceFollower(): boolean {
     const runtime = this.deps.getFrontendRuntime();
     return runtime?.getMode?.() === 'follower';
+  }
+
+  private shouldMaterializeDuringReadiness(
+    queueType: QueueType,
+    readiness: QueueProjectionReadiness,
+  ): boolean {
+    return readiness.status === 'refreshing'
+      && QUEUE_PROJECTION_READINESS_MATERIALIZABLE_TYPES.has(queueType)
+      && (
+        readiness.cause === 'materialization_in_progress'
+        || readiness.cause === 'projection_unavailable'
+        || readiness.cause === 'projection_stale'
+      );
   }
 
   private cacheMaterializedProjectionEcho(

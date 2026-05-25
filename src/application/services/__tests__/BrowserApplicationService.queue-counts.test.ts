@@ -160,9 +160,24 @@ describe('BrowserApplicationService queue counts', () => {
     expect(neuralQueue.getConceptBlocks).not.toHaveBeenCalled();
   });
 
-  it('falls back to zero instead of rejecting when a projection-backed queue count is unavailable before cache exists', async () => {
-    const retrievalQueue = createQueue(1, 1, 11);
-    retrievalQueue.getCounterSnapshot.mockRejectedValueOnce(new Error('projection unavailable'));
+  it('retries a transient projection-backed count read before caching a value', async () => {
+    const retrievalQueue = createQueue(11, 11, 11);
+    retrievalQueue.getCounterSnapshot
+      .mockRejectedValueOnce(new Error('projection unavailable'))
+      .mockResolvedValueOnce({
+        version: 1,
+        remaining: 11,
+        due: 11,
+        total: 11,
+        buckets: {
+          all: 11,
+          item: 11,
+          descriptor: 0,
+          topic: 0,
+          concept: 0,
+        },
+        source: 'reconciled' as const,
+      });
     manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
       if (queueType === QueueType.RetrievalPractice) {
         return [{
@@ -183,9 +198,8 @@ describe('BrowserApplicationService queue counts', () => {
       affectedQueueTypes: [QueueType.RetrievalPractice],
     });
 
-    expect(counts.retrieval).toBe(0);
-    expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
-    expect(retrievalQueue.getSize).not.toHaveBeenCalled();
+    expect(counts.retrieval).toBe(11);
+    expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the last known projection-backed queue count when a refresh is temporarily unavailable', async () => {

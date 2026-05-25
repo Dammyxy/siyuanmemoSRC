@@ -163,6 +163,24 @@ describe('UnifiedStorageManager sync conflict resolution', () => {
     expect(managerB.getCardDTO('card-a')).toBeUndefined();
   });
 
+  it('keeps local snapshot when remote snapshot was last written by the same instance', async () => {
+    const manager = createManager('merge');
+    await manager.load();
+
+    await manager.createCardDTO(createXiuyuan('xy-a'), createDTO('card-a', 'xy-a'));
+    await manager.save();
+
+    remoteStore.xiuyuans['xy-remote'] = createXiuyuan('xy-remote');
+    remoteStore.cardDTOs['card-remote'] = createDTO('card-remote', 'xy-remote');
+
+    await manager.createCardDTO(createXiuyuan('xy-local'), createDTO('card-local', 'xy-local'));
+    await manager.save();
+
+    expect(remoteStore.cardDTOs?.['card-a']).toBeDefined();
+    expect(remoteStore.cardDTOs?.['card-local']).toBeDefined();
+    expect(remoteStore.cardDTOs?.['card-remote']).toBeUndefined();
+  });
+
   it('prefer-local strategy overwrites remote with local snapshot', async () => {
     const managerA = createManager('merge');
     const managerB = createManager('prefer-local');

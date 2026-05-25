@@ -295,30 +295,48 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
           return null;
         }
 
-        let cardById: FSRSCard | null;
+        let cardById: FSRSCard | null = null;
+        let missingById = false;
         try {
           cardById = await this.manager.getCard(cardId, { silent: true });
         } catch (error) {
-          throw createDependencyUnavailableError(
-            'QUEUE_CARD_LOOKUP_UNAVAILABLE',
-            `failed to resolve manual card by id ${cardId}`,
-            error,
-          );
+          if (this.isMissingCardLookupError(error, cardId)) {
+            missingById = true;
+          } else {
+            throw createDependencyUnavailableError(
+              'QUEUE_CARD_LOOKUP_UNAVAILABLE',
+              `failed to resolve manual card by id ${cardId}`,
+              error,
+            );
+          }
+        }
+        if (missingById) {
+          logger.debug(`Card ${cardId} not found, removing from manual additions`);
+          return null;
         }
         if (cardById) {
           return cardById;
         }
 
-        let cardByBlockId: FSRSCard | null;
+        let cardByBlockId: FSRSCard | null = null;
+        let missingByBlockId = false;
         try {
           const cards = await this.manager.getCards({ blockIds: [cardId] });
           cardByBlockId = cards[0] ?? null;
         } catch (error) {
-          throw createDependencyUnavailableError(
-            'QUEUE_CARD_LOOKUP_UNAVAILABLE',
-            `failed to resolve manual card by block id ${cardId}`,
-            error,
-          );
+          if (this.isMissingCardLookupError(error, cardId)) {
+            missingByBlockId = true;
+          } else {
+            throw createDependencyUnavailableError(
+              'QUEUE_CARD_LOOKUP_UNAVAILABLE',
+              `failed to resolve manual card by block id ${cardId}`,
+              error,
+            );
+          }
+        }
+        if (missingByBlockId) {
+          logger.debug(`Card ${cardId} not found by block id, removing from manual additions`);
+          return null;
         }
         if (cardByBlockId) {
           return cardByBlockId;
@@ -332,6 +350,20 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
         cleanupLogger: logger,
       }
     );
+  }
+
+  private isMissingCardLookupError(error: unknown, cardId: string): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    const hasMissingCardSignal = message.includes('Card not found')
+      || message.includes('Block not found')
+      || message.includes('获取卡片失败')
+      || message.includes('获取块失败')
+      || message.includes('卡片不存在');
+    if (!hasMissingCardSignal) {
+      return false;
+    }
+
+    return message.includes(cardId);
   }
 
   protected buildDynamicQueueCards(

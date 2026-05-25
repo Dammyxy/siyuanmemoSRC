@@ -225,6 +225,52 @@ describe('browserLoadDataRuntime', () => {
     vi.useRealTimers();
   });
 
+  it('keeps retrieval queue view retrying past the generic cap until projection becomes ready', async () => {
+    vi.useFakeTimers();
+    let readinessCalls = 0;
+    const manager = {
+      ...createManager(),
+      ensureQueueProjectionReady: vi.fn(async () => {
+        readinessCalls += 1;
+        if (readinessCalls < 6) {
+          return {
+            status: 'refreshing',
+            queueId: QueueType.RetrievalPractice,
+            policyId: 'policy-retrieval',
+            cause: 'materialization_in_progress',
+            retryAfterMs: 25,
+          };
+        }
+        return {
+          status: 'ready',
+          queueId: QueueType.RetrievalPractice,
+          policyId: 'policy-retrieval',
+          generation: 9,
+        };
+      }),
+    };
+    const deps = createDeps({
+      activeQueueId: ref('retrieval'),
+      currentQueueType: ref('retrieval-practice'),
+      pluginUnifiedDataSourceManager: ref(manager as any),
+    });
+    const runtime = createBrowserLoadDataRuntime(deps);
+
+    await runtime.loadData();
+    await vi.runAllTimersAsync();
+
+    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(6);
+    expect(deps.currentDataSource.value?.id).toBe('retrieval');
+    expect(deps.currentProjectionIdentity.value).toEqual({
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-retrieval',
+      generation: 9,
+    });
+    expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
   it('cancels stale queue-view retry timers when a newer load starts', async () => {
     vi.useFakeTimers();
     let resolveSecondReadiness: ((value: {

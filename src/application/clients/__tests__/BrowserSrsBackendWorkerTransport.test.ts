@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BackendRpcRequest, BackendRpcResponse } from '../../../../packages/contracts/src/backend-rpc';
+import { reactive } from 'vue';
+import type {
+  BackendBrowserAggregateIdentity,
+  BackendBrowserAggregatePageRequest,
+  BackendRpcRequest,
+  BackendRpcResponse,
+} from '../../../../packages/contracts/src/backend-rpc';
 import { BACKEND_RPC_VERSION } from '../../../../packages/contracts/src/backend-rpc';
 import { BrowserSrsBackendWorkerTransport } from '../BrowserSrsBackendWorkerTransport';
 
@@ -72,6 +78,84 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     worker.emit({
       kind: 'response',
       requestId: requestMessage.requestId,
+      response,
+    });
+
+    await expect(pending).resolves.toEqual(response);
+    transport.dispose();
+  });
+
+  it('keeps backend RPC messages structured-clone safe when request params contain Vue proxies', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+    });
+    const identity = reactive({
+      snapshotId: 'snapshot-1',
+      generation: 12,
+      datasourceId: 'deck',
+      policyHash: 'policy-a',
+      queryFingerprint: 'query-a',
+    }) as BackendBrowserAggregateIdentity;
+    const pageRequest = reactive({
+      requestId: 'aggregate-page-1',
+      identity,
+      offset: 0,
+      limit: 50,
+    }) as BackendBrowserAggregatePageRequest;
+    const request: BackendRpcRequest = {
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 101,
+      method: 'browser.aggregate.page',
+      params: [pageRequest],
+    };
+
+    const pending = transport.request(request);
+    worker.emit({ kind: 'ready' });
+
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+    expect(worker.posted[0]).toEqual(expect.objectContaining({
+      kind: 'request',
+      request: {
+        jsonrpc: BACKEND_RPC_VERSION,
+        id: 101,
+        method: 'browser.aggregate.page',
+        params: [{
+          requestId: 'aggregate-page-1',
+          identity: {
+            snapshotId: 'snapshot-1',
+            generation: 12,
+            datasourceId: 'deck',
+            policyHash: 'policy-a',
+            queryFingerprint: 'query-a',
+          },
+          offset: 0,
+          limit: 50,
+        }],
+      },
+    }));
+
+    const response: BackendRpcResponse = {
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 101,
+      result: {
+        status: 'ready',
+        identity: {
+          snapshotId: 'snapshot-1',
+          generation: 12,
+          datasourceId: 'deck',
+          policyHash: 'policy-a',
+          queryFingerprint: 'query-a',
+        },
+        rows: [],
+        nextCursor: null,
+        totalCount: 0,
+      },
+    };
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
       response,
     });
 

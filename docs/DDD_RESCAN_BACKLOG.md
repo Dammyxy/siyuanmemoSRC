@@ -1,8 +1,48 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-25 (Round 459)
+Last update: 2026-05-25 (Round 462)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-25 - Browser Queue Missing-Source Projection Filter
+
+- Task: Fix Browser queue projection and browser-list reads that were turning source-missing or locally blank riff-managed cards into empty normal rows, which then made incremental-learning / retrieval / final-drill look unavailable or count wrong while "all flashcards" showed blank entries.
+- Touched slice: `worker/queue-projection/WorkerQueueProjectionRuntime.ts`, `src/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository.ts`, `src/application/services/BrowserApplicationService.ts`, `src/application/queries/browser/shared/BrowserDeckQueryKernel.ts`, focused queue/browser tests, and the browser queue projection regression tests.
+- Debt fixed now: Queue projection hydration no longer fails the whole queue when stored rows point at cards that were filtered out by active-source hydration; it now returns the active hydrated subset and recomputes counters from that subset. Browser deck SQL defaults now read active source cards for normal browser views, while `__lost__` still isolates `source_exists = 0`. Queue-count refresh no longer caches transient projection unavailability as a hard zero before retrying. Browser row hydration now fetches both `blockId` and `riffCardId`, then uses the Riff source block content/root/tags/attrs when the local card block payload is blank.
+- Debt deferred: We still do not draw a separate UI badge or filter lane for missing-source rows inside the active browser queue grid; they are excluded from normal all-card and review queues and remain discoverable through lost-card scope and source-existence diagnostics.
+- Why deferred: The live bug was queue failure / blank normal rows, not a new dedicated missing-source browser surface. Keep normal queue authority on active cards first.
+- Next safe step: Reopen Browser in a live SiYuan session and confirm incremental-learning, retrieval-practice, and final-drill now load rows while normal all-card browsing no longer shows blank missing-source cards.
+- Validation: `pnpm vitest run worker/queue-projection/__tests__/WorkerQueueProjectionRuntime.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts src/ui/browser/datasource/__tests__/QueueSnapshotDataSources.query-snapshot.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/application/queries/browser/__tests__/BrowserDeckQueryKernel.scope-doc-ids.test.ts`.
+
+### 2026-05-25 - Browser Queue Manual Card Stale-ID Cleanup
+
+- Task: Fix Browser queue materialization when retrieval or incremental-learning manual card lists still contained deleted card ids, which was causing `QUEUE_CARD_LOOKUP_UNAVAILABLE` during queue projection rebuild.
+- Touched slice: Shared manual-card queue resolution in `src/core/queue/domain/ManualCardCollectionQueue.ts`; Browser-facing queue regressions in `src/core/queue/domain/__tests__/RetrievalPracticeQueue.add-card.test.ts` and `src/core/queue/domain/__tests__/IncrementalLearningQueue.add-card.test.ts`.
+- Debt fixed now: Missing manual card ids are now treated as stale queue state and cleaned during resolution when the lookup error clearly matches the missing id. That lets queue materialization continue with remaining cards and persists the cleaned manual-card set once.
+- Debt deferred: The same stale-id cleanup is not yet generalized across every manual-card consumer outside retrieval and incremental-learning; final drill already prunes missing entries on its own path.
+- Why deferred: The live failure came from Browser-visible retrieval/incremental queue rebuild. Other queue surfaces should be handled only if a fresh repro shows the same stale-id failure there.
+- Next safe step: Rebuild/deploy, reopen Browser, and confirm queue projection now survives deleted manual IDs instead of falling into `materialization_failed`.
+- Validation: `pnpm vitest run src/core/queue/domain/__tests__/RetrievalPracticeQueue.add-card.test.ts src/core/queue/domain/__tests__/IncrementalLearningQueue.add-card.test.ts src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts`.
+
+### 2026-05-25 - Browser Queue Projection Invalidated Rebuild
+
+- Task: Fix Browser queue tabs where retrieval, incremental-learning, and final-drill still showed no rows because queue projection snapshots stayed `invalidated`; restore Browser all-card counts that dropped after source-existence filtering.
+- Touched slice: Queue projection readiness/runtime in `src/application/services/queue-projection/QueueProjectionRuntime.ts`; Browser deck SQL read model in `src/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository.ts`; Browser grid setup in `src/ui/browser/SRSBrowser.vue`; focused queue/read-model tests.
+- Debt fixed now: Backend-projection queue types now materialize through the same `queue.projection.replace` writer-owned path when readiness sees a refreshable invalidated/stale snapshot, instead of waiting forever. Browser deck default reads now include active cards with missing source blocks, while the lost-card scope still isolates `source_exists = 0`; Browser stats likewise count all active non-tombstoned cards and report lost cards separately. AG Grid page-size warning for 32-row pages is removed.
+- Debt deferred: No live SiYuan Browser smoke was run in this command session after the deeper fix.
+- Why deferred: Local tests and read-only DB inspection prove the active root causes, but visible queue recovery still needs a running plugin reload to exercise live projection replacement against the user's workspace.
+- Next safe step: Rebuild/deploy plugin, reload SiYuanMemo, open Browser, and confirm retrieval, incremental-learning, and final-drill move from preparing to rows; if not, capture console around `queue.projection.replace` or `materialization failed`.
+- Validation: `pnpm vitest run src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts`; `pnpm vitest run src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts`; `pnpm vitest run src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/datasource/__tests__/QueueSnapshotDataSources.query-snapshot.test.ts src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts`; `pnpm vitest run src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`.
+
+### 2026-05-25 - Browser Queue Projection Refresh Retry
+
+- Task: Fix Browser queue tabs where retrieval, incremental-learning, and final-drill stayed in initializing / empty state while queue projection materialization was still refreshing.
+- Touched slice: Browser queue view readiness in `src/ui/browser/BrowserQueueViewModule.ts`; Browser load-data runtime tests in `src/ui/browser/__tests__/browserLoadDataRuntime.test.ts`; queue view module tests in `src/ui/browser/__tests__/BrowserQueueViewModule.test.ts`.
+- Debt fixed now: Queue projection `refreshing` is now treated consistently as a non-terminal state for all Browser queue tabs. The previous neural-roam-only unlimited wait and finite retry cap for other queues was removed, so slow materialization no longer detaches the datasource path before `ready`.
+- Debt deferred: No live SiYuan Browser smoke was run in this command session, so runtime verification still depends on the user reopening the plugin/browser after build deployment.
+- Why deferred: Local tests prove the readiness/load-data control flow, but the reported symptom needs the running SiYuan plugin surface to confirm real projection materialization timing.
+- Next safe step: Reopen Browser in SiYuan and confirm retrieval, incremental-learning, and final-drill transition from `Queue projection is preparing` to visible rows without manual tab switching.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts`; `pnpm vitest run src/ui/browser/datasource/__tests__/QueueSnapshotDataSources.query-snapshot.test.ts src/ui/browser/utils/__tests__/projectionReadiness.test.ts src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts`.
 
 ### 2026-05-25 - Browser Grid Model And Pump Health Noise
 
@@ -6181,6 +6221,36 @@ Do not add an entry for skill-only or docs-only work.
 - Why deferred: Continuing to layer source/snapshot fixes would not address the remaining measured red path. The next fix needs an AG Grid first-page rendering strategy or custom first-page presentation decision, not another background-lane tweak.
 - Next safe step: Open a narrow Browser-grid follow-up that prototypes a smaller/custom first-page presentation or AG Grid row-model replacement behind tests and live smoke. Only revisit AutoCard maybe-scan if a fresh editing run shows no-inspectable or marker-heavy AutoCard kramdown/attrs reads overlapping typing.
 - Validation: `pnpm vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`; `pnpm vitest run src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts`; `pnpm vitest run src/ui/browser/__tests__/browserDataSnapshots.test.ts src/ui/browser/datasource/session/__tests__/BrowserQuerySession.test.ts src/ui/browser/utils/__tests__/browserCardIdentity.test.ts src/ui/browser/__tests__/browserGridSizing.test.ts src/ui/browser/__tests__/hierarchySnapshotPlan.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts`; `pnpm run check:boundaries`; `pnpm build`; live `node scripts/live-low-end-smoke.cjs --label post-stabilize-final-snapshot-delay`.
+
+### 2026-05-25 - Startup orphan-card repair batching
+
+- Task: Fix plugin startup appearing stuck at `Found 145 orphan cards without Xiuyuan, creating Xiuyuans...`.
+- Touched slice: Application startup storage migration and Xiuyuan repository batch persistence; `ApplicationContext`, `XiuyuanRepository.saveMany`, and focused repository/storage tests.
+- Debt fixed now: Startup orphan-card repair no longer persists each repaired Xiuyuan one by one. It prepares all valid orphan repairs, calls `XiuyuanRepository.saveMany()` once, and `saveMany()` now stages all Xiuyuans in one transaction with one storage save before deferred side effects.
+- Debt deferred: The old standalone `XiuyuanRepository.test.ts` file still has a broken historical import and remains outside the active focused verification path.
+- Why deferred: The active regression is startup repair N-times persistence. Repairing unrelated stale tests/imports would expand scope without proving startup behavior.
+- Next safe step: Rebuild/deploy plugin, boot once, and confirm startup passes the orphan repair log quickly and reports the fixed count.
+- Validation: `pnpm vitest run src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.sync-change-set.test.ts src/core/storage/__tests__/UnifiedStorageManager.sync-conflict.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-25 - UnifiedStorageManager single-writer self-conflict
+
+- Task: Stop `UnifiedStorageManager` from treating same-instance remote snapshots as normal merge conflicts during startup/save, which was producing repeated abnormal conflict logs on plugin boot.
+- Touched slice: Core storage ownership and persistence conflict handling; `UnifiedStorageManager` plus its sync-conflict regression coverage.
+- Debt fixed now: Same-instance remote snapshots now short-circuit to local persistence without emitting merge/conflict warnings, so single-writer startup/save no longer routes through merge as a false recovery path.
+- Debt deferred: True multi-window or external-writer conflicts still use the existing conflict-resolution strategy matrix and may still merge when that is the configured recovery mode.
+- Why deferred: The active bug is the self-owned snapshot case only. External writer recovery remains a distinct coordination problem and should keep its explicit strategy handling.
+- Next safe step: Re-run live plugin boot and confirm startup no longer prints self-conflict merge warnings.
+- Validation: `pnpm vitest run src/core/storage/__tests__/UnifiedStorageManager.sync-conflict.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-25 - Browser backend worker RPC clone boundary
+
+- Task: Fix card browser open failure where `browser.aggregate.page` could throw `Failed to execute 'postMessage' on 'Worker': #<Object> could not be cloned` after reactive Browser state reached the backend RPC transport.
+- Touched slice: Browser bounded context, backend worker client boundary; `BrowserSrsBackendWorkerTransport` and focused Browser aggregate/transport tests.
+- Debt fixed now: Backend worker outbound messages are normalized at the Worker boundary into structured-clone-safe DTOs, preserving `ArrayBuffer`/typed-array payloads used by host effects while stripping Vue proxy wrappers from RPC params. Added regression coverage for reactive `browser.aggregate.page` params.
+- Debt deferred: The separate queue projection `invalidated` readiness warning is left as explicit readiness behavior unless a later repro shows it blocks Browser loading after the clone error is gone.
+- Why deferred: The hard failure came from `postMessage` cloning, not queue projection readiness. Treating readiness as a fallback target would hide a separate active-path signal.
+- Next safe step: Run live SiYuan Browser smoke opening the card browser and switching deck/filter/sort once the plugin build is deployed.
+- Validation: `pnpm vitest run src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/ui/browser/datasource/__tests__/DeckDataSource.query-snapshot.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-15 - ordinary multi-cloze review focus rendering
 

@@ -120,3 +120,28 @@ describe('XiuyuanRepository.applySyncChangeSet', () => {
     expect(storage.getRiffSyncState().lastSuccessfulIncrementalAt).toBeUndefined();
   });
 });
+
+describe('XiuyuanRepository.saveMany', () => {
+  it('persists multiple Xiuyuans in one save', async () => {
+    const storage = new UnifiedStorageManager();
+    const repository = new XiuyuanRepository(storage);
+    let persistedStore = createEmptyStore();
+    let saveCount = 0;
+    storage.setPersistenceCallbacks(
+      async (store) => {
+        saveCount++;
+        persistedStore = JSON.parse(JSON.stringify(store)) as UnifiedCardStore;
+      },
+      async () => persistedStore,
+    );
+
+    const first = createManagedXiuyuan('20260417123200-bat001x');
+    const second = createManagedXiuyuan('20260417123300-bat002x');
+    const result = await repository.saveMany([first, second]);
+
+    expect(result.ok).toBe(true);
+    expect(saveCount).toBe(1);
+    expect(storage.getXiuYuan(first.getId().getValue())).toBeDefined();
+    expect(storage.getXiuYuan(second.getId().getValue())).toBeDefined();
+  });
+});

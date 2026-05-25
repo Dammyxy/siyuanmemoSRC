@@ -266,8 +266,8 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     expect(repository.countCards({ sourceStatus: 'active' })).toBe(3);
     expect(repository.countCards({ sourceStatus: 'missing' })).toBe(1);
     expect(repository.getBrowserStats(1_700_000_002_500)).toMatchObject({
-      totalCards: 3,
-      dueCards: 2,
+      totalCards: 4,
+      dueCards: 3,
       lostCards: 1,
     });
     expect(repository.getSourceExistenceByBlockIds(['block-a', 'block-b', 'block-z'])).toEqual(new Map([

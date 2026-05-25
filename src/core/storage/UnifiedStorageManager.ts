@@ -993,20 +993,16 @@ export class UnifiedStorageManager {
       return { storeToPersist: localStore, skipPersist: false };
     }
 
+    if (canonicalRemote.syncMetadata?.lastModifiedBy === this.instanceId) {
+      return { storeToPersist: localStore, skipPersist: false };
+    }
+
     logger.warn('[UnifiedStorageManager] Storage conflict detected', {
       strategy: this.conflictResolutionStrategy,
       lastKnownHash: this.lastKnownContentHash,
       remoteHash,
       localHash,
     });
-    if (canonicalRemote.syncMetadata?.lastModifiedBy === this.instanceId) {
-      logger.error('[UnifiedStorageManager] Abnormal local storage conflict fallback; merge is reserved for multi-window or external writer recovery, not the normal single-writer path', {
-        strategy: this.conflictResolutionStrategy,
-        lastKnownHash: this.lastKnownContentHash,
-        remoteHash,
-        localHash,
-      });
-    }
 
     if (this.conflictResolutionStrategy === 'prefer-remote') {
       this.applyStoreSnapshot(canonicalRemote);

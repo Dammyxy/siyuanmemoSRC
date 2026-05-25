@@ -820,20 +820,38 @@ export class BrowserDeckQueryKernel {
       return [];
     }
 
-    const blockIds = cards.map((card) => card.blockId);
+    const blockIds = Array.from(new Set(
+      cards.flatMap((card) => [
+        String(card.blockId || '').trim(),
+        String(card.riffCardId || '').trim(),
+      ].filter(Boolean)),
+    ));
     const { attrsMap, rootIdMap, tagsMap, contentMap } = await this.fetchBlockInfoBatched(blockIds);
 
     return cards.map((card) => {
-      const customAttrs = attrsMap.get(card.blockId) || {};
+      const sourceIds = [
+        String(card.blockId || '').trim(),
+        String(card.riffCardId || '').trim(),
+      ].filter(Boolean);
+      const primaryId = sourceIds[0] || String(card.blockId || '').trim();
+      const fallbackId = sourceIds[1] || '';
+      const customAttrs = attrsMap.get(primaryId) || (fallbackId ? attrsMap.get(fallbackId) || {} : {});
       const browserCard = this.transformFSRSCard(card, customAttrs);
-      browserCard.rootId = rootIdMap.get(card.blockId) || browserCard.rootId || '';
-      browserCard.tags = tagsMap.get(card.blockId) || [];
+      const rootId = rootIdMap.get(primaryId) || (fallbackId ? rootIdMap.get(fallbackId) || '' : '');
+      const tags = tagsMap.get(primaryId) || (fallbackId ? tagsMap.get(fallbackId) || [] : []);
+      browserCard.rootId = rootId || browserCard.rootId || '';
+      browserCard.tags = tags;
 
       const currentContent = (browserCard.fullContent || '').replace(/[\s\u200B]/g, '');
-      const dbContent = contentMap.get(card.blockId);
+      const dbContent = contentMap.get(primaryId) || (fallbackId ? contentMap.get(fallbackId) || '' : '');
       if (!currentContent && dbContent) {
         browserCard.fullContent = dbContent;
         browserCard.content = truncateContent(dbContent, 100);
+        browserCard.meta = {
+          ...(browserCard.meta || {}),
+          content: dbContent,
+          rootId: browserCard.rootId || undefined,
+        };
       }
 
       return browserCard;

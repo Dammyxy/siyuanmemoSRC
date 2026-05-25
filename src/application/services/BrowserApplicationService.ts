@@ -858,12 +858,23 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       })
       .catch((error) => {
         if (this.isTransientQueueCountUnavailableError(error)) {
-          const fallback = Math.max(0, Number(this.queueCountCache.get(queueId)?.value) || 0);
-          this.queueCountCache.set(queueId, {
-            value: fallback,
-            timestamp: Date.now(),
-          });
-          return fallback;
+          const cached = this.queueCountCache.get(queueId);
+          if (cached) {
+            this.queueCountCache.set(queueId, {
+              value: cached.value,
+              timestamp: Date.now(),
+            });
+            return cached.value;
+          }
+          return this.readQueueVisibleCount(manager.getQueue(queueType), queueId, true)
+            .then((value) => {
+              const normalized = Math.max(0, Number(value) || 0);
+              this.queueCountCache.set(queueId, {
+                value: normalized,
+                timestamp: Date.now(),
+              });
+              return normalized;
+            });
         }
 
         this.queueCountCache.delete(queueId);

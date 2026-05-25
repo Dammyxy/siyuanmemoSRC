@@ -83,14 +83,7 @@ export class WorkerQueueProjectionRuntime {
       offset: request.offset,
     });
     const cards = this.deps.repository.getCardsByIds(rows.map((row) => row.cardId));
-    const { rows: snapshotRows, missingCardCount } = buildProjectionSnapshotRows(rows, cards);
-    if (missingCardCount > 0) {
-      return buildHydrationUnavailableProjectionSnapshotResult({
-        queueType,
-        policyHash,
-        generation: requestedGeneration,
-      });
-    }
+    const snapshotRows = buildProjectionSnapshotRows(rows, cards);
     return {
       queueType,
       policyHash,
@@ -165,23 +158,14 @@ export class WorkerQueueProjectionRuntime {
     const cards = this.deps.repository.getCardsByIds(orderedRows.map((row) => row.cardId));
     const activeCardIds = new Set(cards.map((card) => String(card.id || '').trim()).filter(Boolean));
     const activeRows = orderedRows.filter((row) => activeCardIds.has(String(row.cardId || '').trim()));
-    if (activeRows.length !== orderedRows.length) {
-      return {
-        ...buildHydrationUnavailableProjectionSnapshotResult({
-          queueType,
-          policyHash,
-          generation: requestedGeneration,
-        }),
-        cards: [],
-      };
-    }
+    const activeCards = cards.filter((card) => activeCardIds.has(String(card.id || '').trim()));
     return {
       queueType,
       policyHash,
       generation: requestedGeneration,
       status: 'ready',
-      rows: buildProjectionSnapshotRows(activeRows, cards).rows,
-      cards,
+      rows: buildProjectionSnapshotRows(activeRows, activeCards),
+      cards: activeCards,
     };
   }
 
@@ -318,21 +302,6 @@ function buildUnavailableProjectionSnapshotResult(queueType: unknown): BackendQu
   };
 }
 
-function buildHydrationUnavailableProjectionSnapshotResult(input: {
-  queueType: ProjectionWorkerQueueType;
-  policyHash: string;
-  generation: number;
-}): BackendQueueProjectionSnapshotResult {
-  return {
-    queueType: input.queueType,
-    policyHash: input.policyHash,
-    generation: input.generation,
-    status: 'unavailable',
-    rows: [],
-    counters: null,
-  };
-}
-
 function normalizeProjectionReplaceRows(input: {
   queueType: ProjectionWorkerQueueType;
   policyHash: string;
@@ -391,18 +360,16 @@ function normalizeProjectionReplaceRows(input: {
 function buildProjectionSnapshotRows(
   projectionRows: QueueProjectionRow[],
   cards: FSRSCard[],
-): { rows: BackendQueueProjectionSnapshotRow[]; missingCardCount: number } {
+): BackendQueueProjectionSnapshotRow[] {
   const cardById = new Map<string, FSRSCard>();
   for (const card of cards) {
     cardById.set(String(card.id || ''), card);
   }
 
-  let missingCardCount = 0;
-  const rows = projectionRows
+  return projectionRows
     .map<BackendQueueProjectionSnapshotRow | null>((row, index) => {
       const card = cardById.get(row.cardId);
       if (!card) {
-        missingCardCount += 1;
         return null;
       }
       if (isStaleProjectionMembership(row, card)) {
@@ -423,7 +390,6 @@ function buildProjectionSnapshotRows(
       };
     })
     .filter((row): row is BackendQueueProjectionSnapshotRow => Boolean(row));
-  return { rows, missingCardCount };
 }
 
 function isStaleProjectionMembership(row: QueueProjectionRow, card: FSRSCard): boolean {

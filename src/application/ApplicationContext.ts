@@ -1154,7 +1154,7 @@ export class ApplicationContext {
         const { ScheduleInfo } = await import('@/core/xiuyuan/domain/ScheduleInfo');
         const { Card } = await import('@/core/xiuyuan/domain/Card');
         
-        let fixedCount = 0;
+        const repairedXiuyuans = [];
         for (const orphanCard of orphanCards) {
           try {
             // 为每个孤儿卡片创建 Xiuyuan
@@ -1233,24 +1233,23 @@ export class ApplicationContext {
               continue;
             }
             
-            // 保存 Xiuyuan（这会自动保存 Card 并更新 meta.xiuyuanID）
-            const xiuyuanRepo = new (await import('@/core/xiuyuan/infrastructure/XiuyuanRepository')).XiuyuanRepository(unifiedStorageManager);
-            const saveResult = await xiuyuanRepo.save(xiuyuan);
-            
-            if (isErr(saveResult)) {
-              logger.error(`[ApplicationContext] Failed to save Xiuyuan for card ${orphanCard.id}:`, saveResult.error);
-            } else {
-              fixedCount++;
-            }
+            repairedXiuyuans.push(xiuyuan);
           } catch (error) {
             logger.error(`[ApplicationContext] Error fixing orphan card ${orphanCard.id}:`, error);
           }
         }
         
-        if (fixedCount > 0) {
-          logger.info(`[ApplicationContext] ✅ Fixed ${fixedCount}/${orphanCards.length} orphan cards`);
-          // 立即保存
-          await unifiedStorageManager.save();
+        let fixedCount = 0;
+        if (repairedXiuyuans.length > 0) {
+          const xiuyuanRepo = new XiuyuanRepository(unifiedStorageManager);
+          const saveResult = await xiuyuanRepo.saveMany(repairedXiuyuans);
+
+          if (isErr(saveResult)) {
+            logger.error('[ApplicationContext] Failed to batch save orphan-card Xiuyuans:', saveResult.error);
+          } else {
+            fixedCount = repairedXiuyuans.length;
+            logger.info(`[ApplicationContext] ✅ Fixed ${fixedCount}/${orphanCards.length} orphan cards`);
+          }
         }
         incrementRuntimePerformanceCounter('startup', 'orphan-card-repaired', fixedCount);
         }, { orphanCardCount: orphanCards.length });

@@ -124,6 +124,38 @@ function unavailable(message: string): Error {
   return new Error(`BACKEND_UNAVAILABLE: ${message}`);
 }
 
+function toStructuredCloneSafe<T>(value: T, seen = new WeakMap<object, unknown>()): T {
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+  if (value instanceof Date) {
+    return new Date(value.getTime()) as T;
+  }
+  if (value instanceof ArrayBuffer) {
+    return value.slice(0) as T;
+  }
+  if (ArrayBuffer.isView(value)) {
+    return value as T;
+  }
+  if (seen.has(value)) {
+    return seen.get(value) as T;
+  }
+  if (Array.isArray(value)) {
+    const clone: unknown[] = [];
+    seen.set(value, clone);
+    for (const item of value) {
+      clone.push(toStructuredCloneSafe(item, seen));
+    }
+    return clone as T;
+  }
+  const clone: Record<string, unknown> = {};
+  seen.set(value, clone);
+  for (const key of Object.keys(value)) {
+    clone[key] = toStructuredCloneSafe((value as Record<string, unknown>)[key], seen);
+  }
+  return clone as T;
+}
+
 export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
   private worker: Worker | null = null;
   private readonly pendingRequests = new Map<string, PendingBackendRequest>();
@@ -411,7 +443,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     if (!this.worker) {
       throw unavailable('backend worker transport closed');
     }
-    this.worker.postMessage(message);
+    this.worker.postMessage(toStructuredCloneSafe(message));
   }
 
   private closeWithError(error: Error): void {
