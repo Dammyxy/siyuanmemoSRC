@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-25 (Round 462)
+Last update: 2026-05-25 (Round 463)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-25 - Browser Queue Counter Projection Repair
+
+- Task: Fix Browser queue badge refresh where `QUEUE_PROJECTION_UNAVAILABLE: incremental-learning projection counter snapshot unavailable` made QueueBridge drop all queue counts to zero, and restore Browser stats to the same active-source count used by normal all-card browsing.
+- Touched slice: Browser queue counts and queue projection read path in `src/application/services/BrowserApplicationService.ts`, `src/application/services/queue-projection/QueueProjectionRuntime.ts`, and `src/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository.ts`, plus focused queue-count/projection/sql tests.
+- Debt fixed now: Forced projection snapshot reads now materialize invalidated retrieval/incremental/final projection rows through the writer-owned `queue.projection.replace` path, so counter refresh can repair the same backend projection state as Browser queue view preparation. Projection-backed count refresh no longer lets one transient queue counter failure reject the whole `getQueueCounts()` call and make QueueBridge reset every badge to zero. Browser stats now count active-source cards for normal totals/due/state buckets while still reporting lost cards separately.
+- Debt deferred: If every projection-backed queue remains unavailable after forced materialization, the affected queue count still has no truthful non-projection fallback and stays at the stale/default value.
+- Why deferred: Existing strategy-size fallbacks would hide backend projection failure and reintroduce dual-path count semantics. The safe recovery is projection repair first, with explicit transient handling only for the affected badge.
+- Next safe step: Reload SiYuanMemo, open Browser, and confirm retrieval/incremental/final counts recover without QueueBridge logging a failed full refresh; if any queue still stays zero, capture `queue.projection.replace` and `queue.projection.snapshot` logs for that queue.
+- Validation: `pnpm vitest run src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts`.
 
 ### 2026-05-25 - Browser Queue Missing-Source Projection Filter
 

@@ -188,6 +188,64 @@ describe('QueueProjectionRuntime', () => {
     }
   });
 
+  it('materializes invalidated projection during forced snapshot reads for queue counters', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(9);
+    const card = createCard({
+      id: 'incremental-card',
+      blockId: 'incremental-block',
+      due: 1_700_000_000_000,
+      meta: { rootId: 'doc-a', deckId: 'deck-a', content: 'incremental projection' },
+    });
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.IncrementalLearning,
+        status: 'invalidated',
+        policyHash: 'old-policy',
+        generation: 9,
+        rows: [],
+        counters: null,
+      })),
+      queueProjectionReplace: vi.fn(async (request: { policyHash: string; generation?: number | null; rows: unknown[] }) => ({
+        queueType: QueueType.IncrementalLearning,
+        status: 'ready',
+        policyHash: request.policyHash,
+        generation: request.generation ?? 10,
+        rows: request.rows.length,
+        counters: {
+          queueType: QueueType.IncrementalLearning,
+          policyHash: request.policyHash,
+          generation: request.generation ?? 10,
+          version: request.generation ?? 10,
+          remaining: request.rows.length,
+          due: request.rows.length,
+          total: request.rows.length,
+          buckets: { all: request.rows.length, item: request.rows.length, descriptor: 0, topic: 0, concept: 0 },
+          updatedAt: 1_700_000_100_000,
+        },
+      })),
+    };
+    const { runtime } = createRuntime({
+      backend,
+      queueCards: [card],
+    });
+
+    try {
+      await expect(runtime.readSnapshot(QueueType.IncrementalLearning, { forceRefresh: true }))
+        .resolves.toMatchObject({
+          queueType: QueueType.IncrementalLearning,
+          counters: expect.objectContaining({
+            remaining: 1,
+            total: 1,
+          }),
+          rows: [expect.objectContaining({ fsrsCardId: 'incremental-card' })],
+        });
+      expect(backend.queueProjectionReplace).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not emit local repair identity events for non-ready projections', async () => {
     const backend = {
       queueProjectionSnapshot: vi.fn(async () => ({

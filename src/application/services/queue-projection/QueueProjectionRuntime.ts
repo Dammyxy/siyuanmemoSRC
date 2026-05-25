@@ -287,6 +287,24 @@ export class QueueProjectionRuntime {
           policyHash: this.isValidProjectionPolicyHash(result.policyHash) ? result.policyHash : null,
           generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
         });
+        if (options.forceRefresh && QUEUE_PROJECTION_READINESS_MATERIALIZABLE_TYPES.has(queueType)) {
+          const materialized = await this.tryMaterializeQueueProjection(queueType, backend, {
+            currentPolicyHash: result.policyHash,
+            currentGeneration: result.generation,
+            reason: 'forced-snapshot-refresh',
+          });
+          if (materialized?.status === 'ready') {
+            const echo = this.getMaterializedProjectionEcho(
+              queueType,
+              materialized.policyHash,
+              materialized.generation,
+            );
+            if (echo) {
+              this.clearQueueProjectionUnavailable(queueType);
+              return this.cloneQueueProjectionSnapshot(echo.snapshot);
+            }
+          }
+        }
         return null;
       }
 

@@ -237,6 +237,38 @@ describe('BrowserApplicationService queue counts', () => {
     expect(retrievalQueue.getSize).not.toHaveBeenCalled();
   });
 
+  it('keeps other queue counts when one projection-backed count remains temporarily unavailable', async () => {
+    const retrievalQueue = createQueue(5, 5, 11);
+    const incrementalQueue = createQueue(3, 3, 3);
+    retrievalQueue.getCounterSnapshot.mockRejectedValue(new Error('projection unavailable'));
+    manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
+      if (queueType === QueueType.RetrievalPractice) {
+        return [{
+          queueType: QueueType.RetrievalPractice,
+          projectionBacked: true,
+          state: 'backend-projection',
+          readPath: 'backend-projection',
+          reason: 'rollout-enabled',
+          nextCoverageTask: null,
+        }];
+      }
+      return [];
+    });
+    queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
+    queueByType.set(QueueType.IncrementalLearning, incrementalQueue);
+
+    const counts = await service.getQueueCounts({
+      forceRefresh: true,
+      affectedQueueTypes: [QueueType.RetrievalPractice, QueueType.IncrementalLearning],
+    });
+
+    expect(counts.retrieval).toBe(0);
+    expect(counts['incremental-learning']).toBe(3);
+    expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(2);
+    expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
+    expect(retrievalQueue.getSize).not.toHaveBeenCalled();
+  });
+
   it('fails closed instead of trying alternate size APIs when non-projection snapshot reads fail', async () => {
     const retrievalQueue = createQueue(1, 1, 11);
     retrievalQueue.getCounterSnapshot.mockRejectedValueOnce(new Error('boom'));

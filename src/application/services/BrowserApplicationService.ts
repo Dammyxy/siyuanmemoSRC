@@ -874,6 +874,17 @@ export class BrowserApplicationService implements IBrowserApplicationService {
                 timestamp: Date.now(),
               });
               return normalized;
+            })
+            .catch((retryError) => {
+              if (!this.isTransientQueueCountUnavailableError(retryError)) {
+                throw retryError;
+              }
+              const stale = Math.max(0, Number(this.queueCountCache.get(queueId)?.value) || 0);
+              this.queueCountCache.set(queueId, {
+                value: stale,
+                timestamp: Date.now(),
+              });
+              return stale;
             });
         }
 
