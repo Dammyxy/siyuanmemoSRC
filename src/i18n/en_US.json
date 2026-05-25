@@ -1716,6 +1716,8 @@
   "domainSyncApplyConfirm": "Apply repair plan {planId}? This updates card review state from review history.",
   "domainSyncApplyDone": "Domain sync repair applied: {cards} cards",
   "domainSyncStillUnsafeAfterRepair": "Domain sync repair ran, but diagnostics are still unsafe: {status} (repairable {repairable}, divergent {divergent}, skipped sources {skipped}). Resolve the remaining items.",
+  "domainSyncNoApplicableRepair": "No automatic repair can be applied",
+  "domainSyncNoApplicableRepairHint": "Resolve these differences by cleaning deleted cards, refreshing source state, or handling unrepairable evidence manually.",
   "domainSyncCleanupDone": "Cleanup done: {cleaned} cleaned, {skipped} skipped, {failed} failed",
   "domainSyncCleanupUnavailable": "Domain sync cleanup command unavailable",
   "domainSyncReviewCanceled": "Review canceled until sync conflict is resolved",

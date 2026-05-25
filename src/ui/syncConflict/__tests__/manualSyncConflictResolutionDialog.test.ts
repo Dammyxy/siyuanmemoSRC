@@ -398,6 +398,39 @@ describe('openManualSyncConflictResolutionDialog', () => {
     expect(document.body.textContent).toContain('缺少卡片状态');
   });
 
+  it('explains unrepairable domain sync preview when no card-state mutation can apply', async () => {
+    const { openManualSyncConflictResolutionDialog } = await loadModule();
+    const context = buildContext({
+      previewDomainSyncRepair: vi.fn(async () => repairPreview({
+        status: 'unrepairable',
+        affectedCardCount: 1,
+        evidence: [{
+          cardId: 'card-z',
+          blockId: 'block-z',
+          reason: 'missing-scheduler-evidence',
+          newestReviewEventAt: 1_700_000_000_003,
+          cardLastReview: 1_700_000_000_001,
+          reviewEventCount: 3,
+          cardReps: 1,
+        }],
+        plannedMutations: [],
+        unrepairableReasons: [{ cardId: 'card-z', reason: 'missing-scheduler-evidence' }],
+      })),
+    });
+    const initialStatus = domainStatus('divergent');
+    initialStatus.sanity.divergentCardCount = 1;
+
+    await openManualSyncConflictResolutionDialog(context, {
+      initialDomainStatus: initialStatus,
+      reviewBlockDecision: decision('block-divergent', 'divergent'),
+    });
+    await click(document.body.querySelector('[data-action="domain-preview"]'));
+
+    expect(document.body.textContent).toContain('没有可应用的自动修复');
+    expect(document.body.textContent).toContain('缺少调度证据');
+    expect(document.body.querySelector<HTMLButtonElement>('[data-action="domain-apply"]')?.disabled).toBe(true);
+  });
+
   it('uses plugin-owned repair confirmation and applies confirmed repair without window.confirm', async () => {
     const { openManualSyncConflictResolutionDialog } = await loadModule();
     const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => {

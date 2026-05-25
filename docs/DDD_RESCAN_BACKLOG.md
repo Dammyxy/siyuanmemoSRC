@@ -4,6 +4,16 @@ Last update: 2026-05-25 (Round 465)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-25 - Domain Sync Repair Evidence Classification
+
+- Task: Fix Review blocked by domain sync repairable status after repair apply skipped deleted or unrepairable cards.
+- Touched slice: Backend domain sync diagnostics/repair evidence in `worker/db/SqliteDatabaseService.ts`; manual sync conflict recovery UI in `src/ui/syncConflict/manualSyncConflictResolutionDialog.ts`; i18n and focused worker/UI/safety tests.
+- Debt fixed now: Domain sync status and repair preview now share an active-card predicate that excludes confirmed missing-source cards and active card tombstones from automatic repair evidence. Status counts only card-state repairs with scheduler evidence as repairable; missing scheduler/card-state evidence becomes divergent/unrepairable instead of a repairable loop. The recovery dialog can preview divergent evidence without an applyable mutation and shows an explicit no-auto-repair message while keeping Apply disabled.
+- Debt deferred: Existing review events for deleted cards remain in the ledger/history for audit; this task stops them from blocking Review as repairable work but does not delete historical evidence.
+- Why deferred: Deleting or rewriting historical review events would be a data migration with rollback semantics outside this repair classification bugfix.
+- Next safe step: Reload SiYuanMemo, open Review recovery, preview domain sync. Deleted/tombstoned cards should no longer appear as repairable, pure unrepairable evidence should show no automatic repair, and normal repairable cards should still apply.
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts src/ui/syncConflict/__tests__/manualSyncConflictResolutionDialog.test.ts src/application/services/__tests__/ReviewDomainSyncSafetyService.test.ts -t "domain sync|repair|Review" --reporter=dot`.
+
 ### 2026-05-25 - Browser Aggregate Refresh And Sort Stale Generation
 
 - Task: Fix all-card Browser count staying on an old aggregate page after refresh and column sorting throwing `BACKEND_UNAVAILABLE: browser.aggregate.page unavailable (stale browser aggregate snapshot generation)`.

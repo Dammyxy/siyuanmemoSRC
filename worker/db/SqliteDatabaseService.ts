@@ -268,6 +268,17 @@ interface ReviewCardDivergenceEvidenceWithCardRow {
   source_missing_at: number | null;
 }
 
+function activeDomainSyncCardSql(alias = 'c'): string {
+  return `(${alias}.source_exists IS NULL OR ${alias}.source_exists != 0)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM tombstones active_card_tombstone
+      WHERE active_card_tombstone.kind = 'card'
+        AND active_card_tombstone.id = ${alias}.id
+        AND active_card_tombstone.deleted_at >= COALESCE(${alias}.updated_at, 0)
+    )`;
+}
+
 function createSqliteFileServiceAdapter(bridge: SqlitePersistenceBridge): SqliteFileServiceAdapter {
   return {
     readJSON: async <T>(fileName: string): Promise<T | null> => {
@@ -1544,6 +1555,7 @@ export class WorkerSqliteDatabaseService {
        FROM domain_sync_processed_sources`,
     );
     const divergence = await this.auditReviewSyncDivergence({ limit: 50 });
+    const repairSummary = this.summarizeDomainSyncRepairEvidence(this.queryDomainSyncRepairPreviewEvidence());
     const needsDirection = this.countNeedsDirectionDomainSyncOperations();
     const divergentLedgerCount = this.countDivergentLedgerOperations();
     const pendingImportCount = this.countPotentialPendingImportOperations();
@@ -1552,7 +1564,8 @@ export class WorkerSqliteDatabaseService {
       skippedSourceCount,
       needsDirection,
       divergentLedgerCount,
-      repairableDivergenceCount: divergence.divergentCards,
+      repairableDivergenceCount: repairSummary.repairableCards,
+      unrepairableDivergenceCount: repairSummary.unrepairableCards,
       processedSourceCount: Math.max(0, Number(processedCounts?.total_processed || 0)),
     });
     const reasonCounts: BackendDomainSyncStatusResult['sanity']['reasonCounts'] = {
@@ -1587,15 +1600,17 @@ export class WorkerSqliteDatabaseService {
         pendingImportCount,
         processedSourceCount: Math.max(0, Number(processedCounts?.total_processed || 0)),
         skippedSourceCount,
-        repairableDivergenceCount: divergence.divergentCards,
-        divergentCardCount: divergence.divergentCards + divergentLedgerCount,
+        repairableDivergenceCount: repairSummary.repairableCards,
+        unrepairableDivergenceCount: repairSummary.unrepairableCards,
+        divergentLedgerCount,
+        divergentCardCount: repairSummary.repairableCards + repairSummary.unrepairableCards + divergentLedgerCount,
         reasonCounts,
         affectedCardIds: divergence.records.map((record) => record.cardId),
         truncated: divergence.truncated,
       },
       repair: {
-        available: divergence.divergentCards > 0,
-        repairableDivergenceCount: divergence.divergentCards,
+        available: repairSummary.repairableCards > 0,
+        repairableDivergenceCount: repairSummary.repairableCards,
         latestPlanId: this.readLatestDomainSyncRepairPlanId(),
       },
     };
@@ -2485,6 +2500,7 @@ export class WorkerSqliteDatabaseService {
     needsDirection: number;
     divergentLedgerCount: number;
     repairableDivergenceCount: number;
+    unrepairableDivergenceCount: number;
     processedSourceCount: number;
   }): BackendDomainSyncSanityStatus {
     if (input.skippedSourceCount > 0) {
@@ -2498,6 +2514,9 @@ export class WorkerSqliteDatabaseService {
     }
     if (input.repairableDivergenceCount > 0) {
       return 'repairable';
+    }
+    if (input.unrepairableDivergenceCount > 0) {
+      return 'divergent';
     }
     if (input.processedSourceCount > 0) {
       return 'merged';
@@ -2863,6 +2882,7 @@ export class WorkerSqliteDatabaseService {
        FROM review_events e
        INNER JOIN cards c ON c.id = e.card_id
        WHERE e.event_type = 'review-v2'
+         AND ${activeDomainSyncCardSql('c')}
          ${scope}
        GROUP BY e.card_id, c.updated_at, c.reps, c.last_review,
                 c.block_id, c.source_exists, c.source_checked_at, c.source_missing_at
@@ -2895,13 +2915,58 @@ export class WorkerSqliteDatabaseService {
        FROM review_events e
        LEFT JOIN cards c ON c.id = e.card_id
        WHERE e.event_type = 'review-v2'
-         AND (c.source_exists IS NULL OR c.source_exists != 0)
+         AND (c.id IS NULL OR (${activeDomainSyncCardSql('c')}))
          ${scope}
        GROUP BY e.card_id, c.updated_at, c.due, c.state, c.scheduled_days,
                 c.stability, c.difficulty, c.reps, c.last_review, c.block_id, c.scheduler_type
        ORDER BY e.card_id ASC`,
       params,
     );
+  }
+
+  private summarizeDomainSyncRepairEvidence(rows: DomainSyncRepairPreviewEvidenceRow[]): {
+    repairableCards: number;
+    unrepairableCards: number;
+  } {
+    const repairableCardIds = new Set<string>();
+    const unrepairableCardIds = new Set<string>();
+    const seen = new Set<string>();
+    for (const row of rows) {
+      const cardId = String(row.card_id || '').trim();
+      if (!cardId || seen.has(cardId)) {
+        continue;
+      }
+      seen.add(cardId);
+      const newestReviewEventAt = toNullableTimestamp(row.newest_reviewed_at);
+      const cardLastReview = toNullableTimestamp(row.last_review);
+      const reviewEventCount = Math.max(0, Math.floor(Number(row.review_event_count) || 0));
+      const cardReps = Number.isFinite(Number(row.reps)) ? Math.max(0, Math.floor(Number(row.reps))) : null;
+      const hasCardState = row.updated_at !== null && row.updated_at !== undefined;
+      const hasSchedulerEvidence = hasCardState
+        && isFiniteSqlNumber(row.due)
+        && isFiniteSqlNumber(row.state)
+        && isFiniteSqlNumber(row.scheduled_days)
+        && isFiniteSqlNumber(row.stability)
+        && isFiniteSqlNumber(row.difficulty);
+      const hasRepairableDivergence = hasCardState && (
+        (Boolean(newestReviewEventAt) && (!cardLastReview || newestReviewEventAt! > cardLastReview))
+        || (cardReps !== null && reviewEventCount > cardReps)
+      );
+      if (!hasCardState) {
+        unrepairableCardIds.add(cardId);
+      } else if (hasRepairableDivergence && hasSchedulerEvidence) {
+        repairableCardIds.add(cardId);
+      } else if (hasRepairableDivergence) {
+        unrepairableCardIds.add(cardId);
+      }
+    }
+    for (const cardId of repairableCardIds) {
+      unrepairableCardIds.delete(cardId);
+    }
+    return {
+      repairableCards: repairableCardIds.size,
+      unrepairableCards: unrepairableCardIds.size,
+    };
   }
 
   private buildDomainSyncRepairSchedulerConfigHash(rows: DomainSyncRepairPreviewEvidenceRow[]): string | null {

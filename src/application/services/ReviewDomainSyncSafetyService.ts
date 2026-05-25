@@ -17,6 +17,8 @@ export interface ReviewDomainSyncSafetyDecision {
   message: string;
   sanityStatus?: BackendDomainSyncSanityStatus;
   repairableDivergenceCount: number;
+  unrepairableDivergenceCount: number;
+  divergentLedgerCount: number;
   skippedSourceCount: number;
   pendingImportCount: number;
   divergentCardCount: number;
@@ -57,6 +59,8 @@ export function buildReviewDomainSyncSafetyDecision(
       canOpenReview: false,
       message: `Domain sync diagnostics unavailable: ${toErrorMessage(error)}`,
       repairableDivergenceCount: 0,
+      unrepairableDivergenceCount: 0,
+      divergentLedgerCount: 0,
       skippedSourceCount: 0,
       pendingImportCount: 0,
       divergentCardCount: 0,
@@ -64,6 +68,8 @@ export function buildReviewDomainSyncSafetyDecision(
   }
 
   const repairableDivergenceCount = status.sanity.repairableDivergenceCount;
+  const unrepairableDivergenceCount = status.sanity.unrepairableDivergenceCount ?? 0;
+  const divergentLedgerCount = status.sanity.divergentLedgerCount ?? 0;
   const skippedSourceCount = status.sanity.skippedSourceCount;
   const pendingImportCount = status.sanity.pendingImportCount;
   const divergentCardCount = status.sanity.divergentCardCount;
@@ -78,7 +84,7 @@ export function buildReviewDomainSyncSafetyDecision(
         kind = 'block-source-error';
       } else if (repairableDivergenceCount > 0) {
         kind = 'block-repairable';
-      } else if (divergentCardCount > 0) {
+      } else if (divergentLedgerCount > 0) {
         kind = 'block-divergent';
       } else {
         kind = 'allow';
@@ -91,7 +97,13 @@ export function buildReviewDomainSyncSafetyDecision(
       kind = 'block-needs-direction';
       break;
     case 'divergent':
-      kind = 'block-divergent';
+      if (repairableDivergenceCount > 0) {
+        kind = 'block-repairable';
+      } else if (divergentLedgerCount > 0) {
+        kind = 'block-divergent';
+      } else {
+        kind = 'allow';
+      }
       break;
     case 'source-error':
       kind = 'block-source-error';
@@ -106,6 +118,8 @@ export function buildReviewDomainSyncSafetyDecision(
       : buildBlockedMessage(kind, status),
     sanityStatus: status.sanity.status,
     repairableDivergenceCount,
+    unrepairableDivergenceCount,
+    divergentLedgerCount,
     skippedSourceCount,
     pendingImportCount,
     divergentCardCount,

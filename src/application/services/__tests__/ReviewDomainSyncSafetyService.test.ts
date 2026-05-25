@@ -5,11 +5,15 @@ import { buildReviewDomainSyncSafetyDecision } from '../ReviewDomainSyncSafetySe
 function status(input: {
   status: BackendDomainSyncSanityStatus;
   repairable?: number;
+  unrepairable?: number;
+  ledgerDivergent?: number;
   divergent?: number;
   skipped?: number;
   pending?: number;
 }): BackendDomainSyncStatusResult {
   const repairable = input.repairable ?? 0;
+  const unrepairable = input.unrepairable ?? 0;
+  const ledgerDivergent = input.ledgerDivergent ?? 0;
   const skipped = input.skipped ?? 0;
   return {
     ok: true,
@@ -32,6 +36,8 @@ function status(input: {
       processedSourceCount: 0,
       skippedSourceCount: skipped,
       repairableDivergenceCount: repairable,
+      unrepairableDivergenceCount: unrepairable,
+      divergentLedgerCount: ledgerDivergent,
       divergentCardCount: input.divergent ?? repairable,
       reasonCounts: {},
       affectedCardIds: [],
@@ -76,6 +82,28 @@ describe('ReviewDomainSyncSafetyService', () => {
       repairable: 1,
     }))).toMatchObject({
       kind: 'block-repairable',
+      canOpenReview: false,
+    });
+  });
+
+  it('allows divergent state when only unrepairable evidence remains', () => {
+    expect(buildReviewDomainSyncSafetyDecision(status({
+      status: 'divergent',
+      unrepairable: 2,
+      divergent: 2,
+    }))).toMatchObject({
+      kind: 'allow',
+      canOpenReview: true,
+    });
+  });
+
+  it('blocks divergent state when ledger divergence remains', () => {
+    expect(buildReviewDomainSyncSafetyDecision(status({
+      status: 'divergent',
+      ledgerDivergent: 1,
+      divergent: 1,
+    }))).toMatchObject({
+      kind: 'block-divergent',
       canOpenReview: false,
     });
   });

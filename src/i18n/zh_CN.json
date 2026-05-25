@@ -1740,6 +1740,8 @@
   "domainSyncApplyConfirm": "应用修复计划 {planId}？这会根据复习历史更新卡片复习状态。",
   "domainSyncApplyDone": "同步修复已应用：{cards} 张卡片",
   "domainSyncStillUnsafeAfterRepair": "同步修复已执行，但诊断仍不安全：{status}（可修复 {repairable}，分歧 {divergent}，跳过来源 {skipped}）。请继续处理剩余项。",
+  "domainSyncNoApplicableRepair": "没有可应用的自动修复",
+  "domainSyncNoApplicableRepairHint": "这些差异需要先清理已删除卡片、刷新来源状态，或人工处理不可修复证据。",
   "domainSyncCleanupDone": "清理完成：已清理 {cleaned}，已跳过 {skipped}，失败 {failed}",
   "domainSyncCleanupUnavailable": "同步冲突副本清理命令不可用",
   "domainSyncReviewCanceled": "已取消复习，请先处理同步冲突",

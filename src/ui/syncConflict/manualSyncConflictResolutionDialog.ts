@@ -251,8 +251,13 @@ function renderDomainSyncPanel(
       <td>${fmtTime(item.newestReviewEventAt)}</td>
     </tr>
   `).join('') || '';
-  const canPreview = status.repair.available || status.sanity.repairableDivergenceCount > 0;
+  const canPreview = status.repair.available
+    || status.sanity.repairableDivergenceCount > 0
+    || status.sanity.divergentCardCount > 0;
   const canApply = repairPreview?.status === 'preview' && repairPreview.plannedMutations.length > 0;
+  const noApplicableRepair = repairPreview
+    && repairPreview.plannedMutations.length === 0
+    && (repairPreview.status === 'unrepairable' || repairPreview.status === 'no-repair');
   const cleanupEligible = domainSyncCleanupEligibleSources(status, cleanupCandidates);
   const cleanupRows = cleanupCandidates?.candidates.slice(0, 12).map((candidate: DomainSyncCleanupCandidate) => {
     const processed = candidate.processedSource;
@@ -319,6 +324,12 @@ function renderDomainSyncPanel(
       ` : ''}
       ${skipped ? `<div style="margin-top: 8px;">${skipped}</div>` : ''}
       ${repairPreview ? `
+        ${noApplicableRepair ? `
+          <div class="b3-card b3-card--warning" style="margin-top: 10px; padding: 8px;">
+            <div style="font-weight: 600;">${escapeHtml(i18n.domainSyncNoApplicableRepair || '没有可应用的自动修复')}</div>
+            <div class="ft__on-surface" style="font-size: 12px; margin-top: 4px;">${escapeHtml(i18n.domainSyncNoApplicableRepairHint || '这些差异需要先清理已删除卡片、刷新来源状态，或人工处理不可修复证据。')}</div>
+          </div>
+        ` : ''}
         <div style="margin-top: 10px; max-height: 180px; overflow: auto; border: 1px solid var(--b3-border-color); border-radius: 4px;">
           <table class="b3-table" style="width: 100%; margin: 0;">
             <thead>

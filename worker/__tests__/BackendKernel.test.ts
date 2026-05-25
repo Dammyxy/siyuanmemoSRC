@@ -1457,6 +1457,58 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('does not offer domain sync repair for tombstoned cards', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({
+      id: 'tombstoned-repair-card',
+      blockId: 'tombstoned-repair-block',
+      reps: 0,
+      lastReview: 0,
+      updatedAt: 1_700_001_050_000,
+    })]);
+    await seedReviewEvent(database, {
+      id: 'tombstoned-repair-review',
+      cardId: 'tombstoned-repair-card',
+      reviewedAt: 1_700_001_100_000,
+    });
+    await database.runTransaction('seed.tombstoned.repair-card', (db) => {
+      db.run(
+        `INSERT INTO tombstones (kind, id, deleted_at, deleted_by, payload_json)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          'card',
+          'tombstoned-repair-card',
+          1_700_001_120_000,
+          'test-delete',
+          JSON.stringify({ deletedAt: 1_700_001_120_000, deletedBy: 'test-delete' }),
+        ],
+      );
+    });
+
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      sanity: {
+        status: 'clean',
+        repairableDivergenceCount: 0,
+        divergentCardCount: 0,
+      },
+      repair: {
+        available: false,
+        repairableDivergenceCount: 0,
+      },
+    });
+    await expect(database.previewDomainSyncRepair({
+      cardIds: ['tombstoned-repair-card'],
+      includeUnrepairable: true,
+    }, 1_700_001_120_001)).resolves.toMatchObject({
+      status: 'no-repair',
+      affectedCardCount: 0,
+      evidence: [],
+      plannedMutations: [],
+      unrepairableReasons: [],
+    });
+  });
+
   it('builds a read-only domain sync repair preview from newer review history', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -1588,6 +1640,18 @@ describe('BackendKernel', () => {
       cardIds: ['preview-missing-scheduler-card'],
       includeUnrepairable: true,
     }, 1_700_001_500_001);
+
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      sanity: {
+        status: 'divergent',
+        repairableDivergenceCount: 0,
+        divergentCardCount: 1,
+      },
+      repair: {
+        available: false,
+        repairableDivergenceCount: 0,
+      },
+    });
 
     expect(preview).toMatchObject({
       status: 'unrepairable',

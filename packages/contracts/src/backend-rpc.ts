@@ -300,6 +300,8 @@ export interface BackendDomainSyncSanitySummary {
   processedSourceCount: number;
   skippedSourceCount: number;
   repairableDivergenceCount: number;
+  unrepairableDivergenceCount?: number;
+  divergentLedgerCount?: number;
   divergentCardCount: number;
   reasonCounts: Partial<Record<BackendSyncConflictMergeDivergenceReason | 'needs-direction' | 'source-error', number>>;
   affectedCardIds: string[];
