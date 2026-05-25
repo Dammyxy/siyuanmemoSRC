@@ -395,6 +395,10 @@ export class SqliteDatabaseService {
       `CREATE INDEX IF NOT EXISTS idx_review_events_commit_idempotency
         ON review_events(commit_idempotency_key)`,
     );
+    db.run(
+      `CREATE INDEX IF NOT EXISTS idx_review_events_formal_facts
+        ON review_events(event_type, card_id, reviewed_at, commit_idempotency_key)`,
+    );
   }
 
   private ensureNeuralRoamRouteHistoryLineageColumns(db: Database): void {

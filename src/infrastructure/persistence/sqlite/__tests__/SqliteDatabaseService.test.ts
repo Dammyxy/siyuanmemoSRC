@@ -3,6 +3,8 @@ import { Buffer } from 'node:buffer';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import { SqliteDatabaseService } from '@/infrastructure/persistence/sqlite/SqliteDatabaseService';
 import { SQLITE_DB_FILE } from '@/infrastructure/persistence/sqlite/schema';
+import { SqlReviewLogRepository } from '@/infrastructure/persistence/sqlite/SqlReviewLogRepository';
+import { CardState, CardType, Rating } from '@/types/card';
 
 type JsonFileService = Pick<IFileService, 'readJSON' | 'writeJSON' | 'readBinary' | 'writeBinary'>;
 
@@ -133,6 +135,70 @@ describe('SqliteDatabaseService', () => {
     );
 
     expect(rows.map((row) => row.algorithm_id)).toEqual(['a-factor-v2', 'fsrs-v6']);
+  });
+
+  it('creates review event fact indexes for formal history and idempotency reads', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+
+    const indexNames = database.getAll<{ name: string }>(
+      `SELECT name FROM sqlite_master
+       WHERE type = 'index' AND name IN (
+         'idx_review_events_commit_idempotency',
+         'idx_review_events_formal_facts'
+       )
+       ORDER BY name`,
+    ).map((row) => row.name);
+
+    expect(indexNames).toEqual([
+      'idx_review_events_commit_idempotency',
+      'idx_review_events_formal_facts',
+    ]);
+  });
+
+  it('persists ReviewLogV2 commit idempotency through the sqlite review repository', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+    const repository = new SqlReviewLogRepository(database);
+
+    repository.addReviewLogV2({
+      schemaVersion: 2,
+      id: 'event-idempotency-column',
+      attemptId: 'attempt-idempotency-column',
+      cardId: 'card-idempotency-column',
+      rating: Rating.Good,
+      reviewedAt: 1_779_400_000_000,
+      commitIdempotencyKey: 'review-commit:repository-key',
+      queueType: 'retrieval-practice',
+      queueMode: 'formal',
+      source: 'queue',
+      algorithm: 'fsrs-v6',
+      schedulerType: 'fsrs-v6',
+      commitPolicy: 'write-schedule',
+      before: {
+        id: 'card-idempotency-column',
+        due: 1_779_300_000_000,
+        stability: 5,
+        difficulty: 5,
+        reps: 1,
+        lapses: 0,
+        state: CardState.Review,
+        lastReview: 1_779_300_000_000,
+        elapsedDays: 1,
+        scheduledDays: 1,
+        priority: 50,
+        type: CardType.Item,
+      },
+      after: null,
+      isDrill: false,
+      isFiltered: false,
+      customStudy: false,
+    });
+
+    expect(database.getOne<{ commit_idempotency_key: string | null }>(
+      'SELECT commit_idempotency_key FROM review_events WHERE id = ?',
+      ['event-idempotency-column'],
+    )).toEqual({ commit_idempotency_key: 'review-commit:repository-key' });
   });
 
   it('adds domain sync ledger tables to an existing database without dropping review, card, tombstone, or projection rows', async () => {
@@ -270,6 +336,10 @@ describe('SqliteDatabaseService', () => {
       "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
       ['idx_review_events_commit_idempotency'],
     )).toEqual({ name: 'idx_review_events_commit_idempotency' });
+    expect(database.getOne<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+      ['idx_review_events_formal_facts'],
+    )).toEqual({ name: 'idx_review_events_formal_facts' });
     expect(database.getOne<{ count: number }>('SELECT COUNT(*) AS count FROM review_events')?.count).toBe(1);
   });
 });

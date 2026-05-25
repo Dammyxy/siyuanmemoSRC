@@ -1,4 +1,9 @@
 import type { ParamsObject, SqlValue } from 'sql.js';
+import {
+  mapReviewLogV2ToReviewEventFact,
+  summarizeReviewEventFact,
+  type ReviewLogV2FactInput,
+} from '@/core/scheduler/reviewEventFact';
 import type { FSRSCard } from '@/types/card';
 
 type SqlParams = SqlValue[] | ParamsObject;
@@ -105,6 +110,16 @@ export class DomainSyncLedger {
       }
       const reviewedAt = normalizeTimestamp(row.reviewed_at);
       const idempotencyKey = normalizeOptionalString(row.commit_idempotency_key);
+      const reviewFact = mapReviewEventRowToFact({
+        id: reviewEventId,
+        cardId,
+        attemptId: normalizeOptionalString(row.attempt_id),
+        rating: row.rating,
+        reviewedAt,
+        commitIdempotencyKey: idempotencyKey,
+        eventType: row.event_type,
+        payloadJson: row.payload_json,
+      });
       const payload = {
         reviewEventId,
         cardId,
@@ -115,6 +130,7 @@ export class DomainSyncLedger {
         eventType: row.event_type,
         idempotencyKey,
         migrationSource: 'existing-review-events',
+        reviewEventFact: summarizeReviewEventFact(reviewFact),
       };
       const payloadJson = stableJsonStringify(payload);
       this.runtime.run(
@@ -363,6 +379,44 @@ function buildOperationId(input: {
 }): string {
   const identity = input.idempotencyKey || input.reviewEventId;
   return `domain-sync:${input.operationType}:${fnv1a32(`${input.entityId}:${identity}`)}`;
+}
+
+function mapReviewEventRowToFact(input: {
+  id: string;
+  cardId: string;
+  attemptId: string | null;
+  rating: unknown;
+  reviewedAt: number;
+  commitIdempotencyKey: string | null;
+  eventType: string;
+  payloadJson: string;
+}) {
+  const payload = parseJsonObject(input.payloadJson);
+  return mapReviewLogV2ToReviewEventFact({
+    ...payload,
+    id: normalizeOptionalString(payload.id) ?? input.id,
+    cardId: normalizeOptionalString(payload.cardId) ?? input.cardId,
+    attemptId: normalizeOptionalString(payload.attemptId) ?? input.attemptId ?? '',
+    rating: payload.rating ?? input.rating,
+    reviewedAt: payload.reviewedAt ?? input.reviewedAt,
+    commitIdempotencyKey: normalizeOptionalString(payload.commitIdempotencyKey) ?? input.commitIdempotencyKey ?? undefined,
+    queueMode: normalizeOptionalString(payload.queueMode) ?? (input.eventType === 'review-v2' ? 'formal' : undefined),
+    commitPolicy: normalizeOptionalString(payload.commitPolicy) ?? (input.eventType === 'review-v2' ? 'write-schedule' : undefined),
+  } satisfies ReviewLogV2FactInput);
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'string' || !value.trim()) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 function stableJsonStringify(value: unknown): string {

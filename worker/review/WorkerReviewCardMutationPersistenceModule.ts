@@ -1,4 +1,8 @@
 import { SchedulerRouter } from '@/core/scheduler';
+import {
+  mapReviewLogV2ToReviewEventFact,
+  summarizeReviewEventFact,
+} from '@/core/scheduler/reviewEventFact';
 import type { SchedulerType } from '@/core/scheduler/schedulerPolicy';
 import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 import { createReviewLogV2 } from '@/types/review';
@@ -129,6 +133,12 @@ export class WorkerReviewCardMutationPersistenceModule {
           isFiltered: decision.attempt.isFiltered,
           customStudy: decision.attempt.customStudy,
         });
+        const fact = mapReviewLogV2ToReviewEventFact(log);
+        if (!fact.classification.formal) {
+          throw new Error(
+            `INVALID_STATE: committed review feedback produced non-formal review fact: ${fact.classification.exclusionReasons.join(',')}`,
+          );
+        }
         const month = new Date(log.reviewedAt);
         this.deps.runtime.run(
           `INSERT OR REPLACE INTO review_events
@@ -144,7 +154,11 @@ export class WorkerReviewCardMutationPersistenceModule {
             month.getFullYear(),
             month.getMonth() + 1,
             'review-v2',
-            JSON.stringify(log),
+            JSON.stringify({
+              ...log,
+              reviewEventFact: fact,
+              reviewEventFactSummary: summarizeReviewEventFact(fact),
+            }),
           ],
         );
         domainSyncLedger.appendReviewCommitted({

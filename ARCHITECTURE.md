@@ -79,6 +79,24 @@ flowchart TD
 - Mobile entry
 - Siyuan / Riff / Kernel companion integration
 
+### 2.1 参考架构吸收基线（Anki / Incrementum / Incremental Everything）
+
+`absorb-anki-incrementum-architecture-lessons` change 的实现基线如下，作为后续吸收参考源码经验时的守卫：
+
+- Anki 只作为 SRS 账本与队列可重建参考：`cards` 是当前 schedulable state，`review_events` 是 append-only formal review fact，queue projection 是可重建 derived storage，不是持久真相。
+- Incrementum Tauri 只作为文档 / 摘录 / 学习项拆分与 scheduler adapter dispatch 参考；SiYuanMemo 不复制 `learning_items.question/answer` 内容主表，内容权威仍是 SiYuan block 与 Xiuyuan aggregate。
+- Incremental Everything 只作为 typed action item、reader/extract queue、closest-ancestor priority inheritance、priority review context 的交互/策略参考；不采用 RemNote powerup storage、session-counter queue injection、plugin-local cache authority 或 UI-side hidden mutation。
+- 禁止把 Anki `due` 那类多语义字段作为新持久字段；新模型必须把 formal review due、processing due、filtered/deferred queue order、priority order 拆成显式语义。
+- 禁止用 UI direct SQL、follower-local write、best-effort repair、dual-write 或 silent local fallback 掩盖 backend/writer unavailable；必须返回 typed unavailable/error。
+
+当前 owner 追踪：
+
+- Formal Review commit：`ReviewView / useReviewSession -> UnifiedQueueStrategy -> BaseReviewQueue -> ReviewCommitUseCase -> SrsBackendClient.reviewFeedback or FollowerCommandClient -> worker/review/WorkerReviewFeedbackRuntime -> WorkerReviewCardMutationPersistenceModule -> SchedulerRouter -> cards + review_events + domain_sync_operations`。正式提交写 `review_events(event_type='review-v2', commit_idempotency_key, payload_json)`，重复 key 返回 duplicate，不追加事件、不推进 card state。
+- Scheduler snapshot / learning evidence：`src/core/scheduler/schedulerStateSnapshot.ts` owns serializable scheduler-state read model；`src/core/scheduler/learningCurveEvidence.ts` owns advisory-only evidence；application readers 仍负责把当前 review log/fact source 映射为 evidence input。
+- Queue projection：`QueueProjectionRuntime` / `WorkerQueueProjectionRuntime` owns projection snapshot、rowsByIds、replace、materialization echo、generation/policyHash 和 explicit unavailable；`SqlQueueProjectionRepository` owns projection tables；Review feedback 只能通过 worker/writer path 更新 projection delta。
+- Progressive / Excerpt / Topic-derived：`ProgressiveReadingService`、`SelectionExcerptService`、`TopicDerivedItemService` 是 application owner；backend command facade owns idempotency / unavailable shape，writer window owns bounded SiYuan/Riff side effects。
+- Review render surface：`UnifiedReviewAdapter`、`ReviewView.vue` helper modules、`ReviewContent.vue`、review special render services 共同构成当前 render path；后续 renderable context 必须是 read contract，answer/edit/advance/defer/convert 仍走 typed application commands。
+
 ---
 
 ## 3. 启动与装配流程（Composition Root）

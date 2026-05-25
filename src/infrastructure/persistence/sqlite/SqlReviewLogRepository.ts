@@ -17,11 +17,20 @@ export class SqlReviewLogRepository {
   constructor(private readonly database: SqliteDatabaseService) {}
 
   addReviewLog(log: ReviewLog): void {
-    this.upsertReviewEvent('review', log.id, log.cardId, null, log.rating, log.review, log);
+    this.upsertReviewEvent('review', log.id, log.cardId, null, log.rating, log.review, null, log);
   }
 
   addReviewLogV2(log: ReviewLogV2): void {
-    this.upsertReviewEvent('review-v2', log.id, log.cardId, log.attemptId, log.rating, log.reviewedAt, log);
+    this.upsertReviewEvent(
+      'review-v2',
+      log.id,
+      log.cardId,
+      log.attemptId,
+      log.rating,
+      log.reviewedAt,
+      log.commitIdempotencyKey ?? null,
+      log,
+    );
   }
 
   addDrillLogV2(log: DrillLogV2): void {
@@ -101,14 +110,15 @@ export class SqlReviewLogRepository {
     attemptId: string | null,
     rating: number,
     reviewedAt: number,
+    commitIdempotencyKey: string | null,
     payload: unknown,
   ): void {
     const { year, month } = monthParts(reviewedAt);
     this.database.run(
       `INSERT OR REPLACE INTO review_events
-        (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, cardId, attemptId, rating, reviewedAt, year, month, type, stringifyJson(payload)],
+        (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, cardId, attemptId, rating, reviewedAt, commitIdempotencyKey, year, month, type, stringifyJson(payload)],
     );
   }
 

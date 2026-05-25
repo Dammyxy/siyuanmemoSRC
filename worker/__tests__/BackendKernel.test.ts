@@ -473,6 +473,27 @@ describe('BackendKernel', () => {
       'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
       ['card-review-retry-idempotent'],
     )?.count).toBe(1);
+    const reviewEventPayload = JSON.parse(database.getOne<{ payload_json: string }>(
+      'SELECT payload_json FROM review_events WHERE card_id = ?',
+      ['card-review-retry-idempotent'],
+    )?.payload_json || '{}');
+    expect(reviewEventPayload.reviewEventFactSummary).toMatchObject({
+      eventId: expect.stringMatching(/^v2:card-review-retry-idempotent:/),
+      cardId: 'card-review-retry-idempotent',
+      commitIdempotencyKey: 'review-commit:retry-same-action',
+      queueType: 'retrieval-practice',
+      queueMode: 'formal',
+      commitPolicy: 'write-schedule',
+      classification: {
+        kind: 'formal',
+        formal: true,
+        exclusionReasons: [],
+      },
+      dataQuality: {
+        status: 'complete',
+        reasons: [],
+      },
+    });
     expect(database.getOne<{ count: number }>(
       `SELECT COUNT(*) AS count
        FROM domain_sync_operations
@@ -2477,10 +2498,23 @@ describe('BackendKernel', () => {
       entity_block_id: 'block-backfill-review',
       idempotency_key: null,
     });
-    expect(JSON.parse(reviewLedger?.payload_json || '{}')).toMatchObject({
+    const reviewBackfillPayload = JSON.parse(reviewLedger?.payload_json || '{}');
+    expect(reviewBackfillPayload).toMatchObject({
       migrationSource: 'existing-review-events',
       reviewEventId: 'review-backfill-formal',
       cardId: 'card-backfill-review',
+      reviewEventFact: {
+        cardId: 'card-backfill-review',
+        classification: {
+          kind: 'formal',
+          formal: true,
+          exclusionReasons: [],
+        },
+        dataQuality: {
+          status: 'low-quality',
+          reasons: expect.arrayContaining(['missing-before-state', 'missing-after-state']),
+        },
+      },
     });
     const tombstoneLedger = database.getOne<{
       source_id: string;
@@ -6923,6 +6957,10 @@ describe('BackendKernel', () => {
         updatedCard: null,
       });
     }
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
+      ['card-final-drill-1'],
+    )?.count).toBe(0);
   });
 
   it('supports filter-group preview-only review feedback without schedule writes', async () => {
@@ -6956,6 +6994,10 @@ describe('BackendKernel', () => {
         updatedCard: null,
       });
     }
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
+      ['card-filter-preview-1'],
+    )?.count).toBe(0);
   });
 
   it('commits filter-group filtered-rescheduling review feedback in worker transaction', async () => {

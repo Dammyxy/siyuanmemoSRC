@@ -8,6 +8,11 @@ import { SqlSemanticActivationRepository } from '@/infrastructure/persistence/sq
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type { FSRSCard } from '@/types/card';
+import {
+  mapReviewLogV2ToReviewEventFact,
+  summarizeReviewEventFact,
+  type ReviewLogV2FactInput,
+} from '@/core/scheduler/reviewEventFact';
 import { QueueType } from '@/types/unified-data-source';
 import type { QueueProjectionGeneration } from '@/application/ports/QueueProjectionPort';
 import type {
@@ -344,6 +349,24 @@ function parseJsonObject<T>(value: string, fallback: T): T {
 function parseSqlJsonRecord(value: string | null | undefined): Record<string, unknown> {
   const parsed = parseJsonObject<unknown>(String(value || '').trim() || '{}', {});
   return isRecord(parsed) ? parsed : {};
+}
+
+function mapConflictReviewEventToFact(
+  event: ConflictReviewEventRow,
+  idempotencyKey: string | null,
+) {
+  const payload = parseSqlJsonRecord(event.payload_json);
+  return mapReviewLogV2ToReviewEventFact({
+    ...payload,
+    id: normalizeString(payload.id) || normalizeString(event.id),
+    cardId: normalizeString(payload.cardId) || normalizeString(event.card_id),
+    attemptId: normalizeString(payload.attemptId) || normalizeString(event.attempt_id),
+    rating: payload.rating ?? event.rating,
+    reviewedAt: payload.reviewedAt ?? event.reviewed_at,
+    commitIdempotencyKey: normalizeString(payload.commitIdempotencyKey) || idempotencyKey || undefined,
+    queueMode: normalizeString(payload.queueMode) || (event.event_type === 'review-v2' ? 'formal' : undefined),
+    commitPolicy: normalizeString(payload.commitPolicy) || (event.event_type === 'review-v2' ? 'write-schedule' : undefined),
+  } satisfies ReviewLogV2FactInput);
 }
 
 function readRecordString(record: Record<string, unknown>, keys: string[]): string | null {
@@ -2668,6 +2691,7 @@ export class WorkerSqliteDatabaseService {
       return { imported: 0, ignored: 1, affectedCardIds: [], affectedBlockIds: [] };
     }
     const idempotencyKey = `legacy-review:${reviewEventId}`;
+    const reviewFact = mapConflictReviewEventToFact(input.event, idempotencyKey);
     const payload = {
       reviewEventId,
       cardId,
@@ -2678,6 +2702,7 @@ export class WorkerSqliteDatabaseService {
       eventType: input.event.event_type || 'review-v2',
       legacySourceId: input.sourceId,
       idempotencyKey,
+      reviewEventFact: summarizeReviewEventFact(reviewFact),
     };
     const payloadJson = JSON.stringify(payload);
     const operationId = `domain-sync:review-committed:${this.fnv1a32(`${cardId}:${reviewEventId}`)}`;

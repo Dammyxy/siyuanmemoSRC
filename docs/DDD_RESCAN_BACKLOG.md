@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-25 (Round 465)
+Last update: 2026-05-26 (Round 466)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-26 - Formal Review Fact Ledger
+
+- Task: Absorb Anki/Incrementum review-history lessons by making successful formal review commits produce one typed review fact per idempotency identity.
+- Touched slice: Scheduler review fact contract in `src/core/scheduler/reviewEventFact.ts`; backend worker review commit persistence in `worker/review/WorkerReviewCardMutationPersistenceModule.ts`; SQLite review log persistence in `src/infrastructure/persistence/sqlite/SqlReviewLogRepository.ts`; domain-sync review backfill in `worker/domain-sync/DomainSyncLedger.ts` and `worker/db/SqliteDatabaseService.ts`; focused review/SQLite/worker tests.
+- Debt fixed now: Formal worker commits now persist a typed `reviewEventFact`/summary alongside the append-only `review_events` row, reject committed non-formal facts, preserve commit idempotency through both worker and SQL repository paths, and keep duplicate retries on the existing committed row without appending another fact. Legacy review-event backfill now records review fact data-quality diagnostics, including missing before/after scheduler state.
+- Debt deferred: Review facts still live inside the existing `review_events.payload_json` instead of a separate normalized fact table.
+- Why deferred: Reusing `review_events` keeps the active backend-owned ledger compatible with current readers and avoids a broad data migration while still making the formal fact contract explicit.
+- Next safe step: Continue with scheduler snapshot/evidence slices so learning-curve diagnostics consume formal facts rather than raw review-log shapes.
+- Validation: `pnpm exec vitest run src/core/scheduler/__tests__/reviewEventFact.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts worker/__tests__/BackendKernel.test.ts` (review/sqlite passed; full worker file has existing unrelated projection hydration failure); `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts -t "review.feedback retry|conservatively backfills existing formal reviews|final-drill drill-only|filter-group preview-only|commits retrieval review feedback"`.
 
 ### 2026-05-25 - Browser Count Authority
 
