@@ -4,6 +4,7 @@ import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
 
 type QueueMock = {
   getCounterSnapshot: ReturnType<typeof vi.fn>;
+  getSnapshotRows: ReturnType<typeof vi.fn>;
   getRemainingSize: ReturnType<typeof vi.fn>;
   getStats: ReturnType<typeof vi.fn>;
   getSize: ReturnType<typeof vi.fn>;
@@ -17,8 +18,10 @@ function createQueue(
   options: {
     conceptBlocks?: string[];
     conceptBlocksError?: Error;
+    snapshotRowCount?: number;
   } = {},
 ): QueueMock {
+  const snapshotRowCount = options.snapshotRowCount ?? remaining;
   const queue: QueueMock = {
     getCounterSnapshot: vi.fn().mockResolvedValue({
       version: 1,
@@ -42,6 +45,13 @@ function createQueue(
       learning: 0,
       reviewed: 0,
     }),
+    getSnapshotRows: vi.fn().mockResolvedValue(
+      Array.from({ length: snapshotRowCount }, (_, index) => ({
+        id: `row-${index}`,
+        fsrsCardId: `card-${index}`,
+        blockId: `block-${index}`,
+      })),
+    ),
     getSize: vi.fn().mockResolvedValue(fallbackSize),
   };
 
@@ -88,7 +98,9 @@ describe('BrowserApplicationService queue counts', () => {
         ATTR_SUSPENDED: 'custom-fsrs-suspended',
         ATTR_CARD_TYPE: 'custom-fsrs-card-type',
         ATTR_A_FACTOR: 'custom-fsrs-a-factor',
-        sql: vi.fn(async () => []),
+        sql: vi.fn(async (stmt: string) => (
+          Array.from(stmt.matchAll(/'([^']+)'/g), (match) => ({ id: match[1] }))
+        )),
         setBlockAttrs: vi.fn(),
         pushMsg: vi.fn(),
         pushErrMsg: vi.fn(),
@@ -96,14 +108,14 @@ describe('BrowserApplicationService queue counts', () => {
     );
   });
 
-  it('reads counts from counter snapshots without calling getCards', async () => {
-    const retrievalQueue = createQueue(2);
-    const finalQueue = createQueue(1);
+  it('reads counts from browser-visible queue snapshots instead of stale counter snapshots', async () => {
+    const retrievalQueue = createQueue(59, 59, 59, { snapshotRowCount: 29 });
+    const finalQueue = createQueue(8, 8, 8, { snapshotRowCount: 7 });
     const neuralQueue = createQueue(77, 77, 77, {
       conceptBlocks: Array.from({ length: 5 }, (_, index) => `concept-${index}`),
     });
-    const filterQueue = createQueue(3);
-    const incrementalQueue = createQueue(4);
+    const filterQueue = createQueue(3, 3, 3, { snapshotRowCount: 3 });
+    const incrementalQueue = createQueue(59, 59, 59, { snapshotRowCount: 29 });
 
     queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
     queueByType.set(QueueType.FinalDrill, finalQueue);
@@ -114,23 +126,23 @@ describe('BrowserApplicationService queue counts', () => {
     const counts = await service.getQueueCounts();
 
     expect(counts).toEqual({
-      retrieval: 2,
-      'final-drill': 1,
+      retrieval: 29,
+      'final-drill': 7,
       'neural-roam': 5,
       'filter-group': 3,
-      'incremental-learning': 4,
+      'incremental-learning': 29,
     });
 
-    expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
-    expect(finalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(finalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
     expect(neuralQueue.getConceptBlocks).toHaveBeenCalledTimes(1);
     expect(neuralQueue.getCounterSnapshot).not.toHaveBeenCalled();
-    expect(filterQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
-    expect(incrementalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(filterQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(incrementalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
     expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
   });
 
-  it('uses projection counters before neural session counts when neural-roam is promoted', async () => {
+  it('keeps neural-roam count on session concepts even when projection diagnostics exist', async () => {
     const neuralQueue = createQueue(77, 77, 77, {
       conceptBlocks: Array.from({ length: 5 }, (_, index) => `concept-${index}`),
     });
@@ -155,29 +167,20 @@ describe('BrowserApplicationService queue counts', () => {
 
     const counts = await service.getQueueCounts();
 
-    expect(counts['neural-roam']).toBe(77);
-    expect(neuralQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
-    expect(neuralQueue.getConceptBlocks).not.toHaveBeenCalled();
+    expect(counts['neural-roam']).toBe(5);
+    expect(neuralQueue.getConceptBlocks).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getCounterSnapshot).not.toHaveBeenCalled();
   });
 
   it('retries a transient projection-backed count read before caching a value', async () => {
     const retrievalQueue = createQueue(11, 11, 11);
-    retrievalQueue.getCounterSnapshot
-      .mockRejectedValueOnce(new Error('projection unavailable'))
-      .mockResolvedValueOnce({
-        version: 1,
-        remaining: 11,
-        due: 11,
-        total: 11,
-        buckets: {
-          all: 11,
-          item: 11,
-          descriptor: 0,
-          topic: 0,
-          concept: 0,
-        },
-        source: 'reconciled' as const,
-      });
+    retrievalQueue.getSnapshotRows
+      .mockRejectedValueOnce(new Error('QUEUE_PROJECTION_UNAVAILABLE: projection unavailable'))
+      .mockResolvedValueOnce(Array.from({ length: 11 }, (_, index) => ({
+        id: `row-${index}`,
+        fsrsCardId: `card-${index}`,
+        blockId: `block-${index}`,
+      })));
     manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
       if (queueType === QueueType.RetrievalPractice) {
         return [{
@@ -199,7 +202,7 @@ describe('BrowserApplicationService queue counts', () => {
     });
 
     expect(counts.retrieval).toBe(11);
-    expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(2);
+    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the last known projection-backed queue count when a refresh is temporarily unavailable', async () => {
@@ -225,7 +228,7 @@ describe('BrowserApplicationService queue counts', () => {
     });
     expect(initialCounts.retrieval).toBe(3);
 
-    retrievalQueue.getCounterSnapshot.mockRejectedValueOnce(new Error('projection unavailable'));
+    retrievalQueue.getSnapshotRows.mockRejectedValueOnce(new Error('QUEUE_PROJECTION_UNAVAILABLE: projection unavailable'));
 
     const refreshedCounts = await service.getQueueCounts({
       forceRefresh: true,
@@ -240,7 +243,7 @@ describe('BrowserApplicationService queue counts', () => {
   it('keeps other queue counts when one projection-backed count remains temporarily unavailable', async () => {
     const retrievalQueue = createQueue(5, 5, 11);
     const incrementalQueue = createQueue(3, 3, 3);
-    retrievalQueue.getCounterSnapshot.mockRejectedValue(new Error('projection unavailable'));
+    retrievalQueue.getSnapshotRows.mockRejectedValue(new Error('QUEUE_PROJECTION_UNAVAILABLE: projection unavailable'));
     manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
       if (queueType === QueueType.RetrievalPractice) {
         return [{
@@ -264,14 +267,14 @@ describe('BrowserApplicationService queue counts', () => {
 
     expect(counts.retrieval).toBe(0);
     expect(counts['incremental-learning']).toBe(3);
-    expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(2);
+    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(2);
     expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
     expect(retrievalQueue.getSize).not.toHaveBeenCalled();
   });
 
   it('fails closed instead of trying alternate size APIs when non-projection snapshot reads fail', async () => {
     const retrievalQueue = createQueue(1, 1, 11);
-    retrievalQueue.getCounterSnapshot.mockRejectedValueOnce(new Error('boom'));
+    retrievalQueue.getSnapshotRows.mockRejectedValueOnce(new Error('boom'));
     queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
 
     await expect(service.getQueueCounts({
@@ -335,11 +338,11 @@ describe('BrowserApplicationService queue counts', () => {
     queueByType.set(QueueType.IncrementalLearning, incrementalQueue);
 
     await service.getQueueCounts();
-    expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
-    expect(finalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(finalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
 
-    retrievalQueue.getCounterSnapshot.mockClear();
-    finalQueue.getCounterSnapshot.mockClear();
+    retrievalQueue.getSnapshotRows.mockClear();
+    finalQueue.getSnapshotRows.mockClear();
 
     const counts = await service.getQueueCounts({
       forceRefresh: true,
@@ -348,7 +351,7 @@ describe('BrowserApplicationService queue counts', () => {
 
     expect(counts.retrieval).toBe(1);
     expect(counts['final-drill']).toBe(2);
-    expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
-    expect(finalQueue.getCounterSnapshot).not.toHaveBeenCalled();
+    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(finalQueue.getSnapshotRows).not.toHaveBeenCalled();
   });
 });

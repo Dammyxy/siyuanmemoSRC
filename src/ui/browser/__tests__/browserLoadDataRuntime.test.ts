@@ -185,29 +185,16 @@ describe('browserLoadDataRuntime', () => {
     vi.useRealTimers();
   });
 
-  it('keeps neural-roam queue view retrying until projection becomes ready', async () => {
-    vi.useFakeTimers();
-    let readinessCalls = 0;
+  it('loads neural-roam queue view without waiting for projection readiness', async () => {
     const manager = {
       ...createManager(),
-      ensureQueueProjectionReady: vi.fn(async () => {
-        readinessCalls += 1;
-        if (readinessCalls < 3) {
-          return {
-            status: 'refreshing',
-            queueId: QueueType.NeuralRoam,
-            policyId: 'policy-neural',
-            cause: 'materialization_in_progress',
-            retryAfterMs: 25,
-          };
-        }
-        return {
-          status: 'ready',
-          queueId: QueueType.NeuralRoam,
-          policyId: 'policy-neural',
-          generation: 9,
-        };
-      }),
+      ensureQueueProjectionReady: vi.fn(async () => ({
+        status: 'refreshing',
+        queueId: QueueType.NeuralRoam,
+        policyId: 'policy-neural',
+        cause: 'materialization_in_progress',
+        retryAfterMs: 25,
+      })),
     };
     const deps = createDeps({
       activeQueueId: ref('neural-roam'),
@@ -217,12 +204,10 @@ describe('browserLoadDataRuntime', () => {
     const runtime = createBrowserLoadDataRuntime(deps);
 
     await runtime.loadData();
-    await vi.runAllTimersAsync();
 
-    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(3);
+    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
     expect(deps.refreshNeuralSubviewData).toHaveBeenCalledTimes(1);
     expect(deps.currentDataSource.value?.id).toBe('neural-roam');
-    vi.useRealTimers();
   });
 
   it('keeps retrieval queue view retrying past the generic cap until projection becomes ready', async () => {
@@ -292,16 +277,16 @@ describe('browserLoadDataRuntime', () => {
       ensureQueueProjectionReady: vi.fn()
         .mockResolvedValueOnce({
           status: 'refreshing',
-          queueId: QueueType.NeuralRoam,
-          policyId: 'policy-neural',
+          queueId: QueueType.RetrievalPractice,
+          policyId: 'policy-retrieval',
           cause: 'materialization_in_progress',
           retryAfterMs: 25,
         })
         .mockReturnValueOnce(secondReadiness),
     };
     const deps = createDeps({
-      activeQueueId: ref('neural-roam'),
-      currentQueueType: ref('neural-roam'),
+      activeQueueId: ref('retrieval'),
+      currentQueueType: ref('retrieval-practice'),
       pluginUnifiedDataSourceManager: ref(manager as any),
     });
     const runtime = createBrowserLoadDataRuntime(deps);
@@ -315,8 +300,8 @@ describe('browserLoadDataRuntime', () => {
 
     resolveSecondReadiness?.({
       status: 'ready',
-      queueId: QueueType.NeuralRoam,
-      policyId: 'policy-neural',
+      queueId: QueueType.RetrievalPractice,
+      policyId: 'policy-retrieval',
       generation: 2,
     });
     await newerLoad;
@@ -417,14 +402,14 @@ describe('browserLoadDataRuntime', () => {
       ...createManager(),
       ensureQueueProjectionReady: vi.fn(async () => ({
         status: 'ready',
-        queueId: QueueType.NeuralRoam,
-        policyId: 'policy-neural',
+        queueId: QueueType.RetrievalPractice,
+        policyId: 'policy-retrieval',
         generation: 4,
       })),
     };
     const deps = createDeps({
-      activeQueueId: ref('neural-roam'),
-      currentQueueType: ref('neural-roam'),
+      activeQueueId: ref('retrieval'),
+      currentQueueType: ref('retrieval-practice'),
       currentProjectionIdentity: ref(null),
       pluginUnifiedDataSourceManager: ref(manager as any),
     });
@@ -432,9 +417,9 @@ describe('browserLoadDataRuntime', () => {
 
     expect(runtime.handleQueueProjectionLiveIdentityEvent({
       type: 'queue-projection-live-identity',
-      queueId: QueueType.NeuralRoam,
-      queueType: QueueType.NeuralRoam,
-      policyId: 'policy-neural',
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-retrieval',
       generation: 4,
       reason: 'refreshed',
       source: 'runtime',
@@ -445,22 +430,22 @@ describe('browserLoadDataRuntime', () => {
 
     expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(1);
     expect(deps.currentProjectionIdentity.value).toEqual({
-      queueId: QueueType.NeuralRoam,
-      queueType: QueueType.NeuralRoam,
-      policyId: 'policy-neural',
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-retrieval',
       generation: 4,
     });
     vi.useRealTimers();
   });
 
-  it('replays hidden live identity after the browser becomes visible on neural-roam selection', async () => {
+  it('replays hidden live identity after the browser becomes visible on retrieval selection', async () => {
     vi.useFakeTimers();
     const manager = {
       ...createManager(),
       ensureQueueProjectionReady: vi.fn(async () => ({
         status: 'ready',
-        queueId: QueueType.NeuralRoam,
-        policyId: 'policy-neural',
+        queueId: QueueType.RetrievalPractice,
+        policyId: 'policy-retrieval',
         generation: 5,
       })),
     };
@@ -474,25 +459,25 @@ describe('browserLoadDataRuntime', () => {
 
     expect(runtime.handleQueueProjectionLiveIdentityEvent({
       type: 'queue-projection-live-identity',
-      queueId: QueueType.NeuralRoam,
-      queueType: QueueType.NeuralRoam,
-      policyId: 'policy-neural',
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-retrieval',
       generation: 5,
       reason: 'refreshed',
       source: 'runtime',
       timestamp: 1,
     })).toBe('ignored');
 
-    deps.activeQueueId.value = 'neural-roam';
-    deps.currentQueueType.value = 'neural-roam';
+    deps.activeQueueId.value = 'retrieval';
+    deps.currentQueueType.value = 'retrieval-practice';
     await runtime.loadData(false, { origin: 'queue-sync' });
     await vi.runOnlyPendingTimersAsync();
 
     expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(1);
     expect(deps.currentProjectionIdentity.value).toEqual({
-      queueId: QueueType.NeuralRoam,
-      queueType: QueueType.NeuralRoam,
-      policyId: 'policy-neural',
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-retrieval',
       generation: 5,
     });
     vi.useRealTimers();

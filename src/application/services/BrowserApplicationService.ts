@@ -713,16 +713,14 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private async readQueueVisibleCount(
     queue: IReviewQueue | null,
     queueId: string,
-    forceRefresh = false,
+    _forceRefresh = false,
   ): Promise<number> {
     if (!queue) {
       return 0;
     }
 
-    const projectionBacked = this.isProjectionBackedBrowserQueue(queueId);
     if (
-      !projectionBacked
-      && isNeuralBrowserQueue(queueId)
+      isNeuralBrowserQueue(queueId)
       && typeof (queue as { getConceptBlocks?: () => unknown[] }).getConceptBlocks === 'function'
     ) {
       try {
@@ -737,8 +735,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     if (
-      !projectionBacked
-      && isNeuralBrowserQueue(queueId)
+      isNeuralBrowserQueue(queueId)
       && typeof (queue as { getSourceSnapshot?: () => unknown[] }).getSourceSnapshot === 'function'
     ) {
       try {
@@ -753,14 +750,24 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     try {
-      const snapshot = await queue.getCounterSnapshot(forceRefresh);
-      return Math.max(0, Number(snapshot.remaining) || 0);
+      const snapshot = await this.getQueueQuerySnapshot({
+        queueId: queueId as BrowserQueueId,
+        preset: 'all',
+        searchText: '',
+        docId: null,
+        scopeDocIds: null,
+        cardType: 'all',
+      });
+      return Math.max(0, Number(snapshot.total) || 0);
     } catch (error) {
-      throw new Error(
-        projectionBacked
-          ? `QUEUE_PROJECTION_UNAVAILABLE: ${queueId} projection counter snapshot unavailable`
-          : `QUEUE_COUNT_UNAVAILABLE: ${queueId} counter snapshot unavailable`,
+      const reason = error instanceof Error ? error.message : String(error);
+      const unavailable = new Error(
+        reason
+          ? `QUEUE_COUNT_UNAVAILABLE: ${queueId} queue snapshot unavailable (${reason})`
+          : `QUEUE_COUNT_UNAVAILABLE: ${queueId} queue snapshot unavailable`,
       );
+      (unavailable as Error & { cause?: unknown }).cause = error;
+      throw unavailable;
     }
   }
 
@@ -801,18 +808,6 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     return false;
-  }
-
-  private isProjectionBackedBrowserQueue(queueId: string): boolean {
-    const queueType = resolveQueueTypeForBrowserQueueId(queueId);
-    if (!queueType) return false;
-    const diagnostics = this.unifiedDataSourceManager
-      ?.getQueueProjectionRolloutDiagnostics?.(queueType);
-    return Array.isArray(diagnostics)
-      && diagnostics.some((entry) => (
-        entry.queueType === queueType
-        && (entry.state === 'backend-projection' || entry.readPath === 'backend-projection')
-      ));
   }
 
   private resolveAffectedBrowserQueueIds(affectedQueueTypes?: QueueType[] | null): BrowserQueueId[] {

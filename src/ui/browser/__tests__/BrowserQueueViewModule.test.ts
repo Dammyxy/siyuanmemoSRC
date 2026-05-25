@@ -71,12 +71,13 @@ describe('BrowserQueueViewModule', () => {
     });
   });
 
-  it('normalizes queue aliases before readiness and datasource creation', async () => {
+  it('normalizes neural aliases without gating the datasource on projection readiness', async () => {
     const manager = createManager([{
-      status: 'ready',
+      status: 'refreshing',
       queueId: QueueType.NeuralRoam,
       policyId: 'policy-neural',
-      generation: 1,
+      cause: 'materialization_in_progress',
+      retryAfterMs: 111,
     }]);
     const module = createBrowserQueueViewModule({ logger: { info: vi.fn() } });
 
@@ -85,11 +86,10 @@ describe('BrowserQueueViewModule', () => {
       currentQueueType: '',
     }));
 
-    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledWith(expect.objectContaining({
-      queueType: QueueType.NeuralRoam,
-    }));
+    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
     expect(result.status).toBe('ready');
     expect(result.status === 'ready' ? result.datasource.id : null).toBe('neural-roam');
+    expect(result.status === 'ready' ? result.projectionIdentity : null).toBeNull();
   });
 
   it('keeps non-neural queue refreshing alive until it becomes ready', async () => {
@@ -136,7 +136,7 @@ describe('BrowserQueueViewModule', () => {
     expect(fourth.status).toBe('ready');
   });
 
-  it('keeps neural-roam refreshing alive until it becomes ready', async () => {
+  it('loads neural-roam browser view even when projection readiness would still be refreshing', async () => {
     const manager = createManager([
       {
         status: 'refreshing',
@@ -172,15 +172,12 @@ describe('BrowserQueueViewModule', () => {
       currentQueueType: QueueType.NeuralRoam,
     });
 
-    const first = await module.prepareQueueView(manager, request);
-    const second = await module.prepareQueueView(manager, request);
-    const third = await module.prepareQueueView(manager, request);
-    const fourth = await module.prepareQueueView(manager, request);
+    const result = await module.prepareQueueView(manager, request);
 
-    expect(first).toMatchObject({ status: 'refreshing', keepLoading: true, retryDelayMs: 111 });
-    expect(second).toMatchObject({ status: 'refreshing', keepLoading: true, retryDelayMs: 222 });
-    expect(third).toMatchObject({ status: 'refreshing', keepLoading: true, retryDelayMs: 333 });
-    expect(fourth.status).toBe('ready');
+    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
+    expect(result.status).toBe('ready');
+    expect(result.status === 'ready' ? result.datasource.id : null).toBe('neural-roam');
+    expect(result.status === 'ready' ? result.projectionIdentity : null).toBeNull();
   });
 
   it('maps unavailable readiness to an explicit queue view error', async () => {

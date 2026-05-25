@@ -151,7 +151,7 @@ export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
         }
       : null;
 
-    if (readinessRequest && typeof manager.ensureQueueProjectionReady === 'function') {
+    if (queueType !== QueueType.NeuralRoam && readinessRequest && typeof manager.ensureQueueProjectionReady === 'function') {
       const retryIdentity = normalizeReadinessIdentity(readinessRequest);
       const readiness = await manager.ensureQueueProjectionReady(readinessRequest);
       if (readiness.status === 'refreshing') {
