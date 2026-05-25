@@ -692,7 +692,7 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
     });
   });
 
-  it('returns no hydrated rows for stale projections without repairing them', async () => {
+  it('repairs stale row hydration through explicit backend materialization', async () => {
     const backend = {
       queueProjectionRowsByIds: vi.fn(async () => ({
         queueType: QueueType.FilterGroup,
@@ -740,15 +740,18 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
       queueType: QueueType.FilterGroup,
       ids: ['stale-row-card'],
     }));
-    expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
+    expect(backend.queueProjectionReplace).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.FilterGroup,
+      policyHash: 'filter-policy',
+      generation: 3,
+      reason: 'row-hydration-refresh',
+    }));
     expect(manager.getQueueProjectionRolloutDiagnostics(QueueType.FilterGroup)).toEqual([
       expect.objectContaining({
         queueType: QueueType.FilterGroup,
         projectionBacked: true,
-        state: 'projection-unavailable',
+        state: 'backend-projection',
         readPath: 'backend-projection',
-        reason: 'refresh-required',
-        unavailableReason: 'refresh-required',
       }),
     ]);
   });

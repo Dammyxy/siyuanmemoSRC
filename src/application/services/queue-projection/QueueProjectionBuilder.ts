@@ -1,6 +1,7 @@
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import { buildQueueSnapshotRow } from '@/core/queue/domain/queueCardProjection';
 import { SrsV2QueuePolicy } from '@/core/queue/domain/SrsV2QueuePolicy';
+import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 import {
   CardState,
   CardType,
@@ -12,6 +13,7 @@ import type {
   QueueProjectionCounters,
   QueueProjectionDueBucket,
   QueueProjectionRow,
+  type QueueProjectionSourceCardFingerprint,
 } from '@/application/ports/QueueProjectionPort';
 
 export type ProjectionBuildQueueType =
@@ -238,6 +240,8 @@ export interface DeferredQueueProjectionAffectedSetInput extends QueueProjection
 
 const DEFAULT_FRONTIER_CANDIDATE_COUNT = 16;
 const MAX_NEW_CARD_FRONTIER_LIMIT = Number.MAX_SAFE_INTEGER;
+const FNV1A_64_OFFSET_BASIS = 0xcbf29ce484222325n;
+const FNV1A_64_PRIME = 0x100000001b3n;
 
 export const BROAD_QUEUE_PROJECTION_INVALIDATION_REASONS = [
   'day-rollover',
@@ -303,6 +307,36 @@ export function buildQueueProjectionRows(input: QueueProjectionBuildInput): Queu
     rows,
     frontierRows,
     counters: buildCounters(normalized, rows, learnAheadAvailable),
+  };
+}
+
+export function buildQueueProjectionSourceCardFingerprint(card: FSRSCard): QueueProjectionSourceCardFingerprint {
+  const normalizedCard = canonicalizeSchedulingState(card, {
+    source: 'queue-persistence',
+    mode: 'repair-external',
+  }).card;
+  const source = {
+    version: 1 as const,
+    cardId: String(normalizedCard.id || ''),
+    blockId: normalizeNullableString(normalizedCard.blockId),
+    state: normalizedCard.state,
+    due: finiteNumberOrNull(normalizedCard.due),
+    priority: finiteNumberOrNull(normalizedCard.priority),
+    reps: nonNegativeInteger(normalizedCard.reps),
+    lapses: nonNegativeInteger(normalizedCard.lapses),
+    lastReview: finiteNumberOrNull(normalizedCard.lastReview),
+    elapsedDays: finiteNumberOrNull(normalizedCard.elapsedDays),
+    scheduledDays: finiteNumberOrNull(normalizedCard.scheduledDays),
+    stability: finiteNumberOrNull(normalizedCard.stability),
+    difficulty: finiteNumberOrNull(normalizedCard.difficulty),
+    cardType: normalizedCard.type,
+    schedulerType: normalizeNullableString(normalizedCard.schedulerType),
+    aFactor: finiteNumberOrNull(normalizedCard.aFactor),
+  };
+
+  return {
+    ...source,
+    fingerprint: fnv1aHash(stableStringify(source)),
   };
 }
 
@@ -774,6 +808,9 @@ function buildProjectionRow(
     payload: {
       cardType: card.type,
       state: card.state,
+      due: Number.isFinite(Number(card.due)) ? Number(card.due) : null,
+      priority: normalizePriority(card.priority),
+      sourceCardFingerprint: buildQueueProjectionSourceCardFingerprint(card),
       rowId: snapshot.id,
       manualOutstanding: membershipReason === 'manual-outstanding',
       frontierCandidate,
@@ -815,7 +852,11 @@ function buildProjectionRowFromOrderedCard(input: {
     sourceGeneration: input.sourceGeneration,
     payload: {
       rowId: input.rowId ?? snapshot.id,
+      state: input.card.state,
+      due: Number.isFinite(Number(input.card.due)) ? Number(input.card.due) : null,
+      priority: normalizePriority(input.card.priority),
       ...input.payload,
+      sourceCardFingerprint: buildQueueProjectionSourceCardFingerprint(input.card),
     },
     updatedAt: input.updatedAt,
   };
@@ -1032,6 +1073,58 @@ function normalizePriority(value: unknown): number {
     return 50;
   }
   return Math.max(0, Math.min(100, Math.floor(numeric)));
+}
+
+function finiteNumberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function nonNegativeInteger(value: unknown): number {
+  const numeric = finiteNumberOrNull(value);
+  return numeric !== null && numeric >= 0 ? Math.floor(numeric) : 0;
+}
+
+function normalizeNullableString(value: unknown): string | null {
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null) {
+    return 'null';
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableStringify(entry)).join(',')}]`;
+  }
+  const valueType = typeof value;
+  if (valueType === 'number') {
+    return Number.isFinite(value as number) ? JSON.stringify(value) : 'null';
+  }
+  if (valueType === 'boolean' || valueType === 'string') {
+    return JSON.stringify(value);
+  }
+  if (valueType === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.entries(record)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`)
+      .join(',')}}`;
+  }
+  return 'null';
+}
+
+function fnv1aHash(input: string): string {
+  let hash = FNV1A_64_OFFSET_BASIS;
+  for (const character of input) {
+    hash ^= BigInt(character.codePointAt(0) || 0);
+    hash = BigInt.asUintN(64, hash * FNV1A_64_PRIME);
+  }
+  return hash.toString(16).padStart(16, '0');
 }
 
 function isFormalMemoryCard(card: FSRSCard): boolean {

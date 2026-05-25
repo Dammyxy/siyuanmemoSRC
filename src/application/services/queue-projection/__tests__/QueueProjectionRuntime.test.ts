@@ -491,6 +491,107 @@ describe('QueueProjectionRuntime', () => {
       .rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
   });
 
+  it('repairs stale row hydration through writer relay on follower windows', async () => {
+    const card = createCard({
+      id: 'relay-card',
+      blockId: 'relay-block',
+      due: 1_700_000_000_000,
+      priority: 30,
+    });
+    const backend = {
+      queueProjectionRowsByIds: vi.fn(async () => ({
+        queueType: QueueType.FilterGroup,
+        status: 'unavailable',
+        policyHash: 'policy-stale',
+        generation: 4,
+        rows: [],
+        cards: [],
+        freshness: {
+          checkedAt: 1_700_000_100_000,
+          totalRows: 1,
+          freshRows: 0,
+          staleRows: 1,
+          missingRows: 0,
+          staleCardIds: ['relay-card'],
+          missingCardIds: [],
+        },
+      })),
+      queueProjectionReplace: vi.fn(),
+    };
+    const follower = {
+      submitAndWait: vi.fn(async ({ params }: { params: { policyHash: string; generation: number; rows: unknown[] } }) => ({
+        queueType: QueueType.FilterGroup,
+        status: 'ready',
+        policyHash: params.policyHash,
+        generation: params.generation,
+        rows: params.rows.length,
+        counters: null,
+      })),
+    };
+    const { queue, runtime } = createRuntime({
+      backend,
+      follower,
+      frontendRuntime: {
+        getMode: () => 'follower',
+        getInstanceId: () => 'follower-a',
+      },
+      queueCards: [card],
+    });
+
+    await expect(runtime.getCardsBySnapshotIds(QueueType.FilterGroup, ['relay-card']))
+      .resolves.toEqual([expect.objectContaining({ id: 'relay-card' })]);
+    expect(queue.getCards).toHaveBeenCalledTimes(1);
+    expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
+    expect(follower.submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'follower-a',
+      method: 'queue.projection.replace',
+      params: expect.objectContaining({
+        queueType: QueueType.FilterGroup,
+        policyHash: 'policy-stale',
+        generation: 5,
+        reason: 'row-hydration-refresh',
+      }),
+    }));
+  });
+
+  it('records freshness evidence in rollout diagnostics when projection rows are stale', async () => {
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.FilterGroup,
+        status: 'unavailable',
+        policyHash: 'policy-stale',
+        generation: 12,
+        rows: [],
+        counters: null,
+        freshness: {
+          checkedAt: 1_700_000_100_000,
+          totalRows: 2,
+          freshRows: 1,
+          staleRows: 1,
+          missingRows: 0,
+          staleCardIds: ['card-stale'],
+          missingCardIds: [],
+        },
+      })),
+    };
+    const { runtime } = createRuntime({ backend });
+
+    await expect(runtime.readSnapshot(QueueType.FilterGroup)).resolves.toBeNull();
+
+    expect(runtime.getRolloutDiagnostics(QueueType.FilterGroup)).toEqual([
+      expect.objectContaining({
+        queueType: QueueType.FilterGroup,
+        state: 'projection-unavailable',
+        policyHash: 'policy-stale',
+        generation: 12,
+        freshness: expect.objectContaining({
+          staleRows: 1,
+          staleCardIds: ['card-stale'],
+        }),
+      }),
+    ]);
+  });
+
   it('builds rollout diagnostics from runtime-owned unavailable state and capability checks', async () => {
     const backend = {
       queueProjectionSnapshot: vi.fn(async () => {

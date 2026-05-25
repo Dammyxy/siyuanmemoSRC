@@ -5,6 +5,7 @@ import { QueueType } from '@/types/unified-data-source';
 import {
   buildQueueProjectionAffectedSet,
   buildQueueProjectionRows,
+  buildQueueProjectionSourceCardFingerprint,
   isBroadQueueProjectionInvalidationReason,
   planQueueProjectionInvalidation,
 } from '../QueueProjectionBuilder';
@@ -119,6 +120,13 @@ describe('QueueProjectionBuilder', () => {
       membershipReason: 'manual-outstanding',
       dueBucket: 'manual',
     });
+    expect(projection.rows[0].payload.sourceCardFingerprint).toMatchObject({
+      version: 1,
+      cardId: projection.rows[0].cardId,
+      fingerprint: expect.any(String),
+    });
+    expect(JSON.parse(JSON.stringify(projection.rows[0].payload.sourceCardFingerprint)))
+      .toEqual(projection.rows[0].payload.sourceCardFingerprint);
     expect(projection.frontierRows.map((entry) => entry.cardId)).toEqual([
       'review-later-frontier',
     ]);
@@ -232,6 +240,28 @@ describe('QueueProjectionBuilder', () => {
       topic: 2,
       concept: 1,
     });
+  });
+
+  it('changes source-card fingerprint when scheduler-relevant card state or priority changes', () => {
+    const original = card('fingerprint-card', {
+      due: NOW,
+      state: CardState.Review,
+      priority: 50,
+      meta: { content: 'content-a', rootId: 'doc-a' },
+    });
+
+    expect(buildQueueProjectionSourceCardFingerprint({
+      ...original,
+      meta: { content: 'content-b', rootId: 'doc-b' },
+    }).fingerprint).toBe(buildQueueProjectionSourceCardFingerprint(original).fingerprint);
+    expect(buildQueueProjectionSourceCardFingerprint({
+      ...original,
+      priority: 51,
+    }).fingerprint).not.toBe(buildQueueProjectionSourceCardFingerprint(original).fingerprint);
+    expect(buildQueueProjectionSourceCardFingerprint({
+      ...original,
+      due: NOW + DAY_MS,
+    }).fingerprint).not.toBe(buildQueueProjectionSourceCardFingerprint(original).fingerprint);
   });
 
   it('recomputes ordinary feedback affected sets across siblings, manual entries, drill/leech membership, and frontier candidates', () => {

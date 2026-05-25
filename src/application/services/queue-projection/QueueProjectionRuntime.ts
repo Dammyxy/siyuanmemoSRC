@@ -21,6 +21,7 @@ import type { QueueProjectionRow } from '@/application/ports/QueueProjectionPort
 import type {
   BackendNeuralRoamAdvanceRequest,
   BackendNeuralRoamAdvanceResult,
+  type BackendQueueProjectionFreshnessEvidence,
   BackendQueueProjectionRowsByIdsResult,
   BackendQueueProjectionReplaceResult,
   BackendQueueProjectionSnapshotRequest,
@@ -72,6 +73,7 @@ interface QueueProjectionUnavailableDiagnostic {
   policyHash: string | null;
   generation: number | null;
   checkedAt: number;
+  freshness: BackendQueueProjectionFreshnessEvidence | null;
 }
 
 interface QueueProjectionReplaceRequestLike {
@@ -129,6 +131,7 @@ const QUEUE_PROJECTION_READINESS_MATERIALIZABLE_TYPES = new Set<QueueType>([
   QueueType.FinalDrill,
   QueueType.FilterGroup,
 ]);
+const QUEUE_PROJECTION_MATERIALIZATION_SHORT_AWAIT_MS = 300;
 
 const DEFAULT_QUEUE_PROJECTION_ROLLOUT_STATES: Record<QueueType, QueueProjectionRolloutState> = {
   [QueueType.RetrievalPractice]: 'backend-projection',
@@ -195,11 +198,11 @@ export class QueueProjectionRuntime {
       });
       if (this.shouldMaterializeDuringReadiness(queueType, readiness)) {
         try {
-          const result = await this.tryMaterializeQueueProjection(queueType, this.deps.getBackendClient(), {
+          const result = await this.awaitMaterializationShortWindow(this.tryMaterializeQueueProjection(queueType, this.deps.getBackendClient(), {
             currentPolicyHash: readiness.policyId,
             currentGeneration: Date.now(),
             reason: readiness.cause,
-          });
+          }));
           if (result && result.status === 'ready') {
             this.clearQueueProjectionUnavailable(queueType);
             return {
@@ -287,6 +290,7 @@ export class QueueProjectionRuntime {
           backendStatus: typeof result.status === 'string' ? result.status : null,
           policyHash: this.isValidProjectionPolicyHash(result.policyHash) ? result.policyHash : null,
           generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
+          freshness: result.freshness ?? null,
         });
         if (options.forceRefresh && QUEUE_PROJECTION_READINESS_MATERIALIZABLE_TYPES.has(queueType)) {
           const materialized = await this.tryMaterializeQueueProjection(queueType, backend, {
@@ -371,7 +375,22 @@ export class QueueProjectionRuntime {
           backendStatus: typeof result.status === 'string' ? result.status : null,
           policyHash: this.isValidProjectionPolicyHash(result.policyHash) ? result.policyHash : null,
           generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
+          freshness: result.freshness ?? null,
         });
+        if (QUEUE_PROJECTION_READINESS_MATERIALIZABLE_TYPES.has(queueType)) {
+          const materialized = await this.tryMaterializeQueueProjection(queueType, backend, {
+            currentPolicyHash: result.policyHash,
+            currentGeneration: result.generation,
+            reason: 'row-hydration-refresh',
+          });
+          if (materialized?.status === 'ready') {
+            this.clearQueueProjectionUnavailable(queueType);
+            const echoedCards = this.getMaterializedProjectionEchoCards(queueType, orderedIds);
+            if (echoedCards) {
+              return echoedCards;
+            }
+          }
+        }
         return [];
       }
 
@@ -490,7 +509,7 @@ export class QueueProjectionRuntime {
     if (!this.isQueueProjectionReadable(queueType)) {
       return null;
     }
-    if (!backend || typeof backend.queueProjectionReplace !== 'function') {
+    if (!this.canSubmitQueueProjectionReplace(backend)) {
       this.deps.logger.debug('Queue projection replace backend is unavailable', { queueType });
       return null;
     }
@@ -568,6 +587,48 @@ export class QueueProjectionRuntime {
   private isCurrentInstanceFollower(): boolean {
     const runtime = this.deps.getFrontendRuntime();
     return runtime?.getMode?.() === 'follower';
+  }
+
+  private awaitMaterializationShortWindow(
+    materialization: Promise<BackendQueueProjectionReplaceResult | null>,
+  ): Promise<BackendQueueProjectionReplaceResult | null> {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve(null);
+      }, QUEUE_PROJECTION_MATERIALIZATION_SHORT_AWAIT_MS);
+      materialization.then((result) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve(result);
+      }, (error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+  }
+
+  private canSubmitQueueProjectionReplace(backend: QueueProjectionBackendClient | null | undefined): boolean {
+    if (this.isCurrentInstanceFollower()) {
+      const runtime = this.deps.getFrontendRuntime();
+      const follower = this.deps.getFollowerCommandClient();
+      return Boolean(
+        String(runtime?.getInstanceId?.() || '').trim()
+        && typeof follower?.submitAndWait === 'function',
+      );
+    }
+    return Boolean(backend && typeof backend.queueProjectionReplace === 'function');
   }
 
   private shouldMaterializeDuringReadiness(
@@ -813,6 +874,7 @@ export class QueueProjectionRuntime {
         policyHash: unavailable.policyHash,
         generation: unavailable.generation,
         checkedAt: unavailable.checkedAt,
+        freshness: unavailable.freshness,
       };
     }
 
@@ -905,6 +967,7 @@ export class QueueProjectionRuntime {
       backendStatus: details.backendStatus ?? null,
       policyHash: details.policyHash ?? null,
       generation: details.generation ?? null,
+      freshness: details.freshness ?? null,
       checkedAt: Date.now(),
     });
   }

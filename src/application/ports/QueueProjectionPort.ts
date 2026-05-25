@@ -22,6 +22,26 @@ export interface QueueProjectionRow {
   updatedAt: number;
 }
 
+export interface QueueProjectionSourceCardFingerprint {
+  version: 1;
+  fingerprint: string;
+  cardId: string;
+  blockId: string | null;
+  state: number | string;
+  due: number | null;
+  priority: number | null;
+  reps: number;
+  lapses: number;
+  lastReview: number | null;
+  elapsedDays: number | null;
+  scheduledDays: number | null;
+  stability: number | null;
+  difficulty: number | null;
+  cardType: number | string;
+  schedulerType: string | null;
+  aFactor: number | null;
+}
+
 export interface QueueProjectionCounterBuckets {
   all: number;
   item: number;

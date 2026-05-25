@@ -163,6 +163,15 @@ export interface QueueProjectionRolloutDiagnostic {
     policyHash?: string | null;
     generation?: number | null;
     checkedAt?: number | null;
+    freshness?: {
+        checkedAt: number;
+        totalRows: number;
+        freshRows: number;
+        staleRows: number;
+        missingRows: number;
+        staleCardIds: string[];
+        missingCardIds: string[];
+    } | null;
 }
 
 export interface QueueReviewResult {

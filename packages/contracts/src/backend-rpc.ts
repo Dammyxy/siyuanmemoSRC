@@ -2053,6 +2053,16 @@ export interface BackendQueueProjectionSnapshotRow {
   blockType?: string | null;
 }
 
+export interface BackendQueueProjectionFreshnessEvidence {
+  checkedAt: number;
+  totalRows: number;
+  freshRows: number;
+  staleRows: number;
+  missingRows: number;
+  staleCardIds: string[];
+  missingCardIds: string[];
+}
+
 export interface BackendQueueProjectionSnapshotResult {
   queueType: string;
   policyHash: string | null;
@@ -2060,6 +2070,7 @@ export interface BackendQueueProjectionSnapshotResult {
   status: 'ready' | 'invalidated' | 'rebuilding' | 'repairing' | 'unavailable' | string;
   rows: BackendQueueProjectionSnapshotRow[];
   counters: BackendReviewFeedbackQueueImpactCounters | null;
+  freshness?: BackendQueueProjectionFreshnessEvidence | null;
 }
 
 export interface BackendQueueProjectionRowsByIdsResult {
@@ -2069,6 +2080,7 @@ export interface BackendQueueProjectionRowsByIdsResult {
   status: BackendQueueProjectionSnapshotResult['status'];
   rows: BackendQueueProjectionSnapshotRow[];
   cards: unknown[];
+  freshness?: BackendQueueProjectionFreshnessEvidence | null;
 }
 
 export interface BackendQueueProjectionReplaceRequest {

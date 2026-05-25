@@ -5,7 +5,9 @@ import {
   type QueueProjectionCounters,
   type QueueProjectionDueBucket,
   type QueueProjectionRow,
+  type QueueProjectionSourceCardFingerprint,
 } from '@/application/ports/QueueProjectionPort';
+import { buildQueueProjectionSourceCardFingerprint } from '@/application/services/queue-projection/QueueProjectionBuilder';
 import { buildQueueSnapshotRow } from '@/core/queue/domain/queueCardProjection';
 import { CardType, type FSRSCard } from '@/types/card';
 import { QueueType } from '@/types/unified-data-source';
@@ -14,6 +16,7 @@ import type {
   BackendQueueProjectionReplaceResult,
   BackendQueueProjectionRowsByIdsRequest,
   BackendQueueProjectionRowsByIdsResult,
+  type BackendQueueProjectionFreshnessEvidence,
   BackendQueueProjectionSnapshotRequest,
   BackendQueueProjectionSnapshotResult,
   BackendQueueProjectionSnapshotRow,
@@ -83,20 +86,32 @@ export class WorkerQueueProjectionRuntime {
       offset: request.offset,
     });
     const cards = this.deps.repository.getCardsByIds(rows.map((row) => row.cardId));
-    const snapshotRows = buildProjectionSnapshotRows(rows, cards);
+    const hydrated = buildProjectionSnapshotRows(rows, cards);
+    if (!hydrated.freshnessOk) {
+      return {
+        queueType,
+        policyHash,
+        generation: requestedGeneration,
+        status: 'unavailable',
+        rows: [],
+        counters: null,
+        freshness: hydrated.freshness,
+      };
+    }
     return {
       queueType,
       policyHash,
       generation: requestedGeneration,
       status: 'ready',
-      rows: snapshotRows,
+      rows: hydrated.rows,
       counters: reconcileActiveProjectionCounters({
         queueType,
         policyHash,
         generation: requestedGeneration,
         counters,
-        rows: snapshotRows,
+        rows: hydrated.rows,
       }),
+      freshness: hydrated.freshness,
     };
   }
 
@@ -159,13 +174,29 @@ export class WorkerQueueProjectionRuntime {
     const activeCardIds = new Set(cards.map((card) => String(card.id || '').trim()).filter(Boolean));
     const activeRows = orderedRows.filter((row) => activeCardIds.has(String(row.cardId || '').trim()));
     const activeCards = cards.filter((card) => activeCardIds.has(String(card.id || '').trim()));
+    const hydrated = buildProjectionSnapshotRows(activeRows, activeCards);
+    if (!hydrated.freshnessOk || hydrated.rows.length !== ids.length) {
+      return {
+        queueType,
+        policyHash,
+        generation: requestedGeneration,
+        status: 'unavailable',
+        rows: [],
+        cards: [],
+        freshness: mergeProjectionFreshnessEvidence(
+          buildProjectionFreshnessEvidence(orderedRows, cards),
+          hydrated.freshness,
+        ),
+      };
+    }
     return {
       queueType,
       policyHash,
       generation: requestedGeneration,
       status: 'ready',
-      rows: buildProjectionSnapshotRows(activeRows, activeCards),
+      rows: hydrated.rows,
       cards: activeCards,
+      freshness: hydrated.freshness,
     };
   }
 
@@ -299,6 +330,7 @@ function buildUnavailableProjectionSnapshotResult(queueType: unknown): BackendQu
     status: 'unavailable',
     rows: [],
     counters: null,
+    freshness: null,
   };
 }
 
@@ -360,13 +392,18 @@ function normalizeProjectionReplaceRows(input: {
 function buildProjectionSnapshotRows(
   projectionRows: QueueProjectionRow[],
   cards: FSRSCard[],
-): BackendQueueProjectionSnapshotRow[] {
+): {
+  rows: BackendQueueProjectionSnapshotRow[];
+  freshness: BackendQueueProjectionFreshnessEvidence;
+  freshnessOk: boolean;
+} {
   const cardById = new Map<string, FSRSCard>();
   for (const card of cards) {
     cardById.set(String(card.id || ''), card);
   }
+  const freshness = buildProjectionFreshnessEvidence(projectionRows, cards);
 
-  return projectionRows
+  const rows = projectionRows
     .map<BackendQueueProjectionSnapshotRow | null>((row, index) => {
       const card = cardById.get(row.cardId);
       if (!card) {
@@ -390,9 +427,19 @@ function buildProjectionSnapshotRows(
       };
     })
     .filter((row): row is BackendQueueProjectionSnapshotRow => Boolean(row));
+  return {
+    rows,
+    freshness,
+    freshnessOk: freshness.staleRows === 0 && freshness.missingRows === 0 && rows.length === projectionRows.length,
+  };
 }
 
 function isStaleProjectionMembership(row: QueueProjectionRow, card: FSRSCard): boolean {
+  const expected = readSourceCardFingerprint(row.payload);
+  if (expected) {
+    return expected.fingerprint !== buildQueueProjectionSourceCardFingerprint(card).fingerprint;
+  }
+
   const projectedState = normalizeOptionalInteger((row.payload as Record<string, unknown>).state);
   if (projectedState !== null && projectedState !== Number(card.state)) {
     return true;
@@ -404,6 +451,69 @@ function isStaleProjectionMembership(row: QueueProjectionRow, card: FSRSCard): b
   }
 
   return false;
+}
+
+function buildProjectionFreshnessEvidence(
+  projectionRows: QueueProjectionRow[],
+  cards: FSRSCard[],
+): BackendQueueProjectionFreshnessEvidence {
+  const cardById = new Map(cards.map((card) => [String(card.id || '').trim(), card] as const));
+  const staleCardIds: string[] = [];
+  const missingCardIds: string[] = [];
+  let freshRows = 0;
+
+  for (const row of projectionRows) {
+    const cardId = String(row.cardId || '').trim();
+    const card = cardById.get(cardId);
+    if (!card) {
+      missingCardIds.push(cardId);
+      continue;
+    }
+    if (isStaleProjectionMembership(row, card)) {
+      staleCardIds.push(cardId);
+      continue;
+    }
+    freshRows += 1;
+  }
+
+  return {
+    checkedAt: Date.now(),
+    totalRows: projectionRows.length,
+    freshRows,
+    staleRows: staleCardIds.length,
+    missingRows: missingCardIds.length,
+    staleCardIds,
+    missingCardIds,
+  };
+}
+
+function mergeProjectionFreshnessEvidence(
+  primary: BackendQueueProjectionFreshnessEvidence,
+  secondary: BackendQueueProjectionFreshnessEvidence,
+): BackendQueueProjectionFreshnessEvidence {
+  return {
+    checkedAt: Math.max(primary.checkedAt, secondary.checkedAt),
+    totalRows: Math.max(primary.totalRows, secondary.totalRows),
+    freshRows: Math.min(primary.freshRows, secondary.freshRows),
+    staleRows: Math.max(primary.staleRows, secondary.staleRows),
+    missingRows: Math.max(primary.missingRows, secondary.missingRows),
+    staleCardIds: uniqueStrings([...primary.staleCardIds, ...secondary.staleCardIds]),
+    missingCardIds: uniqueStrings([...primary.missingCardIds, ...secondary.missingCardIds]),
+  };
+}
+
+function readSourceCardFingerprint(payload: unknown): QueueProjectionSourceCardFingerprint | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  const candidate = (payload as Record<string, unknown>).sourceCardFingerprint;
+  if (!candidate || typeof candidate !== 'object') {
+    return null;
+  }
+  const record = candidate as Partial<QueueProjectionSourceCardFingerprint>;
+  return record.version === 1 && typeof record.fingerprint === 'string' && record.fingerprint.trim()
+    ? record as QueueProjectionSourceCardFingerprint
+    : null;
 }
 
 function reconcileActiveProjectionCounters(input: {

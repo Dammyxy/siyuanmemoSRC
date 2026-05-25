@@ -4,6 +4,7 @@ import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { createInMemorySqlitePersistenceBridge } from '../db/SqlitePersistenceBridge';
 import { SqlNeuralRoamRouteRepository } from '@/infrastructure/persistence/sqlite/SqlNeuralRoamRouteRepository';
 import { createDefaultRoute } from '@/core/queue/neural/routes';
+import { buildQueueProjectionSourceCardFingerprint } from '@/application/services/queue-projection/QueueProjectionBuilder';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { DEFAULT_SETTINGS } from '@/types/settings';
 import type {
@@ -110,7 +111,14 @@ async function seedQueueProjection(database: WorkerSqliteDatabaseService, input:
           index + 1,
           policyHash,
           generation,
-          JSON.stringify({ cardType: card.type, rowId: card.id }),
+          JSON.stringify({
+            cardType: card.type,
+            rowId: card.id,
+            state: card.state,
+            due: card.due,
+            priority: card.priority,
+            sourceCardFingerprint: buildQueueProjectionSourceCardFingerprint(card),
+          }),
           updatedAt,
         ],
       );
@@ -4057,7 +4065,7 @@ describe('BackendKernel', () => {
     }
   });
 
-  it('filters projection rows whose stored membership is stale after synced review state changes', async () => {
+  it('fails closed when source-card fingerprint is stale after synced review state changes', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
     const reviewedCard = buildCard({
@@ -4119,13 +4127,63 @@ describe('BackendKernel', () => {
     expect('result' in snapshot).toBe(true);
     if ('result' in snapshot) {
       expect(snapshot.result).toMatchObject({
-        status: 'ready',
-        counters: {
-          remaining: 0,
-          total: 0,
+        status: 'unavailable',
+        counters: null,
+        freshness: {
+          totalRows: 1,
+          freshRows: 0,
+          staleRows: 1,
+          missingRows: 0,
+          staleCardIds: ['projection-reviewed-card'],
         },
       });
       expect(snapshot.result.rows).toEqual([]);
+    }
+  });
+
+  it('fails closed when source-card priority changes without projection rematerialization', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'projection-priority-card',
+      blockId: 'projection-priority-block',
+      priority: 20,
+      due: 1_700_000_000_000,
+    });
+    await database.upsertCards([card]);
+    await seedQueueProjection(database, {
+      queueType: 'retrieval-practice',
+      generation: 11,
+      rows: [card],
+      updatedAt: 1_700_000_100_000,
+    });
+    await database.upsertCards([{ ...card, priority: 90, updatedAt: 1_700_000_200_000 }]);
+    const kernel = new BackendKernel({ database });
+
+    const snapshot = await kernel.handle({
+      id: 'projection-stale-priority-snapshot',
+      jsonrpc: '2.0',
+      method: 'queue.projection.snapshot' as never,
+      params: [{ queueType: 'retrieval-practice' }],
+    });
+
+    expect('result' in snapshot).toBe(true);
+    if ('result' in snapshot) {
+      expect(snapshot.result).toMatchObject({
+        queueType: 'retrieval-practice',
+        policyHash: 'policy-a',
+        generation: 11,
+        status: 'unavailable',
+        rows: [],
+        counters: null,
+        freshness: {
+          totalRows: 1,
+          freshRows: 0,
+          staleRows: 1,
+          missingRows: 0,
+          staleCardIds: ['projection-priority-card'],
+        },
+      });
     }
   });
 

@@ -4,6 +4,16 @@ Last update: 2026-05-26 (Round 467)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-26 - Queue Projection Freshness
+
+- Task: Apply the Anki-style reconstructable queue projection slice from `absorb-anki-incrementum-architecture-lessons`.
+- Touched slice: Queue projection contracts/builders/runtime, backend worker projection hydration, unified rollout diagnostics, and focused queue/backend tests.
+- Debt fixed now: Projection rows now carry a canonical source-card fingerprint built from scheduler-relevant card state plus priority, normalized through the same scheduler canonicalization used by SQLite hydration. Backend snapshot and row hydration verify those fingerprints, report freshness evidence, and fail closed on stale or missing source cards. Application row hydration now attempts explicit backend/writer materialization before returning rows, and follower windows route repair through writer relay instead of local projection writes.
+- Debt deferred: Projection freshness is stored compatibly in row payload JSON rather than dedicated SQLite columns; old rows without fingerprints still use the existing state/due/priority guard until they are rematerialized.
+- Why deferred: Adding columns would widen migration risk for a cache/read model; payload storage keeps existing projection rows readable while new backend/writer materialization writes stronger evidence.
+- Next safe step: Continue with progressive source/position contracts so source-lineage freshness can use the same explicit unavailable/materialize vocabulary.
+- Validation: `pnpm exec vitest run src/application/services/queue-projection/__tests__/QueueProjectionBuilder.test.ts src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts src/core/queue/domain/__tests__/BaseReviewQueue.snapshot.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlQueueProjectionRepository.test.ts worker/__tests__/BackendKernel.test.ts -t "queue projection|Projection|projection|freshness|stale|row hydration|follower"`.
+
 ### 2026-05-26 - Learning-curve evidence formal fact filtering
 
 - Task: Apply the Anki/Incrementum reference change slice for learning-curve evidence after formal review facts and scheduler snapshots landed.
