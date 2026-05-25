@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-26 (Round 466)
+Last update: 2026-05-26 (Round 467)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-26 - Learning-curve evidence formal fact filtering
+
+- Task: Apply the Anki/Incrementum reference change slice for learning-curve evidence after formal review facts and scheduler snapshots landed.
+- Touched slice: Scheduler evidence read model plus SRS Transparency/Arena application consumers; `learningCurveEvidence`, `reviewEventFact`, `SrsTransparencyApplicationService`, `ArenaKernelService`, and focused tests.
+- Debt fixed now: Learning-curve evidence no longer consumes raw `ReviewLogV2` shapes directly from application callers. Application services first normalize logs into `ReviewEventFact`, then the evidence mapper admits only formal facts with scheduler identity and usable before-memory state. Preview, drill, custom-study, processing-scheduler, low-quality, missing scheduler identity, and missing memory-state records are excluded with JSON-safe diagnostic counts.
+- Debt deferred: Evidence still reads through the existing recent-review-log reader as compatibility input; the append-only `review_events` fact ledger is the target authority, but wider reader cutover waits for the next queue/projection/backend slice.
+- Why deferred: This vertical slice hardens evidence semantics without changing reader persistence ownership or introducing a hidden dual path.
+- Next safe step: In the queue projection freshness slice, move consumers toward backend-owned review-event fact reads where available and keep missing authority explicit.
+- Validation: `pnpm exec vitest run src/core/scheduler/__tests__/learningCurveEvidence.test.ts src/application/services/__tests__/SrsTransparencyApplicationService.test.ts src/application/services/__tests__/ArenaKernelService.test.ts`.
+
+### 2026-05-26 - Scheduler State Snapshot Hydration
+
+- Task: Continue Anki/Incrementum absorption by making scheduler-state snapshot identity explicit for scheduler metadata and preview cache consumers.
+- Touched slice: Scheduler snapshot read model in `src/core/scheduler/schedulerStateSnapshot.ts`; snapshot and FSRS preview-cache tests in `src/core/scheduler/__tests__`.
+- Debt fixed now: Scheduler snapshots now expose `schedulerMetaKey` as JSON-safe identity for A-Factor/topic scheduler metadata while FSRS cards keep neutral `null` metadata identity. Dirty and migrated memory state remain read diagnostics only; snapshot building still does not persist repairs. TS-FSRS preview cache identity is locked to `buildSchedulerPreviewSnapshotKey` instead of a local partial scheduling fingerprint.
+- Debt deferred: Queue projection freshness still needs its own source-card fingerprint/effective priority integration before projection rows can use scheduler snapshots as stale-row evidence.
+- Why deferred: Projection freshness is the next bounded queue slice and touches backend projection materialization; this task stayed inside scheduler read-model ownership.
+- Next safe step: Implement queue projection freshness using scheduler-relevant fingerprints through backend/writer materialization only.
+- Validation: `pnpm exec vitest run src/core/scheduler/__tests__/schedulerStateSnapshot.test.ts src/core/scheduler/__tests__/fsrsReviewStateRepair.test.ts`.
 
 ### 2026-05-26 - Formal Review Fact Ledger
 

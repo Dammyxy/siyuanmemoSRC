@@ -6,9 +6,10 @@ import type { SrsTransparencyEvidenceReader } from '@/application/services/SrsTr
 import { resolveSchedulerTypeLabel, resolveSrsArenaContestantLabel } from '@/application/helpers/srsDisplayLabels';
 import {
   buildLearningCurveEvidence,
-  mapReviewLogV2ToLearningCurveHistory,
+  mapReviewEventFactsToLearningCurveHistory,
   type LearningCurveEvidenceResult,
 } from '@/core/scheduler/learningCurveEvidence';
+import { mapReviewLogV2ToReviewEventFact } from '@/core/scheduler/reviewEventFact';
 import { buildSchedulerStateSnapshot } from '@/core/scheduler/schedulerStateSnapshot';
 import { TSFSRSScheduler } from '@/core/scheduler/strategies/TSFSRSScheduler';
 import type {
@@ -168,6 +169,7 @@ function toSrsArenaLearningEvidenceDiagnostic(
     calibrationGap: evidence.calibrationGap,
     confidence: evidence.confidence,
     driftDirection: evidence.driftDirection,
+    exclusions: { ...evidence.exclusions },
     diagnostics: evidence.diagnostics.slice(),
     suggestions: evidence.suggestions.map((suggestion) => ({
       advisory: true,
@@ -559,6 +561,12 @@ export class ArenaKernelService {
       calibrationGap: null,
       confidence: 0,
       driftDirection: 'unknown',
+      exclusions: {
+        nonFormal: 0,
+        lowQuality: 0,
+        missingSchedulerIdentity: 0,
+        missingMemoryState: 0,
+      },
       diagnostics,
       suggestions: [],
     });
@@ -572,10 +580,11 @@ export class ArenaKernelService {
         cardId: card.id,
         now,
       });
+      const mapped = mapReviewEventFactsToLearningCurveHistory(logs.map(mapReviewLogV2ToReviewEventFact));
       return toSrsArenaLearningEvidenceDiagnostic(buildLearningCurveEvidence(
         snapshot,
-        mapReviewLogV2ToLearningCurveHistory(logs),
-        { now },
+        mapped.history,
+        { now, exclusions: mapped.exclusions },
       ));
     } catch {
       return unavailable(['evidence-history-unavailable']);

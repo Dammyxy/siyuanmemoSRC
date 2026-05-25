@@ -2,10 +2,11 @@ import type { SchedulerRouter, SchedulerType } from '@/core/scheduler';
 import type { SrsV2SchedulingContext } from '@/core/scheduler/srs-v2';
 import {
   buildLearningCurveEvidence,
-  mapReviewLogV2ToLearningCurveHistory,
+  mapReviewEventFactsToLearningCurveHistory,
   type LearningCurveEvidenceResult,
   type LearningCurveEvidenceSuggestion,
 } from '@/core/scheduler/learningCurveEvidence';
+import { mapReviewLogV2ToReviewEventFact } from '@/core/scheduler/reviewEventFact';
 import { buildSchedulerStateSnapshot } from '@/core/scheduler/schedulerStateSnapshot';
 import type { ArenaKernelService } from '@/application/services/ArenaKernelService';
 import type { CardEditorSnapshot } from '@/application/services/CardEditorApplicationService';
@@ -156,10 +157,11 @@ export class SrsTransparencyApplicationService {
         cardId: card.id,
         now,
       });
+      const mapped = mapReviewEventFactsToLearningCurveHistory(logs.map(mapReviewLogV2ToReviewEventFact));
       return buildLearningCurveEvidence(
         snapshot,
-        mapReviewLogV2ToLearningCurveHistory(logs),
-        { now },
+        mapped.history,
+        { now, exclusions: mapped.exclusions },
       );
     } catch {
       return {

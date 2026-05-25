@@ -1,4 +1,5 @@
 import type { SchedulerStateSnapshot } from './schedulerStateSnapshot';
+import type { ReviewEventFact } from './reviewEventFact';
 
 export type LearningCurveEvidenceStatus = 'ready' | 'insufficient-data' | 'low-quality-data';
 export type LearningCurveDriftDirection = 'weaker-than-expected' | 'stronger-than-expected' | 'stable' | 'unknown';
@@ -23,6 +24,7 @@ export interface LearningCurveEvidenceOptions {
   minSamples?: number;
   observationWindowDays?: number;
   driftTolerance?: number;
+  exclusions?: Partial<LearningCurveEvidenceExclusions>;
 }
 
 export interface LearningCurveObservationWindow {
@@ -38,6 +40,13 @@ export interface LearningCurveEvidenceSuggestion {
   reasons: string[];
 }
 
+export interface LearningCurveEvidenceExclusions {
+  nonFormal: number;
+  lowQuality: number;
+  missingSchedulerIdentity: number;
+  missingMemoryState: number;
+}
+
 export interface LearningCurveEvidenceResult {
   status: LearningCurveEvidenceStatus;
   advisory: true;
@@ -51,8 +60,14 @@ export interface LearningCurveEvidenceResult {
   calibrationGap: number | null;
   confidence: number;
   driftDirection: LearningCurveDriftDirection;
+  exclusions: LearningCurveEvidenceExclusions;
   diagnostics: string[];
   suggestions: LearningCurveEvidenceSuggestion[];
+}
+
+export interface LearningCurveFactHistoryMapping {
+  history: LearningCurveEvidenceHistoryRecord[];
+  exclusions: LearningCurveEvidenceExclusions;
 }
 
 export interface ReviewLogV2Like {
@@ -91,6 +106,8 @@ export function buildLearningCurveEvidence(
   const driftTolerance = positiveNumber(options.driftTolerance) ?? DEFAULT_DRIFT_TOLERANCE;
   const windowStart = now - windowDays * DAY_MS;
   const diagnostics = new Set<string>();
+  const exclusions = normalizeExclusions(options.exclusions);
+  addExclusionDiagnostics(diagnostics, exclusions);
   const usable: UsableEvidenceRecord[] = [];
 
   for (const record of history) {
@@ -135,6 +152,7 @@ export function buildLearningCurveEvidence(
     calibrationGap: null,
     confidence: 0,
     driftDirection: 'unknown' as const,
+    exclusions,
     diagnostics: [...diagnostics],
     suggestions: [],
   };
@@ -196,6 +214,47 @@ export function mapReviewLogV2ToLearningCurveHistory(
       source: log.source ?? null,
     };
   });
+}
+
+export function mapReviewEventFactsToLearningCurveHistory(
+  facts: readonly ReviewEventFact[],
+): LearningCurveFactHistoryMapping {
+  const history: LearningCurveEvidenceHistoryRecord[] = [];
+  const exclusions = createEmptyExclusions();
+
+  for (const fact of facts) {
+    if (!fact.classification.formal) {
+      exclusions.nonFormal += 1;
+      continue;
+    }
+    if (fact.dataQuality.status === 'low-quality') {
+      exclusions.lowQuality += 1;
+      continue;
+    }
+    if (!fact.schedulerType && !fact.before?.schedulerType) {
+      exclusions.missingSchedulerIdentity += 1;
+      continue;
+    }
+    if (!fact.before || deriveRetention(fact.before.elapsedDays, fact.before.stability) === null) {
+      exclusions.missingMemoryState += 1;
+      continue;
+    }
+    history.push({
+      reviewedAt: fact.reviewedAt,
+      rating: fact.rating,
+      observedRecall: resolveObservedRecall({ rating: fact.rating }),
+      expectedRetention: deriveRetention(fact.before.elapsedDays, fact.before.stability),
+      elapsedDays: fact.before.elapsedDays,
+      scheduledDays: fact.before.scheduledDays,
+      stability: fact.before.stability,
+      difficulty: fact.before.difficulty,
+      commitPolicy: fact.commitPolicy,
+      queueMode: fact.queueMode,
+      source: fact.source,
+    });
+  }
+
+  return { history, exclusions };
 }
 
 function resolveObservedRecall(record: Pick<LearningCurveEvidenceHistoryRecord, 'observedRecall' | 'rating'>): boolean | null {
@@ -303,6 +362,48 @@ function qualityFactor(diagnosticCount: number, sampleSize: number): number {
   return clamp01(1 - diagnosticCount / sampleSize);
 }
 
+function createEmptyExclusions(): LearningCurveEvidenceExclusions {
+  return {
+    nonFormal: 0,
+    lowQuality: 0,
+    missingSchedulerIdentity: 0,
+    missingMemoryState: 0,
+  };
+}
+
+function normalizeExclusions(
+  input: Partial<LearningCurveEvidenceExclusions> | null | undefined,
+): LearningCurveEvidenceExclusions {
+  const base = createEmptyExclusions();
+  if (!input) {
+    return base;
+  }
+  return {
+    nonFormal: nonNegativeInteger(input.nonFormal),
+    lowQuality: nonNegativeInteger(input.lowQuality),
+    missingSchedulerIdentity: nonNegativeInteger(input.missingSchedulerIdentity),
+    missingMemoryState: nonNegativeInteger(input.missingMemoryState),
+  };
+}
+
+function addExclusionDiagnostics(
+  diagnostics: Set<string>,
+  exclusions: LearningCurveEvidenceExclusions,
+): void {
+  if (exclusions.nonFormal > 0) {
+    diagnostics.add(`excluded-non-formal:${exclusions.nonFormal}`);
+  }
+  if (exclusions.lowQuality > 0) {
+    diagnostics.add(`excluded-low-quality:${exclusions.lowQuality}`);
+  }
+  if (exclusions.missingSchedulerIdentity > 0) {
+    diagnostics.add(`excluded-missing-scheduler-identity:${exclusions.missingSchedulerIdentity}`);
+  }
+  if (exclusions.missingMemoryState > 0) {
+    diagnostics.add(`excluded-missing-memory-state:${exclusions.missingMemoryState}`);
+  }
+}
+
 function average(values: readonly number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
@@ -328,6 +429,11 @@ function positiveNumber(value: unknown): number | null {
 function positiveInteger(value: unknown): number | null {
   const num = positiveNumber(value);
   return num !== null ? Math.floor(num) : null;
+}
+
+function nonNegativeInteger(value: unknown): number {
+  const num = finiteNumberOrNull(value);
+  return num !== null && num >= 0 ? Math.floor(num) : 0;
 }
 
 function clamp01(value: number): number {

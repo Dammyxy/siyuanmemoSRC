@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { CardState, CardType, type FSRSCard } from '@/types/card';
@@ -64,6 +66,7 @@ describe('schedulerStateSnapshot', () => {
       reviewTime: NOW + DAY_MS,
       memoryStateAsOf: null,
       source: 'test',
+      schedulerMetaKey: null,
       diagnostics: {
         dirty: false,
         repairedRead: false,
@@ -92,6 +95,14 @@ describe('schedulerStateSnapshot', () => {
     }), { now: NOW });
 
     expect(snapshot.schedulerType).toBe('a-factor-v2');
+    expect(snapshot.schedulerMetaKey).toBe(JSON.stringify({
+      aFactor: 2.8,
+      topic: {
+        afs: [2.1, 2.3, 2.8],
+        of: 2.8,
+        optimalInterval: 9,
+      },
+    }));
     expect(snapshot.topic).toEqual({
       aFactor: 2.8,
       of: 2.8,
@@ -131,6 +142,28 @@ describe('schedulerStateSnapshot', () => {
       nextDues: { 3: '1 d' },
       content: 'kept outside scheduler snapshot',
     });
+  });
+
+  it('reports migrated uninitialized memory state without persisting the repair', () => {
+    const migrated = createCard({
+      state: CardState.New,
+      stability: 0,
+      difficulty: 1,
+      scheduledDays: 0,
+      elapsedDays: 0,
+      lastReview: 0,
+    });
+
+    const snapshot = buildSchedulerStateSnapshot(migrated, { now: NOW });
+
+    expect(snapshot.diagnostics).toEqual({
+      dirty: true,
+      repairedRead: true,
+      reasons: ['memoryState'],
+    });
+    expect(snapshot.stability).toBe(0);
+    expect(snapshot.difficulty).toBe(0);
+    expect(migrated.difficulty).toBe(1);
   });
 
   it('changes identity for scheduler-relevant state and preview timing context only', () => {
@@ -208,5 +241,15 @@ describe('schedulerStateSnapshot', () => {
         },
       },
     }, { now: NOW })).not.toBe(key);
+  });
+
+  it('routes TS-FSRS preview cache identity through the scheduler snapshot contract', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'src/core/scheduler/strategies/TSFSRSScheduler.ts'),
+      'utf8',
+    );
+
+    expect(source).toContain('buildSchedulerPreviewSnapshotKey');
+    expect(source).not.toContain('buildFsrsSchedulingFingerprint');
   });
 });

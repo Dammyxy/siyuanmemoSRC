@@ -46,6 +46,7 @@ export interface SchedulerStateSnapshot {
   memoryStateAsOf: number | null;
   generatedAt: number | null;
   source: SchedulingStateCleanSource;
+  schedulerMetaKey: string | null;
   topic?: SchedulerTopicStateSnapshot;
   diagnostics: SchedulerStateSnapshotDiagnostics;
   rawSchedulingStateKey: string;
@@ -84,6 +85,7 @@ export function buildSchedulerStateSnapshot(
     generatedAt: now,
     source: options.source ?? 'diagnostic',
     ...(schedulerType === 'a-factor-v2' ? { topic: buildTopicSnapshot(cleanCard) } : {}),
+    schedulerMetaKey: buildSchedulerMetaKey(cleanCard),
     diagnostics: {
       dirty: cleanResult.changed,
       repairedRead: cleanResult.changed,
@@ -135,6 +137,7 @@ function buildSnapshotKey(snapshot: Omit<SchedulerStateSnapshot, 'snapshotKey'>)
     learningStep: snapshot.learningStep,
     reviewTime: snapshot.reviewTime,
     memoryStateAsOf: snapshot.memoryStateAsOf,
+    schedulerMetaKey: snapshot.schedulerMetaKey,
     topic: snapshot.topic,
     rawSchedulingStateKey: snapshot.rawSchedulingStateKey,
   });
@@ -157,6 +160,17 @@ function buildRawSchedulingStateKey(card: FSRSCard): string {
     aFactor: finiteNumberOrNull(card.aFactor),
     topic: isRecord(card.schedulerMeta?.topic) ? card.schedulerMeta.topic : null,
   });
+}
+
+function buildSchedulerMetaKey(card: FSRSCard): string | null {
+  const schedulerType = resolveEffectiveSchedulerTypeForCard(card);
+  if (schedulerType === 'a-factor-v2') {
+    return canonicalJson({
+      topic: isRecord(card.schedulerMeta?.topic) ? card.schedulerMeta.topic : null,
+      aFactor: finiteNumberOrNull(card.aFactor),
+    });
+  }
+  return null;
 }
 
 function canonicalJson(value: unknown): string {

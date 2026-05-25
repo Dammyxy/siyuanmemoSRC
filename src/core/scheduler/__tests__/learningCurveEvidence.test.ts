@@ -6,9 +6,11 @@ import { CardState, CardType, Rating, type FSRSCard } from '@/types/card';
 import { buildSchedulerStateSnapshot } from '../schedulerStateSnapshot';
 import {
   buildLearningCurveEvidence,
+  mapReviewEventFactsToLearningCurveHistory,
   mapReviewLogV2ToLearningCurveHistory,
   type LearningCurveEvidenceHistoryRecord,
 } from '../learningCurveEvidence';
+import type { ReviewEventFact, ReviewEventSchedulerStateFact } from '../reviewEventFact';
 
 const NOW = Date.UTC(2026, 4, 13, 12, 0, 0);
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -63,6 +65,59 @@ function history(
   }));
 }
 
+function schedulerState(overrides: Partial<ReviewEventSchedulerStateFact> = {}): ReviewEventSchedulerStateFact {
+  return {
+    cardId: 'card-1',
+    due: NOW + DAY_MS,
+    stability: 10,
+    difficulty: 5,
+    reps: 12,
+    lapses: 1,
+    state: CardState.Review,
+    lastReview: NOW - DAY_MS,
+    elapsedDays: 4,
+    scheduledDays: 10,
+    learningStep: 0,
+    priority: 30,
+    cardType: CardType.Item,
+    schedulerType: 'fsrs-v6',
+    aFactor: null,
+    ...overrides,
+  };
+}
+
+function reviewFact(overrides: Partial<ReviewEventFact> = {}): ReviewEventFact {
+  const before = schedulerState();
+  return {
+    schemaVersion: 1,
+    eventId: 'event-1',
+    cardId: 'card-1',
+    attemptId: 'attempt-1',
+    rating: Rating.Good,
+    reviewedAt: NOW - DAY_MS,
+    commitIdempotencyKey: 'commit-1',
+    schedulerType: 'fsrs-v6',
+    algorithm: 'memory-fsrs',
+    queueType: 'review',
+    queueMode: 'formal',
+    commitPolicy: 'write-schedule',
+    source: 'review',
+    classification: {
+      kind: 'formal',
+      formal: true,
+      exclusionReasons: [],
+    },
+    before,
+    after: schedulerState({ reps: 13 }),
+    elapsedMs: 1000,
+    dataQuality: {
+      status: 'complete',
+      reasons: [],
+    },
+    ...overrides,
+  };
+}
+
 describe('learningCurveEvidence', () => {
   it('reports sufficient advisory evidence when recall is weaker than expected', () => {
     const evidence = buildLearningCurveEvidence(snapshot(), history([
@@ -83,6 +138,12 @@ describe('learningCurveEvidence', () => {
       advisory: true,
       sampleSize: 6,
       usableSampleSize: 6,
+      exclusions: {
+        nonFormal: 0,
+        lowQuality: 0,
+        missingSchedulerIdentity: 0,
+        missingMemoryState: 0,
+      },
       observedRecallRate: 2 / 6,
       expectedRetention: 0.82,
       driftDirection: 'weaker-than-expected',
@@ -188,6 +249,99 @@ describe('learningCurveEvidence', () => {
     expect(JSON.parse(JSON.stringify(evidence))).toEqual(evidence);
     expect(JSON.stringify(evidence)).not.toContain('repository');
     expect(JSON.stringify(evidence)).not.toContain('queueProjection');
+  });
+
+  it('maps formal review facts and excludes non-formal or incomplete facts with diagnostics', () => {
+    const mapped = mapReviewEventFactsToLearningCurveHistory([
+      reviewFact({
+        eventId: 'formal-1',
+        rating: Rating.Good,
+        before: schedulerState({ elapsedDays: 6, stability: 12 }),
+      }),
+      reviewFact({
+        eventId: 'preview-1',
+        classification: {
+          kind: 'non-formal',
+          formal: false,
+          exclusionReasons: ['preview-only'],
+        },
+        commitPolicy: 'preview-only',
+        queueMode: 'filtered-preview',
+      }),
+      reviewFact({
+        eventId: 'drill-1',
+        classification: {
+          kind: 'non-formal',
+          formal: false,
+          exclusionReasons: ['drill-only'],
+        },
+        commitPolicy: 'drill-only',
+      }),
+      reviewFact({
+        eventId: 'custom-1',
+        classification: {
+          kind: 'non-formal',
+          formal: false,
+          exclusionReasons: ['custom-study'],
+        },
+        queueMode: 'custom-study',
+      }),
+      reviewFact({
+        eventId: 'processing-1',
+        classification: {
+          kind: 'non-formal',
+          formal: false,
+          exclusionReasons: ['non-formal-queue-mode'],
+        },
+        queueMode: 'processing-scheduler',
+      }),
+      reviewFact({
+        eventId: 'missing-scheduler-identity',
+        schedulerType: null,
+        before: schedulerState({ schedulerType: null }),
+      }),
+      reviewFact({
+        eventId: 'missing-memory-state',
+        before: schedulerState({ elapsedDays: null }),
+      }),
+      reviewFact({
+        eventId: 'low-quality',
+        dataQuality: {
+          status: 'low-quality',
+          reasons: ['missing-before-state'],
+        },
+      }),
+    ]);
+
+    expect(mapped.history).toEqual([
+      expect.objectContaining({
+        rating: Rating.Good,
+        observedRecall: true,
+        expectedRetention: Math.exp(-6 / 12),
+        commitPolicy: 'write-schedule',
+        queueMode: 'formal',
+      }),
+    ]);
+    expect(mapped.exclusions).toEqual({
+      nonFormal: 4,
+      lowQuality: 1,
+      missingSchedulerIdentity: 1,
+      missingMemoryState: 1,
+    });
+
+    const evidence = buildLearningCurveEvidence(snapshot(), mapped.history, {
+      now: NOW,
+      minSamples: 1,
+      exclusions: mapped.exclusions,
+    });
+
+    expect(evidence.diagnostics).toEqual(expect.arrayContaining([
+      'excluded-non-formal:4',
+      'excluded-low-quality:1',
+      'excluded-missing-scheduler-identity:1',
+      'excluded-missing-memory-state:1',
+    ]));
+    expect(JSON.parse(JSON.stringify(evidence))).toEqual(evidence);
   });
 
   it('maps ReviewLogV2-like records into normalized history without persistence coupling', () => {

@@ -257,6 +257,12 @@ export interface SrsArenaLearningEvidenceDiagnostic {
   calibrationGap: number | null;
   confidence: number;
   driftDirection: 'weaker-than-expected' | 'stronger-than-expected' | 'stable' | 'unknown';
+  exclusions: {
+    nonFormal: number;
+    lowQuality: number;
+    missingSchedulerIdentity: number;
+    missingMemoryState: number;
+  };
   diagnostics: string[];
   suggestions: Array<{
     advisory: true;

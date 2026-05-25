@@ -57,6 +57,42 @@ function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   };
 }
 
+function reviewLogState(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'card-1',
+    due: NOW + 7 * 86_400_000,
+    stability: 10,
+    difficulty: 6,
+    reps: 3,
+    lapses: 1,
+    state: CardState.Review,
+    lastReview: NOW - 2 * 86_400_000,
+    elapsedDays: 1,
+    scheduledDays: 7,
+    learning_step: 0,
+    priority: 50,
+    type: CardType.Item,
+    schedulerType: 'fsrs-v6',
+    ...overrides,
+  };
+}
+
+function formalReviewLog(index: number, overrides: Record<string, unknown> = {}) {
+  return {
+    id: `event-${index}`,
+    cardId: 'card-1',
+    attemptId: `attempt-${index}`,
+    rating: Rating.Again,
+    reviewedAt: NOW - index * 86_400_000,
+    schedulerType: 'fsrs-v6',
+    commitPolicy: 'write-schedule',
+    queueMode: 'formal',
+    before: reviewLogState(),
+    after: reviewLogState({ reps: 4 }),
+    ...overrides,
+  };
+}
+
 function createPack(input: Partial<AIStrategyPackDefinition> & { id: string; title: string }): AIStrategyPackDefinition {
   return {
     id: input.id,
@@ -443,27 +479,9 @@ describe('ArenaKernelService', () => {
     settings.srs.contestantIds = ['fsrs-v6'];
     const evidenceReader = {
       readRecentReviewLogs: vi.fn(async () => [
-        {
-          rating: Rating.Again,
-          reviewedAt: NOW - 86_400_000,
-          commitPolicy: 'write-schedule',
-          queueMode: 'formal',
-          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
-        },
-        {
-          rating: Rating.Again,
-          reviewedAt: NOW - 2 * 86_400_000,
-          commitPolicy: 'write-schedule',
-          queueMode: 'formal',
-          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
-        },
-        {
-          rating: Rating.Again,
-          reviewedAt: NOW - 3 * 86_400_000,
-          commitPolicy: 'write-schedule',
-          queueMode: 'formal',
-          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
-        },
+        formalReviewLog(1),
+        formalReviewLog(2),
+        formalReviewLog(3),
       ]),
     };
     const { service } = createKernel(settings, createMemoryArenaStore(), vi.fn(() => 0), evidenceReader);
@@ -492,13 +510,7 @@ describe('ArenaKernelService', () => {
     settings.srs.contestantIds = ['fsrs-v6'];
     const insufficientReader = {
       readRecentReviewLogs: vi.fn(async () => [
-        {
-          rating: Rating.Good,
-          reviewedAt: NOW,
-          commitPolicy: 'write-schedule',
-          queueMode: 'formal',
-          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
-        },
+        formalReviewLog(1, { rating: Rating.Good, reviewedAt: NOW }),
       ]),
     };
     const lowQualityReader = {
@@ -532,8 +544,9 @@ describe('ArenaKernelService', () => {
     expect(lowQuality?.learningCurveEvidence).toMatchObject({
       status: 'low-quality-history',
       advisory: true,
-      sampleSize: 3,
+      sampleSize: 0,
       usableSampleSize: 0,
+      exclusions: expect.objectContaining({ lowQuality: 3 }),
       suggestions: [],
     });
     expect(unavailable?.learningCurveEvidence).toMatchObject({
@@ -565,27 +578,9 @@ describe('ArenaKernelService', () => {
     const reviewNow = Date.now();
     const readyReader = {
       readRecentReviewLogs: vi.fn(async () => [
-        {
-          rating: Rating.Again,
-          reviewedAt: reviewNow - 86_400_000,
-          commitPolicy: 'write-schedule',
-          queueMode: 'formal',
-          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
-        },
-        {
-          rating: Rating.Again,
-          reviewedAt: reviewNow - 2 * 86_400_000,
-          commitPolicy: 'write-schedule',
-          queueMode: 'formal',
-          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
-        },
-        {
-          rating: Rating.Again,
-          reviewedAt: reviewNow - 3 * 86_400_000,
-          commitPolicy: 'write-schedule',
-          queueMode: 'formal',
-          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
-        },
+        formalReviewLog(1, { reviewedAt: reviewNow - 86_400_000 }),
+        formalReviewLog(2, { reviewedAt: reviewNow - 2 * 86_400_000 }),
+        formalReviewLog(3, { reviewedAt: reviewNow - 3 * 86_400_000 }),
       ]),
     };
     const { service, store } = createKernel(settings, createMemoryArenaStore(), vi.fn(() => 0), readyReader);

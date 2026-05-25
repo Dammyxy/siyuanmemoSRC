@@ -45,6 +45,26 @@ function buildSnapshot(cardOverrides: Partial<FSRSCard> = {}): CardEditorSnapsho
   };
 }
 
+function reviewLogState(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'card-1',
+    due: 1_700_000_000_000,
+    stability: 10,
+    difficulty: 6,
+    reps: 3,
+    lapses: 1,
+    state: CardState.Review,
+    lastReview: 1_700_000_000_000 - 86_400_000,
+    elapsedDays: 1,
+    scheduledDays: 7,
+    learning_step: 0,
+    priority: 50,
+    type: CardType.Item,
+    schedulerType: 'fsrs-v6',
+    ...overrides,
+  };
+}
+
 function createTranslator() {
   return (key: string, fallback: string) => {
     const overrides: Record<string, string> = {
@@ -174,25 +194,52 @@ describe('SrsTransparencyApplicationService', () => {
     const evidenceReader = {
       readRecentReviewLogs: vi.fn(async () => [
         {
+          id: 'event-1',
+          cardId: 'card-1',
+          attemptId: 'attempt-1',
           rating: Rating.Again,
           reviewedAt: now - 86_400_000,
+          schedulerType: 'fsrs-v6',
           commitPolicy: 'write-schedule',
           queueMode: 'formal',
-          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
+          before: reviewLogState(),
+          after: reviewLogState({ reps: 4 }),
         },
         {
+          id: 'event-2',
+          cardId: 'card-1',
+          attemptId: 'attempt-2',
           rating: Rating.Again,
           reviewedAt: now - 2 * 86_400_000,
+          schedulerType: 'fsrs-v6',
           commitPolicy: 'write-schedule',
           queueMode: 'formal',
-          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
+          before: reviewLogState(),
+          after: reviewLogState({ reps: 4 }),
         },
         {
+          id: 'event-3',
+          cardId: 'card-1',
+          attemptId: 'attempt-3',
           rating: Rating.Again,
           reviewedAt: now - 3 * 86_400_000,
+          schedulerType: 'fsrs-v6',
           commitPolicy: 'write-schedule',
           queueMode: 'formal',
-          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
+          before: reviewLogState(),
+          after: reviewLogState({ reps: 4 }),
+        },
+        {
+          id: 'preview-1',
+          cardId: 'card-1',
+          attemptId: 'attempt-preview',
+          rating: Rating.Good,
+          reviewedAt: now - 4 * 86_400_000,
+          schedulerType: 'fsrs-v6',
+          commitPolicy: 'preview-only',
+          queueMode: 'filtered-preview',
+          before: reviewLogState(),
+          after: reviewLogState(),
         },
       ]),
     };
@@ -209,10 +256,12 @@ describe('SrsTransparencyApplicationService', () => {
       advisory: true,
       sampleSize: 3,
       usableSampleSize: 3,
+      exclusions: expect.objectContaining({ nonFormal: 1 }),
       driftDirection: 'weaker-than-expected',
     });
+    expect(model.learningCurveEvidence?.diagnostics).toContain('excluded-non-formal:1');
     expect(model.learningCurveEvidence?.suggestions[0]?.advisory).toBe(true);
-    expect(model.algorithmFacts).toContainEqual({ label: '学习曲线', value: '偏弱（3 样本，50% 置信）' });
+    expect(model.algorithmFacts).toContainEqual({ label: '学习曲线', value: '偏弱（3 样本，33% 置信）' });
     expect(model.algorithmFacts).toContainEqual({ label: '学习曲线建议', value: '建议提前复习（仅诊断）' });
   });
 
@@ -231,9 +280,14 @@ describe('SrsTransparencyApplicationService', () => {
         {
           rating: Rating.Good,
           reviewedAt: 1_700_000_000_000,
+          id: 'event-1',
+          cardId: 'card-1',
+          attemptId: 'attempt-1',
+          schedulerType: 'fsrs-v6',
           commitPolicy: 'write-schedule',
           queueMode: 'formal',
-          before: { elapsedDays: 1, scheduledDays: 7, stability: 10, difficulty: 6 },
+          before: reviewLogState(),
+          after: reviewLogState({ reps: 4 }),
         },
       ]),
     };
