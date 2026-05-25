@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UnifiedReviewAdapter } from '../UnifiedReviewAdapter';
+import { buildReviewRenderableCommand } from '../reviewRenderableContext';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import type { AdapterContext, ReviewUIState } from '@/ui/review/v2/types';
 
@@ -361,6 +362,115 @@ describe('UnifiedReviewAdapter', () => {
       expect.objectContaining({ type: 'ai-sidebar' }),
       expect.objectContaining({ type: 'more' }),
     ]);
+  });
+
+  it('builds normalized render context for standard cards without mutating card state', async () => {
+    const card = createCard('standard-render-context', CardType.Item);
+    const before = { due: card.due, stability: card.stability, difficulty: card.difficulty };
+    const adapter = new UnifiedReviewAdapter();
+
+    const ui = await renderState(
+      adapter,
+      createQueue({ queueType: 'retrieval-practice', liveCards: [card] }),
+      card,
+      createContext(),
+    );
+
+    expect(ui.meta.renderContext).toEqual(expect.objectContaining({
+      version: 1,
+      targetKind: 'standard-card',
+      targetIdentity: expect.objectContaining({
+        cardId: 'standard-render-context',
+        blockId: 'block-standard-render-context',
+      }),
+      schedulerSnapshot: expect.objectContaining({
+        cardId: 'standard-render-context',
+        blockId: 'block-standard-render-context',
+      }),
+      sourceLineage: null,
+      allowedActions: expect.arrayContaining(['answer', 'edit', 'skip', 'back']),
+      diagnostics: [],
+    }));
+    expect(card).toEqual(expect.objectContaining(before));
+  });
+
+  it('builds normalized progressive render context from excerpt lineage and source availability diagnostics', async () => {
+    const excerptCard = createCard('topic-excerpt-context', CardType.Topic, {
+      extractedFrom: 'source-block-1',
+      meta: {
+        progressive: {
+          kind: 'excerpt',
+          sourceLineage: {
+            version: 1,
+            authority: 'siyuan-block',
+            sourceDocId: 'doc-source-1',
+            rootDocId: 'doc-source-1',
+            rootKind: 'ordinary-doc',
+            sourceBlockId: 'source-block-1',
+            sourceBlockIds: ['source-block-1'],
+            logicalParentId: 'doc-source-1',
+            logicalParentType: 'root-doc',
+          },
+          disclosureState: {
+            version: 1,
+            state: 'created',
+            formalSchedulerMutation: false,
+          },
+          sourceAvailability: {
+            status: 'missing',
+            expectedPayloadHash: 'payload-a',
+            missingBlockIds: ['source-block-1'],
+            detachedBlockIds: [],
+            diagnostics: ['missing-source-block:source-block-1'],
+          },
+        },
+      },
+    });
+    const adapter = new UnifiedReviewAdapter();
+
+    const ui = await renderState(
+      adapter,
+      createQueue({ queueType: 'retrieval-practice', liveCards: [excerptCard] }),
+      excerptCard,
+      createContext(),
+    );
+
+    expect(ui.meta.renderContext).toEqual(expect.objectContaining({
+      targetKind: 'progressive-excerpt',
+      sourceLineage: expect.objectContaining({
+        sourceBlockId: 'source-block-1',
+        sourceDocId: 'doc-source-1',
+      }),
+      progressiveDisclosure: {
+        version: 1,
+        state: 'created',
+        formalSchedulerMutation: false,
+      },
+      allowedActions: expect.arrayContaining(['advance', 'defer', 'convert']),
+      diagnostics: expect.arrayContaining(['source-missing']),
+      unavailable: expect.objectContaining({
+        reason: 'source-missing',
+        source: 'missing',
+      }),
+    }));
+    expect(ui.meta.renderContext?.allowedActions).not.toContain('edit');
+    expect(buildReviewRenderableCommand({
+      context: ui.meta.renderContext!,
+      action: 'advance',
+      idempotencyKey: 'advance-1',
+      payload: { pieceDocId: 'piece-1' },
+    })).toEqual(expect.objectContaining({
+      version: 1,
+      action: 'advance',
+      idempotencyKey: 'advance-1',
+      targetIdentity: expect.objectContaining({
+        cardId: 'topic-excerpt-context',
+      }),
+    }));
+    expect(() => buildReviewRenderableCommand({
+      context: ui.meta.renderContext!,
+      action: 'edit',
+    })).toThrow(/REVIEW_RENDER_COMMAND_UNAVAILABLE/);
   });
 
   it('keeps split-piece helper actions out of the inline toolbar', async () => {
@@ -1064,6 +1174,30 @@ describe('UnifiedReviewAdapter', () => {
     expect(ui.content.id).toBe('block-topic-derived-1');
     expect(ui.content.answerBlockID).toBe('');
     expect(ui.meta.hasHiddenContent).toBe(true);
+    expect(ui.meta.renderContext).toEqual(expect.objectContaining({
+      targetKind: 'topic-derived-item',
+      allowedActions: expect.arrayContaining(['advance', 'defer', 'convert']),
+      renderPayload: expect.objectContaining({
+        contentBlockId: 'block-topic-derived-1',
+      }),
+    }));
+  });
+
+  it('returns explicit render context diagnostics for empty or unsupported review targets', async () => {
+    const adapter = new UnifiedReviewAdapter();
+
+    const ui = await renderState(
+      adapter,
+      createQueue({ queueType: 'retrieval-practice', liveCards: [] }),
+      null,
+      createContext(),
+    );
+
+    expect(ui.meta.renderContext).toEqual(expect.objectContaining({
+      targetKind: 'unknown',
+      diagnostics: ['empty-review-target'],
+      allowedActions: ['skip'],
+    }));
   });
 
   it('keeps topic document cards on the document render path even when Xiuyuan answer blocks exist', async () => {

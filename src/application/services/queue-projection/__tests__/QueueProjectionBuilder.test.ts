@@ -7,6 +7,7 @@ import {
   buildQueueProjectionRows,
   buildQueueProjectionSourceCardFingerprint,
   isBroadQueueProjectionInvalidationReason,
+  planPrioritySourceQueueProjectionInvalidation,
   planQueueProjectionInvalidation,
 } from '../QueueProjectionBuilder';
 
@@ -343,6 +344,54 @@ describe('QueueProjectionBuilder', () => {
       refreshRequired: false,
       fullRebuildRequired: false,
       affectedCardIds: ['reviewed'],
+    });
+  });
+
+  it('plans priority-source invalidation for processing and review projections without a full rebuild', () => {
+    const plan = planPrioritySourceQueueProjectionInvalidation({
+      change: { sourceId: 'doc-root' },
+      processingItems: [
+        {
+          id: 'progressive-a',
+          kind: 'progressive-item',
+          sourceId: 'block-a',
+          processingDueAt: NOW,
+          sourceLineage: ['block-a', 'doc-root'],
+        },
+        {
+          id: 'progressive-b',
+          kind: 'progressive-item',
+          sourceId: 'block-b',
+          processingDueAt: NOW,
+          sourceLineage: ['other-root'],
+        },
+      ],
+      reviewRefs: [
+        { cardId: 'review-a', blockId: 'block-review-a', sourceLineage: ['doc-root'] },
+        { cardId: 'review-b', blockId: 'block-review-b', sourceLineage: ['other-root'] },
+      ],
+      queueTypes: [QueueType.RetrievalPractice, QueueType.IncrementalLearning],
+      generation: 11,
+      createdAt: NOW,
+    });
+
+    expect(plan).toMatchObject({
+      reason: 'priority-source-changed',
+      queueTypes: [QueueType.RetrievalPractice, QueueType.IncrementalLearning],
+      generation: 11,
+      affectedCardIds: ['review-a'],
+      affectedBlockIds: ['block-review-a'],
+      refreshRequired: true,
+      fullRebuildRequired: false,
+      metadata: {
+        sourceId: 'doc-root',
+        projectionFamilies: ['processing', 'review'],
+        affectedProcessingItemIds: ['progressive-a'],
+      },
+      processing: {
+        affectedProcessingItemIds: ['progressive-a'],
+        affectedReviewCardIds: ['review-a'],
+      },
     });
   });
 });

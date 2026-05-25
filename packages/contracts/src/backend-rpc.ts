@@ -835,7 +835,11 @@ export type BackendXiuyuanSyncExecuteResult =
 export type BackendProgressiveCommandOperation =
   | 'create-excerpt'
   | 'create-child-doc'
-  | 'delete-artifact';
+  | 'delete-artifact'
+  | 'advance'
+  | 'defer'
+  | 'split'
+  | 'convert-to-card';
 
 export interface BackendProgressiveCommandExecuteRequest<TInput = Record<string, unknown>> {
   requestId: string;

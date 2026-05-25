@@ -45,6 +45,9 @@ export interface ProgressiveLineage {
   storageMode?: 'workbench' | 'source-child';
   creationRuleId?: string;
   answerFingerprint?: string;
+  sourceLineage?: unknown;
+  payloadIdentity?: unknown;
+  disclosureState?: unknown;
 }
 
 /**

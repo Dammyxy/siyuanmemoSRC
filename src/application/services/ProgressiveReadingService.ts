@@ -15,22 +15,41 @@ import {
   type ExcerptRecord,
 } from '@/application/services/ExcerptRecordService';
 import { resolveProgressiveSourceContext } from '@/application/services/ProgressiveSourceContextResolver';
+import {
+  buildProgressiveContentPayloadIdentity,
+  buildProgressiveDerivedItemIdentity,
+  buildProgressiveDisclosureState,
+  buildProgressiveSelectionSnapshotIdentity,
+  buildProgressiveSourceLineage,
+  buildProgressiveUnifiedSourcePosition,
+  evaluateProgressiveSourceAvailability,
+  type ProgressiveContentPayloadIdentity,
+  type ProgressiveDisclosureState,
+  type ProgressiveSourceAvailability,
+  type ProgressiveSourceLineage,
+} from '@/core/progressive/progressiveSourceModel';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import { isErr } from '@/types/result';
 import type { PluginSettings } from '@/types/settings';
 import { createLogger } from '@/utils/logger';
 import {
+  ATTR_PROGRESSIVE_DERIVED_ITEM_IDENTITY,
+  ATTR_PROGRESSIVE_DISCLOSURE_STATE,
   ATTR_PROGRESSIVE_KIND,
   ATTR_PROGRESSIVE_MODE,
   ATTR_PROGRESSIVE_PARENT_EXCERPT_ID,
   ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID,
+  ATTR_PROGRESSIVE_PAYLOAD_IDENTITY,
   ATTR_PROGRESSIVE_PIECE_COUNT,
   ATTR_PROGRESSIVE_PIECE_INDEX,
   ATTR_PROGRESSIVE_PIECE_STATE,
+  ATTR_PROGRESSIVE_SELECTION_SNAPSHOT,
+  ATTR_PROGRESSIVE_SOURCE_LINEAGE,
   ATTR_PROGRESSIVE_SESSION_ID,
   ATTR_PROGRESSIVE_SOURCE_BLOCK_ID,
   ATTR_PROGRESSIVE_SOURCE_DOC_ID,
+  ATTR_PROGRESSIVE_SOURCE_POSITION,
   ATTR_PROGRESSIVE_WORKBENCH_ID,
   getLegacyProgressiveAttrName,
 } from '@/application/services/ProgressiveAttrContract';
@@ -269,6 +288,19 @@ export interface ProgressiveCompletePieceResult {
   nextTopicCardId?: string;
 }
 
+export interface ProgressiveSourceInspectionInput {
+  lineage: ProgressiveSourceLineage;
+  payloadIdentity: ProgressiveContentPayloadIdentity;
+  selectedText: string;
+  contentDom?: string;
+}
+
+export type ProgressiveProcessingCommand =
+  | { operation: 'advance'; pieceDocId: string }
+  | { operation: 'defer'; pieceDocId: string }
+  | { operation: 'split'; docId: string; mode: ProgressiveSplitMode; splitConfig?: ProgressiveSplitConfig }
+  | { operation: 'convert-to-card'; blockIds: string[]; cardType?: 'item' | 'topic' | 'concept' | 'descriptor' };
+
 export class ProgressiveSplitCancelledError extends Error {
   readonly cleanupIncomplete: boolean;
 
@@ -356,6 +388,10 @@ function toAttrValue(value: string | number | undefined): string {
     return '';
   }
   return String(value);
+}
+
+function toAttrJsonValue(value: unknown): string {
+  return JSON.stringify(value);
 }
 
 function normalizeProgressiveMode(value: string | undefined): ProgressiveSplitMode | undefined {
@@ -728,6 +764,32 @@ export class ProgressiveReadingService {
       cardLookup: this.cardService,
       attrLookup: this.siyuanApi,
     });
+    const sourceRows = sourceBlockIds.length > 1
+      ? await this.getBlockRowsByIds(sourceBlockIds)
+      : [blockInfo];
+    const sourceLineage = buildProgressiveSourceLineage({
+      sourceContext,
+      sourceBlockIds,
+    });
+    const selectionSnapshot = buildProgressiveSelectionSnapshotIdentity({
+      sourceBlockId,
+      sourceBlockIds,
+      selectedText,
+      selectionMode: input.contentDom ? 'range' : 'full-block',
+    });
+    const payloadIdentity = buildProgressiveContentPayloadIdentity({
+      sourceBlockIds,
+      selectedText,
+      contentDom,
+      sourceBlocks: sourceRows,
+    });
+    const sourcePosition = buildProgressiveUnifiedSourcePosition({
+      sourceDocId: sourceLineage.sourceDocId,
+      rootDocId: sourceLineage.rootDocId,
+      sourceBlockId,
+      sourceBlockIds,
+    });
+    const disclosureState = buildProgressiveDisclosureState('created');
     const state = await this.readState();
     let sourceDocId = sourceContext.sourceDocId;
     let sessionId = sourceContext.sessionId;
@@ -767,6 +829,11 @@ export class ProgressiveReadingService {
           [ATTR_PROGRESSIVE_KIND]: !useSourceChildStorage && configuredStorageMode === 'daily-note' ? 'excerpt' : 'excerpt-doc',
           [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: sourceDocId,
           [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: sourceBlockId,
+          [ATTR_PROGRESSIVE_SOURCE_LINEAGE]: toAttrJsonValue(sourceLineage),
+          [ATTR_PROGRESSIVE_SELECTION_SNAPSHOT]: toAttrJsonValue(selectionSnapshot),
+          [ATTR_PROGRESSIVE_PAYLOAD_IDENTITY]: toAttrJsonValue(payloadIdentity),
+          [ATTR_PROGRESSIVE_SOURCE_POSITION]: toAttrJsonValue(sourcePosition),
+          [ATTR_PROGRESSIVE_DISCLOSURE_STATE]: toAttrJsonValue(disclosureState),
           ...(sessionId ? { [ATTR_PROGRESSIVE_SESSION_ID]: sessionId } : {}),
           ...(mode ? { [ATTR_PROGRESSIVE_MODE]: mode } : {}),
           ...(sourceContext.parentTopicCardId
@@ -832,12 +899,23 @@ export class ProgressiveReadingService {
             excerptEntityType,
             sourceBlockId,
             sourceBlockIds,
+            sourceLineage,
+            payloadIdentity,
+            disclosureState,
             sessionId,
             mode,
             pieceDocId,
             sourceDocId,
             parentTopicCardId: sourceContext.parentTopicCardId,
             parentExcerptId: sourceContext.parentExcerptId,
+          });
+          await this.setProgressiveAttrs(excerptEntityId, {
+            [ATTR_PROGRESSIVE_DERIVED_ITEM_IDENTITY]: toAttrJsonValue(buildProgressiveDerivedItemIdentity({
+              kind: 'excerpt-topic',
+              itemId: topicCardResult.cardId,
+              sourceBlockId,
+              sourceBlockIds,
+            })),
           });
 
           return {
@@ -883,6 +961,44 @@ export class ProgressiveReadingService {
     }
 
     await this.siyuanApi.updateDomBlock(normalizedBlockId, normalizedDom);
+  }
+
+  async inspectProgressiveSource(input: ProgressiveSourceInspectionInput): Promise<ProgressiveSourceAvailability> {
+    const currentBlocks = await this.getOptionalBlockRowsByIds(input.lineage.sourceBlockIds);
+    return evaluateProgressiveSourceAvailability({
+      lineage: input.lineage,
+      expectedPayload: input.payloadIdentity,
+      currentBlocks,
+      selectedText: input.selectedText,
+      contentDom: input.contentDom,
+    });
+  }
+
+  async executeProcessingCommand(command: ProgressiveProcessingCommand): Promise<unknown> {
+    if (command.operation === 'advance') {
+      return this.completeCurrentPiece(command.pieceDocId);
+    }
+    if (command.operation === 'defer') {
+      return this.deferPiece(command.pieceDocId);
+    }
+    if (command.operation === 'split') {
+      return this.splitDocument(command.docId, command.mode, command.splitConfig);
+    }
+    const blockIds = normalizeExcerptBlockIds(command.blockIds);
+    if (blockIds.length === 0) {
+      throw new Error('convert-to-card requires blockIds');
+    }
+    const result = await this.cardService.createCard({
+      blockIds,
+      cardType: command.cardType || 'item',
+      metadata: {
+        source: 'manual',
+      },
+    });
+    if (isErr(result)) {
+      throw result.error;
+    }
+    return result.value;
   }
 
   async deleteProgressiveArtifact(blockId: string): Promise<void> {
@@ -2039,6 +2155,9 @@ export class ProgressiveReadingService {
     excerptEntityType: 'doc' | 'block';
     sourceBlockId: string;
     sourceBlockIds: string[];
+    sourceLineage?: ProgressiveSourceLineage;
+    payloadIdentity?: ProgressiveContentPayloadIdentity;
+    disclosureState?: ProgressiveDisclosureState;
     sessionId?: string;
     mode?: ProgressiveSplitMode;
     pieceDocId?: string;
@@ -2069,6 +2188,9 @@ export class ProgressiveReadingService {
         sourceBlockIds: input.sourceBlockIds,
         parentTopicCardId: input.parentTopicCardId,
         parentExcerptId: input.parentExcerptId,
+        sourceLineage: input.sourceLineage,
+        payloadIdentity: input.payloadIdentity,
+        disclosureState: input.disclosureState,
       },
       metadata: {
         source: 'manual',
@@ -2136,6 +2258,24 @@ export class ProgressiveReadingService {
       }
       return row;
     });
+  }
+
+  private async getOptionalBlockRowsByIds(blockIds: string[]): Promise<Array<ProgressiveExcerptMaterializationBlockRow | null>> {
+    const normalizedIds = normalizeExcerptBlockIds(blockIds);
+    if (normalizedIds.length === 0) {
+      return [];
+    }
+    void this.reportOwnershipBoundaryQuery('read-block-content', { blockIds: normalizedIds });
+
+    const rows = await this.siyuanApi.sql<ProgressiveExcerptMaterializationBlockRow>(`
+      SELECT id, root_id, parent_id, box, type, subtype, content, markdown, sort
+      FROM blocks
+      WHERE id IN (${normalizedIds.map((blockId) => `'${this.escapeSql(blockId)}'`).join(', ')})
+    `);
+    const rowMap = new Map(
+      rows.map((row) => [String(row.id || '').trim(), row] as const),
+    );
+    return normalizedIds.map((blockId) => rowMap.get(blockId) || null);
   }
 
   private async getDirectChildRows(parentId: string): Promise<ProgressiveExcerptMaterializationBlockRow[]> {
@@ -2632,6 +2772,16 @@ export class ProgressiveReadingService {
         const input = request.input as { blockId?: unknown };
         await this.deleteProgressiveArtifactLocal(String(input.blockId || ''));
         result = null;
+      } else if (
+        request.operation === 'advance'
+        || request.operation === 'defer'
+        || request.operation === 'split'
+        || request.operation === 'convert-to-card'
+      ) {
+        result = await this.executeProcessingCommand({
+          ...(request.input as Record<string, unknown>),
+          operation: request.operation,
+        } as ProgressiveProcessingCommand);
       } else {
         return this.createProgressiveFailureResult(request, 'validation-failed', 'unsupported progressive command operation', null, false);
       }
@@ -2749,6 +2899,28 @@ export class ProgressiveReadingService {
         },
         errorCategory: unavailableClass,
       },
+    };
+  }
+
+  private async deferPiece(pieceDocId: string): Promise<{ pieceDocId: string; state: 'deferred' }> {
+    const state = await this.readState();
+    const session = this.getSessionByPieceDocId(state, pieceDocId);
+    if (!session) {
+      throw new Error('未找到当前 piece 对应的渐进阅读会话');
+    }
+    const piece = session.pieces.find((entry) => entry.pieceDocId === pieceDocId);
+    if (!piece) {
+      throw new Error('当前 piece 不在会话中');
+    }
+    piece.state = 'pending';
+    await this.setProgressiveAttrs(pieceDocId, {
+      [ATTR_PROGRESSIVE_PIECE_STATE]: 'deferred',
+      [ATTR_PROGRESSIVE_DISCLOSURE_STATE]: toAttrJsonValue(buildProgressiveDisclosureState('deferred')),
+    });
+    await this.writeState(state);
+    return {
+      pieceDocId,
+      state: 'deferred',
     };
   }
 

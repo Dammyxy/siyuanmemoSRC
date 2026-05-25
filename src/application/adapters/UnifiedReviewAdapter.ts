@@ -20,6 +20,16 @@ import {
 } from '@/types/unified-data-source';
 import type { BackendNeuralRoamViewState } from '../../../packages/contracts/src/backend-rpc';
 import {
+  buildReviewRenderableContext,
+  type ReviewRenderableContext,
+} from '@/application/adapters/reviewRenderableContext';
+import type {
+  ProgressiveContentPayloadIdentity,
+  ProgressiveDisclosureState,
+  ProgressiveSourceAvailability,
+  ProgressiveSourceLineage,
+} from '@/core/progressive/progressiveSourceModel';
+import {
   type AdapterContext,
   type IAdapter,
   type ReviewCardKind,
@@ -393,6 +403,72 @@ function readCardMeta(card: UnifiedReviewItem): Record<string, unknown> {
   return card.meta && typeof card.meta === 'object' ? card.meta : {};
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readProgressiveRenderableContext(card: UnifiedReviewItem): {
+  sourceLineage: ProgressiveSourceLineage | null;
+  disclosureState: ProgressiveDisclosureState | null;
+  payloadIdentity: ProgressiveContentPayloadIdentity | null;
+  sourceAvailability: ProgressiveSourceAvailability | null;
+} {
+  const meta = readCardMeta(card);
+  const progressive = isRecord(meta.progressive) ? meta.progressive : {};
+  return {
+    sourceLineage: isRecord(progressive.sourceLineage)
+      ? progressive.sourceLineage as unknown as ProgressiveSourceLineage
+      : buildLegacyProgressiveSourceLineage(card, progressive),
+    disclosureState: isRecord(progressive.disclosureState)
+      ? progressive.disclosureState as unknown as ProgressiveDisclosureState
+      : null,
+    payloadIdentity: isRecord(progressive.payloadIdentity)
+      ? progressive.payloadIdentity as unknown as ProgressiveContentPayloadIdentity
+      : null,
+    sourceAvailability: isRecord(progressive.sourceAvailability)
+      ? progressive.sourceAvailability as unknown as ProgressiveSourceAvailability
+      : null,
+  };
+}
+
+function buildLegacyProgressiveSourceLineage(
+  card: UnifiedReviewItem,
+  progressive: Record<string, unknown>,
+): ProgressiveSourceLineage | null {
+  const sourceBlockId = normalizeBlockId(progressive.sourceBlockId) || normalizeBlockId(card.extractedFrom);
+  const sourceDocId = normalizeBlockId(progressive.sourceDocId);
+  if (!sourceBlockId && !sourceDocId) {
+    return null;
+  }
+  const sourceBlockIds = Array.isArray(progressive.sourceBlockIds)
+    ? progressive.sourceBlockIds.map(normalizeBlockId).filter(Boolean)
+    : sourceBlockId
+      ? [sourceBlockId]
+      : [];
+  const parentTopicCardId = normalizeBlockId(progressive.parentTopicCardId);
+  const parentExcerptId = normalizeBlockId(progressive.parentExcerptId);
+  const sessionId = normalizeBlockId(progressive.sessionId);
+  return {
+    version: 1,
+    authority: 'siyuan-block',
+    sourceDocId: sourceDocId || normalizeBlockId(card.blockId),
+    rootDocId: sourceDocId || normalizeBlockId(card.blockId),
+    rootKind: progressive.kind === 'piece'
+      ? 'piece'
+      : progressive.kind === 'excerpt'
+        ? 'excerpt-doc'
+        : 'ordinary-doc',
+    sourceBlockId: sourceBlockId || normalizeBlockId(card.blockId),
+    sourceBlockIds,
+    logicalParentId: parentExcerptId || parentTopicCardId || sourceDocId || normalizeBlockId(card.blockId),
+    logicalParentType: parentExcerptId ? 'excerpt' : parentTopicCardId ? 'topic' : 'root-doc',
+    ...(parentTopicCardId ? { parentTopicCardId } : {}),
+    ...(parentExcerptId ? { parentExcerptId } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    ...(progressive.mode === 'linear' || progressive.mode === 'nonlinear' ? { mode: progressive.mode } : {}),
+  };
+}
+
 function isInlineFormulaClozeMeta(meta: Record<string, unknown>): boolean {
   return meta.clozeRenderMode === 'inline-formula-cloze'
     || meta.renderProfile === 'quick-inline-formula';
@@ -575,6 +651,14 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     toolbar = toolbarWithFilterScope(toolbar);
 
     if (!item) {
+      const renderContext = buildReviewRenderableContext({
+        card: null,
+        queueType,
+        showAnswer: context.showAnswer,
+        contentBlockId: '',
+        answerBlockId: '',
+        diagnostics: ['empty-review-target'],
+      });
       return {
         header: {
           title: resolveReviewSurfaceTitle({ i18n: this.i18n, queueType, headerVariant }),
@@ -602,6 +686,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
           queueSize,
           remainingSize,
           queueProgress,
+          renderContext,
         },
         overlay: null,
       };
@@ -620,6 +705,15 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       ? ''
       : resolveAnswerBlockId(item, blockId);
     const hasInlineHiddenContent = isNativeInlineHiddenCard(item);
+    const renderContext = buildReviewRenderableContext({
+      card: item,
+      queueType,
+      showAnswer: context.showAnswer,
+      contentBlockId,
+      answerBlockId: answerBlockID,
+      progressive: readProgressiveRenderableContext(item),
+      diagnostics: contentBlockId ? [] : ['unsupported-content-type'],
+    });
 
     if (shouldLogBidirectionalTemplateDiagnostic(item)) {
       logger.warn('[SiYuanMemo][BidirectionalTemplateDiagnostic] adapter mapped review content', {
@@ -693,6 +787,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         queueSize,
         remainingSize,
         queueProgress,
+        renderContext,
       },
       overlay: null,
     };

@@ -1,4 +1,5 @@
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
+import type { ReviewRenderableContext } from '@/application/adapters/reviewRenderableContext';
 import type { FSRSCard } from '@/types/card';
 import type { QueueType, ReviewQueueProgressSnapshot } from '@/types/unified-data-source';
 import type { HeaderVisualTone } from '@/ui/shared/cardVisualTokens';
@@ -235,6 +236,7 @@ export interface ReviewUIState {
       reason: ReviewAdvanceReason;
       startedAt: number;
     };
+    renderContext?: ReviewRenderableContext;
   };
 }
 

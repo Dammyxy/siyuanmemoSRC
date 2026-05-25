@@ -8,6 +8,18 @@ import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveN
 import type { ProgressiveBlockRow, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import type { PluginSettings } from '@/types/settings';
+import {
+  buildProgressiveContentPayloadIdentity,
+  type ProgressiveSourceLineage,
+} from '@/core/progressive/progressiveSourceModel';
+import {
+  ATTR_PROGRESSIVE_DERIVED_ITEM_IDENTITY,
+  ATTR_PROGRESSIVE_DISCLOSURE_STATE,
+  ATTR_PROGRESSIVE_PAYLOAD_IDENTITY,
+  ATTR_PROGRESSIVE_SELECTION_SNAPSHOT,
+  ATTR_PROGRESSIVE_SOURCE_LINEAGE,
+  ATTR_PROGRESSIVE_SOURCE_POSITION,
+} from '../ProgressiveAttrContract';
 
 const NODE_ID_PATTERN = /^\d{14}-[0-9a-z]{7}$/u;
 
@@ -173,6 +185,8 @@ function createCardServiceMock(initialCards: Array<{ id: string; blockId: string
       }
       return ok(undefined);
     }),
+    updateCard: vi.fn(async () => ok(undefined)),
+    updateFSRSCard: vi.fn(async () => ok(undefined)),
     getCardByBlockId: vi.fn((blockId: string) => cardsByBlockId.get(blockId) || null),
     getCardsByBlockId: vi.fn((blockId: string) => {
       const card = cardsByBlockId.get(blockId);
@@ -1531,6 +1545,67 @@ describe('ProgressiveReadingService', () => {
       }),
     }));
     expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['piece-2']);
+    expect(cardService.service.updateCard).not.toHaveBeenCalled();
+    expect(cardService.service.updateFSRSCard).not.toHaveBeenCalled();
+  });
+
+  it('executes progressive advance and defer commands through processing state without formal scheduler mutation', async () => {
+    const initialState = {
+      version: 2 as const,
+      sessions: {
+        'session-command-1': {
+          id: 'session-command-1',
+          sourceDocId: 'doc-command-1',
+          sourceDocTitle: 'Source',
+          notebook: 'notebook-a',
+          mode: 'linear' as const,
+          createdAt: 1,
+          activePieceIndex: 0,
+          pieces: [
+            { pieceDocId: 'piece-command-1', title: '01 Current', order: 0, state: 'active' as const },
+            { pieceDocId: 'piece-command-2', title: '02 Next', order: 1, state: 'pending' as const },
+          ],
+        },
+      },
+      sourceDocToSession: {
+        'doc-command-1': 'session-command-1',
+      },
+      pieceToSession: {
+        'piece-command-1': 'session-command-1',
+        'piece-command-2': 'session-command-1',
+      },
+      sourceDocToWorkbench: {},
+    };
+    const fileService = createFileServiceMock(initialState);
+    const port = createProgressiveSiyuanPortMock();
+    const cardService = createCardServiceMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+    );
+
+    await service.executeProcessingCommand({ operation: 'advance', pieceDocId: 'piece-command-1' });
+    await service.executeProcessingCommand({ operation: 'defer', pieceDocId: 'piece-command-2' });
+
+    expect(port.setBlockAttrs).toHaveBeenCalledWith('piece-command-1', {
+      'custom-fsrs-reading-piece-state': 'completed',
+    });
+    expect(port.setBlockAttrs).toHaveBeenCalledWith('piece-command-2', expect.objectContaining({
+      'custom-fsrs-reading-piece-state': 'deferred',
+    }));
+    expect(JSON.parse(
+      vi.mocked(port.setBlockAttrs).mock.calls.find(([blockId, attrs]) =>
+        blockId === 'piece-command-2' && Object.prototype.hasOwnProperty.call(attrs, ATTR_PROGRESSIVE_DISCLOSURE_STATE)
+      )?.[1][ATTR_PROGRESSIVE_DISCLOSURE_STATE] ?? '{}',
+    )).toEqual({
+      version: 1,
+      state: 'deferred',
+      formalSchedulerMutation: false,
+    });
+    expect(cardService.service.updateCard).not.toHaveBeenCalled();
+    expect(cardService.service.updateFSRSCard).not.toHaveBeenCalled();
   });
 
   it('creates ordinary-note excerpts as child excerpt documents without writing Daily Notes trace, even when legacy trace settings are present', async () => {
@@ -1676,6 +1751,188 @@ describe('ProgressiveReadingService', () => {
         }),
       ],
     }));
+  });
+
+  it('records progressive source lineage, selection, payload identity, source position, disclosure, and derived item identity for excerpts', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async (docId: string) => ({
+        id: docId,
+        box: 'notebook-a',
+        path: '/reading/ordinary.sy',
+        hpath: '/reading/ordinary',
+        name: 'Ordinary',
+      })),
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'source-lineage-1'")) {
+          return [
+            { id: 'source-lineage-1', root_id: 'doc-lineage', parent_id: 'doc-lineage', box: 'notebook-a', type: 'p', content: 'Before Focus text after', markdown: 'Before Focus text after' },
+          ];
+        }
+        if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-lineage'")) {
+          return [];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+      createDocWithMarkdown: vi.fn(async () => 'excerpt-lineage-1'),
+    });
+    const cardService = createCardServiceMock();
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+
+    await service.createExcerptFromSelection({
+      sourceBlockId: 'source-lineage-1',
+      selectedText: 'Focus text',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Focus text</div></div>',
+      origin: 'editor',
+    });
+
+    const excerptAttrsCall = vi.mocked(port.setBlockAttrs).mock.calls.find(([blockId, attrs]) =>
+      blockId === 'excerpt-lineage-1' && Object.prototype.hasOwnProperty.call(attrs, ATTR_PROGRESSIVE_SOURCE_LINEAGE)
+    );
+    expect(excerptAttrsCall).toBeTruthy();
+    const attrs = excerptAttrsCall?.[1] ?? {};
+    const lineage = JSON.parse(attrs[ATTR_PROGRESSIVE_SOURCE_LINEAGE]);
+    const selection = JSON.parse(attrs[ATTR_PROGRESSIVE_SELECTION_SNAPSHOT]);
+    const payload = JSON.parse(attrs[ATTR_PROGRESSIVE_PAYLOAD_IDENTITY]);
+    const position = JSON.parse(attrs[ATTR_PROGRESSIVE_SOURCE_POSITION]);
+    const disclosure = JSON.parse(attrs[ATTR_PROGRESSIVE_DISCLOSURE_STATE]);
+
+    expect(lineage).toEqual(expect.objectContaining({
+      version: 1,
+      authority: 'siyuan-block',
+      sourceDocId: 'doc-lineage',
+      rootDocId: 'doc-lineage',
+      sourceBlockId: 'source-lineage-1',
+      sourceBlockIds: ['source-lineage-1'],
+    }));
+    expect(selection).toEqual(expect.objectContaining({
+      kind: 'block-selection',
+      sourceBlockId: 'source-lineage-1',
+      selectionMode: 'range',
+    }));
+    expect(payload).toEqual(expect.objectContaining({
+      algorithm: 'fnv1a32',
+      sourceBlockIds: ['source-lineage-1'],
+      textLength: 10,
+    }));
+    expect(position).toEqual(expect.objectContaining({
+      kind: 'siyuan-block',
+      blockId: 'source-lineage-1',
+      rootDocId: 'doc-lineage',
+    }));
+    expect(disclosure).toEqual({
+      version: 1,
+      state: 'created',
+      formalSchedulerMutation: false,
+    });
+
+    const derivedAttrsCall = vi.mocked(port.setBlockAttrs).mock.calls.find(([blockId, attrs]) =>
+      blockId === 'excerpt-lineage-1' && Object.prototype.hasOwnProperty.call(attrs, ATTR_PROGRESSIVE_DERIVED_ITEM_IDENTITY)
+    );
+    const derivedIdentity = JSON.parse(derivedAttrsCall?.[1][ATTR_PROGRESSIVE_DERIVED_ITEM_IDENTITY] ?? '{}');
+    expect(derivedIdentity).toEqual(expect.objectContaining({
+      kind: 'excerpt-topic',
+      itemId: 'card-1',
+      sourceBlockId: 'source-lineage-1',
+    }));
+    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
+      progressiveLineage: expect.objectContaining({
+        sourceLineage: expect.objectContaining({
+          sourceBlockId: 'source-lineage-1',
+        }),
+        payloadIdentity: expect.objectContaining({
+          algorithm: 'fnv1a32',
+        }),
+        disclosureState: expect.objectContaining({
+          formalSchedulerMutation: false,
+        }),
+      }),
+    }));
+  });
+
+  it('reports current, stale, missing, and detached progressive source status without rewriting excerpt payload', async () => {
+    let rows: ProgressiveBlockRow[] = [
+      { id: 'source-status-1', root_id: 'doc-status', parent_id: 'doc-status', box: 'notebook-a', type: 'p', content: 'Focus text', markdown: 'Focus text' },
+    ];
+    const port = createProgressiveSiyuanPortMock({
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes('WHERE id IN')) {
+          return rows;
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+    });
+    const fileService = createFileServiceMock();
+    const cardService = createCardServiceMock();
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+    const lineage: ProgressiveSourceLineage = {
+      version: 1,
+      authority: 'siyuan-block',
+      sourceDocId: 'doc-status',
+      rootDocId: 'doc-status',
+      rootKind: 'ordinary-doc',
+      sourceBlockId: 'source-status-1',
+      sourceBlockIds: ['source-status-1'],
+      logicalParentId: 'doc-status',
+      logicalParentType: 'root-doc',
+    };
+    const payloadIdentity = buildProgressiveContentPayloadIdentity({
+      sourceBlockIds: ['source-status-1'],
+      selectedText: 'Focus text',
+      contentDom: '<p>Focus text</p>',
+      sourceBlocks: rows,
+    });
+
+    await expect(service.inspectProgressiveSource({
+      lineage,
+      payloadIdentity,
+      selectedText: 'Focus text',
+      contentDom: '<p>Focus text</p>',
+    })).resolves.toEqual(expect.objectContaining({
+      status: 'current',
+      missingBlockIds: [],
+      detachedBlockIds: [],
+    }));
+
+    rows = [
+      { id: 'source-status-1', root_id: 'doc-status', parent_id: 'doc-status', box: 'notebook-a', type: 'p', content: 'Changed text', markdown: 'Changed text' },
+    ];
+    await expect(service.inspectProgressiveSource({
+      lineage,
+      payloadIdentity,
+      selectedText: 'Focus text',
+      contentDom: '<p>Focus text</p>',
+    })).resolves.toEqual(expect.objectContaining({
+      status: 'stale',
+      diagnostics: ['stale-source-payload'],
+    }));
+
+    rows = [];
+    await expect(service.inspectProgressiveSource({
+      lineage,
+      payloadIdentity,
+      selectedText: 'Focus text',
+      contentDom: '<p>Focus text</p>',
+    })).resolves.toEqual(expect.objectContaining({
+      status: 'missing',
+      missingBlockIds: ['source-status-1'],
+    }));
+
+    rows = [
+      { id: 'source-status-1', root_id: 'other-doc', parent_id: 'other-doc', box: 'notebook-a', type: 'p', content: 'Focus text', markdown: 'Focus text' },
+    ];
+    await expect(service.inspectProgressiveSource({
+      lineage,
+      payloadIdentity,
+      selectedText: 'Focus text',
+      contentDom: '<p>Focus text</p>',
+    })).resolves.toEqual(expect.objectContaining({
+      status: 'detached',
+      detachedBlockIds: ['source-status-1'],
+    }));
+
+    expect(port.updateDomBlock).not.toHaveBeenCalled();
+    expect(port.setBlockAttrs).not.toHaveBeenCalled();
   });
 
   it('creates split-piece excerpts as child excerpt documents without writing Daily Notes trace', async () => {
@@ -2038,6 +2295,12 @@ describe('ProgressiveReadingService', () => {
         };
       }),
       sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id IN ('source-rich-1', 'source-rich-2')")) {
+          return [
+            { id: 'source-rich-1', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 'p', content: 'Alpha Link', markdown: 'Alpha Link', sort: '1' },
+            { id: 'source-rich-2', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 'p', content: 'Beta', markdown: 'Beta', sort: '2' },
+          ];
+        }
         if (stmt.includes("WHERE id = 'source-rich-1'")) {
           return [
             { id: 'source-rich-1', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 'p', content: 'Alpha Link Beta', markdown: 'Alpha Link Beta' },
@@ -2150,6 +2413,12 @@ describe('ProgressiveReadingService', () => {
         name: 'Ordinary',
       })),
       sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id IN ('source-daily-1', 'source-daily-2')")) {
+          return [
+            { id: 'source-daily-1', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 'p', content: 'Alpha Link', markdown: 'Alpha Link', sort: '1' },
+            { id: 'source-daily-2', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 'p', content: 'Beta', markdown: 'Beta', sort: '2' },
+          ];
+        }
         if (stmt.includes("WHERE id = 'source-daily-1'")) {
           return [
             { id: 'source-daily-1', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 'p', content: 'Alpha Link Beta', markdown: 'Alpha Link Beta' },

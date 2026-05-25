@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-26 (Round 467)
+Last update: 2026-05-26 (Round 468)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-26 - Processing Scheduler Priority Policy
+
+- Task: Apply the Anki/Incrementum/Incremental Everything reference slice for separate processing scheduling and lineage-based priority.
+- Touched slice: Processing scheduler core contract, queue projection invalidation bridge, projection runtime follower relay tests; `src/core/processing/*`, `QueueProjectionBuilder`, `QueueProjectionRuntime` tests, and architecture docs.
+- Debt fixed now: Document/excerpt/progressive/topic-derived processing work now has an explicit core read contract with `processingDueAt`, effective priority, priority source identity, and non-formal queue counters. Priority resolution is manual -> closest ancestor/source -> bounded context override -> default, and priority-source changes now produce explicit processing/review projection invalidation metadata. Processing reads do not mutate `cards.due` or append formal review facts. Follower projection materialization remains writer-relay-only.
+- Debt deferred: Processing projection persistence is still represented as contract/read-model logic and invalidation metadata, not a dedicated SQLite table or backend worker RPC family for processing items.
+- Why deferred: Adding new persisted processing tables would widen the storage migration surface beyond this reference-absorption slice. Existing queue projection persistence already owns review projection rows and writer relay; processing persistence should land as its own backend-owned slice.
+- Next safe step: Add backend/writer-owned processing projection storage once product UI starts reading document/excerpt processing queues directly.
+- Validation: `pnpm vitest run src/core/processing/__tests__/processingScheduler.test.ts src/application/services/queue-projection/__tests__/QueueProjectionBuilder.test.ts src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts`.
+
+### 2026-05-26 - Progressive Source And Position Model
+
+- Task: Apply the Anki/Incrementum reference slice for progressive source lineage, source freshness, and processing command isolation.
+- Touched slice: Progressive / Excerpt contracts and service path; `progressiveSourceModel`, progressive attr contracts, `ProgressiveReadingService`, backend progressive command operation contract, CreateCard progressive lineage metadata, and focused progressive tests.
+- Debt fixed now: Excerpts now persist JSON-safe source lineage, selection snapshot identity, payload identity, unified SiYuan source position, disclosure state, and derived item identity while keeping SiYuan blocks as content authority. Progressive source inspection reports `current`, `stale`, `missing`, or `detached` without rewriting excerpt payload. Advance/defer/split/convert-to-card now have explicit progressive processing command shapes; advance/defer update progressive state only and tests assert no formal scheduler update calls.
+- Debt deferred: Stored lineage currently lives in block attrs rather than a backend SQLite/projection table, and Review render context still consumes older branchy shapes until the next OpenSpec slice normalizes Review renderable context.
+- Why deferred: This slice needed additive source evidence without changing content authority or widening writer/backend persistence ownership. Review context normalization is task group 7 and touches UI/application adapters separately.
+- Next safe step: Implement Review renderable context mapping so Review can consume source lineage and unavailable reasons without inspecting persistence shapes directly.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/ProgressiveReadingService.test.ts src/application/services/__tests__/TopicDerivedItemService.test.ts src/application/handlers/__tests__/ProgressiveExcerptHotkeyHandler.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-26 - Queue Projection Freshness
 

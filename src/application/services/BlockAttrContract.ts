@@ -22,6 +22,12 @@ export const ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID = `${ATTR_PREFIX}reading-pare
 export const ATTR_PROGRESSIVE_STORAGE_MODE = `${ATTR_PREFIX}reading-storage-mode`;
 export const ATTR_PROGRESSIVE_CREATION_RULE_ID = `${ATTR_PREFIX}reading-creation-rule-id`;
 export const ATTR_PROGRESSIVE_ANSWER_FINGERPRINT = `${ATTR_PREFIX}reading-answer-fingerprint`;
+export const ATTR_PROGRESSIVE_SOURCE_LINEAGE = `${ATTR_PREFIX}reading-source-lineage`;
+export const ATTR_PROGRESSIVE_SELECTION_SNAPSHOT = `${ATTR_PREFIX}reading-selection-snapshot`;
+export const ATTR_PROGRESSIVE_PAYLOAD_IDENTITY = `${ATTR_PREFIX}reading-payload-identity`;
+export const ATTR_PROGRESSIVE_SOURCE_POSITION = `${ATTR_PREFIX}reading-source-position`;
+export const ATTR_PROGRESSIVE_DISCLOSURE_STATE = `${ATTR_PREFIX}reading-disclosure-state`;
+export const ATTR_PROGRESSIVE_DERIVED_ITEM_IDENTITY = `${ATTR_PREFIX}reading-derived-item-identity`;
 
 const LEGACY_ATTR_PROGRESSIVE_KIND = `${ATTR_PREFIX}progressive-kind`;
 const LEGACY_ATTR_PROGRESSIVE_SESSION_ID = `${ATTR_PREFIX}progressive-session-id`;

@@ -1,6 +1,12 @@
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import { buildQueueSnapshotRow } from '@/core/queue/domain/queueCardProjection';
 import { SrsV2QueuePolicy } from '@/core/queue/domain/SrsV2QueuePolicy';
+import {
+  planProcessingPriorityInvalidation,
+  type PrioritySourceChange,
+  type ProcessingPriorityInvalidationPlan,
+  type ProcessingWorkItem,
+} from '@/core/processing/processingScheduler';
 import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 import {
   CardState,
@@ -160,6 +166,19 @@ export interface QueueProjectionInvalidationPlan {
   metadata: Record<string, unknown>;
   refreshRequired: boolean;
   fullRebuildRequired: boolean;
+}
+
+export interface PrioritySourceQueueProjectionInvalidationPlanInput {
+  change: PrioritySourceChange;
+  processingItems: ProcessingWorkItem[];
+  reviewRefs?: Array<{ cardId: string; blockId?: string | null; sourceLineage?: string[] }>;
+  queueTypes: ProjectionBuildQueueType[];
+  generation: number;
+  createdAt?: number;
+}
+
+export interface PrioritySourceQueueProjectionInvalidationPlan extends QueueProjectionInvalidationPlan {
+  processing: ProcessingPriorityInvalidationPlan;
 }
 
 export interface FilterGroupProjectionRowsInput {
@@ -701,6 +720,36 @@ export function planQueueProjectionInvalidation(
     metadata: { ...(input.metadata ?? {}) },
     refreshRequired: fullRebuildRequired,
     fullRebuildRequired,
+  };
+}
+
+export function planPrioritySourceQueueProjectionInvalidation(
+  input: PrioritySourceQueueProjectionInvalidationPlanInput,
+): PrioritySourceQueueProjectionInvalidationPlan {
+  const processing = planProcessingPriorityInvalidation({
+    change: input.change,
+    items: input.processingItems,
+    reviewRefs: input.reviewRefs,
+  });
+  const reviewQueueTypes = processing.projectionFamilies.includes('review') ? input.queueTypes : [];
+  const plan = planQueueProjectionInvalidation({
+    reason: processing.reason,
+    queueTypes: reviewQueueTypes,
+    generation: input.generation,
+    createdAt: input.createdAt,
+    affectedCardIds: processing.affectedReviewCardIds,
+    affectedBlockIds: processing.affectedBlockIds,
+    metadata: {
+      sourceId: processing.sourceId,
+      projectionFamilies: processing.projectionFamilies,
+      affectedProcessingItemIds: processing.affectedProcessingItemIds,
+    },
+  });
+
+  return {
+    ...plan,
+    refreshRequired: processing.refreshRequired || plan.refreshRequired,
+    processing,
   };
 }
 

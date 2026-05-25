@@ -554,6 +554,60 @@ describe('QueueProjectionRuntime', () => {
     }));
   });
 
+  it('relays explicit priority-source projection materialization from follower windows', async () => {
+    const card = createCard({
+      id: 'priority-card',
+      blockId: 'priority-block',
+      priority: 18,
+    });
+    const backend = {
+      queueProjectionReplace: vi.fn(async () => {
+        throw new Error('follower must not write projection locally');
+      }),
+    };
+    const follower = {
+      submitAndWait: vi.fn(async ({ params }: { params: { policyHash: string; generation: number; rows: unknown[] } }) => ({
+        queueType: QueueType.IncrementalLearning,
+        status: 'ready',
+        policyHash: params.policyHash,
+        generation: params.generation,
+        rows: params.rows.length,
+        counters: null,
+      })),
+    };
+    const { queue, runtime } = createRuntime({
+      backend,
+      follower,
+      frontendRuntime: {
+        getMode: () => 'follower',
+        getInstanceId: () => 'follower-priority',
+      },
+      queueCards: [card],
+    });
+
+    await expect(runtime.materialize(QueueType.IncrementalLearning)).resolves.toMatchObject({
+      status: 'ready',
+      queueType: QueueType.IncrementalLearning,
+      rows: 1,
+    });
+
+    expect(queue.getCards).toHaveBeenCalledTimes(1);
+    expect(backend.queueProjectionReplace).not.toHaveBeenCalled();
+    expect(follower.submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'follower-priority',
+      method: 'queue.projection.replace',
+      params: expect.objectContaining({
+        queueType: QueueType.IncrementalLearning,
+        rows: [
+          expect.objectContaining({
+            cardId: 'priority-card',
+            priorityScore: 18,
+          }),
+        ],
+      }),
+    }));
+  });
+
   it('records freshness evidence in rollout diagnostics when projection rows are stale', async () => {
     const backend = {
       queueProjectionSnapshot: vi.fn(async () => ({
