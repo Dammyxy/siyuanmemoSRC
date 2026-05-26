@@ -242,8 +242,10 @@ export class ReviewTransactionSafetyEnvelope {
 
   private isUnavailableCurrentItemError(error: unknown, currentItem: FSRSCard): boolean {
     const message = error instanceof Error ? error.message : String(error);
-    const hasMissingItemSignal = message.includes('Card not found')
-      || message.includes('Block not found')
+    const normalizedMessage = message.toLowerCase();
+    const hasMissingItemSignal = normalizedMessage.includes('card not found')
+      || normalizedMessage.includes('block not found')
+      || normalizedMessage.includes('review.feedback card not found')
       || message.includes('获取卡片失败')
       || message.includes('获取块失败')
       || message.includes('卡片不存在');

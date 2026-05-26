@@ -1122,9 +1122,45 @@ export class UnifiedStorageManager {
     localCard: CardPersistenceDTO,
     remoteCard: CardPersistenceDTO
   ): CardPersistenceDTO {
-    return mergeCardDTOsLocalFirst(localCard, remoteCard, {
+    const merged = mergeCardDTOsLocalFirst(localCard, remoteCard, {
       canonicalXiuyuanId: String(localCard.xiuyuanID || remoteCard.xiuyuanID || '').trim() || undefined,
     }).value;
+    if (!this.isRemoteSchedulingStateFresher(localCard, remoteCard)) {
+      return merged;
+    }
+    return this.copySchedulingFields(merged, remoteCard);
+  }
+
+  private isRemoteSchedulingStateFresher(
+    localCard: CardPersistenceDTO,
+    remoteCard: CardPersistenceDTO,
+  ): boolean {
+    const localLastReview = readFiniteNumber(localCard.lastReview) ?? 0;
+    const remoteLastReview = readFiniteNumber(remoteCard.lastReview) ?? 0;
+    if (remoteLastReview !== localLastReview) {
+      return remoteLastReview > localLastReview;
+    }
+
+    const localReps = readFiniteNumber(localCard.reps) ?? 0;
+    const remoteReps = readFiniteNumber(remoteCard.reps) ?? 0;
+    return remoteReps > localReps;
+  }
+
+  private copySchedulingFields(
+    target: CardPersistenceDTO,
+    source: CardPersistenceDTO,
+  ): CardPersistenceDTO {
+    const next = { ...target };
+    for (const field of SCHEDULING_DTO_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(source, field)) {
+        (next as Record<string, unknown>)[field] = source[field];
+      }
+    }
+    next.updatedAt = Math.max(
+      readFiniteNumber(target.updatedAt) ?? 0,
+      readFiniteNumber(source.updatedAt) ?? 0,
+    );
+    return next;
   }
 
   private chooseMostRecentXiuyuan(localXiuyuan: IXiuyuan, remoteXiuyuan: IXiuyuan): IXiuyuan {

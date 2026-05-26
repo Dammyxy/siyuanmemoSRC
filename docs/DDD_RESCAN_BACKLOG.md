@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-26 (Round 471)
+Last update: 2026-05-27 (Round 472)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-27 - Review Ghost Current Item Eviction
+
+- Task: Fix incremental-learning Review where a restored/queued card exists in UI but backend `review.feedback` cannot find the authoritative card row, causing bogus intervals like `6 min / 8 min / 8 d` and repeated feedback failure.
+- Touched slice: Review queue strategy, review transaction safety envelope, focused Review strategy tests.
+- Debt fixed now: Restored current Review items now rehydrate from the authoritative card read before nextDues preview is computed. If the card row is gone, the session marks that item unavailable, removes it from local current/cursor state, reloads the queue, and shows the next real item instead of calculating a preview from stale session data. Backend `review.feedback card not found` errors are now classified as current-item-unavailable, including lowercase/worker-wrapped `INTERNAL_ERROR` messages, so the UI no longer treats ghost-card feedback as an ordinary failed review that should be compensated/restored.
+- Debt deferred: Existing live data may still contain stale session snapshots or projection rows until the next reload/repair sweep prunes them. Backend `review.feedback` still reports the missing card through the generic worker error envelope; changing that contract to a typed unavailable result is a separate backend RPC contract slice.
+- Why deferred: This task fixes the active Review path without widening the backend RPC contract. Existing live rows need explicit repair/reload boundaries rather than hidden mutation during a Review click.
+- Next safe step: Rebuild/reload the plugin, open incremental-learning Review, and confirm the reported card either disappears from current Review or is rehydrated from `cards` before any interval preview is shown.
+- Validation: `pnpm vitest run src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/application/adapters/review-session/__tests__/ReviewTransactionSafetyEnvelope.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-27 - Review Scheduling State Authority Merge
+
+- Task: Fix recurring card DB pollution where repaired review scheduling state was overwritten again by automatic persisted-main-db / sync-conflict replay.
+- Touched slice: Backend sync-conflict merge, persisted-main-db preflight, domain-sync repair durability, frontend unified-storage merge.
+- Debt fixed now: Backend conflict merge now treats formal `review_events` and backend review commits as scheduling freshness authority. Incoming card rows with newer `updated_at` but stale `lastReview/reps` no longer overwrite repaired local scheduling state, including automatic `siyuan-sync:siyuanmemo.db` preflight before routine backend RPCs. Stale scheduler rows can still carry safe source-missing projection only when they include explicit checked/missing timestamps and match the same card/block. Frontend full-store merge now preserves remote review-owned scheduling fields when remote `lastReview/reps` is fresher than a local stale DTO snapshot.
+- Debt deferred: The helper is currently duplicated in backend row terms and frontend DTO terms rather than shared as one cross-package scheduling authority module. Existing live DB rows already polluted still need the repair flow; this change prevents the same stale snapshots from re-polluting after repair.
+- Why deferred: Sharing the helper cleanly requires a small contract/package extraction across worker and renderer DTO shapes. Live data mutation should stay explicit through the existing repair UI/script flow, not hidden inside sync import.
+- Next safe step: Rebuild/reload plugin, run the domain-sync repair once for remaining affected cards, then verify repeated Review actions no longer reopen repair due to the same stale `siyuanmemo.db` replay.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts`; `pnpm vitest run src/core/storage/__tests__/UnifiedStorageManager.sync-conflict.test.ts`; `pnpm vitest run src/application/services/__tests__/ReviewDomainSyncSafetyService.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-26 - Review Sync Gate Card Scoping
 

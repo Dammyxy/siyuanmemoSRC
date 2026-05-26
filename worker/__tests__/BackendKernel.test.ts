@@ -156,6 +156,26 @@ async function seedReviewEvent(database: WorkerSqliteDatabaseService, input: {
   });
 }
 
+async function seedFormalReviewHistory(database: WorkerSqliteDatabaseService, input: {
+  cardId: string;
+  count: number;
+  firstReviewedAt: number;
+  latestReviewedAt: number;
+}): Promise<void> {
+  const count = Math.max(1, Math.floor(input.count));
+  for (let index = 0; index < count; index += 1) {
+    const reviewedAt = index === count - 1
+      ? input.latestReviewedAt
+      : input.firstReviewedAt + index;
+    await seedReviewEvent(database, {
+      id: `event-${input.cardId}-${index + 1}`,
+      cardId: input.cardId,
+      reviewedAt,
+      eventType: 'review-v2',
+    });
+  }
+}
+
 async function seedDomainSyncOperation(database: WorkerSqliteDatabaseService, input: {
   operationId: string;
   sourceId?: string;
@@ -1263,6 +1283,119 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('keeps repaired scheduling state when persisted main DB bytes contain a stale newer-updated card row', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const cardId = 'card-authority-repair';
+    const repairedLastReview = 1_779_590_000_000;
+    const repairedUpdatedAt = 1_779_590_100_000;
+    await database.upsertCards([buildCard({
+      id: cardId,
+      due: repairedLastReview + 86_400_000,
+      reps: 11,
+      lastReview: repairedLastReview,
+      updatedAt: repairedUpdatedAt,
+    })]);
+    await seedFormalReviewHistory(database, {
+      cardId,
+      count: 11,
+      firstReviewedAt: repairedLastReview - 10_000,
+      latestReviewedAt: repairedLastReview,
+    });
+    await database.persist();
+
+    const externalBridge = createInMemorySqlitePersistenceBridge();
+    const externalDatabase = new WorkerSqliteDatabaseService(externalBridge);
+    await externalDatabase.upsertCards([buildCard({
+      id: cardId,
+      due: repairedLastReview + 32 * 86_400_000,
+      reps: 1,
+      lastReview: repairedLastReview,
+      updatedAt: repairedUpdatedAt + 100_000,
+    })]);
+    await externalDatabase.persist();
+    const externalBytes = await externalBridge.readBinary('siyuanmemo.db');
+    expect(externalBytes).toBeTruthy();
+    await persistenceBridge.writeBinary('siyuanmemo.db', externalBytes!);
+
+    const result = await database.mergeExternalDatabaseIfChanged(repairedUpdatedAt + 200_000);
+
+    expect(result).toMatchObject({
+      ok: true,
+      checked: true,
+      changed: false,
+      mergedCards: 0,
+    });
+    expect(await database.getCard(cardId)).toMatchObject({
+      reps: 11,
+      lastReview: repairedLastReview,
+      updatedAt: repairedUpdatedAt,
+    });
+    expect(database.getOne<{ imported_cards: number; ignored_cards: number; source_kind: string }>(
+      `SELECT imported_cards, ignored_cards, source_kind
+       FROM domain_sync_processed_sources
+       WHERE source_id = ?`,
+      ['siyuan-sync:siyuanmemo.db'],
+    )).toMatchObject({
+      source_kind: 'persisted-main-db',
+      imported_cards: 0,
+      ignored_cards: 1,
+    });
+  });
+
+  it('does not regress scheduling state before handling a routine backend request', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const cardId = 'card-preflight-authority';
+    const repairedLastReview = 1_779_590_500_000;
+    const repairedUpdatedAt = 1_779_590_600_000;
+    await database.upsertCards([buildCard({
+      id: cardId,
+      due: repairedLastReview + 86_400_000,
+      reps: 8,
+      lastReview: repairedLastReview,
+      updatedAt: repairedUpdatedAt,
+    })]);
+    await seedFormalReviewHistory(database, {
+      cardId,
+      count: 8,
+      firstReviewedAt: repairedLastReview - 8_000,
+      latestReviewedAt: repairedLastReview,
+    });
+    await database.persist();
+
+    const externalBridge = createInMemorySqlitePersistenceBridge();
+    const externalDatabase = new WorkerSqliteDatabaseService(externalBridge);
+    await externalDatabase.upsertCards([buildCard({
+      id: cardId,
+      due: repairedLastReview + 66 * 86_400_000,
+      reps: 1,
+      lastReview: repairedLastReview,
+      updatedAt: repairedUpdatedAt + 100_000,
+    })]);
+    await externalDatabase.persist();
+    const externalBytes = await externalBridge.readBinary('siyuanmemo.db');
+    expect(externalBytes).toBeTruthy();
+    await persistenceBridge.writeBinary('siyuanmemo.db', externalBytes!);
+
+    const kernel = new BackendKernel({ database });
+    const response = await kernel.handle({
+      id: 'browser-count-preflight-authority',
+      jsonrpc: '2.0',
+      method: 'browser.count',
+      params: [{ query: { ids: [cardId] } }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({ count: 1 }),
+    }));
+    expect(await database.getCard(cardId)).toMatchObject({
+      reps: 8,
+      lastReview: repairedLastReview,
+      updatedAt: repairedUpdatedAt,
+    });
+  });
+
   it('does not invalidate queue projections for event-only ledger imports', async () => {
     const currentBridge = createInMemorySqlitePersistenceBridge();
     const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
@@ -1873,6 +2006,70 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('keeps domain sync repair durable against later stale persisted main DB merge', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const cardId = 'durable-repair-card';
+    await database.upsertCards([buildCard({
+      id: cardId,
+      blockId: 'durable-repair-block',
+      reps: 0,
+      lastReview: 1_700_002_200_000,
+      updatedAt: 1_700_002_200_000,
+    })]);
+    await seedReviewEvent(database, {
+      id: 'durable-repair-review',
+      cardId,
+      reviewedAt: 1_700_002_300_000,
+    });
+    const preview = await database.previewDomainSyncRepair({ cardIds: [cardId] }, 1_700_002_300_001);
+
+    const applied = await database.applyDomainSyncRepair({
+      planId: preview.planId,
+      idempotencyKey: 'durable-repair-key',
+      confirmedAt: 1_700_002_300_002,
+      confirmedBy: 'test',
+    }, 1_700_002_300_003);
+    expect(applied).toMatchObject({
+      ok: true,
+      status: 'applied',
+      appliedCards: 1,
+    });
+    await database.persist();
+
+    const externalBridge = createInMemorySqlitePersistenceBridge();
+    const externalDatabase = new WorkerSqliteDatabaseService(externalBridge);
+    await externalDatabase.upsertCards([buildCard({
+      id: cardId,
+      blockId: 'durable-repair-block',
+      reps: 0,
+      lastReview: 1_700_002_300_000,
+      updatedAt: 1_700_002_300_100,
+    })]);
+    await externalDatabase.persist();
+    const externalBytes = await externalBridge.readBinary('siyuanmemo.db');
+    expect(externalBytes).toBeTruthy();
+    await persistenceBridge.writeBinary('siyuanmemo.db', externalBytes!);
+
+    const merge = await database.mergeExternalDatabaseIfChanged(1_700_002_300_200);
+
+    expect(merge).toMatchObject({
+      ok: true,
+      mergedCards: 0,
+    });
+    await expect(database.getCard(cardId)).resolves.toMatchObject({
+      reps: 1,
+      lastReview: 1_700_002_300_000,
+      updatedAt: 1_700_002_300_003,
+    });
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      sanity: {
+        repairableDivergenceCount: 0,
+        divergentCardCount: 0,
+      },
+    });
+  });
+
   it('applies repairable card mutations even when skipped sync sources keep diagnostics in source-error', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -2304,6 +2501,87 @@ describe('BackendKernel', () => {
       source_exists: 0,
       source_checked_at: checkedAt + 1,
       source_missing_at: checkedAt + 1,
+    });
+  });
+
+  it('imports missing-source projection without regressing stale incoming scheduling state', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    const checkedAt = 1_779_264_700_000;
+    await currentDatabase.upsertCards([
+      buildCard({
+        id: 'card-stale-scheduler-source-missing',
+        blockId: '20260520005027-source-stale',
+        due: checkedAt + 20 * 86_400_000,
+        reps: 7,
+        lastReview: checkedAt,
+        updatedAt: checkedAt,
+      }),
+    ]);
+    await seedFormalReviewHistory(currentDatabase, {
+      cardId: 'card-stale-scheduler-source-missing',
+      count: 7,
+      firstReviewedAt: checkedAt - 7_000,
+      latestReviewedAt: checkedAt,
+    });
+
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await conflictDatabase.upsertCards([
+      buildCard({
+        id: 'card-stale-scheduler-source-missing',
+        blockId: '20260520005027-source-stale',
+        due: checkedAt + 60_000,
+        reps: 1,
+        lastReview: checkedAt,
+        updatedAt: checkedAt + 10_000,
+      }),
+    ]);
+    await conflictDatabase.runTransaction('seed.stale-source-missing', (db) => {
+      db.run(
+        `UPDATE cards
+         SET source_exists = 0, source_checked_at = ?, source_missing_at = ?
+         WHERE id = ?`,
+        [checkedAt + 20_000, checkedAt + 20_000, 'card-stale-scheduler-source-missing'],
+      );
+    });
+    await conflictDatabase.persist();
+    const conflictBytes = conflictBridge.snapshot().bytes;
+    expect(conflictBytes).toBeTruthy();
+
+    const kernel = new BackendKernel({ database: currentDatabase });
+    const response = await kernel.handle({
+      id: 'merge-conflict-stale-scheduler-source-missing',
+      jsonrpc: '2.0',
+      method: 'sync.conflict.merge',
+      params: [{
+        mergedAt: checkedAt + 30_000,
+        sources: [{ sourceId: 'stale-scheduler-source-missing-conflict-db', bytes: conflictBytes! }],
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        mergedCards: 0,
+        ignoredCards: 1,
+      }),
+    }));
+    await expect(currentDatabase.getCard('card-stale-scheduler-source-missing')).resolves.toMatchObject({
+      reps: 7,
+      lastReview: checkedAt,
+      due: checkedAt + 20 * 86_400_000,
+    });
+    expect(currentDatabase.getOne<{
+      source_exists: number | null;
+      source_checked_at: number | null;
+      source_missing_at: number | null;
+    }>(
+      'SELECT source_exists, source_checked_at, source_missing_at FROM cards WHERE id = ?',
+      ['card-stale-scheduler-source-missing'],
+    )).toEqual({
+      source_exists: 0,
+      source_checked_at: checkedAt + 20_000,
+      source_missing_at: checkedAt + 20_000,
     });
   });
 

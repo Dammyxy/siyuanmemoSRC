@@ -103,6 +103,15 @@ describe('ReviewTransactionSafetyEnvelope', () => {
       .rejects.toBeInstanceOf(QueueItemUnavailableError);
   });
 
+  it('classifies lowercase backend missing-card snapshot errors as unavailable current items', async () => {
+    const current = card('active', { blockId: 'block-active' });
+    const { envelope, manager } = createEnvelope({ storedCards: [current] });
+    manager.getCard.mockRejectedValue(new Error('INTERNAL_ERROR: review.feedback card not found: active'));
+
+    await expect(envelope.capture(current, { action: 'rate', rating: 3 }))
+      .rejects.toBeInstanceOf(QueueItemUnavailableError);
+  });
+
   it('captures card, queue rollback, final-drill rollback, and session exclusion state before risky feedback', async () => {
     const current = card('active');
     const excluded = card('excluded');

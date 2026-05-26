@@ -419,29 +419,62 @@ function positiveNumber(value: unknown): number {
   return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
 }
 
-function compareReviewSyncCardFreshness(
+type ReviewSyncCardMergeDecisionReason =
+  | 'incoming-review-older-than-review-history'
+  | 'incoming-reps-behind-review-history'
+  | 'incoming-card-newer'
+  | 'incoming-card-stale-or-same';
+
+interface ReviewSyncCardMergeDecision {
+  action: 'apply-card' | 'skip-card';
+  reason: ReviewSyncCardMergeDecisionReason;
+}
+
+export function decideReviewSyncCardMerge(
   local: Pick<ConflictCardRow, 'updated_at' | 'last_review' | 'reps'>,
   incoming: Pick<ConflictCardRow, 'updated_at' | 'last_review' | 'reps'>,
-): number {
+  reviewEvidence?: { newestReviewedAt: number; formalReviewEventCount: number } | null,
+): ReviewSyncCardMergeDecision {
   const localReview = positiveNumber(local.last_review);
   const incomingReview = positiveNumber(incoming.last_review);
+  const localReps = positiveNumber(local.reps);
+  const incomingReps = positiveNumber(incoming.reps);
+  const newestReviewedAt = positiveNumber(reviewEvidence?.newestReviewedAt);
+  const formalReviewEventCount = positiveNumber(reviewEvidence?.formalReviewEventCount);
+
+  if (newestReviewedAt > 0 && incomingReview > 0 && incomingReview < newestReviewedAt) {
+    return { action: 'skip-card', reason: 'incoming-review-older-than-review-history' };
+  }
+
+  if (
+    newestReviewedAt > 0
+    && incomingReview === localReview
+    && incomingReps < Math.max(localReps, formalReviewEventCount)
+  ) {
+    return { action: 'skip-card', reason: 'incoming-reps-behind-review-history' };
+  }
+
   if (localReview !== incomingReview) {
-    return incomingReview - localReview;
+    return incomingReview > localReview
+      ? { action: 'apply-card', reason: 'incoming-card-newer' }
+      : { action: 'skip-card', reason: 'incoming-card-stale-or-same' };
+  }
+
+  if (localReps !== incomingReps) {
+    return incomingReps > localReps
+      ? { action: 'apply-card', reason: 'incoming-card-newer' }
+      : { action: 'skip-card', reason: 'incoming-card-stale-or-same' };
   }
 
   const localUpdated = positiveNumber(local.updated_at);
   const incomingUpdated = positiveNumber(incoming.updated_at);
   if (localUpdated !== incomingUpdated) {
-    return incomingUpdated - localUpdated;
+    return incomingUpdated > localUpdated
+      ? { action: 'apply-card', reason: 'incoming-card-newer' }
+      : { action: 'skip-card', reason: 'incoming-card-stale-or-same' };
   }
 
-  const localReps = positiveNumber(local.reps);
-  const incomingReps = positiveNumber(incoming.reps);
-  if (localReps !== incomingReps) {
-    return incomingReps - localReps;
-  }
-
-  return 0;
+  return { action: 'skip-card', reason: 'incoming-card-stale-or-same' };
 }
 
 function toNullableTimestamp(value: unknown): number | null {
@@ -2287,7 +2320,21 @@ export class WorkerSqliteDatabaseService {
                WHERE id = ?`,
               [incoming.id],
             );
-            if (existing && compareReviewSyncCardFreshness(existing, cardRow) <= 0) {
+            const reviewEvidence = existing
+              ? this.readReviewSyncSchedulingEvidence(incoming.id)
+              : null;
+            const mergeDecision = existing
+              ? decideReviewSyncCardMerge(existing, cardRow, reviewEvidence)
+              : { action: 'apply-card' as const, reason: 'incoming-card-newer' as const };
+            if (existing && mergeDecision.action === 'skip-card') {
+              if (this.applyIncomingMissingSourceProjection(cardRow, incoming)) {
+                sourceChanged = true;
+                affectedCardIds.add(incoming.id);
+                const blockId = String(incoming.blockId || '').trim();
+                if (blockId) {
+                  affectedBlockIds.add(blockId);
+                }
+              }
               result.ignoredCards += 1;
               processedCounters.ignoredCards += 1;
               continue;
@@ -2884,6 +2931,33 @@ export class WorkerSqliteDatabaseService {
     }
   }
 
+  private readReviewSyncSchedulingEvidence(cardId: string): { newestReviewedAt: number; formalReviewEventCount: number } | null {
+    const normalizedCardId = String(cardId || '').trim();
+    if (!normalizedCardId) {
+      return null;
+    }
+    const row = this.runtime.getOne<{
+      newest_reviewed_at: number | null;
+      review_event_count: number;
+    }>(
+      `SELECT MAX(reviewed_at) AS newest_reviewed_at,
+              COUNT(*) AS review_event_count
+       FROM review_events
+       WHERE card_id = ?
+         AND event_type = ?`,
+      [normalizedCardId, 'review-v2'],
+    );
+    const formalReviewEventCount = Math.max(0, Math.floor(Number(row?.review_event_count || 0)));
+    const newestReviewedAt = toNullableTimestamp(row?.newest_reviewed_at) ?? 0;
+    if (formalReviewEventCount <= 0 && newestReviewedAt <= 0) {
+      return null;
+    }
+    return {
+      newestReviewedAt,
+      formalReviewEventCount,
+    };
+  }
+
   private queryReviewCardDivergenceEvidence(cardIds: string[] = []): ReviewCardDivergenceEvidenceWithCardRow[] {
     const uniqueCardIds = normalizeAuditCardIds(cardIds);
     const params: SqlValue[] = [];
@@ -3195,17 +3269,20 @@ export class WorkerSqliteDatabaseService {
     );
   }
 
-  private applyIncomingMissingSourceProjection(row: ConflictCardRow, incoming: FSRSCard): void {
+  private applyIncomingMissingSourceProjection(row: ConflictCardRow, incoming: FSRSCard): boolean {
     if (Number(row.source_exists) !== 0) {
-      return;
+      return false;
     }
     const rowBlockId = String(row.block_id || '').trim();
     const incomingBlockId = String(incoming.blockId || '').trim();
     if (!rowBlockId || rowBlockId !== incomingBlockId) {
-      return;
+      return false;
     }
     const incomingCheckedAt = this.normalizeConflictTimestamp(row.source_checked_at);
     const incomingMissingAt = this.normalizeConflictTimestamp(row.source_missing_at) || incomingCheckedAt;
+    if (!incomingCheckedAt && !incomingMissingAt) {
+      return false;
+    }
     const current = this.runtime.getOne<{
       source_checked_at: number | null;
     }>(
@@ -3214,7 +3291,7 @@ export class WorkerSqliteDatabaseService {
     );
     const currentCheckedAt = this.normalizeConflictTimestamp(current?.source_checked_at);
     if (currentCheckedAt && incomingCheckedAt && currentCheckedAt > incomingCheckedAt) {
-      return;
+      return false;
     }
     this.runtime.run(
       `UPDATE cards
@@ -3225,6 +3302,7 @@ export class WorkerSqliteDatabaseService {
          AND block_id = ?`,
       [incomingCheckedAt || null, incomingMissingAt || null, incoming.id, incomingBlockId],
     );
+    return true;
   }
 
   private normalizeConflictTimestamp(value: unknown): number {

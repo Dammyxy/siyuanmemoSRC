@@ -523,11 +523,61 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         }
 
         const displayHydratedCard = await this.hydrateNeuralRoamVirtualDocumentCard(card);
-        if (!this.shouldComputeNextDues(displayHydratedCard)) {
-            return displayHydratedCard;
+        const authorityCard = await this.resolveAuthoritativeCurrentItem(displayHydratedCard);
+        if (!authorityCard) {
+            this.feedbackAdvancement.applyUnavailableItem(displayHydratedCard);
+            logger.warn(`[SiYuanMemo][UnifiedQueueStrategy] Restored current queue item is no longer available:`, {
+                queueType: this.queueType,
+                cardId: displayHydratedCard.id,
+                blockId: displayHydratedCard.blockId,
+            });
+            return await this.next();
         }
 
-        return this.addNextDues(displayHydratedCard);
+        const currentCard = await this.hydrateNeuralRoamVirtualDocumentCard(authorityCard);
+        if (!this.shouldComputeNextDues(currentCard)) {
+            this.setCurrentItem(currentCard);
+            return currentCard;
+        }
+
+        const cardWithNextDues = await this.addNextDues(currentCard);
+        this.setCurrentItem(cardWithNextDues);
+        return cardWithNextDues;
+    }
+
+    private async resolveAuthoritativeCurrentItem(card: FSRSCard): Promise<FSRSCard | null> {
+        if (this.queueType === QueueType.NeuralRoam) {
+            return card;
+        }
+
+        try {
+            const byCardId = await this.manager.getCard(card.id, { silent: true });
+            if (byCardId) {
+                return this.cloneCard(byCardId);
+            }
+        } catch (error) {
+            if (!this.isUnavailableCurrentItemError(error, card)) {
+                throw error;
+            }
+        }
+
+        const blockId = String(card.blockId || card.id || '').trim();
+        if (!blockId) {
+            return null;
+        }
+
+        try {
+            const byBlockId = await this.manager.getCards({ blockIds: [blockId] });
+            if (byBlockId.length > 0) {
+                return this.cloneCard(byBlockId[0]);
+            }
+            return null;
+        } catch (error) {
+            if (this.isUnavailableCurrentItemError(error, card)) {
+                return null;
+            }
+            throw error;
+        }
     }
 
     private async hydrateNeuralRoamVirtualDocumentCard(card: FSRSCard): Promise<FSRSCard> {
@@ -1422,8 +1472,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     private isUnavailableCurrentItemError(error: unknown, card: FSRSCard): boolean {
         const message = error instanceof Error ? error.message : String(error);
-        const hasMissingCardSignal = message.includes('Card not found')
-            || message.includes('Block not found')
+        const normalizedMessage = message.toLowerCase();
+        const hasMissingCardSignal = normalizedMessage.includes('card not found')
+            || normalizedMessage.includes('block not found')
+            || normalizedMessage.includes('review.feedback card not found')
             || message.includes('获取卡片失败')
             || message.includes('获取块失败')
             || message.includes('卡片不存在');

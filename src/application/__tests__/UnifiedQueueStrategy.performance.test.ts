@@ -315,6 +315,10 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const queue = createQueueStub(QueueType.RetrievalPractice, [card]);
     const manager = {
       getQueue: vi.fn(() => queue),
+      getCard: vi.fn()
+        .mockResolvedValueOnce({ ...card })
+        .mockResolvedValue({ ...changedCard }),
+      getCards: vi.fn(async () => [{ ...changedCard }]),
     };
     const eventBus = { subscribe: vi.fn() };
     const preview = vi.fn((previewCard: FSRSCard) => new Map([
@@ -354,6 +358,8 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const queue = createQueueStub(QueueType.RetrievalPractice, [card]);
     const manager = {
       getQueue: vi.fn(() => queue),
+      getCard: vi.fn(async () => ({ ...card })),
+      getCards: vi.fn(async () => [{ ...card }]),
     };
     const eventBus = { subscribe: vi.fn() };
     const preview = vi.fn((previewCard: FSRSCard) => new Map([
@@ -401,6 +407,8 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     queue.getReviewSchedulingContext = getReviewSchedulingContext;
     const manager = {
       getQueue: vi.fn(() => queue),
+      getCard: vi.fn(async () => ({ ...card })),
+      getCards: vi.fn(async () => [{ ...card }]),
     };
     const eventBus = { subscribe: vi.fn() };
     const preview = vi.fn((previewCard: FSRSCard, options?: { reviewTime?: number | Date; memoryStateAsOf?: number | Date }) => {
@@ -1572,6 +1580,98 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(isQueueItemUnavailableError(caught)).toBe(true);
     const next = await strategy.next();
     expect(next?.id).toBe(nextCard.id);
+  });
+
+  it('cleans a stale current item when backend review feedback cannot find the card row', async () => {
+    const staleCard = createCard({ id: 'card-backend-missing', xiuyuanID: 'xy-stale', blockId: 'block-stale' });
+    const nextCard = createCard({ id: 'card-next-after-backend-missing', xiuyuanID: 'xy-next', blockId: 'block-next' });
+    const queue = createQueueStub(QueueType.IncrementalLearning, [staleCard, nextCard], {
+      handleReview: async (cardId, _rating, liveCards) => {
+        const index = liveCards.findIndex((card) => card.id === cardId);
+        if (index >= 0) {
+          liveCards.splice(index, 1);
+        }
+        throw new Error(`INTERNAL_ERROR: review.feedback card not found: ${cardId}`);
+      },
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, [], {
+            createRollbackSnapshot: async () => ({ ok: true }),
+            restoreRollbackSnapshot: async () => {},
+          });
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async () => ({ ...staleCard })),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.IncrementalLearning,
+      manager as never,
+      eventBus as never,
+      null,
+    );
+
+    const first = await strategy.next();
+    expect(first?.id).toBe(staleCard.id);
+
+    let caught: unknown;
+    try {
+      await strategy.onFeedback(first, { action: 'rate', rating: 3 });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(isQueueItemUnavailableError(caught)).toBe(true);
+    expect(String(caught instanceof Error ? caught.message : caught)).not.toContain('Failed to process feedback');
+    const next = await strategy.next();
+    expect(next?.id).toBe(nextCard.id);
+  });
+
+  it('evicts a restored current item that no longer exists before showing review scheduling preview', async () => {
+    const staleCard = createCard({ id: 'card-restored-missing', xiuyuanID: 'xy-stale', blockId: 'block-stale' });
+    const nextCard = createCard({ id: 'card-after-restored-missing', xiuyuanID: 'xy-next', blockId: 'block-next' });
+    const queue = createQueueStub(QueueType.IncrementalLearning, [nextCard], {
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, [], {
+            createRollbackSnapshot: async () => ({ ok: true }),
+            restoreRollbackSnapshot: async () => {},
+          });
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async (cardId: string) => cardId === nextCard.id ? { ...nextCard } : null),
+      getCards: vi.fn(async (filters?: { blockIds?: string[] }) => {
+        const blockIds = new Set(filters?.blockIds ?? []);
+        return blockIds.has(nextCard.blockId) ? [{ ...nextCard }] : [];
+      }),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.IncrementalLearning,
+      manager as never,
+      eventBus as never,
+      null,
+    );
+
+    const hydrated = await strategy.hydrateCurrentItem(staleCard);
+
+    expect(hydrated?.id).toBe(nextCard.id);
+    expect(hydrated?.id).not.toBe(staleCard.id);
+    expect(strategy.serializeSessionSnapshot().currentItem?.id).toBe(nextCard.id);
   });
 
   it.each([

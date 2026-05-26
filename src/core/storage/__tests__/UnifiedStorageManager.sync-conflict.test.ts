@@ -3,7 +3,7 @@ import { UnifiedStorageManager } from '../UnifiedStorageManager';
 import type { StorageLoadReason, UnifiedCardStore } from '../UnifiedStorageManager';
 import type { CardPersistenceDTO } from '../../../infrastructure/persistence/dto/CardPersistenceDTO';
 import type { IXiuyuan } from '../../xiuyuan/types';
-import type { CardType } from '../../../types/card';
+import { CardState, type CardType } from '../../../types/card';
 
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -34,34 +34,35 @@ function createXiuyuan(id: string): IXiuyuan {
   };
 }
 
-function createDTO(cardId: string, xiuyuanId: string): CardPersistenceDTO {
+function createDTO(cardId: string, xiuyuanId: string, overrides: Partial<CardPersistenceDTO> = {}): CardPersistenceDTO {
   const now = Date.now();
   return {
-    id: cardId,
-    blockId: `block-${cardId}`,
-    due: now + 86400000,
-    stability: 1,
-    difficulty: 5,
-    reps: 0,
-    lapses: 0,
-    state: 0,
-    lastReview: now,
-    elapsedDays: 0,
-    scheduledDays: 1,
-    learning_step: 0,
-    priority: 50,
-    type: 'item' as CardType,
-    tags: [],
-    leechCount: 0,
-    isLeech: false,
-    skipped: false,
-    createdAt: now,
-    updatedAt: now,
-    xiuyuanID: xiuyuanId,
-    templateID: 'builtin-quick-card',
-    frontBlockIDs: [`block-${cardId}`],
-    backBlockIDs: [],
-    xiuyuanPriority: 50,
+    id: overrides.id ?? cardId,
+    blockId: overrides.blockId ?? `block-${cardId}`,
+    due: overrides.due ?? now + 86400000,
+    stability: overrides.stability ?? 1,
+    difficulty: overrides.difficulty ?? 5,
+    reps: overrides.reps ?? 0,
+    lapses: overrides.lapses ?? 0,
+    state: overrides.state ?? 0,
+    lastReview: overrides.lastReview ?? now,
+    elapsedDays: overrides.elapsedDays ?? 0,
+    scheduledDays: overrides.scheduledDays ?? 1,
+    learning_step: overrides.learning_step ?? 0,
+    priority: overrides.priority ?? 50,
+    type: overrides.type ?? ('item' as CardType),
+    tags: overrides.tags ?? [],
+    leechCount: overrides.leechCount ?? 0,
+    isLeech: overrides.isLeech ?? false,
+    skipped: overrides.skipped ?? false,
+    createdAt: overrides.createdAt ?? now,
+    updatedAt: overrides.updatedAt ?? now,
+    xiuyuanID: overrides.xiuyuanID ?? xiuyuanId,
+    templateID: overrides.templateID ?? 'builtin-quick-card',
+    frontBlockIDs: overrides.frontBlockIDs ?? [`block-${cardId}`],
+    backBlockIDs: overrides.backBlockIDs ?? [],
+    xiuyuanPriority: overrides.xiuyuanPriority ?? 50,
+    meta: overrides.meta,
   };
 }
 
@@ -161,6 +162,60 @@ describe('UnifiedStorageManager sync conflict resolution', () => {
     expect(remoteStore.cardDTOs?.['card-a']).toBeUndefined();
     expect(remoteStore.deletedCardDTOs?.['card-a']).toBeDefined();
     expect(managerB.getCardDTO('card-a')).toBeUndefined();
+  });
+
+  it('merge strategy preserves remote review-owned scheduling against stale local snapshots', async () => {
+    const managerA = createManager('merge');
+    const managerB = createManager('merge');
+    await managerA.load();
+
+    const reviewedAt = 1_779_590_000_000;
+    const xiuyuan = createXiuyuan('xy-review');
+    await managerA.createCardDTO(xiuyuan, createDTO('card-review', 'xy-review', {
+      due: reviewedAt + 60_000,
+      reps: 1,
+      state: CardState.Review,
+      lastReview: reviewedAt,
+      scheduledDays: 1,
+      stability: 1,
+      difficulty: 5,
+      updatedAt: reviewedAt,
+    }));
+    await managerA.save();
+
+    await managerB.load();
+
+    await managerA.updateCardDTO(createDTO('card-review', 'xy-review', {
+      due: reviewedAt + 22 * 86_400_000,
+      reps: 8,
+      state: CardState.Review,
+      lastReview: reviewedAt,
+      scheduledDays: 22,
+      stability: 19,
+      difficulty: 2,
+      updatedAt: reviewedAt + 1_000,
+    }), {
+      preferIncomingScheduling: true,
+      schedulingWriteSource: 'review-commit',
+    });
+    await managerA.save();
+
+    managerB.addToRiffBlacklist('block-local-only');
+    await managerB.save();
+
+    expect(remoteStore.cardDTOs?.['card-review']).toMatchObject({
+      reps: 8,
+      lastReview: reviewedAt,
+      scheduledDays: 22,
+      stability: 19,
+      difficulty: 2,
+      updatedAt: reviewedAt + 1_000,
+    });
+    expect(managerB.getCardDTO('card-review')).toMatchObject({
+      reps: 8,
+      scheduledDays: 22,
+    });
+    expect(remoteStore.riffBlacklist).toContain('block-local-only');
   });
 
   it('keeps local snapshot when remote snapshot was last written by the same instance', async () => {
