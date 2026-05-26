@@ -43,6 +43,7 @@ import type {
   QueueBrowserSnapshotQuery,
   QueueBrowserSnapshotResult,
 } from '../queries/browser/queue-browser-query';
+import type { QueueProjectionReadiness, QueueProjectionReadinessRequest } from '../../../packages/contracts/src/backend-rpc';
 import type {
   IBrowserApplicationService,
   BrowserQueueCountsRequest,
@@ -281,6 +282,39 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       throw new Error('QueueBrowserQueryKernel is unavailable without UnifiedDataSourceManager');
     }
     return this.queueBrowserQueryKernel.getQueueRowsByIds(queueId, ids);
+  }
+
+  async ensureQueueReadModelReady(request: QueueProjectionReadinessRequest): Promise<QueueProjectionReadiness> {
+    const queueType = resolveQueueTypeForBrowserQueueId(resolveBrowserQueueIdForQueueType(request.queueType as QueueType) ?? request.queueType);
+    if (!queueType || !this.unifiedDataSourceManager) {
+      return {
+        status: 'unavailable',
+        queueId: String(request.queueType || ''),
+        policyId: 'browser-queue-read-model',
+        cause: 'invalid_queue',
+        reason: `Browser queue read model is unavailable for ${String(request.queueType || '')}`,
+        recoverable: false,
+      };
+    }
+    try {
+      this.unifiedDataSourceManager.getQueue(queueType);
+      return {
+        status: 'ready',
+        queueId: queueType,
+        policyId: 'browser-queue-read-model',
+        generation: 1,
+      };
+    } catch (error) {
+      return {
+        status: 'unavailable',
+        queueId: queueType,
+        policyId: 'browser-queue-read-model',
+        cause: 'backend_unavailable',
+        reason: error instanceof Error ? error.message : String(error),
+        recoverable: true,
+        retryAfterMs: 300,
+      };
+    }
   }
 
   async getDueCount(): Promise<number> {

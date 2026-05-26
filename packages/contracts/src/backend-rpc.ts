@@ -1967,6 +1967,7 @@ export interface BackendQueueProjectionSnapshotRequest {
   generation?: number | null;
   limit?: number | null;
   offset?: number | null;
+  allowStale?: boolean | null;
 }
 
 export type QueueProjectionReadinessCause =
@@ -2075,6 +2076,7 @@ export interface BackendQueueProjectionSnapshotResult {
   rows: BackendQueueProjectionSnapshotRow[];
   counters: BackendReviewFeedbackQueueImpactCounters | null;
   freshness?: BackendQueueProjectionFreshnessEvidence | null;
+  stale?: boolean;
 }
 
 export interface BackendQueueProjectionRowsByIdsResult {

@@ -42,6 +42,7 @@ import type {
 import type { BrowserQueueId } from '@/types/browser-queue-identity';
 export type { BrowserQueueId } from '@/types/browser-queue-identity';
 import type { BrowserSiyuanPort } from '../ports/BrowserSiyuanPort';
+import type { QueueProjectionReadiness, QueueProjectionReadinessRequest } from '../../../packages/contracts/src/backend-rpc';
 
 export interface BrowserQueueCountsRequest {
   forceRefresh?: boolean;
@@ -117,6 +118,12 @@ export interface IBrowserApplicationService {
   getQueueQuerySnapshot(query: QueueBrowserSnapshotQuery): Promise<QueueBrowserSnapshotResult>;
 
   getQueueRowsByIds(queueId: BrowserQueueId, ids: string[]): Promise<BrowserCard[]>;
+
+  /**
+   * Readiness gate for Browser queue read model. This is separate from Review
+   * queue projection readiness.
+   */
+  ensureQueueReadModelReady?(request: QueueProjectionReadinessRequest): Promise<QueueProjectionReadiness>;
   
   /**
    * 获取到期卡片数量

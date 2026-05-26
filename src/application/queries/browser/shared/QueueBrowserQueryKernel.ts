@@ -6,12 +6,11 @@ import {
   resolveBrowserQueueIdentity,
   type BrowserQueueId,
 } from '@/types/browser-queue-identity';
-import type { QueueSnapshotRow } from '@/types/queue-browser';
 import { createLogger } from '@/utils/logger';
-import { resolveBrowserCardStableId, type BrowserCard } from '@/types/browser';
+import type { BrowserCard } from '@/types/browser';
 import {
-  applyQueueFiltersToSnapshotRows,
-  sortQueueSnapshotRows,
+  applyQueueFilters,
+  sortBrowserRows,
   type QuerySecondaryField,
 } from './BrowserRowUtils';
 import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
@@ -36,9 +35,8 @@ export class QueueBrowserQueryKernel {
   ) {}
 
   async buildSnapshot(query: QueueBrowserSnapshotQuery): Promise<QueueBrowserSnapshotResult> {
-    const queue = this.resolveQueue(query.queueId);
-    const rows = await this.markMissingRows(await queue.getSnapshotRows(query.forceRefresh === true));
-    const filteredRows = applyQueueFiltersToSnapshotRows(
+    const rows = await this.readBrowserQueueRows(query.queueId);
+    const filteredRows = applyQueueFilters(
       rows,
       {
         docId: query.docId,
@@ -49,7 +47,7 @@ export class QueueBrowserQueryKernel {
       },
       this.resolveQuerySecondaryField(query.queueId),
     );
-    const sortedRows = sortQueueSnapshotRows(filteredRows, query.sortModel || []);
+    const sortedRows = sortBrowserRows(filteredRows, query.sortModel || []);
 
     logger.debug('Queue browser snapshot built', {
       queueId: query.queueId,
@@ -72,12 +70,11 @@ export class QueueBrowserQueryKernel {
       return [];
     }
 
-    const queue = this.resolveQueue(queueId);
-    const rows = await this.markMissingRows(await queue.getSnapshotRows());
-    const rowById = new Map<string, QueueSnapshotRow>();
+    const rows = await this.readBrowserQueueRows(queueId);
+    const rowById = new Map<string, BrowserCard>();
     for (const row of rows) {
       const snapshotId = String(row.id || '').trim();
-      const fsrsCardId = String(row.fsrsCardId || '').trim();
+      const fsrsCardId = String(row.fsrsCardId || row.id || '').trim();
       if (snapshotId) {
         rowById.set(snapshotId, row);
       }
@@ -86,24 +83,9 @@ export class QueueBrowserQueryKernel {
       }
     }
 
-    const cards = await queue.getCardsBySnapshotIds(orderedIds);
-    const browserRows = cards.map((card) => {
-      const snapshotRow = rowById.get(String(card.riffCardId || card.id || '').trim());
-      return mapQueueFsrsCardToBrowserCard(card, {
-        firstReviewMode: isRetrievalBrowserQueue(queueId) ? 'created-or-last' : 'last-review',
-        queueIndex: snapshotRow?.queueIndex,
-        blockType: snapshotRow?.blockType,
-      });
-    });
-
-    const browserRowById = new Map<string, typeof browserRows[number]>();
-    for (const row of browserRows) {
-      browserRowById.set(resolveBrowserCardStableId(row), row);
-    }
-
     return orderedIds
-      .map((id) => browserRowById.get(id))
-      .filter((row): row is typeof browserRows[number] => Boolean(row));
+      .map((id) => rowById.get(id))
+      .filter((row): row is BrowserCard => Boolean(row));
   }
 
   private resolveQueue(queueId: BrowserQueueId) {
@@ -123,7 +105,17 @@ export class QueueBrowserQueryKernel {
     return 'headline';
   }
 
-  private async markMissingRows(rows: QueueSnapshotRow[]): Promise<QueueSnapshotRow[]> {
+  private async readBrowserQueueRows(queueId: BrowserQueueId): Promise<BrowserCard[]> {
+    const queue = this.resolveQueue(queueId);
+    const cards = await queue.getCards();
+    const rows = cards.map((card, index) => mapQueueFsrsCardToBrowserCard(card, {
+      firstReviewMode: isRetrievalBrowserQueue(queueId) ? 'created-or-last' : 'last-review',
+      queueIndex: index + 1,
+    }));
+    return this.markMissingRows(rows);
+  }
+
+  private async markMissingRows(rows: BrowserCard[]): Promise<BrowserCard[]> {
     if (this.sourceExistencePort?.getSourceExistenceByBlockIds) {
       scheduleSourceExistenceRefresh(
         this.sourceExistencePort,
@@ -138,7 +130,7 @@ export class QueueBrowserQueryKernel {
     return markMissingBlockRows(rows, this.siyuanApi);
   }
 
-  private toLiteRow(row: QueueSnapshotRow): QueueBrowserLiteRow {
+  private toLiteRow(row: BrowserCard): QueueBrowserLiteRow {
     const fsrsCardId = String(row.fsrsCardId || '').trim();
     return {
       id: fsrsCardId || String(row.id || '').trim(),

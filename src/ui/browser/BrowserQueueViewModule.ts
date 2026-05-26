@@ -136,25 +136,37 @@ export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
         }
       : null;
 
-    if (queueType !== QueueType.NeuralRoam && readinessRequest && typeof manager.ensureQueueProjectionReady === 'function') {
+    if (
+      queueType !== QueueType.NeuralRoam
+      && readinessRequest
+      && typeof request.browserAppService?.ensureQueueReadModelReady === 'function'
+    ) {
       const retryIdentity = normalizeReadinessIdentity(readinessRequest);
-      void manager.ensureQueueProjectionReady(readinessRequest)
-        .then((readiness) => {
-          const logFingerprint = [
-            readiness.status,
-            readiness.queueId,
-            readiness.policyId,
-            readiness.cause,
-            readiness.retryAfterMs ?? null,
-          ].join(':');
-          if (readinessLogFingerprint.get(retryIdentity) !== logFingerprint) {
-            readinessLogFingerprint.set(retryIdentity, logFingerprint);
-            deps.logger.info('[SiYuanMemo][SRSBrowser] Queue projection is preparing', readiness);
-          }
-        })
-        .catch((error) => {
-          deps.logger.error('[SiYuanMemo][SRSBrowser] Queue projection readiness check failed', error);
-        });
+      const readiness = await request.browserAppService.ensureQueueReadModelReady(readinessRequest);
+      const logFingerprint = [
+        readiness.status,
+        readiness.queueId,
+        readiness.policyId,
+        readiness.status === 'ready' ? readiness.generation : readiness.cause,
+        readiness.status !== 'ready' ? readiness.retryAfterMs ?? null : null,
+      ].join(':');
+      if (readinessLogFingerprint.get(retryIdentity) !== logFingerprint) {
+        readinessLogFingerprint.set(retryIdentity, logFingerprint);
+        deps.logger.info('[SiYuanMemo][SRSBrowser] Browser queue read model readiness', readiness);
+      }
+      if (readiness.status === 'refreshing') {
+        return {
+          status: 'refreshing',
+          retryDelayMs: readiness.retryAfterMs ?? null,
+          keepLoading: true,
+        };
+      }
+      if (readiness.status === 'unavailable') {
+        return {
+          status: 'unavailable',
+          message: readiness.reason || `Queue ${queueType} is unavailable`,
+        };
+      }
     }
 
     const datasource = createQueueDataSource(

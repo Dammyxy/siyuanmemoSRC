@@ -154,6 +154,55 @@ function rowToGeneration(row: QueueProjectionGenerationRecord): QueueProjectionG
   };
 }
 
+function readLastReadyGenerationMetadata(generation: QueueProjectionGeneration | null): QueueProjectionGeneration | null {
+  if (!generation) {
+    return null;
+  }
+  if (generation.status === 'ready') {
+    return generation;
+  }
+  const candidate = generation.metadata?.lastReadyGeneration;
+  if (!candidate || typeof candidate !== 'object') {
+    return null;
+  }
+  const record = candidate as Record<string, unknown>;
+  const policyHash = String(record.policyHash || '').trim();
+  const sourceGeneration = Math.floor(Number(record.generation));
+  if (!policyHash || !Number.isFinite(sourceGeneration) || sourceGeneration <= 0) {
+    return null;
+  }
+  return {
+    queueType: generation.queueType,
+    policyHash,
+    generation: sourceGeneration,
+    status: 'ready',
+    rebuildReason: null,
+    updatedAt: Math.max(0, Math.floor(Number(record.updatedAt || generation.updatedAt))),
+    metadata: typeof record.metadata === 'object' && record.metadata !== null
+      ? { ...(record.metadata as Record<string, unknown>) }
+      : {},
+  };
+}
+
+function withLastReadyGenerationMetadata(
+  metadata: Record<string, unknown>,
+  current: QueueProjectionGeneration | null,
+): Record<string, unknown> {
+  const lastReady = readLastReadyGenerationMetadata(current);
+  if (!lastReady) {
+    return { ...metadata };
+  }
+  return {
+    ...metadata,
+    lastReadyGeneration: {
+      policyHash: lastReady.policyHash,
+      generation: lastReady.generation,
+      updatedAt: lastReady.updatedAt,
+      metadata: lastReady.metadata,
+    },
+  };
+}
+
 function rowToInvalidation(row: QueueProjectionInvalidationRow): QueueProjectionInvalidationRecord {
   return {
     id: row.id,
@@ -260,6 +309,10 @@ export class SqlQueueProjectionRepository implements QueueProjectionRepositoryPo
     return row ? rowToGeneration(row) : null;
   }
 
+  readLastReadyGeneration(queueType: QueueType): QueueProjectionGeneration | null {
+    return readLastReadyGenerationMetadata(this.readGeneration(queueType));
+  }
+
   listInvalidations(queueType: QueueType, limit = 50): QueueProjectionInvalidationRecord[] {
     const rows = this.database.getAll<QueueProjectionInvalidationRow>(
       `SELECT id, queue_type, reason, affected_card_ids_json, affected_block_ids_json, generation, created_at, metadata_json
@@ -357,7 +410,7 @@ export class SqlQueueProjectionRepository implements QueueProjectionRepositoryPo
         status: 'invalidated',
         rebuildReason: input.reason,
         updatedAt: createdAt,
-        metadata: input.metadata || {},
+        metadata: withLastReadyGenerationMetadata(input.metadata || {}, current),
       });
       return record;
     });
@@ -405,7 +458,7 @@ export class SqlQueueProjectionRepository implements QueueProjectionRepositoryPo
       status: command.reason === 'repair' ? 'repairing' : 'rebuilding',
       rebuildReason: command.reason,
       updatedAt: startedAt,
-      metadata: command.metadata || {},
+      metadata: withLastReadyGenerationMetadata(command.metadata || {}, this.readGeneration(command.queueType)),
     });
     return record;
   }

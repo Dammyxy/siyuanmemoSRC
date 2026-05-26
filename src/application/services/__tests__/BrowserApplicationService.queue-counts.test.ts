@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BrowserApplicationService } from '../BrowserApplicationService';
 import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
+import { CardState, CardType } from '@/types/card';
 
 type QueueMock = {
   getCounterSnapshot: ReturnType<typeof vi.fn>;
   getSnapshotRows: ReturnType<typeof vi.fn>;
+  getCards: ReturnType<typeof vi.fn>;
   getRemainingSize: ReturnType<typeof vi.fn>;
   getStats: ReturnType<typeof vi.fn>;
   getSize: ReturnType<typeof vi.fn>;
@@ -50,6 +52,35 @@ function createQueue(
         id: `row-${index}`,
         fsrsCardId: `card-${index}`,
         blockId: `block-${index}`,
+      })),
+    ),
+    getCards: vi.fn().mockResolvedValue(
+      Array.from({ length: snapshotRowCount }, (_, index) => ({
+        id: `card-${index}`,
+        xiuyuanID: '',
+        blockId: `block-${index}`,
+        due: Date.now(),
+        stability: 3,
+        difficulty: 4,
+        reps: 1,
+        lapses: 0,
+        state: CardState.Review,
+        lastReview: Date.now() - 60_000,
+        elapsedDays: 1,
+        scheduledDays: 2,
+        priority: 50,
+        type: CardType.Item,
+        tags: [],
+        leechCount: 0,
+        isLeech: false,
+        skipped: false,
+        createdAt: Date.now() - 120_000,
+        updatedAt: Date.now(),
+        meta: {
+          content: `card-${index}`,
+          rootId: 'doc-a',
+          deckId: 'deck-a',
+        },
       })),
     ),
     getSize: vi.fn().mockResolvedValue(fallbackSize),
@@ -133,15 +164,15 @@ describe('BrowserApplicationService queue counts', () => {
       'incremental-learning': 29,
     });
 
-    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(retrievalQueue.getCards).toHaveBeenCalledTimes(1);
     expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
-    expect(finalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(finalQueue.getCards).toHaveBeenCalledTimes(1);
     expect(finalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
     expect(neuralQueue.getConceptBlocks).toHaveBeenCalledTimes(1);
     expect(neuralQueue.getCounterSnapshot).not.toHaveBeenCalled();
-    expect(filterQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(filterQueue.getCards).toHaveBeenCalledTimes(1);
     expect(filterQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
-    expect(incrementalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(incrementalQueue.getCards).toHaveBeenCalledTimes(1);
     expect(incrementalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
     expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
   });
@@ -156,7 +187,7 @@ describe('BrowserApplicationService queue counts', () => {
     });
 
     expect(counts.retrieval).toBe(6);
-    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledWith(true);
+    expect(retrievalQueue.getCards).toHaveBeenCalledTimes(1);
     expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
     expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
     expect(retrievalQueue.getSize).not.toHaveBeenCalled();
@@ -194,13 +225,9 @@ describe('BrowserApplicationService queue counts', () => {
 
   it('retries a transient projection-backed count read before caching a value', async () => {
     const retrievalQueue = createQueue(11, 11, 11);
-    retrievalQueue.getSnapshotRows
+    retrievalQueue.getCards
       .mockRejectedValueOnce(new Error('QUEUE_PROJECTION_UNAVAILABLE: projection unavailable'))
-      .mockResolvedValueOnce(Array.from({ length: 11 }, (_, index) => ({
-        id: `row-${index}`,
-        fsrsCardId: `card-${index}`,
-        blockId: `block-${index}`,
-      })));
+      .mockResolvedValueOnce(createQueue(11).getCards());
     manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
       if (queueType === QueueType.RetrievalPractice) {
         return [{
@@ -222,7 +249,7 @@ describe('BrowserApplicationService queue counts', () => {
     });
 
     expect(counts.retrieval).toBe(11);
-    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(2);
+    expect(retrievalQueue.getCards).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the last known projection-backed queue count when a refresh is temporarily unavailable', async () => {
@@ -248,7 +275,7 @@ describe('BrowserApplicationService queue counts', () => {
     });
     expect(initialCounts.retrieval).toBe(3);
 
-    retrievalQueue.getSnapshotRows.mockRejectedValueOnce(new Error('QUEUE_PROJECTION_UNAVAILABLE: projection unavailable'));
+    retrievalQueue.getCards.mockRejectedValueOnce(new Error('QUEUE_PROJECTION_UNAVAILABLE: projection unavailable'));
 
     const refreshedCounts = await service.getQueueCounts({
       forceRefresh: true,
@@ -263,7 +290,7 @@ describe('BrowserApplicationService queue counts', () => {
   it('keeps other queue counts when one projection-backed count remains temporarily unavailable', async () => {
     const retrievalQueue = createQueue(5, 5, 11);
     const incrementalQueue = createQueue(3, 3, 3);
-    retrievalQueue.getSnapshotRows.mockRejectedValue(new Error('QUEUE_PROJECTION_UNAVAILABLE: projection unavailable'));
+    retrievalQueue.getCards.mockRejectedValue(new Error('QUEUE_PROJECTION_UNAVAILABLE: projection unavailable'));
     manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
       if (queueType === QueueType.RetrievalPractice) {
         return [{
@@ -287,14 +314,14 @@ describe('BrowserApplicationService queue counts', () => {
 
     expect(counts.retrieval).toBe(0);
     expect(counts['incremental-learning']).toBe(3);
-    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(2);
+    expect(retrievalQueue.getCards).toHaveBeenCalledTimes(2);
     expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
     expect(retrievalQueue.getSize).not.toHaveBeenCalled();
   });
 
   it('fails closed instead of trying alternate size APIs when non-projection snapshot reads fail', async () => {
     const retrievalQueue = createQueue(1, 1, 11);
-    retrievalQueue.getSnapshotRows.mockRejectedValueOnce(new Error('boom'));
+    retrievalQueue.getCards.mockRejectedValueOnce(new Error('boom'));
     queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
 
     await expect(service.getQueueCounts({
@@ -358,11 +385,11 @@ describe('BrowserApplicationService queue counts', () => {
     queueByType.set(QueueType.IncrementalLearning, incrementalQueue);
 
     await service.getQueueCounts();
-    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
-    expect(finalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(retrievalQueue.getCards).toHaveBeenCalledTimes(1);
+    expect(finalQueue.getCards).toHaveBeenCalledTimes(1);
 
-    retrievalQueue.getSnapshotRows.mockClear();
-    finalQueue.getSnapshotRows.mockClear();
+    retrievalQueue.getCards.mockClear();
+    finalQueue.getCards.mockClear();
 
     const counts = await service.getQueueCounts({
       forceRefresh: true,
@@ -371,8 +398,7 @@ describe('BrowserApplicationService queue counts', () => {
 
     expect(counts.retrieval).toBe(1);
     expect(counts['final-drill']).toBe(2);
-    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
-    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledWith(true);
-    expect(finalQueue.getSnapshotRows).not.toHaveBeenCalled();
+    expect(retrievalQueue.getCards).toHaveBeenCalledTimes(1);
+    expect(finalQueue.getCards).not.toHaveBeenCalled();
   });
 });

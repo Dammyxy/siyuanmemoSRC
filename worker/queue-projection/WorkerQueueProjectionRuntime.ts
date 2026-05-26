@@ -43,7 +43,7 @@ export type WorkerQueueProjectionRuntimeDeps = {
   repository: Pick<SqlUnifiedStorageRepository, 'getCardsByIds'>;
   queueProjection: Pick<
     SqlQueueProjectionRepository,
-    'readGeneration' | 'readCounters' | 'readRows' | 'replaceQueueProjection'
+    'readGeneration' | 'readLastReadyGeneration' | 'readCounters' | 'readRows' | 'replaceQueueProjection'
   > | null;
   runtime: Pick<RuntimeSqliteDatabaseService, 'runTransaction'>;
 };
@@ -59,7 +59,12 @@ export class WorkerQueueProjectionRuntime {
       return buildUnavailableProjectionSnapshotResult(request.queueType);
     }
 
-    const generation = this.deps.queueProjection.readGeneration(queueType);
+    const currentGeneration = this.deps.queueProjection.readGeneration(queueType);
+    const generation = currentGeneration?.status === 'ready'
+      ? currentGeneration
+      : request.allowStale === true
+        ? this.deps.queueProjection.readLastReadyGeneration(queueType)
+        : currentGeneration;
     if (!generation) {
       return buildUnavailableProjectionSnapshotResult(queueType);
     }
@@ -87,7 +92,7 @@ export class WorkerQueueProjectionRuntime {
     });
     const cards = this.deps.repository.getCardsByIds(rows.map((row) => row.cardId));
     const hydrated = buildProjectionSnapshotRows(rows, cards);
-    if (!hydrated.freshnessOk) {
+    if (hydrated.freshness.staleRows > 0 || (hydrated.rows.length === 0 && rows.length > 0)) {
       return {
         queueType,
         policyHash,
@@ -112,6 +117,7 @@ export class WorkerQueueProjectionRuntime {
         rows: hydrated.rows,
       }),
       freshness: hydrated.freshness,
+      stale: currentGeneration?.status !== 'ready' && request.allowStale === true,
     };
   }
 

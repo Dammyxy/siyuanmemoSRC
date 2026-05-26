@@ -69,11 +69,15 @@ function buildSnapshotRow(id: string, overrides: Partial<QueueSnapshotRow> = {})
 }
 
 describe('BrowserApplicationService queue query path', () => {
-  it('routes queue snapshot and hydrate calls through the queue kernel', async () => {
+  it('routes Browser queue rows through the queue read model without projection snapshots', async () => {
     const queue = {
       getSnapshotRows: vi.fn(async () => [
         buildSnapshotRow('row-a', { fsrsCardId: 'card-a', priority: 10, queueIndex: 2 }),
         buildSnapshotRow('row-b', { fsrsCardId: 'card-b', priority: 90, queueIndex: 1 }),
+      ]),
+      getCards: vi.fn(async () => [
+        buildCard('card-a', { priority: 10, riffCardId: 'row-a' }),
+        buildCard('card-b', { priority: 90, riffCardId: 'row-b' }),
       ]),
       getCardsBySnapshotIds: vi.fn(async (ids: string[]) => {
         const cardById = new Map([
@@ -116,8 +120,8 @@ describe('BrowserApplicationService queue query path', () => {
         ATTR_CARD_TYPE: 'custom-fsrs-card-type',
         ATTR_A_FACTOR: 'custom-fsrs-a-factor',
         sql: vi.fn(async () => [
-          { id: 'block-row-a' },
-          { id: 'block-row-b' },
+          { id: 'block-card-a' },
+          { id: 'block-card-b' },
         ]),
         setBlockAttrs: vi.fn(),
         pushMsg: vi.fn(),
@@ -130,10 +134,12 @@ describe('BrowserApplicationService queue query path', () => {
       sortModel: [{ colId: 'priority', sort: 'desc' }],
     });
     expect(snapshot.rows.map((row) => row.id)).toEqual(['card-b', 'card-a']);
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
 
     const rows = await service.getQueueRowsByIds('retrieval', ['card-a', 'card-b']);
     expect(rows.map((row) => row.fsrsCardId)).toEqual(['card-a', 'card-b']);
-    expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith(['card-a', 'card-b']);
+    expect(queue.getCards).toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
   });
 
   it('createDataSource wires queue datasources back to browser service methods', async () => {

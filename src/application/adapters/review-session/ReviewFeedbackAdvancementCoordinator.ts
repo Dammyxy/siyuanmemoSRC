@@ -88,11 +88,6 @@ export class ReviewFeedbackAdvancementCoordinator {
       return { kind: 'learn-ahead', learnAheadSession };
     }
 
-    if (this.usesRequeryAfterFeedback()) {
-      this.applyRequeryTransition(input.activeItem);
-      return { kind: 'requery' };
-    }
-
     const excludeFromCurrentSession = this.shouldExcludeReviewedCardFromSession(input.feedback);
     if (excludeFromCurrentSession) {
       this.deps.cursor.addSessionExcludedCardIdentity(input.activeItem);
@@ -101,6 +96,20 @@ export class ReviewFeedbackAdvancementCoordinator {
     const projectionPatchOutcome = await this.deps.applyProjectionQueueImpact(input.activeItem, input.reviewResult, {
       forceRemove: excludeFromCurrentSession,
     });
+    if (this.usesRequeryAfterFeedback()) {
+      if (projectionPatchOutcome === 'patched') {
+        this.applyRequeryTransition(input.activeItem, { invalidate: false });
+        this.deps.cursor.markValid();
+        return { kind: 'projection-patched' };
+      }
+      if (projectionPatchOutcome === 'refresh-required') {
+        this.applyRequeryTransition(input.activeItem);
+        return { kind: 'projection-refresh-required' };
+      }
+      this.applyRequeryTransition(input.activeItem);
+      return { kind: 'requery' };
+    }
+
     if (projectionPatchOutcome === 'patched') {
       this.deps.cursor.clearPendingRotation();
       this.deps.cursor.markValid();
@@ -187,12 +196,14 @@ export class ReviewFeedbackAdvancementCoordinator {
     this.deps.invalidateCache();
   }
 
-  private applyRequeryTransition(activeItem: FSRSCard): void {
+  private applyRequeryTransition(activeItem: FSRSCard, options: { invalidate?: boolean } = {}): void {
     this.deps.cursor.clearForward();
     this.deps.currentItem.clear();
     this.deps.cursor.clearPendingRotation();
     this.deps.cursor.resetIndex();
-    this.deps.invalidateCache();
+    if (options.invalidate !== false) {
+      this.deps.invalidateCache();
+    }
     this.deps.cursor.setAvoidOnce(activeItem);
   }
 

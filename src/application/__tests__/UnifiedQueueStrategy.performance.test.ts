@@ -730,6 +730,117 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith(['leech-card-2']);
   });
 
+  it('hot-patches incremental-learning projection queueImpact before falling back to requery reload', async () => {
+    const firstCard = createCard({ id: 'incremental-card-1', blockId: 'incremental-block-1', priority: 10 });
+    const secondCard = createCard({ id: 'incremental-card-2', blockId: 'incremental-block-2', priority: 20 });
+    const queue = createQueueStub(QueueType.IncrementalLearning, [firstCard, secondCard], {
+      handleReview: async (cardId, _rating, liveCards) => {
+        const projectionImpactEntry = {
+          queueType: QueueType.IncrementalLearning,
+          policyHash: 'policy-incremental',
+          generation: 2,
+          currentGeneration: 2,
+          requestedGeneration: 1,
+          hotPatchable: true,
+          refreshRequired: false,
+          reason: 'review-feedback',
+          removedRowIds: ['incremental-card-1'],
+          insertedRows: [],
+          updatedRows: [{
+            rowId: 'incremental-card-2',
+            cardId: 'incremental-card-2',
+            blockId: 'incremental-block-2',
+            queueIndexHint: 1,
+            sortKey: '000000001:incremental-card-2',
+          }],
+          reorderHints: [],
+          counterGeneration: 2,
+          counters: {
+            version: 2,
+            remaining: 1,
+            due: 1,
+            total: 1,
+            buckets: {
+              all: 1,
+              item: 1,
+              descriptor: 0,
+              topic: 0,
+              concept: 0,
+            },
+            source: 'reconciled',
+          },
+        };
+        const removedIndex = liveCards.findIndex((card) => card.id === cardId);
+        if (removedIndex >= 0) {
+          liveCards.splice(removedIndex, 1);
+        }
+        return {
+          updatedCard: { ...firstCard, due: Date.now() + DAY_MS },
+          removedFromQueue: true,
+          remainsInQueue: false,
+          queueChanged: true,
+          requiresCurrentViewReorder: true,
+          queueImpact: {
+            hotPatchable: true,
+            refreshRequired: false,
+            affectedQueues: [projectionImpactEntry],
+          },
+          projectionAction: {
+            status: 'patch-applied',
+            queueType: QueueType.IncrementalLearning,
+            generation: 2,
+            policyHash: 'policy-incremental',
+            reason: 'review-feedback',
+          },
+          projectionImpactEntry,
+        } as Partial<QueueReviewResult>;
+      },
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, []);
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async (cardId: string) => {
+        const card = [firstCard, secondCard].find((candidate) => candidate.id === cardId);
+        if (!card) {
+          throw new Error('card not found');
+        }
+        return { ...card };
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
+        queueType: QueueType.IncrementalLearning,
+        projectionBacked: true,
+        state: 'backend-projection',
+        readPath: 'backend-projection',
+        reason: 'rollout-enabled',
+      }]),
+    };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.IncrementalLearning,
+      manager as never,
+      { subscribe: vi.fn() } as never,
+      null
+    );
+
+    const first = await strategy.next();
+    const getSnapshotRowsSpy = queue.getSnapshotRows as unknown as ReturnType<typeof vi.fn>;
+    getSnapshotRowsSpy.mockClear();
+
+    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    const second = await strategy.next();
+
+    expect(second?.id).toBe('incremental-card-2');
+    expect(getSnapshotRowsSpy).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith(['incremental-card-2']);
+  });
+
   it('uses projection counters for promoted neural-roam remaining size', async () => {
     const neuralCard = createCard({ id: 'neural-card-1', blockId: 'neural-block-1' });
     const queue = createQueueStub(QueueType.NeuralRoam, [neuralCard]);

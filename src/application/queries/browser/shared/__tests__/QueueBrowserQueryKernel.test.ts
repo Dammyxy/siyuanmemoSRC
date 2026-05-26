@@ -101,12 +101,13 @@ describe('QueueBrowserQueryKernel', () => {
       }),
     ];
     const cards = [
-      buildCard('card-a', { riffCardId: 'row-a', meta: { content: 'alpha', rootId: 'doc-a', deckId: 'deck-a' } }),
-      buildCard('card-b', { riffCardId: 'row-b', meta: { content: 'beta', rootId: 'doc-a', deckId: 'deck-a' } }),
+      buildCard('card-a', { riffCardId: 'row-a', priority: 10, meta: { content: queueId === 'incremental-learning' ? 'needle alpha' : 'alpha', rootId: 'doc-a', deckId: 'deck-a' } }),
+      buildCard('card-b', { riffCardId: 'row-b', priority: 90, meta: { content: queueId === 'incremental-learning' ? 'needle beta' : 'beta', rootId: 'doc-a', deckId: 'deck-a' } }),
       buildCard('card-c', { riffCardId: 'row-c', meta: { content: 'gamma', rootId: 'doc-other', deckId: 'deck-a' }, type: CardType.Descriptor }),
     ];
     const queue = {
       getSnapshotRows: vi.fn(async () => snapshotRows),
+      getCards: vi.fn(async () => cards),
       getCardsBySnapshotIds: vi.fn(async (ids: string[]) => {
         const cardById = new Map([
           ['card-a', cards[0]],
@@ -138,14 +139,18 @@ describe('QueueBrowserQueryKernel', () => {
 
     const hydrated = await kernel.getQueueRowsByIds(queueId, ['card-a', 'card-b']);
     expect(hydrated.map((row) => row.fsrsCardId)).toEqual(['card-a', 'card-b']);
-    expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith(['card-a', 'card-b']);
-    expect(queue.getSnapshotRows).toHaveBeenCalled();
+    expect(queue.getCards).toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
   });
 
-  it('passes forceRefresh through to the queue snapshot reader', async () => {
+  it('does not pass Browser forceRefresh into Review projection snapshots', async () => {
     const queue = {
       getSnapshotRows: vi.fn(async () => [
         buildSnapshotRow('row-a', { fsrsCardId: 'card-a' }),
+      ]),
+      getCards: vi.fn(async () => [
+        buildCard('card-a'),
       ]),
       getCardsBySnapshotIds: vi.fn(async () => []),
     };
@@ -159,7 +164,8 @@ describe('QueueBrowserQueryKernel', () => {
       forceRefresh: true,
     });
 
-    expect(queue.getSnapshotRows).toHaveBeenCalledWith(true);
+    expect(queue.getCards).toHaveBeenCalledTimes(1);
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
   });
 
   it('marks missing source blocks before queue filtering and hydration', async () => {
@@ -191,6 +197,7 @@ describe('QueueBrowserQueryKernel', () => {
     ];
     const queue = {
       getSnapshotRows: vi.fn(async () => snapshotRows),
+      getCards: vi.fn(async () => cards),
       getCardsBySnapshotIds: vi.fn(async (ids: string[]) => {
         const cardById = new Map([
           ['card-existing', cards[0]],
@@ -241,6 +248,10 @@ describe('QueueBrowserQueryKernel', () => {
     ];
     const queue = {
       getSnapshotRows: vi.fn(async () => snapshotRows),
+      getCards: vi.fn(async () => [
+        buildCard('card-existing', { blockId: 'block-existing' }),
+        buildCard('card-missing', { blockId: 'block-missing' }),
+      ]),
       getCardsBySnapshotIds: vi.fn(async () => []),
     };
     const manager = {

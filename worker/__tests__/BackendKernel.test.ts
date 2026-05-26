@@ -6798,6 +6798,70 @@ describe('BackendKernel', () => {
     expect(remainingRow?.count).toBe(0);
   });
 
+  it('updates projection rows and counter generation when reviewed card leaves incremental queue', async () => {
+    const reviewedAt = Date.now();
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'card-impact-incremental-remove',
+      blockId: 'block-impact-incremental-remove',
+      due: reviewedAt - 10_000,
+      lastReview: reviewedAt - 86_400_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 4,
+    });
+    await database.upsertCards([card]);
+    await seedQueueProjection(database, {
+      queueType: 'incremental-learning',
+      generation: 1,
+      rows: [card],
+      updatedAt: reviewedAt,
+    });
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-impact-incremental-remove',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-impact-incremental-remove',
+        rating: 4,
+        queueType: 'incremental-learning',
+        projectionGeneration: 1,
+        projectionPolicyHash: 'policy-a',
+        reviewedAt,
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        committed: true,
+        queueImpact: {
+          hotPatchable: true,
+          refreshRequired: false,
+          affectedQueues: [{
+            queueType: 'incremental-learning',
+            generation: 2,
+            removedRowIds: ['card-impact-incremental-remove'],
+            counterGeneration: 2,
+            counters: {
+              version: 2,
+              remaining: 0,
+              total: 0,
+            },
+          }],
+        },
+      });
+    }
+    const remainingRow = database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM queue_projection_rows WHERE queue_type = ? AND card_id = ?',
+      ['incremental-learning', 'card-impact-incremental-remove'],
+    );
+    expect(remainingRow?.count).toBe(0);
+  });
+
   it('rolls back review feedback card and log writes when projection impact persistence fails', async () => {
     const reviewedAt = Date.now();
     const persistenceBridge = createInMemorySqlitePersistenceBridge();

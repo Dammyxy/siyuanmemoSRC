@@ -25,7 +25,13 @@ function createRequest(overrides: Record<string, unknown> = {}) {
     activeDocId: null,
     activeQueueId: 'retrieval',
     activeScopeDocIds: null,
-    browserAppService: { getSiyuanApi: vi.fn(() => ({})) } as any,
+    browserAppService: {
+      getSiyuanApi: vi.fn(() => ({})),
+      ensureQueueReadModelReady: vi.fn(async () => ({
+        status: 'ready',
+        queueId: QueueType.RetrievalPractice,
+      })),
+    } as any,
     cardType: 'all' as any,
     currentPreset: 'all' as any,
     currentQueueType: QueueType.RetrievalPractice,
@@ -46,21 +52,31 @@ describe('BrowserQueueViewModule', () => {
     expect(resolveQueueTypeForBrowserQueueView('', QueueType.FinalDrill)).toBeNull();
   });
 
-  it('returns a datasource immediately and kicks readiness in background', async () => {
+  it('attaches a datasource when the Browser queue read model is ready', async () => {
     const manager = createManager([{
-      status: 'ready',
+      status: 'unavailable',
       queueId: QueueType.RetrievalPractice,
-      policyId: 'policy-a',
-      generation: 7,
+      policyId: 'review-projection',
+      cause: 'backend_unavailable',
+      recoverable: true,
+      reason: 'review projection down',
     }]);
+    const browserAppService = {
+      getSiyuanApi: vi.fn(() => ({})),
+      ensureQueueReadModelReady: vi.fn(async () => ({
+        status: 'ready',
+        queueId: QueueType.RetrievalPractice,
+      })),
+    };
     const module = createBrowserQueueViewModule({ logger: { info: vi.fn() } });
 
-    const result = await module.prepareQueueView(manager, createRequest());
+    const result = await module.prepareQueueView(manager, createRequest({ browserAppService }));
 
-    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledWith(expect.objectContaining({
+    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledWith(expect.objectContaining({
       queueType: QueueType.RetrievalPractice,
       source: 'browser',
     }));
+    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
     expect(result.status).toBe('ready');
     expect(result.status === 'ready' ? result.datasource.id : null).toBe('retrieval');
     expect(result.status === 'ready' ? result.projectionIdentity : null).toBeNull();
@@ -87,45 +103,27 @@ describe('BrowserQueueViewModule', () => {
     expect(result.status === 'ready' ? result.projectionIdentity : null).toBeNull();
   });
 
-  it('loads non-neural queue view without blocking on readiness', async () => {
-    const manager = createManager([
-      {
+  it('returns refreshing without attaching a datasource while Browser queue read model prepares', async () => {
+    const manager = createManager([]);
+    const browserAppService = {
+      getSiyuanApi: vi.fn(() => ({})),
+      ensureQueueReadModelReady: vi.fn(async () => ({
         status: 'refreshing',
         queueId: QueueType.RetrievalPractice,
-        policyId: 'policy-a',
-        cause: 'materialization_in_progress',
-        retryAfterMs: 111,
-      },
-      {
-        status: 'refreshing',
-        queueId: QueueType.RetrievalPractice,
-        policyId: 'policy-a',
         cause: 'materialization_in_progress',
         retryAfterMs: 222,
-      },
-      {
-        status: 'refreshing',
-        queueId: QueueType.RetrievalPractice,
-        policyId: 'policy-a',
-        cause: 'materialization_in_progress',
-        retryAfterMs: 333,
-      },
-      {
-        status: 'ready',
-        queueId: QueueType.RetrievalPractice,
-        policyId: 'policy-a',
-        generation: 8,
-      },
-    ]);
+      })),
+    };
     const module = createBrowserQueueViewModule({ logger: { info: vi.fn() } });
-    const request = createRequest();
+    const request = createRequest({ browserAppService });
 
     const first = await module.prepareQueueView(manager, request);
-    const second = await module.prepareQueueView(manager, request);
-    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(2);
-    expect(first.status).toBe('ready');
-    expect(first.status === 'ready' ? first.datasource.id : null).toBe('retrieval');
-    expect(second.status).toBe('ready');
+    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
+    expect(first).toEqual({
+      status: 'refreshing',
+      retryDelayMs: 222,
+      keepLoading: true,
+    });
   });
 
   it('loads neural-roam browser view even when projection readiness would still be refreshing', async () => {
@@ -172,23 +170,27 @@ describe('BrowserQueueViewModule', () => {
     expect(result.status === 'ready' ? result.projectionIdentity : null).toBeNull();
   });
 
-  it('loads queue view even when readiness reports unavailable later', async () => {
-    const manager = createManager([{
-      status: 'unavailable',
-      queueId: QueueType.RetrievalPractice,
-      policyId: 'policy-a',
-      cause: 'backend_unavailable',
-      recoverable: true,
-      reason: 'backend down',
-    }]);
+  it('returns unavailable without attaching a datasource when Browser queue read model is unavailable', async () => {
+    const manager = createManager([]);
+    const browserAppService = {
+      getSiyuanApi: vi.fn(() => ({})),
+      ensureQueueReadModelReady: vi.fn(async () => ({
+        status: 'unavailable',
+        queueId: QueueType.RetrievalPractice,
+        cause: 'backend_unavailable',
+        reason: 'backend down',
+        recoverable: true,
+      })),
+    };
     const module = createBrowserQueueViewModule({ logger: { info: vi.fn() } });
 
-    const result = await module.prepareQueueView(manager, createRequest());
+    const result = await module.prepareQueueView(manager, createRequest({ browserAppService }));
 
-    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(1);
-    expect(result.status).toBe('ready');
-    expect(result.status === 'ready' ? result.datasource.id : null).toBe('retrieval');
-    expect(result.status === 'ready' ? result.projectionIdentity : null).toBeNull();
+    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 'unavailable',
+      message: 'backend down',
+    });
   });
 
   it('plans live identity reattach only for newer visible matching queue events', () => {

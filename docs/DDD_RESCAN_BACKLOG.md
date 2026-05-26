@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-27 (Round 472)
+Last update: 2026-05-27 (Round 474)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-27 - Browser Queue Read Model Decoupling
+
+- Task: Fix Browser incremental-learning queue view opening slowly/not opening while Review queue projection is unavailable, and complete P0/P1/P2 queue projection architecture split.
+- Touched slice: Browser queue lifecycle, Browser queue query read model, queue projection runtime/storage; `BrowserQueueViewModule`, `BrowserApplicationService`, `QueueBrowserQueryKernel`, `WorkerQueueProjectionRuntime`, `SqlQueueProjectionRepository`, backend queue projection contracts.
+- Debt fixed now: Browser queue attach now waits on Browser queue read-model readiness instead of firing Review projection readiness in the background. Browser queue rows/counts now come from queue card facts plus query-time Browser filters/sort through `queue.getCards()`, not `queue.getSnapshotRows()` or projection policy identities. Projection invalidation/rebuild now preserves last-ready generation metadata, and Worker projection snapshot supports explicit `allowStale` soft reads while leaving default Review hard-stale behavior explicit.
+- Debt deferred: Browser queue read model still runs in renderer/application over queue card facts, not yet as a dedicated backend SQL read model with its own persisted identity and pagination cursor. Projection last-good history is stored as generation metadata over the existing single-row schema rather than a historical generation table.
+- Why deferred: This change removes the active blackout/race and row-authority coupling without introducing UI SQL fallback or a broad schema migration. A dedicated backend Browser read-model table can be added later behind the same application contract.
+- Next safe step: Add a backend Browser queue read-model port that pages directly from worker-owned card facts for very large queues, then compare parity with current application read model before switching.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/BrowserQueueViewModule.test.ts`; `pnpm vitest run src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts`; `pnpm vitest run worker/queue-projection/__tests__/WorkerQueueProjectionRuntime.test.ts`; pending full boundary/build at task close.
+
+### 2026-05-27 - Incremental Review Projection Hot Patch
+
+- Task: Fix incremental-learning Review where graded cards were removed locally but queue progression could reload a stale/unavailable projection and make the reviewed cards reappear or alternate.
+- Touched slice: Review feedback advancement and backend queue projection impact; `ReviewFeedbackAdvancementCoordinator`, `UnifiedQueueStrategy.performance.test.ts`, `BackendKernel.test.ts`.
+- Debt fixed now: IncrementalLearning now consumes hot-patchable backend projection `queueImpact` before falling back to requery reload. When the reviewed card leaves the projection, the cursor applies the projection row removal/counter update, keeps one-time avoid semantics, and avoids an immediate force-refresh reload that can resurrect stale rows while projection materialization is unavailable. Backend coverage now locks incremental-learning review feedback to remove projection rows and advance counter generation like the retrieval queue.
+- Debt deferred: Live DBs that already have divergent card/review/projection state still need the existing domain-sync repair flow. Skip remains requery-only. A typed backend unavailable contract for missing-card `review.feedback` remains a separate backend RPC slice.
+- Why deferred: This task fixes the active Review advancement root cause without hiding real live-data divergence or widening backend RPC contracts beyond the touched queue-impact path.
+- Next safe step: Rebuild/reload SiYuanMemo, run domain-sync repair once if diagnostics still report divergent live data, then review incremental-learning cards and confirm the due count and visible card advance without bouncing between the just-reviewed cards.
+- Validation: `pnpm exec vitest run src/application/__tests__/UnifiedQueueStrategy.performance.test.ts -t "hot-patches incremental-learning projection queueImpact before falling back to requery reload|requeries incremental learning"`; `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts -t "incremental queue|retrieval queue|stale incoming scheduling state|commits incremental-learning review feedback"`; `pnpm exec vitest run src/application/__tests__/UnifiedQueueStrategy.performance.test.ts worker/__tests__/BackendKernel.test.ts worker/db/__tests__/reviewSyncCardMergeDecision.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-27 - Review Ghost Current Item Eviction
 

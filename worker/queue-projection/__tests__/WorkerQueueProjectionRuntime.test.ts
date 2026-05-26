@@ -92,6 +92,7 @@ describe('WorkerQueueProjectionRuntime', () => {
           updatedAt: 1_700_000_000_000,
           metadata: {},
         })),
+        readLastReadyGeneration: vi.fn(() => null),
         readCounters: vi.fn((): QueueProjectionCounters => counters),
         readRows: vi.fn(() => rows),
         replaceQueueProjection: vi.fn(),
@@ -110,5 +111,73 @@ describe('WorkerQueueProjectionRuntime', () => {
       total: 1,
       due: 1,
     });
+  });
+
+  it('serves last-good projection only for soft-stale snapshot reads while current generation rebuilds', async () => {
+    const queueType = QueueType.IncrementalLearning;
+    const lastReady = {
+      queueType,
+      policyHash: 'policy-ready',
+      generation: 7,
+      status: 'ready' as const,
+      rebuildReason: null,
+      updatedAt: 1_700_000_000_000,
+      metadata: {},
+    };
+    const rebuilding = {
+      queueType,
+      policyHash: 'policy-next',
+      generation: 8,
+      status: 'invalidated' as const,
+      rebuildReason: 'review-feedback',
+      updatedAt: 1_700_000_001_000,
+      metadata: {
+        lastReadyGeneration: {
+          policyHash: 'policy-ready',
+          generation: 7,
+          updatedAt: 1_700_000_000_000,
+        },
+      },
+    };
+    const row = createProjectionRow({
+      policyHash: 'policy-ready',
+      sourceGeneration: 7,
+      rowId: 'row-ready',
+      cardId: 'card-active',
+    });
+    const counters = buildQueueProjectionCountersFromRows({
+      queueType,
+      policyHash: 'policy-ready',
+      generation: 7,
+      updatedAt: 1_700_000_000_000,
+      now: 1_700_000_000_000,
+      rows: [row],
+    });
+    const runtime = new WorkerQueueProjectionRuntime({
+      repository: {
+        getCardsByIds: vi.fn(() => [createCard()]),
+      },
+      queueProjection: {
+        readGeneration: vi.fn(() => rebuilding),
+        readLastReadyGeneration: vi.fn(() => lastReady),
+        readCounters: vi.fn((): QueueProjectionCounters => counters),
+        readRows: vi.fn(() => [row]),
+        replaceQueueProjection: vi.fn(),
+      },
+      runtime: {
+        runTransaction: vi.fn(async (_name, callback) => callback()),
+      },
+    });
+
+    const hard = await runtime.snapshot({ queueType });
+    expect(hard.status).toBe('invalidated');
+    expect(hard.rows).toEqual([]);
+
+    const soft = await runtime.snapshot({ queueType, allowStale: true });
+    expect(soft.status).toBe('ready');
+    expect(soft.policyHash).toBe('policy-ready');
+    expect(soft.generation).toBe(7);
+    expect(soft.stale).toBe(true);
+    expect(soft.rows.map((snapshotRow) => snapshotRow.fsrsCardId)).toEqual(['card-active']);
   });
 });
