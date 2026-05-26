@@ -1,4 +1,4 @@
-import type { FSRSCard } from '@/types/card';
+import { CardState, type FSRSCard } from '@/types/card';
 import { repairFsrsReviewState } from './fsrsReviewStateRepair';
 import {
   getPreferredSchedulerForCardType,
@@ -200,6 +200,15 @@ function canonicalizeTopicScheduling(
   card: FSRSCard & Record<string, unknown>,
   reasons: string[],
 ): FSRSCard & Record<string, unknown> {
+  if (shouldPromoteMatureLearningState(card)) {
+    card.state = CardState.Review;
+    reasons.push('state');
+    if (card.learning_step !== 0) {
+      card.learning_step = 0;
+      reasons.push('learning_step');
+    }
+  }
+
   const currentMeta = isObjectRecord(card.schedulerMeta) ? card.schedulerMeta : undefined;
   const currentTopicMeta = isObjectRecord(currentMeta?.topic) ? currentMeta.topic : undefined;
   const aFactor = clampAFactor(
@@ -227,6 +236,24 @@ function canonicalizeTopicScheduling(
   }
 
   return card;
+}
+
+function shouldPromoteMatureLearningState(card: Pick<FSRSCard, 'due' | 'lastReview' | 'reps' | 'scheduledDays' | 'stability' | 'state'>): boolean {
+  if (card.state !== CardState.Learning) {
+    return false;
+  }
+
+  const due = readFiniteNumber(card.due);
+  const lastReview = readFiniteNumber(card.lastReview);
+  const reps = readFiniteNumber(card.reps);
+  const scheduledDays = normalizePositiveInteger(card.scheduledDays, 0);
+  const stability = readFiniteNumber(card.stability);
+  const intervalDays = due !== undefined && lastReview !== undefined && due > lastReview
+    ? Math.max(1, Math.floor((due - lastReview) / DAY_MS))
+    : 0;
+  return (reps ?? 0) > 0
+    && (lastReview ?? 0) > 0
+    && Math.max(intervalDays, scheduledDays, stability ?? 0) >= 7;
 }
 
 function resolveCanonicalSchedulerType(card: Pick<FSRSCard, 'type' | 'schedulerType'>): SchedulerType {

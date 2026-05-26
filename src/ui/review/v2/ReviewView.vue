@@ -348,7 +348,10 @@ import { createReviewWriterRecoveryRuntime } from './reviewWriterRecoveryRuntime
 import { createReviewTabTransferRuntime } from './reviewTabTransferRuntime';
 import { resolveReviewKeyAction } from './reviewKeyActionResolver';
 import type { ReviewWriterUnavailableRecoveryNotice } from './reviewWriterUnavailableRecovery';
-import type { BackendNeuralRoamCommand } from '../../../../packages/contracts/src/backend-rpc';
+import type {
+  BackendNeuralRoamCommand,
+  BackendReviewSyncDivergenceAuditResult,
+} from '../../../../packages/contracts/src/backend-rpc';
 import {
   createReviewKernelTransactionWriterActionTracker,
   resolveReviewActionForKernelTransactionWriterUnavailable,
@@ -564,6 +567,7 @@ type ReviewPluginContextLike = {
   } | undefined;
   getUnifiedDataSourceManager?: () => IUnifiedDataSourceManagerFacade | null | undefined;
   readDomainSyncDiagnostics?: () => Promise<unknown>;
+  auditReviewSyncDivergence?: (request?: { cardIds?: string[]; limit?: number }) => Promise<BackendReviewSyncDivergenceAuditResult>;
 };
 
 type ReviewRuntimeSettingsLike = Pick<Partial<PluginSettings>,
@@ -1406,6 +1410,7 @@ async function ensureReviewDomainSyncSafeForAction(input: {
   item: ActiveReviewItem | null;
 }): Promise<void> {
   const context = getPluginContext(props.plugin);
+  const currentCardId = input.item?.id || input.item?.cardID || null;
   if (typeof context?.readDomainSyncDiagnostics !== 'function') {
     throw new Error('DOMAIN_SYNC_DIAGNOSTICS_UNAVAILABLE: Review feedback requires domain sync diagnostics');
   }
@@ -1413,9 +1418,26 @@ async function ensureReviewDomainSyncSafeForAction(input: {
   let blockedDecisionMessage: string | null = null;
   try {
     const status = await context.readDomainSyncDiagnostics();
-    const decision = buildReviewDomainSyncSafetyDecision(status as never);
+    const decision = buildReviewDomainSyncSafetyDecision(status as never, undefined, {
+      currentCardId,
+    });
     if (decision.canOpenReview) {
       return;
+    }
+    if (
+      currentCardId
+      && decision.kind === 'block-repairable'
+      && typeof context.auditReviewSyncDivergence === 'function'
+    ) {
+      const audit = await context.auditReviewSyncDivergence({ cardIds: [currentCardId], limit: 1 });
+      if (audit.reasons['review-history-newer-than-card-state'] <= 0) {
+        logger.info('[ReviewView] card-specific domain sync audit allows Review despite global repairable status', {
+          action: input.action.type,
+          cardId: currentCardId,
+          auditReasons: audit.reasons,
+        });
+        return;
+      }
     }
     blockedDecisionMessage = decision.message;
     await openManualSyncConflictResolutionDialog(context as never, {
@@ -1430,7 +1452,9 @@ async function ensureReviewDomainSyncSafeForAction(input: {
     if (blockedDecisionMessage) {
       throw new Error(blockedDecisionMessage);
     }
-    const decision = buildReviewDomainSyncSafetyDecision(null, error);
+    const decision = buildReviewDomainSyncSafetyDecision(null, error, {
+      currentCardId,
+    });
     await openManualSyncConflictResolutionDialog(context as never, {
       reviewBlockDecision: decision,
       diagnosticsUnavailableReason: decision.message,

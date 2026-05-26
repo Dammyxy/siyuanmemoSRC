@@ -133,6 +133,7 @@ export interface XiuyuanSqlReadPort {
   findById(id: string): IXiuyuan | null;
   findByBlockId(blockId: string): IXiuyuan[];
   getCardDTO(cardId: string): CardPersistenceDTO | null;
+  getCardDTOsByXiuyuanId(xiuyuanId: string): CardPersistenceDTO[];
 }
 
 type DeferredRepositorySideEffects = {
@@ -1162,7 +1163,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       : '';
     
     // 馃啎 鎻愬彇 typeMarker锛堢敤浜庡弻鍚戝崱鐗囪瘑鍒鍙嶉潰锛?
-    let typeMarker: string | undefined;
+    let typeMarker: string | undefined = typeof meta.typeMarker === 'string' ? meta.typeMarker : undefined;
     if (template && template.cardRules && template.cardRules[faceIndex]) {
       typeMarker = template.cardRules[faceIndex].typeMarker;
       logger.debug(`Extracted typeMarker for faceIndex ${faceIndex}: ${typeMarker}`);
@@ -1348,7 +1349,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    */
   private toDomain(
     data: IXiuyuan,
-    cardDtoReader: Pick<UnifiedStorageManager, 'getCardDTO'> | XiuyuanSqlReadPort = this.storage,
+    cardDtoReader: Pick<UnifiedStorageManager, 'getCardDTO' | 'getCardDTOsByXiuyuanId'> | XiuyuanSqlReadPort = this.storage,
   ): Result<{ xiuyuan: Xiuyuan | null; cardIdStats: CardIdResolutionStats }> {
     try {
       // 1. 杞崲 ID
@@ -1365,8 +1366,28 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       const templateIDResult = TemplateId.create(data.templateID);
       if (!templateIDResult.ok) return err(new Error(`Invalid TemplateId: ${data.templateID}`));
 
+      const sourceCardIds = this.extractCardIdsFromMeta(data.meta);
+      const fallbackCardDTOs = sourceCardIds.length === 0
+        ? this.resolveCardDTOsByXiuyuanId(data.id, cardDtoReader)
+        : [];
+      const preloadedCardDTOs = new Map<string, CardPersistenceDTO>(
+        fallbackCardDTOs.map((dto) => [dto.id, dto]),
+      );
+      if (sourceCardIds.length > 0 && !this.hasUsableFaces(data.meta)) {
+        for (const cardId of sourceCardIds) {
+          const cardDTO = cardDtoReader.getCardDTO(cardId);
+          if (cardDTO) {
+            preloadedCardDTOs.set(cardId, cardDTO);
+          }
+        }
+      }
+      const hydratedMeta = this.hydrateXiuyuanMetaFromCardDTOs(
+        data.meta || {},
+        Array.from(preloadedCardDTOs.values()),
+      );
+
       // 4. 杞崲 Faces锛堜粠 meta 涓仮澶嶏級
-      const rawFaces = data.meta?.faces;
+      const rawFaces = hydratedMeta.faces;
       const facesData = Array.isArray(rawFaces) ? rawFaces.filter(isFaceSnapshot) : [];
       const faceResults = facesData.map(f => CardFace.create({
         question: f.question,
@@ -1389,14 +1410,18 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
       // 6. 杞崲 Cards锛堜粠 cardIds 鍔犺浇锛?
       const cardsMap = new Map<CardId, Card>();
-      const cardIds = this.extractCardIdsFromMeta(data.meta);
+      const cardIds = sourceCardIds.length > 0
+        ? sourceCardIds
+        : fallbackCardDTOs.map((dto) => dto.id);
       const missingDtoCardIds: string[] = [];
       const resolvedCardIds: string[] = [];
       
-      logger.debug(`toDomain: Xiuyuan ${data.id} has ${cardIds.length} cardIds in meta`);
+      logger.debug(`toDomain: Xiuyuan ${data.id} has ${sourceCardIds.length} cardIds in meta`, {
+        fallbackCardIdCount: sourceCardIds.length === 0 ? cardIds.length : 0,
+      });
       
       for (const cardId of cardIds) {
-        const cardDTO = cardDtoReader.getCardDTO(cardId);
+        const cardDTO = preloadedCardDTOs.get(cardId) ?? cardDtoReader.getCardDTO(cardId);
         if (!cardDTO) {
           missingDtoCardIds.push(cardId);
           continue;
@@ -1430,7 +1455,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         faces,
         priority,
         cards: cardsMap,
-        meta: data.meta || {},
+        meta: hydratedMeta,
         createdAt: new Date(data.createdAt),
         updatedAt: new Date(data.updatedAt)
       };
@@ -1443,7 +1468,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       return ok({
         xiuyuan: xiuyuanResult.value,
         cardIdStats: {
-          sourceCardIds: cardIds,
+          sourceCardIds,
           resolvedCardIds,
           missingDtoCardIds,
         },
@@ -1474,6 +1499,106 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     });
   }
 
+  private resolveCardIdsByXiuyuanId(
+    xiuyuanId: string,
+    cardDtoReader: Pick<UnifiedStorageManager, 'getCardDTO' | 'getCardDTOsByXiuyuanId'> | XiuyuanSqlReadPort,
+  ): string[] {
+    return this.resolveCardDTOsByXiuyuanId(xiuyuanId, cardDtoReader).map((dto) => dto.id);
+  }
+
+  private resolveCardDTOsByXiuyuanId(
+    xiuyuanId: string,
+    cardDtoReader: Pick<UnifiedStorageManager, 'getCardDTO' | 'getCardDTOsByXiuyuanId'> | XiuyuanSqlReadPort,
+  ): CardPersistenceDTO[] {
+    const dtoReader = cardDtoReader as Pick<UnifiedStorageManager, 'getCardDTOsByXiuyuanId'> & Partial<XiuyuanSqlReadPort>;
+    const cardDTOs = dtoReader.getCardDTOsByXiuyuanId?.(xiuyuanId) ?? [];
+    return cardDTOs.filter((dto): dto is CardPersistenceDTO => Boolean(dto?.id));
+  }
+
+  private hasUsableFaces(meta: Record<string, unknown> | undefined): boolean {
+    return Array.isArray(meta?.faces) && meta.faces.some(isFaceSnapshot);
+  }
+
+  private hydrateXiuyuanMetaFromCardDTOs(
+    meta: Record<string, unknown>,
+    cardDTOs: CardPersistenceDTO[],
+  ): Record<string, unknown> {
+    if (cardDTOs.length === 0) {
+      return meta;
+    }
+
+    const hydrated: Record<string, unknown> = { ...meta };
+    if (!this.hasUsableFaces(hydrated)) {
+      const faces = this.resolveFacesFromCardDTOs(cardDTOs);
+      if (faces.length > 0) {
+        hydrated.faces = faces;
+      }
+    }
+
+    const primaryDTO = cardDTOs[0];
+    if (primaryDTO) {
+      const dtoMeta = primaryDTO.meta && typeof primaryDTO.meta === 'object'
+        ? primaryDTO.meta as Record<string, unknown>
+        : {};
+      for (const key of [
+        'typeMarker',
+        'rootId',
+        'source',
+        'content',
+        'blockType',
+        'isDocument',
+        'ownership',
+        'riffCardId',
+        'deckId',
+      ] as const) {
+        if (hydrated[key] === undefined && dtoMeta[key] !== undefined) {
+          hydrated[key] = dtoMeta[key];
+        }
+      }
+      if (hydrated.fieldMapping === undefined && primaryDTO.fieldMapping) {
+        hydrated.fieldMapping = { ...primaryDTO.fieldMapping };
+      }
+    }
+
+    return hydrated;
+  }
+
+  private resolveFacesFromCardDTOs(cardDTOs: CardPersistenceDTO[]): FaceSnapshot[] {
+    const facesByIndex = new Map<number, FaceSnapshot>();
+    for (const dto of cardDTOs) {
+      const meta = dto.meta && typeof dto.meta === 'object'
+        ? dto.meta as Record<string, unknown>
+        : {};
+      if (Array.isArray(meta.faces)) {
+        for (let index = 0; index < meta.faces.length; index += 1) {
+          const face = meta.faces[index];
+          if (isFaceSnapshot(face)) {
+            facesByIndex.set(index, face);
+          }
+        }
+      }
+
+      const faceIndex = readFiniteNumber(meta.faceIndex) ?? 0;
+      if (!facesByIndex.has(faceIndex)) {
+        const frontBlockId = Array.isArray(dto.frontBlockIDs) ? dto.frontBlockIDs[0] : undefined;
+        const backBlockId = Array.isArray(dto.backBlockIDs) ? dto.backBlockIDs[0] : undefined;
+        const content = typeof meta.content === 'string' && meta.content.trim()
+          ? meta.content
+          : dto.blockId;
+        facesByIndex.set(faceIndex, {
+          question: content,
+          answer: content,
+          questionBlockId: frontBlockId || dto.blockId,
+          answerBlockId: backBlockId || frontBlockId || dto.blockId,
+        });
+      }
+    }
+
+    return Array.from(facesByIndex.entries())
+      .sort(([left], [right]) => left - right)
+      .map(([, face]) => face);
+  }
+
   private areCardIdArraysEqual(left: string[], right: string[]): boolean {
     if (left.length !== right.length) {
       return false;
@@ -1488,7 +1613,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
   private toResolvedCardIdList(sourceCardIds: string[], resolvedCardIds: string[]): string[] {
     if (sourceCardIds.length === 0) {
-      return [];
+      return [...resolvedCardIds];
     }
     const resolvedSet = new Set(resolvedCardIds);
     return sourceCardIds.filter((cardId) => resolvedSet.has(cardId));

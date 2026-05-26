@@ -80,6 +80,7 @@ describe('SqlXiuyuanReadRepository', () => {
     expect(repository.findById('xy-1')?.id).toBe('xy-1');
     expect(repository.findByBlockId('block-1').map((item) => item.id)).toEqual(['xy-1']);
     expect(repository.getCardDTO('card-1')?.id).toBe('card-1');
+    expect(repository.getCardDTOsByXiuyuanId('xy-1').map((item) => item.id)).toEqual(['card-1']);
   });
 
   it('does not return tombstoned Xiuyuan or card rows', async () => {

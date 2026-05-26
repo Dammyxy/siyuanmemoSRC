@@ -10,6 +10,8 @@ function status(input: {
   divergent?: number;
   skipped?: number;
   pending?: number;
+  affectedCardIds?: string[];
+  reasonCounts?: BackendDomainSyncStatusResult['sanity']['reasonCounts'];
 }): BackendDomainSyncStatusResult {
   const repairable = input.repairable ?? 0;
   const unrepairable = input.unrepairable ?? 0;
@@ -39,8 +41,8 @@ function status(input: {
       unrepairableDivergenceCount: unrepairable,
       divergentLedgerCount: ledgerDivergent,
       divergentCardCount: input.divergent ?? repairable,
-      reasonCounts: {},
-      affectedCardIds: [],
+      reasonCounts: input.reasonCounts ?? {},
+      affectedCardIds: input.affectedCardIds ?? [],
       truncated: false,
     },
     repair: {
@@ -62,7 +64,6 @@ describe('ReviewDomainSyncSafetyService', () => {
   it.each([
     ['repairable', 'block-repairable'],
     ['needs-direction', 'block-needs-direction'],
-    ['divergent', 'block-divergent'],
     ['source-error', 'block-source-error'],
   ] as const)('blocks %s state', (sanityStatus, expectedKind) => {
     expect(buildReviewDomainSyncSafetyDecision(status({
@@ -83,6 +84,54 @@ describe('ReviewDomainSyncSafetyService', () => {
     }))).toMatchObject({
       kind: 'block-repairable',
       canOpenReview: false,
+    });
+  });
+
+  it('allows Review when only card reps trail already-applied review history', () => {
+    expect(buildReviewDomainSyncSafetyDecision(status({
+      status: 'repairable',
+      repairable: 72,
+      divergent: 72,
+      reasonCounts: {
+        'review-history-newer-than-card-state': 0,
+        'review-event-count-exceeds-card-reps': 72,
+      },
+    }))).toMatchObject({
+      kind: 'allow',
+      canOpenReview: true,
+    });
+  });
+
+  it('still blocks Review when review history is newer than card state', () => {
+    expect(buildReviewDomainSyncSafetyDecision(status({
+      status: 'repairable',
+      repairable: 1,
+      divergent: 1,
+      reasonCounts: {
+        'review-history-newer-than-card-state': 1,
+        'review-event-count-exceeds-card-reps': 0,
+      },
+    }))).toMatchObject({
+      kind: 'block-repairable',
+      canOpenReview: false,
+    });
+  });
+
+  it('allows Review when repairable divergence belongs to other cards', () => {
+    expect(buildReviewDomainSyncSafetyDecision(status({
+      status: 'repairable',
+      repairable: 84,
+      divergent: 118,
+      affectedCardIds: ['card-a', 'card-b'],
+      reasonCounts: {
+        'review-history-newer-than-card-state': 84,
+        'review-event-count-exceeds-card-reps': 34,
+      },
+    }), undefined, {
+      currentCardId: 'card-current',
+    })).toMatchObject({
+      kind: 'allow',
+      canOpenReview: true,
     });
   });
 

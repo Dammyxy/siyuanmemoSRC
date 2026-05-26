@@ -149,6 +149,50 @@ function createProjectionBackedManager(scopedCard: FSRSCard, projectedCard: FSRS
 }
 
 describe('UnifiedQueueStrategy static subset projection policy', () => {
+  it('forces projection refresh when counter snapshot is refresh-required', async () => {
+    const snapshot = createCounterSnapshot([createCard('counter-card', 'counter-block')]);
+    const queue = {
+      getType: vi.fn(() => QueueType.RetrievalPractice),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      getCounterSnapshot: vi.fn(async (forceRefresh?: boolean) => {
+        if (forceRefresh === true) {
+          return snapshot;
+        }
+        throw new Error('QUEUE_PROJECTION_NOT_READY: counter snapshot for retrieval-practice requires backend projection but projection is still refreshing');
+      }),
+      getCards: vi.fn(async () => []),
+      getNextCard: vi.fn(async () => null),
+      review: vi.fn(),
+      skip: vi.fn(),
+      addCard: vi.fn(),
+      removeCard: vi.fn(),
+      getSize: vi.fn(async () => 0),
+      getStats: vi.fn(async () => ({ size: 0, label: '0 due' })),
+      getUIConfig: vi.fn(),
+      getCommands: vi.fn(() => []),
+    };
+    const strategy = new UnifiedQueueStrategy(
+      queue as never,
+      {
+        getQueue: vi.fn(() => queue),
+        registerObserver: vi.fn(),
+        unregisterObserver: vi.fn(),
+      } as never,
+      { subscribe: vi.fn(), unsubscribe: vi.fn() } as never,
+      null,
+    );
+
+    await expect(strategy.getCounterSnapshot()).resolves.toMatchObject({
+      remaining: 1,
+      due: 1,
+    });
+    expect(queue.getCounterSnapshot).toHaveBeenNthCalledWith(1);
+    expect(queue.getCounterSnapshot).toHaveBeenNthCalledWith(2, true);
+
+    strategy.cleanup();
+  });
+
   it('keeps mutable filter-group review on the live filtered queue instead of stale projection rows', async () => {
     const projectedItem = createCard('projected-item', 'projected-block', CardType.Item);
     const filteredConcept = createCard('filtered-concept', 'concept-block', CardType.Concept);

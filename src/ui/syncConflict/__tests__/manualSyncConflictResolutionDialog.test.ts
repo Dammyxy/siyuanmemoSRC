@@ -398,6 +398,21 @@ describe('openManualSyncConflictResolutionDialog', () => {
     expect(document.body.textContent).toContain('缺少卡片状态');
   });
 
+  it('requests enough repair preview rows to cover all blocked divergent cards', async () => {
+    const { openManualSyncConflictResolutionDialog } = await loadModule();
+    const initialStatus = domainStatus('repairable', 73);
+    initialStatus.sanity.divergentCardCount = 101;
+    const context = buildContext();
+
+    await openManualSyncConflictResolutionDialog(context, {
+      initialDomainStatus: initialStatus,
+      reviewBlockDecision: decision('block-repairable', 'repairable'),
+    });
+    await click(document.body.querySelector('[data-action="domain-preview"]'));
+
+    expect(context.previewDomainSyncRepair).toHaveBeenCalledWith({ limit: 101, includeUnrepairable: true });
+  });
+
   it('explains unrepairable domain sync preview when no card-state mutation can apply', async () => {
     const { openManualSyncConflictResolutionDialog } = await loadModule();
     const context = buildContext({

@@ -1111,6 +1111,33 @@ describe('UnifiedReviewAdapter', () => {
     expect(ui.content.answerBlockID).toBe('');
   });
 
+  it('routes semantic riff-sync descriptor cards to CDF content instead of native answer panes', async () => {
+    const card = createCard('semantic-riff-descriptor-1', CardType.Descriptor, {
+      blockId: 'descriptor-block',
+      meta: createXiuyuanMeta({
+        templateID: 'builtin-riff-sync',
+        frontBlockIDs: ['concept-block'],
+        backBlockIDs: ['concept-block'],
+        typeMarker: 'concept-descriptor',
+        fieldMapping: {
+          concept: 'concept-block',
+          descriptor: 'descriptor-block',
+        },
+      }),
+    });
+    const adapter = new UnifiedReviewAdapter();
+    const queue = createQueue({
+      queueType: 'retrieval-practice',
+      liveCards: [card],
+    });
+
+    const ui = await adapter.toUIState(queue as never, card as never, createContext());
+
+    expect(ui.content.id).toBe('descriptor-block');
+    expect(ui.content.data).toBe('descriptor-block');
+    expect(ui.content.answerBlockID).toBe('');
+  });
+
   it('keeps ordinary multi-cloze item cards off broad native hidden metadata', async () => {
     const card = createCard('ordinary-cloze-1', CardType.Item, {
       meta: createXiuyuanMeta({

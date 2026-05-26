@@ -1270,6 +1270,295 @@ export class UnifiedStorageManager {
     };
   }
 
+  private normalizeMissingXiuyuanBindings(
+    cardDTOs: Record<string, CardPersistenceDTO>,
+    xiuyuans: Record<string, IXiuyuan>,
+  ): { repairedCardIds: string[]; renamedXiuyuanIds: string[]; createdXiuyuanIds: string[] } {
+    const repairedCardIds: string[] = [];
+    const renamedXiuyuanIds: string[] = [];
+    const createdXiuyuanIds: string[] = [];
+
+    for (const [cardId, dto] of Object.entries(cardDTOs)) {
+      const targetXiuyuanId = this.readXiuyuanIdFromDTO(dto);
+      if (!targetXiuyuanId || xiuyuans[targetXiuyuanId]) {
+        continue;
+      }
+
+      const candidates = Object.values(xiuyuans).filter((xiuyuan) => this.matchesXiuyuanBinding(dto, xiuyuan));
+      if (candidates.length === 0) {
+        const reconstructed = this.reconstructXiuyuanForDTO(dto, targetXiuyuanId);
+        if (!reconstructed) {
+          continue;
+        }
+        xiuyuans[targetXiuyuanId] = reconstructed;
+        this.applyXiuyuanIdToDTO(dto, targetXiuyuanId);
+        repairedCardIds.push(cardId);
+        createdXiuyuanIds.push(targetXiuyuanId);
+        continue;
+      }
+      if (candidates.length !== 1) {
+        continue;
+      }
+
+      const candidate = candidates[0]!;
+      delete xiuyuans[candidate.id];
+      xiuyuans[targetXiuyuanId] = {
+        ...candidate,
+        id: targetXiuyuanId,
+      };
+      this.applyXiuyuanIdToDTO(dto, targetXiuyuanId);
+      repairedCardIds.push(cardId);
+      renamedXiuyuanIds.push(`${candidate.id}->${targetXiuyuanId}`);
+    }
+
+    return { repairedCardIds, renamedXiuyuanIds, createdXiuyuanIds };
+  }
+
+  private normalizeXiuyuanPayloadsFromBoundCards(
+    cardDTOs: Record<string, CardPersistenceDTO>,
+    xiuyuans: Record<string, IXiuyuan>,
+  ): { repairedXiuyuanIds: string[] } {
+    const repairedXiuyuanIds: string[] = [];
+    const cardsByXiuyuan = new Map<string, CardPersistenceDTO[]>();
+
+    for (const dto of Object.values(cardDTOs)) {
+      const xiuyuanId = this.readXiuyuanIdFromDTO(dto);
+      if (!xiuyuanId) {
+        continue;
+      }
+      const bucket = cardsByXiuyuan.get(xiuyuanId) ?? [];
+      bucket.push(dto);
+      cardsByXiuyuan.set(xiuyuanId, bucket);
+    }
+
+    for (const [xiuyuanId, xiuyuan] of Object.entries(xiuyuans)) {
+      const boundCards = (cardsByXiuyuan.get(xiuyuanId) ?? [])
+        .sort((left, right) => left.id.localeCompare(right.id));
+      if (boundCards.length === 0) {
+        continue;
+      }
+
+      const repaired = this.repairXiuyuanPayloadFromBoundCards(xiuyuan, boundCards);
+      if (!repaired.changed) {
+        continue;
+      }
+
+      xiuyuans[xiuyuanId] = repaired.xiuyuan;
+      repairedXiuyuanIds.push(xiuyuanId);
+    }
+
+    return { repairedXiuyuanIds };
+  }
+
+  private repairXiuyuanPayloadFromBoundCards(
+    xiuyuan: IXiuyuan,
+    boundCards: CardPersistenceDTO[],
+  ): { changed: boolean; xiuyuan: IXiuyuan } {
+    let changed = false;
+    const meta = isObjectRecord(xiuyuan.meta) ? { ...xiuyuan.meta } : {};
+    const boundCardIds = boundCards.map((dto) => dto.id);
+    const existingCardIds = this.normalizeStringArray(meta.cardIds);
+    if (!this.areStringArraysEqual(existingCardIds, boundCardIds)) {
+      meta.cardIds = boundCardIds;
+      changed = true;
+    }
+
+    if (!Array.isArray(meta.faces) || meta.faces.length === 0) {
+      const faces = this.resolveXiuyuanFacesFromBoundCards(boundCards);
+      if (faces.length > 0) {
+        meta.faces = faces;
+        changed = true;
+      }
+    }
+
+    const primaryCard = boundCards[0];
+    if (primaryCard) {
+      const cardMeta = isObjectRecord(primaryCard.meta) ? primaryCard.meta : {};
+      const fieldsToCopy = [
+        'typeMarker',
+        'rootId',
+        'source',
+        'content',
+        'blockType',
+        'isDocument',
+        'ownership',
+        'riffCardId',
+        'deckId',
+      ] as const;
+      for (const key of fieldsToCopy) {
+        if (meta[key] === undefined && cardMeta[key] !== undefined) {
+          meta[key] = cardMeta[key];
+          changed = true;
+        }
+      }
+
+      if (!isObjectRecord(meta.fieldMapping) && isObjectRecord(primaryCard.fieldMapping)) {
+        meta.fieldMapping = { ...primaryCard.fieldMapping };
+        changed = true;
+      }
+    }
+
+    return changed
+      ? {
+          changed: true,
+          xiuyuan: {
+            ...xiuyuan,
+            meta,
+            updatedAt: Date.now(),
+          },
+        }
+      : { changed: false, xiuyuan };
+  }
+
+  private resolveXiuyuanFacesFromBoundCards(boundCards: CardPersistenceDTO[]): Array<{
+    question: string;
+    answer: string;
+    questionBlockId?: string;
+    answerBlockId?: string;
+  }> {
+    const facesByIndex = new Map<number, {
+      question: string;
+      answer: string;
+      questionBlockId?: string;
+      answerBlockId?: string;
+    }>();
+
+    for (const dto of boundCards) {
+      const meta = isObjectRecord(dto.meta) ? dto.meta : {};
+      if (Array.isArray(meta.faces)) {
+        for (let index = 0; index < meta.faces.length; index += 1) {
+          const face = meta.faces[index];
+          if (!isObjectRecord(face)) {
+            continue;
+          }
+          const question = typeof face.question === 'string' ? face.question : '';
+          const answer = typeof face.answer === 'string' ? face.answer : '';
+          if (!question && !answer) {
+            continue;
+          }
+          facesByIndex.set(index, {
+            question,
+            answer,
+            questionBlockId: typeof face.questionBlockId === 'string' ? face.questionBlockId : undefined,
+            answerBlockId: typeof face.answerBlockId === 'string' ? face.answerBlockId : undefined,
+          });
+        }
+      }
+
+      const faceIndex = this.toNumber(meta.faceIndex) ?? 0;
+      if (!facesByIndex.has(faceIndex)) {
+        const frontBlockId = this.normalizeStringArray(dto.frontBlockIDs)[0] || dto.blockId;
+        const backBlockId = this.normalizeStringArray(dto.backBlockIDs)[0] || frontBlockId;
+        facesByIndex.set(faceIndex, {
+          question: typeof meta.content === 'string' ? meta.content : dto.blockId,
+          answer: typeof meta.content === 'string' ? meta.content : dto.blockId,
+          questionBlockId: frontBlockId,
+          answerBlockId: backBlockId,
+        });
+      }
+    }
+
+    return Array.from(facesByIndex.entries())
+      .sort(([left], [right]) => left - right)
+      .map(([, face]) => face);
+  }
+
+  private areStringArraysEqual(left: string[], right: string[]): boolean {
+    if (left.length !== right.length) {
+      return false;
+    }
+    for (let index = 0; index < left.length; index += 1) {
+      if (left[index] !== right[index]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private readXiuyuanIdFromDTO(dto: CardPersistenceDTO): string {
+    const topLevel = typeof dto.xiuyuanID === 'string' ? dto.xiuyuanID.trim() : '';
+    if (topLevel) {
+      return topLevel;
+    }
+    return typeof dto.meta?.xiuyuanID === 'string' ? dto.meta.xiuyuanID.trim() : '';
+  }
+
+  private readRiffCardIdFromDTO(dto: CardPersistenceDTO): string {
+    const topLevel = typeof dto.riffCardId === 'string' ? dto.riffCardId.trim() : '';
+    if (topLevel) {
+      return topLevel;
+    }
+    return typeof dto.meta?.riffCardId === 'string' ? dto.meta.riffCardId.trim() : '';
+  }
+
+  private readRiffCardIdFromXiuyuan(xiuyuan: IXiuyuan): string {
+    return typeof xiuyuan.meta?.riffCardId === 'string' ? xiuyuan.meta.riffCardId.trim() : '';
+  }
+
+  private matchesXiuyuanBinding(dto: CardPersistenceDTO, xiuyuan: IXiuyuan): boolean {
+    const blockId = typeof dto.blockId === 'string' ? dto.blockId.trim() : '';
+    if (blockId && Array.isArray(xiuyuan.blockIDs) && xiuyuan.blockIDs.includes(blockId)) {
+      return true;
+    }
+
+    const dtoRiffCardId = this.readRiffCardIdFromDTO(dto);
+    return dtoRiffCardId.length > 0 && dtoRiffCardId === this.readRiffCardIdFromXiuyuan(xiuyuan);
+  }
+
+  private applyXiuyuanIdToDTO(dto: CardPersistenceDTO, xiuyuanId: string): void {
+    dto.xiuyuanID = xiuyuanId;
+    dto.meta = {
+      ...(dto.meta || {}),
+      xiuyuanID: xiuyuanId,
+    };
+  }
+
+  private reconstructXiuyuanForDTO(dto: CardPersistenceDTO, xiuyuanId: string): IXiuyuan | null {
+    const blockId = typeof dto.blockId === 'string' ? dto.blockId.trim() : '';
+    if (!blockId) {
+      return null;
+    }
+
+    const meta = isObjectRecord(dto.meta) ? dto.meta : {};
+    const frontBlockIDs = this.normalizeStringArray(dto.frontBlockIDs);
+    const backBlockIDs = this.normalizeStringArray(dto.backBlockIDs);
+    const fieldBlockIds = Object.values(dto.fieldMapping || {})
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+    const blockIDs = Array.from(new Set([
+      blockId,
+      ...frontBlockIDs,
+      ...backBlockIDs,
+      ...fieldBlockIds,
+    ]));
+    const now = this.toNumber(dto.updatedAt) || Date.now();
+    return normalizeXiuyuanOwnership({
+      id: xiuyuanId,
+      blockIDs,
+      fields: blockIDs.map((fieldBlockId, index) => ({
+        name: index === 0 ? 'content' : `field-${index}`,
+        blockID: fieldBlockId,
+      })),
+      templateID: String(dto.templateID || meta.templateID || 'builtin-riff-sync'),
+      content: typeof meta.content === 'string' ? meta.content : undefined,
+      createdAt: this.toNumber(dto.createdAt) || now,
+      updatedAt: now,
+      meta: {
+        ...meta,
+        xiuyuanID: xiuyuanId,
+      },
+    } as IXiuyuan);
+  }
+
+  private normalizeStringArray(values: unknown): string[] {
+    if (!Array.isArray(values)) {
+      return [];
+    }
+    return values
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+  }
+
   private prepareCanonicalStore(store: UnifiedCardStore): UnifiedCardStore {
     const sourceXiuyuans = store.xiuyuans ?? {};
     const sourceCardDTOs = this.extractCardDTOs(store);
@@ -1284,6 +1573,26 @@ export class UnifiedStorageManager {
 
     for (const [id, dto] of Object.entries(sourceCardDTOs)) {
       cardDTOs[id] = JSON.parse(JSON.stringify(dto)) as CardPersistenceDTO;
+    }
+
+    const bindingNormalization = this.normalizeMissingXiuyuanBindings(cardDTOs, xiuyuans);
+    if (bindingNormalization.repairedCardIds.length > 0) {
+      logger.info('[UnifiedStorageManager] Normalized cards with missing Xiuyuan bindings', {
+        repairedCardCount: bindingNormalization.repairedCardIds.length,
+        renamedXiuyuanCount: bindingNormalization.renamedXiuyuanIds.length,
+        createdXiuyuanCount: bindingNormalization.createdXiuyuanIds.length,
+        repairedCardIdsSample: bindingNormalization.repairedCardIds.slice(0, 10),
+        renamedXiuyuanIdsSample: bindingNormalization.renamedXiuyuanIds.slice(0, 10),
+        createdXiuyuanIdsSample: bindingNormalization.createdXiuyuanIds.slice(0, 10),
+      });
+    }
+
+    const xiuyuanPayloadNormalization = this.normalizeXiuyuanPayloadsFromBoundCards(cardDTOs, xiuyuans);
+    if (xiuyuanPayloadNormalization.repairedXiuyuanIds.length > 0) {
+      logger.info('[UnifiedStorageManager] Normalized Xiuyuan payloads from bound card DTOs', {
+        repairedXiuyuanCount: xiuyuanPayloadNormalization.repairedXiuyuanIds.length,
+        repairedXiuyuanIdsSample: xiuyuanPayloadNormalization.repairedXiuyuanIds.slice(0, 10),
+      });
     }
 
     const xiuyuanNormalization = this.normalizeDuplicateXiuyuans(cardDTOs, xiuyuans);
@@ -1797,18 +2106,33 @@ export class UnifiedStorageManager {
       }, options.transaction);
     }
 
-    /**
-     * 鑾峰彇鍗＄墖 DTO
-     * @param cardId 鍗＄墖 ID
-     */
-    getCardDTO(cardId: string): CardPersistenceDTO | undefined {
-      return this.cardDTOs.get(cardId);
+  /**
+   * 鑾峰彇鍗＄墖 DTO
+   * @param cardId 鍗＄墖 ID
+   */
+  getCardDTO(cardId: string): CardPersistenceDTO | undefined {
+    return this.cardDTOs.get(cardId);
+  }
+
+  /**
+   * 根据 Xiuyuan ID 获取关联卡片 DTO。
+   * 读取时直接扫描 DTO 主表，避免依赖可能尚未重建的索引。
+   */
+  getCardDTOsByXiuyuanId(xiuyuanId: string): CardPersistenceDTO[] {
+    const normalizedXiuyuanId = String(xiuyuanId || '').trim();
+    if (!normalizedXiuyuanId) {
+      return [];
     }
 
-    /**
-     * 鏇存柊鍗＄墖锛堜娇鐢?DTO锛?
-     * @param dto 鏇存柊鍚庣殑 DTO
-     */
+    return Array.from(this.cardDTOs.values())
+      .filter((dto) => String(dto.xiuyuanID || '').trim() === normalizedXiuyuanId)
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  /**
+   * 鏇存柊鍗＄墖锛堜娇鐢?DTO锛?
+   * @param dto 鏇存柊鍚庣殑 DTO
+   */
     async updateCardDTO(dto: CardPersistenceDTO, options: CardUpdateOptions = {}): Promise<Result<void>> {
       return this.runWriteMutation('updateCardDTO', async () => {
       try {

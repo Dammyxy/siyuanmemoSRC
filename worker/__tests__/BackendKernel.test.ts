@@ -3293,11 +3293,34 @@ describe('BackendKernel', () => {
   it('summarizes readable and unreadable sync conflict database copies without mutating current state', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
-    await database.upsertCards([buildCard({ id: 'current-card', updatedAt: 100, lastReview: 90 })]);
+    await database.upsertCards([
+      buildCard({ id: 'current-card', updatedAt: 100, lastReview: 90 }),
+      buildCard({ id: 'current-missing-card', blockId: 'current-missing-block', updatedAt: 110, lastReview: 95 }),
+    ]);
+    await database.updateSourceExistence([
+      { cardId: 'current-missing-card', blockId: 'current-missing-block', exists: false },
+    ], 120);
+    await database.runTransaction('seed.current-summary-review-events', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-current-active-summary', 'current-card', 'attempt-current-active', 3, 121, 2026, 5, 'review-v2', '{}',
+          'event-current-missing-summary', 'current-missing-card', 'attempt-current-missing', 3, 122, 2026, 5, 'review-v2', '{}',
+        ],
+      );
+    });
 
     const conflictBridge = createInMemorySqlitePersistenceBridge();
     const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
-    await conflictDatabase.upsertCards([buildCard({ id: 'conflict-card', updatedAt: 200, lastReview: 180 })]);
+    await conflictDatabase.upsertCards([
+      buildCard({ id: 'conflict-card', updatedAt: 200, lastReview: 180 }),
+      buildCard({ id: 'conflict-missing-card', blockId: 'conflict-missing-block', updatedAt: 210, lastReview: 185 }),
+    ]);
+    await conflictDatabase.updateSourceExistence([
+      { cardId: 'conflict-missing-card', blockId: 'conflict-missing-block', exists: false },
+    ], 220);
     await conflictDatabase.runTransaction('seed.summary-review-event', (db) => {
       db.run(
         `INSERT INTO review_events
@@ -3333,6 +3356,7 @@ describe('BackendKernel', () => {
         current: {
           sourceId: 'current-local:siyuanmemo.db',
           parseStatus: 'ok',
+          reviewEventCount: 1,
           cardCount: 1,
         },
         sources: [

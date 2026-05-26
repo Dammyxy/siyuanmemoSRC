@@ -3,6 +3,10 @@ import * as path from 'path';
 import { performance } from 'node:perf_hooks';
 import initSqlJs, { type Database, type SqlJsStatic, type SqlValue } from 'sql.js';
 import { diagnosticsOutput, type DiagnosticsOutputPort } from './utils/output';
+import {
+    activeCardSourceStatusSql,
+    missingCardSourceStatusSql,
+} from '@/infrastructure/persistence/sqlite/cardAdmissionSql';
 
 type RowValue = SqlValue;
 type SqlRow = Record<string, RowValue>;
@@ -16,6 +20,8 @@ const DEFAULT_WARMUP_RUNS = 1;
 const DEFAULT_PAGE_SIZE = 50;
 const SOURCE_UPDATE_LIMIT = 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const ACTIVE_SOURCE_STATUS_SQL = activeCardSourceStatusSql('cards');
+const MISSING_SOURCE_STATUS_SQL = missingCardSourceStatusSql('cards');
 
 const BUDGETS_MS = {
     stats: 150,
@@ -206,9 +212,9 @@ function profileScenario(
             rowCount,
             timings: browserTimings,
             queryPlans: [
-                explainQuery(database, 'browser-page', 'SELECT id, payload_json FROM cards WHERE source_exists IS NULL OR source_exists = 1 ORDER BY due ASC, priority ASC, id ASC LIMIT ? OFFSET ?', [options.pageSize, 0]),
-                explainQuery(database, 'browser-matched-ids', 'SELECT id FROM cards WHERE source_exists IS NULL OR source_exists = 1 ORDER BY due ASC, priority ASC, id ASC'),
-                explainQuery(database, 'browser-like-search', "SELECT id FROM cards WHERE (source_exists IS NULL OR source_exists = 1) AND search_text LIKE ? ESCAPE '\\' ORDER BY due ASC, priority ASC, id ASC", ['%profile%']),
+                explainQuery(database, 'browser-page', `SELECT id, payload_json FROM cards WHERE ${ACTIVE_SOURCE_STATUS_SQL} ORDER BY due ASC, priority ASC, id ASC LIMIT ? OFFSET ?`, [options.pageSize, 0]),
+                explainQuery(database, 'browser-matched-ids', `SELECT id FROM cards WHERE ${ACTIVE_SOURCE_STATUS_SQL} ORDER BY due ASC, priority ASC, id ASC`),
+                explainQuery(database, 'browser-like-search', `SELECT id FROM cards WHERE (${ACTIVE_SOURCE_STATUS_SQL}) AND search_text LIKE ? ESCAPE '\\' ORDER BY due ASC, priority ASC, id ASC`, ['%profile%']),
             ],
             pass: browserTimings.every((timing) => timing.pass),
         };
@@ -277,24 +283,24 @@ function countCards(database: Database): number {
 function getBrowserStats(database: Database): void {
     getOne(database,
         `SELECT
-          COALESCE(SUM(CASE WHEN source_exists IS NULL OR source_exists = 1 THEN 1 ELSE 0 END), 0) AS totalCards,
-          COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND due <= ? AND suspended = 0 THEN 1 ELSE 0 END), 0) AS dueCards,
-          COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND state = ? THEN 1 ELSE 0 END), 0) AS newCards,
-          COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND state = ? THEN 1 ELSE 0 END), 0) AS learningCards,
-          COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND state = ? THEN 1 ELSE 0 END), 0) AS reviewCards,
-          COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND suspended = 1 THEN 1 ELSE 0 END), 0) AS suspendedCards,
-          COALESCE(SUM(CASE WHEN source_exists = 0 THEN 1 ELSE 0 END), 0) AS lostCards
+          COALESCE(SUM(CASE WHEN ${ACTIVE_SOURCE_STATUS_SQL} THEN 1 ELSE 0 END), 0) AS totalCards,
+          COALESCE(SUM(CASE WHEN ${ACTIVE_SOURCE_STATUS_SQL} AND due <= ? AND suspended = 0 THEN 1 ELSE 0 END), 0) AS dueCards,
+          COALESCE(SUM(CASE WHEN ${ACTIVE_SOURCE_STATUS_SQL} AND state = ? THEN 1 ELSE 0 END), 0) AS newCards,
+          COALESCE(SUM(CASE WHEN ${ACTIVE_SOURCE_STATUS_SQL} AND state = ? THEN 1 ELSE 0 END), 0) AS learningCards,
+          COALESCE(SUM(CASE WHEN ${ACTIVE_SOURCE_STATUS_SQL} AND state = ? THEN 1 ELSE 0 END), 0) AS reviewCards,
+          COALESCE(SUM(CASE WHEN ${ACTIVE_SOURCE_STATUS_SQL} AND suspended = 1 THEN 1 ELSE 0 END), 0) AS suspendedCards,
+          COALESCE(SUM(CASE WHEN ${MISSING_SOURCE_STATUS_SQL} THEN 1 ELSE 0 END), 0) AS lostCards
          FROM cards`,
         [Date.now(), CARD_STATE_NEW, CARD_STATE_LEARNING, CARD_STATE_REVIEW],
     );
 }
 
 function queryDeckPage(database: Database, pageSize: number): void {
-    getOne(database, 'SELECT COUNT(*) AS count FROM cards WHERE source_exists IS NULL OR source_exists = 1');
+    getOne(database, `SELECT COUNT(*) AS count FROM cards WHERE ${ACTIVE_SOURCE_STATUS_SQL}`);
     const rows = getAll(database,
         `SELECT id, payload_json
          FROM cards
-         WHERE source_exists IS NULL OR source_exists = 1
+         WHERE ${ACTIVE_SOURCE_STATUS_SQL}
          ORDER BY due ASC, priority ASC, id ASC
          LIMIT ? OFFSET ?`,
         [Math.max(1, pageSize), 0],
@@ -311,7 +317,7 @@ function queryDeckMatchedIds(database: Database): void {
     getAll(database,
         `SELECT id
          FROM cards
-         WHERE source_exists IS NULL OR source_exists = 1
+         WHERE ${ACTIVE_SOURCE_STATUS_SQL}
          ORDER BY due ASC, priority ASC, id ASC`,
     );
 }
@@ -320,7 +326,7 @@ function queryLikeSearch(database: Database): void {
     getAll(database,
         `SELECT id
          FROM cards
-         WHERE (source_exists IS NULL OR source_exists = 1)
+         WHERE (${ACTIVE_SOURCE_STATUS_SQL})
            AND search_text LIKE ? ESCAPE '\\'
          ORDER BY due ASC, priority ASC, id ASC`,
         ['%profile%'],
@@ -332,7 +338,7 @@ function getSourceExistenceSummary(database: Database, staleBefore: number): Sou
         `SELECT
           COALESCE(SUM(CASE WHEN source_checked_at IS NULL THEN 1 ELSE 0 END), 0) AS unknown,
           COALESCE(SUM(CASE WHEN source_checked_at IS NOT NULL AND source_checked_at < ? THEN 1 ELSE 0 END), 0) AS stale,
-          COALESCE(SUM(CASE WHEN source_exists = 0 THEN 1 ELSE 0 END), 0) AS missing
+         COALESCE(SUM(CASE WHEN ${MISSING_SOURCE_STATUS_SQL} THEN 1 ELSE 0 END), 0) AS missing
          FROM cards`,
         [staleBefore],
     );
@@ -777,7 +783,7 @@ function xiuyuanByBlockIdSql(): string {
               AND cards.xiuyuan_id != ''
               AND NOT EXISTS (
                 SELECT 1 FROM tombstones t
-                WHERE t.kind = 'card' AND t.id = cards.id
+        WHERE t.kind = 'card' AND t.id = cards.id
               )
               AND NOT EXISTS (
                 SELECT 1 FROM tombstones t

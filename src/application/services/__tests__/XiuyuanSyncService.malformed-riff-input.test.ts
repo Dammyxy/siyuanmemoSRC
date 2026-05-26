@@ -615,4 +615,34 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
     expect(schedule?.scheduledDays).toBe(70);
     expect(schedule?.difficulty).toBe(5);
   });
+
+  it('promotes imported mature Learning riff cards into Review state', async () => {
+    const { service } = createHarness();
+    const riffBlock = createRiffBlock({
+      id: '20260424190358-nv5h2no',
+      content: '可训练性→可通过刻意练习提升',
+      ial: {
+        'custom-fsrs-card-type': 'descriptor',
+      },
+    });
+    riffBlock.riffCard = {
+      ...createBaseRiffCard(),
+      due: '2026-04-28T15:21:27.202Z',
+      lastReview: '2026-04-28T15:11:27.202Z',
+      reps: 1,
+      state: CardState.Learning,
+      stability: 23.20535865,
+      difficulty: 2.09745544,
+      elapsedDays: 24,
+      scheduledDays: 26,
+    };
+
+    const { xiuyuanEntity } = await (service as any).convertRiffCardToFSRSCard(riffBlock);
+    const schedule = xiuyuanEntity.getCards()[0]?.getScheduleInfo();
+
+    expect(schedule?.state).toBe(CardState.Review);
+    expect(schedule?.scheduledDays).toBe(26);
+    expect(schedule?.stability).toBe(23.20535865);
+    expect(schedule?.difficulty).toBe(2.09745544);
+  });
 });

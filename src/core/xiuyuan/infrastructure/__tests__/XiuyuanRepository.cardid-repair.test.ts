@@ -75,6 +75,7 @@ function createStorageMock(params: {
   byId?: IXiuyuan;
   all?: IXiuyuan[];
   cardDTOMap?: Record<string, CardPersistenceDTO>;
+  cardDTOsByXiuyuanId?: Record<string, CardPersistenceDTO[]>;
   saveResult?: Result<void>;
 }) {
   const dtoMap = new Map<string, CardPersistenceDTO>(Object.entries(params.cardDTOMap || {}));
@@ -85,6 +86,10 @@ function createStorageMock(params: {
     getXiuYuan: vi.fn((id: string) => (byId && byId.id === id ? byId : undefined)),
     getAllXiuYuans: vi.fn(() => all),
     getCardDTO: vi.fn((cardId: string) => dtoMap.get(cardId)),
+    getCardDTOsByXiuyuanId: vi.fn((xiuyuanId: string) => (
+      params.cardDTOsByXiuyuanId?.[xiuyuanId]
+      ?? Array.from(dtoMap.values()).filter((dto) => dto.xiuyuanID === xiuyuanId)
+    )),
     upsertXiuYuan: vi.fn(),
     save: vi.fn(async () => params.saveResult ?? ok(undefined)),
   };
@@ -146,6 +151,97 @@ describe('XiuyuanRepository cardIds repair on read', () => {
     const repairedB = storage.upsertXiuYuan.mock.calls[1]?.[0] as IXiuyuan;
     expect(repairedA.meta?.cardIds).toEqual(['card-a']);
     expect(repairedB.meta?.cardIds).toEqual(['card-b']);
+  });
+
+  it('rebuilds cards from xiuyuan-bound DTOs when persisted cardIds are missing', async () => {
+    const xiuyuan = createXiuyuanData('xiuyuan-missing-cardids', []);
+    delete (xiuyuan.meta as Record<string, unknown>).cardIds;
+    const cardDTO: CardPersistenceDTO = {
+      ...createCardDTO('card-recovered'),
+      xiuyuanID: 'xiuyuan-missing-cardids',
+    };
+    const storage = createStorageMock({
+      all: [xiuyuan],
+      cardDTOMap: {
+        'card-recovered': cardDTO,
+      },
+      cardDTOsByXiuyuanId: {
+        'xiuyuan-missing-cardids': [cardDTO],
+      },
+    });
+    const repository = new XiuyuanRepository(storage as any);
+
+    const result = await repository.findAll();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toHaveLength(1);
+    expect(result.value[0]?.getCards().map((card) => card.getId().getValue())).toEqual(['card-recovered']);
+    expect(repository.getXiuyuanIdByCardId('card-recovered')).toBe('xiuyuan-missing-cardids');
+    expect(storage.getCardDTOsByXiuyuanId).toHaveBeenCalledWith('xiuyuan-missing-cardids');
+    expect(storage.upsertXiuYuan).toHaveBeenCalledTimes(1);
+    const repaired = storage.upsertXiuYuan.mock.calls[0]?.[0] as IXiuyuan;
+    expect(repaired.meta?.cardIds).toEqual(['card-recovered']);
+  });
+
+  it('hydrates missing Xiuyuan faces and semantic metadata from bound card DTOs', async () => {
+    const xiuyuan = createXiuyuanData('xiuyuan-half', []);
+    xiuyuan.meta = {
+      ownership: 'riff-managed',
+      source: 'riff-sync',
+    };
+    const cardDTO: CardPersistenceDTO = {
+      ...createCardDTO('card-semantic-half'),
+      xiuyuanID: 'xiuyuan-half',
+      type: CardType.Descriptor,
+      templateID: 'builtin-riff-sync',
+      frontBlockIDs: ['20260422074134-404qdfx'],
+      backBlockIDs: ['20260422074141-s8fcj23'],
+      fieldMapping: {
+        concept: '20260422074134-404qdfx',
+        descriptor: '20260422074141-s8fcj23',
+      },
+      meta: {
+        faceIndex: 0,
+        typeMarker: 'concept-descriptor',
+        content: '界面→不支持跨卡片批量操作',
+        faces: [{
+          question: 'SRS卡片独立单元问题',
+          answer: 'SRS卡片独立单元问题',
+          questionBlockId: '20260422074134-404qdfx',
+          answerBlockId: '20260422074141-s8fcj23',
+        }],
+      },
+    };
+    const storage = createStorageMock({
+      all: [xiuyuan],
+      cardDTOMap: {
+        'card-semantic-half': cardDTO,
+      },
+      cardDTOsByXiuyuanId: {
+        'xiuyuan-half': [cardDTO],
+      },
+    });
+    const repository = new XiuyuanRepository(storage as any);
+
+    const result = await repository.findAll();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const [hydrated] = result.value;
+    expect(hydrated?.getCards().map((card) => card.getId().getValue())).toEqual(['card-semantic-half']);
+    expect(hydrated?.getFaces()[0]).toMatchObject({
+      question: 'SRS卡片独立单元问题',
+      questionBlockId: '20260422074134-404qdfx',
+    });
+    expect(hydrated?.getMeta()).toMatchObject({
+      typeMarker: 'concept-descriptor',
+      fieldMapping: {
+        concept: '20260422074134-404qdfx',
+        descriptor: '20260422074141-s8fcj23',
+      },
+    });
+    expect(repository.getXiuyuanIdByCardId('card-semantic-half')).toBe('xiuyuan-half');
   });
 
   it('does not repair when cardIds are already consistent', async () => {

@@ -106,6 +106,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
+function isQueueProjectionNotReadyError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+        return false;
+    }
+    const candidate = error as { code?: unknown; message?: unknown; cause?: unknown };
+    if (candidate.code === 'QUEUE_PROJECTION_NOT_READY') {
+        return true;
+    }
+    if (typeof candidate.message === 'string' && candidate.message.includes('QUEUE_PROJECTION_NOT_READY')) {
+        return true;
+    }
+    return candidate.cause !== undefined && isQueueProjectionNotReadyError(candidate.cause);
+}
+
 function resolveNeuralRoamBatchSnapshot(queue: IReviewQueue): NeuralRoamBatchSnapshot | null {
     const candidate = queue as Partial<IReviewQueue & {
         getCurrentBatchSnapshot: () => NeuralRoamBatchSnapshot | null;
@@ -869,12 +883,29 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         result: QueueReviewResultWithProjection,
         options: { forceRemove?: boolean } = {}
     ): Promise<ProjectionPatchOutcome> {
-        const applyResult = await this.projectionAdvancePolicy.advance({
-            reviewedCard,
-            result,
-            forceRemove: options.forceRemove,
-            state: this.cursor.projectionState(),
-        });
+        let applyResult: {
+            outcome: ProjectionPatchOutcome;
+            state: ReturnType<ReviewSessionCursor['projectionState']>;
+        };
+        try {
+            applyResult = await this.projectionAdvancePolicy.advance({
+                reviewedCard,
+                result,
+                forceRemove: options.forceRemove,
+                state: this.cursor.projectionState(),
+            });
+        } catch (error) {
+            if (!isQueueProjectionNotReadyError(error)) {
+                throw error;
+            }
+            logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Projection hot patch deferred because projection is refreshing:', {
+                queueType: this.queueType,
+                cardId: reviewedCard.id,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            this.invalidateCache();
+            return 'refresh-required';
+        }
 
         if (applyResult.outcome === 'patched') {
             this.cursor.applyProjectionPatch(applyResult.state);
@@ -1250,6 +1281,24 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             this.cursor.counterSnapshot = snapshot;
             return snapshot ? this.cloneCounterSnapshot(snapshot) : null;
         } catch (error) {
+            if (isQueueProjectionNotReadyError(error)) {
+                try {
+                    const snapshot = await this.queue.getCounterSnapshot(true);
+                    this.cursor.counterSnapshot = snapshot;
+                    logger.info('[SiYuanMemo][UnifiedQueueStrategy] Queue counter snapshot recovered after forced projection refresh:', {
+                        queueType: this.queueType,
+                        operation,
+                    });
+                    return snapshot ? this.cloneCounterSnapshot(snapshot) : null;
+                } catch (refreshError) {
+                    logger.error('[SiYuanMemo][UnifiedQueueStrategy] QUEUE_COUNT_UNAVAILABLE: forced projection refresh failed:', {
+                        queueType: this.queueType,
+                        operation,
+                        error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+                    });
+                    throw this.createQueueCountUnavailableError(operation, refreshError);
+                }
+            }
             logger.error('[SiYuanMemo][UnifiedQueueStrategy] QUEUE_COUNT_UNAVAILABLE: failed to read queue counter snapshot:', {
                 queueType: this.queueType,
                 operation,
@@ -1290,13 +1339,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 return;
             }
 
-            if (event.requiresFullRefresh) {
-                this.clearSessionExcludedCardIds();
-                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue full refresh requested, invalidating cache: ${this.queueType}`);
-                this.invalidateCache();
-                return;
-            }
-
             if (this.shouldSuppressQueueChangedDuringFeedback(queueType, event)) {
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Suppressed self-triggered queue change during feedback:`, {
                     queueType: this.queueType,
@@ -1304,6 +1346,13 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     action: this.feedbackMutation?.action,
                     rating: this.feedbackMutation?.rating,
                 });
+                return;
+            }
+
+            if (event.requiresFullRefresh) {
+                this.clearSessionExcludedCardIds();
+                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue full refresh requested, invalidating cache: ${this.queueType}`);
+                this.invalidateCache();
                 return;
             }
 
@@ -1341,7 +1390,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         queueType: QueueType | undefined,
         event: DataChangeEvent
     ): boolean {
-        if (!this.feedbackMutation || event.requiresFullRefresh) {
+        if (!this.feedbackMutation) {
             return false;
         }
 

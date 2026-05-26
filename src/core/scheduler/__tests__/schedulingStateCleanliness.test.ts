@@ -125,6 +125,64 @@ describe('schedulingStateCleanliness', () => {
     });
   });
 
+  it('promotes mature Topic Learning state during riff-import cleanup', () => {
+    const dirty = createCard({
+      id: 'topic-learning',
+      type: CardType.Topic,
+      schedulerType: 'a-factor-v2',
+      state: CardState.Learning,
+      reps: 1,
+      scheduledDays: 43,
+      aFactor: 2.5,
+      stability: 0,
+      lastReview: new Date('2026-03-01T08:00:00+08:00').getTime(),
+      due: new Date('2026-04-13T08:00:00+08:00').getTime(),
+      learning_step: 1,
+    });
+
+    const result = canonicalizeSchedulingState(dirty, {
+      source: 'riff-import',
+      mode: 'repair-external',
+    });
+
+    expect(result.changed).toBe(true);
+    expect(result.reasons).toEqual(expect.arrayContaining(['state', 'learning_step']));
+    expect(result.card.state).toBe(CardState.Review);
+    expect(result.card.learning_step).toBe(0);
+  });
+
+  it('repairs mature FSRS cards reset to New before preview generation', () => {
+    const dirty = createCard({
+      id: 'card-1772222812855-5i98o4e96',
+      type: CardType.Item,
+      schedulerType: 'fsrs-v6',
+      state: CardState.New,
+      reps: 0,
+      due: new Date('2026-05-26T23:39:17+08:00').getTime(),
+      lastReview: new Date('2026-05-01T07:02:51+08:00').getTime(),
+      scheduledDays: 22,
+      stability: 19.63158225,
+      difficulty: 2.04951585,
+      meta: {
+        ownership: 'riff-managed',
+        source: 'riff-sync',
+      },
+    });
+
+    const result = canonicalizeSchedulingState(dirty, {
+      source: 'storage-load',
+      mode: 'repair-external',
+      now: dirty.due,
+    });
+
+    expect(result.changed).toBe(true);
+    expect(result.reasons).toEqual(expect.arrayContaining(['state', 'reps']));
+    expect(result.card.state).toBe(CardState.Review);
+    expect(result.card.reps).toBe(1);
+    expect(result.card.scheduledDays).toBe(22);
+    expect(result.card.stability).toBe(19.63158225);
+  });
+
   it('fails fast when internal scheduler output is dirty', () => {
     expect(() => canonicalizeSchedulingState(createCard({
       schedulerType: 'a-factor-v2',

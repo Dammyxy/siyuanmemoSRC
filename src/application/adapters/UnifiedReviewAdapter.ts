@@ -360,16 +360,16 @@ function resolveDescriptorContentBlockId(card: UnifiedReviewItem, fallbackBlockI
 
 function resolveContentBlockId(card: UnifiedReviewItem, fallbackBlockId: string): string {
   if (isXiuyuanCard(card)) {
-    if (card.meta.templateID === 'builtin-riff-sync') {
-      return fallbackBlockId || card.meta.frontBlockIDs[0] || '';
-    }
-
     if (isConceptDefinitionCard(card)) {
       return resolveDefinitionContentBlockId(card, fallbackBlockId);
     }
 
     if (isDescriptorSemanticCard(card)) {
       return resolveDescriptorContentBlockId(card, fallbackBlockId);
+    }
+
+    if (card.meta.templateID === 'builtin-riff-sync') {
+      return fallbackBlockId || card.meta.frontBlockIDs[0] || '';
     }
 
     if (card.meta.frontBlockIDs.length > 0) {
@@ -387,6 +387,10 @@ function resolveAnswerBlockId(card: UnifiedReviewItem, fallbackBlockId: string):
 
   const templateID = card.meta.templateID;
   const backBlockIDs = card.meta.backBlockIDs;
+  if (isConceptDefinitionCard(card) || isDescriptorSemanticCard(card)) {
+    return '';
+  }
+
   if (templateID === 'builtin-riff-sync') {
     // Native riff-sync cards must render from the container/root block.
     return fallbackBlockId || card.meta.frontBlockIDs[0] || backBlockIDs[0] || '';

@@ -1,8 +1,95 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-26 (Round 468)
+Last update: 2026-05-26 (Round 471)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-26 - Review Sync Gate Card Scoping
+
+- Task: Stop Review from popping the domain sync repair window on every grade when the library still has unrelated repairable divergence.
+- Touched slice: Review sync safety decision, Review view safety gate, focused sync-safety tests.
+- Debt fixed now: The Review safety gate now treats repairable divergence as card-scoped instead of global-blocking. If diagnostics are truncated or globally repairable but the current card is not the audited divergent card, Review is allowed to proceed. When the current card is available, the gate now performs a card-specific divergence audit before deciding to block. This preserves blocking for the actual affected card while stopping unrelated repair debt from interrupting every review action.
+- Debt deferred: The underlying repairable divergence in the live DB still exists for other cards until the repair sweep is run.
+- Why deferred: This task only narrows the gate so unrelated review work can continue; it does not rewrite the remaining divergence evidence.
+- Next safe step: Run the full repair sweep after SiYuan is fully closed, then re-open Review and confirm the dialog no longer appears for unaffected cards.
+- Validation: `pnpm vitest run src/application/services/__tests__/ReviewDomainSyncSafetyService.test.ts`; `pnpm build`.
+
+### 2026-05-26 - Mature New Riff Schedule Repair
+
+- Task: Diagnose why `card-1772222812855-5i98o4e96` showed review button intervals like `6 min / 10 min / 32d`.
+- Touched slice: Scheduler FSRS repair/cleanliness, guarded native Riff scheduling repair script, live SiYuanMemo SQLite row for the reported card.
+- Debt fixed now: FSRS repair now detects Riff/imported cards whose mature review memory (`lastReview`, `scheduledDays`, `stability`) survived but `state/reps` were reset to `New/0`, promoting them back to Review before scheduler preview. The repair script now supports `--card-id`, defaults `--history-db` to the current DB for review-event repair, detects mature New reset rows, and prefers `review_events.after` snapshots for exact restoration. The reported card was restored from its latest review event to `state=Review`, `reps=11`, `due=2026-05-23 07:02:51`, `scheduledDays=22`.
+- Debt deferred: A full repair sweep still reports additional Riff-managed rows with similar pollution; this task only applied the explicitly reported card to avoid broad live-data mutation.
+- Why deferred: Bulk repair should be run as its own controlled data maintenance step, ideally after confirming SiYuan/plugin runtime will not overwrite the SQLite file from an older in-memory image.
+- Next safe step: Run the script in dry-run without `--card-id` after a clean plugin reload/exit, review the count, then apply the full repair if the reported set is expected.
+- Validation: `pnpm vitest run src/core/scheduler/__tests__/fsrsReviewStateRepair.test.ts src/core/scheduler/__tests__/schedulingStateCleanliness.test.ts`; `node scripts/repair-native-riff-scheduling-state.cjs --db H:\SiYuanXY\data\storage\petal\siyuan-plugin-siyuanmemo\siyuanmemo.db --card-id card-1772222812855-5i98o4e96 --dry-run --json`; targeted live apply created `siyuanmemo.db.bak-20260526-155231`; post-apply SQL verified `cards` and `algorithm_card_state`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-26 - Xiuyuan Half-Payload Hydration And Semantic Riff Render Priority
+
+- Task: Fix Review repair/deletion regressions when a Xiuyuan row is present but its persisted payload is only half reconstructed, and stop semantic descriptor cards on `builtin-riff-sync` from taking the native answer-pane render path.
+- Touched slice: Xiuyuan repository read hydration, unified storage canonicalization, review render adapter, focused Xiuyuan/review tests.
+- Debt fixed now: `UnifiedStorageManager` now repairs Xiuyuan payloads from bound card DTOs when `meta.cardIds` / `meta.faces` / semantic metadata are missing, so load-time repair can rebuild both the aggregate card set and the semantic render fields from the same DTO source of truth. `XiuyuanRepository.toDomain()` now hydrates faces and semantic meta from bound card DTOs before reconstituting the aggregate, which also repopulates the `cardId -> xiuyuanId` index used by delete. `UnifiedReviewAdapter` now checks semantic concept/descriptor routing before the native `builtin-riff-sync` branch, so descriptor cards render through CDF/semantic content instead of the native same-block answer pane.
+- Debt deferred: Existing live DB rows that were already half-repaired still need a reload/rebuild cycle to pick up the new canonical payload on next save/read; this slice does not add a blind local delete fallback for unmapped cards.
+- Why deferred: A fallback delete path would hide the missing ownership invariant, while the safe fix is to rebuild the payload and index from the bound DTO source that already knows the real block/card identity.
+- Validation: `pnpm exec vitest run src/core/storage/__tests__/UnifiedStorageManager.migration.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.cardid-repair.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.sql-read.test.ts src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts`; `pnpm exec vitest run src/application/usecases/card/__tests__/DeleteCardPersistence.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.delete-empty-aggregate.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-26 - Xiuyuan Missing CardIds Read Repair
+
+- Task: Fix Review delete failures after Xiuyuan binding repair when the Xiuyuan row exists but its persisted payload has no `meta.cardIds`.
+- Touched slice: Xiuyuan repository read hydration, storage/SQL card DTO readers, focused Xiuyuan delete/read tests.
+- Debt fixed now: `XiuyuanRepository.toDomain()` no longer treats `meta.cardIds` as the only membership source. When the persisted list is absent or empty, it rebuilds aggregate cards from card DTO rows bound to the Xiuyuan id, repairs `meta.cardIds`, and warms the `cardId -> xiuyuanId` index used by Review deletion.
+- Debt deferred: No new fallback delete path was added; if a card has no DTO binding to any Xiuyuan, deletion still fails explicitly and must be handled by source/tombstone cleanup.
+- Validation: `pnpm exec vitest run src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.cardid-repair.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.sql-read.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlXiuyuanReadRepository.test.ts`; `pnpm exec vitest run src/application/usecases/card/__tests__/DeleteCardPersistence.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.delete-empty-aggregate.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-26 - Xiuyuan Binding Drift Cleanup
+
+- Task: Fix Review delete failures when active SQL cards point at a missing Xiuyuan id while a unique legacy Xiuyuan still owns the same block/Riff source.
+- Touched slice: unified storage snapshot canonicalization, SQL card hydration, guarded live DB cleanup script.
+- Debt fixed now: `UnifiedStorageManager` now renames the unique matching legacy Xiuyuan to the card's canonical Xiuyuan id during load, so the in-memory card -> Xiuyuan index can be rebuilt without per-action fallback. SQL card reads now hydrate from `dto_json` when present instead of stale `payload_json`, preventing old top-level `xiuyuanID` values from leaking into Review/queue paths. A guarded repair script can rename matching live DB Xiuyuans and normalize card payload/DTO bindings.
+- Debt deferred: Live DB dry-run still reports 23 cards with missing Xiuyuan bindings and no unique matching Xiuyuan candidate. Those require source-existence or tombstone cleanup, not blind aggregate recreation.
+- Why deferred: Creating or guessing Xiuyuan aggregates without a unique same-block/same-Riff match would invent ownership and can corrupt deletion semantics.
+- Next safe step: Fully exit SiYuan, then run `node scripts/repair-xiuyuan-binding-drift.cjs --db H:/SiYuanXY/data/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db --apply`, followed by dry-run verification. The reported card `card-20260422074141-s8fcj23` is in the 99/99 safe repair set.
+- Validation: `pnpm exec vitest run src/core/storage/__tests__/UnifiedStorageManager.migration.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts`; `pnpm run check:boundaries`; live dry-run showed `missingXiuyuanCards=122`, `repairable=99`, `unresolved=23`.
+
+### 2026-05-26 - Riff Mature Learning Schedule Cleanup
+
+- Task: Stop native Riff sync from importing mature review cards as Learning, and prepare live DB cleanup for existing polluted cards.
+- Touched slice: shared scheduling cleanliness, FSRS repair policy, A-Factor topic scheduler, frontend/backend Xiuyuan Riff import, guarded native Riff scheduling repair script.
+- Debt fixed now: Mature `state=Learning` cards with real review memory and long historical intervals are promoted to `Review` through the shared scheduler cleanup path. FSRS preview no longer sees `Learning + scheduledDays/stability` mature cards, so the `6 min / 10 min / 156 d` style mixed preview is removed at the root. A-Factor topic subsequent reviews now also write `Review` state. Both renderer `XiuyuanSyncService` and backend worker native Riff sync route imported schedules through the same canonicalization.
+- Debt deferred: Live DB mutation is intentionally not applied while SiYuan is running; the repair script dry-run reports 28/28 repairable polluted Riff cards and must be applied after full SiYuan exit.
+- Why deferred: The plugin runtime keeps and persists its own SQLite image while SiYuan is open, so external file repair can be overwritten.
+- Next safe step: Fully exit SiYuan, then run `node scripts/repair-native-riff-scheduling-state.cjs --db H:/SiYuanXY/data/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db --history-db H:/SiYuanXY/history/2026-05-14-135843-sync/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db --apply`, followed by a dry-run check expecting zero polluted cards.
+- Validation: `pnpm exec vitest run src/core/scheduler/__tests__/fsrsReviewStateRepair.test.ts src/core/scheduler/__tests__/schedulingStateCleanliness.test.ts src/core/scheduler/strategies/__tests__/ImprovedTopicScheduler.test.ts src/application/services/__tests__/XiuyuanSyncService.malformed-riff-input.test.ts`; `pnpm exec vitest run worker/__tests__/BackendKernel.xiuyuan-sync.test.ts worker/__tests__/BackendKernel.test.ts -t "does not offer domain sync repair for source-missing cards|summarizes readable and unreadable sync conflict database copies|applies non-dry-run sync through backend Worker DB authority"`; repair script dry-run showed `pollutedRiffCards=28`, `repairable=28`, `unresolved=0`.
+
+### 2026-05-26 - Active Card Admission And Non-Blocking Count Drift
+
+- Task: Centralize which cards count as active plugin cards, then stop review from blocking on pure review-count drift.
+- Touched slice: shared card admission SQL helper; browser sync summary/profile reads; Review domain-sync safety gate; domain-sync repair preview limit selection; focused worker/UI/service tests.
+- Debt fixed now: `source_exists` + tombstone admission logic is shared through `cardAdmissionSql.ts` and reused by browser stats, sync conflict summaries, and repair evidence queries. Browser/source refresh candidates now use the same active-source predicate. Review gating no longer blocks on `review-event-count-exceeds-card-reps` alone; only card-state-lag evidence still blocks Review. Manual repair preview still sees count drift as repairable evidence, but it no longer traps the user in a repair loop.
+- Debt deferred: Historical review facts stay append-only for audit. Count drift is still visible in diagnostics until a separate scheduler/backfill policy decides whether to rewrite `reps`/`last_review` for old cards.
+- Why deferred: These rows are still real review history, and rewriting them without a data-retention decision would hide the audit trail.
+- Next safe step: Rebuild the plugin, reload SiYuan, and confirm the sync dialog reports the active library count and no longer blocks Review on pure count drift.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/ReviewDomainSyncSafetyService.test.ts src/ui/syncConflict/__tests__/manualSyncConflictResolutionDialog.test.ts worker/__tests__/BackendKernel.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-26 - Sync Conflict Active Card Count And Projection Startup Recovery
+
+- Task: Fix Review startup being blocked by stale sync/projection diagnostics after backend migration.
+- Touched slice: Domain sync conflict summary and repair preview UI; projection-backed Review queue counter startup path; `worker/db/SqliteDatabaseService.ts`, `src/ui/syncConflict/manualSyncConflictResolutionDialog.ts`, `src/application/adapters/UnifiedQueueStrategy.ts`.
+- Debt fixed now: Sync conflict database summaries now count only active-source, non-tombstoned cards instead of raw `cards` rows, so confirmed missing-source cards are not reported as current local library cards. Manual domain-sync repair preview now requests enough rows to cover the reported repairable/divergent set instead of hard-capping at 50. Queue counter reads that hit `QUEUE_PROJECTION_NOT_READY` now force one projection refresh before surfacing a hard count-unavailable error.
+- Debt deferred: Domain sync diagnostics still keep historical review events for deleted/missing cards as audit evidence; they are not deleted or rewritten during this runtime fix.
+- Why deferred: Review history is append-only audit data. Removing old facts needs a separate data-retention/migration decision, not an implicit startup repair.
+- Next safe step: Reload SiYuanMemo and open Review; the sync conflict dialog should report the current library near the confirmed active-source count instead of raw `cards` count, and projection counter reads should recover from refresh-required state.
+- Validation: Read-only live DB check showed `cards=477`, confirmed source cards `237`, missing-source cards `238`, and new active summary count `239`; `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts -t "summarizes readable and unreadable sync conflict database copies|reports repairable domain sync sanity|ignores deleted or missing-source"`; `pnpm exec vitest run src/ui/syncConflict/__tests__/manualSyncConflictResolutionDialog.test.ts src/application/adapters/__tests__/UnifiedQueueStrategy.static-subset-projection.spec.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-26 - Native Riff Sync Scheduling Preservation
+
+- Task: Prevent native Riff sync from wiping SiYuanMemo card scheduling state and repair polluted builtin-riff-sync cards.
+- Touched slice: Xiuyuan/native Riff backend sync path; `worker/db/SqliteDatabaseService.ts`, `worker/__tests__/BackendKernel.xiuyuan-sync.test.ts`, `scripts/repair-native-riff-scheduling-state.cjs`.
+- Debt fixed now: Native Riff sync no longer replaces `cards` rows with partial payloads. Existing cards preserve scheduler-owned fields (`due`, `lastReview`, `reps`, `state`, `type`, memory fields) while Riff metadata/content is updated through `SqlUnifiedStorageRepository.upsertCard`. Newly created Riff-managed cards now receive a complete initialized scheduling payload. Regression tests lock non-dry-run sync against clearing scheduling state. A guarded repair script now restores safe matches from a history DB, falls back to review-event after snapshots, initializes no-evidence rows explicitly, refreshes projection columns, and writes `algorithm_card_state`.
+- Debt deferred: Live DB repair can be overwritten while SiYuan is still running because the plugin process can persist its in-memory SQLite image after an external file write.
+- Why deferred: Mutating `H:/SiYuanXY/data/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db` while SiYuan processes are open is not a stable repair boundary.
+- Next safe step: Fully exit SiYuan, then rerun `node scripts/repair-native-riff-scheduling-state.cjs --db H:/SiYuanXY/data/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db --history-db H:/SiYuanXY/history/2026-05-14-135843-sync/storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db --apply` and verify dry-run reports zero polluted cards.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.xiuyuan-sync.test.ts worker/__tests__/WorkerXiuyuanSyncPlanner.test.ts`; `pnpm run check:boundaries`; `pnpm build`; live dry-run/apply script runs created DB backups and reduced SQL bad due count to zero before runtime overwrite contention was detected.
 
 ### 2026-05-26 - Processing Scheduler Priority Policy
 

@@ -32,6 +32,11 @@ import {
   stringifyAlgorithmCardState,
   type AlgorithmCardStateRow,
 } from './algorithmCardState';
+import {
+  activeCardNotTombstonedSql,
+  activeCardSourceStatusSql,
+  missingCardSourceStatusSql,
+} from './cardAdmissionSql';
 
 interface CardProjection {
   deckId: string | null;
@@ -96,16 +101,10 @@ interface CardPageResult {
 
 const FNV1A_64_OFFSET_BASIS = 0xcbf29ce484222325n;
 const FNV1A_64_PRIME = 0x100000001b3n;
-const ACTIVE_CARD_NOT_TOMBSTONED_SQL = `NOT EXISTS (
-  SELECT 1
-  FROM tombstones card_tombstone
-  WHERE card_tombstone.kind = 'card'
-    AND card_tombstone.id = cards.id
-    AND card_tombstone.deleted_at >= COALESCE(cards.updated_at, 0)
-)`;
 const CARD_HAS_RENDERABLE_CONTENT_SQL = "TRIM(COALESCE(content_text, '')) != ''";
-const ACTIVE_SOURCE_STATUS_SQL = `(source_exists IS NULL OR source_exists = 1)`;
-const MISSING_SOURCE_STATUS_SQL = `source_exists = 0`;
+const ACTIVE_CARD_NOT_TOMBSTONED_SQL = activeCardNotTombstonedSql('cards');
+const ACTIVE_SOURCE_STATUS_SQL = activeCardSourceStatusSql('cards');
+const MISSING_SOURCE_STATUS_SQL = missingCardSourceStatusSql('cards');
 
 export interface AlgorithmCardStateDiagnosticSummary {
   total: number;
@@ -214,9 +213,10 @@ function isCardDeletedByActiveTombstone(card: FSRSCard | undefined, tombstone: D
 }
 
 function resolveXiuyuanId(card: FSRSCard, dto?: CardPersistenceDTO): string | null {
-  const metaXiuyuan = typeof card.meta?.xiuyuanID === 'string' ? card.meta.xiuyuanID : '';
+  const cardXiuyuan = typeof card.xiuyuanID === 'string' ? card.xiuyuanID : '';
   const dtoXiuyuan = typeof dto?.xiuyuanID === 'string' ? dto.xiuyuanID : '';
-  return metaXiuyuan || dtoXiuyuan || null;
+  const metaXiuyuan = typeof card.meta?.xiuyuanID === 'string' ? card.meta.xiuyuanID : '';
+  return cardXiuyuan || dtoXiuyuan || metaXiuyuan || null;
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
@@ -548,8 +548,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     if (!normalizedId) {
       return undefined;
     }
-    const row = this.database.getOne<{ payload_json: string }>(
-      `SELECT payload_json FROM cards WHERE id = ? AND ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}`,
+    const row = this.database.getOne<{ payload_json: string; dto_json: string | null }>(
+      `SELECT payload_json, dto_json FROM cards WHERE id = ? AND ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}`,
       [normalizedId],
     );
     return row ? this.parseCardRows([row])[0] : undefined;
@@ -582,8 +582,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
 
     const uniqueIds = Array.from(new Set(orderedIds));
     const placeholders = uniqueIds.map(() => '?').join(', ');
-    const rows = this.database.getAll<{ payload_json: string }>(
-      `SELECT payload_json FROM cards
+    const rows = this.database.getAll<{ payload_json: string; dto_json: string | null }>(
+      `SELECT payload_json, dto_json FROM cards
        WHERE (id IN (${placeholders}) OR block_id IN (${placeholders}))
          AND ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}
          AND ${ACTIVE_SOURCE_STATUS_SQL}`,
@@ -609,8 +609,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     const orderBy = query?.dueDate?.lte !== undefined || query?.dueDate?.gte !== undefined
       ? 'ORDER BY due ASC, priority ASC, id ASC'
       : 'ORDER BY id ASC';
-    const rows = this.database.getAll<{ payload_json: string }>(
-      `SELECT payload_json FROM cards ${whereClause} ${orderBy}`,
+    const rows = this.database.getAll<{ payload_json: string; dto_json: string | null }>(
+      `SELECT payload_json, dto_json FROM cards ${whereClause} ${orderBy}`,
       where?.params,
     );
 
@@ -643,8 +643,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     const where = this.buildStructuredWhereClause(query);
     const total = this.countCards(query);
     const { startRow, limit } = this.normalizePageRequest(page, total);
-    const rows = this.database.getAll<{ payload_json: string }>(
-      `SELECT payload_json FROM cards ${this.toWhereSql(where)} ORDER BY id ASC LIMIT ? OFFSET ?`,
+    const rows = this.database.getAll<{ payload_json: string; dto_json: string | null }>(
+      `SELECT payload_json, dto_json FROM cards ${this.toWhereSql(where)} ORDER BY id ASC LIMIT ? OFFSET ?`,
       [...(where?.params || []), limit, startRow],
     );
     return {
@@ -676,8 +676,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
 
     const total = this.countByWhere(deckQuery.where);
     const { startRow, limit } = this.normalizePageRequest(page, total);
-    const rows = this.database.getAll<{ payload_json: string }>(
-      `SELECT payload_json FROM cards ${this.toWhereSql(deckQuery.where)} ${deckQuery.orderBy} LIMIT ? OFFSET ?`,
+    const rows = this.database.getAll<{ payload_json: string; dto_json: string | null }>(
+      `SELECT payload_json, dto_json FROM cards ${this.toWhereSql(deckQuery.where)} ${deckQuery.orderBy} LIMIT ? OFFSET ?`,
       [...(deckQuery.where?.params || []), limit, startRow],
     );
     return {
@@ -752,7 +752,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       params.push(staleBefore);
     }
     if (request.includeKnownMissing !== true) {
-      clauses.push('(source_exists IS NULL OR source_exists != 0)');
+      clauses.push(activeCardSourceStatusSql('cards'));
     }
     if (!forceRefresh) {
       clauses.push(`(${freshnessClauses.join(' OR ')})`);
@@ -1208,12 +1208,9 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     return card?.id ? canonicalizeSqlCard(card) : null;
   }
 
-  private parseCardRows(rows: Array<{ payload_json: string }>): FSRSCard[] {
+  private parseCardRows(rows: Array<{ payload_json: string; dto_json?: string | null }>): FSRSCard[] {
     const baseCards = rows
-      .map((row) => {
-        const card = parseJson<FSRSCard | null>(row.payload_json, null);
-        return card?.id ? canonicalizeSqlCard(card) : null;
-      })
+      .map((row) => this.parseBaseCardRow(row))
       .filter((card): card is FSRSCard => Boolean(card));
     const stateRows = this.loadAlgorithmStateRowMap(baseCards.map((card) => card.id));
     return baseCards.map((card) => this.hydrateWithAlgorithmState(card, stateRows));
@@ -1337,7 +1334,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       clauses.push('suspended = 0');
     }
 
-    this.appendSourceStatusClause(clauses, query?.sourceStatus);
+    this.appendSourceStatusClause(clauses, query?.sourceStatus ?? 'active');
 
     const tags = normalizeStringArray(query?.tags);
     if (tags.length > 0) {

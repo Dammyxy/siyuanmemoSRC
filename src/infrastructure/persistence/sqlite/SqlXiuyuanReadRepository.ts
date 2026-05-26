@@ -72,4 +72,22 @@ export class SqlXiuyuanReadRepository implements XiuyuanSqlReadPort {
     );
     return parseJson<CardPersistenceDTO | null>(row?.dto_json, null);
   }
+
+  getCardDTOsByXiuyuanId(xiuyuanId: string): CardPersistenceDTO[] {
+    const normalizedXiuyuanId = String(xiuyuanId || '').trim();
+    if (!normalizedXiuyuanId) {
+      return [];
+    }
+
+    const rows = this.database.getAll<{ dto_json: string | null }>(
+      `SELECT dto_json FROM cards
+       WHERE xiuyuan_id = ? AND ${ACTIVE_CARD_SQL}
+       ORDER BY id ASC`,
+      [normalizedXiuyuanId],
+    );
+
+    return rows
+      .map((row) => parseJson<CardPersistenceDTO | null>(row.dto_json, null))
+      .filter((dto): dto is CardPersistenceDTO => Boolean(dto?.id));
+  }
 }

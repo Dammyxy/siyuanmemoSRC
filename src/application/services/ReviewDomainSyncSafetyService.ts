@@ -24,6 +24,10 @@ export interface ReviewDomainSyncSafetyDecision {
   divergentCardCount: number;
 }
 
+export interface ReviewDomainSyncSafetyDecisionOptions {
+  currentCardId?: string | null;
+}
+
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
     return error.message;
@@ -49,9 +53,50 @@ function buildBlockedMessage(
   }
 }
 
+function toNonNegativeCount(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : 0;
+}
+
+function hasBlockingRepairableDivergence(
+  status: BackendDomainSyncStatusResult,
+  currentCardId?: string | null,
+): boolean {
+  const repairableDivergenceCount = toNonNegativeCount(status.sanity.repairableDivergenceCount);
+  if (repairableDivergenceCount <= 0) {
+    return false;
+  }
+
+  const reasonCounts = status.sanity.reasonCounts ?? {};
+  const historyNewerCount = toNonNegativeCount(reasonCounts['review-history-newer-than-card-state']);
+  const countDriftCount = toNonNegativeCount(reasonCounts['review-event-count-exceeds-card-reps']);
+  const hasKnownRepairableReasons = historyNewerCount + countDriftCount > 0;
+
+  if (!hasKnownRepairableReasons) {
+    return true;
+  }
+
+  if (!currentCardId) {
+    return historyNewerCount > 0;
+  }
+
+  const affectedCardIds = Array.isArray(status.sanity.affectedCardIds)
+    ? status.sanity.affectedCardIds.map((value) => String(value || '').trim()).filter(Boolean)
+    : [];
+  if (status.sanity.truncated === true) {
+    return historyNewerCount > 0;
+  }
+  if (!affectedCardIds.includes(currentCardId)) {
+    return false;
+  }
+
+  return historyNewerCount > 0;
+}
+
 export function buildReviewDomainSyncSafetyDecision(
   status: BackendDomainSyncStatusResult | null | undefined,
   error?: unknown,
+  options: ReviewDomainSyncSafetyDecisionOptions = {},
 ): ReviewDomainSyncSafetyDecision {
   if (!status) {
     return {
@@ -73,6 +118,7 @@ export function buildReviewDomainSyncSafetyDecision(
   const skippedSourceCount = status.sanity.skippedSourceCount;
   const pendingImportCount = status.sanity.pendingImportCount;
   const divergentCardCount = status.sanity.divergentCardCount;
+  const blockingRepairableDivergence = hasBlockingRepairableDivergence(status, options.currentCardId);
 
   let kind: ReviewDomainSyncSafetyDecisionKind = 'allow';
   switch (status.sanity.status) {
@@ -82,7 +128,7 @@ export function buildReviewDomainSyncSafetyDecision(
     case 'merged':
       if (skippedSourceCount > 0 || pendingImportCount > 0) {
         kind = 'block-source-error';
-      } else if (repairableDivergenceCount > 0) {
+      } else if (blockingRepairableDivergence) {
         kind = 'block-repairable';
       } else if (divergentLedgerCount > 0) {
         kind = 'block-divergent';
@@ -91,13 +137,13 @@ export function buildReviewDomainSyncSafetyDecision(
       }
       break;
     case 'repairable':
-      kind = 'block-repairable';
+      kind = blockingRepairableDivergence ? 'block-repairable' : 'allow';
       break;
     case 'needs-direction':
       kind = 'block-needs-direction';
       break;
     case 'divergent':
-      if (repairableDivergenceCount > 0) {
+      if (blockingRepairableDivergence) {
         kind = 'block-repairable';
       } else if (divergentLedgerCount > 0) {
         kind = 'block-divergent';

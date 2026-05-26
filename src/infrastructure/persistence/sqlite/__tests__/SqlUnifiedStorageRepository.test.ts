@@ -181,6 +181,51 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     expect(readModel.countCards?.({ includeSuspended: false })).toBe(3);
   });
 
+  it('hydrates query cards from dto_json when payload_json has stale Xiuyuan binding', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+    const repository = new SqlUnifiedStorageRepository(database);
+    const dto = createDTO({
+      id: 'card-stale-payload',
+      blockId: 'block-stale-payload',
+      xiuyuanID: 'xy-canonical',
+      meta: { content: 'canonical card', xiuyuanID: 'xy-canonical' },
+    });
+    const stalePayload = {
+      ...dto,
+      xiuyuanID: 'xy-stale',
+      meta: { ...dto.meta, xiuyuanID: 'xy-stale' },
+    };
+    await repository.saveStore({
+      version: 2,
+      xiuyuans: {
+        'xy-canonical': createXiuyuan('xy-canonical', 'block-stale-payload'),
+      },
+      cards: {
+        [stalePayload.id]: stalePayload as FSRSCard,
+      },
+      cardDTOs: {
+        [dto.id]: dto,
+      },
+      deletedCardDTOs: {},
+      deletedXiuyuans: {},
+      riffBlacklist: [],
+    });
+    database.run(
+      'UPDATE cards SET payload_json = ?, dto_json = ? WHERE id = ?',
+      [JSON.stringify(stalePayload), JSON.stringify(dto), dto.id],
+    );
+
+    expect(repository.getCard(dto.id)).toMatchObject({
+      id: dto.id,
+      xiuyuanID: 'xy-canonical',
+      meta: { xiuyuanID: 'xy-canonical' },
+    });
+    expect(repository.queryCards({ blockIds: [dto.blockId] })[0]).toMatchObject({
+      xiuyuanID: 'xy-canonical',
+    });
+  });
+
   it('serves SQL count, page, and matched-id reads from card projections', async () => {
     const { repository } = await seedRepositories();
 
@@ -321,6 +366,9 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
       { cardId: 'card-b', blockId: 'block-b', exists: false },
     ], 1_700_000_010_000);
 
+    expect(ids(repository.queryCards())).toEqual(['card-a', 'card-c', 'card-d']);
+    expect(repository.countCards()).toBe(3);
+    expect(repository.countCards({ sourceStatus: 'all' })).toBe(4);
     expect(repository.queryDeckMatchedIds({ sortModel: [] })).toEqual(['card-a', 'card-c', 'card-d']);
     expect(repository.queryDeckMatchedIds({ docId: '__lost__', sortModel: [] })).toEqual(['card-b']);
     expect(repository.countCards({ sourceStatus: 'active' })).toBe(3);

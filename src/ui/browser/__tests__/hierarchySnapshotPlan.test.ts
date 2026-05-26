@@ -3,6 +3,7 @@ import {
   DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
   normalizeHierarchySnapshotDelayMs,
   resolveBrowserHierarchySnapshotMode,
+  shouldDelayHierarchySnapshot,
 } from '../hierarchySnapshotPlan';
 
 describe('hierarchySnapshotPlan', () => {
@@ -32,5 +33,28 @@ describe('hierarchySnapshotPlan', () => {
     expect(normalizeHierarchySnapshotDelayMs(undefined)).toBe(DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS);
     expect(normalizeHierarchySnapshotDelayMs(Number.NaN, 45)).toBe(45);
     expect(normalizeHierarchySnapshotDelayMs(12.8)).toBe(12);
+  });
+
+  it('delays hierarchy snapshots while projection is still refreshing', () => {
+    expect(shouldDelayHierarchySnapshot({
+      hasFirstDataBlockLoaded: false,
+      loading: false,
+      firstRowsStatus: 'projection-not-ready',
+    })).toBe(true);
+    expect(shouldDelayHierarchySnapshot({
+      hasFirstDataBlockLoaded: false,
+      loading: true,
+      firstRowsStatus: 'pending',
+    })).toBe(true);
+    expect(shouldDelayHierarchySnapshot({
+      hasFirstDataBlockLoaded: true,
+      loading: false,
+      firstRowsStatus: 'loaded',
+    })).toBe(false);
+    expect(shouldDelayHierarchySnapshot({
+      hasFirstDataBlockLoaded: false,
+      loading: false,
+      firstRowsStatus: 'error',
+    })).toBe(false);
   });
 });

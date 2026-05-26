@@ -521,6 +521,7 @@ import {
 import {
   DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
   normalizeHierarchySnapshotDelayMs,
+  shouldDelayHierarchySnapshot,
 } from './hierarchySnapshotPlan';
 import { resolveBrowserGridSizing } from './browserGridSizing';
 import { migrateExistingCards, checkMigrationNeeded } from '@/scripts/migrateToTopicItem';
@@ -2208,7 +2209,11 @@ function startFocusRowsSnapshot(delayMs?: number): void {
     if (!shouldFocusDocList.value) {
       return;
     }
-    if (loading.value && !hasFirstDataBlockLoaded.value) {
+    if (shouldDelayHierarchySnapshot({
+      loading: loading.value,
+      hasFirstDataBlockLoaded: hasFirstDataBlockLoaded.value,
+      firstRowsStatus: firstRowsStatus.value,
+    })) {
       backgroundSnapshotTimer = setTimeout(maybeStartSnapshot, SNAPSHOT_FIRST_ROWS_POLL_MS);
       return;
     }

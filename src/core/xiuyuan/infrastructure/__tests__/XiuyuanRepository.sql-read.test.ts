@@ -33,6 +33,36 @@ function createFailingStorage() {
     getCardDTO: vi.fn(() => {
       throw new Error('legacy getCardDTO should not be used');
     }),
+    upsertXiuYuan: vi.fn(),
+    save: vi.fn(async () => ({ ok: true, value: undefined })),
+  };
+}
+
+function createSqlCardDTO(cardId: string, xiuyuanID = 'xy_sql_rich') {
+  const now = Date.now();
+  return {
+    id: cardId,
+    blockId: '20210808180117-6v0mkxr',
+    due: now + 60_000,
+    stability: 2.5,
+    difficulty: 4.5,
+    reps: 3,
+    lapses: 1,
+    state: CardState.Review,
+    lastReview: now,
+    elapsedDays: 1,
+    scheduledDays: 2,
+    priority: 7,
+    type: CardType.Item,
+    tags: ['sql'],
+    leechCount: 0,
+    isLeech: false,
+    skipped: false,
+    createdAt: now,
+    updatedAt: now,
+    xiuyuanID,
+    templateID: 'builtin-list-item',
+    meta: { faceIndex: 0 },
   };
 }
 
@@ -43,6 +73,7 @@ describe('XiuyuanRepository SQL-first reads', () => {
       findById: vi.fn(() => createXiuyuan()),
       findByBlockId: vi.fn(() => []),
       getCardDTO: vi.fn(() => null),
+      getCardDTOsByXiuyuanId: vi.fn(() => []),
     };
     const id = XiuyuanId.create('xy_sql_first');
     expect(id.ok).toBe(true);
@@ -64,6 +95,7 @@ describe('XiuyuanRepository SQL-first reads', () => {
       findById: vi.fn(() => null),
       findByBlockId: vi.fn(() => [createXiuyuan()]),
       getCardDTO: vi.fn(() => null),
+      getCardDTOsByXiuyuanId: vi.fn(() => []),
     };
     const blockId = BlockId.create('20210808180117-6v0mkxr');
     expect(blockId.ok).toBe(true);
@@ -80,8 +112,8 @@ describe('XiuyuanRepository SQL-first reads', () => {
   });
 
   it('preserves aggregate metadata and scheduling links when hydrating through SQL', async () => {
-    const now = Date.now();
     const storage = createFailingStorage();
+    const sqlCardDTO = createSqlCardDTO('card-sql-1');
     const persisted = createXiuyuan({
       id: 'xy_sql_rich',
       blockIDs: ['20210808180117-6v0mkxr', '20210808180117-6v0mkxs'],
@@ -101,30 +133,8 @@ describe('XiuyuanRepository SQL-first reads', () => {
     const sqlReadPort: XiuyuanSqlReadPort = {
       findById: vi.fn(() => persisted),
       findByBlockId: vi.fn(() => [persisted]),
-      getCardDTO: vi.fn(() => ({
-        id: 'card-sql-1',
-        blockId: '20210808180117-6v0mkxr',
-        due: now + 60_000,
-        stability: 2.5,
-        difficulty: 4.5,
-        reps: 3,
-        lapses: 1,
-        state: CardState.Review,
-        lastReview: now,
-        elapsedDays: 1,
-        scheduledDays: 2,
-        priority: 7,
-        type: CardType.Item,
-        tags: ['sql'],
-        leechCount: 0,
-        isLeech: false,
-        skipped: false,
-        createdAt: now,
-        updatedAt: now,
-        xiuyuanID: 'xy_sql_rich',
-        templateID: 'builtin-list-item',
-        meta: { faceIndex: 0 },
-      })),
+      getCardDTO: vi.fn(() => sqlCardDTO),
+      getCardDTOsByXiuyuanId: vi.fn(() => [sqlCardDTO]),
     };
     const id = XiuyuanId.create('xy_sql_rich');
     expect(id.ok).toBe(true);
@@ -150,6 +160,42 @@ describe('XiuyuanRepository SQL-first reads', () => {
     expect(card.getId().getValue()).toBe('card-sql-1');
     expect(card.getScheduleInfo().reps).toBe(3);
     expect(sqlReadPort.getCardDTO).toHaveBeenCalledWith('card-sql-1');
+    expect(storage.getCardDTO).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds aggregate cards through SQL when persisted cardIds are missing', async () => {
+    const storage = createFailingStorage();
+    const sqlCardDTO = createSqlCardDTO('card-sql-rebuilt', 'xy_sql_missing_cardids');
+    const persisted = createXiuyuan({
+      id: 'xy_sql_missing_cardids',
+      meta: {
+        faces: [{
+          question: 'Q',
+          answer: 'A',
+          questionBlockId: '20210808180117-6v0mkxr',
+          answerBlockId: '20210808180117-6v0mkxr',
+        }],
+      },
+    });
+    const sqlReadPort: XiuyuanSqlReadPort = {
+      findById: vi.fn(() => persisted),
+      findByBlockId: vi.fn(() => [persisted]),
+      getCardDTO: vi.fn(() => sqlCardDTO),
+      getCardDTOsByXiuyuanId: vi.fn(() => [sqlCardDTO]),
+    };
+    const id = XiuyuanId.create('xy_sql_missing_cardids');
+    expect(id.ok).toBe(true);
+    if (!id.ok) return;
+
+    const repository = new XiuyuanRepository(storage as never, undefined, sqlReadPort);
+    const result = await repository.findById(id.value);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok || !result.value) return;
+    expect(result.value.getCards().map((card) => card.getId().getValue())).toEqual(['card-sql-rebuilt']);
+    expect(sqlReadPort.getCardDTOsByXiuyuanId).toHaveBeenCalledWith('xy_sql_missing_cardids');
+    expect(sqlReadPort.getCardDTO).not.toHaveBeenCalled();
+    expect(storage.upsertXiuYuan).toHaveBeenCalledTimes(1);
     expect(storage.getCardDTO).not.toHaveBeenCalled();
   });
 });

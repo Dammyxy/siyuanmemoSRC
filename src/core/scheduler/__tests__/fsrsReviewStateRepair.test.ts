@@ -100,6 +100,35 @@ describe('repairFsrsReviewState', () => {
     expect(result.card.stability).toBe(0);
   });
 
+  it('promotes mature New cards whose review state was reset but memory remained', () => {
+    const due = new Date('2026-05-26T23:39:17+08:00').getTime();
+    const lastReview = new Date('2026-05-01T07:02:51+08:00').getTime();
+    const result = repairFsrsReviewState(createCard({
+      id: 'card-1772222812855-5i98o4e96',
+      state: CardState.New,
+      due,
+      lastReview,
+      reps: 0,
+      stability: 19.63158225,
+      difficulty: 2.04951585,
+      scheduledDays: 22,
+      type: CardType.Item,
+      schedulerType: 'fsrs-v6',
+      meta: {
+        ownership: 'riff-managed',
+        source: 'riff-sync',
+        riffCardId: '20260228040652-am16wq4',
+      },
+    }), { now: due });
+
+    expect(result.repaired).toBe(true);
+    expect(result.reasons).toEqual(expect.arrayContaining(['state', 'reps']));
+    expect(result.card.state).toBe(CardState.Review);
+    expect(result.card.reps).toBe(1);
+    expect(result.card.scheduledDays).toBe(22);
+    expect(result.card.stability).toBe(19.63158225);
+  });
+
   it('normalizes uninitialized New memory as 0/0 instead of difficulty=1 stability=0', () => {
     const result = repairFsrsReviewState(createCard({
       state: CardState.New,
@@ -113,6 +142,55 @@ describe('repairFsrsReviewState', () => {
     expect(result.reasons).toContain('memoryState');
     expect(result.card.stability).toBe(0);
     expect(result.card.difficulty).toBe(0);
+  });
+
+  it('promotes mature Learning cards imported from Riff into Review state', () => {
+    const due = new Date('2026-04-28T23:21:27+08:00').getTime();
+    const lastReview = new Date('2026-04-28T23:11:27+08:00').getTime();
+    const result = repairFsrsReviewState(createCard({
+      id: 'card-20260424190358-nv5h2no',
+      state: CardState.Learning,
+      due,
+      lastReview,
+      reps: 1,
+      stability: 23.20535865,
+      difficulty: 2.09745544,
+      scheduledDays: 26,
+      learning_step: 0,
+      type: CardType.Descriptor,
+      schedulerType: 'fsrs-v6',
+      meta: {
+        templateID: 'builtin-riff-sync',
+        ownership: 'riff-managed',
+        source: 'riff-sync',
+      },
+    }), { now: new Date('2026-05-26T19:58:00+08:00') });
+
+    expect(result.repaired).toBe(true);
+    expect(result.reasons).toContain('state');
+    expect(result.card.state).toBe(CardState.Review);
+    expect(result.card.due).toBe(due);
+    expect(result.card.lastReview).toBe(lastReview);
+    expect(result.card.scheduledDays).toBe(26);
+    expect(result.card.stability).toBe(23.20535865);
+  });
+
+  it('keeps true short-term Learning cards in Learning state', () => {
+    const now = new Date('2026-05-26T19:58:00+08:00').getTime();
+    const result = repairFsrsReviewState(createCard({
+      state: CardState.Learning,
+      due: now + 10 * 60 * 1000,
+      lastReview: now,
+      reps: 1,
+      stability: 0,
+      difficulty: 0,
+      scheduledDays: 0,
+      learning_step: 1,
+    }), { now });
+
+    expect(result.repaired).toBe(false);
+    expect(result.card.state).toBe(CardState.Learning);
+    expect(result.card.learning_step).toBe(1);
   });
 
   it('skips topic cards because their card type owns A-Factor scheduling', () => {

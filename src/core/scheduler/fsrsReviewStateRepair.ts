@@ -7,6 +7,7 @@ const MIN_DIFFICULTY = 1;
 const MAX_DIFFICULTY = 10;
 const MIN_RELIABLE_HISTORICAL_INTERVAL_DAYS = 7;
 const LOW_REVIEW_MEMORY_DAYS = 1;
+const MIN_MATURE_LEARNING_INTERVAL_DAYS = MIN_RELIABLE_HISTORICAL_INTERVAL_DAYS;
 
 export type FsrsReviewStateRepairResult = {
   card: FSRSCard;
@@ -42,13 +43,25 @@ export function repairFsrsReviewState(
     return { card, repaired: false, reasons: [] };
   }
 
-  if (!isReviewLikeState(card.state)) {
-    return repairUninitializedMemoryState(card);
+  const reviewCandidate = promoteMatureResetState(promoteMatureLearningState(card));
+  if (!isReviewLikeState(reviewCandidate.state)) {
+    return repairUninitializedMemoryState(reviewCandidate);
   }
 
   const now = resolveNow(options.now);
   const reasons: string[] = [];
-  const repairedCard: FSRSCard = { ...card };
+  if (reviewCandidate !== card) {
+    if (reviewCandidate.state !== card.state) {
+      reasons.push('state');
+    }
+    if (reviewCandidate.reps !== card.reps) {
+      reasons.push('reps');
+    }
+    if (reviewCandidate.learning_step !== card.learning_step) {
+      reasons.push('learning_step');
+    }
+  }
+  const repairedCard: FSRSCard = { ...reviewCandidate };
 
   const originalDue = toPositiveTimestamp(repairedCard.due, 0);
   let due = originalDue > 0 ? originalDue : now;
@@ -141,6 +154,56 @@ export function repairFsrsReviewState(
 
 function isReviewLikeState(state: unknown): boolean {
   return state === CardState.Review || state === CardState.Relearning;
+}
+
+function promoteMatureLearningState(card: FSRSCard): FSRSCard {
+  if (card.state !== CardState.Learning) {
+    return card;
+  }
+
+  const due = toPositiveTimestamp(card.due, 0);
+  const lastReview = toPositiveTimestamp(card.lastReview, 0);
+  const intervalDays = deriveIntervalDays(due, lastReview);
+  const scheduledDays = toNonNegativeInteger(card.scheduledDays, 0);
+  const stability = toFiniteNumber(card.stability, 0);
+  const reps = toNonNegativeInteger(card.reps, 0);
+  const hasMatureInterval = Math.max(intervalDays, scheduledDays) >= MIN_MATURE_LEARNING_INTERVAL_DAYS;
+  const hasReviewMemory = reps > 0 && lastReview > 0 && stability > 0;
+  if (!hasMatureInterval || !hasReviewMemory) {
+    return card;
+  }
+
+  return {
+    ...card,
+    state: CardState.Review,
+    learning_step: 0,
+  };
+}
+
+function promoteMatureResetState(card: FSRSCard): FSRSCard {
+  if (card.state !== CardState.New) {
+    return card;
+  }
+
+  const due = toPositiveTimestamp(card.due, 0);
+  const lastReview = toPositiveTimestamp(card.lastReview, 0);
+  const intervalDays = deriveIntervalDays(due, lastReview);
+  const scheduledDays = toNonNegativeInteger(card.scheduledDays, 0);
+  const stability = toFiniteNumber(card.stability, 0);
+  const reps = toNonNegativeInteger(card.reps, 0);
+  const hasMatureMemory = lastReview > 0
+    && stability > 0
+    && Math.max(intervalDays, scheduledDays, stability) >= MIN_MATURE_LEARNING_INTERVAL_DAYS;
+  if (reps > 0 || !hasMatureMemory) {
+    return card;
+  }
+
+  return {
+    ...card,
+    state: CardState.Review,
+    reps: 1,
+    learning_step: 0,
+  };
 }
 
 function repairUninitializedMemoryState(card: FSRSCard): FsrsReviewStateRepairResult {

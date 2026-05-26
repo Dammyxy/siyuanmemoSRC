@@ -6,11 +6,13 @@ import { BlockId } from '../../domain/BlockId';
 import { TemplateId } from '../../domain/TemplateId';
 import { CardFace } from '../../domain/CardFace';
 
-const { setBlockAttrsMock } = vi.hoisted(() => ({
+const { getBlockAttrsMock, setBlockAttrsMock } = vi.hoisted(() => ({
+  getBlockAttrsMock: vi.fn(),
   setBlockAttrsMock: vi.fn(),
 }));
 
 vi.mock('@/core/siyuan/api', () => ({
+  getBlockAttrs: getBlockAttrsMock,
   setBlockAttrs: setBlockAttrsMock,
 }));
 
@@ -26,11 +28,22 @@ function createStorageMock() {
 
   return {
     mock: {
+      runWriteTransaction: vi.fn(async (_label: string, operation: (transaction: unknown) => Promise<unknown>) => {
+        return operation({ token: Symbol('test'), label: 'test' });
+      }),
+      getStoreData: vi.fn(() => ({
+        version: 2,
+        xiuyuans: Object.fromEntries(xiuyuans.entries()),
+        cards: {},
+        cardDTOs: {},
+      })),
+      restoreStoreSnapshot: vi.fn(),
       getXiuYuan: vi.fn((id: string) => xiuyuans.get(id)),
       upsertXiuYuan: vi.fn((xiuyuan: { id: string }) => {
         xiuyuans.set(xiuyuan.id, xiuyuan);
       }),
       getAllCards: vi.fn(() => []),
+      getCardsByXiuyuanId: vi.fn(() => []),
       deleteCard: vi.fn(async () => undefined),
       getCard: vi.fn(),
       updateCard: vi.fn(async () => undefined),
@@ -49,6 +62,7 @@ function createStorageMock() {
 describe('XiuyuanRepository delete with empty aggregate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getBlockAttrsMock.mockResolvedValue({});
     setBlockAttrsMock.mockResolvedValue(undefined);
   });
 

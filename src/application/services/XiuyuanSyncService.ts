@@ -47,7 +47,7 @@ import { Priority } from '@/core/xiuyuan/domain/Priority';
 import { RiffBlacklistService } from './RiffBlacklistService';
 import { CardTypeDetectionService } from '@/core/xiuyuan/domain/services/CardTypeDetectionService';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
-import { repairFsrsReviewState } from '@/core/scheduler/fsrsReviewStateRepair';
+import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 import { createLogger } from '@/utils/logger';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { ClozeDetector } from '@/utils/cloze-detector';
@@ -1982,8 +1982,9 @@ export class XiuyuanSyncService {
             updatedAt: now,
             schedulerType,
         };
-        const repairedScheduleCard = repairFsrsReviewState(rawScheduleCard, {
-            schedulerType,
+        const repairedScheduleCard = canonicalizeSchedulingState(rawScheduleCard, {
+            source: 'riff-import',
+            mode: 'repair-external',
             now,
         }).card;
 

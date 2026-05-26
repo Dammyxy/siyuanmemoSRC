@@ -126,6 +126,18 @@ function domainSyncSkippedReasonLabel(reason: string | null | undefined, i18n: R
   return pair ? label(i18n, pair[0], pair[1]) : raw;
 }
 
+function resolveDomainSyncRepairPreviewLimit(status: BackendDomainSyncStatusResult | null): number {
+  const divergent = Math.max(0, Math.floor(Number(status?.sanity.divergentCardCount) || 0));
+  const repairable = Math.max(
+    0,
+    Math.floor(Number(
+      status?.repair.repairableDivergenceCount
+        ?? status?.sanity.repairableDivergenceCount
+    ) || 0),
+  );
+  return Math.max(50, divergent, repairable);
+}
+
 function reviewBlockDecisionMessage(
   decision: ReviewDomainSyncSafetyDecision,
   i18n: Record<string, string>,
@@ -730,7 +742,10 @@ export async function openManualSyncConflictResolutionDialog(
     dialog.element.querySelector('[data-action="domain-preview"]')?.addEventListener('click', () => {
       void (async () => {
         try {
-          repairPreview = await context.previewDomainSyncRepair({ limit: 50, includeUnrepairable: true });
+          repairPreview = await context.previewDomainSyncRepair({
+            limit: resolveDomainSyncRepairPreviewLimit(domainStatus),
+            includeUnrepairable: true,
+          });
           refreshDomainPanel();
         } catch (error) {
           logger.error('Domain sync repair preview failed:', error);

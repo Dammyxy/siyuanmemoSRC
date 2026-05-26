@@ -1066,6 +1066,114 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(afterFullRefresh?.id).toBe(firstCard.id);
   });
 
+  it('keeps self-triggered full refresh during feedback from breaking the current review turn', async () => {
+    const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
+    const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
+    let observer: { onDataChanged(event: DataChangeEvent): void } | null = null;
+    const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, secondCard], {
+      handleReview: async (cardId, _rating, liveCards) => {
+        const projectionImpactEntry = {
+          queueType: QueueType.RetrievalPractice,
+          policyHash: 'policy-a',
+          generation: 2,
+          currentGeneration: 2,
+          requestedGeneration: 1,
+          hotPatchable: true,
+          refreshRequired: false,
+          reason: 'review-feedback',
+          removedRowIds: ['card-1'],
+          insertedRows: [],
+          updatedRows: [{
+            rowId: 'card-2',
+            cardId: 'card-2',
+            blockId: 'block-2',
+            queueIndexHint: 1,
+            sortKey: '000000001:card-2',
+          }],
+          reorderHints: [],
+          counterGeneration: 2,
+          counters: {
+            version: 2,
+            remaining: 1,
+            due: 1,
+            total: 1,
+            buckets: {
+              all: 1,
+              item: 1,
+              descriptor: 0,
+              topic: 0,
+              concept: 0,
+            },
+            source: 'reconciled',
+          },
+        };
+        observer?.onDataChanged({
+          type: 'queue-changed',
+          queueType: QueueType.RetrievalPractice,
+          requiresFullRefresh: true,
+          timestamp: Date.now(),
+        });
+        const current = liveCards.find((card) => card.id === cardId) ?? null;
+        return {
+          updatedCard: current ? { ...current, reps: current.reps + 1 } : null,
+          removedFromQueue: false,
+          remainsInQueue: true,
+          queueChanged: true,
+          requiresCurrentViewReorder: false,
+          projectionAction: {
+            status: 'patch-applied',
+            queueType: QueueType.RetrievalPractice,
+            generation: 2,
+            policyHash: 'policy-a',
+            reason: 'review-feedback',
+          },
+          projectionImpactEntry,
+        };
+      },
+    });
+    (queue.getCardsBySnapshotIds as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('QUEUE_PROJECTION_NOT_READY: snapshot rows for retrieval-practice requires backend projection but projection is still refreshing'),
+    );
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, []);
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async (cardId: string) => {
+        const card = [firstCard, secondCard].find((candidate) => candidate.id === cardId);
+        if (!card) {
+          throw new Error('card not found');
+        }
+        return { ...card };
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+      registerObserver: vi.fn((nextObserver) => {
+        observer = nextObserver;
+      }),
+      unregisterObserver: vi.fn(),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null
+    );
+
+    const first = await strategy.next();
+    expect(first?.id).toBe(firstCard.id);
+
+    await expect(strategy.onFeedback(first, { action: 'rate', rating: 4 })).resolves.toBeUndefined();
+    expect(queue.getCardsBySnapshotIds).toHaveBeenCalled();
+    await expect(strategy.getCounterSnapshot()).resolves.toMatchObject({
+      remaining: 1,
+      total: 1,
+    });
+  });
+
   it('preserves filter-group session exclusions through review tab snapshots and reloads', async () => {
     const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
     const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });

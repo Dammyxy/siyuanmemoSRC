@@ -21,6 +21,19 @@ function createXiuyuan(id: string): IXiuyuan {
   };
 }
 
+function createXiuyuanWithBlock(id: string, blockId: string, meta: Record<string, unknown> = {}): IXiuyuan {
+  const now = Date.now();
+  return {
+    id,
+    blockIDs: [blockId],
+    fields: [{ name: 'content', blockID: blockId }],
+    templateID: 'builtin-riff-sync',
+    createdAt: now,
+    updatedAt: now,
+    meta,
+  };
+}
+
 function createDTO(
   cardId: string,
   xiuyuanId: string,
@@ -270,5 +283,150 @@ describe('UnifiedStorageManager legacy scheduler migration', () => {
       },
       meta: { customField: 'kept' },
     });
+  });
+
+  it('renames a unique legacy Xiuyuan when a card points at a missing canonical Xiuyuan id', async () => {
+    remoteStore = {
+      version: 2,
+      xiuyuans: {
+        'xy_migrated_card-riff': createXiuyuanWithBlock('xy_migrated_card-riff', 'block-riff', {
+          ownership: 'riff-managed',
+          source: 'riff-sync',
+          riffCardId: 'riff-1',
+        }),
+      },
+      cards: {},
+      cardDTOs: {
+        'card-riff': createDTO('card-riff', 'xy_riff_block-riff', 'fsrs-v6', {
+          blockId: 'block-riff',
+          riffCardId: 'riff-1',
+          templateID: 'builtin-riff-sync',
+          meta: {
+            ownership: 'riff-managed',
+            source: 'riff-sync',
+            riffCardId: 'riff-1',
+            xiuyuanID: 'xy_riff_block-riff',
+          },
+        }),
+      },
+      riffBlacklist: [],
+    };
+
+    const storage = new UnifiedStorageManager();
+    storage.setPersistenceCallbacks(
+      async (store) => {
+        remoteStore = deepClone(store);
+      },
+      async () => deepClone(remoteStore)
+    );
+
+    const loadResult = await storage.load();
+    expect(loadResult.ok).toBe(true);
+
+    expect(storage.getXiuYuan('xy_riff_block-riff')).toMatchObject({
+      id: 'xy_riff_block-riff',
+      blockIDs: ['block-riff'],
+    });
+    expect(storage.getXiuYuan('xy_migrated_card-riff')).toBeUndefined();
+    expect(storage.getCardsByXiuyuanId('xy_riff_block-riff').map(card => card.id)).toEqual(['card-riff']);
+  });
+
+  it('reconstructs a missing Xiuyuan from the card DTO when no legacy candidate exists', async () => {
+    remoteStore = {
+      version: 2,
+      xiuyuans: {},
+      cards: {},
+      cardDTOs: {
+        'card-rebuild': createDTO('card-rebuild', 'xy_rebuild_block', 'fsrs-v6', {
+          blockId: 'block-rebuild',
+          templateID: 'builtin-riff-sync',
+          frontBlockIDs: ['block-rebuild'],
+          meta: {
+            ownership: 'riff-managed',
+            source: 'riff-sync',
+            content: 'rebuild content',
+            xiuyuanID: 'xy_rebuild_block',
+          },
+        }),
+      },
+      riffBlacklist: [],
+    };
+
+    const storage = new UnifiedStorageManager();
+    storage.setPersistenceCallbacks(
+      async (store) => {
+        remoteStore = deepClone(store);
+      },
+      async () => deepClone(remoteStore)
+    );
+
+    const loadResult = await storage.load();
+    expect(loadResult.ok).toBe(true);
+
+    expect(storage.getXiuYuan('xy_rebuild_block')).toMatchObject({
+      id: 'xy_rebuild_block',
+      blockIDs: ['block-rebuild'],
+    });
+    expect(storage.getCardsByXiuyuanId('xy_rebuild_block').map(card => card.id)).toEqual(['card-rebuild']);
+  });
+
+  it('repairs half Xiuyuan payloads from bound semantic card DTOs', async () => {
+    remoteStore = {
+      version: 2,
+      xiuyuans: {
+        'xy_semantic_half': createXiuyuanWithBlock('xy_semantic_half', 'descriptor-block', {
+          ownership: 'riff-managed',
+          source: 'riff-sync',
+        }),
+      },
+      cards: {},
+      cardDTOs: {
+        'card-semantic': createDTO('card-semantic', 'xy_semantic_half', 'fsrs-v6', {
+          blockId: 'descriptor-block',
+          type: CardType.Descriptor,
+          templateID: 'builtin-riff-sync',
+          frontBlockIDs: ['concept-block'],
+          backBlockIDs: ['concept-block'],
+          fieldMapping: {
+            concept: 'concept-block',
+            descriptor: 'descriptor-block',
+          },
+          meta: {
+            typeMarker: 'concept-descriptor',
+            content: '界面→不支持跨卡片批量操作',
+            faces: [{
+              question: 'SRS卡片独立单元问题',
+              answer: 'SRS卡片独立单元问题',
+              questionBlockId: 'concept-block',
+              answerBlockId: 'concept-block',
+            }],
+          },
+        }),
+      },
+      riffBlacklist: [],
+    };
+
+    const storage = new UnifiedStorageManager();
+    storage.setPersistenceCallbacks(
+      async (store) => {
+        remoteStore = deepClone(store);
+      },
+      async () => deepClone(remoteStore)
+    );
+
+    const loadResult = await storage.load();
+    expect(loadResult.ok).toBe(true);
+
+    const xiuyuan = storage.getXiuYuan('xy_semantic_half');
+    expect(xiuyuan?.meta).toMatchObject({
+      cardIds: ['card-semantic'],
+      typeMarker: 'concept-descriptor',
+      fieldMapping: {
+        concept: 'concept-block',
+        descriptor: 'descriptor-block',
+      },
+    });
+    expect(Array.isArray(xiuyuan?.meta?.faces)).toBe(true);
+    expect(storage.getCardsByXiuyuanId('xy_semantic_half').map(card => card.id)).toEqual(['card-semantic']);
   });
 });

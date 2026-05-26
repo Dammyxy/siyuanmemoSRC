@@ -7,7 +7,7 @@ import { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite/Sql
 import { SqlSemanticActivationRepository } from '@/infrastructure/persistence/sqlite/SqlSemanticActivationRepository';
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
-import type { FSRSCard } from '@/types/card';
+import { CardState, CardType, type FSRSCard } from '@/types/card';
 import {
   mapReviewLogV2ToReviewEventFact,
   summarizeReviewEventFact,
@@ -101,6 +101,8 @@ import {
   WorkerQueueProjectionRuntime,
 } from '../queue-projection/WorkerQueueProjectionRuntime';
 import { SourceExistenceProjectionInvalidator } from '../queue-projection/SourceExistenceProjectionInvalidator';
+import { activePluginCardSql } from '@/infrastructure/persistence/sqlite/cardAdmissionSql';
+import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 
 type SqlParams = SqlValue[] | ParamsObject;
 const logger = createLogger('WorkerSqliteDatabaseService');
@@ -271,17 +273,6 @@ interface ReviewCardDivergenceEvidenceWithCardRow {
   source_exists: number | null;
   source_checked_at: number | null;
   source_missing_at: number | null;
-}
-
-function activeDomainSyncCardSql(alias = 'c'): string {
-  return `(${alias}.source_exists IS NULL OR ${alias}.source_exists != 0)
-    AND NOT EXISTS (
-      SELECT 1
-      FROM tombstones active_card_tombstone
-      WHERE active_card_tombstone.kind = 'card'
-        AND active_card_tombstone.id = ${alias}.id
-        AND active_card_tombstone.deleted_at >= COALESCE(${alias}.updated_at, 0)
-    )`;
 }
 
 function createSqliteFileServiceAdapter(bridge: SqlitePersistenceBridge): SqliteFileServiceAdapter {
@@ -880,10 +871,17 @@ export class WorkerSqliteDatabaseService {
       );
       await conflictRuntime.init();
       const review = conflictRuntime.getOne<ConflictSummaryReviewRow>(
-        'SELECT COUNT(*) AS count, MAX(reviewed_at) AS latest FROM review_events',
+        `SELECT COUNT(*) AS count, MAX(e.reviewed_at) AS latest
+         FROM review_events e
+         INNER JOIN cards c ON c.id = e.card_id
+         WHERE ${activePluginCardSql('c')}`,
       );
       const card = conflictRuntime.getOne<ConflictSummaryCardRow>(
-        'SELECT COUNT(*) AS count, MAX(updated_at) AS latestUpdated, MAX(last_review) AS latestReview FROM cards',
+        `SELECT COUNT(*) AS count,
+                MAX(updated_at) AS latestUpdated,
+                MAX(last_review) AS latestReview
+         FROM cards
+         WHERE ${activePluginCardSql('cards')}`,
       );
       return {
         ...base,
@@ -2907,7 +2905,7 @@ export class WorkerSqliteDatabaseService {
        FROM review_events e
        INNER JOIN cards c ON c.id = e.card_id
        WHERE e.event_type = 'review-v2'
-         AND ${activeDomainSyncCardSql('c')}
+         AND ${activePluginCardSql('c')}
          ${scope}
        GROUP BY e.card_id, c.updated_at, c.reps, c.last_review,
                 c.block_id, c.source_exists, c.source_checked_at, c.source_missing_at
@@ -2940,7 +2938,7 @@ export class WorkerSqliteDatabaseService {
        FROM review_events e
        LEFT JOIN cards c ON c.id = e.card_id
        WHERE e.event_type = 'review-v2'
-         AND (c.id IS NULL OR (${activeDomainSyncCardSql('c')}))
+         AND (c.id IS NULL OR (${activePluginCardSql('c')}))
          ${scope}
        GROUP BY e.card_id, c.updated_at, c.due, c.state, c.scheduled_days,
                 c.stability, c.difficulty, c.reps, c.last_review, c.block_id, c.scheduler_type
@@ -4571,46 +4569,97 @@ export class WorkerSqliteDatabaseService {
         deckId: input.deckId,
       },
     };
-    const cardPayload = {
-      id: input.cardId,
-      blockId: input.block.id,
-      xiuyuanID: input.xiuyuanId,
-      riffCardId,
-      schedulerType: 'fsrs-v6',
-      updatedAt: input.updatedAt,
-      content: input.block.content,
-      meta: {
-        templateID: 'builtin-riff-sync',
-        ownership: 'riff-managed',
-        source: 'riff-sync',
-        riffCardId,
-        deckId: input.deckId,
-      },
-    };
     this.runtime.run(
       `INSERT OR REPLACE INTO xiuyuans (id, updated_at, payload_json)
        VALUES (?, ?, ?)`,
       [input.xiuyuanId, input.updatedAt, JSON.stringify(xiuyuanPayload)],
     );
-    this.runtime.run(
-      `INSERT OR REPLACE INTO cards (
-        id, block_id, xiuyuan_id, scheduler_type, updated_at, deck_id, content_text, search_text, payload_json, dto_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        input.cardId,
-        input.block.id,
-        input.xiuyuanId,
-        'fsrs-v6',
-        input.updatedAt,
-        input.deckId,
-        input.block.content,
-        input.block.content,
-        JSON.stringify(cardPayload),
-        JSON.stringify(cardPayload),
-      ],
+    this.repository!.upsertCard(
+      this.buildXiuyuanSyncCardPayload({
+        ...input,
+        riffCardId,
+        existingCard: this.repository!.getCard(input.cardId),
+      }),
     );
     this.runtime.run('DELETE FROM tombstones WHERE kind = ? AND id IN (?, ?)', ['card', input.cardId, input.xiuyuanId]);
     this.runtime.run('DELETE FROM tombstones WHERE kind = ? AND id = ?', ['xiuyuan', input.xiuyuanId]);
+  }
+
+  private buildXiuyuanSyncCardPayload(input: {
+    block: BackendXiuyuanNativeRiffBlockFacts;
+    cardId: string;
+    xiuyuanId: string;
+    deckId: string;
+    updatedAt: number;
+    riffCardId: string;
+    existingCard?: FSRSCard;
+  }): FSRSCard {
+    const schedule = this.readNativeRiffSchedule(input.block.riffCard);
+    const existing = input.existingCard;
+    const meta = {
+      ...(isRecord(existing?.meta) ? existing?.meta : {}),
+      templateID: 'builtin-riff-sync',
+      ownership: 'riff-managed',
+      source: 'riff-sync',
+      riffCardId: input.riffCardId,
+      deckId: input.deckId,
+    };
+    const card = {
+      ...(existing ?? {}),
+      id: input.cardId,
+      blockId: input.block.id,
+      xiuyuanID: input.xiuyuanId,
+      due: schedule.due ?? existing?.due ?? input.updatedAt,
+      stability: schedule.stability ?? existing?.stability ?? 0,
+      difficulty: schedule.difficulty ?? existing?.difficulty ?? 0,
+      reps: schedule.reps ?? existing?.reps ?? 0,
+      lapses: schedule.lapses ?? existing?.lapses ?? 0,
+      state: schedule.state ?? existing?.state ?? CardState.New,
+      lastReview: schedule.lastReview ?? existing?.lastReview ?? 0,
+      elapsedDays: schedule.elapsedDays ?? existing?.elapsedDays ?? 0,
+      scheduledDays: schedule.scheduledDays ?? existing?.scheduledDays ?? 0,
+      priority: existing?.priority ?? 50,
+      type: existing?.type ?? CardType.Topic,
+      tags: existing?.tags ?? [],
+      leechCount: existing?.leechCount ?? 0,
+      isLeech: existing?.isLeech ?? false,
+      skipped: existing?.skipped ?? false,
+      createdAt: existing?.createdAt ?? input.updatedAt,
+      updatedAt: input.updatedAt,
+      schedulerType: existing?.schedulerType ?? 'fsrs-v6',
+      riffCardId: input.riffCardId,
+      content: input.block.content,
+      meta,
+    } as FSRSCard;
+    return canonicalizeSchedulingState(card, {
+      source: 'riff-import',
+      mode: 'repair-external',
+      now: input.updatedAt,
+    }).card;
+  }
+
+  private readNativeRiffSchedule(
+    riffCard: BackendXiuyuanNativeRiffBlockFacts['riffCard'],
+  ): Partial<Pick<
+    FSRSCard,
+    'due' | 'stability' | 'difficulty' | 'reps' | 'lapses' | 'state' | 'lastReview' | 'elapsedDays' | 'scheduledDays'
+  >> {
+    if (!riffCard) {
+      return {};
+    }
+    const due = parseNativeRiffTimestamp(riffCard.due);
+    const lastReview = parseNativeRiffTimestamp(riffCard.lastReview);
+    return {
+      ...(due !== null ? { due } : {}),
+      ...(lastReview !== null ? { lastReview } : {}),
+      ...readFiniteCardNumber('stability', riffCard.stability),
+      ...readFiniteCardNumber('difficulty', riffCard.difficulty),
+      ...readFiniteCardInteger('reps', riffCard.reps),
+      ...readFiniteCardInteger('lapses', riffCard.lapses),
+      ...readFiniteCardInteger('elapsedDays', riffCard.elapsedDays),
+      ...readFiniteCardInteger('scheduledDays', riffCard.scheduledDays),
+      ...readNativeRiffCardState(riffCard.state),
+    };
   }
 
   async readXiuyuanSyncLocalFacts(): Promise<BackendXiuyuanSyncLocalFacts> {
@@ -5157,4 +5206,42 @@ function normalizeOptionalInteger(value: unknown): number | null {
 function normalizeOptionalString(value: unknown): string | null {
   const normalized = String(value ?? '').trim();
   return normalized || null;
+}
+
+function parseNativeRiffTimestamp(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function readFiniteCardNumber<K extends string>(key: K, value: unknown): Partial<Record<K, number>> {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? { [key]: numeric } as Partial<Record<K, number>> : {};
+}
+
+function readFiniteCardInteger<K extends string>(key: K, value: unknown): Partial<Record<K, number>> {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? { [key]: Math.max(0, Math.floor(numeric)) } as Partial<Record<K, number>> : {};
+}
+
+function readNativeRiffCardState(value: unknown): Partial<Pick<FSRSCard, 'state'>> {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return {};
+  }
+  switch (Math.floor(numeric)) {
+    case CardState.Learning:
+    case CardState.Review:
+    case CardState.Relearning:
+    case CardState.Suspended:
+    case CardState.New:
+      return { state: Math.floor(numeric) as CardState };
+    default:
+      return {};
+  }
 }

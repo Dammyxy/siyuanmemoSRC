@@ -154,6 +154,7 @@ export class ImprovedTopicScheduler implements SchedulerEngineAdapter {
 
         return {
             ...card,
+            state: CardState.Review,
             due: dueMs,
             lastReview: nowMs,
             scheduledDays: newInterval,

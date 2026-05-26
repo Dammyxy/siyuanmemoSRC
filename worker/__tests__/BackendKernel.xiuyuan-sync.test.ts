@@ -2,6 +2,40 @@ import { describe, expect, it, vi } from 'vitest';
 import { BackendKernel } from '../bootstrap/BackendKernel';
 import { createInMemorySqlitePersistenceBridge } from '../db/SqlitePersistenceBridge';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
+import { CardState, CardType, type FSRSCard } from '@/types/card';
+
+function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
+  const now = 1_700_000_000_000;
+  return {
+    id: overrides.id ?? 'card-existing',
+    xiuyuanID: overrides.xiuyuanID ?? 'xy-existing',
+    blockId: overrides.blockId ?? 'block-existing',
+    due: overrides.due ?? 1_800_000_000_000,
+    stability: overrides.stability ?? 12,
+    difficulty: overrides.difficulty ?? 4,
+    reps: overrides.reps ?? 5,
+    lapses: overrides.lapses ?? 1,
+    state: overrides.state ?? CardState.Review,
+    lastReview: overrides.lastReview ?? 1_790_000_000_000,
+    elapsedDays: overrides.elapsedDays ?? 3,
+    scheduledDays: overrides.scheduledDays ?? 116,
+    priority: overrides.priority ?? 42,
+    type: overrides.type ?? CardType.Topic,
+    tags: overrides.tags ?? [],
+    leechCount: overrides.leechCount ?? 0,
+    isLeech: overrides.isLeech ?? false,
+    skipped: overrides.skipped ?? false,
+    createdAt: overrides.createdAt ?? now,
+    updatedAt: overrides.updatedAt ?? now,
+    schedulerType: overrides.schedulerType ?? 'fsrs-v6',
+    riffCardId: overrides.riffCardId,
+    meta: overrides.meta ?? {
+      templateID: 'builtin-riff-sync',
+      ownership: 'riff-managed',
+      source: 'riff-sync',
+    },
+  };
+}
 
 async function createSeededDatabase(): Promise<WorkerSqliteDatabaseService> {
   const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
@@ -20,28 +54,7 @@ async function createSeededDatabase(): Promise<WorkerSqliteDatabaseService> {
       },
     }),
   ]);
-  database.run(
-    `INSERT INTO cards (id, block_id, xiuyuan_id, scheduler_type, updated_at, payload_json, dto_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      'card-existing',
-      'block-existing',
-      'xy-existing',
-      'fsrs-v6',
-      now,
-      JSON.stringify({
-        id: 'card-existing',
-        blockId: 'block-existing',
-        xiuyuanID: 'xy-existing',
-        meta: {
-          templateID: 'builtin-riff-sync',
-          ownership: 'riff-managed',
-          source: 'riff-sync',
-        },
-      }),
-      null,
-    ],
-  );
+  await database.upsertCards([buildCard()]);
   return database;
 }
 
@@ -191,7 +204,22 @@ describe('BackendKernel xiuyuan.sync.execute', () => {
       readAt: 1_700_000_000_100,
       blocks: [
         { id: 'block-existing', content: 'Existing backend-applied content', riffCardID: 'riff-existing' },
-        { id: 'block-new', content: 'New backend-applied content', riffCardID: 'riff-new' },
+        {
+          id: 'block-new',
+          content: 'New backend-applied content',
+          riffCardID: 'riff-new',
+          riffCard: {
+            id: 'riff-new',
+            due: '2026-04-13T00:00:00.000Z',
+            lastReview: '2026-03-01T00:00:00.000Z',
+            reps: 1,
+            state: CardState.Learning,
+            stability: 0,
+            difficulty: 1,
+            scheduledDays: 43,
+            elapsedDays: 43,
+          },
+        },
       ],
       diagnostics: {
         source: 'renderer-host-effect' as const,
@@ -245,6 +273,36 @@ describe('BackendKernel xiuyuan.sync.execute', () => {
     expect(database.getOne<{ payload_json: string }>(
       "SELECT payload_json FROM xiuyuans WHERE id = 'xy-existing'",
     )?.payload_json).toContain('Existing backend-applied content');
+    const existing = await database.getCard('card-existing');
+    expect(existing).toMatchObject({
+      due: 1_800_000_000_000,
+      reps: 5,
+      lastReview: 1_790_000_000_000,
+      state: CardState.Review,
+      type: CardType.Topic,
+      riffCardId: 'riff-existing',
+      meta: expect.objectContaining({
+        templateID: 'builtin-riff-sync',
+        ownership: 'riff-managed',
+        source: 'riff-sync',
+      }),
+    });
+    const created = await database.getCard('card-block-new');
+    expect(created).toEqual(expect.objectContaining({
+      id: 'card-block-new',
+      blockId: 'block-new',
+      xiuyuanID: 'xy-block-new',
+      due: expect.any(Number),
+      reps: 1,
+      lastReview: expect.any(Number),
+      state: CardState.Review,
+      type: CardType.Topic,
+      riffCardId: 'riff-new',
+      schedulerType: 'a-factor-v2',
+      scheduledDays: 43,
+    }));
+    expect(created?.due).toBeGreaterThan(0);
+    expect(created?.createdAt).toBeGreaterThan(0);
   });
 
   it('replays duplicate non-dry-run sync commands by idempotency key without applying twice', async () => {
