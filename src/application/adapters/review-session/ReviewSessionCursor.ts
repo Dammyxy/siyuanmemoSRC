@@ -554,7 +554,9 @@ export class ReviewSessionCursor {
   }
 
   private supportsSessionCompletionExclusion(): boolean {
-    return this.queueType === QueueType.FilterGroup || this.queueType === QueueType.RetrievalPractice;
+    return this.queueType === QueueType.FilterGroup
+      || this.queueType === QueueType.RetrievalPractice
+      || this.queueType === QueueType.IncrementalLearning;
   }
 
   private findCachedCardIndexByIdentity(cardId: string, blockId?: string): number {

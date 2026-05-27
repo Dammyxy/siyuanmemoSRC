@@ -248,7 +248,8 @@ export class ReviewFeedbackAdvancementCoordinator {
 
   private supportsSessionCompletionExclusion(): boolean {
     return this.deps.queueType === QueueType.FilterGroup
-      || this.deps.queueType === QueueType.RetrievalPractice;
+      || this.deps.queueType === QueueType.RetrievalPractice
+      || this.deps.queueType === QueueType.IncrementalLearning;
   }
 
   private shouldReloadAfterReviewResult(result: QueueReviewResult): boolean {

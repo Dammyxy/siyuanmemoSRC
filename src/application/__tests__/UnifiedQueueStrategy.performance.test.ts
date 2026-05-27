@@ -1033,6 +1033,76 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(counterSnapshot?.buckets.all).toBe(1);
   });
 
+  it('keeps incremental-learning Good/Easy cards out of the current session after stale reloads', async () => {
+    const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
+    const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
+    const queue = createQueueStub(QueueType.IncrementalLearning, [firstCard, secondCard], {
+      handleReview: async (cardId, _rating, liveCards) => {
+        const current = liveCards.find((card) => card.id === cardId) ?? null;
+        return {
+          updatedCard: current ? { ...current, reps: current.reps + 1, due: Date.now() + DAY_MS } : null,
+          removedFromQueue: true,
+          remainsInQueue: false,
+          queueChanged: true,
+          requiresCurrentViewReorder: false,
+        };
+      },
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, [], {
+            createRollbackSnapshot: async () => ({ ok: true }),
+            restoreRollbackSnapshot: async () => {},
+          });
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async (cardId: string) => {
+        const card = [firstCard, secondCard].find((candidate) => candidate.id === cardId);
+        if (!card) {
+          throw new Error('card not found');
+        }
+        return { ...card };
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+    };
+    const eventBus = { subscribe: vi.fn() };
+
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.IncrementalLearning,
+      manager as never,
+      eventBus as never,
+      null
+    );
+
+    const first = await strategy.next();
+    expect(first?.id).toBe(firstCard.id);
+
+    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+
+    const next = await strategy.next();
+    expect(next?.id).toBe(secondCard.id);
+
+    const counterSnapshot = await strategy.getCounterSnapshot();
+    expect(counterSnapshot?.remaining).toBe(1);
+    expect(counterSnapshot?.total).toBe(1);
+    expect(counterSnapshot?.buckets.all).toBe(1);
+
+    await strategy.onFeedback(next, { action: 'rate', rating: 3 });
+    await expect(strategy.next()).resolves.toBeNull();
+
+    const finalCounterSnapshot = await strategy.getCounterSnapshot();
+    expect(finalCounterSnapshot?.remaining).toBe(0);
+    expect(finalCounterSnapshot?.total).toBe(0);
+    expect(finalCounterSnapshot?.buckets.all).toBe(0);
+  });
+
   it('keeps retrieval-practice Good/Easy logical duplicates out of the current session after reloads', async () => {
     const firstCard = createCard({
       id: 'card-1',

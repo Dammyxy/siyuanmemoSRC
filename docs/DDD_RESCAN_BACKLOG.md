@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-27 (Round 474)
+Last update: 2026-05-27 (Round 475)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-27 - Incremental Review Session Remaining Count
+
+- Task: Make incremental-learning Review counter behave as current-session remaining/total instead of staying at the full requery queue count after Good/Easy feedback.
+- Touched slice: Review session advancement and cursor state; `ReviewFeedbackAdvancementCoordinator`, `ReviewSessionCursor`, focused Review strategy tests.
+- Debt fixed now: IncrementalLearning now participates in Review session completion exclusions like RetrievalPractice and FilterGroup. Good/Easy feedback records the reviewed card identity as excluded for the active session, so stale projection/queue reloads can still requery the source queue without resurrecting completed cards in the current Review session or its remaining counter snapshot.
+- Debt deferred: The full queue/projection count still represents the source queue outside the active Review session; separate Browser/global queue counts may still show the full available queue by design. The `due` label wording for rotation-heavy incremental queues remains imprecise and can be clarified separately if needed.
+- Why deferred: This task is scoped to the Review floating counter and active-session progression. Changing global queue labels would be a UI wording/product semantics change outside the active Review session bug.
+- Next safe step: Rebuild/reload the plugin and grade two incremental-learning cards; confirm the floating counter drops each time while the Browser/global queue can still show the full source queue.
+- Validation: `pnpm vitest run src/application/adapters/review-session/__tests__/ReviewFeedbackAdvancementCoordinator.test.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/core/queue/domain/__tests__/DynamicQueue.review-removal.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-27 - Browser Queue Read Model Decoupling
 

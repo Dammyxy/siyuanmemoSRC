@@ -118,6 +118,30 @@ describe('ReviewFeedbackAdvancementCoordinator', () => {
     expect(invalidateCache).toHaveBeenCalledOnce();
   });
 
+  it('keeps IncrementalLearning Good/Easy cards out of the current review session', async () => {
+    const reviewed = card('reviewed', { blockId: 'block-reviewed' });
+    const { coordinator, cursor, currentItem } =
+      createCoordinator(QueueType.IncrementalLearning);
+    cursor.load([reviewed, card('next')]);
+    currentItem.select(reviewed);
+
+    await coordinator.applyRateResult({
+      activeItem: reviewed,
+      feedback: { action: 'rate', rating: 4 },
+      reviewResult: {
+        removedFromQueue: true,
+        remainsInQueue: false,
+        updatedCard: null,
+        queueChanged: true,
+        requiresCurrentViewReorder: false,
+        counterSnapshot: null,
+      },
+      learnAheadSession: false,
+    });
+
+    expect(cursor.hasSessionExclusions()).toBe(true);
+  });
+
   it('restores local Review session state after failed feedback compensation', () => {
     const restored = card('restored');
     const { coordinator, cursor, currentItem, invalidateCache } =
