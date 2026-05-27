@@ -29,6 +29,10 @@ import {
     ReviewSessionCursor,
     ReviewSessionProjectionAdvancePolicy,
     ReviewTransactionRuntime,
+    SrsV2SessionQueueRuntime,
+    type ReviewSessionAnswerCommand,
+    type ReviewSessionCommandAuthority,
+    type ReviewSessionQueueResult,
     type ReviewTransaction,
 } from './review-session';
 import { resolveEffectiveSchedulerTypeForCard } from '@/core/scheduler/schedulerPolicy';
@@ -70,6 +74,20 @@ type FeedbackMutationContext = {
     cardId: string;
     action: QueueFeedback['action'];
     rating?: number;
+};
+
+type ReviewSessionAuthorityRuntime = {
+    getMode?: () => 'writer' | 'follower' | string;
+    getInstanceId?: () => string;
+    ensureWritable?: () => Promise<void>;
+};
+
+type ReviewSessionAuthorityContext = {
+    getFrontendInstanceRuntime?: () => ReviewSessionAuthorityRuntime | null | undefined;
+};
+
+type ReviewSessionAuthorityManager = UnifiedDataSourceManager & {
+    resolvePluginContext?: () => ReviewSessionAuthorityContext | null | undefined;
 };
 
 type NeuralRoamAdvanceManager = UnifiedDataSourceManager & {
@@ -149,6 +167,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private readonly neuralRoamAdvanceOutcomePolicy = new NeuralRoamAdvanceOutcomePolicy();
     private readonly feedbackAdvancement: ReviewFeedbackAdvancementCoordinator;
     private readonly neuralRoamAdvance: NeuralRoamAdvanceCoordinator;
+    private readonly srsV2SessionQueueRuntime: SrsV2SessionQueueRuntime | null;
+    private pendingSrsV2NextCard: FSRSCard | null | undefined;
+    private pendingSrsV2CounterSnapshot: QueueCounterSnapshot | null = null;
     private lastNeuralRoamViewState: BackendNeuralRoamViewState | null = null;
 
     constructor(
@@ -207,6 +228,13 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             pushHistory: (item, transaction) => this.recordReviewHistory(item, transaction),
             addNextDues: (card) => this.maybeAddNextDues(card),
         });
+        this.srsV2SessionQueueRuntime = this.shouldUseSrsV2SessionRuntime()
+            ? new SrsV2SessionQueueRuntime({
+                queueType: this.queueType,
+                queue: this.queue,
+                commandAuthority: this.createSrsV2CommandAuthority(),
+            })
+            : null;
 
         this.queue.subscribe(this.cacheManager);
         this.subscribeToQueueChanges();
@@ -264,6 +292,46 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
             if (this.queueType === QueueType.NeuralRoam) {
                 return await this.nextFromNeuralRoamAdvance();
+            }
+
+            if (this.srsV2SessionQueueRuntime) {
+                if (this.pendingSrsV2NextCard !== undefined) {
+                    const pending = this.pendingSrsV2NextCard;
+                    this.pendingSrsV2NextCard = undefined;
+                    if (!pending) {
+                        this.clearCurrentItem();
+                        logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Runtime-backed queue exhausted: ${this.queueType}`);
+                        return null;
+                    }
+                    const cardWithNextDues = await this.maybeAddNextDues(pending);
+                    this.setCurrentItem(cardWithNextDues);
+                    this.syncCursorFromSrsV2Runtime();
+                    if (this.pendingSrsV2CounterSnapshot) {
+                        this.cursor.counterSnapshot = this.cloneCounterSnapshot(this.pendingSrsV2CounterSnapshot);
+                    }
+                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Next card (session-runtime pending):`, {
+                        queueType: this.queueType,
+                        cardId: pending.id,
+                        blockId: pending.blockId,
+                    });
+                    return cardWithNextDues;
+                }
+
+                const card = await this.srsV2SessionQueueRuntime.next();
+                if (!card) {
+                    this.clearCurrentItem();
+                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Runtime-backed queue is empty: ${this.queueType}`);
+                    return null;
+                }
+                const cardWithNextDues = await this.maybeAddNextDues(card);
+                this.setCurrentItem(cardWithNextDues);
+                this.syncCursorFromSrsV2Runtime();
+                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Next card (session-runtime):`, {
+                    queueType: this.queueType,
+                    cardId: card.id,
+                    blockId: card.blockId,
+                });
+                return cardWithNextDues;
             }
 
             if (this.usesRequeryAfterFeedback() && !this.learnAheadSession) {
@@ -332,6 +400,46 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
             if (this.queueType === QueueType.NeuralRoam) {
                 await this.handleNeuralRoamAdvanceFeedback(activeItem, feedback);
+                return;
+            }
+
+            if (this.srsV2SessionQueueRuntime && (feedback.action === 'rate' || feedback.action === 'skip')) {
+                activeTransaction = await this.createReviewTransaction(activeItem, feedback, {
+                    includeCardSnapshot: feedback.action === 'rate',
+                });
+                const result = await this.srsV2SessionQueueRuntime.answerAndAdvance({
+                    card: activeItem,
+                    feedback,
+                });
+                if (result.status === 'conflict') {
+                    this.pendingSrsV2NextCard = activeItem;
+                    throw new Error(`REVIEW_SESSION_RUNTIME_CONFLICT: ${result.reason ?? 'answer rejected'}`);
+                }
+                if (result.status === 'unavailable') {
+                    const runtimeUnavailable = new Error(result.reason ?? 'answer unavailable');
+                    if (!this.isUnavailableCurrentItemError(runtimeUnavailable, activeItem)) {
+                        this.pendingSrsV2NextCard = activeItem;
+                    }
+                    throw new Error(`REVIEW_SESSION_RUNTIME_UNAVAILABLE: ${result.reason ?? 'answer unavailable'}`);
+                }
+                this.pendingSrsV2NextCard = result.nextCard;
+                this.syncCursorFromSrsV2Runtime();
+                this.cursor.counterSnapshot = this.cloneCounterSnapshot(result.counterSnapshot);
+                this.pendingSrsV2CounterSnapshot = this.cloneCounterSnapshot(result.counterSnapshot);
+                this.recordReviewHistory(activeItem, activeTransaction);
+                activeTransactionPushed = true;
+                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card handled by session runtime:`, {
+                    queueType: this.queueType,
+                    cardId: activeItem.id,
+                    blockId: activeItem.blockId,
+                    action: feedback.action,
+                    rating: feedback.rating,
+                    status: result.status,
+                    nextCardId: result.nextCard?.id ?? null,
+                    remaining: result.counterSnapshot.remaining,
+                });
+                activeTransaction = null;
+                activeTransactionPushed = false;
                 return;
             }
 
@@ -476,6 +584,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             if (error instanceof QueueItemUnavailableError
                 || (isRecord(error) && error.name === 'QueueItemUnavailableError')
                 || this.isUnavailableCurrentItemError(error, activeItem)) {
+                this.srsV2SessionQueueRuntime?.discardCard(activeItem);
+                this.syncCursorFromSrsV2Runtime();
                 this.feedbackAdvancement.applyUnavailableItem(activeItem);
                 logger.warn(`[SiYuanMemo][UnifiedQueueStrategy] Current queue item disappeared before feedback completed:`, {
                     queueType: this.queueType,
@@ -634,11 +744,22 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return activeItem;
         }
 
-        if (goBackResult.forwardItem) {
+        if (goBackResult.forwardItem && !this.srsV2SessionQueueRuntime) {
             this.pushForwardItem(goBackResult.forwardItem);
         }
 
         const previousWithNextDues = await this.maybeAddNextDues(goBackResult.previous);
+        if (this.srsV2SessionQueueRuntime) {
+            const runtimeUndo = this.srsV2SessionQueueRuntime.restoreAfterGoBack({
+                previous: previousWithNextDues,
+                forward: goBackResult.forwardItem,
+            });
+            if (!runtimeUndo) {
+                this.srsV2SessionQueueRuntime.restoreReviewedCardToLearning(previousWithNextDues);
+            }
+            this.pendingSrsV2NextCard = undefined;
+            this.syncCursorFromSrsV2Runtime();
+        }
         this.setCurrentItem(previousWithNextDues);
         return previousWithNextDues;
     }
@@ -863,6 +984,106 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     private usesRequeryAfterFeedback(): boolean {
         return this.queueType === QueueType.IncrementalLearning;
+    }
+
+    private shouldUseSrsV2SessionRuntime(): boolean {
+        return this.queueType === QueueType.IncrementalLearning
+            || this.queueType === QueueType.RetrievalPractice;
+    }
+
+    private createSrsV2CommandAuthority(): ReviewSessionCommandAuthority | null {
+        return {
+            answerAndAdvance: async (input, localExecute) => {
+                const runtime = this.resolveReviewSessionAuthorityContext()?.getFrontendInstanceRuntime?.() ?? null;
+                if (!runtime || typeof runtime.getMode !== 'function') {
+                    return localExecute();
+                }
+
+                if (runtime.getMode() === 'follower') {
+                    if (typeof runtime.ensureWritable === 'function') {
+                        try {
+                            await runtime.ensureWritable();
+                        } catch (error) {
+                            logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Runtime session writer acquire failed before answer:', {
+                                queueType: this.queueType,
+                                cardId: input.card.id,
+                                error: error instanceof Error ? error.message : String(error),
+                            });
+                        }
+                    }
+
+                    if (runtime.getMode() === 'writer') {
+                        return localExecute();
+                    }
+
+                    return this.buildReviewSessionRuntimeUnavailable(
+                        input,
+                        'writer-unavailable',
+                        'REVIEW_SESSION_RUNTIME_UNAVAILABLE: writer authority required for review session queue mutation',
+                    );
+                }
+
+                if (typeof runtime.ensureWritable === 'function') {
+                    await runtime.ensureWritable();
+                    if (runtime.getMode() === 'follower') {
+                        return this.buildReviewSessionRuntimeUnavailable(
+                            input,
+                            'writer-unavailable',
+                            'REVIEW_SESSION_RUNTIME_UNAVAILABLE: writer authority lost before local session mutation',
+                        );
+                    }
+                }
+
+                return localExecute();
+            },
+            assertLocalSessionMutation: (operation) => {
+                const runtime = this.resolveReviewSessionAuthorityContext()?.getFrontendInstanceRuntime?.() ?? null;
+                if (runtime?.getMode?.() === 'follower') {
+                    throw new Error(`REVIEW_SESSION_RUNTIME_UNAVAILABLE: writer authority required for ${operation}`);
+                }
+            },
+        };
+    }
+
+    private resolveReviewSessionAuthorityContext(): ReviewSessionAuthorityContext | null {
+        return (this.manager as ReviewSessionAuthorityManager).resolvePluginContext?.() ?? null;
+    }
+
+    private buildReviewSessionRuntimeUnavailable(
+        input: ReviewSessionAnswerCommand,
+        reason: string,
+        message: string
+    ): ReviewSessionQueueResult {
+        const counterSnapshot = this.srsV2SessionQueueRuntime?.getCounterSnapshot()
+            ?? this.cursor.counterSnapshot
+            ?? this.buildCounterSnapshotFromCachedCards('hot', null);
+        logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Review session runtime unavailable:', {
+            queueType: this.queueType,
+            cardId: input.card.id,
+            action: input.feedback.action,
+            rating: input.feedback.rating,
+            reason,
+            message,
+        });
+        return {
+            status: 'unavailable',
+            nextCard: input.card,
+            waitingUntil: null,
+            counterSnapshot,
+            undoToken: null,
+            reason: message,
+        };
+    }
+
+    private syncCursorFromSrsV2Runtime(): void {
+        if (!this.srsV2SessionQueueRuntime) {
+            return;
+        }
+        this.cursor.load(this.srsV2SessionQueueRuntime.getSessionCards(), {
+            cacheValid: true,
+            resetIndex: true,
+        });
+        this.cursor.counterSnapshot = this.srsV2SessionQueueRuntime.getCounterSnapshot();
     }
 
     private async nextFromRequeryQueue(): Promise<FSRSCard | null> {
@@ -1301,6 +1522,17 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     async getCounterSnapshot(): Promise<QueueCounterSnapshot | null> {
+        if (this.srsV2SessionQueueRuntime) {
+            if (this.pendingSrsV2CounterSnapshot) {
+                return this.cloneCounterSnapshot(this.pendingSrsV2CounterSnapshot);
+            }
+            const runtimeSnapshot = this.srsV2SessionQueueRuntime.getCounterSnapshot();
+            if (runtimeSnapshot) {
+                this.cursor.counterSnapshot = runtimeSnapshot;
+                return this.cloneCounterSnapshot(runtimeSnapshot);
+            }
+        }
+
         if (this.hasSessionExclusions()) {
             if (!this.cursor.valid) {
                 await this.reloadCards();
@@ -1772,6 +2004,13 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
         const restored = this.cursor.restore(snapshot);
         this.restoreCurrentItem(restored);
+        this.srsV2SessionQueueRuntime?.restoreFromSnapshot({
+            cards: Array.isArray(snapshot.cachedCards) ? snapshot.cachedCards : [],
+            currentCard: restored.currentItem,
+            avoidCardId: snapshot.avoidOnceCardId ?? snapshot.deferOnceCardId ?? null,
+            avoidBlockId: snapshot.avoidOnceBlockId ?? null,
+            counterSnapshot: snapshot.lastCounterSnapshot ?? null,
+        });
         const lastCounterSnapshot = this.cursor.counterSnapshot;
         if (this.hasSessionExclusions() && lastCounterSnapshot) {
             this.refreshLocalCounterSnapshot('hot', lastCounterSnapshot);
@@ -1790,6 +2029,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     resetSessionState(): void {
         this.transactionRuntime.clear();
         this.feedbackMutation = null;
+        this.pendingSrsV2NextCard = undefined;
+        this.pendingSrsV2CounterSnapshot = null;
+        this.srsV2SessionQueueRuntime?.reset();
         this.clearCurrentItem();
         this.neuralRoamAdvance.reset();
         this.lastNeuralRoamViewState = null;

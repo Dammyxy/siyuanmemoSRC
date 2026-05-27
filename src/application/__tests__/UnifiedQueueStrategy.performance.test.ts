@@ -260,7 +260,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(getCardsSpy).not.toHaveBeenCalled();
   });
 
-  it('refreshes projection snapshot before hydration so pruned active-source rows do not fail reload', async () => {
+  it('uses the session runtime instead of projection hydration for incremental-learning next', async () => {
     const staleMissingCard = createCard({ id: 'stale-card', blockId: 'missing-block' });
     const nextCard = createCard({ id: 'next-card', blockId: 'next-block' });
     const queue = createQueueStub(QueueType.IncrementalLearning, [nextCard]);
@@ -298,8 +298,94 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const next = await strategy.next();
 
     expect(next?.id).toBe(nextCard.id);
-    expect(queue.getSnapshotRows).toHaveBeenCalledWith(true);
-    expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith([refreshedRows[0].id], true);
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
+  });
+
+  it('uses the session runtime instead of projection hydration for retrieval-practice answer-to-next', async () => {
+    const firstCard = createCard({ id: 'retrieval-card-1', blockId: 'retrieval-block-1' });
+    const secondCard = createCard({ id: 'retrieval-card-2', blockId: 'retrieval-block-2' });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, secondCard]);
+    (queue.getSnapshotRows as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('QUEUE_PROJECTION_NOT_READY: retrieval-practice projection refreshing'),
+    );
+    (queue.getCardsBySnapshotIds as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('QUEUE_PROJECTION_NOT_READY: retrieval-practice projection refreshing'),
+    );
+    const manager = {
+      getQueue: vi.fn((queueType?: QueueType) => (
+        queueType === QueueType.FinalDrill
+          ? createQueueStub(QueueType.FinalDrill, [])
+          : queue
+      )),
+      getCard: vi.fn(async (cardId: string) => {
+        const card = [firstCard, secondCard].find((candidate) => candidate.id === cardId);
+        if (!card) {
+          throw new Error('card not found');
+        }
+        return { ...card };
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(QueueType.RetrievalPractice, manager as never, eventBus as never, null);
+
+    const first = await strategy.next();
+    const getCardsSpy = queue.getCards as unknown as ReturnType<typeof vi.fn>;
+    getCardsSpy.mockClear();
+
+    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    const next = await strategy.next();
+
+    expect(next?.id).toBe(secondCard.id);
+    expect(getCardsSpy).not.toHaveBeenCalled();
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
+  });
+
+  it('does not rebuild a runtime-backed session for counter refresh failure or generic card-updated events', async () => {
+    const first = createCard({ id: 'runtime-card-1', blockId: 'runtime-block-1' });
+    const second = createCard({ id: 'runtime-card-2', blockId: 'runtime-block-2' });
+    const queue = createQueueStub(QueueType.IncrementalLearning, [first, second]);
+    const getCardsSpy = queue.getCards as unknown as ReturnType<typeof vi.fn>;
+    (queue.getCounterSnapshot as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('QUEUE_COUNT_UNAVAILABLE: projection counter refresh failed'),
+    );
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      getCard: vi.fn(async (cardId: string) => ({ ...(cardId === first.id ? first : second) })),
+      getCards: vi.fn(async () => []),
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
+        queueType: QueueType.IncrementalLearning,
+        projectionBacked: true,
+        state: 'backend-projection',
+        readPath: 'backend-projection',
+        reason: 'rollout-enabled',
+        nextCoverageTask: null,
+      }]),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const strategy = new UnifiedQueueStrategy(QueueType.IncrementalLearning, manager as never, eventBus as never, null);
+
+    await expect(strategy.next()).resolves.toMatchObject({ id: first.id });
+    await expect(strategy.getCounterSnapshot()).resolves.toMatchObject({ remaining: 2 });
+
+    strategy.onDataChanged({
+      type: 'card-updated',
+      cardIds: [first.id],
+      timestamp: Date.now(),
+    });
+
+    await strategy.onFeedback(first, { action: 'rate', rating: 4, commitIdempotencyKey: 'no-rebuild' });
+    await expect(strategy.next()).resolves.toMatchObject({ id: second.id });
+
+    expect(getCardsSpy).toHaveBeenCalledTimes(1);
+    expect(queue.getCounterSnapshot).not.toHaveBeenCalled();
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
   });
 
   it('recomputes nextDues for the same card id when scheduling fields change', async () => {
@@ -627,9 +713,9 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const third = await strategy.next();
 
     expect(second?.id).toBe('card-2');
-    expect(third?.id).toBe('card-3');
+    expect(third).toBeNull();
     expect(getCardsSpy).not.toHaveBeenCalled();
-    expect(queue.getCardsBySnapshotIds).toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
   });
 
   it('hot-patches deferred projection queueImpact without a full queue reload', async () => {
@@ -838,7 +924,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
 
     expect(second?.id).toBe('incremental-card-2');
     expect(getSnapshotRowsSpy).not.toHaveBeenCalled();
-    expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith(['incremental-card-2']);
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
   });
 
   it('uses projection counters for promoted neural-roam remaining size', async () => {
@@ -956,8 +1042,8 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
 
     const next = await strategy.next();
 
-    expect(next?.id).toBe('card-refresh-2');
-    expect(getCardsSpy).toHaveBeenCalledTimes(1);
+    expect(next).toBeNull();
+    expect(getCardsSpy).not.toHaveBeenCalled();
   });
 
   it('keeps retrieval-practice Good/Easy cards out of the current session after late queue reloads', async () => {
@@ -1184,6 +1270,116 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(next?.id).toBe(sameBlockOtherFace.id);
   });
 
+  it('does not mutate follower-local runtime session queue when writer relay is unavailable', async () => {
+    const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
+    const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
+    const queue = createQueueStub(QueueType.IncrementalLearning, [firstCard, secondCard]);
+    const ensureWritable = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: writer command unavailable: no active writer lease');
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, []);
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async (cardId: string) => {
+        const card = [firstCard, secondCard].find((candidate) => candidate.id === cardId);
+        if (!card) {
+          throw new Error('card not found');
+        }
+        return { ...card };
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+      resolvePluginContext: vi.fn(() => ({
+        getFrontendInstanceRuntime: () => ({
+          getMode: () => 'follower',
+          getInstanceId: () => 'follower-review-session-1',
+          ensureWritable,
+        }),
+      })),
+    };
+    const eventBus = { subscribe: vi.fn() };
+
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.IncrementalLearning,
+      manager as never,
+      eventBus as never,
+      null
+    );
+
+    const first = await strategy.next();
+    expect(first?.id).toBe(firstCard.id);
+
+    await expect(strategy.onFeedback(first, { action: 'rate', rating: 3 })).rejects.toThrow(
+      'REVIEW_SESSION_RUNTIME_UNAVAILABLE',
+    );
+
+    expect(ensureWritable).toHaveBeenCalledTimes(1);
+    expect(queue.handleReview).not.toHaveBeenCalled();
+    expect(queue.skip).not.toHaveBeenCalled();
+    expect((await strategy.next())?.id).toBe(firstCard.id);
+    expect((await strategy.getCounterSnapshot())?.remaining).toBe(2);
+  });
+
+  it('does not claim relayed writer runtime success until a writer session registry contract exists', async () => {
+    const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
+    const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, secondCard]);
+    const ensureWritable = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: writer command unavailable: no active writer lease');
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, []);
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async (cardId: string) => {
+        const card = [firstCard, secondCard].find((candidate) => candidate.id === cardId);
+        if (!card) {
+          throw new Error('card not found');
+        }
+        return { ...card };
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+      resolvePluginContext: vi.fn(() => ({
+        getFrontendInstanceRuntime: () => ({
+          getMode: () => 'follower',
+          getInstanceId: () => 'follower-review-session-2',
+          ensureWritable,
+        }),
+      })),
+    };
+    const eventBus = { subscribe: vi.fn() };
+
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null
+    );
+
+    const first = await strategy.next();
+    expect(first?.id).toBe(firstCard.id);
+
+    await expect(strategy.onFeedback(first, { action: 'rate', rating: 4 })).rejects.toThrow(
+      'REVIEW_SESSION_RUNTIME_UNAVAILABLE: REVIEW_SESSION_RUNTIME_UNAVAILABLE: writer authority required for review session queue mutation',
+    );
+
+    expect(queue.handleReview).not.toHaveBeenCalled();
+    expect((await strategy.next())?.id).toBe(firstCard.id);
+    expect((await strategy.getCounterSnapshot())?.remaining).toBe(2);
+  });
+
   it('keeps filter-group Good/Easy cards out of the current session despite self queue-changed events', async () => {
     const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-shared' });
     const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-shared' });
@@ -1356,7 +1552,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(first?.id).toBe(firstCard.id);
 
     await expect(strategy.onFeedback(first, { action: 'rate', rating: 4 })).resolves.toBeUndefined();
-    expect(queue.getCardsBySnapshotIds).toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
     await expect(strategy.getCounterSnapshot()).resolves.toMatchObject({
       remaining: 1,
       total: 1,

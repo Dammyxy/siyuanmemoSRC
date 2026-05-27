@@ -65,3 +65,34 @@ export {
   type ReviewSessionCursorProjectionPatch,
   type ReviewSessionCursorReviewResultLike,
 } from './ReviewSessionCursor';
+export {
+  SrsV2SessionQueueRuntime,
+  type SrsV2AnswerAndAdvanceInput,
+  type SrsV2AnswerAndAdvanceResult,
+  type SrsV2SessionAnswerStatus,
+  type SrsV2SessionQueueRuntimeOptions,
+} from './SrsV2SessionQueueRuntime';
+export {
+  IncrementalLearningProfile,
+  RetrievalPracticeProfile,
+  createSrsV2QueueProfile,
+} from './SrsV2QueueProfiles';
+export type {
+  ReviewSessionAnswerCommand,
+  ReviewSessionCardId,
+  ReviewSessionCommandAuthority,
+  ReviewSessionId,
+  ReviewSessionIdempotencyRecord,
+  ReviewSessionMutationOwner,
+  ReviewSessionNextEntryRepairResult,
+  ReviewSessionNextEntryRepairStatus,
+  ReviewSessionQueueEntry,
+  ReviewSessionQueueEntryKind,
+  ReviewSessionQueueResult,
+  ReviewSessionQueueRuntime,
+  ReviewSessionQueueStatus,
+  ReviewSessionRebuildTrigger,
+  ReviewSessionUndoResult,
+  ReviewSessionUndoToken,
+  SrsV2QueueProfile,
+} from './ReviewSessionQueueRuntime';
