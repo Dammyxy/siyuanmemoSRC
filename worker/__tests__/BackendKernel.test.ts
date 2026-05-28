@@ -4588,7 +4588,7 @@ describe('BackendKernel', () => {
     }
   });
 
-  it('fails closed when projection rows cannot all hydrate to active cards', async () => {
+  it('serves projection snapshot active rows while row lookup fails closed when requested ids cannot all hydrate', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
     const activeCard = buildCard({
@@ -4632,10 +4632,26 @@ describe('BackendKernel', () => {
         queueType: 'incremental-learning',
         policyHash: 'policy-a',
         generation: 9,
-        status: 'unavailable',
-        rows: [],
-        counters: null,
+        status: 'ready',
+        counters: {
+          generation: 9,
+          remaining: 2,
+          total: 2,
+        },
+        freshness: {
+          totalRows: 3,
+          freshRows: 2,
+          missingRows: 1,
+          missingCardIds: ['projection-missing-card'],
+        },
       });
+      expect(snapshot.result.rows.map((row: { fsrsCardId: string; queueIndex?: number }) => ({
+        fsrsCardId: row.fsrsCardId,
+        queueIndex: row.queueIndex,
+      }))).toEqual([
+        { fsrsCardId: 'projection-active-card', queueIndex: 1 },
+        { fsrsCardId: 'projection-unknown-card', queueIndex: 3 },
+      ]);
     }
 
     const rowsByIds = await kernel.handle({
@@ -7421,6 +7437,59 @@ describe('BackendKernel', () => {
 
     expect('result' in second).toBe(true);
     expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsAfterCount);
+  });
+
+  it('keeps review feedback main DB read fast path across empty kernel transaction dequeue polling', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readBinary,
+      readSyncConflictDatabaseSources: vi.fn(async () => []),
+    });
+    const reviewedAt = 1_779_188_007_000;
+    await database.upsertCards([
+      buildCard({ id: 'card-review-fast-dequeue-a', due: reviewedAt - 10_000 }),
+      buildCard({ id: 'card-review-fast-dequeue-b', due: reviewedAt - 10_000 }),
+    ]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const first = await kernel.handle({
+      id: 'review-feedback-fast-dequeue-a',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-dequeue-a', rating: 3, reviewedAt, queueType: 'retrieval-practice' }],
+    });
+    expect('result' in first).toBe(true);
+
+    const dequeue = await kernel.handle({
+      id: 'kernel-transaction-dequeue-preserves-review-fast-path',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.dequeue',
+      params: [{ maxActions: 4 }],
+    });
+    expect(dequeue).toMatchObject({
+      result: {
+        actions: [],
+        remaining: 0,
+      },
+    });
+    const mainDbReadsAfterDequeue = readBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+
+    const second = await kernel.handle({
+      id: 'review-feedback-fast-dequeue-b',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-dequeue-b', rating: 3, reviewedAt: reviewedAt + 1_000, queueType: 'retrieval-practice' }],
+    });
+
+    expect('result' in second).toBe(true);
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsAfterDequeue);
   });
 
   it('keeps persisted main DB reads when review feedback preflight sees conflict sources', async () => {

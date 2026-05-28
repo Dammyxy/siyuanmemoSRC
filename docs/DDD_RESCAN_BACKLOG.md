@@ -4,6 +4,17 @@ Last update: 2026-05-28 (Round 488)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-28 - Review Feedback Kernel Dequeue Fast Path
+
+- Task: Fix Review grading latency where live logs showed `kernel:pre-request-merge` around 790ms, `merge.read-main-db` around 627ms, and `fast-skip-not-eligible:backend-method:kernel.transaction.dequeue` after an empty action-pump poll.
+- Touched slice: Review backend worker pre-request merge classification and backend kernel regression tests; `BackendKernel`, `BackendKernel.test`.
+- Debt fixed now: Empty `kernel.transaction.dequeue` polling is now storage-refresh exempt and preserves the Review feedback persisted-main-DB read fast path. Consecutive ratings no longer lose the same-worker fast skip just because the renderer action pump drained no kernel actions between cards. Mutating paths such as ingest/requeue/source-existence update/projection replace/AutoCard/semantic/private commands remain outside this preservation set unless separately proven safe.
+- Debt fixed now: The stale BackendKernel projection assertion was aligned with the current queue-projection contract: snapshot reads serve the hydrated active subset, while `rowsByIds` still fails closed when the caller requests ids that cannot all hydrate.
+- Debt deferred: `review.feedback` still exports and writes the full sql.js DB through `sqlite.writeBinary` after each committed rating. Removing that cost needs a separate durability design such as write-behind or a durable op-log with crash recovery, replay idempotency, writer-relay semantics, and sync-conflict behavior.
+- Why deferred: The live log isolated the avoidable pre-request persisted-main-DB read. Changing per-rating durability is a broader data-loss and cross-window correctness decision, not a method-classification fix.
+- Next safe step: Reload the rebuilt plugin and grade several cards. The slow summary should no longer show `fast-skip-not-eligible:backend-method:kernel.transaction.dequeue`; if latency remains, inspect `host=sqlite.writeBinary` / transaction timing because that is the remaining known cost.
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts -t "empty kernel transaction dequeue polling|non-review mutating backend command|backend method that invalidated review feedback" --reporter=dot`; `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts --reporter=dot`; `pnpm exec vitest run worker/queue-projection/__tests__/WorkerQueueProjectionRuntime.test.ts --reporter=dot`; `openspec validate optimize-review-feedback-latency --strict`; `pnpm run check:boundaries`; `pnpm build`.
+
 ### 2026-05-28 - Nonblocking Startup Xiuyuan Full Sync
 
 - Task: Fix plugin initialization failure where startup Xiuyuan full sync hit `BACKEND_UNAVAILABLE: backend worker request timed out after 30000ms`, causing `Plugin initialization failed` and deferred Review tab bootstrap failure.

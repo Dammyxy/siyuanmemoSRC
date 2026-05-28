@@ -230,6 +230,7 @@ const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'sync.conflict.merge',
   'sync.conflict.summarize',
   'sync.conflict.reload',
+  'kernel.transaction.dequeue',
 ]);
 
 const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_PRESERVE_METHODS = new Set<string>([
@@ -238,6 +239,7 @@ const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_PRESERVE_METHODS = new Set<string>([
   'domainSync.status',
   'sync.reviewDivergence.audit',
   'sync.conflict.summarize',
+  'kernel.transaction.dequeue',
 ]);
 
 const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_READ_ONLY_METHODS = new Set<string>([
