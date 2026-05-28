@@ -52,6 +52,7 @@ const logger = createLogger('UnifiedQueueStrategy');
 type RatingValue = 1 | 2 | 3 | 4;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MIN_SUSPICIOUS_HISTORY_DAYS = 7;
+const REVIEW_FEEDBACK_STEP_SLOW_MS = 120;
 
 type CardWithNextDues = FSRSCard & {
     nextDues?: Partial<Record<RatingValue, string>>;
@@ -404,13 +405,23 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             }
 
             if (this.srsV2SessionQueueRuntime && (feedback.action === 'rate' || feedback.action === 'skip')) {
-                activeTransaction = await this.createReviewTransaction(activeItem, feedback, {
-                    includeCardSnapshot: feedback.action === 'rate',
-                });
-                const result = await this.srsV2SessionQueueRuntime.answerAndAdvance({
-                    card: activeItem,
+                activeTransaction = await this.measureReviewFeedbackStep(
+                    'transaction-capture',
+                    activeItem,
                     feedback,
-                });
+                    () => this.createReviewTransaction(activeItem, feedback, {
+                        includeCardSnapshot: feedback.action === 'rate',
+                    })
+                );
+                const result = await this.measureReviewFeedbackStep(
+                    'session-runtime-answer',
+                    activeItem,
+                    feedback,
+                    () => this.withFeedbackMutation(activeItem, feedback, () => this.srsV2SessionQueueRuntime!.answerAndAdvance({
+                        card: activeItem,
+                        feedback,
+                    }))
+                );
                 if (result.status === 'conflict') {
                     this.pendingSrsV2NextCard = activeItem;
                     throw new Error(`REVIEW_SESSION_RUNTIME_CONFLICT: ${result.reason ?? 'answer rejected'}`);
@@ -1129,6 +1140,16 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         activeItem: FSRSCard,
         feedback: QueueFeedback
     ): Promise<QueueReviewResult> {
+        return this.withFeedbackMutation(activeItem, feedback, () => this.queue.handleReview(activeItem.id, feedback.rating || 0, {
+            commitIdempotencyKey: feedback.commitIdempotencyKey,
+        }));
+    }
+
+    private async withFeedbackMutation<TResult>(
+        activeItem: FSRSCard,
+        feedback: QueueFeedback,
+        task: () => Promise<TResult>
+    ): Promise<TResult> {
         this.feedbackMutation = {
             queueType: this.queueType,
             cardId: activeItem.id,
@@ -1137,11 +1158,34 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         };
 
         try {
-            return await this.queue.handleReview(activeItem.id, feedback.rating || 0, {
-                commitIdempotencyKey: feedback.commitIdempotencyKey,
-            });
+            return await task();
         } finally {
             this.feedbackMutation = null;
+        }
+    }
+
+    private async measureReviewFeedbackStep<TResult>(
+        step: string,
+        activeItem: FSRSCard,
+        feedback: QueueFeedback,
+        task: () => Promise<TResult>
+    ): Promise<TResult> {
+        const startedAt = Date.now();
+        try {
+            return await task();
+        } finally {
+            const durationMs = Date.now() - startedAt;
+            if (durationMs >= REVIEW_FEEDBACK_STEP_SLOW_MS) {
+                logger.info('[SiYuanMemo][UnifiedQueueStrategy] slow review feedback step', {
+                    queueType: this.queueType,
+                    step,
+                    cardId: activeItem.id,
+                    blockId: activeItem.blockId,
+                    action: feedback.action,
+                    rating: feedback.rating,
+                    durationMs,
+                });
+            }
         }
     }
 
@@ -1621,6 +1665,13 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 return;
             }
 
+            if (event.requiresFullRefresh) {
+                this.clearSessionExcludedCardIds();
+                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue full refresh requested, invalidating cache: ${this.queueType}`);
+                this.invalidateCache();
+                return;
+            }
+
             if (this.shouldSuppressQueueChangedDuringFeedback(queueType, event)) {
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Suppressed self-triggered queue change during feedback:`, {
                     queueType: this.queueType,
@@ -1628,13 +1679,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     action: this.feedbackMutation?.action,
                     rating: this.feedbackMutation?.rating,
                 });
-                return;
-            }
-
-            if (event.requiresFullRefresh) {
-                this.clearSessionExcludedCardIds();
-                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue full refresh requested, invalidating cache: ${this.queueType}`);
-                this.invalidateCache();
                 return;
             }
 

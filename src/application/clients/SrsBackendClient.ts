@@ -109,6 +109,10 @@ import { BACKEND_RPC_VERSION } from '../../../packages/contracts/src/backend-rpc
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type { FSRSCard } from '@/types/card';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('SrsBackendClient');
+const REVIEW_FEEDBACK_CLIENT_STEP_SLOW_MS = 120;
 
 export interface SrsBackendTransport {
   request(request: BackendRpcRequest): Promise<BackendRpcResponse>;
@@ -240,7 +244,9 @@ export class SrsBackendClient {
   }
 
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
-    return this.call<BackendReviewFeedbackResult>('review.feedback', request);
+    return this.measureReviewFeedbackClientStep('rpc-call', request, () => (
+      this.call<BackendReviewFeedbackResult>('review.feedback', request)
+    ));
   }
 
   async mergeSyncConflicts(
@@ -504,6 +510,30 @@ export class SrsBackendClient {
       throw new Error(`${response.error.code}: ${response.error.message}`);
     }
     return (response as BackendRpcSuccess<TResult>).result;
+  }
+
+  private async measureReviewFeedbackClientStep<TResult>(
+    step: string,
+    request: BackendReviewFeedbackRequest,
+    task: () => Promise<TResult>,
+  ): Promise<TResult> {
+    const startedAt = Date.now();
+    try {
+      return await task();
+    } finally {
+      const durationMs = Date.now() - startedAt;
+      if (durationMs >= REVIEW_FEEDBACK_CLIENT_STEP_SLOW_MS) {
+        logger.info('[SiYuanMemo][SrsBackendClient] slow review.feedback client step', {
+          step,
+          cardId: request.cardId,
+          queueType: request.queueType,
+          queueMode: request.queueMode,
+          commitPolicy: request.commitPolicy,
+          rating: request.rating,
+          durationMs,
+        });
+      }
+    }
   }
 
   private assertObjectResult<T extends Record<string, unknown>>(method: string, payload: unknown): T {

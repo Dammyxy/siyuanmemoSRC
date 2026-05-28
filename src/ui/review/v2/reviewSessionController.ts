@@ -719,10 +719,10 @@ export function createReviewSessionController<TItem extends QueueItem>(
       markAdvancePending('grade');
       const reviewedItem = currentItem.value;
       reviewedCardId = extractCardId(reviewedItem);
-      await options?.ensureActionSafe?.({
+      await measureReviewPhase('domain-sync-safety', reviewedCardId, () => options?.ensureActionSafe?.({
         action: { type: 'grade', rating: normalized },
         item: reviewedItem,
-      });
+      }) ?? Promise.resolve());
       const pendingKey = `grade:${reviewedCardId}:${normalized}`;
       const commitIdempotencyKey = pendingCommitKeys.get(pendingKey)
         ?? createReviewCommitIdempotencyKey(reviewedCardId, normalized);

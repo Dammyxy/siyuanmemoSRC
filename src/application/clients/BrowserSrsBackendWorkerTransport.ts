@@ -21,8 +21,13 @@ import type {
 import type {
   BackendWorkerHostEffect,
   BackendWorkerMainToWorkerMessage,
+  BackendWorkerResponseTiming,
   BackendWorkerToMainMessage,
 } from '../../../worker/bootstrap/BackendWorkerProtocol';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('BrowserSrsBackendWorkerTransport');
+const REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS = 120;
 
 export interface BrowserSrsBackendWorkerHostEffects {
   readBinary?: (path: string) => Promise<Uint8Array | null>;
@@ -79,6 +84,10 @@ interface PendingBackendRequest {
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout> | null;
   generation: number;
+  method: BackendRpcRequest['method'];
+  cardId: string | null;
+  queuedAt: number;
+  postedAt: number | null;
 }
 
 interface PendingProbe {
@@ -195,6 +204,8 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       throw unavailable(this.lastTerminalError || 'backend worker unavailable');
     }
     const requestId = `req-${++this.requestSeq}`;
+    const queuedAt = Date.now();
+    const cardId = this.extractReviewFeedbackCardId(request);
     const pending = new Promise<BackendRpcResponse>((resolve, reject) => {
       const generation = this.generation;
       const timer = setTimeout(() => {
@@ -208,12 +219,30 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         current.reject(error);
         this.markWorkerUnhealthy(error, generation, { terminate: true });
       }, this.requestTimeoutMs);
-      this.pendingRequests.set(requestId, { resolve, reject, timer, generation });
+      this.pendingRequests.set(requestId, {
+        resolve,
+        reject,
+        timer,
+        generation,
+        method: request.method,
+        cardId,
+        queuedAt,
+        postedAt: null,
+      });
     });
+    const postStartedAt = Date.now();
     this.postToWorker({
       kind: 'request',
       requestId,
       request,
+      sentAt: postStartedAt,
+    });
+    const current = this.pendingRequests.get(requestId);
+    if (current) {
+      current.postedAt = Date.now();
+    }
+    this.logReviewFeedbackTransportStepIfSlow('postMessage', request.method, cardId, Date.now() - postStartedAt, {
+      pendingRequests: this.pendingRequests.size,
     });
     return pending;
   }
@@ -307,6 +336,24 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       this.pendingRequests.delete(message.requestId);
       if (pending.timer) {
         clearTimeout(pending.timer);
+      }
+      if (pending.method === 'review.feedback') {
+        const now = Date.now();
+        this.logReviewFeedbackWorkerTiming(pending, message.timing, now);
+        this.logReviewFeedbackTransportStepIfSlow(
+          'worker-roundtrip',
+          pending.method,
+          pending.cardId,
+          now - (pending.postedAt ?? pending.queuedAt),
+          { pendingRequests: this.pendingRequests.size },
+        );
+        this.logReviewFeedbackTransportStepIfSlow(
+          'request-total',
+          pending.method,
+          pending.cardId,
+          now - pending.queuedAt,
+          { pendingRequests: this.pendingRequests.size },
+        );
       }
       pending.resolve(message.response);
       return;
@@ -444,6 +491,105 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       throw unavailable('backend worker transport closed');
     }
     this.worker.postMessage(toStructuredCloneSafe(message));
+  }
+
+  private extractReviewFeedbackCardId(request: BackendRpcRequest): string | null {
+    if (request.method !== 'review.feedback') {
+      return null;
+    }
+    const params = Array.isArray(request.params) ? request.params[0] : null;
+    if (!params || typeof params !== 'object') {
+      return null;
+    }
+    const cardId = String((params as { cardId?: unknown }).cardId || '').trim();
+    return cardId || null;
+  }
+
+  private logReviewFeedbackTransportStepIfSlow(
+    step: string,
+    method: BackendRpcRequest['method'],
+    cardId: string | null,
+    durationMs: number,
+    extra?: Record<string, unknown>,
+  ): void {
+    const shouldForceLog = step === 'worker-inner-step'
+      && extra?.innerStep === 'merge.fast-skip-main-db-read';
+    if (
+      method !== 'review.feedback'
+      || (!shouldForceLog && durationMs < REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS)
+    ) {
+      return;
+    }
+    logger.info('[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step', {
+      step,
+      cardId,
+      durationMs,
+      generation: this.generation,
+      health: this.health,
+      ...(extra ?? {}),
+    });
+  }
+
+  private logReviewFeedbackWorkerTiming(
+    pending: PendingBackendRequest,
+    timing: BackendWorkerResponseTiming | null | undefined,
+    receivedAt: number,
+  ): void {
+    if (pending.method !== 'review.feedback' || !timing) {
+      return;
+    }
+    this.logReviewFeedbackTransportStepIfSlow(
+      'worker-received-delay',
+      pending.method,
+      pending.cardId,
+      timing.receivedDelayMs ?? 0,
+      {
+        pendingRequests: this.pendingRequests.size,
+        workerReceivedAt: timing.receivedAt,
+        transportPostedAt: pending.postedAt,
+      },
+    );
+    this.logReviewFeedbackTransportStepIfSlow(
+      'worker-handle',
+      pending.method,
+      pending.cardId,
+      timing.handleDurationMs,
+      {
+        pendingRequests: this.pendingRequests.size,
+        hostEffectCount: timing.hostEffectCount,
+        hostEffectTotalMs: timing.hostEffectTotalMs,
+        hostEffectAttribution: timing.hostEffectAttribution,
+        slowestHostEffect: timing.slowestHostEffect,
+        innerStepAttribution: timing.innerStepAttribution,
+        innerStepsTruncated: timing.innerStepsTruncated,
+      },
+    );
+    for (const innerStep of timing.innerSteps) {
+      this.logReviewFeedbackTransportStepIfSlow(
+        'worker-inner-step',
+        pending.method,
+        pending.cardId,
+        innerStep.durationMs,
+        {
+          pendingRequests: this.pendingRequests.size,
+          innerLayer: innerStep.layer,
+          innerStep: innerStep.step,
+          innerCardId: innerStep.cardId ?? null,
+          innerQueueType: innerStep.queueType ?? null,
+          innerStepAttribution: timing.innerStepAttribution,
+          ...(innerStep.extra ?? {}),
+        },
+      );
+    }
+    this.logReviewFeedbackTransportStepIfSlow(
+      'main-after-worker',
+      pending.method,
+      pending.cardId,
+      Math.max(0, receivedAt - timing.handledAt),
+      {
+        pendingRequests: this.pendingRequests.size,
+      },
+    );
   }
 
   private closeWithError(error: Error): void {

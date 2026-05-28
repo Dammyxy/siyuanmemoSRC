@@ -16,6 +16,7 @@ import { createLogger } from '@/utils/logger';
 import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics';
 
 const logger = createLogger('ReviewCommitUseCase');
+const REVIEW_COMMIT_STEP_SLOW_MS = 120;
 
 export interface ReviewCommitCardReader {
   getCard(cardId: string, options?: { silent?: boolean }): Promise<FSRSCard>;
@@ -205,18 +206,24 @@ export class ReviewCommitUseCase {
         throw new Error('BACKEND_UNAVAILABLE: review.feedback relay is unavailable in follower mode');
       }
       try {
-        const relayPayload = await measureRuntimePerformance('review', 'feedback.relay-submit-wait', () => this.deps.followerCommandClient!.submitAndWait<unknown>({
-          instanceId: relayRuntime.instanceId,
-          method: 'review.feedback',
-          params: requestPayload,
-        }), {
-          cardId: command.cardId,
-          commitPolicy: workerContext.commitPolicy,
-          method: 'review.feedback',
-          queueMode: workerContext.queueMode,
-          queueType: workerContext.queueType,
+        const relayPayload = await this.measureReviewCommitStep(
+          'feedback.relay-submit-wait',
+          command.cardId,
+          workerContext,
           rating,
-        });
+          () => measureRuntimePerformance('review', 'feedback.relay-submit-wait', () => this.deps.followerCommandClient!.submitAndWait<unknown>({
+            instanceId: relayRuntime.instanceId,
+            method: 'review.feedback',
+            params: requestPayload,
+          }), {
+            cardId: command.cardId,
+            commitPolicy: workerContext.commitPolicy,
+            method: 'review.feedback',
+            queueMode: workerContext.queueMode,
+            queueType: workerContext.queueType,
+            rating,
+          })
+        );
         result = normalizeRelayFeedbackResult(relayPayload);
       } catch (error) {
         if (isWriterRelayTimeoutError(error)) {
@@ -309,13 +316,45 @@ export class ReviewCommitUseCase {
     workerContext: ReturnType<typeof resolveWorkerFeedbackContext>,
     rating: Rating,
   ): Promise<ReviewFeedbackWriteResult> {
-    return measureRuntimePerformance('review', 'feedback.backend-worker', () => this.deps.srsBackend!.reviewFeedback(requestPayload), {
-      cardId: command.cardId,
-      commitPolicy: workerContext.commitPolicy,
-      queueMode: workerContext.queueMode,
-      queueType: workerContext.queueType,
+    return this.measureReviewCommitStep(
+      'feedback.backend-worker',
+      command.cardId,
+      workerContext,
       rating,
-    });
+      () => measureRuntimePerformance('review', 'feedback.backend-worker', () => this.deps.srsBackend!.reviewFeedback(requestPayload), {
+        cardId: command.cardId,
+        commitPolicy: workerContext.commitPolicy,
+        queueMode: workerContext.queueMode,
+        queueType: workerContext.queueType,
+        rating,
+      })
+    );
+  }
+
+  private async measureReviewCommitStep<TResult>(
+    step: string,
+    cardId: string,
+    workerContext: ReturnType<typeof resolveWorkerFeedbackContext>,
+    rating: Rating,
+    task: () => Promise<TResult>,
+  ): Promise<TResult> {
+    const startedAt = Date.now();
+    try {
+      return await task();
+    } finally {
+      const durationMs = Date.now() - startedAt;
+      if (durationMs >= REVIEW_COMMIT_STEP_SLOW_MS) {
+        logger.info('[SiYuanMemo][ReviewCommitUseCase] slow review commit step', {
+          step,
+          cardId,
+          queueType: workerContext.queueType,
+          queueMode: workerContext.queueMode,
+          commitPolicy: workerContext.commitPolicy,
+          rating,
+          durationMs,
+        });
+      }
+    }
   }
 
   private resolveRuntimeWriteReadiness(relayRuntime: RelayRuntimeState): {

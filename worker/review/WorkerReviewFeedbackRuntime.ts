@@ -17,6 +17,11 @@ import type {
 import { DomainSyncLedger } from '../domain-sync/DomainSyncLedger';
 import { buildQueueProjectionCountersFromRows } from '../queue-projection/WorkerQueueProjectionRuntime';
 import { WorkerReviewCardMutationPersistenceModule } from './WorkerReviewCardMutationPersistenceModule';
+import { recordReviewFeedbackInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('WorkerReviewFeedbackRuntime');
+const REVIEW_FEEDBACK_QUEUE_IMPACT_STEP_SLOW_MS = 120;
 
 type ProjectionWorkerQueueType =
   | QueueType.RetrievalPractice
@@ -190,34 +195,49 @@ export class WorkerReviewFeedbackRuntime {
       });
     }
 
-    const previousRows = this.deps.queueProjection.readRows({
-      queueType: projectionQueueType,
-      policyHash,
-      limit: 5000,
-    });
+    const previousRows = this.measureQueueImpactStep(
+      'projection-read-rows',
+      input.queueType,
+      input.reviewedCard.id,
+      () => this.deps.queueProjection!.readRows({
+        queueType: projectionQueueType,
+        policyHash,
+        limit: 5000,
+      }),
+    );
     const nextGeneration = currentGeneration.generation + 1;
     const updatedAt = input.reviewedAt;
     const dayEnd = getDayEndForTimestamp(
       input.reviewedAt,
       normalizeDayStartHour(DEFAULT_SETTINGS.fsrs.dayStartHour),
     );
-    const baseCards = this.readProjectionSourceCards(projectionQueueType, dayEnd);
-    const buildResult = buildQueueProjectionRows({
-      queueType: projectionQueueType,
-      baseCards,
-      now: input.reviewedAt,
-      dayEnd,
-      newCardsPerDay: DEFAULT_SETTINGS.newCardsPerDay,
-      reviewsPerDay: DEFAULT_SETTINGS.reviewsPerDay,
-      priorityRandomness: DEFAULT_SETTINGS.priorityRandomness,
-      learnAheadWindowEnd: input.reviewedAt
-        + DEFAULT_SETTINGS.scheduler.srsV2.learnAhead.windowMinutes * 60 * 1000,
-      learnAheadMaxCards: DEFAULT_SETTINGS.scheduler.srsV2.learnAhead.maxCards,
-      stableSalt: `${projectionQueueType}:${policyHash}`,
-      policyHash,
-      sourceGeneration: nextGeneration,
-      updatedAt,
-    });
+    const baseCards = this.measureQueueImpactStep(
+      'projection-read-source-cards',
+      input.queueType,
+      input.reviewedCard.id,
+      () => this.readProjectionSourceCards(projectionQueueType, dayEnd),
+    );
+    const buildResult = this.measureQueueImpactStep(
+      'projection-build-rows',
+      input.queueType,
+      input.reviewedCard.id,
+      () => buildQueueProjectionRows({
+        queueType: projectionQueueType,
+        baseCards,
+        now: input.reviewedAt,
+        dayEnd,
+        newCardsPerDay: DEFAULT_SETTINGS.newCardsPerDay,
+        reviewsPerDay: DEFAULT_SETTINGS.reviewsPerDay,
+        priorityRandomness: DEFAULT_SETTINGS.priorityRandomness,
+        learnAheadWindowEnd: input.reviewedAt
+          + DEFAULT_SETTINGS.scheduler.srsV2.learnAhead.windowMinutes * 60 * 1000,
+        learnAheadMaxCards: DEFAULT_SETTINGS.scheduler.srsV2.learnAhead.maxCards,
+        stableSalt: `${projectionQueueType}:${policyHash}`,
+        policyHash,
+        sourceGeneration: nextGeneration,
+        updatedAt,
+      }),
+    );
 
     const nextRows = buildResult.rows;
     const delta = buildQueueProjectionDelta({
@@ -225,25 +245,30 @@ export class WorkerReviewFeedbackRuntime {
       nextRows,
     });
 
-    this.deps.queueProjection.applyQueueProjectionDelta({
-      queueType: projectionQueueType,
-      policyHash,
-      generation: nextGeneration,
-      removeRowIds: delta.removedRowIds,
-      upsertRows: nextRows,
-      counters: buildResult.counters,
-      invalidation: {
+    this.measureQueueImpactStep(
+      'projection-apply-delta',
+      input.queueType,
+      input.reviewedCard.id,
+      () => this.deps.queueProjection!.applyQueueProjectionDelta({
         queueType: projectionQueueType,
-        reason: 'review-feedback',
-        affectedCardIds: [input.updatedCard.id],
-        affectedBlockIds: input.updatedCard.blockId ? [input.updatedCard.blockId] : [],
+        policyHash,
         generation: nextGeneration,
-        metadata: {
-          reviewedCardId: input.updatedCard.id,
-          hotPatchable: true,
+        removeRowIds: delta.removedRowIds,
+        upsertRows: nextRows,
+        counters: buildResult.counters,
+        invalidation: {
+          queueType: projectionQueueType,
+          reason: 'review-feedback',
+          affectedCardIds: [input.updatedCard.id],
+          affectedBlockIds: input.updatedCard.blockId ? [input.updatedCard.blockId] : [],
+          generation: nextGeneration,
+          metadata: {
+            reviewedCardId: input.updatedCard.id,
+            hotPatchable: true,
+          },
         },
-      },
-    });
+      }),
+    );
 
     if (hasGenerationMismatch) {
       return buildRefreshRequiredQueueImpact({
@@ -298,11 +323,16 @@ export class WorkerReviewFeedbackRuntime {
       });
     }
 
-    const previousRows = this.deps.queueProjection.readRows({
-      queueType: input.queueType,
-      policyHash: input.policyHash,
-      limit: 5000,
-    });
+    const previousRows = this.measureQueueImpactStep(
+      'projection-read-rows',
+      input.queueType,
+      input.reviewedCard.id,
+      () => this.deps.queueProjection!.readRows({
+        queueType: input.queueType,
+        policyHash: input.policyHash,
+        limit: 5000,
+      }),
+    );
     const nextGeneration = input.requestedCurrentGeneration + 1;
     const nextRows = buildDeferredReviewFeedbackNextRows({
       queueType: input.queueType,
@@ -335,27 +365,32 @@ export class WorkerReviewFeedbackRuntime {
       rows: nextRows,
     });
 
-    this.deps.queueProjection.applyQueueProjectionDelta({
-      queueType: input.queueType,
-      policyHash: input.policyHash,
-      generation: nextGeneration,
-      removeRowIds: delta.removedRowIds,
-      upsertRows: nextRows,
-      counters,
-      invalidation: {
+    this.measureQueueImpactStep(
+      'projection-apply-delta',
+      input.queueType,
+      input.reviewedCard.id,
+      () => this.deps.queueProjection!.applyQueueProjectionDelta({
         queueType: input.queueType,
-        reason: 'review-feedback',
-        affectedCardIds: [input.reviewedCard.id],
-        affectedBlockIds: input.reviewedCard.blockId ? [input.reviewedCard.blockId] : [],
+        policyHash: input.policyHash,
         generation: nextGeneration,
-        metadata: {
-          reviewedCardId: input.reviewedCard.id,
-          committed: input.committed,
-          commitPolicy: input.request.commitPolicy ?? null,
-          hotPatchable: true,
+        removeRowIds: delta.removedRowIds,
+        upsertRows: nextRows,
+        counters,
+        invalidation: {
+          queueType: input.queueType,
+          reason: 'review-feedback',
+          affectedCardIds: [input.reviewedCard.id],
+          affectedBlockIds: input.reviewedCard.blockId ? [input.reviewedCard.blockId] : [],
+          generation: nextGeneration,
+          metadata: {
+            reviewedCardId: input.reviewedCard.id,
+            committed: input.committed,
+            commitPolicy: input.request.commitPolicy ?? null,
+            hotPatchable: true,
+          },
         },
-      },
-    });
+      }),
+    );
 
     if (input.hasGenerationMismatch) {
       return buildRefreshRequiredQueueImpact({
@@ -411,6 +446,35 @@ export class WorkerReviewFeedbackRuntime {
       includeSuspended: false,
       sourceStatus: 'active',
     } satisfies StructuredCardQuery);
+  }
+
+  private measureQueueImpactStep<TResult>(
+    step: string,
+    queueType: string,
+    cardId: string,
+    task: () => TResult,
+  ): TResult {
+    const startedAt = Date.now();
+    try {
+      return task();
+    } finally {
+      const durationMs = Date.now() - startedAt;
+      if (durationMs >= REVIEW_FEEDBACK_QUEUE_IMPACT_STEP_SLOW_MS) {
+        recordReviewFeedbackInnerStep({
+          layer: 'queue-impact',
+          step,
+          cardId,
+          queueType,
+          durationMs,
+        });
+        logger.info('[SiYuanMemo][WorkerReviewFeedbackRuntime] slow review.feedback queueImpact step', {
+          step,
+          queueType,
+          cardId,
+          durationMs,
+        });
+      }
+    }
   }
 }
 

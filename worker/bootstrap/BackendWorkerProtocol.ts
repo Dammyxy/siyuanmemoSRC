@@ -31,13 +31,45 @@ export type BackendWorkerRequestMessage = {
   kind: 'request';
   requestId: string;
   request: BackendRpcRequest;
+  sentAt?: number | null;
 };
 
 export type BackendWorkerResponseMessage = {
   kind: 'response';
   requestId: string;
   response: BackendRpcResponse;
+  timing?: BackendWorkerResponseTiming | null;
 };
+
+export interface BackendWorkerHostEffectTiming {
+  kind: BackendWorkerHostEffect['kind'];
+  durationMs: number;
+}
+
+export interface BackendWorkerInnerStepTiming {
+  layer: 'worker-entry' | 'kernel' | 'database' | 'transaction' | 'queue-impact';
+  step: string;
+  durationMs: number;
+  cardId?: string | null;
+  queueType?: string | null;
+  extra?: Record<string, unknown> | null;
+}
+
+export interface BackendWorkerResponseTiming {
+  sentAt: number | null;
+  receivedAt: number;
+  receivedDelayMs: number | null;
+  handleStartedAt: number;
+  handledAt: number;
+  handleDurationMs: number;
+  hostEffectCount: number;
+  hostEffectTotalMs: number;
+  hostEffectAttribution: 'complete' | 'ambiguous-concurrency';
+  slowestHostEffect: BackendWorkerHostEffectTiming | null;
+  innerSteps: BackendWorkerInnerStepTiming[];
+  innerStepAttribution: 'complete' | 'ambiguous-concurrency';
+  innerStepsTruncated: boolean;
+}
 
 export type BackendWorkerReadyMessage = {
   kind: 'ready';

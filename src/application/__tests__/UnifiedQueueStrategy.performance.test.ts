@@ -1189,6 +1189,72 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(finalCounterSnapshot?.buckets.all).toBe(0);
   });
 
+  it('suppresses runtime-backed incremental-learning self queue-changed events during feedback', async () => {
+    const firstCard = createCard({ id: 'runtime-self-card-1', xiuyuanID: 'xy-1', blockId: 'runtime-self-block-1' });
+    const secondCard = createCard({ id: 'runtime-self-card-2', xiuyuanID: 'xy-2', blockId: 'runtime-self-block-2' });
+    let observer: { onDataChanged(event: DataChangeEvent): void } | null = null;
+    const queue = createQueueStub(QueueType.IncrementalLearning, [firstCard, secondCard], {
+      handleReview: async (cardId, _rating, liveCards) => {
+        observer?.onDataChanged({
+          type: 'queue-changed',
+          queueType: QueueType.IncrementalLearning,
+          timestamp: Date.now(),
+        });
+        const index = liveCards.findIndex((card) => card.id === cardId);
+        if (index >= 0) {
+          liveCards.splice(index, 1);
+        }
+        return {
+          updatedCard: { ...firstCard, due: Date.now() + DAY_MS },
+          removedFromQueue: true,
+          remainsInQueue: false,
+          queueChanged: true,
+          requiresCurrentViewReorder: false,
+        };
+      },
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, []);
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async (cardId: string) => {
+        const card = [firstCard, secondCard].find((candidate) => candidate.id === cardId);
+        if (!card) {
+          throw new Error('card not found');
+        }
+        return { ...card };
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+      registerObserver: vi.fn((nextObserver) => {
+        observer = nextObserver;
+      }),
+      unregisterObserver: vi.fn(),
+    };
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.IncrementalLearning,
+      manager as never,
+      { subscribe: vi.fn() } as never,
+      null
+    );
+
+    const first = await strategy.next();
+    expect(first?.id).toBe(firstCard.id);
+    const getCardsSpy = queue.getCards as unknown as ReturnType<typeof vi.fn>;
+    getCardsSpy.mockClear();
+
+    await strategy.onFeedback(first, { action: 'rate', rating: 3 });
+    const next = await strategy.next();
+
+    expect(next?.id).toBe(secondCard.id);
+    expect(getCardsSpy).not.toHaveBeenCalled();
+  });
+
   it('keeps retrieval-practice Good/Easy logical duplicates out of the current session after reloads', async () => {
     const firstCard = createCard({
       id: 'card-1',

@@ -16,9 +16,13 @@ import type {
   BackendReviewFeedbackResult,
 } from '../../packages/contracts/src/backend-rpc';
 import { DomainSyncLedger } from '../domain-sync/DomainSyncLedger';
+import { recordReviewFeedbackInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
+import { createLogger } from '@/utils/logger';
 
 type ReviewFeedbackRepository = Pick<SqlUnifiedStorageRepository, 'getCard' | 'upsertCards' | 'touchSyncMetadata'>;
 type ReviewFeedbackRuntime = Pick<RuntimeSqliteDatabaseService, 'runTransaction' | 'run' | 'getOne'>;
+const logger = createLogger('WorkerReviewCardMutationPersistenceModule');
+const REVIEW_FEEDBACK_WORKER_STEP_SLOW_MS = 120;
 
 type ExistingReviewCommitRow = {
   id: string;
@@ -60,7 +64,7 @@ export class WorkerReviewCardMutationPersistenceModule {
     input: WorkerReviewFeedbackMutationInput,
     buildQueueImpact: WorkerReviewFeedbackQueueImpactBuilder,
   ): Promise<BackendReviewFeedbackResult> {
-    return await this.deps.runtime.runTransaction('review.feedback', async () => {
+    return await this.measureReviewFeedbackStep('transaction', input, () => this.deps.runtime.runTransaction('review.feedback', async () => {
       const domainSyncLedger = this.deps.domainSyncLedger ?? new DomainSyncLedger(this.deps.runtime);
       const card = this.deps.repository.getCard(input.cardId);
       if (!card) {
@@ -173,14 +177,14 @@ export class WorkerReviewCardMutationPersistenceModule {
         });
       }
 
-      const queueImpact = buildQueueImpact({
+      const queueImpact = this.measureReviewFeedbackStep('queue-impact', input, () => buildQueueImpact({
         queueType: input.queueType,
         request: input.request,
         reviewedCard: card,
         reviewedAt: input.reviewedAt,
         committed: commitResult.committed,
         updatedCard: commitResult.updatedCard ?? null,
-      });
+      }));
 
       if (commitResult.committed) {
         await this.deps.repository.touchSyncMetadata({
@@ -199,7 +203,63 @@ export class WorkerReviewCardMutationPersistenceModule {
         duplicate: false,
         queueImpact,
       };
-    });
+    }));
+  }
+
+  private async measureReviewFeedbackStep<TResult>(
+    step: string,
+    input: WorkerReviewFeedbackMutationInput,
+    task: () => Promise<TResult>,
+  ): Promise<TResult>;
+  private measureReviewFeedbackStep<TResult>(
+    step: string,
+    input: WorkerReviewFeedbackMutationInput,
+    task: () => TResult,
+  ): TResult;
+  private measureReviewFeedbackStep<TResult>(
+    step: string,
+    input: WorkerReviewFeedbackMutationInput,
+    task: () => TResult | Promise<TResult>,
+  ): TResult | Promise<TResult> {
+    const startedAt = Date.now();
+    const logIfSlow = (): void => {
+      const durationMs = Date.now() - startedAt;
+      if (durationMs >= REVIEW_FEEDBACK_WORKER_STEP_SLOW_MS) {
+        recordReviewFeedbackInnerStep({
+          layer: step === 'queue-impact' ? 'queue-impact' : 'transaction',
+          step,
+          cardId: input.cardId,
+          queueType: input.queueType,
+          durationMs,
+          extra: {
+            queueMode: input.queueMode,
+            commitPolicy: input.commitPolicy,
+            rating: input.rating,
+          },
+        });
+        logger.info('[SiYuanMemo][WorkerReviewCardMutationPersistenceModule] slow review.feedback worker step', {
+          step,
+          cardId: input.cardId,
+          queueType: input.queueType,
+          queueMode: input.queueMode,
+          commitPolicy: input.commitPolicy,
+          rating: input.rating,
+          durationMs,
+        });
+      }
+    };
+
+    try {
+      const result = task();
+      if (result && typeof (result as Promise<TResult>).then === 'function') {
+        return (result as Promise<TResult>).finally(logIfSlow);
+      }
+      logIfSlow();
+      return result;
+    } catch (error) {
+      logIfSlow();
+      throw error;
+    }
   }
 
   private readExistingReviewCommit(idempotencyKey: string): {

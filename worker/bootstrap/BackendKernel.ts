@@ -126,6 +126,11 @@ import {
   createUnavailableSqlitePersistenceBridge,
   type SqlitePersistenceBridge,
 } from '../db/SqlitePersistenceBridge';
+import { recordReviewFeedbackInnerStep } from './ReviewFeedbackTimingScope';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('BackendKernel');
+const REVIEW_FEEDBACK_KERNEL_STEP_SLOW_MS = 120;
 
 interface BackendKernelDependencies {
   database: WorkerSqliteDatabaseService;
@@ -295,8 +300,37 @@ export class BackendKernel {
     }
 
     try {
+      const isReviewFeedback = request.method === 'review.feedback';
+      const reviewFeedbackCardId = isReviewFeedback ? this.extractReviewFeedbackCardId(request.params) : null;
+      const requestStartedAt = Date.now();
+      if (!isReviewFeedback) {
+        this.deps.database.invalidateReviewFeedbackMainDbFastSkip();
+      }
       if (!STORAGE_REFRESH_EXEMPT_METHODS.has(request.method)) {
-        const merge = await this.deps.database.mergeExternalDatabaseIfChanged();
+        const mergeStartedAt = Date.now();
+        const merge = await this.deps.database.mergeExternalDatabaseIfChanged(
+          undefined,
+          isReviewFeedback
+            ? { context: 'review-feedback-preflight', cardId: reviewFeedbackCardId }
+            : {},
+        );
+        if (isReviewFeedback) {
+          this.logReviewFeedbackKernelStepIfSlow(
+            'pre-request-merge',
+            reviewFeedbackCardId,
+            Date.now() - mergeStartedAt,
+            {
+              changed: merge.changed,
+              mergedCards: merge.mergedCards,
+              mergedReviewEvents: merge.mergedReviewEvents,
+              importedOperations: merge.importedOperations,
+              sanityStatus: merge.sanityStatus,
+              sourceCount: merge.sourceIds.length,
+              mainDbReadSkipped: merge.mainDbReadSkipped,
+              mainDbReadSkipReason: merge.mainDbReadSkipReason,
+            },
+          );
+        }
         this.recordPreRequestMergeDiagnostic(request.method, merge);
       }
       switch (request.method) {
@@ -369,7 +403,23 @@ export class BackendKernel {
         case 'autocard.execute':
           return buildSuccess(request.id, await this.handleAutoCardExecute(request.params));
         case 'review.feedback':
-          return buildSuccess(request.id, await this.handleReviewFeedback(request.params));
+          {
+            const handlerStartedAt = Date.now();
+            const result = await this.handleReviewFeedback(request.params);
+            this.logReviewFeedbackKernelStepIfSlow(
+              'handler',
+              reviewFeedbackCardId,
+              Date.now() - handlerStartedAt,
+              {},
+            );
+            this.logReviewFeedbackKernelStepIfSlow(
+              'request-total',
+              reviewFeedbackCardId,
+              Date.now() - requestStartedAt,
+              {},
+            );
+            return buildSuccess(request.id, result);
+          }
         case 'ai.session.create':
           return buildSuccess(request.id, this.handleAiSessionCreate(request.params));
         case 'ai.session.get':
@@ -469,6 +519,39 @@ export class BackendKernel {
     };
   }
 
+  private extractReviewFeedbackCardId(params: unknown): string | null {
+    const payload = this.firstParam(params);
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+    const cardId = String((payload as { cardId?: unknown }).cardId || '').trim();
+    return cardId || null;
+  }
+
+  private logReviewFeedbackKernelStepIfSlow(
+    step: string,
+    cardId: string | null,
+    durationMs: number,
+    extra: Record<string, unknown>,
+  ): void {
+    if (durationMs < REVIEW_FEEDBACK_KERNEL_STEP_SLOW_MS) {
+      return;
+    }
+    recordReviewFeedbackInnerStep({
+      layer: 'kernel',
+      step,
+      cardId,
+      durationMs,
+      extra,
+    });
+    logger.info('[SiYuanMemo][BackendKernel] slow review.feedback kernel step', {
+      step,
+      cardId,
+      durationMs,
+      ...extra,
+    });
+  }
+
   private async diagnosticsStatus(): Promise<BackendDiagnosticsStatusResult> {
     const status = this.deps.database.getStatus();
     return {
@@ -483,6 +566,10 @@ export class BackendKernel {
       preRequestMerge: this.getPreRequestMergeDiagnostics(),
       domainSync: await this.deps.database.getDomainSyncStatus(),
     };
+  }
+
+  private firstParam(params: unknown): unknown {
+    return Array.isArray(params) ? params[0] : params;
   }
 
   private async handleDomainSyncStatus(): Promise<BackendDomainSyncStatusResult> {
@@ -699,7 +786,11 @@ export class BackendKernel {
     if (!named || typeof named !== 'object') {
       throw new Error('review.feedback requires named params');
     }
-    return this.deps.database.reviewFeedback(named);
+    const result = await this.deps.database.reviewFeedback(named);
+    if (result.committed) {
+      this.deps.database.markReviewFeedbackOwnPersistedMainDbClean();
+    }
+    return result;
   }
 
   private async handleSyncConflictMerge(params: unknown): Promise<BackendSyncConflictMergeResult> {

@@ -96,6 +96,7 @@ import { AutoCardDecisionService } from './AutoCardDecisionService';
 import { SemanticSessionReadModelBuilder } from '../semantic/SemanticSessionReadModelBuilder';
 import { WorkerReviewFeedbackRuntime } from '../review/WorkerReviewFeedbackRuntime';
 import { DomainSyncLedger } from '../domain-sync/DomainSyncLedger';
+import { recordReviewFeedbackInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
 import {
   resolveProjectionQueueType,
   WorkerQueueProjectionRuntime,
@@ -106,6 +107,8 @@ import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCle
 
 type SqlParams = SqlValue[] | ParamsObject;
 const logger = createLogger('WorkerSqliteDatabaseService');
+const REVIEW_FEEDBACK_DB_STEP_SLOW_MS = 120;
+const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_LIMIT = 5;
 const KERNEL_INGEST_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-ingest.snapshot.json';
 const KERNEL_INGEST_QUEUE_SNAPSHOT_VERSION = 1;
 const KERNEL_ACTION_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-actions.snapshot.json';
@@ -122,6 +125,35 @@ type SqliteFileServiceAdapter = {
     skipped: Array<{ sourceId: string; reason: string }>;
     failed: Array<{ sourceId: string; path: string | null; reason: string }>;
   }>;
+};
+
+type ExternalDatabaseMergeContext =
+  | 'generic'
+  | 'review-feedback-preflight';
+
+interface ExternalDatabaseMergeOptions {
+  context?: ExternalDatabaseMergeContext;
+  cardId?: string | null;
+}
+
+type ExternalDatabaseMergeResult = {
+  ok: true;
+  checked: true;
+  changed: boolean;
+  mergedReviewEvents: number;
+  mergedCards: number;
+  ignoredReviewEvents: number;
+  ignoredCards: number;
+  importedOperations: number;
+  ignoredOperations: number;
+  processedSourceIds: string[];
+  skippedSourceReasons: Record<string, number>;
+  sanityStatus: BackendDomainSyncSanityStatus;
+  sourceIds: string[];
+  skippedSources: Array<{ sourceId: string; reason: string }>;
+  diagnostics: BackendSyncConflictMergeResult['diagnostics'];
+  mainDbReadSkipped: boolean;
+  mainDbReadSkipReason: string | null;
 };
 
 interface ConflictReviewEventRow {
@@ -584,6 +616,7 @@ export class WorkerSqliteDatabaseService {
   private semanticActivation: SqlSemanticActivationRepository | null = null;
   private initialized = false;
   private lastObservedPersistedHash: string | null = null;
+  private reviewFeedbackMainDbFastSkipUsesRemaining = 0;
   private readonly semanticCommandResultsByIdempotencyKey = new Map<string, BackendSemanticCommandResult>();
   private readonly domainSyncCleanupResultsByIdempotencyKey = new Map<string, BackendDomainSyncConflictSourceCleanupResult>();
   private readonly kernelTransactionQueue: Array<{
@@ -725,44 +758,72 @@ export class WorkerSqliteDatabaseService {
     };
   }
 
-  async mergeExternalDatabaseIfChanged(mergedAt = Date.now()): Promise<{
-    ok: true;
-    checked: true;
-    changed: boolean;
-    mergedReviewEvents: number;
-    mergedCards: number;
-    ignoredReviewEvents: number;
-    ignoredCards: number;
-    importedOperations: number;
-    ignoredOperations: number;
-    processedSourceIds: string[];
-    skippedSourceReasons: Record<string, number>;
-    sanityStatus: BackendDomainSyncSanityStatus;
-    sourceIds: string[];
-    skippedSources: Array<{ sourceId: string; reason: string }>;
-    diagnostics: BackendSyncConflictMergeResult['diagnostics'];
-  }> {
-    await this.init();
+  async mergeExternalDatabaseIfChanged(
+    mergedAt = Date.now(),
+    options: ExternalDatabaseMergeOptions = {},
+  ): Promise<ExternalDatabaseMergeResult> {
+    const totalStartedAt = Date.now();
+    const context = options.context ?? 'generic';
+    const cardId = options.cardId ?? null;
+    await this.measureReviewFeedbackDatabaseStep('merge.init', cardId, () => this.init());
     const sources: BackendSyncConflictMergeRequest['sources'] = [];
-    const bytes = await this.fileService.readBinary(this.dbFile);
+    const conflictSources = await this.measureReviewFeedbackDatabaseStep(
+      'merge.read-conflict-sources',
+      cardId,
+      () => this.fileService.readSyncConflictDatabaseSources(),
+    );
+    let mainDbReadSkipped = false;
+    let mainDbReadSkipReason: string | null = null;
+    const nonEmptyConflictSources = conflictSources.filter((source) => source.bytes.byteLength > 0);
+    if (conflictSources.length === 0 && this.canSkipMainDbReadForReviewFeedbackPreflight(context)) {
+      this.reviewFeedbackMainDbFastSkipUsesRemaining -= 1;
+      mainDbReadSkipped = true;
+      mainDbReadSkipReason = 'own-review-feedback-persisted-no-conflict-sources';
+      recordReviewFeedbackInnerStep({
+        layer: 'database',
+        step: 'merge.fast-skip-main-db-read',
+        cardId: cardId ? String(cardId) : null,
+        durationMs: 0,
+        extra: {
+          context,
+          usesRemaining: this.reviewFeedbackMainDbFastSkipUsesRemaining,
+          reason: mainDbReadSkipReason,
+        },
+      });
+      logger.info('[SiYuanMemo][WorkerSqliteDatabaseService] review.feedback preflight skipped persisted main DB read', {
+        cardId: cardId ? String(cardId) : null,
+        context,
+        usesRemaining: this.reviewFeedbackMainDbFastSkipUsesRemaining,
+        reason: mainDbReadSkipReason,
+      });
+    } else {
+      if (context !== 'review-feedback-preflight') {
+        this.invalidateReviewFeedbackMainDbFastSkip();
+      }
+      const bytes = await this.measureReviewFeedbackDatabaseStep(
+        'merge.read-main-db',
+        cardId,
+        () => this.fileService.readBinary(this.dbFile),
+      );
 
-    if (bytes && bytes.byteLength > 0) {
-      const persistedHash = hashBytes(bytes);
-      if (persistedHash !== this.lastObservedPersistedHash) {
-        const currentHash = await this.runtime.read((db) => hashBytes(db.export()));
-        if (persistedHash === currentHash) {
-          this.lastObservedPersistedHash = persistedHash;
-        } else {
-          sources.push({ sourceId: 'siyuan-sync:siyuanmemo.db', bytes });
+      if (bytes && bytes.byteLength > 0) {
+        const persistedHash = hashBytes(bytes);
+        if (persistedHash !== this.lastObservedPersistedHash) {
+          const currentHash = await this.measureReviewFeedbackDatabaseStep(
+            'merge.hash-current-db',
+            cardId,
+            () => this.runtime.read((db) => hashBytes(db.export())),
+          );
+          if (persistedHash === currentHash) {
+            this.lastObservedPersistedHash = persistedHash;
+          } else {
+            sources.push({ sourceId: 'siyuan-sync:siyuanmemo.db', bytes });
+          }
         }
       }
     }
-
-    const conflictSources = await this.fileService.readSyncConflictDatabaseSources();
-    for (const source of conflictSources) {
-      if (source.bytes.byteLength > 0) {
-        sources.push(source);
-      }
+    for (const source of nonEmptyConflictSources) {
+      sources.push(source);
     }
     const forgottenStaleSkippedSources = this.forgetStaleUnknownSkippedDomainSyncConflictSources(
       conflictSources.map((source) => source.sourceId),
@@ -770,10 +831,16 @@ export class WorkerSqliteDatabaseService {
 
     if (sources.length === 0) {
       if (forgottenStaleSkippedSources > 0) {
-        await this.runtime.persist();
-        await this.rememberPersistedHash();
+        this.invalidateReviewFeedbackMainDbFastSkip();
+        await this.measureReviewFeedbackDatabaseStep('merge.persist-forgotten-skipped', cardId, () => this.runtime.persist());
+        await this.measureReviewFeedbackDatabaseStep('merge.remember-hash', cardId, () => this.rememberPersistedHash());
       }
-      return {
+      const domainSyncStatus = await this.measureReviewFeedbackDatabaseStep(
+        'merge.domain-sync-status.no-sources',
+        cardId,
+        () => this.getDomainSyncStatus(),
+      );
+      const response: ExternalDatabaseMergeResult = {
         ok: true,
         checked: true,
         changed: forgottenStaleSkippedSources > 0,
@@ -785,23 +852,43 @@ export class WorkerSqliteDatabaseService {
         ignoredOperations: 0,
         processedSourceIds: [],
         skippedSourceReasons: {},
-        sanityStatus: (await this.getDomainSyncStatus()).sanity.status,
+        sanityStatus: domainSyncStatus.sanity.status,
         sourceIds: [],
         skippedSources: [],
         diagnostics: {
           reviewCardDivergences: [],
         },
+        mainDbReadSkipped,
+        mainDbReadSkipReason,
       };
+      this.logReviewFeedbackDatabaseStepIfSlow('merge.total', cardId, Date.now() - totalStartedAt, {
+        changed: response.changed,
+        sourceCount: response.sourceIds.length,
+        sanityStatus: response.sanityStatus,
+        mainDbReadSkipped: response.mainDbReadSkipped,
+        mainDbReadSkipReason: response.mainDbReadSkipReason,
+      });
+      return response;
     }
 
     const operationCountBeforeMerge = this.runtime.getOne<{ count: number }>(
       'SELECT COUNT(*) AS count FROM domain_sync_operations',
     )?.count ?? 0;
-    const result = await this.mergeSyncConflictDatabases({
-      mergedAt,
-      sources,
-    });
-    const domainSyncStatus = await this.getDomainSyncStatus();
+    const result = await this.measureReviewFeedbackDatabaseStep(
+      'merge.apply-conflicts',
+      cardId,
+      () => this.mergeSyncConflictDatabases({
+        mergedAt,
+        sources,
+      }),
+      { sourceCount: sources.length },
+    );
+    const domainSyncStatus = await this.measureReviewFeedbackDatabaseStep(
+      'merge.domain-sync-status.after-merge',
+      cardId,
+      () => this.getDomainSyncStatus(),
+      { sourceCount: sources.length },
+    );
     const processedRows = this.readDomainSyncProcessedSourcesForSourceIds(sources.map((source) => source.sourceId));
     const skippedSourceReasons: Record<string, number> = {};
     for (const skipped of result.skippedSources) {
@@ -819,11 +906,14 @@ export class WorkerSqliteDatabaseService {
       result.skippedSources.length === 0
       && changed
     ) {
-      await this.runtime.persist();
-      await this.rememberPersistedHash();
+      await this.measureReviewFeedbackDatabaseStep('merge.persist-changed', cardId, () => this.runtime.persist(), {
+        sourceCount: sources.length,
+      });
+      await this.measureReviewFeedbackDatabaseStep('merge.remember-hash', cardId, () => this.rememberPersistedHash());
     }
+    this.invalidateReviewFeedbackMainDbFastSkip();
 
-    return {
+    const response: ExternalDatabaseMergeResult = {
       ok: true,
       checked: true,
       changed,
@@ -841,7 +931,33 @@ export class WorkerSqliteDatabaseService {
       sourceIds: sources.map((source) => String(source.sourceId || '').trim() || 'unknown'),
       skippedSources: result.skippedSources,
       diagnostics: result.diagnostics,
+      mainDbReadSkipped,
+      mainDbReadSkipReason,
     };
+    this.logReviewFeedbackDatabaseStepIfSlow('merge.total', cardId, Date.now() - totalStartedAt, {
+      changed: response.changed,
+      sourceCount: response.sourceIds.length,
+      sanityStatus: response.sanityStatus,
+      mergedCards: response.mergedCards,
+      mergedReviewEvents: response.mergedReviewEvents,
+      importedOperations: response.importedOperations,
+      mainDbReadSkipped: response.mainDbReadSkipped,
+      mainDbReadSkipReason: response.mainDbReadSkipReason,
+    });
+    return response;
+  }
+
+  private canSkipMainDbReadForReviewFeedbackPreflight(context: ExternalDatabaseMergeContext): boolean {
+    return context === 'review-feedback-preflight'
+      && this.reviewFeedbackMainDbFastSkipUsesRemaining > 0;
+  }
+
+  markReviewFeedbackOwnPersistedMainDbClean(): void {
+    this.reviewFeedbackMainDbFastSkipUsesRemaining = REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_LIMIT;
+  }
+
+  invalidateReviewFeedbackMainDbFastSkip(): void {
+    this.reviewFeedbackMainDbFastSkipUsesRemaining = 0;
   }
 
   private async rememberPersistedHash(): Promise<void> {
@@ -1556,7 +1672,8 @@ export class WorkerSqliteDatabaseService {
   }
 
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
-    await this.init();
+    const totalStartedAt = Date.now();
+    await this.measureReviewFeedbackDatabaseStep('reviewFeedback.init', request.cardId, () => this.init());
     const runtime = new WorkerReviewFeedbackRuntime({
       repository: this.repository!,
       queueProjection: this.queueProjection,
@@ -1566,14 +1683,93 @@ export class WorkerSqliteDatabaseService {
         this.reviewFeedbackUnavailableTotal += 1;
       },
     });
-    const result = await runtime.reviewFeedback(request);
+    const result = await this.measureReviewFeedbackDatabaseStep(
+      'reviewFeedback.runtime',
+      request.cardId,
+      () => runtime.reviewFeedback(request),
+      {
+        queueType: request.queueType,
+        queueMode: request.queueMode,
+        commitPolicy: request.commitPolicy,
+        rating: request.rating,
+      },
+    );
     this.reviewFeedbackTotal += 1;
     if (result.committed) {
       this.reviewFeedbackCommittedTotal += 1;
     } else {
       this.reviewFeedbackPreviewTotal += 1;
     }
+    this.logReviewFeedbackDatabaseStepIfSlow('reviewFeedback.total', request.cardId, Date.now() - totalStartedAt, {
+      queueType: request.queueType,
+      queueMode: request.queueMode,
+      commitPolicy: request.commitPolicy,
+      rating: request.rating,
+      committed: result.committed,
+      duplicate: result.duplicate,
+    });
     return result;
+  }
+
+  private async measureReviewFeedbackDatabaseStep<TResult>(
+    step: string,
+    cardId: string | null | undefined,
+    task: () => Promise<TResult>,
+    extra?: Record<string, unknown>,
+  ): Promise<TResult>;
+  private measureReviewFeedbackDatabaseStep<TResult>(
+    step: string,
+    cardId: string | null | undefined,
+    task: () => TResult,
+    extra?: Record<string, unknown>,
+  ): TResult;
+  private measureReviewFeedbackDatabaseStep<TResult>(
+    step: string,
+    cardId: string | null | undefined,
+    task: () => TResult | Promise<TResult>,
+    extra: Record<string, unknown> = {},
+  ): TResult | Promise<TResult> {
+    const startedAt = Date.now();
+    const logIfSlow = (): void => {
+      this.logReviewFeedbackDatabaseStepIfSlow(step, cardId, Date.now() - startedAt, extra);
+    };
+
+    try {
+      const result = task();
+      if (result && typeof (result as Promise<TResult>).then === 'function') {
+        return (result as Promise<TResult>).finally(logIfSlow);
+      }
+      logIfSlow();
+      return result;
+    } catch (error) {
+      logIfSlow();
+      throw error;
+    }
+  }
+
+  private logReviewFeedbackDatabaseStepIfSlow(
+    step: string,
+    cardId: string | null | undefined,
+    durationMs: number,
+    extra: Record<string, unknown>,
+  ): void {
+    if (durationMs < REVIEW_FEEDBACK_DB_STEP_SLOW_MS) {
+      return;
+    }
+    recordReviewFeedbackInnerStep({
+      layer: 'database',
+      step,
+      cardId: cardId ? String(cardId) : null,
+      durationMs,
+      queueType: typeof extra.queueType === 'string' ? extra.queueType : null,
+      extra,
+    });
+    logger.info('[SiYuanMemo][WorkerSqliteDatabaseService] slow review.feedback database step', {
+      step,
+      cardId: cardId ? String(cardId) : null,
+      durationMs,
+      ...extra,
+    });
   }
 
   async getDomainSyncStatus(checkedAt = Date.now()): Promise<BackendDomainSyncStatusResult> {

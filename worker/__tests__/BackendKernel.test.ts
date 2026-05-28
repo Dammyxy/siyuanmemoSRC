@@ -6655,6 +6655,145 @@ describe('BackendKernel', () => {
     )?.count).toBe(1);
   });
 
+  it('skips repeated persisted main DB reads for consecutive review feedback without conflict sources', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readBinary,
+      readSyncConflictDatabaseSources: vi.fn(async () => []),
+    });
+    const reviewedAt = 1_779_187_999_000;
+    await database.upsertCards([
+      buildCard({ id: 'card-review-fast-path-a', due: reviewedAt - 10_000 }),
+      buildCard({ id: 'card-review-fast-path-b', due: reviewedAt - 10_000 }),
+    ]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const first = await kernel.handle({
+      id: 'review-feedback-fast-path-a',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-path-a', rating: 3, reviewedAt, queueType: 'retrieval-practice' }],
+    });
+    expect('result' in first).toBe(true);
+    const mainDbReadsAfterFirst = readBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+
+    const second = await kernel.handle({
+      id: 'review-feedback-fast-path-b',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-path-b', rating: 3, reviewedAt: reviewedAt + 1_000, queueType: 'retrieval-practice' }],
+    });
+
+    expect('result' in second).toBe(true);
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsAfterFirst);
+  });
+
+  it('keeps persisted main DB reads when review feedback preflight sees conflict sources', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await conflictDatabase.upsertCards([buildCard({ id: 'card-review-fast-conflict-remote' })]);
+    await conflictDatabase.persist();
+    const conflictBytes = await conflictBridge.readBinary('siyuanmemo.db');
+    expect(conflictBytes).toBeTruthy();
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readBinary,
+      readSyncConflictDatabaseSources: vi.fn(async () => [{
+        sourceId: 'phone-review-fast-conflict',
+        bytes: conflictBytes!,
+      }]),
+    });
+    const reviewedAt = 1_779_188_009_000;
+    await database.upsertCards([
+      buildCard({ id: 'card-review-fast-conflict-a', due: reviewedAt - 10_000 }),
+      buildCard({ id: 'card-review-fast-conflict-b', due: reviewedAt - 10_000 }),
+    ]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const first = await kernel.handle({
+      id: 'review-feedback-fast-conflict-a',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-conflict-a', rating: 3, reviewedAt, queueType: 'retrieval-practice' }],
+    });
+    expect('result' in first).toBe(true);
+    const mainDbReadsAfterFirst = readBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+
+    const second = await kernel.handle({
+      id: 'review-feedback-fast-conflict-b',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-conflict-b', rating: 3, reviewedAt: reviewedAt + 1_000, queueType: 'retrieval-practice' }],
+    });
+
+    expect('result' in second).toBe(true);
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length)
+      .toBeGreaterThan(mainDbReadsAfterFirst);
+  });
+
+  it('invalidates review feedback main DB read fast path after a non-review backend command', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readBinary,
+      readSyncConflictDatabaseSources: vi.fn(async () => []),
+    });
+    const reviewedAt = 1_779_188_019_000;
+    await database.upsertCards([
+      buildCard({ id: 'card-review-fast-invalidate-a', due: reviewedAt - 10_000 }),
+      buildCard({ id: 'card-review-fast-invalidate-b', due: reviewedAt - 10_000 }),
+    ]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const first = await kernel.handle({
+      id: 'review-feedback-fast-invalidate-a',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-invalidate-a', rating: 3, reviewedAt, queueType: 'retrieval-practice' }],
+    });
+    expect('result' in first).toBe(true);
+
+    const count = await kernel.handle({
+      id: 'browser-count-invalidates-review-fast-path',
+      jsonrpc: '2.0',
+      method: 'browser.count',
+      params: [{ query: {} }],
+    });
+    expect('result' in count).toBe(true);
+    const mainDbReadsAfterCount = readBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+
+    const second = await kernel.handle({
+      id: 'review-feedback-fast-invalidate-b',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-invalidate-b', rating: 3, reviewedAt: reviewedAt + 1_000, queueType: 'retrieval-practice' }],
+    });
+
+    expect('result' in second).toBe(true);
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length)
+      .toBeGreaterThan(mainDbReadsAfterCount);
+  });
+
   it('returns refresh-required queue impact when the projection generation is unavailable', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);

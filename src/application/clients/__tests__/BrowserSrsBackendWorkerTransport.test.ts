@@ -9,6 +9,17 @@ import type {
 import { BACKEND_RPC_VERSION } from '../../../../packages/contracts/src/backend-rpc';
 import { BrowserSrsBackendWorkerTransport } from '../BrowserSrsBackendWorkerTransport';
 
+const transportLoggerMocks = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
+
+vi.mock('@/utils/logger', () => ({
+  createLogger: () => transportLoggerMocks,
+}));
+
 class FakeWorker {
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: ((event: ErrorEvent) => void) | null = null;
@@ -41,9 +52,28 @@ function createRequest(id = 1): BackendRpcRequest {
   };
 }
 
+function createReviewFeedbackRequest(id = 1): BackendRpcRequest {
+  return {
+    jsonrpc: BACKEND_RPC_VERSION,
+    id,
+    method: 'review.feedback',
+    params: [{
+      cardId: 'card-1',
+      rating: 3,
+      queueType: 'incremental-learning',
+      queueMode: 'formal',
+      commitPolicy: 'write-schedule',
+    }],
+  };
+}
+
 describe('BrowserSrsBackendWorkerTransport', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    transportLoggerMocks.info.mockClear();
+    transportLoggerMocks.warn.mockClear();
+    transportLoggerMocks.error.mockClear();
+    transportLoggerMocks.debug.mockClear();
   });
 
   afterEach(() => {
@@ -82,6 +112,133 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     });
 
     await expect(pending).resolves.toEqual(response);
+    transport.dispose();
+  });
+
+  it('sends review feedback request timing to the worker', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+    });
+    const request = createReviewFeedbackRequest(12);
+    const pending = transport.request(request);
+
+    worker.emit({ kind: 'ready' });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+
+    expect(worker.posted[0]).toEqual(expect.objectContaining({
+      kind: 'request',
+      request,
+      sentAt: expect.any(Number),
+    }));
+
+    const response: BackendRpcResponse = {
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 12,
+      result: { ok: true },
+    };
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response,
+    });
+
+    await expect(pending).resolves.toEqual(response);
+    transport.dispose();
+  });
+
+  it('logs worker-returned review feedback timing so roundtrip can be split', async () => {
+    vi.setSystemTime(1_000);
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+    });
+    const request = createReviewFeedbackRequest(13);
+    const pending = transport.request(request);
+    worker.emit({ kind: 'ready' });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+
+    vi.setSystemTime(1_500);
+    const response: BackendRpcResponse = {
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 13,
+      result: { ok: true },
+    };
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response,
+      timing: {
+        sentAt: 1_000,
+        receivedAt: 1_150,
+        receivedDelayMs: 150,
+        handleStartedAt: 1_151,
+        handledAt: 1_430,
+        handleDurationMs: 279,
+        hostEffectCount: 2,
+        hostEffectTotalMs: 180,
+        hostEffectAttribution: 'complete',
+        slowestHostEffect: {
+          kind: 'sqlite.writeBinary',
+          durationMs: 140,
+        },
+        innerSteps: [{
+          layer: 'database',
+          step: 'reviewFeedback.runtime',
+          durationMs: 220,
+          cardId: 'card-1',
+          queueType: 'incremental-learning',
+          extra: {
+            committed: true,
+          },
+        }],
+        innerStepAttribution: 'complete',
+        innerStepsTruncated: false,
+      },
+    });
+
+    await expect(pending).resolves.toEqual(response);
+    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+      '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
+      expect.objectContaining({
+        step: 'worker-received-delay',
+        cardId: 'card-1',
+        durationMs: 150,
+      }),
+    );
+    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+      '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
+      expect.objectContaining({
+        step: 'worker-handle',
+        cardId: 'card-1',
+        durationMs: 279,
+        hostEffectCount: 2,
+        hostEffectTotalMs: 180,
+        hostEffectAttribution: 'complete',
+        innerStepAttribution: 'complete',
+        innerStepsTruncated: false,
+        slowestHostEffect: {
+          kind: 'sqlite.writeBinary',
+          durationMs: 140,
+        },
+      }),
+    );
+    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+      '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
+      expect.objectContaining({
+        step: 'worker-inner-step',
+        cardId: 'card-1',
+        durationMs: 220,
+        innerLayer: 'database',
+        innerStep: 'reviewFeedback.runtime',
+        innerCardId: 'card-1',
+        innerQueueType: 'incremental-learning',
+        innerStepAttribution: 'complete',
+        committed: true,
+      }),
+    );
     transport.dispose();
   });
 
