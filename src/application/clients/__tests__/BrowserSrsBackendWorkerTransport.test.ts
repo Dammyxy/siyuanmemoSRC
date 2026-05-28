@@ -67,6 +67,23 @@ function createReviewFeedbackRequest(id = 1): BackendRpcRequest {
   };
 }
 
+function createXiuyuanSyncRequest(id = 1): BackendRpcRequest {
+  return {
+    jsonrpc: BACKEND_RPC_VERSION,
+    id,
+    method: 'xiuyuan.sync.execute',
+    params: [{
+      requestId: `sync-request-${id}`,
+      commandId: `sync-command-${id}`,
+      idempotencyKey: `sync-key-${id}`,
+      mode: 'full',
+      dryRun: false,
+      deckId: 'deck-a',
+      requestedAt: 1_700_000_000_000,
+    }],
+  };
+}
+
 describe('BrowserSrsBackendWorkerTransport', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -235,6 +252,12 @@ describe('BrowserSrsBackendWorkerTransport', () => {
             committed: true,
           }),
         ],
+        topInnerStepSummary: [
+          'database:reviewFeedback.runtime 220ms',
+        ],
+        dominantInnerStepSummary: 'database:reviewFeedback.runtime 220ms',
+        preRequestMergeSummary: null,
+        mainDbReadSummary: null,
         unattributedMs: 0,
         slowestHostEffect: {
           kind: 'sqlite.writeBinary',
@@ -256,6 +279,110 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         committed: true,
       }),
     );
+    transport.dispose();
+  });
+
+  it('logs flat review feedback pre-request merge and main DB read summaries', async () => {
+    vi.setSystemTime(1_600);
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+    });
+    const request = createReviewFeedbackRequest(15);
+    const pending = transport.request(request);
+    worker.emit({ kind: 'ready' });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+
+    vi.setSystemTime(2_100);
+    const response: BackendRpcResponse = {
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 15,
+      result: { ok: true },
+    };
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response,
+      timing: {
+        sentAt: 1_600,
+        receivedAt: 1_620,
+        receivedDelayMs: 20,
+        handleStartedAt: 1_630,
+        handledAt: 2_060,
+        handleDurationMs: 430,
+        hostEffectCount: 3,
+        hostEffectTotalMs: 260,
+        hostEffectAttribution: 'complete',
+        slowestHostEffect: {
+          kind: 'sqlite.readBinary',
+          durationMs: 210,
+        },
+        innerSteps: [
+          {
+            layer: 'kernel',
+            step: 'pre-request-merge',
+            durationMs: 320,
+            cardId: 'card-1',
+            extra: {
+              changed: false,
+              sourceCount: 0,
+              sanityStatus: 'divergent',
+              mainDbReadSkipped: false,
+              mainDbReadSkipReason: 'fast-skip-not-eligible:never-marked-clean',
+              conflictSourceCount: 0,
+              nonEmptyConflictSourceCount: 0,
+            },
+          },
+          {
+            layer: 'database',
+            step: 'merge.read-main-db',
+            durationMs: 210,
+            cardId: 'card-1',
+          },
+          {
+            layer: 'database',
+            step: 'reviewFeedback.runtime',
+            durationMs: 80,
+            cardId: 'card-1',
+            queueType: 'incremental-learning',
+          },
+        ],
+        innerStepAttribution: 'complete',
+        innerStepsTruncated: false,
+      },
+    });
+
+    await expect(pending).resolves.toEqual(response);
+    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+      '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
+      expect.objectContaining({
+        step: 'worker-handle',
+        cardId: 'card-1',
+        durationMs: 430,
+        dominantInnerStepSummary: expect.stringContaining('kernel:pre-request-merge 320ms'),
+        preRequestMergeSummary: expect.stringContaining('reason=fast-skip-not-eligible:never-marked-clean'),
+        mainDbReadSummary: 'database:merge.read-main-db 210ms',
+        topInnerStepSummary: expect.arrayContaining([
+          expect.stringContaining('kernel:pre-request-merge 320ms'),
+          'database:merge.read-main-db 210ms',
+        ]),
+      }),
+    );
+    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+      expect.stringContaining('[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback worker-handle summary'),
+      expect.objectContaining({
+        step: 'worker-handle-summary',
+        cardId: 'card-1',
+        durationMs: 430,
+        copySummary: expect.stringContaining('preMerge=kernel:pre-request-merge 320ms'),
+      }),
+    );
+    expect(transportLoggerMocks.info.mock.calls.some(([message]) => (
+      typeof message === 'string'
+      && message.includes('reason=fast-skip-not-eligible:never-marked-clean')
+      && message.includes('mainDb=database:merge.read-main-db 210ms')
+    ))).toBe(true);
     transport.dispose();
   });
 
@@ -826,6 +953,55 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       pendingRequests: 0,
     }));
     expect(worker.terminated).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the extended backend request timeout for long Xiuyuan sync commands', async () => {
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+      requestTimeoutMs: 20,
+      maxRestartAttempts: 0,
+    });
+    worker.emit({ kind: 'ready' });
+
+    const request = createXiuyuanSyncRequest(67);
+    const pending = transport.request(request);
+    let settled = false;
+    void pending.then(
+      () => { settled = true; },
+      () => { settled = true; },
+    );
+    await Promise.resolve();
+    expect(worker.posted).toEqual([
+      expect.objectContaining({
+        kind: 'request',
+        request,
+      }),
+    ]);
+
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    expect(transport.getDiagnostics()).toEqual(expect.objectContaining({
+      health: 'healthy',
+      requestTimeouts: 0,
+      pendingRequests: 1,
+    }));
+
+    const response: BackendRpcResponse = {
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 67,
+      result: { ok: true },
+    };
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response,
+    });
+    await expect(pending).resolves.toEqual(response);
+    transport.dispose();
   });
 
   it('keeps diagnostics for worker error and dispose pending cleanup', async () => {

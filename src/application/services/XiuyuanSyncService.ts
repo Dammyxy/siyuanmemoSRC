@@ -478,13 +478,19 @@ export class XiuyuanSyncService {
         await this.migrateLegacyCardTypeAttrsOnce();
         
         if (this.isFullSyncDue()) {
-            logger.info('Full reconcile is due on plugin start; running full sync instead of incremental');
-            await this.fullSync();
+            logger.info('Full reconcile is due on plugin start; scheduling full sync instead of incremental');
+            this.startStartupSyncInBackground('full', () => this.fullSync());
         } else if (this.config.incrementalSync.enabled && this.config.incrementalSync.triggers.includes('plugin-start')) {
-            await this.incrementalSync(undefined, { source: 'startup' });
+            this.startStartupSyncInBackground('incremental', () => this.incrementalSync(undefined, { source: 'startup' }));
         }
         
         logger.info('Sync service started');
+    }
+
+    private startStartupSyncInBackground(type: SyncType, operation: () => Promise<SyncResult>): void {
+        void operation().catch((error) => {
+            logger.error(`Startup ${type} sync failed; service remains started without local fallback:`, error);
+        });
     }
 
     private extractXiuyuanBindingId(attrs: Record<string, string> | null | undefined): string {

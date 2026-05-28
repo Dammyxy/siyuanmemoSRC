@@ -240,6 +240,22 @@ const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_PRESERVE_METHODS = new Set<string>([
   'sync.conflict.summarize',
 ]);
 
+const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_READ_ONLY_METHODS = new Set<string>([
+  'browser.deck.page',
+  'browser.deck.matchedIds',
+  'browser.deck.rowsByIds',
+  'browser.count',
+  'browser.stats',
+  'browser.sourceExistence.refreshCandidates',
+  'browser.sourceExistence.byBlockIds',
+  'browser.sourceExistence.summary',
+  'queue.projection.snapshot',
+  'queue.projection.rowsByIds',
+  'neural-roam.viewState',
+  'ai.session.get',
+  'job.get',
+]);
+
 export class BackendKernel {
   private readonly privateApiAuditTrail: Array<{
     requestId: string;
@@ -312,7 +328,13 @@ export class BackendKernel {
       const reviewFeedbackCardId = isReviewFeedback ? this.extractReviewFeedbackCardId(request.params) : null;
       const requestStartedAt = Date.now();
       const requiresStorageRefresh = !STORAGE_REFRESH_EXEMPT_METHODS.has(request.method);
-      if (!isReviewFeedback && !REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_PRESERVE_METHODS.has(request.method)) {
+      const isReviewFeedbackFastSkipReadOnlyMethod =
+        REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_READ_ONLY_METHODS.has(request.method);
+      if (
+        !isReviewFeedback
+        && !isReviewFeedbackFastSkipReadOnlyMethod
+        && !REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_PRESERVE_METHODS.has(request.method)
+      ) {
         this.deps.database.invalidateReviewFeedbackMainDbFastSkip(`backend-method:${request.method}`);
       }
       if (requiresStorageRefresh) {
@@ -321,6 +343,8 @@ export class BackendKernel {
           undefined,
           isReviewFeedback
             ? { context: 'review-feedback-preflight', cardId: reviewFeedbackCardId }
+            : isReviewFeedbackFastSkipReadOnlyMethod
+              ? { context: 'read-only-preflight' }
             : {},
         );
         if (isReviewFeedback) {

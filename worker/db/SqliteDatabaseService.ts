@@ -130,6 +130,7 @@ type SqliteFileServiceAdapter = {
 
 type ExternalDatabaseMergeContext =
   | 'generic'
+  | 'read-only-preflight'
   | 'review-feedback-preflight';
 
 interface ExternalDatabaseMergeOptions {
@@ -628,6 +629,7 @@ export class WorkerSqliteDatabaseService {
   private semanticActivation: SqlSemanticActivationRepository | null = null;
   private initialized = false;
   private lastObservedPersistedHash: string | null = null;
+  private lastDomainSyncStatusSnapshot: BackendDomainSyncStatusResult | null = null;
   private reviewFeedbackMainDbFastSkipUsesRemaining = 0;
   private reviewFeedbackMainDbFastSkipInvalidatedBy: string | null = 'never-marked-clean';
   private readonly semanticCommandResultsByIdempotencyKey = new Map<string, BackendSemanticCommandResult>();
@@ -750,6 +752,7 @@ export class WorkerSqliteDatabaseService {
   async reloadFromDisk(): Promise<BackendSyncConflictReloadResult> {
     this.queueState = null;
     this.semanticActivation = null;
+    this.lastDomainSyncStatusSnapshot = null;
     this.runtime.dispose();
     this.initialized = false;
     await this.init();
@@ -823,7 +826,7 @@ export class WorkerSqliteDatabaseService {
       } else if (context === 'review-feedback-preflight' && !forceMainDbRead) {
         mainDbReadSkipReason = 'fast-skip-blocked:non-empty-conflict-sources';
       }
-      if (context !== 'review-feedback-preflight') {
+      if (context !== 'review-feedback-preflight' && context !== 'read-only-preflight') {
         this.invalidateReviewFeedbackMainDbFastSkip(`merge:${context}`);
       }
       const bytes = await this.measureReviewFeedbackDatabaseStep(
@@ -864,7 +867,7 @@ export class WorkerSqliteDatabaseService {
       const domainSyncStatus = await this.measureReviewFeedbackDatabaseStep(
         'merge.domain-sync-status.no-sources',
         cardId,
-        () => this.getDomainSyncStatus(),
+        () => this.readDomainSyncStatusForNoSourceMerge(context, Date.now()),
       );
       const response: ExternalDatabaseMergeResult = {
         ok: true,
@@ -917,7 +920,7 @@ export class WorkerSqliteDatabaseService {
     const domainSyncStatus = await this.measureReviewFeedbackDatabaseStep(
       'merge.domain-sync-status.after-merge',
       cardId,
-      () => this.getDomainSyncStatus(),
+      () => this.readDomainSyncStatusSnapshot(Date.now()),
       { sourceCount: sources.length },
     );
     const processedRows = this.readDomainSyncProcessedSourcesForSourceIds(sources.map((source) => source.sourceId));
@@ -1737,6 +1740,7 @@ export class WorkerSqliteDatabaseService {
     this.reviewFeedbackTotal += 1;
     if (result.committed) {
       this.reviewFeedbackCommittedTotal += 1;
+      this.lastDomainSyncStatusSnapshot = null;
     } else {
       this.reviewFeedbackPreviewTotal += 1;
     }
@@ -1815,6 +1819,23 @@ export class WorkerSqliteDatabaseService {
   async getDomainSyncStatus(checkedAt = Date.now()): Promise<BackendDomainSyncStatusResult> {
     await this.init();
     await this.forgetStaleUnknownSkippedDomainSyncConflictSourcesFromHost();
+    return this.readDomainSyncStatusSnapshot(checkedAt);
+  }
+
+  private async readDomainSyncStatusForNoSourceMerge(
+    context: ExternalDatabaseMergeContext,
+    checkedAt = Date.now(),
+  ): Promise<BackendDomainSyncStatusResult> {
+    if (
+      (context === 'review-feedback-preflight' || context === 'read-only-preflight')
+      && this.lastDomainSyncStatusSnapshot
+    ) {
+      return this.cloneDomainSyncStatusSnapshot(this.lastDomainSyncStatusSnapshot, checkedAt);
+    }
+    return this.readDomainSyncStatusSnapshot(checkedAt);
+  }
+
+  private async readDomainSyncStatusSnapshot(checkedAt = Date.now()): Promise<BackendDomainSyncStatusResult> {
     const operationRows = this.runtime.getAll<DomainSyncOperationSummaryRow>(
       `SELECT operation_type, COUNT(*) AS count, MAX(occurred_at) AS newest
        FROM domain_sync_operations
@@ -1870,7 +1891,7 @@ export class WorkerSqliteDatabaseService {
     const recentProcessed = this.readDomainSyncProcessedSources(false, 10, status);
     const recentSkipped = this.readDomainSyncProcessedSources(true, 10, status);
 
-    return {
+    const snapshot: BackendDomainSyncStatusResult = {
       ok: true,
       ledger: {
         operationCount,
@@ -1902,6 +1923,39 @@ export class WorkerSqliteDatabaseService {
         available: repairSummary.repairableCards > 0,
         repairableDivergenceCount: repairSummary.repairableCards,
         latestPlanId: this.readLatestDomainSyncRepairPlanId(),
+      },
+    };
+    this.lastDomainSyncStatusSnapshot = snapshot;
+    return snapshot;
+  }
+
+  private cloneDomainSyncStatusSnapshot(
+    snapshot: BackendDomainSyncStatusResult,
+    checkedAt: number,
+  ): BackendDomainSyncStatusResult {
+    return {
+      ...snapshot,
+      ledger: {
+        ...snapshot.ledger,
+        operationTypes: {
+          ...snapshot.ledger.operationTypes,
+        },
+      },
+      processedSources: {
+        ...snapshot.processedSources,
+        recent: snapshot.processedSources.recent.map((source) => ({ ...source })),
+        skipped: snapshot.processedSources.skipped.map((source) => ({ ...source })),
+      },
+      sanity: {
+        ...snapshot.sanity,
+        checkedAt,
+        reasonCounts: {
+          ...snapshot.sanity.reasonCounts,
+        },
+        affectedCardIds: [...snapshot.sanity.affectedCardIds],
+      },
+      repair: {
+        ...snapshot.repair,
       },
     };
   }
@@ -2241,6 +2295,7 @@ export class WorkerSqliteDatabaseService {
           modifiedAt: appliedAt,
           modifiedBy: 'srs-backend-worker:domain-sync.repair.apply',
         });
+        this.lastDomainSyncStatusSnapshot = null;
       }
 
       const result: BackendDomainSyncRepairApplyResult = {
@@ -2405,6 +2460,7 @@ export class WorkerSqliteDatabaseService {
        WHERE source_id IN (${uniqueIds.map(() => '?').join(', ')})`,
       uniqueIds,
     );
+    this.lastDomainSyncStatusSnapshot = null;
   }
 
   private forgetStaleUnknownSkippedDomainSyncConflictSources(activeSourceIds: string[]): number {
@@ -2429,6 +2485,7 @@ export class WorkerSqliteDatabaseService {
       conflictSources.map((source) => source.sourceId),
     );
     if (forgotten > 0) {
+      this.lastDomainSyncStatusSnapshot = null;
       await this.runtime.persist();
       await this.rememberPersistedHash();
     }

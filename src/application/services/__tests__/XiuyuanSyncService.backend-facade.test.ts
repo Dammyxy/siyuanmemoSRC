@@ -207,4 +207,31 @@ describe('XiuyuanSyncService backend command facade', () => {
     await expect(service.fullSync()).rejects.toThrow('BACKEND_UNAVAILABLE: worker stopped');
     expect(repository.applySyncChangeSet).not.toHaveBeenCalled();
   });
+
+  it('does not block plugin startup when due backend full sync has not completed', async () => {
+    const repository = createRepository();
+    let rejectSync: (error: Error) => void = () => undefined;
+    const executeXiuyuanSync = vi.fn(() => new Promise((_resolve, reject) => {
+      rejectSync = reject;
+    }));
+    const service = createService({ executeXiuyuanSync, repository });
+
+    const startup = service.start().then(() => 'started');
+    const result = await Promise.race([
+      startup,
+      new Promise((resolve) => {
+        setTimeout(() => resolve('blocked'), 50);
+      }),
+    ]);
+
+    expect(result).toBe('started');
+    await vi.waitFor(() => expect(executeXiuyuanSync).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'full',
+      dryRun: false,
+    })));
+    rejectSync(new Error('BACKEND_UNAVAILABLE: backend worker request timed out after 30000ms'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(repository.applySyncChangeSet).not.toHaveBeenCalled();
+  });
 });

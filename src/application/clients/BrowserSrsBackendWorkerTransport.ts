@@ -20,6 +20,7 @@ import type {
 } from '../../../packages/contracts/src/backend-rpc';
 import type {
   BackendWorkerHostEffect,
+  BackendWorkerInnerStepTiming,
   BackendWorkerMainToWorkerMessage,
   BackendWorkerResponseTiming,
   BackendWorkerToMainMessage,
@@ -28,6 +29,10 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('BrowserSrsBackendWorkerTransport');
 const REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS = 120;
+const LONG_BACKEND_COMMAND_REQUEST_TIMEOUT_MS = 300_000;
+const LONG_BACKEND_COMMAND_METHODS = new Set<string>([
+  'xiuyuan.sync.execute',
+]);
 const REVIEW_FEEDBACK_WORKER_HANDLE_TOP_INNER_STEP_COUNT = 5;
 
 export interface BrowserSrsBackendWorkerHostEffects {
@@ -207,6 +212,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     const requestId = `req-${++this.requestSeq}`;
     const queuedAt = Date.now();
     const cardId = this.extractReviewFeedbackCardId(request);
+    const requestTimeoutMs = this.resolveRequestTimeoutMs(request);
     const pending = new Promise<BackendRpcResponse>((resolve, reject) => {
       const generation = this.generation;
       const timer = setTimeout(() => {
@@ -216,10 +222,10 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         }
         this.pendingRequests.delete(requestId);
         this.requestTimeouts += 1;
-        const error = unavailable(`backend worker request timed out after ${this.requestTimeoutMs}ms`);
+        const error = unavailable(`backend worker request timed out after ${requestTimeoutMs}ms`);
         current.reject(error);
         this.markWorkerUnhealthy(error, generation, { terminate: true });
-      }, this.requestTimeoutMs);
+      }, requestTimeoutMs);
       this.pendingRequests.set(requestId, {
         resolve,
         reject,
@@ -541,6 +547,10 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     innerStepTotalMs: number;
     slowestInnerStep: Record<string, unknown> | null;
     topInnerSteps: Array<Record<string, unknown>>;
+    topInnerStepSummary: string[];
+    dominantInnerStepSummary: string | null;
+    preRequestMergeSummary: string | null;
+    mainDbReadSummary: string | null;
     unattributedMs: number;
   } {
     const innerSteps = Array.isArray(timing.innerSteps) ? timing.innerSteps : [];
@@ -556,14 +566,112 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         queueType: innerStep.queueType ?? null,
         ...(innerStep.extra ?? {}),
       }));
+    const preRequestMerge = innerSteps.find((innerStep) => (
+      innerStep.layer === 'kernel' && innerStep.step === 'pre-request-merge'
+    )) ?? null;
+    const mainDbRead = innerSteps.find((innerStep) => (
+      innerStep.layer === 'database' && innerStep.step === 'merge.read-main-db'
+    )) ?? null;
     const innerStepTotalMs = innerSteps.reduce((total, innerStep) => total + innerStep.durationMs, 0);
+    const topInnerStepSummary = topInnerSteps.map((innerStep) => (
+      this.formatReviewFeedbackInnerStepSummary(innerStep)
+    ));
     return {
       innerStepCount: innerSteps.length,
       innerStepTotalMs,
       slowestInnerStep: topInnerSteps[0] ?? null,
       topInnerSteps,
+      topInnerStepSummary,
+      dominantInnerStepSummary: topInnerStepSummary[0] ?? null,
+      preRequestMergeSummary: preRequestMerge
+        ? this.formatReviewFeedbackInnerStepSummary({
+          ...preRequestMerge,
+          ...(preRequestMerge.extra ?? {}),
+        })
+        : null,
+      mainDbReadSummary: mainDbRead
+        ? this.formatReviewFeedbackInnerStepSummary({
+          ...mainDbRead,
+          ...(mainDbRead.extra ?? {}),
+        })
+        : null,
       unattributedMs: Math.max(0, timing.handleDurationMs - innerStepTotalMs - timing.hostEffectTotalMs),
     };
+  }
+
+  private formatReviewFeedbackInnerStepSummary(
+    innerStep: BackendWorkerInnerStepTiming | Record<string, unknown>,
+  ): string {
+    const layer = String((innerStep as { layer?: unknown }).layer || 'unknown');
+    const step = String((innerStep as { step?: unknown }).step || 'unknown');
+    const durationMs = Math.max(0, Math.round(Number((innerStep as { durationMs?: unknown }).durationMs) || 0));
+    let summary = `${layer}:${step} ${durationMs}ms`;
+    if (layer === 'kernel' && step === 'pre-request-merge') {
+      const mainDbReadSkipped = String((innerStep as { mainDbReadSkipped?: unknown }).mainDbReadSkipped);
+      const mainDbReadSkipReason = String((innerStep as { mainDbReadSkipReason?: unknown }).mainDbReadSkipReason ?? 'none');
+      const changed = String((innerStep as { changed?: unknown }).changed);
+      const sourceCount = String((innerStep as { sourceCount?: unknown }).sourceCount ?? 'unknown');
+      const conflictSourceCount = String((innerStep as { conflictSourceCount?: unknown }).conflictSourceCount ?? 'unknown');
+      const nonEmptyConflictSourceCount = String(
+        (innerStep as { nonEmptyConflictSourceCount?: unknown }).nonEmptyConflictSourceCount ?? 'unknown',
+      );
+      const sanityStatus = String((innerStep as { sanityStatus?: unknown }).sanityStatus ?? 'unknown');
+      summary += ` skipped=${mainDbReadSkipped}`
+        + ` reason=${mainDbReadSkipReason}`
+        + ` changed=${changed}`
+        + ` sources=${sourceCount}`
+        + ` conflicts=${nonEmptyConflictSourceCount}/${conflictSourceCount}`
+        + ` sanity=${sanityStatus}`;
+    }
+    return summary;
+  }
+
+  private buildReviewFeedbackWorkerHandleCopySummary(input: {
+    pending: PendingBackendRequest;
+    timing: BackendWorkerResponseTiming;
+    innerStepSummary: ReturnType<BrowserSrsBackendWorkerTransport['summarizeReviewFeedbackInnerSteps']>;
+  }): string {
+    const host = input.timing.slowestHostEffect
+      ? `${input.timing.slowestHostEffect.kind} ${Math.round(input.timing.slowestHostEffect.durationMs)}ms`
+      : 'none';
+    const top = input.innerStepSummary.topInnerStepSummary.slice(0, 3).join(' | ') || 'none';
+    return [
+      `card=${input.pending.cardId ?? 'unknown'}`,
+      `duration=${Math.round(input.timing.handleDurationMs)}ms`,
+      `dominant=${input.innerStepSummary.dominantInnerStepSummary ?? 'none'}`,
+      `preMerge=${input.innerStepSummary.preRequestMergeSummary ?? 'none'}`,
+      `mainDb=${input.innerStepSummary.mainDbReadSummary ?? 'none'}`,
+      `host=${host}`,
+      `hostTotal=${Math.round(input.timing.hostEffectTotalMs)}ms`,
+      `innerAttribution=${input.timing.innerStepAttribution}`,
+      `top=${top}`,
+    ].join(' ');
+  }
+
+  private logReviewFeedbackWorkerHandleCopySummary(
+    pending: PendingBackendRequest,
+    timing: BackendWorkerResponseTiming,
+    innerStepSummary: ReturnType<BrowserSrsBackendWorkerTransport['summarizeReviewFeedbackInnerSteps']>,
+  ): void {
+    if (timing.handleDurationMs < REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS) {
+      return;
+    }
+    const copySummary = this.buildReviewFeedbackWorkerHandleCopySummary({
+      pending,
+      timing,
+      innerStepSummary,
+    });
+    logger.info(
+      `[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback worker-handle summary ${copySummary}`,
+      {
+        step: 'worker-handle-summary',
+        cardId: pending.cardId,
+        durationMs: timing.handleDurationMs,
+        generation: this.generation,
+        health: this.health,
+        copySummary,
+      },
+    );
   }
 
   private logReviewFeedbackWorkerTiming(
@@ -610,6 +718,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         ...innerStepSummary,
       },
     );
+    this.logReviewFeedbackWorkerHandleCopySummary(pending, timing, innerStepSummary);
     for (const innerStep of timing.innerSteps) {
       this.logReviewFeedbackTransportStepIfSlow(
         'worker-inner-step',
@@ -774,6 +883,14 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
 
   private get requestTimeoutMs(): number {
     return Math.max(1, Math.floor(Number(this.options.requestTimeoutMs ?? 30_000)));
+  }
+
+  private resolveRequestTimeoutMs(request: BackendRpcRequest): number {
+    const baseTimeoutMs = this.requestTimeoutMs;
+    if (!LONG_BACKEND_COMMAND_METHODS.has(request.method)) {
+      return baseTimeoutMs;
+    }
+    return Math.max(baseTimeoutMs, LONG_BACKEND_COMMAND_REQUEST_TIMEOUT_MS);
   }
 
   private get probeTimeoutMs(): number {

@@ -7331,6 +7331,98 @@ describe('BackendKernel', () => {
     expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsAfterStatus);
   });
 
+  it('reads sync conflict sources only once for a no-source review feedback preflight merge', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const readSyncConflictDatabaseSources = vi.fn(async () => []);
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readSyncConflictDatabaseSources,
+    });
+
+    const merge = await database.mergeExternalDatabaseIfChanged(1_779_188_006_000, {
+      context: 'review-feedback-preflight',
+      cardId: 'card-review-single-conflict-source-read',
+    });
+
+    expect(merge).toMatchObject({
+      changed: false,
+      sourceIds: [],
+      conflictSourceCount: 0,
+      nonEmptyConflictSourceCount: 0,
+    });
+    expect(readSyncConflictDatabaseSources).toHaveBeenCalledOnce();
+  });
+
+  it('reuses the cached domain sync safety status for no-source review feedback preflight', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readSyncConflictDatabaseSources: vi.fn(async () => []),
+    });
+    const status = await database.getDomainSyncStatus(1_779_188_006_100);
+    const audit = vi.spyOn(database, 'auditReviewSyncDivergence');
+
+    const merge = await database.mergeExternalDatabaseIfChanged(1_779_188_006_200, {
+      context: 'review-feedback-preflight',
+      cardId: 'card-review-cached-domain-status',
+    });
+
+    expect(merge).toMatchObject({
+      changed: false,
+      sourceIds: [],
+      sanityStatus: status.sanity.status,
+    });
+    expect(audit).not.toHaveBeenCalled();
+  });
+
+  it('keeps review feedback main DB read fast path across clean read-only backend queries', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readBinary,
+      readSyncConflictDatabaseSources: vi.fn(async () => []),
+    });
+    const reviewedAt = 1_779_188_006_500;
+    await database.upsertCards([
+      buildCard({ id: 'card-review-fast-read-only-a', due: reviewedAt - 10_000 }),
+      buildCard({ id: 'card-review-fast-read-only-b', due: reviewedAt - 10_000 }),
+    ]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const first = await kernel.handle({
+      id: 'review-feedback-fast-read-only-a',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-read-only-a', rating: 3, reviewedAt, queueType: 'retrieval-practice' }],
+    });
+    expect('result' in first).toBe(true);
+
+    const count = await kernel.handle({
+      id: 'browser-count-preserves-review-fast-path',
+      jsonrpc: '2.0',
+      method: 'browser.count',
+      params: [{ query: {} }],
+    });
+    expect('result' in count).toBe(true);
+    const mainDbReadsAfterCount = readBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+
+    const second = await kernel.handle({
+      id: 'review-feedback-fast-read-only-b',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-read-only-b', rating: 3, reviewedAt: reviewedAt + 1_000, queueType: 'retrieval-practice' }],
+    });
+
+    expect('result' in second).toBe(true);
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsAfterCount);
+  });
+
   it('keeps persisted main DB reads when review feedback preflight sees conflict sources', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
@@ -7381,7 +7473,7 @@ describe('BackendKernel', () => {
       .toBeGreaterThan(mainDbReadsAfterFirst);
   });
 
-  it('invalidates review feedback main DB read fast path after a non-review backend command', async () => {
+  it('invalidates review feedback main DB read fast path after a non-review mutating backend command', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
     const database = new WorkerSqliteDatabaseService({
@@ -7407,14 +7499,14 @@ describe('BackendKernel', () => {
     });
     expect('result' in first).toBe(true);
 
-    const count = await kernel.handle({
-      id: 'browser-count-invalidates-review-fast-path',
+    const update = await kernel.handle({
+      id: 'source-existence-update-invalidates-review-fast-path',
       jsonrpc: '2.0',
-      method: 'browser.count',
-      params: [{ query: {} }],
+      method: 'browser.sourceExistence.update',
+      params: [{ updates: [{ blockId: 'block-review-fast-invalidate', exists: false }], checkedAt: reviewedAt + 500 }],
     });
-    expect('result' in count).toBe(true);
-    const mainDbReadsAfterCount = readBinary.mock.calls
+    expect('result' in update).toBe(true);
+    const mainDbReadsAfterUpdate = readBinary.mock.calls
       .filter(([path]) => path === 'siyuanmemo.db')
       .length;
 
@@ -7427,7 +7519,7 @@ describe('BackendKernel', () => {
 
     expect('result' in second).toBe(true);
     expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length)
-      .toBeGreaterThan(mainDbReadsAfterCount);
+      .toBeGreaterThan(mainDbReadsAfterUpdate);
   });
 
   it('reports the backend method that invalidated review feedback main DB read fast path', async () => {
@@ -7454,13 +7546,13 @@ describe('BackendKernel', () => {
     });
     expect('result' in first).toBe(true);
 
-    const count = await kernel.handle({
-      id: 'browser-count-invalidates-review-fast-reason',
+    const update = await kernel.handle({
+      id: 'source-existence-update-invalidates-review-fast-reason',
       jsonrpc: '2.0',
-      method: 'browser.count',
-      params: [{ query: {} }],
+      method: 'browser.sourceExistence.update',
+      params: [{ updates: [{ blockId: 'block-review-fast-reason', exists: false }], checkedAt: reviewedAt + 500 }],
     });
-    expect('result' in count).toBe(true);
+    expect('result' in update).toBe(true);
 
     const merge = await database.mergeExternalDatabaseIfChanged(reviewedAt + 2_000, {
       context: 'review-feedback-preflight',
@@ -7469,7 +7561,7 @@ describe('BackendKernel', () => {
 
     expect(merge).toMatchObject({
       mainDbReadSkipped: false,
-      mainDbReadSkipReason: 'fast-skip-not-eligible:backend-method:browser.count',
+      mainDbReadSkipReason: 'fast-skip-not-eligible:backend-method:browser.sourceExistence.update',
       sourceIds: [],
     });
   });

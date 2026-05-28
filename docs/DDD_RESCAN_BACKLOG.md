@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-28 (Round 485)
+Last update: 2026-05-28 (Round 488)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-28 - Nonblocking Startup Xiuyuan Full Sync
+
+- Task: Fix plugin initialization failure where startup Xiuyuan full sync hit `BACKEND_UNAVAILABLE: backend worker request timed out after 30000ms`, causing `Plugin initialization failed` and deferred Review tab bootstrap failure.
+- Touched slice: Startup Xiuyuan sync and backend worker transport; `XiuyuanSyncService`, `BrowserSrsBackendWorkerTransport`, focused Xiuyuan backend facade and transport tests.
+- Debt fixed now: `XiuyuanSyncService.start()` no longer awaits due startup full/incremental sync. It still runs legacy migration first, then schedules startup sync as a background backend command and logs explicit failure without falling back to local apply. Long Xiuyuan backend sync commands now use a 300s worker request timeout instead of the generic 30s timeout, so large Riff/full-sync runs are not killed by the short interactive RPC budget.
+- Debt deferred: Startup sync failure is still visible only as logs/events, not as a persistent UI status badge. The backend sync command remains synchronous inside the worker once started; this slice does not convert full sync into a resumable job.
+- Why deferred: User-facing failure was plugin init being coupled to a long sync command. A resumable/progress UI job contract is a larger Xiuyuan sync product surface change.
+- Next safe step: Reload the rebuilt plugin. If startup still logs a backend timeout, send the new timeout value in the error; `300000ms` means the worker sync itself is still hanging and needs Xiuyuan planner/read/apply timing logs.
+- Validation: `pnpm vitest run src/application/services/__tests__/XiuyuanSyncService.backend-facade.test.ts`; `pnpm vitest run src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts`; `pnpm vitest run worker/__tests__/BackendKernel.xiuyuan-sync.test.ts`.
+
+### 2026-05-28 - Review Feedback Read-Only Preflight Preservation
+
+- Task: Optimize the next Review grading slowdown after live logs showed `worker-handle` 1613ms, `slowestHostEffect: sqlite.readBinary 827ms`, repeated inner `worker-inner-step` rows, and collapsed `topInnerSteps` that hid the pre-request merge reason.
+- Touched slice: Review backend worker pre-request merge and transport diagnostics; `BackendKernel`, `WorkerSqliteDatabaseService`, `BrowserSrsBackendWorkerTransport`, focused backend/transport tests.
+- Debt fixed now: Clean read-only backend queries such as browser/deck reads, browser count/stats, source-existence reads, queue projection snapshot/rows, neural-roam view state, AI session get, and job get now run storage refresh in `read-only-preflight` mode, preserving the Review feedback main DB fast-skip when the refresh sees no external change. No-source review preflight merge now reuses the conflict source list it already read instead of calling domain-sync status through a second host conflict-source read. When the Review action safety gate has just read `domainSync.status`, the no-source Review preflight reuses that in-memory status snapshot instead of rerunning the divergence scan; the snapshot is dropped after committed feedback, reload, repair apply, or processed-source cleanup. Slow `worker-handle` logs now include flat string summaries in the log message itself, so pasted console text exposes `preMerge=...`, `mainDb=...`, skip reason, host total, and the top inner steps without expanding nested objects.
+- Debt deferred: The public `domainSync.status` safety check still runs before every Review action, and no TTL/fingerprint cache was added for that safety gate itself. Real external DB changes, non-empty conflict sources, and mutating backend commands still force the persisted main DB read path.
+- Why deferred: The live evidence showed a repeated preflight diagnosis after the safety gate and unreadable timing output. Skipping the safety gate itself would be a larger safety contract change because it is the user-facing Review action gate for cross-device divergence.
+- Next safe step: Reload the rebuilt plugin and grade two or three cards. If a rating is still slow, paste the new `slow review.feedback worker-handle summary ...` line; it should show whether the remaining cost is safety diagnostics, main DB read, transaction/write, or domain-sync scan.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "sync conflict sources only once|cached domain sync safety status|clean read-only backend queries|mutating backend command|backend method that invalidated"`; `pnpm vitest run src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts -t "pre-request merge and main DB read summaries|worker-returned review feedback timing"`; `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "main DB read|fast path|domain sync status|cached domain sync safety status|sync conflict reload|pre-request merge|persisted main DB|sync conflict|read-only backend queries|sync conflict sources only once|backend method that invalidated"`; `pnpm vitest run src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts`.
 
 ### 2026-05-28 - Domain Sync Repair Full Scheduling Persistence
 
