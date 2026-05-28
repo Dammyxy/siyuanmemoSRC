@@ -224,6 +224,13 @@ describe('browser SQL profile diagnostic', () => {
             'sourceCandidateUpdate',
         ]);
         expect(result.scenarios[1]?.sections.browser.pass).toBe(true);
+        expect(result.scenarios[1]?.sections.browserReadModel.timings.map((timing) => timing.metric)).toEqual([
+            'browserReadModelSnapshot',
+            'browserReadModelMatchedIds',
+            'browserReadModelPageHydration',
+            'browserReadModelRowsByIds',
+            'browserReadModelActionTargets',
+        ]);
         expect(result.scenarios[1]?.sections.queueProjection.timings.map((timing) => timing.metric)).toEqual([
             'queueCounters',
             'queueSnapshot',
@@ -235,6 +242,13 @@ describe('browser SQL profile diagnostic', () => {
         expect(result.scenarios[1]?.sections.xiuyuan.timings.map((timing) => timing.metric)).toEqual([
             'xiuyuanFindById',
             'xiuyuanFindByBlockId',
+        ]);
+        expect(result.scenarios[1]?.sections.browserReadModel.queryPlans.map((plan) => plan.name)).toEqual([
+            'browser-read-model-snapshot',
+            'browser-read-model-matched-ids',
+            'browser-read-model-page-hydration',
+            'browser-read-model-rows-by-ids',
+            'browser-read-model-action-targets',
         ]);
         expect(result.scenarios[1]?.sections.queueProjection.queryPlans.length).toBeGreaterThan(0);
         expect(result.scenarios[1]?.sections.xiuyuan.queryPlans.length).toBeGreaterThan(0);

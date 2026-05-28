@@ -40,6 +40,7 @@ import { createLogger } from '@/utils/logger';
 import { BrowserQuerySession } from './session/BrowserQuerySession';
 import { resolveBrowserCardStableId } from '../utils/browserCardIdentity';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
+import { toBrowserReadModelLiteIdentity } from '@/application/queries/browser/browser-read-model';
 
 const logger = createLogger('BlockIdsDataSource');
 
@@ -288,16 +289,13 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
           const id = resolveBrowserCardStableId(row as BrowserCard);
           this.liteRowBlockIdById.set(id, row.blockId);
           return {
-            id,
-            blockId: row.blockId,
-            fsrsCardId: row.fsrsCardId ? String(row.fsrsCardId) : undefined,
-            actionTarget: {
-              id: String(row.id || ''),
+            ...toBrowserReadModelLiteIdentity({
+              id: row.id,
               blockId: row.blockId,
               fsrsCardId: row.fsrsCardId ? String(row.fsrsCardId) : undefined,
               cardType: row.cardType,
-              priority: typeof row.priority === 'number' ? row.priority : undefined,
-            },
+              priority: row.priority,
+            }),
           };
         });
       },

@@ -296,14 +296,22 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         recoverable: false,
       };
     }
-    try {
-      this.unifiedDataSourceManager.getQueue(queueType);
+    if (typeof this.unifiedDataSourceManager.ensureQueueProjectionReady !== 'function') {
       return {
-        status: 'ready',
+        status: 'unavailable',
         queueId: queueType,
         policyId: 'browser-queue-read-model',
-        generation: 1,
+        cause: 'backend_unavailable',
+        reason: `Browser queue read model readiness is unavailable for ${queueType}`,
+        recoverable: true,
+        retryAfterMs: 300,
       };
+    }
+    try {
+      return await this.unifiedDataSourceManager.ensureQueueProjectionReady({
+        ...request,
+        queueType,
+      });
     } catch (error) {
       return {
         status: 'unavailable',
@@ -904,6 +912,9 @@ export class BrowserApplicationService implements IBrowserApplicationService {
             });
             return cached.value;
           }
+          if (!forceRefresh) {
+            throw error;
+          }
           return this.readQueueVisibleCount(manager.getQueue(queueType), queueId, true)
             .then((value) => {
               const normalized = Math.max(0, Number(value) || 0);
@@ -957,10 +968,23 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     const entries = await Promise.all(
-      affectedQueueIds.map(async (queueId) => [
-        queueId,
-        await this.readSingleQueueCount(manager, queueId, Boolean(request.forceRefresh)),
-      ] as const),
+      affectedQueueIds.map(async (queueId) => {
+        try {
+          return [
+            queueId,
+            await this.readSingleQueueCount(manager, queueId, Boolean(request.forceRefresh)),
+          ] as const;
+        } catch (error) {
+          if (this.isTransientQueueCountUnavailableError(error)) {
+            logger.info('QUEUE_COUNT_UNAVAILABLE: passive queue count unavailable; keeping empty count until projection is readable', {
+              queueId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return [queueId, null] as const;
+          }
+          throw error;
+        }
+      }),
     );
 
     const counts = { ...EMPTY_QUEUE_COUNTS };
@@ -968,7 +992,9 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       counts[queueId] = value.value;
     }
     for (const [queueId, value] of entries) {
-      counts[queueId] = value;
+      if (value != null) {
+        counts[queueId] = value;
+      }
     }
 
     return counts;

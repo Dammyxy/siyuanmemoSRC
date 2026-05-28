@@ -3,7 +3,11 @@ import type { BrowserActionTarget } from '@/application/interfaces/ICardDataSour
 import { LRUCache } from '@/utils/queryCache';
 import { createLogger } from '@/utils/logger';
 import { PerformanceMonitor } from '@/utils/performance';
-import { resolveBrowserCardStableId } from '../../utils/browserCardIdentity';
+import {
+  normalizeBrowserReadModelRowId,
+  toBrowserCardReadModelSource,
+  toBrowserReadModelLiteIdentity,
+} from '@/application/queries/browser/browser-read-model';
 
 const logger = createLogger('BrowserQuerySession');
 
@@ -38,7 +42,7 @@ function normalizeBoundary(value: number | undefined, fallback: number): number 
 }
 
 function resolveSessionIdFromCard(card: BrowserCard): string {
-  return resolveBrowserCardStableId(card);
+  return normalizeBrowserReadModelRowId(card);
 }
 
 function toUniqueIds(ids: string[]): string[] {
@@ -46,18 +50,8 @@ function toUniqueIds(ids: string[]): string[] {
 }
 
 export function toLiteRowFromBrowserCard(card: BrowserCard): LiteRow {
-  const id = resolveSessionIdFromCard(card);
   return {
-    id,
-    blockId: String(card.blockId || ''),
-    fsrsCardId: String(card.fsrsCardId || ''),
-    actionTarget: {
-      id: String(card.id || ''),
-      blockId: String(card.blockId || ''),
-      fsrsCardId: String(card.fsrsCardId || '') || undefined,
-      cardType: card.cardType,
-      priority: typeof card.priority === 'number' ? card.priority : undefined,
-    },
+    ...toBrowserReadModelLiteIdentity(toBrowserCardReadModelSource(card)),
     rowSnapshot: card,
   };
 }

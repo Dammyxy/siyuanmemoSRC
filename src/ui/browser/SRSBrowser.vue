@@ -3415,7 +3415,7 @@ const cardTypeDetection = useCardTypeDetection(() => rows.value, {
 });
 
 
-async function refreshQueueCounts(request: BrowserQueueCountsRequest = { forceRefresh: true }) {
+async function refreshQueueCounts(request: BrowserQueueCountsRequest = {}) {
   await refreshQueueCountsBridge(queueCounts, request);
 }
 

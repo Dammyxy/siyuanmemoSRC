@@ -30,6 +30,11 @@ const BUDGETS_MS = {
     matchedIds: 300,
     likeSearch: 300,
     sourceCandidateUpdate: 500,
+    browserReadModelSnapshot: 150,
+    browserReadModelMatchedIds: 300,
+    browserReadModelPageHydration: 300,
+    browserReadModelRowsByIds: 300,
+    browserReadModelActionTargets: 150,
     queueSnapshot: 150,
     queueRowsByIds: 300,
     queueCounters: 50,
@@ -79,6 +84,7 @@ interface BrowserSqlProfileScenario {
     timings: TimingSummary[];
     sections: {
         browser: RuntimeSqlProfileSection;
+        browserReadModel: RuntimeSqlProfileSection;
         queueProjection: RuntimeSqlProfileSection;
         reviewFeedback: RuntimeSqlProfileSection;
         xiuyuan: RuntimeSqlProfileSection;
@@ -218,12 +224,14 @@ function profileScenario(
             ],
             pass: browserTimings.every((timing) => timing.pass),
         };
+        const browserReadModelSection = profileBrowserReadModel(database, options);
         const queueProjectionSection = profileQueueProjection(database, options);
         const reviewFeedbackSection = profileReviewFeedback(database, options);
         const xiuyuanSection = profileXiuyuan(database, options);
         const sourceSummaryAfterSimulation = getSourceExistenceSummary(database, staleBefore);
         const sections = {
             browser: browserSection,
+            browserReadModel: browserReadModelSection,
             queueProjection: queueProjectionSection,
             reviewFeedback: reviewFeedbackSection,
             xiuyuan: xiuyuanSection,
@@ -333,6 +341,54 @@ function queryLikeSearch(database: Database): void {
     );
 }
 
+function getBrowserReadModelSampleIds(database: Database, pageSize: number): string[] {
+    return getAll(database, browserReadModelPageHydrationSql(), [Math.max(1, pageSize), 0])
+        .map((row) => String(row.id || ''))
+        .filter(Boolean);
+}
+
+function queryBrowserReadModelSnapshot(database: Database, pageSize: number): void {
+    getOne(database, `SELECT COUNT(*) AS count FROM cards WHERE ${ACTIVE_SOURCE_STATUS_SQL}`);
+    getAll(database, browserReadModelSnapshotSql(), [Math.max(1, pageSize), 0]);
+}
+
+function queryBrowserReadModelMatchedIds(database: Database): void {
+    getAll(database, browserReadModelMatchedIdsSql());
+}
+
+function queryBrowserReadModelPageHydration(database: Database, pageSize: number): void {
+    const ids = getBrowserReadModelSampleIds(database, pageSize);
+    queryBrowserReadModelRowsByIds(database, ids);
+}
+
+function queryBrowserReadModelRowsByIds(database: Database, ids: string[]): void {
+    if (ids.length === 0) {
+        return;
+    }
+    const rows = getAll(database, browserReadModelRowsByIdsSql(ids.length), ids);
+    const byId = new Map<string, SqlRow>();
+    for (const row of rows) {
+        const id = String(row.id || '');
+        if (id) {
+            byId.set(id, row);
+        }
+    }
+    const orderedRows = ids.map((id) => byId.get(id)).filter((row): row is SqlRow => Boolean(row));
+    for (const row of orderedRows) {
+        if (typeof row.payload_json === 'string') {
+            JSON.parse(row.payload_json);
+        }
+    }
+    loadAlgorithmStateRows(database, ids);
+}
+
+function queryBrowserReadModelActionTargets(database: Database, ids: string[]): void {
+    if (ids.length === 0) {
+        return;
+    }
+    getAll(database, browserReadModelActionTargetsSql(ids.length), ids);
+}
+
 function getSourceExistenceSummary(database: Database, staleBefore: number): SourceSummary {
     const row = getOne(database,
         `SELECT
@@ -395,6 +451,46 @@ function applyRuntimeProfileSchemaRepair(database: Database): void {
         `CREATE INDEX IF NOT EXISTS idx_review_events_commit_idempotency
          ON review_events(commit_idempotency_key)`,
     );
+}
+
+function profileBrowserReadModel(
+    database: Database,
+    options: { runs: number; warmupRuns: number; pageSize: number },
+): RuntimeSqlProfileSection {
+    const rowCount = countCards(database);
+    const sampleIds = getBrowserReadModelSampleIds(database, options.pageSize);
+    const timings: TimingSummary[] = [
+        measureMetric('browserReadModelSnapshot', options, () => {
+            queryBrowserReadModelSnapshot(database, options.pageSize);
+        }),
+        measureMetric('browserReadModelMatchedIds', options, () => {
+            queryBrowserReadModelMatchedIds(database);
+        }),
+        measureMetric('browserReadModelPageHydration', options, () => {
+            queryBrowserReadModelPageHydration(database, options.pageSize);
+        }),
+        measureMetric('browserReadModelRowsByIds', options, () => {
+            queryBrowserReadModelRowsByIds(database, sampleIds);
+        }),
+        measureMetric('browserReadModelActionTargets', options, () => {
+            queryBrowserReadModelActionTargets(database, sampleIds);
+        }),
+    ];
+    const rowsByIdsSql = browserReadModelRowsByIdsSql(Math.max(1, sampleIds.length));
+    const actionTargetsSql = browserReadModelActionTargetsSql(Math.max(1, sampleIds.length));
+    const planIds = sampleIds.length > 0 ? sampleIds : [''];
+    return {
+        rowCount,
+        timings,
+        queryPlans: [
+            explainQuery(database, 'browser-read-model-snapshot', browserReadModelSnapshotSql(), [options.pageSize, 0]),
+            explainQuery(database, 'browser-read-model-matched-ids', browserReadModelMatchedIdsSql()),
+            explainQuery(database, 'browser-read-model-page-hydration', browserReadModelPageHydrationSql(), [options.pageSize, 0]),
+            explainQuery(database, 'browser-read-model-rows-by-ids', rowsByIdsSql, planIds),
+            explainQuery(database, 'browser-read-model-action-targets', actionTargetsSql, planIds),
+        ],
+        pass: timings.every((timing) => timing.pass),
+    };
 }
 
 function profileQueueProjection(
@@ -733,6 +829,43 @@ function tableExists(database: Database, tableName: string): boolean {
 
 function tableColumnExists(database: Database, tableName: string, columnName: string): boolean {
     return tableColumns(database, tableName).includes(columnName);
+}
+
+function browserReadModelSnapshotSql(): string {
+    return `SELECT id, block_id, type, priority
+            FROM cards
+            WHERE ${ACTIVE_SOURCE_STATUS_SQL}
+            ORDER BY due ASC, priority ASC, id ASC
+            LIMIT ? OFFSET ?`;
+}
+
+function browserReadModelMatchedIdsSql(): string {
+    return `SELECT id
+            FROM cards
+            WHERE ${ACTIVE_SOURCE_STATUS_SQL}
+            ORDER BY due ASC, priority ASC, id ASC`;
+}
+
+function browserReadModelPageHydrationSql(): string {
+    return `SELECT id
+            FROM cards
+            WHERE ${ACTIVE_SOURCE_STATUS_SQL}
+            ORDER BY due ASC, priority ASC, id ASC
+            LIMIT ? OFFSET ?`;
+}
+
+function browserReadModelRowsByIdsSql(count: number): string {
+    const placeholders = Array.from({ length: Math.max(1, count) }, () => '?').join(', ');
+    return `SELECT id, block_id, type, priority, payload_json
+            FROM cards
+            WHERE id IN (${placeholders})`;
+}
+
+function browserReadModelActionTargetsSql(count: number): string {
+    const placeholders = Array.from({ length: Math.max(1, count) }, () => '?').join(', ');
+    return `SELECT id, block_id, type, priority
+            FROM cards
+            WHERE id IN (${placeholders})`;
 }
 
 function queueSnapshotSql(): string {

@@ -1,8 +1,38 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-28 (Round 488)
+Last update: 2026-05-28 (Round 491)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-28 - Browser Queue Readiness Gate Repair
+
+- Task: Fix the post-optimization Browser queue regression where queue selection logged Browser read-model `ready` while the underlying queue projection snapshot was still `invalidated`, causing repeated grid `QUEUE_PROJECTION_NOT_READY` failures.
+- Touched slice: Browser application read-model gate and focused tests; `BrowserApplicationService.ensureQueueReadModelReady`, `BrowserApplicationService.queue-query.test`, `ARCHITECTURE.md`.
+- Debt fixed now: Browser queue read-model readiness no longer returns a synthetic `ready/generation:1` after only checking queue existence. It now delegates to `UnifiedDataSourceManager.ensureQueueProjectionReady()` and propagates `ready / refreshing / unavailable`, so `BrowserQueueViewModule` can keep loading and retry instead of attaching a queue datasource against an invalidated projection.
+- Debt deferred: Queue count passive refresh still logs transient unavailable info when projection is not ready, and all-card hierarchy/allRows background snapshot cost remains a separate performance surface.
+- Why deferred: Count logging is harmless once queue attach is gated by real readiness. All-card hierarchy snapshot optimization needs runtime timing evidence from `browser.snapshot.*` / `backend.aggregate-*` spans, not queue-readiness logs.
+- Next safe step: Rebuild/reload and reopen Browser. On queue selection, readiness should log `refreshing` until projection becomes readable; if all-card open remains slow, capture runtime performance spans for aggregate snapshot/page, first rows, source-existence, and allRows/focus snapshot.
+- Validation: `pnpm vitest run src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts --reporter=dot`; `pnpm vitest run src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts --reporter=dot`.
+
+### 2026-05-28 - Passive Browser Queue Count Refresh
+
+- Task: Diagnose and optimize slow SRS Browser all-card open after `modernize-browser-read-model`, where logs showed invalidated queue projection snapshots with `forceRefresh: true` during Browser open.
+- Touched slice: Browser open/load and queue count reads; `browserLoadDataRuntime`, `SRSBrowser.vue`, `BrowserApplicationService.queue-counts`, focused Browser load/queue-count tests.
+- Debt fixed now: Default Browser open now refreshes queue counts passively with `{ forceRefresh: false }` instead of forcing projection refresh. Passive projection-backed count reads no longer retry as forced materialization when projection is unavailable and no cached count exists; they return a transient zero for that read without caching it, so the next passive read can pick up a ready projection. Explicit force refresh still calls `{ forceRefresh: true }`.
+- Debt deferred: This does not optimize the deck aggregate SQL/query plan itself or add a dedicated backend Browser queue read-model port. It also does not suppress source-existence/background snapshot work beyond preventing queue-count materialization from racing the first deck page.
+- Why deferred: The provided log points to queue projection invalidation/materialization competing during Browser open. SQL/index optimization needs `browserReadModel` or runtime performance timing evidence from a real `siyuanmemo.db`.
+- Next safe step: Reopen SRS Browser on the same dataset and inspect runtime performance spans. If first rows are still slow without forced queue projection logs, compare `backend.aggregate-snapshot`, `backend.aggregate-page`, `*.map-browser-rows`, source-existence refresh, and all-rows snapshot spans.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/ui/browser/__tests__/forceRefreshDataPlan.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts --reporter=dot`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-28 - Browser Read Model Projection Owner
+
+- Task: Execute OpenSpec change `modernize-browser-read-model`: make Browser read paths use an explicit Browser Read Model contract and stop projection-backed queue Browser reads from hydrating stale local queue cards.
+- Touched slice: Browser + Queue read model and runtime SQL profile; `QueueBrowserQueryKernel`, Browser datasource/query-session helpers, queue/deck snapshot result contracts, `browserSqlProfile`, focused Browser/queue/profile tests, `ARCHITECTURE.md`.
+- Debt fixed now: Projection-backed Browser queue snapshots now read ordered identity/count from `getSnapshotRows()` and hydrate requested rows through `getCardsBySnapshotIds()` without calling `queue.getCards()`. Missing projection hydration fails closed. Explicit local queue policy remains visible through read owner metadata. Deck/query/block-ID/queue action-target and lite-row identity normalization now share the Browser Read Model helper. Runtime SQL profile now reports Browser Read Model snapshot, matched-ID, page-hydration, row-by-ID hydration, and action-target lookup surfaces.
+- Debt deferred: A dedicated backend Browser queue read-model table/port for very large queue browsing is still deferred; Browser filter/query helper dedupe remains outside this slice.
+- Why deferred: This change closes the stale projection/local owner drift using the current application/query seam. Backend queue read-model storage and broad parser/helper dedupe would widen the change beyond the OpenSpec acceptance path and need separate parity/profile evidence.
+- Next safe step: If large queue Browser latency remains high after this cutover, profile `browserReadModel` and queue projection sections on a real `siyuanmemo.db`, then add a backend Browser queue read-model port only for the measured bottleneck.
+- Validation: `pnpm vitest run src/ui/browser/datasource/session/__tests__/BrowserQuerySession.test.ts src/ui/browser/datasource/__tests__/DeckDataSource.query-snapshot.test.ts src/ui/browser/datasource/__tests__/QueryDataSource.queryable.test.ts src/ui/browser/datasource/__tests__/BlockIdsDataSource.queryable.test.ts src/ui/browser/datasource/__tests__/QueueSnapshotDataSources.query-snapshot.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts src/diagnostics/__tests__/browserSqlProfile.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `openspec validate modernize-browser-read-model --strict`; `pnpm build`.
 
 ### 2026-05-28 - Review Feedback Kernel Dequeue Fast Path
 

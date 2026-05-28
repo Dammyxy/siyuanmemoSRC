@@ -25,6 +25,7 @@ import {
 import { getRelativePriorityDelta } from '../browserActionFeedback';
 import { BrowserQuerySession } from './session/BrowserQuerySession';
 import { resolveBrowserCardStableId } from '../utils/browserCardIdentity';
+import { toBrowserReadModelLiteIdentity } from '@/application/queries/browser/browser-read-model';
 import {
   addToQueue,
   adjustTime,
@@ -603,16 +604,13 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
           }
           this.liteRowProjectionById.set(id, row);
           return {
-            id,
-            blockId: row.blockId,
-            fsrsCardId: fsrsCardId || undefined,
-            actionTarget: {
-              id: String(row.id || ''),
+            ...toBrowserReadModelLiteIdentity({
+              id: row.id,
               blockId: row.blockId,
-              fsrsCardId: fsrsCardId || undefined,
+              fsrsCardId,
               cardType: row.cardType,
-              priority: typeof row.priority === 'number' ? row.priority : undefined,
-            },
+              priority: row.priority,
+            }),
           };
         });
       },

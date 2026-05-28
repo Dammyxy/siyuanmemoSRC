@@ -3,6 +3,7 @@ import type { CardState } from '@/core/card/domain/services/CardScheduleService'
 import type { FSRSCard } from '@/types/card';
 import type { BrowserCard } from '@/types/browser';
 import type { PresetFilter } from './GetBrowserCardsQuery';
+import type { BrowserReadModelSnapshotMetadata } from './browser-read-model';
 
 export interface BrowserDeckSnapshotQuery {
   preset?: PresetFilter;
@@ -27,6 +28,10 @@ export interface BrowserDeckLiteRow {
 export interface BrowserDeckSnapshotResult {
   rows: BrowserDeckLiteRow[];
   total: number;
+  readOwner?: BrowserReadModelSnapshotMetadata['readOwner'];
+  queryFingerprint?: string;
+  generation?: number | null;
+  diagnostics?: BrowserReadModelSnapshotMetadata['diagnostics'];
 }
 
 export interface BrowserDeckPageRequest {

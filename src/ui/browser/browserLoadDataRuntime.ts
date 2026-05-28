@@ -1,4 +1,7 @@
-import type { IBrowserApplicationService } from '@/application/interfaces/IBrowserApplicationService';
+import type {
+  BrowserQueueCountsRequest,
+  IBrowserApplicationService,
+} from '@/application/interfaces/IBrowserApplicationService';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import type {
   BrowserCardTypeFilter,
@@ -75,7 +78,7 @@ export type BrowserLoadDataRuntimeDeps = {
   randomSortRows: MutableRef<BrowserCard[] | null>;
   rebuildInfiniteDatasource: (forceRefresh?: boolean) => void;
   refreshNeuralSubviewData: () => Promise<void>;
-  refreshQueueCounts: () => Promise<void>;
+  refreshQueueCounts: (request?: BrowserQueueCountsRequest) => Promise<void>;
   resolveActiveSqlStatement: (queryText?: string) => string | null;
   rows: MutableRef<BrowserCard[]>;
   rowsForFocus: MutableRef<BrowserCard[]>;
@@ -364,7 +367,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
           deps.loading.value = false;
         }
         if (shouldRefreshQueueCounts) {
-          void deps.refreshQueueCounts();
+          void deps.refreshQueueCounts({ forceRefresh: false });
         }
       }
 

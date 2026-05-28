@@ -54,6 +54,7 @@ import {
   normalizeBrowserQuerySortModel,
 } from './shared/browserQueryPayload';
 import type { NeuralRoamEntryActionService } from '@/application/services/NeuralRoamEntryActionService';
+import { toBrowserReadModelActionTarget } from '@/application/queries/browser/browser-read-model';
 
 const logger = createLogger('DeckDataSource');
 
@@ -223,13 +224,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   async getActionTargetsByIds(ids: string[]): Promise<BrowserActionTarget[]> {
     if ((this.browserService?.getDeckAggregatePage || this.browserService?.getDeckPage) && this.browserService?.getDeckRowsByIds) {
       const rows = await this.browserService.getDeckRowsByIds(normalizeBrowserQueryIds(ids));
-      return rows.map((row) => ({
-        id: String(row.id || ''),
-        blockId: String(row.blockId || ''),
-        fsrsCardId: String(row.fsrsCardId || '') || undefined,
-        cardType: row.cardType,
-        priority: typeof row.priority === 'number' ? row.priority : undefined,
-      }));
+      return rows.map((row) => toBrowserReadModelActionTarget(row));
     }
     return this.querySession.getActionTargetsByIds(ids, this.buildSessionOptions(this.lastSortModel));
   }

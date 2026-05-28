@@ -154,7 +154,7 @@ implements ICardDataSource, IBrowserQueryableDataSource {
       docId: this.options.docId,
       scopeDocIds: normalizeBrowserQueryScopeDocIds(this.options.scopeDocIds),
       cardType: this.options.cardType,
-      forceRefresh,
+      forceRefresh: forceRefresh || undefined,
       sortModel: normalizeBrowserQuerySortModel(sortModel),
     };
   }

@@ -225,9 +225,9 @@ describe('BrowserApplicationService queue counts', () => {
 
   it('retries a transient projection-backed count read before caching a value', async () => {
     const retrievalQueue = createQueue(11, 11, 11);
-    retrievalQueue.getCards
+    retrievalQueue.getSnapshotRows
       .mockRejectedValueOnce(new Error('QUEUE_PROJECTION_UNAVAILABLE: projection unavailable'))
-      .mockResolvedValueOnce(createQueue(11).getCards());
+      .mockResolvedValueOnce(createQueue(11).getSnapshotRows());
     manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
       if (queueType === QueueType.RetrievalPractice) {
         return [{
@@ -249,7 +249,44 @@ describe('BrowserApplicationService queue counts', () => {
     });
 
     expect(counts.retrieval).toBe(11);
-    expect(retrievalQueue.getCards).toHaveBeenCalledTimes(2);
+    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(2);
+    expect(retrievalQueue.getCards).not.toHaveBeenCalled();
+  });
+
+  it('does not force materialize projection-backed counts during passive refresh without a cached value', async () => {
+    const retrievalQueue = createQueue(11, 11, 11);
+    retrievalQueue.getSnapshotRows.mockRejectedValue(new Error('QUEUE_PROJECTION_UNAVAILABLE: projection unavailable'));
+    manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
+      if (queueType === QueueType.RetrievalPractice) {
+        return [{
+          queueType: QueueType.RetrievalPractice,
+          projectionBacked: true,
+          state: 'backend-projection',
+          readPath: 'backend-projection',
+          reason: 'rollout-enabled',
+          nextCoverageTask: null,
+        }];
+      }
+      return [];
+    });
+    queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
+
+    const counts = await service.getQueueCounts({
+      affectedQueueTypes: [QueueType.RetrievalPractice],
+    });
+
+    expect(counts.retrieval).toBe(0);
+    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledWith(false);
+    expect(retrievalQueue.getCards).not.toHaveBeenCalled();
+
+    retrievalQueue.getSnapshotRows.mockResolvedValueOnce(createQueue(11).getSnapshotRows());
+    const recoveredCounts = await service.getQueueCounts({
+      affectedQueueTypes: [QueueType.RetrievalPractice],
+    });
+
+    expect(recoveredCounts.retrieval).toBe(11);
+    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the last known projection-backed queue count when a refresh is temporarily unavailable', async () => {
@@ -275,7 +312,7 @@ describe('BrowserApplicationService queue counts', () => {
     });
     expect(initialCounts.retrieval).toBe(3);
 
-    retrievalQueue.getCards.mockRejectedValueOnce(new Error('QUEUE_PROJECTION_UNAVAILABLE: projection unavailable'));
+    retrievalQueue.getSnapshotRows.mockRejectedValueOnce(new Error('QUEUE_PROJECTION_UNAVAILABLE: projection unavailable'));
 
     const refreshedCounts = await service.getQueueCounts({
       forceRefresh: true,
@@ -283,6 +320,7 @@ describe('BrowserApplicationService queue counts', () => {
     });
 
     expect(refreshedCounts.retrieval).toBe(3);
+    expect(retrievalQueue.getCards).not.toHaveBeenCalled();
     expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
     expect(retrievalQueue.getSize).not.toHaveBeenCalled();
   });
@@ -290,7 +328,7 @@ describe('BrowserApplicationService queue counts', () => {
   it('keeps other queue counts when one projection-backed count remains temporarily unavailable', async () => {
     const retrievalQueue = createQueue(5, 5, 11);
     const incrementalQueue = createQueue(3, 3, 3);
-    retrievalQueue.getCards.mockRejectedValue(new Error('QUEUE_PROJECTION_UNAVAILABLE: projection unavailable'));
+    retrievalQueue.getSnapshotRows.mockRejectedValue(new Error('QUEUE_PROJECTION_UNAVAILABLE: projection unavailable'));
     manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
       if (queueType === QueueType.RetrievalPractice) {
         return [{
@@ -314,7 +352,8 @@ describe('BrowserApplicationService queue counts', () => {
 
     expect(counts.retrieval).toBe(0);
     expect(counts['incremental-learning']).toBe(3);
-    expect(retrievalQueue.getCards).toHaveBeenCalledTimes(2);
+    expect(retrievalQueue.getSnapshotRows).toHaveBeenCalledTimes(2);
+    expect(retrievalQueue.getCards).not.toHaveBeenCalled();
     expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
     expect(retrievalQueue.getSize).not.toHaveBeenCalled();
   });

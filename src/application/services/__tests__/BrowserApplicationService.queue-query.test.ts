@@ -3,6 +3,7 @@ import { BrowserApplicationService } from '../BrowserApplicationService';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
+import { QueueType } from '@/types/unified-data-source';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import type { QueueSnapshotRow } from '@/types/queue-browser';
 
@@ -69,6 +70,55 @@ function buildSnapshotRow(id: string, overrides: Partial<QueueSnapshotRow> = {})
 }
 
 describe('BrowserApplicationService queue query path', () => {
+  it('uses queue projection readiness for Browser queue read model status', async () => {
+    const readiness = {
+      status: 'refreshing',
+      queueId: QueueType.RetrievalPractice,
+      policyId: 'policy-retrieval',
+      cause: 'materialization_in_progress',
+      retryAfterMs: 300,
+    } as const;
+    const manager = {
+      getQueue: vi.fn(() => ({})),
+      ensureQueueProjectionReady: vi.fn(async () => readiness),
+    } as never;
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(() => []),
+        getAllCards: vi.fn(() => []),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      manager,
+      {
+        ATTR_CARD_ID: 'custom-fsrs-card-id',
+        ATTR_PRIORITY: 'custom-fsrs-priority',
+        ATTR_SUSPENDED: 'custom-fsrs-suspended',
+        ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+        ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+        sql: vi.fn(async () => []),
+        setBlockAttrs: vi.fn(),
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      } as never,
+    );
+
+    await expect(service.ensureQueueReadModelReady({
+      queueType: 'retrieval',
+      preset: 'all',
+      cardType: 'all',
+      source: 'browser',
+    })).resolves.toEqual(readiness);
+    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledWith({
+      queueType: QueueType.RetrievalPractice,
+      preset: 'all',
+      cardType: 'all',
+      source: 'browser',
+    });
+  });
+
   it('routes Browser queue rows through the queue read model without projection snapshots', async () => {
     const queue = {
       getSnapshotRows: vi.fn(async () => [

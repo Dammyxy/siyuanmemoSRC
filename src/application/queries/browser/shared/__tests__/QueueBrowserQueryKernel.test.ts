@@ -69,6 +69,163 @@ function buildCard(id: string, overrides: Partial<FSRSCard> = {}): FSRSCard {
 }
 
 describe('QueueBrowserQueryKernel', () => {
+  it('uses projection snapshot identity for projection-backed Browser counts and page hydration', async () => {
+    const projectionRows = [
+      buildSnapshotRow('row-b', {
+        fsrsCardId: 'card-b',
+        blockId: 'block-b',
+        priority: 90,
+        queueIndex: 1,
+        content: 'beta',
+      }),
+      buildSnapshotRow('row-a', {
+        fsrsCardId: 'card-a',
+        blockId: 'block-a',
+        priority: 10,
+        queueIndex: 2,
+        content: 'alpha',
+      }),
+    ];
+    const hydratedCards = [
+      buildCard('card-a', {
+        blockId: 'block-a',
+        riffCardId: 'row-a',
+        priority: 10,
+        meta: { content: 'alpha', rootId: 'doc-a', deckId: 'deck-a' },
+      }),
+      buildCard('card-b', {
+        blockId: 'block-b',
+        riffCardId: 'row-b',
+        priority: 90,
+        meta: { content: 'beta', rootId: 'doc-a', deckId: 'deck-a' },
+      }),
+    ];
+    const queue = {
+      getSnapshotRows: vi.fn(async () => projectionRows),
+      getCards: vi.fn(async () => [
+        buildCard('stale-card', {
+          blockId: 'stale-block',
+          meta: { content: 'stale', rootId: 'doc-a', deckId: 'deck-a' },
+        }),
+      ]),
+      getCardsBySnapshotIds: vi.fn(async (ids: string[]) => {
+        const cardById = new Map([
+          ['card-a', hydratedCards[0]],
+          ['card-b', hydratedCards[1]],
+          ['row-a', hydratedCards[0]],
+          ['row-b', hydratedCards[1]],
+        ]);
+        return ids.map((id) => cardById.get(id)).filter(Boolean);
+      }),
+    };
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
+        queueType: 'retrieval-practice',
+        projectionBacked: true,
+        state: 'backend-projection',
+        readPath: 'backend-projection',
+        reason: 'rollout-enabled',
+        nextCoverageTask: null,
+      }]),
+    } as never;
+
+    const kernel = new QueueBrowserQueryKernel(manager);
+    const snapshot = await kernel.buildSnapshot({
+      queueId: 'retrieval',
+      preset: 'all',
+    });
+
+    expect(snapshot.total).toBe(2);
+    expect(snapshot.rows.map((row) => row.id)).toEqual(['card-b', 'card-a']);
+    expect(snapshot.readOwner).toMatchObject({
+      kind: 'queue-projection',
+      queueId: 'retrieval',
+      projectionBacked: true,
+    });
+    expect(queue.getSnapshotRows).toHaveBeenCalledTimes(1);
+    expect(queue.getCards).not.toHaveBeenCalled();
+    expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
+
+    const hydrated = await kernel.getQueueRowsByIds('retrieval', ['card-a']);
+    expect(hydrated.map((row) => row.fsrsCardId)).toEqual(['card-a']);
+    expect(hydrated[0]?.queueIndex).toBe(2);
+    expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith(['card-a'], false);
+    expect(queue.getCards).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when projection-backed row hydration cannot return every requested row', async () => {
+    const queue = {
+      getSnapshotRows: vi.fn(async () => [
+        buildSnapshotRow('row-a', { fsrsCardId: 'card-a', queueIndex: 1 }),
+        buildSnapshotRow('row-b', { fsrsCardId: 'card-b', queueIndex: 2 }),
+      ]),
+      getCards: vi.fn(async () => {
+        throw new Error('stale local queue should not be used');
+      }),
+      getCardsBySnapshotIds: vi.fn(async () => [
+        buildCard('card-a', {
+          riffCardId: 'row-a',
+          meta: { content: 'alpha', rootId: 'doc-a', deckId: 'deck-a' },
+        }),
+      ]),
+    };
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
+        queueType: 'retrieval-practice',
+        projectionBacked: true,
+        state: 'backend-projection',
+        readPath: 'backend-projection',
+        reason: 'rollout-enabled',
+        nextCoverageTask: null,
+      }]),
+    } as never;
+    const kernel = new QueueBrowserQueryKernel(manager);
+
+    await expect(kernel.getQueueRowsByIds('retrieval', ['card-a', 'card-b']))
+      .rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
+    expect(queue.getCards).not.toHaveBeenCalled();
+  });
+
+  it('keeps explicit local queue policy even when rollout diagnostics exist', async () => {
+    const localCards = [
+      buildCard('local-card', {
+        meta: { content: 'local', rootId: 'doc-a', deckId: 'deck-a' },
+      }),
+    ];
+    const queue = {
+      getProjectionReadMode: vi.fn(() => 'local-queue'),
+      getSnapshotRows: vi.fn(async () => {
+        throw new Error('projection rows should not be used for explicit local queue policy');
+      }),
+      getCards: vi.fn(async () => localCards),
+      getCardsBySnapshotIds: vi.fn(async () => []),
+    };
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
+        queueType: 'filter-group',
+        projectionBacked: true,
+        state: 'backend-projection',
+        readPath: 'backend-projection',
+        reason: 'rollout-enabled',
+        nextCoverageTask: null,
+      }]),
+    } as never;
+    const kernel = new QueueBrowserQueryKernel(manager);
+
+    const snapshot = await kernel.buildSnapshot({ queueId: 'filter-group' });
+
+    expect(snapshot.total).toBe(1);
+    expect(snapshot.readOwner).toMatchObject({
+      kind: 'explicit-local-queue',
+      projectionBacked: false,
+    });
+    expect(queue.getCards).toHaveBeenCalledTimes(1);
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
+  });
+
   it.each([
     'retrieval',
     'final-drill',

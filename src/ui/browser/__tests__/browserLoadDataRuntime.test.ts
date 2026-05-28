@@ -125,6 +125,15 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.globalSelection.clear).toHaveBeenCalledTimes(1);
   });
 
+  it('refreshes queue counts passively after default browser open', async () => {
+    const deps = createDeps();
+    const runtime = createBrowserLoadDataRuntime(deps);
+
+    await runtime.loadData();
+
+    expect(deps.refreshQueueCounts).toHaveBeenCalledWith({ forceRefresh: false });
+  });
+
   it('clears rows and reports when deck manager is missing', async () => {
     const deps = createDeps({
       allRows: ref([{ id: 'a', blockId: 'a' } as BrowserCard]),
@@ -201,7 +210,7 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.currentDataSource.value?.id).toBe('neural-roam');
   });
 
-  it('loads retrieval queue view without waiting for projection readiness', async () => {
+  it('loads retrieval queue view when Browser read model readiness service is unavailable', async () => {
     const manager = {
       ...createManager(),
       ensureQueueProjectionReady: vi.fn(async () => ({
@@ -221,12 +230,31 @@ describe('browserLoadDataRuntime', () => {
 
     await runtime.loadData();
 
-    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(1);
+    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
     expect(deps.currentDataSource.value?.id).toBe('retrieval');
     expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(1);
   });
 
   it('does not hold stale queue-view retries open during a newer load', async () => {
+    vi.useFakeTimers();
+    const browserAppService = {
+      getSiyuanApi: vi.fn(() => ({})),
+      ensureQueueReadModelReady: vi.fn()
+        .mockResolvedValueOnce({
+          status: 'refreshing',
+          queueId: QueueType.RetrievalPractice,
+          policyId: 'policy-retrieval',
+          cause: 'materialization_in_progress',
+          retryAfterMs: 10,
+        })
+        .mockResolvedValue({
+          status: 'refreshing',
+          queueId: QueueType.RetrievalPractice,
+          policyId: 'policy-retrieval',
+          cause: 'materialization_in_progress',
+          retryAfterMs: 50,
+        }),
+    };
     const manager = {
       ...createManager(),
       ensureQueueProjectionReady: vi.fn(async () => ({
@@ -239,6 +267,7 @@ describe('browserLoadDataRuntime', () => {
     };
     const deps = createDeps({
       activeQueueId: ref('retrieval'),
+      browserAppService: ref(browserAppService as any),
       currentQueueType: ref('retrieval-practice'),
       pluginUnifiedDataSourceManager: ref(manager as any),
     });
@@ -246,9 +275,12 @@ describe('browserLoadDataRuntime', () => {
 
     await runtime.loadData();
     await runtime.loadData(false, { origin: 'queue-sync' });
+    await vi.advanceTimersByTimeAsync(10);
 
-    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(2);
-    expect(deps.currentDataSource.value?.id).toBe('retrieval');
+    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledTimes(2);
+    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
+    expect(deps.rebuildInfiniteDatasource).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 
   it('maps terminal projection unavailable to an explicit error state', async () => {
