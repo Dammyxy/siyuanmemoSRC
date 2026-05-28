@@ -4,6 +4,7 @@ import { QueueType } from '@/types/unified-data-source';
 import {
   ReviewCurrentItemCommand,
   ReviewFeedbackAdvancementCoordinator,
+  type ReviewFeedbackAdvancementCoordinatorDependencies,
   ReviewLearnAheadAdvancePolicy,
   ReviewSessionCursor,
 } from '..';
@@ -34,10 +35,17 @@ function card(id: string, overrides: Partial<FSRSCard> = {}): FSRSCard {
   };
 }
 
-function createCoordinator(queueType: QueueType, cursor = new ReviewSessionCursor(queueType)) {
+function createCoordinator(
+  queueType: QueueType,
+  cursor = new ReviewSessionCursor(queueType),
+  options: {
+    applyProjectionQueueImpact?: ReviewFeedbackAdvancementCoordinatorDependencies['applyProjectionQueueImpact'];
+  } = {},
+) {
   const currentItem = new ReviewCurrentItemCommand();
   const invalidateCache = vi.fn(() => cursor.invalidate());
   const refreshLocalCounterSnapshot = vi.fn();
+  const applyProjectionQueueImpact = options.applyProjectionQueueImpact ?? vi.fn(async () => 'not-applicable');
   const coordinator = new ReviewFeedbackAdvancementCoordinator({
     queueType,
     cursor,
@@ -45,7 +53,7 @@ function createCoordinator(queueType: QueueType, cursor = new ReviewSessionCurso
     learnAheadAdvancePolicy: new ReviewLearnAheadAdvancePolicy(),
     refreshLocalCounterSnapshot,
     invalidateCache,
-    applyProjectionQueueImpact: vi.fn(async () => 'not-applicable'),
+    applyProjectionQueueImpact,
   });
 
   return {
@@ -54,6 +62,7 @@ function createCoordinator(queueType: QueueType, cursor = new ReviewSessionCurso
     currentItem,
     invalidateCache,
     refreshLocalCounterSnapshot,
+    applyProjectionQueueImpact,
   };
 }
 
@@ -140,6 +149,93 @@ describe('ReviewFeedbackAdvancementCoordinator', () => {
     });
 
     expect(cursor.hasSessionExclusions()).toBe(true);
+  });
+
+  it('continues from deferred projection impact only for safe queue advancement', async () => {
+    const reviewed = card('reviewed');
+    const remaining = card('remaining');
+    const { coordinator, cursor, currentItem, invalidateCache, applyProjectionQueueImpact } =
+      createCoordinator(QueueType.FinalDrill, new ReviewSessionCursor(QueueType.FinalDrill), {
+        applyProjectionQueueImpact: vi.fn(async () => 'deferred'),
+      });
+    cursor.load([reviewed, remaining]);
+    currentItem.select(reviewed);
+
+    const result = await coordinator.applyRateResult({
+      activeItem: reviewed,
+      feedback: { action: 'rate', rating: 4 },
+      reviewResult: {
+        removedFromQueue: true,
+        remainsInQueue: false,
+        updatedCard: null,
+        queueChanged: false,
+        requiresCurrentViewReorder: false,
+        counterSnapshot: {
+          version: 2,
+          remaining: 1,
+          due: 1,
+          total: 2,
+          currentLearningDue: 0,
+          todayReviewDue: 1,
+          allowedNew: 0,
+          learnAheadAvailable: 0,
+          scheduledTotal: 2,
+          buckets: { all: 2, item: 2, descriptor: 0, topic: 0, concept: 0 },
+          source: 'backend',
+        },
+        projectionAction: {
+          status: 'deferred',
+          queueType: QueueType.FinalDrill,
+          generation: 2,
+          policyHash: 'policy-a',
+          reason: 'review-feedback-deferred',
+        },
+      },
+      learnAheadSession: false,
+    });
+
+    expect(result.kind).toBe('local-patched');
+    expect(cursor.cached().map((item) => item.id)).toEqual(['remaining']);
+    expect(cursor.valid).toBe(true);
+    expect(invalidateCache).not.toHaveBeenCalled();
+    expect(applyProjectionQueueImpact).toHaveBeenCalledOnce();
+  });
+
+  it('maps unsafe deferred projection impact to refresh-required instead of local patching', async () => {
+    const reviewed = card('reviewed');
+    const remaining = card('remaining');
+    const { coordinator, cursor, currentItem, invalidateCache } =
+      createCoordinator(QueueType.RetrievalPractice, new ReviewSessionCursor(QueueType.RetrievalPractice), {
+        applyProjectionQueueImpact: vi.fn(async () => 'deferred'),
+      });
+    cursor.load([reviewed, remaining]);
+    currentItem.select(reviewed);
+
+    const result = await coordinator.applyRateResult({
+      activeItem: reviewed,
+      feedback: { action: 'rate', rating: 4 },
+      reviewResult: {
+        removedFromQueue: true,
+        remainsInQueue: false,
+        updatedCard: null,
+        queueChanged: false,
+        requiresCurrentViewReorder: false,
+        counterSnapshot: null,
+        projectionAction: {
+          status: 'deferred',
+          queueType: QueueType.RetrievalPractice,
+          generation: 2,
+          policyHash: 'policy-a',
+          reason: 'review-feedback-deferred',
+        },
+      },
+      learnAheadSession: false,
+    });
+
+    expect(result.kind).toBe('projection-refresh-required');
+    expect(cursor.cached().map((item) => item.id)).toEqual(['reviewed', 'remaining']);
+    expect(cursor.valid).toBe(false);
+    expect(invalidateCache).toHaveBeenCalledOnce();
   });
 
   it('restores local Review session state after failed feedback compensation', () => {

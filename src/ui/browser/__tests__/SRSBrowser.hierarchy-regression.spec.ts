@@ -635,6 +635,37 @@ describe('SRSBrowser hierarchy regressions', () => {
     expect(refreshQueueCountsBridgeMock).toHaveBeenCalledTimes(1);
   });
 
+  it('defers hierarchy document counts until first deck rows load', async () => {
+    let resolveFetchRows: ((value: { rows: BrowserCard[]; totalCount: number }) => void) | null = null;
+    const datasource = {
+      fetchRows: vi.fn(() => new Promise<{ rows: BrowserCard[]; totalCount: number }>((resolve) => {
+        resolveFetchRows = resolve;
+      })),
+      getQueryFingerprint: vi.fn(() => 'pending-first-rows'),
+      getAllMatchedIds: vi.fn(async () => []),
+      getRowsByIds: vi.fn(async () => []),
+      getActionTargetsByIds: vi.fn(async () => []),
+      getSupportedActions: vi.fn(() => []),
+    };
+    createDeckDataSourceMock.mockReturnValue(datasource);
+    const browserService = createBrowserService();
+
+    mountBrowser({ browserService: browserService as never });
+    await advance(0);
+    await advance(150);
+
+    expect(datasource.fetchRows).toHaveBeenCalled();
+    expect(browserService.getBrowserDocumentCounts).not.toHaveBeenCalled();
+
+    resolveFetchRows?.({
+      rows: [buildBrowserCard('card-first-row', 'doc-1')],
+      totalCount: 1,
+    });
+    await advance(100);
+
+    expect(browserService.getBrowserDocumentCounts).toHaveBeenCalledTimes(1);
+  });
+
   it('shows Orbit, Hyperspace, and Semantic choices in the Neural Roam workspace', async () => {
     const wrapper = mountBrowser({ initialQueueId: 'neural-roam' });
     await advance(0);

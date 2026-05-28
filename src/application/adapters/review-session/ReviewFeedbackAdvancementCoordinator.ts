@@ -106,6 +106,10 @@ export class ReviewFeedbackAdvancementCoordinator {
         this.applyRequeryTransition(input.activeItem);
         return { kind: 'projection-refresh-required' };
       }
+      if (projectionPatchOutcome === 'deferred') {
+        this.applyRequeryTransition(input.activeItem);
+        return { kind: 'projection-refresh-required' };
+      }
       this.applyRequeryTransition(input.activeItem);
       return { kind: 'requery' };
     }
@@ -116,6 +120,11 @@ export class ReviewFeedbackAdvancementCoordinator {
       return { kind: 'projection-patched' };
     }
     if (projectionPatchOutcome === 'refresh-required') {
+      this.deps.cursor.clearPendingRotation();
+      this.deps.invalidateCache();
+      return { kind: 'projection-refresh-required' };
+    }
+    if (projectionPatchOutcome === 'deferred' && !this.supportsDeferredProjectionAdvance(input.reviewResult)) {
       this.deps.cursor.clearPendingRotation();
       this.deps.invalidateCache();
       return { kind: 'projection-refresh-required' };
@@ -268,6 +277,15 @@ export class ReviewFeedbackAdvancementCoordinator {
     return this.deps.queueType === QueueType.RetrievalPractice
       || this.deps.queueType === QueueType.IncrementalLearning
       || this.deps.queueType === QueueType.FilterGroup
+      || this.deps.queueType === QueueType.FinalDrill
+      || this.deps.queueType === QueueType.Leech;
+  }
+
+  private supportsDeferredProjectionAdvance(result: QueueReviewResultWithProjection): boolean {
+    if (result.projectionAction?.status !== 'deferred') {
+      return false;
+    }
+    return this.deps.queueType === QueueType.FilterGroup
       || this.deps.queueType === QueueType.FinalDrill
       || this.deps.queueType === QueueType.Leech;
   }

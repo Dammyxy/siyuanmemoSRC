@@ -129,6 +129,39 @@ describe('ReviewSessionProjectionApplier', () => {
     expect(result.state.cachedCards.map((cached) => cached.id)).toEqual(['card-1']);
   });
 
+  it('reports deferred projection actions without hydrating or patching the cache', async () => {
+    const card = createCard();
+    const hydrateCardsBySnapshotIds = vi.fn(async () => [card]);
+    const applier = new ReviewSessionProjectionApplier({
+      shouldReadLocally: () => false,
+      hydrateCardsBySnapshotIds,
+    });
+
+    const result = await applier.apply({
+      reviewedCard: card,
+      result: {
+        projectionAction: {
+          status: 'deferred',
+          queueType: QueueType.FinalDrill,
+          generation: 3,
+          policyHash: 'policy-a',
+          reason: 'review-feedback-deferred',
+        },
+      } as QueueReviewResult,
+      state: {
+        cacheValid: true,
+        cachedCards: [card],
+        currentIndex: 1,
+        forwardBuffer: [],
+        lastCounterSnapshot: null,
+      },
+    });
+
+    expect(result.outcome).toBe('deferred');
+    expect(result.state.cachedCards.map((cached) => cached.id)).toEqual(['card-1']);
+    expect(hydrateCardsBySnapshotIds).not.toHaveBeenCalled();
+  });
+
   it('does not apply projection actions for local queue reads', async () => {
     const card = createCard();
     const hydrateCardsBySnapshotIds = vi.fn(async () => [card]);

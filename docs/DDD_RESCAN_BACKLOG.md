@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-28 (Round 491)
+Last update: 2026-05-29 (Round 492)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-29 - Browser page-first and Review deferred feedback
+
+- Task: Continue OpenSpec change `accelerate-browser-open-and-review-feedback`, keeping Browser first rows and Review grading off full aggregate/projection maintenance hot paths.
+- Touched slice: Browser + Review + Queue Projection runtime; `DeckDataSource`, `BrowserCardUniverseReadModule`, `SRSBrowser`, Browser action/snapshot runtimes, backend RPC contracts, `ReviewAttemptKernel`, `ReviewSessionProjectionApplier`, `ReviewFeedbackAdvancementCoordinator`, `WorkerReviewFeedbackRuntime`, `BackendKernel` review tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Normal Browser deck rows now use bounded `browser.deck.page` reads, while aggregate snapshot/page/matched-id universe paths require explicit full-universe reasons. Browser hierarchy document counts are deferred until first rows. Review feedback now exposes typed `patch-applied / refresh-required / deferred / unavailable` projection outcomes; non-SRS projection maintenance can return `deferred`, coalesce by queue/policy identity, and run row read/build/apply after durable commit under backend worker ownership. Review advancement treats deferred as safe only for explicitly allowed non-runtime queues.
+- Debt deferred: Live SiYuan smoke for Browser first-row spans and Review grading latency was not run in this pass. Explicit all-select/bulk/focus/export workflows still use aggregate universe reads by design. Deferred projection maintenance failure is logged and then surfaces through later authoritative projection reads rather than a new persistent UI badge.
+- Why deferred: This slice fixed active hot-path ownership and tests the routing/queueImpact contract. Live timing requires a rebuilt plugin surface, and replacing full-universe workflows or adding persistent deferred-maintenance status would widen product semantics beyond the current OpenSpec change.
+- Next safe step: Rebuild/reload, enable runtime diagnostics, open Browser and grade a non-SRS Review card. Confirm normal first rows emit `browser.backend.deck-page` without aggregate snapshot spans, and Review response timing includes enqueue/coalesce while projection maintenance logs after the response.
+- Validation: Focused Browser tests passed (`BrowserApplicationService.deck-query`, `DeckDataSource.query-snapshot`, `SRSBrowser.hierarchy-regression`, browser snapshot/action runtime, `SrsBackendClient`). Focused Review/worker tests passed (`ReviewAttemptKernel`, `ReviewCommitUseCase`, `ReviewSessionProjectionApplier`, `ReviewFeedbackAdvancementCoordinator`, `ReviewSessionAdvancementPolicies`, `WorkerReviewFeedbackRuntime`, review timing/transport, targeted `BackendKernel`). `pnpm run check:boundaries`, `pnpm build`, `git diff --check`, and `openspec validate accelerate-browser-open-and-review-feedback --strict --no-interactive` passed. `pnpm build` still reports existing non-blocking i18n hardcoded-string/anomalous-value warnings and Sass legacy JS API warnings.
 
 ### 2026-05-29 - Browser warmup reuses queue read-model policy
 

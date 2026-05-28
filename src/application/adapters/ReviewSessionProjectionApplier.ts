@@ -1,7 +1,7 @@
 import type { FSRSCard } from '@/types/card';
 import type { QueueCounterSnapshot, QueueReviewProjectionAction, QueueReviewResult } from '@/types/unified-data-source';
 
-export type ProjectionPatchOutcome = 'patched' | 'refresh-required' | 'not-applicable';
+export type ProjectionPatchOutcome = 'patched' | 'refresh-required' | 'deferred' | 'not-applicable';
 
 export type QueueReviewResultWithProjection = QueueReviewResult & {
   projectionAction?: QueueReviewProjectionAction | null;
@@ -66,6 +66,9 @@ export class ReviewSessionProjectionApplier {
     const projectionAction = input.result.projectionAction ?? null;
     if (!projectionAction || projectionAction.status === 'not-applicable') {
       return { outcome: 'not-applicable', state };
+    }
+    if (projectionAction.status === 'deferred') {
+      return { outcome: 'deferred', state };
     }
     if (
       projectionAction.status === 'refresh-required'

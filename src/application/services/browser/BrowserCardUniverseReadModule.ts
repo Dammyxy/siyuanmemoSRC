@@ -2,6 +2,7 @@ import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type {
   BrowserDeckLiteRow,
+  BrowserDeckFullUniverseReason,
   BrowserDeckPageRequest,
   BrowserDeckPageResult,
   BrowserDocumentCountsResult,
@@ -43,6 +44,17 @@ export function toBrowserCardUniverseUnavailable(operation: string, error?: unkn
   return new Error(`BACKEND_UNAVAILABLE: ${operation} requires backend-worker ownership`);
 }
 
+function requireFullUniverseReason(
+  query: BrowserDeckSnapshotQuery,
+  operation: string,
+): BrowserDeckFullUniverseReason {
+  const reason = String(query.fullUniverseReason || '').trim();
+  if (!reason) {
+    throw toBrowserCardUniverseUnavailable(operation, 'full universe reason is required');
+  }
+  return reason as BrowserDeckFullUniverseReason;
+}
+
 export class BrowserCardUniverseReadModule {
   private readonly aggregateSnapshots = new Map<string, BackendBrowserAggregateIdentity>();
   private readonly aggregateSnapshotInFlight = new Map<string, Promise<BackendBrowserAggregateIdentity>>();
@@ -54,6 +66,7 @@ export class BrowserCardUniverseReadModule {
     query: BrowserDeckSnapshotQuery,
     page: BrowserDeckPageRequest,
   ): Promise<BrowserDeckPageResult> {
+    const fullUniverseReason = requireFullUniverseReason(query, 'browser.aggregate.page');
     const startRow = Math.max(0, Math.floor(Number(page.startRow) || 0));
     const endRow = Math.max(startRow, Math.floor(Number(page.endRow) || startRow));
     const limit = Math.max(1, endRow - startRow);
@@ -66,6 +79,7 @@ export class BrowserCardUniverseReadModule {
         limit,
       }), {
         endRow,
+        fullUniverseReason,
         startRow,
       });
       if (aggregatePage.status === 'stale-generation') {
@@ -89,6 +103,7 @@ export class BrowserCardUniverseReadModule {
   }
 
   async readAggregateSnapshot(query: BrowserDeckSnapshotQuery): Promise<BrowserDeckSnapshotResult> {
+    const fullUniverseReason = requireFullUniverseReason(query, 'browser.aggregate.snapshot');
     const pageSize = 256;
     const identity = await this.ensureAggregateSnapshot(query, pageSize);
     const rows: BrowserDeckLiteRow[] = [];
@@ -101,7 +116,7 @@ export class BrowserCardUniverseReadModule {
           identity,
           offset,
           limit: pageSize,
-        }), { offset, pageSize });
+        }), { fullUniverseReason, offset, pageSize });
         if (page.status === 'stale-generation') {
           this.forgetAggregateSnapshot(query, identity);
           throw toBrowserCardUniverseUnavailable('browser.aggregate.snapshot', page.reason || 'stale aggregate generation');
@@ -170,9 +185,15 @@ export class BrowserCardUniverseReadModule {
   }
 
   async readMatchedIds(query: BrowserDeckSnapshotQuery): Promise<string[]> {
+    const fullUniverseReason = requireFullUniverseReason(query, 'browser.deck.matchedIds');
     const backend = this.requireBackend('browser.deck.matchedIds');
     try {
-      return await backend.browserDeckMatchedIds(query);
+      return await measureRuntimePerformance(
+        'browser',
+        'backend.deck-matched-ids',
+        () => backend.browserDeckMatchedIds(query),
+        { fullUniverseReason },
+      );
     } catch (error) {
       throw toBrowserCardUniverseUnavailable('browser.deck.matchedIds', error);
     }
@@ -258,6 +279,7 @@ export class BrowserCardUniverseReadModule {
     query: BrowserDeckSnapshotQuery,
     pageSize: number,
   ): Promise<BackendBrowserAggregateIdentity> {
+    const fullUniverseReason = requireFullUniverseReason(query, 'browser.aggregate.snapshot');
     const key = this.aggregateKey(query);
     if (query.forceRefresh) {
       const forceInFlight = this.aggregateSnapshotForceInFlightKeys.has(key)
@@ -282,10 +304,12 @@ export class BrowserCardUniverseReadModule {
     const request = measureRuntimePerformance('browser', 'backend.aggregate-snapshot', () => this.requireBackend('browser.aggregate.snapshot').browserAggregateSnapshot({
         requestId: `browser-aggregate-snapshot:${Date.now()}`,
         datasourceId: `deck:${key}`,
+        fullUniverseReason,
         scope: {
           preset: query.preset,
           docId: query.docId,
           scopeDocIds: query.scopeDocIds ?? null,
+          fullUniverseReason,
           pageSize,
         },
         filter: {
@@ -298,7 +322,7 @@ export class BrowserCardUniverseReadModule {
         sort: {
           sortModel: query.sortModel,
         },
-      }), { pageSize })
+      }), { fullUniverseReason, pageSize })
       .then((snapshot) => {
         if ((snapshot.status !== 'ready' && snapshot.status !== 'ready-empty') || !snapshot.identity) {
           throw toBrowserCardUniverseUnavailable('browser.aggregate.snapshot', snapshot.reason || snapshot.status);

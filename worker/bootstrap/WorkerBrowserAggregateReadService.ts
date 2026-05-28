@@ -118,6 +118,11 @@ function buildDeckSnapshotQuery(request: BackendBrowserAggregateSnapshotRequest)
       ? normalizeArray(filter.tags)
       : undefined,
     sortModel: Array.isArray(sortModel) ? sortModel : undefined,
+    fullUniverseReason: typeof request.fullUniverseReason === 'string'
+      ? request.fullUniverseReason
+      : typeof scope.fullUniverseReason === 'string'
+        ? scope.fullUniverseReason
+        : undefined,
   };
 }
 

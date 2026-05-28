@@ -16,7 +16,18 @@ export interface BrowserDeckSnapshotQuery {
   tags?: string[];
   sortModel?: SortModel[];
   forceRefresh?: boolean;
+  fullUniverseReason?: BrowserDeckFullUniverseReason;
 }
+
+export type BrowserDeckFullUniverseReason =
+  | 'all-select'
+  | 'bulk-action'
+  | 'focus-snapshot'
+  | 'export'
+  | 'action-targets'
+  | 'diagnostics'
+  | 'all-rows-snapshot'
+  | 'matched-ids';
 
 export interface BrowserDeckLiteRow {
   id: string;

@@ -956,6 +956,7 @@ export interface BackendBrowserAggregateIdentity {
 export interface BackendBrowserAggregateSnapshotRequest {
   requestId: string;
   datasourceId: string;
+  fullUniverseReason?: string | null;
   queueType?: string | null;
   scope?: Record<string, unknown> | null;
   sort?: Record<string, unknown> | null;
@@ -1909,6 +1910,7 @@ export interface BackendBrowserDeckSnapshotQuery {
   deckIds?: string[];
   tags?: string[];
   sortModel?: Array<{ colId: string; sort: 'asc' | 'desc' }>;
+  fullUniverseReason?: string | null;
 }
 
 export interface BackendBrowserDeckPageRequest {
@@ -2234,12 +2236,28 @@ export interface BackendReviewFeedbackQueueImpactReorderHint {
   reason: 'inserted' | 'updated' | 'removed' | 'refresh-required' | string;
 }
 
+export type BackendReviewFeedbackQueueImpactOutcome =
+  | 'patch-applied'
+  | 'refresh-required'
+  | 'deferred'
+  | 'unavailable';
+
+export interface BackendReviewFeedbackDeferredQueueImpact {
+  reason: 'review-feedback' | string;
+  scheduled: boolean;
+  coalesced?: boolean;
+  queuedAt: number;
+}
+
 export interface BackendReviewFeedbackQueueImpactEntry {
   queueType: string;
   policyHash: string | null;
   generation: number | null;
   requestedGeneration?: number | null;
   currentGeneration?: number | null;
+  outcome?: BackendReviewFeedbackQueueImpactOutcome;
+  unavailableReason?: string | null;
+  deferred?: BackendReviewFeedbackDeferredQueueImpact | null;
   hotPatchable: boolean;
   refreshRequired: boolean;
   reason: 'review-feedback' | 'projection-unavailable' | 'generation-mismatch' | 'projection-invalidated' | string;

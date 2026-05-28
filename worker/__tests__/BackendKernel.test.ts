@@ -126,6 +126,11 @@ async function seedQueueProjection(database: WorkerSqliteDatabaseService, input:
   });
 }
 
+async function flushReviewFeedbackDeferredProjectionMaintenance(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await Promise.resolve();
+}
+
 async function seedReviewEvent(database: WorkerSqliteDatabaseService, input: {
   id: string;
   cardId: string;
@@ -8123,7 +8128,7 @@ describe('BackendKernel', () => {
         rating: 3,
       },
     },
-  ])('returns hot-patch queue impact for deferred projection-backed $queueType feedback', async ({ queueType, committed, params }) => {
+  ])('returns deferred queue impact for projection-backed $queueType feedback before maintenance runs', async ({ queueType, committed, params }) => {
     const reviewedAt = Date.now();
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -8166,17 +8171,21 @@ describe('BackendKernel', () => {
       expect(response.result).toMatchObject({
         committed,
         queueImpact: {
-          hotPatchable: true,
+          hotPatchable: false,
           refreshRequired: false,
           affectedQueues: [{
             queueType,
-            generation: 3,
-            removedRowIds: [card.id],
-            counterGeneration: 3,
-            counters: {
-              version: 3,
-              remaining: 1,
-              total: 1,
+            generation: 2,
+            currentGeneration: 2,
+            requestedGeneration: 2,
+            outcome: 'deferred',
+            hotPatchable: false,
+            removedRowIds: [],
+            counterGeneration: null,
+            counters: null,
+            deferred: {
+              reason: 'review-feedback',
+              scheduled: true,
             },
           }],
         },
@@ -8186,7 +8195,15 @@ describe('BackendKernel', () => {
       'SELECT COUNT(*) AS count FROM queue_projection_rows WHERE queue_type = ? AND card_id = ?',
       [queueType, card.id],
     );
-    expect(removedRow?.count).toBe(0);
+    expect(removedRow?.count).toBe(1);
+
+    await flushReviewFeedbackDeferredProjectionMaintenance();
+
+    const removedAfterMaintenance = database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM queue_projection_rows WHERE queue_type = ? AND card_id = ?',
+      [queueType, card.id],
+    );
+    expect(removedAfterMaintenance?.count).toBe(0);
   });
 
   it('moves low-rated final-drill projection row to tail without schedule writes', async () => {
@@ -8232,29 +8249,43 @@ describe('BackendKernel', () => {
         committed: false,
         updatedCard: null,
         queueImpact: {
-          hotPatchable: true,
+          hotPatchable: false,
           refreshRequired: false,
           affectedQueues: [{
             queueType: 'final-drill',
-            generation: 7,
+            generation: 6,
+            currentGeneration: 6,
+            requestedGeneration: 6,
+            outcome: 'deferred',
+            hotPatchable: false,
             removedRowIds: [],
-            counterGeneration: 7,
-            counters: {
-              remaining: 2,
-              total: 2,
+            counterGeneration: null,
+            counters: null,
+            deferred: {
+              reason: 'review-feedback',
+              scheduled: true,
             },
           }],
         },
       });
-      const affectedQueue = response.result.queueImpact?.affectedQueues[0];
-      expect(affectedQueue?.updatedRows).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          rowId: 'card-final-drill-impact-low',
-          cardId: 'card-final-drill-impact-low',
-          queueIndexHint: 2,
-        }),
-      ]));
     }
+
+    await flushReviewFeedbackDeferredProjectionMaintenance();
+
+    const movedRow = database.getOne<{ queueIndexHint: number; sourceGeneration: number }>(
+      `SELECT queue_index_hint AS queueIndexHint, source_generation AS sourceGeneration
+       FROM queue_projection_rows
+       WHERE queue_type = ? AND card_id = ?`,
+      ['final-drill', card.id],
+    );
+    expect(movedRow).toMatchObject({ queueIndexHint: 2, sourceGeneration: 7 });
+    const counters = database.getOne<{ generation: number; remaining: number; total: number }>(
+      `SELECT generation, remaining, total
+       FROM queue_projection_counters
+       WHERE queue_type = ? AND policy_hash = ?`,
+      ['final-drill', 'policy-a'],
+    );
+    expect(counters).toMatchObject({ generation: 7, remaining: 2, total: 2 });
   });
 
   it('uses request scheduler config for review feedback scheduling', async () => {

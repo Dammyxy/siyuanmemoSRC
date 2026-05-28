@@ -7,6 +7,11 @@ import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
 import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import {
+  clearRuntimePerformanceDiagnostics,
+  getRuntimePerformanceDiagnosticsReport,
+  setRuntimePerformanceDiagnosticsEnabled,
+} from '@/utils/runtimePerformanceDiagnostics';
 
 async function flushBackgroundTimers(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 320));
@@ -253,7 +258,7 @@ describe('BrowserApplicationService deck query kernel', () => {
 
     await expect(service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 }))
       .rejects.toThrow('BACKEND_UNAVAILABLE: browser.deck.page requires backend-worker ownership');
-    await expect(service.getDeckMatchedIds({ preset: 'all' }))
+    await expect(service.getDeckMatchedIds({ preset: 'all', fullUniverseReason: 'matched-ids' }))
       .rejects.toThrow('BACKEND_UNAVAILABLE: browser.deck.matchedIds requires backend-worker ownership');
     await expect(service.getDeckRowsByIds(['card-1']))
       .rejects.toThrow('BACKEND_UNAVAILABLE: browser.deck.rowsByIds requires backend-worker ownership');
@@ -395,13 +400,15 @@ describe('BrowserApplicationService deck query kernel', () => {
     expect(page.total).toBe(2);
     expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['card-worker-1', 'card-worker-2']);
     await expect(service.getDeckRowsByIds(['card-worker-2'])).resolves.toMatchObject([{ fsrsCardId: 'card-worker-2' }]);
-    await expect(service.getDeckMatchedIds({ preset: 'all' })).resolves.toEqual(['card-worker-1', 'card-worker-2']);
+    await expect(service.getDeckMatchedIds({ preset: 'all', fullUniverseReason: 'matched-ids' })).resolves.toEqual(['card-worker-1', 'card-worker-2']);
     await expect(service.getDueCount()).resolves.toBe(1);
     await expect(service.getStats()).resolves.toMatchObject({ totalCards: 2, dueCards: 1 });
     await flushBackgroundTimers();
     expect(backendClient.browserDeckPage).toHaveBeenCalled();
     expect(backendClient.browserDeckRowsByIds).toHaveBeenCalledWith(['card-worker-2']);
-    expect(backendClient.browserDeckMatchedIds).toHaveBeenCalled();
+    expect(backendClient.browserDeckMatchedIds).toHaveBeenCalledWith(expect.objectContaining({
+      fullUniverseReason: 'matched-ids',
+    }));
     expect(backendClient.browserCountCards).toHaveBeenCalled();
     expect(backendClient.browserStats).toHaveBeenCalled();
     expect(storage.queryCards).not.toHaveBeenCalled();
@@ -563,6 +570,7 @@ describe('BrowserApplicationService deck query kernel', () => {
 
     const page = await service.getDeckAggregatePage({
       preset: 'all',
+      fullUniverseReason: 'diagnostics',
       scopeDocIds: reactive(['doc-a']) as unknown as string[],
       sortModel: reactive([{ colId: 'priority', sort: 'desc' }]) as never,
     }, {
@@ -571,7 +579,128 @@ describe('BrowserApplicationService deck query kernel', () => {
     });
 
     expect(page.total).toBe(1);
+    expect(backendClient.browserAggregateSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      fullUniverseReason: 'diagnostics',
+      scope: expect.objectContaining({
+        fullUniverseReason: 'diagnostics',
+      }),
+    }));
     expect(backendClient.browserAggregatePage).toHaveBeenCalledTimes(1);
+  });
+
+  it('records bounded deck page and explicit aggregate diagnostics separately', async () => {
+    const pageCard = buildCard({
+      id: 'card-page-diagnostics',
+      blockId: 'block-page-diagnostics',
+      meta: { content: 'Page diagnostics card', rootId: 'doc-worker' },
+    });
+    const aggregateCard = buildCard({
+      id: 'card-aggregate-diagnostics',
+      blockId: 'block-aggregate-diagnostics',
+      meta: { content: 'Aggregate diagnostics card', rootId: 'doc-worker' },
+    });
+    const identity = {
+      snapshotId: 'browser-aggregate:diagnostics',
+      generation: 1,
+      datasourceId: 'deck:diagnostics',
+      policyHash: 'policy',
+      queryFingerprint: 'fingerprint',
+    };
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserDeckPage'
+      | 'browserAggregateSnapshot'
+      | 'browserAggregatePage'
+      | 'browserSourceExistenceApplySweepHost'
+      | 'browserSourceExistenceByBlockIds'
+    > = {
+      browserDeckPage: vi.fn(async () => ({
+        total: 1,
+        cards: [pageCard],
+      })),
+      browserAggregateSnapshot: vi.fn(async () => ({
+        status: 'ready',
+        identity,
+        totalCount: 1,
+        pageSize: 1,
+      })),
+      browserAggregatePage: vi.fn(async () => ({
+        status: 'ready',
+        identity,
+        totalCount: 1,
+        rows: [aggregateCard],
+        nextCursor: null,
+      })),
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
+        checked: 1,
+        updated: 1,
+        changed: false,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['block-page-diagnostics', true],
+        ['block-aggregate-diagnostics', true],
+      ])),
+    };
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      {
+        sql: vi.fn(async () => [
+          { id: 'block-page-diagnostics' },
+          { id: 'block-aggregate-diagnostics' },
+        ]),
+      } as never,
+      null,
+      null,
+      backendClient as SrsBackendClient,
+    );
+
+    setRuntimePerformanceDiagnosticsEnabled(true, { reset: true });
+    try {
+      await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 1 });
+      await service.getDeckAggregatePage({
+        preset: 'all',
+        fullUniverseReason: 'diagnostics',
+      }, {
+        startRow: 0,
+        endRow: 1,
+      });
+
+      const events = getRuntimePerformanceDiagnosticsReport().events;
+      const pageEvent = events.find((event) => event.path === 'browser' && event.operation === 'backend.deck-page');
+      const aggregateSnapshotEvent = events.find((event) => event.path === 'browser' && event.operation === 'backend.aggregate-snapshot');
+      const aggregatePageEvent = events.find((event) => event.path === 'browser' && event.operation === 'backend.aggregate-page');
+
+      expect(pageEvent).toMatchObject({
+        metadata: expect.objectContaining({
+          startRow: 0,
+          endRow: 1,
+        }),
+      });
+      expect(pageEvent?.metadata?.fullUniverseReason).toBeUndefined();
+      expect(aggregateSnapshotEvent).toMatchObject({
+        metadata: expect.objectContaining({
+          fullUniverseReason: 'diagnostics',
+        }),
+      });
+      expect(aggregatePageEvent).toMatchObject({
+        metadata: expect.objectContaining({
+          fullUniverseReason: 'diagnostics',
+          startRow: 0,
+          endRow: 1,
+        }),
+      });
+    } finally {
+      setRuntimePerformanceDiagnosticsEnabled(false, { reset: true });
+      clearRuntimePerformanceDiagnostics();
+    }
   });
 
   it('deduplicates concurrent aggregate snapshot creation for the same sorted deck query', async () => {
@@ -642,6 +771,7 @@ describe('BrowserApplicationService deck query kernel', () => {
     );
     const query = {
       preset: 'all' as const,
+      fullUniverseReason: 'diagnostics' as const,
       sortModel: [{ colId: 'reps', sort: 'asc' as const }],
     };
 
@@ -660,6 +790,12 @@ describe('BrowserApplicationService deck query kernel', () => {
       expect.objectContaining({ total: 2, rows: [expect.objectContaining({ fsrsCardId: 'card-aggregate-concurrent-2' })] }),
     ]);
     expect(backendClient.browserAggregateSnapshot).toHaveBeenCalledTimes(1);
+    expect(backendClient.browserAggregateSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      fullUniverseReason: 'diagnostics',
+      scope: expect.objectContaining({
+        fullUniverseReason: 'diagnostics',
+      }),
+    }));
     expect(backendClient.browserAggregatePage).toHaveBeenCalledTimes(2);
   });
 
@@ -733,6 +869,7 @@ describe('BrowserApplicationService deck query kernel', () => {
     );
     const query = {
       preset: 'all' as const,
+      fullUniverseReason: 'diagnostics' as const,
       sortModel: [{ colId: 'reps', sort: 'asc' as const }],
     };
 
@@ -742,6 +879,12 @@ describe('BrowserApplicationService deck query kernel', () => {
     await service.getDeckAggregatePage(query, { startRow: 0, endRow: 1 });
 
     expect(backendClient.browserAggregateSnapshot).toHaveBeenCalledTimes(2);
+    expect(backendClient.browserAggregateSnapshot).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      fullUniverseReason: 'diagnostics',
+      scope: expect.objectContaining({
+        fullUniverseReason: 'diagnostics',
+      }),
+    }));
     expect(backendClient.browserAggregatePage).toHaveBeenNthCalledWith(1, expect.objectContaining({
       identity: firstIdentity,
     }));

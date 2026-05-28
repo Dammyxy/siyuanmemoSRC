@@ -25,9 +25,12 @@ export type {
  */
 export interface IBrowserQueryableDataSource {
   getQueryFingerprint(): string;
-  getAllMatchedIds(): Promise<string[]>;
+  getAllMatchedIds(reason?: import('@/application/queries/browser/browser-deck-query').BrowserDeckFullUniverseReason): Promise<string[]>;
   getRowsByIds(ids: string[]): Promise<BrowserCard[]>;
-  getActionTargetsByIds(ids: string[]): Promise<import('@/application/interfaces/ICardDataSource').BrowserActionTarget[]>;
+  getActionTargetsByIds(
+    ids: string[],
+    reason?: import('@/application/queries/browser/browser-deck-query').BrowserDeckFullUniverseReason,
+  ): Promise<import('@/application/interfaces/ICardDataSource').BrowserActionTarget[]>;
 }
 
 export interface IBrowserQuerySessionInvalidation {

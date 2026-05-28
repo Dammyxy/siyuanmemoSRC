@@ -161,6 +161,138 @@ describe('ReviewAttemptKernel', () => {
     }));
   });
 
+  it('normalizes explicit refresh-required projection impact outcome', async () => {
+    const queueImpact = {
+      hotPatchable: false,
+      refreshRequired: true,
+      affectedQueues: [{
+        queueType: QueueType.RetrievalPractice,
+        policyHash: 'policy-refresh',
+        generation: 9,
+        outcome: 'refresh-required',
+        hotPatchable: false,
+        refreshRequired: true,
+        reason: 'projection-invalidated',
+        removedRowIds: [],
+        insertedRows: [],
+        updatedRows: [],
+        reorderHints: [],
+        counterGeneration: null,
+        counters: null,
+      }],
+    };
+    const execute = vi.fn(async () => createCommitResult({ queueImpact }));
+    const kernel = new ReviewAttemptKernel({ reviewCommitter: { execute } });
+
+    const result = await kernel.execute({
+      cardId: 'card-1',
+      rating: Rating.Good,
+      context: {
+        queueType: QueueType.RetrievalPractice,
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(result.projectionAction).toEqual(expect.objectContaining({
+      status: 'refresh-required',
+      queueType: QueueType.RetrievalPractice,
+      generation: 9,
+      policyHash: 'policy-refresh',
+    }));
+  });
+
+  it('normalizes deferred projection impact outcome for safe Review queues', async () => {
+    const queueImpact = {
+      hotPatchable: false,
+      refreshRequired: false,
+      affectedQueues: [{
+        queueType: QueueType.FinalDrill,
+        policyHash: 'policy-deferred',
+        generation: 4,
+        currentGeneration: 4,
+        requestedGeneration: 4,
+        outcome: 'deferred',
+        hotPatchable: false,
+        refreshRequired: false,
+        reason: 'review-feedback-deferred',
+        deferred: {
+          reason: 'review-feedback',
+          scheduled: true,
+          coalesced: false,
+          queuedAt: 1_700_000_000_000,
+        },
+        removedRowIds: [],
+        insertedRows: [],
+        updatedRows: [],
+        reorderHints: [],
+        counterGeneration: null,
+        counters: null,
+      }],
+    };
+    const execute = vi.fn(async () => createCommitResult({ queueImpact }));
+    const kernel = new ReviewAttemptKernel({ reviewCommitter: { execute } });
+
+    const result = await kernel.execute({
+      cardId: 'card-1',
+      rating: Rating.Good,
+      context: {
+        queueType: QueueType.FinalDrill,
+        queueMode: 'drill',
+        commitPolicy: 'drill-only',
+      },
+    });
+
+    expect(result.projectionAction).toEqual(expect.objectContaining({
+      status: 'deferred',
+      queueType: QueueType.FinalDrill,
+      generation: 4,
+      policyHash: 'policy-deferred',
+    }));
+  });
+
+  it('normalizes unavailable projection impact outcome without fallback', async () => {
+    const queueImpact = {
+      hotPatchable: false,
+      refreshRequired: false,
+      affectedQueues: [{
+        queueType: QueueType.FilterGroup,
+        policyHash: 'policy-unavailable',
+        generation: 3,
+        outcome: 'unavailable',
+        unavailableReason: 'queue-projection-unavailable',
+        hotPatchable: false,
+        refreshRequired: false,
+        reason: 'projection-unavailable',
+        removedRowIds: [],
+        insertedRows: [],
+        updatedRows: [],
+        reorderHints: [],
+        counterGeneration: null,
+        counters: null,
+      }],
+    };
+    const execute = vi.fn(async () => createCommitResult({ queueImpact }));
+    const kernel = new ReviewAttemptKernel({ reviewCommitter: { execute } });
+
+    const result = await kernel.execute({
+      cardId: 'card-1',
+      rating: Rating.Good,
+      context: {
+        queueType: QueueType.FilterGroup,
+        queueMode: 'filtered-rescheduling',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(result.projectionAction).toEqual(expect.objectContaining({
+      status: 'unavailable',
+      queueType: QueueType.FilterGroup,
+      generation: 3,
+      policyHash: 'policy-unavailable',
+    }));
+  });
+
   it('returns preview-only outcomes without converting them into committed attempts', async () => {
     const execute = vi.fn(async () => createCommitResult({
       committed: false,

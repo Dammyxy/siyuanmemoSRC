@@ -219,7 +219,7 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
       }
 
       return PerformanceMonitor.measure('browser.action.targets.ms', async () => {
-        return queryable.getActionTargetsByIds(explicitIds);
+        return queryable.getActionTargetsByIds(explicitIds, 'action-targets');
       });
     }
 
@@ -233,7 +233,7 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
       return [];
     }
 
-    const allMatchedIds = await queryable.getAllMatchedIds();
+    const allMatchedIds = await queryable.getAllMatchedIds('all-select');
     const selectedIds = deps.globalSelection.resolveSelectedIds(allMatchedIds);
     if (selectedIds.length === 0) {
       return [];
@@ -243,7 +243,7 @@ export function createBrowserActionMenuRuntime(deps: BrowserActionMenuRuntimeDep
       const targets: BrowserActionTarget[] = [];
       for (let index = 0; index < selectedIds.length; index += 500) {
         const chunkIds = selectedIds.slice(index, index + 500);
-        const chunkTargets = await queryable.getActionTargetsByIds(chunkIds);
+        const chunkTargets = await queryable.getActionTargetsByIds(chunkIds, 'action-targets');
         targets.push(...chunkTargets);
       }
       return targets;

@@ -986,6 +986,8 @@ let sourceExistencePatchStartedAt = 0;
 let globalStatsAfterFirstRowsTimer: ReturnType<typeof setTimeout> | null = null;
 let resolveGlobalStatsAfterFirstRows: (() => void) | null = null;
 let globalStatsAfterFirstRowsSequence = 0;
+let hierarchyDocumentCountsAfterFirstRowsTimer: ReturnType<typeof setTimeout> | null = null;
+let hierarchyDocumentCountsAfterFirstRowsSequence = 0;
 let loadedRowsFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let loadedRowsDirty = false;
 let longTaskObserver: PerformanceObserver | null = null;
@@ -1161,8 +1163,17 @@ function clearGlobalStatsAfterFirstRowsTimer(): void {
   }
 }
 
+function clearHierarchyDocumentCountsAfterFirstRowsTimer(): void {
+  hierarchyDocumentCountsAfterFirstRowsSequence += 1;
+  if (hierarchyDocumentCountsAfterFirstRowsTimer) {
+    clearTimeout(hierarchyDocumentCountsAfterFirstRowsTimer);
+    hierarchyDocumentCountsAfterFirstRowsTimer = null;
+  }
+}
+
 function invalidateHierarchySnapshots(): void {
   clearBackgroundSnapshotTimer();
+  clearHierarchyDocumentCountsAfterFirstRowsTimer();
   allRowsSnapshotTaskId += 1;
   allRowsSnapshotPromise = null;
   allRowsSnapshotReady.value = false;
@@ -2260,7 +2271,7 @@ let abortLoadData = () => {};
 
 async function loadData(forceRefresh = false, options: BrowserLoadDataOptions = {}) {
   await loadDataImpl(forceRefresh, options);
-  void refreshHierarchyDocumentCounts();
+  scheduleHierarchyDocumentCountsAfterFirstRows();
 }
 
 function buildHierarchyDocumentCountsScope(): BrowserDocumentCountsScope {
@@ -2343,6 +2354,30 @@ async function refreshHierarchyDocumentCounts(): Promise<void> {
       errorName: status === 'error' ? 'BrowserHierarchyDocumentCountsError' : undefined,
     });
   }
+}
+
+function scheduleHierarchyDocumentCountsAfterFirstRows(): void {
+  clearHierarchyDocumentCountsAfterFirstRowsTimer();
+  const requestId = hierarchyDocumentCountsAfterFirstRowsSequence;
+
+  const runWhenReady = () => {
+    hierarchyDocumentCountsAfterFirstRowsTimer = null;
+    if (requestId !== hierarchyDocumentCountsAfterFirstRowsSequence) {
+      return;
+    }
+    if (loading.value && !hasFirstDataBlockLoaded.value) {
+      hierarchyDocumentCountsAfterFirstRowsTimer = setTimeout(runWhenReady, SNAPSHOT_FIRST_ROWS_POLL_MS);
+      return;
+    }
+    void refreshHierarchyDocumentCounts();
+  };
+
+  if (!loading.value || hasFirstDataBlockLoaded.value) {
+    void refreshHierarchyDocumentCounts();
+    return;
+  }
+
+  hierarchyDocumentCountsAfterFirstRowsTimer = setTimeout(runWhenReady, SNAPSHOT_FIRST_ROWS_POLL_MS);
 }
 
 function resolveActiveSqlStatement(queryText: string = searchQuery.value): string | null {
@@ -3113,6 +3148,7 @@ onBeforeUnmount(() => {
   gridDatasourceLifecycle.clearPendingDatasource();
   clearBackgroundSnapshotTimer();
   clearGlobalStatsAfterFirstRowsTimer();
+  clearHierarchyDocumentCountsAfterFirstRowsTimer();
   if (searchDebounceTimer) {
     clearTimeout(searchDebounceTimer);
     searchDebounceTimer = null;

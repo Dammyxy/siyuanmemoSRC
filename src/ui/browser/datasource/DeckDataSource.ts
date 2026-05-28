@@ -7,7 +7,10 @@ import {
 } from '../browserService';
 import type { ICardDataSource } from '@/application/interfaces/ICardDataSource';
 import type { IBrowserApplicationService } from '@/application/interfaces/IBrowserApplicationService';
-import type { BrowserDeckSnapshotQuery } from '@/application/queries/browser/browser-deck-query';
+import type {
+  BrowserDeckFullUniverseReason,
+  BrowserDeckSnapshotQuery,
+} from '@/application/queries/browser/browser-deck-query';
 import type {
   BrowserActionTarget,
   CardBrowserAction,
@@ -111,6 +114,11 @@ type DeckDataSourceDependencies = {
   browserService?: DeckBrowserService | null;
 };
 
+type BrowserServiceQueryOptions = {
+  forceRefresh?: boolean;
+  fullUniverseReason?: BrowserDeckFullUniverseReason;
+};
+
 type DeckBrowserService = Partial<Pick<
   IBrowserApplicationService,
   'getDeckAggregatePage' | 'getDeckAggregateSnapshot' | 'getDeckPage' | 'getDeckMatchedIds' | 'getDeckQuerySnapshot' | 'getDeckRowsByIds'
@@ -166,9 +174,9 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     try {
       const sortModel = normalizeBrowserQuerySortModel(params?.sortModel as SortModel[] | undefined);
       this.lastSortModel = sortModel;
-      if (this.browserService?.getDeckAggregatePage) {
-        const result = await this.browserService.getDeckAggregatePage(
-          this.buildBrowserServiceQuery(sortModel, Boolean(params?.forceRefresh)),
+      if (this.browserService?.getDeckPage) {
+        const result = await this.browserService.getDeckPage(
+          this.buildBrowserServiceQuery(sortModel, { forceRefresh: Boolean(params?.forceRefresh) }),
           {
             startRow: params?.startRow,
             endRow: params?.endRow,
@@ -179,18 +187,8 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
           totalCount: result.total,
         };
       }
-      if (this.browserService?.getDeckPage) {
-        const result = await this.browserService.getDeckPage(
-          this.buildBrowserServiceQuery(sortModel),
-          {
-            startRow: params?.startRow,
-            endRow: params?.endRow,
-          },
-        );
-        return {
-          rows: result.rows,
-          totalCount: result.total,
-        };
+      if (this.browserService) {
+        throw new Error('BACKEND_UNAVAILABLE: browser.deck.page unavailable for normal deck rows');
       }
       return this.querySession.fetchRows({
         ...this.buildSessionOptions(sortModel),
@@ -207,26 +205,35 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     return this.buildQueryFingerprint(this.lastSortModel);
   }
 
-  async getAllMatchedIds(): Promise<string[]> {
+  async getAllMatchedIds(reason: BrowserDeckFullUniverseReason = 'matched-ids'): Promise<string[]> {
     if (this.browserService?.getDeckMatchedIds) {
-      return this.browserService.getDeckMatchedIds(this.buildBrowserServiceQuery(this.lastSortModel));
+      return this.browserService.getDeckMatchedIds(this.buildBrowserServiceQuery(this.lastSortModel, {
+        fullUniverseReason: reason,
+      }));
     }
-    return this.querySession.getAllMatchedIds(this.buildSessionOptions(this.lastSortModel));
+    return this.querySession.getAllMatchedIds(this.buildSessionOptions(this.lastSortModel, {
+      fullUniverseReason: reason,
+    }));
   }
 
   async getRowsByIds(ids: string[]): Promise<BrowserCard[]> {
-    if ((this.browserService?.getDeckAggregatePage || this.browserService?.getDeckPage) && this.browserService?.getDeckRowsByIds) {
+    if (this.browserService?.getDeckRowsByIds) {
       return this.browserService.getDeckRowsByIds(normalizeBrowserQueryIds(ids));
     }
     return this.querySession.getRowsByIds(ids, this.buildSessionOptions(this.lastSortModel));
   }
 
-  async getActionTargetsByIds(ids: string[]): Promise<BrowserActionTarget[]> {
-    if ((this.browserService?.getDeckAggregatePage || this.browserService?.getDeckPage) && this.browserService?.getDeckRowsByIds) {
+  async getActionTargetsByIds(
+    ids: string[],
+    reason: BrowserDeckFullUniverseReason = 'action-targets',
+  ): Promise<BrowserActionTarget[]> {
+    if (this.browserService?.getDeckRowsByIds) {
       const rows = await this.browserService.getDeckRowsByIds(normalizeBrowserQueryIds(ids));
       return rows.map((row) => toBrowserReadModelActionTarget(row));
     }
-    return this.querySession.getActionTargetsByIds(ids, this.buildSessionOptions(this.lastSortModel));
+    return this.querySession.getActionTargetsByIds(ids, this.buildSessionOptions(this.lastSortModel, {
+      fullUniverseReason: reason,
+    }));
   }
 
   getSupportedActions(): CardBrowserAction[] {
@@ -431,17 +438,26 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     return sortBrowserCards(rows, sortModel);
   }
 
-  private buildBrowserServiceQuery(sortModel: SortModel[], forceRefresh = false): BrowserDeckSnapshotQuery {
+  private buildBrowserServiceQuery(
+    sortModel: SortModel[],
+    options: BrowserServiceQueryOptions = {},
+  ): BrowserDeckSnapshotQuery {
     const cardTypes = this.mapCardTypeFilterToQueryCardTypes(this.options.cardType);
-    return {
+    const query: BrowserDeckSnapshotQuery = {
       preset: this.options.preset as BrowserDeckSnapshotQuery['preset'],
       docId: this.options.currentDocId,
       scopeDocIds: normalizeBrowserQueryScopeDocIds(this.options.scopeDocIds),
       searchText: this.options.queryText,
       cardTypes,
       sortModel: normalizeBrowserQuerySortModel(sortModel),
-      forceRefresh: forceRefresh || undefined,
     };
+    if (options.forceRefresh) {
+      query.forceRefresh = true;
+    }
+    if (options.fullUniverseReason) {
+      query.fullUniverseReason = options.fullUniverseReason;
+    }
+    return query;
   }
 
   private mapCardTypeFilterToQueryCardTypes(cardType?: DeckCardTypeFilter): string[] | undefined {
@@ -461,15 +477,20 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     }
   }
 
-  private buildSessionOptions(sortModel: SortModel[]) {
+  private buildSessionOptions(
+    sortModel: SortModel[],
+    options: { fullUniverseReason?: BrowserDeckFullUniverseReason } = {},
+  ) {
     const snapshotReader = this.browserService?.getDeckAggregateSnapshot ?? this.browserService?.getDeckQuerySnapshot;
-    if (snapshotReader && this.browserService?.getDeckRowsByIds) {
+    if (options.fullUniverseReason && snapshotReader && this.browserService?.getDeckRowsByIds) {
       return {
         queryFingerprint: this.buildQueryFingerprint(sortModel),
         buildLiteRows: async () => {
           const snapshot = await snapshotReader.call(
             this.browserService,
-            this.buildBrowserServiceQuery(sortModel)
+            this.buildBrowserServiceQuery(sortModel, {
+              fullUniverseReason: options.fullUniverseReason,
+            })
           );
           return snapshot.rows;
         },

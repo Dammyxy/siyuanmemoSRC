@@ -43,6 +43,30 @@ export type WorkerReviewFeedbackRuntimeDeps = {
   recordUnavailable?: () => void;
 };
 
+type WorkerReviewFeedbackQueueProjection = NonNullable<WorkerReviewFeedbackRuntimeDeps['queueProjection']>;
+
+type DeferredReviewFeedbackProjectionMaintenanceInput = {
+  queueType: ProjectionWorkerQueueType;
+  policyHash: string;
+  requestedGeneration: number | null;
+  requestedCurrentGeneration: number;
+  request: BackendReviewFeedbackRequest;
+  reviewedCard: FSRSCard;
+  committed: boolean;
+  reviewedAt: number;
+};
+
+type DeferredReviewFeedbackProjectionMaintenanceTask = {
+  input: DeferredReviewFeedbackProjectionMaintenanceInput;
+  queuedAt: number;
+  timer: ReturnType<typeof setTimeout>;
+};
+
+const deferredReviewFeedbackProjectionMaintenance = new WeakMap<
+  object,
+  Map<string, DeferredReviewFeedbackProjectionMaintenanceTask>
+>();
+
 export class WorkerReviewFeedbackRuntime {
   constructor(private readonly deps: WorkerReviewFeedbackRuntimeDeps) {}
 
@@ -286,6 +310,7 @@ export class WorkerReviewFeedbackRuntime {
       generation: nextGeneration,
       currentGeneration: nextGeneration,
       requestedGeneration: requestedGeneration ?? currentGeneration.generation,
+      outcome: 'patch-applied',
       hotPatchable: true,
       refreshRequired: false,
       reason: 'review-feedback',
@@ -323,8 +348,175 @@ export class WorkerReviewFeedbackRuntime {
       });
     }
 
+    const scheduled = this.scheduleDeferredReviewFeedbackProjectionMaintenance({
+      queueType: input.queueType,
+      policyHash: input.policyHash,
+      requestedGeneration: input.requestedGeneration,
+      requestedCurrentGeneration: input.requestedCurrentGeneration,
+      request: input.request,
+      reviewedCard: input.reviewedCard,
+      committed: input.committed,
+      reviewedAt: input.reviewedAt,
+    });
+
+    if (!scheduled.scheduled) {
+      return buildUnavailableQueueImpact({
+        queueType: input.queueType,
+        reason: 'projection-deferred-schedule-failed',
+        policyHash: input.policyHash,
+        currentGeneration: input.requestedCurrentGeneration,
+        requestedGeneration: input.requestedGeneration,
+        unavailableReason: 'deferred-maintenance-schedule-failed',
+      });
+    }
+
+    if (input.hasGenerationMismatch) {
+      return buildRefreshRequiredQueueImpact({
+        queueType: input.queueType,
+        reason: 'generation-mismatch',
+        policyHash: input.policyHash,
+        currentGeneration: input.requestedCurrentGeneration,
+        requestedGeneration: input.requestedGeneration,
+      });
+    }
+
+    return buildDeferredQueueImpact({
+      queueType: input.queueType,
+      policyHash: input.policyHash,
+      currentGeneration: input.requestedCurrentGeneration,
+      requestedGeneration: input.requestedGeneration,
+      queuedAt: scheduled.queuedAt,
+      coalesced: scheduled.coalesced,
+    });
+  }
+
+  private scheduleDeferredReviewFeedbackProjectionMaintenance(
+    input: DeferredReviewFeedbackProjectionMaintenanceInput,
+  ): { scheduled: boolean; coalesced: boolean; queuedAt: number } {
+    const startedAt = Date.now();
+    const queuedAt = startedAt;
+    const queueProjection = this.deps.queueProjection;
+    if (!queueProjection) {
+      return { scheduled: false, coalesced: false, queuedAt };
+    }
+
+    const queue = resolveDeferredReviewFeedbackProjectionMaintenanceQueue(queueProjection);
+    const key = buildDeferredReviewFeedbackProjectionMaintenanceKey(input);
+    const existing = queue.get(key);
+    if (existing) {
+      existing.input = input;
+      existing.queuedAt = queuedAt;
+      this.recordDeferredProjectionMaintenanceEnqueue(input, Date.now() - startedAt, {
+        queuedAt,
+        coalesced: true,
+      });
+      return { scheduled: true, coalesced: true, queuedAt };
+    }
+
+    const task: DeferredReviewFeedbackProjectionMaintenanceTask = {
+      input,
+      queuedAt,
+      timer: setTimeout(() => {
+        queue.delete(key);
+        this.runDeferredReviewFeedbackProjectionMaintenance(task.input, task.queuedAt);
+      }, 0),
+    };
+    queue.set(key, task);
+    this.recordDeferredProjectionMaintenanceEnqueue(input, Date.now() - startedAt, {
+      queuedAt,
+      coalesced: false,
+    });
+    return { scheduled: true, coalesced: false, queuedAt };
+  }
+
+  private recordDeferredProjectionMaintenanceEnqueue(
+    input: DeferredReviewFeedbackProjectionMaintenanceInput,
+    durationMs: number,
+    metadata: { queuedAt: number; coalesced: boolean },
+  ): void {
+    recordReviewFeedbackInnerStep({
+      layer: 'queue-impact',
+      step: 'projection-deferred-enqueue',
+      cardId: input.reviewedCard.id,
+      queueType: input.queueType,
+      durationMs,
+      extra: {
+        policyHash: input.policyHash,
+        scheduled: true,
+        coalesced: metadata.coalesced,
+        queuedAt: metadata.queuedAt,
+        outcome: 'deferred',
+      },
+    });
+  }
+
+  private runDeferredReviewFeedbackProjectionMaintenance(
+    input: DeferredReviewFeedbackProjectionMaintenanceInput,
+    queuedAt: number,
+  ): void {
+    const startedAt = Date.now();
+    try {
+      const applied = this.applyDeferredReviewFeedbackProjectionMaintenance(input, queuedAt);
+      const durationMs = Date.now() - startedAt;
+      recordReviewFeedbackInnerStep({
+        layer: 'queue-impact',
+        step: 'projection-deferred-run',
+        cardId: input.reviewedCard.id,
+        queueType: input.queueType,
+        durationMs,
+        extra: {
+          policyHash: input.policyHash,
+          queuedAt,
+          waitMs: Math.max(0, startedAt - queuedAt),
+          applied,
+          status: applied ? 'completed' : 'skipped',
+        },
+      });
+      logger.info('[SiYuanMemo][WorkerReviewFeedbackRuntime] deferred review.feedback projection maintenance finished', {
+        queueType: input.queueType,
+        cardId: input.reviewedCard.id,
+        policyHash: input.policyHash,
+        applied,
+        waitMs: Math.max(0, startedAt - queuedAt),
+        durationMs,
+      });
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      const message = error instanceof Error ? error.message : String(error);
+      recordReviewFeedbackInnerStep({
+        layer: 'queue-impact',
+        step: 'projection-deferred-run',
+        cardId: input.reviewedCard.id,
+        queueType: input.queueType,
+        durationMs,
+        extra: {
+          policyHash: input.policyHash,
+          queuedAt,
+          waitMs: Math.max(0, startedAt - queuedAt),
+          status: 'failed',
+          message,
+        },
+      });
+      logger.warn('[SiYuanMemo][WorkerReviewFeedbackRuntime] deferred review.feedback projection maintenance failed', {
+        queueType: input.queueType,
+        cardId: input.reviewedCard.id,
+        policyHash: input.policyHash,
+        durationMs,
+        error: message,
+      });
+    }
+  }
+
+  private applyDeferredReviewFeedbackProjectionMaintenance(
+    input: DeferredReviewFeedbackProjectionMaintenanceInput,
+    queuedAt: number,
+  ): boolean {
+    if (!this.deps.queueProjection) {
+      return false;
+    }
+
     const previousRows = this.measureQueueImpactStep(
-      'projection-read-rows',
+      'projection-deferred-read-rows',
       input.queueType,
       input.reviewedCard.id,
       () => this.deps.queueProjection!.readRows({
@@ -334,22 +526,21 @@ export class WorkerReviewFeedbackRuntime {
       }),
     );
     const nextGeneration = input.requestedCurrentGeneration + 1;
-    const nextRows = buildDeferredReviewFeedbackNextRows({
-      queueType: input.queueType,
-      previousRows,
-      reviewedCard: input.reviewedCard,
-      rating: Number(input.request.rating),
-      nextGeneration,
-      updatedAt: input.reviewedAt,
-    });
-    if (!nextRows) {
-      return buildRefreshRequiredQueueImpact({
+    const nextRows = this.measureQueueImpactStep(
+      'projection-deferred-build-rows',
+      input.queueType,
+      input.reviewedCard.id,
+      () => buildDeferredReviewFeedbackNextRows({
         queueType: input.queueType,
-        reason: 'review-feedback',
-        policyHash: input.policyHash,
-        currentGeneration: input.requestedCurrentGeneration,
-        requestedGeneration: input.requestedGeneration,
-      });
+        previousRows,
+        reviewedCard: input.reviewedCard,
+        rating: Number(input.request.rating),
+        nextGeneration,
+        updatedAt: input.reviewedAt,
+      }),
+    );
+    if (!nextRows) {
+      return false;
     }
 
     const delta = buildQueueProjectionDelta({
@@ -366,7 +557,7 @@ export class WorkerReviewFeedbackRuntime {
     });
 
     this.measureQueueImpactStep(
-      'projection-apply-delta',
+      'projection-deferred-apply-delta',
       input.queueType,
       input.reviewedCard.id,
       () => this.deps.queueProjection!.applyQueueProjectionDelta({
@@ -386,44 +577,13 @@ export class WorkerReviewFeedbackRuntime {
             reviewedCardId: input.reviewedCard.id,
             committed: input.committed,
             commitPolicy: input.request.commitPolicy ?? null,
-            hotPatchable: true,
+            deferred: true,
+            deferredQueuedAt: queuedAt,
           },
         },
       }),
     );
-
-    if (input.hasGenerationMismatch) {
-      return buildRefreshRequiredQueueImpact({
-        queueType: input.queueType,
-        reason: 'generation-mismatch',
-        policyHash: input.policyHash,
-        currentGeneration: nextGeneration,
-        requestedGeneration: input.requestedGeneration,
-      });
-    }
-
-    const affectedQueue: BackendReviewFeedbackQueueImpactEntry = {
-      queueType: input.queueType,
-      policyHash: input.policyHash,
-      generation: nextGeneration,
-      currentGeneration: nextGeneration,
-      requestedGeneration: input.requestedGeneration ?? input.requestedCurrentGeneration,
-      hotPatchable: true,
-      refreshRequired: false,
-      reason: 'review-feedback',
-      removedRowIds: delta.removedRowIds,
-      insertedRows: delta.insertedRows,
-      updatedRows: delta.updatedRows,
-      reorderHints: delta.reorderHints,
-      counterGeneration: counters.generation,
-      counters,
-    };
-
-    return {
-      hotPatchable: true,
-      refreshRequired: false,
-      affectedQueues: [affectedQueue],
-    };
+    return true;
   }
 
   private readProjectionSourceCards(
@@ -498,6 +658,61 @@ function resolveProjectionQueueType(queueType: string): ProjectionWorkerQueueTyp
   return null;
 }
 
+function resolveDeferredReviewFeedbackProjectionMaintenanceQueue(
+  queueProjection: WorkerReviewFeedbackQueueProjection,
+): Map<string, DeferredReviewFeedbackProjectionMaintenanceTask> {
+  const existing = deferredReviewFeedbackProjectionMaintenance.get(queueProjection);
+  if (existing) {
+    return existing;
+  }
+  const queue = new Map<string, DeferredReviewFeedbackProjectionMaintenanceTask>();
+  deferredReviewFeedbackProjectionMaintenance.set(queueProjection, queue);
+  return queue;
+}
+
+function buildDeferredReviewFeedbackProjectionMaintenanceKey(
+  input: Pick<DeferredReviewFeedbackProjectionMaintenanceInput, 'queueType' | 'policyHash'>,
+): string {
+  return `${input.queueType}:${input.policyHash}`;
+}
+
+function buildDeferredQueueImpact(input: {
+  queueType: QueueType;
+  policyHash: string;
+  currentGeneration: number;
+  requestedGeneration: number | null;
+  queuedAt: number;
+  coalesced: boolean;
+}): BackendReviewFeedbackQueueImpact {
+  return {
+    hotPatchable: false,
+    refreshRequired: false,
+    affectedQueues: [{
+      queueType: input.queueType,
+      policyHash: input.policyHash,
+      generation: input.currentGeneration,
+      currentGeneration: input.currentGeneration,
+      requestedGeneration: input.requestedGeneration ?? input.currentGeneration,
+      outcome: 'deferred',
+      hotPatchable: false,
+      refreshRequired: false,
+      reason: 'review-feedback-deferred',
+      removedRowIds: [],
+      insertedRows: [],
+      updatedRows: [],
+      reorderHints: [],
+      counterGeneration: null,
+      counters: null,
+      deferred: {
+        reason: 'review-feedback',
+        scheduled: true,
+        coalesced: input.coalesced,
+        queuedAt: input.queuedAt,
+      },
+    }],
+  };
+}
+
 function buildRefreshRequiredQueueImpact(input: {
   queueType: QueueType;
   reason: BackendReviewFeedbackQueueImpactEntry['reason'];
@@ -514,8 +729,41 @@ function buildRefreshRequiredQueueImpact(input: {
       generation: input.currentGeneration ?? null,
       currentGeneration: input.currentGeneration ?? null,
       requestedGeneration: input.requestedGeneration ?? null,
+      outcome: 'refresh-required',
       hotPatchable: false,
       refreshRequired: true,
+      reason: input.reason,
+      removedRowIds: [],
+      insertedRows: [],
+      updatedRows: [],
+      reorderHints: [],
+      counterGeneration: null,
+      counters: null,
+    }],
+  };
+}
+
+function buildUnavailableQueueImpact(input: {
+  queueType: QueueType;
+  reason: BackendReviewFeedbackQueueImpactEntry['reason'];
+  unavailableReason: string;
+  policyHash?: string | null;
+  currentGeneration?: number | null;
+  requestedGeneration?: number | null;
+}): BackendReviewFeedbackQueueImpact {
+  return {
+    hotPatchable: false,
+    refreshRequired: false,
+    affectedQueues: [{
+      queueType: input.queueType,
+      policyHash: input.policyHash ?? null,
+      generation: input.currentGeneration ?? null,
+      currentGeneration: input.currentGeneration ?? null,
+      requestedGeneration: input.requestedGeneration ?? null,
+      outcome: 'unavailable',
+      unavailableReason: input.unavailableReason,
+      hotPatchable: false,
+      refreshRequired: false,
       reason: input.reason,
       removedRowIds: [],
       insertedRows: [],

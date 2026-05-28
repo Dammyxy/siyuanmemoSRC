@@ -11,6 +11,7 @@ import type {
 export type ReviewAttemptProjectionActionStatus =
   | 'patch-applied'
   | 'refresh-required'
+  | 'deferred'
   | 'generation-mismatch'
   | 'not-applicable'
   | 'unavailable';
@@ -90,6 +91,36 @@ export function normalizeReviewAttemptProjectionAction(
     };
   }
 
+  const explicitOutcome = normalizeString((entry as { outcome?: unknown }).outcome);
+  if (explicitOutcome === 'unavailable') {
+    return {
+      action: createProjectionAction('unavailable', queueType, entry),
+      entry,
+    };
+  }
+  if (explicitOutcome === 'deferred') {
+    return {
+      action: createProjectionAction(
+        isDeferredReviewAttemptQueueSafe(queueType) ? 'deferred' : 'refresh-required',
+        queueType,
+        entry,
+      ),
+      entry,
+    };
+  }
+  if (explicitOutcome === 'refresh-required') {
+    return {
+      action: createProjectionAction('refresh-required', queueType, entry),
+      entry,
+    };
+  }
+  if (explicitOutcome === 'patch-applied') {
+    return {
+      action: createProjectionAction('patch-applied', queueType, entry),
+      entry,
+    };
+  }
+
   if (entry.refreshRequired === true || entry.hotPatchable !== true) {
     return {
       action: createProjectionAction('refresh-required', queueType, entry),
@@ -150,6 +181,12 @@ function normalizeNumber(value: unknown): number | null {
   }
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function isDeferredReviewAttemptQueueSafe(queueType: string | null): boolean {
+  return queueType === QueueType.FilterGroup
+    || queueType === QueueType.FinalDrill
+    || queueType === QueueType.Leech;
 }
 
 function isQueueImpact(value: unknown): value is BackendReviewFeedbackQueueImpact {

@@ -45,7 +45,7 @@ export interface QueueReviewCommitResult {
 }
 
 export interface QueueReviewProjectionAction {
-  status: 'patch-applied' | 'refresh-required' | 'generation-mismatch' | 'not-applicable' | 'unavailable' | string;
+  status: 'patch-applied' | 'refresh-required' | 'deferred' | 'generation-mismatch' | 'not-applicable' | 'unavailable' | string;
   queueType: string | null;
   generation: number | null;
   policyHash: string | null;

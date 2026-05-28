@@ -76,7 +76,11 @@ export async function loadAllRowsFromQueryableDataSource(
     return [];
   }
 
-  const allIds = await measureRuntimePerformance('browser', 'snapshot.queryable.get-all-matched-ids', () => queryable.getAllMatchedIds());
+  const allIds = await measureRuntimePerformance(
+    'browser',
+    'snapshot.queryable.get-all-matched-ids',
+    () => queryable.getAllMatchedIds('all-rows-snapshot'),
+  );
   incrementRuntimePerformanceCounter('browser', 'snapshot-matched-ids', allIds.length);
   if (allIds.length === 0) {
     return [];

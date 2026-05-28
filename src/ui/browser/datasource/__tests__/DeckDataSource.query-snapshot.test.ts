@@ -157,7 +157,7 @@ describe('DeckDataSource query snapshot path', () => {
     expectLegacyGetCardsUnused(manager);
   });
 
-  it('prefers backend aggregate pages and snapshots when available', async () => {
+  it('prefers bounded backend page reads for normal rows even when aggregate paths are available', async () => {
     const manager = {
       getCards: vi.fn(() => {
         throw new Error('legacy getCards should not be used when aggregate browserService is available');
@@ -169,7 +169,7 @@ describe('DeckDataSource query snapshot path', () => {
     const browserService = {
       getDeckAggregatePage: vi.fn(async () => ({
         total: 3,
-        rows: [makeBrowserCard('card-2'), makeBrowserCard('card-3')],
+        rows: [makeBrowserCard('aggregate-card-2'), makeBrowserCard('aggregate-card-3')],
       })),
       getDeckAggregateSnapshot: vi.fn(async () => ({
         total: 3,
@@ -179,7 +179,10 @@ describe('DeckDataSource query snapshot path', () => {
           { id: 'card-3', blockId: 'block-3', fsrsCardId: 'card-3' },
         ],
       })),
-      getDeckPage: vi.fn(),
+      getDeckPage: vi.fn(async () => ({
+        total: 3,
+        rows: [makeBrowserCard('card-2'), makeBrowserCard('card-3')],
+      })),
       getDeckRowsByIds: vi.fn(async (ids: string[]) => ids.map((id) => makeBrowserCard(id))),
       getDeckQuerySnapshot: vi.fn(),
     };
@@ -200,15 +203,104 @@ describe('DeckDataSource query snapshot path', () => {
 
     expect(page.totalCount).toBe(3);
     expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['card-2', 'card-3']);
-    expect(browserService.getDeckAggregatePage).toHaveBeenCalledTimes(1);
-    expect(browserService.getDeckPage).not.toHaveBeenCalled();
-    await expect(dataSource.getAllMatchedIds()).resolves.toEqual(['card-1', 'card-2', 'card-3']);
+    expect(browserService.getDeckPage).toHaveBeenCalledTimes(1);
+    expect(browserService.getDeckPage).toHaveBeenCalledWith(expect.objectContaining({
+      preset: 'all',
+      docId: 'doc-a',
+      scopeDocIds: null,
+      searchText: 'alpha',
+      cardTypes: undefined,
+      sortModel: [{ colId: 'priority', sort: 'desc' }],
+    }), {
+      startRow: 1,
+      endRow: 3,
+    });
+    expect(browserService.getDeckAggregatePage).not.toHaveBeenCalled();
+    expect(browserService.getDeckAggregateSnapshot).not.toHaveBeenCalled();
+
+    await expect(dataSource.getAllMatchedIds('all-select')).resolves.toEqual(['card-1', 'card-2', 'card-3']);
     expect(browserService.getDeckAggregateSnapshot).toHaveBeenCalledTimes(1);
+    expect(browserService.getDeckAggregateSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      fullUniverseReason: 'all-select',
+    }));
     expect(browserService.getDeckQuerySnapshot).not.toHaveBeenCalled();
     expectLegacyGetCardsUnused(manager);
   });
 
-  it('passes forceRefresh to aggregate deck page queries', async () => {
+  it('keeps bounded page and explicit aggregate ordering aligned for the same sort and filters', async () => {
+    const manager = {
+      getCards: vi.fn(() => {
+        throw new Error('legacy getCards should not be used when browserService is available');
+      }),
+      updateCard: vi.fn(),
+      deleteCard: vi.fn(),
+      getQueue: vi.fn(),
+    } as never;
+    const orderedIds = ['card-priority-high', 'card-priority-low', 'card-priority-tail'];
+    const browserService = {
+      getDeckAggregateSnapshot: vi.fn(async () => ({
+        total: orderedIds.length,
+        rows: orderedIds.map((id) => ({
+          id,
+          blockId: `block-${id}`,
+          fsrsCardId: id,
+        })),
+      })),
+      getDeckPage: vi.fn(async () => ({
+        total: orderedIds.length,
+        rows: orderedIds.slice(0, 2).map((id) => makeBrowserCard(id)),
+      })),
+      getDeckRowsByIds: vi.fn(async (ids: string[]) => ids.map((id) => makeBrowserCard(id))),
+    };
+
+    const dataSource = new DeckDataSource(
+      manager,
+      {
+        preset: 'all',
+        currentDocId: 'doc-a',
+        scopeDocIds: ['doc-a', 'doc-b'],
+        queryText: 'alpha',
+        cardType: 'concept-only',
+      },
+      undefined,
+      { browserService },
+    );
+
+    const page = await dataSource.fetchRows({
+      sortModel: [{ colId: 'priority', sort: 'desc' }],
+      filterModel: {},
+      startRow: 0,
+      endRow: 2,
+    });
+    const aggregateIds = await dataSource.getAllMatchedIds('diagnostics');
+    const aggregateFirstPageRows = await dataSource.getRowsByIds(aggregateIds.slice(0, 2));
+
+    expect(page.rows.map((row) => row.fsrsCardId)).toEqual(aggregateFirstPageRows.map((row) => row.fsrsCardId));
+    expect(browserService.getDeckPage).toHaveBeenCalledWith({
+      preset: 'all',
+      docId: 'doc-a',
+      scopeDocIds: ['doc-a', 'doc-b'],
+      searchText: 'alpha',
+      cardTypes: ['concept'],
+      sortModel: [{ colId: 'priority', sort: 'desc' }],
+    }, {
+      startRow: 0,
+      endRow: 2,
+    });
+    expect(browserService.getDeckAggregateSnapshot).toHaveBeenCalledWith({
+      preset: 'all',
+      docId: 'doc-a',
+      scopeDocIds: ['doc-a', 'doc-b'],
+      searchText: 'alpha',
+      cardTypes: ['concept'],
+      sortModel: [{ colId: 'priority', sort: 'desc' }],
+      fullUniverseReason: 'diagnostics',
+    });
+    expect(browserService.getDeckRowsByIds).toHaveBeenCalledWith(['card-priority-high', 'card-priority-low']);
+    expectLegacyGetCardsUnused(manager);
+  });
+
+  it('passes forceRefresh to bounded deck page queries', async () => {
     const manager = {
       getCards: vi.fn(() => {
         throw new Error('legacy getCards should not be used when aggregate browserService is available');
@@ -219,6 +311,14 @@ describe('DeckDataSource query snapshot path', () => {
     } as never;
     const browserService = {
       getDeckAggregatePage: vi.fn(async () => ({
+        total: 1,
+        rows: [makeBrowserCard('aggregate-force-refresh')],
+      })),
+      getDeckAggregateSnapshot: vi.fn(async () => ({
+        total: 1,
+        rows: [{ id: 'aggregate-force-refresh', blockId: 'block-aggregate-force-refresh', fsrsCardId: 'aggregate-force-refresh' }],
+      })),
+      getDeckPage: vi.fn(async () => ({
         total: 1,
         rows: [makeBrowserCard('card-force-refresh')],
       })),
@@ -239,13 +339,51 @@ describe('DeckDataSource query snapshot path', () => {
       forceRefresh: true,
     });
 
-    expect(browserService.getDeckAggregatePage).toHaveBeenCalledWith(expect.objectContaining({
+    expect(browserService.getDeckPage).toHaveBeenCalledWith(expect.objectContaining({
       forceRefresh: true,
       sortModel: [{ colId: 'reps', sort: 'asc' }],
     }), {
       startRow: 0,
       endRow: 1,
     });
+    expect(browserService.getDeckAggregatePage).not.toHaveBeenCalled();
+    expect(browserService.getDeckAggregateSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('fails normal row fetch closed when only aggregate snapshot service is available', async () => {
+    const manager = {
+      getCards: vi.fn(() => {
+        throw new Error('legacy getCards should not be used when browserService is available');
+      }),
+      updateCard: vi.fn(),
+      deleteCard: vi.fn(),
+      getQueue: vi.fn(),
+    } as never;
+    const browserService = {
+      getDeckAggregateSnapshot: vi.fn(async () => ({
+        total: 1,
+        rows: [{ id: 'card-1', blockId: 'block-1', fsrsCardId: 'card-1' }],
+      })),
+      getDeckRowsByIds: vi.fn(async (ids: string[]) => ids.map((id) => makeBrowserCard(id))),
+    };
+
+    const dataSource = new DeckDataSource(
+      manager,
+      { preset: 'all' },
+      undefined,
+      { browserService },
+    );
+
+    await expect(dataSource.fetchRows({
+      sortModel: [],
+      filterModel: {},
+      startRow: 0,
+      endRow: 20,
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: browser.deck.page unavailable for normal deck rows');
+
+    expect(browserService.getDeckAggregateSnapshot).not.toHaveBeenCalled();
+    expect(browserService.getDeckRowsByIds).not.toHaveBeenCalled();
+    expectLegacyGetCardsUnused(manager);
   });
 
   it('passes cloneable browserService query payloads when Vue reactive arrays reach the data source', async () => {
@@ -334,7 +472,7 @@ describe('DeckDataSource query snapshot path', () => {
     expect(browserService.getDeckRowsByIds).toHaveBeenCalledWith(['card-1']);
   });
 
-  it('fetchRows uses browserService snapshot and hydrates only the requested page', async () => {
+  it('explicit all-row snapshot uses browserService snapshot and hydrates requested rows by id', async () => {
     const manager = {
       getCards: vi.fn(() => {
         throw new Error('legacy getCards should not be used when browserService is available');
@@ -368,22 +506,18 @@ describe('DeckDataSource query snapshot path', () => {
       { browserService },
     );
 
-    const result = await dataSource.fetchRows({
-      sortModel: [{ colId: 'priority', sort: 'desc' }],
-      filterModel: {},
-      startRow: 1,
-      endRow: 3,
-    });
+    await expect(dataSource.getAllMatchedIds('all-rows-snapshot')).resolves.toEqual(['card-1', 'card-2', 'card-3']);
+    const result = await dataSource.getRowsByIds(['card-2', 'card-3']);
 
-    expect(result.totalCount).toBe(3);
-    expect(result.rows.map((row) => row.fsrsCardId)).toEqual(['card-2', 'card-3']);
+    expect(result.map((row) => row.fsrsCardId)).toEqual(['card-2', 'card-3']);
     expect(browserService.getDeckQuerySnapshot).toHaveBeenCalledWith({
       preset: 'all',
       docId: 'doc-a',
       scopeDocIds: ['doc-a', 'doc-a-child'],
       searchText: 'alpha',
       cardTypes: ['item'],
-      sortModel: [{ colId: 'priority', sort: 'desc' }],
+      sortModel: [],
+      fullUniverseReason: 'all-rows-snapshot',
     });
     expect(browserService.getDeckRowsByIds).toHaveBeenCalledTimes(1);
     expect(browserService.getDeckRowsByIds).toHaveBeenCalledWith(['card-2', 'card-3']);
