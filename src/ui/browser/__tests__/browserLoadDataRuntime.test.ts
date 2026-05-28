@@ -138,6 +138,20 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.refreshQueueCounts).toHaveBeenCalledWith({ forceRefresh: false });
   });
 
+  it('can defer queue projection warmup for first-row critical opens', async () => {
+    const deps = createDeps();
+    const runtime = createBrowserLoadDataRuntime(deps);
+
+    await runtime.loadData(false, {
+      refreshQueueCounts: false,
+      scheduleQueueProjectionWarmup: false,
+    });
+
+    expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledWith(false);
+    expect(deps.refreshQueueCounts).not.toHaveBeenCalled();
+    expect(deps.scheduleQueueProjectionWarmup).not.toHaveBeenCalled();
+  });
+
   it('clears rows and reports when deck manager is missing', async () => {
     const deps = createDeps({
       allRows: ref([{ id: 'a', blockId: 'a' } as BrowserCard]),

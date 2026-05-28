@@ -16,6 +16,15 @@ const createQueueDataSourceMock = vi.fn();
 const createQueryDataSourceMock = vi.fn();
 const createFocusDataSourceMock = vi.fn();
 const getQueueByIdBridgeMock = vi.fn();
+const refreshQueueCountsBridgeMock = vi.fn(async (queueCountsRef: { value: Record<string, number> }) => {
+  queueCountsRef.value = {
+    retrieval: 0,
+    'incremental-learning': 0,
+    'final-drill': 0,
+    'neural-roam': 0,
+    'filter-group': 0,
+  };
+});
 const loadBrowserCardsByBlockIdsMock = vi.fn(async () => []);
 const browserAdapterSyncHarness = vi.hoisted(() => ({
   options: null as null | {
@@ -211,15 +220,7 @@ vi.mock('../composables/useQueueBridge', () => ({
   },
   useQueueBridge: () => ({
     getQueueById: (...args: unknown[]) => getQueueByIdBridgeMock(...args),
-    refreshQueueCounts: vi.fn(async (queueCountsRef: { value: Record<string, number> }) => {
-      queueCountsRef.value = {
-        retrieval: 0,
-        'incremental-learning': 0,
-        'final-drill': 0,
-        'neural-roam': 0,
-        'filter-group': 0,
-      };
-    }),
+    refreshQueueCounts: (...args: unknown[]) => refreshQueueCountsBridgeMock(...args),
     setFilterGroupFilter: vi.fn(async () => {}),
     rebuildFilterGroupQueue: vi.fn(async () => {}),
   }),
@@ -573,6 +574,7 @@ describe('SRSBrowser hierarchy regressions', () => {
     getCacheStatsMock.mockReturnValue({ count: 0, age: 0, valid: false });
     getQueueByIdBridgeMock.mockReset();
     getQueueByIdBridgeMock.mockReturnValue(null);
+    refreshQueueCountsBridgeMock.mockClear();
     loadBrowserCardsByBlockIdsMock.mockReset();
     loadBrowserCardsByBlockIdsMock.mockResolvedValue([]);
     createDeckDataSourceMock.mockReset();
@@ -601,6 +603,36 @@ describe('SRSBrowser hierarchy regressions', () => {
     expect(getRowId?.({ data: buildBrowserCard('card-row-id', 'doc-1') })).toBe('card-row-id');
 
     wrapper.unmount();
+  });
+
+  it('defers default global queue count refresh until first deck rows load', async () => {
+    let resolveFetchRows: ((value: { rows: BrowserCard[]; totalCount: number }) => void) | null = null;
+    const datasource = {
+      fetchRows: vi.fn(() => new Promise<{ rows: BrowserCard[]; totalCount: number }>((resolve) => {
+        resolveFetchRows = resolve;
+      })),
+      getQueryFingerprint: vi.fn(() => 'pending-first-rows'),
+      getAllMatchedIds: vi.fn(async () => []),
+      getRowsByIds: vi.fn(async () => []),
+      getActionTargetsByIds: vi.fn(async () => []),
+      getSupportedActions: vi.fn(() => []),
+    };
+    createDeckDataSourceMock.mockReturnValue(datasource);
+
+    mountBrowser();
+    await advance(0);
+
+    expect(datasource.fetchRows).toHaveBeenCalled();
+    expect(refreshQueueCountsBridgeMock).not.toHaveBeenCalled();
+    expect(createDeckDataSourceMock).toHaveBeenCalled();
+
+    resolveFetchRows?.({
+      rows: [buildBrowserCard('card-first-row', 'doc-1')],
+      totalCount: 1,
+    });
+    await advance(250);
+
+    expect(refreshQueueCountsBridgeMock).toHaveBeenCalledTimes(1);
   });
 
   it('shows Orbit, Hyperspace, and Semantic choices in the Neural Roam workspace', async () => {

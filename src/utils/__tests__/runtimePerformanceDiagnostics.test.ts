@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   clearRuntimePerformanceDiagnostics,
+  copyRuntimePerformanceDiagnosticsReport,
   getRuntimePerformanceDiagnosticsReport,
   incrementRuntimePerformanceCounter,
   measureRuntimePerformance,
@@ -12,6 +13,7 @@ import {
 describe('runtimePerformanceDiagnostics', () => {
   afterEach(() => {
     setRuntimePerformanceDiagnosticsEnabled(false, { reset: true });
+    vi.unstubAllGlobals();
   });
 
   it('does not record spans or counters while disabled', () => {
@@ -164,5 +166,18 @@ describe('runtimePerformanceDiagnostics', () => {
       rowCount: 50,
       sortCount: 1,
     });
+  });
+
+  it('returns the report when clipboard copy is blocked by focus permissions', async () => {
+    const writeText = vi.fn().mockRejectedValue(new DOMException('Document is not focused.', 'NotAllowedError'));
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    setRuntimePerformanceDiagnosticsEnabled(true, { reset: true });
+    recordRuntimePerformanceSpan('browser', 'open.first-rows-visible', 12);
+
+    await expect(copyRuntimePerformanceDiagnosticsReport()).resolves.toMatchObject({
+      enabled: true,
+      eventCount: 1,
+    });
+    expect(writeText).toHaveBeenCalledTimes(1);
   });
 });

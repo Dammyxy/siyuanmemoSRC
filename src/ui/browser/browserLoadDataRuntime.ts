@@ -47,6 +47,7 @@ type BrowserLoadGlobalSelection = {
 
 export type BrowserLoadDataOptions = {
   refreshQueueCounts?: boolean;
+  scheduleQueueProjectionWarmup?: boolean;
   snapshotDelayMs?: number;
   origin?: 'default' | 'queue-sync';
 };
@@ -341,7 +342,9 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
         datasourceKind,
       });
       datasourceTriggered = true;
-      deps.scheduleQueueProjectionWarmup?.(origin === 'queue-sync' ? 'queue-sync' : 'browser-open');
+      if (options.scheduleQueueProjectionWarmup !== false) {
+        deps.scheduleQueueProjectionWarmup?.(origin === 'queue-sync' ? 'queue-sync' : 'browser-open');
+      }
       const hierarchySnapshotMode = resolveBrowserHierarchySnapshotMode({
         shouldFocusDocList: deps.shouldFocusDocList.value,
         activeDocId: deps.activeDocId.value,

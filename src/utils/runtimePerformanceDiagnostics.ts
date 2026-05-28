@@ -470,10 +470,14 @@ export async function copyRuntimePerformanceDiagnosticsReport(): Promise<Runtime
   const text = JSON.stringify(report, null, 2);
   const clipboard = (globalThis.navigator as Navigator | undefined)?.clipboard;
   if (clipboard?.writeText) {
-    await clipboard.writeText(text);
-  } else {
-    logger.info('[RUNTIME PERF REPORT JSON]', text);
+    try {
+      await clipboard.writeText(text);
+      return report;
+    } catch (error) {
+      logger.warn('[RUNTIME PERF REPORT COPY FAILED; JSON FOLLOWS]', error);
+    }
   }
+  logger.warn('[RUNTIME PERF REPORT JSON]', text);
   return report;
 }
 

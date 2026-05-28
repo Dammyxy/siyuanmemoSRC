@@ -3589,8 +3589,13 @@ async function applyInitialBrowserView(forceRefresh = false): Promise<void> {
 
   const initialQueueId = normalizeBrowserQueueId(props.initialQueueId);
   if (!initialQueueId) {
-    await loadData(forceRefresh);
+    await loadData(forceRefresh, {
+      refreshQueueCounts: false,
+      scheduleQueueProjectionWarmup: false,
+    });
     await refreshGlobalStatsAfterFirstRows(forceRefresh);
+    browserQueueProjectionWarmupRuntime.schedule('browser-open-after-first-rows');
+    void refreshQueueCounts();
     return;
   }
 

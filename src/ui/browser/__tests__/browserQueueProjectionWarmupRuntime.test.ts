@@ -52,7 +52,7 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     expect(ensureQueueReadModelReady).toHaveBeenCalled();
     expect(ensureQueueReadModelReady.mock.calls[0]?.[0]).toMatchObject({
       queueType: QueueType.IncrementalLearning,
-      source: 'browser-warmup',
+      source: 'browser',
     });
     expect(runtime.getStatus('incremental-learning')).toMatchObject({
       status: 'ready',
@@ -114,11 +114,50 @@ describe('browserQueueProjectionWarmupRuntime', () => {
 
     expect(ensureQueueReadModelReady).toHaveBeenCalledWith(expect.objectContaining({
       queueType: QueueType.RetrievalPractice,
-      source: 'browser-warmup',
+      source: 'browser',
     }));
     expect(runtime.getStatus('retrieval')).toMatchObject({
       status: 'refreshing',
       cause: 'projection_stale',
+    });
+    vi.useRealTimers();
+  });
+
+  it('rewarms only the affected queue after materialized identity events', async () => {
+    vi.useFakeTimers();
+    const ensureQueueReadModelReady = vi.fn(async (request) => ({
+      status: 'ready',
+      queueId: request.queueType,
+      policyId: `policy-${request.queueType}`,
+      generation: 11,
+    }));
+    const deps = createDeps({
+      activeQueueId: ref('retrieval'),
+      browserAppService: ref({ ensureQueueReadModelReady }),
+    });
+    const runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
+
+    runtime.handleLiveIdentityEvent({
+      type: 'queue-projection-live-identity',
+      queueId: 'final-drill',
+      queueType: QueueType.FinalDrill,
+      policyId: 'policy-final-drill',
+      generation: 10,
+      reason: 'materialized',
+      source: 'runtime',
+      timestamp: 1,
+    });
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
+    expect(ensureQueueReadModelReady).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.FinalDrill,
+      source: 'browser',
+    }));
+    expect(runtime.getStatus('final-drill')).toMatchObject({
+      status: 'ready',
+      queueId: 'final-drill',
+      queueType: QueueType.FinalDrill,
     });
     vi.useRealTimers();
   });

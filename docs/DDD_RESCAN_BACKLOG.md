@@ -4,6 +4,46 @@ Last update: 2026-05-28 (Round 491)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-29 - Browser warmup reuses queue read-model policy
+
+- Task: Continue Browser open performance diagnosis from live runtime logs showing repeated `Queue projection warmup readiness` with `materialization_in_progress` and a `policyId` containing `"source":"browser-warmup"`.
+- Touched slice: Browser queue projection warmup runtime and focused tests; `src/ui/browser/browserQueueProjectionWarmupRuntime.ts`, `src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts`.
+- Debt fixed now: Browser projection warmup now sends readiness requests with `source: "browser"`, matching the real Browser queue view readiness identity. Warmup no longer creates a separate `browser-warmup` policy hash that can trigger duplicate materialization instead of reusing the projection the Browser view needs.
+- Debt deferred: Live first-row timing still needs a rebuilt SiYuan smoke run because the pasted diagnostics report was truncated before slowest Browser spans. Queue projection materialization itself still runs after first rows when projections are invalidated.
+- Why deferred: This fix removes the confirmed policy split from the provided log without redesigning queue projection materialization ownership or the Browser queue view contract.
+- Next safe step: Rebuild/reload, enable runtime diagnostics, open Browser, and confirm warmup `policyId` no longer includes `"source":"browser-warmup"`. If first rows are still slow, inspect `browser.open.first-rows-visible`, `grid.fetch-rows`, `load-data.total`, and `queue-projection.warmup` spans.
+- Validation: `pnpm exec vitest run src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts`; `pnpm exec vitest run src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts src/utils/__tests__/runtimePerformanceDiagnostics.test.ts`.
+
+### 2026-05-29 - Runtime perf copy fallback
+
+- Task: Fix live diagnostics collection failure where `window.siyuanMemoRuntimePerformance.copyReport()` rejected with `NotAllowedError` when DevTools or the page was not focused.
+- Touched slice: Runtime diagnostics utility; `src/utils/runtimePerformanceDiagnostics.ts`, focused diagnostics tests.
+- Debt fixed now: `copyReport()` no longer fails the diagnostic path when clipboard permission is denied. It tries clipboard first, then logs the full report JSON with a warning and still returns the report.
+- Debt deferred: The report is still console-based rather than a downloadable file or persistent diagnostics artifact.
+- Why deferred: The immediate blocker was lost live timing data from clipboard focus permissions. Persisting reports needs a separate UX/storage decision.
+- Next safe step: Rebuild/reload, rerun `window.siyuanMemoRuntimePerformance.copyReport()`, and copy the `[RUNTIME PERF REPORT JSON]` log when clipboard is denied.
+- Validation: `pnpm vitest run src/utils/__tests__/runtimePerformanceDiagnostics.test.ts`.
+
+### 2026-05-29 - Browser global open defers queue startup work
+
+- Task: Diagnose live Browser startup logs where all-card open created every queue, loaded manual additions, removed non-existent manual cards, saved queue state to SQLite, and began projection materialization before first rows were visible.
+- Touched slice: Browser initial global open lifecycle; `src/ui/browser/SRSBrowser.vue`, `src/ui/browser/browserLoadDataRuntime.ts`, focused Browser load/SFC tests.
+- Debt fixed now: Default global Browser open no longer lets `loadData()` immediately run queue count refresh or queue projection warmup. It attaches the deck datasource first, waits for the first deck rows through the existing first-row gate, then starts global stats, queue projection warmup, and queue count refresh in the background. This keeps queue lazy creation/manual-entry cleanup/projection materialization out of the first-row critical path.
+- Debt deferred: Queue views and explicit queue actions still initialize their queue owner immediately, as they should. Existing invalidated projections still need background materialization after first rows; this change only moves that work out of Browser all-card startup.
+- Why deferred: The live symptom was all-card Browser startup being blocked by queue lifecycle side work. Removing queue initialization from actual queue selection would break the declared queue owner path and needs a different design.
+- Next safe step: Rebuild/reload, enable runtime diagnostics, open all-card Browser, and confirm `Queue created:*`, `Removed non-existent cards`, and projection warmup logs appear only after `browser.open.first-rows-visible`.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts`; `pnpm vitest run src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`.
+
+### 2026-05-29 - Browser projection warmup live-event storm
+
+- Task: Diagnose live Browser open logs where queue projection warmup repeatedly logged `refreshing/materialization_in_progress` and `ready` for the same queues after runtime performance diagnostics were enabled.
+- Touched slice: Browser queue projection warmup runtime and focused tests; `src/ui/browser/browserQueueProjectionWarmupRuntime.ts`, `src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts`.
+- Debt fixed now: Queue projection live identity events now rewarm only the affected projection-backed queue instead of rescheduling the full visible warmup set. A single `materialized/refreshed/invalidated` event no longer causes retrieval/final/incremental/filter warmup scans to replay and spam readiness logs.
+- Debt deferred: This does not prove all-card Browser first-row latency in the live SiYuan surface; the pasted console report was collapsed and did not include span durations. Full runtime attribution still needs `copyReport()` or expanded `report()` timings after rebuild.
+- Why deferred: The reproduced local failure matched the log storm exactly: one materialized event caused four readiness calls. First-row blocking requires timing data for `browser.open.first-rows-visible`, `grid.fetch-rows`, `hierarchy.document-counts`, and `queue-projection.warmup`.
+- Next safe step: Rebuild/reload, enable `window.siyuanMemoRuntimePerformance`, reopen Browser, and use `window.siyuanMemoRuntimePerformance.copyReport()` after first rows appear. The warmup logs should show one affected queue per live event rather than the whole queue set repeating.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts`; `pnpm vitest run src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts`.
+
 ### 2026-05-28 - Browser hierarchy count-only and projection warmup
 
 - Task: Execute OpenSpec change `optimize-browser-hierarchy-and-projection-warmup` after Browser open profiling showed hierarchy still waited for delayed full-row snapshot hydration and projection-backed queue views paid invalidated projection readiness on selection.

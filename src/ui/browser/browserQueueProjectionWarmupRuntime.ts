@@ -69,7 +69,13 @@ function isWarmableQueue(queueType: QueueType | null): queueType is QueueType {
   return Boolean(queueType && queueType !== QueueType.NeuralRoam);
 }
 
-function buildWarmupQueueOrder(activeQueueId: string | null): BrowserQueueId[] {
+function buildWarmupQueueOrder(activeQueueId: string | null, targetQueueIds?: BrowserQueueId[]): BrowserQueueId[] {
+  if (targetQueueIds?.length) {
+    const deduped = Array.from(new Set(targetQueueIds));
+    return deduped
+      .filter((queueId) => isWarmableQueue(resolveQueueTypeForBrowserQueueId(queueId)))
+      .slice(0, MAX_WARMUP_QUEUES);
+  }
   const active = normalizeBrowserQueueId(activeQueueId);
   const all = getCanonicalBrowserQueueIds().filter((queueId) =>
     isWarmableQueue(resolveQueueTypeForBrowserQueueId(queueId)),
@@ -119,7 +125,7 @@ function buildWarmupRequest(
     docId: scope.activeDocId,
     scopeDocIds: scope.activeScopeDocIds,
     cardType: String(scope.cardType),
-    source: 'browser-warmup',
+    source: 'browser',
   };
 }
 
@@ -152,14 +158,14 @@ export function createBrowserQueueProjectionWarmupRuntime(
     };
   }
 
-  async function runWarmup(seq: number, reason: string): Promise<void> {
+  async function runWarmup(seq: number, reason: string, targetQueueIds?: BrowserQueueId[]): Promise<void> {
     const service = deps.browserAppService.value;
     if (!service?.ensureQueueReadModelReady) {
       deps.logger.debug?.('[SiYuanMemo][SRSBrowser] Queue projection warmup skipped; readiness service unavailable');
       return;
     }
     const scope = currentScope();
-    const queueIds = buildWarmupQueueOrder(scope.activeQueueId);
+    const queueIds = buildWarmupQueueOrder(scope.activeQueueId, targetQueueIds);
     for (const queueId of queueIds) {
       if (seq !== generation) return;
       const queueType = resolveQueueTypeForBrowserQueueId(queueId);
@@ -198,12 +204,12 @@ export function createBrowserQueueProjectionWarmupRuntime(
     }
   }
 
-  function schedule(reason = 'browser-open', delayMs = DEFAULT_WARMUP_DEBOUNCE_MS): void {
+  function schedule(reason = 'browser-open', delayMs = DEFAULT_WARMUP_DEBOUNCE_MS, targetQueueIds?: BrowserQueueId[]): void {
     const seq = ++generation;
     clearTimer();
     timer = setTimeout(() => {
       timer = null;
-      void runWarmup(seq, reason);
+      void runWarmup(seq, reason, targetQueueIds);
     }, Math.max(0, Math.floor(delayMs)));
   }
 
@@ -214,7 +220,7 @@ export function createBrowserQueueProjectionWarmupRuntime(
     if (event.reason !== 'invalidated' && event.reason !== 'refreshed' && event.reason !== 'materialized') {
       return;
     }
-    schedule(`live-identity:${event.reason}`, 0);
+    schedule(`live-identity:${event.reason}`, 0, [queueId]);
   }
 
   function getStatus(queueId: string | null): BrowserQueueProjectionWarmupStatus | null {
