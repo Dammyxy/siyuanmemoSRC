@@ -232,6 +232,14 @@ const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'sync.conflict.reload',
 ]);
 
+const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_PRESERVE_METHODS = new Set<string>([
+  'system.health',
+  'diagnostics.status',
+  'domainSync.status',
+  'sync.reviewDivergence.audit',
+  'sync.conflict.summarize',
+]);
+
 export class BackendKernel {
   private readonly privateApiAuditTrail: Array<{
     requestId: string;
@@ -303,10 +311,11 @@ export class BackendKernel {
       const isReviewFeedback = request.method === 'review.feedback';
       const reviewFeedbackCardId = isReviewFeedback ? this.extractReviewFeedbackCardId(request.params) : null;
       const requestStartedAt = Date.now();
-      if (!isReviewFeedback) {
-        this.deps.database.invalidateReviewFeedbackMainDbFastSkip();
+      const requiresStorageRefresh = !STORAGE_REFRESH_EXEMPT_METHODS.has(request.method);
+      if (!isReviewFeedback && !REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_PRESERVE_METHODS.has(request.method)) {
+        this.deps.database.invalidateReviewFeedbackMainDbFastSkip(`backend-method:${request.method}`);
       }
-      if (!STORAGE_REFRESH_EXEMPT_METHODS.has(request.method)) {
+      if (requiresStorageRefresh) {
         const mergeStartedAt = Date.now();
         const merge = await this.deps.database.mergeExternalDatabaseIfChanged(
           undefined,
@@ -328,6 +337,8 @@ export class BackendKernel {
               sourceCount: merge.sourceIds.length,
               mainDbReadSkipped: merge.mainDbReadSkipped,
               mainDbReadSkipReason: merge.mainDbReadSkipReason,
+              conflictSourceCount: merge.conflictSourceCount,
+              nonEmptyConflictSourceCount: merge.nonEmptyConflictSourceCount,
             },
           );
         }
@@ -786,11 +797,37 @@ export class BackendKernel {
     if (!named || typeof named !== 'object') {
       throw new Error('review.feedback requires named params');
     }
-    const result = await this.deps.database.reviewFeedback(named);
+    const result = await this.reviewFeedbackWithForcedMainDbRetry(named);
     if (result.committed) {
       this.deps.database.markReviewFeedbackOwnPersistedMainDbClean();
     }
     return result;
+  }
+
+  private async reviewFeedbackWithForcedMainDbRetry(
+    request: BackendReviewFeedbackRequest,
+  ): Promise<BackendReviewFeedbackResult> {
+    try {
+      return await this.deps.database.reviewFeedback(request);
+    } catch (error) {
+      if (!this.isReviewFeedbackCardNotFoundError(error, request.cardId)) {
+        throw error;
+      }
+      this.deps.database.invalidateReviewFeedbackMainDbFastSkip('review-feedback-card-not-found-retry');
+      await this.deps.database.mergeExternalDatabaseIfChanged(undefined, {
+        context: 'review-feedback-preflight',
+        cardId: request.cardId,
+        forceMainDbRead: true,
+        ignoreProcessedSourceDeduplication: true,
+      });
+      return this.deps.database.reviewFeedback(request);
+    }
+  }
+
+  private isReviewFeedbackCardNotFoundError(error: unknown, cardId: string): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes('review.feedback card not found')
+      && message.includes(cardId);
   }
 
   private async handleSyncConflictMerge(params: unknown): Promise<BackendSyncConflictMergeResult> {

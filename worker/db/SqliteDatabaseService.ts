@@ -109,6 +109,7 @@ type SqlParams = SqlValue[] | ParamsObject;
 const logger = createLogger('WorkerSqliteDatabaseService');
 const REVIEW_FEEDBACK_DB_STEP_SLOW_MS = 120;
 const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_LIMIT = 5;
+const DOMAIN_SYNC_REPAIR_DAY_MS = 24 * 60 * 60 * 1000;
 const KERNEL_INGEST_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-ingest.snapshot.json';
 const KERNEL_INGEST_QUEUE_SNAPSHOT_VERSION = 1;
 const KERNEL_ACTION_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-actions.snapshot.json';
@@ -134,6 +135,8 @@ type ExternalDatabaseMergeContext =
 interface ExternalDatabaseMergeOptions {
   context?: ExternalDatabaseMergeContext;
   cardId?: string | null;
+  forceMainDbRead?: boolean;
+  ignoreProcessedSourceDeduplication?: boolean;
 }
 
 type ExternalDatabaseMergeResult = {
@@ -154,6 +157,12 @@ type ExternalDatabaseMergeResult = {
   diagnostics: BackendSyncConflictMergeResult['diagnostics'];
   mainDbReadSkipped: boolean;
   mainDbReadSkipReason: string | null;
+  conflictSourceCount: number;
+  nonEmptyConflictSourceCount: number;
+};
+
+type WorkerSyncConflictMergeRequest = BackendSyncConflictMergeRequest & {
+  ignoreProcessedSourceDeduplication?: boolean;
 };
 
 interface ConflictReviewEventRow {
@@ -264,8 +273,10 @@ interface DomainSyncProcessedSourceRow {
 
 interface DomainSyncRepairPreviewEvidenceRow {
   card_id: string | null;
+  latest_review_event_id: string | null;
   newest_reviewed_at: number | null;
   review_event_count: number;
+  latest_review_payload_json: string | null;
   updated_at: number | null;
   due: number | null;
   state: number | null;
@@ -276,6 +287,7 @@ interface DomainSyncRepairPreviewEvidenceRow {
   last_review: number | null;
   block_id: string | null;
   scheduler_type: string | null;
+  card_payload_json: string | null;
 }
 
 interface DomainSyncRepairPlanRow {
@@ -617,6 +629,7 @@ export class WorkerSqliteDatabaseService {
   private initialized = false;
   private lastObservedPersistedHash: string | null = null;
   private reviewFeedbackMainDbFastSkipUsesRemaining = 0;
+  private reviewFeedbackMainDbFastSkipInvalidatedBy: string | null = 'never-marked-clean';
   private readonly semanticCommandResultsByIdempotencyKey = new Map<string, BackendSemanticCommandResult>();
   private readonly domainSyncCleanupResultsByIdempotencyKey = new Map<string, BackendDomainSyncConflictSourceCleanupResult>();
   private readonly kernelTransactionQueue: Array<{
@@ -765,6 +778,8 @@ export class WorkerSqliteDatabaseService {
     const totalStartedAt = Date.now();
     const context = options.context ?? 'generic';
     const cardId = options.cardId ?? null;
+    const forceMainDbRead = options.forceMainDbRead === true;
+    const ignoreProcessedSourceDeduplication = options.ignoreProcessedSourceDeduplication === true;
     await this.measureReviewFeedbackDatabaseStep('merge.init', cardId, () => this.init());
     const sources: BackendSyncConflictMergeRequest['sources'] = [];
     const conflictSources = await this.measureReviewFeedbackDatabaseStep(
@@ -775,7 +790,7 @@ export class WorkerSqliteDatabaseService {
     let mainDbReadSkipped = false;
     let mainDbReadSkipReason: string | null = null;
     const nonEmptyConflictSources = conflictSources.filter((source) => source.bytes.byteLength > 0);
-    if (conflictSources.length === 0 && this.canSkipMainDbReadForReviewFeedbackPreflight(context)) {
+    if (!forceMainDbRead && nonEmptyConflictSources.length === 0 && this.canSkipMainDbReadForReviewFeedbackPreflight(context)) {
       this.reviewFeedbackMainDbFastSkipUsesRemaining -= 1;
       mainDbReadSkipped = true;
       mainDbReadSkipReason = 'own-review-feedback-persisted-no-conflict-sources';
@@ -788,6 +803,8 @@ export class WorkerSqliteDatabaseService {
           context,
           usesRemaining: this.reviewFeedbackMainDbFastSkipUsesRemaining,
           reason: mainDbReadSkipReason,
+          conflictSourceCount: conflictSources.length,
+          nonEmptyConflictSourceCount: nonEmptyConflictSources.length,
         },
       });
       logger.info('[SiYuanMemo][WorkerSqliteDatabaseService] review.feedback preflight skipped persisted main DB read', {
@@ -795,10 +812,19 @@ export class WorkerSqliteDatabaseService {
         context,
         usesRemaining: this.reviewFeedbackMainDbFastSkipUsesRemaining,
         reason: mainDbReadSkipReason,
+        conflictSourceCount: conflictSources.length,
+        nonEmptyConflictSourceCount: nonEmptyConflictSources.length,
       });
     } else {
+      if (context === 'review-feedback-preflight' && !forceMainDbRead && nonEmptyConflictSources.length === 0) {
+        mainDbReadSkipReason = this.reviewFeedbackMainDbFastSkipUsesRemaining <= 0
+          ? `fast-skip-not-eligible:${this.reviewFeedbackMainDbFastSkipInvalidatedBy ?? 'unknown'}`
+          : 'fast-skip-not-eligible:unknown';
+      } else if (context === 'review-feedback-preflight' && !forceMainDbRead) {
+        mainDbReadSkipReason = 'fast-skip-blocked:non-empty-conflict-sources';
+      }
       if (context !== 'review-feedback-preflight') {
-        this.invalidateReviewFeedbackMainDbFastSkip();
+        this.invalidateReviewFeedbackMainDbFastSkip(`merge:${context}`);
       }
       const bytes = await this.measureReviewFeedbackDatabaseStep(
         'merge.read-main-db',
@@ -808,7 +834,7 @@ export class WorkerSqliteDatabaseService {
 
       if (bytes && bytes.byteLength > 0) {
         const persistedHash = hashBytes(bytes);
-        if (persistedHash !== this.lastObservedPersistedHash) {
+        if (forceMainDbRead || persistedHash !== this.lastObservedPersistedHash) {
           const currentHash = await this.measureReviewFeedbackDatabaseStep(
             'merge.hash-current-db',
             cardId,
@@ -831,7 +857,7 @@ export class WorkerSqliteDatabaseService {
 
     if (sources.length === 0) {
       if (forgottenStaleSkippedSources > 0) {
-        this.invalidateReviewFeedbackMainDbFastSkip();
+        this.invalidateReviewFeedbackMainDbFastSkip('merge:forgotten-stale-skipped-sources');
         await this.measureReviewFeedbackDatabaseStep('merge.persist-forgotten-skipped', cardId, () => this.runtime.persist());
         await this.measureReviewFeedbackDatabaseStep('merge.remember-hash', cardId, () => this.rememberPersistedHash());
       }
@@ -860,6 +886,8 @@ export class WorkerSqliteDatabaseService {
         },
         mainDbReadSkipped,
         mainDbReadSkipReason,
+        conflictSourceCount: conflictSources.length,
+        nonEmptyConflictSourceCount: nonEmptyConflictSources.length,
       };
       this.logReviewFeedbackDatabaseStepIfSlow('merge.total', cardId, Date.now() - totalStartedAt, {
         changed: response.changed,
@@ -867,6 +895,8 @@ export class WorkerSqliteDatabaseService {
         sanityStatus: response.sanityStatus,
         mainDbReadSkipped: response.mainDbReadSkipped,
         mainDbReadSkipReason: response.mainDbReadSkipReason,
+        conflictSourceCount: response.conflictSourceCount,
+        nonEmptyConflictSourceCount: response.nonEmptyConflictSourceCount,
       });
       return response;
     }
@@ -880,6 +910,7 @@ export class WorkerSqliteDatabaseService {
       () => this.mergeSyncConflictDatabases({
         mergedAt,
         sources,
+        ignoreProcessedSourceDeduplication,
       }),
       { sourceCount: sources.length },
     );
@@ -911,7 +942,7 @@ export class WorkerSqliteDatabaseService {
       });
       await this.measureReviewFeedbackDatabaseStep('merge.remember-hash', cardId, () => this.rememberPersistedHash());
     }
-    this.invalidateReviewFeedbackMainDbFastSkip();
+    this.invalidateReviewFeedbackMainDbFastSkip('merge:changed-or-conflict-source');
 
     const response: ExternalDatabaseMergeResult = {
       ok: true,
@@ -933,6 +964,8 @@ export class WorkerSqliteDatabaseService {
       diagnostics: result.diagnostics,
       mainDbReadSkipped,
       mainDbReadSkipReason,
+      conflictSourceCount: conflictSources.length,
+      nonEmptyConflictSourceCount: nonEmptyConflictSources.length,
     };
     this.logReviewFeedbackDatabaseStepIfSlow('merge.total', cardId, Date.now() - totalStartedAt, {
       changed: response.changed,
@@ -943,6 +976,8 @@ export class WorkerSqliteDatabaseService {
       importedOperations: response.importedOperations,
       mainDbReadSkipped: response.mainDbReadSkipped,
       mainDbReadSkipReason: response.mainDbReadSkipReason,
+      conflictSourceCount: response.conflictSourceCount,
+      nonEmptyConflictSourceCount: response.nonEmptyConflictSourceCount,
     });
     return response;
   }
@@ -954,10 +989,15 @@ export class WorkerSqliteDatabaseService {
 
   markReviewFeedbackOwnPersistedMainDbClean(): void {
     this.reviewFeedbackMainDbFastSkipUsesRemaining = REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_LIMIT;
+    this.reviewFeedbackMainDbFastSkipInvalidatedBy = null;
   }
 
-  invalidateReviewFeedbackMainDbFastSkip(): void {
+  invalidateReviewFeedbackMainDbFastSkip(reason = 'unknown'): void {
     this.reviewFeedbackMainDbFastSkipUsesRemaining = 0;
+    if (reason === 'merge:generic' && this.reviewFeedbackMainDbFastSkipInvalidatedBy) {
+      return;
+    }
+    this.reviewFeedbackMainDbFastSkipInvalidatedBy = reason;
   }
 
   private async rememberPersistedHash(): Promise<void> {
@@ -1926,12 +1966,26 @@ export class WorkerSqliteDatabaseService {
         && isFiniteSqlNumber(row.scheduled_days)
         && isFiniteSqlNumber(row.stability)
         && isFiniteSqlNumber(row.difficulty);
+      const after = this.buildDomainSyncRepairAfterState({
+        row,
+        newestReviewEventAt,
+        reviewEventCount,
+        cardReps,
+      });
+      const hasReviewSnapshotDivergence = hasCardState
+        && hasSchedulerEvidence
+        && this.hasDomainSyncReviewAfterSnapshot(row)
+        && after !== null
+        && this.domainSyncRepairAfterStateDiffers(row, after);
       const repairReasons: BackendDomainSyncRepairPreviewCardEvidence['reason'][] = [];
 
       if (!hasCardState) {
         repairReasons.push('missing-card-state');
       } else {
         if (newestReviewEventAt && (!cardLastReview || newestReviewEventAt > cardLastReview)) {
+          repairReasons.push('review-history-newer-than-card-state');
+        }
+        if (hasReviewSnapshotDivergence && !repairReasons.includes('review-history-newer-than-card-state')) {
           repairReasons.push('review-history-newer-than-card-state');
         }
         if (cardReps !== null && reviewEventCount > cardReps) {
@@ -1966,6 +2020,25 @@ export class WorkerSqliteDatabaseService {
         continue;
       }
 
+      if (!after) {
+        if (includeUnrepairable) {
+          evidence.push({
+            cardId,
+            blockId,
+            reason: 'missing-scheduler-evidence',
+            newestReviewEventAt,
+            cardLastReview,
+            reviewEventCount,
+            cardReps,
+          });
+        }
+        unrepairableReasons.push({
+          cardId,
+          reason: 'missing-scheduler-evidence',
+        });
+        continue;
+      }
+
       evidence.push({
         cardId,
         blockId,
@@ -1978,15 +2051,19 @@ export class WorkerSqliteDatabaseService {
       plannedMutations.push({
         cardId,
         mutationType: 'card-state-repair',
-        summary: 'repair card review counters from backend review history',
+        summary: 'repair card scheduling state from backend review history',
         before: {
+          due: toNullableTimestamp(row.due),
+          stability: isFiniteSqlNumber(row.stability) ? Number(row.stability) : null,
+          difficulty: isFiniteSqlNumber(row.difficulty) ? Number(row.difficulty) : null,
           lastReview: cardLastReview,
           reps: cardReps,
+          state: isFiniteSqlNumber(row.state) ? Math.floor(Number(row.state)) : null,
+          elapsedDays: null,
+          scheduledDays: isFiniteSqlNumber(row.scheduled_days) ? Math.floor(Number(row.scheduled_days)) : null,
+          schedulerType: typeof row.scheduler_type === 'string' && row.scheduler_type.trim() ? row.scheduler_type : null,
         },
-        after: {
-          lastReview: newestReviewEventAt,
-          reps: Math.max(reviewEventCount, cardReps ?? 0),
-        },
+        after,
       });
     }
 
@@ -2131,18 +2208,12 @@ export class WorkerSqliteDatabaseService {
           continue;
         }
         const after = mutation.after || {};
-        const nextLastReview = toNullableTimestamp(after.lastReview);
-        const nextReps = Number.isFinite(Number(after.reps)) ? Math.max(0, Math.floor(Number(after.reps))) : null;
-        if (!nextLastReview || nextReps === null) {
+        const repairedCard = this.applyDomainSyncRepairAfterState(card, after, appliedAt);
+        if (!repairedCard) {
           skippedCards += 1;
           continue;
         }
-        this.repository!.upsertCard({
-          ...card,
-          lastReview: nextLastReview,
-          reps: nextReps,
-          updatedAt: appliedAt,
-        });
+        this.repository!.upsertCard(repairedCard);
         appliedCards += 1;
         affectedCardIds.push(card.id);
         if (card.blockId) {
@@ -2365,7 +2436,7 @@ export class WorkerSqliteDatabaseService {
   }
 
   async mergeSyncConflictDatabases(
-    request: BackendSyncConflictMergeRequest,
+    request: WorkerSyncConflictMergeRequest,
   ): Promise<BackendSyncConflictMergeResult> {
     await this.init();
     const sources = Array.isArray(request.sources) ? request.sources : [];
@@ -2398,7 +2469,7 @@ export class WorkerSqliteDatabaseService {
         });
         continue;
       }
-      if (this.hasSuccessfulDomainSyncProcessedSource(sourceId, sourceFingerprint)) {
+      if (!request.ignoreProcessedSourceDeduplication && this.hasSuccessfulDomainSyncProcessedSource(sourceId, sourceFingerprint)) {
         continue;
       }
 
@@ -3193,8 +3264,10 @@ export class WorkerSqliteDatabaseService {
     params.push(...uniqueCardIds);
     return this.runtime.getAll<DomainSyncRepairPreviewEvidenceRow>(
       `SELECT e.card_id,
+              latest.id AS latest_review_event_id,
               MAX(e.reviewed_at) AS newest_reviewed_at,
               COUNT(*) AS review_event_count,
+              latest.payload_json AS latest_review_payload_json,
               c.updated_at,
               c.due,
               c.state,
@@ -3204,14 +3277,24 @@ export class WorkerSqliteDatabaseService {
               c.reps,
               c.last_review,
               c.block_id,
-              c.scheduler_type
+              c.scheduler_type,
+              c.payload_json AS card_payload_json
        FROM review_events e
        LEFT JOIN cards c ON c.id = e.card_id
+       LEFT JOIN review_events latest
+         ON latest.id = (
+           SELECT e2.id
+           FROM review_events e2
+           WHERE e2.card_id = e.card_id
+             AND e2.event_type = 'review-v2'
+           ORDER BY e2.reviewed_at DESC, e2.id DESC
+           LIMIT 1
+         )
        WHERE e.event_type = 'review-v2'
          AND (c.id IS NULL OR (${activePluginCardSql('c')}))
          ${scope}
-       GROUP BY e.card_id, c.updated_at, c.due, c.state, c.scheduled_days,
-                c.stability, c.difficulty, c.reps, c.last_review, c.block_id, c.scheduler_type
+       GROUP BY e.card_id, latest.id, latest.payload_json, c.updated_at, c.due, c.state, c.scheduled_days,
+                c.stability, c.difficulty, c.reps, c.last_review, c.block_id, c.scheduler_type, c.payload_json
        ORDER BY e.card_id ASC`,
       params,
     );
@@ -3244,6 +3327,16 @@ export class WorkerSqliteDatabaseService {
       const hasRepairableDivergence = hasCardState && (
         (Boolean(newestReviewEventAt) && (!cardLastReview || newestReviewEventAt! > cardLastReview))
         || (cardReps !== null && reviewEventCount > cardReps)
+        || (
+          hasSchedulerEvidence
+          && this.hasDomainSyncReviewAfterSnapshot(row)
+          && this.domainSyncRepairAfterStateDiffers(row, this.buildDomainSyncRepairAfterState({
+            row,
+            newestReviewEventAt,
+            reviewEventCount,
+            cardReps,
+          }))
+        )
       );
       if (!hasCardState) {
         unrepairableCardIds.add(cardId);
@@ -3260,6 +3353,311 @@ export class WorkerSqliteDatabaseService {
       repairableCards: repairableCardIds.size,
       unrepairableCards: unrepairableCardIds.size,
     };
+  }
+
+  private buildDomainSyncRepairAfterState(input: {
+    row: DomainSyncRepairPreviewEvidenceRow;
+    newestReviewEventAt: number | null;
+    reviewEventCount: number;
+    cardReps: number | null;
+  }): Record<string, unknown> | null {
+    const payload = parseSqlJsonRecord(input.row.latest_review_payload_json);
+    const after = isRecord(payload.after) ? payload.after : null;
+    const cardId = normalizeString(input.row.card_id);
+    if (!cardId) {
+      return null;
+    }
+    if (!after) {
+      return this.buildDomainSyncRepairCounterOnlyAfterState(input);
+    }
+    const afterCardId = normalizeString(after.id) || normalizeString(payload.cardId);
+    if (afterCardId && afterCardId !== cardId) {
+      return null;
+    }
+    const lastReview = toNullableTimestamp(after.lastReview) ?? input.newestReviewEventAt;
+    if (!lastReview || (input.newestReviewEventAt && lastReview !== input.newestReviewEventAt)) {
+      return null;
+    }
+    const due = toNullableTimestamp(after.due);
+    const stability = readFiniteRepairNumber(after.stability);
+    const difficulty = readFiniteRepairNumber(after.difficulty);
+    const reps = readNonNegativeRepairInteger(after.reps);
+    const lapses = readNonNegativeRepairInteger(after.lapses);
+    const state = readCardStateRepairValue(after.state);
+    const elapsedDays = readNonNegativeRepairInteger(after.elapsedDays);
+    const scheduledDays = readNonNegativeRepairInteger(after.scheduledDays);
+    if (
+      due === null
+      || stability === null
+      || difficulty === null
+      || reps === null
+      || lapses === null
+      || state === null
+      || elapsedDays === null
+      || scheduledDays === null
+    ) {
+      return null;
+    }
+    const schedulerType = normalizeString(after.schedulerType) || normalizeString(payload.schedulerType) || null;
+    const repairAfter: Record<string, unknown> = {
+      due,
+      stability,
+      difficulty,
+      reps: Math.max(reps, input.reviewEventCount, input.cardReps ?? 0),
+      lapses,
+      state,
+      lastReview,
+      elapsedDays,
+      scheduledDays,
+      schedulerType,
+    };
+    const learningStep = readNonNegativeRepairInteger(after.learning_step);
+    if (learningStep !== null) {
+      repairAfter.learning_step = learningStep;
+    }
+    const aFactor = readFiniteRepairNumber(after.aFactor);
+    if (aFactor !== null) {
+      repairAfter.aFactor = aFactor;
+    }
+    return this.canonicalizeDomainSyncRepairAfterState(input.row, repairAfter);
+  }
+
+  private hasDomainSyncReviewAfterSnapshot(row: DomainSyncRepairPreviewEvidenceRow): boolean {
+    const payload = parseSqlJsonRecord(row.latest_review_payload_json);
+    return isRecord(payload.after);
+  }
+
+  private buildDomainSyncRepairCounterOnlyAfterState(input: {
+    row: DomainSyncRepairPreviewEvidenceRow;
+    newestReviewEventAt: number | null;
+    reviewEventCount: number;
+    cardReps: number | null;
+  }): Record<string, unknown> | null {
+    const due = toNullableTimestamp(input.row.due);
+    const stability = readFiniteRepairNumber(input.row.stability);
+    const difficulty = readFiniteRepairNumber(input.row.difficulty);
+    const state = readCardStateRepairValue(input.row.state);
+    const lastReview = input.newestReviewEventAt;
+    const scheduledDays = readNonNegativeRepairInteger(input.row.scheduled_days);
+    if (
+      due === null
+      || stability === null
+      || difficulty === null
+      || state === null
+      || lastReview === null
+      || scheduledDays === null
+    ) {
+      return null;
+    }
+    const current = parseSqlJsonRecord(input.row.card_payload_json);
+    const reps = Math.max(input.reviewEventCount, input.cardReps ?? 0);
+    const repairAfter: Record<string, unknown> = {
+      due,
+      stability,
+      difficulty,
+      reps,
+      lapses: readNonNegativeRepairInteger(current.lapses) ?? 0,
+      state,
+      lastReview,
+      elapsedDays: readNonNegativeRepairInteger(current.elapsedDays) ?? 0,
+      scheduledDays,
+      schedulerType: normalizeString(input.row.scheduler_type) || normalizeString(current.schedulerType) || null,
+    };
+    const learningStep = readNonNegativeRepairInteger(current.learning_step);
+    if (learningStep !== null) {
+      repairAfter.learning_step = learningStep;
+    }
+    const aFactor = readFiniteRepairNumber(current.aFactor);
+    if (aFactor !== null) {
+      repairAfter.aFactor = aFactor;
+    }
+    return this.canonicalizeDomainSyncRepairAfterState(input.row, repairAfter);
+  }
+
+  private canonicalizeDomainSyncRepairAfterState(
+    row: DomainSyncRepairPreviewEvidenceRow,
+    repairAfter: Record<string, unknown>,
+  ): Record<string, unknown> | null {
+    const cardId = normalizeString(row.card_id);
+    if (!cardId) {
+      return null;
+    }
+    const current = parseSqlJsonRecord(row.card_payload_json);
+    const lastReview = toNullableTimestamp(repairAfter.lastReview);
+    const elapsedDays = readNonNegativeRepairInteger(repairAfter.elapsedDays);
+    const canonicalNow = lastReview !== null && elapsedDays !== null
+      ? lastReview + elapsedDays * DOMAIN_SYNC_REPAIR_DAY_MS
+      : undefined;
+    const candidate: FSRSCard = {
+      ...(current as Partial<FSRSCard>),
+      id: cardId,
+      xiuyuanID: normalizeString(current.xiuyuanID),
+      blockId: normalizeString(current.blockId) || normalizeString(row.block_id) || cardId,
+      due: toNullableTimestamp(repairAfter.due) ?? toNullableTimestamp(current.due) ?? 0,
+      stability: readFiniteRepairNumber(repairAfter.stability) ?? readFiniteRepairNumber(current.stability) ?? 0,
+      difficulty: readFiniteRepairNumber(repairAfter.difficulty) ?? readFiniteRepairNumber(current.difficulty) ?? 0,
+      reps: readNonNegativeRepairInteger(repairAfter.reps) ?? readNonNegativeRepairInteger(current.reps) ?? 0,
+      lapses: readNonNegativeRepairInteger(repairAfter.lapses) ?? readNonNegativeRepairInteger(current.lapses) ?? 0,
+      state: readCardStateRepairValue(repairAfter.state) ?? readCardStateRepairValue(current.state) ?? CardState.New,
+      lastReview: lastReview ?? toNullableTimestamp(current.lastReview) ?? 0,
+      elapsedDays: elapsedDays ?? readNonNegativeRepairInteger(current.elapsedDays) ?? 0,
+      scheduledDays: readNonNegativeRepairInteger(repairAfter.scheduledDays) ?? readNonNegativeRepairInteger(current.scheduledDays) ?? 0,
+      priority: readFiniteRepairNumber(current.priority) ?? readFiniteRepairNumber(repairAfter.priority) ?? 19,
+      type: readCardTypeRepairValue(current.type) ?? readCardTypeRepairValue(repairAfter.type) ?? CardType.Item,
+      tags: Array.isArray(current.tags) ? current.tags.filter((tag): tag is string => typeof tag === 'string') : [],
+      neuralRoamSeed: current.neuralRoamSeed === true,
+      leechCount: readNonNegativeRepairInteger(current.leechCount) ?? 0,
+      isLeech: current.isLeech === true,
+      skipped: current.skipped === true,
+      createdAt: toNullableTimestamp(current.createdAt) ?? toNullableTimestamp(row.updated_at) ?? 0,
+      updatedAt: toNullableTimestamp(current.updatedAt) ?? toNullableTimestamp(row.updated_at) ?? 0,
+      meta: isRecord(current.meta) ? current.meta : {},
+      schedulerType: normalizeString(repairAfter.schedulerType) || normalizeString(current.schedulerType) || undefined,
+    };
+    const learningStep = readNonNegativeRepairInteger(repairAfter.learning_step);
+    if (learningStep !== null) {
+      candidate.learning_step = learningStep;
+    }
+    const aFactor = readFiniteRepairNumber(repairAfter.aFactor);
+    if (aFactor !== null) {
+      candidate.aFactor = aFactor;
+    }
+    const canonical = canonicalizeSchedulingState(candidate, {
+      source: 'domain-sync.repair',
+      mode: 'repair-external',
+      now: canonicalNow,
+    }).card;
+    const normalized: Record<string, unknown> = {
+      ...repairAfter,
+      due: canonical.due,
+      stability: canonical.stability,
+      difficulty: canonical.difficulty,
+      reps: canonical.reps,
+      lapses: canonical.lapses,
+      state: canonical.state,
+      lastReview: canonical.lastReview,
+      elapsedDays: canonical.elapsedDays,
+      scheduledDays: canonical.scheduledDays,
+      schedulerType: canonical.schedulerType,
+    };
+    if (readNonNegativeRepairInteger(canonical.learning_step) !== null) {
+      normalized.learning_step = canonical.learning_step;
+    } else {
+      delete normalized.learning_step;
+    }
+    const canonicalAFactor = readFiniteRepairNumber(canonical.aFactor);
+    if (canonicalAFactor !== null) {
+      normalized.aFactor = canonicalAFactor;
+    } else {
+      delete normalized.aFactor;
+    }
+    return normalized;
+  }
+
+  private domainSyncRepairAfterStateDiffers(
+    row: DomainSyncRepairPreviewEvidenceRow,
+    after: Record<string, unknown> | null,
+  ): boolean {
+    if (!after) {
+      return false;
+    }
+    if (toNullableTimestamp(row.due) !== toNullableTimestamp(after.due)) {
+      return true;
+    }
+    if (readFiniteRepairNumber(row.stability) !== readFiniteRepairNumber(after.stability)) {
+      return true;
+    }
+    if (readFiniteRepairNumber(row.difficulty) !== readFiniteRepairNumber(after.difficulty)) {
+      return true;
+    }
+    if (readNonNegativeRepairInteger(row.reps) !== readNonNegativeRepairInteger(after.reps)) {
+      return true;
+    }
+    if (readCardStateRepairValue(row.state) !== readCardStateRepairValue(after.state)) {
+      return true;
+    }
+    if (toNullableTimestamp(row.last_review) !== toNullableTimestamp(after.lastReview)) {
+      return true;
+    }
+    if (readNonNegativeRepairInteger(row.scheduled_days) !== readNonNegativeRepairInteger(after.scheduledDays)) {
+      return true;
+    }
+    const current = parseSqlJsonRecord(row.card_payload_json);
+    if (readNonNegativeRepairInteger(current.lapses) !== readNonNegativeRepairInteger(after.lapses)) {
+      return true;
+    }
+    // elapsedDays is derived from lastReview and the current clock when cards are
+    // persisted. A historical review-event snapshot must not make repair loop
+    // forever just because time has advanced since that review.
+    if ((readNonNegativeRepairInteger(current.learning_step) ?? null) !== (readNonNegativeRepairInteger(after.learning_step) ?? null)) {
+      return true;
+    }
+    const afterSchedulerType = normalizeString(after.schedulerType);
+    if (afterSchedulerType && normalizeString(row.scheduler_type) !== afterSchedulerType) {
+      return true;
+    }
+    const afterAFactor = readFiniteRepairNumber(after.aFactor);
+    if (afterAFactor !== null && readFiniteRepairNumber(current.aFactor) !== afterAFactor) {
+      return true;
+    }
+    return false;
+  }
+
+  private applyDomainSyncRepairAfterState(
+    card: FSRSCard,
+    after: Record<string, unknown>,
+    appliedAt: number,
+  ): FSRSCard | null {
+    const due = toNullableTimestamp(after.due);
+    const stability = readFiniteRepairNumber(after.stability);
+    const difficulty = readFiniteRepairNumber(after.difficulty);
+    const reps = readNonNegativeRepairInteger(after.reps);
+    const lapses = readNonNegativeRepairInteger(after.lapses);
+    const state = readCardStateRepairValue(after.state);
+    const lastReview = toNullableTimestamp(after.lastReview);
+    const elapsedDays = readNonNegativeRepairInteger(after.elapsedDays);
+    const scheduledDays = readNonNegativeRepairInteger(after.scheduledDays);
+    if (
+      due === null
+      || stability === null
+      || difficulty === null
+      || reps === null
+      || lapses === null
+      || state === null
+      || lastReview === null
+      || elapsedDays === null
+      || scheduledDays === null
+    ) {
+      return null;
+    }
+    const next: FSRSCard = {
+      ...card,
+      due,
+      stability,
+      difficulty,
+      reps,
+      lapses,
+      state,
+      lastReview,
+      elapsedDays,
+      scheduledDays,
+      updatedAt: appliedAt,
+    };
+    const schedulerType = normalizeString(after.schedulerType);
+    if (schedulerType) {
+      next.schedulerType = schedulerType;
+    }
+    const learningStep = readNonNegativeRepairInteger(after.learning_step);
+    if (learningStep !== null) {
+      next.learning_step = learningStep;
+    } else {
+      delete next.learning_step;
+    }
+    const aFactor = readFiniteRepairNumber(after.aFactor);
+    if (aFactor !== null) {
+      next.aFactor = aFactor;
+    }
+    return next;
   }
 
   private buildDomainSyncRepairSchedulerConfigHash(rows: DomainSyncRepairPreviewEvidenceRow[]): string | null {
@@ -3349,6 +3747,8 @@ export class WorkerSqliteDatabaseService {
         cardId: row.card_id,
         newestReviewEventAt: row.newest_reviewed_at,
         reviewEventCount: row.review_event_count,
+        latestReviewEventId: row.latest_review_event_id,
+        latestReviewPayloadFingerprint: this.fnv1a32(String(row.latest_review_payload_json || '')),
       })))),
     };
   }
@@ -3437,9 +3837,11 @@ export class WorkerSqliteDatabaseService {
     const payload = {
       planId: input.planId,
       idempotencyKey: input.idempotencyKey,
+      cardId: input.cardId,
       mutation: input.mutation,
     };
     const payloadJson = JSON.stringify(payload);
+    const operationIdempotencyKey = `${input.idempotencyKey}:${input.cardId}`;
     this.runtime.run(
       `INSERT OR IGNORE INTO domain_sync_operations
         (operation_id, source_id, source_device_id, source_generation, operation_type,
@@ -3458,7 +3860,7 @@ export class WorkerSqliteDatabaseService {
         input.appliedAt,
         input.appliedAt,
         this.fnv1a32(payloadJson),
-        input.idempotencyKey,
+        operationIdempotencyKey,
         null,
         payloadJson,
       ],
@@ -4868,8 +5270,12 @@ export class WorkerSqliteDatabaseService {
     riffCardId: string;
     existingCard?: FSRSCard;
   }): FSRSCard {
-    const schedule = this.readNativeRiffSchedule(input.block.riffCard);
     const existing = input.existingCard;
+    const nativeSchedule = this.readNativeRiffSchedule(input.block.riffCard);
+    const schedule = this.resolveXiuyuanSyncSchedule({
+      existing,
+      nativeSchedule,
+    });
     const meta = {
       ...(isRecord(existing?.meta) ? existing?.meta : {}),
       templateID: 'builtin-riff-sync',
@@ -4910,6 +5316,38 @@ export class WorkerSqliteDatabaseService {
       mode: 'repair-external',
       now: input.updatedAt,
     }).card;
+  }
+
+  private resolveXiuyuanSyncSchedule(input: {
+    existing?: FSRSCard;
+    nativeSchedule: Partial<Pick<
+      FSRSCard,
+      'due' | 'stability' | 'difficulty' | 'reps' | 'lapses' | 'state' | 'lastReview' | 'elapsedDays' | 'scheduledDays'
+    >>;
+  }): Partial<Pick<
+    FSRSCard,
+    'due' | 'stability' | 'difficulty' | 'reps' | 'lapses' | 'state' | 'lastReview' | 'elapsedDays' | 'scheduledDays'
+  >> {
+    const existing = input.existing;
+    if (!existing) {
+      return input.nativeSchedule;
+    }
+    const nativeLastReview = toNullableTimestamp(input.nativeSchedule.lastReview);
+    const existingLastReview = toNullableTimestamp(existing.lastReview);
+    const nativeReps = readNonNegativeRepairInteger(input.nativeSchedule.reps);
+    const existingReps = readNonNegativeRepairInteger(existing.reps);
+    const nativeIsNewer =
+      (nativeLastReview !== null && existingLastReview !== null && nativeLastReview > existingLastReview)
+      || (nativeLastReview !== null && existingLastReview === null)
+      || (
+        nativeLastReview !== null
+        && existingLastReview !== null
+        && nativeLastReview === existingLastReview
+        && nativeReps !== null
+        && existingReps !== null
+        && nativeReps > existingReps
+      );
+    return nativeIsNewer ? input.nativeSchedule : {};
   }
 
   private readNativeRiffSchedule(
@@ -5517,5 +5955,46 @@ function readNativeRiffCardState(value: unknown): Partial<Pick<FSRSCard, 'state'
       return { state: Math.floor(numeric) as CardState };
     default:
       return {};
+  }
+}
+
+function readFiniteRepairNumber(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function readNonNegativeRepairInteger(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? Math.floor(numeric) : null;
+}
+
+function readCardStateRepairValue(value: unknown): CardState | null {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+  switch (Math.floor(numeric)) {
+    case CardState.New:
+    case CardState.Learning:
+    case CardState.Review:
+    case CardState.Relearning:
+    case CardState.Suspended:
+      return Math.floor(numeric) as CardState;
+    default:
+      return null;
+  }
+}
+
+function readCardTypeRepairValue(value: unknown): CardType | null {
+  switch (String(value || '').trim()) {
+    case CardType.Item:
+    case CardType.Topic:
+    case CardType.Concept:
+    case CardType.Descriptor:
+    case CardType.Incremental:
+    case CardType.Webpage:
+      return String(value).trim() as CardType;
+    default:
+      return null;
   }
 }

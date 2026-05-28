@@ -26,6 +26,7 @@ import type {
 import {
   beginBackendWorkerRequest,
   endBackendWorkerRequest,
+  markActiveReviewFeedbackTimingAmbiguous,
   recordReviewFeedbackHostEffect,
   recordReviewFeedbackInnerStep,
   resolveExclusiveActiveReviewFeedbackTiming,
@@ -76,11 +77,17 @@ function requestHostEffect<TResult>(effect: BackendWorkerHostEffect): Promise<TR
       resolve: (result) => {
         const reviewFeedbackTiming = resolveExclusiveActiveReviewFeedbackTiming();
         recordReviewFeedbackHostEffect(reviewFeedbackTiming, effect.kind, Date.now() - startedAt);
+        if (!reviewFeedbackTiming) {
+          markActiveReviewFeedbackTimingAmbiguous();
+        }
         resolve(result as TResult);
       },
       reject: (error) => {
         const reviewFeedbackTiming = resolveExclusiveActiveReviewFeedbackTiming();
         recordReviewFeedbackHostEffect(reviewFeedbackTiming, effect.kind, Date.now() - startedAt);
+        if (!reviewFeedbackTiming) {
+          markActiveReviewFeedbackTimingAmbiguous();
+        }
         reject(error);
       },
     });
@@ -262,7 +269,7 @@ scope.onmessage = (event) => {
       ? message.sentAt
       : null;
     const requestTiming: ActiveReviewFeedbackTiming | null = isReviewFeedback
-      ? beginBackendWorkerRequest(true)
+      ? beginBackendWorkerRequest(true, cardId)
       : beginBackendWorkerRequest(false);
     if (isReviewFeedback) {
       if (sentAt !== null) {

@@ -7,6 +7,7 @@ import type {
 const MAX_REVIEW_FEEDBACK_INNER_STEPS = 24;
 
 export type ActiveReviewFeedbackTiming = {
+  cardId: string | null;
   hostEffectCount: number;
   hostEffectTotalMs: number;
   hostEffectAttribution: BackendWorkerResponseTiming['hostEffectAttribution'];
@@ -22,12 +23,16 @@ export type ActiveReviewFeedbackTiming = {
 let activeRequestCount = 0;
 const activeReviewFeedbackTimings = new Set<ActiveReviewFeedbackTiming>();
 
-export function beginBackendWorkerRequest(isReviewFeedback: boolean): ActiveReviewFeedbackTiming | null {
+export function beginBackendWorkerRequest(
+  isReviewFeedback: boolean,
+  cardId: string | null = null,
+): ActiveReviewFeedbackTiming | null {
   activeRequestCount += 1;
   if (!isReviewFeedback) {
     return null;
   }
   const timing: ActiveReviewFeedbackTiming = {
+    cardId,
     hostEffectCount: 0,
     hostEffectTotalMs: 0,
     hostEffectAttribution: 'complete',
@@ -61,6 +66,33 @@ export function resolveExclusiveActiveReviewFeedbackTiming(): ActiveReviewFeedba
   return activeReviewFeedbackTimings.values().next().value ?? null;
 }
 
+export function markActiveReviewFeedbackTimingAmbiguous(): void {
+  for (const timing of activeReviewFeedbackTimings) {
+    timing.hostEffectAttribution = 'ambiguous-concurrency';
+    timing.innerStepAttribution = 'ambiguous-concurrency';
+  }
+}
+
+function resolveActiveReviewFeedbackTimingForInnerStep(
+  stepTiming: BackendWorkerInnerStepTiming,
+): ActiveReviewFeedbackTiming | null {
+  if (activeReviewFeedbackTimings.size === 0) {
+    return null;
+  }
+  if (activeReviewFeedbackTimings.size !== 1) {
+    markActiveReviewFeedbackTimingAmbiguous();
+    return null;
+  }
+  const timing = activeReviewFeedbackTimings.values().next().value ?? null;
+  if (activeRequestCount !== 1) {
+    timing.innerStepAttribution = 'ambiguous-concurrency';
+    if (timing.cardId && stepTiming.cardId !== timing.cardId) {
+      return null;
+    }
+  }
+  return timing;
+}
+
 export function recordReviewFeedbackHostEffect(
   timing: ActiveReviewFeedbackTiming | null,
   kind: BackendWorkerHostEffect['kind'],
@@ -80,7 +112,7 @@ export function recordReviewFeedbackHostEffect(
 }
 
 export function recordReviewFeedbackInnerStep(stepTiming: BackendWorkerInnerStepTiming): void {
-  const timing = resolveExclusiveActiveReviewFeedbackTiming();
+  const timing = resolveActiveReviewFeedbackTimingForInnerStep(stepTiming);
   if (!timing) {
     return;
   }

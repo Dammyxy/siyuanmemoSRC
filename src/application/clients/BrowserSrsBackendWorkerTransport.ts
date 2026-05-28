@@ -28,6 +28,7 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('BrowserSrsBackendWorkerTransport');
 const REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS = 120;
+const REVIEW_FEEDBACK_WORKER_HANDLE_TOP_INNER_STEP_COUNT = 5;
 
 export interface BrowserSrsBackendWorkerHostEffects {
   readBinary?: (path: string) => Promise<Uint8Array | null>;
@@ -513,7 +514,10 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     extra?: Record<string, unknown>,
   ): void {
     const shouldForceLog = step === 'worker-inner-step'
-      && extra?.innerStep === 'merge.fast-skip-main-db-read';
+      && (
+        extra?.innerStep === 'merge.fast-skip-main-db-read'
+        || extra?.forceLogReason === 'worker-handle-top-inner-step'
+      );
     if (
       method !== 'review.feedback'
       || (!shouldForceLog && durationMs < REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS)
@@ -530,6 +534,38 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     });
   }
 
+  private summarizeReviewFeedbackInnerSteps(
+    timing: BackendWorkerResponseTiming,
+  ): {
+    innerStepCount: number;
+    innerStepTotalMs: number;
+    slowestInnerStep: Record<string, unknown> | null;
+    topInnerSteps: Array<Record<string, unknown>>;
+    unattributedMs: number;
+  } {
+    const innerSteps = Array.isArray(timing.innerSteps) ? timing.innerSteps : [];
+    const topInnerSteps = innerSteps
+      .map((innerStep, index) => ({ innerStep, index }))
+      .sort((left, right) => right.innerStep.durationMs - left.innerStep.durationMs)
+      .slice(0, REVIEW_FEEDBACK_WORKER_HANDLE_TOP_INNER_STEP_COUNT)
+      .map(({ innerStep }) => ({
+        layer: innerStep.layer,
+        step: innerStep.step,
+        durationMs: innerStep.durationMs,
+        cardId: innerStep.cardId ?? null,
+        queueType: innerStep.queueType ?? null,
+        ...(innerStep.extra ?? {}),
+      }));
+    const innerStepTotalMs = innerSteps.reduce((total, innerStep) => total + innerStep.durationMs, 0);
+    return {
+      innerStepCount: innerSteps.length,
+      innerStepTotalMs,
+      slowestInnerStep: topInnerSteps[0] ?? null,
+      topInnerSteps,
+      unattributedMs: Math.max(0, timing.handleDurationMs - innerStepTotalMs - timing.hostEffectTotalMs),
+    };
+  }
+
   private logReviewFeedbackWorkerTiming(
     pending: PendingBackendRequest,
     timing: BackendWorkerResponseTiming | null | undefined,
@@ -538,6 +574,15 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     if (pending.method !== 'review.feedback' || !timing) {
       return;
     }
+    const innerStepSummary = this.summarizeReviewFeedbackInnerSteps(timing);
+    const shouldForceTopInnerSteps = timing.handleDurationMs >= REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS;
+    const forceLoggedInnerSteps = shouldForceTopInnerSteps
+      ? new Set(
+        [...timing.innerSteps]
+          .sort((left, right) => right.durationMs - left.durationMs)
+          .slice(0, REVIEW_FEEDBACK_WORKER_HANDLE_TOP_INNER_STEP_COUNT),
+      )
+      : new Set();
     this.logReviewFeedbackTransportStepIfSlow(
       'worker-received-delay',
       pending.method,
@@ -562,6 +607,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         slowestHostEffect: timing.slowestHostEffect,
         innerStepAttribution: timing.innerStepAttribution,
         innerStepsTruncated: timing.innerStepsTruncated,
+        ...innerStepSummary,
       },
     );
     for (const innerStep of timing.innerSteps) {
@@ -577,6 +623,9 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           innerCardId: innerStep.cardId ?? null,
           innerQueueType: innerStep.queueType ?? null,
           innerStepAttribution: timing.innerStepAttribution,
+          ...(forceLoggedInnerSteps.has(innerStep)
+            ? { forceLogReason: 'worker-handle-top-inner-step' }
+            : {}),
           ...(innerStep.extra ?? {}),
         },
       );

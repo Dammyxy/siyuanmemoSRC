@@ -121,7 +121,7 @@ export class CardMapper {
     const cardMeta = isObjectRecord(card.meta) ? card.meta : undefined;
 
     // 提取 meta 中的 Xiuyuan 字段
-    const xiuyuanID = asString(cardMeta?.xiuyuanID);
+    const xiuyuanID = asString(card.xiuyuanID) || asString(cardMeta?.xiuyuanID);
     const templateID = asString(cardMeta?.templateID);
     const frontBlockIDs = asStringArray(cardMeta?.frontBlockIDs);
     const backBlockIDs = asStringArray(cardMeta?.backBlockIDs);

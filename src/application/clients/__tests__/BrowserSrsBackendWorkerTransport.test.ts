@@ -219,6 +219,23 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         hostEffectAttribution: 'complete',
         innerStepAttribution: 'complete',
         innerStepsTruncated: false,
+        innerStepCount: 1,
+        innerStepTotalMs: 220,
+        slowestInnerStep: expect.objectContaining({
+          layer: 'database',
+          step: 'reviewFeedback.runtime',
+          durationMs: 220,
+          committed: true,
+        }),
+        topInnerSteps: [
+          expect.objectContaining({
+            layer: 'database',
+            step: 'reviewFeedback.runtime',
+            durationMs: 220,
+            committed: true,
+          }),
+        ],
+        unattributedMs: 0,
         slowestHostEffect: {
           kind: 'sqlite.writeBinary',
           durationMs: 140,
@@ -237,6 +254,113 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         innerQueueType: 'incremental-learning',
         innerStepAttribution: 'complete',
         committed: true,
+      }),
+    );
+    transport.dispose();
+  });
+
+  it('force logs top inner steps when review feedback worker handle is slow but each inner step is below threshold', async () => {
+    vi.setSystemTime(2_000);
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+    });
+    const request = createReviewFeedbackRequest(14);
+    const pending = transport.request(request);
+    worker.emit({ kind: 'ready' });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+
+    vi.setSystemTime(2_400);
+    const response: BackendRpcResponse = {
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 14,
+      result: { ok: true },
+    };
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response,
+      timing: {
+        sentAt: 2_000,
+        receivedAt: 2_010,
+        receivedDelayMs: 10,
+        handleStartedAt: 2_020,
+        handledAt: 2_360,
+        handleDurationMs: 340,
+        hostEffectCount: 1,
+        hostEffectTotalMs: 4,
+        hostEffectAttribution: 'complete',
+        slowestHostEffect: {
+          kind: 'sqlite.readSyncConflictDatabaseSources',
+          durationMs: 4,
+        },
+        innerSteps: [
+          {
+            layer: 'database',
+            step: 'merge.total',
+            durationMs: 90,
+          },
+          {
+            layer: 'transaction',
+            step: 'transaction',
+            durationMs: 80,
+            cardId: 'card-1',
+            queueType: 'incremental-learning',
+          },
+          {
+            layer: 'database',
+            step: 'reviewFeedback.runtime',
+            durationMs: 70,
+            cardId: 'card-1',
+            queueType: 'incremental-learning',
+          },
+        ],
+        innerStepAttribution: 'complete',
+        innerStepsTruncated: false,
+      },
+    });
+
+    await expect(pending).resolves.toEqual(response);
+    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+      '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
+      expect.objectContaining({
+        step: 'worker-handle',
+        cardId: 'card-1',
+        durationMs: 340,
+        innerStepCount: 3,
+        innerStepTotalMs: 240,
+        slowestInnerStep: expect.objectContaining({
+          layer: 'database',
+          step: 'merge.total',
+          durationMs: 90,
+        }),
+        topInnerSteps: [
+          expect.objectContaining({ step: 'merge.total', durationMs: 90 }),
+          expect.objectContaining({ step: 'transaction', durationMs: 80 }),
+          expect.objectContaining({ step: 'reviewFeedback.runtime', durationMs: 70 }),
+        ],
+        unattributedMs: 96,
+      }),
+    );
+    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+      '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
+      expect.objectContaining({
+        step: 'worker-inner-step',
+        cardId: 'card-1',
+        durationMs: 90,
+        innerStep: 'merge.total',
+        forceLogReason: 'worker-handle-top-inner-step',
+      }),
+    );
+    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+      '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
+      expect.objectContaining({
+        step: 'worker-inner-step',
+        cardId: 'card-1',
+        durationMs: 80,
+        innerStep: 'transaction',
+        forceLogReason: 'worker-handle-top-inner-step',
       }),
     );
     transport.dispose();

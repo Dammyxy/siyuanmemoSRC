@@ -2006,6 +2006,432 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('repairs full scheduling state from the newest formal review event', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const cardId = 'apply-full-schedule-repair-card';
+    await database.upsertCards([buildCard({
+      id: cardId,
+      blockId: 'apply-full-schedule-repair-block',
+      due: 1_700_002_000_000,
+      stability: 0,
+      difficulty: 1,
+      reps: 3,
+      lapses: 0,
+      state: CardState.Relearning,
+      lastReview: 1_700_002_000_000,
+      elapsedDays: 0,
+      scheduledDays: 0,
+      learning_step: 0,
+      updatedAt: 1_700_002_000_000,
+      schedulerType: 'fsrs-v6',
+    })]);
+    await seedReviewEvent(database, {
+      id: 'apply-full-schedule-repair-review',
+      cardId,
+      reviewedAt: 1_700_002_100_000,
+      payload: {
+        schemaVersion: 2,
+        id: 'apply-full-schedule-repair-review',
+        attemptId: 'attempt-full-schedule-repair',
+        cardId,
+        rating: 3,
+        reviewedAt: 1_700_002_100_000,
+        algorithm: 'fsrs-v6',
+        schedulerType: 'fsrs-v6',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        before: {
+          id: cardId,
+          due: 1_700_002_000_000,
+          stability: 0,
+          difficulty: 1,
+          reps: 3,
+          lapses: 0,
+          state: CardState.Relearning,
+          lastReview: 1_700_002_000_000,
+          elapsedDays: 0,
+          scheduledDays: 0,
+          priority: 19,
+          type: CardType.Item,
+          schedulerType: 'fsrs-v6',
+        },
+        after: {
+          id: cardId,
+          due: 1_700_002_700_000,
+          stability: 2.3,
+          difficulty: 2.1,
+          reps: 4,
+          lapses: 0,
+          state: CardState.Learning,
+          lastReview: 1_700_002_100_000,
+          elapsedDays: 0,
+          scheduledDays: 0,
+          learning_step: 1,
+          priority: 19,
+          type: CardType.Item,
+          schedulerType: 'fsrs-v6',
+        },
+        isDrill: false,
+        isFiltered: false,
+        customStudy: false,
+      },
+    });
+    const preview = await database.previewDomainSyncRepair({ cardIds: [cardId] }, 1_700_002_100_001);
+
+    expect(preview.plannedMutations).toEqual([
+      expect.objectContaining({
+        cardId,
+        after: expect.objectContaining({
+          due: 1_700_002_700_000,
+          stability: 2.3,
+          difficulty: 2.1,
+          reps: 4,
+          state: CardState.Learning,
+          lastReview: 1_700_002_100_000,
+          scheduledDays: 0,
+          learning_step: 1,
+          schedulerType: 'fsrs-v6',
+        }),
+      }),
+    ]);
+
+    const applied = await database.applyDomainSyncRepair({
+      planId: preview.planId,
+      idempotencyKey: 'apply-full-schedule-repair-key',
+      confirmedAt: 1_700_002_100_002,
+      confirmedBy: 'test',
+    }, 1_700_002_100_003);
+
+    expect(applied).toMatchObject({
+      ok: true,
+      status: 'applied',
+      appliedCards: 1,
+      skippedCards: 0,
+    });
+    await expect(database.getCard(cardId)).resolves.toMatchObject({
+      due: 1_700_002_700_000,
+      stability: 2.3,
+      difficulty: 2.1,
+      reps: 4,
+      state: CardState.Learning,
+      lastReview: 1_700_002_100_000,
+      scheduledDays: 0,
+      learning_step: 1,
+      updatedAt: 1_700_002_100_003,
+    });
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      sanity: {
+        status: 'clean',
+        repairableDivergenceCount: 0,
+        divergentCardCount: 0,
+      },
+    });
+  });
+
+  it('does not keep repairable divergence only because elapsedDays advanced after review', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const cardId = 'apply-elapsed-days-repair-card';
+    const reviewedAt = 1_700_002_100_000;
+    await database.upsertCards([buildCard({
+      id: cardId,
+      blockId: 'apply-elapsed-days-repair-block',
+      due: reviewedAt + 86_400_000,
+      stability: 1,
+      difficulty: 5,
+      reps: 3,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: reviewedAt - 86_400_000,
+      elapsedDays: 1,
+      scheduledDays: 1,
+      updatedAt: reviewedAt,
+      schedulerType: 'fsrs-v6',
+    })]);
+    await seedReviewEvent(database, {
+      id: 'apply-elapsed-days-repair-review',
+      cardId,
+      reviewedAt,
+      payload: {
+        schemaVersion: 2,
+        id: 'apply-elapsed-days-repair-review',
+        cardId,
+        rating: 3,
+        reviewedAt,
+        schedulerType: 'fsrs-v6',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        after: {
+          id: cardId,
+          due: reviewedAt + 10 * 86_400_000,
+          stability: 10,
+          difficulty: 4.2,
+          reps: 4,
+          lapses: 0,
+          state: CardState.Review,
+          lastReview: reviewedAt,
+          elapsedDays: 0,
+          scheduledDays: 10,
+          learning_step: 0,
+          schedulerType: 'fsrs-v6',
+        },
+      },
+    });
+
+    const preview = await database.previewDomainSyncRepair({ cardIds: [cardId] }, reviewedAt + 1);
+    expect(preview.plannedMutations).toHaveLength(1);
+    const applied = await database.applyDomainSyncRepair({
+      planId: preview.planId,
+      idempotencyKey: 'apply-elapsed-days-repair-key',
+      confirmedAt: reviewedAt + 2,
+      confirmedBy: 'test',
+    }, reviewedAt + 20 * 86_400_000);
+
+    expect(applied).toMatchObject({
+      ok: true,
+      status: 'applied',
+      appliedCards: 1,
+      skippedCards: 0,
+    });
+    const repaired = await database.getCard(cardId);
+    expect(repaired).toMatchObject({
+      due: reviewedAt + 10 * 86_400_000,
+      stability: 10,
+      difficulty: 4.2,
+      reps: 4,
+      state: CardState.Review,
+      lastReview: reviewedAt,
+      scheduledDays: 10,
+      learning_step: 0,
+    });
+    expect(repaired?.elapsedDays).not.toBe(0);
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      sanity: {
+        status: 'clean',
+        repairableDivergenceCount: 0,
+        divergentCardCount: 0,
+      },
+    });
+  });
+
+  it('does not keep repairable divergence when review after snapshot omits learning_step', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const cardId = 'apply-no-learning-step-repair-card';
+    const reviewedAt = 1_700_002_100_000;
+    await database.upsertCards([{
+      ...buildCard({
+        id: cardId,
+        blockId: 'apply-no-learning-step-repair-block',
+        due: reviewedAt + 86_400_000,
+        stability: 1,
+        difficulty: 5,
+        reps: 3,
+        lapses: 0,
+        state: CardState.Review,
+        lastReview: reviewedAt - 86_400_000,
+        elapsedDays: 1,
+        scheduledDays: 1,
+        updatedAt: reviewedAt,
+      }),
+      learning_step: 0,
+      schedulerType: 'fsrs-v6',
+    }]);
+    await seedReviewEvent(database, {
+      id: 'apply-no-learning-step-repair-review',
+      cardId,
+      reviewedAt,
+      payload: {
+        schemaVersion: 2,
+        id: 'apply-no-learning-step-repair-review',
+        cardId,
+        rating: 3,
+        reviewedAt,
+        schedulerType: 'fsrs-v6',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        after: {
+          id: cardId,
+          due: reviewedAt + 10 * 86_400_000,
+          stability: 10,
+          difficulty: 4.2,
+          reps: 4,
+          lapses: 0,
+          state: CardState.Review,
+          lastReview: reviewedAt,
+          elapsedDays: 0,
+          scheduledDays: 10,
+          schedulerType: 'fsrs-v6',
+        },
+      },
+    });
+    const preview = await database.previewDomainSyncRepair({ cardIds: [cardId] }, reviewedAt + 1);
+    expect(preview.plannedMutations).toHaveLength(1);
+
+    const applied = await database.applyDomainSyncRepair({
+      planId: preview.planId,
+      idempotencyKey: 'apply-no-learning-step-repair-key',
+      confirmedAt: reviewedAt + 2,
+      confirmedBy: 'test',
+    }, reviewedAt + 3);
+
+    expect(applied).toMatchObject({
+      ok: true,
+      status: 'applied',
+      appliedCards: 1,
+      skippedCards: 0,
+    });
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      sanity: {
+        status: 'clean',
+        repairableDivergenceCount: 0,
+        divergentCardCount: 0,
+      },
+    });
+  });
+
+  it('does not keep repairable divergence when storage canonicalizes a mature learning after snapshot', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const cardId = 'apply-mature-learning-repair-card';
+    const reviewedAt = 1_700_002_100_000;
+    await database.upsertCards([buildCard({
+      id: cardId,
+      blockId: 'apply-mature-learning-repair-block',
+      due: reviewedAt + 86_400_000,
+      stability: 1,
+      difficulty: 5,
+      reps: 3,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: reviewedAt - 86_400_000,
+      elapsedDays: 1,
+      scheduledDays: 1,
+      updatedAt: reviewedAt,
+      schedulerType: 'fsrs-v6',
+    })]);
+    await seedReviewEvent(database, {
+      id: 'apply-mature-learning-repair-review',
+      cardId,
+      reviewedAt,
+      payload: {
+        schemaVersion: 2,
+        id: 'apply-mature-learning-repair-review',
+        cardId,
+        rating: 3,
+        reviewedAt,
+        schedulerType: 'fsrs-v6',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        after: {
+          id: cardId,
+          due: reviewedAt + 10 * 86_400_000,
+          stability: 10,
+          difficulty: 4.2,
+          reps: 4,
+          lapses: 0,
+          state: CardState.Learning,
+          lastReview: reviewedAt,
+          elapsedDays: 0,
+          scheduledDays: 10,
+          learning_step: 1,
+          priority: 19,
+          type: CardType.Item,
+          schedulerType: 'fsrs-v6',
+        },
+      },
+    });
+
+    const preview = await database.previewDomainSyncRepair({ cardIds: [cardId] }, reviewedAt + 1);
+    expect(preview.plannedMutations).toEqual([
+      expect.objectContaining({
+        cardId,
+        after: expect.objectContaining({
+          state: CardState.Review,
+          learning_step: 0,
+        }),
+      }),
+    ]);
+    const applied = await database.applyDomainSyncRepair({
+      planId: preview.planId,
+      idempotencyKey: 'apply-mature-learning-repair-key',
+      confirmedAt: reviewedAt + 2,
+      confirmedBy: 'test',
+    }, reviewedAt + 3);
+
+    expect(applied).toMatchObject({
+      ok: true,
+      status: 'applied',
+      appliedCards: 1,
+      skippedCards: 0,
+    });
+    await expect(database.getDomainSyncStatus()).resolves.toMatchObject({
+      sanity: {
+        status: 'clean',
+        repairableDivergenceCount: 0,
+        divergentCardCount: 0,
+      },
+    });
+  });
+
+  it('records a repair-applied ledger operation for every repaired card in one plan', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([
+      buildCard({
+        id: 'multi-repair-card-a',
+        blockId: 'multi-repair-block-a',
+        reps: 0,
+        lastReview: 1_700_002_000_000,
+        updatedAt: 1_700_002_000_000,
+      }),
+      buildCard({
+        id: 'multi-repair-card-b',
+        blockId: 'multi-repair-block-b',
+        reps: 0,
+        lastReview: 1_700_002_000_000,
+        updatedAt: 1_700_002_000_000,
+      }),
+    ]);
+    await seedReviewEvent(database, {
+      id: 'multi-repair-review-a',
+      cardId: 'multi-repair-card-a',
+      reviewedAt: 1_700_002_100_000,
+    });
+    await seedReviewEvent(database, {
+      id: 'multi-repair-review-b',
+      cardId: 'multi-repair-card-b',
+      reviewedAt: 1_700_002_100_000,
+    });
+    const preview = await database.previewDomainSyncRepair({ limit: 10 }, 1_700_002_100_001);
+
+    const applied = await database.applyDomainSyncRepair({
+      planId: preview.planId,
+      idempotencyKey: 'multi-repair-key',
+      confirmedAt: 1_700_002_100_002,
+      confirmedBy: 'test',
+    }, 1_700_002_100_003);
+
+    expect(applied).toMatchObject({
+      ok: true,
+      status: 'applied',
+      appliedCards: 2,
+      skippedCards: 0,
+    });
+    const rows = database.getAll<{ entity_id: string; idempotency_key: string }>(
+      `SELECT entity_id, idempotency_key
+       FROM domain_sync_operations
+       WHERE operation_type = ?
+       ORDER BY entity_id ASC`,
+      ['repair-applied'],
+    );
+    expect(rows).toEqual([
+      { entity_id: 'multi-repair-card-a', idempotency_key: 'multi-repair-key:multi-repair-card-a' },
+      { entity_id: 'multi-repair-card-b', idempotency_key: 'multi-repair-key:multi-repair-card-b' },
+    ]);
+  });
+
   it('keeps domain sync repair durable against later stale persisted main DB merge', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -6695,6 +7121,216 @@ describe('BackendKernel', () => {
     expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsAfterFirst);
   });
 
+  it('skips repeated persisted main DB reads for review feedback when conflict source entries are empty', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readBinary,
+      readSyncConflictDatabaseSources: vi.fn(async () => [{
+        sourceId: 'siyuan-sync-conflict:empty-review-feedback',
+        bytes: new Uint8Array(),
+      }]),
+    });
+    const reviewedAt = 1_779_188_001_000;
+    await database.upsertCards([
+      buildCard({ id: 'card-review-fast-empty-conflict-a', due: reviewedAt - 10_000 }),
+      buildCard({ id: 'card-review-fast-empty-conflict-b', due: reviewedAt - 10_000 }),
+    ]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const first = await kernel.handle({
+      id: 'review-feedback-fast-empty-conflict-a',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-empty-conflict-a', rating: 3, reviewedAt, queueType: 'retrieval-practice' }],
+    });
+    expect('result' in first).toBe(true);
+    const mainDbReadsAfterFirst = readBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+
+    const second = await kernel.handle({
+      id: 'review-feedback-fast-empty-conflict-b',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-empty-conflict-b', rating: 3, reviewedAt: reviewedAt + 1_000, queueType: 'retrieval-practice' }],
+    });
+
+    expect('result' in second).toBe(true);
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsAfterFirst);
+  });
+
+  it('forces a persisted main DB read and retries review feedback when the worker card row is missing', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const externalBridge = createInMemorySqlitePersistenceBridge();
+    const reviewedAt = 1_779_188_003_000;
+    const externalDatabase = new WorkerSqliteDatabaseService(externalBridge);
+    await externalDatabase.upsertCards([
+      buildCard({ id: 'card-review-retry-from-main-db', due: reviewedAt - 10_000 }),
+    ]);
+    await externalDatabase.persist();
+    const externalBytes = externalBridge.snapshot().bytes;
+    await currentBridge.writeBinary('siyuanmemo.db', externalBytes!);
+    const readBinary = vi.fn(currentBridge.readBinary.bind(currentBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...currentBridge,
+      readBinary,
+      readSyncConflictDatabaseSources: vi.fn(async () => []),
+    });
+    await database.load();
+    database.markReviewFeedbackOwnPersistedMainDbClean();
+    database.run('DELETE FROM cards WHERE id = ?', ['card-review-retry-from-main-db']);
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM cards WHERE id = ?',
+      ['card-review-retry-from-main-db'],
+    )?.count).toBe(0);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-retry-from-main-db',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-retry-from-main-db',
+        rating: 3,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        cardId: 'card-review-retry-from-main-db',
+        committed: true,
+        queueType: 'retrieval-practice',
+      });
+    }
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length)
+      .toBeGreaterThan(0);
+  });
+
+  it('retries review feedback from the persisted main DB even when that source fingerprint was already processed', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const externalBridge = createInMemorySqlitePersistenceBridge();
+    const reviewedAt = 1_779_188_003_500;
+    const externalDatabase = new WorkerSqliteDatabaseService(externalBridge);
+    await seedDomainSyncOperation(externalDatabase, {
+      operationId: 'domain-sync-review-retry-source-processed',
+      operationType: 'card-upserted',
+      entityId: 'card-review-retry-processed-main-db',
+      entityBlockId: 'block-review-retry-processed-main-db',
+      idempotencyKey: 'card-upserted:card-review-retry-processed-main-db',
+    });
+    await externalDatabase.upsertCards([
+      buildCard({
+        id: 'card-review-retry-processed-main-db',
+        blockId: 'block-review-retry-processed-main-db',
+        due: reviewedAt - 10_000,
+      }),
+    ]);
+    await externalDatabase.persist();
+    const externalBytes = externalBridge.snapshot().bytes;
+    await currentBridge.writeBinary('siyuanmemo.db', externalBytes!);
+    const readBinary = vi.fn(currentBridge.readBinary.bind(currentBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...currentBridge,
+      readBinary,
+      readSyncConflictDatabaseSources: vi.fn(async () => []),
+    });
+    await database.load();
+    database.run('DELETE FROM cards WHERE id = ?', ['card-review-retry-processed-main-db']);
+    await database.persist();
+    await currentBridge.writeBinary('siyuanmemo.db', externalBytes!);
+    const initialMerge = await database.mergeExternalDatabaseIfChanged(reviewedAt - 5_000);
+    expect(initialMerge).toMatchObject({
+      changed: true,
+      mergedCards: 1,
+      processedSourceIds: ['siyuan-sync:siyuanmemo.db'],
+    });
+    database.markReviewFeedbackOwnPersistedMainDbClean();
+    database.run('DELETE FROM cards WHERE id = ?', ['card-review-retry-processed-main-db']);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-retry-processed-main-db',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-retry-processed-main-db',
+        rating: 3,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        cardId: 'card-review-retry-processed-main-db',
+        committed: true,
+      });
+    }
+  });
+
+  it('keeps review feedback main DB read fast path across read-only domain sync status checks', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readBinary,
+      readSyncConflictDatabaseSources: vi.fn(async () => []),
+    });
+    const reviewedAt = 1_779_188_004_000;
+    await database.upsertCards([
+      buildCard({ id: 'card-review-fast-domain-status-a', due: reviewedAt - 10_000 }),
+      buildCard({ id: 'card-review-fast-domain-status-b', due: reviewedAt - 10_000 }),
+    ]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const first = await kernel.handle({
+      id: 'review-feedback-fast-domain-status-a',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-domain-status-a', rating: 3, reviewedAt, queueType: 'retrieval-practice' }],
+    });
+    expect('result' in first).toBe(true);
+
+    const status = await kernel.handle({
+      id: 'domain-status-preserves-review-fast-path',
+      jsonrpc: '2.0',
+      method: 'domainSync.status',
+      params: [],
+    });
+    expect('result' in status).toBe(true);
+    const mainDbReadsAfterStatus = readBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+
+    const second = await kernel.handle({
+      id: 'review-feedback-fast-domain-status-b',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-domain-status-b', rating: 3, reviewedAt: reviewedAt + 1_000, queueType: 'retrieval-practice' }],
+    });
+
+    expect('result' in second).toBe(true);
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsAfterStatus);
+  });
+
   it('keeps persisted main DB reads when review feedback preflight sees conflict sources', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
@@ -6792,6 +7428,99 @@ describe('BackendKernel', () => {
     expect('result' in second).toBe(true);
     expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length)
       .toBeGreaterThan(mainDbReadsAfterCount);
+  });
+
+  it('reports the backend method that invalidated review feedback main DB read fast path', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readSyncConflictDatabaseSources: vi.fn(async () => []),
+    });
+    const reviewedAt = 1_779_188_019_500;
+    await database.upsertCards([
+      buildCard({ id: 'card-review-fast-reason-a', due: reviewedAt - 10_000 }),
+      buildCard({ id: 'card-review-fast-reason-b', due: reviewedAt - 10_000 }),
+    ]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const first = await kernel.handle({
+      id: 'review-feedback-fast-reason-a',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-reason-a', rating: 3, reviewedAt, queueType: 'retrieval-practice' }],
+    });
+    expect('result' in first).toBe(true);
+
+    const count = await kernel.handle({
+      id: 'browser-count-invalidates-review-fast-reason',
+      jsonrpc: '2.0',
+      method: 'browser.count',
+      params: [{ query: {} }],
+    });
+    expect('result' in count).toBe(true);
+
+    const merge = await database.mergeExternalDatabaseIfChanged(reviewedAt + 2_000, {
+      context: 'review-feedback-preflight',
+      cardId: 'card-review-fast-reason-b',
+    });
+
+    expect(merge).toMatchObject({
+      mainDbReadSkipped: false,
+      mainDbReadSkipReason: 'fast-skip-not-eligible:backend-method:browser.count',
+      sourceIds: [],
+    });
+  });
+
+  it('invalidates review feedback main DB read fast path after sync conflict reload even though it skips pre-request refresh', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readBinary,
+      readSyncConflictDatabaseSources: vi.fn(async () => []),
+    });
+    const reviewedAt = 1_779_188_020_000;
+    await database.upsertCards([
+      buildCard({ id: 'card-review-fast-reload-a', due: reviewedAt - 10_000 }),
+      buildCard({ id: 'card-review-fast-reload-b', due: reviewedAt - 10_000 }),
+    ]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const first = await kernel.handle({
+      id: 'review-feedback-fast-reload-a',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-reload-a', rating: 3, reviewedAt, queueType: 'retrieval-practice' }],
+    });
+    expect('result' in first).toBe(true);
+
+    const reload = await kernel.handle({
+      id: 'reload-invalidates-review-fast-path',
+      jsonrpc: '2.0',
+      method: 'sync.conflict.reload',
+      params: [],
+    });
+    expect('result' in reload).toBe(true);
+    const mainDbReadsAfterReload = readBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+
+    const second = await kernel.handle({
+      id: 'review-feedback-fast-reload-b',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-fast-reload-b', rating: 3, reviewedAt: reviewedAt + 1_000, queueType: 'retrieval-practice' }],
+    });
+
+    expect('result' in second).toBe(true);
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length)
+      .toBeGreaterThan(mainDbReadsAfterReload);
   });
 
   it('returns refresh-required queue impact when the projection generation is unavailable', async () => {

@@ -305,6 +305,107 @@ describe('BackendKernel xiuyuan.sync.execute', () => {
     expect(created?.createdAt).toBeGreaterThan(0);
   });
 
+  it('preserves newer local scheduling state when native Riff schedule is stale', async () => {
+    const database = await createSeededDatabase();
+    await database.upsertCards([buildCard({
+      id: 'card-existing',
+      xiuyuanID: 'xy-existing',
+      blockId: 'block-existing',
+      due: 1_790_900_000_000,
+      stability: 9.5,
+      difficulty: 3.2,
+      reps: 8,
+      lapses: 1,
+      state: CardState.Review,
+      lastReview: 1_790_000_000_000,
+      elapsedDays: 0,
+      scheduledDays: 10,
+      schedulerType: 'fsrs-v6',
+      riffCardId: 'riff-existing',
+      updatedAt: 1_790_000_000_100,
+      meta: {
+        templateID: 'builtin-riff-sync',
+        ownership: 'riff-managed',
+        source: 'riff-sync',
+        riffCardId: 'riff-existing',
+      },
+    })]);
+    const readXiuyuanRiffFacts = vi.fn(async (request) => ({
+      status: 'ready' as const,
+      requestId: request.requestId,
+      mode: request.mode,
+      deckId: request.deckId,
+      readAt: 1_800_000_000_000,
+      blocks: [
+        {
+          id: 'block-existing',
+          content: 'Existing content with stale native schedule',
+          riffCardID: 'riff-existing',
+          riffCard: {
+            id: 'riff-existing',
+            due: '2026-03-02T00:00:00.000Z',
+            lastReview: '2026-03-01T00:00:00.000Z',
+            reps: 3,
+            lapses: 0,
+            state: CardState.Relearning,
+            stability: 0,
+            difficulty: 1,
+            scheduledDays: 0,
+            elapsedDays: 0,
+          },
+        },
+      ],
+      diagnostics: {
+        source: 'renderer-host-effect' as const,
+        blockCount: 1,
+        normalizedBlockCount: 1,
+        malformedBlockCount: 0,
+        truncated: false,
+      },
+    }));
+    const kernel = new BackendKernel({
+      database,
+      readXiuyuanRiffFacts,
+    });
+
+    const response = await kernel.handle({
+      id: 'xiuyuan-sync-stale-native-schedule',
+      jsonrpc: '2.0',
+      method: 'xiuyuan.sync.execute',
+      params: [{
+        requestId: 'sync-request-stale-native-schedule',
+        commandId: 'sync-command-stale-native-schedule',
+        idempotencyKey: 'sync-key-stale-native-schedule',
+        mode: 'incremental',
+        dryRun: false,
+        deckId: 'deck-a',
+        requestedAt: 1_800_000_000_000,
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'applied',
+      }),
+    }));
+    await expect(database.getCard('card-existing')).resolves.toMatchObject({
+      due: 1_790_900_000_000,
+      stability: 9.5,
+      difficulty: 3.2,
+      reps: 8,
+      lapses: 1,
+      state: CardState.Review,
+      lastReview: 1_790_000_000_000,
+      elapsedDays: 0,
+      scheduledDays: 10,
+      riffCardId: 'riff-existing',
+      meta: expect.objectContaining({
+        ownership: 'riff-managed',
+        source: 'riff-sync',
+      }),
+    });
+  });
+
   it('replays duplicate non-dry-run sync commands by idempotency key without applying twice', async () => {
     const database = await createSeededDatabase();
     const readXiuyuanRiffFacts = vi.fn(async (request) => ({

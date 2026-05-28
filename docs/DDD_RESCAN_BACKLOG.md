@@ -1,8 +1,68 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-28 (Round 480)
+Last update: 2026-05-28 (Round 485)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-28 - Domain Sync Repair Full Scheduling Persistence
+
+- Task: Fix the repeated Review entry domain-sync repair prompt after SiYuan restart where the same repairable divergence returned even after manual repair.
+- Touched slice: Review/domain-sync backend repair and Xiuyuan sync persistence; `WorkerSqliteDatabaseService`, `CardMapper`, focused backend kernel and Xiuyuan sync tests.
+- Debt fixed now: Domain-sync repair preview now uses the newest formal review event `payload.after` snapshot as the repair source, then canonicalizes that repair target with the same scheduling-state rules used by SQL card persistence before diffing or applying it. Diagnostics treats full scheduling-state mismatch as repairable, repair apply writes the full scheduler state back through card upsert, and `repair-applied` ledger idempotency is scoped per card so one multi-card repair records every repaired card. Diagnostics no longer treats historical `after.elapsedDays` as an absolute mismatch, because storage derives it from `lastReview` and the current clock; this prevents the same repaired cards from immediately reappearing as repairable. The canonicalized target also prevents mature `Learning`/`New` review snapshots from looping after storage legitimately promotes them to `Review`. Xiuyuan/Riff sync now preserves existing scheduler state unless the native Riff schedule is newer, and card persistence preserves top-level `xiuyuanID`.
+- Debt deferred: Existing databases that already contain stale native Riff facts may still need one successful repair pass after upgrading. The broader policy for durable per-rating persistence and cross-device conflict source lifecycle remains unchanged.
+- Why deferred: This slice fixes the repeated repair loop root cause without changing sync ownership or durability policy. Clearing or rewriting historical conflict source files automatically would be a separate data-retention decision.
+- Next safe step: Rebuild/reload the plugin, run one manual repair, restart SiYuan, then open Review again. If the prompt returns, expand/send `Domain sync diagnostics status read` plus any repair preview/apply result with `repairableDivergenceCount`, `divergentCardCount`, operation counts, and one planned mutation's `before/after`.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "elapsedDays advanced|repairs full scheduling state|omits learning_step|mature learning after snapshot|domain sync repair"`; `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "domain sync|repair"`; `pnpm vitest run src/application/services/__tests__/ReviewDomainSyncSafetyService.test.ts src/ui/syncConflict/__tests__/manualSyncConflictResolutionDialog.test.ts`; `pnpm vitest run packages/contracts/src/__tests__/backend-rpc.test.ts worker/__tests__/BackendKernel.xiuyuan-sync.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-28 - Review Feedback Empty Conflict Source Fast Skip
+
+- Task: Continue live Review grading latency diagnosis after logs showed `merge.total` around 689ms with `sourceCount: 0`, `mainDbReadSkipped: false`, and `mainDbReadSkipReason: null`.
+- Touched slice: Review backend pre-request merge; `WorkerSqliteDatabaseService`, `BackendKernel`, focused backend kernel tests.
+- Debt fixed now: Review feedback preflight now treats empty sync-conflict source entries as non-blocking for the same-worker main DB fast path. A conflict source only blocks the skip when it has non-empty database bytes. The slow `merge.total` / `pre-request-merge` logs now also report `conflictSourceCount` and `nonEmptyConflictSourceCount`, so the next live log can distinguish empty conflict entries from real merge input.
+- Debt deferred: Real non-empty sync conflict DB copies still force the persisted main DB read and merge path. The review transaction persist remains synchronous after each committed rating.
+- Why deferred: Non-empty conflict sources are cross-device/domain-sync evidence and must remain correctness-first. This slice only removes the empty-entry false positive shown by `sourceCount: 0`.
+- Next safe step: Reload the rebuilt plugin and grade two cards. If the next slow `worker-handle` still appears, expand `topInnerSteps[2]` / `merge.total`; `mainDbReadSkipped`, `mainDbReadSkipReason`, `conflictSourceCount`, and `nonEmptyConflictSourceCount` should identify whether the fast path skipped or a real source blocked it.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts --testNamePattern "conflict source entries are empty|sees conflict sources|reports the backend method|consecutive review feedback"`; `pnpm vitest run worker/__tests__/BackendKernel.test.ts --testNamePattern "main DB read|fast path|domain sync status|sync conflict reload|pre-request merge|persisted main DB|sync conflict|conflict source entries are empty|sees conflict sources|reports the backend method|consecutive review feedback"`; `pnpm vitest run worker/bootstrap/__tests__/ReviewFeedbackTimingScope.test.ts src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-28 - Review Feedback Missing Worker Card Retry
+
+- Task: Fix the new live Review grading failure where `review.feedback` returned `INTERNAL_ERROR: review.feedback card not found` after the Review session had already selected the card.
+- Touched slice: Review backend worker commit/merge path; `BackendKernel`, `WorkerSqliteDatabaseService`, focused backend kernel tests.
+- Debt fixed now: `review.feedback` now recovers from the exact missing-worker-row failure by invalidating the Review feedback main DB fast-skip, forcing one persisted `siyuanmemo.db` read/merge, bypassing processed-source de-duplication only for that bounded recovery merge, and retrying the same feedback once. Normal successful ratings still use the fast path, and unrelated `review.feedback` errors still fail explicitly.
+- Debt deferred: The root cause of why the session queue can point at a card missing from the worker memory DB is not fully removed. This change is a bounded recovery path, not broad session hydration or silent queue fallback.
+- Why deferred: Session-side lazy hydration would reintroduce projection reads on every `next()` and weaken the no-projection-readiness runtime contract. The live failure is safer to recover at the worker DB ownership boundary where the persisted main DB can prove whether the card exists.
+- Next safe step: Reload the rebuilt plugin and grade cards again. If the error reappears, expand `worker-handle` and send `topInnerSteps`; if the persisted main DB also lacks the card, the retry should still fail explicitly and the next fix belongs in session/source queue membership.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts --testNamePattern "forces a persisted main DB read|retries review feedback from the persisted main DB|main DB read|fast path|domain sync status|sync conflict reload|pre-request merge|persisted main DB|sync conflict"`; `pnpm vitest run worker/bootstrap/__tests__/ReviewFeedbackTimingScope.test.ts`; `pnpm vitest run src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts`; `pnpm vitest run src/application/adapters/review-session/__tests__/SrsV2SessionQueueRuntime.test.ts`; `pnpm run check:boundaries`; `pnpm build`; `git diff --check`.
+
+### 2026-05-28 - Review Feedback Inner-Step Concurrency Attribution
+
+- Task: Continue the Review scoring latency diagnosis after live logs showed `worker-handle` 1411ms with `hostEffectTotalMs: 4`, `innerStepCount: 0`, and `unattributedMs: 1407` under `ambiguous-concurrency`.
+- Touched slice: Review backend worker timing attribution; `ReviewFeedbackTimingScope`, backend worker entry, focused timing-scope tests.
+- Debt fixed now: Review feedback inner-step timing is no longer discarded just because a non-Review worker request overlaps the active rating request. When exactly one `review.feedback` is active, same-card inner steps are retained and marked `innerStepAttribution: 'ambiguous-concurrency'`; mismatched-card inner steps are dropped to avoid contaminating the Review timing with unrelated concurrent work. Host-effect attribution still stays conservative when worker concurrency prevents exclusive ownership.
+- Debt deferred: Multiple concurrent `review.feedback` requests still drop inner-step attribution, and this slice does not optimize the actual slow inner step. It only makes the next live log identify that step again.
+- Why deferred: Attributing inner steps across two active Review feedback requests would need request-local async context or explicit timing handles through every measured layer. That is broader than the current live symptom, which showed one Review rating overlapped by other worker traffic.
+- Next safe step: Reload the rebuilt plugin and grade one card. Expand the `worker-handle` row; even if `innerStepAttribution` remains `ambiguous-concurrency`, `topInnerSteps` should no longer be empty for same-card Review work. Optimize whichever top step dominates next.
+- Validation: `pnpm vitest run worker/bootstrap/__tests__/ReviewFeedbackTimingScope.test.ts`; `pnpm vitest run src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts`; `pnpm vitest run worker/__tests__/BackendKernel.test.ts --testNamePattern "main DB read|fast path|domain sync status|sync conflict reload|pre-request merge|persisted main DB|sync conflict"`; `pnpm run check:boundaries`; `pnpm build`; `git diff --check` (CRLF warnings only).
+
+### 2026-05-28 - Review Feedback Domain Status Fast Path Preservation
+
+- Task: Fix the remaining Review scoring delay after live `worker-handle` top-inner-step logs showed `sqlite.readBinary` 521ms and `pre-request-merge` 668ms with `sourceCount: 0`, `changed: false`, and `mainDbReadSkipped: false`.
+- Touched slice: Review backend pre-request merge eligibility; `BackendKernel` and focused backend kernel tests.
+- Debt fixed now: Read-only backend diagnostics commands that do not run storage refresh now preserve the Review feedback main DB fast path. This covers the ReviewView safety check path where `domainSync.status` runs before every grade; it no longer clears the "same worker just persisted its own Review feedback" eligibility. Mutating or state-reset exempt commands such as `sync.conflict.reload` still invalidate the fast path, and ordinary non-review commands that run pre-request storage refresh still invalidate it.
+- Debt deferred: The review transaction still persists synchronously after each committed rating, so logs may still show a transaction/write cost even when `merge.fast-skip-main-db-read` removes the repeated persisted main DB read.
+- Why deferred: The current live evidence isolated the unnecessary preflight read as the largest avoidable delay. Removing per-rating durable persistence would be a separate durability policy change and needs its own failure model.
+- Next safe step: Reload the rebuilt plugin and grade two cards. The second rating after the safety check should show `merge.fast-skip-main-db-read` or `mainDbReadSkipped: true`; if latency remains high, inspect `transaction` and `slowestHostEffect` for write cost.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts --testNamePattern "main DB read|fast path|domain sync status|sync conflict reload|pre-request merge|persisted main DB|sync conflict"`; `pnpm vitest run src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts`; `pnpm run check:boundaries`; `pnpm build`; `pnpm exec tsc --noEmit --pretty false` (still fails on existing repo-wide type debt outside this slice).
+
+### 2026-05-28 - Review Feedback Worker Handle Top Inner Steps
+
+- Task: Close the live Review scoring observability gap where the console only showed `worker-handle` around 1.4s for a card, while no `worker-inner-step` object was easy to find.
+- Touched slice: Review backend worker transport diagnostics; `BrowserSrsBackendWorkerTransport` and focused transport tests.
+- Debt fixed now: Slow `review.feedback` `worker-handle` logs now include `innerStepCount`, `innerStepTotalMs`, `slowestInnerStep`, `topInnerSteps`, and `unattributedMs`. When a worker handle is slow, the renderer also force-logs the top five inner steps with `forceLogReason: 'worker-handle-top-inner-step'`, even if each individual inner step is below the normal 120ms slow threshold. This keeps live diagnosis actionable from the outer handle log instead of relying on missing thresholded inner-step rows.
+- Debt deferred: This is still diagnostics-only. It does not optimize Review transaction persistence, domain-sync safety, queue-impact projection work, or unattributed worker CPU time.
+- Why deferred: The latest live log proved the host effect was only 4ms and the remaining delay was inside worker handle, but it did not expose which inner step owned the 1.4s. The next optimization should target the measured top inner step, not guess from older cards.
+- Next safe step: Reload the rebuilt plugin and grade one IncrementalLearning card. Expand the `worker-handle` log and read `slowestInnerStep`, `topInnerSteps`, and `unattributedMs`; if `unattributedMs` dominates, add one more worker-side probe around currently uninstrumented CPU work.
+- Validation: `pnpm vitest run src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts`; `pnpm run check:boundaries`; `pnpm build`; `pnpm exec tsc --noEmit --pretty false` (still fails on existing repo-wide type debt outside this slice).
 
 ### 2026-05-28 - Review Feedback Main DB Fast Path
 
