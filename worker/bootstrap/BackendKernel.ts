@@ -34,6 +34,8 @@ import {
   type BackendBrowserAggregatePageResult,
   type BackendBrowserAggregateSnapshotRequest,
   type BackendBrowserAggregateSnapshotResult,
+  type BackendBrowserDocumentCountsResult,
+  type BackendBrowserDocumentCountsScope,
   type BackendBrowserDeckPageRequest,
   type BackendBrowserDeckSnapshotQuery,
   type BackendSourceExistenceSweepApplyRequest,
@@ -246,6 +248,7 @@ const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_READ_ONLY_METHODS = new Set<string>([
   'browser.deck.page',
   'browser.deck.matchedIds',
   'browser.deck.rowsByIds',
+  'browser.deck.documentCounts',
   'browser.count',
   'browser.stats',
   'browser.sourceExistence.refreshCandidates',
@@ -403,6 +406,8 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleBrowserDeckMatchedIds(request.params));
         case 'browser.deck.rowsByIds':
           return buildSuccess(request.id, await this.handleBrowserDeckRowsByIds(request.params));
+        case 'browser.deck.documentCounts':
+          return buildSuccess(request.id, await this.handleBrowserDeckDocumentCounts(request.params));
         case 'browser.count':
           return buildSuccess(request.id, await this.handleBrowserCount(request.params));
         case 'browser.stats':
@@ -722,6 +727,12 @@ export class BackendKernel {
     const ids = Array.isArray(named?.ids) ? named.ids : [];
     const cards = await this.deps.database.getDeckRowsByIds(ids);
     return { cards };
+  }
+
+  private async handleBrowserDeckDocumentCounts(params: unknown): Promise<BackendBrowserDocumentCountsResult> {
+    const named = this.readNamedParams<{ scope?: BackendBrowserDocumentCountsScope }>(params);
+    const scope = named?.scope ?? { kind: 'deck' as const };
+    return this.deps.database.queryBrowserDocumentCounts(scope);
   }
 
   private async handleBrowserCount(params: unknown): Promise<{ count: number }> {

@@ -199,6 +199,14 @@ describe('BrowserApplicationService deck query kernel', () => {
       queryDeckPage: vi.fn(),
       queryDeckMatchedIds: vi.fn(),
       getDeckCardsByIds: vi.fn(),
+      queryBrowserDocumentCounts: vi.fn(() => ({
+        status: 'unavailable',
+        owner: 'none',
+        scope: { kind: 'deck' },
+        rows: [],
+        reason: 'test read port unavailable',
+        diagnostics: { countOnly: true, rowsHydratedForHierarchy: 0 },
+      })),
       countCards: vi.fn(),
       getBrowserStats: vi.fn(() => ({
         totalCards: 0,
@@ -336,6 +344,9 @@ describe('BrowserApplicationService deck query kernel', () => {
       }),
       queryDeckMatchedIds: vi.fn(() => []),
       getDeckCardsByIds: vi.fn(() => []),
+      queryBrowserDocumentCounts: vi.fn(() => {
+        throw new Error('readPort should not be used when worker backend client is available');
+      }),
       countCards: vi.fn(() => 0),
       getBrowserStats: vi.fn(() => ({
         totalCards: 0,
@@ -400,6 +411,91 @@ describe('BrowserApplicationService deck query kernel', () => {
       expect.objectContaining({ blockIds: ['block-worker-1', 'block-worker-2'], force: true }),
       expect.any(Number),
     );
+  });
+
+  it('reads Browser document counts through the backend count-only seam without hydrating rows by id', async () => {
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserDeckDocumentCounts'
+      | 'browserDeckRowsByIds'
+    > = {
+      browserDeckDocumentCounts: vi.fn(async () => ({
+        status: 'ready',
+        owner: 'sql-card-universe',
+        scope: {
+          kind: 'deck',
+          preset: 'all',
+          searchText: '',
+          docId: null,
+          scopeDocIds: null,
+          cardType: 'all',
+        },
+        rows: [
+          { rootId: 'doc-a', count: 2 },
+          { rootId: 'doc-b', count: 1 },
+        ],
+        diagnostics: {
+          countOnly: true,
+          rowsHydratedForHierarchy: 0,
+        },
+      })),
+      browserDeckRowsByIds: vi.fn(async () => {
+        throw new Error('hierarchy count read must not hydrate Browser rows');
+      }),
+    };
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(() => {
+          throw new Error('hierarchy count read must not scan local card snapshots');
+        }),
+        getAllCards: vi.fn(() => {
+          throw new Error('hierarchy count read must not scan all local cards');
+        }),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      {
+        ATTR_CARD_ID: 'custom-fsrs-card-id',
+        ATTR_PRIORITY: 'custom-fsrs-priority',
+        ATTR_SUSPENDED: 'custom-fsrs-suspended',
+        ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+        ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+        sql: vi.fn(async () => []),
+        setBlockAttrs: vi.fn(),
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      } as never,
+      null,
+      null,
+      backendClient as SrsBackendClient,
+    );
+
+    const result = await service.getBrowserDocumentCounts({
+      kind: 'deck',
+      preset: 'all',
+      searchText: '',
+      docId: null,
+      scopeDocIds: null,
+      cardType: 'all',
+    });
+
+    expect(result.status).toBe('ready');
+    expect(result.rows).toEqual([
+      { rootId: 'doc-a', count: 2 },
+      { rootId: 'doc-b', count: 1 },
+    ]);
+    expect(result.diagnostics.rowsHydratedForHierarchy).toBe(0);
+    expect(backendClient.browserDeckDocumentCounts).toHaveBeenCalledWith({
+      kind: 'deck',
+      preset: 'all',
+      searchText: '',
+      docId: null,
+      scopeDocIds: null,
+      cardType: 'all',
+    });
+    expect(backendClient.browserDeckRowsByIds).not.toHaveBeenCalled();
   });
 
   it('keeps backend aggregate page payloads structured-clone safe after reactive service wrapping', async () => {
@@ -670,6 +766,13 @@ describe('BrowserApplicationService deck query kernel', () => {
       queryDeckPage: vi.fn(() => ({ cards: [fallbackCard], total: 1 })),
       queryDeckMatchedIds: vi.fn(() => ['card-backend-fallback']),
       getDeckCardsByIds: vi.fn(() => [fallbackCard]),
+      queryBrowserDocumentCounts: vi.fn(() => ({
+        status: 'ready',
+        owner: 'sql-card-universe',
+        scope: { kind: 'deck' },
+        rows: [{ rootId: 'doc-fallback', count: 1 }],
+        diagnostics: { countOnly: true, rowsHydratedForHierarchy: 0 },
+      })),
       countCards: vi.fn(() => 1),
       getBrowserStats: vi.fn(() => ({
         totalCards: 1,
@@ -1270,6 +1373,9 @@ describe('BrowserApplicationService deck query kernel', () => {
       }),
       queryDeckMatchedIds: vi.fn(() => []),
       getDeckCardsByIds: vi.fn(() => []),
+      queryBrowserDocumentCounts: vi.fn(() => {
+        throw new Error('readPort should not be used when worker backend client is available');
+      }),
       countCards: vi.fn(() => 0),
       getBrowserStats: vi.fn(() => ({
         totalCards: 0,

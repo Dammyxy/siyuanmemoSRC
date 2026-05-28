@@ -9,6 +9,8 @@ import type {
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type {
   BrowserDeckCardPageResult,
+  BrowserDocumentCountsResult,
+  BrowserDocumentCountsScope,
   BrowserDeckPageRequest,
   BrowserDeckSnapshotQuery,
 } from '@/application/queries/browser/browser-deck-query';
@@ -17,6 +19,8 @@ import type { CardPersistenceDTO } from '@/infrastructure/persistence/dto/CardPe
 import { CardMapper } from '@/infrastructure/persistence/mappers/CardMapper';
 import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 import { CardState, type FSRSCard } from '@/types/card';
+import { resolveQueueTypeForBrowserQueueId } from '@/types/browser-queue-identity';
+import { QueueType } from '@/types/unified-data-source';
 import type { IXiuyuan } from '@/core/xiuyuan/types';
 import type { StructuredCardQuery } from '@/types/card-query';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
@@ -87,6 +91,16 @@ interface WhereClause {
 interface BrowserDeckSqlQuery {
   where: WhereClause | null;
   orderBy: string;
+}
+
+interface QueueProjectionGenerationSqlRow {
+  queue_type: string;
+  policy_hash: string;
+  generation: number;
+  status: string;
+  rebuild_reason: string | null;
+  updated_at: number;
+  metadata_json: string | null;
 }
 
 interface CardPageRequest {
@@ -697,6 +711,209 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       deckQuery.where?.params,
     );
     return rows.map((row) => row.id).filter(Boolean);
+  }
+
+  queryBrowserDocumentCounts(scope: BrowserDocumentCountsScope): BrowserDocumentCountsResult {
+    const normalizedScope = this.normalizeBrowserDocumentCountsScope(scope);
+    if (normalizedScope.kind === 'queue') {
+      return this.queryQueueBrowserDocumentCounts(normalizedScope);
+    }
+    if (normalizedScope.kind !== 'deck') {
+      return {
+        status: 'unsupported',
+        owner: 'none',
+        scope: normalizedScope,
+        rows: [],
+        reason: `Browser document counts are unsupported for ${normalizedScope.kind}`,
+        diagnostics: {
+          countOnly: true,
+          rowsHydratedForHierarchy: 0,
+        },
+      };
+    }
+
+    const startedAt = Date.now();
+    const deckQuery = this.buildBrowserDeckSqlQuery({
+      preset: normalizedScope.preset as BrowserDeckSnapshotQuery['preset'],
+      searchText: normalizedScope.searchText ?? '',
+      docId: normalizedScope.docId ?? undefined,
+      scopeDocIds: normalizedScope.scopeDocIds,
+      cardTypes: this.mapBrowserDocumentCardTypeFilter(normalizedScope.cardType),
+    });
+    if (!deckQuery) {
+      return {
+        status: 'unsupported',
+        owner: 'sql-card-universe',
+        scope: normalizedScope,
+        rows: [],
+        reason: 'Browser document count scope cannot be expressed by SQL card universe',
+        diagnostics: {
+          countOnly: true,
+          rowsHydratedForHierarchy: 0,
+          countMs: Math.max(0, Date.now() - startedAt),
+        },
+      };
+    }
+
+    const rows = this.database.getAll<{ root_id: string | null; count: number }>(
+      `SELECT root_id, COUNT(*) AS count
+       FROM cards ${this.toWhereSql(deckQuery.where)}
+       AND root_id IS NOT NULL AND root_id != ''
+       GROUP BY root_id
+       ORDER BY root_id ASC`,
+      deckQuery.where?.params,
+    );
+    return {
+      status: 'ready',
+      owner: 'sql-card-universe',
+      scope: normalizedScope,
+      rows: rows
+        .map((row) => ({
+          rootId: normalizeString(row.root_id),
+          count: Math.max(0, Number(row.count) || 0),
+        }))
+        .filter((row) => row.rootId && row.count > 0),
+      diagnostics: {
+        countOnly: true,
+        rowsHydratedForHierarchy: 0,
+        countMs: Math.max(0, Date.now() - startedAt),
+      },
+    };
+  }
+
+  private queryQueueBrowserDocumentCounts(scope: BrowserDocumentCountsScope): BrowserDocumentCountsResult {
+    const startedAt = Date.now();
+    const queueType = this.normalizeDocumentCountQueueType(scope.queueType);
+    if (!queueType) {
+      return {
+        status: 'unsupported',
+        owner: 'none',
+        scope,
+        rows: [],
+        reason: `Browser queue document count scope has invalid queueType=${String(scope.queueType || '')}`,
+        diagnostics: {
+          countOnly: true,
+          rowsHydratedForHierarchy: 0,
+          countMs: Math.max(0, Date.now() - startedAt),
+          queueReadiness: {
+            status: 'unavailable',
+            queueId: String(scope.queueType || ''),
+            policyId: 'browser-queue-document-counts',
+            cause: 'invalid_queue',
+            reason: 'invalid queue type',
+          },
+        },
+      };
+    }
+
+    const generation = this.readQueueProjectionGenerationForDocumentCounts(queueType);
+    if (!generation || generation.status !== 'ready') {
+      const reason = generation
+        ? `Queue projection ${queueType} is ${generation.status}`
+        : `Queue projection ${queueType} has no ready generation`;
+      return {
+        status: 'unavailable',
+        owner: 'queue-projection',
+        scope,
+        rows: [],
+        reason,
+        diagnostics: {
+          countOnly: true,
+          rowsHydratedForHierarchy: 0,
+          countMs: Math.max(0, Date.now() - startedAt),
+          queueReadiness: {
+            status: 'refreshing',
+            queueId: queueType,
+            policyId: generation?.policy_hash || 'browser-queue-document-counts',
+            generation: generation?.generation,
+            cause: generation?.status === 'unavailable' ? 'projection_unavailable' : 'projection_stale',
+            reason,
+            retryAfterMs: 300,
+          },
+        },
+      };
+    }
+
+    const deckQuery = this.buildBrowserDeckSqlQuery({
+      preset: scope.preset as BrowserDeckSnapshotQuery['preset'],
+      searchText: scope.searchText ?? '',
+      docId: scope.docId ?? undefined,
+      scopeDocIds: scope.scopeDocIds,
+      cardTypes: this.mapBrowserDocumentCardTypeFilter(scope.cardType),
+    });
+    if (!deckQuery) {
+      return {
+        status: 'unsupported',
+        owner: 'queue-projection',
+        scope,
+        rows: [],
+        reason: 'Browser queue document count scope cannot be expressed by SQL card universe',
+        diagnostics: {
+          countOnly: true,
+          rowsHydratedForHierarchy: 0,
+          countMs: Math.max(0, Date.now() - startedAt),
+          queueReadiness: {
+            status: 'ready',
+            queueId: queueType,
+            policyId: generation.policy_hash,
+            generation: generation.generation,
+          },
+          projectionIdentity: {
+            queueId: queueType,
+            policyId: generation.policy_hash,
+            generation: generation.generation,
+          },
+        },
+      };
+    }
+
+    const whereSql = deckQuery.where?.sql ? `AND ${deckQuery.where.sql}` : '';
+    const rows = this.database.getAll<{ root_id: string | null; count: number }>(
+      `SELECT cards.root_id AS root_id, COUNT(*) AS count
+       FROM queue_projection_rows projection
+       INNER JOIN cards ON cards.id = projection.card_id
+       WHERE projection.queue_type = ?
+         AND projection.policy_hash = ?
+         AND projection.source_generation = ?
+         ${whereSql}
+         AND cards.root_id IS NOT NULL AND cards.root_id != ''
+       GROUP BY cards.root_id
+       ORDER BY cards.root_id ASC`,
+      [
+        queueType,
+        generation.policy_hash,
+        generation.generation,
+        ...(deckQuery.where?.params || []),
+      ],
+    );
+
+    return {
+      status: 'ready',
+      owner: 'queue-projection',
+      scope,
+      rows: rows
+        .map((row) => ({
+          rootId: normalizeString(row.root_id),
+          count: Math.max(0, Number(row.count) || 0),
+        }))
+        .filter((row) => row.rootId && row.count > 0),
+      diagnostics: {
+        countOnly: true,
+        rowsHydratedForHierarchy: 0,
+        countMs: Math.max(0, Date.now() - startedAt),
+        queueReadiness: {
+          status: 'ready',
+          queueId: queueType,
+          policyId: generation.policy_hash,
+          generation: generation.generation,
+        },
+        projectionIdentity: {
+          queueId: queueType,
+          policyId: generation.policy_hash,
+          generation: generation.generation,
+        },
+      },
+    };
   }
 
   getBrowserStats(now = Date.now()): BrowserStats {
@@ -1390,6 +1607,52 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       where: clauses.length > 0 ? { sql: clauses.join(' AND '), params } : null,
       orderBy,
     };
+  }
+
+  private normalizeBrowserDocumentCountsScope(scope: BrowserDocumentCountsScope): BrowserDocumentCountsScope {
+    return {
+      kind: scope.kind === 'queue' ? 'queue' : 'deck',
+      preset: normalizeString(scope.preset) || 'all',
+      searchText: normalizeString(scope.searchText),
+      docId: normalizeString(scope.docId) || null,
+      scopeDocIds: normalizeStringArray(scope.scopeDocIds || undefined),
+      cardType: normalizeString(scope.cardType) || 'all',
+      queueType: normalizeString(scope.queueType) || null,
+    };
+  }
+
+  private normalizeDocumentCountQueueType(queueType?: string | null): QueueType | null {
+    const normalized = normalizeString(queueType);
+    return resolveQueueTypeForBrowserQueueId(normalized) || (Object.values(QueueType).includes(normalized as QueueType)
+      ? normalized as QueueType
+      : null);
+  }
+
+  private readQueueProjectionGenerationForDocumentCounts(queueType: QueueType): QueueProjectionGenerationSqlRow | null {
+    return this.database.getOne<QueueProjectionGenerationSqlRow>(
+      `SELECT queue_type, policy_hash, generation, status, rebuild_reason, updated_at, metadata_json
+       FROM queue_projection_generations
+       WHERE queue_type = ?
+       LIMIT 1`,
+      [queueType],
+    );
+  }
+
+  private mapBrowserDocumentCardTypeFilter(cardType?: string | null): string[] | undefined {
+    switch (normalizeString(cardType)) {
+      case 'topic-only':
+        return ['topic'];
+      case 'item-only':
+        return ['item'];
+      case 'concept-only':
+        return ['concept'];
+      case 'descriptor-only':
+        return ['descriptor'];
+      case 'missing-block-only':
+        return ['missing-block-only'];
+      default:
+        return undefined;
+    }
   }
 
   private appendPresetClauses(

@@ -62,6 +62,8 @@ function createDeps(overrides: Partial<BrowserLoadDataRuntimeDeps> = {}): Browse
     resolveActiveSqlStatement: vi.fn(() => null),
     rows: ref<BrowserCard[]>([]),
     rowsForFocus: ref<BrowserCard[]>([]),
+    abortQueueProjectionWarmup: vi.fn(),
+    scheduleQueueProjectionWarmup: vi.fn(),
     scheduleAllRowsSnapshot: vi.fn(),
     searchQuery: ref(''),
     selectedRows: ref<BrowserCard[]>([{ id: 'selected', blockId: 'selected' } as BrowserCard]),
@@ -90,7 +92,8 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.currentDataSource.value?.id).toBe('retrieval');
     expect(deps.currentProjectionIdentity.value).toBeNull();
     expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledWith(true);
-    expect(deps.startFocusRowsSnapshot).toHaveBeenCalledWith(25);
+    expect(deps.startFocusRowsSnapshot).not.toHaveBeenCalled();
+    expect(deps.scheduleQueueProjectionWarmup).toHaveBeenCalledWith('queue-sync');
     expect(deps.scheduleAllRowsSnapshot).not.toHaveBeenCalled();
     expect(deps.globalSelection.clear).not.toHaveBeenCalled();
     expect(deps.previewCard.value?.blockId).toBe('preview');
@@ -108,7 +111,7 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.currentDataSource.value?.id).toBe('retrieval');
   });
 
-  it('creates SQL datasource after confirmation and schedules all-row snapshot', async () => {
+  it('creates SQL datasource after confirmation without scheduling the default all-row hierarchy snapshot', async () => {
     const deps = createDeps({
       resolveActiveSqlStatement: vi.fn(() => 'select * from blocks'),
       shouldFocusDocList: ref(false),
@@ -120,7 +123,8 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.ensureSqlModeConfirmed).toHaveBeenCalledTimes(1);
     expect(deps.currentDataSource.value?.id).toBe('query');
     expect(deps.clearNeuralSubviewData).toHaveBeenCalled();
-    expect(deps.scheduleAllRowsSnapshot).toHaveBeenCalledWith(50);
+    expect(deps.scheduleQueueProjectionWarmup).toHaveBeenCalledWith('browser-open');
+    expect(deps.scheduleAllRowsSnapshot).not.toHaveBeenCalled();
     expect(deps.selectedRows.value).toEqual([]);
     expect(deps.globalSelection.clear).toHaveBeenCalledTimes(1);
   });
@@ -154,8 +158,18 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.loading.value).toBe(false);
   });
 
-  it('attaches queue datasource immediately while projection readiness runs in background', async () => {
+  it('prewarms queue projections in background without attaching a datasource', async () => {
     vi.useFakeTimers();
+    const browserAppService = {
+      getSiyuanApi: vi.fn(() => ({})),
+      ensureQueueReadModelReady: vi.fn(async () => ({
+        status: 'refreshing',
+        queueId: QueueType.RetrievalPractice,
+        policyId: 'policy-a',
+        cause: 'materialization_in_progress',
+        retryAfterMs: 300,
+      })),
+    };
     const manager = {
       ...createManager(),
       ensureQueueProjectionReady: vi.fn(async () => ({
@@ -168,6 +182,7 @@ describe('browserLoadDataRuntime', () => {
     };
     const deps = createDeps({
       activeQueueId: ref('retrieval'),
+      browserAppService: ref(browserAppService as any),
       currentQueueType: ref('retrieval-practice'),
       pluginUnifiedDataSourceManager: ref(manager as any),
       rows: ref([{ id: 'existing', blockId: 'existing' } as BrowserCard]),
@@ -177,10 +192,12 @@ describe('browserLoadDataRuntime', () => {
 
     await runtime.loadData();
 
-    expect(deps.currentDataSource.value?.id).toBe('retrieval');
-    expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(1);
-    expect(deps.rows.value).toEqual([{ id: 'existing', blockId: 'existing' }]);
-    expect(deps.totalRowCount.value).toBe(1);
+    expect(deps.currentDataSource.value).toBeNull();
+    expect(deps.rebuildInfiniteDatasource).not.toHaveBeenCalled();
+    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'browser',
+    }));
+    expect(deps.scheduleQueueProjectionWarmup).not.toHaveBeenCalled();
     expect(deps.loading.value).toBe(true);
     vi.useRealTimers();
   });
@@ -233,6 +250,7 @@ describe('browserLoadDataRuntime', () => {
     expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
     expect(deps.currentDataSource.value?.id).toBe('retrieval');
     expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(1);
+    expect(deps.scheduleQueueProjectionWarmup).toHaveBeenCalledWith('browser-open');
   });
 
   it('does not hold stale queue-view retries open during a newer load', async () => {

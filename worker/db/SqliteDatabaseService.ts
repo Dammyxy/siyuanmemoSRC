@@ -17,6 +17,8 @@ import { QueueType } from '@/types/unified-data-source';
 import type { QueueProjectionGeneration } from '@/application/ports/QueueProjectionPort';
 import type {
   BrowserDeckCardPageResult,
+  BrowserDocumentCountsResult,
+  BrowserDocumentCountsScope,
   BrowserDeckPageRequest,
   BrowserDeckSnapshotQuery,
 } from '@/application/queries/browser/browser-deck-query';
@@ -1526,6 +1528,11 @@ export class WorkerSqliteDatabaseService {
   async getDeckRowsByIds(ids: string[]): Promise<FSRSCard[]> {
     await this.init();
     return this.repository!.getDeckCardsByIds(ids);
+  }
+
+  async queryBrowserDocumentCounts(scope: BrowserDocumentCountsScope): Promise<BrowserDocumentCountsResult> {
+    await this.init();
+    return this.repository!.queryBrowserDocumentCounts(scope);
   }
 
   async queryCards(query?: StructuredCardQuery): Promise<FSRSCard[]> {

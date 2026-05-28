@@ -230,11 +230,14 @@ describe('browser SQL profile diagnostic', () => {
             'browserReadModelPageHydration',
             'browserReadModelRowsByIds',
             'browserReadModelActionTargets',
+            'browserHierarchyDocumentCounts',
         ]);
         expect(result.scenarios[1]?.sections.queueProjection.timings.map((timing) => timing.metric)).toEqual([
             'queueCounters',
             'queueSnapshot',
             'queueRowsByIds',
+            'queueProjectionDocumentCounts',
+            'queueProjectionWarmupReadiness',
         ]);
         expect(result.scenarios[1]?.sections.reviewFeedback.timings.map((timing) => timing.metric)).toEqual([
             'reviewFeedbackTransaction',
@@ -249,8 +252,24 @@ describe('browser SQL profile diagnostic', () => {
             'browser-read-model-page-hydration',
             'browser-read-model-rows-by-ids',
             'browser-read-model-action-targets',
+            'browser-hierarchy-document-counts',
         ]);
-        expect(result.scenarios[1]?.sections.queueProjection.queryPlans.length).toBeGreaterThan(0);
+        expect(result.scenarios[1]?.sections.browserReadModel.diagnostics).toMatchObject({
+            hierarchyCountPath: 'count-only',
+            rowsHydratedForHierarchy: 0,
+        });
+        expect(result.scenarios[1]?.sections.queueProjection.queryPlans.map((plan) => plan.name)).toContain('queue-projection-document-counts');
+        expect(result.scenarios[1]?.sections.queueProjection.queryPlans.map((plan) => plan.name)).toContain('queue-projection-warmup-readiness');
+        expect(result.scenarios[1]?.sections.queueProjection.diagnostics).toMatchObject({
+            hierarchyCountPath: 'projection-count-only',
+            rowsHydratedForHierarchy: 0,
+            projectionWarmup: {
+                status: 'ready',
+                queueType: 'retrieval-practice',
+                retryCount: 0,
+                selectionWaitedOnReadiness: false,
+            },
+        });
         expect(result.scenarios[1]?.sections.xiuyuan.queryPlans.length).toBeGreaterThan(0);
         expect(result.scenarios[1]?.sourceSummaryBefore).toEqual(
             result.scenarios[1]?.sourceSummaryAfterSimulation,

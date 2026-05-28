@@ -1,6 +1,8 @@
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type {
   BrowserDeckCardPageResult,
+  BrowserDocumentCountsResult,
+  BrowserDocumentCountsScope,
   BrowserDeckPageRequest,
   BrowserDeckSnapshotQuery,
 } from '@/application/queries/browser/browser-deck-query';
@@ -43,6 +45,8 @@ export interface BrowserDeckReadPort {
   queryDeckMatchedIds(query: BrowserDeckSnapshotQuery): string[] | null;
 
   getDeckCardsByIds(ids: string[]): FSRSCard[];
+
+  queryBrowserDocumentCounts(scope: BrowserDocumentCountsScope): BrowserDocumentCountsResult;
 
   countCards(query?: StructuredCardQuery): number;
 

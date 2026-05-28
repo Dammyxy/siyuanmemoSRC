@@ -147,6 +147,10 @@ vi.mock('../BrowserHierarchy.vue', () => ({
         type: Array,
         default: () => [],
       },
+      documentCounts: {
+        type: Array,
+        default: null,
+      },
       globalStats: {
         type: Object,
         default: () => ({ total: 0, dismissed: 0, lost: 0 }),
@@ -160,12 +164,22 @@ vi.mock('../BrowserHierarchy.vue', () => ({
     setup(props, { emit }) {
       const docSummaries = computed(() => {
         const counts = new Map<string, number>();
-        for (const card of props.cards as BrowserCard[]) {
-          const rootId = String(card.rootId || '').trim();
-          if (!rootId) {
-            continue;
+        if (Array.isArray(props.documentCounts)) {
+          for (const item of props.documentCounts as Array<{ rootId?: string; count?: number }>) {
+            const rootId = String(item.rootId || '').trim();
+            if (!rootId) {
+              continue;
+            }
+            counts.set(rootId, Math.max(0, Number(item.count) || 0));
           }
-          counts.set(rootId, (counts.get(rootId) || 0) + 1);
+        } else {
+          for (const card of props.cards as BrowserCard[]) {
+            const rootId = String(card.rootId || '').trim();
+            if (!rootId) {
+              continue;
+            }
+            counts.set(rootId, (counts.get(rootId) || 0) + 1);
+          }
         }
         return Array.from(counts.entries())
           .sort(([a], [b]) => a.localeCompare(b))
@@ -264,7 +278,6 @@ vi.mock('../utils/dataSourceFactory', () => ({
 }));
 
 import SRSBrowser from '../SRSBrowser.vue';
-import { DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS } from '../hierarchySnapshotPlan';
 
 function buildBrowserCard(id: string, rootId: string): BrowserCard {
   const now = new Date('2026-04-13T00:00:00.000Z');
@@ -370,6 +383,17 @@ function createQueryableDataSource(allRows: BrowserCard[]) {
 
 function createBrowserService() {
   return {
+    getBrowserDocumentCounts: vi.fn(async () => ({
+      status: 'unsupported',
+      owner: 'none',
+      scope: { kind: 'deck' },
+      rows: [],
+      reason: 'test service does not provide document counts',
+      diagnostics: {
+        countOnly: true,
+        rowsHydratedForHierarchy: 0,
+      },
+    })),
     getStats: vi.fn(async () => ({
       totalCards: 3,
       suspendedCards: 1,
@@ -675,7 +699,7 @@ describe('SRSBrowser hierarchy regressions', () => {
     wrapper.unmount();
   });
 
-  it('keeps the first NeuralRoam load from reentering while projection is still materializing', async () => {
+  it('keeps the first NeuralRoam load from reentering while the queue initial load is still materializing', async () => {
     let resolveProjectionReady: ((value: {
       status: 'ready';
       queueId: QueueType.NeuralRoam;
@@ -691,6 +715,7 @@ describe('SRSBrowser hierarchy regressions', () => {
       resolveProjectionReady = resolve;
     });
     const neuralQueue = createNeuralQueueMock({
+      getSize: vi.fn(async () => projectionReady.then(() => 0)),
       getCards: vi.fn(async () => []),
       listRoutes: vi.fn(async () => []),
       getRouteHistoryPage: vi.fn(() => ({ entries: [], totalCount: 0, hasMore: false })),
@@ -699,9 +724,22 @@ describe('SRSBrowser hierarchy regressions', () => {
       getQueue: vi.fn(() => neuralQueue),
       ensureQueueProjectionReady: vi.fn(async () => projectionReady),
     };
+    getQueueByIdBridgeMock.mockReturnValue(neuralQueue);
+    createQueueDataSourceMock.mockReturnValue(createQueryableDataSource([]));
     const wrapper = mountBrowser({
       initialQueueId: 'neural-roam',
       browserService: {
+        getBrowserDocumentCounts: vi.fn(async () => ({
+          status: 'unsupported',
+          owner: 'none',
+          scope: { kind: 'queue' },
+          rows: [],
+          reason: 'test queue counts unavailable',
+          diagnostics: {
+            countOnly: true,
+            rowsHydratedForHierarchy: 0,
+          },
+        })),
         getStats: vi.fn(async () => ({
           totalCards: 3,
           suspendedCards: 1,
@@ -716,7 +754,8 @@ describe('SRSBrowser hierarchy regressions', () => {
     });
 
     await advance(0);
-    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getSize).toHaveBeenCalledTimes(1);
+    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
 
     browserAdapterSyncHarness.options?.onQueueChanged({
       affectedQueueTypes: [QueueType.NeuralRoam],
@@ -728,7 +767,8 @@ describe('SRSBrowser hierarchy regressions', () => {
     await flushPromises();
     await nextTick();
 
-    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getSize).toHaveBeenCalledTimes(1);
+    expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
 
     resolveProjectionReady?.({
       status: 'ready',
@@ -741,7 +781,7 @@ describe('SRSBrowser hierarchy regressions', () => {
     wrapper.unmount();
   });
 
-  it('upgrades the left document list from the first page to the full all-cards snapshot', async () => {
+  it('populates the left document list from count-only document counts without all-row hydration', async () => {
     const rows = [
       ...Array.from({ length: 25 }, (_, index) => buildBrowserCard(`card-a-${index}`, 'doc-1')),
       ...Array.from({ length: 25 }, (_, index) => buildBrowserCard(`card-b-${index}`, 'doc-2')),
@@ -749,29 +789,39 @@ describe('SRSBrowser hierarchy regressions', () => {
     ];
     const queryable = createQueryableDataSource(rows);
     createDeckDataSourceMock.mockReturnValue(queryable);
+    const browserService = createBrowserService();
+    browserService.getBrowserDocumentCounts.mockResolvedValue({
+      status: 'ready',
+      owner: 'sql-card-universe',
+      scope: { kind: 'deck' },
+      rows: [
+        { rootId: 'doc-1', count: 25 },
+        { rootId: 'doc-2', count: 25 },
+        { rootId: 'doc-3', count: 1 },
+      ],
+      diagnostics: {
+        countOnly: true,
+        rowsHydratedForHierarchy: 0,
+      },
+    });
 
-    const wrapper = mountBrowser();
+    const wrapper = mountBrowser({
+      browserService: browserService as never,
+    });
 
     await advance(0);
     await advance(0);
     await advance(80);
     expect(wrapper.text()).toContain('doc-1:25');
     expect(wrapper.text()).toContain('doc-2:25');
-    expect(wrapper.text()).not.toContain('doc-3:1');
-
-    await advance(40);
-    await advance(80);
-    expect(wrapper.text()).not.toContain('doc-3:1');
-    expect(queryable.getRowsByIds).not.toHaveBeenCalled();
-
-    await advance(DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS);
-    await advance(80);
-
     expect(wrapper.text()).toContain('doc-3:1');
-    expect(queryable.getAllMatchedIds).toHaveBeenCalledTimes(1);
-    expect(queryable.getRowsByIds).toHaveBeenNthCalledWith(1, rows.slice(0, 24).map((row) => row.id));
-    expect(queryable.getRowsByIds).toHaveBeenNthCalledWith(2, rows.slice(24, 48).map((row) => row.id));
-    expect(queryable.getRowsByIds).toHaveBeenNthCalledWith(3, rows.slice(48).map((row) => row.id));
+    expect(browserService.getBrowserDocumentCounts).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'deck',
+      preset: 'all',
+      cardType: 'all',
+    }));
+    expect(queryable.getAllMatchedIds).not.toHaveBeenCalled();
+    expect(queryable.getRowsByIds).not.toHaveBeenCalled();
   });
 
   it('switches all and suspended views without triggering duplicate reloads from watchers', async () => {

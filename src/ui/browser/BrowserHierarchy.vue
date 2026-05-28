@@ -54,8 +54,14 @@ import type { BrowserCard } from './types';
 import { getDocTree } from './browserService';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 
+export type BrowserHierarchyDocumentCountItem = {
+  rootId: string;
+  count: number;
+};
+
 const props = defineProps<{
   cards: BrowserCard[];
+  documentCounts?: BrowserHierarchyDocumentCountItem[] | null;
   queues: { active: string; counts: Record<string, number> };
   mobileMode?: boolean;
   focusedDocIds?: string[] | null;
@@ -99,13 +105,30 @@ let loadSeq = 0;
 let lastDocIdsSignature = '';
 let lastDocCountsSignature = '';
 
-function buildDocCounts(cards: BrowserCard[], focusedDocIds?: string[] | null): Map<string, number> {
+function buildDocCounts(
+  cards: BrowserCard[],
+  focusedDocIds?: string[] | null,
+  documentCounts?: BrowserHierarchyDocumentCountItem[] | null,
+): Map<string, number> {
   const focusSet =
     Array.isArray(focusedDocIds) && focusedDocIds.length > 0
       ? new Set(focusedDocIds)
       : null;
 
   const counts = new Map<string, number>();
+  if (Array.isArray(documentCounts)) {
+    for (const item of documentCounts) {
+      const rootId = String(item.rootId || '').trim();
+      if (!rootId) continue;
+      if (focusSet && !focusSet.has(rootId)) continue;
+      const count = Math.max(0, Math.floor(Number(item.count) || 0));
+      if (count > 0) {
+        counts.set(rootId, count);
+      }
+    }
+    return counts;
+  }
+
   for (const card of cards || []) {
     const rootId = String(card.rootId || '');
     if (!rootId) continue;
@@ -141,7 +164,7 @@ function scheduleDocsRefresh(delayMs = 80): void {
 }
 
 async function refreshDocs(): Promise<void> {
-  const counts = buildDocCounts(props.cards || [], props.focusedDocIds);
+  const counts = buildDocCounts(props.cards || [], props.focusedDocIds, props.documentCounts);
   if (counts.size === 0) {
     docs.value = [];
     lastDocIdsSignature = '';
@@ -181,7 +204,7 @@ async function refreshDocs(): Promise<void> {
 }
 
 watch(
-  [() => props.cards, () => props.focusedDocIds],
+  [() => props.cards, () => props.focusedDocIds, () => props.documentCounts],
   () => {
     scheduleDocsRefresh();
   },

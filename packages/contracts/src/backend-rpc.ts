@@ -17,6 +17,7 @@ export type BackendRpcMethod =
   | 'browser.deck.page'
   | 'browser.deck.matchedIds'
   | 'browser.deck.rowsByIds'
+  | 'browser.deck.documentCounts'
   | 'browser.stats'
   | 'browser.count'
   | 'browser.sourceExistence.refreshCandidates'
@@ -1919,6 +1920,68 @@ export interface BackendBrowserDeckPageResult {
   total: number;
   cards: unknown[];
 }
+
+export type BackendBrowserDocumentCountsScopeKind =
+  | 'deck'
+  | 'queue';
+
+export interface BackendBrowserDocumentCountsScope {
+  kind: BackendBrowserDocumentCountsScopeKind;
+  preset?: string | null;
+  searchText?: string | null;
+  docId?: string | null;
+  scopeDocIds?: string[] | null;
+  cardType?: string | null;
+  queueType?: string | null;
+}
+
+export interface BackendBrowserDocumentCountsQueueReadiness {
+  status: 'ready' | 'refreshing' | 'unavailable';
+  queueId: string;
+  policyId: string;
+  generation?: number;
+  cause?: string;
+  reason?: string;
+  retryAfterMs?: number;
+}
+
+export interface BackendBrowserDocumentCountRow {
+  rootId: string;
+  count: number;
+}
+
+export type BackendBrowserDocumentCountsOwner =
+  | 'sql-card-universe'
+  | 'queue-projection';
+
+export interface BackendBrowserDocumentCountsDiagnostics {
+  countOnly: true;
+  rowsHydratedForHierarchy: number;
+  countMs?: number | null;
+  queueReadiness?: BackendBrowserDocumentCountsQueueReadiness | null;
+  projectionIdentity?: {
+    queueId: string;
+    policyId: string;
+    generation: number;
+  } | null;
+}
+
+export type BackendBrowserDocumentCountsResult =
+  | {
+      status: 'ready';
+      owner: BackendBrowserDocumentCountsOwner;
+      scope: BackendBrowserDocumentCountsScope;
+      rows: BackendBrowserDocumentCountRow[];
+      diagnostics: BackendBrowserDocumentCountsDiagnostics;
+    }
+  | {
+      status: 'unsupported' | 'unavailable';
+      owner: BackendBrowserDocumentCountsOwner | 'none';
+      scope: BackendBrowserDocumentCountsScope;
+      rows: [];
+      reason: string;
+      diagnostics: BackendBrowserDocumentCountsDiagnostics;
+    };
 
 export interface BackendSourceExistenceRefreshRequest {
   blockIds?: string[];

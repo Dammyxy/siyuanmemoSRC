@@ -15,6 +15,7 @@
       <div v-if="showInlineHierarchy" class="card-browser__hierarchy">
         <BrowserHierarchy
           :cards="rowsForFocus"
+          :document-counts="hierarchyDocumentCounts"
           :queues="{ active: activeQueueId || '', counts: queueCounts }"
           :focusedDocIds="focusedDocIds"
           :globalStats="globalStats"
@@ -352,6 +353,7 @@
       <div v-if="showNavigatorDrawer" class="card-browser__navigator-drawer">
         <BrowserHierarchy
           :cards="rowsForFocus"
+          :document-counts="hierarchyDocumentCounts"
           :queues="{ active: activeQueueId || '', counts: queueCounts }"
           :focusedDocIds="focusedDocIds"
           :globalStats="globalStats"
@@ -359,6 +361,7 @@
           :activeDocId="activeDocId"
           :mobile-mode="isMobileMode"
           :i18n="props.i18n"
+          :siyuan-api="browserSiyuanApi"
           @selectQueue="handleSelectQueue"
           @selectDoc="handleSelectDoc"
           @filterDoc="handleFilterDoc"
@@ -596,6 +599,7 @@ import {
   createBrowserLoadDataRuntime,
   type BrowserLoadDataOptions,
 } from './browserLoadDataRuntime';
+import { createBrowserQueueProjectionWarmupRuntime } from './browserQueueProjectionWarmupRuntime';
 import { createBrowserSourceExistenceRuntime } from './browserSourceExistenceRuntime';
 import { openBrowserSpreadDialog } from './browserSpreadDialog';
 import {
@@ -623,6 +627,10 @@ import type {
 import { resolveQueueTypeForBrowserQueueId } from '@/types/browser-queue-identity';
 import type { BrowserPreviewSiyuanPort } from '@/application/ports/BrowserPreviewSiyuanPort';
 import type { PresetFilter } from '@/application/queries/browser/GetBrowserCardsQuery';
+import type {
+  BrowserDocumentCountRow,
+  BrowserDocumentCountsScope,
+} from '@/application/queries/browser/browser-deck-query';
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
 import type { SortField, SortOrder } from '@/core/card/domain/services/CardSortService';
@@ -1159,6 +1167,8 @@ function invalidateHierarchySnapshots(): void {
   allRowsSnapshotPromise = null;
   allRowsSnapshotReady.value = false;
   focusRowsTaskId += 1;
+  hierarchyDocumentCountsTaskId += 1;
+  hierarchyDocumentCountsStatus.value = 'idle';
 }
 
 async function runWithSuspendedBrowserStateBootstrap<T>(
@@ -1361,6 +1371,9 @@ const shouldFocusDocList = ref(false);
 
 
 const rowsForFocus = ref<BrowserCard[]>([]);
+const hierarchyDocumentCounts = ref<BrowserDocumentCountRow[] | null>(null);
+const hierarchyDocumentCountsStatus = ref<'idle' | 'loading' | 'ready' | 'unsupported' | 'unavailable' | 'error'>('idle');
+let hierarchyDocumentCountsTaskId = 0;
 
 const focusedDocIds = computed(() => {
 
@@ -1369,6 +1382,12 @@ const focusedDocIds = computed(() => {
       logger.info('[SiYuanMemo][SRSBrowser] focusedDocIds: shouldFocusDocList is false, returning null');
     }
     return null;
+  }
+
+  if (hierarchyDocumentCounts.value?.length) {
+    return hierarchyDocumentCounts.value
+      .map((item) => String(item.rootId || '').trim())
+      .filter(Boolean);
   }
 
   // 提取 rowsForFocus 中所有的文档 ID（仅应用队列/搜索/preset 筛，不包含文档筛选）
@@ -2240,7 +2259,90 @@ let loadDataImpl: (forceRefresh?: boolean, options?: BrowserLoadDataOptions) => 
 let abortLoadData = () => {};
 
 async function loadData(forceRefresh = false, options: BrowserLoadDataOptions = {}) {
-  return loadDataImpl(forceRefresh, options);
+  await loadDataImpl(forceRefresh, options);
+  void refreshHierarchyDocumentCounts();
+}
+
+function buildHierarchyDocumentCountsScope(): BrowserDocumentCountsScope {
+  const hierarchyDocId = shouldFocusDocList.value ? null : activeDocId.value;
+  if (activeQueueId.value) {
+    return {
+      kind: 'queue',
+      preset: currentPreset.value,
+      searchText: searchQuery.value,
+      docId: hierarchyDocId,
+      scopeDocIds: activeScopeDocIds.value,
+      cardType: currentCardType.value,
+      queueType: currentQueueType.value,
+    };
+  }
+
+  return {
+    kind: 'deck',
+    preset: currentPreset.value,
+    searchText: searchQuery.value,
+    docId: hierarchyDocId,
+    scopeDocIds: activeScopeDocIds.value,
+    cardType: currentCardType.value,
+  };
+}
+
+async function refreshHierarchyDocumentCounts(): Promise<void> {
+  const browserService = browserAppServiceRef.value;
+  if (!browserService?.getBrowserDocumentCounts) {
+    hierarchyDocumentCounts.value = null;
+    hierarchyDocumentCountsStatus.value = 'unavailable';
+    return;
+  }
+
+  const taskId = ++hierarchyDocumentCountsTaskId;
+  const scope = buildHierarchyDocumentCountsScope();
+  hierarchyDocumentCountsStatus.value = 'loading';
+  const finishSpan = startRuntimePerformanceSpan('browser', 'hierarchy.document-counts', {
+    kind: scope.kind,
+  });
+  let status: typeof hierarchyDocumentCountsStatus.value = 'loading';
+  let rowCount = 0;
+  try {
+    const result = await browserService.getBrowserDocumentCounts(scope);
+    if (taskId !== hierarchyDocumentCountsTaskId) {
+      status = 'idle';
+      return;
+    }
+    status = result.status;
+    if (result.status === 'ready') {
+      rowCount = result.rows.length;
+      hierarchyDocumentCounts.value = result.rows;
+      hierarchyDocumentCountsStatus.value = 'ready';
+      recordRuntimePerformanceSpan('browser', 'hierarchy.rows-hydrated-for-counts', 0, {
+        rowsHydratedForHierarchy: result.diagnostics.rowsHydratedForHierarchy,
+      });
+      return;
+    }
+    hierarchyDocumentCounts.value = null;
+    hierarchyDocumentCountsStatus.value = result.status;
+    logger.info('[SiYuanMemo][SRSBrowser] Browser hierarchy document counts unavailable', {
+      reason: result.reason,
+      status: result.status,
+    });
+  } catch (error) {
+    if (taskId !== hierarchyDocumentCountsTaskId) {
+      status = 'idle';
+      return;
+    }
+    status = 'error';
+    hierarchyDocumentCounts.value = null;
+    hierarchyDocumentCountsStatus.value = 'error';
+    logger.error('[SiYuanMemo][SRSBrowser] Failed to refresh hierarchy document counts:', error);
+  } finally {
+    finishSpan({
+      rowCount,
+      status,
+    }, {
+      ok: status === 'ready' || status === 'unsupported' || status === 'unavailable',
+      errorName: status === 'error' ? 'BrowserHierarchyDocumentCountsError' : undefined,
+    });
+  }
 }
 
 function resolveActiveSqlStatement(queryText: string = searchQuery.value): string | null {
@@ -3333,6 +3435,17 @@ const {
   pushErrMsg: (msg, duration) => pushErrMsg(msg, duration),
 });
 
+const browserQueueProjectionWarmupRuntime = createBrowserQueueProjectionWarmupRuntime({
+  activeDocId,
+  activeQueueId,
+  activeScopeDocIds,
+  browserAppService: browserAppServiceRef,
+  currentCardType,
+  currentPreset,
+  logger,
+  searchQuery,
+});
+
 const browserLoadDataRuntime = createBrowserLoadDataRuntime({
   activeDocId,
   activeQueueId,
@@ -3364,6 +3477,9 @@ const browserLoadDataRuntime = createBrowserLoadDataRuntime({
   resolveActiveSqlStatement,
   rows,
   rowsForFocus,
+  abortQueueProjectionWarmup: browserQueueProjectionWarmupRuntime.abort,
+  handleQueueProjectionWarmupLiveIdentityEvent: browserQueueProjectionWarmupRuntime.handleLiveIdentityEvent,
+  scheduleQueueProjectionWarmup: browserQueueProjectionWarmupRuntime.schedule,
   scheduleAllRowsSnapshot,
   searchQuery,
   selectedRows,

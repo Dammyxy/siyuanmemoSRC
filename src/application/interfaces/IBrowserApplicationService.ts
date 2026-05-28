@@ -25,6 +25,8 @@ import type { BrowserCard } from '@/types/browser';
 import type {
   BrowserDeckPageRequest,
   BrowserDeckPageResult,
+  BrowserDocumentCountsResult,
+  BrowserDocumentCountsScope,
   BrowserDeckSnapshotQuery,
   BrowserDeckSnapshotResult,
 } from '../queries/browser/browser-deck-query';
@@ -114,6 +116,8 @@ export interface IBrowserApplicationService {
   getDeckMatchedIds(query: BrowserDeckSnapshotQuery): Promise<string[]>;
 
   getDeckRowsByIds(ids: string[]): Promise<BrowserCard[]>;
+
+  getBrowserDocumentCounts(scope: BrowserDocumentCountsScope): Promise<BrowserDocumentCountsResult>;
 
   getQueueQuerySnapshot(query: QueueBrowserSnapshotQuery): Promise<QueueBrowserSnapshotResult>;
 

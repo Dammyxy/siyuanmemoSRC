@@ -7,6 +7,8 @@ import type {
   BackendBrowserAggregatePageResult,
   BackendBrowserAggregateSnapshotRequest,
   BackendBrowserAggregateSnapshotResult,
+  BackendBrowserDocumentCountsResult,
+  BackendBrowserDocumentCountsScope,
   BackendAiJobCancelRequest,
   BackendAiJobGetRequest,
   BackendAiJobResult,
@@ -180,6 +182,10 @@ export class SrsBackendClient {
   async browserDeckRowsByIds(ids: string[]): Promise<FSRSCard[]> {
     const result = await this.call<{ cards: FSRSCard[] }>('browser.deck.rowsByIds', { ids });
     return result.cards || [];
+  }
+
+  async browserDeckDocumentCounts(scope: BackendBrowserDocumentCountsScope): Promise<BackendBrowserDocumentCountsResult> {
+    return this.call<BackendBrowserDocumentCountsResult>('browser.deck.documentCounts', { scope });
   }
 
   async browserStats(now?: number): Promise<BrowserStats> {

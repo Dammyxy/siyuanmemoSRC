@@ -36,6 +36,8 @@ import type {
 import type {
   BrowserDeckPageRequest,
   BrowserDeckPageResult,
+  BrowserDocumentCountsResult,
+  BrowserDocumentCountsScope,
   BrowserDeckSnapshotQuery,
   BrowserDeckSnapshotResult,
 } from '../queries/browser/browser-deck-query';
@@ -268,6 +270,10 @@ export class BrowserApplicationService implements IBrowserApplicationService {
 
   async getDeckRowsByIds(ids: string[]) {
     return this.browserCardUniverseReadModule.readRowsByIds(ids);
+  }
+
+  async getBrowserDocumentCounts(scope: BrowserDocumentCountsScope): Promise<BrowserDocumentCountsResult> {
+    return this.browserCardUniverseReadModule.readDocumentCounts(scope);
   }
 
   async getQueueQuerySnapshot(query: QueueBrowserSnapshotQuery): Promise<QueueBrowserSnapshotResult> {

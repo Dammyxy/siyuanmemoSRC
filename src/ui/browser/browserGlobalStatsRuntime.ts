@@ -19,10 +19,6 @@ function normalizeCount(value: unknown): number {
   return Math.max(0, Number(value) || 0);
 }
 
-function isLoadedCount(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
-}
-
 export function isDefaultAllCardsScope(scope: BrowserGlobalStatsScope): boolean {
   return (
     !scope.activeQueueId
@@ -55,10 +51,10 @@ export function applyBackendBrowserStats(
   loadedTotal: unknown,
 ): BrowserGlobalStatsState {
   const backendTotal = normalizeCount(stats.totalCards);
-  const defaultScope = isDefaultAllCardsScope(scope);
-  const total = defaultScope
-    ? (isLoadedCount(loadedTotal) ? normalizeCount(loadedTotal) : current.total)
-    : backendTotal;
+  const total = backendTotal;
+  void current;
+  void scope;
+  void loadedTotal;
 
   return {
     total,

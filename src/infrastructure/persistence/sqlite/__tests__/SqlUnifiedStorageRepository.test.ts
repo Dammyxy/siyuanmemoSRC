@@ -14,6 +14,7 @@ import type { IXiuyuan } from '@/core/xiuyuan/types';
 import { CardState, CardType } from '@/types/card';
 import type { FSRSCard } from '@/types/card';
 import type { StructuredCardQuery } from '@/types/card-query';
+import { QueueType } from '@/types/unified-data-source';
 
 class MemorySqliteFileService implements Pick<IFileService, 'readJSON' | 'writeJSON' | 'readBinary' | 'writeBinary'> {
   readonly json = new Map<string, unknown>();
@@ -81,6 +82,7 @@ function createDTO(overrides: Partial<CardPersistenceDTO>): CardPersistenceDTO {
 }
 
 async function seedRepositories(): Promise<{
+  database: SqliteDatabaseService;
   storage: UnifiedStorageManager;
   repository: SqlUnifiedStorageRepository;
   readModel: SqlCardReadModel;
@@ -145,6 +147,7 @@ async function seedRepositories(): Promise<{
   await repository.saveStore(storage.getStoreData());
 
   return {
+    database,
     storage,
     repository,
     readModel: new SqlCardReadModel(repository),
@@ -251,6 +254,152 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
       docId: 'doc-a',
       sortModel: [{ colId: 'priority', sort: 'desc' }],
     })).toEqual(['card-a', 'card-d', 'card-b']);
+  });
+
+  it('serves browser document counts from count-only root projections', async () => {
+    const { repository } = await seedRepositories();
+
+    expect(repository.queryBrowserDocumentCounts({
+      kind: 'deck',
+      preset: 'all',
+      searchText: '',
+      docId: null,
+      scopeDocIds: null,
+      cardType: 'all',
+    })).toMatchObject({
+      status: 'ready',
+      owner: 'sql-card-universe',
+      rows: [
+        { rootId: 'doc-a', count: 3 },
+        { rootId: 'doc-b', count: 1 },
+      ],
+      diagnostics: {
+        countOnly: true,
+        rowsHydratedForHierarchy: 0,
+      },
+    });
+
+    expect(repository.queryBrowserDocumentCounts({
+      kind: 'deck',
+      preset: 'all',
+      searchText: '',
+      docId: null,
+      scopeDocIds: null,
+      cardType: 'topic-only',
+    })).toMatchObject({
+      status: 'ready',
+      rows: [
+        { rootId: 'doc-a', count: 1 },
+      ],
+      diagnostics: {
+        rowsHydratedForHierarchy: 0,
+      },
+    });
+  });
+
+  it('serves queue browser document counts from ready projection identity without hydrating rows', async () => {
+    const { database, repository } = await seedRepositories();
+
+    database.run(
+      `INSERT OR REPLACE INTO queue_projection_generations
+        (queue_type, policy_hash, generation, status, rebuild_reason, updated_at, metadata_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [QueueType.RetrievalPractice, 'policy-doc-count', 9, 'ready', null, 1_700_000_010_000, '{}'],
+    );
+    for (const [index, cardId] of ['card-a', 'card-b', 'card-c'].entries()) {
+      database.run(
+        `INSERT OR REPLACE INTO queue_projection_rows
+          (queue_type, row_id, card_id, block_id, deck_id, membership_reason, due_at, due_bucket,
+           priority_score, sort_key, queue_index_hint, policy_hash, source_generation, payload_json, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          QueueType.RetrievalPractice,
+          `row-${cardId}`,
+          cardId,
+          `block-${cardId}`,
+          'deck-a',
+          'due',
+          1_700_000_020_000 + index,
+          'due',
+          10 + index,
+          `000${index}`,
+          index,
+          'policy-doc-count',
+          9,
+          JSON.stringify({ fsrsCardId: cardId }),
+          1_700_000_020_000 + index,
+        ],
+      );
+    }
+
+    expect(repository.queryBrowserDocumentCounts({
+      kind: 'queue',
+      queueType: QueueType.RetrievalPractice,
+      preset: 'all',
+      searchText: '',
+      docId: null,
+      scopeDocIds: null,
+      cardType: 'all',
+    })).toMatchObject({
+      status: 'ready',
+      owner: 'queue-projection',
+      rows: [
+        { rootId: 'doc-a', count: 2 },
+        { rootId: 'doc-b', count: 1 },
+      ],
+      diagnostics: {
+        countOnly: true,
+        rowsHydratedForHierarchy: 0,
+        queueReadiness: {
+          status: 'ready',
+          queueId: QueueType.RetrievalPractice,
+          policyId: 'policy-doc-count',
+          generation: 9,
+        },
+        projectionIdentity: {
+          queueId: QueueType.RetrievalPractice,
+          policyId: 'policy-doc-count',
+          generation: 9,
+        },
+      },
+    });
+  });
+
+  it('fails closed for queue browser document counts when projection generation is invalidated', async () => {
+    const { database, repository } = await seedRepositories();
+
+    database.run(
+      `INSERT OR REPLACE INTO queue_projection_generations
+        (queue_type, policy_hash, generation, status, rebuild_reason, updated_at, metadata_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [QueueType.RetrievalPractice, 'policy-stale', 3, 'invalidated', 'sync-conflict-merge', 1_700_000_010_000, '{}'],
+    );
+
+    expect(repository.queryBrowserDocumentCounts({
+      kind: 'queue',
+      queueType: QueueType.RetrievalPractice,
+      preset: 'all',
+      searchText: '',
+      docId: null,
+      scopeDocIds: null,
+      cardType: 'all',
+    })).toMatchObject({
+      status: 'unavailable',
+      owner: 'queue-projection',
+      rows: [],
+      diagnostics: {
+        countOnly: true,
+        rowsHydratedForHierarchy: 0,
+        queueReadiness: {
+          status: 'refreshing',
+          queueId: QueueType.RetrievalPractice,
+          policyId: 'policy-stale',
+          generation: 3,
+          cause: 'projection_stale',
+          retryAfterMs: 300,
+        },
+      },
+    });
   });
 
   it('supports browser grid sort columns without returning unavailable for aggregate snapshot queries', async () => {

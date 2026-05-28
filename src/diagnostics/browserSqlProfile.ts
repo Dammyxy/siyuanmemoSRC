@@ -35,9 +35,12 @@ const BUDGETS_MS = {
     browserReadModelPageHydration: 300,
     browserReadModelRowsByIds: 300,
     browserReadModelActionTargets: 150,
+    browserHierarchyDocumentCounts: 150,
     queueSnapshot: 150,
     queueRowsByIds: 300,
     queueCounters: 50,
+    queueProjectionDocumentCounts: 150,
+    queueProjectionWarmupReadiness: 150,
     reviewFeedbackTransaction: 250,
     xiuyuanFindById: 50,
     xiuyuanFindByBlockId: 100,
@@ -72,6 +75,7 @@ interface RuntimeSqlProfileSection {
     queryPlans: QueryPlanSummary[];
     pass: boolean;
     skippedReason?: string;
+    diagnostics?: Record<string, unknown>;
 }
 
 interface BrowserSqlProfileScenario {
@@ -389,6 +393,10 @@ function queryBrowserReadModelActionTargets(database: Database, ids: string[]): 
     getAll(database, browserReadModelActionTargetsSql(ids.length), ids);
 }
 
+function queryBrowserHierarchyDocumentCounts(database: Database): void {
+    getAll(database, browserHierarchyDocumentCountsSql());
+}
+
 function getSourceExistenceSummary(database: Database, staleBefore: number): SourceSummary {
     const row = getOne(database,
         `SELECT
@@ -475,6 +483,9 @@ function profileBrowserReadModel(
         measureMetric('browserReadModelActionTargets', options, () => {
             queryBrowserReadModelActionTargets(database, sampleIds);
         }),
+        measureMetric('browserHierarchyDocumentCounts', options, () => {
+            queryBrowserHierarchyDocumentCounts(database);
+        }),
     ];
     const rowsByIdsSql = browserReadModelRowsByIdsSql(Math.max(1, sampleIds.length));
     const actionTargetsSql = browserReadModelActionTargetsSql(Math.max(1, sampleIds.length));
@@ -488,7 +499,12 @@ function profileBrowserReadModel(
             explainQuery(database, 'browser-read-model-page-hydration', browserReadModelPageHydrationSql(), [options.pageSize, 0]),
             explainQuery(database, 'browser-read-model-rows-by-ids', rowsByIdsSql, planIds),
             explainQuery(database, 'browser-read-model-action-targets', actionTargetsSql, planIds),
+            explainQuery(database, 'browser-hierarchy-document-counts', browserHierarchyDocumentCountsSql()),
         ],
+        diagnostics: {
+            hierarchyCountPath: 'count-only',
+            rowsHydratedForHierarchy: 0,
+        },
         pass: timings.every((timing) => timing.pass),
     };
 }
@@ -509,6 +525,15 @@ function profileQueueProjection(
     const queueType = String(generation?.queue_type || '');
     const policyHash = String(generation?.policy_hash || '');
     const sourceGeneration = Number(generation?.generation) || 0;
+    const readinessStatus = String(generation?.status || 'unavailable');
+    const readinessDiagnostics = {
+        status: readinessStatus,
+        queueType,
+        policyHash,
+        generation: sourceGeneration || null,
+        retryCount: readinessStatus === 'ready' ? 0 : 1,
+        selectionWaitedOnReadiness: readinessStatus !== 'ready',
+    };
     const rowCount = queueType
         ? Number(getOne(database, 'SELECT COUNT(*) AS count FROM queue_projection_rows WHERE queue_type = ?', [queueType])?.count) || 0
         : 0;
@@ -532,6 +557,12 @@ function profileQueueProjection(
         measureMetric('queueRowsByIds', options, () => {
             queryQueueProjectionRowsByIds(database, queueType, policyHash, sourceGeneration, ids);
         }),
+        measureMetric('queueProjectionDocumentCounts', options, () => {
+            queryQueueProjectionDocumentCounts(database, queueType, policyHash, sourceGeneration);
+        }),
+        measureMetric('queueProjectionWarmupReadiness', options, () => {
+            queryQueueProjectionWarmupReadiness(database, queueType);
+        }),
     ];
     return {
         rowCount,
@@ -540,7 +571,14 @@ function profileQueueProjection(
             explainQuery(database, 'queue-snapshot', queueSnapshotSql(), [queueType, policyHash, sourceGeneration, 50, 0]),
             explainQuery(database, 'queue-rows-by-ids-read-all', queueRowsByIdsSql(), [queueType, policyHash, sourceGeneration, 5000]),
             explainQuery(database, 'queue-counters', queueCountersSql(), [queueType, policyHash]),
+            explainQuery(database, 'queue-projection-document-counts', queueProjectionDocumentCountsSql(), [queueType, policyHash, sourceGeneration]),
+            explainQuery(database, 'queue-projection-warmup-readiness', queueProjectionWarmupReadinessSql(), [queueType]),
         ],
+        diagnostics: {
+            hierarchyCountPath: 'projection-count-only',
+            rowsHydratedForHierarchy: 0,
+            projectionWarmup: readinessDiagnostics,
+        },
         pass: timings.every((timing) => timing.pass),
     };
 }
@@ -645,6 +683,21 @@ function queryQueueProjectionRowsByIds(
     }
     const orderedRows = ids.map((id) => byId.get(id)).filter((row): row is SqlRow => Boolean(row));
     getCardsByIds(database, orderedRows.map((row) => String(row.card_id || '')).filter(Boolean));
+}
+
+function queryQueueProjectionDocumentCounts(
+    database: Database,
+    queueType: string,
+    policyHash: string,
+    generation: number,
+): void {
+    if (!queueType) return;
+    getAll(database, queueProjectionDocumentCountsSql(), [queueType, policyHash, generation]);
+}
+
+function queryQueueProjectionWarmupReadiness(database: Database, queueType: string): void {
+    if (!queueType) return;
+    getOne(database, queueProjectionWarmupReadinessSql(), [queueType]);
 }
 
 function simulateReviewFeedbackTransaction(database: Database, cardId: string): void {
@@ -868,6 +921,16 @@ function browserReadModelActionTargetsSql(count: number): string {
             WHERE id IN (${placeholders})`;
 }
 
+function browserHierarchyDocumentCountsSql(): string {
+    return `SELECT root_id, COUNT(*) AS count
+            FROM cards
+            WHERE ${ACTIVE_SOURCE_STATUS_SQL}
+              AND root_id IS NOT NULL
+              AND root_id != ''
+            GROUP BY root_id
+            ORDER BY root_id ASC`;
+}
+
 function queueSnapshotSql(): string {
     return `SELECT queue_type, row_id, card_id, block_id, deck_id, membership_reason, due_at, due_bucket,
                    priority_score, sort_key, queue_index_hint, policy_hash, source_generation, payload_json, updated_at
@@ -895,6 +958,27 @@ function queueCountersSql(): string {
             FROM queue_projection_counters
             WHERE queue_type = ? AND policy_hash = ?
             ORDER BY generation DESC, version DESC
+            LIMIT 1`;
+}
+
+function queueProjectionDocumentCountsSql(): string {
+    return `SELECT cards.root_id AS root_id, COUNT(*) AS count
+            FROM queue_projection_rows projection
+            INNER JOIN cards ON cards.id = projection.card_id
+            WHERE projection.queue_type = ?
+              AND projection.policy_hash = ?
+              AND projection.source_generation = ?
+              AND ${ACTIVE_SOURCE_STATUS_SQL}
+              AND cards.root_id IS NOT NULL
+              AND cards.root_id != ''
+            GROUP BY cards.root_id
+            ORDER BY cards.root_id ASC`;
+}
+
+function queueProjectionWarmupReadinessSql(): string {
+    return `SELECT queue_type, policy_hash, generation, status, rebuild_reason, updated_at
+            FROM queue_projection_generations
+            WHERE queue_type = ?
             LIMIT 1`;
 }
 

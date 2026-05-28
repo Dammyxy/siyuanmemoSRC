@@ -44,6 +44,66 @@ export interface BrowserDeckPageResult {
   total: number;
 }
 
+export type BrowserDocumentCountsScopeKind = 'deck' | 'queue';
+
+export interface BrowserDocumentCountsScope {
+  kind: BrowserDocumentCountsScopeKind;
+  preset?: PresetFilter | string | null;
+  searchText?: string | null;
+  docId?: string | null;
+  scopeDocIds?: string[] | null;
+  cardType?: string | null;
+  queueType?: string | null;
+}
+
+export interface BrowserDocumentCountsQueueReadiness {
+  status: 'ready' | 'refreshing' | 'unavailable';
+  queueId: string;
+  policyId: string;
+  generation?: number;
+  cause?: string;
+  reason?: string;
+  retryAfterMs?: number;
+}
+
+export interface BrowserDocumentCountRow {
+  rootId: string;
+  count: number;
+}
+
+export type BrowserDocumentCountsOwner =
+  | 'sql-card-universe'
+  | 'queue-projection';
+
+export interface BrowserDocumentCountsDiagnostics {
+  countOnly: true;
+  rowsHydratedForHierarchy: number;
+  countMs?: number | null;
+  queueReadiness?: BrowserDocumentCountsQueueReadiness | null;
+  projectionIdentity?: {
+    queueId: string;
+    policyId: string;
+    generation: number;
+  } | null;
+}
+
+export type BrowserDocumentCountsResult =
+  | {
+      status: 'ready';
+      owner: BrowserDocumentCountsOwner;
+      scope: BrowserDocumentCountsScope;
+      rows: BrowserDocumentCountRow[];
+      diagnostics: BrowserDocumentCountsDiagnostics;
+    }
+  | {
+      status: 'unsupported' | 'unavailable';
+      owner: BrowserDocumentCountsOwner | 'none';
+      scope: BrowserDocumentCountsScope;
+      rows: [];
+      reason: string;
+      diagnostics: BrowserDocumentCountsDiagnostics;
+    };
+
 export interface BrowserDeckCardPageResult {
   cards: FSRSCard[];
   total: number;

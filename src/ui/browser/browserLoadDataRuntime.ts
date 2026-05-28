@@ -82,11 +82,14 @@ export type BrowserLoadDataRuntimeDeps = {
   resolveActiveSqlStatement: (queryText?: string) => string | null;
   rows: MutableRef<BrowserCard[]>;
   rowsForFocus: MutableRef<BrowserCard[]>;
+  abortQueueProjectionWarmup?: () => void;
+  scheduleQueueProjectionWarmup?: (reason?: string) => void;
   scheduleAllRowsSnapshot: (delayMs?: number) => void;
   searchQuery: ReadonlyRef<string>;
   selectedRows: MutableRef<BrowserCard[]>;
   shouldFocusDocList: ReadonlyRef<boolean>;
   startFocusRowsSnapshot: (delayMs?: number) => void;
+  handleQueueProjectionWarmupLiveIdentityEvent?: (event: QueueProjectionLiveIdentityEvent) => void;
   t: BrowserTranslate;
   totalRowCount: MutableRef<number>;
 };
@@ -122,6 +125,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
       clearTimeout(queueViewRetryTimer);
       queueViewRetryTimer = null;
     }
+    deps.abortQueueProjectionWarmup?.();
   }
 
   function flushPendingHiddenLiveIdentityEvent(): void {
@@ -143,6 +147,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
   }
 
   function handleQueueProjectionLiveIdentityEvent(event: QueueProjectionLiveIdentityEvent): 'ignored' | 'scheduled' {
+    deps.handleQueueProjectionWarmupLiveIdentityEvent?.(event);
     const plan = planQueueProjectionLiveIdentityForBrowserQueueView({
       activeQueueId: deps.activeQueueId.value,
       currentQueueType: deps.currentQueueType.value,
@@ -185,6 +190,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
 
     if (loadDataAbortController) {
       loadDataAbortController.abort();
+      deps.abortQueueProjectionWarmup?.();
       deps.logger.info('[SiYuanMemo][SRSBrowser] Previous loadData() aborted');
     }
     if (queueViewRetryTimer) {
@@ -335,16 +341,19 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
         datasourceKind,
       });
       datasourceTriggered = true;
+      deps.scheduleQueueProjectionWarmup?.(origin === 'queue-sync' ? 'queue-sync' : 'browser-open');
       const hierarchySnapshotMode = resolveBrowserHierarchySnapshotMode({
         shouldFocusDocList: deps.shouldFocusDocList.value,
         activeDocId: deps.activeDocId.value,
       });
       if (hierarchySnapshotMode === 'focus') {
-        measureRuntimePerformance('browser', 'load-data.schedule-focus-snapshot', () => deps.startFocusRowsSnapshot(options.snapshotDelayMs), {
+        measureRuntimePerformance('browser', 'load-data.skip-focus-snapshot', () => undefined, {
+          reason: 'hierarchy-count-only',
           snapshotDelayMs: options.snapshotDelayMs ?? null,
         });
       } else if (hierarchySnapshotMode === 'all') {
-        measureRuntimePerformance('browser', 'load-data.schedule-all-rows-snapshot', () => deps.scheduleAllRowsSnapshot(options.snapshotDelayMs), {
+        measureRuntimePerformance('browser', 'load-data.skip-all-rows-snapshot', () => undefined, {
+          reason: 'hierarchy-count-only',
           snapshotDelayMs: options.snapshotDelayMs ?? null,
         });
       }

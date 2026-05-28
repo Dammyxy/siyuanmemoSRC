@@ -4,6 +4,8 @@ import type {
   BrowserDeckLiteRow,
   BrowserDeckPageRequest,
   BrowserDeckPageResult,
+  BrowserDocumentCountsResult,
+  BrowserDocumentCountsScope,
   BrowserDeckSnapshotQuery,
   BrowserDeckSnapshotResult,
 } from '@/application/queries/browser/browser-deck-query';
@@ -197,6 +199,31 @@ export class BrowserCardUniverseReadModule {
       );
     } catch (error) {
       throw toBrowserCardUniverseUnavailable('browser.deck.rowsByIds', error);
+    }
+  }
+
+  async readDocumentCounts(scope: BrowserDocumentCountsScope): Promise<BrowserDocumentCountsResult> {
+    const backend = this.requireBackend('browser.deck.documentCounts');
+    try {
+      return await measureRuntimePerformance(
+        'browser',
+        'backend.deck-document-counts',
+        () => backend.browserDeckDocumentCounts({
+          kind: scope.kind,
+          preset: scope.preset,
+          searchText: scope.searchText,
+          docId: scope.docId,
+          scopeDocIds: scope.scopeDocIds,
+          cardType: scope.cardType,
+          queueType: scope.queueType,
+        }),
+        {
+          kind: scope.kind,
+          hasScopeDocIds: Boolean(scope.scopeDocIds?.length),
+        },
+      ) as BrowserDocumentCountsResult;
+    } catch (error) {
+      throw toBrowserCardUniverseUnavailable('browser.deck.documentCounts', error);
     }
   }
 

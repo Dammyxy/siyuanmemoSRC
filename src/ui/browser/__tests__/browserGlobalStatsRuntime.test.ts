@@ -29,7 +29,7 @@ describe('browserGlobalStatsRuntime', () => {
     });
   });
 
-  it('does not let stale smaller backend stats overwrite the loaded all-cards total', () => {
+  it('uses backend all-cards stats instead of the normal-view loaded total', () => {
     expect(applyBackendBrowserStats({
       dismissed: 0,
       lost: 0,
@@ -45,11 +45,11 @@ describe('browserGlobalStatsRuntime', () => {
     }, 242)).toEqual({
       dismissed: 4,
       lost: 3,
-      total: 242,
+      total: 70,
     });
   });
 
-  it('keeps default all-cards total unknown until aggregate total loads', () => {
+  it('uses backend all-cards stats even before aggregate total loads', () => {
     expect(applyBackendBrowserStats({
       dismissed: 0,
       lost: 0,
@@ -65,11 +65,11 @@ describe('browserGlobalStatsRuntime', () => {
     }, null)).toEqual({
       dismissed: 4,
       lost: 3,
-      total: null,
+      total: 70,
     });
   });
 
-  it('accepts a ready-empty aggregate total as authoritative', () => {
+  it('does not let a ready-empty normal view erase backend all-cards stats', () => {
     expect(applyBackendBrowserStats({
       dismissed: 0,
       lost: 0,
@@ -85,7 +85,7 @@ describe('browserGlobalStatsRuntime', () => {
     }, 0)).toEqual({
       dismissed: 0,
       lost: 0,
-      total: 0,
+      total: 70,
     });
   });
 
