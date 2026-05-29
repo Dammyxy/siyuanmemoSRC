@@ -305,6 +305,117 @@ describe('BackendKernel xiuyuan.sync.execute', () => {
     expect(created?.createdAt).toBeGreaterThan(0);
   });
 
+  it('persists backend full-sync checkpoint without rewriting unchanged managed Riff rows', async () => {
+    const database = await createSeededDatabase();
+    const now = 1_700_000_000_000;
+    const appliedAt = 1_700_000_000_500;
+    database.run('UPDATE xiuyuans SET updated_at = ?, payload_json = ? WHERE id = ?', [
+      now,
+      JSON.stringify({
+        id: 'xy-existing',
+        blockIDs: ['block-existing'],
+        templateID: 'builtin-riff-sync',
+        content: 'Stable content',
+        updatedAt: now,
+        meta: {
+          ownership: 'riff-managed',
+          source: 'riff-sync',
+          riffCardId: 'riff-existing',
+          deckId: 'deck-a',
+        },
+      }),
+      'xy-existing',
+    ]);
+    await database.upsertCards([buildCard({
+      riffCardId: 'riff-existing',
+      content: 'Stable content',
+      meta: {
+        templateID: 'builtin-riff-sync',
+        ownership: 'riff-managed',
+        source: 'riff-sync',
+        riffCardId: 'riff-existing',
+        deckId: 'deck-a',
+      },
+    } as Partial<FSRSCard>)]);
+    const beforeCard = await database.getCard('card-existing');
+    const beforeCardRow = database.getOne<{ updated_at: number; payload_json: string }>(
+      "SELECT updated_at, payload_json FROM cards WHERE id = 'card-existing'",
+    );
+    const beforeXiuyuan = database.getOne<{ updated_at: number; payload_json: string }>(
+      "SELECT updated_at, payload_json FROM xiuyuans WHERE id = 'xy-existing'",
+    );
+    const readXiuyuanRiffFacts = vi.fn(async (request) => ({
+      status: 'ready' as const,
+      requestId: request.requestId,
+      mode: request.mode,
+      deckId: request.deckId,
+      readAt: appliedAt,
+      blocks: [
+        { id: 'block-existing', content: 'Stable content', riffCardID: 'riff-existing' },
+      ],
+      diagnostics: {
+        source: 'renderer-host-effect' as const,
+        blockCount: 1,
+        normalizedBlockCount: 1,
+        malformedBlockCount: 0,
+        truncated: false,
+      },
+    }));
+    const kernel = new BackendKernel({
+      database,
+      readXiuyuanRiffFacts,
+    });
+
+    const response = await kernel.handle({
+      id: 'xiuyuan-sync-noop-full',
+      jsonrpc: '2.0',
+      method: 'xiuyuan.sync.execute',
+      params: [{
+        requestId: 'sync-request-noop-full',
+        commandId: 'sync-command-noop-full',
+        idempotencyKey: 'sync-key-noop-full',
+        mode: 'full',
+        dryRun: false,
+        deckId: 'deck-a',
+        requestedAt: now,
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'applied',
+        plan: expect.objectContaining({
+          updateCount: 1,
+        }),
+        applyImpact: {
+          requested: true,
+          applied: true,
+          reason: 'applied',
+          changed: {
+            blockIds: [],
+            cardIds: [],
+          },
+        },
+      }),
+    }));
+    await expect(database.getCard('card-existing')).resolves.toMatchObject({
+      updatedAt: beforeCard?.updatedAt,
+      riffCardId: 'riff-existing',
+    });
+    expect(database.getOne<{ updated_at: number; payload_json: string }>(
+      "SELECT updated_at, payload_json FROM cards WHERE id = 'card-existing'",
+    )).toEqual(beforeCardRow);
+    expect(database.getOne<{ updated_at: number; payload_json: string }>(
+      "SELECT updated_at, payload_json FROM xiuyuans WHERE id = 'xy-existing'",
+    )).toEqual(beforeXiuyuan);
+    const syncState = database.getOne<{ value_json: string; updated_at: number }>(
+      "SELECT value_json, updated_at FROM riff_sync WHERE key = 'sync_state'",
+    );
+    const syncStatePayload = JSON.parse(syncState?.value_json || '{}');
+    expect(syncStatePayload.lastSuccessfulFullAt).toBeGreaterThanOrEqual(now);
+    expect(syncState?.updated_at).toBe(syncStatePayload.lastSuccessfulFullAt);
+  });
+
   it('preserves newer local scheduling state when native Riff schedule is stale', async () => {
     const database = await createSeededDatabase();
     await database.upsertCards([buildCard({

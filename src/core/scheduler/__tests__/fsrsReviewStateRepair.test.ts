@@ -88,6 +88,23 @@ describe('repairFsrsReviewState', () => {
     expect(result.card.elapsedDays).toBe(0);
   });
 
+  it('does not rewrite valid Review elapsedDays just because wall-clock time moved forward', () => {
+    const lastReview = new Date('2026-04-01T10:00:00+08:00').getTime();
+    const result = repairFsrsReviewState(createCard({
+      due: new Date('2026-05-01T10:00:00+08:00').getTime(),
+      stability: 30,
+      difficulty: 5,
+      scheduledDays: 30,
+      elapsedDays: 1,
+      lastReview,
+    }), {
+      now: new Date('2026-04-26T18:00:00+08:00'),
+    });
+
+    expect(result.repaired).toBe(false);
+    expect(result.card.elapsedDays).toBe(1);
+  });
+
   it('keeps New cards eligible for zero stability', () => {
     const result = repairFsrsReviewState(createCard({
       state: CardState.New,

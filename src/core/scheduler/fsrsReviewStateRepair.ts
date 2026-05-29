@@ -75,6 +75,7 @@ export function repairFsrsReviewState(
   }
 
   let elapsedDays = toNonNegativeInteger(repairedCard.elapsedDays, 0);
+  const hadInvalidElapsedDays = elapsedDays !== repairedCard.elapsedDays;
   if (elapsedDays !== repairedCard.elapsedDays) {
     reasons.push('elapsedDays');
   }
@@ -119,7 +120,7 @@ export function repairFsrsReviewState(
     reasons.push('due');
   }
 
-  if (lastReview > 0) {
+  if (lastReview > 0 && (hadInvalidElapsedDays || hadInvalidStability || hasImplausiblyLowStability)) {
     const actualElapsedDays = Math.max(0, Math.floor((now - lastReview) / DAY_MS));
     if (elapsedDays !== actualElapsedDays) {
       elapsedDays = actualElapsedDays;

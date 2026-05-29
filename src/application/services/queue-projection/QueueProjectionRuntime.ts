@@ -31,6 +31,7 @@ import type {
 } from '../../../../packages/contracts/src/backend-rpc';
 import { buildOrderedQueueProjectionRows } from './QueueProjectionBuilder';
 import { QueueProjectionReadinessService } from './QueueProjectionReadinessService';
+import { measureRuntimePerformance, startRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnostics';
 
 type QueueProjectionRuntimeLogger = {
   debug: (...args: unknown[]) => void;
@@ -506,16 +507,34 @@ export class QueueProjectionRuntime {
       queueOverride?: Pick<IReviewQueue, 'getCards'> | null;
     } = {},
   ): Promise<BackendQueueProjectionReplaceResult | null> {
+    const finishMaterializeSpan = startRuntimePerformanceSpan('browser', 'queue-projection.materialize.total', {
+      queueType,
+      reason: options.reason ?? 'snapshot-refresh',
+      hasQueueOverride: Boolean(options.queueOverride),
+      currentPolicyHash: this.isValidProjectionPolicyHash(options.currentPolicyHash)
+        ? String(options.currentPolicyHash)
+        : null,
+      currentGeneration: this.isValidProjectionGeneration(options.currentGeneration)
+        ? Number(options.currentGeneration)
+        : null,
+      frontendMode: this.deps.getFrontendRuntime()?.getMode?.() ?? null,
+    });
     if (!this.isQueueProjectionReadable(queueType)) {
+      finishMaterializeSpan({ status: 'skipped', skipReason: 'not-readable' });
       return null;
     }
     if (!this.canSubmitQueueProjectionReplace(backend)) {
       this.deps.logger.debug('Queue projection replace backend is unavailable', { queueType });
+      finishMaterializeSpan({ status: 'skipped', skipReason: 'replace-backend-unavailable' });
       return null;
     }
 
     const queue = options.queueOverride ?? this.deps.getQueue(queueType);
     if (!queue || typeof queue.getCards !== 'function') {
+      finishMaterializeSpan({ status: 'failed', skipReason: 'queue-strategy-unavailable' }, {
+        ok: false,
+        errorName: 'Error',
+      });
       throw new Error(`QUEUE_PROJECTION_UNAVAILABLE: queue strategy unavailable for ${queueType}`);
     }
 
@@ -527,37 +546,91 @@ export class QueueProjectionRuntime {
     const policyHash = this.isValidProjectionPolicyHash(options.currentPolicyHash)
       ? String(options.currentPolicyHash)
       : this.buildMaterializedProjectionPolicyHash(queueType);
-    const cards = await queue.getCards();
-    const projection = buildOrderedQueueProjectionRows({
-      queueType,
-      cards,
-      now,
-      policyHash,
-      sourceGeneration: generation,
-      updatedAt: now,
-      membershipReason: this.resolveMaterializedProjectionMembershipReason(queueType),
-    });
+    try {
+      const cards = await measureRuntimePerformance(
+        'browser',
+        'queue-projection.materialize.get-cards',
+        () => queue.getCards(),
+        {
+          queueType,
+          reason: options.reason ?? 'snapshot-refresh',
+          generation,
+          policyHash,
+        },
+      );
+      const projection = measureRuntimePerformance(
+        'browser',
+        'queue-projection.materialize.build-rows',
+        () => buildOrderedQueueProjectionRows({
+          queueType,
+          cards,
+          now,
+          policyHash,
+          sourceGeneration: generation,
+          updatedAt: now,
+          membershipReason: this.resolveMaterializedProjectionMembershipReason(queueType),
+        }),
+        {
+          queueType,
+          reason: options.reason ?? 'snapshot-refresh',
+          generation,
+          policyHash,
+          cardCount: cards.length,
+        },
+      );
 
-    const replaceRequest: QueueProjectionReplaceRequestLike = {
-      queueType,
-      policyHash,
-      generation,
-      reason: options.reason ?? 'snapshot-refresh',
-      rows: projection.rows,
-      metadata: {
-        source: 'queue-strategy-materialization',
-        cardCount: projection.rows.length,
-      },
-    };
-    const result = await this.submitQueueProjectionReplace(backend, replaceRequest);
-    this.cacheMaterializedProjectionEcho(queueType, result, cards, projection.rows);
-    this.emitReadyLiveIdentity(queueType, {
-      policyHash: result.policyHash,
-      generation: result.generation,
-      reason: 'materialized',
-      source: this.isCurrentInstanceFollower() ? 'writer-relay' : 'backend',
-    });
-    return result;
+      const replaceRequest: QueueProjectionReplaceRequestLike = {
+        queueType,
+        policyHash,
+        generation,
+        reason: options.reason ?? 'snapshot-refresh',
+        rows: projection.rows,
+        metadata: {
+          source: 'queue-strategy-materialization',
+          cardCount: projection.rows.length,
+        },
+      };
+      const result = await measureRuntimePerformance(
+        'browser',
+        'queue-projection.materialize.replace',
+        () => this.submitQueueProjectionReplace(backend, replaceRequest),
+        {
+          queueType,
+          reason: replaceRequest.reason,
+          generation,
+          policyHash,
+          cardCount: cards.length,
+          rowCount: projection.rows.length,
+          frontendMode: this.deps.getFrontendRuntime()?.getMode?.() ?? null,
+        },
+      );
+      this.cacheMaterializedProjectionEcho(queueType, result, cards, projection.rows);
+      this.emitReadyLiveIdentity(queueType, {
+        policyHash: result.policyHash,
+        generation: result.generation,
+        reason: 'materialized',
+        source: this.isCurrentInstanceFollower() ? 'writer-relay' : 'backend',
+      });
+      finishMaterializeSpan({
+        status: result.status,
+        policyHash: result.policyHash,
+        generation: result.generation,
+        cardCount: cards.length,
+        rowCount: projection.rows.length,
+        replaceRows: result.rows,
+      });
+      return result;
+    } catch (error) {
+      finishMaterializeSpan({
+        status: 'failed',
+        reason: options.reason ?? 'snapshot-refresh',
+        error: error instanceof Error ? error.message : String(error),
+      }, {
+        ok: false,
+        errorName: error instanceof Error ? error.name : 'Error',
+      });
+      throw error;
+    }
   }
 
   private async submitQueueProjectionReplace(

@@ -73,11 +73,17 @@ function buildInternalErrorResponse(
 function requestHostEffect<TResult>(effect: BackendWorkerHostEffect): Promise<TResult> {
   const effectId = `effect-${++hostEffectSeq}`;
   const startedAt = Date.now();
+  const effectMetadata = {
+    path: 'path' in effect ? String(effect.path || '') || null : null,
+    byteLength: 'bytes' in effect && effect.bytes instanceof Uint8Array
+      ? effect.bytes.byteLength
+      : null,
+  };
   const pending = new Promise<TResult>((resolve, reject) => {
     pendingHostEffects.set(effectId, {
       resolve: (result) => {
         const workerTiming = resolveExclusiveActiveBackendWorkerTiming();
-        recordBackendWorkerHostEffect(workerTiming, effect.kind, Date.now() - startedAt);
+        recordBackendWorkerHostEffect(workerTiming, effect.kind, Date.now() - startedAt, effectMetadata);
         if (!workerTiming) {
           markActiveBackendWorkerTimingAmbiguous();
         }
@@ -85,7 +91,7 @@ function requestHostEffect<TResult>(effect: BackendWorkerHostEffect): Promise<TR
       },
       reject: (error) => {
         const workerTiming = resolveExclusiveActiveBackendWorkerTiming();
-        recordBackendWorkerHostEffect(workerTiming, effect.kind, Date.now() - startedAt);
+        recordBackendWorkerHostEffect(workerTiming, effect.kind, Date.now() - startedAt, effectMetadata);
         if (!workerTiming) {
           markActiveBackendWorkerTimingAmbiguous();
         }

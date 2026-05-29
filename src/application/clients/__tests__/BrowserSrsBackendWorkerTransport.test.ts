@@ -440,6 +440,8 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         slowestHostEffect: {
           kind: 'sqlite.readBinary',
           durationMs: 240,
+          path: 'siyuanmemo.db',
+          byteLength: 106_233_856,
         },
         innerSteps: [
           {
@@ -480,6 +482,8 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         metadata: expect.objectContaining({
           hostEffectCount: 2,
           hostEffectAttribution: 'complete',
+          slowestHostEffectPath: 'siyuanmemo.db',
+          slowestHostEffectByteLength: 106_233_856,
           innerStepCount: 2,
           innerStepAttribution: 'complete',
         }),

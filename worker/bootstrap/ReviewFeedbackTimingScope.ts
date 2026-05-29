@@ -160,6 +160,7 @@ export function recordReviewFeedbackHostEffect(
   timing: ActiveBackendWorkerTiming | null,
   kind: BackendWorkerHostEffect['kind'],
   durationMs: number,
+  metadata: { path?: string | null; byteLength?: number | null } = {},
 ): void {
   if (!timing) {
     return;
@@ -170,6 +171,8 @@ export function recordReviewFeedbackHostEffect(
     timing.slowestHostEffect = {
       kind,
       durationMs,
+      path: metadata.path ?? null,
+      byteLength: metadata.byteLength ?? null,
     };
   }
 }

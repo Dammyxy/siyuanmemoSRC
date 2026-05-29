@@ -326,7 +326,7 @@ export class SqlArenaRepository {
   }
 
   async persist(): Promise<void> {
-    await this.database.persist();
+    await this.database.persist('arena.repository.persist');
   }
 
   private updateMetricBin(input: {

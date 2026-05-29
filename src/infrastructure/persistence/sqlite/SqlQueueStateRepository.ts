@@ -35,6 +35,6 @@ export class SqlQueueStateRepository {
   }
 
   async persist(): Promise<void> {
-    await this.database.persist();
+    await this.database.persist('queue-state.repository.persist');
   }
 }

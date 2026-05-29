@@ -133,7 +133,7 @@ export class SqliteMigrationService {
     }
     await this.database.write(() => {
       this.repositories.queue.replaceAll(queueState);
-    }, { persist: false });
+    }, { persist: false, label: 'sqlite.migrate-queue-state' });
   }
 
   private async migrateArenaStore(): Promise<void> {
@@ -143,7 +143,7 @@ export class SqliteMigrationService {
     }
     await this.database.write(() => {
       this.repositories.arena.importStore(store);
-    }, { persist: false });
+    }, { persist: false, label: 'sqlite.migrate-arena-store' });
   }
 
   private async migrateReviewLogs(now: number): Promise<void> {
@@ -157,7 +157,7 @@ export class SqliteMigrationService {
         }
         await this.database.write(() => {
           this.repositories.reviewLogs.importMonthlyLogs(data);
-        }, { persist: false });
+        }, { persist: false, label: 'sqlite.migrate-review-logs' });
       }
     }
   }

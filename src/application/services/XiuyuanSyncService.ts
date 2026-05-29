@@ -1505,10 +1505,17 @@ export class XiuyuanSyncService {
         this.rememberVolatileSyncState(type === 'full'
             ? { lastSuccessfulFullAt: startTime }
             : { lastSuccessfulIncrementalAt: startTime, lastSuccessfulIncrementalCursor: String(startTime) });
+        const changedBlockIds = new Set(result.applyImpact.changed.blockIds || []);
+        const updateCandidateBlockIds = Array.isArray(result.plan.candidateBlockIds?.update)
+            ? result.plan.candidateBlockIds.update
+            : null;
+        const actualUpdatedCount = updateCandidateBlockIds
+            ? updateCandidateBlockIds.filter(blockId => changedBlockIds.has(blockId)).length
+            : result.plan.updateCount;
         return {
             success: true,
             addedCount: result.plan.createCount,
-            updatedCount: result.plan.updateCount,
+            updatedCount: actualUpdatedCount,
             deletedCount: result.plan.deleteCount,
             skippedCount,
             blacklistCleanedCount: type === 'full' ? 0 : undefined,

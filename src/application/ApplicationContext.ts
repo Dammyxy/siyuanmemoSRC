@@ -2652,7 +2652,7 @@ export class ApplicationContext {
 
       if (this.sqlPersistence) {
         try {
-          await this.sqlPersistence.database.persist();
+          await this.sqlPersistence.database.persist('application-context.dispose');
           this.sqlPersistence.database.dispose();
           logger.info('[ApplicationContext] ✅ SQLite database persisted and closed');
         } catch (error) {

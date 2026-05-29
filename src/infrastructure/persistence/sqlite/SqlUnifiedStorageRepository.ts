@@ -526,7 +526,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         'INSERT OR REPLACE INTO store_metadata (key, value_json, updated_at) VALUES (?, ?, ?)',
         ['unified_store_version', stringifyJson(store.version || 2), now],
       );
-    });
+    }, { label: 'unified-storage.save-store' });
   }
 
   async touchSyncMetadata(input: {
@@ -1073,7 +1073,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
           );
         }
       }
-    });
+    }, { label: 'unified-storage.update-source-existence' });
   }
 
   private sourceExistenceUpdateChangesStoredState(update: { cardId: string; blockId: string; exists: boolean }): boolean {
@@ -1211,7 +1211,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
   }
 
   async persist(): Promise<void> {
-    await this.database.persist();
+    await this.database.persist('unified-storage.repository.persist');
   }
 
   hasCardsOrXiuyuans(): boolean {

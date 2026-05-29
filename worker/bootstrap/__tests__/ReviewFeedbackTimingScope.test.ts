@@ -3,6 +3,7 @@ import {
   beginBackendWorkerTiming,
   beginBackendWorkerRequest,
   endBackendWorkerRequest,
+  recordBackendWorkerHostEffect,
   recordBackendWorkerInnerStep,
   recordReviewFeedbackInnerStep,
 } from '../ReviewFeedbackTimingScope';
@@ -98,6 +99,26 @@ describe('ReviewFeedbackTimingScope', () => {
     } finally {
       endBackendWorkerRequest(queueTiming);
       endBackendWorkerRequest(browserTiming);
+    }
+  });
+
+  it('keeps slowest host effect path and byte length metadata', () => {
+    const timing = beginBackendWorkerTiming('queue.projection.replace');
+
+    try {
+      recordBackendWorkerHostEffect(timing, 'sqlite.writeBinary', 250, {
+        path: 'siyuanmemo.db',
+        byteLength: 106_233_856,
+      });
+
+      expect(timing.slowestHostEffect).toEqual({
+        kind: 'sqlite.writeBinary',
+        durationMs: 250,
+        path: 'siyuanmemo.db',
+        byteLength: 106_233_856,
+      });
+    } finally {
+      endBackendWorkerRequest(timing);
     }
   });
 });

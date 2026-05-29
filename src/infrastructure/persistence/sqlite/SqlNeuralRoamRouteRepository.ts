@@ -120,7 +120,7 @@ export class SqlNeuralRoamRouteRepository {
       for (const route of snapshot.routes) {
         this.writeRoute(route);
       }
-    });
+    }, { label: 'neural-roam-route.save-state' });
   }
 
   readRoutePoolEntries(routeId: string, kind: 'seed' | 'anchor'): NeuralRoamRoutePoolEntry[] {

@@ -1,7 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
 import { QueueProjectionRuntime } from '../QueueProjectionRuntime';
+import {
+  getRuntimePerformanceDiagnosticsReport,
+  setRuntimePerformanceDiagnosticsEnabled,
+} from '@/utils/runtimePerformanceDiagnostics';
 
 function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = 1_700_000_000_000;
@@ -60,6 +64,10 @@ function createRuntime(options: {
 }
 
 describe('QueueProjectionRuntime', () => {
+  afterEach(() => {
+    setRuntimePerformanceDiagnosticsEnabled(false, { reset: true });
+  });
+
   it('returns ready, refreshing, and unavailable readiness outcomes explicitly', async () => {
     const readyBackend = {
       queueProjectionSnapshot: vi.fn(async () => ({
@@ -606,6 +614,71 @@ describe('QueueProjectionRuntime', () => {
         ],
       }),
     }));
+  });
+
+  it('records materialization phase diagnostics for slow queue projection repair', async () => {
+    setRuntimePerformanceDiagnosticsEnabled(true, { reset: true });
+    const card = createCard({
+      id: 'diagnostic-card',
+      blockId: 'diagnostic-block',
+    });
+    const backend = {
+      queueProjectionReplace: vi.fn(async (request: { policyHash: string; generation?: number | null; rows: unknown[] }) => ({
+        queueType: QueueType.RetrievalPractice,
+        status: 'ready',
+        policyHash: request.policyHash,
+        generation: request.generation ?? 1,
+        rows: request.rows.length,
+        counters: null,
+      })),
+    };
+    const { runtime } = createRuntime({
+      backend,
+      queueCards: [card],
+    });
+
+    await expect(runtime.materialize(QueueType.RetrievalPractice)).resolves.toMatchObject({
+      status: 'ready',
+      rows: 1,
+    });
+
+    const report = getRuntimePerformanceDiagnosticsReport();
+    expect(report.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: 'browser',
+        operation: 'queue-projection.materialize.get-cards',
+        metadata: expect.objectContaining({
+          queueType: QueueType.RetrievalPractice,
+          reason: 'explicit-repair',
+        }),
+      }),
+      expect.objectContaining({
+        path: 'browser',
+        operation: 'queue-projection.materialize.build-rows',
+        metadata: expect.objectContaining({
+          queueType: QueueType.RetrievalPractice,
+          cardCount: 1,
+        }),
+      }),
+      expect.objectContaining({
+        path: 'browser',
+        operation: 'queue-projection.materialize.replace',
+        metadata: expect.objectContaining({
+          queueType: QueueType.RetrievalPractice,
+          rowCount: 1,
+        }),
+      }),
+      expect.objectContaining({
+        path: 'browser',
+        operation: 'queue-projection.materialize.total',
+        metadata: expect.objectContaining({
+          queueType: QueueType.RetrievalPractice,
+          status: 'ready',
+          cardCount: 1,
+          rowCount: 1,
+        }),
+      }),
+    ]));
   });
 
   it('records freshness evidence in rollout diagnostics when projection rows are stale', async () => {

@@ -1,8 +1,58 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-29 (Round 495)
+Last update: 2026-05-29 (Round 499)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-29 - Stop ignored sync merge from invalidating queues
+
+- Task: Continue `H:\SiYuanXY\temp\os\multipart-*` diagnosis after live DB inspection showed repeated `siyuan-sync:siyuanmemo.db` processed-source rows, `sync-conflict-merge` metadata touches, and all queue projections invalidated despite `imported_operations = 0` / `imported_cards = 0`.
+- Touched slice: Backend sync-conflict missing-source projection merge; `WorkerSqliteDatabaseService`, `BackendKernel.test`.
+- Debt fixed now: `applyIncomingMissingSourceProjection()` now compares the current `source_exists`, `source_checked_at`, and `source_missing_at` values before updating. Equal missing-source projection rows no longer return changed, so ignored conflict/main-DB cards do not touch `sync_metadata` or invalidate all queue projections.
+- Debt deferred: A real newer missing-source observation still updates the card and invalidates affected queues. Processed-source ledger rows still persist when a new source fingerprint is first observed, because that is required for deduplication and diagnostics.
+- Why deferred: The bug was the false changed signal from equal data, not the ledger itself. Removing processed-source persistence would break source deduplication.
+- Next safe step: Rebuild/reload. If no real conflict DB or Riff change exists, opening Browser should not flip queue projections to `invalidated` with `rebuild_reason = sync-conflict-merge`, and should not create extra DB-sized multipart files from that path.
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts -t "missing-source projection|externally synced database bytes|browser deck read preflight"`.
+
+### 2026-05-29 - Stop backend full-sync no-op row rewrites
+
+- Task: Continue `H:\SiYuanXY\temp\os\multipart-*` startup upload diagnosis after the next live run created two DB-sized temp files and local DB inspection showed 282 Riff-managed cards/Xiuyuans rewritten at the same startup timestamp.
+- Touched slice: Xiuyuan backend sync worker apply path and backend facade result mapping; `worker/db/SqliteDatabaseService`, `BackendKernel.xiuyuan-sync.test`, `XiuyuanSyncService.backend-facade.test`.
+- Debt fixed now: Backend `xiuyuan.sync.execute` now persists full/incremental sync checkpoints in `riff_sync.sync_state`, so startup full sync is not due again on every reload. Managed Riff update candidates now compare current Xiuyuan/card facts before writing; unchanged rows no longer refresh `cards.updated_at` / `xiuyuans.updated_at` or report changed card/block IDs. Frontend sync summary now reports updated count from actually changed update candidates when backend changed IDs are available.
+- Debt deferred: A due full sync can still perform one DB persist to advance the checkpoint, and true native Riff content/schedule changes still write affected rows. The worker plan still lists managed Riff blocks as update candidates before apply-time no-op pruning; narrowing the plan itself would require adding richer local/native comparison facts to the contract.
+- Why deferred: The immediate bug was repeated full-DB uploads from stale checkpoint and no-op row rewrites. Contract-level plan refinement is a separate cross-boundary change and not needed to stop repeated startup writes.
+- Next safe step: Rebuild/reload once. The first run may persist a checkpoint if the old live DB still has stale `lastSuccessfulFullAt`; subsequent reload should not schedule full sync again until the configured full-sync interval elapses.
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.xiuyuan-sync.test.ts worker/__tests__/WorkerXiuyuanSyncPlanner.test.ts src/application/services/__tests__/XiuyuanSyncService.backend-facade.test.ts`.
+
+### 2026-05-29 - Stop startup FSRS elapsed-day rewrite uploads
+
+- Task: Continue `H:\SiYuanXY\temp\os\multipart-*` diagnosis after live runtime report showed startup `file.write-binary` for `siyuanmemo.db` with `sqlitePersistReason: "unified-storage.save-store"`.
+- Touched slice: Scheduler repair + unified storage startup normalization; `fsrsReviewStateRepair`, focused scheduler/storage tests.
+- Debt fixed now: FSRS review-state repair no longer treats wall-clock time passage since `lastReview` as dirty persisted state for healthy Review cards. Valid stored `elapsedDays` is preserved, so startup scheduling normalization does not rewrite cards just because time moved forward and therefore should not trigger a full `unified-storage.save-store` DB upload for healthy cards.
+- Debt deferred: Historical malformed cards with invalid/implausibly low memory still repair and persist once. Other real startup writes, such as sync conflict merge or queue cleanup, remain possible and must be judged by their `sqlitePersistReason`.
+- Why deferred: Suppressing real repairs would leave corrupt scheduling state in storage. This change only removes the clock-driven false-positive repair that can recur on startup.
+- Next safe step: Rebuild/reload, then check startup runtime report. Expected: no `file.write-binary` with `sqlitePersistReason: "unified-storage.save-store"` unless logs also show a real malformed scheduling repair or sync conflict merge.
+- Validation: `pnpm exec vitest run src/core/scheduler/__tests__/fsrsReviewStateRepair.test.ts src/core/storage/__tests__/UnifiedStorageManager.migration.test.ts src/core/scheduler/__tests__/schedulingStateCleanliness.test.ts`; `pnpm exec vitest run src/infrastructure/services/__tests__/QueuePersistenceService.test.ts`.
+
+### 2026-05-29 - Skip unchanged queue-state persists
+
+- Task: Resume local conversation `019e700f-d423-7e62-b5ff-8c32e1b7d63c` and continue reducing startup/Browser `H:\SiYuanXY\temp\os\multipart-*` DB uploads after live logs showed queue warmup state saves.
+- Touched slice: Queue persistence service and focused queue persistence tests; `QueuePersistenceService`, `QueuePersistenceService.test`.
+- Debt fixed now: Queue state `set()` now canonicalizes and compares the cleaned value against the loaded cache before marking a key dirty. Unchanged queue state no longer updates SQLite `updated_at`, no longer calls repository `persist()`, and therefore no longer exports/uploads the full `siyuanmemo.db` during passive Browser/open warmup. Deleting an already-missing queue key is also a no-op.
+- Debt deferred: Real cleanup of stale manual queue IDs still persists because it is a real state mutation. Broader coalescing of separate queue cleanup writes and unified-storage conflict writes remains separate startup persistence work.
+- Why deferred: Removing real cleanup persistence could keep stale manual additions alive and make queue state dishonest. This change only removes proven no-op writes that produced full-DB uploads without changing user-visible state.
+- Next safe step: Rebuild/reload and inspect the next runtime report. `final-drill` or any queue with unchanged state should not emit `queue-state.repository.persist` / `file.write-binary`; remaining writes should carry `sqlitePersistReason` and represent real cleanup or sync mutation.
+- Validation: `pnpm exec vitest run src/infrastructure/services/__tests__/QueuePersistenceService.test.ts`.
+
+### 2026-05-29 - Queue projection materialization and DB upload diagnostics
+
+- Task: Add a diagnostic change for slow Browser queue views and renewed `H:\SiYuanXY\temp\os\multipart-*` growth.
+- Touched slice: Browser Queue projection runtime + frontend/worker SQLite persistence diagnostics; `QueueProjectionRuntime`, frontend `SqliteDatabaseService`/SQLite repositories/`FileService`, backend worker timing protocol/entry/transport, `WorkerSqliteDatabaseService`, focused queue/SQLite/worker tests.
+- Debt fixed now: Runtime performance reports now split queue projection materialization into `get-cards`, `build-rows`, `replace`, and `total` spans with queue type, policy, generation, card count, and row count. Backend worker host-effect timing now carries the slowest host effect path and byte length, so a `sqlite.writeBinary` to `siyuanmemo.db` can be tied to DB-sized SiYuan multipart temp files. Deferred queue projection DB persistence now emits `queueProjection.persist.runtime.persist`, `queueProjection.persist.remember-hash`, and `queueProjection.persist.total` inner steps. Frontend SQLite transactions now report explicit labels instead of generic `write`, repository `persist()` calls are source-labelled, and `file.write-binary` carries `sqlitePersistReason`, so startup `temp/os` uploads can be tied directly to e.g. `neural-roam-route.save-state`, `unified-storage.save-store`, `sqlite.algorithm-card-state-production-repair`, or `application-context.dispose`.
+- Debt deferred: No behavior optimization was made yet. The live `temp/os` files are still produced by any remaining full `siyuanmemo.db` upload path; this change only makes the exact trigger visible in the next runtime report.
+- Why deferred: The latest live report proves the current `temp/os` upload happens during frontend startup before backend worker bootstrap, with `sqlite.persist reason: "write"`. The exact feature trigger still needs one rebuilt-plugin report after source labels replace that generic reason.
+- Next safe step: Rebuild/reload, enable runtime diagnostics before startup or immediately after reload, then copy `window.siyuanMemoRuntimePerformance.copyReport()`. Inspect first `file.write-binary` span for `fileName: "siyuanmemo.db"`, `byteLength` around 106MB, and `sqlitePersistReason`; match it against `sqlite.transaction` / `sqlite.persist` labels.
+- Validation: `pnpm exec vitest run src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts worker/bootstrap/__tests__/ReviewFeedbackTimingScope.test.ts src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts worker/__tests__/WorkerSqliteDatabaseService.test.ts --reporter=dot`; `git diff --check` (CRLF warnings only).
 
 ### 2026-05-29 - Stop Browser preflight self-merging the main DB
 
@@ -6839,6 +6889,15 @@ Do not add an entry for skill-only or docs-only work.
 - Why deferred: Command-side tests prove the active runtime path and build, but the original symptom depends on live backend projection timing and user data size.
 - Next safe step: Open Browser in SiYuan, record first-open count transitions, switch retrieval/incremental/final/filter/neural queues, and compare left badge with first loaded grid total.
 - Validation: `pnpm vitest run src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts src/ui/browser/__tests__/BrowserGridFirstRowsLifecycle.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/BrowserGridDatasourceLifecycle.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-05-29 - Stop elapsedDays zero normalization uploads
+
+- Task: Continue runtime DB upload diagnosis after live perf report still showed `startup.unified-storage.schedule-normalization-save` with `normalizedMalformedScheduleCount: 4`.
+- Touched slice: Scheduler/Storage startup normalization path; `normalizeSchedulerCard` and focused scheduler tests.
+- Debt fixed now: `normalizeSchedulerCard` no longer treats a valid persisted `elapsedDays: 0` as missing state just because wall-clock time moved forward. Only non-number, non-finite, or negative `elapsedDays` is repaired from `lastReview`, preventing no-op startup normalization from forcing a full `siyuanmemo.db` upload.
+- Debt deferred: Live confirmation still needed after deploying the rebuilt plugin because SiYuan `putFile()` can create multiple `temp/os/multipart-*` files for one DB upload.
+- Next safe step: Reload plugin, clear/count `temp/os`, run `window.siyuanMemoRuntimePerformance.copyReport()`, and confirm no `startup.unified-storage.schedule-normalization-save` with healthy Review cards.
+- Validation: `pnpm exec vitest run src/core/scheduler/__tests__/normalizeSchedulerCard.test.ts src/core/scheduler/__tests__/fsrsReviewStateRepair.test.ts src/core/scheduler/__tests__/schedulingStateCleanliness.test.ts src/core/storage/__tests__/UnifiedStorageManager.migration.test.ts`.
 
 ## 1. Re-scan summary
 

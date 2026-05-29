@@ -89,7 +89,10 @@ export function normalizeSchedulerCard(
       : undefined,
   };
 
-  if (normalized.lastReview > 0 && normalized.elapsedDays <= 0) {
+  if (
+    normalized.lastReview > 0
+    && (typeof card.elapsedDays !== 'number' || !Number.isFinite(card.elapsedDays) || card.elapsedDays < 0)
+  ) {
     normalized.elapsedDays = Math.max(0, Math.floor((now - normalized.lastReview) / DAY_MS));
   }
 

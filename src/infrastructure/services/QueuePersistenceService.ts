@@ -27,6 +27,25 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('QueuePersistenceService');
 
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(item => stableJson(item)).join(',')}]`;
+  }
+
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map(key => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .join(',')}}`;
+}
+
+function queueStateEquals(left: unknown, right: unknown): boolean {
+  return stableJson(left) === stableJson(right);
+}
+
 /**
  * 队列持久化服务接口
  */
@@ -155,6 +174,12 @@ export class QueuePersistenceService implements IQueuePersistenceService {
       const cleanValue = stripTransientSchedulingPreviewFields(value).value;
       // 验证数据是 JSON 可序列化的
       JSON.stringify(cleanValue);
+
+      const currentValue = this.cache.get(key);
+      if (currentValue !== undefined && queueStateEquals(currentValue, cleanValue)) {
+        this.deletedKeys.delete(key);
+        return;
+      }
       
       // 更新内存缓存
       this.cache.set(key, cleanValue);
@@ -186,6 +211,11 @@ export class QueuePersistenceService implements IQueuePersistenceService {
         key,
         new Error('Service not initialized')
       );
+    }
+
+    if (!this.cache.has(key)) {
+      this.dirtyKeys.delete(key);
+      return;
     }
 
     this.cache.delete(key);

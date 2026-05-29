@@ -1,10 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { Buffer } from 'node:buffer';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import { SqliteDatabaseService } from '@/infrastructure/persistence/sqlite/SqliteDatabaseService';
 import { SQLITE_DB_FILE } from '@/infrastructure/persistence/sqlite/schema';
 import { SqlReviewLogRepository } from '@/infrastructure/persistence/sqlite/SqlReviewLogRepository';
 import { CardState, CardType, Rating } from '@/types/card';
+import {
+  getRuntimePerformanceDiagnosticsReport,
+  setRuntimePerformanceDiagnosticsEnabled,
+} from '@/utils/runtimePerformanceDiagnostics';
 
 type JsonFileService = Pick<IFileService, 'readJSON' | 'writeJSON' | 'readBinary' | 'writeBinary'>;
 
@@ -13,6 +17,7 @@ class MemorySqliteFileService implements JsonFileService {
   readonly binary = new Map<string, Uint8Array>();
   writeBinaryCount = 0;
   failNextWriteBinary = false;
+  lastWriteBinaryDiagnostics: Record<string, unknown> | null = null;
 
   async readJSON<T>(fileName: string): Promise<T | null> {
     return (this.json.get(fileName) as T | undefined) ?? null;
@@ -27,8 +32,9 @@ class MemorySqliteFileService implements JsonFileService {
     return bytes ? new Uint8Array(bytes) : null;
   }
 
-  async writeBinary(fileName: string, bytes: Uint8Array): Promise<void> {
+  async writeBinary(fileName: string, bytes: Uint8Array, options?: { diagnostics?: Record<string, unknown> }): Promise<void> {
     this.writeBinaryCount += 1;
+    this.lastWriteBinaryDiagnostics = options?.diagnostics ?? null;
     if (this.failNextWriteBinary) {
       this.failNextWriteBinary = false;
       throw new Error('mock binary write failed');
@@ -38,6 +44,7 @@ class MemorySqliteFileService implements JsonFileService {
 
   resetWriteCounts(): void {
     this.writeBinaryCount = 0;
+    this.lastWriteBinaryDiagnostics = null;
   }
 }
 
@@ -46,6 +53,10 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 describe('SqliteDatabaseService', () => {
+  afterEach(() => {
+    setRuntimePerformanceDiagnosticsEnabled(false, { reset: true });
+  });
+
   it('defers nested persists and writes one binary database file per outer transaction', async () => {
     const fileService = new MemorySqliteFileService();
     const database = new SqliteDatabaseService(fileService);
@@ -120,6 +131,43 @@ describe('SqliteDatabaseService', () => {
     await database.persist();
 
     expect(fileService.writeBinaryCount).toBe(0);
+  });
+
+  it('records sqlite write labels on transaction, persist, and file diagnostics', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService);
+    await database.init();
+    fileService.resetWriteCounts();
+
+    setRuntimePerformanceDiagnosticsEnabled(true, { reset: true });
+    await database.write((db) => {
+      db.run('CREATE TABLE diagnostic_label_test (id TEXT PRIMARY KEY, value TEXT)');
+      db.run('INSERT INTO diagnostic_label_test (id, value) VALUES (?, ?)', ['a', 'labelled']);
+    }, { label: 'diagnostic.transaction' });
+
+    expect(fileService.lastWriteBinaryDiagnostics).toEqual({
+      sqlitePersistReason: 'diagnostic.transaction',
+    });
+    const events = getRuntimePerformanceDiagnosticsReport().events;
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: 'sqlite',
+        operation: 'persist',
+        metadata: expect.objectContaining({
+          reason: 'diagnostic.transaction',
+          status: 'written-binary',
+        }),
+      }),
+      expect.objectContaining({
+        path: 'sqlite',
+        operation: 'transaction',
+        metadata: expect.objectContaining({
+          label: 'diagnostic.transaction',
+          persisted: true,
+          status: 'committed',
+        }),
+      }),
+    ]));
   });
 
   it('restores the in-memory database from the last persisted file when transaction persist fails', async () => {

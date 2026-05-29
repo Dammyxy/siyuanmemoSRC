@@ -61,7 +61,9 @@ export interface IFileService {
    * @param fileName 文件名（相对于插件数据目录）
    * @param bytes 二进制内容
    */
-  writeBinary?(fileName: string, bytes: Uint8Array): Promise<void>;
+  writeBinary?(fileName: string, bytes: Uint8Array, options?: {
+    diagnostics?: Record<string, unknown>;
+  }): Promise<void>;
 
   /**
    * Read SiYuan sync conflict copies of the plugin sqlite database.
@@ -299,7 +301,9 @@ export class FileService implements IFileService {
   /**
    * 写入二进制插件数据文件
    */
-  async writeBinary(fileName: string, bytes: Uint8Array): Promise<void> {
+  async writeBinary(fileName: string, bytes: Uint8Array, options: {
+    diagnostics?: Record<string, unknown>;
+  } = {}): Promise<void> {
     const startedAt = Date.now();
     const byteLength = bytes.byteLength;
     const sqliteDatabase = isSqliteDatabaseBytes(bytes);
@@ -315,6 +319,7 @@ export class FileService implements IFileService {
         fileName,
         byteLength,
         sqliteDatabase,
+        ...(options.diagnostics || {}),
         status: 'written',
       });
     } catch (error) {
@@ -322,6 +327,7 @@ export class FileService implements IFileService {
         fileName,
         byteLength,
         sqliteDatabase,
+        ...(options.diagnostics || {}),
         status: 'failed',
       }, {
         ok: false,

@@ -22,6 +22,23 @@ describe('QueuePersistenceService', () => {
     expect(repository.persist).toHaveBeenCalledTimes(1);
   });
 
+  it('does not persist when queue state is unchanged after canonical cleanup', async () => {
+    const repository = {
+      loadAll: vi.fn(() => ({ retrievalPracticeQueue: { remaining: 1 } })),
+      set: vi.fn(),
+      delete: vi.fn(),
+      persist: vi.fn(async () => undefined),
+    } as unknown as SqlQueueStateRepository;
+    const service = new QueuePersistenceService(repository);
+
+    await service.init();
+    await service.set('retrievalPracticeQueue', { remaining: 1 });
+    await service.flush();
+
+    expect(repository.set).not.toHaveBeenCalled();
+    expect(repository.persist).not.toHaveBeenCalled();
+  });
+
   it('fails closed instead of reading legacy queue msgpack when SQL repository is unavailable', async () => {
     const service = new QueuePersistenceService(null);
 

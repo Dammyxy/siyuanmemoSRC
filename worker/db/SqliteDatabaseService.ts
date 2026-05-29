@@ -70,6 +70,7 @@ import type {
   BackendSemanticSessionReadRequest,
   BackendSemanticSessionReadResult,
   BackendXiuyuanNativeRiffBlockFacts,
+  BackendXiuyuanSyncMode,
   BackendXiuyuanSyncLocalFacts,
 } from '../../packages/contracts/src/backend-rpc';
 import type { WorkerXiuyuanSyncApplyInput } from '../xiuyuan/WorkerXiuyuanSyncPlanner';
@@ -562,6 +563,63 @@ function normalizeAuditCardIds(value: unknown): string[] {
     return [];
   }
   return Array.from(new Set(value.map((id) => String(id || '').trim()).filter(Boolean)));
+}
+
+function stableStringifyJson(value: unknown): string {
+  if (value === null) {
+    return 'null';
+  }
+  const valueType = typeof value;
+  if (valueType === 'number') {
+    return Number.isFinite(value as number) ? JSON.stringify(value) : 'null';
+  }
+  if (valueType === 'boolean' || valueType === 'string') {
+    return JSON.stringify(value);
+  }
+  if (valueType === 'undefined') {
+    return 'null';
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(item => stableStringifyJson(item)).join(',')}]`;
+  }
+  if (valueType === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringifyJson(entryValue)}`).join(',')}}`;
+  }
+  return 'null';
+}
+
+function normalizeStringArray(values: unknown[]): string[] {
+  return values.map(normalizeString).filter(Boolean);
+}
+
+function toXiuyuanSyncComparableCard(card: FSRSCard): Record<string, unknown> {
+  return {
+    id: normalizeString(card.id),
+    xiuyuanID: normalizeString(card.xiuyuanID),
+    blockId: normalizeString(card.blockId),
+    due: Number(card.due) || 0,
+    stability: Number(card.stability) || 0,
+    difficulty: Number(card.difficulty) || 0,
+    reps: Number(card.reps) || 0,
+    lapses: Number(card.lapses) || 0,
+    state: Number(card.state) || 0,
+    lastReview: Number(card.lastReview) || 0,
+    elapsedDays: Number(card.elapsedDays) || 0,
+    scheduledDays: Number(card.scheduledDays) || 0,
+    priority: Number(card.priority) || 0,
+    type: normalizeString(card.type),
+    tags: Array.isArray(card.tags) ? normalizeStringArray(card.tags) : [],
+    leechCount: Number(card.leechCount) || 0,
+    isLeech: card.isLeech === true,
+    skipped: card.skipped === true,
+    createdAt: Number(card.createdAt) || 0,
+    schedulerType: normalizeString(card.schedulerType),
+    riffCardId: normalizeString(card.riffCardId),
+    meta: isRecord(card.meta) ? card.meta : {},
+  };
 }
 
 function buildReviewCardDivergenceRecords(
@@ -4014,9 +4072,55 @@ export class WorkerSqliteDatabaseService {
   }
 
   private async persistQueueProjection(reason: string): Promise<void> {
-    await this.runtime.persist();
-    await this.rememberPersistedHash();
-    logger.debug('[SiYuanMemo][WorkerSqliteDatabaseService] deferred queue projection persisted', { reason });
+    const startedAt = Date.now();
+    try {
+      await this.measureDiagnosticDatabaseStep(
+        'queueProjection.persist.runtime.persist',
+        () => this.runtime.persist(),
+        {
+          backendMethod: 'queue.projection.replace',
+          queueType: null,
+          reason,
+          dbFile: this.dbFile,
+        },
+      );
+      await this.measureDiagnosticDatabaseStep(
+        'queueProjection.persist.remember-hash',
+        () => this.rememberPersistedHash(),
+        {
+          backendMethod: 'queue.projection.replace',
+          queueType: null,
+          reason,
+          dbFile: this.dbFile,
+        },
+      );
+      recordBackendWorkerInnerStep({
+        layer: 'database',
+        step: 'queueProjection.persist.total',
+        durationMs: Math.max(0, Date.now() - startedAt),
+        queueType: null,
+        extra: {
+          backendMethod: 'queue.projection.replace',
+          reason,
+          dbFile: this.dbFile,
+        },
+      });
+      logger.debug('[SiYuanMemo][WorkerSqliteDatabaseService] deferred queue projection persisted', { reason });
+    } catch (error) {
+      recordBackendWorkerInnerStep({
+        layer: 'database',
+        step: 'queueProjection.persist.total',
+        durationMs: Math.max(0, Date.now() - startedAt),
+        queueType: null,
+        extra: {
+          backendMethod: 'queue.projection.replace',
+          reason,
+          dbFile: this.dbFile,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+      throw error;
+    }
   }
 
   private invalidateQueueProjectionsForSourceChanges(blockIds: string[], checkedAt: number): void {
@@ -4140,13 +4244,23 @@ export class WorkerSqliteDatabaseService {
       return false;
     }
     const current = this.runtime.getOne<{
+      source_exists: number | null;
       source_checked_at: number | null;
+      source_missing_at: number | null;
     }>(
-      'SELECT source_checked_at FROM cards WHERE id = ?',
+      'SELECT source_exists, source_checked_at, source_missing_at FROM cards WHERE id = ?',
       [incoming.id],
     );
     const currentCheckedAt = this.normalizeConflictTimestamp(current?.source_checked_at);
+    const currentMissingAt = this.normalizeConflictTimestamp(current?.source_missing_at);
     if (currentCheckedAt && incomingCheckedAt && currentCheckedAt > incomingCheckedAt) {
+      return false;
+    }
+    if (
+      Number(current?.source_exists) === 0
+      && currentCheckedAt === (incomingCheckedAt || 0)
+      && currentMissingAt === (incomingMissingAt || 0)
+    ) {
       return false;
     }
     this.runtime.run(
@@ -5408,11 +5522,7 @@ export class WorkerSqliteDatabaseService {
         localXiuyuanByBlockId.set(representative, xiuyuan);
       }
     }
-    const changedBlockIds = uniqueStrings([
-      ...input.plan.candidateBlockIds.update,
-      ...input.plan.candidateBlockIds.delete,
-      ...input.plan.candidateBlockIds.create,
-    ]);
+    const changedBlockIds: string[] = [];
     const changedCardIds: string[] = [];
 
     await this.runtime.runTransaction('xiuyuan.sync.apply', () => {
@@ -5425,14 +5535,17 @@ export class WorkerSqliteDatabaseService {
         const xiuyuan = localXiuyuanByBlockId.get(blockId);
         const cardId = normalizeString(card?.id) || `card-${blockId}`;
         const xiuyuanId = normalizeString(xiuyuan?.id ?? card?.xiuyuanId) || `xy-${blockId}`;
-        this.upsertXiuyuanSyncRows({
+        const changed = this.upsertXiuyuanSyncRows({
           block: nativeBlock,
           cardId,
           xiuyuanId,
           deckId: input.request.deckId,
           updatedAt: input.appliedAt,
         });
-        changedCardIds.push(cardId);
+        if (changed) {
+          changedBlockIds.push(blockId);
+          changedCardIds.push(cardId);
+        }
       }
 
       for (const blockId of input.plan.candidateBlockIds.delete) {
@@ -5452,6 +5565,7 @@ export class WorkerSqliteDatabaseService {
            VALUES (?, ?, ?, ?, ?)`,
           ['xiuyuan', xiuyuanId, input.appliedAt, 'xiuyuan.sync.execute', JSON.stringify({ blockId, commandId: input.request.commandId })],
         );
+        changedBlockIds.push(blockId);
         changedCardIds.push(cardId);
       }
 
@@ -5469,12 +5583,15 @@ export class WorkerSqliteDatabaseService {
           deckId: input.request.deckId,
           updatedAt: input.appliedAt,
         });
+        changedBlockIds.push(blockId);
         changedCardIds.push(cardId);
       }
+
+      this.advanceXiuyuanSyncCheckpoint(input.request.mode, input.appliedAt);
     });
 
     return {
-      blockIds: changedBlockIds,
+      blockIds: uniqueStrings(changedBlockIds),
       cardIds: uniqueStrings(changedCardIds),
     };
   }
@@ -5485,7 +5602,7 @@ export class WorkerSqliteDatabaseService {
     xiuyuanId: string;
     deckId: string;
     updatedAt: number;
-  }): void {
+  }): boolean {
     const riffCardId = normalizeString(input.block.riffCardID)
       || normalizeString(input.block.riffCardId)
       || normalizeString(input.block.riffCard?.id)
@@ -5503,20 +5620,105 @@ export class WorkerSqliteDatabaseService {
         deckId: input.deckId,
       },
     };
-    this.runtime.run(
-      `INSERT OR REPLACE INTO xiuyuans (id, updated_at, payload_json)
-       VALUES (?, ?, ?)`,
-      [input.xiuyuanId, input.updatedAt, JSON.stringify(xiuyuanPayload)],
-    );
-    this.repository!.upsertCard(
-      this.buildXiuyuanSyncCardPayload({
-        ...input,
-        riffCardId,
-        existingCard: this.repository!.getCard(input.cardId),
-      }),
-    );
+    const existingCard = this.repository!.getCard(input.cardId);
+    const nextCard = this.buildXiuyuanSyncCardPayload({
+      ...input,
+      riffCardId,
+      existingCard,
+    });
+    const xiuyuanChanged = this.isXiuyuanSyncPayloadChanged(input.xiuyuanId, xiuyuanPayload);
+    const cardChanged = this.isXiuyuanSyncCardChanged(input.cardId, existingCard, nextCard);
+    if (!xiuyuanChanged && !cardChanged) {
+      return false;
+    }
+    if (xiuyuanChanged) {
+      this.runtime.run(
+        `INSERT OR REPLACE INTO xiuyuans (id, updated_at, payload_json)
+         VALUES (?, ?, ?)`,
+        [input.xiuyuanId, input.updatedAt, JSON.stringify(xiuyuanPayload)],
+      );
+    }
+    if (cardChanged) {
+      this.repository!.upsertCard(nextCard);
+    }
     this.runtime.run('DELETE FROM tombstones WHERE kind = ? AND id IN (?, ?)', ['card', input.cardId, input.xiuyuanId]);
     this.runtime.run('DELETE FROM tombstones WHERE kind = ? AND id = ?', ['xiuyuan', input.xiuyuanId]);
+    return true;
+  }
+
+  private advanceXiuyuanSyncCheckpoint(mode: BackendXiuyuanSyncMode, appliedAt: number): void {
+    if (mode !== 'full' && mode !== 'incremental') {
+      return;
+    }
+    const row = this.runtime.getOne<{ value_json: string | null }>(
+      'SELECT value_json FROM riff_sync WHERE key = ?',
+      ['sync_state'],
+    );
+    const current = parseSqlJsonRecord(row?.value_json);
+    const previousFullAt = toNullableTimestamp(current.lastSuccessfulFullAt) ?? 0;
+    const previousIncrementalAt = toNullableTimestamp(current.lastSuccessfulIncrementalAt) ?? 0;
+    const next = {
+      ...current,
+      ...(mode === 'full'
+        ? { lastSuccessfulFullAt: Math.max(previousFullAt, appliedAt) }
+        : {
+            lastSuccessfulIncrementalAt: Math.max(previousIncrementalAt, appliedAt),
+            lastSuccessfulIncrementalCursor: `timestamp:${Math.max(previousIncrementalAt, appliedAt)}`,
+          }),
+    };
+    if (stableStringifyJson(current) === stableStringifyJson(next)) {
+      return;
+    }
+    this.runtime.run(
+      'INSERT OR REPLACE INTO riff_sync (key, value_json, updated_at) VALUES (?, ?, ?)',
+      ['sync_state', JSON.stringify(next), appliedAt],
+    );
+  }
+
+  private isXiuyuanSyncPayloadChanged(
+    xiuyuanId: string,
+    nextPayload: {
+      id: string;
+      blockIDs: string[];
+      templateID: string;
+      content: string;
+      meta: Record<string, unknown>;
+    },
+  ): boolean {
+    const row = this.runtime.getOne<{ payload_json: string | null }>(
+      'SELECT payload_json FROM xiuyuans WHERE id = ?',
+      [xiuyuanId],
+    );
+    if (!row) {
+      return true;
+    }
+    const current = parseSqlJsonRecord(row.payload_json);
+    const comparableCurrent = {
+      id: normalizeString(current.id),
+      blockIDs: normalizeStringArray(Array.isArray(current.blockIDs) ? current.blockIDs : []),
+      templateID: normalizeString(current.templateID),
+      content: normalizeString(current.content),
+      meta: isRecord(current.meta) ? current.meta : {},
+    };
+    const comparableNext = {
+      id: nextPayload.id,
+      blockIDs: normalizeStringArray(nextPayload.blockIDs),
+      templateID: nextPayload.templateID,
+      content: normalizeString(nextPayload.content),
+      meta: nextPayload.meta,
+    };
+    return stableStringifyJson(comparableCurrent) !== stableStringifyJson(comparableNext);
+  }
+
+  private isXiuyuanSyncCardChanged(cardId: string, existingCard: FSRSCard | undefined, nextCard: FSRSCard): boolean {
+    if (!existingCard) {
+      return true;
+    }
+    void cardId;
+    const existingForCompare = existingCard;
+    const currentComparable = toXiuyuanSyncComparableCard(existingForCompare);
+    const nextComparable = toXiuyuanSyncComparableCard(nextCard);
+    return stableStringifyJson(currentComparable) !== stableStringifyJson(nextComparable);
   }
 
   private buildXiuyuanSyncCardPayload(input: {

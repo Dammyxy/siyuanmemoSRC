@@ -15,7 +15,10 @@ import {
 const logger = createLogger('SqliteDatabaseService');
 
 type SqlParams = SqlValue[] | ParamsObject;
-type TransactionOptions = { persist?: boolean };
+type TransactionOptions = {
+  persist?: boolean;
+  label?: string;
+};
 type PersistOptions = {
   force?: boolean;
   reason?: string;
@@ -25,7 +28,14 @@ type SqliteDatabaseServiceOptions = {
   persistOnInit?: boolean;
 };
 type SqliteFileService = Pick<IFileService, 'readJSON' | 'writeJSON'>
-  & Partial<Pick<IFileService, 'readBinary' | 'writeBinary'>>;
+  & Partial<Pick<IFileService, 'readBinary'>>
+  & {
+    writeBinary?: (
+      fileName: string,
+      bytes: Uint8Array,
+      options?: { diagnostics?: Record<string, unknown> }
+    ) => Promise<void>;
+  };
 
 interface SqliteEnvelope {
   encoding: 'base64-sqlite-v1';
@@ -164,7 +174,7 @@ export class SqliteDatabaseService {
   }
 
   async write<T>(writer: (db: Database) => T | Promise<T>, options: TransactionOptions = {}): Promise<T> {
-    return this.runTransaction('write', writer, options);
+    return this.runTransaction(options.label ?? 'write', writer, options);
   }
 
   async runTransaction<T>(
@@ -213,6 +223,12 @@ export class SqliteDatabaseService {
         durationMs: Date.now() - startedAt,
         persisted: persistAfterCommit,
       });
+      recordRuntimePerformanceSpan('sqlite', 'transaction', Date.now() - startedAt, {
+        label,
+        persisted: persistAfterCommit,
+        shouldPersist,
+        status: 'committed',
+      });
       return result;
     } catch (error) {
       if (!committed) {
@@ -225,6 +241,15 @@ export class SqliteDatabaseService {
       this.transactionDepth = 0;
       this.pendingPersist = false;
       this.currentTransactionMutated = false;
+      recordRuntimePerformanceSpan('sqlite', 'transaction', Date.now() - startedAt, {
+        label,
+        persisted: false,
+        shouldPersist,
+        status: committed ? 'persist-failed' : 'rolled-back',
+      }, {
+        ok: false,
+        errorName: error instanceof Error ? error.name : 'Error',
+      });
       throw error;
     }
   }
@@ -340,7 +365,11 @@ export class SqliteDatabaseService {
     }
 
     if (this.fileService.writeBinary) {
-      await this.fileService.writeBinary(this.dbFile, bytes);
+      await this.fileService.writeBinary(this.dbFile, bytes, {
+        diagnostics: {
+          sqlitePersistReason: reason,
+        },
+      });
       this.lastPersistedFingerprint = fingerprint;
       this.dirtySincePersist = false;
       recordRuntimePerformanceSpan('sqlite', 'persist', Date.now() - startedAt, {

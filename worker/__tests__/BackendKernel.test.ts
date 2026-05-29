@@ -3020,6 +3020,89 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('does not rewrite equal missing-source projection while merging ignored conflict cards', async () => {
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    const checkedAt = 1_779_264_900_000;
+    const card = buildCard({
+      id: 'card-source-missing-noop',
+      blockId: '20260520005027-source-noop',
+      due: checkedAt + 20 * 86_400_000,
+      reps: 7,
+      lastReview: checkedAt,
+      updatedAt: checkedAt,
+    });
+    await currentDatabase.upsertCards([card]);
+    await seedFormalReviewHistory(currentDatabase, {
+      cardId: card.id,
+      count: 7,
+      firstReviewedAt: checkedAt - 7_000,
+      latestReviewedAt: checkedAt,
+    });
+    await currentDatabase.runTransaction('seed.current-source-missing-noop', (db) => {
+      db.run(
+        `UPDATE cards
+         SET source_exists = 0, source_checked_at = ?, source_missing_at = ?
+         WHERE id = ?`,
+        [checkedAt + 20_000, checkedAt + 20_000, card.id],
+      );
+    });
+    await seedQueueProjection(currentDatabase, {
+      queueType: 'retrieval-practice',
+      generation: 23,
+      rows: [card],
+      updatedAt: checkedAt,
+    });
+
+    const conflictBridge = createInMemorySqlitePersistenceBridge();
+    const conflictDatabase = new WorkerSqliteDatabaseService(conflictBridge);
+    await conflictDatabase.upsertCards([{
+      ...card,
+      due: checkedAt + 60_000,
+      reps: 1,
+      updatedAt: checkedAt + 10_000,
+    }]);
+    await conflictDatabase.runTransaction('seed.conflict-source-missing-noop', (db) => {
+      db.run(
+        `UPDATE cards
+         SET source_exists = 0, source_checked_at = ?, source_missing_at = ?
+         WHERE id = ?`,
+        [checkedAt + 20_000, checkedAt + 20_000, card.id],
+      );
+    });
+    await conflictDatabase.persist();
+    const conflictBytes = conflictBridge.snapshot().bytes;
+    expect(conflictBytes).toBeTruthy();
+    const beforeMetadata = currentDatabase.getOne<{ value_json: string; updated_at: number }>(
+      'SELECT value_json, updated_at FROM store_metadata WHERE key = ?',
+      ['sync_metadata'],
+    );
+    const beforeProjection = currentDatabase.getOne<{ status: string; rebuild_reason: string | null }>(
+      'SELECT status, rebuild_reason FROM queue_projection_generations WHERE queue_type = ?',
+      ['retrieval-practice'],
+    );
+
+    const result = await currentDatabase.mergeSyncConflictDatabases({
+      mergedAt: checkedAt + 30_000,
+      sources: [{ sourceId: 'noop-source-missing-conflict-db', bytes: conflictBytes! }],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      sources: 1,
+      mergedCards: 0,
+      ignoredCards: 1,
+    });
+    expect(currentDatabase.getOne<{ value_json: string; updated_at: number }>(
+      'SELECT value_json, updated_at FROM store_metadata WHERE key = ?',
+      ['sync_metadata'],
+    )).toEqual(beforeMetadata);
+    expect(currentDatabase.getOne<{ status: string; rebuild_reason: string | null }>(
+      'SELECT status, rebuild_reason FROM queue_projection_generations WHERE queue_type = ?',
+      ['retrieval-practice'],
+    )).toEqual(beforeProjection);
+  });
+
   it('records source-existence-updated domain sync operations when sweep marks cards missing', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);

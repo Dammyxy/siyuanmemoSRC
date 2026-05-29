@@ -100,7 +100,7 @@ export class SqlReviewLogRepository {
   }
 
   async persist(): Promise<void> {
-    await this.database.persist();
+    await this.database.persist('review-log.repository.persist');
   }
 
   private upsertReviewEvent(

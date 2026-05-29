@@ -44,6 +44,8 @@ export type BackendWorkerResponseMessage = {
 export interface BackendWorkerHostEffectTiming {
   kind: BackendWorkerHostEffect['kind'];
   durationMs: number;
+  path?: string | null;
+  byteLength?: number | null;
 }
 
 export interface BackendWorkerInnerStepTiming {

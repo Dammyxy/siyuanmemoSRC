@@ -171,6 +171,63 @@ describe('XiuyuanSyncService backend command facade', () => {
     }));
   });
 
+  it('reports backend sync updatedCount from actual changed update candidates', async () => {
+    const repository = createRepository();
+    const executeXiuyuanSync = vi.fn(async () => ({
+      status: 'applied',
+      commandId: 'cmd-full',
+      idempotencyKey: 'key-full',
+      mode: 'full',
+      dryRun: false,
+      progress: {
+        state: 'succeeded',
+        currentStep: 'applied',
+        completedUnits: 4,
+        totalUnits: 4,
+        updatedAt: 1_700_000_000_000,
+      },
+      plan: {
+        localXiuyuanCount: 2,
+        localCardCount: 2,
+        localManagedRiffCount: 2,
+        nativeRiffCount: 2,
+        normalizedNativeRiffCount: 2,
+        malformedNativeRiffCount: 0,
+        duplicateNativeRiffCount: 0,
+        createCount: 0,
+        updateCount: 2,
+        deleteCount: 0,
+        skippedLocalOwnedCount: 0,
+        candidateBlockIds: {
+          create: [],
+          update: ['block-changed', 'block-noop'],
+          delete: [],
+          skippedLocalOwned: [],
+        },
+      },
+      applyImpact: {
+        requested: true,
+        applied: true,
+        reason: 'applied',
+        changed: {
+          blockIds: ['block-changed'],
+          cardIds: ['card-changed'],
+        },
+      },
+      diagnostics: {
+        diagnosticEventId: 'xiuyuan-sync:cmd-full',
+        readSource: 'renderer-host-effect',
+        timingMs: 1,
+        errorCategory: null,
+      },
+    }));
+    const service = createService({ executeXiuyuanSync, repository });
+
+    const result = await service.fullSync();
+
+    expect(result.updatedCount).toBe(1);
+  });
+
   it('surfaces backend unavailable as sync error without local full-sync fallback', async () => {
     const repository = createRepository();
     const executeXiuyuanSync = vi.fn(async () => ({
