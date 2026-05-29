@@ -216,6 +216,43 @@ describe('browserLoadDataRuntime', () => {
     vi.useRealTimers();
   });
 
+  it('attaches queue datasource automatically when readiness retry becomes ready', async () => {
+    vi.useFakeTimers();
+    const browserAppService = {
+      getSiyuanApi: vi.fn(() => ({})),
+      ensureQueueReadModelReady: vi.fn()
+        .mockResolvedValueOnce({
+          status: 'refreshing',
+          queueId: QueueType.RetrievalPractice,
+          policyId: 'policy-a',
+          cause: 'materialization_in_progress',
+          retryAfterMs: 10,
+        })
+        .mockResolvedValueOnce({
+          status: 'ready',
+          queueId: QueueType.RetrievalPractice,
+          policyId: 'policy-a',
+          generation: 2,
+        }),
+    };
+    const deps = createDeps({
+      activeQueueId: ref('retrieval'),
+      browserAppService: ref(browserAppService as any),
+      currentQueueType: ref('retrieval-practice'),
+    });
+    const runtime = createBrowserLoadDataRuntime(deps);
+
+    await runtime.loadData();
+
+    expect(deps.currentDataSource.value).toBeNull();
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledTimes(2);
+    expect(deps.currentDataSource.value?.id).toBe('retrieval');
+    expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
   it('loads neural-roam queue view without waiting for projection readiness', async () => {
     const manager = {
       ...createManager(),

@@ -156,6 +156,7 @@ export class QueueProjectionRuntime {
   private readonly queueProjectionUnavailableDiagnostics = new Map<QueueType, QueueProjectionUnavailableDiagnostic>();
   private readonly liveIdentityListeners = new Set<QueueProjectionLiveIdentityListener>();
   private readonly publishedReadyIdentities = new Map<QueueType, string>();
+  private readonly materializationInFlight = new Map<string, Promise<BackendQueueProjectionReplaceResult | null>>();
 
   constructor(private readonly deps: QueueProjectionRuntimeDeps) {
     this.queueProjectionReadiness = new QueueProjectionReadinessService({
@@ -507,6 +508,39 @@ export class QueueProjectionRuntime {
       queueOverride?: Pick<IReviewQueue, 'getCards'> | null;
     } = {},
   ): Promise<BackendQueueProjectionReplaceResult | null> {
+    const key = this.buildMaterializationInFlightKey(queueType, options);
+    if (key) {
+      const existing = this.materializationInFlight.get(key);
+      if (existing) {
+        this.deps.logger.debug('Queue projection materialization already in flight', {
+          queueType,
+          reason: options.reason ?? 'snapshot-refresh',
+        });
+        return existing;
+      }
+      let materialization!: Promise<BackendQueueProjectionReplaceResult | null>;
+      materialization = this.runMaterializeQueueProjection(queueType, backend, options)
+        .finally(() => {
+          if (this.materializationInFlight.get(key) === materialization) {
+            this.materializationInFlight.delete(key);
+          }
+        });
+      this.materializationInFlight.set(key, materialization);
+      return materialization;
+    }
+    return this.runMaterializeQueueProjection(queueType, backend, options);
+  }
+
+  private async runMaterializeQueueProjection(
+    queueType: QueueType,
+    backend: QueueProjectionBackendClient | null | undefined,
+    options: {
+      currentPolicyHash?: unknown;
+      currentGeneration?: unknown;
+      reason?: string;
+      queueOverride?: Pick<IReviewQueue, 'getCards'> | null;
+    } = {},
+  ): Promise<BackendQueueProjectionReplaceResult | null> {
     const finishMaterializeSpan = startRuntimePerformanceSpan('browser', 'queue-projection.materialize.total', {
       queueType,
       reason: options.reason ?? 'snapshot-refresh',
@@ -631,6 +665,26 @@ export class QueueProjectionRuntime {
       });
       throw error;
     }
+  }
+
+  private buildMaterializationInFlightKey(
+    queueType: QueueType,
+    options: {
+      currentPolicyHash?: unknown;
+      currentGeneration?: unknown;
+      queueOverride?: Pick<IReviewQueue, 'getCards'> | null;
+    },
+  ): string | null {
+    if (options.queueOverride) {
+      return null;
+    }
+    const policyHash = this.isValidProjectionPolicyHash(options.currentPolicyHash)
+      ? String(options.currentPolicyHash)
+      : this.buildMaterializedProjectionPolicyHash(queueType);
+    const generation = this.isValidProjectionGeneration(options.currentGeneration)
+      ? Number(options.currentGeneration)
+      : 0;
+    return `${queueType}:${policyHash}:${generation}`;
   }
 
   private async submitQueueProjectionReplace(

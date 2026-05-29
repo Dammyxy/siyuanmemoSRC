@@ -1761,7 +1761,10 @@ export class WorkerSqliteDatabaseService {
         reason: request.reason ?? null,
       },
     );
-    this.scheduleQueueProjectionPersist(request.reason ?? 'queue-projection.replace');
+    logger.debug('Queue projection replace kept in runtime cache', {
+      queueType: request.queueType,
+      reason: request.reason ?? 'queue-projection.replace',
+    });
     return result;
   }
 

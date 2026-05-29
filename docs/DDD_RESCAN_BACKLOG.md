@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-29 (Round 499)
+Last update: 2026-05-29 (Round 500)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-29 - Stop read-path Xiuyuan and queue projection uploads
+
+- Task: Diagnose live repro where startup still generated DB-sized `temp/os/multipart-*` files and Browser queue view stayed empty until manual refresh.
+- Touched slice: Xiuyuan read hydration + Browser queue projection readiness/materialization + worker queue projection persistence; `XiuyuanRepository`, `QueueProjectionRuntime`, `browserQueueProjectionWarmupRuntime`, `browserLoadDataRuntime`, `WorkerSqliteDatabaseService`, focused tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Xiuyuan repository reads no longer persist stale/missing `cardIds` repair while hydrating aggregates, so startup full-sync planning cannot rewrite hundreds of Riff-managed Xiuyuans from a read path. Queue projection materialization now dedupes overlapping same queue/policy/generation work, Browser retry auto-attaches datasource when readiness becomes ready, warmup only targets the active queue, and `queue.projection.replace` no longer schedules an automatic whole-DB persist for derived projection cache.
+- Debt deferred: Queue projection rows are still stored in `siyuanmemo.db` as a cache and will be included when a later explicit durable DB persist happens. A larger Anki-style split, where queue projection is fully rebuildable/outside the main durable user-data blob, remains separate architecture work.
+- Why deferred: This task stops the proven repeated uploads and first queue-empty loop without changing DB file topology or formal review/card durability.
+- Next safe step: Rebuild/deploy and rerun the live startup + Browser queue smoke. Expected: no new DB-sized multipart files from Xiuyuan read hydration or queue projection materialization, and queue view fills after readiness retry without manual refresh.
+- Validation: `pnpm exec vitest run src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.sql-read.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.cardid-repair.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.sync-change-set.test.ts`; `pnpm exec vitest run src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts worker/__tests__/WorkerSqliteDatabaseService.test.ts`; `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts -t "missing-source projection|does not rewrite equal missing-source projection|externally synced database bytes|browser deck read preflight"`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`; deployed `dist/*` to `H:\SiYuanXY\data\plugins\siyuan-plugin-siyuanmemo`.
 
 ### 2026-05-29 - Stop ignored sync merge from invalidating queues
 

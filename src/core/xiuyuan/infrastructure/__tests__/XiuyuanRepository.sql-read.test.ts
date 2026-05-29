@@ -163,7 +163,7 @@ describe('XiuyuanRepository SQL-first reads', () => {
     expect(storage.getCardDTO).not.toHaveBeenCalled();
   });
 
-  it('rebuilds aggregate cards through SQL when persisted cardIds are missing', async () => {
+  it('hydrates aggregate cards through SQL when persisted cardIds are missing without writing legacy storage', async () => {
     const storage = createFailingStorage();
     const sqlCardDTO = createSqlCardDTO('card-sql-rebuilt', 'xy_sql_missing_cardids');
     const persisted = createXiuyuan({
@@ -195,7 +195,7 @@ describe('XiuyuanRepository SQL-first reads', () => {
     expect(result.value.getCards().map((card) => card.getId().getValue())).toEqual(['card-sql-rebuilt']);
     expect(sqlReadPort.getCardDTOsByXiuyuanId).toHaveBeenCalledWith('xy_sql_missing_cardids');
     expect(sqlReadPort.getCardDTO).not.toHaveBeenCalled();
-    expect(storage.upsertXiuYuan).toHaveBeenCalledTimes(1);
+    expect(storage.upsertXiuYuan).not.toHaveBeenCalled();
     expect(storage.getCardDTO).not.toHaveBeenCalled();
   });
 });

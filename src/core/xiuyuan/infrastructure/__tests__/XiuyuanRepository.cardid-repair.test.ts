@@ -97,12 +97,12 @@ function createStorageMock(params: {
   return storage;
 }
 
-describe('XiuyuanRepository cardIds repair on read', () => {
+describe('XiuyuanRepository cardIds hydration on read', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('repairs stale cardIds in findById and returns only resolvable cards', async () => {
+  it('hydrates stale cardIds in findById without persisting from the read path', async () => {
     const xiuyuan = createXiuyuanData('xiuyuan-a', ['card-valid', 'card-missing']);
     const storage = createStorageMock({
       byId: xiuyuan,
@@ -117,14 +117,11 @@ describe('XiuyuanRepository cardIds repair on read', () => {
     expect(result.ok).toBe(true);
     if (!result.ok || !result.value) return;
     expect(result.value.getCards()).toHaveLength(1);
-    expect(storage.upsertXiuYuan).toHaveBeenCalledTimes(1);
-    expect(storage.save).toHaveBeenCalledTimes(1);
-
-    const repaired = storage.upsertXiuYuan.mock.calls[0]?.[0] as IXiuyuan;
-    expect(repaired.meta?.cardIds).toEqual(['card-valid']);
+    expect(storage.upsertXiuYuan).not.toHaveBeenCalled();
+    expect(storage.save).not.toHaveBeenCalled();
   });
 
-  it('batches multiple repairs in findAll and saves once', async () => {
+  it('hydrates multiple stale cardIds in findAll without persisting from the read path', async () => {
     const xiuyuanA = createXiuyuanData('xiuyuan-a', ['card-a', 'missing-a']);
     const xiuyuanB = createXiuyuanData('xiuyuan-b', ['missing-b', 'card-b', 'missing-c']);
     const storage = createStorageMock({
@@ -144,13 +141,8 @@ describe('XiuyuanRepository cardIds repair on read', () => {
     expect(result.value[0]?.getCards()).toHaveLength(1);
     expect(result.value[1]?.getCards()).toHaveLength(1);
 
-    expect(storage.upsertXiuYuan).toHaveBeenCalledTimes(2);
-    expect(storage.save).toHaveBeenCalledTimes(1);
-
-    const repairedA = storage.upsertXiuYuan.mock.calls[0]?.[0] as IXiuyuan;
-    const repairedB = storage.upsertXiuYuan.mock.calls[1]?.[0] as IXiuyuan;
-    expect(repairedA.meta?.cardIds).toEqual(['card-a']);
-    expect(repairedB.meta?.cardIds).toEqual(['card-b']);
+    expect(storage.upsertXiuYuan).not.toHaveBeenCalled();
+    expect(storage.save).not.toHaveBeenCalled();
   });
 
   it('rebuilds cards from xiuyuan-bound DTOs when persisted cardIds are missing', async () => {
@@ -179,9 +171,8 @@ describe('XiuyuanRepository cardIds repair on read', () => {
     expect(result.value[0]?.getCards().map((card) => card.getId().getValue())).toEqual(['card-recovered']);
     expect(repository.getXiuyuanIdByCardId('card-recovered')).toBe('xiuyuan-missing-cardids');
     expect(storage.getCardDTOsByXiuyuanId).toHaveBeenCalledWith('xiuyuan-missing-cardids');
-    expect(storage.upsertXiuYuan).toHaveBeenCalledTimes(1);
-    const repaired = storage.upsertXiuYuan.mock.calls[0]?.[0] as IXiuyuan;
-    expect(repaired.meta?.cardIds).toEqual(['card-recovered']);
+    expect(storage.upsertXiuYuan).not.toHaveBeenCalled();
+    expect(storage.save).not.toHaveBeenCalled();
   });
 
   it('hydrates missing Xiuyuan faces and semantic metadata from bound card DTOs', async () => {
@@ -261,7 +252,7 @@ describe('XiuyuanRepository cardIds repair on read', () => {
     expect(storage.save).not.toHaveBeenCalled();
   });
 
-  it('keeps read success when repair persistence fails', async () => {
+  it('keeps read success without calling a failing repair persistence path', async () => {
     const xiuyuan = createXiuyuanData('xiuyuan-d', ['card-d', 'missing-d']);
     const storage = createStorageMock({
       byId: xiuyuan,
@@ -276,7 +267,7 @@ describe('XiuyuanRepository cardIds repair on read', () => {
     expect(result.ok).toBe(true);
     if (!result.ok || !result.value) return;
     expect(result.value.getCards()).toHaveLength(1);
-    expect(storage.upsertXiuYuan).toHaveBeenCalledTimes(1);
-    expect(storage.save).toHaveBeenCalledTimes(1);
+    expect(storage.upsertXiuYuan).not.toHaveBeenCalled();
+    expect(storage.save).not.toHaveBeenCalled();
   });
 });

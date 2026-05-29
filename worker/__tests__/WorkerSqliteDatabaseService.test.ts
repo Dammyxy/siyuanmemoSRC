@@ -63,7 +63,7 @@ describe('WorkerSqliteDatabaseService', () => {
     expect(writeBinary).toHaveBeenCalledTimes(writesAfterSeed);
   });
 
-  it('coalesces repeated queue projection replacements into one deferred sqlite write', async () => {
+  it('keeps repeated queue projection replacements in runtime cache until explicit persist', async () => {
     vi.useFakeTimers();
     const bridge = createInMemorySqlitePersistenceBridge();
     const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
@@ -121,12 +121,13 @@ describe('WorkerSqliteDatabaseService', () => {
 
     expect(writeBinary).toHaveBeenCalledTimes(writesBeforeProjection);
     await vi.advanceTimersByTimeAsync(1000);
+    expect(writeBinary).toHaveBeenCalledTimes(writesBeforeProjection);
     await database.persist();
 
     expect(writeBinary).toHaveBeenCalledTimes(writesBeforeProjection + 1);
   });
 
-  it('flushes a pending queue projection write once before explicit persist and skips clean repeat', async () => {
+  it('persists runtime-cached queue projection once on explicit persist and skips clean repeat', async () => {
     vi.useFakeTimers();
     const bridge = createInMemorySqlitePersistenceBridge();
     const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));

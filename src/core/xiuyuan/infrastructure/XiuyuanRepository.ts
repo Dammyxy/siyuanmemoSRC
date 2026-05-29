@@ -77,11 +77,6 @@ type CardIdResolutionStats = {
   resolvedCardIds: string[];
   missingDtoCardIds: string[];
 };
-type XiuyuanReadCardRepairCandidate = {
-  xiuyuanId: string;
-  removedCount: number;
-  persisted: IXiuyuan;
-};
 
 type ListTemplateChild = {
   id: string;
@@ -584,11 +579,6 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         return result;
       }
 
-      const candidate = this.buildCardIdRepairCandidate(data, result.value.cardIdStats);
-      if (candidate) {
-        await this.persistCardIdRepairs([candidate], 'findById');
-      }
-
       return ok(result.value.xiuyuan);
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
@@ -607,7 +597,6 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         ? this.sqlReadPort.findByBlockId(blockId.getValue())
         : this.storage.getAllXiuYuans();
       const xiuyuans: Xiuyuan[] = [];
-      const repairCandidates: XiuyuanReadCardRepairCandidate[] = [];
 
       // 杩囨护鍖呭惈鎸囧畾 blockID 鐨?XiuYuans
       for (const data of allXiuyuans) {
@@ -615,15 +604,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           const result = this.toDomain(data, this.sqlReadPort || undefined);
           if (result.ok && result.value.xiuyuan) {
             xiuyuans.push(result.value.xiuyuan);
-            const candidate = this.buildCardIdRepairCandidate(data, result.value.cardIdStats);
-            if (candidate) {
-              repairCandidates.push(candidate);
-            }
           }
         }
       }
 
-      await this.persistCardIdRepairs(repairCandidates, 'findByBlockId');
       return ok(xiuyuans);
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
@@ -639,17 +623,12 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     try {
       const dataList = this.storage.getAllXiuYuans();
       const xiuyuans: Xiuyuan[] = [];
-      const repairCandidates: XiuyuanReadCardRepairCandidate[] = [];
       this.cardToXiuyuanIndex.clear();
 
       for (const data of dataList) {
         const result = this.toDomain(data);
         if (result.ok && result.value.xiuyuan) {
           xiuyuans.push(result.value.xiuyuan);
-          const candidate = this.buildCardIdRepairCandidate(data, result.value.cardIdStats);
-          if (candidate) {
-            repairCandidates.push(candidate);
-          }
           
           // 馃殌 鍒濆鍖栫储寮曪細鏋勫缓鍗＄墖ID -> XiuyuanID鏄犲皠
           const xiuyuan = result.value.xiuyuan;
@@ -660,7 +639,6 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         }
       }
 
-      await this.persistCardIdRepairs(repairCandidates, 'findAll');
       return ok(xiuyuans);
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
@@ -1597,91 +1575,6 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     return Array.from(facesByIndex.entries())
       .sort(([left], [right]) => left - right)
       .map(([, face]) => face);
-  }
-
-  private areCardIdArraysEqual(left: string[], right: string[]): boolean {
-    if (left.length !== right.length) {
-      return false;
-    }
-    for (let i = 0; i < left.length; i += 1) {
-      if (left[i] !== right[i]) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private toResolvedCardIdList(sourceCardIds: string[], resolvedCardIds: string[]): string[] {
-    if (sourceCardIds.length === 0) {
-      return [...resolvedCardIds];
-    }
-    const resolvedSet = new Set(resolvedCardIds);
-    return sourceCardIds.filter((cardId) => resolvedSet.has(cardId));
-  }
-
-  private buildCardIdRepairCandidate(
-    data: IXiuyuan,
-    cardIdStats: CardIdResolutionStats
-  ): XiuyuanReadCardRepairCandidate | null {
-    const repairedCardIds = this.toResolvedCardIdList(cardIdStats.sourceCardIds, cardIdStats.resolvedCardIds);
-    if (this.areCardIdArraysEqual(cardIdStats.sourceCardIds, repairedCardIds)) {
-      return null;
-    }
-
-    const repairedMeta: Record<string, unknown> = data.meta ? { ...data.meta } : {};
-    repairedMeta.cardIds = repairedCardIds;
-
-    return {
-      xiuyuanId: data.id,
-      removedCount: Math.max(0, cardIdStats.sourceCardIds.length - repairedCardIds.length),
-      persisted: {
-        ...data,
-        meta: repairedMeta,
-        updatedAt: Date.now(),
-      },
-    };
-  }
-
-  private async persistCardIdRepairs(
-    candidates: XiuyuanReadCardRepairCandidate[],
-    source: 'findById' | 'findByBlockId' | 'findAll'
-  ): Promise<void> {
-    if (candidates.length === 0) {
-      return;
-    }
-
-    try {
-      for (const candidate of candidates) {
-        this.storage.upsertXiuYuan(candidate.persisted);
-      }
-
-      const removedCount = candidates.reduce((sum, candidate) => sum + candidate.removedCount, 0);
-      logger.debug('Repairing stale Xiuyuan cardIds references', {
-        source,
-        repairedXiuyuanCount: candidates.length,
-        removedCardIdReferences: removedCount,
-        sampleXiuyuanIds: candidates.slice(0, CARD_ID_DEBUG_SAMPLE_LIMIT).map((candidate) => candidate.xiuyuanId),
-      });
-
-      const saveResult = await this.storage.save();
-      if (isErr(saveResult)) {
-        logger.error('Failed to persist repaired Xiuyuan cardIds', {
-          source,
-          error: saveResult.error,
-        });
-        return;
-      }
-
-      logger.debug('Persisted repaired Xiuyuan cardIds', {
-        source,
-        repairedXiuyuanCount: candidates.length,
-      });
-    } catch (error) {
-      logger.error('Failed to apply Xiuyuan cardIds repair', {
-        source,
-        error,
-      });
-    }
   }
 
   private async publishDomainEvents(xiuyuan: Xiuyuan): Promise<void> {

@@ -40,12 +40,13 @@ function createRuntime(options: {
   follower?: any;
   frontendRuntime?: any;
   queueCards?: FSRSCard[];
+  queueGetCards?: any;
   rolloutState?: (queueType: QueueType) => string | null | undefined;
   publishQueueProjectionIdentityBroadcast?: any;
 } = {}) {
   const queueCards = options.queueCards ?? [createCard()];
   const queue = {
-    getCards: vi.fn(async () => queueCards),
+    getCards: options.queueGetCards ?? vi.fn(async () => queueCards),
   } as unknown as IReviewQueue;
   const runtime = new QueueProjectionRuntime({
     getBackendClient: () => options.backend,
@@ -191,6 +192,84 @@ describe('QueueProjectionRuntime', () => {
         generation: 8,
         reason: 'materialization_in_progress',
       }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('dedupes overlapping readiness materialization for the same queue policy', async () => {
+    vi.useFakeTimers();
+    const card = createCard({
+      id: 'dedup-card',
+      blockId: 'dedup-block',
+    });
+    let resolveCards: (cards: FSRSCard[]) => void = () => undefined;
+    const queueGetCards = vi.fn(() => new Promise<FSRSCard[]>((resolve) => {
+      resolveCards = resolve;
+    }));
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.RetrievalPractice,
+        status: 'invalidated',
+        policyHash: 'dedup-policy',
+        generation: 4,
+        rows: [],
+        counters: null,
+      })),
+      queueProjectionReplace: vi.fn(async (request: { policyHash: string; generation?: number | null; rows: unknown[] }) => ({
+        queueType: QueueType.RetrievalPractice,
+        status: 'ready',
+        policyHash: request.policyHash,
+        generation: request.generation ?? 5,
+        rows: request.rows.length,
+        counters: {
+          queueType: QueueType.RetrievalPractice,
+          policyHash: request.policyHash,
+          generation: request.generation ?? 5,
+          version: request.generation ?? 5,
+          remaining: request.rows.length,
+          due: request.rows.length,
+          total: request.rows.length,
+          buckets: { all: request.rows.length, item: request.rows.length, descriptor: 0, topic: 0, concept: 0 },
+          updatedAt: 1_700_000_100_000,
+        },
+      })),
+    };
+    const { runtime } = createRuntime({
+      backend,
+      queueGetCards,
+    });
+
+    try {
+      const first = runtime.ensureReady({
+        queueType: QueueType.RetrievalPractice,
+        preset: 'all',
+        cardType: 'all',
+        source: 'browser',
+      });
+      const second = runtime.ensureReady({
+        queueType: QueueType.RetrievalPractice,
+        preset: 'all',
+        cardType: 'all',
+        source: 'browser',
+      });
+
+      await vi.advanceTimersByTimeAsync(300);
+      await expect(Promise.all([first, second])).resolves.toEqual([
+        expect.objectContaining({
+          status: 'refreshing',
+          queueId: QueueType.RetrievalPractice,
+        }),
+        expect.objectContaining({
+          status: 'refreshing',
+          queueId: QueueType.RetrievalPractice,
+        }),
+      ]);
+
+      expect(queueGetCards).toHaveBeenCalledTimes(1);
+      resolveCards([card]);
+      await vi.runAllTimersAsync();
+      expect(backend.queueProjectionReplace).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

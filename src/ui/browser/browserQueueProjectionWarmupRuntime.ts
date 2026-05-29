@@ -63,7 +63,7 @@ export type BrowserQueueProjectionWarmupRuntimeDeps = {
 };
 
 const DEFAULT_WARMUP_DEBOUNCE_MS = 120;
-const MAX_WARMUP_QUEUES = 4;
+const MAX_WARMUP_QUEUES = 1;
 
 function isWarmableQueue(queueType: QueueType | null): queueType is QueueType {
   return Boolean(queueType && queueType !== QueueType.NeuralRoam);
