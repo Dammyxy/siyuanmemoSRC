@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { ApplicationContext } from '../ApplicationContext';
+import { SqliteDatabaseService } from '@/infrastructure/persistence/sqlite/SqliteDatabaseService';
+import type { IFileService } from '@/infrastructure/services/FileService';
 
 function readApplicationContextSource(): string {
   return readFileSync(resolve(process.cwd(), 'src/application/ApplicationContext.ts'), 'utf8');
@@ -105,5 +107,59 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(context.getSrsBackendClient()).toBeNull();
     expect(context.getFrontendInstanceRuntime()).toBeNull();
     expect(context.getFollowerCommandClient()).toBeNull();
+  });
+
+  it('does not rewrite a clean sqlite database during dispose when storage persistence is disabled', async () => {
+    class MemorySqliteFileService implements Pick<IFileService, 'readJSON' | 'writeJSON' | 'readBinary' | 'writeBinary'> {
+      readonly json = new Map<string, unknown>();
+      readonly binary = new Map<string, Uint8Array>();
+      writeBinary = vi.fn(async (fileName: string, bytes: Uint8Array) => {
+        this.binary.set(fileName, new Uint8Array(bytes));
+      });
+
+      async readJSON<T>(fileName: string): Promise<T | null> {
+        return (this.json.get(fileName) as T | undefined) ?? null;
+      }
+
+      async writeJSON(fileName: string, data: unknown): Promise<void> {
+        this.json.set(fileName, data);
+      }
+
+      async readBinary(fileName: string): Promise<Uint8Array | null> {
+        const bytes = this.binary.get(fileName);
+        return bytes ? new Uint8Array(bytes) : null;
+      }
+    }
+
+    const fileService = new MemorySqliteFileService();
+    const seeded = new SqliteDatabaseService(fileService);
+    await seeded.init();
+    const writesAfterSeed = fileService.writeBinary.mock.calls.length;
+    seeded.dispose();
+
+    const cleanDatabase = new SqliteDatabaseService(fileService);
+    await cleanDatabase.init();
+    const TestableApplicationContext = ApplicationContext as unknown as new (
+      config: unknown,
+      services: unknown,
+    ) => ApplicationContext;
+    const context = new TestableApplicationContext({
+      plugin: { name: 'test-plugin', app: {} },
+      i18n: {},
+    }, {
+      storageManager: {},
+      unifiedStorageManager: { save: vi.fn() },
+      schedulerRouter: {},
+      rescheduleService: {},
+      unifiedDataSourceManager: {},
+      blockMenuHandler: {},
+      sqlPersistence: {
+        database: cleanDatabase,
+      },
+    });
+
+    await context.dispose({ persistStorage: false });
+
+    expect(fileService.writeBinary).toHaveBeenCalledTimes(writesAfterSeed);
   });
 });

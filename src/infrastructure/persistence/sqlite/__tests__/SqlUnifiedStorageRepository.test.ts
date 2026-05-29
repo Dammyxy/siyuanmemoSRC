@@ -701,6 +701,34 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     expect(repository.getSourceExistenceByBlockIds(['block-a-next']).get('block-a-next')).toBeNull();
   });
 
+  it('does not dirty the database when source existence status is unchanged', async () => {
+    const { database, repository } = await seedRepositories();
+    await repository.updateSourceExistence([
+      { cardId: 'card-a', blockId: 'block-a', exists: true },
+    ], 1_700_000_010_000);
+    const first = database.getOne<{
+      source_exists: number | null;
+      source_checked_at: number | null;
+      source_missing_at: number | null;
+    }>(
+      'SELECT source_exists, source_checked_at, source_missing_at FROM cards WHERE id = ?',
+      ['card-a'],
+    );
+
+    await repository.updateSourceExistence([
+      { cardId: 'card-a', blockId: 'block-a', exists: true },
+    ], 1_700_000_020_000);
+
+    expect(database.getOne<{
+      source_exists: number | null;
+      source_checked_at: number | null;
+      source_missing_at: number | null;
+    }>(
+      'SELECT source_exists, source_checked_at, source_missing_at FROM cards WHERE id = ?',
+      ['card-a'],
+    )).toEqual(first);
+  });
+
   it('serves root-scope and card-type-marker scan candidates from projections', async () => {
     const { repository } = await seedRepositories();
     const card = repository.getCard('card-a')!;

@@ -24,12 +24,13 @@ import type {
   BackendWorkerToMainMessage,
 } from './BackendWorkerProtocol';
 import {
+  beginBackendWorkerTiming,
   beginBackendWorkerRequest,
   endBackendWorkerRequest,
-  markActiveReviewFeedbackTimingAmbiguous,
-  recordReviewFeedbackHostEffect,
-  recordReviewFeedbackInnerStep,
-  resolveExclusiveActiveReviewFeedbackTiming,
+  markActiveBackendWorkerTimingAmbiguous,
+  recordBackendWorkerHostEffect,
+  recordBackendWorkerInnerStep,
+  resolveExclusiveActiveBackendWorkerTiming,
   type ActiveReviewFeedbackTiming,
 } from './ReviewFeedbackTimingScope';
 import { createLogger } from '@/utils/logger';
@@ -75,18 +76,18 @@ function requestHostEffect<TResult>(effect: BackendWorkerHostEffect): Promise<TR
   const pending = new Promise<TResult>((resolve, reject) => {
     pendingHostEffects.set(effectId, {
       resolve: (result) => {
-        const reviewFeedbackTiming = resolveExclusiveActiveReviewFeedbackTiming();
-        recordReviewFeedbackHostEffect(reviewFeedbackTiming, effect.kind, Date.now() - startedAt);
-        if (!reviewFeedbackTiming) {
-          markActiveReviewFeedbackTimingAmbiguous();
+        const workerTiming = resolveExclusiveActiveBackendWorkerTiming();
+        recordBackendWorkerHostEffect(workerTiming, effect.kind, Date.now() - startedAt);
+        if (!workerTiming) {
+          markActiveBackendWorkerTimingAmbiguous();
         }
         resolve(result as TResult);
       },
       reject: (error) => {
-        const reviewFeedbackTiming = resolveExclusiveActiveReviewFeedbackTiming();
-        recordReviewFeedbackHostEffect(reviewFeedbackTiming, effect.kind, Date.now() - startedAt);
-        if (!reviewFeedbackTiming) {
-          markActiveReviewFeedbackTimingAmbiguous();
+        const workerTiming = resolveExclusiveActiveBackendWorkerTiming();
+        recordBackendWorkerHostEffect(workerTiming, effect.kind, Date.now() - startedAt);
+        if (!workerTiming) {
+          markActiveBackendWorkerTimingAmbiguous();
         }
         reject(error);
       },
@@ -147,6 +148,31 @@ function extractReviewFeedbackCardId(message: BackendWorkerMainToWorkerMessage):
   }
   const cardId = String((params as { cardId?: unknown }).cardId || '').trim();
   return cardId || null;
+}
+
+function extractQueueType(message: BackendWorkerMainToWorkerMessage): string | null {
+  if (message.kind !== 'request') {
+    return null;
+  }
+  const params = Array.isArray(message.request.params) ? message.request.params[0] : null;
+  if (!params || typeof params !== 'object') {
+    return null;
+  }
+  const queueType = String((params as { queueType?: unknown }).queueType || '').trim();
+  return queueType || null;
+}
+
+const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
+  'browser.deck.page',
+  'browser.stats',
+  'browser.deck.documentCounts',
+  'queue.projection.snapshot',
+  'queue.projection.rowsByIds',
+  'queue.projection.replace',
+]);
+
+function shouldCaptureBackendWorkerTiming(method: string): boolean {
+  return method === 'review.feedback' || DIAGNOSTIC_TIMING_METHODS.has(method);
 }
 
 function logReviewFeedbackWorkerEntryStepIfSlow(
@@ -264,13 +290,17 @@ scope.onmessage = (event) => {
   if (message.kind === 'request') {
     const isReviewFeedback = message.request.method === 'review.feedback';
     const cardId = isReviewFeedback ? extractReviewFeedbackCardId(message) : null;
+    const queueType = extractQueueType(message);
+    const captureTiming = shouldCaptureBackendWorkerTiming(message.request.method);
     const receivedAt = Date.now();
     const sentAt = typeof message.sentAt === 'number' && Number.isFinite(message.sentAt)
       ? message.sentAt
       : null;
     const requestTiming: ActiveReviewFeedbackTiming | null = isReviewFeedback
       ? beginBackendWorkerRequest(true, cardId)
-      : beginBackendWorkerRequest(false);
+      : captureTiming
+        ? beginBackendWorkerTiming(message.request.method, null, { queueType })
+        : beginBackendWorkerRequest(false);
     if (isReviewFeedback) {
       if (sentAt !== null) {
         logReviewFeedbackWorkerEntryStepIfSlow('main-to-worker-received', cardId, receivedAt - sentAt);
@@ -284,16 +314,23 @@ scope.onmessage = (event) => {
       ))
       .then((response) => {
         const handledAt = Date.now();
-        if (isReviewFeedback) {
-          recordReviewFeedbackInnerStep({
+        if (captureTiming) {
+          recordBackendWorkerInnerStep({
             layer: 'worker-entry',
             step: 'handle-to-response',
             cardId,
             durationMs: Math.max(0, handledAt - startedAt),
+            queueType,
+            extra: {
+              backendMethod: message.request.method,
+              queueType,
+            },
           });
+        }
+        if (isReviewFeedback) {
           logReviewFeedbackWorkerEntryStepIfSlow('handle-to-response', cardId, handledAt - startedAt);
         }
-        const timing = isReviewFeedback && requestTiming
+        const timing = captureTiming && requestTiming
           ? buildReviewFeedbackResponseTiming({
               sentAt,
               receivedAt,

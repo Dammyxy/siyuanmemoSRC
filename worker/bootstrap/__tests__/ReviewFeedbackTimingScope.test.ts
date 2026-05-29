@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  beginBackendWorkerTiming,
   beginBackendWorkerRequest,
   endBackendWorkerRequest,
+  recordBackendWorkerInnerStep,
   recordReviewFeedbackInnerStep,
 } from '../ReviewFeedbackTimingScope';
 
@@ -50,6 +52,52 @@ describe('ReviewFeedbackTimingScope', () => {
     } finally {
       endBackendWorkerRequest(otherTiming);
       endBackendWorkerRequest(reviewTiming);
+    }
+  });
+
+  it('keeps diagnostic inner steps with matching method while diagnostic requests overlap', () => {
+    const browserTiming = beginBackendWorkerTiming('browser.deck.page');
+    const queueTiming = beginBackendWorkerTiming('queue.projection.snapshot', null, {
+      queueType: 'retrieval',
+    });
+
+    try {
+      recordBackendWorkerInnerStep({
+        layer: 'database',
+        step: 'queryDeckPage.total',
+        durationMs: 123,
+        extra: {
+          backendMethod: 'browser.deck.page',
+        },
+      });
+      recordBackendWorkerInnerStep({
+        layer: 'database',
+        step: 'queueProjection.snapshot.total',
+        durationMs: 456,
+        queueType: 'retrieval',
+        extra: {
+          backendMethod: 'queue.projection.snapshot',
+          queueType: 'retrieval',
+        },
+      });
+
+      expect(browserTiming.innerSteps).toEqual([
+        expect.objectContaining({
+          step: 'queryDeckPage.total',
+          durationMs: 123,
+        }),
+      ]);
+      expect(queueTiming.innerSteps).toEqual([
+        expect.objectContaining({
+          step: 'queueProjection.snapshot.total',
+          durationMs: 456,
+        }),
+      ]);
+      expect(browserTiming.innerStepAttribution).toBe('ambiguous-concurrency');
+      expect(queueTiming.innerStepAttribution).toBe('ambiguous-concurrency');
+    } finally {
+      endBackendWorkerRequest(queueTiming);
+      endBackendWorkerRequest(browserTiming);
     }
   });
 });

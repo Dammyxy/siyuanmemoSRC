@@ -4,10 +4,12 @@ import type {
   BackendWorkerResponseTiming,
 } from './BackendWorkerProtocol';
 
-const MAX_REVIEW_FEEDBACK_INNER_STEPS = 24;
+const MAX_BACKEND_WORKER_INNER_STEPS = 24;
 
-export type ActiveReviewFeedbackTiming = {
+export type ActiveBackendWorkerTiming = {
+  method: string;
   cardId: string | null;
+  queueType: string | null;
   hostEffectCount: number;
   hostEffectTotalMs: number;
   hostEffectAttribution: BackendWorkerResponseTiming['hostEffectAttribution'];
@@ -20,19 +22,21 @@ export type ActiveReviewFeedbackTiming = {
   innerStepsTruncated: boolean;
 };
 
-let activeRequestCount = 0;
-const activeReviewFeedbackTimings = new Set<ActiveReviewFeedbackTiming>();
+export type ActiveReviewFeedbackTiming = ActiveBackendWorkerTiming;
 
-export function beginBackendWorkerRequest(
-  isReviewFeedback: boolean,
+let activeRequestCount = 0;
+const activeBackendWorkerTimings = new Set<ActiveBackendWorkerTiming>();
+
+export function beginBackendWorkerTiming(
+  method: string,
   cardId: string | null = null,
-): ActiveReviewFeedbackTiming | null {
+  options: { queueType?: string | null } = {},
+): ActiveBackendWorkerTiming {
   activeRequestCount += 1;
-  if (!isReviewFeedback) {
-    return null;
-  }
-  const timing: ActiveReviewFeedbackTiming = {
+  const timing: ActiveBackendWorkerTiming = {
+    method,
     cardId,
+    queueType: options.queueType ?? null,
     hostEffectCount: 0,
     hostEffectTotalMs: 0,
     hostEffectAttribution: 'complete',
@@ -41,49 +45,71 @@ export function beginBackendWorkerRequest(
     innerStepAttribution: 'complete',
     innerStepsTruncated: false,
   };
-  activeReviewFeedbackTimings.add(timing);
+  activeBackendWorkerTimings.add(timing);
   return timing;
 }
 
-export function endBackendWorkerRequest(timing: ActiveReviewFeedbackTiming | null): void {
+export function beginBackendWorkerRequest(
+  isReviewFeedback: boolean,
+  cardId: string | null = null,
+): ActiveBackendWorkerTiming | null {
+  if (!isReviewFeedback) {
+    activeRequestCount += 1;
+    return null;
+  }
+  return beginBackendWorkerTiming('review.feedback', cardId);
+}
+
+export function endBackendWorkerRequest(timing: ActiveBackendWorkerTiming | null): void {
   activeRequestCount = Math.max(0, activeRequestCount - 1);
   if (timing) {
-    activeReviewFeedbackTimings.delete(timing);
+    activeBackendWorkerTimings.delete(timing);
   }
 }
 
-export function resolveExclusiveActiveReviewFeedbackTiming(): ActiveReviewFeedbackTiming | null {
-  if (activeReviewFeedbackTimings.size === 0) {
+export function resolveExclusiveActiveBackendWorkerTiming(): ActiveBackendWorkerTiming | null {
+  if (activeBackendWorkerTimings.size === 0) {
     return null;
   }
-  if (activeRequestCount !== 1 || activeReviewFeedbackTimings.size !== 1) {
-    for (const timing of activeReviewFeedbackTimings) {
+  if (activeRequestCount !== 1 || activeBackendWorkerTimings.size !== 1) {
+    for (const timing of activeBackendWorkerTimings) {
       timing.hostEffectAttribution = 'ambiguous-concurrency';
       timing.innerStepAttribution = 'ambiguous-concurrency';
     }
     return null;
   }
-  return activeReviewFeedbackTimings.values().next().value ?? null;
+  return activeBackendWorkerTimings.values().next().value ?? null;
 }
 
-export function markActiveReviewFeedbackTimingAmbiguous(): void {
-  for (const timing of activeReviewFeedbackTimings) {
+export function resolveExclusiveActiveReviewFeedbackTiming(): ActiveBackendWorkerTiming | null {
+  return resolveExclusiveActiveBackendWorkerTiming();
+}
+
+export function markActiveBackendWorkerTimingAmbiguous(): void {
+  for (const timing of activeBackendWorkerTimings) {
     timing.hostEffectAttribution = 'ambiguous-concurrency';
     timing.innerStepAttribution = 'ambiguous-concurrency';
   }
 }
 
-function resolveActiveReviewFeedbackTimingForInnerStep(
+export function markActiveReviewFeedbackTimingAmbiguous(): void {
+  markActiveBackendWorkerTimingAmbiguous();
+}
+
+function resolveActiveBackendWorkerTimingForInnerStep(
   stepTiming: BackendWorkerInnerStepTiming,
-): ActiveReviewFeedbackTiming | null {
-  if (activeReviewFeedbackTimings.size === 0) {
+): ActiveBackendWorkerTiming | null {
+  if (activeBackendWorkerTimings.size === 0) {
     return null;
   }
-  if (activeReviewFeedbackTimings.size !== 1) {
-    markActiveReviewFeedbackTimingAmbiguous();
+  const activeTimings = [...activeBackendWorkerTimings];
+  const timing = activeTimings.length === 1
+    ? activeTimings[0]
+    : resolveMatchingTimingUnderConcurrency(stepTiming, activeTimings);
+  if (!timing) {
+    markActiveBackendWorkerTimingAmbiguous();
     return null;
   }
-  const timing = activeReviewFeedbackTimings.values().next().value ?? null;
   if (activeRequestCount !== 1) {
     timing.innerStepAttribution = 'ambiguous-concurrency';
     if (timing.cardId && stepTiming.cardId !== timing.cardId) {
@@ -93,8 +119,45 @@ function resolveActiveReviewFeedbackTimingForInnerStep(
   return timing;
 }
 
+function resolveMatchingTimingUnderConcurrency(
+  stepTiming: BackendWorkerInnerStepTiming,
+  activeTimings: ActiveBackendWorkerTiming[],
+): ActiveBackendWorkerTiming | null {
+  const stepMethod = extractStepMethod(stepTiming);
+  const stepQueueType = extractStepQueueType(stepTiming);
+  const candidates = activeTimings.filter((timing) => {
+    if (stepMethod && timing.method !== stepMethod) {
+      return false;
+    }
+    if (timing.cardId && stepTiming.cardId !== timing.cardId) {
+      return false;
+    }
+    if (timing.queueType && stepQueueType !== timing.queueType) {
+      return false;
+    }
+    if (!stepMethod && !stepTiming.cardId && !stepQueueType) {
+      return false;
+    }
+    return true;
+  });
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function extractStepMethod(stepTiming: BackendWorkerInnerStepTiming): string | null {
+  const method = stepTiming.extra?.backendMethod ?? stepTiming.extra?.method;
+  return typeof method === 'string' && method.length > 0 ? method : null;
+}
+
+function extractStepQueueType(stepTiming: BackendWorkerInnerStepTiming): string | null {
+  if (typeof stepTiming.queueType === 'string' && stepTiming.queueType.length > 0) {
+    return stepTiming.queueType;
+  }
+  const queueType = stepTiming.extra?.queueType;
+  return typeof queueType === 'string' && queueType.length > 0 ? queueType : null;
+}
+
 export function recordReviewFeedbackHostEffect(
-  timing: ActiveReviewFeedbackTiming | null,
+  timing: ActiveBackendWorkerTiming | null,
   kind: BackendWorkerHostEffect['kind'],
   durationMs: number,
 ): void {
@@ -112,13 +175,17 @@ export function recordReviewFeedbackHostEffect(
 }
 
 export function recordReviewFeedbackInnerStep(stepTiming: BackendWorkerInnerStepTiming): void {
-  const timing = resolveActiveReviewFeedbackTimingForInnerStep(stepTiming);
+  const timing = resolveActiveBackendWorkerTimingForInnerStep(stepTiming);
   if (!timing) {
     return;
   }
-  if (timing.innerSteps.length >= MAX_REVIEW_FEEDBACK_INNER_STEPS) {
+  if (timing.innerSteps.length >= MAX_BACKEND_WORKER_INNER_STEPS) {
     timing.innerStepsTruncated = true;
     return;
   }
   timing.innerSteps.push(stepTiming);
 }
+
+export const recordBackendWorkerHostEffect = recordReviewFeedbackHostEffect;
+
+export const recordBackendWorkerInnerStep = recordReviewFeedbackInnerStep;

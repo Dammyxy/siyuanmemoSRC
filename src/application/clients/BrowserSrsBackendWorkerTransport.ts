@@ -26,6 +26,7 @@ import type {
   BackendWorkerToMainMessage,
 } from '../../../worker/bootstrap/BackendWorkerProtocol';
 import { createLogger } from '@/utils/logger';
+import { recordRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnostics';
 
 const logger = createLogger('BrowserSrsBackendWorkerTransport');
 const REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS = 120;
@@ -34,6 +35,14 @@ const LONG_BACKEND_COMMAND_METHODS = new Set<string>([
   'xiuyuan.sync.execute',
 ]);
 const REVIEW_FEEDBACK_WORKER_HANDLE_TOP_INNER_STEP_COUNT = 5;
+const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
+  'browser.deck.page',
+  'browser.stats',
+  'browser.deck.documentCounts',
+  'queue.projection.snapshot',
+  'queue.projection.rowsByIds',
+  'queue.projection.replace',
+]);
 
 export interface BrowserSrsBackendWorkerHostEffects {
   readBinary?: (path: string) => Promise<Uint8Array | null>;
@@ -361,6 +370,8 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           now - pending.queuedAt,
           { pendingRequests: this.pendingRequests.size },
         );
+      } else {
+        this.recordDiagnosticWorkerTiming(pending, message.timing);
       }
       pending.resolve(message.response);
       return;
@@ -748,6 +759,77 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         pendingRequests: this.pendingRequests.size,
       },
     );
+  }
+
+  private recordDiagnosticWorkerTiming(
+    pending: PendingBackendRequest,
+    timing: BackendWorkerResponseTiming | null | undefined,
+  ): void {
+    if (!timing || !DIAGNOSTIC_TIMING_METHODS.has(pending.method)) {
+      return;
+    }
+    const innerStepSummary = this.summarizeReviewFeedbackInnerSteps(timing);
+    recordRuntimePerformanceSpan(
+      'worker',
+      `${pending.method}.handle`,
+      timing.handleDurationMs,
+      {
+        pendingRequests: this.pendingRequests.size,
+        hostEffectCount: timing.hostEffectCount,
+        hostEffectTotalMs: timing.hostEffectTotalMs,
+        hostEffectAttribution: timing.hostEffectAttribution,
+        innerStepCount: innerStepSummary.innerStepCount,
+        innerStepTotalMs: innerStepSummary.innerStepTotalMs,
+        innerStepAttribution: timing.innerStepAttribution,
+        innerStepsTruncated: timing.innerStepsTruncated,
+        unattributedMs: innerStepSummary.unattributedMs,
+        slowestHostEffectKind: timing.slowestHostEffect?.kind ?? null,
+        slowestHostEffectMs: timing.slowestHostEffect?.durationMs ?? null,
+        dominantInnerStep: innerStepSummary.dominantInnerStepSummary,
+        preRequestMerge: innerStepSummary.preRequestMergeSummary,
+        mainDbRead: innerStepSummary.mainDbReadSummary,
+      },
+      {
+        startedAt: timing.handleStartedAt,
+        endedAt: timing.handledAt,
+      },
+    );
+    if (timing.hostEffectTotalMs > 0) {
+      recordRuntimePerformanceSpan(
+        'worker',
+        `${pending.method}.host-effects`,
+        timing.hostEffectTotalMs,
+        {
+          pendingRequests: this.pendingRequests.size,
+          hostEffectCount: timing.hostEffectCount,
+          hostEffectAttribution: timing.hostEffectAttribution,
+          slowestHostEffectKind: timing.slowestHostEffect?.kind ?? null,
+          slowestHostEffectMs: timing.slowestHostEffect?.durationMs ?? null,
+        },
+        {
+          endedAt: timing.handledAt,
+        },
+      );
+    }
+    for (const innerStep of timing.innerSteps) {
+      recordRuntimePerformanceSpan(
+        'worker-inner',
+        `${pending.method}.${innerStep.layer}.${innerStep.step}`,
+        innerStep.durationMs,
+        {
+          pendingRequests: this.pendingRequests.size,
+          innerStepAttribution: timing.innerStepAttribution,
+          innerLayer: innerStep.layer,
+          innerStep: innerStep.step,
+          innerCardId: innerStep.cardId ?? null,
+          innerQueueType: innerStep.queueType ?? null,
+          ...(innerStep.extra ?? {}),
+        },
+        {
+          endedAt: timing.handledAt,
+        },
+      );
+    }
   }
 
   private closeWithError(error: Error): void {

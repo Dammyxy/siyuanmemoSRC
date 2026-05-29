@@ -83,6 +83,11 @@ interface DomainSyncLedgerRecorder {
   }): void;
 }
 
+interface SqlUnifiedStorageRepositoryOptions {
+  domainSyncLedger?: DomainSyncLedgerRecorder;
+  diagnosticRecorder?: (step: string, durationMs: number, extra?: Record<string, unknown>) => void;
+}
+
 interface WhereClause {
   sql: string;
   params: Array<string | number>;
@@ -373,8 +378,21 @@ function stateRowKey(cardId: string, algorithmId: string): string {
 export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
   constructor(
     private readonly database: SqliteDatabaseService,
-    private readonly options: { domainSyncLedger?: DomainSyncLedgerRecorder } = {},
+    private readonly options: SqlUnifiedStorageRepositoryOptions = {},
   ) {}
+
+  private measureDiagnosticStep<TResult>(
+    step: string,
+    task: () => TResult,
+    extra: Record<string, unknown> = {},
+  ): TResult {
+    const startedAt = Date.now();
+    try {
+      return task();
+    } finally {
+      this.options.diagnosticRecorder?.(step, Math.max(0, Date.now() - startedAt), extra);
+    }
+  }
 
   async loadStore(_reason: StorageLoadReason = 'unspecified'): Promise<UnifiedCardStore> {
     return this.database.read(() => {
@@ -688,14 +706,32 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       return null;
     }
 
-    const total = this.countByWhere(deckQuery.where);
+    const total = this.measureDiagnosticStep(
+      'queryDeckPage.count',
+      () => this.countByWhere(deckQuery.where),
+    );
     const { startRow, limit } = this.normalizePageRequest(page, total);
-    const rows = this.database.getAll<{ payload_json: string; dto_json: string | null }>(
-      `SELECT payload_json, dto_json FROM cards ${this.toWhereSql(deckQuery.where)} ${deckQuery.orderBy} LIMIT ? OFFSET ?`,
-      [...(deckQuery.where?.params || []), limit, startRow],
+    const rows = this.measureDiagnosticStep(
+      'queryDeckPage.select',
+      () => this.database.getAll<{ payload_json: string; dto_json: string | null }>(
+        `SELECT payload_json, dto_json FROM cards ${this.toWhereSql(deckQuery.where)} ${deckQuery.orderBy} LIMIT ? OFFSET ?`,
+        [...(deckQuery.where?.params || []), limit, startRow],
+      ),
+      {
+        startRow,
+        limit,
+        total,
+      },
+    );
+    const cards = this.measureDiagnosticStep(
+      'queryDeckPage.parse',
+      () => this.parseCardRows(rows),
+      {
+        rowCount: rows.length,
+      },
     );
     return {
-      cards: this.parseCardRows(rows),
+      cards,
       total,
     };
   }
@@ -1012,8 +1048,13 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       return;
     }
 
+    const materialUpdates = normalizedUpdates.filter((update) => this.sourceExistenceUpdateChangesStoredState(update));
+    if (materialUpdates.length === 0) {
+      return;
+    }
+
     await this.database.write((db) => {
-      for (const update of normalizedUpdates) {
+      for (const update of materialUpdates) {
         const sourceExists = update.exists ? 1 : 0;
         const sourceMissingAt = update.exists ? null : checkedAt;
         if (update.cardId) {
@@ -1032,6 +1073,39 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
           );
         }
       }
+    });
+  }
+
+  private sourceExistenceUpdateChangesStoredState(update: { cardId: string; blockId: string; exists: boolean }): boolean {
+    const rows = update.cardId
+      ? this.database.getAll<{
+        source_exists: number | null;
+        source_missing_at: number | null;
+      }>(
+        `SELECT source_exists, source_missing_at
+         FROM cards
+         WHERE id = ? AND block_id = ? AND ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}`,
+        [update.cardId, update.blockId],
+      )
+      : this.database.getAll<{
+        source_exists: number | null;
+        source_missing_at: number | null;
+      }>(
+        `SELECT source_exists, source_missing_at
+         FROM cards
+         WHERE block_id = ? AND ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}`,
+        [update.blockId],
+      );
+    if (rows.length === 0) {
+      return false;
+    }
+
+    const nextSourceExists = update.exists ? 1 : 0;
+    return rows.some((row) => {
+      if (row.source_exists !== nextSourceExists) {
+        return true;
+      }
+      return !update.exists && row.source_missing_at == null;
     });
   }
 

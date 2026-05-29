@@ -8,6 +8,10 @@ import type {
 } from '../../../../packages/contracts/src/backend-rpc';
 import { BACKEND_RPC_VERSION } from '../../../../packages/contracts/src/backend-rpc';
 import { BrowserSrsBackendWorkerTransport } from '../BrowserSrsBackendWorkerTransport';
+import {
+  getRuntimePerformanceDiagnosticsReport,
+  setRuntimePerformanceDiagnosticsEnabled,
+} from '@/utils/runtimePerformanceDiagnostics';
 
 const transportLoggerMocks = vi.hoisted(() => ({
   info: vi.fn(),
@@ -84,9 +88,22 @@ function createXiuyuanSyncRequest(id = 1): BackendRpcRequest {
   };
 }
 
+function createBrowserDeckPageRequest(id = 1): BackendRpcRequest {
+  return {
+    jsonrpc: BACKEND_RPC_VERSION,
+    id,
+    method: 'browser.deck.page',
+    params: [{
+      query: { preset: 'all' },
+      page: { startRow: 0, endRow: 50 },
+    }],
+  };
+}
+
 describe('BrowserSrsBackendWorkerTransport', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    setRuntimePerformanceDiagnosticsEnabled(false, { reset: true });
     transportLoggerMocks.info.mockClear();
     transportLoggerMocks.warn.mockClear();
     transportLoggerMocks.error.mockClear();
@@ -94,6 +111,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
   });
 
   afterEach(() => {
+    setRuntimePerformanceDiagnosticsEnabled(false, { reset: true });
     vi.useRealTimers();
   });
 
@@ -383,6 +401,99 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       && message.includes('reason=fast-skip-not-eligible:never-marked-clean')
       && message.includes('mainDb=database:merge.read-main-db 210ms')
     ))).toBe(true);
+    transport.dispose();
+  });
+
+  it('records worker timing spans for Browser and Queue diagnostic RPCs', async () => {
+    setRuntimePerformanceDiagnosticsEnabled(true, { reset: true });
+    vi.setSystemTime(3_000);
+    const worker = new FakeWorker();
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: {},
+    });
+    const request = createBrowserDeckPageRequest(16);
+    const pending = transport.request(request);
+    worker.emit({ kind: 'ready' });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+
+    vi.setSystemTime(3_900);
+    const response: BackendRpcResponse = {
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 16,
+      result: { total: 1, cards: [] },
+    };
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response,
+      timing: {
+        sentAt: 3_000,
+        receivedAt: 3_020,
+        receivedDelayMs: 20,
+        handleStartedAt: 3_030,
+        handledAt: 3_880,
+        handleDurationMs: 850,
+        hostEffectCount: 2,
+        hostEffectTotalMs: 260,
+        hostEffectAttribution: 'complete',
+        slowestHostEffect: {
+          kind: 'sqlite.readBinary',
+          durationMs: 240,
+        },
+        innerSteps: [
+          {
+            layer: 'kernel',
+            step: 'pre-request-merge',
+            durationMs: 320,
+            extra: {
+              mainDbReadSkipped: false,
+              sanityStatus: 'clean',
+            },
+          },
+          {
+            layer: 'database',
+            step: 'queryDeckPage.total',
+            durationMs: 470,
+            extra: {
+              rowCount: 50,
+              total: 1000,
+            },
+          },
+        ],
+        innerStepAttribution: 'complete',
+        innerStepsTruncated: false,
+      },
+    });
+
+    await expect(pending).resolves.toEqual(response);
+    const report = getRuntimePerformanceDiagnosticsReport();
+    expect(report.stats['worker.browser.deck.page.handle']?.count).toBe(1);
+    expect(report.stats['worker.browser.deck.page.host-effects']?.max).toBe(260);
+    expect(report.stats['worker-inner.browser.deck.page.kernel.pre-request-merge']?.max).toBe(320);
+    expect(report.stats['worker-inner.browser.deck.page.database.queryDeckPage.total']?.max).toBe(470);
+    expect(report.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: 'worker',
+        operation: 'browser.deck.page.handle',
+        durationMs: 850,
+        metadata: expect.objectContaining({
+          hostEffectCount: 2,
+          hostEffectAttribution: 'complete',
+          innerStepCount: 2,
+          innerStepAttribution: 'complete',
+        }),
+      }),
+      expect.objectContaining({
+        path: 'worker-inner',
+        operation: 'browser.deck.page.database.queryDeckPage.total',
+        durationMs: 470,
+        metadata: expect.objectContaining({
+          rowCount: 50,
+          total: 1000,
+        }),
+      }),
+    ]));
     transport.dispose();
   });
 

@@ -11,6 +11,10 @@ import type {
   BackendNeuralGraphQueryRequest,
   BackendNeuralGraphQueryResult,
 } from '../../packages/contracts/src/backend-rpc';
+import {
+  beginBackendWorkerTiming,
+  endBackendWorkerRequest,
+} from '../bootstrap/ReviewFeedbackTimingScope';
 
 function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = 1_700_000_000_000;
@@ -4521,6 +4525,58 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('records diagnostic inner steps for browser deck page reads', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([
+      buildCard({
+        id: 'diagnostic-browser-card',
+        blockId: 'diagnostic-browser-block',
+        due: 1_700_000_100_000,
+        meta: { content: 'diagnostic Browser card', rootId: 'doc-diagnostic', deckId: 'deck-diagnostic' },
+      }),
+    ]);
+    const kernel = new BackendKernel({ database });
+    const timing = beginBackendWorkerTiming('browser.deck.page');
+
+    try {
+      const response = await kernel.handle({
+        id: 'browser-diagnostic-page',
+        jsonrpc: '2.0',
+        method: 'browser.deck.page',
+        params: [{ query: { preset: 'all' }, page: { startRow: 0, endRow: 10 } }],
+      });
+
+      expect('result' in response).toBe(true);
+      if ('result' in response) {
+        expect(response.result.total).toBe(1);
+      }
+      expect(timing.innerSteps.map((step) => `${step.layer}:${step.step}`)).toEqual(expect.arrayContaining([
+        'kernel:pre-request-merge',
+        'database:queryDeckPage.init',
+        'database:queryDeckPage.count',
+        'database:queryDeckPage.select',
+        'database:queryDeckPage.parse',
+        'database:queryDeckPage.total',
+      ]));
+      expect(timing.innerSteps.find((step) => step.step === 'queryDeckPage.select')?.extra).toMatchObject({
+        startRow: 0,
+        limit: 1,
+        total: 1,
+      });
+      expect(timing.innerSteps.find((step) => step.step === 'queryDeckPage.parse')?.extra).toMatchObject({
+        rowCount: 1,
+      });
+      expect(timing.innerSteps.find((step) => step.step === 'pre-request-merge')?.extra).toMatchObject({
+        mainDbReadSkipped: true,
+        mainDbReadSkipReason: 'read-only-preflight-main-db-disabled',
+        nonEmptyConflictSourceCount: 0,
+      });
+    } finally {
+      endBackendWorkerRequest(timing);
+    }
+  });
+
   it('serves projection-backed queue snapshots and row hydration from worker projection storage', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -7442,6 +7498,154 @@ describe('BackendKernel', () => {
 
     expect('result' in second).toBe(true);
     expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsAfterCount);
+  });
+
+  it('does not merge or persist stale main DB bytes during browser deck read preflight', async () => {
+    const cardId = 'card-browser-read-external-main-db';
+    const blockId = 'block-browser-read-external-main-db';
+    const staleBridge = createInMemorySqlitePersistenceBridge();
+    const staleDatabase = new WorkerSqliteDatabaseService(staleBridge);
+    await staleDatabase.upsertCards([buildCard({
+      id: cardId,
+      blockId,
+      due: 1_779_188_006_000,
+      updatedAt: 1_779_188_006_000,
+    })]);
+    await staleDatabase.persist();
+    const stalePersistedBytes = await staleBridge.readBinary('siyuanmemo.db');
+    expect(stalePersistedBytes).toBeTruthy();
+
+    const emptyBridge = createInMemorySqlitePersistenceBridge();
+    const emptyDatabase = new WorkerSqliteDatabaseService(emptyBridge);
+    await emptyDatabase.load();
+    await emptyDatabase.persist();
+    const emptyPersistedBytes = await emptyBridge.readBinary('siyuanmemo.db');
+    expect(emptyPersistedBytes).toBeTruthy();
+
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    await persistenceBridge.writeBinary('siyuanmemo.db', emptyPersistedBytes!);
+    const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
+    const writeBinary = vi.fn(persistenceBridge.writeBinary.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readBinary,
+      writeBinary,
+      readSyncConflictDatabaseSources: vi.fn(async () => []),
+    });
+    await database.load();
+    await expect(database.getCard(cardId)).resolves.toBeUndefined();
+    await persistenceBridge.writeBinary('siyuanmemo.db', stalePersistedBytes!);
+    const mainDbReadsBeforeBrowser = readBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+    const mainDbWritesBeforeBrowser = writeBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const page = await kernel.handle({
+      id: 'browser-deck-read-does-not-self-merge-main-db',
+      jsonrpc: '2.0',
+      method: 'browser.deck.page',
+      params: [{ query: { preset: 'all' }, page: { startRow: 0, endRow: 20 } }],
+    });
+
+    expect('result' in page).toBe(true);
+    expect(page).toMatchObject({
+      result: {
+        total: 0,
+        cards: [],
+      },
+    });
+    expect(await database.getCard(cardId)).toBeUndefined();
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_processed_sources WHERE source_id = ?',
+      ['siyuan-sync:siyuanmemo.db'],
+    )?.count).toBe(0);
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsBeforeBrowser);
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbWritesBeforeBrowser);
+  });
+
+  it('does not merge or persist stale main DB bytes during unchanged source-existence sweep', async () => {
+    const cardId = 'card-browser-source-existence-noop';
+    const blockId = 'block-browser-source-existence-noop';
+    const staleBridge = createInMemorySqlitePersistenceBridge();
+    const staleDatabase = new WorkerSqliteDatabaseService(staleBridge);
+    await staleDatabase.upsertCards([buildCard({
+      id: 'card-browser-source-existence-stale-main',
+      blockId: 'block-browser-source-existence-stale-main',
+      due: 1_779_188_016_000,
+      updatedAt: 1_779_188_016_000,
+    })]);
+    await staleDatabase.persist();
+    const stalePersistedBytes = await staleBridge.readBinary('siyuanmemo.db');
+    expect(stalePersistedBytes).toBeTruthy();
+
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    await currentDatabase.upsertCards([buildCard({
+      id: cardId,
+      blockId,
+      due: 1_779_188_015_000,
+      updatedAt: 1_779_188_015_000,
+    })]);
+    await currentDatabase.updateSourceExistence([
+      { cardId, blockId, exists: true },
+    ], 1_779_188_015_100);
+    const currentPersistedBytes = await currentBridge.readBinary('siyuanmemo.db');
+    expect(currentPersistedBytes).toBeTruthy();
+
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    await persistenceBridge.writeBinary('siyuanmemo.db', currentPersistedBytes!);
+    const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
+    const writeBinary = vi.fn(persistenceBridge.writeBinary.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readBinary,
+      writeBinary,
+      readSyncConflictDatabaseSources: vi.fn(async () => []),
+    });
+    await database.load();
+    await persistenceBridge.writeBinary('siyuanmemo.db', stalePersistedBytes!);
+    const mainDbReadsBeforeSweep = readBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+    const mainDbWritesBeforeSweep = writeBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const sweep = await kernel.handle({
+      id: 'browser-source-existence-noop-does-not-self-merge-main-db',
+      jsonrpc: '2.0',
+      method: 'browser.sourceExistence.applySweepHost',
+      params: [{ request: { blockIds: [blockId], force: true }, checkedAt: 1_779_188_015_200 }],
+    });
+
+    expect(sweep).toEqual({
+      id: 'browser-source-existence-noop-does-not-self-merge-main-db',
+      jsonrpc: '2.0',
+      result: {
+        checked: 1,
+        updated: 0,
+        changed: false,
+        changedToMissing: false,
+        changedBlockIds: [],
+      },
+    });
+    expect(await database.getCard('card-browser-source-existence-stale-main')).toBeUndefined();
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_processed_sources WHERE source_id = ?',
+      ['siyuan-sync:siyuanmemo.db'],
+    )?.count).toBe(0);
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsBeforeSweep);
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbWritesBeforeSweep);
   });
 
   it('keeps review feedback main DB read fast path across empty kernel transaction dequeue polling', async () => {

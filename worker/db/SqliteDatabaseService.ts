@@ -98,7 +98,7 @@ import { AutoCardDecisionService } from './AutoCardDecisionService';
 import { SemanticSessionReadModelBuilder } from '../semantic/SemanticSessionReadModelBuilder';
 import { WorkerReviewFeedbackRuntime } from '../review/WorkerReviewFeedbackRuntime';
 import { DomainSyncLedger } from '../domain-sync/DomainSyncLedger';
-import { recordReviewFeedbackInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
+import { recordBackendWorkerInnerStep, recordReviewFeedbackInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
 import {
   resolveProjectionQueueType,
   WorkerQueueProjectionRuntime,
@@ -116,6 +116,7 @@ const KERNEL_INGEST_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-ingest.snapshot.js
 const KERNEL_INGEST_QUEUE_SNAPSHOT_VERSION = 1;
 const KERNEL_ACTION_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-actions.snapshot.json';
 const KERNEL_ACTION_QUEUE_SNAPSHOT_VERSION = 1;
+const QUEUE_PROJECTION_PERSIST_DEBOUNCE_MS = 1000;
 
 type SqliteFileServiceAdapter = {
   readJSON<T>(fileName: string): Promise<T | null>;
@@ -139,6 +140,7 @@ interface ExternalDatabaseMergeOptions {
   context?: ExternalDatabaseMergeContext;
   cardId?: string | null;
   forceMainDbRead?: boolean;
+  skipMainDbRead?: boolean;
   ignoreProcessedSourceDeduplication?: boolean;
 }
 
@@ -688,6 +690,8 @@ export class WorkerSqliteDatabaseService {
   private readonly maxKernelQueuedTransactions: number;
   private readonly maxKernelActionQueueLength: number;
   private readonly kernelTransactionDedupeTtlMs: number;
+  private queueProjectionPersistTimer: ReturnType<typeof setTimeout> | null = null;
+  private queueProjectionPersistPromise: Promise<void> | null = null;
 
   constructor(
     bridge: SqlitePersistenceBridge,
@@ -700,7 +704,9 @@ export class WorkerSqliteDatabaseService {
     },
   ) {
     this.fileService = createSqliteFileServiceAdapter(bridge);
-    this.runtime = new RuntimeSqliteDatabaseService(this.fileService, dbFile);
+    this.runtime = new RuntimeSqliteDatabaseService(this.fileService, dbFile, {
+      persistOnInit: false,
+    });
     this.maxKernelTransactionQueueLength = Math.max(
       1,
       Math.floor(Number(options?.maxKernelTransactionQueueLength ?? 256)),
@@ -726,6 +732,18 @@ export class WorkerSqliteDatabaseService {
     await this.runtime.init();
     this.repository = new SqlUnifiedStorageRepository(this.runtime, {
       domainSyncLedger: new DomainSyncLedger(this.runtime),
+      diagnosticRecorder: (step, durationMs, extra = {}) => {
+        recordBackendWorkerInnerStep({
+          layer: 'database',
+          step,
+          durationMs,
+          queueType: typeof extra.queueType === 'string' ? extra.queueType : null,
+          extra: {
+            backendMethod: 'browser.deck.page',
+            ...extra,
+          },
+        });
+      },
     });
     this.queueProjection = new SqlQueueProjectionRepository(this.runtime);
     this.queueState = new SqlQueueStateRepository(this.runtime);
@@ -742,6 +760,45 @@ export class WorkerSqliteDatabaseService {
     await this.rememberPersistedHash();
   }
 
+  private async measureDiagnosticDatabaseStep<TResult>(
+    step: string,
+    task: () => Promise<TResult>,
+    extra?: Record<string, unknown>,
+  ): Promise<TResult>;
+  private measureDiagnosticDatabaseStep<TResult>(
+    step: string,
+    task: () => TResult,
+    extra?: Record<string, unknown>,
+  ): TResult;
+  private measureDiagnosticDatabaseStep<TResult>(
+    step: string,
+    task: () => TResult | Promise<TResult>,
+    extra: Record<string, unknown> = {},
+  ): TResult | Promise<TResult> {
+    const startedAt = Date.now();
+    const record = (): void => {
+      recordBackendWorkerInnerStep({
+        layer: 'database',
+        step,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        queueType: typeof extra.queueType === 'string' ? extra.queueType : null,
+        extra,
+      });
+    };
+
+    try {
+      const result = task();
+      if (result && typeof (result as Promise<TResult>).then === 'function') {
+        return (result as Promise<TResult>).finally(record);
+      }
+      record();
+      return result;
+    } catch (error) {
+      record();
+      throw error;
+    }
+  }
+
   async load(): Promise<{ ok: true; initialized: true; dbFile: string }> {
     await this.init();
     return {
@@ -752,6 +809,7 @@ export class WorkerSqliteDatabaseService {
   }
 
   async reloadFromDisk(): Promise<BackendSyncConflictReloadResult> {
+    await this.flushQueueProjectionPersist();
     this.queueState = null;
     this.semanticActivation = null;
     this.lastDomainSyncStatusSnapshot = null;
@@ -767,8 +825,11 @@ export class WorkerSqliteDatabaseService {
 
   async persist(): Promise<{ ok: true; persisted: true; dbFile: string }> {
     await this.init();
-    await this.runtime.persist();
-    await this.rememberPersistedHash();
+    const flushedProjectionPersist = await this.flushQueueProjectionPersist();
+    if (!flushedProjectionPersist) {
+      await this.runtime.persist();
+      await this.rememberPersistedHash();
+    }
     return {
       ok: true,
       persisted: true,
@@ -784,6 +845,7 @@ export class WorkerSqliteDatabaseService {
     const context = options.context ?? 'generic';
     const cardId = options.cardId ?? null;
     const forceMainDbRead = options.forceMainDbRead === true;
+    const skipMainDbRead = options.skipMainDbRead === true && !forceMainDbRead;
     const ignoreProcessedSourceDeduplication = options.ignoreProcessedSourceDeduplication === true;
     await this.measureReviewFeedbackDatabaseStep('merge.init', cardId, () => this.init());
     const sources: BackendSyncConflictMergeRequest['sources'] = [];
@@ -795,7 +857,22 @@ export class WorkerSqliteDatabaseService {
     let mainDbReadSkipped = false;
     let mainDbReadSkipReason: string | null = null;
     const nonEmptyConflictSources = conflictSources.filter((source) => source.bytes.byteLength > 0);
-    if (!forceMainDbRead && nonEmptyConflictSources.length === 0 && this.canSkipMainDbReadForReviewFeedbackPreflight(context)) {
+    if (skipMainDbRead) {
+      mainDbReadSkipped = true;
+      mainDbReadSkipReason = 'read-only-preflight-main-db-disabled';
+      recordReviewFeedbackInnerStep({
+        layer: 'database',
+        step: 'merge.skip-main-db-read',
+        cardId: cardId ? String(cardId) : null,
+        durationMs: 0,
+        extra: {
+          context,
+          reason: mainDbReadSkipReason,
+          conflictSourceCount: conflictSources.length,
+          nonEmptyConflictSourceCount: nonEmptyConflictSources.length,
+        },
+      });
+    } else if (!forceMainDbRead && nonEmptyConflictSources.length === 0 && this.canSkipMainDbReadForReviewFeedbackPreflight(context)) {
       this.reviewFeedbackMainDbFastSkipUsesRemaining -= 1;
       mainDbReadSkipped = true;
       mainDbReadSkipReason = 'own-review-feedback-persisted-no-conflict-sources';
@@ -1516,8 +1593,18 @@ export class WorkerSqliteDatabaseService {
     query: BrowserDeckSnapshotQuery,
     page: BrowserDeckPageRequest,
   ): Promise<BrowserDeckCardPageResult | null> {
-    await this.init();
-    return this.repository!.queryDeckPage(query, page);
+    await this.measureDiagnosticDatabaseStep('queryDeckPage.init', () => this.init(), {
+      backendMethod: 'browser.deck.page',
+    });
+    return this.measureDiagnosticDatabaseStep(
+      'queryDeckPage.total',
+      () => this.repository!.queryDeckPage(query, page),
+      {
+        backendMethod: 'browser.deck.page',
+        startRow: page.startRow ?? null,
+        endRow: page.endRow ?? null,
+      },
+    );
   }
 
   async queryDeckMatchedIds(query: BrowserDeckSnapshotQuery): Promise<string[] | null> {
@@ -1531,8 +1618,18 @@ export class WorkerSqliteDatabaseService {
   }
 
   async queryBrowserDocumentCounts(scope: BrowserDocumentCountsScope): Promise<BrowserDocumentCountsResult> {
-    await this.init();
-    return this.repository!.queryBrowserDocumentCounts(scope);
+    await this.measureDiagnosticDatabaseStep('browserDocumentCounts.init', () => this.init(), {
+      backendMethod: 'browser.deck.documentCounts',
+    });
+    return this.measureDiagnosticDatabaseStep(
+      'browserDocumentCounts.total',
+      () => this.repository!.queryBrowserDocumentCounts(scope),
+      {
+        backendMethod: 'browser.deck.documentCounts',
+        kind: scope.kind,
+        queueType: scope.queueType ?? null,
+      },
+    );
   }
 
   async queryCards(query?: StructuredCardQuery): Promise<FSRSCard[]> {
@@ -1555,22 +1652,59 @@ export class WorkerSqliteDatabaseService {
   async queueProjectionSnapshot(
     request: BackendQueueProjectionSnapshotRequest,
   ): Promise<BackendQueueProjectionSnapshotResult> {
-    await this.init();
-    return this.createQueueProjectionRuntime().snapshot(request);
+    await this.measureDiagnosticDatabaseStep('queueProjection.snapshot.init', () => this.init(), {
+      backendMethod: 'queue.projection.snapshot',
+      queueType: request.queueType,
+    });
+    return this.measureDiagnosticDatabaseStep(
+      'queueProjection.snapshot.total',
+      () => this.createQueueProjectionRuntime().snapshot(request),
+      {
+        backendMethod: 'queue.projection.snapshot',
+        queueType: request.queueType,
+        limit: request.limit ?? null,
+        offset: request.offset ?? null,
+      },
+    );
   }
 
   async queueProjectionRowsByIds(
     request: BackendQueueProjectionRowsByIdsRequest,
   ): Promise<BackendQueueProjectionRowsByIdsResult> {
-    await this.init();
-    return this.createQueueProjectionRuntime().rowsByIds(request);
+    await this.measureDiagnosticDatabaseStep('queueProjection.rowsByIds.init', () => this.init(), {
+      backendMethod: 'queue.projection.rowsByIds',
+      queueType: request.queueType,
+    });
+    return this.measureDiagnosticDatabaseStep(
+      'queueProjection.rowsByIds.total',
+      () => this.createQueueProjectionRuntime().rowsByIds(request),
+      {
+        backendMethod: 'queue.projection.rowsByIds',
+        queueType: request.queueType,
+        idCount: Array.isArray(request.ids) ? request.ids.length : 0,
+      },
+    );
   }
 
   async replaceQueueProjection(
     request: BackendQueueProjectionReplaceRequest,
   ): Promise<BackendQueueProjectionReplaceResult> {
-    await this.init();
-    return this.createQueueProjectionRuntime().replace(request);
+    await this.measureDiagnosticDatabaseStep('queueProjection.replace.init', () => this.init(), {
+      backendMethod: 'queue.projection.replace',
+      queueType: request.queueType,
+    });
+    const result = await this.measureDiagnosticDatabaseStep(
+      'queueProjection.replace.total',
+      () => this.createQueueProjectionRuntime().replace(request),
+      {
+        backendMethod: 'queue.projection.replace',
+        queueType: request.queueType,
+        rowCount: Array.isArray(request.rows) ? request.rows.length : 0,
+        reason: request.reason ?? null,
+      },
+    );
+    this.scheduleQueueProjectionPersist(request.reason ?? 'queue-projection.replace');
+    return result;
   }
 
   async getCard(cardId: string): Promise<FSRSCard | undefined> {
@@ -1589,8 +1723,12 @@ export class WorkerSqliteDatabaseService {
   }
 
   async getBrowserStats(now?: number): Promise<BrowserStats> {
-    await this.init();
-    return this.repository!.getBrowserStats(now);
+    await this.measureDiagnosticDatabaseStep('browserStats.init', () => this.init(), {
+      backendMethod: 'browser.stats',
+    });
+    return this.measureDiagnosticDatabaseStep('browserStats.total', () => this.repository!.getBrowserStats(now), {
+      backendMethod: 'browser.stats',
+    });
   }
 
   async getSourceExistenceRefreshCandidates(
@@ -1611,9 +1749,10 @@ export class WorkerSqliteDatabaseService {
     await this.repository!.updateSourceExistence(updates, checkedAt);
     const changedBlockIds = uniqueStrings(updates
       .filter((update) => {
-        const previous = previousStatus.has(update.blockId)
-          ? previousStatus.get(update.blockId)
-          : null;
+        if (!previousStatus.has(update.blockId)) {
+          return false;
+        }
+        const previous = previousStatus.get(update.blockId);
         return previous !== update.exists;
       })
       .map((update) => update.blockId));
@@ -1682,6 +1821,16 @@ export class WorkerSqliteDatabaseService {
       });
     }
 
+    if (changedBlockIds.length === 0) {
+      return {
+        checked: candidates.length,
+        updated: 0,
+        changed: false,
+        changedToMissing: false,
+        changedBlockIds: [],
+      };
+    }
+
     await this.runtime.runTransaction('source-existence.sweep', async () => {
       await this.repository!.updateSourceExistence(updates, checkedAt);
       const domainSyncLedger = new DomainSyncLedger(this.runtime);
@@ -1705,7 +1854,7 @@ export class WorkerSqliteDatabaseService {
 
     return {
       checked: candidates.length,
-      updated: updates.length,
+      updated: changedBlockIds.length,
       changed,
       changedToMissing,
       changedBlockIds,
@@ -3825,6 +3974,51 @@ export class WorkerSqliteDatabaseService {
     });
   }
 
+  private scheduleQueueProjectionPersist(reason: string): void {
+    if (this.queueProjectionPersistTimer) {
+      clearTimeout(this.queueProjectionPersistTimer);
+    }
+    this.queueProjectionPersistTimer = setTimeout(() => {
+      this.queueProjectionPersistTimer = null;
+      this.queueProjectionPersistPromise = this.persistQueueProjection(reason)
+        .catch((error) => {
+          logger.warn('[SiYuanMemo][WorkerSqliteDatabaseService] deferred queue projection persist failed', {
+            reason,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          this.queueProjectionPersistPromise = null;
+        });
+    }, QUEUE_PROJECTION_PERSIST_DEBOUNCE_MS);
+  }
+
+  private async flushQueueProjectionPersist(): Promise<boolean> {
+    if (this.queueProjectionPersistTimer) {
+      clearTimeout(this.queueProjectionPersistTimer);
+      this.queueProjectionPersistTimer = null;
+      this.queueProjectionPersistPromise = this.persistQueueProjection('flush');
+    }
+    if (this.queueProjectionPersistPromise) {
+      const pending = this.queueProjectionPersistPromise;
+      try {
+        await pending;
+      } finally {
+        if (this.queueProjectionPersistPromise === pending) {
+          this.queueProjectionPersistPromise = null;
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
+  private async persistQueueProjection(reason: string): Promise<void> {
+    await this.runtime.persist();
+    await this.rememberPersistedHash();
+    logger.debug('[SiYuanMemo][WorkerSqliteDatabaseService] deferred queue projection persisted', { reason });
+  }
+
   private invalidateQueueProjectionsForSourceChanges(blockIds: string[], checkedAt: number): void {
     new SourceExistenceProjectionInvalidator({
       queueProjection: this.queueProjection,
@@ -5568,6 +5762,10 @@ export class WorkerSqliteDatabaseService {
   }
 
   dispose(): void {
+    if (this.queueProjectionPersistTimer) {
+      clearTimeout(this.queueProjectionPersistTimer);
+      this.queueProjectionPersistTimer = null;
+    }
     void this.persistKernelIngestQueueSnapshot();
     void this.persistKernelActionQueueSnapshot();
     this.runtime.dispose();

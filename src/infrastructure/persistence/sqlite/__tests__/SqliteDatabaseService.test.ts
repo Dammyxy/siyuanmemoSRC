@@ -97,6 +97,31 @@ describe('SqliteDatabaseService', () => {
     expect(Array.from(fileService.json.keys()).some((key) => key.startsWith('migration-backups/siyuanmemo.db.base64-envelope-'))).toBe(true);
   });
 
+  it('does not rewrite an unchanged binary database during init', async () => {
+    const fileService = new MemorySqliteFileService();
+    const first = new SqliteDatabaseService(fileService);
+    await first.init();
+    const writesAfterFirstInit = fileService.writeBinaryCount;
+    expect(writesAfterFirstInit).toBeGreaterThan(0);
+
+    const second = new SqliteDatabaseService(fileService);
+    await second.init();
+
+    expect(fileService.writeBinaryCount).toBe(writesAfterFirstInit);
+  });
+
+  it('does not rewrite unchanged database bytes on repeated explicit persist', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService);
+    await database.init();
+    fileService.resetWriteCounts();
+
+    await database.persist();
+    await database.persist();
+
+    expect(fileService.writeBinaryCount).toBe(0);
+  });
+
   it('restores the in-memory database from the last persisted file when transaction persist fails', async () => {
     const fileService = new MemorySqliteFileService();
     const database = new SqliteDatabaseService(fileService);

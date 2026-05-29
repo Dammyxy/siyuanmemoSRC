@@ -18,6 +18,7 @@
 import type SiyuanMemoPlugin from '../../index';
 import { getPluginDataPath, putFile } from '@/infrastructure/siyuan/api';
 import { createLogger } from '@/utils/logger';
+import { recordRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnostics';
 import { ManualSyncBackupInventory } from './ManualSyncBackupInventory';
 
 const logger = createLogger('FileService');
@@ -299,6 +300,9 @@ export class FileService implements IFileService {
    * 写入二进制插件数据文件
    */
   async writeBinary(fileName: string, bytes: Uint8Array): Promise<void> {
+    const startedAt = Date.now();
+    const byteLength = bytes.byteLength;
+    const sqliteDatabase = isSqliteDatabaseBytes(bytes);
     try {
       const payload = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
         ? bytes.buffer
@@ -307,7 +311,22 @@ export class FileService implements IFileService {
         this.resolvePluginDataPath(fileName),
         new Blob([payload as BlobPart], { type: 'application/x-sqlite3' }),
       );
+      recordRuntimePerformanceSpan('file', 'write-binary', Date.now() - startedAt, {
+        fileName,
+        byteLength,
+        sqliteDatabase,
+        status: 'written',
+      });
     } catch (error) {
+      recordRuntimePerformanceSpan('file', 'write-binary', Date.now() - startedAt, {
+        fileName,
+        byteLength,
+        sqliteDatabase,
+        status: 'failed',
+      }, {
+        ok: false,
+        errorName: error instanceof Error ? error.name : 'Error',
+      });
       logger.error(`[FileService] Failed to write binary file "${fileName}":`, error);
       throw new FileOperationError(
         'write',

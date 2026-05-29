@@ -22,6 +22,8 @@ import type {
   BackendQueueProjectionSnapshotRow,
 } from '../../packages/contracts/src/backend-rpc';
 
+type WorkerQueueProjectionTransactionRuntime = Pick<RuntimeSqliteDatabaseService, 'runTransaction'>;
+
 export type ProjectionWorkerQueueType =
   | QueueType.RetrievalPractice
   | QueueType.IncrementalLearning
@@ -45,7 +47,7 @@ export type WorkerQueueProjectionRuntimeDeps = {
     SqlQueueProjectionRepository,
     'readGeneration' | 'readLastReadyGeneration' | 'readCounters' | 'readRows' | 'replaceQueueProjection'
   > | null;
-  runtime: Pick<RuntimeSqliteDatabaseService, 'runTransaction'>;
+  runtime: WorkerQueueProjectionTransactionRuntime;
 };
 
 export class WorkerQueueProjectionRuntime {
@@ -260,7 +262,7 @@ export class WorkerQueueProjectionRuntime {
           materializedBy: 'application',
         },
       });
-    });
+    }, { persist: false });
 
     return {
       queueType,

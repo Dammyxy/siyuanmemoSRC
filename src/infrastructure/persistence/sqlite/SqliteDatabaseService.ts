@@ -3,17 +3,23 @@ import sqliteWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import { SRS_ARENA_ALGORITHM_REGISTRY } from '@/types/arena';
 import { createLogger } from '@/utils/logger';
+import { recordRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnostics';
 import {
   CARD_PROJECTION_COLUMNS,
   CARD_PROJECTION_INDEX_STATEMENTS,
   SQL_SCHEMA_STATEMENTS,
   SQLITE_DB_FILE,
+  SQLITE_SCHEMA_VERSION,
 } from './schema';
 
 const logger = createLogger('SqliteDatabaseService');
 
 type SqlParams = SqlValue[] | ParamsObject;
 type TransactionOptions = { persist?: boolean };
+type PersistOptions = {
+  force?: boolean;
+  reason?: string;
+};
 type SqliteDatabaseServiceOptions = {
   applySchemaOnInit?: boolean;
   persistOnInit?: boolean;
@@ -72,6 +78,21 @@ function isSqliteDatabaseBytes(bytes: Uint8Array | null | undefined): bytes is U
   return true;
 }
 
+async function fingerprintBytes(bytes: Uint8Array): Promise<string | null> {
+  const subtle = (globalThis as typeof globalThis & {
+    crypto?: { subtle?: SubtleCrypto };
+  }).crypto?.subtle;
+  if (!subtle) {
+    return null;
+  }
+
+  const digest = await subtle.digest('SHA-256', bytes);
+  const hash = Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+  return `${bytes.byteLength}:${hash}`;
+}
+
 function resolveSqliteWasmLocation(): string {
   const runtime = globalThis as typeof globalThis & {
     process?: {
@@ -95,6 +116,10 @@ export class SqliteDatabaseService {
   private initialized = false;
   private transactionDepth = 0;
   private pendingPersist = false;
+  private schemaDirty = false;
+  private lastPersistedFingerprint: string | null = null;
+  private dirtySincePersist = false;
+  private currentTransactionMutated = false;
   private fts5Supported: boolean | null = null;
 
   constructor(
@@ -113,18 +138,24 @@ export class SqliteDatabaseService {
     });
     this.sqlRuntime = SQL;
     const stored = await this.loadStoredDatabaseBytes();
+    const shouldPersistLegacyEnvelope = Boolean(stored.legacyEnvelope);
     if (stored.legacyEnvelope) {
       await this.backupLegacyEnvelope(stored.legacyEnvelope);
     }
     this.db = stored.bytes ? new SQL.Database(stored.bytes) : new SQL.Database();
+    this.schemaDirty = false;
     if (this.options.applySchemaOnInit !== false) {
       this.applySchema();
       this.detectFts5Support();
       this.seedAlgorithmRegistry();
     }
     this.initialized = true;
-    if (this.options.persistOnInit !== false) {
-      await this.persist();
+    if (this.options.persistOnInit !== false && (this.schemaDirty || shouldPersistLegacyEnvelope)) {
+      await this.persist({
+        force: shouldPersistLegacyEnvelope,
+        reason: 'sqlite.init',
+      });
+      this.schemaDirty = false;
     }
   }
 
@@ -147,12 +178,15 @@ export class SqliteDatabaseService {
       const result = await writer(db);
       if (shouldPersist) {
         this.pendingPersist = true;
+        this.dirtySincePersist = true;
+        this.currentTransactionMutated = true;
       }
       return result;
     }
 
     db.run('BEGIN IMMEDIATE');
     this.transactionDepth = 1;
+    this.currentTransactionMutated = shouldPersist;
     const startedAt = Date.now();
     let committed = false;
     try {
@@ -162,9 +196,13 @@ export class SqliteDatabaseService {
       this.transactionDepth = 0;
       const persistAfterCommit = shouldPersist || this.pendingPersist;
       this.pendingPersist = false;
+      if (this.currentTransactionMutated) {
+        this.dirtySincePersist = true;
+      }
+      this.currentTransactionMutated = false;
       if (persistAfterCommit) {
         try {
-          await this.persist();
+          await this.persist({ reason: label });
         } catch (persistError) {
           await this.restoreFromPersistedStore(label, persistError);
           throw persistError;
@@ -186,12 +224,32 @@ export class SqliteDatabaseService {
       }
       this.transactionDepth = 0;
       this.pendingPersist = false;
+      this.currentTransactionMutated = false;
       throw error;
     }
   }
 
   run(sql: string, params?: SqlParams): void {
     this.requireDb().run(sql, params);
+    if (this.transactionDepth > 0) {
+      this.currentTransactionMutated = true;
+    } else {
+      this.dirtySincePersist = true;
+    }
+  }
+
+  runSchemaMutation(sql: string, params?: SqlParams): void {
+    this.run(sql, params);
+    this.schemaDirty = true;
+  }
+
+  private runSchemaStatement(sql: string): void {
+    const before = this.getSchemaChangeVersion();
+    this.requireDb().run(sql);
+    if (this.getSchemaChangeVersion() !== before) {
+      this.schemaDirty = true;
+      this.dirtySincePersist = true;
+    }
   }
 
   getOne<T extends Record<string, SqlValue>>(sql: string, params?: SqlParams): T | null {
@@ -243,21 +301,54 @@ export class SqliteDatabaseService {
   }
 
   markMigration(id: string, appliedAt = Date.now()): void {
-    this.run(
+    this.runSchemaMutation(
       'INSERT OR REPLACE INTO schema_migrations (id, applied_at) VALUES (?, ?)',
       [id, appliedAt],
     );
   }
 
-  async persist(): Promise<void> {
+  async persist(options: string | PersistOptions = {}): Promise<void> {
     if (this.transactionDepth > 0) {
       this.pendingPersist = true;
       return;
     }
 
+    const reason = typeof options === 'string' ? options : options.reason ?? 'explicit';
+    const force = typeof options === 'object' && options.force === true;
+    const startedAt = Date.now();
+    if (!force && !this.dirtySincePersist) {
+      recordRuntimePerformanceSpan('sqlite', 'persist', Date.now() - startedAt, {
+        dbFile: this.dbFile,
+        byteLength: null,
+        reason,
+        status: 'skipped-clean',
+      });
+      return;
+    }
+
     const bytes = this.requireDb().export();
+    const fingerprint = await fingerprintBytes(bytes);
+    if (!force && fingerprint && fingerprint === this.lastPersistedFingerprint) {
+      recordRuntimePerformanceSpan('sqlite', 'persist', Date.now() - startedAt, {
+        dbFile: this.dbFile,
+        byteLength: bytes.byteLength,
+        reason,
+        status: 'skipped-unchanged',
+      });
+      this.dirtySincePersist = false;
+      return;
+    }
+
     if (this.fileService.writeBinary) {
       await this.fileService.writeBinary(this.dbFile, bytes);
+      this.lastPersistedFingerprint = fingerprint;
+      this.dirtySincePersist = false;
+      recordRuntimePerformanceSpan('sqlite', 'persist', Date.now() - startedAt, {
+        dbFile: this.dbFile,
+        byteLength: bytes.byteLength,
+        reason,
+        status: 'written-binary',
+      });
       return;
     }
 
@@ -270,6 +361,14 @@ export class SqliteDatabaseService {
         data: toBase64(bytes),
       } satisfies SqliteEnvelope,
     );
+    this.lastPersistedFingerprint = fingerprint;
+    this.dirtySincePersist = false;
+    recordRuntimePerformanceSpan('sqlite', 'persist', Date.now() - startedAt, {
+      dbFile: this.dbFile,
+      byteLength: bytes.byteLength,
+      reason,
+      status: 'written-json-envelope',
+    });
   }
 
   private async backupLegacyEnvelope(envelope: SqliteEnvelope): Promise<void> {
@@ -296,17 +395,24 @@ export class SqliteDatabaseService {
   }> {
     const binaryBytes = await this.fileService.readBinary?.(this.dbFile);
     if (isSqliteDatabaseBytes(binaryBytes)) {
+      this.lastPersistedFingerprint = await fingerprintBytes(binaryBytes);
+      this.dirtySincePersist = false;
       return { bytes: binaryBytes, legacyEnvelope: null };
     }
 
     const envelope = await this.fileService.readJSON<SqliteEnvelope>(this.dbFile);
     if (isEnvelope(envelope)) {
+      const bytes = fromBase64(envelope.data);
+      this.lastPersistedFingerprint = await fingerprintBytes(bytes);
+      this.dirtySincePersist = true;
       return {
-        bytes: fromBase64(envelope.data),
+        bytes,
         legacyEnvelope: envelope,
       };
     }
 
+    this.lastPersistedFingerprint = null;
+    this.dirtySincePersist = true;
     return { bytes: undefined, legacyEnvelope: null };
   }
 
@@ -340,32 +446,39 @@ export class SqliteDatabaseService {
     const db = this.requireDb();
     db.run('PRAGMA foreign_keys = ON');
     for (const statement of SQL_SCHEMA_STATEMENTS) {
-      db.run(statement);
+      this.runSchemaStatement(statement);
     }
     this.ensureCardsProjectionColumns(db);
     this.ensureReviewEventCommitIdempotencyColumn(db);
     this.ensureNeuralRoamRouteHistoryLineageColumns(db);
     for (const statement of CARD_PROJECTION_INDEX_STATEMENTS) {
-      db.run(statement);
+      this.runSchemaStatement(statement);
+    }
+    const userVersion = this.getUserVersion();
+    if (userVersion !== SQLITE_SCHEMA_VERSION) {
+      this.runSchemaMutation(`PRAGMA user_version = ${SQLITE_SCHEMA_VERSION}`);
     }
   }
 
   private detectFts5Support(): void {
-    const db = this.requireDb();
+    const SQL = this.sqlRuntime;
+    if (!SQL) {
+      this.fts5Supported = false;
+      return;
+    }
+
+    let probe: Database | null = null;
     try {
-      db.run('CREATE VIRTUAL TABLE __siyuanmemo_fts5_probe USING fts5(content)');
-      db.run('DROP TABLE IF EXISTS __siyuanmemo_fts5_probe');
+      probe = new SQL.Database();
+      probe.run('CREATE VIRTUAL TABLE __siyuanmemo_fts5_probe USING fts5(content)');
       this.fts5Supported = true;
     } catch (error) {
       this.fts5Supported = false;
-      try {
-        db.run('DROP TABLE IF EXISTS __siyuanmemo_fts5_probe');
-      } catch {
-        // Ignore probe cleanup errors; capability remains false.
-      }
       logger.debug('SQLite FTS5 unavailable; browser search will use projection LIKE fallback', {
         error: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      probe?.close();
     }
   }
 
@@ -380,7 +493,7 @@ export class SqliteDatabaseService {
 
     for (const column of CARD_PROJECTION_COLUMNS) {
       if (!existingColumns.has(column.name)) {
-        db.run(`ALTER TABLE cards ADD COLUMN ${column.definition}`);
+        this.runSchemaMutation(`ALTER TABLE cards ADD COLUMN ${column.definition}`);
       }
     }
   }
@@ -389,13 +502,13 @@ export class SqliteDatabaseService {
     const rows = this.getAll<{ name: string }>('PRAGMA table_info(review_events)');
     const hasColumn = rows.some((row) => row.name === 'commit_idempotency_key');
     if (!hasColumn) {
-      db.run('ALTER TABLE review_events ADD COLUMN commit_idempotency_key TEXT');
+      this.runSchemaMutation('ALTER TABLE review_events ADD COLUMN commit_idempotency_key TEXT');
     }
-    db.run(
+    this.runSchemaStatement(
       `CREATE INDEX IF NOT EXISTS idx_review_events_commit_idempotency
         ON review_events(commit_idempotency_key)`,
     );
-    db.run(
+    this.runSchemaStatement(
       `CREATE INDEX IF NOT EXISTS idx_review_events_formal_facts
         ON review_events(event_type, card_id, reviewed_at, commit_idempotency_key)`,
     );
@@ -415,48 +528,99 @@ export class SqliteDatabaseService {
     ];
     for (const column of columns) {
       if (!existingColumns.has(column.name)) {
-        db.run(`ALTER TABLE neural_roam_route_history_events ADD COLUMN ${column.definition}`);
+        this.runSchemaMutation(`ALTER TABLE neural_roam_route_history_events ADD COLUMN ${column.definition}`);
       }
     }
   }
 
   private seedAlgorithmRegistry(): void {
-    const now = Date.now();
     for (const entry of SRS_ARENA_ALGORITHM_REGISTRY) {
-      this.run(
-        `INSERT OR REPLACE INTO algorithm_registry
+      this.seedAlgorithmRegistryEntry({
+        algorithmId: entry.id,
+        label: entry.label,
+        enabled: entry.enabled ? 1 : 0,
+        state: entry.state,
+        runtimeKind: entry.runtimeKind,
+        version: entry.version,
+        parameterHash: entry.parameterHash,
+        metadata: entry.metadata || {},
+      });
+    }
+    this.seedAlgorithmRegistryEntry({
+      algorithmId: 'a-factor-v2',
+      label: 'A-Factor v2',
+      enabled: 1,
+      state: 'enabled',
+      runtimeKind: 'browser',
+      version: 'a-factor-v2',
+      parameterHash: 'settings.topicScheduler',
+      metadata: {
+        role: 'production-scheduling-state',
+      },
+    });
+  }
+
+  private seedAlgorithmRegistryEntry(input: {
+    algorithmId: string;
+    label: string;
+    enabled: number;
+    state: string;
+    runtimeKind: string;
+    version: string;
+    parameterHash: string;
+    metadata: Record<string, unknown>;
+  }): void {
+    const metadataJson = JSON.stringify(input.metadata);
+    const row = this.getOne<{
+      label: string;
+      enabled: number;
+      state: string;
+      runtime_kind: string;
+      version: string;
+      parameter_hash: string;
+      metadata_json: string;
+    }>(
+      `SELECT label, enabled, state, runtime_kind, version, parameter_hash, metadata_json
+       FROM algorithm_registry
+       WHERE algorithm_id = ?`,
+      [input.algorithmId],
+    );
+    if (
+      row
+      && row.label === input.label
+      && Number(row.enabled) === input.enabled
+      && row.state === input.state
+      && row.runtime_kind === input.runtimeKind
+      && row.version === input.version
+      && row.parameter_hash === input.parameterHash
+      && row.metadata_json === metadataJson
+    ) {
+      return;
+    }
+
+    this.runSchemaMutation(
+      `INSERT OR REPLACE INTO algorithm_registry
           (algorithm_id, label, domain, enabled, state, runtime_kind, version, parameter_hash, state_schema_version, metadata_json)
          VALUES (?, ?, 'srs', ?, ?, ?, ?, ?, 1, ?)`,
-        [
-          entry.id,
-          entry.label,
-          entry.enabled ? 1 : 0,
-          entry.state,
-          entry.runtimeKind,
-          entry.version,
-          entry.parameterHash,
-          JSON.stringify({
-            ...(entry.metadata || {}),
-            seededAt: now,
-          }),
-        ],
-      );
-    }
-    this.run(
-      `INSERT OR REPLACE INTO algorithm_registry
-        (algorithm_id, label, domain, enabled, state, runtime_kind, version, parameter_hash, state_schema_version, metadata_json)
-       VALUES (?, ?, 'srs', 1, 'enabled', 'browser', ?, ?, 1, ?)`,
       [
-        'a-factor-v2',
-        'A-Factor v2',
-        'a-factor-v2',
-        'settings.topicScheduler',
-        JSON.stringify({
-          role: 'production-scheduling-state',
-          seededAt: now,
-        }),
+        input.algorithmId,
+        input.label,
+        input.enabled,
+        input.state,
+        input.runtimeKind,
+        input.version,
+        input.parameterHash,
+        metadataJson,
       ],
     );
+  }
+
+  private getSchemaChangeVersion(): number {
+    return Number(this.getOne<{ schema_version: number }>('PRAGMA schema_version')?.schema_version ?? 0);
+  }
+
+  private getUserVersion(): number {
+    return Number(this.getOne<{ user_version: number }>('PRAGMA user_version')?.user_version ?? 0);
   }
 
   private requireDb(): Database {

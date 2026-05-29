@@ -1,8 +1,48 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-29 (Round 492)
+Last update: 2026-05-29 (Round 495)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-29 - Stop Browser preflight self-merging the main DB
+
+- Task: Continue the severe `H:\SiYuanXY\temp\os\multipart-*` disk growth diagnosis after live logs showed Browser open still generated DB-sized multipart temp files.
+- Touched slice: Browser backend worker preflight + SQLite persistence + source-existence sweep; `BackendKernel`, worker `SqliteDatabaseService`, SQL unified repository, Browser worker timing diagnostics, Review queue-impact transaction boundary.
+- Debt fixed now: Browser read/open methods and Browser source-existence methods now run pre-request merge with `skipMainDbRead`, so the persisted main `siyuanmemo.db` is no longer treated as an external sync source (`siyuan-sync:siyuanmemo.db`) and re-merged before Browser reads. Source-existence same-state updates no longer refresh only `source_checked_at`, unchanged sweeps return without a write transaction, and projection invalidation now only happens for block IDs whose stored existence state actually changed.
+- Debt deferred: A broader read-only reload/fingerprint reconciliation path is still needed so a worker can observe truly external main-DB changes without using the merge-and-persist path. Formal review/card mutations still persist the full DB immediately for durability.
+- Why deferred: This task needed to stop destructive startup/browser full-DB uploads first. Replacing main-DB reconciliation is cross-slice storage ownership work and needs separate crash/multi-window acceptance tests.
+- Next safe step: Reload the rebuilt plugin, open Browser, and verify `H:\SiYuanXY\temp\os` does not gain new 105MB `multipart-*` files. Runtime report should show Browser `pre-request-merge` with `mainDbReadSkipped: true` and `mainDbReadSkipReason: "read-only-preflight-main-db-disabled"`.
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts --reporter=dot`; `pnpm exec vitest run worker/review/__tests__/WorkerReviewFeedbackRuntime.test.ts worker/__tests__/WorkerSqliteDatabaseService.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts worker/bootstrap/__tests__/ReviewFeedbackTimingScope.test.ts --reporter=dot`; final boundary/build checks below.
+
+### 2026-05-29 - Skip clean SQLite dispose uploads
+
+- Task: Continue diagnosing `H:\SiYuanXY\temp\os\multipart-*` growth after startup still produced DB-sized temp files even after Browser/Queue projection persistence was reduced.
+- Touched slice: SQLite persistence + ApplicationContext disposal evidence; `SqliteDatabaseService`, `FileService`, `ApplicationContext.backend-worker-runtime.test`, focused SQLite/worker tests.
+- Debt fixed now: SQLite persistence now tracks whether the in-memory DB is dirty since the last persisted snapshot, fingerprints exported bytes, and skips full `/api/file/putFile` uploads when dispose or explicit persist is clean/unchanged. FTS5 capability probing now uses a temporary in-memory SQLite database instead of create/drop on the main DB. Runtime diagnostics now record `sqlite.persist` (`skipped-clean`, `skipped-unchanged`, `written-binary`) and `file.write-binary` size/type evidence for any remaining binary upload.
+- Debt deferred: If startup still writes a DB-sized multipart after this build, that write is a real dirty path rather than clean dispose/init persistence; the new spans should identify the exact `reason` and file write size. Old SiYuan `temp/os` leftovers remain external temp files and should be cleaned only when SiYuan is closed.
+- Why deferred: Local inspection of the live DB showed schema/user version, migrations, domain-sync backfill, neural route migration, algorithm state, and scheduling normalization were already clean. The remaining safe fix is to stop clean no-op uploads and add precise evidence for any true mutation path.
+- Next safe step: Reload the rebuilt plugin, then check `H:\SiYuanXY\temp\os` and runtime report. Expected: clean startup/dispose emits `sqlite.persist` with `status: skipped-clean` and no 105MB `file.write-binary` for `siyuanmemo.db`. Any remaining `written-binary` span gives the mutation reason.
+- Validation: `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts worker/__tests__/WorkerSqliteDatabaseService.test.ts src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts --reporter=dot`; `git diff --check` (CRLF warnings only); `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build`; copied built `dist` into `H:\SiYuanXY\data\plugins\siyuan-plugin-siyuanmemo`.
+
+### 2026-05-29 - Stop Browser queue multipart DB temp growth
+
+- Task: Diagnose and fix `H:\SiYuanXY\temp\os\multipart-*` growth after Browser/Queue open produced ~100MB temp files matching `siyuanmemo.db`.
+- Touched slice: SQLite persistence + Queue projection backend worker; `SqliteDatabaseService`, `WorkerSqliteDatabaseService`, `WorkerQueueProjectionRuntime`, focused SQLite/worker tests.
+- Debt fixed now: SQLite init no longer rewrites an unchanged binary DB just because schema/seed statements were replayed. Worker init now uses `persistOnInit: false`, so read/open readiness does not export and upload the full DB. Queue projection replacement now commits as a non-persisting derived read-model transaction and coalesces repeated materializations into one deferred DB persist instead of one full multipart upload per queue.
+- Debt deferred: Old `temp/os/multipart-*` files are external SiYuan temp artifacts and are not deleted by the plugin. Close SiYuan before manual cleanup if they still exist. Review/card formal mutations still use immediate full DB persistence until a separate durable op-log/write-behind design proves crash and multi-window correctness.
+- Why deferred: Queue projections are derived and rebuildable, so debounced persistence is safe. Formal review/card writes are user data and need a broader durability design before reducing immediate write frequency.
+- Next safe step: Reload the rebuilt plugin and open Browser/queue views; `temp/os` should not gain one ~DB-sized multipart file per Browser/Queue materialization. If new temp growth remains, inspect worker spans around non-queue formal writes such as review feedback.
+- Validation: `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts worker/__tests__/WorkerSqliteDatabaseService.test.ts worker/queue-projection/__tests__/WorkerQueueProjectionRuntime.test.ts --reporter=dot`; `git diff --check` (CRLF warnings only); `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build` passed with existing non-blocking i18n hardcoded-string/anomalous-value warnings and Sass legacy JS API warnings.
+
+### 2026-05-29 - Browser worker timing diagnostics
+
+- Task: Add evidence-first diagnostics for slow Browser open where all-card rows appear after several seconds and queue rows materialize much later.
+- Touched slice: Browser + Queue backend worker diagnostics; `BrowserSrsBackendWorkerTransport`, backend worker timing scope/entry, `BackendKernel`, `WorkerSqliteDatabaseService`, SQL Browser read repository, focused worker/transport tests.
+- Debt fixed now: Runtime performance reports now include worker handle, host-effect, pre-request merge, SQL count/select/parse, Browser stats/counts, and queue projection snapshot/rows/replace spans for the suspected Browser/Queue paths. Diagnostic inner-step attribution now survives overlapping diagnostic RPCs when the method/queue identity is known.
+- Debt deferred: No Browser or Queue behavior optimization was made in this pass.
+- Why deferred: User explicitly asked to find the real cause before optimizing. The earlier report showed `load-data.total` and datasource attach were fast, so the next needed evidence is downstream worker/SQL/projection timing from a rebuilt live plugin.
+- Next safe step: Rebuild/reload SiYuanMemo, enable runtime diagnostics, open Browser, wait for all-card rows and queue rows, then inspect/copy report spans for `worker.browser.deck.page.*`, `worker-inner.browser.deck.page.*`, and `worker.queue.projection.*`.
+- Validation: `pnpm exec vitest run worker/bootstrap/__tests__/ReviewFeedbackTimingScope.test.ts src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts worker/__tests__/BackendKernel.test.ts -t "records diagnostic inner steps|records worker timing spans|ReviewFeedbackTimingScope" --reporter=dot`; `git diff --check` (CRLF warnings only); `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build` passed with existing non-blocking i18n hardcoded-string/anomalous-value warnings and Sass legacy JS API warnings.
 
 ### 2026-05-29 - Browser page-first and Review deferred feedback
 

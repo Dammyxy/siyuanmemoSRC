@@ -64,7 +64,8 @@ export class WorkerReviewCardMutationPersistenceModule {
     input: WorkerReviewFeedbackMutationInput,
     buildQueueImpact: WorkerReviewFeedbackQueueImpactBuilder,
   ): Promise<BackendReviewFeedbackResult> {
-    return await this.measureReviewFeedbackStep('transaction', input, () => this.deps.runtime.runTransaction('review.feedback', async () => {
+    let postCommitQueueImpactInput: Parameters<WorkerReviewFeedbackQueueImpactBuilder>[0] | null = null;
+    const result = await this.measureReviewFeedbackStep('transaction', input, () => this.deps.runtime.runTransaction('review.feedback', async () => {
       const domainSyncLedger = this.deps.domainSyncLedger ?? new DomainSyncLedger(this.deps.runtime);
       const card = this.deps.repository.getCard(input.cardId);
       if (!card) {
@@ -177,14 +178,20 @@ export class WorkerReviewCardMutationPersistenceModule {
         });
       }
 
-      const queueImpact = this.measureReviewFeedbackStep('queue-impact', input, () => buildQueueImpact({
+      const queueImpactInput = {
         queueType: input.queueType,
         request: input.request,
         reviewedCard: card,
         reviewedAt: input.reviewedAt,
         committed: commitResult.committed,
         updatedCard: commitResult.updatedCard ?? null,
-      }));
+      };
+      const queueImpact = shouldBuildQueueImpactAfterReviewTransaction(input.queueType)
+        ? null
+        : this.measureReviewFeedbackStep('queue-impact', input, () => buildQueueImpact(queueImpactInput));
+      if (shouldBuildQueueImpactAfterReviewTransaction(input.queueType)) {
+        postCommitQueueImpactInput = queueImpactInput;
+      }
 
       if (commitResult.committed) {
         await this.deps.repository.touchSyncMetadata({
@@ -204,6 +211,17 @@ export class WorkerReviewCardMutationPersistenceModule {
         queueImpact,
       };
     }));
+    if (!postCommitQueueImpactInput) {
+      return result;
+    }
+    return {
+      ...result,
+      queueImpact: this.measureReviewFeedbackStep(
+        'queue-impact',
+        input,
+        () => buildQueueImpact(postCommitQueueImpactInput),
+      ),
+    };
   }
 
   private async measureReviewFeedbackStep<TResult>(
@@ -301,6 +319,11 @@ export class WorkerReviewCardMutationPersistenceModule {
       );
     }
   }
+}
+
+function shouldBuildQueueImpactAfterReviewTransaction(queueType: string): boolean {
+  return queueType !== 'retrieval-practice'
+    && queueType !== 'incremental-learning';
 }
 
 function parseJsonObject(value: unknown): Record<string, unknown> {

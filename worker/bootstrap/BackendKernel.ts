@@ -128,11 +128,19 @@ import {
   createUnavailableSqlitePersistenceBridge,
   type SqlitePersistenceBridge,
 } from '../db/SqlitePersistenceBridge';
-import { recordReviewFeedbackInnerStep } from './ReviewFeedbackTimingScope';
+import { recordBackendWorkerInnerStep, recordReviewFeedbackInnerStep } from './ReviewFeedbackTimingScope';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('BackendKernel');
 const REVIEW_FEEDBACK_KERNEL_STEP_SLOW_MS = 120;
+const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
+  'browser.deck.page',
+  'browser.stats',
+  'browser.deck.documentCounts',
+  'queue.projection.snapshot',
+  'queue.projection.rowsByIds',
+  'queue.projection.replace',
+]);
 
 interface BackendKernelDependencies {
   database: WorkerSqliteDatabaseService;
@@ -261,6 +269,13 @@ const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_READ_ONLY_METHODS = new Set<string>([
   'job.get',
 ]);
 
+const PREFLIGHT_MAIN_DB_SKIP_METHODS = new Set<string>([
+  ...REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_READ_ONLY_METHODS,
+  'browser.sourceExistence.update',
+  'browser.sourceExistence.applySweep',
+  'browser.sourceExistence.applySweepHost',
+]);
+
 export class BackendKernel {
   private readonly privateApiAuditTrail: Array<{
     requestId: string;
@@ -335,6 +350,7 @@ export class BackendKernel {
       const requiresStorageRefresh = !STORAGE_REFRESH_EXEMPT_METHODS.has(request.method);
       const isReviewFeedbackFastSkipReadOnlyMethod =
         REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_READ_ONLY_METHODS.has(request.method);
+      const shouldSkipPreflightMainDbRead = PREFLIGHT_MAIN_DB_SKIP_METHODS.has(request.method);
       if (
         !isReviewFeedback
         && !isReviewFeedbackFastSkipReadOnlyMethod
@@ -348,8 +364,8 @@ export class BackendKernel {
           undefined,
           isReviewFeedback
             ? { context: 'review-feedback-preflight', cardId: reviewFeedbackCardId }
-            : isReviewFeedbackFastSkipReadOnlyMethod
-              ? { context: 'read-only-preflight' }
+            : shouldSkipPreflightMainDbRead
+              ? { context: 'read-only-preflight', skipMainDbRead: true }
             : {},
         );
         if (isReviewFeedback) {
@@ -370,6 +386,26 @@ export class BackendKernel {
               nonEmptyConflictSourceCount: merge.nonEmptyConflictSourceCount,
             },
           );
+        }
+        if (!isReviewFeedback && DIAGNOSTIC_TIMING_METHODS.has(request.method)) {
+          recordBackendWorkerInnerStep({
+            layer: 'kernel',
+            step: 'pre-request-merge',
+            durationMs: Math.max(0, Date.now() - mergeStartedAt),
+            extra: {
+              backendMethod: request.method,
+              changed: merge.changed,
+              mergedCards: merge.mergedCards,
+              mergedReviewEvents: merge.mergedReviewEvents,
+              importedOperations: merge.importedOperations,
+              sanityStatus: merge.sanityStatus,
+              sourceCount: merge.sourceIds.length,
+              mainDbReadSkipped: merge.mainDbReadSkipped,
+              mainDbReadSkipReason: merge.mainDbReadSkipReason,
+              conflictSourceCount: merge.conflictSourceCount,
+              nonEmptyConflictSourceCount: merge.nonEmptyConflictSourceCount,
+            },
+          });
         }
         this.recordPreRequestMergeDiagnostic(request.method, merge);
       }
