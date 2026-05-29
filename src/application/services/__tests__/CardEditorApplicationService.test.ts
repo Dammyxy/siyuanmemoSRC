@@ -10,6 +10,7 @@ function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
     id: overrides.id ?? 'card-1',
     xiuyuanID: overrides.xiuyuanID ?? 'xiuyuan-1',
     blockId: overrides.blockId ?? 'block-1',
+    faceKey: overrides.faceKey,
     due: overrides.due ?? now,
     stability: overrides.stability ?? 4,
     difficulty: overrides.difficulty ?? 6,
@@ -152,6 +153,7 @@ describe('CardEditorApplicationService', () => {
     const snapshot = await service.updateCardType('card-1', CardType.Topic);
 
     expect(updateCard).toHaveBeenCalledTimes(1);
+    expect(snapshot.status).toBe('applied');
     expect(snapshot.card.type).toBe(CardType.Topic);
     expect(snapshot.card.aFactor).toBeTypeOf('number');
     expect(snapshot.card.meta).toMatchObject({
@@ -163,6 +165,7 @@ describe('CardEditorApplicationService', () => {
     const snapshot = await service.updateRender('card-1', 'concept-definition-reverse');
 
     expect(updateCard).toHaveBeenCalledTimes(1);
+    expect(snapshot.status).toBe('applied');
     expect(snapshot.card.type).toBe(CardType.Item);
     expect(snapshot.card.meta).toMatchObject({
       renderProfile: 'concept-definition',
@@ -171,7 +174,124 @@ describe('CardEditorApplicationService', () => {
     });
   });
 
+  it('requires confirmation before card type transition overwrites custom semantic payload', async () => {
+    cards.set('card-1', buildCard({
+      id: 'card-1',
+      blockId: 'block-1',
+      faceKey: { ruleId: 'custom-owned-rule', faceIndex: 0 },
+      meta: {
+        templateID: 'custom-owned-template',
+        typeMarker: 'custom-owned-rule',
+        renderProfile: 'custom-render-profile',
+        faces: [{ front: 'Question', back: 'Answer' }],
+        customFront: 'front payload',
+      },
+    }));
+
+    const snapshot = await service.updateCardType('card-1', CardType.Concept);
+
+    expect(updateCard).not.toHaveBeenCalled();
+    expect(snapshot.status).toBe('confirmation-required');
+    expect(snapshot.card).toMatchObject({
+      type: CardType.Item,
+      meta: {
+        templateID: 'custom-owned-template',
+        typeMarker: 'custom-owned-rule',
+        renderProfile: 'custom-render-profile',
+      },
+    });
+    expect(snapshot.semanticOverwrite).toMatchObject({
+      reason: 'protected-semantic-payload',
+      fields: expect.arrayContaining([
+        expect.objectContaining({ path: 'type' }),
+        expect.objectContaining({ path: 'cardTypeMarker' }),
+        expect.objectContaining({ path: 'meta.templateID' }),
+        expect.objectContaining({ path: 'meta.typeMarker' }),
+        expect.objectContaining({ path: 'meta.renderProfile' }),
+      ]),
+    });
+  });
+
+  it('persists confirmed card type transition and reports overwritten protected fields', async () => {
+    cards.set('card-1', buildCard({
+      id: 'card-1',
+      blockId: 'block-1',
+      meta: {
+        templateID: 'custom-owned-template',
+        typeMarker: 'custom-owned-rule',
+        renderProfile: 'custom-render-profile',
+        faces: [{ front: 'Question', back: 'Answer' }],
+      },
+    }));
+
+    const snapshot = await service.updateCardType('card-1', CardType.Concept, {
+      semanticOverwriteIntent: { confirmed: true },
+    });
+
+    expect(updateCard).toHaveBeenCalledTimes(1);
+    expect(snapshot.status).toBe('applied');
+    expect(snapshot.card).toMatchObject({
+      type: CardType.Concept,
+      cardTypeMarker: 'concept',
+      meta: {
+        templateID: 'builtin-concept-simple',
+        typeMarker: 'C',
+        renderProfile: 'concept',
+      },
+    });
+    expect(snapshot.semanticOverwrite?.fields.map((field) => field.path)).toEqual(expect.arrayContaining([
+      'type',
+      'cardTypeMarker',
+      'meta.templateID',
+      'meta.typeMarker',
+      'meta.renderProfile',
+    ]));
+  });
+
+  it('requires confirmation before render transition overwrites custom semantic payload', async () => {
+    cards.set('card-1', buildCard({
+      id: 'card-1',
+      blockId: 'block-1',
+      meta: {
+        templateID: 'custom-owned-template',
+        typeMarker: 'custom-owned-rule',
+        renderProfile: 'custom-render-profile',
+        clozeRenderMode: 'custom-cloze-mode',
+      },
+    }));
+
+    const snapshot = await service.updateRender('card-1', 'descriptor-reverse');
+
+    expect(updateCard).not.toHaveBeenCalled();
+    expect(snapshot.status).toBe('confirmation-required');
+    expect(snapshot.card.meta).toMatchObject({
+      templateID: 'custom-owned-template',
+      typeMarker: 'custom-owned-rule',
+      renderProfile: 'custom-render-profile',
+      clozeRenderMode: 'custom-cloze-mode',
+    });
+    expect(snapshot.semanticOverwrite?.fields.map((field) => field.path)).toEqual(expect.arrayContaining([
+      'meta.templateID',
+      'meta.typeMarker',
+      'meta.renderProfile',
+    ]));
+  });
+
   it('resets review progress through unified manager', async () => {
+    cards.set('card-1', buildCard({
+      id: 'card-1',
+      blockId: 'block-1',
+      faceKey: { ruleId: 'custom-owned-rule', faceIndex: 2 },
+      meta: {
+        templateID: 'custom-owned-template',
+        typeMarker: 'custom-owned-rule',
+        renderProfile: 'custom-render-profile',
+        fieldMapping: { front: 'front-block', back: 'back-block' },
+        faces: [{ front: 'Question', back: 'Answer' }],
+        customFront: 'front payload',
+      },
+    }));
+    const original = cards.get('card-1');
     const snapshot = await service.resetProgress('card-1');
 
     expect(updateCard).toHaveBeenCalledTimes(1);
@@ -180,9 +300,22 @@ describe('CardEditorApplicationService', () => {
     expect(snapshot.card.lapses).toBe(0);
     expect(snapshot.card.leechCount).toBe(0);
     expect(snapshot.card.isLeech).toBe(false);
+    expect(snapshot.card.faceKey).toEqual(original?.faceKey);
+    expect(snapshot.card.meta).toMatchObject(original?.meta || {});
   });
 
   it('delegates scheduling to ReviewApplicationService and rebuilds snapshot', async () => {
+    cards.set('card-1', buildCard({
+      id: 'card-1',
+      blockId: 'block-1',
+      meta: {
+        templateID: 'custom-owned-template',
+        typeMarker: 'custom-owned-rule',
+        renderProfile: 'custom-render-profile',
+        faces: [{ front: 'Question', back: 'Answer' }],
+      },
+    }));
+    const originalMeta = cards.get('card-1')?.meta;
     const snapshot = await service.scheduleCard('card-1', {
       mode: 'direct',
       dueTimestamp: 1_800_000_000_000,
@@ -193,10 +326,21 @@ describe('CardEditorApplicationService', () => {
       dueTimestamp: 1_800_000_000_000,
     });
     expect(snapshot.card.due).toBe(1_800_000_000_000);
+    expect(snapshot.card.meta).toEqual(originalMeta);
     expect(getBlockInfo).toHaveBeenCalledWith('block-1');
   });
 
   it('sets dismissed state without mutating schedule fields', async () => {
+    cards.set('card-1', buildCard({
+      id: 'card-1',
+      blockId: 'block-1',
+      meta: {
+        templateID: 'custom-owned-template',
+        typeMarker: 'custom-owned-rule',
+        renderProfile: 'custom-render-profile',
+        faces: [{ front: 'Question', back: 'Answer' }],
+      },
+    }));
     const original = cards.get('card-1');
     const snapshot = await service.setDismissed('card-1', true);
 
@@ -207,6 +351,12 @@ describe('CardEditorApplicationService', () => {
     expect(snapshot.card.state).toBe(original?.state);
     expect(snapshot.card.scheduledDays).toBe(original?.scheduledDays);
     expect(snapshot.card.lastReview).toBe(original?.lastReview);
+    expect(snapshot.card.meta).toMatchObject({
+      templateID: 'custom-owned-template',
+      typeMarker: 'custom-owned-rule',
+      renderProfile: 'custom-render-profile',
+      faces: [{ front: 'Question', back: 'Answer' }],
+    });
   });
 
   it('restores dismissed state without mutating schedule fields', async () => {

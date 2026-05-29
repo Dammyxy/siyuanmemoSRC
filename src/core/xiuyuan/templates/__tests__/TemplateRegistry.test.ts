@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { TemplateRegistry } from '../TemplateRegistry';
-import type { ICardTemplate } from '../../types';
+import type { CardTypeDefinition, ICardTemplate } from '../../types';
 
 describe('TemplateRegistry', () => {
   let registry: TemplateRegistry;
@@ -52,25 +52,25 @@ describe('TemplateRegistry', () => {
     it('应该包含 builtin-concept-descriptor 模板', () => {
       const template = registry.get('builtin-concept-descriptor');
       expect(template).toBeDefined();
-      expect(template?.name).toBe('概念-描述符');
+      expect(template?.name).toBe('概念描述符卡');
     });
 
-    it('应该包含 builtin-symbol-qa 模板', () => {
-      const template = registry.get('builtin-symbol-qa');
+    it('应该包含 builtin-quick-card 模板', () => {
+      const template = registry.get('builtin-quick-card');
       expect(template).toBeDefined();
-      expect(template?.name).toBe('符号问答卡');
+      expect(template?.name).toBe('符号卡片');
     });
 
-    it('应该包含 builtin-quick-bidirectional 模板', () => {
-      const template = registry.get('builtin-quick-bidirectional');
+    it('应该包含 builtin-bidirectional-single 模板', () => {
+      const template = registry.get('builtin-bidirectional-single');
       expect(template).toBeDefined();
-      expect(template?.name).toBe('快速制卡双向');
+      expect(template?.name).toBe('双向卡片');
     });
 
     it('应该包含 builtin-list-item 模板', () => {
       const template = registry.get('builtin-list-item');
       expect(template).toBeDefined();
-      expect(template?.name).toBe('列表项模版');
+      expect(template?.name).toBe('列表卡（有序/无序）');
     });
   });
 
@@ -121,6 +121,76 @@ describe('TemplateRegistry', () => {
   });
 
   describe('模板注册', () => {
+    it('应该把 CardTypeDefinition 作为模板定义的规范类型，并为规则补齐稳定 ruleId', () => {
+      const definition: CardTypeDefinition = {
+        id: 'custom-notetype-like',
+        name: '自定义类型',
+        origin: 'user',
+        schemaVersion: 1,
+        fields: [
+          { name: 'front' },
+          { name: 'back' },
+        ],
+        cardRules: [
+          {
+            typeMarker: 'forward',
+            frontFields: ['front'],
+            backFields: ['back'],
+          },
+          {
+            ruleId: 'reverse-rule',
+            typeMarker: 'reverse',
+            frontFields: ['back'],
+            backFields: ['front'],
+          },
+        ],
+      };
+
+      const result = registry.register(definition);
+
+      expect(result.ok).toBe(true);
+      expect(registry.get('custom-notetype-like')?.cardRules).toEqual([
+        expect.objectContaining({
+          ruleId: 'forward',
+          typeMarker: 'forward',
+        }),
+        expect.objectContaining({
+          ruleId: 'reverse-rule',
+          typeMarker: 'reverse',
+        }),
+      ]);
+    });
+
+    it('应该拒绝同一模板内重复的稳定 ruleId', () => {
+      const template: CardTypeDefinition = {
+        id: 'duplicate-rule-id',
+        name: '重复规则',
+        fields: [
+          { name: 'front' },
+          { name: 'back' },
+        ],
+        cardRules: [
+          {
+            ruleId: 'same-rule',
+            typeMarker: 'a',
+            frontFields: ['front'],
+            backFields: ['back'],
+          },
+          {
+            ruleId: 'same-rule',
+            typeMarker: 'b',
+            frontFields: ['back'],
+            backFields: ['front'],
+          },
+        ],
+      };
+
+      const result = registry.register(template);
+
+      expect(result.ok).toBe(false);
+      expect(result.error?.message).toContain('Duplicate card rule id: same-rule');
+    });
+
     it('应该成功注册有效的模板', () => {
       const template: ICardTemplate = {
         id: 'test-template',

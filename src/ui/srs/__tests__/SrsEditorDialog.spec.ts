@@ -315,6 +315,68 @@ describe('SrsEditorDialog', () => {
     );
   });
 
+  it('surfaces protected semantic overwrite results without showing a success state', async () => {
+    const pushMsg = vi.fn();
+    const updateRender = vi.fn(async () => ({
+      ...buildSnapshot({
+        type: CardType.Item,
+        meta: {
+          templateID: 'custom-owned-template',
+          typeMarker: 'custom-owned-rule',
+          renderProfile: 'custom-render-profile',
+        },
+      }),
+      status: 'confirmation-required',
+      semanticOverwrite: {
+        reason: 'protected-semantic-payload',
+        fields: [
+          { path: 'meta.templateID', kind: 'template', before: 'custom-owned-template', after: 'builtin-concept-descriptor-reverse', custom: true },
+          { path: 'meta.typeMarker', kind: 'render', before: 'custom-owned-rule', after: 'concept-descriptor-reverse', custom: true },
+          { path: 'meta.renderProfile', kind: 'render', before: 'custom-render-profile', after: 'descriptor', custom: true },
+        ],
+      },
+    }));
+
+    const wrapper = mount(SrsEditorDialog, {
+      props: {
+        card: { id: 'card-1', blockId: 'block-1' },
+        plugin: createPlugin({
+          loadSnapshot: vi.fn(async () => buildSnapshot({
+            meta: {
+              templateID: 'custom-owned-template',
+              typeMarker: 'custom-owned-rule',
+              renderProfile: 'custom-render-profile',
+            },
+          })),
+          updateCardType: vi.fn(),
+          updateRender,
+          updatePriority: vi.fn(),
+          scheduleCard: vi.fn(),
+          setDismissed: vi.fn(),
+          resetProgress: vi.fn(),
+        }, {
+          getSiyuanApi: () => ({ pushMsg, pushErrMsg: vi.fn() }),
+        }, {
+          registerObserver: vi.fn(),
+          unregisterObserver: vi.fn(),
+        }) as never,
+      },
+    });
+
+    await flushPromises();
+    await openDetails(wrapper, '[data-section="more-edit"]');
+
+    await wrapper.get('[data-field="render"] select').setValue('descriptor-reverse');
+    await flushPromises();
+
+    expect(updateRender).toHaveBeenCalledWith('card-1', 'descriptor-reverse');
+    expect(wrapper.text()).toContain('已保护自定义卡片重要数据');
+    expect(wrapper.text()).toContain('模板 ID');
+    expect((wrapper.get('[data-field="render"] select').element as HTMLSelectElement).value).toBe('default');
+    expect(pushMsg).toHaveBeenLastCalledWith(expect.stringContaining('已保护自定义卡片重要数据'), 3000);
+    expect(pushMsg).not.toHaveBeenCalledWith('渲染已更新', 3000);
+  });
+
   it('shows a warning when render no longer matches the current card type recommendation', async () => {
     const wrapper = mount(SrsEditorDialog, {
       props: {

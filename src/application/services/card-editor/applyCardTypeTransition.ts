@@ -1,6 +1,10 @@
 import { initializeAFactor } from '@/core/card-builder/detectCardType';
 import { CardType, type FSRSCard } from '@/types/card';
 import {
+  analyzeProtectedSemanticOverwrite,
+  type SemanticOverwriteAnalysis,
+} from '@/core/card/semanticPayload';
+import {
   applyRenderTargetTransition,
   resolveEditableRenderTarget,
   type EditableRenderTarget,
@@ -24,6 +28,7 @@ export interface CardTypeTransitionResult {
   changed: boolean;
   descriptorDirection?: DescriptorDirection;
   recommendedRenderTarget: EditableRenderTarget;
+  semanticOverwrite: SemanticOverwriteAnalysis;
 }
 
 function cloneMeta(meta: unknown): CardMetaRecord {
@@ -174,5 +179,6 @@ export function applyCardTypeTransition(
       ? resolveDescriptorDirection(recommendedRenderTarget)
       : undefined,
     recommendedRenderTarget,
+    semanticOverwrite: analyzeProtectedSemanticOverwrite(card, nextCard),
   };
 }

@@ -1,4 +1,8 @@
 import type { FSRSCard } from '@/types/card';
+import {
+  analyzeProtectedSemanticOverwrite,
+  type SemanticOverwriteAnalysis,
+} from '@/core/card/semanticPayload';
 
 type CardMetaRecord = Record<string, unknown>;
 
@@ -25,6 +29,7 @@ export interface RenderTargetTransitionResult {
   card: FSRSCard;
   changed: boolean;
   target: EditableRenderTarget;
+  semanticOverwrite: SemanticOverwriteAnalysis;
 }
 
 export const RENDER_TARGET_SPECS: Record<EditableRenderTarget, RenderTargetSpec> = {
@@ -268,5 +273,6 @@ export function applyRenderTargetTransition(
     card: nextCard,
     changed,
     target,
+    semanticOverwrite: analyzeProtectedSemanticOverwrite(card, nextCard),
   };
 }

@@ -17,6 +17,10 @@ import type { FSRSCard } from '../../../../types/card';
 import { CardState, CardType } from '../../../../types/card';
 import type { CardPersistenceDTO } from '../../dto/CardPersistenceDTO';
 import { isErr } from '../../../../types/result';
+import {
+  collectProtectedSemanticPayload,
+  diffProtectedSemanticPayload,
+} from '../../../../core/card/semanticPayload';
 
 // ==================== 测试辅助函数 ====================
 
@@ -450,6 +454,11 @@ describe('CardMapper - FSRSCard 兼容性', () => {
       const card: FSRSCard = {
         id: 'card-1',
         blockId: 'block-1',
+        xiuyuanID: 'xy_123',
+        faceKey: {
+          ruleId: 'concept-forward',
+          faceIndex: 0,
+        },
         due: 1234567890,
         stability: 5.0,
         difficulty: 3.5,
@@ -481,6 +490,10 @@ describe('CardMapper - FSRSCard 兼容性', () => {
       const dto = CardMapper.toPersistence(card);
 
       expect(dto.xiuyuanID).toBe('xy_123');
+      expect(dto.faceKey).toEqual({
+        ruleId: 'concept-forward',
+        faceIndex: 0,
+      });
       expect(dto.templateID).toBe('builtin-concept-simple');
       expect(dto.frontBlockIDs).toEqual(['block-1']);
       expect(dto.backBlockIDs).toEqual(['block-2']);
@@ -615,6 +628,10 @@ describe('CardMapper - FSRSCard 兼容性', () => {
         createdAt: 1234567000,
         updatedAt: 1234567890,
         xiuyuanID: 'xy_123',
+        faceKey: {
+          ruleId: 'concept-forward',
+          faceIndex: 0,
+        },
         templateID: 'builtin-concept-simple',
         frontBlockIDs: ['block-1'],
         backBlockIDs: ['block-2'],
@@ -627,12 +644,20 @@ describe('CardMapper - FSRSCard 兼容性', () => {
 
       expect(card.meta).toEqual({
         xiuyuanID: 'xy_123',
+        faceKey: {
+          ruleId: 'concept-forward',
+          faceIndex: 0,
+        },
         templateID: 'builtin-concept-simple',
         frontBlockIDs: ['block-1'],
         backBlockIDs: ['block-2'],
         fieldMapping: { question: 'block-1', answer: 'block-2' },
         priority: 80,
         customField: 'customValue',
+      });
+      expect(card.faceKey).toEqual({
+        ruleId: 'concept-forward',
+        faceIndex: 0,
       });
     });
 
@@ -701,6 +726,159 @@ describe('CardMapper - FSRSCard 兼容性', () => {
   });
 
   describe('往返转换', () => {
+    it('应该保留自定义语义 payload、正反面/mapping 数据和未知语义 key', () => {
+      const original: FSRSCard = {
+        id: 'custom-semantic-card',
+        xiuyuanID: 'xy_custom_semantic',
+        blockId: 'block-custom-semantic',
+        faceKey: {
+          ruleId: 'custom-owned-rule',
+          faceIndex: 1,
+        },
+        due: 1234567890,
+        stability: 5,
+        difficulty: 5,
+        reps: 1,
+        lapses: 0,
+        state: CardState.Review,
+        lastReview: 1234567800,
+        elapsedDays: 1,
+        scheduledDays: 3,
+        priority: 50,
+        type: CardType.Item,
+        tags: [],
+        leechCount: 0,
+        isLeech: false,
+        skipped: false,
+        createdAt: 1234567000,
+        updatedAt: 1234567890,
+        meta: {
+          xiuyuanID: 'xy_custom_semantic',
+          templateID: 'custom-owned-template',
+          typeMarker: 'custom-owned-rule',
+          renderProfile: 'custom-render-profile',
+          clozeRenderMode: 'custom-cloze-mode',
+          frontBlockIDs: ['front-block'],
+          backBlockIDs: ['back-block'],
+          fieldMapping: { front: 'front-block', back: 'back-block' },
+          faces: [
+            { front: 'Question 1', back: 'Answer 1' },
+            { front: 'Question 2', back: 'Answer 2' },
+          ],
+          customFront: 'Custom front payload',
+          customBack: { blocks: ['back-block'], html: '<b>Answer</b>' },
+        },
+      };
+
+      const dto = CardMapper.toPersistence(original);
+      const restored = CardMapper.toDomain(dto);
+
+      expect(dto.faceKey).toEqual({ ruleId: 'custom-owned-rule', faceIndex: 1 });
+      expect(dto.templateID).toBe('custom-owned-template');
+      expect(dto.frontBlockIDs).toEqual(['front-block']);
+      expect(dto.backBlockIDs).toEqual(['back-block']);
+      expect(dto.fieldMapping).toEqual({ front: 'front-block', back: 'back-block' });
+      expect(dto.meta).toMatchObject({
+        typeMarker: 'custom-owned-rule',
+        renderProfile: 'custom-render-profile',
+        clozeRenderMode: 'custom-cloze-mode',
+        faces: [
+          { front: 'Question 1', back: 'Answer 1' },
+          { front: 'Question 2', back: 'Answer 2' },
+        ],
+        customFront: 'Custom front payload',
+        customBack: { blocks: ['back-block'], html: '<b>Answer</b>' },
+      });
+      expect(restored).toMatchObject({
+        id: original.id,
+        xiuyuanID: original.xiuyuanID,
+        blockId: original.blockId,
+        faceKey: { ruleId: 'custom-owned-rule', faceIndex: 1 },
+        meta: {
+          xiuyuanID: 'xy_custom_semantic',
+          faceKey: { ruleId: 'custom-owned-rule', faceIndex: 1 },
+          templateID: 'custom-owned-template',
+          typeMarker: 'custom-owned-rule',
+          renderProfile: 'custom-render-profile',
+          clozeRenderMode: 'custom-cloze-mode',
+          frontBlockIDs: ['front-block'],
+          backBlockIDs: ['back-block'],
+          fieldMapping: { front: 'front-block', back: 'back-block' },
+          faces: [
+            { front: 'Question 1', back: 'Answer 1' },
+            { front: 'Question 2', back: 'Answer 2' },
+          ],
+          customFront: 'Custom front payload',
+          customBack: { blocks: ['back-block'], html: '<b>Answer</b>' },
+        },
+      });
+      expect(diffProtectedSemanticPayload(original, restored)).toEqual([]);
+      expect(collectProtectedSemanticPayload(restored).map((entry) => entry.path)).toEqual(expect.arrayContaining([
+        'faceKey',
+        'meta.templateID',
+        'meta.typeMarker',
+        'meta.renderProfile',
+        'meta.clozeRenderMode',
+        'meta.frontBlockIDs',
+        'meta.backBlockIDs',
+        'meta.fieldMapping',
+        'meta.faces',
+        'meta.customFront',
+        'meta.customBack',
+      ]));
+    });
+
+    it('应该把 legacy faceIndex/typeMarker 迁移为 faceKey，但仍保留 legacy meta 用于显示兼容', () => {
+      const original: FSRSCard = {
+        id: 'legacy-face-key',
+        xiuyuanID: 'xy_legacy',
+        blockId: 'block-legacy',
+        due: 1234567890,
+        stability: 5,
+        difficulty: 5,
+        reps: 1,
+        lapses: 0,
+        state: CardState.Review,
+        lastReview: 1234567800,
+        elapsedDays: 1,
+        scheduledDays: 3,
+        priority: 50,
+        type: CardType.Item,
+        tags: [],
+        leechCount: 0,
+        isLeech: false,
+        skipped: false,
+        createdAt: 1234567000,
+        updatedAt: 1234567890,
+        meta: {
+          xiuyuanID: 'xy_legacy',
+          faceIndex: 2,
+          typeMarker: 'reverse',
+          templateID: 'builtin-bidirectional',
+        },
+      };
+
+      const dto = CardMapper.toPersistence(original);
+      const restored = CardMapper.toDomain(dto);
+
+      expect(dto.faceKey).toEqual({
+        ruleId: 'reverse',
+        faceIndex: 2,
+      });
+      expect(restored.faceKey).toEqual({
+        ruleId: 'reverse',
+        faceIndex: 2,
+      });
+      expect(restored.meta).toMatchObject({
+        faceIndex: 2,
+        typeMarker: 'reverse',
+        faceKey: {
+          ruleId: 'reverse',
+          faceIndex: 2,
+        },
+      });
+    });
+
     it('应该保持数据一致性（无 Xiuyuan）', () => {
       const original: FSRSCard = {
         id: 'card-1',

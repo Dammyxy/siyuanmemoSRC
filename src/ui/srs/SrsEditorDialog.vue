@@ -249,7 +249,7 @@ import type FSRSPlugin from '@/index';
 import { createLogger } from '@/utils/logger';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import type { SrsV2SchedulingContext } from '@/core/scheduler/srs-v2';
-import type { CardEditorApplicationService, CardEditorSnapshot } from '@/application/services/CardEditorApplicationService';
+import type { CardEditorApplicationService, CardEditorMutationSnapshot, CardEditorSnapshot } from '@/application/services/CardEditorApplicationService';
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import type { SrsTransparencyApplicationService, SrsTransparencyViewModel } from '@/application/services/SrsTransparencyApplicationService';
 import type { DataChangeEvent, IDataSourceObserver, IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
@@ -353,6 +353,43 @@ function formatCardType(type?: CardType): string {
   }
 }
 function getMetaRecord(card: FSRSCard | null): Record<string, unknown> { return card?.meta && typeof card.meta === 'object' ? (card.meta as Record<string, unknown>) : {}; }
+function isCardEditorMutationSnapshot(value: CardEditorSnapshot | CardEditorMutationSnapshot): value is CardEditorMutationSnapshot {
+  return typeof (value as CardEditorMutationSnapshot).status === 'string';
+}
+function formatProtectedFieldLabel(path: string): string {
+  switch (path) {
+    case 'type': return t('cardType', '卡片类型');
+    case 'cardTypeMarker': return t('cardTypeMarker', '类型标记');
+    case 'meta.templateID': return t('templateId', '模板 ID');
+    case 'meta.typeMarker': return t('typeMarker', 'Type Marker');
+    case 'meta.renderProfile': return t('renderProfile', '渲染档案');
+    case 'meta.clozeRenderMode': return t('clozeRenderMode', 'Cloze Render Mode');
+    case 'meta.faces': return t('cardFaces', '卡片正反面');
+    case 'meta.fieldMapping': return t('fieldMapping', '字段映射');
+    default: return path;
+  }
+}
+function describeSemanticOverwrite(result: CardEditorMutationSnapshot): string {
+  const fields = result.semanticOverwrite?.fields || [];
+  const labels = Array.from(new Set(fields.map((field) => formatProtectedFieldLabel(field.path)))).slice(0, 5);
+  const suffix = labels.length > 0 ? `：${labels.join('、')}` : '';
+  return `${t('semanticOverwriteBlocked', '已保护自定义卡片重要数据，本次修改需要明确确认后才能覆盖')}${suffix}`;
+}
+async function applyEditorMutationResult(
+  result: CardEditorSnapshot | CardEditorMutationSnapshot,
+  successMessage: string,
+): Promise<boolean> {
+  await applySnapshot(result);
+  if (isCardEditorMutationSnapshot(result) && result.status === 'confirmation-required') {
+    await announce('info', describeSemanticOverwrite(result));
+    return false;
+  }
+  if (isCardEditorMutationSnapshot(result) && result.status === 'unchanged') {
+    return false;
+  }
+  await announce('success', successMessage);
+  return true;
+}
 async function buildTransparency(nextSnapshot: CardEditorSnapshot | null): Promise<SrsTransparencyViewModel | null> {
   if (!nextSnapshot) return null;
   const service = getSrsTransparencyService();
@@ -477,8 +514,10 @@ async function commitCardType(targetType: EditableCardType): Promise<void> {
   if (!service) { await announce('error', t('envNotInit', '环境未初始化')); return; }
   await withLoading('cardType', async () => {
     try {
-      await applySnapshot(await service.updateCardType(currentCard.value!.id, targetType));
-      await announce('success', t('cardTypeSaved', '卡片类型已更新'));
+      await applyEditorMutationResult(
+        await service.updateCardType(currentCard.value!.id, targetType),
+        t('cardTypeSaved', '卡片类型已更新'),
+      );
     } catch (error) {
       logger.error('Failed to update card type', error);
       await announce('error', t('cardTypeSaveFailed', '卡片类型更新失败'));
@@ -491,8 +530,10 @@ async function commitRender(targetRender: EditableRenderTarget): Promise<void> {
   if (!service) { await announce('error', t('envNotInit', '环境未初始化')); return; }
   await withLoading('render', async () => {
     try {
-      await applySnapshot(await service.updateRender(currentCard.value!.id, targetRender));
-      await announce('success', t('renderSaved', '渲染已更新'));
+      await applyEditorMutationResult(
+        await service.updateRender(currentCard.value!.id, targetRender),
+        t('renderSaved', '渲染已更新'),
+      );
     } catch (error) {
       logger.error('Failed to update render target', error);
       await announce('error', t('renderSaveFailed', '渲染更新失败'));

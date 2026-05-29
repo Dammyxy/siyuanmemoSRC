@@ -36,7 +36,7 @@
  * ```
  */
 
-import type { ICardTemplate } from '../types';
+import type { CardTypeDefinition, ICardTemplate } from '../types';
 import { ALL_TEMPLATES } from './builtin';
 import { BUILTIN_CONCEPT_TEMPLATE } from './builtin-concept';
 import { ok, err, isErr, type Result } from '@/types/result';
@@ -76,13 +76,14 @@ export class TemplateRegistry {
    * ```
    */
   register(template: ICardTemplate): Result<void, Error> {
+    const normalizedTemplate = this.normalizeTemplate(template);
     // 验证模板
-    const errors = this.validateTemplate(template);
+    const errors = this.validateTemplate(normalizedTemplate);
     if (errors.length > 0) {
       return err(new Error(`Template validation failed: ${errors.join(', ')}`));
     }
 
-    this.templates.set(template.id, template);
+    this.templates.set(normalizedTemplate.id, normalizedTemplate);
     return ok(undefined);
   }
 
@@ -171,30 +172,31 @@ export class TemplateRegistry {
    * ```
    */
   validateTemplate(template: ICardTemplate): string[] {
+    const normalizedTemplate = this.normalizeTemplate(template);
     const errors: string[] = [];
 
     // 验证必需字段
-    if (!template.id) {
+    if (!normalizedTemplate.id) {
       errors.push('Missing template id');
     }
-    if (!template.name) {
+    if (!normalizedTemplate.name) {
       errors.push('Missing template name');
     }
 
     // 验证字段
-    if (!template.fields || template.fields.length === 0) {
+    if (!normalizedTemplate.fields || normalizedTemplate.fields.length === 0) {
       errors.push('Template must have at least one field');
     }
 
     // 验证卡片规则
-    if (!template.cardRules || template.cardRules.length === 0) {
+    if (!normalizedTemplate.cardRules || normalizedTemplate.cardRules.length === 0) {
       errors.push('Template must have at least one card rule');
     }
 
     // 检查字段名唯一性
-    if (template.fields && template.fields.length > 0) {
+    if (normalizedTemplate.fields && normalizedTemplate.fields.length > 0) {
       const fieldNames = new Set<string>();
-      for (const field of template.fields) {
+      for (const field of normalizedTemplate.fields) {
         if (fieldNames.has(field.name)) {
           errors.push(`Duplicate field name: ${field.name}`);
         }
@@ -202,8 +204,13 @@ export class TemplateRegistry {
       }
 
       // 检查卡片规则引用的字段存在
-      if (template.cardRules && template.cardRules.length > 0) {
-        for (const rule of template.cardRules) {
+      if (normalizedTemplate.cardRules && normalizedTemplate.cardRules.length > 0) {
+        const ruleIds = new Set<string>();
+        for (const rule of normalizedTemplate.cardRules) {
+          if (ruleIds.has(rule.ruleId || '')) {
+            errors.push(`Duplicate card rule id: ${rule.ruleId}`);
+          }
+          ruleIds.add(rule.ruleId || '');
           // 检查 frontFields
           for (const fieldName of rule.frontFields || []) {
             if (!fieldNames.has(fieldName)) {
@@ -221,6 +228,27 @@ export class TemplateRegistry {
     }
 
     return errors;
+  }
+
+  private normalizeTemplate(template: ICardTemplate): CardTypeDefinition {
+    const cardRules = (template.cardRules || []).map((rule, index) => {
+      const ruleId = typeof rule.ruleId === 'string' && rule.ruleId.trim().length > 0
+        ? rule.ruleId.trim()
+        : typeof rule.typeMarker === 'string' && rule.typeMarker.trim().length > 0
+          ? rule.typeMarker.trim()
+          : `rule-${index + 1}`;
+      return {
+        ...rule,
+        ruleId,
+      };
+    });
+
+    return {
+      ...template,
+      origin: template.origin || (template.id?.startsWith('builtin-') ? 'builtin' : 'user'),
+      schemaVersion: template.schemaVersion || 1,
+      cardRules,
+    };
   }
 
   /**

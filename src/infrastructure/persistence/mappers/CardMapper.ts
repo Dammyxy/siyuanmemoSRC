@@ -21,7 +21,7 @@
  * @see FSRSCard - 数据传输对象（向后兼容）
  */
 
-import type { FSRSCard } from '../../../types/card';
+import type { CardFaceKey, FSRSCard } from '../../../types/card';
 import type { CardPersistenceDTO } from '../dto/CardPersistenceDTO';
 import { Card } from '../../../domain/entities/Card';
 import type { Result } from '../../../types/result';
@@ -97,6 +97,40 @@ function asStringRecord(value: unknown): Record<string, string> | undefined {
   return value as Record<string, string>;
 }
 
+function asCardFaceKey(value: unknown): CardFaceKey | undefined {
+  if (!isObjectRecord(value)) {
+    return undefined;
+  }
+  const ruleId = asString(value.ruleId)?.trim();
+  if (!ruleId) {
+    return undefined;
+  }
+  const faceIndex = asNumber(value.faceIndex);
+  return Number.isInteger(faceIndex) && faceIndex >= 0
+    ? { ruleId, faceIndex }
+    : { ruleId };
+}
+
+function resolveCardFaceKey(card: FSRSCard, meta?: Record<string, unknown>): CardFaceKey | undefined {
+  const explicit = asCardFaceKey(card.faceKey) || asCardFaceKey(meta?.faceKey);
+  if (explicit) {
+    return explicit;
+  }
+
+  const legacyRuleId = asString(meta?.ruleId)?.trim()
+    || asString(meta?.cardRuleId)?.trim()
+    || asString(meta?.typeMarker)?.trim();
+  const legacyFaceIndex = asNumber(meta?.faceIndex);
+  if (!legacyRuleId && !(Number.isInteger(legacyFaceIndex) && legacyFaceIndex >= 0)) {
+    return undefined;
+  }
+
+  return {
+    ruleId: legacyRuleId || `face-${legacyFaceIndex}`,
+    ...(Number.isInteger(legacyFaceIndex) && legacyFaceIndex >= 0 ? { faceIndex: legacyFaceIndex } : {}),
+  };
+}
+
 /**
  * 卡片映射器
  */
@@ -122,6 +156,7 @@ export class CardMapper {
 
     // 提取 meta 中的 Xiuyuan 字段
     const xiuyuanID = asString(card.xiuyuanID) || asString(cardMeta?.xiuyuanID);
+    const faceKey = resolveCardFaceKey(card, cardMeta);
     const templateID = asString(cardMeta?.templateID);
     const frontBlockIDs = asStringArray(cardMeta?.frontBlockIDs);
     const backBlockIDs = asStringArray(cardMeta?.backBlockIDs);
@@ -197,6 +232,7 @@ export class CardMapper {
 
       // 🆕 Xiuyuan 字段（提取到顶层）
       xiuyuanID,
+      faceKey,
       templateID,
       frontBlockIDs,
       backBlockIDs,
@@ -231,6 +267,10 @@ export class CardMapper {
     if (dto.xiuyuanID !== undefined) {
       meta.xiuyuanID = dto.xiuyuanID;
     }
+    const faceKey = asCardFaceKey(dto.faceKey) || asCardFaceKey(meta.faceKey);
+    if (faceKey !== undefined) {
+      meta.faceKey = faceKey;
+    }
     if (dto.templateID !== undefined) {
       meta.templateID = dto.templateID;
     }
@@ -253,6 +293,7 @@ export class CardMapper {
       id: dto.id,
       xiuyuanID: dto.xiuyuanID || asString(meta.xiuyuanID) || '', // 🆕 从 DTO 或 meta 中获取
       blockId: dto.blockId,
+      faceKey,
 
       // FSRS 核心
       due: dto.due,

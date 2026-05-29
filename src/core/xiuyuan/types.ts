@@ -9,7 +9,7 @@
  * - **Xiuyuan (修缘)**: 卡片来源聚合根，存储字段映射和模板信息
  * - **CardFace**: 卡片面，定义问题-答案对
  * - **Card**: 卡片实体，存储调度信息
- * - **CardTemplate**: 卡片模板，定义字段和生成规则
+ * - **CardTypeDefinition**: Anki Notetype-like 类型定义，定义字段和生成规则
  * 
  * **架构决策**：
  * @see ADR-004: Xiuyuan 卡片来源抽象层 - 设计决策和架构说明
@@ -166,20 +166,24 @@ export interface IXiuyuanField {
 export type TemplateCategory = 'basic' | 'cloze' | 'list' | 'concept' | 'quick';
 
 /**
- * 卡片模板
+ * 卡片类型定义
  * 
- * @interface ICardTemplate
+ * @interface CardTypeDefinition
  * @description
  * 定义卡片的字段结构和生成规则。
  * 模板决定了如何从 Xiuyuan 生成具体的卡片。
  */
-export interface ICardTemplate {
+export interface CardTypeDefinition {
   /** 模板 ID */
   id: string;
   /** 模板名称 */
   name: string;
   /** 模板版本 */
   version?: string;
+  /** 定义 schema 版本 */
+  schemaVersion?: number;
+  /** 定义来源 */
+  origin?: 'builtin' | 'user' | 'legacy';
   /** 模板名称 i18n key（优先使用） */
   nameKey?: string;
   /** 模板描述 */
@@ -198,6 +202,8 @@ export interface ICardTemplate {
   }>;
   /** 卡片生成规则（定义如何从字段生成卡片） */
   cardRules: Array<{
+    /** 稳定规则 ID。用于 FSRSCard.faceKey.ruleId，不承载正反面内容 */
+    ruleId?: string;
     /** 卡片类型标记 */
     typeMarker: string;
     /** 正面使用的字段名称列表 */
@@ -208,6 +214,12 @@ export interface ICardTemplate {
     cardType?: string;
   }>;
 }
+
+/**
+ * @deprecated Use CardTypeDefinition. Kept as compatibility export while old
+ * call sites still use template wording.
+ */
+export type ICardTemplate = CardTypeDefinition;
 
 /**
  * 持久化存储结构

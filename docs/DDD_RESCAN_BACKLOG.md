@@ -4,6 +4,16 @@ Last update: 2026-05-30 (Round 505)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-30 - Protect card semantic payload during SQL migration and SRS edits
+
+- Task: Finish the final Anki-shaped card ownership slice and protect plugin/card-type semantic data from DTO-only SQL migration loss and SRS editor type/render overwrite.
+- Touched slice: Card CRUD, Xiuyuan type definitions, SQL persistence migration, CardMapper, SRS editor service/UI; `src/types/card.ts`, `src/core/xiuyuan/types.ts`, `src/core/xiuyuan/templates/TemplateRegistry.ts`, `src/core/card/semanticPayload.ts`, `src/infrastructure/persistence/{dto,mappers,sqlite}`, `src/application/services/CardEditorApplicationService.ts`, `src/ui/srs/SrsEditorDialog.vue`, focused tests, and `ARCHITECTURE.md`.
+- Debt fixed now: `CardTypeDefinition` is the notetype-like contract and template rules now normalize stable `ruleId`; `FSRSCard.faceKey` is the schedulable review-instance locator instead of front/back owner. Initial SQL import now reads canonical legacy `cardDTOs` first, imports DTO-only stores, lets DTOs beat stale domain-card metadata, and fails closed on malformed DTOs before marking the migration complete. `CardMapper` round-trips custom semantic payload, faces/mapping, template/render markers, and legacy faceKey seeds. SRS editor type/render mutations now require confirmation before overwriting protected custom semantic payload and leave the card unchanged while showing a guarded message.
+- Debt deferred: Confirmed overwrite is currently an explicit service option, not a full two-step confirmation button in `SrsEditorDialog.vue`. Broader render paths still read legacy `meta.typeMarker/templateID/faceIndex` compatibility projections while the final `Xiuyuan + CardTypeDefinition + faceKey` render contract is phased in.
+- Why deferred: A confirmation UI needs product copy and interaction design, and removing legacy projection reads would touch Review/Browser render surfaces beyond this data-loss protection slice.
+- Next safe step: Add the SRS editor confirmation action with explicit field list, then migrate remaining render/read paths to derive front/back content from Xiuyuan semantics and CardTypeDefinition rules instead of legacy meta markers.
+- Validation: `pnpm vitest run src/core/xiuyuan/templates/__tests__/TemplateRegistry.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteMigrationService.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts src/infrastructure/persistence/mappers/__tests__/CardMapper.test.ts src/application/services/__tests__/CardEditorApplicationService.test.ts src/ui/srs/__tests__/SrsEditorDialog.spec.ts src/core/card/__tests__/semanticPayload.test.ts`; `pnpm run check:boundaries`; `node scripts/check-no-runtime-msgpack.cjs`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
+
 ### 2026-05-30 - Protect plugin cards from Riff shadow sync
 
 - Task: Fix user-reported weird Review schedules after repair/sync where one block can show a native Riff shadow card next to existing plugin-owned Xiuyuan cards, and speed up grading that spent seconds in domain-sync safety.

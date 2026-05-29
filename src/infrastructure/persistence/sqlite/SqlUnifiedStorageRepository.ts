@@ -354,6 +354,35 @@ function canonicalizeSqlDTO(dto: CardPersistenceDTO): CardPersistenceDTO {
   return CardMapper.toPersistence(CardMapper.toDomain(dto));
 }
 
+function resolveCanonicalStoreCards(store: UnifiedCardStore): Array<{
+  id: string;
+  card: FSRSCard;
+  dto?: CardPersistenceDTO;
+}> {
+  const cardDTOs = store.cardDTOs || {};
+  const dtoEntries = Object.entries(cardDTOs);
+  if (dtoEntries.length > 0) {
+    return dtoEntries.map(([id, dto]) => {
+      const canonicalDto = canonicalizeSqlDTO({ ...dto, id: dto.id || id });
+      const validation = CardMapper.validate(canonicalDto);
+      if (!validation.valid) {
+        throw new Error(`Invalid card DTO ${id}: ${validation.errors.join(', ')}`);
+      }
+      return {
+        id,
+        card: CardMapper.toDomain(canonicalDto),
+        dto: canonicalDto,
+      };
+    });
+  }
+
+  return Object.entries(store.cards || {}).map(([id, card]) => ({
+    id,
+    card: { ...card, id },
+    dto: undefined,
+  }));
+}
+
 function appendInClause(
   clauses: string[],
   params: Array<string | number>,
@@ -462,12 +491,10 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       db.run('DELETE FROM riff_sync');
       db.run('DELETE FROM store_metadata WHERE key IN (?, ?)', ['sync_metadata', 'unified_store_version']);
 
-      const cardDTOs = store.cardDTOs || {};
-      for (const [id, card] of Object.entries(store.cards || {})) {
+      for (const { id, card, dto } of resolveCanonicalStoreCards(store)) {
         if (isCardDeletedByActiveTombstone(card, store.deletedCardDTOs?.[id])) {
           continue;
         }
-        const dto = cardDTOs[id];
         this.writeCardRecord(db, { ...card, id }, dto, existingSource.get(id));
       }
 

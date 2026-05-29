@@ -54,6 +54,7 @@ function createDTO(overrides: Partial<CardPersistenceDTO>): CardPersistenceDTO {
   return {
     id: overrides.id ?? 'card-default',
     blockId: overrides.blockId ?? 'block-default',
+    faceKey: overrides.faceKey,
     due: overrides.due ?? now,
     stability: overrides.stability ?? 1,
     difficulty: overrides.difficulty ?? 5,
@@ -226,6 +227,119 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     });
     expect(repository.queryCards({ blockIds: [dto.blockId] })[0]).toMatchObject({
       xiuyuanID: 'xy-canonical',
+    });
+  });
+
+  it('imports DTO-only legacy stores and writes both payload and dto JSON', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+    const repository = new SqlUnifiedStorageRepository(database);
+    const dto = createDTO({
+      id: 'dto-only-card',
+      blockId: 'block-dto-only',
+      xiuyuanID: 'xy-dto-only',
+      faceKey: { ruleId: 'forward', faceIndex: 0 },
+      templateID: 'builtin-bidirectional',
+      meta: {
+        content: 'DTO-only semantic payload',
+        customSemantic: { kind: 'owned-card-type' },
+      },
+    });
+
+    await repository.saveStore({
+      version: 2,
+      xiuyuans: {
+        'xy-dto-only': createXiuyuan('xy-dto-only', 'block-dto-only'),
+      },
+      cards: {},
+      cardDTOs: {
+        [dto.id]: dto,
+      },
+      deletedCardDTOs: {},
+      deletedXiuyuans: {},
+      riffBlacklist: [],
+      riffSyncState: {},
+    });
+
+    const row = database.getOne<{
+      id: string;
+      block_id: string | null;
+      xiuyuan_id: string | null;
+      payload_json: string | null;
+      dto_json: string | null;
+    }>('SELECT id, block_id, xiuyuan_id, payload_json, dto_json FROM cards WHERE id = ?', [dto.id]);
+
+    expect(row).toMatchObject({
+      id: 'dto-only-card',
+      block_id: 'block-dto-only',
+      xiuyuan_id: 'xy-dto-only',
+    });
+    expect(row?.payload_json).toBeTruthy();
+    expect(row?.dto_json).toBeTruthy();
+    expect(repository.getCard(dto.id)).toMatchObject({
+      id: dto.id,
+      xiuyuanID: 'xy-dto-only',
+      faceKey: { ruleId: 'forward', faceIndex: 0 },
+      meta: {
+        customSemantic: { kind: 'owned-card-type' },
+      },
+    });
+  });
+
+  it('prefers canonical DTO semantics over stale domain card metadata during store import', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+    const repository = new SqlUnifiedStorageRepository(database);
+    const dto = createDTO({
+      id: 'dto-wins-card',
+      blockId: 'block-canonical',
+      xiuyuanID: 'xy-canonical',
+      faceKey: { ruleId: 'reverse', faceIndex: 1 },
+      templateID: 'builtin-bidirectional',
+      meta: {
+        content: 'canonical content',
+        typeMarker: 'reverse',
+        customSemantic: 'canonical',
+      },
+    });
+    const staleCard = {
+      ...dto,
+      xiuyuanID: 'xy-stale',
+      blockId: 'block-stale',
+      faceKey: { ruleId: 'stale-rule', faceIndex: 9 },
+      meta: {
+        content: 'stale content',
+        xiuyuanID: 'xy-stale',
+        typeMarker: 'stale-rule',
+        customSemantic: 'stale',
+      },
+    } as FSRSCard;
+
+    await repository.saveStore({
+      version: 2,
+      xiuyuans: {
+        'xy-canonical': createXiuyuan('xy-canonical', 'block-canonical'),
+      },
+      cards: {
+        [staleCard.id]: staleCard,
+      },
+      cardDTOs: {
+        [dto.id]: dto,
+      },
+      deletedCardDTOs: {},
+      deletedXiuyuans: {},
+      riffBlacklist: [],
+      riffSyncState: {},
+    });
+
+    expect(repository.getCard(dto.id)).toMatchObject({
+      id: dto.id,
+      blockId: 'block-canonical',
+      xiuyuanID: 'xy-canonical',
+      faceKey: { ruleId: 'reverse', faceIndex: 1 },
+      meta: {
+        customSemantic: 'canonical',
+      },
     });
   });
 

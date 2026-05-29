@@ -3,6 +3,10 @@ import type { RescheduleOptions, ReviewApplicationService } from '@/application/
 import type { IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import { CardState, type FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
+import type {
+  ProtectedSemanticPayloadChange,
+  SemanticOverwriteAnalysis,
+} from '@/core/card/semanticPayload';
 import {
   applyCardTypeTransition,
   type CardTypeTransitionOptions,
@@ -27,6 +31,24 @@ export interface CardEditorBlockInfo {
 export interface CardEditorSnapshot {
   card: FSRSCard;
   blockInfo: CardEditorBlockInfo;
+}
+
+export type CardEditorMutationStatus = 'applied' | 'unchanged' | 'confirmation-required';
+
+export interface SemanticOverwriteIntent {
+  confirmed?: boolean;
+}
+
+export interface CardEditorMutationOptions {
+  semanticOverwriteIntent?: SemanticOverwriteIntent;
+}
+
+export interface CardEditorMutationSnapshot extends CardEditorSnapshot {
+  status: CardEditorMutationStatus;
+  semanticOverwrite?: {
+    reason: 'protected-semantic-payload';
+    fields: ProtectedSemanticPayloadChange[];
+  };
 }
 
 export interface SetDismissedManyResult {
@@ -66,29 +88,43 @@ export class CardEditorApplicationService {
   async updateCardType(
     cardId: string,
     targetType: EditableCardType,
-    options?: CardTypeTransitionOptions,
-  ): Promise<CardEditorSnapshot> {
+    options?: CardTypeTransitionOptions & CardEditorMutationOptions,
+  ): Promise<CardEditorMutationSnapshot> {
     const card = await this.manager.getCard(cardId);
     const transition = applyCardTypeTransition(card, targetType, options);
     const nextCard = transition.changed ? transition.card : card;
+    const semanticOverwrite = this.resolveSemanticOverwrite(transition.semanticOverwrite);
+
+    if (transition.changed && semanticOverwrite && options?.semanticOverwriteIntent?.confirmed !== true) {
+      return this.createMutationSnapshot(card, 'confirmation-required', semanticOverwrite);
+    }
 
     if (transition.changed) {
       await this.manager.updateCard(nextCard);
     }
 
-    return this.createSnapshot(nextCard);
+    return this.createMutationSnapshot(nextCard, transition.changed ? 'applied' : 'unchanged', semanticOverwrite);
   }
 
-  async updateRender(cardId: string, targetRender: EditableRenderTarget): Promise<CardEditorSnapshot> {
+  async updateRender(
+    cardId: string,
+    targetRender: EditableRenderTarget,
+    options: CardEditorMutationOptions = {},
+  ): Promise<CardEditorMutationSnapshot> {
     const card = await this.manager.getCard(cardId);
     const transition = applyRenderTargetTransition(card, targetRender);
     const nextCard = transition.changed ? transition.card : card;
+    const semanticOverwrite = this.resolveSemanticOverwrite(transition.semanticOverwrite);
+
+    if (transition.changed && semanticOverwrite && options.semanticOverwriteIntent?.confirmed !== true) {
+      return this.createMutationSnapshot(card, 'confirmation-required', semanticOverwrite);
+    }
 
     if (transition.changed) {
       await this.manager.updateCard(nextCard);
     }
 
-    return this.createSnapshot(nextCard);
+    return this.createMutationSnapshot(nextCard, transition.changed ? 'applied' : 'unchanged', semanticOverwrite);
   }
 
   async resetProgress(cardId: string): Promise<CardEditorSnapshot> {
@@ -202,6 +238,30 @@ export class CardEditorApplicationService {
     return {
       card,
       blockInfo: await this.loadBlockInfo(card.blockId),
+    };
+  }
+
+  private async createMutationSnapshot(
+    card: FSRSCard,
+    status: CardEditorMutationStatus,
+    semanticOverwrite?: CardEditorMutationSnapshot['semanticOverwrite'],
+  ): Promise<CardEditorMutationSnapshot> {
+    return {
+      ...(await this.createSnapshot(card)),
+      status,
+      ...(semanticOverwrite ? { semanticOverwrite } : {}),
+    };
+  }
+
+  private resolveSemanticOverwrite(
+    analysis: SemanticOverwriteAnalysis,
+  ): CardEditorMutationSnapshot['semanticOverwrite'] | undefined {
+    if (!analysis.requiresConfirmation) {
+      return undefined;
+    }
+    return {
+      reason: 'protected-semantic-payload',
+      fields: analysis.changedFields,
     };
   }
 

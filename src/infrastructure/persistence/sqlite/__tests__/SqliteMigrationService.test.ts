@@ -92,7 +92,93 @@ function createLegacyStore(): UnifiedCardStore {
   };
 }
 
+function createDtoOnlyLegacyStore(): UnifiedCardStore {
+  const card = createDirtyCard();
+  const { meta, ...dto } = card;
+  return {
+    version: 2,
+    xiuyuans: {},
+    cards: {},
+    cardDTOs: {
+      [card.id]: {
+        ...dto,
+        xiuyuanID: card.xiuyuanID,
+        templateID: 'builtin-quick-card',
+        meta: {
+          ...meta,
+          customSemantic: 'dto-only',
+        },
+      },
+    },
+    deletedCardDTOs: {},
+    deletedXiuyuans: {},
+    riffBlacklist: [],
+    riffSyncState: {},
+  };
+}
+
 describe('SqliteMigrationService algorithm card state migration', () => {
+  it('imports DTO-only legacy cards during initial migration', async () => {
+    const fileService = new MemoryMigrationFileService();
+    const database = new SqliteDatabaseService(fileService);
+    await database.init();
+    const unified = new SqlUnifiedStorageRepository(database);
+    const migration = new SqliteMigrationService(
+      database,
+      fileService,
+      {
+        unified,
+        queue: new SqlQueueStateRepository(database),
+        reviewLogs: new SqlReviewLogRepository(database),
+        arena: new SqlArenaRepository(database),
+      },
+      async () => createDtoOnlyLegacyStore(),
+    );
+
+    const result = await migration.migrateIfNeeded(1_701_000_000_003);
+
+    expect(result).toEqual({ migrated: true, usedSql: true });
+    expect(database.hasMigration('initial-msgpack-json-import-v1')).toBe(true);
+    expect(unified.getCard('migration-dirty-card')).toMatchObject({
+      id: 'migration-dirty-card',
+      xiuyuanID: 'xy-migration-dirty',
+      meta: { customSemantic: 'dto-only' },
+    });
+  });
+
+  it('fails closed and keeps initial migration unmarked when a legacy DTO cannot be imported', async () => {
+    const fileService = new MemoryMigrationFileService();
+    const database = new SqliteDatabaseService(fileService);
+    await database.init();
+    const unified = new SqlUnifiedStorageRepository(database);
+    const malformed = createDtoOnlyLegacyStore();
+    const malformedSourceDTO = malformed.cardDTOs!['migration-dirty-card'];
+    malformed.cardDTOs = {
+      malformed: {
+        ...malformedSourceDTO,
+        id: 'malformed',
+        blockId: '',
+      },
+    };
+    const migration = new SqliteMigrationService(
+      database,
+      fileService,
+      {
+        unified,
+        queue: new SqlQueueStateRepository(database),
+        reviewLogs: new SqlReviewLogRepository(database),
+        arena: new SqlArenaRepository(database),
+      },
+      async () => malformed,
+    );
+
+    await expect(migration.migrateIfNeeded(1_701_000_000_004)).rejects.toThrow();
+
+    expect(database.hasMigration('initial-msgpack-json-import-v1')).toBe(false);
+    expect(fileService.json.has('migration-backups/unified-cards-1701000000004.json')).toBe(true);
+    expect(unified.getCard('malformed')).toBeUndefined();
+  });
+
   it('backs up, backfills algorithm_card_state, marks migration, and is idempotent', async () => {
     const fileService = new MemoryMigrationFileService();
     const database = new SqliteDatabaseService(fileService);

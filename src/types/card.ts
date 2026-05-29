@@ -34,12 +34,25 @@ export enum Rating {
     Easy = 4,  // 很简单
 }
 
+/**
+ * Stable locator for a schedulable card derived from a Xiuyuan.
+ *
+ * `ruleId` identifies the card-generation rule on the CardTypeDefinition.
+ * `faceIndex` identifies a Xiuyuan face/list/cloze item when one rule produces
+ * more than one schedulable card. It does not own front/back content.
+ */
+export interface CardFaceKey {
+    ruleId: string;
+    faceIndex?: number;
+}
+
 /** FSRS 卡片核心数据 */
 export interface FSRSCard {
     // === 标识 ===
     id: string;           // 卡片唯一 ID
     xiuyuanID: string;    // 关联的 Xiuyuan ID
     blockId: string;      // 关联的思源块 ID
+    faceKey?: CardFaceKey; // 稳定复习实例定位器（ruleId + 可选 faceIndex）
 
     // === FSRS 核心字段 ===
     due: number;          // 下次复习时间戳 (ms)

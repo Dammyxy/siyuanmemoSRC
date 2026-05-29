@@ -18,7 +18,7 @@
  * @see CardMapper - 映射器
  */
 
-import type { CardState, CardType } from '../../../types/card';
+import type { CardFaceKey, CardState, CardType } from '../../../types/card';
 import type { RescheduleHistoryEntry } from '../../../types/reschedule';
 
 /**
@@ -34,6 +34,7 @@ export interface CardPersistenceDTO {
   // ==================== 标识 ====================
   id: string;
   blockId: string;
+  faceKey?: CardFaceKey;
 
   // ==================== FSRS 核心字段 ====================
   due: number;
