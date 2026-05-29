@@ -4,6 +4,11 @@ import type {
   IBrowserApplicationService,
 } from '@/application/interfaces/IBrowserApplicationService';
 import type { CardFilter, IReviewQueue } from '@/types/unified-data-source';
+import {
+  getCanonicalBrowserQueueIds,
+  resolveBrowserQueueIdForQueueType,
+  type BrowserQueueId,
+} from '@/types/browser-queue-identity';
 import { createLogger } from '@/utils/logger';
 
 export const EMPTY_QUEUE_COUNTS: Record<string, number> = {
@@ -23,6 +28,8 @@ export function useQueueBridge(options: UseQueueBridgeOptions) {
   const isDevMode = Boolean(options.isDevMode);
   const logger = createLogger('QueueBridge');
   const missingServiceLogged = new Set<string>();
+  const lastAppliedQueueCountRequest = new Map<BrowserQueueId, number>();
+  let queueCountRefreshSequence = 0;
 
   const getBrowserService = (action: string): IBrowserApplicationService | null => {
     const service = options.browserService.value;
@@ -50,21 +57,65 @@ export function useQueueBridge(options: UseQueueBridgeOptions) {
     return queue;
   };
 
+  const resolveQueueCountPatchIds = (
+    refreshOptions: BrowserQueueCountsRequest,
+  ): BrowserQueueId[] => {
+    const affectedQueueTypes = refreshOptions.affectedQueueTypes;
+    if (!affectedQueueTypes || affectedQueueTypes.length === 0) {
+      return getCanonicalBrowserQueueIds();
+    }
+
+    return Array.from(new Set(
+      affectedQueueTypes
+        .map((queueType) => resolveBrowserQueueIdForQueueType(queueType))
+        .filter((queueId): queueId is BrowserQueueId => Boolean(queueId)),
+    ));
+  };
+
+  const normalizeQueueCount = (value: unknown): number => Math.max(0, Number(value) || 0);
+
+  const applyQueueCountPatch = (
+    target: Ref<Record<string, number>>,
+    counts: Record<string, number>,
+    queueIds: BrowserQueueId[],
+    requestSequence: number,
+  ): void => {
+    const nextCounts = {
+      ...EMPTY_QUEUE_COUNTS,
+      ...target.value,
+    };
+
+    for (const queueId of queueIds) {
+      const lastAppliedSequence = lastAppliedQueueCountRequest.get(queueId) ?? 0;
+      if (lastAppliedSequence > requestSequence) {
+        continue;
+      }
+
+      nextCounts[queueId] = normalizeQueueCount(counts[queueId]);
+      lastAppliedQueueCountRequest.set(queueId, requestSequence);
+    }
+
+    target.value = nextCounts;
+  };
+
   const refreshQueueCounts = async (
     target: Ref<Record<string, number>>,
     refreshOptions: BrowserQueueCountsRequest = {},
   ): Promise<void> => {
+    const requestSequence = ++queueCountRefreshSequence;
+    const patchQueueIds = resolveQueueCountPatchIds(refreshOptions);
     const service = getBrowserService('refreshQueueCounts');
     if (!service) {
-      target.value = { ...EMPTY_QUEUE_COUNTS };
+      applyQueueCountPatch(target, EMPTY_QUEUE_COUNTS, patchQueueIds, requestSequence);
       return;
     }
 
     try {
-      target.value = await service.getQueueCounts(refreshOptions);
+      const counts = await service.getQueueCounts(refreshOptions);
+      applyQueueCountPatch(target, counts, patchQueueIds, requestSequence);
     } catch (error) {
       logger.error('failed to refresh counts via browserService:', error);
-      target.value = { ...EMPTY_QUEUE_COUNTS };
+      applyQueueCountPatch(target, EMPTY_QUEUE_COUNTS, patchQueueIds, requestSequence);
     }
   };
 

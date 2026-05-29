@@ -174,4 +174,52 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     });
     vi.useRealTimers();
   });
+
+  it('does not cancel browser-open sidebar warmup when a ready queue emits a targeted identity rewarm', async () => {
+    vi.useFakeTimers();
+    let runtime: ReturnType<typeof createBrowserQueueProjectionWarmupRuntime>;
+    let emittedIdentity = false;
+    const ensureQueueReadModelReady = vi.fn(async (request) => {
+      if (request.queueType === QueueType.RetrievalPractice && !emittedIdentity) {
+        emittedIdentity = true;
+        runtime.handleLiveIdentityEvent({
+          type: 'queue-projection-live-identity',
+          queueId: QueueType.RetrievalPractice,
+          queueType: QueueType.RetrievalPractice,
+          policyId: 'policy-retrieval',
+          generation: 7,
+          reason: 'refreshed',
+          source: 'runtime',
+          timestamp: 1,
+        });
+      }
+      return {
+        status: 'ready',
+        queueId: request.queueType,
+        policyId: `policy-${request.queueType}`,
+        generation: 7,
+      };
+    });
+    const deps = createDeps({
+      browserAppService: ref({ ensureQueueReadModelReady }),
+    });
+    runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
+
+    runtime.schedule('browser-open', 0);
+    await vi.runOnlyPendingTimersAsync();
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(ensureQueueReadModelReady.mock.calls.map((call) => call[0].queueType)).toEqual([
+      QueueType.RetrievalPractice,
+      QueueType.FinalDrill,
+      QueueType.IncrementalLearning,
+      QueueType.FilterGroup,
+      QueueType.RetrievalPractice,
+    ]);
+    expect(runtime.getStatus('incremental-learning')).toMatchObject({
+      status: 'ready',
+      queueType: QueueType.IncrementalLearning,
+    });
+    vi.useRealTimers();
+  });
 });

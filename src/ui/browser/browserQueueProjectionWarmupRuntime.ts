@@ -132,6 +132,7 @@ export function createBrowserQueueProjectionWarmupRuntime(
 ) {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0;
+  const targetedTimers = new Set<ReturnType<typeof setTimeout>>();
   const statuses = new Map<BrowserQueueId, BrowserQueueProjectionWarmupStatus>();
 
   function clearTimer(): void {
@@ -140,9 +141,17 @@ export function createBrowserQueueProjectionWarmupRuntime(
     timer = null;
   }
 
+  function clearTargetedTimers(): void {
+    for (const targetedTimer of targetedTimers) {
+      clearTimeout(targetedTimer);
+    }
+    targetedTimers.clear();
+  }
+
   function abort(): void {
     generation += 1;
     clearTimer();
+    clearTargetedTimers();
   }
 
   function currentScope(): QueueProjectionWarmupScope {
@@ -211,9 +220,24 @@ export function createBrowserQueueProjectionWarmupRuntime(
     }
   }
 
+  function scheduleTargeted(reason: string, delayMs: number, targetQueueIds: BrowserQueueId[]): void {
+    const seq = generation;
+    let targetedTimer!: ReturnType<typeof setTimeout>;
+    targetedTimer = setTimeout(() => {
+      targetedTimers.delete(targetedTimer);
+      void runWarmup(seq, reason, targetQueueIds);
+    }, Math.max(0, Math.floor(delayMs)));
+    targetedTimers.add(targetedTimer);
+  }
+
   function schedule(reason = 'browser-open', delayMs = DEFAULT_WARMUP_DEBOUNCE_MS, targetQueueIds?: BrowserQueueId[]): void {
+    if (targetQueueIds?.length) {
+      scheduleTargeted(reason, delayMs, targetQueueIds);
+      return;
+    }
     const seq = ++generation;
     clearTimer();
+    clearTargetedTimers();
     timer = setTimeout(() => {
       timer = null;
       void runWarmup(seq, reason, targetQueueIds);

@@ -192,17 +192,18 @@ export class QueueProjectionRuntime {
       return readiness;
     }
     if (readiness.status === 'refreshing') {
+      const currentGeneration = this.resolveReadinessMaterializationGeneration(queueType);
       this.recordQueueProjectionUnavailable(queueType, 'refresh-required', {
         unavailableReason: readiness.cause,
         backendStatus: readiness.status,
         policyHash: readiness.policyId,
-        generation: null,
+        generation: currentGeneration > 0 ? currentGeneration : null,
       });
       if (this.shouldMaterializeDuringReadiness(queueType, readiness)) {
         try {
           const result = await this.awaitMaterializationShortWindow(this.tryMaterializeQueueProjection(queueType, this.deps.getBackendClient(), {
             currentPolicyHash: readiness.policyId,
-            currentGeneration: Date.now(),
+            currentGeneration,
             reason: readiness.cause,
           }));
           if (result && result.status === 'ready') {
@@ -491,11 +492,25 @@ export class QueueProjectionRuntime {
     if (!backend || typeof backend.queueProjectionSnapshot !== 'function') {
       throw new Error('backend unavailable for queue projection readiness');
     }
-    return backend.queueProjectionSnapshot({
+    const result = await backend.queueProjectionSnapshot({
       queueType,
       policyHash: request.policyHash,
       generation: request.generation,
     });
+    if (
+      result.status !== 'ready'
+      || !this.isValidProjectionPolicyHash(result.policyHash)
+      || !this.isValidProjectionGeneration(result.generation)
+    ) {
+      this.recordQueueProjectionUnavailable(queueType, 'refresh-required', {
+        unavailableReason: this.resolveReadinessSnapshotUnavailableReason(result.status),
+        backendStatus: typeof result.status === 'string' ? result.status : null,
+        policyHash: this.isValidProjectionPolicyHash(result.policyHash) ? result.policyHash : null,
+        generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
+        freshness: result.freshness ?? null,
+      });
+    }
+    return result;
   }
 
   private async tryMaterializeQueueProjection(
@@ -744,6 +759,25 @@ export class QueueProjectionRuntime {
         reject(error);
       });
     });
+  }
+
+  private resolveReadinessMaterializationGeneration(queueType: QueueType): number {
+    const diagnostic = this.queueProjectionUnavailableDiagnostics.get(queueType);
+    const generation = Number(diagnostic?.generation);
+    return Number.isInteger(generation) && generation > 0 ? generation : 0;
+  }
+
+  private resolveReadinessSnapshotUnavailableReason(status: unknown): string {
+    if (typeof status !== 'string' || status.length === 0) {
+      return 'refresh-required';
+    }
+    if (status === 'invalidated' || status === 'rebuilding' || status === 'repairing') {
+      return 'materialization_in_progress';
+    }
+    if (status === 'unavailable') {
+      return 'projection_unavailable';
+    }
+    return 'refresh-required';
   }
 
   private canSubmitQueueProjectionReplace(backend: QueueProjectionBackendClient | null | undefined): boolean {

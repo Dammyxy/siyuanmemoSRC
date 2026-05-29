@@ -275,6 +275,84 @@ describe('QueueProjectionRuntime', () => {
     }
   });
 
+  it('dedupes sequential slow readiness materialization retries for the same queue policy', async () => {
+    vi.useFakeTimers();
+    const card = createCard({
+      id: 'slow-incremental-card',
+      blockId: 'slow-incremental-block',
+    });
+    const pendingResolvers: Array<(cards: FSRSCard[]) => void> = [];
+    const queueGetCards = vi.fn(() => new Promise<FSRSCard[]>((resolve) => {
+      pendingResolvers.push(resolve);
+    }));
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.IncrementalLearning,
+        status: 'invalidated',
+        policyHash: 'incremental-policy',
+        generation: 4,
+        rows: [],
+        counters: null,
+      })),
+      queueProjectionReplace: vi.fn(async (request: { policyHash: string; generation?: number | null; rows: unknown[] }) => ({
+        queueType: QueueType.IncrementalLearning,
+        status: 'ready',
+        policyHash: request.policyHash,
+        generation: request.generation ?? 5,
+        rows: request.rows.length,
+        counters: {
+          queueType: QueueType.IncrementalLearning,
+          policyHash: request.policyHash,
+          generation: request.generation ?? 5,
+          version: request.generation ?? 5,
+          remaining: request.rows.length,
+          due: request.rows.length,
+          total: request.rows.length,
+          buckets: { all: request.rows.length, item: request.rows.length, descriptor: 0, topic: 0, concept: 0 },
+          updatedAt: 1_700_000_100_000,
+        },
+      })),
+    };
+    const { runtime } = createRuntime({
+      backend,
+      queueGetCards,
+    });
+
+    try {
+      const first = runtime.ensureReady({
+        queueType: QueueType.IncrementalLearning,
+        preset: 'all',
+        cardType: 'all',
+        source: 'browser',
+      });
+      await vi.advanceTimersByTimeAsync(300);
+      await expect(first).resolves.toMatchObject({
+        status: 'refreshing',
+        queueId: QueueType.IncrementalLearning,
+      });
+
+      const second = runtime.ensureReady({
+        queueType: QueueType.IncrementalLearning,
+        preset: 'all',
+        cardType: 'all',
+        source: 'browser',
+      });
+      await vi.advanceTimersByTimeAsync(300);
+      await expect(second).resolves.toMatchObject({
+        status: 'refreshing',
+        queueId: QueueType.IncrementalLearning,
+      });
+
+      expect(queueGetCards).toHaveBeenCalledTimes(1);
+      expect(pendingResolvers).toHaveLength(1);
+      pendingResolvers[0]?.([card]);
+      await vi.runAllTimersAsync();
+      expect(backend.queueProjectionReplace).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('materializes invalidated filter-group projection during readiness instead of leaving browser load stuck', async () => {
     const card = createCard({
       id: 'filter-card',

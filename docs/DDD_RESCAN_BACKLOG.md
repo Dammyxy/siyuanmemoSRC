@@ -4,6 +4,36 @@ Last update: 2026-05-29 (Round 503)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-29 - Keep sidebar warmup alive across live identity rewarm
+
+- Task: Re-diagnose why the rebuilt plugin still does not show the incremental-learning queue on Browser open; live logs only show retrieval warmup readiness after passive incremental count reads an invalidated projection.
+- Touched slice: Browser queue projection warmup scheduler; `browserQueueProjectionWarmupRuntime`, focused Browser warmup tests, and Browser architecture notes.
+- Debt fixed now: Browser-open sidebar warmup is no longer cancelled by a `refreshed/materialized/invalidated` live-identity targeted rewarm emitted while the full warmup loop is still running. Targeted live rewarm now uses its own timer set and does not bump the full-warmup generation, so retrieval ready events cannot stop the same browser-open pass before final-drill, incremental-learning, and filter-group are warmed.
+- Debt deferred: Queue readiness remains sequential inside one full browser-open pass, and genuinely slow materialization can still delay later queue warmup logs. Parallel/sidebar-priority warmup is a separate performance tuning step.
+- Why deferred: The reproduced failure was cancellation, not per-queue materialization policy. Parallelizing warmup would change load pressure and should be measured separately.
+- Next safe step: Rebuild/deploy and cold-open Browser. Expected: after retrieval warmup readiness, logs should continue with final-drill/incremental-learning/filter-group readiness instead of stopping at retrieval until a manual click.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts`; `pnpm vitest run src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts`; `pnpm vitest run src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts`.
+
+### 2026-05-29 - Dedupe slow readiness projection materialization
+
+- Task: Diagnose why incremental-learning queue view/projection remains slow after other Browser queues load, and why clicking the queue still waits on `materialization_in_progress`.
+- Touched slice: Queue projection readiness/materialization runtime; `QueueProjectionRuntime` and focused queue projection runtime tests.
+- Debt fixed now: Readiness snapshot reads now preserve the backend projection generation for invalidated/rebuilding snapshots before starting renderer-side materialization. Slow readiness retries for the same queue/policy/generation now reuse the existing in-flight materialization instead of launching another full `queue.getCards()` scan every 300 ms. Incremental-learning no longer multiplies its heavier six-card-type queue scan while the first materialization is still running.
+- Debt deferred: Incremental-learning `getCards()` itself is still heavier than retrieval-practice because it intentionally scans `item`, `concept`, `descriptor`, `topic`, `incremental`, and `webpage` cards. Optimizing that queue policy/query is separate from stopping duplicate projection work.
+- Why deferred: The live symptom and regression loop showed duplicate materialization retries, not an incorrect incremental queue membership rule. Narrowing card-type scanning would change queue semantics and needs its own evidence.
+- Next safe step: Rebuild/deploy and cold-open Browser. Expected: logs may still show one `refreshing/materialization_in_progress` for incremental-learning while the first projection is building, but repeated readiness retries should not start parallel/sequential duplicate incremental queue scans.
+- Validation: `pnpm vitest run src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts`; `pnpm vitest run src/application/services/__tests__/UnifiedDataSourceManager.queue-projection-rollout.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts`; `pnpm vitest run src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts`.
+
+### 2026-05-29 - Preserve targeted Browser queue count refreshes
+
+- Task: Investigate why the new plugin still needs a manual click before the incremental-learning queue count appears while other queue counts already refresh.
+- Touched slice: Browser queue count bridge; `useQueueBridge`, focused composable tests, and `ARCHITECTURE.md`.
+- Debt fixed now: `useQueueBridge.refreshQueueCounts()` no longer replaces the whole sidebar count object for every response. It resolves affected queue types to canonical browser queue ids, merges only those count patches, and tracks a per-queue request sequence so an older passive full refresh cannot overwrite a newer targeted `incremental-learning` force refresh back to 0.
+- Debt deferred: The queue projection warmup/materialization storage topology remains unchanged; a genuinely unavailable projection still reports unavailable/0 through the existing service contract rather than reading stale local queue cards.
+- Why deferred: The reproduced fault was UI count-state ordering, not projection ownership or storage location. Adding local queue fallback would hide projection failures and violate the active Browser read-model contract.
+- Next safe step: Rebuild/deploy and cold-open Browser. Expected: after incremental-learning readiness becomes ready, its sidebar count stays visible even if an earlier passive full refresh resolves later.
+- Validation: `pnpm vitest run src/ui/browser/composables/__tests__/useQueueBridge.test.ts`; `pnpm vitest run src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts`; `pnpm vitest run src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts`.
+
 ### 2026-05-29 - Refresh Browser queue counts after projection warmup
 
 - Task: Investigate live logs where Browser first shows all-flashcards, retrieval, and filter counts, but incremental-learning and neural-roam counts stay empty until manual refresh.
