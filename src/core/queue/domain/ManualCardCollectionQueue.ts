@@ -134,6 +134,7 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
 
   private readonly storageKey: string;
   private readonly persistenceContext: string;
+  private manualCardStateHasDurableRecord = false;
 
   protected constructor(
     manager: UnifiedDataSourceManager,
@@ -157,6 +158,7 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
     });
 
     this.manualCards.replace(value);
+    this.manualCardStateHasDurableRecord = fromStorage;
     return {
       fromStorage,
       count: this.manualCards.size(),
@@ -165,6 +167,10 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
 
   protected async saveManualCardState(logger: ManualCardQueueLogger): Promise<number> {
     const data = this.manualCards.toArray();
+    if (data.length === 0 && !this.manualCardStateHasDurableRecord) {
+      return 0;
+    }
+
     await saveQueueState({
       persistence: this.queuePersistence,
       key: this.storageKey,
@@ -172,6 +178,7 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
       logger,
       context: this.persistenceContext,
     });
+    this.manualCardStateHasDurableRecord = true;
     return data.length;
   }
 

@@ -133,6 +133,31 @@ describe('SqliteDatabaseService', () => {
     expect(fileService.writeBinaryCount).toBe(0);
   });
 
+  it('does not persist a transaction that performs no material database changes without crypto fingerprinting', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService);
+    await database.init();
+    fileService.resetWriteCounts();
+    const cryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+
+    try {
+      Object.defineProperty(globalThis, 'crypto', {
+        configurable: true,
+        value: undefined,
+      });
+      await database.runTransaction('noop-transaction', () => {
+        database.getOne<{ count: number }>('SELECT COUNT(*) AS count FROM cards');
+      });
+      await database.persist();
+    } finally {
+      if (cryptoDescriptor) {
+        Object.defineProperty(globalThis, 'crypto', cryptoDescriptor);
+      }
+    }
+
+    expect(fileService.writeBinaryCount).toBe(0);
+  });
+
   it('records sqlite write labels on transaction, persist, and file diagnostics', async () => {
     const fileService = new MemorySqliteFileService();
     const database = new SqliteDatabaseService(fileService);

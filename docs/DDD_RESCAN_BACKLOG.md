@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-29 (Round 500)
+Last update: 2026-05-29 (Round 502)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-29 - Stop passive empty-queue and idle checkpoint uploads
+
+- Task: Re-diagnose why the rebuilt plugin still creates two DB-sized `temp/os/multipart-*` files on SiYuan startup and two more after Browser open/refresh, and why Browser queue view only appears after manual refresh.
+- Touched slice: Queue manual-state domain, Xiuyuan passive sync policy, Review passive sync callers, Browser queue readiness retry, backend idle checkpoint apply path; `ManualCardCollectionQueue`, `XiuyuanSyncService`, `ReviewSyncManager`, `createUnifiedReviewDialog`, `browserLoadDataRuntime`, `WorkerSqliteDatabaseService`, focused tests.
+- Debt fixed now: Missing manual queue state is no longer persisted as durable `incrementalLearningQueue = []` just because the queue loaded. Passive startup/browser/review/native-Riff incremental sync now propagates `persistIdleCheckpoint: false`, and backend idle Riff sync no longer writes `riff_sync.sync_state` or exports `siyuanmemo.db` when no rows changed. Browser queue view now keeps retrying readiness even if a refreshing response omits `retryAfterMs`, so first queue load is not stuck until manual refresh.
+- Debt deferred: Existing live DB rows such as historical `queue_state.incrementalLearningQueue = []` and old `riff_sync.sync_state` remain. They are harmless if equal-state and idle checkpoint paths stop rewriting them. Manual sync buttons and one-time simple-mode migration still persist checkpoints because they are explicit write/migration actions.
+- Why deferred: Deleting live historical state is not required to stop repeated multipart uploads and could erase intentional manual empty-state semantics.
+- Next safe step: Rebuild/deploy, restart SiYuan, then check `temp/os` plus live DB timestamps. Expected: no new DB-sized multipart from startup default empty queue state or idle Riff checkpoint; Browser queue view should attach after readiness retry without pressing refresh.
+- Validation: `pnpm exec vitest run src/core/queue/domain/__tests__/IncrementalLearningQueue.add-card.test.ts src/application/managers/__tests__/ReviewSyncManager.idle-sync.test.ts src/application/factories/__tests__/createUnifiedReviewDialog.mode.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/BrowserQueueViewModule.test.ts worker/__tests__/BackendKernel.xiuyuan-sync.test.ts`; plus boundary/build checks before deploy.
+
+### 2026-05-29 - Stop no-op persisted-main-db source self-writes
+
+- Task: Fix live repro where the rebuilt plugin still generated two DB-sized `temp/os/multipart-*` files on startup and two more after Browser refresh.
+- Touched slice: Backend persisted main DB merge / domain sync processed-source diagnostics; `WorkerSqliteDatabaseService`, `WorkerSqliteDatabaseService.test`, `BackendKernel.test`, and `ARCHITECTURE.md`.
+- Debt fixed now: `siyuan-sync:siyuanmemo.db` scans that only see already-known/ignored rows no longer insert a new `domain_sync_processed_sources` row. No-op main DB scans now remember the persisted hash in memory instead of writing a "processed my own DB" diagnostic row, so the diagnostic ledger no longer changes the DB file fingerprint and retriggers itself on the next preflight. Real main DB imports still persist processed-source evidence.
+- Debt deferred: Existing historical no-op `domain_sync_processed_sources` rows remain in the live DB. They are harmless once new no-op scans stop appending, but a later cleanup can compact the table.
+- Why deferred: Deleting historical diagnostics is not needed to stop the upload loop and would be a separate data-retention decision.
+- Next safe step: Deploy and rerun startup + Browser refresh smoke. Expected: no new DB-sized multipart files from `siyuan-sync:siyuanmemo.db` ignored-only scans; `domain_sync_processed_sources` should not gain new `persisted-main-db` rows with `imported_operations = 0` and `imported_cards = 0`.
+- Validation: `pnpm exec vitest run worker/__tests__/WorkerSqliteDatabaseService.test.ts`; `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts -t "domain sync ledger|sync conflict|persisted main DB|source-missing projection|browser deck read preflight"`; `pnpm exec vitest run worker/__tests__/WorkerSqliteDatabaseService.test.ts src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts`.
 
 ### 2026-05-29 - Stop read-path Xiuyuan and queue projection uploads
 
@@ -19,8 +39,8 @@ Last update: 2026-05-29 (Round 500)
 - Task: Continue `H:\SiYuanXY\temp\os\multipart-*` diagnosis after live DB inspection showed repeated `siyuan-sync:siyuanmemo.db` processed-source rows, `sync-conflict-merge` metadata touches, and all queue projections invalidated despite `imported_operations = 0` / `imported_cards = 0`.
 - Touched slice: Backend sync-conflict missing-source projection merge; `WorkerSqliteDatabaseService`, `BackendKernel.test`.
 - Debt fixed now: `applyIncomingMissingSourceProjection()` now compares the current `source_exists`, `source_checked_at`, and `source_missing_at` values before updating. Equal missing-source projection rows no longer return changed, so ignored conflict/main-DB cards do not touch `sync_metadata` or invalidate all queue projections.
-- Debt deferred: A real newer missing-source observation still updates the card and invalidates affected queues. Processed-source ledger rows still persist when a new source fingerprint is first observed, because that is required for deduplication and diagnostics.
-- Why deferred: The bug was the false changed signal from equal data, not the ledger itself. Removing processed-source persistence would break source deduplication.
+- Debt deferred: A real newer missing-source observation still updates the card and invalidates affected queues. Processed-source ledger rows still persist for real imports and conflict DB evidence, but ignored-only persisted-main-db scans are no longer durable diagnostics after Round 501.
+- Why deferred: The Round 500 bug was the false changed signal from equal data; Round 501 then closed the remaining persisted-main-db self-write loop.
 - Next safe step: Rebuild/reload. If no real conflict DB or Riff change exists, opening Browser should not flip queue projections to `invalidated` with `rebuild_reason = sync-conflict-merge`, and should not create extra DB-sized multipart files from that path.
 - Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts -t "missing-source projection|externally synced database bytes|browser deck read preflight"`.
 

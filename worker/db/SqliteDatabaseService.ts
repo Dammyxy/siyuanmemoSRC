@@ -1081,6 +1081,8 @@ export class WorkerSqliteDatabaseService {
         sourceCount: sources.length,
       });
       await this.measureReviewFeedbackDatabaseStep('merge.remember-hash', cardId, () => this.rememberPersistedHash());
+    } else if (result.skippedSources.length === 0 && !changed) {
+      await this.measureReviewFeedbackDatabaseStep('merge.remember-noop-hash', cardId, () => this.rememberPersistedHash());
     }
     this.invalidateReviewFeedbackMainDbFastSkip('merge:changed-or-conflict-source');
 
@@ -2903,14 +2905,16 @@ export class WorkerSqliteDatabaseService {
               modifiedBy: 'srs-backend-worker:sync.conflict.merge',
             });
           }
-          this.recordDomainSyncProcessedSource({
-            sourceId,
-            sourceFingerprint,
-            sourceKind,
-            path: source.path ?? null,
-            processedAt: request.mergedAt,
-            counters: processedCounters,
-          });
+          if (this.shouldRecordDomainSyncProcessedSource(sourceKind, sourceChanged, processedCounters)) {
+            this.recordDomainSyncProcessedSource({
+              sourceId,
+              sourceFingerprint,
+              sourceKind,
+              path: source.path ?? null,
+              processedAt: request.mergedAt,
+              counters: processedCounters,
+            });
+          }
           this.appendReviewCardDivergenceDiagnostics(result.diagnostics.reviewCardDivergences, [...diagnosticCardIds]);
         });
       } catch (error) {
@@ -3383,6 +3387,20 @@ export class WorkerSqliteDatabaseService {
         }),
       ],
     );
+  }
+
+  private shouldRecordDomainSyncProcessedSource(
+    sourceKind: DomainSyncProcessedSourceKind,
+    sourceChanged: boolean,
+    counters: DomainSyncProcessedSourceCounters,
+  ): boolean {
+    if (sourceKind !== 'persisted-main-db') {
+      return true;
+    }
+    return sourceChanged
+      || counters.importedOperations > 0
+      || counters.importedReviewEvents > 0
+      || counters.importedCards > 0;
   }
 
   private hasSuccessfulDomainSyncProcessedSource(sourceId: string, sourceFingerprint: string): boolean {
@@ -5556,6 +5574,29 @@ export class WorkerSqliteDatabaseService {
         const xiuyuan = localXiuyuanByBlockId.get(blockId);
         const cardId = normalizeString(card?.id) || `card-${blockId}`;
         const xiuyuanId = normalizeString(xiuyuan?.id ?? card?.xiuyuanId) || `xy-${blockId}`;
+        const existingCardRow = this.runtime.getOne<{ id: string }>(
+          'SELECT id FROM cards WHERE id = ?',
+          [cardId],
+        );
+        const existingXiuyuanRow = this.runtime.getOne<{ id: string }>(
+          'SELECT id FROM xiuyuans WHERE id = ?',
+          [xiuyuanId],
+        );
+        const existingCardTombstone = this.runtime.getOne<{ id: string }>(
+          'SELECT id FROM tombstones WHERE kind = ? AND id = ?',
+          ['card', cardId],
+        );
+        const existingXiuyuanTombstone = this.runtime.getOne<{ id: string }>(
+          'SELECT id FROM tombstones WHERE kind = ? AND id = ?',
+          ['xiuyuan', xiuyuanId],
+        );
+        const deleteChanged = Boolean(existingCardRow)
+          || Boolean(existingXiuyuanRow)
+          || !existingCardTombstone
+          || !existingXiuyuanTombstone;
+        if (!deleteChanged) {
+          continue;
+        }
         this.runtime.run('DELETE FROM cards WHERE id = ?', [cardId]);
         this.runtime.run('DELETE FROM xiuyuans WHERE id = ?', [xiuyuanId]);
         this.runtime.run(
@@ -5579,18 +5620,23 @@ export class WorkerSqliteDatabaseService {
         }
         const cardId = `card-${blockId}`;
         const xiuyuanId = `xy-${blockId}`;
-        this.upsertXiuyuanSyncRows({
+        const changed = this.upsertXiuyuanSyncRows({
           block: nativeBlock,
           cardId,
           xiuyuanId,
           deckId: input.request.deckId,
           updatedAt: input.appliedAt,
         });
-        changedBlockIds.push(blockId);
-        changedCardIds.push(cardId);
+        if (changed) {
+          changedBlockIds.push(blockId);
+          changedCardIds.push(cardId);
+        }
       }
 
-      this.advanceXiuyuanSyncCheckpoint(input.request.mode, input.appliedAt);
+      const hasPersistedChanges = changedBlockIds.length > 0;
+      if (hasPersistedChanges || input.request.persistIdleCheckpoint !== false) {
+        this.advanceXiuyuanSyncCheckpoint(input.request.mode, input.appliedAt);
+      }
     });
 
     return {

@@ -769,6 +769,7 @@ export interface BackendXiuyuanSyncExecuteRequest {
   scope?: BackendXiuyuanSyncScope | null;
   deadlineAt?: number | null;
   caller?: BackendHotspotCallerIdentity | null;
+  persistIdleCheckpoint?: boolean;
 }
 
 export interface BackendXiuyuanSyncPlan {

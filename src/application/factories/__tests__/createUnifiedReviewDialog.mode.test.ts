@@ -116,4 +116,39 @@ describe('createUnifiedReviewDialog', () => {
       }),
     }));
   });
+
+  it('marks dialog onClose sync as non-persistent when review count exists', async () => {
+    const incrementalSync = vi.fn(async () => ({ success: true }));
+    const plugin = {
+      app: {},
+      isMobile: false,
+      i18n: {},
+      reviewSyncManager: { reviewCount: 1 },
+      getContext: () => ({
+        getSchedulerRouter: () => ({}),
+        getSettingsService: () => ({
+          getSettings: () => ({
+            progressiveReading: {},
+          }),
+        }),
+        getHybridSyncService: () => ({ incrementalSync }),
+      }),
+    };
+
+    createUnifiedReviewDialog({
+      plugin,
+      queueType: QueueType.RetrievalPractice,
+      title: '提取练习',
+      headerVariant: 'retrieval-practice',
+      eventBus: { subscribe: vi.fn() } as never,
+    });
+
+    const dialogOptions = createVueDialogMock.mock.calls[0]?.[0];
+    await dialogOptions.onClose();
+
+    expect(incrementalSync).toHaveBeenCalledWith(undefined, {
+      source: 'review-dialog-close',
+      persistIdleCheckpoint: false,
+    });
+  });
 });

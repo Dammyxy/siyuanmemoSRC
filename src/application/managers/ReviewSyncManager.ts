@@ -122,7 +122,10 @@ export class ReviewSyncManager implements IDataSourceObserver {
         totalReviewed: this.reviewCount,
       });
 
-      await this.xiuyuanSyncService.incrementalSync();
+      await this.xiuyuanSyncService.incrementalSync(undefined, {
+        source: 'review-completed',
+        persistIdleCheckpoint: false,
+      });
       logger.info('Data synced');
 
       this.publishEvent('review.completed', {
@@ -166,7 +169,10 @@ export class ReviewSyncManager implements IDataSourceObserver {
         totalReviewed: this.reviewCount,
       });
 
-      await this.xiuyuanSyncService.incrementalSync();
+      await this.xiuyuanSyncService.incrementalSync(undefined, {
+        source: 'review-dialog-close',
+        persistIdleCheckpoint: false,
+      });
       logger.info('Data synced');
 
       if (this.unifiedDataSourceManager) {
@@ -197,7 +203,10 @@ export class ReviewSyncManager implements IDataSourceObserver {
 
     try {
       logger.info('Auto-syncing...');
-      await this.xiuyuanSyncService.incrementalSync();
+      await this.xiuyuanSyncService.incrementalSync(undefined, {
+        source: 'review-auto',
+        persistIdleCheckpoint: false,
+      });
       this.lastSyncTime = Date.now();
       logger.info('Auto-sync finished');
     } catch (err) {

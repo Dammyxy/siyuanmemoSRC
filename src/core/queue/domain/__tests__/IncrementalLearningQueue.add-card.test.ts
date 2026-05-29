@@ -30,7 +30,7 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   };
 }
 
-function createPersistenceStub(initialIds: string[] = []): QueuePersistencePort {
+function createPersistenceStub(initialIds: string[] | null = []): QueuePersistencePort {
   return {
     get: vi.fn(() => initialIds),
     set: vi.fn(async () => {}),
@@ -38,6 +38,58 @@ function createPersistenceStub(initialIds: string[] = []): QueuePersistencePort 
 }
 
 describe('IncrementalLearningQueue addCard', () => {
+  it('does not persist default empty manual state when no durable queue state exists', async () => {
+    const persistence = createPersistenceStub(null);
+    const manager = {
+      getCard: vi.fn(async () => null),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async (_card: FSRSCard) => {}),
+      notifyObservers: vi.fn(),
+      getDayStartHour: vi.fn(() => 4),
+      getPriorityRandomness: vi.fn(() => 0),
+      getAddToOutstandingEveryNth: vi.fn(() => 2),
+      getNewCardsPerDay: vi.fn(() => 20),
+      getReviewsPerDay: vi.fn(() => 200),
+    };
+
+    const queue = new IncrementalLearningQueue(manager as never, persistence);
+    await queue.load();
+    await queue.save();
+    await queue.getCards();
+
+    expect(persistence.set).not.toHaveBeenCalled();
+  });
+
+  it('persists an empty manual state after a real manual queue entry is cleared', async () => {
+    const card = createCard({
+      id: 'manual-card-to-clear',
+      blockId: 'manual-block-to-clear',
+    });
+    const persistence = createPersistenceStub([card.id]);
+    const manager = {
+      getCard: vi.fn(async (id: string) => {
+        if (id === card.id) {
+          return card;
+        }
+        throw new Error(`获取卡片失败 (${id}): Card not found: ${id}`);
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async (_card: FSRSCard) => {}),
+      notifyObservers: vi.fn(),
+      getDayStartHour: vi.fn(() => 4),
+      getPriorityRandomness: vi.fn(() => 0),
+      getAddToOutstandingEveryNth: vi.fn(() => 2),
+      getNewCardsPerDay: vi.fn(() => 20),
+      getReviewsPerDay: vi.fn(() => 200),
+    };
+
+    const queue = new IncrementalLearningQueue(manager as never, persistence);
+    await queue.load();
+    await queue.removeCard(card.id);
+
+    expect(persistence.set).toHaveBeenCalledWith('incrementalLearningQueue', []);
+  });
+
   it('allows manually adding cards that were already reviewed today', async () => {
     const reviewedToday = createCard({
       id: 'card-reviewed-today',

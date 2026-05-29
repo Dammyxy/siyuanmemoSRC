@@ -185,28 +185,35 @@ export class SqliteDatabaseService {
     const db = this.requireDb();
     const shouldPersist = options.persist !== false;
     if (this.transactionDepth > 0) {
+      const changeMark = this.captureDatabaseChangeMark();
       const result = await writer(db);
-      if (shouldPersist) {
-        this.pendingPersist = true;
-        this.dirtySincePersist = true;
+      const mutated = this.hasDatabaseChangedSince(changeMark);
+      if (mutated) {
         this.currentTransactionMutated = true;
+        this.dirtySincePersist = true;
+      }
+      if (shouldPersist && mutated) {
+        this.pendingPersist = true;
       }
       return result;
     }
 
     db.run('BEGIN IMMEDIATE');
     this.transactionDepth = 1;
-    this.currentTransactionMutated = shouldPersist;
+    this.currentTransactionMutated = false;
+    const changeMark = this.captureDatabaseChangeMark();
     const startedAt = Date.now();
     let committed = false;
     try {
       const result = await writer(db);
+      const transactionMutated = this.currentTransactionMutated || this.hasDatabaseChangedSince(changeMark);
       db.run('COMMIT');
       committed = true;
       this.transactionDepth = 0;
-      const persistAfterCommit = shouldPersist || this.pendingPersist;
+      const persistAfterCommit = (shouldPersist || this.pendingPersist)
+        && (transactionMutated || this.dirtySincePersist);
       this.pendingPersist = false;
-      if (this.currentTransactionMutated) {
+      if (transactionMutated) {
         this.dirtySincePersist = true;
       }
       this.currentTransactionMutated = false;
@@ -255,10 +262,9 @@ export class SqliteDatabaseService {
   }
 
   run(sql: string, params?: SqlParams): void {
+    const changeMark = this.captureDatabaseChangeMark();
     this.requireDb().run(sql, params);
-    if (this.transactionDepth > 0) {
-      this.currentTransactionMutated = true;
-    } else {
+    if (this.transactionDepth === 0 && this.hasDatabaseChangedSince(changeMark)) {
       this.dirtySincePersist = true;
     }
   }
@@ -646,6 +652,22 @@ export class SqliteDatabaseService {
 
   private getSchemaChangeVersion(): number {
     return Number(this.getOne<{ schema_version: number }>('PRAGMA schema_version')?.schema_version ?? 0);
+  }
+
+  private getTotalChanges(): number {
+    return Number(this.getOne<{ changes: number }>('SELECT total_changes() AS changes')?.changes ?? 0);
+  }
+
+  private captureDatabaseChangeMark(): { schemaVersion: number; totalChanges: number } {
+    return {
+      schemaVersion: this.getSchemaChangeVersion(),
+      totalChanges: this.getTotalChanges(),
+    };
+  }
+
+  private hasDatabaseChangedSince(mark: { schemaVersion: number; totalChanges: number }): boolean {
+    return this.getSchemaChangeVersion() !== mark.schemaVersion
+      || this.getTotalChanges() !== mark.totalChanges;
   }
 
   private getUserVersion(): number {

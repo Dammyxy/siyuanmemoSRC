@@ -187,4 +187,91 @@ describe('WorkerSqliteDatabaseService', () => {
     await database.persist();
     expect(writeBinary).toHaveBeenCalledTimes(writesBeforeProjection + 1);
   });
+
+  it('does not persist or append processed-source rows for no-op persisted main DB merge', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...bridge,
+      writeBinary,
+    });
+    await database.init();
+    await database.upsertCards([{
+      id: 'noop-main-merge-card',
+      blockId: 'noop-main-merge-block',
+      due: 1_700_000_000_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 1,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: 1_699_900_000_000,
+      elapsedDays: 1,
+      scheduledDays: 3,
+      priority: 40,
+      type: CardType.Item,
+      tags: [],
+      neuralRoamSeed: false,
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: 1_699_800_000_000,
+      updatedAt: 1_700_000_000_000,
+      meta: { content: 'noop main merge card' },
+    }]);
+    await database.persist();
+
+    const externalBridge = createInMemorySqlitePersistenceBridge();
+    await externalBridge.writeBinary('siyuanmemo.db', bridge.snapshot().bytes!);
+    const externalDatabase = new WorkerSqliteDatabaseService(externalBridge);
+    await externalDatabase.init();
+    await externalDatabase.runTransaction('seed.noop-processed-main-source', (db) => {
+      db.run(
+        `INSERT OR REPLACE INTO domain_sync_processed_sources
+          (source_id, source_fingerprint, source_kind, path, processed_at,
+           imported_operations, ignored_operations, imported_review_events, ignored_review_events,
+           imported_cards, ignored_cards, skipped_reason, latest_sanity_status, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'siyuan-sync:siyuanmemo.db',
+          'external-noop-fingerprint',
+          'persisted-main-db',
+          null,
+          1_700_000_100_000,
+          0,
+          12,
+          0,
+          0,
+          0,
+          1,
+          null,
+          null,
+          '{}',
+        ],
+      );
+    });
+    await externalDatabase.persist();
+    await bridge.writeBinary('siyuanmemo.db', externalBridge.snapshot().bytes!);
+
+    const writesBeforeMerge = writeBinary.mock.calls.length;
+    const processedRowsBefore = database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_processed_sources WHERE source_id = ?',
+      ['siyuan-sync:siyuanmemo.db'],
+    )?.count ?? 0;
+
+    const result = await database.mergeExternalDatabaseIfChanged(1_700_000_200_000);
+
+    expect(result).toMatchObject({
+      ok: true,
+      checked: true,
+      changed: false,
+      mergedCards: 0,
+      mergedReviewEvents: 0,
+    });
+    expect(writeBinary).toHaveBeenCalledTimes(writesBeforeMerge);
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_processed_sources WHERE source_id = ?',
+      ['siyuan-sync:siyuanmemo.db'],
+    )?.count).toBe(processedRowsBefore);
+  });
 });

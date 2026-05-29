@@ -662,6 +662,14 @@ type BrowserPluginContext = {
   getSemanticActivationBrowserReadClient?: () => SemanticActivationBrowserReadClient | null;
 };
 
+type BrowserHybridSyncService = {
+  incrementalSync: (
+    onProgress?: unknown,
+    options?: { source?: 'browser-open'; persistIdleCheckpoint?: boolean }
+  ) => Promise<unknown>;
+  on?: (eventName: string, handler: (data: unknown) => void) => void;
+};
+
 type BrowserPluginPort = IPluginFacade & {
   getContext?: () => BrowserPluginContext | null;
   isMobile?: boolean;
@@ -751,7 +759,7 @@ const {
 });
 
 // 🆕 同步状指示器相关
-const hybridSyncService = computed(() => pluginContext.value?.getHybridSyncService?.());
+const hybridSyncService = computed(() => pluginContext.value?.getHybridSyncService?.() as BrowserHybridSyncService | undefined);
 const showSyncIndicator = computed(() => {
   const storage = pluginStorage.value;
   if (!storage) return false;
@@ -3252,7 +3260,10 @@ onMounted(() => {
 
       void (async () => {
         try {
-          await hybridService.incrementalSync();
+          await hybridService.incrementalSync(undefined, {
+            source: 'browser-open',
+            persistIdleCheckpoint: false,
+          });
           logger.info('[SiYuanMemo][SRSBrowser] Incremental sync completed, reloading data...');
           await applyInitialBrowserView(true);
         } catch (err) {

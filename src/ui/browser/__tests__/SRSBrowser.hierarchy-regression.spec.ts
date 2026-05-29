@@ -635,6 +635,57 @@ describe('SRSBrowser hierarchy regressions', () => {
     expect(refreshQueueCountsBridgeMock).toHaveBeenCalledTimes(1);
   });
 
+  it('runs browser-open Riff incremental sync without persisting idle checkpoints', async () => {
+    const incrementalSync = vi.fn(async () => ({
+      success: true,
+      addedCount: 0,
+      updatedCount: 0,
+      deletedCount: 0,
+      skippedCount: 0,
+      detectedCount: 0,
+    }));
+    createDeckDataSourceMock.mockReturnValue(createQueryableDataSource([
+      buildBrowserCard('browser-open-sync-card', 'doc-1'),
+    ]));
+
+    const wrapper = mountBrowser({
+      plugin: {
+        getContext: () => ({
+          getHybridSyncService: () => ({
+            incrementalSync,
+            on: vi.fn(),
+            off: vi.fn(),
+          }),
+          getStorage: () => ({
+            getSettings: () => ({
+              riffIntegration: {
+                mode: 'hybrid',
+                incrementalSync: {
+                  enabled: true,
+                  triggers: ['browser-open'],
+                },
+                fullSync: {
+                  enabled: true,
+                },
+              },
+            }),
+          }),
+        }),
+      } as never,
+    });
+
+    await advance(0);
+    await flushPromises();
+    await nextTick();
+
+    expect(incrementalSync).toHaveBeenCalledWith(undefined, {
+      source: 'browser-open',
+      persistIdleCheckpoint: false,
+    });
+
+    wrapper.unmount();
+  });
+
   it('defers hierarchy document counts until first deck rows load', async () => {
     let resolveFetchRows: ((value: { rows: BrowserCard[]; totalCount: number }) => void) | null = null;
     const datasource = {

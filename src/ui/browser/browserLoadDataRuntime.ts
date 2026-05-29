@@ -41,6 +41,8 @@ type BrowserLogger = {
   info: (...args: unknown[]) => void;
 };
 
+const DEFAULT_QUEUE_VIEW_RETRY_DELAY_MS = 300;
+
 type BrowserLoadGlobalSelection = {
   clear: () => void;
 };
@@ -252,13 +254,14 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
         if (queueView.status === 'refreshing') {
           datasourceTriggered = true;
           deps.currentDataSource.value = null;
-          if (queueView.keepLoading && queueView.retryDelayMs != null && !currentController.signal.aborted) {
+          const retryDelayMs = queueView.retryDelayMs ?? DEFAULT_QUEUE_VIEW_RETRY_DELAY_MS;
+          if (queueView.keepLoading && !currentController.signal.aborted) {
             queueViewRetryTimer = setTimeout(() => {
               queueViewRetryTimer = null;
               if (!currentController.signal.aborted) {
                 void loadData(forceRefresh, { ...options, origin: 'queue-sync' });
               }
-            }, queueView.retryDelayMs);
+            }, retryDelayMs);
           } else {
             deps.loading.value = false;
           }

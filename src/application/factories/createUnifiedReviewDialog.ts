@@ -41,7 +41,12 @@ type ReviewDialogPluginLike = {
                 };
             };
         };
-        getHybridSyncService?: () => { incrementalSync: () => Promise<unknown> } | undefined;
+        getHybridSyncService?: () => {
+            incrementalSync: (
+                onProgress?: unknown,
+                options?: { source?: string; persistIdleCheckpoint?: boolean },
+            ) => Promise<unknown>;
+        } | undefined;
     } | undefined;
 };
 
@@ -179,7 +184,10 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                     const syncManager = plugin.reviewSyncManager;
                     if (syncManager.reviewCount > 0) {
                         try {
-                            await context.getHybridSyncService?.()?.incrementalSync();
+                            await context.getHybridSyncService?.()?.incrementalSync(undefined, {
+                                source: 'review-dialog-close',
+                                persistIdleCheckpoint: false,
+                            });
                             logger.info('Data synced on close');
                         } catch (err) {
                             logger.error('Sync failed on close:', err);

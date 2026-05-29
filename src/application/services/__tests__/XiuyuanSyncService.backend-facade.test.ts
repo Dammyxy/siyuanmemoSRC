@@ -68,9 +68,10 @@ function createSiyuanApi(): XiuyuanSyncSiyuanPort {
 function createService(input: {
   executeXiuyuanSync: ReturnType<typeof vi.fn>;
   repository: IXiuyuanRepository;
+  config?: HybridSyncConfig;
 }): XiuyuanSyncService {
   return new (XiuyuanSyncService as unknown as new (...args: unknown[]) => XiuyuanSyncService)(
-    createConfig(),
+    input.config ?? createConfig(),
     new EventBus(),
     input.repository,
     {
@@ -289,6 +290,70 @@ describe('XiuyuanSyncService backend command facade', () => {
     rejectSync(new Error('BACKEND_UNAVAILABLE: backend worker request timed out after 30000ms'));
     await Promise.resolve();
     await Promise.resolve();
+    expect(repository.applySyncChangeSet).not.toHaveBeenCalled();
+  });
+
+  it('marks startup incremental backend sync as non-persistent when idle', async () => {
+    const repository = createRepository();
+    const config = createConfig();
+    config.fullSync.enabled = false;
+    const executeXiuyuanSync = vi.fn(async () => ({
+      status: 'applied',
+      commandId: 'cmd-startup-incremental',
+      idempotencyKey: 'key-startup-incremental',
+      mode: 'incremental',
+      dryRun: false,
+      progress: {
+        state: 'succeeded',
+        currentStep: 'applied',
+        completedUnits: 4,
+        totalUnits: 4,
+        updatedAt: 1_700_000_000_000,
+      },
+      plan: {
+        localXiuyuanCount: 0,
+        localCardCount: 0,
+        localManagedRiffCount: 0,
+        nativeRiffCount: 0,
+        normalizedNativeRiffCount: 0,
+        malformedNativeRiffCount: 0,
+        duplicateNativeRiffCount: 0,
+        createCount: 0,
+        updateCount: 0,
+        deleteCount: 0,
+        skippedLocalOwnedCount: 0,
+        candidateBlockIds: {
+          create: [],
+          update: [],
+          delete: [],
+          skippedLocalOwned: [],
+        },
+      },
+      applyImpact: {
+        requested: true,
+        applied: true,
+        reason: 'applied',
+        changed: {
+          blockIds: [],
+          cardIds: [],
+        },
+      },
+      diagnostics: {
+        diagnosticEventId: 'xiuyuan-sync:cmd-startup-incremental',
+        readSource: 'renderer-host-effect',
+        timingMs: 1,
+        errorCategory: null,
+      },
+    }));
+    const service = createService({ executeXiuyuanSync, repository, config });
+
+    await service.start();
+
+    await vi.waitFor(() => expect(executeXiuyuanSync).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'incremental',
+      dryRun: false,
+      persistIdleCheckpoint: false,
+    })));
     expect(repository.applySyncChangeSet).not.toHaveBeenCalled();
   });
 });

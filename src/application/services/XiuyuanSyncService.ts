@@ -481,7 +481,10 @@ export class XiuyuanSyncService {
             logger.info('Full reconcile is due on plugin start; scheduling full sync instead of incremental');
             this.startStartupSyncInBackground('full', () => this.fullSync());
         } else if (this.config.incrementalSync.enabled && this.config.incrementalSync.triggers.includes('plugin-start')) {
-            this.startStartupSyncInBackground('incremental', () => this.incrementalSync(undefined, { source: 'startup' }));
+            this.startStartupSyncInBackground('incremental', () => this.incrementalSync(undefined, {
+                source: 'startup',
+                persistIdleCheckpoint: false,
+            }));
         }
         
         logger.info('Sync service started');
@@ -1474,6 +1477,7 @@ export class XiuyuanSyncService {
                     blockIds: null,
                 },
             caller,
+            persistIdleCheckpoint: options?.persistIdleCheckpoint,
         };
     }
 

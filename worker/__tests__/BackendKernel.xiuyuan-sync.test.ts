@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BackendKernel } from '../bootstrap/BackendKernel';
 import { createInMemorySqlitePersistenceBridge } from '../db/SqlitePersistenceBridge';
+import type { SqlitePersistenceBridge } from '../db/SqlitePersistenceBridge';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 
@@ -414,6 +415,274 @@ describe('BackendKernel xiuyuan.sync.execute', () => {
     const syncStatePayload = JSON.parse(syncState?.value_json || '{}');
     expect(syncStatePayload.lastSuccessfulFullAt).toBeGreaterThanOrEqual(now);
     expect(syncState?.updated_at).toBe(syncStatePayload.lastSuccessfulFullAt);
+  });
+
+  it('does not persist an idle startup incremental checkpoint for unchanged managed Riff rows', async () => {
+    const database = await createSeededDatabase();
+    const now = 1_700_000_000_000;
+    const appliedAt = 1_700_000_000_500;
+    database.run('UPDATE xiuyuans SET updated_at = ?, payload_json = ? WHERE id = ?', [
+      now,
+      JSON.stringify({
+        id: 'xy-existing',
+        blockIDs: ['block-existing'],
+        templateID: 'builtin-riff-sync',
+        content: 'Stable startup content',
+        updatedAt: now,
+        meta: {
+          ownership: 'riff-managed',
+          source: 'riff-sync',
+          riffCardId: 'riff-existing',
+          deckId: 'deck-a',
+        },
+      }),
+      'xy-existing',
+    ]);
+    await database.upsertCards([buildCard({
+      riffCardId: 'riff-existing',
+      content: 'Stable startup content',
+      meta: {
+        templateID: 'builtin-riff-sync',
+        ownership: 'riff-managed',
+        source: 'riff-sync',
+        riffCardId: 'riff-existing',
+        deckId: 'deck-a',
+      },
+    } as Partial<FSRSCard>)]);
+    const beforeCardRow = database.getOne<{ updated_at: number; payload_json: string }>(
+      "SELECT updated_at, payload_json FROM cards WHERE id = 'card-existing'",
+    );
+    const readXiuyuanRiffFacts = vi.fn(async (request) => ({
+      status: 'ready' as const,
+      requestId: request.requestId,
+      mode: request.mode,
+      deckId: request.deckId,
+      readAt: appliedAt,
+      blocks: [
+        { id: 'block-existing', content: 'Stable startup content', riffCardID: 'riff-existing' },
+      ],
+      diagnostics: {
+        source: 'renderer-host-effect' as const,
+        blockCount: 1,
+        normalizedBlockCount: 1,
+        malformedBlockCount: 0,
+        truncated: false,
+      },
+    }));
+    const kernel = new BackendKernel({
+      database,
+      readXiuyuanRiffFacts,
+    });
+
+    const response = await kernel.handle({
+      id: 'xiuyuan-sync-idle-startup-incremental',
+      jsonrpc: '2.0',
+      method: 'xiuyuan.sync.execute',
+      params: [{
+        requestId: 'sync-request-idle-startup-incremental',
+        commandId: 'sync-command-idle-startup-incremental',
+        idempotencyKey: 'sync-key-idle-startup-incremental',
+        mode: 'incremental',
+        dryRun: false,
+        deckId: 'deck-a',
+        requestedAt: now,
+        persistIdleCheckpoint: false,
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'applied',
+        applyImpact: {
+          requested: true,
+          applied: true,
+          reason: 'applied',
+          changed: {
+            blockIds: [],
+            cardIds: [],
+          },
+        },
+      }),
+    }));
+    expect(database.getOne<{ value_json: string }>(
+      "SELECT value_json FROM riff_sync WHERE key = 'sync_state'",
+    )).toBeNull();
+    expect(database.getOne<{ updated_at: number; payload_json: string }>(
+      "SELECT updated_at, payload_json FROM cards WHERE id = 'card-existing'",
+    )).toEqual(beforeCardRow);
+  });
+
+  it('does not write the persisted sqlite file for idle startup incremental sync', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...bridge,
+      writeBinary,
+    } satisfies SqlitePersistenceBridge);
+    await database.init();
+    const now = 1_700_000_000_000;
+    database.run('INSERT INTO xiuyuans (id, updated_at, payload_json) VALUES (?, ?, ?)', [
+      'xy-existing',
+      now,
+      JSON.stringify({
+        id: 'xy-existing',
+        blockIDs: ['block-existing'],
+        templateID: 'builtin-riff-sync',
+        content: 'Stable startup content',
+        updatedAt: now,
+        meta: {
+          ownership: 'riff-managed',
+          source: 'riff-sync',
+          riffCardId: 'riff-existing',
+          deckId: 'deck-a',
+        },
+      }),
+    ]);
+    await database.upsertCards([buildCard({
+      riffCardId: 'riff-existing',
+      content: 'Stable startup content',
+      meta: {
+        templateID: 'builtin-riff-sync',
+        ownership: 'riff-managed',
+        source: 'riff-sync',
+        riffCardId: 'riff-existing',
+        deckId: 'deck-a',
+      },
+    } as Partial<FSRSCard>)]);
+    await database.persist();
+    const mainDbWritesBeforeSync = writeBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+    const readXiuyuanRiffFacts = vi.fn(async (request) => ({
+      status: 'ready' as const,
+      requestId: request.requestId,
+      mode: request.mode,
+      deckId: request.deckId,
+      readAt: 1_700_000_000_500,
+      blocks: [
+        { id: 'block-existing', content: 'Stable startup content', riffCardID: 'riff-existing' },
+      ],
+      diagnostics: {
+        source: 'renderer-host-effect' as const,
+        blockCount: 1,
+        normalizedBlockCount: 1,
+        malformedBlockCount: 0,
+        truncated: false,
+      },
+    }));
+    const kernel = new BackendKernel({
+      database,
+      readXiuyuanRiffFacts,
+    });
+
+    await kernel.handle({
+      id: 'xiuyuan-sync-idle-startup-no-write',
+      jsonrpc: '2.0',
+      method: 'xiuyuan.sync.execute',
+      params: [{
+        requestId: 'sync-request-idle-startup-no-write',
+        commandId: 'sync-command-idle-startup-no-write',
+        idempotencyKey: 'sync-key-idle-startup-no-write',
+        mode: 'incremental',
+        dryRun: false,
+        deckId: 'deck-a',
+        requestedAt: now,
+        persistIdleCheckpoint: false,
+      }],
+    });
+
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbWritesBeforeSync);
+  });
+
+  it('does not persist an idle startup incremental checkpoint for skipped local-owned Riff candidates', async () => {
+    const database = await createSeededDatabase();
+    const now = 1_700_000_000_000;
+    database.run('DELETE FROM cards WHERE id = ?', ['card-existing']);
+    database.run('DELETE FROM xiuyuans WHERE id = ?', ['xy-existing']);
+    database.run('INSERT INTO xiuyuans (id, updated_at, payload_json) VALUES (?, ?, ?)', [
+      'xy-local-owned',
+      now,
+      JSON.stringify({
+        id: 'xy-local-owned',
+        blockIDs: ['block-local-owned'],
+        templateID: 'manual',
+        meta: {
+          ownership: 'local-owned',
+          source: 'manual',
+        },
+      }),
+    ]);
+    await database.upsertCards([buildCard({
+      id: 'card-local-owned',
+      xiuyuanID: 'xy-local-owned',
+      blockId: 'block-local-owned',
+      meta: {
+        templateID: 'manual',
+        ownership: 'local-owned',
+        source: 'manual',
+      },
+    })]);
+    const readXiuyuanRiffFacts = vi.fn(async (request) => ({
+      status: 'ready' as const,
+      requestId: request.requestId,
+      mode: request.mode,
+      deckId: request.deckId,
+      readAt: 1_700_000_000_500,
+      blocks: [
+        { id: 'block-local-owned', content: 'Native Riff candidate that local-owned card skips' },
+      ],
+      diagnostics: {
+        source: 'renderer-host-effect' as const,
+        blockCount: 1,
+        normalizedBlockCount: 1,
+        malformedBlockCount: 0,
+        truncated: false,
+      },
+    }));
+    const kernel = new BackendKernel({
+      database,
+      readXiuyuanRiffFacts,
+    });
+
+    const response = await kernel.handle({
+      id: 'xiuyuan-sync-idle-startup-skip-only',
+      jsonrpc: '2.0',
+      method: 'xiuyuan.sync.execute',
+      params: [{
+        requestId: 'sync-request-idle-startup-skip-only',
+        commandId: 'sync-command-idle-startup-skip-only',
+        idempotencyKey: 'sync-key-idle-startup-skip-only',
+        mode: 'incremental',
+        dryRun: false,
+        deckId: 'deck-a',
+        requestedAt: now,
+        persistIdleCheckpoint: false,
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'applied',
+        plan: expect.objectContaining({
+          createCount: 0,
+          updateCount: 0,
+          deleteCount: 0,
+          skippedLocalOwnedCount: 1,
+        }),
+        applyImpact: {
+          requested: true,
+          applied: true,
+          reason: 'applied',
+          changed: {
+            blockIds: [],
+            cardIds: [],
+          },
+        },
+      }),
+    }));
+    expect(database.getOne<{ value_json: string }>(
+      "SELECT value_json FROM riff_sync WHERE key = 'sync_state'",
+    )).toBeNull();
   });
 
   it('preserves newer local scheduling state when native Riff schedule is stale', async () => {

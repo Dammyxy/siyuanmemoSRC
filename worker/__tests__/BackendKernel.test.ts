@@ -1340,16 +1340,12 @@ describe('BackendKernel', () => {
       lastReview: repairedLastReview,
       updatedAt: repairedUpdatedAt,
     });
-    expect(database.getOne<{ imported_cards: number; ignored_cards: number; source_kind: string }>(
-      `SELECT imported_cards, ignored_cards, source_kind
+    expect(database.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
        FROM domain_sync_processed_sources
        WHERE source_id = ?`,
       ['siyuan-sync:siyuanmemo.db'],
-    )).toMatchObject({
-      source_kind: 'persisted-main-db',
-      imported_cards: 0,
-      ignored_cards: 1,
-    });
+    )?.count).toBe(0);
   });
 
   it('does not regress scheduling state before handling a routine backend request', async () => {
