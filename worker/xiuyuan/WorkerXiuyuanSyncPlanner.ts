@@ -54,6 +54,36 @@ function isSupportedMode(value: unknown): value is BackendXiuyuanSyncMode {
   return value === 'incremental' || value === 'full' || value === 'audit';
 }
 
+function hasLocalOwnershipEvidence(fact: {
+  ownership?: string | null;
+  source?: string | null;
+  templateId?: string | null;
+} | null): boolean {
+  if (!fact) {
+    return false;
+  }
+  const ownership = normalizeString(fact.ownership);
+  const source = normalizeString(fact.source);
+  const templateId = normalizeString(fact.templateId);
+  return ownership === 'local-owned'
+    || ownership === 'plugin-owned'
+    || (templateId.length > 0 && templateId !== 'builtin-riff-sync')
+    || (source.length > 0 && source !== 'riff-sync');
+}
+
+function hasManagedRiffEvidence(fact: {
+  ownership?: string | null;
+  templateId?: string | null;
+} | null): boolean {
+  if (!fact) {
+    return false;
+  }
+  const ownership = normalizeString(fact.ownership);
+  const templateId = normalizeString(fact.templateId);
+  return ownership === 'riff-managed'
+    || templateId === 'builtin-riff-sync';
+}
+
 function progress(
   state: BackendHotspotCommandProgress['state'],
   currentStep: string,
@@ -74,13 +104,12 @@ function isManagedRiffFact(
   card: BackendXiuyuanSyncLocalCardFact | null,
   xiuyuan: BackendXiuyuanSyncLocalXiuyuanFact | null,
 ): boolean {
-  const ownership = normalizeString(card?.ownership ?? xiuyuan?.ownership);
-  const source = normalizeString(card?.source ?? xiuyuan?.source);
-  const templateId = normalizeString(card?.templateId ?? xiuyuan?.templateId);
+  if (hasLocalOwnershipEvidence(card) || hasLocalOwnershipEvidence(xiuyuan)) {
+    return false;
+  }
   const riffCardId = normalizeString(card?.riffCardId);
-  return ownership === 'riff-managed'
-    || source === 'riff-sync'
-    || templateId === 'builtin-riff-sync'
+  return hasManagedRiffEvidence(card)
+    || hasManagedRiffEvidence(xiuyuan)
     || riffCardId.length > 0;
 }
 
@@ -155,9 +184,12 @@ function buildLocalIndexes(localFacts: BackendXiuyuanSyncLocalFacts): {
     }
     const xiuyuan = card.xiuyuanId ? xiuyuanById.get(card.xiuyuanId) ?? null : xiuyuanByBlockId.get(blockId) ?? null;
     if (isManagedRiffFact(card, xiuyuan)) {
-      managedRiffBlockIds.add(blockId);
+      if (!localOwnedBlockIds.has(blockId)) {
+        managedRiffBlockIds.add(blockId);
+      }
     } else {
       localOwnedBlockIds.add(blockId);
+      managedRiffBlockIds.delete(blockId);
     }
   }
 

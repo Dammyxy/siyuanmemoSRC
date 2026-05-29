@@ -330,6 +330,11 @@ export interface BackendDomainSyncStatusResult {
   };
 }
 
+export interface BackendDomainSyncStatusRequest {
+  context?: 'review-feedback-preflight' | 'read-only-preflight' | null;
+  cardId?: string | null;
+}
+
 export interface BackendDomainSyncRepairPreviewRequest {
   cardIds?: string[];
   limit?: number;

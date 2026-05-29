@@ -566,7 +566,7 @@ type ReviewPluginContextLike = {
     getSchedulerType?: (card: FSRSCard) => 'fsrs-v6' | 'a-factor-v2';
   } | undefined;
   getUnifiedDataSourceManager?: () => IUnifiedDataSourceManagerFacade | null | undefined;
-  readDomainSyncDiagnostics?: () => Promise<unknown>;
+  readDomainSyncDiagnostics?: (request?: { context?: 'review-feedback-preflight'; cardId?: string | null }) => Promise<unknown>;
   auditReviewSyncDivergence?: (request?: { cardIds?: string[]; limit?: number }) => Promise<BackendReviewSyncDivergenceAuditResult>;
 };
 
@@ -1417,7 +1417,10 @@ async function ensureReviewDomainSyncSafeForAction(input: {
 
   let blockedDecisionMessage: string | null = null;
   try {
-    const status = await context.readDomainSyncDiagnostics();
+    const status = await context.readDomainSyncDiagnostics({
+      context: 'review-feedback-preflight',
+      cardId: currentCardId,
+    });
     const decision = buildReviewDomainSyncSafetyDecision(status as never, undefined, {
       currentCardId,
     });

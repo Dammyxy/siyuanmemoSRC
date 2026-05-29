@@ -172,6 +172,197 @@ describe('WorkerXiuyuanSyncPlanner', () => {
     expect(result.plan.candidateBlockIds.delete).toEqual([]);
   });
 
+  it('treats source=riff-sync on plugin-owned templates as origin metadata, not Riff ownership', async () => {
+    const pluginOwnedFacts: BackendXiuyuanSyncLocalFacts = {
+      loadedAt: 1_700_000_000_000,
+      xiuyuans: [
+        {
+          id: 'xy-plugin-origin',
+          blockIds: ['block-plugin-origin'],
+          representativeBlockId: 'block-plugin-origin',
+          templateId: 'builtin-concept-definition',
+          ownership: null,
+          source: 'riff-sync',
+          updatedAt: 1,
+        },
+      ],
+      cards: [
+        {
+          id: 'card-plugin-origin',
+          xiuyuanId: 'xy-plugin-origin',
+          blockId: 'block-plugin-origin',
+          templateId: 'builtin-concept-definition',
+          ownership: null,
+          source: 'riff-sync',
+          schedulerType: 'fsrs-v6',
+          updatedAt: 1,
+        },
+      ],
+    };
+    const planner = new WorkerXiuyuanSyncPlanner({
+      loadLocalFacts: vi.fn(async () => pluginOwnedFacts),
+      readNativeRiffFacts: vi.fn(async () => ({
+        ...nativeReady(),
+        blocks: [
+          { id: 'block-plugin-origin', content: 'Native Riff copy of plugin-owned block' },
+        ],
+        diagnostics: {
+          ...nativeReady().diagnostics,
+          blockCount: 1,
+          normalizedBlockCount: 1,
+          malformedBlockCount: 0,
+        },
+      })),
+    });
+
+    const result = await planner.execute({
+      requestId: 'sync-request-plugin-origin',
+      commandId: 'sync-command-plugin-origin',
+      idempotencyKey: 'sync-key-plugin-origin',
+      mode: 'full',
+      dryRun: true,
+      deckId: 'deck-a',
+      requestedAt: 1_700_000_000_000,
+    });
+
+    expect(result.status).toBe('planned');
+    if (result.status !== 'planned') {
+      throw new Error('expected planned result');
+    }
+    expect(result.plan).toMatchObject({
+      localManagedRiffCount: 0,
+      createCount: 0,
+      updateCount: 0,
+      deleteCount: 0,
+      skippedLocalOwnedCount: 1,
+      candidateBlockIds: {
+        create: [],
+        update: [],
+        delete: [],
+        skippedLocalOwned: ['block-plugin-origin'],
+      },
+    });
+  });
+
+  it('does not update or delete a mixed block that has plugin-owned cards and a Riff shadow card', async () => {
+    const mixedBlockFacts: BackendXiuyuanSyncLocalFacts = {
+      loadedAt: 1_700_000_000_000,
+      xiuyuans: [
+        {
+          id: 'xy-mixed-plugin',
+          blockIds: ['block-mixed'],
+          representativeBlockId: 'block-mixed',
+          templateId: 'builtin-concept-definition',
+          ownership: null,
+          source: 'riff-sync',
+          updatedAt: 1,
+        },
+        {
+          id: 'xy-mixed-riff',
+          blockIds: ['block-mixed'],
+          representativeBlockId: 'block-mixed',
+          templateId: 'builtin-riff-sync',
+          ownership: 'riff-managed',
+          source: 'riff-sync',
+          updatedAt: 1,
+        },
+      ],
+      cards: [
+        {
+          id: 'card-mixed-plugin',
+          xiuyuanId: 'xy-mixed-plugin',
+          blockId: 'block-mixed',
+          templateId: 'builtin-concept-definition',
+          ownership: null,
+          source: 'riff-sync',
+          schedulerType: 'fsrs-v6',
+          updatedAt: 1,
+        },
+        {
+          id: 'card-mixed-riff',
+          xiuyuanId: 'xy-mixed-riff',
+          blockId: 'block-mixed',
+          templateId: 'builtin-riff-sync',
+          ownership: 'riff-managed',
+          source: 'riff-sync',
+          schedulerType: 'fsrs-v6',
+          updatedAt: 1,
+        },
+      ],
+    };
+    const planner = new WorkerXiuyuanSyncPlanner({
+      loadLocalFacts: vi.fn(async () => mixedBlockFacts),
+      readNativeRiffFacts: vi.fn(async () => ({
+        ...nativeReady(),
+        blocks: [
+          { id: 'block-mixed', content: 'Native Riff copy of mixed block' },
+        ],
+        diagnostics: {
+          ...nativeReady().diagnostics,
+          blockCount: 1,
+          normalizedBlockCount: 1,
+          malformedBlockCount: 0,
+        },
+      })),
+    });
+
+    const updateResult = await planner.execute({
+      requestId: 'sync-request-mixed-update',
+      commandId: 'sync-command-mixed-update',
+      idempotencyKey: 'sync-key-mixed-update',
+      mode: 'full',
+      dryRun: true,
+      deckId: 'deck-a',
+      requestedAt: 1_700_000_000_000,
+    });
+
+    expect(updateResult.status).toBe('planned');
+    if (updateResult.status !== 'planned') {
+      throw new Error('expected planned result');
+    }
+    expect(updateResult.plan).toMatchObject({
+      createCount: 0,
+      updateCount: 0,
+      deleteCount: 0,
+      skippedLocalOwnedCount: 1,
+      candidateBlockIds: {
+        update: [],
+        delete: [],
+        skippedLocalOwned: ['block-mixed'],
+      },
+    });
+
+    const deletePlanner = new WorkerXiuyuanSyncPlanner({
+      loadLocalFacts: vi.fn(async () => mixedBlockFacts),
+      readNativeRiffFacts: vi.fn(async () => ({
+        ...nativeReady(),
+        blocks: [],
+        diagnostics: {
+          ...nativeReady().diagnostics,
+          blockCount: 0,
+          normalizedBlockCount: 0,
+          malformedBlockCount: 0,
+        },
+      })),
+    });
+    const deleteResult = await deletePlanner.execute({
+      requestId: 'sync-request-mixed-delete',
+      commandId: 'sync-command-mixed-delete',
+      idempotencyKey: 'sync-key-mixed-delete',
+      mode: 'full',
+      dryRun: true,
+      deckId: 'deck-a',
+      requestedAt: 1_700_000_000_000,
+    });
+
+    expect(deleteResult.status).toBe('planned');
+    if (deleteResult.status !== 'planned') {
+      throw new Error('expected planned result');
+    }
+    expect(deleteResult.plan.deleteCount).toBe(0);
+    expect(deleteResult.plan.candidateBlockIds.delete).toEqual([]);
+  });
+
   it('returns typed unavailable when the native Riff read proxy is absent', async () => {
     const planner = new WorkerXiuyuanSyncPlanner({
       loadLocalFacts: vi.fn(async () => localFacts()),

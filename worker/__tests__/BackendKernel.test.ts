@@ -7742,6 +7742,47 @@ describe('BackendKernel', () => {
     expect(audit).not.toHaveBeenCalled();
   });
 
+  it('serves review action domain sync status through the review preflight cache', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
+    const readSyncConflictDatabaseSources = vi.fn(async () => []);
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readBinary,
+      readSyncConflictDatabaseSources,
+    });
+    const status = await database.getDomainSyncStatus(1_779_188_006_100);
+    const audit = vi.spyOn(database, 'auditReviewSyncDivergence');
+    readBinary.mockClear();
+    readSyncConflictDatabaseSources.mockClear();
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'domain-status-review-preflight',
+      jsonrpc: '2.0',
+      method: 'domainSync.status',
+      params: [{
+        context: 'review-feedback-preflight',
+        cardId: 'card-review-preflight-status',
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      id: 'domain-status-review-preflight',
+      result: expect.objectContaining({
+        sanity: expect.objectContaining({
+          status: status.sanity.status,
+        }),
+      }),
+    }));
+    expect(audit).not.toHaveBeenCalled();
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(0);
+    expect(readSyncConflictDatabaseSources).toHaveBeenCalledOnce();
+  });
+
   it('keeps review feedback main DB read fast path across clean read-only backend queries', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));

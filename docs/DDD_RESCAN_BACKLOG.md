@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-29 (Round 504)
+Last update: 2026-05-30 (Round 505)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-30 - Protect plugin cards from Riff shadow sync
+
+- Task: Fix user-reported weird Review schedules after repair/sync where one block can show a native Riff shadow card next to existing plugin-owned Xiuyuan cards, and speed up grading that spent seconds in domain-sync safety.
+- Touched slice: Xiuyuan native Riff sync ownership, Review domain-sync safety preflight, backend worker RPC/status path; `WorkerXiuyuanSyncPlanner`, `BackendKernel`, `WorkerSqliteDatabaseService`, `ReviewView`, backend client/service contracts, focused tests.
+- Debt fixed now: Riff sync no longer treats `source = riff-sync` alone as Riff ownership. Plugin/self templates, `local-owned` / `plugin-owned`, or non-Riff source now count as local ownership, and local-owned evidence for a block wins over managed Riff shadow evidence. Review grading now calls `domainSync.status` with `review-feedback-preflight`; that path avoids the outer generic status refresh, skips persisted-main-db reads, and reuses the preflight status snapshot while still checking conflict sources.
+- Debt deferred: Existing live DB rows that already have same-block `builtin-riff-sync` shadow cards are not deleted here. Existing plugin-template rows with historical `source = riff-sync` remain in place; code now preserves them, but a separate cleanup/audit is needed to remove or hide stale shadows from Review UI.
+- Why deferred: Deleting or rewriting live user cards is a data-cleanup policy decision. The safe runtime fix first prevents further semantic loss of card type, front/back block ids, field mappings, and plugin-owned identity.
+- Next safe step: Rebuild/reload and review a card from a block that has plugin cards plus a Riff shadow. Expected: future native Riff sync skips the plugin-owned block instead of rewriting template/faces; grading should no longer log a multi-second `domain-sync-safety` phase caused by `siyuanmemo.db` main-file reads.
+- Validation: `pnpm vitest run worker/__tests__/WorkerXiuyuanSyncPlanner.test.ts worker/__tests__/BackendKernel.xiuyuan-sync.test.ts`; `pnpm vitest run src/application/services/__tests__/DomainSyncDiagnosticsApplicationService.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts`; `pnpm vitest run worker/__tests__/BackendKernel.test.ts --testNamePattern "domain sync status|review feedback preflight|fast path|read-only domain sync"`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-05-29 - Refresh domain sync diagnostics before Review safety gate
 

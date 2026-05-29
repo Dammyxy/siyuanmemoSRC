@@ -48,16 +48,69 @@ describe('DomainSyncDiagnosticsApplicationService', () => {
       domainSyncRepairPreview,
       domainSyncRepairApply,
       domainSyncConflictSourcesCleanup: vi.fn(),
+      domainSyncConflictSourceCleanupCandidates: vi.fn(),
     }, logger);
 
     await expect(service.readStatus()).resolves.toBe(result);
-    expect(domainSyncStatus).toHaveBeenCalledOnce();
+    expect(domainSyncStatus).toHaveBeenCalledWith({});
     expect(logger.info).toHaveBeenCalledWith('Domain sync diagnostics status read', {
       sanityStatus: 'merged',
       operationCount: 2,
       processedSources: 1,
       skippedSources: 0,
       repairableDivergenceCount: 0,
+    });
+  });
+
+  it('passes review preflight status context to backend diagnostics reads', async () => {
+    const result: BackendDomainSyncStatusResult = {
+      ok: true,
+      ledger: {
+        operationCount: 0,
+        newestOperationAt: null,
+        operationTypes: {},
+      },
+      processedSources: {
+        recent: [],
+        skipped: [],
+        totalProcessed: 0,
+        totalSkipped: 0,
+      },
+      sanity: {
+        status: 'clean',
+        checkedAt: 11,
+        ledgerOperationCount: 0,
+        pendingImportCount: 0,
+        processedSourceCount: 0,
+        skippedSourceCount: 0,
+        repairableDivergenceCount: 0,
+        divergentCardCount: 0,
+        reasonCounts: {},
+        affectedCardIds: [],
+        truncated: false,
+      },
+      repair: {
+        available: false,
+        repairableDivergenceCount: 0,
+        latestPlanId: null,
+      },
+    };
+    const domainSyncStatus = vi.fn(async () => result);
+    const service = new DomainSyncDiagnosticsApplicationService({
+      domainSyncStatus,
+      domainSyncRepairPreview: vi.fn(),
+      domainSyncRepairApply: vi.fn(),
+      domainSyncConflictSourcesCleanup: vi.fn(),
+      domainSyncConflictSourceCleanupCandidates: vi.fn(),
+    }, { info: vi.fn() });
+
+    await expect(service.readStatus({
+      context: 'review-feedback-preflight',
+      cardId: 'card-preflight',
+    })).resolves.toBe(result);
+    expect(domainSyncStatus).toHaveBeenCalledWith({
+      context: 'review-feedback-preflight',
+      cardId: 'card-preflight',
     });
   });
 

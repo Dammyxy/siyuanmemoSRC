@@ -2041,6 +2041,14 @@ export class WorkerSqliteDatabaseService {
     return this.readDomainSyncStatusSnapshot(checkedAt);
   }
 
+  async getDomainSyncStatusForPreflight(
+    context: ExternalDatabaseMergeContext,
+    checkedAt = Date.now(),
+  ): Promise<BackendDomainSyncStatusResult> {
+    await this.init();
+    return this.readDomainSyncStatusForNoSourceMerge(context, checkedAt);
+  }
+
   private async readDomainSyncStatusForNoSourceMerge(
     context: ExternalDatabaseMergeContext,
     checkedAt = Date.now(),

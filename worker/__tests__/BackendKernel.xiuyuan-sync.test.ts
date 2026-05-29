@@ -306,6 +306,149 @@ describe('BackendKernel xiuyuan.sync.execute', () => {
     expect(created?.createdAt).toBeGreaterThan(0);
   });
 
+  it('skips riff-origin plugin cards instead of rewriting their template and faces', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    await database.init();
+    const now = 1_700_000_000_000;
+    database.run('INSERT INTO xiuyuans (id, updated_at, payload_json) VALUES (?, ?, ?)', [
+      'xy-plugin-origin',
+      now,
+      JSON.stringify({
+        id: 'xy-plugin-origin',
+        blockIDs: ['block-plugin-origin'],
+        templateID: 'builtin-concept-definition',
+        fields: [
+          { name: 'concept', blockID: 'block-concept' },
+          { name: 'definition', blockID: 'block-plugin-origin' },
+        ],
+        meta: {
+          source: 'riff-sync',
+        },
+      }),
+    ]);
+    await database.upsertCards([buildCard({
+      id: 'card-plugin-origin',
+      xiuyuanID: 'xy-plugin-origin',
+      blockId: 'block-plugin-origin',
+      due: 1_710_000_000_000,
+      scheduledDays: 4,
+      reps: 6,
+      riffCardId: undefined,
+      meta: {
+        xiuyuanID: 'xy-plugin-origin',
+        templateID: 'builtin-concept-definition',
+        source: 'riff-sync',
+        frontBlockIDs: ['block-concept'],
+        backBlockIDs: ['block-plugin-origin'],
+        fieldMapping: {
+          concept: 'block-concept',
+          definition: 'block-plugin-origin',
+        },
+      },
+    })]);
+    const before = await database.getCard('card-plugin-origin');
+    const readXiuyuanRiffFacts = vi.fn(async (request) => ({
+      status: 'ready' as const,
+      requestId: request.requestId,
+      mode: request.mode,
+      deckId: request.deckId,
+      readAt: 1_700_000_000_100,
+      blocks: [
+        {
+          id: 'block-plugin-origin',
+          content: 'Native Riff content must not replace plugin card semantics',
+          riffCardID: 'riff-plugin-origin',
+          riffCard: {
+            id: 'riff-plugin-origin',
+            due: '2026-04-13T00:00:00.000Z',
+            lastReview: '2026-03-01T00:00:00.000Z',
+            reps: 1,
+            state: CardState.Learning,
+            stability: 0,
+            difficulty: 1,
+            scheduledDays: 43,
+            elapsedDays: 43,
+          },
+        },
+      ],
+      diagnostics: {
+        source: 'renderer-host-effect' as const,
+        blockCount: 1,
+        normalizedBlockCount: 1,
+        malformedBlockCount: 0,
+        truncated: false,
+      },
+    }));
+    const kernel = new BackendKernel({
+      database,
+      readXiuyuanRiffFacts,
+    });
+
+    const response = await kernel.handle({
+      id: 'xiuyuan-sync-plugin-origin-skip',
+      jsonrpc: '2.0',
+      method: 'xiuyuan.sync.execute',
+      params: [{
+        requestId: 'sync-request-plugin-origin-skip',
+        commandId: 'sync-command-plugin-origin-skip',
+        idempotencyKey: 'sync-key-plugin-origin-skip',
+        mode: 'full',
+        dryRun: false,
+        deckId: 'deck-a',
+        requestedAt: now,
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'applied',
+        plan: expect.objectContaining({
+          createCount: 0,
+          updateCount: 0,
+          deleteCount: 0,
+          skippedLocalOwnedCount: 1,
+          candidateBlockIds: expect.objectContaining({
+            skippedLocalOwned: ['block-plugin-origin'],
+          }),
+        }),
+        applyImpact: {
+          requested: true,
+          applied: true,
+          reason: 'applied',
+          changed: {
+            blockIds: [],
+            cardIds: [],
+          },
+        },
+      }),
+    }));
+    const after = await database.getCard('card-plugin-origin');
+    expect(after).toMatchObject({
+      id: 'card-plugin-origin',
+      blockId: 'block-plugin-origin',
+      xiuyuanID: 'xy-plugin-origin',
+      due: before?.due,
+      scheduledDays: 4,
+      reps: 6,
+      meta: {
+        xiuyuanID: 'xy-plugin-origin',
+        templateID: 'builtin-concept-definition',
+        source: 'riff-sync',
+        frontBlockIDs: ['block-concept'],
+        backBlockIDs: ['block-plugin-origin'],
+        fieldMapping: {
+          concept: 'block-concept',
+          definition: 'block-plugin-origin',
+        },
+      },
+    });
+    expect(after?.meta?.ownership).toBeUndefined();
+    expect(after?.riffCardId).toBeUndefined();
+    expect(database.getOne<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM cards WHERE block_id = 'block-plugin-origin'",
+    )?.count).toBe(1);
+  });
+
   it('persists backend full-sync checkpoint without rewriting unchanged managed Riff rows', async () => {
     const database = await createSeededDatabase();
     const now = 1_700_000_000_000;

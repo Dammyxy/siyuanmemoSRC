@@ -3,6 +3,7 @@ import type {
   BackendDomainSyncRepairApplyResult,
   BackendDomainSyncRepairPreviewRequest,
   BackendDomainSyncRepairPreviewResult,
+  BackendDomainSyncStatusRequest,
   BackendDomainSyncStatusResult,
   BackendDomainSyncConflictSourceCleanupCandidatesResult,
   BackendDomainSyncConflictSourceCleanupRequest,
@@ -10,7 +11,7 @@ import type {
 } from '../../../packages/contracts/src/backend-rpc';
 
 export interface DomainSyncDiagnosticsBackend {
-  domainSyncStatus(): Promise<BackendDomainSyncStatusResult>;
+  domainSyncStatus(request?: BackendDomainSyncStatusRequest): Promise<BackendDomainSyncStatusResult>;
   domainSyncRepairPreview(request?: BackendDomainSyncRepairPreviewRequest): Promise<BackendDomainSyncRepairPreviewResult>;
   domainSyncRepairApply(request: BackendDomainSyncRepairApplyRequest): Promise<BackendDomainSyncRepairApplyResult>;
   domainSyncConflictSourceCleanupCandidates(): Promise<BackendDomainSyncConflictSourceCleanupCandidatesResult>;
@@ -42,8 +43,8 @@ export class DomainSyncDiagnosticsApplicationService {
     private readonly followerCommandClient: DomainSyncDiagnosticsFollowerCommandClient | null = null,
   ) {}
 
-  async readStatus(): Promise<BackendDomainSyncStatusResult> {
-    const result = await this.backend.domainSyncStatus();
+  async readStatus(request: BackendDomainSyncStatusRequest = {}): Promise<BackendDomainSyncStatusResult> {
+    const result = await this.backend.domainSyncStatus(request);
     this.logger.info('Domain sync diagnostics status read', {
       sanityStatus: result.sanity.status,
       operationCount: result.ledger.operationCount,

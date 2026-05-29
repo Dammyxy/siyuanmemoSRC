@@ -65,6 +65,7 @@ import type {
   BackendDomainSyncConflictSourceCleanupResult,
   BackendReviewSyncDivergenceAuditRequest,
   BackendReviewSyncDivergenceAuditResult,
+  BackendDomainSyncStatusRequest,
   BackendSyncConflictMergeRequest,
   BackendSyncConflictMergeResult,
   BackendSyncConflictReloadResult,
@@ -141,8 +142,8 @@ export class SrsBackendClient {
     return this.call<BackendDiagnosticsStatusResult>('diagnostics.status');
   }
 
-  async domainSyncStatus(): Promise<BackendDomainSyncStatusResult> {
-    return this.call<BackendDomainSyncStatusResult>('domainSync.status');
+  async domainSyncStatus(request: BackendDomainSyncStatusRequest = {}): Promise<BackendDomainSyncStatusResult> {
+    return this.call<BackendDomainSyncStatusResult>('domainSync.status', request);
   }
 
   async domainSyncRepairPreview(

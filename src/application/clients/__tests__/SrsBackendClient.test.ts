@@ -456,7 +456,22 @@ describe('SrsBackendClient', () => {
     });
     expect(transport.request).toHaveBeenCalledWith(expect.objectContaining({
       method: 'domainSync.status',
-      params: [],
+      params: [{}],
+    }));
+
+    await expect(client.domainSyncStatus({
+      context: 'review-feedback-preflight',
+      cardId: 'card-domain-preflight',
+    })).resolves.toMatchObject({
+      ok: true,
+      sanity: { status: 'clean' },
+    });
+    expect(transport.request).toHaveBeenLastCalledWith(expect.objectContaining({
+      method: 'domainSync.status',
+      params: [{
+        context: 'review-feedback-preflight',
+        cardId: 'card-domain-preflight',
+      }],
     }));
   });
 

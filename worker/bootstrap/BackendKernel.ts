@@ -80,6 +80,7 @@ import {
   type BackendDomainSyncRepairApplyResult,
   type BackendDomainSyncRepairPreviewRequest,
   type BackendDomainSyncRepairPreviewResult,
+  type BackendDomainSyncStatusRequest,
   type BackendDomainSyncConflictSourceCleanupRequest,
   type BackendDomainSyncConflictSourceCleanupCandidatesResult,
   type BackendDomainSyncConflictSourceCleanupResult,
@@ -348,9 +349,15 @@ export class BackendKernel {
 
     try {
       const isReviewFeedback = request.method === 'review.feedback';
+      const isReviewDomainSyncStatusPreflight = this.isDomainSyncStatusPreflight(
+        request,
+        'review-feedback-preflight',
+      );
       const reviewFeedbackCardId = isReviewFeedback ? this.extractReviewFeedbackCardId(request.params) : null;
       const requestStartedAt = Date.now();
-      const requiresStorageRefresh = !STORAGE_REFRESH_EXEMPT_METHODS.has(request.method);
+      const requiresStorageRefresh =
+        !isReviewDomainSyncStatusPreflight
+        && !STORAGE_REFRESH_EXEMPT_METHODS.has(request.method);
       const isReviewFeedbackFastSkipReadOnlyMethod =
         REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_READ_ONLY_METHODS.has(request.method);
       const shouldSkipPreflightMainDbRead = PREFLIGHT_MAIN_DB_SKIP_METHODS.has(request.method);
@@ -431,7 +438,7 @@ export class BackendKernel {
         case 'diagnostics.status':
           return buildSuccess(request.id, await this.diagnosticsStatus());
         case 'domainSync.status':
-          return buildSuccess(request.id, await this.handleDomainSyncStatus());
+          return buildSuccess(request.id, await this.handleDomainSyncStatus(request.params));
         case 'domainSync.repair.preview':
           return buildSuccess(request.id, await this.handleDomainSyncRepairPreview(request.params));
         case 'domainSync.repair.apply':
@@ -656,7 +663,31 @@ export class BackendKernel {
     return Array.isArray(params) ? params[0] : params;
   }
 
-  private async handleDomainSyncStatus(): Promise<BackendDomainSyncStatusResult> {
+  private isDomainSyncStatusPreflight(
+    request: BackendRpcRequest,
+    context: BackendDomainSyncStatusRequest['context'],
+  ): boolean {
+    if (request.method !== 'domainSync.status') {
+      return false;
+    }
+    const param = this.firstParam(request.params);
+    if (!param || typeof param !== 'object') {
+      return false;
+    }
+    return (param as BackendDomainSyncStatusRequest).context === context;
+  }
+
+  private async handleDomainSyncStatus(params?: unknown): Promise<BackendDomainSyncStatusResult> {
+    const [request] = Array.isArray(params) ? params : [params];
+    const statusRequest = (request ?? {}) as BackendDomainSyncStatusRequest;
+    if (statusRequest.context === 'review-feedback-preflight') {
+      await this.deps.database.mergeExternalDatabaseIfChanged(undefined, {
+        context: 'review-feedback-preflight',
+        cardId: typeof statusRequest.cardId === 'string' ? statusRequest.cardId : null,
+        skipMainDbRead: true,
+      });
+      return this.deps.database.getDomainSyncStatusForPreflight('review-feedback-preflight');
+    }
     return this.deps.database.getDomainSyncStatus();
   }
 

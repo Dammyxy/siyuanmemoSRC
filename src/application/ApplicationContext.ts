@@ -176,6 +176,7 @@ import type {
   BackendDomainSyncRepairApplyResult,
   BackendDomainSyncRepairPreviewRequest,
   BackendDomainSyncRepairPreviewResult,
+  BackendDomainSyncStatusRequest,
   BackendDomainSyncStatusResult,
   BackendDomainSyncConflictSourceCleanupCandidatesResult,
   BackendDomainSyncConflictSourceCleanupRequest,
@@ -2105,13 +2106,13 @@ export class ApplicationContext {
     return service.runAudit(request);
   }
 
-  async readDomainSyncDiagnostics(): Promise<BackendDomainSyncStatusResult> {
+  async readDomainSyncDiagnostics(request: BackendDomainSyncStatusRequest = {}): Promise<BackendDomainSyncStatusResult> {
     const backendClient = this.getSrsBackendClient();
     if (!backendClient) {
       throw new Error('BACKEND_UNAVAILABLE: domain sync diagnostics requires SRS backend');
     }
     const service = new DomainSyncDiagnosticsApplicationService(backendClient, logger);
-    return service.readStatus();
+    return service.readStatus(request);
   }
 
   async previewDomainSyncRepair(
