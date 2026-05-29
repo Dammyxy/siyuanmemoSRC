@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-29 (Round 503)
+Last update: 2026-05-29 (Round 504)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-29 - Refresh domain sync diagnostics before Review safety gate
+
+- Task: Fix repeated Review entry repair dialog after SiYuan restart where domain sync diagnostics reported `repairable`, cleanup candidates were empty, and repair preview showed more affected cards than planned mutations.
+- Touched slice: Review/domain-sync backend diagnostics and repair classification; `BackendKernel`, `WorkerSqliteDatabaseService`, focused backend kernel tests.
+- Debt fixed now: `domainSync.status` now performs a read-only persisted-main-db refresh before reporting safety diagnostics, so a worker no longer blocks Review from stale in-memory repairable state after another writer/restart path has already repaired the durable DB. Domain sync repair summary now only counts a card as repairable when the same evidence can build an applyable repair `after` state; incomplete review snapshots with scheduler gaps are classified as unrepairable/divergent instead of leaving `repairable` stuck after available mutations are applied.
+- Debt deferred: Truly unrepairable divergent evidence still needs manual direction or data cleanup; this task does not auto-delete historical review events or synthesize missing scheduler snapshots. `domainSync.status` keeps preserving Review feedback fast-skip eligibility, but it now intentionally reads the main DB for safety freshness.
+- Why deferred: Auto-rewriting or deleting user review history would be a data-repair policy decision beyond the safety-gate stale/repairable classification bug. The active fix keeps diagnostics truthful and avoids hidden fallback.
+- Next safe step: Rebuild/reload, click the incremental-learning Review entry, apply the repair once if prompted, then retry Review. Expected: repaired durable state is observed by the safety gate; if remaining evidence is unrepairable, the dialog should report divergent/unrepairable instead of repeatedly offering the same repairable plan.
+- Validation: `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "refreshes domain sync status from persisted main DB"`; `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "does not leave unapplyable review snapshots counted as repairable"`; `pnpm vitest run worker/__tests__/BackendKernel.test.ts -t "domain sync|Domain sync|review feedback main DB read fast path|incremental-learning review feedback clean|applied domain sync repair"`; `pnpm vitest run worker/__tests__/BackendKernel.test.ts`; `pnpm vitest run src/application/services/__tests__/ReviewDomainSyncSafetyService.test.ts src/application/services/__tests__/DomainSyncDiagnosticsApplicationService.test.ts`.
 
 ### 2026-05-29 - Keep sidebar warmup alive across live identity rewarm
 

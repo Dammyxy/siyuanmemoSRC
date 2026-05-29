@@ -3616,23 +3616,24 @@ export class WorkerSqliteDatabaseService {
         && isFiniteSqlNumber(row.scheduled_days)
         && isFiniteSqlNumber(row.stability)
         && isFiniteSqlNumber(row.difficulty);
+      const after = this.buildDomainSyncRepairAfterState({
+        row,
+        newestReviewEventAt,
+        reviewEventCount,
+        cardReps,
+      });
       const hasRepairableDivergence = hasCardState && (
         (Boolean(newestReviewEventAt) && (!cardLastReview || newestReviewEventAt! > cardLastReview))
         || (cardReps !== null && reviewEventCount > cardReps)
         || (
           hasSchedulerEvidence
           && this.hasDomainSyncReviewAfterSnapshot(row)
-          && this.domainSyncRepairAfterStateDiffers(row, this.buildDomainSyncRepairAfterState({
-            row,
-            newestReviewEventAt,
-            reviewEventCount,
-            cardReps,
-          }))
+          && this.domainSyncRepairAfterStateDiffers(row, after)
         )
       );
       if (!hasCardState) {
         unrepairableCardIds.add(cardId);
-      } else if (hasRepairableDivergence && hasSchedulerEvidence) {
+      } else if (hasRepairableDivergence && hasSchedulerEvidence && after) {
         repairableCardIds.add(cardId);
       } else if (hasRepairableDivergence) {
         unrepairableCardIds.add(cardId);

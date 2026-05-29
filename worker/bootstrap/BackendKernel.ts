@@ -235,7 +235,6 @@ const P6_OWNERSHIP_QUERY_OPERATIONS = new Set<P6OwnershipOperation>([
 const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'system.health',
   'diagnostics.status',
-  'domainSync.status',
   'sync.reviewDivergence.audit',
   'sync.conflict.merge',
   'sync.conflict.summarize',
@@ -274,6 +273,10 @@ const PREFLIGHT_MAIN_DB_SKIP_METHODS = new Set<string>([
   'browser.sourceExistence.update',
   'browser.sourceExistence.applySweep',
   'browser.sourceExistence.applySweepHost',
+]);
+
+const PREFLIGHT_MAIN_DB_REFRESH_READ_ONLY_METHODS = new Set<string>([
+  'domainSync.status',
 ]);
 
 export class BackendKernel {
@@ -351,6 +354,7 @@ export class BackendKernel {
       const isReviewFeedbackFastSkipReadOnlyMethod =
         REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_READ_ONLY_METHODS.has(request.method);
       const shouldSkipPreflightMainDbRead = PREFLIGHT_MAIN_DB_SKIP_METHODS.has(request.method);
+      const shouldRefreshMainDbReadOnly = PREFLIGHT_MAIN_DB_REFRESH_READ_ONLY_METHODS.has(request.method);
       if (
         !isReviewFeedback
         && !isReviewFeedbackFastSkipReadOnlyMethod
@@ -364,6 +368,8 @@ export class BackendKernel {
           undefined,
           isReviewFeedback
             ? { context: 'review-feedback-preflight', cardId: reviewFeedbackCardId }
+            : shouldRefreshMainDbReadOnly
+              ? { context: 'read-only-preflight' }
             : shouldSkipPreflightMainDbRead
               ? { context: 'read-only-preflight', skipMainDbRead: true }
             : {},
