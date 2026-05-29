@@ -172,7 +172,7 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.loading.value).toBe(false);
   });
 
-  it('prewarms queue projections in background without attaching a datasource', async () => {
+  it('attaches queue datasource immediately and lets warmup prepare projections in the background', async () => {
     vi.useFakeTimers();
     const browserAppService = {
       getSiyuanApi: vi.fn(() => ({})),
@@ -206,17 +206,14 @@ describe('browserLoadDataRuntime', () => {
 
     await runtime.loadData();
 
-    expect(deps.currentDataSource.value).toBeNull();
-    expect(deps.rebuildInfiniteDatasource).not.toHaveBeenCalled();
-    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledWith(expect.objectContaining({
-      source: 'browser',
-    }));
-    expect(deps.scheduleQueueProjectionWarmup).not.toHaveBeenCalled();
-    expect(deps.loading.value).toBe(true);
+    expect(deps.currentDataSource.value?.id).toBe('retrieval');
+    expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledWith(false);
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
+    expect(deps.scheduleQueueProjectionWarmup).toHaveBeenCalledWith('browser-open');
     vi.useRealTimers();
   });
 
-  it('attaches queue datasource automatically when readiness retry becomes ready', async () => {
+  it('does not start queue-view retry polling when readiness would still be refreshing', async () => {
     vi.useFakeTimers();
     const browserAppService = {
       getSiyuanApi: vi.fn(() => ({})),
@@ -244,16 +241,15 @@ describe('browserLoadDataRuntime', () => {
 
     await runtime.loadData();
 
-    expect(deps.currentDataSource.value).toBeNull();
+    expect(deps.currentDataSource.value?.id).toBe('retrieval');
     await vi.advanceTimersByTimeAsync(10);
 
-    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledTimes(2);
-    expect(deps.currentDataSource.value?.id).toBe('retrieval');
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
     expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 
-  it('keeps retrying queue view readiness when refreshing response omits retry delay', async () => {
+  it('does not hold queue datasource behind readiness retry defaults', async () => {
     vi.useFakeTimers();
     const browserAppService = {
       getSiyuanApi: vi.fn(() => ({})),
@@ -280,12 +276,12 @@ describe('browserLoadDataRuntime', () => {
 
     await runtime.loadData();
 
-    expect(deps.currentDataSource.value).toBeNull();
+    expect(deps.currentDataSource.value?.id).toBe('retrieval');
     await vi.advanceTimersByTimeAsync(299);
-    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
 
-    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledTimes(2);
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
     expect(deps.currentDataSource.value?.id).toBe('retrieval');
     vi.useRealTimers();
   });
@@ -341,7 +337,7 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.scheduleQueueProjectionWarmup).toHaveBeenCalledWith('browser-open');
   });
 
-  it('does not hold stale queue-view retries open during a newer load', async () => {
+  it('does not create stale queue-view retry timers during newer loads', async () => {
     vi.useFakeTimers();
     const browserAppService = {
       getSiyuanApi: vi.fn(() => ({})),
@@ -383,9 +379,9 @@ describe('browserLoadDataRuntime', () => {
     await runtime.loadData(false, { origin: 'queue-sync' });
     await vi.advanceTimersByTimeAsync(10);
 
-    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledTimes(2);
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
     expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
-    expect(deps.rebuildInfiniteDatasource).not.toHaveBeenCalled();
+    expect(deps.rebuildInfiniteDatasource).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
   });
 

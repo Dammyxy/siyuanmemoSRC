@@ -767,33 +767,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       return 0;
     }
 
-    if (
-      isNeuralBrowserQueue(queueId)
-      && typeof (queue as { getConceptBlocks?: () => unknown[] }).getConceptBlocks === 'function'
-    ) {
+    if (isNeuralBrowserQueue(queueId)) {
       try {
-        return Math.max(0, ((queue as { getConceptBlocks: () => unknown[] }).getConceptBlocks() || []).length);
+        return Math.max(0, await queue.getSize());
       } catch (error) {
-        logger.error('QUEUE_COUNT_UNAVAILABLE: failed to read neural-roam concept blocks:', {
+        logger.error('QUEUE_COUNT_UNAVAILABLE: failed to read neural-roam queue size:', {
           queueId,
           error,
         });
-        throw new Error(`QUEUE_COUNT_UNAVAILABLE: ${queueId} concept block count unavailable`);
-      }
-    }
-
-    if (
-      isNeuralBrowserQueue(queueId)
-      && typeof (queue as { getSourceSnapshot?: () => unknown[] }).getSourceSnapshot === 'function'
-    ) {
-      try {
-        return Math.max(0, ((queue as { getSourceSnapshot: () => unknown[] }).getSourceSnapshot() || []).length);
-      } catch (error) {
-        logger.error('QUEUE_COUNT_UNAVAILABLE: failed to read neural-roam source snapshot:', {
-          queueId,
-          error,
-        });
-        throw new Error(`QUEUE_COUNT_UNAVAILABLE: ${queueId} source snapshot count unavailable`);
+        throw new Error(`QUEUE_COUNT_UNAVAILABLE: ${queueId} queue size unavailable`);
       }
     }
 

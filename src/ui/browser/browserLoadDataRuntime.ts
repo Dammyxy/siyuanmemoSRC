@@ -41,8 +41,6 @@ type BrowserLogger = {
   info: (...args: unknown[]) => void;
 };
 
-const DEFAULT_QUEUE_VIEW_RETRY_DELAY_MS = 300;
-
 type BrowserLoadGlobalSelection = {
   clear: () => void;
 };
@@ -111,7 +109,6 @@ function getCardType(deps: BrowserLoadDataRuntimeDeps): BrowserCardTypeFilter {
 export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
   let loadDataAbortController: AbortController | null = null;
   let liveIdentityReloadTimer: ReturnType<typeof setTimeout> | null = null;
-  let queueViewRetryTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingHiddenLiveIdentityEvent: QueueProjectionLiveIdentityEvent | null = null;
   const queueViewModule = createBrowserQueueViewModule({ logger: deps.logger });
 
@@ -123,10 +120,6 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
     if (liveIdentityReloadTimer) {
       clearTimeout(liveIdentityReloadTimer);
       liveIdentityReloadTimer = null;
-    }
-    if (queueViewRetryTimer) {
-      clearTimeout(queueViewRetryTimer);
-      queueViewRetryTimer = null;
     }
     deps.abortQueueProjectionWarmup?.();
   }
@@ -196,10 +189,6 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
       deps.abortQueueProjectionWarmup?.();
       deps.logger.info('[SiYuanMemo][SRSBrowser] Previous loadData() aborted');
     }
-    if (queueViewRetryTimer) {
-      clearTimeout(queueViewRetryTimer);
-      queueViewRetryTimer = null;
-    }
     deps.invalidateHierarchySnapshots();
 
     loadDataAbortController = new AbortController();
@@ -250,31 +239,6 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
             searchText: deps.searchQuery.value,
           },
         ), { queueId: activeQueueId });
-
-        if (queueView.status === 'refreshing') {
-          datasourceTriggered = true;
-          deps.currentDataSource.value = null;
-          const retryDelayMs = queueView.retryDelayMs ?? DEFAULT_QUEUE_VIEW_RETRY_DELAY_MS;
-          if (queueView.keepLoading && !currentController.signal.aborted) {
-            queueViewRetryTimer = setTimeout(() => {
-              queueViewRetryTimer = null;
-              if (!currentController.signal.aborted) {
-                void loadData(forceRefresh, { ...options, origin: 'queue-sync' });
-              }
-            }, retryDelayMs);
-          } else {
-            deps.loading.value = false;
-          }
-          return;
-        }
-
-        if (queueView.status === 'unavailable') {
-          deps.currentDataSource.value = null;
-          deps.currentProjectionIdentity.value = null;
-          await deps.pushErrMsg(queueView.message);
-          clearBrowserRows(deps);
-          return;
-        }
 
         if (queueView.status === 'missing-datasource') {
           deps.logger.error('[SiYuanMemo][SRSBrowser] Failed to create data source for queue:', queueView.queueId);

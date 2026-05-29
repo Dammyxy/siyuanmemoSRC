@@ -2,10 +2,8 @@ import type { IBrowserApplicationService } from '@/application/interfaces/IBrows
 import {
   type BrowserCardTypeFilter,
   type IUnifiedDataSourceManagerFacade,
-  QueueType,
 } from '@/types/unified-data-source';
 import { normalizeBrowserQueueId, resolveQueueTypeForBrowserQueueId } from '@/types/browser-queue-identity';
-import type { QueueProjectionReadinessRequest } from '../../../packages/contracts/src/backend-rpc';
 import {
   compareQueueProjectionLiveIdentity,
   type QueueProjectionIdentity,
@@ -38,15 +36,6 @@ export type BrowserQueueViewPrepareResult =
       datasource: ICardDataSource;
       datasourceKind: 'queue';
       projectionIdentity: QueueProjectionIdentity | null;
-    }
-  | {
-      status: 'refreshing';
-      retryDelayMs: number | null;
-      keepLoading: boolean;
-    }
-  | {
-      status: 'unavailable';
-      message: string;
     }
   | {
       status: 'missing-datasource';
@@ -99,75 +88,16 @@ export function planQueueProjectionLiveIdentityForBrowserQueueView(
   return decision;
 }
 
-function normalizeReadinessIdentity(request: QueueProjectionReadinessRequest): string {
-  return JSON.stringify({
-    cardType: request.cardType ?? null,
-    docId: request.docId ?? null,
-    preset: request.preset ?? null,
-    queueType: request.queueType,
-    scopeDocIds: request.scopeDocIds ?? null,
-    searchText: request.searchText ?? '',
-  });
-}
-
 export type BrowserQueueViewModuleDeps = {
   logger: BrowserQueueViewModuleLogger;
 };
 
-export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
-  const readinessLogFingerprint = new Map<string, string>();
-
+export function createBrowserQueueViewModule(_deps: BrowserQueueViewModuleDeps) {
   async function prepareQueueView(
     manager: IUnifiedDataSourceManagerFacade,
     request: BrowserQueueViewPrepareRequest,
   ): Promise<BrowserQueueViewPrepareResult> {
     const canonicalQueueId = normalizeBrowserQueueId(request.activeQueueId);
-    const queueType = resolveQueueTypeForBrowserQueueView(request.activeQueueId, request.currentQueueType);
-    let projectionIdentity: QueueProjectionIdentity | null = null;
-    const readinessRequest: QueueProjectionReadinessRequest | null = queueType
-      ? {
-          queueType,
-          preset: request.currentPreset,
-          searchText: request.searchText,
-          docId: request.activeDocId,
-          scopeDocIds: request.activeScopeDocIds,
-          cardType: String(request.cardType),
-          source: 'browser',
-        }
-      : null;
-
-    if (
-      queueType !== QueueType.NeuralRoam
-      && readinessRequest
-      && typeof request.browserAppService?.ensureQueueReadModelReady === 'function'
-    ) {
-      const retryIdentity = normalizeReadinessIdentity(readinessRequest);
-      const readiness = await request.browserAppService.ensureQueueReadModelReady(readinessRequest);
-      const logFingerprint = [
-        readiness.status,
-        readiness.queueId,
-        readiness.policyId,
-        readiness.status === 'ready' ? readiness.generation : readiness.cause,
-        readiness.status !== 'ready' ? readiness.retryAfterMs ?? null : null,
-      ].join(':');
-      if (readinessLogFingerprint.get(retryIdentity) !== logFingerprint) {
-        readinessLogFingerprint.set(retryIdentity, logFingerprint);
-        deps.logger.info('[SiYuanMemo][SRSBrowser] Browser queue read model readiness', readiness);
-      }
-      if (readiness.status === 'refreshing') {
-        return {
-          status: 'refreshing',
-          retryDelayMs: readiness.retryAfterMs ?? null,
-          keepLoading: true,
-        };
-      }
-      if (readiness.status === 'unavailable') {
-        return {
-          status: 'unavailable',
-          message: readiness.reason || `Queue ${queueType} is unavailable`,
-        };
-      }
-    }
 
     const datasource = createQueueDataSource(
       canonicalQueueId ?? request.activeQueueId,
@@ -194,7 +124,7 @@ export function createBrowserQueueViewModule(deps: BrowserQueueViewModuleDeps) {
       status: 'ready',
       datasource,
       datasourceKind: 'queue',
-      projectionIdentity,
+      projectionIdentity: null,
     };
   }
 

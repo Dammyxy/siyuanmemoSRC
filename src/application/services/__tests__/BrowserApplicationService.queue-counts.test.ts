@@ -11,6 +11,7 @@ type QueueMock = {
   getStats: ReturnType<typeof vi.fn>;
   getSize: ReturnType<typeof vi.fn>;
   getConceptBlocks?: ReturnType<typeof vi.fn>;
+  getSourceSnapshot?: ReturnType<typeof vi.fn>;
 };
 
 function createQueue(
@@ -20,6 +21,7 @@ function createQueue(
   options: {
     conceptBlocks?: string[];
     conceptBlocksError?: Error;
+    sourceSnapshot?: unknown[];
     snapshotRowCount?: number;
   } = {},
 ): QueueMock {
@@ -93,6 +95,10 @@ function createQueue(
   } else if (options.conceptBlocks) {
     queue.getConceptBlocks = vi.fn(() => options.conceptBlocks ?? []);
   }
+  if (options.sourceSnapshot) {
+    queue.getSourceSnapshot = vi.fn(() => options.sourceSnapshot ?? []);
+    queue.getSize.mockResolvedValue(options.sourceSnapshot.length);
+  }
 
   return queue;
 }
@@ -143,7 +149,10 @@ describe('BrowserApplicationService queue counts', () => {
     const retrievalQueue = createQueue(59, 59, 59, { snapshotRowCount: 29 });
     const finalQueue = createQueue(8, 8, 8, { snapshotRowCount: 7 });
     const neuralQueue = createQueue(77, 77, 77, {
-      conceptBlocks: Array.from({ length: 5 }, (_, index) => `concept-${index}`),
+      conceptBlocks: [],
+      sourceSnapshot: Array.from({ length: 5 }, (_, index) => ({
+        nodeId: `source-${index}`,
+      })),
     });
     const filterQueue = createQueue(3, 3, 3, { snapshotRowCount: 3 });
     const incrementalQueue = createQueue(59, 59, 59, { snapshotRowCount: 29 });
@@ -168,7 +177,8 @@ describe('BrowserApplicationService queue counts', () => {
     expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
     expect(finalQueue.getCards).toHaveBeenCalledTimes(1);
     expect(finalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
-    expect(neuralQueue.getConceptBlocks).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getSize).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getConceptBlocks).not.toHaveBeenCalled();
     expect(neuralQueue.getCounterSnapshot).not.toHaveBeenCalled();
     expect(filterQueue.getCards).toHaveBeenCalledTimes(1);
     expect(filterQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
@@ -193,9 +203,13 @@ describe('BrowserApplicationService queue counts', () => {
     expect(retrievalQueue.getSize).not.toHaveBeenCalled();
   });
 
-  it('keeps neural-roam count on session concepts even when projection diagnostics exist', async () => {
+  it('keeps neural-roam count on the route-owned queue size even when projection diagnostics exist', async () => {
     const neuralQueue = createQueue(77, 77, 77, {
-      conceptBlocks: Array.from({ length: 5 }, (_, index) => `concept-${index}`),
+      conceptBlocks: [],
+      sourceSnapshot: Array.from({ length: 5 }, (_, index) => ({
+        nodeId: `source-${index}`,
+        nodeKind: index === 0 ? 'excerpt' : 'concept',
+      })),
     });
     manager.getQueueProjectionRolloutDiagnostics = vi.fn((queueType?: QueueType) => {
       if (queueType === QueueType.NeuralRoam) {
@@ -219,7 +233,8 @@ describe('BrowserApplicationService queue counts', () => {
     const counts = await service.getQueueCounts();
 
     expect(counts['neural-roam']).toBe(5);
-    expect(neuralQueue.getConceptBlocks).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getSize).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getConceptBlocks).not.toHaveBeenCalled();
     expect(neuralQueue.getCounterSnapshot).not.toHaveBeenCalled();
   });
 
@@ -373,10 +388,11 @@ describe('BrowserApplicationService queue counts', () => {
     expect(retrievalQueue.getSize).not.toHaveBeenCalled();
   });
 
-  it('fails closed instead of trying visible counters when neural concept count fails', async () => {
+  it('fails closed instead of trying visible counters when neural queue size fails', async () => {
     const neuralQueue = createQueue(3, 3, 33, {
-      conceptBlocksError: new Error('neural-concepts-unavailable'),
+      conceptBlocks: [],
     });
+    neuralQueue.getSize.mockRejectedValue(new Error('neural-size-unavailable'));
     queueByType.set(QueueType.NeuralRoam, neuralQueue);
 
     await expect(service.getQueueCounts({
@@ -384,7 +400,8 @@ describe('BrowserApplicationService queue counts', () => {
       affectedQueueTypes: [QueueType.NeuralRoam],
     })).rejects.toThrow('QUEUE_COUNT_UNAVAILABLE');
 
-    expect(neuralQueue.getConceptBlocks).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getSize).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getConceptBlocks).not.toHaveBeenCalled();
     expect(neuralQueue.getCounterSnapshot).not.toHaveBeenCalled();
     expect(neuralQueue.getRemainingSize).not.toHaveBeenCalled();
   });

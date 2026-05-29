@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-29 (Round 502)
+Last update: 2026-05-29 (Round 503)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-29 - Refresh Browser queue counts after projection warmup
+
+- Task: Investigate live logs where Browser first shows all-flashcards, retrieval, and filter counts, but incremental-learning and neural-roam counts stay empty until manual refresh.
+- Touched slice: Browser queue warmup/count lifecycle and NeuralRoam count authority; `browserQueueProjectionWarmupRuntime`, `SRSBrowser.vue`, `BrowserApplicationService`, focused warmup/count tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Browser open now warms every sidebar projection-backed queue with the active queue first, instead of stopping after one queue. Each ready warmup event triggers a targeted forced queue-count refresh, so passive counts that initially fail on `invalidated` projection snapshots are filled once the projection is readable. NeuralRoam sidebar count now reads route-owned `queue.getSize()` rather than concept blocks or projection counters, so hyperspace/source-route cards are counted even when the concept pool is empty.
+- Debt deferred: Queue projection storage remains a rebuildable cache in the main DB, and truly unreadable projections still return explicit unavailable rather than local stale queue counts. Final-drill still legitimately shows 0 when no cards exist.
+- Why deferred: Returning stale `queue.getCards()` or alternate counters would reintroduce hidden fallback and blur projection ownership. Storage topology is broader than this Browser count lifecycle fix.
+- Next safe step: Rebuild/deploy and cold-open Browser. Expected: incremental-learning count appears after warmup readiness without manual refresh; neural-roam count reflects active route/source size; final-drill remains 0 if empty.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts`; `pnpm vitest run src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts src/ui/browser/__tests__/BrowserGridFirstRowsLifecycle.test.ts src/ui/browser/__tests__/BrowserGridDatasourceLifecycle.test.ts`; `pnpm vitest run src/ui/browser/datasource/__tests__/QueueSnapshotDataSources.query-snapshot.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts`; `pnpm run check:boundaries`; `pnpm build`; `git diff --check`.
+
+### 2026-05-29 - Attach Browser queue datasource before readiness warmup
+
+- Task: Explore why Browser all-flashcards opens fast but queue views still wait a long time and sometimes require manual refresh, using the local Anki queue model as architecture reference.
+- Touched slice: Browser queue lifecycle and queue read model docs; `BrowserQueueViewModule`, `browserLoadDataRuntime`, focused Browser queue/load tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Browser queue open no longer treats `ensureQueueReadModelReady()` as a synchronous datasource attach gate. Queue views now attach the queue datasource immediately, like all-flashcards/deck views, while `browserQueueProjectionWarmupRuntime` prepares projection readiness in the background. Removed the stale queue-view readiness retry timer and the `refreshing` / `unavailable` prepare results that could leave `currentDataSource` null until a later manual refresh or live identity event.
+- Debt deferred: Projection-backed queue first-page reads still fail closed with `QUEUE_PROJECTION_NOT_READY` / `QUEUE_PROJECTION_UNAVAILABLE` when the derived projection is genuinely absent or unavailable; queue projections still live in the main DB as a derived cache until a larger storage topology split is planned.
+- Why deferred: Returning stale local `queue.getCards()` would reintroduce a fallback read path and violate the active projection ownership contract. Moving queue projection storage out of `siyuanmemo.db` is broader than this Browser first-open lifecycle fix.
+- Next safe step: Rebuild/deploy and cold-open Browser directly into retrieval/incremental queue views. Expected: queue datasource/grid mounts immediately, first page appears as soon as projection rows are readable, and no manual refresh is needed; real projection absence should show the existing refreshing/unavailable state instead of falling back.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts`; `pnpm vitest run src/ui/browser/__tests__/BrowserQueueViewModule.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts src/ui/browser/__tests__/BrowserGridFirstRowsLifecycle.test.ts src/ui/browser/__tests__/BrowserGridDatasourceLifecycle.test.ts`; `pnpm vitest run src/ui/browser/datasource/__tests__/QueueSnapshotDataSources.query-snapshot.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts`; `pnpm run check:boundaries`; `pnpm build`; `git diff --check`.
 
 ### 2026-05-29 - Stop passive empty-queue and idle checkpoint uploads
 

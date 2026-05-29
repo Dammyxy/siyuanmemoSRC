@@ -32,7 +32,7 @@ function createDeps(overrides: Record<string, unknown> = {}) {
 }
 
 describe('browserQueueProjectionWarmupRuntime', () => {
-  it('warms active projection-backed queue first and does not attach a datasource', async () => {
+  it('warms active projection-backed queue first, then warms the other sidebar projection queues', async () => {
     vi.useFakeTimers();
     const ensureQueueReadModelReady = vi.fn(async (request) => ({
       status: 'ready',
@@ -40,26 +40,39 @@ describe('browserQueueProjectionWarmupRuntime', () => {
       policyId: `policy-${request.queueType}`,
       generation: 3,
     }));
+    const onQueueReady = vi.fn();
     const deps = createDeps({
       activeQueueId: ref('incremental-learning'),
       browserAppService: ref({ ensureQueueReadModelReady }),
+      onQueueReady,
     });
     const runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
 
     runtime.schedule('browser-open', 0);
     await vi.runOnlyPendingTimersAsync();
 
-    expect(ensureQueueReadModelReady).toHaveBeenCalled();
+    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(4);
     expect(ensureQueueReadModelReady.mock.calls[0]?.[0]).toMatchObject({
       queueType: QueueType.IncrementalLearning,
       source: 'browser',
     });
+    expect(ensureQueueReadModelReady.mock.calls.map((call) => call[0].queueType)).toEqual([
+      QueueType.IncrementalLearning,
+      QueueType.RetrievalPractice,
+      QueueType.FinalDrill,
+      QueueType.FilterGroup,
+    ]);
     expect(runtime.getStatus('incremental-learning')).toMatchObject({
       status: 'ready',
       queueId: 'incremental-learning',
       queueType: QueueType.IncrementalLearning,
       generation: 3,
     });
+    expect(onQueueReady).toHaveBeenCalledTimes(4);
+    expect(onQueueReady).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ready',
+      queueType: QueueType.IncrementalLearning,
+    }));
     vi.useRealTimers();
   });
 

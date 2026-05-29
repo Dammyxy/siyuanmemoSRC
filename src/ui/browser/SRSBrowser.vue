@@ -3490,6 +3490,12 @@ const browserQueueProjectionWarmupRuntime = createBrowserQueueProjectionWarmupRu
   currentCardType,
   currentPreset,
   logger,
+  onQueueReady: (status) => {
+    void refreshQueueCounts({
+      forceRefresh: true,
+      affectedQueueTypes: [status.queueType],
+    });
+  },
   searchQuery,
 });
 

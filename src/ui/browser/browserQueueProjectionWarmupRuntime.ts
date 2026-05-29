@@ -59,11 +59,11 @@ export type BrowserQueueProjectionWarmupRuntimeDeps = {
   currentCardType: ReadonlyRef<CardTypeFilter>;
   currentPreset: ReadonlyRef<PresetFilter>;
   logger: BrowserQueueProjectionWarmupLogger;
+  onQueueReady?: (status: Extract<BrowserQueueProjectionWarmupStatus, { status: 'ready' }>) => void | Promise<void>;
   searchQuery: ReadonlyRef<string>;
 };
 
 const DEFAULT_WARMUP_DEBOUNCE_MS = 120;
-const MAX_WARMUP_QUEUES = 1;
 
 function isWarmableQueue(queueType: QueueType | null): queueType is QueueType {
   return Boolean(queueType && queueType !== QueueType.NeuralRoam);
@@ -72,9 +72,7 @@ function isWarmableQueue(queueType: QueueType | null): queueType is QueueType {
 function buildWarmupQueueOrder(activeQueueId: string | null, targetQueueIds?: BrowserQueueId[]): BrowserQueueId[] {
   if (targetQueueIds?.length) {
     const deduped = Array.from(new Set(targetQueueIds));
-    return deduped
-      .filter((queueId) => isWarmableQueue(resolveQueueTypeForBrowserQueueId(queueId)))
-      .slice(0, MAX_WARMUP_QUEUES);
+    return deduped.filter((queueId) => isWarmableQueue(resolveQueueTypeForBrowserQueueId(queueId)));
   }
   const active = normalizeBrowserQueueId(activeQueueId);
   const all = getCanonicalBrowserQueueIds().filter((queueId) =>
@@ -83,7 +81,7 @@ function buildWarmupQueueOrder(activeQueueId: string | null, targetQueueIds?: Br
   const ordered = active && all.includes(active)
     ? [active, ...all.filter((queueId) => queueId !== active)]
     : all;
-  return ordered.slice(0, MAX_WARMUP_QUEUES);
+  return ordered;
 }
 
 function normalizeReadinessStatus(
@@ -186,6 +184,15 @@ export function createBrowserQueueProjectionWarmupRuntime(
         const status = normalizeReadinessStatus(queueId, queueType, readiness);
         statuses.set(queueId, status);
         deps.logger.info('[SiYuanMemo][SRSBrowser] Queue projection warmup readiness', status);
+        if (status.status === 'ready') {
+          void Promise.resolve(deps.onQueueReady?.(status)).catch((error) => {
+            deps.logger.warn?.('[SiYuanMemo][SRSBrowser] Queue projection warmup ready callback failed', {
+              queueId,
+              queueType,
+              error,
+            });
+          });
+        }
       } catch (error) {
         if (seq !== generation) return;
         const status: BrowserQueueProjectionWarmupStatus = {

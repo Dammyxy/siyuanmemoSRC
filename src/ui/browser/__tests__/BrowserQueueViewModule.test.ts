@@ -52,7 +52,7 @@ describe('BrowserQueueViewModule', () => {
     expect(resolveQueueTypeForBrowserQueueView('', QueueType.FinalDrill)).toBeNull();
   });
 
-  it('attaches a datasource when the Browser queue read model is ready', async () => {
+  it('attaches a datasource without a synchronous Browser queue read model gate', async () => {
     const manager = createManager([{
       status: 'unavailable',
       queueId: QueueType.RetrievalPractice,
@@ -72,10 +72,7 @@ describe('BrowserQueueViewModule', () => {
 
     const result = await module.prepareQueueView(manager, createRequest({ browserAppService }));
 
-    expect(browserAppService.ensureQueueReadModelReady).toHaveBeenCalledWith(expect.objectContaining({
-      queueType: QueueType.RetrievalPractice,
-      source: 'browser',
-    }));
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
     expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
     expect(result.status).toBe('ready');
     expect(result.status === 'ready' ? result.datasource.id : null).toBe('retrieval');
@@ -103,7 +100,7 @@ describe('BrowserQueueViewModule', () => {
     expect(result.status === 'ready' ? result.projectionIdentity : null).toBeNull();
   });
 
-  it('returns refreshing without attaching a datasource while Browser queue read model prepares', async () => {
+  it('attaches a datasource without waiting for Browser queue read model readiness', async () => {
     const manager = createManager([]);
     const browserAppService = {
       getSiyuanApi: vi.fn(() => ({})),
@@ -118,12 +115,10 @@ describe('BrowserQueueViewModule', () => {
     const request = createRequest({ browserAppService });
 
     const first = await module.prepareQueueView(manager, request);
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
     expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
-    expect(first).toEqual({
-      status: 'refreshing',
-      retryDelayMs: 222,
-      keepLoading: true,
-    });
+    expect(first.status).toBe('ready');
+    expect(first.status === 'ready' ? first.datasource.id : null).toBe('retrieval');
   });
 
   it('loads neural-roam browser view even when projection readiness would still be refreshing', async () => {
@@ -170,7 +165,7 @@ describe('BrowserQueueViewModule', () => {
     expect(result.status === 'ready' ? result.projectionIdentity : null).toBeNull();
   });
 
-  it('returns unavailable without attaching a datasource when Browser queue read model is unavailable', async () => {
+  it('does not use Browser queue read model availability as a synchronous open gate', async () => {
     const manager = createManager([]);
     const browserAppService = {
       getSiyuanApi: vi.fn(() => ({})),
@@ -186,11 +181,10 @@ describe('BrowserQueueViewModule', () => {
 
     const result = await module.prepareQueueView(manager, createRequest({ browserAppService }));
 
+    expect(browserAppService.ensureQueueReadModelReady).not.toHaveBeenCalled();
     expect(manager.ensureQueueProjectionReady).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      status: 'unavailable',
-      message: 'backend down',
-    });
+    expect(result.status).toBe('ready');
+    expect(result.status === 'ready' ? result.datasource.id : null).toBe('retrieval');
   });
 
   it('plans live identity reattach only for newer visible matching queue events', () => {
