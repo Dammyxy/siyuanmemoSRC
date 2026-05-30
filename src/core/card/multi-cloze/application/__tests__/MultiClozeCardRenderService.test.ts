@@ -139,4 +139,24 @@ describe('MultiClozeCardRenderService', () => {
       '<rich>Alpha Beta <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--current">Gamma</span></rich>',
     );
   });
+
+  it('uses faceKey face index before stale legacy meta faceIndex', async () => {
+    const service = new TestableMultiClozeCardRenderService('Alpha {{Beta}} and {{Gamma}}');
+
+    const vm = await service.prepareViewModel({
+      blockId: '20260215000000-facekey',
+      faceKey: { ruleId: 'multi-cloze', faceIndex: 1 },
+      meta: {
+        faceIndex: 0,
+        faces: [
+          { question: 'Alpha <mark>[...]</mark> and Gamma', answer: 'Beta' },
+          { question: 'Alpha Beta and <mark>[...]</mark>', answer: 'Gamma' },
+        ],
+      },
+    });
+
+    expect(vm.faceIndex).toBe(1);
+    expect(vm.frontHtml).toContain('Alpha <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--context">Beta</span> and <span data-type="mark" class="siyuanmemo-multi-cloze__placeholder"');
+    expect(vm.backHtml).toContain('Alpha <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--context">Beta</span> and <span data-type="mark" class="siyuanmemo-multi-cloze__answer siyuanmemo-multi-cloze__answer--current">Gamma</span>');
+  });
 });

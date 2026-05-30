@@ -10,6 +10,8 @@ import {
   parseFormulaClozeTargets,
 } from '@/core/card/post-creation/formula-cloze-style';
 import { stripSiyuanBlockAttributeArtifacts } from '@/core/card/common/utils/stripSiyuanBlockAttributeArtifacts';
+import { resolveCardFaceIndex } from '@/core/card/cardSemanticLocator';
+import type { CardFaceKey } from '@/types/card';
 import { type ClozeInfo, ClozeDetector } from '@/utils/cloze-detector';
 import { createLogger } from '@/utils/logger';
 
@@ -31,6 +33,7 @@ interface MultiClozeCardFace {
 
 interface MultiClozeCardInput {
   blockId: string;
+  faceKey?: CardFaceKey;
   meta?: {
     faces?: MultiClozeCardFace[];
     faceIndex?: number;
@@ -61,7 +64,7 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
 
   async prepareViewModel(card: MultiClozeCardInput): Promise<MultiClozeCardViewModel> {
     const faces = card.meta?.faces || [];
-    const requestedFaceIndex = this.normalizeFaceIndex(card.meta?.faceIndex);
+    const requestedFaceIndex = resolveCardFaceIndex(card);
     const renderMode = this.resolveRenderMode(card.meta?.clozeRenderMode);
     const rendered = await this.renderCardFaces(card.blockId, faces, requestedFaceIndex, renderMode);
     const breadcrumbs = await this.loadBreadcrumbs(card.blockId);
@@ -83,13 +86,6 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
       return FORMULA_CLOZE_RENDER_MODE_INLINE;
     }
     return 'default';
-  }
-
-  private normalizeFaceIndex(value: unknown): number {
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-      return 0;
-    }
-    return Math.max(0, Math.floor(value));
   }
 
   protected async loadSourceKramdown(blockId: string): Promise<string | null> {

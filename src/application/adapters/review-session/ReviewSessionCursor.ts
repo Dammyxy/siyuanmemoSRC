@@ -1,6 +1,7 @@
 import type { FSRSCard } from '@/types/card';
 import { QueueType, type QueueCounterSnapshot } from '@/types/unified-data-source';
 import type { ReviewQueueSessionSnapshot } from '@/types/review-tab';
+import { resolveCardFaceIndex, resolveCardFaceToken } from '@/core/card/cardSemanticLocator';
 import type { ReviewSessionProjectionState } from '../ReviewSessionProjectionApplier';
 import { IncrementalRequeryAdvancePolicy } from './IncrementalRequeryAdvancePolicy';
 
@@ -535,22 +536,37 @@ export class ReviewSessionCursor {
     if (this.sessionExcludedCardIds.has(normalizeCardId(card.id))) {
       return true;
     }
-    return this.buildSessionExclusionLogicalKeys(card)
+    return this.buildSessionExclusionMatchKeys(card)
       .some((logicalKey) => this.sessionExcludedLogicalKeys.has(logicalKey));
   }
 
-  private buildSessionExclusionLogicalKeys(card: Pick<FSRSCard, 'blockId' | 'xiuyuanID' | 'meta'>): string[] {
-    const faceIndex = readSessionExclusionFaceIndex(card.meta);
+  private buildSessionExclusionLogicalKeys(card: Pick<FSRSCard, 'blockId' | 'xiuyuanID' | 'faceKey' | 'meta'>): string[] {
+    const faceToken = resolveCardFaceToken(card);
     const blockId = String(card.blockId || '').trim();
     const xiuyuanId = String(card.xiuyuanID || '').trim();
     const keys: string[] = [];
     if (blockId) {
-      keys.push(`block:${blockId}::face:${faceIndex}`);
+      keys.push(`block:${blockId}::${faceToken}`);
     }
     if (xiuyuanId) {
-      keys.push(`xiuyuan:${xiuyuanId}::face:${faceIndex}`);
+      keys.push(`xiuyuan:${xiuyuanId}::${faceToken}`);
     }
     return keys;
+  }
+
+  private buildSessionExclusionMatchKeys(card: Pick<FSRSCard, 'blockId' | 'xiuyuanID' | 'faceKey' | 'meta'>): string[] {
+    const currentKeys = this.buildSessionExclusionLogicalKeys(card);
+    const legacyFaceToken = `face:${resolveCardFaceIndex(card)}`;
+    const blockId = String(card.blockId || '').trim();
+    const xiuyuanId = String(card.xiuyuanID || '').trim();
+    const keys = new Set(currentKeys);
+    if (blockId) {
+      keys.add(`block:${blockId}::${legacyFaceToken}`);
+    }
+    if (xiuyuanId) {
+      keys.add(`xiuyuan:${xiuyuanId}::${legacyFaceToken}`);
+    }
+    return Array.from(keys);
   }
 
   private supportsSessionCompletionExclusion(): boolean {
@@ -609,17 +625,4 @@ function normalizeCardId(cardId: string | null | undefined): string {
 
 function matchesAnyCardIdentity(card: Pick<FSRSCard, 'id' | 'blockId'>, identities: Set<string>): boolean {
   return identities.has(normalizeCardId(card.id)) || identities.has(normalizeCardId(card.blockId));
-}
-
-function readSessionExclusionFaceIndex(meta: unknown): number {
-  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
-    return 0;
-  }
-  const rawFaceIndex = (meta as Record<string, unknown>).faceIndex ?? (meta as Record<string, unknown>).ruleIndex;
-  const numericFaceIndex = typeof rawFaceIndex === 'number'
-    ? rawFaceIndex
-    : typeof rawFaceIndex === 'string' && rawFaceIndex.trim().length > 0
-      ? Number(rawFaceIndex)
-      : 0;
-  return Number.isFinite(numericFaceIndex) ? Math.max(0, Math.floor(numericFaceIndex)) : 0;
 }

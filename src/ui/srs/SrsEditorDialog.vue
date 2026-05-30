@@ -2,6 +2,34 @@
   <div class="srs-editor">
     <div v-if="banner" class="srs-editor__banner" :class="`srs-editor__banner--${banner.kind}`">{{ banner.message }}</div>
 
+    <section v-if="pendingSemanticOverwrite" class="srs-editor__semantic-overwrite" data-state="semantic-overwrite">
+      <div class="srs-editor__semantic-overwrite-main">
+        <p class="srs-editor__semantic-overwrite-title">{{ t('semanticOverwriteConfirmTitle', '确认覆盖卡片重要数据') }}</p>
+        <p class="srs-editor__semantic-overwrite-desc">{{ pendingSemanticOverwrite.message }}</p>
+        <div class="srs-editor__semantic-overwrite-fields">
+          <span v-for="label in pendingSemanticOverwrite.fieldLabels" :key="label" class="srs-editor__chip srs-editor__chip--warning">{{ label }}</span>
+        </div>
+      </div>
+      <div class="srs-editor__semantic-overwrite-actions">
+        <button
+          data-action="cancel-semantic-overwrite"
+          class="b3-button b3-button--outline"
+          :disabled="isLoading(pendingSemanticOverwrite.loadingKey)"
+          @click="clearPendingSemanticOverwrite"
+        >
+          {{ t('cancel', '取消') }}
+        </button>
+        <button
+          data-action="confirm-semantic-overwrite"
+          class="b3-button b3-button--warning"
+          :disabled="isLoading(pendingSemanticOverwrite.loadingKey)"
+          @click="confirmSemanticOverwrite"
+        >
+          {{ t('semanticOverwriteConfirmAction', '确认覆盖') }}
+        </button>
+      </div>
+    </section>
+
     <div v-if="loadError" class="srs-editor__empty">
       <svg><use xlink:href="#iconWarning"></use></svg>
       <span>{{ loadError }}</span>
@@ -263,6 +291,15 @@ const logger = createLogger('SrsEditorDialog');
 type BannerState = { kind: 'success' | 'error' | 'info'; message: string };
 type DetailItem = { label: string; value: string; mono?: boolean };
 type CardTypeOption = { value: EditableCardType; label: string; description: string };
+type PendingSemanticOverwrite = {
+  kind: 'cardType' | 'render';
+  cardId: string;
+  target: EditableCardType | EditableRenderTarget;
+  loadingKey: 'cardType' | 'render';
+  successMessage: string;
+  message: string;
+  fieldLabels: string[];
+};
 
 const props = defineProps<{
   card: { id?: string; cardID?: string; blockId?: string; blockID?: string; deckId?: string; deckID?: string };
@@ -287,6 +324,7 @@ const moreEditOpen = ref(true);
 const detailsOpen = ref(false);
 const dangerOpen = ref(false);
 const loadingKeys = ref(new Set<string>());
+const pendingSemanticOverwrite = ref<PendingSemanticOverwrite | null>(null);
 const blockId = (props.card.blockId || props.card.blockID || '').trim();
 const initialCardId = (props.card.id || props.card.cardID || '').trim();
 let subscribedManager: IUnifiedDataSourceManagerFacade | null = null;
@@ -369,26 +407,51 @@ function formatProtectedFieldLabel(path: string): string {
     default: return path;
   }
 }
-function describeSemanticOverwrite(result: CardEditorMutationSnapshot): string {
+function buildProtectedFieldLabels(result: CardEditorMutationSnapshot): string[] {
   const fields = result.semanticOverwrite?.fields || [];
-  const labels = Array.from(new Set(fields.map((field) => formatProtectedFieldLabel(field.path)))).slice(0, 5);
+  return Array.from(new Set(fields.map((field) => formatProtectedFieldLabel(field.path)))).slice(0, 5);
+}
+function describeSemanticOverwrite(result: CardEditorMutationSnapshot): string {
+  const labels = buildProtectedFieldLabels(result);
   const suffix = labels.length > 0 ? `：${labels.join('、')}` : '';
   return `${t('semanticOverwriteBlocked', '已保护自定义卡片重要数据，本次修改需要明确确认后才能覆盖')}${suffix}`;
 }
 async function applyEditorMutationResult(
   result: CardEditorSnapshot | CardEditorMutationSnapshot,
   successMessage: string,
+  pendingCommand?: Pick<PendingSemanticOverwrite, 'kind' | 'cardId' | 'target' | 'loadingKey' | 'successMessage'>,
 ): Promise<boolean> {
   await applySnapshot(result);
   if (isCardEditorMutationSnapshot(result) && result.status === 'confirmation-required') {
+    if (pendingCommand) {
+      pendingSemanticOverwrite.value = {
+        ...pendingCommand,
+        message: describeSemanticOverwrite(result),
+        fieldLabels: buildProtectedFieldLabels(result),
+      };
+    }
     await announce('info', describeSemanticOverwrite(result));
     return false;
   }
+  pendingSemanticOverwrite.value = null;
   if (isCardEditorMutationSnapshot(result) && result.status === 'unchanged') {
     return false;
   }
   await announce('success', successMessage);
   return true;
+}
+function clearPendingSemanticOverwrite(): void {
+  pendingSemanticOverwrite.value = null;
+}
+function clearPendingSemanticOverwriteForNewCommand(): void {
+  pendingSemanticOverwrite.value = null;
+}
+function syncPendingSemanticOverwriteForSnapshot(nextSnapshot: CardEditorSnapshot | null): void {
+  if (!pendingSemanticOverwrite.value) return;
+  const nextCardId = String(nextSnapshot?.card?.id || '').trim();
+  if (!nextCardId || nextCardId !== pendingSemanticOverwrite.value.cardId) {
+    pendingSemanticOverwrite.value = null;
+  }
 }
 async function buildTransparency(nextSnapshot: CardEditorSnapshot | null): Promise<SrsTransparencyViewModel | null> {
   if (!nextSnapshot) return null;
@@ -405,6 +468,7 @@ async function buildTransparency(nextSnapshot: CardEditorSnapshot | null): Promi
   }
 }
 async function applySnapshot(nextSnapshot: CardEditorSnapshot | null): Promise<void> {
+  syncPendingSemanticOverwriteForSnapshot(nextSnapshot);
   snapshot.value = nextSnapshot;
   transparency.value = await buildTransparency(nextSnapshot);
   syncDrafts(nextSnapshot);
@@ -512,11 +576,20 @@ async function commitCardType(targetType: EditableCardType): Promise<void> {
   if (!currentCard.value || currentCard.value.type === targetType) return;
   const service = getCardEditorService();
   if (!service) { await announce('error', t('envNotInit', '环境未初始化')); return; }
+  const cardId = currentCard.value.id;
+  clearPendingSemanticOverwriteForNewCommand();
   await withLoading('cardType', async () => {
     try {
       await applyEditorMutationResult(
-        await service.updateCardType(currentCard.value!.id, targetType),
+        await service.updateCardType(cardId, targetType),
         t('cardTypeSaved', '卡片类型已更新'),
+        {
+          kind: 'cardType',
+          cardId,
+          target: targetType,
+          loadingKey: 'cardType',
+          successMessage: t('cardTypeSaved', '卡片类型已更新'),
+        },
       );
     } catch (error) {
       logger.error('Failed to update card type', error);
@@ -528,11 +601,20 @@ async function commitRender(targetRender: EditableRenderTarget): Promise<void> {
   if (!currentCard.value || currentRenderTarget.value === targetRender) return;
   const service = getCardEditorService();
   if (!service) { await announce('error', t('envNotInit', '环境未初始化')); return; }
+  const cardId = currentCard.value.id;
+  clearPendingSemanticOverwriteForNewCommand();
   await withLoading('render', async () => {
     try {
       await applyEditorMutationResult(
-        await service.updateRender(currentCard.value!.id, targetRender),
+        await service.updateRender(cardId, targetRender),
         t('renderSaved', '渲染已更新'),
+        {
+          kind: 'render',
+          cardId,
+          target: targetRender,
+          loadingKey: 'render',
+          successMessage: t('renderSaved', '渲染已更新'),
+        },
       );
     } catch (error) {
       logger.error('Failed to update render target', error);
@@ -544,8 +626,30 @@ function handleRenderChange(event: Event): void {
   const target = (event.target as HTMLSelectElement | null)?.value as EditableRenderTarget | undefined;
   if (target) void commitRender(target);
 }
+async function confirmSemanticOverwrite(): Promise<void> {
+  const pending = pendingSemanticOverwrite.value;
+  if (!pending) return;
+  if (!currentCard.value || currentCard.value.id !== pending.cardId) {
+    pendingSemanticOverwrite.value = null;
+    return;
+  }
+  const service = getCardEditorService();
+  if (!service) { await announce('error', t('envNotInit', '环境未初始化')); return; }
+  await withLoading(pending.loadingKey, async () => {
+    try {
+      const result = pending.kind === 'cardType'
+        ? await service.updateCardType(pending.cardId, pending.target as EditableCardType, { semanticOverwriteIntent: { confirmed: true } })
+        : await service.updateRender(pending.cardId, pending.target as EditableRenderTarget, { semanticOverwriteIntent: { confirmed: true } });
+      await applyEditorMutationResult(result, pending.successMessage);
+    } catch (error) {
+      logger.error('Failed to confirm semantic overwrite', error);
+      await announce('error', t('semanticOverwriteConfirmFailed', '确认覆盖失败'));
+    }
+  });
+}
 async function commitPriority(): Promise<void> {
   if (!currentCard.value) return;
+  clearPendingSemanticOverwriteForNewCommand();
   const nextPriority = Math.max(0, Math.min(100, Math.floor(Number(priorityDraft.value) || 0)));
   priorityDraft.value = String(nextPriority);
   if (nextPriority === currentCard.value.priority) return;
@@ -563,6 +667,7 @@ async function commitPriority(): Promise<void> {
 }
 async function commitDismissed(nextDismissed: boolean): Promise<void> {
   if (!currentCard.value) return;
+  clearPendingSemanticOverwriteForNewCommand();
   const service = getCardEditorService();
   if (!service) { await announce('error', t('envNotInit', 'Environment not initialized')); return; }
   await withLoading('dismiss', async () => {
@@ -588,6 +693,7 @@ function resolveDueTimestamp(options: ScheduleOptions): number {
 }
 async function handleScheduleDate(options: ScheduleOptions): Promise<void> {
   if (!currentCard.value) return;
+  clearPendingSemanticOverwriteForNewCommand();
   const service = getCardEditorService();
   if (!service) { await announce('error', t('envNotInit', '环境未初始化')); return; }
   await withLoading('nextReview', async () => {
@@ -633,6 +739,7 @@ function openScheduleDateDialog(): void {
 
 async function handleReset(): Promise<void> {
   if (!currentCard.value) return;
+  clearPendingSemanticOverwriteForNewCommand();
   const confirmed = await confirmDialog({ title: t('resetConfirmTitle', '确认重置学习进度'), content: t('resetConfirmContent', '这会清空本卡的复习历史，且不能撤销。是否继续？'), confirmText: t('confirm', '确认'), cancelText: t('cancel', '取消') });
   if (!confirmed) return;
   const service = getCardEditorService();
@@ -659,10 +766,16 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .srs-editor{--srs-surface:color-mix(in srgb,var(--b3-theme-surface) 86%,white 14%);--srs-border:color-mix(in srgb,var(--b3-border-color) 78%,transparent 22%);--srs-accent:color-mix(in srgb,var(--b3-theme-primary) 82%,#1f5fbf 18%);--srs-accent-soft:color-mix(in srgb,var(--b3-theme-primary-lightest) 74%,white 26%);flex:1 1 auto;display:flex;flex-direction:column;gap:12px;box-sizing:border-box;height:100%;min-height:0;padding:14px;overflow-x:hidden;overflow-y:auto;scrollbar-gutter:stable;background:linear-gradient(180deg,color-mix(in srgb,var(--b3-theme-background) 94%,var(--b3-theme-surface) 6%),var(--b3-theme-background))}
-.srs-editor__banner,.srs-panel,.srs-editor__empty,.srs-preview-pill,.srs-preview-detail,.srs-summary-item,.srs-inline-editor,.srs-detail,.srs-type-option,.srs-review-preview{border:1px solid var(--srs-border);border-radius:14px}
+.srs-editor__banner,.srs-panel,.srs-editor__empty,.srs-editor__semantic-overwrite,.srs-preview-pill,.srs-preview-detail,.srs-summary-item,.srs-inline-editor,.srs-detail,.srs-type-option,.srs-review-preview{border:1px solid var(--srs-border);border-radius:14px}
 .srs-editor__banner{padding:10px 12px;background:var(--srs-surface);color:var(--b3-theme-on-surface)}
 .srs-editor__banner--success{border-color:color-mix(in srgb,var(--b3-theme-success) 40%,var(--srs-border) 60%);background:color-mix(in srgb,var(--b3-theme-success-lightest) 74%,white 26%)}
 .srs-editor__banner--error{border-color:color-mix(in srgb,var(--b3-theme-error) 40%,var(--srs-border) 60%);background:color-mix(in srgb,var(--b3-theme-error-lightest) 74%,white 26%)}
+.srs-editor__semantic-overwrite{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:12px;background:color-mix(in srgb,var(--b3-theme-warning-lightest) 78%,white 22%);border-color:color-mix(in srgb,var(--b3-theme-warning) 36%,var(--srs-border) 64%)}
+.srs-editor__semantic-overwrite-main{display:flex;flex-direction:column;gap:8px;min-width:0}
+.srs-editor__semantic-overwrite-title{margin:0;font-weight:700;color:var(--b3-theme-on-surface)}
+.srs-editor__semantic-overwrite-desc{margin:0;color:var(--b3-theme-on-surface-light);line-height:1.45}
+.srs-editor__semantic-overwrite-fields,.srs-editor__semantic-overwrite-actions{display:flex;flex-wrap:wrap;gap:8px}
+.srs-editor__semantic-overwrite-actions{justify-content:flex-end;flex:0 0 auto}
 .srs-editor__empty{display:flex;align-items:center;gap:10px;padding:16px;color:var(--b3-theme-on-surface-light);background:var(--srs-surface)}
 .srs-editor__empty svg,.srs-action-row .b3-button svg{width:14px;height:14px}
 .srs-panel{display:flex;flex-direction:column;gap:12px;padding:14px;background:var(--srs-surface);box-shadow:0 10px 24px rgba(0,0,0,.04)}
@@ -714,6 +827,6 @@ onBeforeUnmount(() => {
 .srs-detail__value--mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;word-break:break-all}
 .srs-danger{align-items:center}
 .srs-danger__title{font-weight:700}
-@media (max-width:780px){.srs-summary-grid,.srs-details-grid,.srs-type-grid,.srs-review-preview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.srs-panel__header,.srs-inline-editor__header,.srs-danger{flex-direction:column}.srs-inline-editor__control--split{grid-template-columns:1fr}}
+@media (max-width:780px){.srs-summary-grid,.srs-details-grid,.srs-type-grid,.srs-review-preview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.srs-panel__header,.srs-inline-editor__header,.srs-danger,.srs-editor__semantic-overwrite{flex-direction:column}.srs-inline-editor__control--split{grid-template-columns:1fr}}
 @media (max-width:560px){.srs-summary-grid,.srs-details-grid,.srs-type-grid,.srs-review-preview-grid{grid-template-columns:1fr}}
 </style>

@@ -8,6 +8,10 @@ import {
   type ProgressiveSourceAvailability,
   type ProgressiveSourceLineage,
 } from '@/core/progressive/progressiveSourceModel';
+import {
+  buildReviewRenderableRenderPolicy,
+  type ReviewRenderableRenderPolicy,
+} from './reviewRenderableRenderPolicy';
 
 export type ReviewRenderableTargetKind =
   | 'standard-card'
@@ -42,6 +46,7 @@ export interface ReviewRenderableContext {
     cardType: FSRSCard['type'] | null;
     meta: Record<string, unknown>;
   };
+  renderPolicy: ReviewRenderableRenderPolicy;
   allowedActions: ReviewRenderableAction[];
   diagnostics: string[];
   unavailable: {
@@ -76,6 +81,7 @@ export function buildReviewRenderableContext(input: {
     sourceAvailability?: ProgressiveSourceAvailability | null;
   } | null;
   schedulerSnapshot?: SchedulerStateSnapshot | null;
+  renderPolicy?: ReviewRenderableRenderPolicy | null;
 }): ReviewRenderableContext {
   const card = input.card;
   const progressive = input.progressive ?? null;
@@ -94,6 +100,8 @@ export function buildReviewRenderableContext(input: {
   if (sourceAvailability && sourceAvailability.status !== 'current') {
     diagnostics.push(`source-${sourceAvailability.status}`);
   }
+  const renderPolicy = input.renderPolicy ?? buildReviewRenderableRenderPolicy(card);
+  diagnostics.push(...renderPolicy.diagnostics);
 
   return {
     version: 1,
@@ -114,6 +122,7 @@ export function buildReviewRenderableContext(input: {
       cardType: card?.type ?? null,
       meta: card?.meta ? { ...card.meta } : {},
     },
+    renderPolicy,
     allowedActions: buildAllowedActions({
       showAnswer: input.showAnswer,
       targetKind,

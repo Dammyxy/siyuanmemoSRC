@@ -183,6 +183,33 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     });
   });
 
+  it('uses faceKey rule direction before stale legacy typeMarker', async () => {
+    const { service } = createService('作者→woz');
+
+    const vm = await service.prepareViewModel('descriptor-block', {
+      faceKey: { ruleId: 'descriptor-reverse' },
+      meta: {
+        typeMarker: 'descriptor-forward',
+        fieldMapping: {
+          concept: 'concept-block',
+          descriptor: 'descriptor-block',
+          cdf_group_hint: '起源',
+          cdf_child_cue: '作者',
+          cdf_child_answer: 'woz',
+        },
+      },
+    });
+
+    expect(vm).not.toBeNull();
+    expect(vm!.isReverse).toBe(true);
+    expect(vm!.frontHtml).toContain('woz');
+    expect(vm!.frontHtml).toContain('是谁的');
+    expect(vm!.directScene?.frontMask).toEqual({
+      rowKey: 'concept',
+      segment: 'whole',
+    });
+  });
+
   it('keeps non-cdf descriptor rendering unchanged', async () => {
     const { service } = createService('功能 ;; 生成 ATP');
 

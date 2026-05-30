@@ -183,7 +183,9 @@ import {
 import { useCardTypeCache } from './composables/useCardTypeCache';
 import {
   buildReviewRenderCacheKey,
+  buildReviewRenderCacheKeyFromPolicy,
   buildReviewRenderWatchKey,
+  buildReviewRenderWatchKeyFromPolicy,
   isProgressiveDerivedItemCard,
   isNeuralRoamNonFlashcard,
   isOrdinaryMultiClozeReviewCard,
@@ -194,6 +196,7 @@ import {
 } from './reviewRenderPolicy';
 import { createLogger } from '@/utils/logger';
 import { resolveRenderProfile } from '@/core/card/render-profile/RenderProfileResolver';
+import type { ReviewRenderableRenderPolicy } from '@/application/adapters/reviewRenderableRenderPolicy';
 
 const props = defineProps<{
   app: siyuan.App;
@@ -493,10 +496,17 @@ function resolveNeuralIsFlashcard(card: ReviewUIState['content']['card']): boole
 
 const rawAnswerPaneBlockId = computed(() => String(props.content.answerBlockID || ''));
 const answerPaneTemplateForcesProtyle = computed(() => rawAnswerPaneBlockId.value.length > 0);
-const forceProtyleRender = computed(() => (
-  props.content.card?.meta?.forceProtyleRender === true
-  || answerPaneTemplateForcesProtyle.value
+const contextRenderPolicy = computed<ReviewRenderableRenderPolicy | null>(() => (
+  props.meta?.renderContext?.renderPolicy ?? null
 ));
+const forceProtyleRender = computed(() => {
+  if (contextRenderPolicy.value) {
+    return contextRenderPolicy.value.forceProtyleRender || answerPaneTemplateForcesProtyle.value;
+  }
+
+  return props.content.card?.meta?.forceProtyleRender === true
+    || answerPaneTemplateForcesProtyle.value;
+});
 const isTopicReadModeCard = computed(() => String(props.content.card?.type || '') === 'topic');
 const isTopicDocumentCard = computed(() => (
   isTopicReadModeCard.value
@@ -521,10 +531,13 @@ const quickRenderFallbackReason = computed(() => {
   return 'missing-card-id';
 });
 const quickDetectReason = computed(() => {
+  if (contextRenderPolicy.value) {
+    return contextRenderPolicy.value.quickDetectReason;
+  }
   const reason = props.content.card?.meta?.quickDetectReason;
   return typeof reason === 'string' ? reason : '';
 });
-const resolvedRenderProfile = computed(() => resolveRenderProfile(props.content.card));
+const resolvedRenderProfile = computed(() => contextRenderPolicy.value?.profile ?? resolveRenderProfile(props.content.card));
 const hasConceptDefinitionSemanticSignal = computed(() => checkIsConceptDefinitionCard(props.content.card));
 const hasConceptCardSemanticSignal = computed(() => checkIsConceptCard(props.content.card));
 const hasDescriptorSemanticSignal = computed(() => checkIsDescriptorSemanticCard(props.content.card));
@@ -546,13 +559,18 @@ const quickIndicatorSymbolType = computed(() => {
   const symbolType = props.content.card?.meta?.symbolType;
   return typeof symbolType === 'string' ? symbolType : '';
 });
-const forceQuickRenderRaw = computed(() => (
-  !isProgressiveDerivedItem.value
-  && (
-    props.content.card?.meta?.forceQuickRender === true
-    || preferStableQuickForcePath.value
-  )
-));
+const forceQuickRenderRaw = computed(() => {
+  if (isProgressiveDerivedItem.value) {
+    return false;
+  }
+
+  if (contextRenderPolicy.value) {
+    return contextRenderPolicy.value.forceQuickRender;
+  }
+
+  return props.content.card?.meta?.forceQuickRender === true
+    || preferStableQuickForcePath.value;
+});
 const forceQuickRender = computed(() => {
   invalidForcedQuickRenderVersion.value;
   if (forceProtyleRender.value) return false;
@@ -566,7 +584,10 @@ const forceQuickRender = computed(() => {
 });
 
 const renderCacheKey = computed(() =>
-  `${buildReviewRenderCacheKey({
+  `${buildReviewRenderCacheKeyFromPolicy({
+    blockId: String(props.content.id || ''),
+    policy: contextRenderPolicy.value,
+  }) ?? buildReviewRenderCacheKey({
     blockId: String(props.content.id || ''),
     cardId: String(props.content.card?.id || ''),
     cardType: String(props.content.card?.type || ''),
@@ -584,7 +605,11 @@ const renderCacheKey = computed(() =>
 );
 
 const renderWatchKey = computed(() =>
-  buildReviewRenderWatchKey({
+  buildReviewRenderWatchKeyFromPolicy({
+    contentType: String(props.content.type || ''),
+    blockId: String(props.content.id || ''),
+    policy: contextRenderPolicy.value,
+  }) ?? buildReviewRenderWatchKey({
     contentType: String(props.content.type || ''),
     blockId: String(props.content.id || ''),
     cardId: String(props.content.card?.id || ''),
@@ -640,19 +665,37 @@ const detectedQuickForCurrentContent = computed(() => (
   )
 ));
 
-const specialRendererKind = computed(() => resolveReviewSpecialRendererKind({
-  card: props.content.card,
-  contentType: props.content.type,
-  renderProfile: resolvedRenderProfile.value,
-  forceProtyleRender: forceProtyleRender.value,
-  forceQuickRender: forceQuickRender.value,
-  isTopicReadMode: isTopicReadModeCard.value,
-  isNeuralRoamNonFlashcard: isNeuralRoamNonFlashcardCard.value,
-  isConceptDefinitionCard: detectedConceptDefinitionForCurrentContent.value,
-  isConceptCard: detectedConceptForCurrentContent.value,
-  isDescriptorCard: detectedDescriptorForCurrentContent.value,
-  isQuickCard: detectedQuickForCurrentContent.value,
-}));
+const specialRendererKind = computed(() => {
+  if (props.content.type !== 'protyle') {
+    return null;
+  }
+
+  if (contextRenderPolicy.value) {
+    if (forceProtyleRender.value) {
+      return null;
+    }
+    if (contextRenderPolicy.value.specialRendererKind === 'quick' && !forceQuickRender.value) {
+      return null;
+    }
+    return contextRenderPolicy.value.specialRendererKind;
+  }
+
+  // Compatibility path for old/test states that have not been rebuilt by the
+  // adapter with renderContext.renderPolicy yet.
+  return resolveReviewSpecialRendererKind({
+    card: props.content.card,
+    contentType: props.content.type,
+    renderProfile: resolvedRenderProfile.value,
+    forceProtyleRender: forceProtyleRender.value,
+    forceQuickRender: forceQuickRender.value,
+    isTopicReadMode: isTopicReadModeCard.value,
+    isNeuralRoamNonFlashcard: isNeuralRoamNonFlashcardCard.value,
+    isConceptDefinitionCard: detectedConceptDefinitionForCurrentContent.value,
+    isConceptCard: detectedConceptForCurrentContent.value,
+    isDescriptorCard: detectedDescriptorForCurrentContent.value,
+    isQuickCard: detectedQuickForCurrentContent.value,
+  });
+});
 
 // Multi-cloze review is owned by the dedicated renderer so each generated card
 // can focus exactly one cloze instead of hiding all source marks together.
@@ -1703,6 +1746,7 @@ async function renderProtyle(blockId: string): Promise<void> {
   const forceProtyleRenderFromMeta = forceProtyleRender.value;
   let forceQuickRenderFromMeta = forceQuickRender.value;
   const forceQuickRenderRawFromMeta = forceQuickRenderRaw.value;
+  const hasAuthoritativeRenderPolicy = contextRenderPolicy.value !== null;
   const shouldForceProtyleOnly = isNeuralRoamNonFlashcardCard.value || isTopicReadModeCard.value;
   const cacheKey = renderCacheKey.value;
 
@@ -1710,7 +1754,13 @@ async function renderProtyle(blockId: string): Promise<void> {
 
   // 🆕 性能优化：检查卡片类型缓存
   const cachedType = getCardType(cacheKey);
-  if (!shouldForceProtyleOnly && cachedType && !forceProtyleRenderFromMeta && !forceQuickRenderFromMeta) {
+  if (
+    !hasAuthoritativeRenderPolicy
+    && !shouldForceProtyleOnly
+    && cachedType
+    && !forceProtyleRenderFromMeta
+    && !forceQuickRenderFromMeta
+  ) {
     logger.debug('[SiYuanMemo][ReviewContent] Using cached card type:', cachedType);
     
     // ⚠️ 验证缓存：如果缓存说是概念定义卡，但卡片没有 xiuyuanID，则忽略缓存
@@ -1749,7 +1799,12 @@ async function renderProtyle(blockId: string): Promise<void> {
     && (renderProfile === 'quick-default' || renderProfile === 'quick-inline-formula')
     ? null
     : renderProfile;
-  if (!shouldForceProtyleOnly && !forceProtyleRenderFromMeta && effectiveRenderProfile) {
+  if (
+    !hasAuthoritativeRenderPolicy
+    && !shouldForceProtyleOnly
+    && !forceProtyleRenderFromMeta
+    && effectiveRenderProfile
+  ) {
     logBidirectionalTemplateDiagnostic('render-profile-branch', {
       blockId,
       renderProfile: effectiveRenderProfile,
@@ -1865,7 +1920,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       neuralNonFlashcard: isNeuralRoamNonFlashcardCard.value,
       forceQuickRenderRaw: forceQuickRenderRawFromMeta,
     });
-  } else if (forceQuickRenderFromMeta) {
+  } else if (!hasAuthoritativeRenderPolicy && forceQuickRenderFromMeta) {
     logger.debug('[SiYuanMemo][ReviewContent] Force quick render enabled by card meta', {
       blockId,
       cardId: quickRenderCardId.value,
@@ -1938,7 +1993,13 @@ async function renderProtyle(blockId: string): Promise<void> {
     }
   }
 
-  if (!shouldForceProtyleOnly && !forceQuickRenderFromMeta && !forceProtyleRenderFromMeta && !isProgressiveDerivedItem.value) {
+  if (
+    !hasAuthoritativeRenderPolicy
+    && !shouldForceProtyleOnly
+    && !forceQuickRenderFromMeta
+    && !forceProtyleRenderFromMeta
+    && !isProgressiveDerivedItem.value
+  ) {
     const bypassSemanticFallbackDetection = shouldBypassSemanticFallback(
       props.content.card,
       resolvedRenderProfile.value

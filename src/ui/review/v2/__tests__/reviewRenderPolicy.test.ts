@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { FSRSCard } from '@/types/card';
 import {
   buildReviewRenderCacheKey,
+  buildReviewRenderCacheKeyFromPolicy,
   buildReviewRenderWatchKey,
+  buildReviewRenderWatchKeyFromPolicy,
   isNeuralRoamNonFlashcard,
   resolveReviewSpecialRendererKind,
   shouldBypassSemanticFallback,
@@ -306,5 +308,52 @@ describe('reviewRenderPolicy', () => {
       contentType: 'protyle',
       renderProfile: 'quick-inline-formula',
     })).toBe('image-occlusion');
+  });
+
+  it('builds policy cache and watch keys from faceKey tokens instead of stale legacy faceIndex', () => {
+    const policy = {
+      version: 1,
+      profile: 'descriptor',
+      specialRendererKind: 'descriptor',
+      semanticKind: 'descriptor',
+      forceProtyleRender: false,
+      forceQuickRender: false,
+      quickDetectReason: '',
+      cacheTokens: {
+        cardId: 'card-1',
+        blockId: 'descriptor-block',
+        cardType: 'item',
+        faceToken: 'rule:descriptor-reverse::face:2',
+        ruleId: 'descriptor-reverse',
+        updatedAt: '12345',
+      },
+      legacyProjection: {
+        templateID: 'builtin-riff-sync',
+        typeMarker: 'concept-definition-forward',
+        faceIndex: 0,
+        renderProfile: '',
+        clozeRenderMode: '',
+        used: ['templateID', 'typeMarker', 'faceIndex'],
+      },
+      diagnostics: ['legacy-render-projection-read'],
+    } as const;
+
+    const cacheKey = buildReviewRenderCacheKeyFromPolicy({
+      blockId: 'descriptor-block',
+      policy,
+    });
+    const watchKey = buildReviewRenderWatchKeyFromPolicy({
+      contentType: 'protyle',
+      blockId: 'descriptor-block',
+      policy,
+    });
+
+    expect(cacheKey).toContain('fk:rule:descriptor-reverse::face:2');
+    expect(cacheKey).toContain('rid:descriptor-reverse');
+    expect(cacheKey).toContain('sr:descriptor');
+    expect(cacheKey).not.toContain('concept-definition-forward');
+    expect(cacheKey).not.toContain('faceIndex');
+    expect(watchKey).toContain('ct:protyle');
+    expect(watchKey).toContain('fk:rule:descriptor-reverse::face:2');
   });
 });

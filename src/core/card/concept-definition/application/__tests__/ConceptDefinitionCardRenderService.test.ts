@@ -136,6 +136,58 @@ describe('ConceptDefinitionCardRenderService', () => {
     });
   });
 
+  it('uses faceKey face index and rule direction before stale legacy meta', async () => {
+    conceptDefinitionApiMocks.getBlockKramdown.mockImplementation(async (blockId: string) => {
+      if (blockId === 'concept-0') {
+        return { kramdown: '旧概念' };
+      }
+      if (blockId === 'definition-0') {
+        return { kramdown: "((old '旧概念'))::旧定义" };
+      }
+      if (blockId === 'concept-1') {
+        return { kramdown: '目标概念' };
+      }
+      return { kramdown: "((target '目标概念'))::目标定义" };
+    });
+    conceptDefinitionApiMocks.sql.mockResolvedValue([]);
+
+    const service = new TestableConceptDefinitionCardRenderService({}, {
+      getXiuyuan: async () => ({
+        xiuyuan: {
+          getFaces: () => [
+            {
+              questionBlockId: 'concept-0',
+              answerBlockId: 'definition-0',
+            },
+            {
+              questionBlockId: 'concept-1',
+              answerBlockId: 'definition-1',
+            },
+          ],
+        },
+      }) as never,
+      renderMarkdown: (kramdown) => `<rich>${kramdown}</rich>`,
+    });
+
+    const viewModel = await service.prepareViewModel('definition-1', {
+      xiuyuanID: 'xy-1',
+      faceKey: { ruleId: 'concept-definition-reverse', faceIndex: 1 },
+      meta: {
+        xiuyuanID: 'xy-1',
+        faceIndex: 0,
+        typeMarker: 'concept-definition-forward',
+      },
+    });
+
+    expect(viewModel.conceptBlockId).toBe('concept-1');
+    expect(viewModel.conceptName).toBe('目标概念');
+    expect(viewModel.isReverse).toBe(true);
+    expect(viewModel.directScene?.frontMask).toEqual({
+      rowKey: 'concept-definition',
+      segment: 'left',
+    });
+  });
+
   it('keeps complex definitions in block-flow direct content and strips trailing attribute artifacts', async () => {
     conceptDefinitionApiMocks.getBlockKramdown.mockImplementation(async (blockId: string) => {
       if (blockId === 'concept-missing') {

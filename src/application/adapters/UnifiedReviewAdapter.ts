@@ -21,8 +21,11 @@ import {
 import type { BackendNeuralRoamViewState } from '../../../packages/contracts/src/backend-rpc';
 import {
   buildReviewRenderableContext,
-  type ReviewRenderableContext,
 } from '@/application/adapters/reviewRenderableContext';
+import {
+  buildReviewRenderableRenderPolicy,
+  type ReviewRenderableRenderPolicy,
+} from '@/application/adapters/reviewRenderableRenderPolicy';
 import type {
   ProgressiveContentPayloadIdentity,
   ProgressiveDisclosureState,
@@ -358,14 +361,26 @@ function resolveDescriptorContentBlockId(card: UnifiedReviewItem, fallbackBlockI
   return '';
 }
 
-function resolveContentBlockId(card: UnifiedReviewItem, fallbackBlockId: string): string {
+function resolveContentBlockId(
+  card: UnifiedReviewItem,
+  fallbackBlockId: string,
+  renderPolicy: ReviewRenderableRenderPolicy,
+): string {
   if (isXiuyuanCard(card)) {
-    if (isConceptDefinitionCard(card)) {
+    if (renderPolicy.specialRendererKind === 'descriptor') {
+      return resolveDescriptorContentBlockId(card, fallbackBlockId);
+    }
+
+    if (renderPolicy.specialRendererKind === 'concept-definition') {
       return resolveDefinitionContentBlockId(card, fallbackBlockId);
     }
 
     if (isDescriptorSemanticCard(card)) {
       return resolveDescriptorContentBlockId(card, fallbackBlockId);
+    }
+
+    if (isConceptDefinitionCard(card)) {
+      return resolveDefinitionContentBlockId(card, fallbackBlockId);
     }
 
     if (card.meta.templateID === 'builtin-riff-sync') {
@@ -380,14 +395,23 @@ function resolveContentBlockId(card: UnifiedReviewItem, fallbackBlockId: string)
   return fallbackBlockId;
 }
 
-function resolveAnswerBlockId(card: UnifiedReviewItem, fallbackBlockId: string): string {
+function resolveAnswerBlockId(
+  card: UnifiedReviewItem,
+  fallbackBlockId: string,
+  renderPolicy: ReviewRenderableRenderPolicy,
+): string {
   if (!isXiuyuanCard(card)) {
     return '';
   }
 
   const templateID = card.meta.templateID;
   const backBlockIDs = card.meta.backBlockIDs;
-  if (isConceptDefinitionCard(card) || isDescriptorSemanticCard(card)) {
+  if (
+    renderPolicy.specialRendererKind === 'concept-definition'
+    || renderPolicy.specialRendererKind === 'descriptor'
+    || isConceptDefinitionCard(card)
+    || isDescriptorSemanticCard(card)
+  ) {
     return '';
   }
 
@@ -701,13 +725,14 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     const cardId = resolveCardId(item);
     const cardType = resolveEffectiveCardType(item, queueType);
     const isTopicDocument = isTopicDocumentCard(item, cardType);
+    const renderPolicy = buildReviewRenderableRenderPolicy(item);
     const contentBlockId = isTopicDocument
       ? blockId
-      : resolveContentBlockId(item, blockId);
+      : resolveContentBlockId(item, blockId, renderPolicy);
     const isTopicLike = isTopicLikeCardType(cardType);
     const answerBlockID = isTopicDocument || isTopicLike
       ? ''
-      : resolveAnswerBlockId(item, blockId);
+      : resolveAnswerBlockId(item, blockId, renderPolicy);
     const hasInlineHiddenContent = isNativeInlineHiddenCard(item);
     const renderContext = buildReviewRenderableContext({
       card: item,
@@ -717,6 +742,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       answerBlockId: answerBlockID,
       progressive: readProgressiveRenderableContext(item),
       diagnostics: contentBlockId ? [] : ['unsupported-content-type'],
+      renderPolicy,
     });
 
     if (shouldLogBidirectionalTemplateDiagnostic(item)) {

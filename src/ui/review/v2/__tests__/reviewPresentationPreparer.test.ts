@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import type { FSRSCard } from '@/types/card';
 import { createEmptyReviewUIState, type ReviewUIState } from '../types';
-import { prepareReviewPresentation } from '../reviewPresentationPreparer';
+import {
+  buildPreparedReviewPresentationIdentity,
+  prepareReviewPresentation,
+} from '../reviewPresentationPreparer';
 
 function createCard(meta: Record<string, unknown>): FSRSCard {
   const now = Date.now();
@@ -39,6 +42,69 @@ function createState(card: FSRSCard): ReviewUIState {
       id: card.blockId,
       data: '',
       card,
+    },
+  };
+}
+
+function withRenderPolicy(
+  state: ReviewUIState,
+  rendererKind: NonNullable<ReviewUIState['meta']['renderContext']>['renderPolicy']['specialRendererKind'],
+): ReviewUIState {
+  return {
+    ...state,
+    meta: {
+      ...state.meta,
+      renderContext: {
+        version: 1,
+        targetKind: 'standard-card',
+        targetIdentity: {
+          cardId: state.content.card?.id ?? '',
+          blockId: state.content.card?.blockId ?? '',
+          deckId: '',
+        },
+        schedulerSnapshot: null,
+        sourceLineage: null,
+        progressiveDisclosure: null,
+        renderPayload: {
+          contentBlockId: state.content.id,
+          answerBlockId: '',
+          cardType: state.content.card?.type ?? null,
+          meta: { ...(state.content.card?.meta ?? {}) },
+        },
+        renderPolicy: {
+          version: 1,
+          profile: rendererKind === 'descriptor' ? 'descriptor' : null,
+          specialRendererKind: rendererKind,
+          semanticKind: rendererKind,
+          forceProtyleRender: false,
+          forceQuickRender: rendererKind === 'quick',
+          quickDetectReason: '',
+          cacheTokens: {
+            cardId: state.content.card?.id ?? '',
+            blockId: state.content.card?.blockId ?? '',
+            cardType: String(state.content.card?.type ?? ''),
+            faceToken: 'rule:descriptor-reverse::face:2',
+            ruleId: 'descriptor-reverse',
+            updatedAt: String(state.content.card?.updatedAt ?? ''),
+          },
+          legacyProjection: {
+            templateID: 'builtin-riff-sync',
+            typeMarker: 'concept-definition-forward',
+            faceIndex: 0,
+            renderProfile: '',
+            clozeRenderMode: '',
+            used: ['templateID', 'typeMarker', 'faceIndex'],
+          },
+          diagnostics: ['legacy-render-projection-read'],
+        },
+        allowedActions: ['answer', 'edit'],
+        diagnostics: [],
+        unavailable: {
+          writer: 'not-required',
+          backend: 'not-required',
+        },
+        sourcePayloadIdentity: null,
+      },
     },
   };
 }
@@ -92,5 +158,67 @@ describe('reviewPresentationPreparer', () => {
 
     expect(prepared.content.prepared).toBeUndefined();
     expect(services.multiClozeCardRenderService.prepareViewModel).not.toHaveBeenCalled();
+  });
+
+  it('uses render context policy before stale legacy semantic metadata when preparing renderer view models', async () => {
+    const services = createServices();
+    services.descriptorCardRenderService.prepareViewModel = vi.fn(async () => ({ kind: 'descriptor' }));
+    const card = createCard({
+      templateID: 'builtin-riff-sync',
+      typeMarker: 'concept-definition-forward',
+      fieldMapping: {
+        concept: 'concept-block',
+        descriptor: 'descriptor-block',
+      },
+      faceIndex: 0,
+    });
+    const state = withRenderPolicy({
+      ...createState(card),
+      content: {
+        ...createState(card).content,
+        id: 'descriptor-block',
+      },
+    }, 'descriptor');
+
+    const prepared = await prepareReviewPresentation(state, services);
+
+    expect(services.descriptorCardRenderService.prepareViewModel).toHaveBeenCalledWith('descriptor-block', card);
+    expect(services.conceptDefinitionCardRenderService.prepareViewModel).not.toHaveBeenCalled();
+    expect(prepared.content.prepared).toMatchObject({
+      rendererKind: 'descriptor',
+      viewModel: { kind: 'descriptor' },
+    });
+    expect(prepared.content.prepared?.identityKey).toContain('rule:descriptor-reverse::face:2');
+    expect(prepared.content.prepared?.identityKey).not.toContain('concept-definition-forward');
+  });
+
+  it('keeps image occlusion excluded even when render context policy is present', async () => {
+    const services = createServices();
+    const card = createCard({
+      imageOcclusion: true,
+      templateID: 'builtin-multi-cloze',
+      clozeRenderMode: 'inline-formula-cloze',
+      faces: [{ question: 'front', answer: 'back' }],
+    });
+    const state = withRenderPolicy(createState(card), 'image-occlusion');
+
+    const prepared = await prepareReviewPresentation(state, services);
+
+    expect(prepared.content.prepared).toBeUndefined();
+    expect(services.multiClozeCardRenderService.prepareViewModel).not.toHaveBeenCalled();
+    expect(services.descriptorCardRenderService.prepareViewModel).not.toHaveBeenCalled();
+  });
+
+  it('uses policy identity tokens for prepared presentation identity', () => {
+    const card = createCard({
+      typeMarker: 'concept-definition-forward',
+      faceIndex: 0,
+    });
+    const state = withRenderPolicy(createState(card), 'descriptor');
+
+    const identity = buildPreparedReviewPresentationIdentity('descriptor', state);
+
+    expect(identity).toContain('rule:descriptor-reverse::face:2');
+    expect(identity).not.toContain('concept-definition-forward');
   });
 });

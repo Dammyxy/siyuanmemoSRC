@@ -1158,6 +1158,15 @@ describe('UnifiedReviewAdapter', () => {
     expect(ui.content.id).toBe('ordinary-cloze-block');
     expect(ui.content.answerBlockID).toBe('');
     expect(ui.meta.hasHiddenContent).toBe(false);
+    expect(ui.meta.renderContext?.renderPolicy).toEqual(expect.objectContaining({
+      specialRendererKind: 'multi-cloze',
+      semanticKind: 'multi-cloze',
+      profile: null,
+      legacyProjection: expect.objectContaining({
+        templateID: 'builtin-multi-cloze',
+        used: expect.arrayContaining(['templateID']),
+      }),
+    }));
   });
 
   it('keeps formula multi-cloze cards on the dedicated renderer path without native hide metadata', async () => {
@@ -1178,6 +1187,158 @@ describe('UnifiedReviewAdapter', () => {
     const ui = await adapter.toUIState(queue as never, card as never, createContext());
 
     expect(ui.meta.hasHiddenContent).toBe(false);
+    expect(ui.meta.renderContext?.renderPolicy).toEqual(expect.objectContaining({
+      specialRendererKind: 'multi-cloze',
+      semanticKind: 'multi-cloze',
+      profile: 'quick-inline-formula',
+    }));
+  });
+
+  it('exposes descriptor render policy from semantic field mapping even when legacy type marker is stale', async () => {
+    const card = createCard('semantic-policy-descriptor-1', CardType.Item, {
+      faceKey: { ruleId: 'descriptor-reverse', faceIndex: 2 },
+      meta: createXiuyuanMeta({
+        templateID: 'builtin-riff-sync',
+        typeMarker: 'concept-definition-forward',
+        faceIndex: 0,
+        frontBlockIDs: ['concept-block', 'descriptor-front-block'],
+        backBlockIDs: ['concept-block', 'descriptor-back-block'],
+        fieldMapping: {
+          concept: 'concept-block',
+          descriptor: 'descriptor-back-block',
+        },
+      }),
+    });
+    const adapter = new UnifiedReviewAdapter();
+    const queue = createQueue({
+      queueType: 'retrieval-practice',
+      liveCards: [card],
+    });
+
+    const ui = await adapter.toUIState(queue as never, card as never, createContext());
+
+    expect(ui.content.id).toBe('descriptor-back-block');
+    expect(ui.meta.renderContext?.renderPolicy).toEqual(expect.objectContaining({
+      specialRendererKind: 'descriptor',
+      semanticKind: 'descriptor',
+      cacheTokens: expect.objectContaining({
+        faceToken: 'rule:descriptor-reverse::face:2',
+      }),
+      legacyProjection: expect.objectContaining({
+        faceIndex: 0,
+        typeMarker: 'concept-definition-forward',
+        used: expect.arrayContaining(['templateID', 'typeMarker', 'faceIndex']),
+      }),
+    }));
+  });
+
+  it('exposes concept-definition render policy from semantic field mapping', async () => {
+    const card = createCard('semantic-policy-cdf-1', CardType.Item, {
+      faceKey: { ruleId: 'concept-definition-reverse', faceIndex: 1 },
+      meta: createXiuyuanMeta({
+        templateID: 'builtin-riff-sync',
+        typeMarker: undefined,
+        faceIndex: 0,
+        frontBlockIDs: ['definition-front-block'],
+        backBlockIDs: ['concept-block'],
+        fieldMapping: {
+          concept: 'concept-block',
+          definition: 'definition-front-block',
+        },
+      }),
+    });
+    const adapter = new UnifiedReviewAdapter();
+    const queue = createQueue({
+      queueType: 'retrieval-practice',
+      liveCards: [card],
+    });
+
+    const ui = await adapter.toUIState(queue as never, card as never, createContext());
+
+    expect(ui.content.id).toBe('definition-front-block');
+    expect(ui.content.answerBlockID).toBe('');
+    expect(ui.meta.renderContext?.renderPolicy).toEqual(expect.objectContaining({
+      specialRendererKind: 'concept-definition',
+      semanticKind: 'concept-definition',
+      cacheTokens: expect.objectContaining({
+        faceToken: 'rule:concept-definition-reverse::face:1',
+      }),
+      legacyProjection: expect.objectContaining({
+        faceIndex: 0,
+        used: expect.arrayContaining(['templateID', 'faceIndex']),
+      }),
+    }));
+  });
+
+  it('exposes quick render policy and force flags without treating stale forceProtyle raw meta as authority', async () => {
+    const quickCard = createCard('quick-policy-1', CardType.Item, {
+      meta: {
+        source: 'symbol',
+        symbolDetected: true,
+        cardSource: 'quick-symbol',
+        symbolType: '>>',
+        quickDetectReason: 'symbol-rule',
+      },
+    });
+    const forcedProtyleCard = createCard('force-protyle-policy-1', CardType.Item, {
+      meta: {
+        forceProtyleRender: true,
+        source: 'symbol',
+        symbolDetected: true,
+        cardSource: 'quick-symbol',
+        symbolType: '>>',
+      },
+    });
+    const adapter = new UnifiedReviewAdapter();
+
+    const quickUi = await adapter.toUIState(
+      createQueue({ queueType: 'retrieval-practice', liveCards: [quickCard] }) as never,
+      quickCard as never,
+      createContext(),
+    );
+    const forcedUi = await adapter.toUIState(
+      createQueue({ queueType: 'retrieval-practice', liveCards: [forcedProtyleCard] }) as never,
+      forcedProtyleCard as never,
+      createContext(),
+    );
+
+    expect(quickUi.meta.renderContext?.renderPolicy).toEqual(expect.objectContaining({
+      specialRendererKind: 'quick',
+      semanticKind: 'quick',
+      forceProtyleRender: false,
+      forceQuickRender: true,
+      quickDetectReason: 'symbol-rule',
+    }));
+    expect(forcedUi.meta.renderContext?.renderPolicy).toEqual(expect.objectContaining({
+      specialRendererKind: null,
+      semanticKind: null,
+      forceProtyleRender: true,
+      forceQuickRender: false,
+    }));
+  });
+
+  it('exposes image-occlusion render policy while keeping adapter answer routing unchanged', async () => {
+    const card = createCard('image-occlusion-policy-1', CardType.Item, {
+      meta: {
+        imageOcclusion: true,
+        source: 'image-occlusion',
+      },
+    });
+    const adapter = new UnifiedReviewAdapter();
+    const queue = createQueue({
+      queueType: 'retrieval-practice',
+      liveCards: [card],
+    });
+
+    const ui = await adapter.toUIState(queue as never, card as never, createContext());
+
+    expect(ui.content.id).toBe('block-image-occlusion-policy-1');
+    expect(ui.meta.renderContext?.renderPolicy).toEqual(expect.objectContaining({
+      specialRendererKind: 'image-occlusion',
+      semanticKind: 'image-occlusion',
+      forceProtyleRender: false,
+      forceQuickRender: false,
+    }));
   });
 
   it('marks topic-derived item cards as native inline hidden candidates', async () => {

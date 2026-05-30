@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
 import type { ReviewEditorState } from '../reviewEditorState';
 import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
+import type { ReviewUIState } from '../types';
 
 const reviewContentMocks = vi.hoisted(() => {
   const instances: Array<{
@@ -474,6 +475,99 @@ function createSemanticDescriptorContentWithoutMarkers() {
           descriptor: 'descriptor-block',
         },
       },
+    },
+  };
+}
+
+function createStaleMetaPolicyDescriptorContent() {
+  return {
+    type: 'protyle' as const,
+    id: 'descriptor-policy-block',
+    data: '',
+    card: {
+      id: 'card-policy-descriptor',
+      blockId: 'card-block-policy-descriptor',
+      updatedAt: 12345,
+      faceKey: {
+        ruleId: 'descriptor-reverse',
+        faceIndex: 2,
+      },
+      type: 'item',
+      meta: {
+        templateID: 'builtin-multi-cloze',
+        clozeRenderMode: 'inline-formula-cloze',
+        renderProfile: 'quick-inline-formula',
+        typeMarker: 'concept-definition-forward',
+        faceIndex: 0,
+        faces: [{
+          question: 'stale <mark>[...]</mark>',
+          answer: 'multi-cloze',
+        }],
+        fieldMapping: {
+          concept: 'concept-block',
+          descriptor: 'descriptor-policy-block',
+        },
+      },
+    },
+  };
+}
+
+function createRenderPolicyMeta(
+  content: ReturnType<typeof createStaleMetaPolicyDescriptorContent>,
+  rendererKind: 'descriptor' | 'concept-definition' | 'multi-cloze' | 'quick' | 'image-occlusion' | null,
+): ReviewUIState['meta'] {
+  return {
+    transition: 'none',
+    renderContext: {
+      version: 1,
+      targetKind: 'standard-card',
+      targetIdentity: {
+        cardId: content.card.id,
+        blockId: content.card.blockId,
+        deckId: '',
+      },
+      schedulerSnapshot: null,
+      sourceLineage: null,
+      progressiveDisclosure: null,
+      renderPayload: {
+        contentBlockId: content.id,
+        answerBlockId: '',
+        cardType: content.card.type,
+        meta: { ...content.card.meta },
+      },
+      renderPolicy: {
+        version: 1,
+        profile: rendererKind === 'descriptor' ? 'descriptor' : null,
+        specialRendererKind: rendererKind,
+        semanticKind: rendererKind,
+        forceProtyleRender: false,
+        forceQuickRender: rendererKind === 'quick',
+        quickDetectReason: '',
+        cacheTokens: {
+          cardId: content.card.id,
+          blockId: content.card.blockId,
+          cardType: content.card.type,
+          faceToken: 'rule:descriptor-reverse::face:2',
+          ruleId: 'descriptor-reverse',
+          updatedAt: String(content.card.updatedAt),
+        },
+        legacyProjection: {
+          templateID: 'builtin-multi-cloze',
+          typeMarker: 'concept-definition-forward',
+          faceIndex: 0,
+          renderProfile: 'quick-inline-formula',
+          clozeRenderMode: 'inline-formula-cloze',
+          used: ['templateID', 'typeMarker', 'faceIndex', 'renderProfile', 'clozeRenderMode'],
+        },
+        diagnostics: ['legacy-render-projection-read'],
+      },
+      allowedActions: ['answer', 'edit'],
+      diagnostics: [],
+      unavailable: {
+        writer: 'not-required',
+        backend: 'not-required',
+      },
+      sourcePayloadIdentity: null,
     },
   };
 }
@@ -1181,6 +1275,125 @@ describe('ReviewContent editor state', () => {
       blockId: 'descriptor-block',
       rendererKind: 'descriptor',
     }));
+
+    wrapper.unmount();
+  });
+
+  it('routes semantic renderer from render context policy before stale raw metadata', async () => {
+    const DescriptorRendererStub = defineComponent({
+      name: 'DescriptorCardRendererStub',
+      setup() {
+        return () => h('div', { class: 'descriptor-renderer-stub' });
+      },
+    });
+    const content = createStaleMetaPolicyDescriptorContent();
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        renderServices: createRenderServicesStub(),
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content,
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: createRenderPolicyMeta(content, 'descriptor'),
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: DescriptorRendererStub,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    const exposed = wrapper.vm as unknown as {
+      getEditableSource: () => {
+        blockId: string;
+        rendererKind: string;
+      } | null;
+      getNativeSplitGuardState: () => {
+        rendererKind: string;
+        blockNativeTabSplit: boolean;
+      };
+    };
+
+    expect(wrapper.findComponent({ name: 'DescriptorCardRendererStub' }).exists()).toBe(true);
+    expect(wrapper.find('multi-cloze-card-renderer-stub').exists()).toBe(false);
+    expect(wrapper.find('concept-definition-card-renderer-stub').exists()).toBe(false);
+    expect(reviewContentMocks.instances).toHaveLength(0);
+    expect(reviewContentDescriptorMocks.isDescriptorCard).not.toHaveBeenCalled();
+    expect(reviewContentQuickCardMocks.isQuickCard).not.toHaveBeenCalled();
+    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+      blockId: 'descriptor-policy-block',
+      rendererKind: 'descriptor',
+    }));
+    expect(exposed.getNativeSplitGuardState()).toEqual({
+      rendererKind: 'descriptor',
+      blockNativeTabSplit: true,
+    });
+
+    wrapper.unmount();
+  });
+
+  it('does not promote stale raw semantic metadata when render context policy selects main Protyle', async () => {
+    const content = createStaleMetaPolicyDescriptorContent();
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        renderServices: createRenderServicesStub(),
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content,
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: createRenderPolicyMeta(content, null),
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    expect(wrapper.find('multi-cloze-card-renderer-stub').exists()).toBe(false);
+    expect(wrapper.find('descriptor-card-renderer-stub').exists()).toBe(false);
+    expect(wrapper.find('concept-definition-card-renderer-stub').exists()).toBe(false);
+    expect(reviewContentMocks.instances).toHaveLength(1);
+    expect(reviewContentMocks.instances[0]?.options.blockId).toBe('descriptor-policy-block');
+    expect(reviewContentDescriptorMocks.isDescriptorCard).not.toHaveBeenCalled();
+    expect(reviewContentQuickCardMocks.isQuickCard).not.toHaveBeenCalled();
+    expect(getEditorStates(wrapper).at(-1)).toEqual({
+      renderer: 'main-protyle',
+      supportsNativeEdit: true,
+      isEditing: false,
+    });
 
     wrapper.unmount();
   });

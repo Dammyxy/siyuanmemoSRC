@@ -1,4 +1,5 @@
 import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
+import type { ReviewRenderableRenderPolicy } from '@/application/adapters/reviewRenderableRenderPolicy';
 import { resolveRenderProfile } from '@/core/card/render-profile/RenderProfileResolver';
 import {
   isConceptCard as checkIsConceptCard,
@@ -48,12 +49,48 @@ function resolveQuickCardId(state: ReviewUIState): string {
   return String(state.content.card?.id || state.content.id || '');
 }
 
+function resolveRenderPolicy(state: ReviewUIState): ReviewRenderableRenderPolicy | null {
+  return state.meta.renderContext?.renderPolicy ?? null;
+}
+
+function toPreparedRendererKind(
+  rendererKind: ReviewRenderableRenderPolicy['specialRendererKind'],
+): PreparedReviewRendererKind | null {
+  if (
+    rendererKind === 'descriptor'
+    || rendererKind === 'concept-definition'
+    || rendererKind === 'concept'
+    || rendererKind === 'quick'
+    || rendererKind === 'multi-cloze'
+  ) {
+    return rendererKind;
+  }
+  return null;
+}
+
 export function buildPreparedReviewPresentationIdentity(
   rendererKind: PreparedReviewRendererKind,
   state: ReviewUIState,
 ): string {
   const content = state.content;
   const card = content.card;
+  const policy = resolveRenderPolicy(state);
+  if (policy) {
+    return [
+      rendererKind,
+      content.id || '',
+      policy.cacheTokens.cardId,
+      policy.cacheTokens.blockId,
+      policy.cacheTokens.faceToken,
+      policy.cacheTokens.ruleId,
+      policy.cacheTokens.updatedAt,
+      policy.profile || '',
+      policy.specialRendererKind || '',
+      policy.forceProtyleRender ? 'fp1' : 'fp0',
+      policy.forceQuickRender ? 'fq1' : 'fq0',
+    ].join('|');
+  }
+
   if (rendererKind === 'descriptor') {
     return [
       content.id || '',
@@ -106,6 +143,15 @@ function resolvePreparedRendererKind(state: ReviewUIState): PreparedReviewRender
   const content = state.content;
   if (content.type !== 'protyle') {
     return null;
+  }
+
+  const policyRendererKind = state.meta.renderContext?.renderPolicy?.specialRendererKind ?? null;
+  if (policyRendererKind === 'image-occlusion') {
+    return null;
+  }
+  const preparedPolicyRendererKind = toPreparedRendererKind(policyRendererKind);
+  if (preparedPolicyRendererKind) {
+    return preparedPolicyRendererKind;
   }
 
   const card = content.card;

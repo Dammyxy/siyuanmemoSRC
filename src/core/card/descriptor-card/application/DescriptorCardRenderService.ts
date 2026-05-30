@@ -9,6 +9,8 @@
 
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
+import type { CardFaceKey } from '@/types/card';
+import { resolveCardRuleDirection } from '@/core/card/cardSemanticLocator';
 import {
   createCdfDirectRenderable,
   type CdfDirectScene,
@@ -30,6 +32,7 @@ const logger = createLogger('DescriptorCardRenderService');
 const DEFAULT_ATTRIBUTE_SENTINEL = 'defaultAttribute';
 
 export interface DescriptorCardInput {
+  faceKey?: CardFaceKey;
   meta?: {
     frontBlockIDs?: string[];
     typeMarker?: string;
@@ -122,12 +125,14 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       // 4. 🆕 使用基类方法加载概念上下文（仅概念块）
       const conceptContext = await this.loadConceptContext(blockId);
 
-      // 5. 🆕 检测卡片方向（从 FSRSCard 的 typeMarker）
+      // 5. 检测卡片方向（faceKey 优先，legacy typeMarker 仅作兼容 fallback）
       const typeMarker = fsrsCard?.meta?.typeMarker || '';
-      const isReverse = typeMarker.includes('reverse');
+      const ruleDirection = resolveCardRuleDirection(fsrsCard);
+      const isReverse = ruleDirection === 'reverse';
       
       logger.debug('[DescriptorCardRenderService] Card direction:', { 
-        typeMarker, 
+        typeMarker,
+        ruleDirection,
         isReverse,
         fsrsCardMeta: fsrsCard?.meta 
       });
@@ -137,7 +142,7 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
 
       // 6. 分离正面和背面内容，传入概念上下文和方向
       const { frontHtml, backHtml } = this.splitDescriptorContent(card, conceptContext, isReverse, displayParts);
-      const relationArrow = this.resolveDescriptorArrow(data.content, typeMarker);
+      const relationArrow = this.resolveDescriptorArrow(data.content, isReverse);
       const directScene = this.buildDirectScene({
         relationArrow,
         isReverse,
@@ -708,13 +713,13 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
 
   private resolveDescriptorArrow(
     content: string,
-    typeMarker: string,
+    isReverse: boolean,
   ): '→' | '←' | '↔' {
     const normalized = String(content || '').replace(/\{:[^}]*\}/g, ' ').trim();
     if (/;<>|；《》|↔/.test(normalized)) {
       return '↔';
     }
-    if (/;<|；《|←/.test(normalized) || typeMarker.includes('reverse')) {
+    if (/;<|；《|←/.test(normalized) || isReverse) {
       return '←';
     }
     if (/;;|；；|->|→/.test(normalized)) {

@@ -77,6 +77,63 @@ describe('ReviewSessionCursor', () => {
     expect(cursor.cached().map((item) => item.id)).toEqual(['c']);
   });
 
+  it('uses faceKey instead of stale legacy meta for session-local exclusions', () => {
+    const cursor = new ReviewSessionCursor(QueueType.RetrievalPractice);
+    const reviewed = card('a', {
+      blockId: 'shared-block',
+      faceKey: { ruleId: 'concept-definition-reverse', faceIndex: 1 },
+      meta: { faceIndex: 0, typeMarker: 'concept-definition-forward' },
+    });
+    const sameFace = card('b', {
+      blockId: 'shared-block',
+      faceKey: { ruleId: 'concept-definition-reverse', faceIndex: 1 },
+      meta: { faceIndex: 9, typeMarker: 'stale-other-face' },
+    });
+    const staleMetaMatchOnly = card('c', {
+      blockId: 'shared-block',
+      faceKey: { ruleId: 'concept-definition-forward', faceIndex: 0 },
+      meta: { faceIndex: 0, typeMarker: 'concept-definition-reverse' },
+    });
+
+    expect(cursor.addSessionExcludedCardIdentity(reviewed)).toBe(true);
+    cursor.load([reviewed, sameFace, staleMetaMatchOnly]);
+
+    expect(cursor.cached().map((item) => item.id)).toEqual(['c']);
+  });
+
+  it('matches restored legacy face-only session exclusion keys', () => {
+    const restored = new ReviewSessionCursor(QueueType.RetrievalPractice);
+    restored.restore({
+      version: 1,
+      queueType: QueueType.RetrievalPractice,
+      cacheValid: true,
+      currentIndex: 0,
+      cachedCards: [
+        card('legacy-match', {
+          blockId: 'shared-block',
+          faceKey: { ruleId: 'concept-definition-forward', faceIndex: 0 },
+          meta: { faceIndex: 0 },
+        }),
+        card('other-face', {
+          blockId: 'shared-block',
+          faceKey: { ruleId: 'concept-definition-reverse', faceIndex: 1 },
+          meta: { faceIndex: 1 },
+        }),
+      ],
+      currentItem: null,
+      forwardBuffer: [],
+      pendingRotateCardId: null,
+      deferOnceCardId: null,
+      avoidOnceCardId: null,
+      avoidOnceBlockId: null,
+      sessionExcludedCardIds: [],
+      sessionExcludedLogicalKeys: ['block:shared-block::face:0'],
+      lastCounterSnapshot: null,
+    });
+
+    expect(restored.cached().map((item) => item.id)).toEqual(['other-face']);
+  });
+
   it('serializes and restores volatile cursor state', () => {
     const cursor = new ReviewSessionCursor(QueueType.RetrievalPractice);
     cursor.load([card('a'), card('b')]);

@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-30 (Round 505)
+Last update: 2026-05-30 (Round 506)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-30 - Retire Review render meta-routing debt
+
+- Task: Finish deferred Review render-routing debt so stale legacy `meta.templateID/typeMarker/faceIndex` cannot override adapter-owned render context policy.
+- Touched slice: Review adapter/render context, Review render policy helpers, prepared presentation, ReviewContent routing, focused tests; `src/application/adapters/reviewRenderableContext.ts`, `src/application/adapters/reviewRenderableRenderPolicy.ts`, `src/application/adapters/UnifiedReviewAdapter.ts`, `src/ui/review/v2/reviewRenderPolicy.ts`, `src/ui/review/v2/reviewPresentationPreparer.ts`, `src/ui/review/v2/ReviewContent.vue`.
+- Debt fixed now: `ReviewRenderableContext` now carries additive `renderPolicy` with normalized renderer kind, profile, force flags, cache tokens, and named `legacyProjection` diagnostics. Adapter content-block routing now uses policy so descriptor field mapping beats stale concept-definition markers. UI/preparer now prefer `meta.renderContext.renderPolicy` for special renderer selection and identity/cache keys; `faceKey` policy tokens beat legacy faceIndex. Local raw-meta renderer detection remains compatibility-only when no policy exists.
+- Debt deferred: Raw `card.meta` is still used for renderer payloads, display/log/debug, answer-pane/native riff-sync behavior, dependency block collection, and old states without render context policy. Concept-roam/focus-specific legacy reads remain outside this render-routing slice if present.
+- Why deferred: Those reads are not active special-renderer routing authority, or they need a separate focus/display contract. Removing all raw payload reads now would be broader than the Review render policy cutover.
+- Next safe step: Add a small audit/change for remaining concept-roam/display-specific reads, then retire compatibility fallback once all active Review states are guaranteed to carry `renderContext.renderPolicy`.
+- Validation: `pnpm vitest run src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts src/ui/review/v2/__tests__/reviewRenderPolicy.test.ts src/ui/review/v2/__tests__/reviewPresentationPreparer.test.ts src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
+
+### 2026-05-30 - Retire remaining card semantic authority debt
+
+- Task: Finish the follow-up slice after card semantic payload protection: make SRS editor protected-overwrite confirmation actionable, and stop active Review/session/special-renderer paths from using stale legacy `meta.faceIndex/typeMarker` as semantic authority.
+- Touched slice: Card semantic locator, SRS editor confirmation UI, Review session cursor, special card renderers; `src/core/card/cardSemanticLocator.ts`, `src/ui/srs/SrsEditorDialog.vue`, `src/application/adapters/review-session/ReviewSessionCursor.ts`, multi-cloze / concept-definition / descriptor render services, focused tests, and i18n labels.
+- Debt fixed now: Added one core semantic locator helper where `faceKey` wins over legacy `meta` and legacy reads are explicit compatibility fallback. SRS editor now keeps a pending protected-overwrite command, shows protected card data fields, cancels safely, clears stale pending commands on card/new-command changes, and only retries with `semanticOverwriteIntent.confirmed = true` after explicit user action. Review session sibling/completion exclusion now writes `faceKey`-based logical keys while still matching restored old `::face:N` session snapshots. Multi-cloze, concept-definition, and descriptor renderers now choose face index/direction from `faceKey` authority before legacy projection metadata.
+- Debt deferred: Broader `ReviewContent.vue` / `reviewRenderPolicy` legacy `meta.templateID/typeMarker` reads remain where they currently mix display projection, cache invalidation, compatibility routing, and active render-policy decisions. A future `RenderableCardContext` or equivalent contract may still be needed so UI render routing never has to interpret raw legacy card meta.
+- Why deferred: This slice only touched active authority reads where stale meta could pick the wrong review instance or render side. Migrating ReviewContent-wide render routing without a dedicated render-context contract would blend UI display/caching compatibility with semantic ownership and widen regression risk.
+- Next safe step: Introduce a narrow renderable-card context contract for Review content routing, then migrate remaining `meta.templateID/typeMarker` render-policy decisions behind that contract while leaving display/debug projections named as such.
+- Validation: Focused Vitest for semantic locator, SRS editor dialog, ReviewSessionCursor, multi-cloze renderer, concept-definition renderer, and descriptor renderer; `pnpm run check:boundaries`; `node scripts/check-no-runtime-msgpack.cjs`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
 
 ### 2026-05-30 - Protect card semantic payload during SQL migration and SRS edits
 

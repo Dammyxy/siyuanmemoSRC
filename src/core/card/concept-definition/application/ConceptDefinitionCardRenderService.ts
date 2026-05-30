@@ -10,10 +10,15 @@
 
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
+import type { CardFaceKey } from '@/types/card';
 import {
   createCdfDirectRenderable,
   type CdfDirectScene,
 } from '@/core/card/common/application/cdfDirectScene';
+import {
+  resolveCardFaceIndex,
+  resolveCardRuleDirection,
+} from '@/core/card/cardSemanticLocator';
 import {
   renderReviewMarkdown as renderSharedReviewMarkdown,
   type ReviewMarkdownRenderOptions,
@@ -38,6 +43,7 @@ interface ConceptContentRow extends Record<string, unknown> {
 
 export interface ConceptDefinitionCardInput {
   xiuyuanID?: string;
+  faceKey?: CardFaceKey;
   meta?: {
     xiuyuanID?: string;
     typeMarker?: string;
@@ -141,7 +147,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     }
 
     // 3. 获取卡片面索引
-    const faceIndex = card?.meta?.faceIndex ?? 0;
+    const faceIndex = resolveCardFaceIndex(card);
     const faces = xiuyuan.getFaces(); // 使用领域对象的方法
     
     if (!faces || faceIndex >= faces.length) {
@@ -151,7 +157,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     const face = faces[faceIndex];
     
     // 4. 解析方向与挖空索引
-    const parsedTypeMarker = this.parseTypeMarker(card?.meta?.typeMarker);
+    const parsedTypeMarker = this.parseTypeMarker(card);
     const { clozeIndex } = parsedTypeMarker;
 
     // 5. 获取概念块 ID 和定义块 ID
@@ -635,21 +641,35 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
   /**
    * 解析 typeMarker，提取挖空索引和方向
    */
-  private parseTypeMarker(typeMarker?: string): {
+  private parseTypeMarker(card?: ConceptDefinitionCardInput): {
     clozeIndex: number;
     isReverse: boolean;
     hasExplicitDirection: boolean;
   } {
+    const authoritativeDirection = resolveCardRuleDirection(card);
+    const typeMarker = card?.meta?.typeMarker;
     if (!typeMarker) {
-      return { clozeIndex: 0, isReverse: false, hasExplicitDirection: false };
+      return {
+        clozeIndex: 0,
+        isReverse: authoritativeDirection === 'reverse',
+        hasExplicitDirection: authoritativeDirection !== null,
+      };
     }
 
     // concept-definition-forward / concept-definition-reverse
     if (typeMarker === 'concept-definition-forward') {
-      return { clozeIndex: 0, isReverse: false, hasExplicitDirection: true };
+      return {
+        clozeIndex: 0,
+        isReverse: authoritativeDirection === 'reverse' ? true : false,
+        hasExplicitDirection: true,
+      };
     }
     if (typeMarker === 'concept-definition-reverse') {
-      return { clozeIndex: 0, isReverse: true, hasExplicitDirection: true };
+      return {
+        clozeIndex: 0,
+        isReverse: authoritativeDirection === 'forward' ? false : true,
+        hasExplicitDirection: true,
+      };
     }
 
     // concept-definition-cloze-{index}-forward / concept-definition-cloze-{index}-reverse
@@ -657,7 +677,11 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     if (clozeMatch) {
       return {
         clozeIndex: parseInt(clozeMatch[1]),
-        isReverse: clozeMatch[2] === 'reverse',
+        isReverse: authoritativeDirection === 'reverse'
+          ? true
+          : authoritativeDirection === 'forward'
+            ? false
+            : clozeMatch[2] === 'reverse',
         hasExplicitDirection: true,
       };
     }
@@ -667,12 +691,16 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     if (oldClozeMatch) {
       return {
         clozeIndex: parseInt(oldClozeMatch[1]),
-        isReverse: false,
-        hasExplicitDirection: false,
+        isReverse: authoritativeDirection === 'reverse',
+        hasExplicitDirection: authoritativeDirection !== null,
       };
     }
 
-    return { clozeIndex: 0, isReverse: false, hasExplicitDirection: false };
+    return {
+      clozeIndex: 0,
+      isReverse: authoritativeDirection === 'reverse',
+      hasExplicitDirection: authoritativeDirection !== null,
+    };
   }
 
   /**
