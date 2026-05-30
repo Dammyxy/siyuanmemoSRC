@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-30 (Round 506)
+Last update: 2026-05-30 (Round 507)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-30 - Remove Review hot-path full DB upload
+
+- Task: Learn from Anki and stop ordinary Review rating from uploading the full `siyuanmemo.db`, while keeping committed formal reviews durable.
+- Touched slice: Backend worker Review/checkpoint storage path; `WorkerReviewFeedbackRuntime`, `WorkerReviewCardMutationPersistenceModule`, `WorkerSqliteDatabaseService`, backend diagnostics contract, in-memory persistence bridge, and focused worker tests.
+- Debt fixed now: Formal `review.feedback` now writes a small versioned Review journal before live SQL mutation, runs the Review SQL transaction with `persist:false`, replays pending journal entries on worker init/reload/checkpoint, clears the journal only after checkpoint upload succeeds, and exposes journal pending/last write/replay/checkpoint diagnostics. Same-instance reload/dispose no longer keeps stale in-memory applied-journal markers after the SQL runtime is rebuilt.
+- Debt deferred: Non-Review backend mutations still use their existing persistence behavior; true native SQLite WAL ownership is still out of scope while `kernel.js` must not write `siyuanmemo.db`.
+- Why deferred: This slice intentionally proves the Anki-style durability model on the highest-latency Review path first. Moving every mutation to journal/checkpoint semantics would widen into Card CRUD, Xiuyuan, semantic, and private command ownership.
+- Next safe step: After live plugin reload, rate several due cards and confirm `H:\SiYuanXY\temp\os` no longer receives per-grade `multipart-*` files matching the `siyuanmemo.db` size; then consider journaling the next slow mutation family.
+- Validation: Targeted Review journal/checkpoint Vitest, full `worker/__tests__/BackendKernel.test.ts`, worker database service tests, and Review runtime tests passed locally; boundary/build validation tracked in OpenSpec task list.
 
 ### 2026-05-30 - Preserve A-Factor review cards during startup normalization
 

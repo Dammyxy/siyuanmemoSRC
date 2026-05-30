@@ -20,7 +20,17 @@ import { recordReviewFeedbackInnerStep } from '../bootstrap/ReviewFeedbackTiming
 import { createLogger } from '@/utils/logger';
 
 type ReviewFeedbackRepository = Pick<SqlUnifiedStorageRepository, 'getCard' | 'upsertCards' | 'touchSyncMetadata'>;
-type ReviewFeedbackRuntime = Pick<RuntimeSqliteDatabaseService, 'runTransaction' | 'run' | 'getOne'>;
+type ReviewFeedbackTransactionDb =
+  Parameters<RuntimeSqliteDatabaseService['runTransaction']>[1] extends (db: infer TDb) => unknown
+    ? TDb
+    : never;
+type ReviewFeedbackRuntime = Pick<RuntimeSqliteDatabaseService, 'run' | 'getOne'> & {
+  runTransaction<T>(
+    label: string,
+    writer: (db: ReviewFeedbackTransactionDb) => T | Promise<T>,
+    options?: { persist?: boolean },
+  ): Promise<T>;
+};
 const logger = createLogger('WorkerReviewCardMutationPersistenceModule');
 const REVIEW_FEEDBACK_WORKER_STEP_SLOW_MS = 120;
 
@@ -210,7 +220,7 @@ export class WorkerReviewCardMutationPersistenceModule {
         duplicate: false,
         queueImpact,
       };
-    }));
+    }, { persist: false }));
     if (!postCommitQueueImpactInput) {
       return result;
     }

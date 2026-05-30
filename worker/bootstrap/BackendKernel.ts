@@ -645,13 +645,17 @@ export class BackendKernel {
 
   private async diagnosticsStatus(): Promise<BackendDiagnosticsStatusResult> {
     const status = this.deps.database.getStatus();
+    const reviewJournal = await this.deps.database.getReviewFeedbackJournalDiagnostics();
     return {
       runtime: 'srs-backend-worker',
       initialized: status.initialized,
       dbFile: status.dbFile,
       ingest: status.ingest,
       autoCard: status.autoCard,
-      review: status.review,
+      review: {
+        ...status.review,
+        journal: reviewJournal,
+      },
       ai: status.ai,
       hotspot: this.hotspotRuntime.getDiagnostics(),
       preRequestMerge: this.getPreRequestMergeDiagnostics(),

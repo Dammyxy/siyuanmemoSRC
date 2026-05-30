@@ -483,6 +483,7 @@ export interface BackendDiagnosticsStatusResult {
     feedbackCommittedTotal: number;
     feedbackPreviewTotal: number;
     feedbackUnavailableTotal: number;
+    journal?: BackendReviewFeedbackJournalDiagnostics;
   };
   ai?: {
     sessionCreateTotal: number;
@@ -511,6 +512,30 @@ export interface BackendDiagnosticsStatusResult {
   };
   preRequestMerge?: BackendPreRequestMergeDiagnosticsState;
   domainSync?: BackendDomainSyncStatusResult;
+}
+
+export interface BackendReviewFeedbackJournalOperationStatus {
+  ok: boolean;
+  at: number;
+  entryId?: string | null;
+  cardId?: string | null;
+  pendingCount?: number;
+  pendingBytes?: number;
+  replayedCount?: number;
+  skippedInMemoryCount?: number;
+  cleared?: boolean;
+  error?: string | null;
+}
+
+export interface BackendReviewFeedbackJournalDiagnostics {
+  fileName: string;
+  version: number;
+  pendingCount: number;
+  pendingBytes: number;
+  appliedInMemoryCount: number;
+  lastWrite: BackendReviewFeedbackJournalOperationStatus | null;
+  lastReplay: BackendReviewFeedbackJournalOperationStatus | null;
+  lastCheckpoint: BackendReviewFeedbackJournalOperationStatus | null;
 }
 
 export type BackendUnavailableClass =

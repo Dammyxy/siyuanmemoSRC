@@ -35,12 +35,30 @@ type SrsProjectionWorkerQueueType =
   | QueueType.RetrievalPractice
   | QueueType.IncrementalLearning;
 
+type WorkerReviewFeedbackTransactionOptions = {
+  persist?: boolean;
+};
+
+type WorkerReviewFeedbackTransactionDb =
+  Parameters<RuntimeSqliteDatabaseService['runTransaction']>[1] extends (db: infer TDb) => unknown
+    ? TDb
+    : never;
+
+type WorkerReviewFeedbackRuntimeDatabase = Pick<RuntimeSqliteDatabaseService, 'run' | 'getOne'> & {
+  runTransaction<T>(
+    label: string,
+    writer: (db: WorkerReviewFeedbackTransactionDb) => T | Promise<T>,
+    options?: WorkerReviewFeedbackTransactionOptions,
+  ): Promise<T>;
+};
+
 export type WorkerReviewFeedbackRuntimeDeps = {
   repository: Pick<SqlUnifiedStorageRepository, 'getCard' | 'upsertCards' | 'queryCards' | 'touchSyncMetadata'>;
   queueProjection: Pick<SqlQueueProjectionRepository, 'readGeneration' | 'readRows' | 'applyQueueProjectionDelta'> | null;
-  runtime: Pick<RuntimeSqliteDatabaseService, 'runTransaction' | 'run' | 'getOne'>;
+  runtime: WorkerReviewFeedbackRuntimeDatabase;
   domainSyncLedger?: DomainSyncLedger;
   recordUnavailable?: () => void;
+  persistReviewJournal?: (request: BackendReviewFeedbackRequest) => Promise<BackendReviewFeedbackRequest>;
 };
 
 type WorkerReviewFeedbackQueueProjection = NonNullable<WorkerReviewFeedbackRuntimeDeps['queueProjection']>;
@@ -130,6 +148,21 @@ export class WorkerReviewFeedbackRuntime {
       }
     }
 
+    const normalizedRequest: BackendReviewFeedbackRequest = {
+      ...request,
+      cardId,
+      rating,
+      queueType,
+      queueMode,
+      commitPolicy,
+      reviewedAt,
+      idempotencyKey,
+    };
+    const durableRequest = commitPolicy === 'write-schedule' && this.deps.persistReviewJournal
+      ? await this.deps.persistReviewJournal(normalizedRequest)
+      : normalizedRequest;
+    const durableIdempotencyKey = normalizeOptionalString(durableRequest.idempotencyKey);
+
     const mutationModule = new WorkerReviewCardMutationPersistenceModule({
       repository: this.deps.repository,
       runtime: this.deps.runtime,
@@ -137,14 +170,14 @@ export class WorkerReviewFeedbackRuntime {
     });
     return await mutationModule.commitReviewFeedback(
       {
-        request,
+        request: durableRequest,
         cardId,
         queueType,
         queueMode,
         commitPolicy,
         reviewedAt,
         rating,
-        idempotencyKey,
+        idempotencyKey: durableIdempotencyKey,
       },
       (input) => this.buildReviewFeedbackQueueImpact(input),
     );

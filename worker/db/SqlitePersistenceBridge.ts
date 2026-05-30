@@ -55,6 +55,7 @@ export function createUnavailableSqlitePersistenceBridge(reason: string): Sqlite
 
 export function createInMemorySqlitePersistenceBridge(): SqlitePersistenceBridge & {
   snapshot(): { bytes: Uint8Array | null };
+  jsonSnapshot(path: string): unknown | null;
 } {
   const binary = new Map<string, Uint8Array>();
   const json = new Map<string, unknown>();
@@ -93,6 +94,9 @@ export function createInMemorySqlitePersistenceBridge(): SqlitePersistenceBridge
       return {
         bytes: first ? new Uint8Array(first) : null,
       };
+    },
+    jsonSnapshot(path: string): unknown | null {
+      return json.get(path) ?? null;
     },
   };
 }

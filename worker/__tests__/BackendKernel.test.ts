@@ -7337,7 +7337,7 @@ describe('BackendKernel', () => {
     expect(metadata.contentHash).not.toBe('stale-before-review');
   });
 
-  it('persists committed review feedback to the sqlite bridge file', async () => {
+  it('persists committed review feedback to the sqlite bridge file on explicit checkpoint', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
     const reviewedAt = 1_779_187_888_000;
@@ -7355,6 +7355,7 @@ describe('BackendKernel', () => {
     });
 
     expect('result' in response).toBe(true);
+    await database.persist();
     const persistedBytes = persistenceBridge.snapshot().bytes;
     expect(persistedBytes?.byteLength).toBeGreaterThan(0);
 
@@ -7367,6 +7368,269 @@ describe('BackendKernel', () => {
       'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
       ['card-review-persist'],
     )?.count).toBe(1);
+    expect(persistenceBridge.jsonSnapshot('review-feedback-journal.v1.json')).toMatchObject({
+      version: 1,
+      entries: [],
+    });
+    await expect(database.getReviewFeedbackJournalDiagnostics()).resolves.toMatchObject({
+      pendingCount: 0,
+      pendingBytes: 0,
+      lastCheckpoint: {
+        ok: true,
+        cleared: true,
+      },
+    });
+  });
+
+  it('persists formal review feedback to journal without writing the main sqlite file on the hot path', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const writeBinary = vi.fn(persistenceBridge.writeBinary.bind(persistenceBridge));
+    const writeJSON = vi.fn(persistenceBridge.writeJSON!.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      writeBinary,
+      writeJSON,
+    });
+    const reviewedAt = 1_779_187_889_000;
+    await database.upsertCards([buildCard({ id: 'card-review-journal-hot-path', due: reviewedAt - 10_000 })]);
+    await database.persist();
+    writeBinary.mockClear();
+    writeJSON.mockClear();
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-journal-hot-path',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-journal-hot-path',
+        rating: 3,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+        idempotencyKey: 'review-hot-path-journal-key',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(0);
+    expect(writeJSON.mock.calls.filter(([path]) => path === 'review-feedback-journal.v1.json')).toHaveLength(1);
+
+    const diagnostics = await kernel.handle({
+      id: 'review-feedback-journal-diagnostics',
+      jsonrpc: '2.0',
+      method: 'diagnostics.status',
+      params: [],
+    });
+    expect('result' in diagnostics).toBe(true);
+    if ('result' in diagnostics) {
+      expect(diagnostics.result.review?.journal).toMatchObject({
+        fileName: 'review-feedback-journal.v1.json',
+        version: 1,
+        pendingCount: 1,
+        lastWrite: {
+          ok: true,
+          entryId: 'review-feedback:review-hot-path-journal-key',
+          cardId: 'card-review-journal-hot-path',
+        },
+      });
+      expect(diagnostics.result.review?.journal?.pendingBytes).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps queue projection replacement out of ordinary review feedback main DB writes', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const writeBinary = vi.fn(persistenceBridge.writeBinary.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      writeBinary,
+    });
+    const reviewedAt = 1_779_187_889_500;
+    const card = buildCard({
+      id: 'card-review-projection-hot-path',
+      blockId: 'block-review-projection-hot-path',
+      due: reviewedAt - 10_000,
+      priority: 25,
+    });
+    await database.upsertCards([card]);
+    await database.persist();
+    writeBinary.mockClear();
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const replace = await kernel.handle({
+      id: 'review-projection-replace-hot-path',
+      jsonrpc: '2.0',
+      method: 'queue.projection.replace' as never,
+      params: [{
+        queueType: 'retrieval-practice',
+        policyHash: 'retrieval-practice:review-hot-path',
+        generation: 1,
+        rows: [{
+          queueType: 'retrieval-practice',
+          rowId: card.id,
+          cardId: card.id,
+          blockId: card.blockId,
+          deckId: null,
+          membershipReason: 'due',
+          dueAt: card.due,
+          dueBucket: 'overdue',
+          priorityScore: card.priority,
+          sortKey: `000000001:${card.id}`,
+          queueIndexHint: 1,
+          policyHash: 'retrieval-practice:review-hot-path',
+          sourceGeneration: 1,
+          payload: { source: 'test' },
+          updatedAt: reviewedAt - 5_000,
+        }],
+        reason: 'review-hot-path-test',
+      }],
+    });
+    expect('result' in replace).toBe(true);
+
+    const response = await kernel.handle({
+      id: 'review-feedback-projection-hot-path',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: card.id,
+        rating: 3,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+        projectionGeneration: 1,
+        projectionPolicyHash: 'retrieval-practice:review-hot-path',
+        idempotencyKey: 'review-projection-hot-path-key',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(0);
+  });
+
+  it('replays pending review feedback journal after restart before checkpoint', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const reviewedAt = 1_779_187_890_000;
+    const firstDatabase = new WorkerSqliteDatabaseService(persistenceBridge);
+    await firstDatabase.upsertCards([buildCard({
+      id: 'card-review-journal-replay',
+      due: reviewedAt - 10_000,
+      reps: 3,
+    })]);
+    await firstDatabase.persist();
+    const kernel = new BackendKernel({
+      database: firstDatabase,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-journal-replay',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-journal-replay',
+        rating: 3,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+        idempotencyKey: 'review-journal-replay-key',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    firstDatabase.dispose();
+
+    const reloadedDatabase = new WorkerSqliteDatabaseService(persistenceBridge);
+    await reloadedDatabase.load();
+
+    expect(reloadedDatabase.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
+      ['card-review-journal-replay'],
+    )?.count).toBe(1);
+    expect((await reloadedDatabase.getCard('card-review-journal-replay'))?.reps).toBe(4);
+  });
+
+  it('does not persist review journal for unsupported review feedback requests', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const writeJSON = vi.fn(persistenceBridge.writeJSON!.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      writeJSON,
+    });
+    const reviewedAt = 1_779_187_891_000;
+    await database.upsertCards([buildCard({ id: 'card-review-journal-reject', due: reviewedAt - 10_000 })]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-journal-reject',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-journal-reject',
+        rating: 3,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+        commitPolicy: 'preview-only',
+      }],
+    });
+
+    expect('error' in response).toBe(true);
+    expect(writeJSON.mock.calls.filter(([path]) => path === 'review-feedback-journal.v1.json')).toHaveLength(0);
+  });
+
+  it('keeps review feedback journal pending when checkpoint main database upload fails', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    let failMainDbWrite = false;
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      writeBinary: async (path, bytes) => {
+        if (path === 'siyuanmemo.db' && failMainDbWrite) {
+          throw new Error('forced main DB upload failure');
+        }
+        await persistenceBridge.writeBinary(path, bytes);
+      },
+    });
+    const reviewedAt = 1_779_187_892_000;
+    await database.upsertCards([buildCard({ id: 'card-review-checkpoint-fail', due: reviewedAt - 10_000 })]);
+    await database.persist();
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-checkpoint-fail',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-checkpoint-fail',
+        rating: 3,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+        idempotencyKey: 'review-checkpoint-fail-key',
+      }],
+    });
+    expect('result' in response).toBe(true);
+
+    failMainDbWrite = true;
+    await expect(database.persist()).rejects.toThrow('forced main DB upload failure');
+    expect(persistenceBridge.jsonSnapshot('review-feedback-journal.v1.json')).toMatchObject({
+      version: 1,
+      entries: [expect.objectContaining({ idempotencyKey: 'review-checkpoint-fail-key' })],
+    });
+    await expect(database.getReviewFeedbackJournalDiagnostics()).resolves.toMatchObject({
+      pendingCount: 1,
+      lastCheckpoint: {
+        ok: false,
+        cleared: false,
+        error: 'forced main DB upload failure',
+      },
+    });
   });
 
   it('skips repeated persisted main DB reads for consecutive review feedback without conflict sources', async () => {
@@ -8188,6 +8452,7 @@ describe('BackendKernel', () => {
       buildCard({ id: 'card-review-fast-reload-a', due: reviewedAt - 10_000 }),
       buildCard({ id: 'card-review-fast-reload-b', due: reviewedAt - 10_000 }),
     ]);
+    await database.persist();
     const kernel = new BackendKernel({
       database,
       resolveExistingBlockIds: async (blockIds) => blockIds,
@@ -8907,6 +9172,7 @@ describe('BackendKernel', () => {
       lastReview: reviewedAt - 86_400_000,
       reps: 3,
     })]);
+    await database.persist();
     const kernel = new BackendKernel({
       database,
       resolveExistingBlockIds: async (blockIds) => blockIds,
