@@ -180,19 +180,13 @@ import {
   REVIEW_HIDE_CLASSES,
   useCssClassOptimizer,
 } from './composables/useCssClassOptimizer';
-import { useCardTypeCache } from './composables/useCardTypeCache';
 import {
-  buildReviewRenderCacheKey,
-  buildReviewRenderCacheKeyFromPolicy,
   buildReviewRenderWatchKey,
   buildReviewRenderWatchKeyFromPolicy,
   isProgressiveDerivedItemCard,
   isNeuralRoamNonFlashcard,
   isOrdinaryMultiClozeReviewCard,
-  resolveReviewSpecialRendererKind,
   shouldPreferStableQuickForcePath,
-  shouldBypassSemanticFallback,
-  shouldVerifyQuickDefaultProfile,
 } from './reviewRenderPolicy';
 import { createLogger } from '@/utils/logger';
 import { resolveRenderProfile } from '@/core/card/render-profile/RenderProfileResolver';
@@ -353,12 +347,6 @@ const { applyAnswerVisibility: applyAnswerVisibilityOptimized, resetState: reset
   debugMode: false,  // 生产环境关闭调试
 });
 
-// 🆕 性能优化：卡片类型缓存
-const { getCardType, setCardType, getCacheStats: getCardTypeCacheStats } = useCardTypeCache({
-  maxSize: 50,
-  debugMode: false,  // 生产环境关闭调试
-});
-
 // 计算卡片切换动画名称
 const transitionName = computed(() => {
   if (props.content.type === 'protyle') {
@@ -447,21 +435,13 @@ const reviewSiyuanApi = computed(() => getReviewSiyuanApi());
 
 // 快速卡片渲染服务
 const quickCardRenderService = computed(() => resolvedRenderServices.value.quickCardRenderService);
-const isQuickCard = ref(false);
 
 // 描述符卡渲染服务
 const descriptorCardRenderService = computed(() => resolvedRenderServices.value.descriptorCardRenderService);
-const isDescriptorCard = ref(false);
 
 const conceptDefinitionCardRenderService = computed(() => resolvedRenderServices.value.conceptDefinitionCardRenderService);
 const conceptCardRenderService = computed(() => resolvedRenderServices.value.conceptCardRenderService);
 const multiClozeCardRenderService = computed(() => resolvedRenderServices.value.multiClozeCardRenderService);
-
-// 概念定义卡状态
-const isConceptDefinitionCard = ref(false);
-
-// 概念卡状态
-const isConceptCard = ref(false);
 
 function resolveTypeMarker(card: ReviewUIState['content']['card']): string {
   const marker = card?.meta?.typeMarker;
@@ -519,7 +499,6 @@ const neuralIsFlashcard = computed(() => resolveNeuralIsFlashcard(props.content.
 const isNeuralRoamNonFlashcardCard = computed(() => isNeuralRoamNonFlashcard(props.content.card));
 const isProgressiveDerivedItem = computed(() => isProgressiveDerivedItemCard(props.content.card));
 const quickRenderCardId = computed(() => String(props.content.card?.id || props.content.id || ''));
-const quickRenderCardIdArg = computed(() => quickRenderCardId.value || undefined);
 const forceQuickRenderSuppressionKey = computed(() => {
   const cardId = String(props.content.card?.id || '').trim();
   const blockId = String(props.content.id || '').trim();
@@ -559,18 +538,6 @@ const quickIndicatorSymbolType = computed(() => {
   const symbolType = props.content.card?.meta?.symbolType;
   return typeof symbolType === 'string' ? symbolType : '';
 });
-const forceQuickRenderRaw = computed(() => {
-  if (isProgressiveDerivedItem.value) {
-    return false;
-  }
-
-  if (contextRenderPolicy.value) {
-    return contextRenderPolicy.value.forceQuickRender;
-  }
-
-  return props.content.card?.meta?.forceQuickRender === true
-    || preferStableQuickForcePath.value;
-});
 const forceQuickRender = computed(() => {
   invalidForcedQuickRenderVersion.value;
   if (forceProtyleRender.value) return false;
@@ -580,29 +547,11 @@ const forceQuickRender = computed(() => {
   if (suppressionKey && invalidForcedQuickRenderKeys.has(suppressionKey)) {
     return false;
   }
-  return forceQuickRenderRaw.value;
+  if (isProgressiveDerivedItem.value) {
+    return false;
+  }
+  return contextRenderPolicy.value?.forceQuickRender === true;
 });
-
-const renderCacheKey = computed(() =>
-  `${buildReviewRenderCacheKeyFromPolicy({
-    blockId: String(props.content.id || ''),
-    policy: contextRenderPolicy.value,
-  }) ?? buildReviewRenderCacheKey({
-    blockId: String(props.content.id || ''),
-    cardId: String(props.content.card?.id || ''),
-    cardType: String(props.content.card?.type || ''),
-    typeMarker: resolveTypeMarker(props.content.card),
-    neuralIsFlashcard: neuralIsFlashcard.value,
-    forceProtyleRender: forceProtyleRender.value,
-    forceQuickRender: forceQuickRender.value,
-    source: quickIndicatorSource.value,
-    symbolDetected: quickIndicatorSymbolDetected.value,
-    cardSource: quickIndicatorCardSource.value,
-    symbolType: quickIndicatorSymbolType.value,
-    renderProfile: resolvedRenderProfile.value || '',
-    quickDetectReason: quickDetectReason.value,
-  })}::${renderEpoch.value}`,
-);
 
 const renderWatchKey = computed(() =>
   buildReviewRenderWatchKeyFromPolicy({
@@ -627,74 +576,19 @@ const renderWatchKey = computed(() =>
   }),
 );
 
-const currentCachedCardType = computed(() => {
-  isConceptDefinitionCard.value;
-  isConceptCard.value;
-  isDescriptorCard.value;
-  isQuickCard.value;
-  invalidForcedQuickRenderVersion.value;
-  return getCardType(renderCacheKey.value) as (ReturnType<typeof getCardType> & Record<string, unknown>) | null;
-});
-
-const detectedConceptDefinitionForCurrentContent = computed(() => (
-  hasConceptDefinitionSemanticSignal.value
-  || (
-    isConceptDefinitionCard.value
-    && currentCachedCardType.value?.isConcept === true
-  )
-));
-const detectedConceptForCurrentContent = computed(() => (
-  hasConceptCardSemanticSignal.value
-  || (
-    isConceptCard.value
-    && currentCachedCardType.value?.isConceptCard === true
-  )
-));
-const detectedDescriptorForCurrentContent = computed(() => (
-  hasDescriptorSemanticSignal.value
-  || (
-    isDescriptorCard.value
-    && currentCachedCardType.value?.isDescriptor === true
-  )
-));
-const detectedQuickForCurrentContent = computed(() => (
-  preferStableQuickForcePath.value
-  || (
-    isQuickCard.value
-    && currentCachedCardType.value?.isQuick === true
-  )
-));
-
 const specialRendererKind = computed(() => {
   if (props.content.type !== 'protyle') {
     return null;
   }
 
-  if (contextRenderPolicy.value) {
-    if (forceProtyleRender.value) {
-      return null;
-    }
-    if (contextRenderPolicy.value.specialRendererKind === 'quick' && !forceQuickRender.value) {
-      return null;
-    }
-    return contextRenderPolicy.value.specialRendererKind;
+  const policy = contextRenderPolicy.value;
+  if (!policy || forceProtyleRender.value) {
+    return null;
   }
-
-  // Compatibility path for old/test states that have not been rebuilt by the
-  // adapter with renderContext.renderPolicy yet.
-  return resolveReviewSpecialRendererKind({
-    card: props.content.card,
-    contentType: props.content.type,
-    renderProfile: resolvedRenderProfile.value,
-    forceProtyleRender: forceProtyleRender.value,
-    forceQuickRender: forceQuickRender.value,
-    isTopicReadMode: isTopicReadModeCard.value,
-    isNeuralRoamNonFlashcard: isNeuralRoamNonFlashcardCard.value,
-    isConceptDefinitionCard: detectedConceptDefinitionForCurrentContent.value,
-    isConceptCard: detectedConceptForCurrentContent.value,
-    isDescriptorCard: detectedDescriptorForCurrentContent.value,
-    isQuickCard: detectedQuickForCurrentContent.value,
-  });
+  if (policy.specialRendererKind === 'quick' && !forceQuickRender.value) {
+    return null;
+  }
+  return policy.specialRendererKind;
 });
 
 // Multi-cloze review is owned by the dedicated renderer so each generated card
@@ -1356,12 +1250,6 @@ function markInvalidForcedQuickRender(
     invalidForcedQuickRenderVersion.value += 1;
   }
 
-  setCardType(renderCacheKey.value, {
-    isConcept: false,
-    isDescriptor: false,
-    isQuick: false,
-  });
-  isQuickCard.value = false;
   clearRendererError();
 
   if (!isNew) {
@@ -1388,7 +1276,7 @@ function handleQuickCardError(error: Error) {
     markInvalidForcedQuickRender('quick-renderer-not-quick-card', {
       errorMessage: message,
     });
-    void renderProtyle(String(props.content.id || ''));
+    void nextTick().then(() => renderProtyle(String(props.content.id || '')));
     return;
   }
   logger.warn('[SiYuanMemo][ReviewContent] Quick renderer failed', {
@@ -1398,7 +1286,6 @@ function handleQuickCardError(error: Error) {
     forceQuickRender: forceQuickRender.value,
     quickDetectReason: quickDetectReason.value,
     isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
-    quickDetectionResult: isQuickCard.value,
     fallbackReason: quickRenderFallbackReason.value,
     isQuickMiss,
   });
@@ -1738,178 +1625,9 @@ async function renderProtyle(blockId: string): Promise<void> {
     return;
   }
 
-  // Reset renderer flags early to prevent stale card type leaking between cards.
-  isConceptDefinitionCard.value = false;
-  isConceptCard.value = false;
-  isDescriptorCard.value = false;
-  isQuickCard.value = false;
-  const forceProtyleRenderFromMeta = forceProtyleRender.value;
-  let forceQuickRenderFromMeta = forceQuickRender.value;
-  const forceQuickRenderRawFromMeta = forceQuickRenderRaw.value;
-  const hasAuthoritativeRenderPolicy = contextRenderPolicy.value !== null;
   const shouldForceProtyleOnly = isNeuralRoamNonFlashcardCard.value || isTopicReadModeCard.value;
-  const cacheKey = renderCacheKey.value;
 
   logger.debug('[SiYuanMemo][ReviewContent] renderProtyle called with blockId:', blockId);
-
-  // 🆕 性能优化：检查卡片类型缓存
-  const cachedType = getCardType(cacheKey);
-  if (
-    !hasAuthoritativeRenderPolicy
-    && !shouldForceProtyleOnly
-    && cachedType
-    && !forceProtyleRenderFromMeta
-    && !forceQuickRenderFromMeta
-  ) {
-    logger.debug('[SiYuanMemo][ReviewContent] Using cached card type:', cachedType);
-    
-    // ⚠️ 验证缓存：如果缓存说是概念定义卡，但卡片没有 xiuyuanID，则忽略缓存
-    if (cachedType.isConcept) {
-      const card = props.content.card;
-      const xiuyuanID = card?.xiuyuanID;
-      if (!xiuyuanID) {
-        logger.warn('[SiYuanMemo][ReviewContent] Cached as concept card but no xiuyuanID, ignoring cache');
-        // 不使用缓存，继续检测
-      } else {
-        isConceptDefinitionCard.value = cachedType.isConcept;
-        isConceptCard.value = false;
-        isDescriptorCard.value = cachedType.isDescriptor;
-        isQuickCard.value = cachedType.isQuick;
-        return;
-      }
-    } else {
-      isConceptDefinitionCard.value = cachedType.isConcept;
-      isConceptCard.value = false;
-      isDescriptorCard.value = cachedType.isDescriptor;
-      isQuickCard.value = cachedType.isQuick;
-      
-      // 如果是特殊卡片类型，直接返回
-      if (cachedType.isDescriptor || cachedType.isQuick) {
-        logBidirectionalTemplateDiagnostic('cached-special-renderer-return', {
-          blockId,
-          cachedType,
-        });
-        return;
-      }
-    }
-  }
-
-  const renderProfile = resolvedRenderProfile.value;
-  const effectiveRenderProfile = isProgressiveDerivedItem.value
-    && (renderProfile === 'quick-default' || renderProfile === 'quick-inline-formula')
-    ? null
-    : renderProfile;
-  if (
-    !hasAuthoritativeRenderPolicy
-    && !shouldForceProtyleOnly
-    && !forceProtyleRenderFromMeta
-    && effectiveRenderProfile
-  ) {
-    logBidirectionalTemplateDiagnostic('render-profile-branch', {
-      blockId,
-      renderProfile: effectiveRenderProfile,
-    });
-    if (effectiveRenderProfile === 'concept-definition') {
-      const result = { isConcept: true, isDescriptor: false, isQuick: false };
-      setCardType(cacheKey, result);
-      isConceptDefinitionCard.value = true;
-      isConceptCard.value = false;
-      isDescriptorCard.value = false;
-      isQuickCard.value = false;
-      logBidirectionalTemplateDiagnostic('render-profile-returned-concept-definition', {
-        blockId,
-      });
-      return;
-    }
-
-    if (effectiveRenderProfile === 'concept') {
-      const result = { isConcept: false, isConceptCard: true, isDescriptor: false, isQuick: false };
-      setCardType(cacheKey, result);
-      isConceptDefinitionCard.value = false;
-      isConceptCard.value = true;
-      isDescriptorCard.value = false;
-      isQuickCard.value = false;
-      logBidirectionalTemplateDiagnostic('render-profile-returned-concept', {
-        blockId,
-      });
-      return;
-    }
-
-    if (effectiveRenderProfile === 'descriptor') {
-      const result = { isConcept: false, isDescriptor: true, isQuick: false };
-      setCardType(cacheKey, result);
-      isConceptDefinitionCard.value = false;
-      isConceptCard.value = false;
-      isDescriptorCard.value = true;
-      isQuickCard.value = false;
-      logBidirectionalTemplateDiagnostic('render-profile-returned-descriptor', {
-        blockId,
-      });
-      return;
-    }
-
-    if (shouldVerifyQuickDefaultProfile(effectiveRenderProfile)) {
-      try {
-        const isQuick = await quickCardRenderService.value.isQuickCard(blockId, quickRenderCardIdArg.value);
-        if (seq !== renderSeq) {
-          logger.debug('[SiYuanMemo][ReviewContent] Quick-default verification cancelled, newer render pending');
-          return;
-        }
-
-        const result = { isConcept: false, isDescriptor: false, isQuick };
-        setCardType(cacheKey, result);
-        isConceptDefinitionCard.value = false;
-        isConceptCard.value = false;
-        isDescriptorCard.value = false;
-        isQuickCard.value = isQuick;
-
-        if (!isQuick) {
-          logger.info('[SiYuanMemo][ReviewContent] quick-default renderProfile fallback to Protyle after verification', {
-            blockId,
-            cardId: quickRenderCardId.value,
-            renderProfile: effectiveRenderProfile,
-            quickDetectReason: quickDetectReason.value,
-            fallbackReason: 'quick-default-not-quick-card',
-          });
-        }
-        logBidirectionalTemplateDiagnostic('render-profile-returned-quick-default', {
-          blockId,
-          quickDetectionResult: isQuick,
-        });
-        return;
-      } catch (error) {
-        if (seq !== renderSeq) {
-          return;
-        }
-        logger.warn('[SiYuanMemo][ReviewContent] quick-default verification failed, fallback to Protyle', {
-          blockId,
-          cardId: quickRenderCardId.value,
-          renderProfile: effectiveRenderProfile,
-          error,
-        });
-        const result = { isConcept: false, isDescriptor: false, isQuick: false };
-        setCardType(cacheKey, result);
-        isConceptDefinitionCard.value = false;
-        isConceptCard.value = false;
-        isDescriptorCard.value = false;
-        isQuickCard.value = false;
-        logBidirectionalTemplateDiagnostic('render-profile-returned-quick-default-error', {
-          blockId,
-          error,
-        });
-        return;
-      }
-    }
-
-    if (effectiveRenderProfile === 'quick-inline-formula') {
-      const result = { isConcept: false, isDescriptor: false, isQuick: false };
-      setCardType(cacheKey, result);
-      logBidirectionalTemplateDiagnostic('render-profile-returned-quick-inline-formula', {
-        blockId,
-      });
-      return;
-    }
-  }
 
   if (shouldForceProtyleOnly) {
     logger.debug('[SiYuanMemo][ReviewContent] Force Protyle renderer by card policy', {
@@ -1918,236 +1636,9 @@ async function renderProtyle(blockId: string): Promise<void> {
       cardType: props.content.card?.type,
       forceTopicReadMode: isTopicReadModeCard.value,
       neuralNonFlashcard: isNeuralRoamNonFlashcardCard.value,
-      forceQuickRenderRaw: forceQuickRenderRawFromMeta,
     });
-  } else if (!hasAuthoritativeRenderPolicy && forceQuickRenderFromMeta) {
-    logger.debug('[SiYuanMemo][ReviewContent] Force quick render enabled by card meta', {
-      blockId,
-      cardId: quickRenderCardId.value,
-      cardType: props.content.card?.type,
-      forceQuickRender: forceQuickRenderFromMeta,
-      quickDetectReason: quickDetectReason.value,
-      isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
-      fallbackReason: quickRenderFallbackReason.value,
-    });
-    try {
-      const isQuick = await quickCardRenderService.value.isQuickCard(blockId, quickRenderCardIdArg.value);
-      if (seq !== renderSeq) {
-        logger.debug('[SiYuanMemo][ReviewContent] Quick detection cancelled, newer render pending');
-        return;
-      }
-      logger.debug('[SiYuanMemo][ReviewContent] Force quick detection result', {
-        blockId,
-        cardId: quickRenderCardId.value,
-        cardType: props.content.card?.type,
-        forceQuickRender: forceQuickRenderFromMeta,
-        quickDetectReason: quickDetectReason.value,
-        isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
-        quickDetectionResult: isQuick,
-        fallbackReason: quickRenderFallbackReason.value,
-      });
-      if (isQuick) {
-        logger.debug('[SiYuanMemo][ReviewContent] Detected quick card by forceQuickRender', {
-          blockId,
-          cardId: quickRenderCardId.value,
-          cardType: props.content.card?.type,
-          forceQuickRender: forceQuickRenderFromMeta,
-          quickDetectReason: quickDetectReason.value,
-          isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
-          quickDetectionResult: isQuick,
-          fallbackReason: quickRenderFallbackReason.value,
-        });
-        const result = { isConcept: false, isDescriptor: false, isQuick: true };
-        setCardType(cacheKey, result);
-        isConceptDefinitionCard.value = false;
-        isConceptCard.value = false;
-        isQuickCard.value = true;
-        isDescriptorCard.value = false;
-        return;
-      }
-      logger.debug('[SiYuanMemo][ReviewContent] forceQuickRender fallback to standard renderer after quick miss', {
-        blockId,
-        cardId: quickRenderCardId.value,
-        cardType: props.content.card?.type,
-        forceQuickRender: forceQuickRenderFromMeta,
-        quickDetectReason: quickDetectReason.value,
-        isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
-        quickDetectionResult: isQuick,
-        fallbackReason: quickRenderFallbackReason.value,
-      });
-      markInvalidForcedQuickRender('forced-quick-detection-returned-false', {
-        quickDetectionResult: isQuick,
-      });
-      forceQuickRenderFromMeta = false;
-    } catch (error) {
-      logger.warn('[SiYuanMemo][ReviewContent] Forced quick detection failed, use standard renderer path:', {
-        blockId,
-        cardId: quickRenderCardId.value,
-        cardType: props.content.card?.type,
-        forceQuickRender: forceQuickRenderFromMeta,
-        quickDetectReason: quickDetectReason.value,
-        isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
-        fallbackReason: quickRenderFallbackReason.value,
-        error,
-      });
-    }
-  }
-
-  if (
-    !hasAuthoritativeRenderPolicy
-    && !shouldForceProtyleOnly
-    && !forceQuickRenderFromMeta
-    && !forceProtyleRenderFromMeta
-    && !isProgressiveDerivedItem.value
-  ) {
-    const bypassSemanticFallbackDetection = shouldBypassSemanticFallback(
-      props.content.card,
-      resolvedRenderProfile.value
-    );
-
-    if (bypassSemanticFallbackDetection) {
-      logger.debug('[SiYuanMemo][ReviewContent] Bypassing semantic fallback detection for explicit item auto-render');
-    } else {
-      // 🆕 检测是否为概念定义卡（优先级最高）
-      try {
-        const card = props.content.card;
-        const conceptDefinitionSignal = hasConceptDefinitionSemanticSignal.value;
-
-        logger.debug('[SiYuanMemo][ReviewContent] Checking concept definition card:', {
-          hasCard: !!card,
-          cardId: card?.id,
-          templateID: resolveTemplateID(card),
-          typeMarker: resolveTypeMarker(card),
-          fieldMapping: resolveFieldMappingForLog(card),
-          semanticSignal: conceptDefinitionSignal,
-        });
-
-        if (conceptDefinitionSignal) {
-          logger.debug('[SiYuanMemo][ReviewContent] Detected concept definition card via semantic signals');
-          const result = { isConcept: true, isDescriptor: false, isQuick: false };
-          setCardType(cacheKey, result);
-          isConceptDefinitionCard.value = true;
-          isConceptCard.value = false;
-          isDescriptorCard.value = false;
-          isQuickCard.value = false;
-          return;
-        }
-      } catch (error) {
-        logger.warn('[SiYuanMemo][ReviewContent] Concept definition card detection failed:', error);
-      }
-
-      // 🆕 检测是否为概念卡（builtin-concept-simple）
-      try {
-        const card = props.content.card;
-        const conceptSignal = hasConceptCardSemanticSignal.value;
-
-        logger.debug('[SiYuanMemo][ReviewContent] Checking concept card:', {
-          hasCard: !!card,
-          cardId: card?.id,
-          templateID: resolveTemplateID(card),
-          typeMarker: resolveTypeMarker(card),
-          semanticSignal: conceptSignal,
-        });
-
-        if (conceptSignal) {
-          logger.debug('[SiYuanMemo][ReviewContent] Detected concept card');
-          const result = { isConcept: false, isConceptCard: true, isDescriptor: false, isQuick: false };
-          setCardType(cacheKey, result);
-          isConceptDefinitionCard.value = false;
-          isConceptCard.value = true;
-          isDescriptorCard.value = false;
-          isQuickCard.value = false;
-          return;
-        }
-      } catch (error) {
-        logger.warn('[SiYuanMemo][ReviewContent] Concept card detection failed:', error);
-      }
-
-      // 🆕 检测是否为描述符卡
-      try {
-        const card = props.content.card;
-        const descriptorSignal = hasDescriptorSemanticSignal.value;
-        logger.debug('[SiYuanMemo][ReviewContent] Checking descriptor card:', {
-          hasCard: !!card,
-          cardId: card?.id,
-          templateID: resolveTemplateID(card),
-          typeMarker: resolveTypeMarker(card),
-          fieldMapping: resolveFieldMappingForLog(card),
-          semanticSignal: descriptorSignal,
-        });
-
-        if (descriptorSignal) {
-          logger.debug('[SiYuanMemo][ReviewContent] Detected descriptor card via semantic signals');
-          const result = { isConcept: false, isDescriptor: true, isQuick: false };
-          setCardType(cacheKey, result);
-          isConceptDefinitionCard.value = false;
-          isConceptCard.value = false;
-          isDescriptorCard.value = true;
-          isQuickCard.value = false;
-          return;
-        }
-
-        const isDescriptor = await descriptorCardRenderService.value.isDescriptorCard(blockId);
-        if (seq !== renderSeq) {
-          logger.debug('[SiYuanMemo][ReviewContent] Descriptor detection cancelled, newer render pending');
-          return;
-        }
-        if (isDescriptor) {
-          logger.debug('[SiYuanMemo][ReviewContent] Detected descriptor card');
-          const result = { isConcept: false, isDescriptor: true, isQuick: false };
-          setCardType(cacheKey, result);
-          isConceptDefinitionCard.value = false;
-          isConceptCard.value = false;
-          isDescriptorCard.value = true;
-          isQuickCard.value = false;
-          return;
-        }
-      } catch (error) {
-        logger.warn('[SiYuanMemo][ReviewContent] Descriptor card detection failed:', error);
-      }
-    }
-
-    // 🆕 检测是否为快速卡片
-    try {
-      const isQuick = await quickCardRenderService.value.isQuickCard(blockId, quickRenderCardIdArg.value);
-      if (seq !== renderSeq) {
-        logger.debug('[SiYuanMemo][ReviewContent] Quick detection cancelled, newer render pending');
-        return;
-      }
-      logger.debug('[SiYuanMemo][ReviewContent] Quick detection result', {
-        blockId,
-        cardId: quickRenderCardId.value,
-        cardType: props.content.card?.type,
-        forceQuickRender: forceQuickRenderFromMeta,
-        quickDetectReason: quickDetectReason.value,
-        isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
-        quickDetectionResult: isQuick,
-        fallbackReason: quickRenderFallbackReason.value,
-      });
-      if (isQuick) {
-        logger.debug('[SiYuanMemo][ReviewContent] Detected quick card', {
-          blockId,
-          cardId: quickRenderCardId.value,
-          cardType: props.content.card?.type,
-          forceQuickRender: forceQuickRenderFromMeta,
-          quickDetectReason: quickDetectReason.value,
-          isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
-          quickDetectionResult: isQuick,
-          fallbackReason: quickRenderFallbackReason.value,
-        });
-        const result = { isConcept: false, isDescriptor: false, isQuick: true };
-        setCardType(cacheKey, result);
-        isConceptDefinitionCard.value = false;
-        isConceptCard.value = false;
-        isQuickCard.value = true;
-        isDescriptorCard.value = false;
-        return;
-      }
-    } catch (error) {
-      logger.warn('[SiYuanMemo][ReviewContent] Quick card detection failed:', error);
-    }
-  } else if (forceProtyleRenderFromMeta) {
-    logger.debug('[SiYuanMemo][ReviewContent] Force Protyle render enabled by card meta', {
+  } else if (forceProtyleRender.value) {
+    logger.debug('[SiYuanMemo][ReviewContent] Force Protyle render enabled by render policy', {
       blockId,
       cardId: props.content.card?.id,
       cardType: props.content.card?.type,
@@ -2159,16 +1650,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       cardType: props.content.card?.type,
     });
   }
-  
-  // 🆕 缓存普通卡片类型
-  const result = { isConcept: false, isDescriptor: false, isQuick: false };
-  setCardType(cacheKey, result);
-  
   // Use standard Protyle rendering for non-special cards.
-  isConceptDefinitionCard.value = false;
-  isConceptCard.value = false;
-  isQuickCard.value = false;
-  isDescriptorCard.value = false;
   logSemanticFallbackToMainProtyle(blockId);
 
   logger.debug('[SiYuanMemo][ReviewContent] renderProtyle called:', { blockId, seq });

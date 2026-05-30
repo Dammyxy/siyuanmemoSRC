@@ -2,6 +2,7 @@
 
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildReviewRendererIdentity } from '../reviewRendererIdentity';
 
 const conceptDefinitionRendererMocks = vi.hoisted(() => ({
   logger: {
@@ -197,5 +198,60 @@ describe('ConceptDefinitionCardRenderer', () => {
     expect(wrapper.find('.concept-definition-card-renderer__badge').exists()).toBe(false);
     expect(wrapper.find('.review-rich-html-content').exists()).toBe(true);
     expect(wrapper.html()).toContain('semantic front');
+  });
+
+  it('matches prepared identity by faceKey before stale legacy face metadata', async () => {
+    const card = {
+      id: 'card-facekey',
+      blockId: 'definition-facekey',
+      updatedAt: 123,
+      xiuyuanID: 'xy-facekey',
+      faceKey: { ruleId: 'concept-definition-reverse', faceIndex: 2 },
+      meta: {
+        xiuyuanID: 'xy-facekey',
+        faceIndex: 0,
+        typeMarker: 'concept-definition-forward',
+      },
+    };
+    const preparedViewModel = {
+      blockId: 'definition-facekey',
+      breadcrumbs: [{ id: 'doc-1', label: 'Doc' }],
+      dependencyBlockIds: ['doc-1', 'concept-1', 'definition-facekey'],
+      conceptName: '引力透镜',
+      conceptBlockId: 'concept-1',
+      definitionHtml: '<p>定义</p>',
+      frontHtml: '<p>Prepared by faceKey</p>',
+      backHtml: '<p>Answer</p>',
+      relationArrow: '←',
+      isReverse: true,
+    };
+
+    const wrapper = mount(ConceptDefinitionCardRenderer, {
+      props: {
+        blockId: 'definition-facekey',
+        cardId: 'card-facekey',
+        card,
+        preparedViewModel,
+        preparedIdentity: buildReviewRendererIdentity(card, [
+          'definition-facekey',
+          'card-facekey',
+          'xy-facekey',
+        ]),
+        displayMode: 'semantic',
+        showAnswer: false,
+      },
+      global: {
+        stubs: {
+          CardBreadcrumb: true,
+          CardErrorState: true,
+          CardLoadingState: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    expect(conceptDefinitionRendererMocks.prepareViewModel).not.toHaveBeenCalled();
+    expect(wrapper.html()).toContain('Prepared by faceKey');
   });
 });

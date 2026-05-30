@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { UnifiedReviewAdapter } from '../UnifiedReviewAdapter';
 import { buildReviewRenderableCommand } from '../reviewRenderableContext';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
-import type { AdapterContext, ReviewUIState } from '@/ui/review/v2/types';
+import type { AdapterContext, ReviewHeaderVariant, ReviewUIState } from '@/ui/review/v2/types';
 
 function createCard(
   id: string,
@@ -257,6 +257,47 @@ async function renderState(
 }
 
 describe('UnifiedReviewAdapter', () => {
+  it('provides render policy for every active review header variant and empty state', async () => {
+    const activeVariants: ReviewHeaderVariant[] = [
+      'retrieval-practice',
+      'incremental-learning',
+      'final-drill',
+      'filter-group',
+      'neural-roam',
+      'subset-review',
+      'temporary-drill',
+      'leech',
+    ];
+    const card = createCard('active-policy', CardType.Item);
+
+    for (const headerVariant of activeVariants) {
+      const adapter = new UnifiedReviewAdapter({ headerVariant });
+      const queue = createQueue({
+        queueType: headerVariant,
+        liveCards: [card],
+        underlyingQueue: headerVariant === 'neural-roam'
+          ? createNeuralUnderlyingQueue()
+          : undefined,
+      });
+
+      const ui = await adapter.toUIState(queue as never, card as never, createContext());
+
+      expect(ui.meta.renderContext?.renderPolicy).toEqual(expect.objectContaining({
+        version: 1,
+      }));
+    }
+
+    const emptyUi = await new UnifiedReviewAdapter({ headerVariant: 'retrieval-practice' }).toUIState(
+      createQueue({ queueType: 'retrieval-practice', liveCards: [] }) as never,
+      null as never,
+      createContext(),
+    );
+    expect(emptyUi.meta.renderContext?.renderPolicy).toEqual(expect.objectContaining({
+      version: 1,
+      specialRendererKind: null,
+    }));
+  });
+
   it('marks null items as a completed empty state', async () => {
     const adapter = new UnifiedReviewAdapter();
 

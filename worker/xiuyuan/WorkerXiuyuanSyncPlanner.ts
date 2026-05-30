@@ -12,6 +12,8 @@ import type {
   BackendXiuyuanSyncLocalXiuyuanFact,
   BackendXiuyuanSyncMode,
   BackendXiuyuanSyncPlan,
+  BackendXiuyuanShadowAudit,
+  BackendXiuyuanShadowAuditOwnershipEvidence,
   MutationChangedSet,
 } from '../../packages/contracts/src/backend-rpc';
 
@@ -50,6 +52,10 @@ function uniqueSorted(values: Iterable<string>): string[] {
   return Array.from(new Set(Array.from(values).map(normalizeString).filter(Boolean))).sort();
 }
 
+function sortById<T extends { id: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => a.id.localeCompare(b.id));
+}
+
 function isSupportedMode(value: unknown): value is BackendXiuyuanSyncMode {
   return value === 'incremental' || value === 'full' || value === 'audit';
 }
@@ -82,6 +88,38 @@ function hasManagedRiffEvidence(fact: {
   const templateId = normalizeString(fact.templateId);
   return ownership === 'riff-managed'
     || templateId === 'builtin-riff-sync';
+}
+
+function isPluginOwnedFact(fact: {
+  ownership?: string | null;
+  source?: string | null;
+  templateId?: string | null;
+} | null): boolean {
+  return hasLocalOwnershipEvidence(fact);
+}
+
+function toCardEvidence(card: BackendXiuyuanSyncLocalCardFact): BackendXiuyuanShadowAuditOwnershipEvidence {
+  return {
+    entity: 'card',
+    id: card.id,
+    xiuyuanId: card.xiuyuanId ?? null,
+    templateId: card.templateId ?? null,
+    ownership: card.ownership ?? null,
+    source: card.source ?? null,
+    riffCardId: card.riffCardId ?? null,
+  };
+}
+
+function toXiuyuanEvidence(xiuyuan: BackendXiuyuanSyncLocalXiuyuanFact): BackendXiuyuanShadowAuditOwnershipEvidence {
+  return {
+    entity: 'xiuyuan',
+    id: xiuyuan.id,
+    xiuyuanId: xiuyuan.id,
+    templateId: xiuyuan.templateId ?? null,
+    ownership: xiuyuan.ownership ?? null,
+    source: xiuyuan.source ?? null,
+    riffCardId: null,
+  };
 }
 
 function progress(
@@ -210,6 +248,92 @@ function buildLocalIndexes(localFacts: BackendXiuyuanSyncLocalFacts): {
     cardByBlockId,
     managedRiffBlockIds,
     localOwnedBlockIds,
+  };
+}
+
+function blockIdsForXiuyuan(xiuyuan: BackendXiuyuanSyncLocalXiuyuanFact): string[] {
+  return uniqueSorted([
+    ...xiuyuan.blockIds,
+    xiuyuan.representativeBlockId ?? '',
+  ]);
+}
+
+function buildShadowAudit(localFacts: BackendXiuyuanSyncLocalFacts): BackendXiuyuanShadowAudit {
+  const xiuyuanById = new Map(localFacts.xiuyuans.map((xiuyuan) => [xiuyuan.id, xiuyuan]));
+  const cardsByBlockId = new Map<string, BackendXiuyuanSyncLocalCardFact[]>();
+  for (const card of localFacts.cards) {
+    const blockId = normalizeString(card.blockId);
+    if (!blockId) {
+      continue;
+    }
+    const cards = cardsByBlockId.get(blockId) ?? [];
+    cards.push(card);
+    cardsByBlockId.set(blockId, cards);
+  }
+
+  const xiuyuansByBlockId = new Map<string, BackendXiuyuanSyncLocalXiuyuanFact[]>();
+  for (const xiuyuan of localFacts.xiuyuans) {
+    for (const blockId of blockIdsForXiuyuan(xiuyuan)) {
+      const xiuyuans = xiuyuansByBlockId.get(blockId) ?? [];
+      xiuyuans.push(xiuyuan);
+      xiuyuansByBlockId.set(blockId, xiuyuans);
+    }
+  }
+
+  const blockIds = uniqueSorted([
+    ...cardsByBlockId.keys(),
+    ...xiuyuansByBlockId.keys(),
+  ]);
+  const findings: BackendXiuyuanShadowAudit['findings'] = [];
+
+  for (const blockId of blockIds) {
+    const cards = cardsByBlockId.get(blockId) ?? [];
+    const xiuyuans = xiuyuansByBlockId.get(blockId) ?? [];
+    const cardXiuyuans = cards
+      .map((card) => normalizeString(card.xiuyuanId))
+      .filter(Boolean)
+      .map((xiuyuanId) => xiuyuanById.get(xiuyuanId))
+      .filter((xiuyuan): xiuyuan is BackendXiuyuanSyncLocalXiuyuanFact => Boolean(xiuyuan));
+    const allXiuyuans = sortById([...new Map([...xiuyuans, ...cardXiuyuans].map((xiuyuan) => [xiuyuan.id, xiuyuan])).values()]);
+
+    const pluginCards = sortById(cards.filter((card) => {
+      const xiuyuan = card.xiuyuanId ? xiuyuanById.get(card.xiuyuanId) ?? null : null;
+      return isPluginOwnedFact(card) || isPluginOwnedFact(xiuyuan);
+    }));
+    const shadowCards = sortById(cards.filter((card) => {
+      const xiuyuan = card.xiuyuanId ? xiuyuanById.get(card.xiuyuanId) ?? null : null;
+      return isManagedRiffFact(card, xiuyuan);
+    }));
+    const pluginXiuyuans = allXiuyuans.filter((xiuyuan) => isPluginOwnedFact(xiuyuan));
+    const shadowXiuyuans = allXiuyuans.filter((xiuyuan) => isManagedRiffFact(null, xiuyuan));
+
+    if (pluginCards.length === 0 || shadowCards.length === 0) {
+      continue;
+    }
+
+    findings.push({
+      blockId,
+      pluginCardIds: pluginCards.map((card) => card.id),
+      shadowCardIds: shadowCards.map((card) => card.id),
+      pluginXiuyuanIds: pluginXiuyuans.map((xiuyuan) => xiuyuan.id),
+      shadowXiuyuanIds: shadowXiuyuans.map((xiuyuan) => xiuyuan.id),
+      ownershipEvidence: {
+        plugin: [
+          ...pluginCards.map(toCardEvidence),
+          ...pluginXiuyuans.map(toXiuyuanEvidence),
+        ],
+        shadow: [
+          ...shadowCards.map(toCardEvidence),
+          ...shadowXiuyuans.map(toXiuyuanEvidence),
+        ],
+      },
+      proposedAction: 'audit-only-defer-hide-or-delete-policy',
+    });
+  }
+
+  return {
+    findingCount: findings.length,
+    findings,
   };
 }
 
@@ -401,6 +525,7 @@ export class WorkerXiuyuanSyncPlanner {
     const createBlockIds = uniqueSorted(create);
     const updateBlockIds = uniqueSorted(update);
     const skippedLocalOwnedBlockIds = uniqueSorted(skippedLocalOwned);
+    const shadowAudit = buildShadowAudit(localFacts);
 
     return {
       localXiuyuanCount: localFacts.xiuyuans.length,
@@ -420,6 +545,7 @@ export class WorkerXiuyuanSyncPlanner {
         delete: deleteBlockIds,
         skippedLocalOwned: skippedLocalOwnedBlockIds,
       },
+      shadowAudit,
     };
   }
 

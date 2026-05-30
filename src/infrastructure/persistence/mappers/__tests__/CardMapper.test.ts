@@ -1204,6 +1204,91 @@ describe('CardMapper.validate', () => {
     expect(result.errors).toEqual([]);
   });
 
+  it('allows unreviewed new-card empty FSRS memory without clamping difficulty', () => {
+    const dto: CardPersistenceDTO = {
+      ...createBasicDTO(),
+      id: 'card-empty-new',
+      state: CardState.New,
+      stability: 0,
+      difficulty: 0,
+      reps: 0,
+      lapses: 0,
+      lastReview: 0,
+      elapsedDays: 0,
+      scheduledDays: 0,
+      learning_step: 0,
+    };
+
+    const validation = CardMapper.validate(dto);
+    const roundtripped = CardMapper.toPersistence(CardMapper.toDomain(dto));
+
+    expect(validation.valid).toBe(true);
+    expect(validation.errors).toEqual([]);
+    expect(roundtripped).toMatchObject({
+      stability: 0,
+      difficulty: 0,
+      state: CardState.New,
+      reps: 0,
+      lastReview: 0,
+    });
+  });
+
+  it.each([
+    ['topic', CardType.Topic],
+    ['concept', CardType.Concept],
+  ])('allows review-like %s a-factor cards to keep empty FSRS memory fields', (_label, type) => {
+    const dto: CardPersistenceDTO = {
+      ...createBasicDTO(),
+      id: `card-${type}-empty-fsrs-memory`,
+      type,
+      schedulerType: 'a-factor-v2',
+      state: CardState.Review,
+      stability: 0,
+      difficulty: 0,
+      reps: 4,
+      lastReview: 1234567800,
+      aFactor: 2.5,
+      schedulerMeta: {
+        topic: {
+          afs: [2.5],
+          of: 2.5,
+          optimalInterval: 1,
+        },
+      },
+    };
+
+    const validation = CardMapper.validate(dto);
+    const roundtripped = CardMapper.toPersistence(CardMapper.toDomain(dto));
+
+    expect(validation.valid).toBe(true);
+    expect(validation.errors).toEqual([]);
+    expect(roundtripped).toMatchObject({
+      schedulerType: 'a-factor-v2',
+      state: CardState.Review,
+      stability: 0,
+      difficulty: 0,
+      aFactor: 2.5,
+    });
+  });
+
+  it('rejects empty FSRS memory on reviewed cards', () => {
+    const dto: CardPersistenceDTO = {
+      ...createBasicDTO(),
+      id: 'card-empty-review',
+      state: CardState.Review,
+      stability: 0,
+      difficulty: 0,
+      reps: 1,
+      lastReview: 1234567800,
+    };
+
+    const result = CardMapper.validate(dto);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain('Invalid stability: review memory must be positive');
+    expect(result.errors).toContain('Invalid difficulty: review memory must be between 1 and 10');
+  });
+
   it('应该检测缺失的必需字段', () => {
     const dto = {
       blockId: 'block-1',
@@ -1243,7 +1328,7 @@ describe('CardMapper.validate', () => {
 
     expect(result.valid).toBe(false);
     expect(result.errors).toContain('Invalid stability: must be non-negative');
-    expect(result.errors).toContain('Invalid difficulty: must be between 1 and 10');
+    expect(result.errors).toContain('Invalid difficulty: must be between 0 and 10');
     expect(result.errors).toContain('Invalid priority: must be between 0 and 100');
   });
 

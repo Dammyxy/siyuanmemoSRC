@@ -80,6 +80,26 @@ describe('resolveReviewConceptRoamFocus', () => {
     expect(focus?.focusBlockId).toBe('concept-block');
   });
 
+  it('prefers Concept Definition field mapping over stale legacy template and marker', () => {
+    const focus = resolveReviewConceptRoamFocus(content(card({
+      faceKey: { ruleId: 'concept-definition-forward', faceIndex: 0 },
+      meta: {
+        xiuyuanID: 'xy-1',
+        faceIndex: 0,
+        templateID: 'builtin-riff-sync',
+        frontBlockIDs: ['wrong-front-concept'],
+        backBlockIDs: ['definition-block'],
+        typeMarker: 'concept-definition-reverse',
+        fieldMapping: {
+          concept: 'mapped-concept-block',
+          definition: 'definition-block',
+        },
+      },
+    }), 'definition-block'));
+
+    expect(focus?.focusBlockId).toBe('mapped-concept-block');
+  });
+
   it('resolves Descriptor cards from the parent or bound Concept block', () => {
     const focus = resolveReviewConceptRoamFocus(content(card({
       type: CardType.Descriptor,
@@ -113,6 +133,25 @@ describe('resolveReviewConceptRoamFocus', () => {
         frontBlockIDs: ['candidate-a'],
         backBlockIDs: ['candidate-b'],
         typeMarker: 'custom-definition',
+        fieldMapping: {
+          definition: 'definition-block',
+        },
+      },
+    }), 'definition-block'));
+
+    expect(focus).toBeNull();
+  });
+
+  it('does not guess Concept Definition focus from stale reverse marker when mapping is missing', () => {
+    const focus = resolveReviewConceptRoamFocus(content(card({
+      faceKey: { ruleId: 'concept-definition-forward', faceIndex: 0 },
+      meta: {
+        xiuyuanID: 'xy-1',
+        faceIndex: 0,
+        templateID: 'builtin-concept-definition-reverse',
+        frontBlockIDs: ['candidate-a'],
+        backBlockIDs: ['definition-block', 'candidate-b'],
+        typeMarker: 'concept-definition-reverse',
         fieldMapping: {
           definition: 'definition-block',
         },

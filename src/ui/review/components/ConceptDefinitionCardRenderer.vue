@@ -36,6 +36,7 @@ import type {
 import { createLogger } from '@/utils/logger';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 import { renderCdfDirectScene } from '@/ui/shared/cdf-direct/renderScene';
+import { buildReviewRendererIdentity } from './reviewRendererIdentity';
 
 const FAILURE_CACHE_KEY = '__siyuanmemo_concept_definition_render_failures__';
 
@@ -175,16 +176,12 @@ const renderIdentity = computed(() => {
   const meta = card?.meta;
   const cardXiuyuanID = typeof card?.xiuyuanID === 'string' ? card.xiuyuanID : '';
   const metaXiuyuanID = typeof meta?.xiuyuanID === 'string' ? meta.xiuyuanID : '';
-  const faceIndex = typeof meta?.faceIndex === 'number' ? String(meta.faceIndex) : '';
-  const typeMarker = typeof meta?.typeMarker === 'string' ? meta.typeMarker : '';
 
-  return [
+  return buildReviewRendererIdentity(card, [
     props.blockId || '',
     props.cardId || '',
     cardXiuyuanID || metaXiuyuanID,
-    faceIndex,
-    typeMarker,
-  ].join('|');
+  ]);
 });
 
 watch(

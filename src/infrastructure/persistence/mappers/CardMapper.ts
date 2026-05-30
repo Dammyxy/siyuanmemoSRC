@@ -27,6 +27,7 @@ import { Card } from '../../../domain/entities/Card';
 import type { Result } from '../../../types/result';
 import { ok, err, isErr } from '../../../types/result';
 import { canonicalizeSchedulingState } from '../../../core/scheduler/schedulingStateCleanliness';
+import { resolveEffectiveSchedulerTypeForCard } from '../../../core/scheduler/schedulerPolicy';
 
 const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -109,6 +110,26 @@ function asCardFaceKey(value: unknown): CardFaceKey | undefined {
   return Number.isInteger(faceIndex) && faceIndex >= 0
     ? { ruleId, faceIndex }
     : { ruleId };
+}
+
+function isReviewLikeState(state: unknown): boolean {
+  return state === 2 || state === 3;
+}
+
+function usesFsrsScheduling(dto: Pick<CardPersistenceDTO, 'id' | 'type' | 'schedulerType'>): boolean {
+  return resolveEffectiveSchedulerTypeForCard({
+    id: dto.id,
+    type: dto.type,
+    schedulerType: dto.schedulerType,
+  }) === 'fsrs-v6';
+}
+
+function isValidEmptySchedulingMemory(dto: Pick<CardPersistenceDTO, 'state' | 'stability' | 'difficulty' | 'reps' | 'lastReview'>): boolean {
+  return !isReviewLikeState(dto.state)
+    && dto.stability === 0
+    && dto.difficulty === 0
+    && dto.reps === 0
+    && dto.lastReview === 0;
 }
 
 function resolveCardFaceKey(card: FSRSCard, meta?: Record<string, unknown>): CardFaceKey | undefined {
@@ -392,9 +413,17 @@ export class CardMapper {
     if (dto.difficulty === undefined) errors.push('Missing required field: difficulty');
 
     // 范围检查
+    const isFsrsScheduling = usesFsrsScheduling(dto);
     if (dto.stability < 0) errors.push('Invalid stability: must be non-negative');
-    if (dto.difficulty < 1 || dto.difficulty > 10) {
-      errors.push('Invalid difficulty: must be between 1 and 10');
+    if (isFsrsScheduling && isReviewLikeState(dto.state) && dto.stability <= 0) {
+      errors.push('Invalid stability: review memory must be positive');
+    }
+    if (dto.difficulty < 0 || dto.difficulty > 10) {
+      errors.push('Invalid difficulty: must be between 0 and 10');
+    } else if (isFsrsScheduling && dto.difficulty === 0 && !isValidEmptySchedulingMemory(dto)) {
+      errors.push(isReviewLikeState(dto.state)
+        ? 'Invalid difficulty: review memory must be between 1 and 10'
+        : 'Invalid difficulty: empty memory requires unreviewed card state');
     }
     if (dto.priority < 0 || dto.priority > 100) {
       errors.push('Invalid priority: must be between 0 and 100');

@@ -8,6 +8,7 @@ import { isIgnorableMissingBlockError } from '@/application/usecases/card/shared
 import { escapeSQL } from '@/utils/sqlOptimizer';
 import { createLogger } from '@/utils/logger';
 import type { BrowserCard } from '../types';
+import { buildBrowserCardDisplayProjection } from './browserCardDisplayProjection';
 
 const logger = createLogger('PreviewBreadcrumbData');
 const PREVIEW_BREADCRUMB_CACHE_LIMIT = 100;
@@ -102,7 +103,7 @@ function resolveDocumentRowName(row: DocumentBreadcrumbRow): string {
 export function getPreviewBreadcrumbTrimCount(
   card: Pick<BrowserCard, 'meta'> | null | undefined,
 ): number {
-  return card?.meta?.templateID === 'builtin-list-item' ? 2 : 1;
+  return buildBrowserCardDisplayProjection(card).breadcrumbTrimCount;
 }
 
 export function deriveAncestorDocumentPaths(documentPath: string): string[] {

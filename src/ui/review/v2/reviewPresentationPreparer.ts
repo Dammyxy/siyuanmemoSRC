@@ -1,18 +1,5 @@
 import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import type { ReviewRenderableRenderPolicy } from '@/application/adapters/reviewRenderableRenderPolicy';
-import { resolveRenderProfile } from '@/core/card/render-profile/RenderProfileResolver';
-import {
-  isConceptCard as checkIsConceptCard,
-  isConceptDefinitionCard as checkIsConceptDefinitionCard,
-  isDescriptorSemanticCard as checkIsDescriptorSemanticCard,
-} from '@/core/xiuyuan/cardMeta';
-import type { FSRSCard } from '@/types/card';
-import {
-  isNeuralRoamNonFlashcard,
-  resolveReviewSpecialRendererKind,
-  shouldPreferStableQuickForcePath,
-  shouldVerifyQuickDefaultProfile,
-} from './reviewRenderPolicy';
 import type {
   PreparedReviewPresentation,
   PreparedReviewRendererKind,
@@ -20,26 +7,6 @@ import type {
 } from './types';
 
 type QuickSide = 'front' | 'back';
-
-function resolveTypeMarker(card: FSRSCard | undefined): string {
-  const marker = card?.meta?.typeMarker;
-  return typeof marker === 'string' ? marker : '';
-}
-
-function isTopicReadModeCard(card: FSRSCard | undefined): boolean {
-  return String(card?.type || '') === 'topic';
-}
-
-function isForceProtyleCard(card: FSRSCard | undefined): boolean {
-  return card?.meta?.forceProtyleRender === true;
-}
-
-function isForceQuickCard(card: FSRSCard | undefined): boolean {
-  return card?.meta?.forceQuickRender === true || shouldPreferStableQuickForcePath(
-    card,
-    resolveRenderProfile(card),
-  );
-}
 
 function resolveQuickSide(state: ReviewUIState): QuickSide {
   return state.actions.showAnswer ? 'front' : 'back';
@@ -91,52 +58,7 @@ export function buildPreparedReviewPresentationIdentity(
     ].join('|');
   }
 
-  if (rendererKind === 'descriptor') {
-    return [
-      content.id || '',
-      card?.id || '',
-      card?.id || '',
-      card?.updatedAt || '',
-    ].join('|');
-  }
-
-  if (rendererKind === 'concept-definition') {
-    const meta = card?.meta;
-    const cardXiuyuanID = typeof card?.xiuyuanID === 'string' ? card.xiuyuanID : '';
-    const metaXiuyuanID = typeof meta?.xiuyuanID === 'string' ? meta.xiuyuanID : '';
-    const faceIndex = typeof meta?.faceIndex === 'number' ? String(meta.faceIndex) : '';
-    return [
-      content.id || '',
-      card?.id || '',
-      cardXiuyuanID || metaXiuyuanID,
-      faceIndex,
-      resolveTypeMarker(card),
-    ].join('|');
-  }
-
-  if (rendererKind === 'concept') {
-    const meta = card?.meta;
-    const cardXiuyuanID = typeof card?.xiuyuanID === 'string' ? card.xiuyuanID : '';
-    const metaXiuyuanID = typeof meta?.xiuyuanID === 'string' ? meta.xiuyuanID : '';
-    return [content.id || '', card?.id || '', cardXiuyuanID || metaXiuyuanID].join('|');
-  }
-
-  if (rendererKind === 'quick') {
-    return [content.id || '', resolveQuickCardId(state), resolveQuickSide(state)].join(':');
-  }
-
-  const meta = card?.meta;
-  return [
-    card?.id || '',
-    card?.blockId || '',
-    card?.updatedAt || '',
-    meta?.faceIndex ?? '',
-    meta?.templateID || '',
-    meta?.clozeRenderMode || '',
-    meta?.renderProfile || '',
-    Array.isArray(meta?.faces) ? meta.faces.length : '',
-    resolveTypeMarker(card),
-  ].join('|');
+  return [rendererKind, content.id || '', card?.id || '', card?.blockId || '', card?.updatedAt || ''].join('|');
 }
 
 function resolvePreparedRendererKind(state: ReviewUIState): PreparedReviewRendererKind | null {
@@ -154,29 +76,7 @@ function resolvePreparedRendererKind(state: ReviewUIState): PreparedReviewRender
     return preparedPolicyRendererKind;
   }
 
-  const card = content.card;
-  const renderProfile = resolveRenderProfile(card);
-  const forceQuick = isForceQuickCard(card);
-
-  const rendererKind = resolveReviewSpecialRendererKind({
-    card,
-    contentType: content.type,
-    renderProfile,
-    forceProtyleRender: isForceProtyleCard(card),
-    forceQuickRender: forceQuick,
-    isTopicReadMode: isTopicReadModeCard(card),
-    isNeuralRoamNonFlashcard: isNeuralRoamNonFlashcard(card),
-    isConceptDefinitionCard: checkIsConceptDefinitionCard(card),
-    isConceptCard: checkIsConceptCard(card),
-    isDescriptorCard: checkIsDescriptorSemanticCard(card),
-    isQuickCard: forceQuick || shouldVerifyQuickDefaultProfile(renderProfile),
-  });
-
-  if (rendererKind === 'image-occlusion') {
-    return null;
-  }
-
-  return rendererKind;
+  return null;
 }
 
 function attachPreparedPresentation(

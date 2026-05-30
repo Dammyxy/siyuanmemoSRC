@@ -6,6 +6,7 @@ import {
   getPreviewBreadcrumbTrimCount,
   loadPreviewBreadcrumbTrail,
 } from '../previewBreadcrumbData';
+import { buildBrowserCardDisplayProjection } from '../browserCardDisplayProjection';
 
 function createCard(overrides: Partial<BrowserCard> = {}): BrowserCard {
   return {
@@ -166,9 +167,16 @@ describe('previewBreadcrumbData', () => {
   });
 
   it('uses Xiuyuan list-template trim count of two', () => {
-    expect(getPreviewBreadcrumbTrimCount(createCard({
+    const card = createCard({
       meta: { templateID: 'builtin-list-item' },
-    }))).toBe(2);
+    });
+
+    expect(buildBrowserCardDisplayProjection(card)).toMatchObject({
+      structureKind: 'list-template',
+      breadcrumbTrimCount: 2,
+      legacyProjectionUsed: true,
+    });
+    expect(getPreviewBreadcrumbTrimCount(card)).toBe(2);
     expect(getPreviewBreadcrumbTrimCount(createCard())).toBe(1);
   });
 

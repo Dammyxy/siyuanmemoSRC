@@ -29,6 +29,7 @@ import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 import { renderMathWithKatex } from './mathRender';
+import { buildReviewRendererIdentity } from './reviewRendererIdentity';
 
 const logger = createLogger('MultiClozeCardRenderer');
 
@@ -56,15 +57,7 @@ function t(key: string, fallback: string): string {
 }
 
 const renderIdentity = computed(() => {
-  const meta = props.card?.meta;
-  return [
-    props.card?.id || '',
-    props.card?.blockId || '',
-    props.card?.updatedAt || '',
-    meta?.faceIndex ?? '',
-    meta?.templateID || '',
-    meta?.typeMarker || '',
-  ].join('|');
+  return buildReviewRendererIdentity(props.card);
 });
 
 const rawHtml = computed(() => {

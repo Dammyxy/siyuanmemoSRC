@@ -762,6 +762,34 @@ export interface BackendXiuyuanSyncLocalFacts {
   cards: BackendXiuyuanSyncLocalCardFact[];
 }
 
+export interface BackendXiuyuanShadowAuditOwnershipEvidence {
+  entity: 'card' | 'xiuyuan';
+  id: string;
+  xiuyuanId?: string | null;
+  templateId?: string | null;
+  ownership?: string | null;
+  source?: string | null;
+  riffCardId?: string | null;
+}
+
+export interface BackendXiuyuanShadowAuditFinding {
+  blockId: string;
+  pluginCardIds: string[];
+  shadowCardIds: string[];
+  pluginXiuyuanIds: string[];
+  shadowXiuyuanIds: string[];
+  ownershipEvidence: {
+    plugin: BackendXiuyuanShadowAuditOwnershipEvidence[];
+    shadow: BackendXiuyuanShadowAuditOwnershipEvidence[];
+  };
+  proposedAction: 'audit-only-defer-hide-or-delete-policy';
+}
+
+export interface BackendXiuyuanShadowAudit {
+  findingCount: number;
+  findings: BackendXiuyuanShadowAuditFinding[];
+}
+
 export interface BackendXiuyuanSyncExecuteRequest {
   requestId: string;
   commandId: string;
@@ -795,6 +823,7 @@ export interface BackendXiuyuanSyncPlan {
     delete: string[];
     skippedLocalOwned: string[];
   };
+  shadowAudit?: BackendXiuyuanShadowAudit;
 }
 
 export interface BackendXiuyuanSyncApplyImpact {

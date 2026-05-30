@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent, h } from 'vue';
+import { defineComponent, h, onMounted } from 'vue';
 import type { ReviewEditorState } from '../reviewEditorState';
 import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import type { ReviewUIState } from '../types';
@@ -513,17 +513,37 @@ function createStaleMetaPolicyDescriptorContent() {
 }
 
 function createRenderPolicyMeta(
-  content: ReturnType<typeof createStaleMetaPolicyDescriptorContent>,
-  rendererKind: 'descriptor' | 'concept-definition' | 'multi-cloze' | 'quick' | 'image-occlusion' | null,
+  content: {
+    id: string;
+    card?: {
+      id?: string;
+      blockId?: string;
+      updatedAt?: string | number;
+      type?: string;
+      faceKey?: {
+        ruleId?: string;
+        cardRuleId?: string;
+        faceIndex?: number;
+      };
+      meta?: Record<string, unknown>;
+    };
+  },
+  rendererKind: 'descriptor' | 'concept-definition' | 'concept' | 'multi-cloze' | 'quick' | 'image-occlusion' | null,
 ): ReviewUIState['meta'] {
+  const card = content.card;
+  const cardId = String(card?.id ?? '');
+  const blockId = String(card?.blockId ?? content.id);
+  const updatedAt = String(card?.updatedAt ?? '');
+  const ruleId = String(card?.faceKey?.ruleId ?? card?.faceKey?.cardRuleId ?? `${rendererKind ?? 'main'}-rule`);
+  const faceIndex = Number.isFinite(card?.faceKey?.faceIndex) ? Number(card?.faceKey?.faceIndex) : 0;
   return {
     transition: 'none',
     renderContext: {
       version: 1,
       targetKind: 'standard-card',
       targetIdentity: {
-        cardId: content.card.id,
-        blockId: content.card.blockId,
+        cardId,
+        blockId,
         deckId: '',
       },
       schedulerSnapshot: null,
@@ -532,8 +552,8 @@ function createRenderPolicyMeta(
       renderPayload: {
         contentBlockId: content.id,
         answerBlockId: '',
-        cardType: content.card.type,
-        meta: { ...content.card.meta },
+        cardType: card?.type ?? null,
+        meta: { ...(card?.meta ?? {}) },
       },
       renderPolicy: {
         version: 1,
@@ -544,19 +564,19 @@ function createRenderPolicyMeta(
         forceQuickRender: rendererKind === 'quick',
         quickDetectReason: '',
         cacheTokens: {
-          cardId: content.card.id,
-          blockId: content.card.blockId,
-          cardType: content.card.type,
-          faceToken: 'rule:descriptor-reverse::face:2',
-          ruleId: 'descriptor-reverse',
-          updatedAt: String(content.card.updatedAt),
+          cardId,
+          blockId,
+          cardType: String(card?.type ?? ''),
+          faceToken: `rule:${ruleId}::face:${faceIndex}`,
+          ruleId,
+          updatedAt,
         },
         legacyProjection: {
-          templateID: 'builtin-multi-cloze',
-          typeMarker: 'concept-definition-forward',
-          faceIndex: 0,
-          renderProfile: 'quick-inline-formula',
-          clozeRenderMode: 'inline-formula-cloze',
+          templateID: typeof card?.meta?.templateID === 'string' ? card.meta.templateID : '',
+          typeMarker: typeof card?.meta?.typeMarker === 'string' ? card.meta.typeMarker : '',
+          faceIndex: typeof card?.meta?.faceIndex === 'number' ? card.meta.faceIndex : 0,
+          renderProfile: typeof card?.meta?.renderProfile === 'string' ? card.meta.renderProfile : '',
+          clozeRenderMode: typeof card?.meta?.clozeRenderMode === 'string' ? card.meta.clozeRenderMode : '',
           used: ['templateID', 'typeMarker', 'faceIndex', 'renderProfile', 'clozeRenderMode'],
         },
         diagnostics: ['legacy-render-projection-read'],
@@ -1011,8 +1031,10 @@ describe('ReviewContent editor state', () => {
       blockNativeTabSplit: true,
     });
 
+    const multiClozeContent = createMultiClozeContent();
     await wrapper.setProps({
-      content: createMultiClozeContent(),
+      content: multiClozeContent,
+      meta: createRenderPolicyMeta(multiClozeContent, 'multi-cloze'),
     });
     await settleReviewContent();
     expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
@@ -1024,8 +1046,10 @@ describe('ReviewContent editor state', () => {
       blockNativeTabSplit: true,
     });
 
+    const inlineFormulaContent = createInlineFormulaMultiClozeContent();
     await wrapper.setProps({
-      content: createInlineFormulaMultiClozeContent(),
+      content: inlineFormulaContent,
+      meta: createRenderPolicyMeta(inlineFormulaContent, 'multi-cloze'),
     });
     await settleReviewContent();
     expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
@@ -1037,9 +1061,10 @@ describe('ReviewContent editor state', () => {
       blockNativeTabSplit: true,
     });
 
-    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(true);
+    const symbolQuickContent = createSymbolQuickContent();
     await wrapper.setProps({
-      content: createSymbolQuickContent(),
+      content: symbolQuickContent,
+      meta: createRenderPolicyMeta(symbolQuickContent, 'quick'),
     });
     await settleReviewContent();
     expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
@@ -1050,11 +1075,11 @@ describe('ReviewContent editor state', () => {
       rendererKind: 'quick',
       blockNativeTabSplit: true,
     });
-    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(false);
 
-    reviewContentConceptMocks.isConceptCard.mockReturnValue(true);
+    const conceptContent = createConceptContent();
     await wrapper.setProps({
-      content: createConceptContent(),
+      content: conceptContent,
+      meta: createRenderPolicyMeta(conceptContent, 'concept'),
     });
     await settleReviewContent();
     expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
@@ -1065,11 +1090,11 @@ describe('ReviewContent editor state', () => {
       rendererKind: 'concept',
       blockNativeTabSplit: true,
     });
-    reviewContentConceptMocks.isConceptCard.mockReturnValue(false);
 
-    reviewContentConceptMocks.isConceptDefinitionCard.mockReturnValue(true);
+    const conceptDefinitionContent = createConceptDefinitionContent();
     await wrapper.setProps({
-      content: createConceptDefinitionContent(),
+      content: conceptDefinitionContent,
+      meta: createRenderPolicyMeta(conceptDefinitionContent, 'concept-definition'),
     });
     await settleReviewContent();
     expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
@@ -1080,11 +1105,11 @@ describe('ReviewContent editor state', () => {
       rendererKind: 'concept-definition',
       blockNativeTabSplit: true,
     });
-    reviewContentConceptMocks.isConceptDefinitionCard.mockReturnValue(false);
 
-    reviewContentDescriptorMocks.isDescriptorCard.mockResolvedValue(true);
+    const descriptorContent = createDescriptorContent();
     await wrapper.setProps({
-      content: createDescriptorContent(),
+      content: descriptorContent,
+      meta: createRenderPolicyMeta(descriptorContent, 'descriptor'),
     });
     await settleReviewContent();
     expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
@@ -1095,21 +1120,21 @@ describe('ReviewContent editor state', () => {
       rendererKind: 'descriptor',
       blockNativeTabSplit: true,
     });
-    reviewContentDescriptorMocks.isDescriptorCard.mockResolvedValue(false);
-
-    await wrapper.setProps({
-      content: {
-        type: 'protyle' as const,
-        id: 'block-image-occlusion',
-        data: '',
-        card: {
-          id: 'card-image-occlusion',
-          type: 'item',
-          meta: {
-            source: 'image-occlusion',
-          },
+    const imageOcclusionContent = {
+      type: 'protyle' as const,
+      id: 'block-image-occlusion',
+      data: '',
+      card: {
+        id: 'card-image-occlusion',
+        type: 'item',
+        meta: {
+          source: 'image-occlusion',
         },
       },
+    };
+    await wrapper.setProps({
+      content: imageOcclusionContent,
+      meta: createRenderPolicyMeta(imageOcclusionContent, 'image-occlusion'),
     });
     await settleReviewContent();
     expect(exposed.getEditableSource()).toBeNull();
@@ -1120,6 +1145,9 @@ describe('ReviewContent editor state', () => {
 
     await wrapper.setProps({
       content: createHtmlContent(),
+      meta: {
+        transition: 'none',
+      },
     });
     await settleReviewContent();
     expect(exposed.getNativeSplitGuardState()).toEqual({
@@ -1147,12 +1175,7 @@ describe('ReviewContent editor state', () => {
       },
     });
 
-    reviewContentConceptMocks.isConceptDefinitionCard.mockImplementation((card?: unknown) => {
-      const meta = (card as { meta?: { templateID?: string; fieldMapping?: Record<string, string> } } | undefined)?.meta;
-      return typeof meta?.templateID === 'string'
-        && meta.templateID.startsWith('builtin-concept-definition')
-        && typeof meta.fieldMapping?.definition === 'string';
-    });
+    const content = createSemanticConceptDefinitionContentWithoutMarkers();
 
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
@@ -1164,12 +1187,10 @@ describe('ReviewContent editor state', () => {
             getCardStorage: () => null,
           }),
         },
-        content: createSemanticConceptDefinitionContentWithoutMarkers(),
+        content,
         showAnswer: true,
         hasHiddenContent: false,
-        meta: {
-          transition: 'none',
-        },
+        meta: createRenderPolicyMeta(content, 'concept-definition'),
         renderEpoch: 0,
       },
       global: {
@@ -1221,12 +1242,7 @@ describe('ReviewContent editor state', () => {
       },
     });
 
-    reviewContentConceptMocks.isDescriptorSemanticCard.mockImplementation((card?: unknown) => {
-      const meta = (card as { meta?: { templateID?: string; fieldMapping?: Record<string, string> } } | undefined)?.meta;
-      return typeof meta?.templateID === 'string'
-        && meta.templateID.startsWith('builtin-concept-descriptor')
-        && typeof meta.fieldMapping?.descriptor === 'string';
-    });
+    const content = createSemanticDescriptorContentWithoutMarkers();
 
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
@@ -1238,12 +1254,10 @@ describe('ReviewContent editor state', () => {
             getCardStorage: () => null,
           }),
         },
-        content: createSemanticDescriptorContentWithoutMarkers(),
+        content,
         showAnswer: true,
         hasHiddenContent: false,
-        meta: {
-          transition: 'none',
-        },
+        meta: createRenderPolicyMeta(content, 'descriptor'),
       },
       global: {
         stubs: {
@@ -1445,7 +1459,18 @@ describe('ReviewContent editor state', () => {
     wrapper.unmount();
   });
 
-  it('falls back to standard Protyle once when forceQuickRender metadata is invalid', async () => {
+  it('falls back to standard Protyle once when policy-selected quick renderer rejects the card', async () => {
+    const QuickRendererRejectingStub = defineComponent({
+      name: 'QuickCardRendererStub',
+      emits: ['error'],
+      setup(_props, { emit }) {
+        onMounted(() => {
+          emit('error', new Error('not a quick card'));
+        });
+        return () => h('div', { class: 'quick-card-renderer-stub' });
+      },
+    });
+    const content = createForcedQuickContent();
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
       props: {
@@ -1456,12 +1481,10 @@ describe('ReviewContent editor state', () => {
             getCardStorage: () => null,
           }),
         },
-        content: createForcedQuickContent(),
+        content,
         showAnswer: true,
         hasHiddenContent: false,
-        meta: {
-          transition: 'none',
-        },
+        meta: createRenderPolicyMeta(content, 'quick'),
       },
       global: {
         stubs: {
@@ -1469,7 +1492,7 @@ describe('ReviewContent editor state', () => {
           XiuyuanListTemplateCard: true,
           MultiClozeCardRenderer: true,
           ImageOcclusionCardRenderer: true,
-          QuickCardRenderer: true,
+          QuickCardRenderer: QuickRendererRejectingStub,
           DescriptorCardRenderer: true,
           ConceptDefinitionCardRenderer: true,
           ConceptCardRenderer: true,
@@ -1551,7 +1574,7 @@ describe('ReviewContent editor state', () => {
   });
 
   it('routes persisted symbol quick cards to the quick renderer without building Protyle', async () => {
-    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(true);
+    const content = createSymbolQuickContent();
 
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
@@ -1563,12 +1586,10 @@ describe('ReviewContent editor state', () => {
             getCardStorage: () => null,
           }),
         },
-        content: createSymbolQuickContent(),
+        content,
         showAnswer: true,
         hasHiddenContent: false,
-        meta: {
-          transition: 'none',
-        },
+        meta: createRenderPolicyMeta(content, 'quick'),
       },
       global: {
         stubs: {
@@ -1599,7 +1620,7 @@ describe('ReviewContent editor state', () => {
   });
 
   it('routes persisted bidirectional symbol quick cards to the quick renderer without building Protyle', async () => {
-    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(true);
+    const content = createSymbolQuickContent('<>');
 
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
@@ -1611,12 +1632,10 @@ describe('ReviewContent editor state', () => {
             getCardStorage: () => null,
           }),
         },
-        content: createSymbolQuickContent('<>'),
+        content,
         showAnswer: true,
         hasHiddenContent: false,
-        meta: {
-          transition: 'none',
-        },
+        meta: createRenderPolicyMeta(content, 'quick'),
       },
       global: {
         stubs: {
@@ -1647,7 +1666,7 @@ describe('ReviewContent editor state', () => {
   });
 
   it('routes builtin bidirectional single quick-default cards to the quick renderer without building Protyle', async () => {
-    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(true);
+    const content = createBidirectionalSingleQuickContent('reverse');
 
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
@@ -1659,12 +1678,10 @@ describe('ReviewContent editor state', () => {
             getCardStorage: () => null,
           }),
         },
-        content: createBidirectionalSingleQuickContent('reverse'),
+        content,
         showAnswer: true,
         hasHiddenContent: false,
-        meta: {
-          transition: 'none',
-        },
+        meta: createRenderPolicyMeta(content, 'quick'),
       },
       global: {
         stubs: {
@@ -1694,8 +1711,8 @@ describe('ReviewContent editor state', () => {
     wrapper.unmount();
   });
 
-  it('routes builtin bidirectional single cards without renderProfile to the quick renderer', async () => {
-    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(true);
+  it('routes builtin bidirectional single cards without renderProfile to the quick renderer when policy selects quick', async () => {
+    const content = createBidirectionalSingleQuickContentWithoutProfile('forward');
 
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
@@ -1707,12 +1724,10 @@ describe('ReviewContent editor state', () => {
             getCardStorage: () => null,
           }),
         },
-        content: createBidirectionalSingleQuickContentWithoutProfile('forward'),
+        content,
         showAnswer: true,
         hasHiddenContent: false,
-        meta: {
-          transition: 'none',
-        },
+        meta: createRenderPolicyMeta(content, 'quick'),
       },
       global: {
         stubs: {
@@ -1730,10 +1745,7 @@ describe('ReviewContent editor state', () => {
 
     await settleReviewContent();
 
-    expect(reviewContentQuickCardMocks.isQuickCard).toHaveBeenCalledWith(
-      'block-bidirectional-single',
-      'card-bidirectional-single-forward',
-    );
+    expect(reviewContentQuickCardMocks.isQuickCard).not.toHaveBeenCalled();
     expect(reviewContentMocks.instances).toHaveLength(0);
     expect(wrapper.find('quick-card-renderer-stub').exists()).toBe(true);
     expect(getEditorStates(wrapper).at(-1)).toEqual({
@@ -1746,6 +1758,7 @@ describe('ReviewContent editor state', () => {
   });
 
   it('routes builtin multi-cloze item cards to the dedicated renderer', async () => {
+    const content = createMultiClozeContent();
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
       props: {
@@ -1756,12 +1769,10 @@ describe('ReviewContent editor state', () => {
             getCardStorage: () => null,
           }),
         },
-        content: createMultiClozeContent(),
+        content,
         showAnswer: true,
         hasHiddenContent: false,
-        meta: {
-          transition: 'none',
-        },
+        meta: createRenderPolicyMeta(content, 'multi-cloze'),
       },
       global: {
         stubs: {
@@ -1791,6 +1802,7 @@ describe('ReviewContent editor state', () => {
   });
 
   it('keeps broad native hide classes off ordinary multi-cloze cards', async () => {
+    const content = createMultiClozeContent();
     setBlockFixture(
       'block-multi-cloze',
       '<div data-node-id="block-multi-cloze">危险化学品单位应 <span data-type="mark">具备安全条件</span></div>',
@@ -1806,12 +1818,10 @@ describe('ReviewContent editor state', () => {
             getCardStorage: () => null,
           }),
         },
-        content: createMultiClozeContent(),
+        content,
         showAnswer: true,
         hasHiddenContent: true,
-        meta: {
-          transition: 'none',
-        },
+        meta: createRenderPolicyMeta(content, 'multi-cloze'),
       },
       global: {
         stubs: {
@@ -1847,6 +1857,7 @@ describe('ReviewContent editor state', () => {
   });
 
   it('routes inline-formula multi-cloze cards to the dedicated renderer without building Protyle', async () => {
+    const content = createInlineFormulaMultiClozeContent();
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
       props: {
@@ -1857,12 +1868,10 @@ describe('ReviewContent editor state', () => {
             getCardStorage: () => null,
           }),
         },
-        content: createInlineFormulaMultiClozeContent(),
+        content,
         showAnswer: true,
         hasHiddenContent: false,
-        meta: {
-          transition: 'none',
-        },
+        meta: createRenderPolicyMeta(content, 'multi-cloze'),
       },
       global: {
         stubs: {
@@ -1891,9 +1900,8 @@ describe('ReviewContent editor state', () => {
     wrapper.unmount();
   });
 
-  it('reruns renderer detection when quick-card metadata arrives for the same card identity', async () => {
-    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(false);
-
+  it('switches from main Protyle to quick renderer when render policy arrives for the same card identity', async () => {
+    const initialContent = createSymbolQuickContentWithoutIndicators();
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
       props: {
@@ -1904,7 +1912,7 @@ describe('ReviewContent editor state', () => {
             getCardStorage: () => null,
           }),
         },
-        content: createSymbolQuickContentWithoutIndicators(),
+        content: initialContent,
         showAnswer: true,
         hasHiddenContent: false,
         meta: {
@@ -1931,13 +1939,14 @@ describe('ReviewContent editor state', () => {
     const initialProtyle = reviewContentMocks.instances[0];
     expect(wrapper.find('quick-card-renderer-stub').exists()).toBe(false);
 
-    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(true);
+    const quickContent = createSymbolQuickContent();
     await wrapper.setProps({
-      content: createSymbolQuickContent(),
+      content: quickContent,
+      meta: createRenderPolicyMeta(quickContent, 'quick'),
     });
     await settleReviewContent();
 
-    expect(reviewContentQuickCardMocks.isQuickCard).toHaveBeenLastCalledWith('block-symbol-quick', 'card-symbol-quick');
+    expect(reviewContentQuickCardMocks.isQuickCard).not.toHaveBeenCalled();
     expect(initialProtyle.destroyCallCount).toBeGreaterThan(0);
     expect(wrapper.find('quick-card-renderer-stub').exists()).toBe(true);
     expect(getEditorStates(wrapper).at(-1)).toEqual({
@@ -2610,7 +2619,24 @@ describe('ReviewContent editor state', () => {
       },
     });
 
-    reviewContentConceptMocks.isConceptDefinitionCard.mockReturnValue(true);
+    const content = {
+      type: 'protyle' as const,
+      id: 'definition-block',
+      data: '',
+      card: {
+        id: 'card-cdf',
+        blockId: 'card-block',
+        type: 'item',
+        meta: {
+          frontBlockIDs: ['concept-block'],
+          backBlockIDs: ['definition-block'],
+          fieldMapping: {
+            concept: 'concept-block',
+            definition: 'definition-block',
+          },
+        },
+      },
+    };
 
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
@@ -2622,29 +2648,10 @@ describe('ReviewContent editor state', () => {
             getCardStorage: () => null,
           }),
         },
-        content: {
-          type: 'protyle' as const,
-          id: 'definition-block',
-          data: '',
-          card: {
-            id: 'card-cdf',
-            blockId: 'card-block',
-            type: 'item',
-            meta: {
-              frontBlockIDs: ['concept-block'],
-              backBlockIDs: ['definition-block'],
-              fieldMapping: {
-                concept: 'concept-block',
-                definition: 'definition-block',
-              },
-            },
-          },
-        },
+        content,
         showAnswer: true,
         hasHiddenContent: false,
-        meta: {
-          transition: 'none',
-        },
+        meta: createRenderPolicyMeta(content, 'concept-definition'),
       },
       global: {
         stubs: {

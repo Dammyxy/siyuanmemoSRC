@@ -325,6 +325,19 @@ describe('WorkerXiuyuanSyncPlanner', () => {
       updateCount: 0,
       deleteCount: 0,
       skippedLocalOwnedCount: 1,
+      shadowAudit: {
+        findingCount: 1,
+        findings: [
+          {
+            blockId: 'block-mixed',
+            pluginCardIds: ['card-mixed-plugin'],
+            shadowCardIds: ['card-mixed-riff'],
+            pluginXiuyuanIds: ['xy-mixed-plugin'],
+            shadowXiuyuanIds: ['xy-mixed-riff'],
+            proposedAction: 'audit-only-defer-hide-or-delete-policy',
+          },
+        ],
+      },
       candidateBlockIds: {
         update: [],
         delete: [],
@@ -361,6 +374,15 @@ describe('WorkerXiuyuanSyncPlanner', () => {
     }
     expect(deleteResult.plan.deleteCount).toBe(0);
     expect(deleteResult.plan.candidateBlockIds.delete).toEqual([]);
+    expect(deleteResult.plan.shadowAudit).toMatchObject({
+      findingCount: 1,
+      findings: [
+        {
+          blockId: 'block-mixed',
+          proposedAction: 'audit-only-defer-hide-or-delete-policy',
+        },
+      ],
+    });
   });
 
   it('returns typed unavailable when the native Riff read proxy is absent', async () => {
@@ -520,6 +542,120 @@ describe('WorkerSqliteDatabaseService Xiuyuan sync local facts', () => {
         ownership: 'riff-managed',
         source: 'riff-sync',
         schedulerType: 'fsrs-v6',
+      }),
+    ]);
+  });
+
+  it('preserves same-block plugin-owned cards and builtin Riff shadow cards for audit', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    await database.init();
+    const now = 1_700_000_000_000;
+
+    database.run('INSERT INTO xiuyuans (id, updated_at, payload_json) VALUES (?, ?, ?)', [
+      'xy-plugin',
+      now,
+      JSON.stringify({
+        id: 'xy-plugin',
+        blockIDs: ['block-mixed'],
+        templateID: 'builtin-concept-definition',
+        meta: {
+          source: 'riff-sync',
+        },
+      }),
+    ]);
+    database.run('INSERT INTO xiuyuans (id, updated_at, payload_json) VALUES (?, ?, ?)', [
+      'xy-shadow',
+      now,
+      JSON.stringify({
+        id: 'xy-shadow',
+        blockIDs: ['block-mixed'],
+        templateID: 'builtin-riff-sync',
+        meta: {
+          ownership: 'riff-managed',
+          source: 'riff-sync',
+        },
+      }),
+    ]);
+    database.run(
+      `INSERT INTO cards (id, block_id, xiuyuan_id, scheduler_type, updated_at, payload_json, dto_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'card-plugin',
+        'block-mixed',
+        'xy-plugin',
+        'fsrs-v6',
+        now,
+        JSON.stringify({
+          id: 'card-plugin',
+          blockId: 'block-mixed',
+          xiuyuanID: 'xy-plugin',
+          meta: {
+            templateID: 'builtin-concept-definition',
+            source: 'riff-sync',
+          },
+        }),
+        null,
+      ],
+    );
+    database.run(
+      `INSERT INTO cards (id, block_id, xiuyuan_id, scheduler_type, updated_at, payload_json, dto_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'card-shadow',
+        'block-mixed',
+        'xy-shadow',
+        'fsrs-v6',
+        now,
+        JSON.stringify({
+          id: 'card-shadow',
+          blockId: 'block-mixed',
+          xiuyuanID: 'xy-shadow',
+          riffCardId: 'riff-card-shadow',
+          meta: {
+            templateID: 'builtin-riff-sync',
+            ownership: 'riff-managed',
+            source: 'riff-sync',
+          },
+        }),
+        null,
+      ],
+    );
+
+    const facts = await database.readXiuyuanSyncLocalFacts();
+
+    expect(facts.xiuyuans).toEqual([
+      expect.objectContaining({
+        id: 'xy-plugin',
+        blockIds: ['block-mixed'],
+        templateId: 'builtin-concept-definition',
+        ownership: null,
+        source: 'riff-sync',
+      }),
+      expect.objectContaining({
+        id: 'xy-shadow',
+        blockIds: ['block-mixed'],
+        templateId: 'builtin-riff-sync',
+        ownership: 'riff-managed',
+        source: 'riff-sync',
+      }),
+    ]);
+    expect(facts.cards).toEqual([
+      expect.objectContaining({
+        id: 'card-plugin',
+        blockId: 'block-mixed',
+        xiuyuanId: 'xy-plugin',
+        templateId: 'builtin-concept-definition',
+        ownership: null,
+        source: 'riff-sync',
+      }),
+      expect.objectContaining({
+        id: 'card-shadow',
+        blockId: 'block-mixed',
+        xiuyuanId: 'xy-shadow',
+        riffCardId: 'riff-card-shadow',
+        templateId: 'builtin-riff-sync',
+        ownership: 'riff-managed',
+        source: 'riff-sync',
       }),
     ]);
   });

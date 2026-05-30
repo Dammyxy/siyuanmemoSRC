@@ -2,11 +2,36 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { UnifiedStorageManager } from '../UnifiedStorageManager';
 import type { UnifiedCardStore } from '../UnifiedStorageManager';
 import type { CardPersistenceDTO } from '../../../infrastructure/persistence/dto/CardPersistenceDTO';
+import { SqliteDatabaseService } from '../../../infrastructure/persistence/sqlite/SqliteDatabaseService';
+import { SqlUnifiedStorageRepository } from '../../../infrastructure/persistence/sqlite/SqlUnifiedStorageRepository';
+import type { IFileService } from '../../../infrastructure/services/FileService';
 import type { IXiuyuan } from '../../xiuyuan/types';
 import { CardState, CardType } from '../../../types/card';
 
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+class MemorySqliteFileService implements Pick<IFileService, 'readJSON' | 'writeJSON' | 'readBinary' | 'writeBinary'> {
+  readonly json = new Map<string, unknown>();
+  readonly binary = new Map<string, Uint8Array>();
+
+  async readJSON<T>(fileName: string): Promise<T | null> {
+    return (this.json.get(fileName) as T | undefined) ?? null;
+  }
+
+  async writeJSON(fileName: string, data: unknown): Promise<void> {
+    this.json.set(fileName, data);
+  }
+
+  async readBinary(fileName: string): Promise<Uint8Array | null> {
+    const bytes = this.binary.get(fileName);
+    return bytes ? new Uint8Array(bytes) : null;
+  }
+
+  async writeBinary(fileName: string, bytes: Uint8Array): Promise<void> {
+    this.binary.set(fileName, new Uint8Array(bytes));
+  }
 }
 
 function createXiuyuan(id: string): IXiuyuan {
@@ -181,6 +206,208 @@ describe('UnifiedStorageManager legacy scheduler migration', () => {
       stability: 70,
       scheduledDays: 70,
       schedulerType: 'fsrs-v6',
+    });
+  });
+
+  it('persists scheduling normalization when another unreviewed card has empty FSRS memory', async () => {
+    const due = new Date('2026-04-26T23:38:33+08:00').getTime();
+    const lastReview = new Date('2026-02-15T23:38:33+08:00').getTime();
+    remoteStore.cardDTOs = {
+      dirtyReview: createDTO('dirtyReview', 'xy-1', 'fsrs-v6', {
+        due,
+        lastReview,
+        state: CardState.Review,
+        stability: 0,
+        difficulty: 0,
+        scheduledDays: 0,
+        elapsedDays: 0,
+        reps: 4,
+      }),
+      emptyNew: createDTO('emptyNew', 'xy-1', 'fsrs-v6', {
+        state: CardState.New,
+        due,
+        lastReview: 0,
+        stability: 0,
+        difficulty: 0,
+        scheduledDays: 0,
+        elapsedDays: 0,
+        reps: 0,
+        lapses: 0,
+      }),
+    };
+
+    const storage = new UnifiedStorageManager();
+    storage.setPersistenceCallbacks(
+      async (store) => {
+        saveCalls += 1;
+        remoteStore = deepClone(store);
+      },
+      async () => deepClone(remoteStore)
+    );
+    const loadResult = await storage.load();
+    expect(loadResult.ok).toBe(true);
+
+    expect(storage.normalizeMalformedReviewScheduling(due)).toBe(1);
+    const saveResult = await storage.save();
+
+    expect(saveResult.ok).toBe(true);
+    expect(remoteStore.cardDTOs?.dirtyReview).toMatchObject({
+      stability: 70,
+      difficulty: 5,
+      scheduledDays: 70,
+      schedulerType: 'fsrs-v6',
+    });
+    expect(remoteStore.cardDTOs?.emptyNew).toMatchObject({
+      state: CardState.New,
+      stability: 0,
+      difficulty: 0,
+      reps: 0,
+      lastReview: 0,
+    });
+  });
+
+  it('persists scheduling normalization through SQL when another card has empty new-card memory', async () => {
+    const due = new Date('2026-04-26T23:38:33+08:00').getTime();
+    const lastReview = new Date('2026-02-15T23:38:33+08:00').getTime();
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+    const repository = new SqlUnifiedStorageRepository(database);
+    const startupStore: UnifiedCardStore = {
+      version: 2,
+      xiuyuans: {
+        'xy-1': createXiuyuan('xy-1'),
+      },
+      cards: {},
+      cardDTOs: {
+        dirtyReview: createDTO('dirtyReview', 'xy-1', 'fsrs-v6', {
+          due,
+          lastReview,
+          state: CardState.Review,
+          stability: 0,
+          difficulty: 0,
+          scheduledDays: 0,
+          elapsedDays: 0,
+          reps: 4,
+        }),
+        emptyNew: createDTO('emptyNew', 'xy-1', 'fsrs-v6', {
+          state: CardState.New,
+          due,
+          lastReview: 0,
+          stability: 0,
+          difficulty: 0,
+          scheduledDays: 0,
+          elapsedDays: 0,
+          reps: 0,
+          lapses: 0,
+        }),
+      },
+      deletedCardDTOs: {},
+      deletedXiuyuans: {},
+      riffBlacklist: [],
+    };
+
+    const storage = new UnifiedStorageManager();
+    storage.setPersistenceCallbacks(
+      (store) => repository.saveStore(store),
+      async () => deepClone(startupStore)
+    );
+    const loadResult = await storage.load();
+    expect(loadResult.ok).toBe(true);
+
+    expect(storage.normalizeMalformedReviewScheduling(due)).toBe(1);
+    const saveResult = await storage.save();
+
+    expect(saveResult.ok).toBe(true);
+    const loaded = await repository.loadStore();
+    expect(loaded.cardDTOs?.dirtyReview).toMatchObject({
+      stability: 70,
+      difficulty: 5,
+      scheduledDays: 70,
+      schedulerType: 'fsrs-v6',
+    });
+    expect(loaded.cardDTOs?.emptyNew).toMatchObject({
+      state: CardState.New,
+      stability: 0,
+      difficulty: 0,
+      reps: 0,
+      lastReview: 0,
+    });
+  });
+
+  it('persists scheduling normalization through SQL when another review-state a-factor card has empty FSRS memory fields', async () => {
+    const due = new Date('2026-04-26T23:38:33+08:00').getTime();
+    const lastReview = new Date('2026-02-15T23:38:33+08:00').getTime();
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+    const repository = new SqlUnifiedStorageRepository(database);
+    const startupStore: UnifiedCardStore = {
+      version: 2,
+      xiuyuans: {
+        'xy-1': createXiuyuan('xy-1'),
+      },
+      cards: {},
+      cardDTOs: {
+        dirtyReview: createDTO('dirtyReview', 'xy-1', 'fsrs-v6', {
+          due,
+          lastReview,
+          state: CardState.Review,
+          stability: 0,
+          difficulty: 0,
+          scheduledDays: 0,
+          elapsedDays: 0,
+          reps: 4,
+        }),
+        '20211020084142-v4m7d1n': createDTO('20211020084142-v4m7d1n', 'xy-1', 'a-factor-v2', {
+          type: CardType.Topic,
+          state: CardState.Review,
+          due,
+          lastReview,
+          stability: 0,
+          difficulty: 0,
+          scheduledDays: 0,
+          elapsedDays: 0,
+          reps: 4,
+          aFactor: 2.5,
+          schedulerMeta: {
+            topic: {
+              afs: [2.5],
+              of: 2.5,
+              optimalInterval: 1,
+            },
+          },
+        }),
+      },
+      deletedCardDTOs: {},
+      deletedXiuyuans: {},
+      riffBlacklist: [],
+    };
+
+    const storage = new UnifiedStorageManager();
+    storage.setPersistenceCallbacks(
+      (store) => repository.saveStore(store),
+      async () => deepClone(startupStore)
+    );
+    const loadResult = await storage.load();
+    expect(loadResult.ok).toBe(true);
+
+    expect(storage.normalizeMalformedReviewScheduling(due)).toBe(1);
+    const saveResult = await storage.save();
+
+    expect(saveResult.ok).toBe(true);
+    const loaded = await repository.loadStore();
+    expect(loaded.cardDTOs?.dirtyReview).toMatchObject({
+      stability: 70,
+      difficulty: 5,
+      scheduledDays: 70,
+      schedulerType: 'fsrs-v6',
+    });
+    expect(loaded.cardDTOs?.['20211020084142-v4m7d1n']).toMatchObject({
+      type: CardType.Topic,
+      schedulerType: 'a-factor-v2',
+      state: CardState.Review,
+      stability: 0,
+      difficulty: 0,
+      aFactor: 2.5,
     });
   });
 

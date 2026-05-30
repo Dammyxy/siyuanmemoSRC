@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FSRSCard } from '@/types/card';
+import { buildReviewRendererIdentity } from '../reviewRendererIdentity';
 
 const multiClozeRendererMocks = vi.hoisted(() => ({
   prepareViewModel: vi.fn(),
@@ -51,15 +52,7 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
 }
 
 function buildPreparedIdentity(card: FSRSCard): string {
-  const meta = card.meta;
-  return [
-    card.id || '',
-    card.blockId || '',
-    card.updatedAt || '',
-    meta?.faceIndex ?? '',
-    meta?.templateID || '',
-    meta?.typeMarker || '',
-  ].join('|');
+  return buildReviewRendererIdentity(card);
 }
 
 async function flushMicrotasks(): Promise<void> {
@@ -138,6 +131,42 @@ describe('MultiClozeCardRenderer.vue', () => {
     expect(multiClozeRendererMocks.prepareViewModel).not.toHaveBeenCalled();
     expect(wrapper.findComponent({ name: 'CardLoadingState' }).exists()).toBe(false);
     expect(wrapper.html()).toContain('Prepared front');
+  });
+
+  it('matches prepared identity by faceKey before stale legacy faceIndex', async () => {
+    const card = createCard({
+      faceKey: { ruleId: 'multi-cloze', faceIndex: 2 },
+      meta: {
+        templateID: 'builtin-multi-cloze',
+        faceIndex: 0,
+        typeMarker: 'stale-cloze-0',
+        faces: [{ question: 'front', answer: 'back' }],
+      },
+    });
+    const preparedViewModel = {
+      blockId: 'block-1',
+      breadcrumbs: [],
+      frontHtml: '<p>FaceKey prepared front</p>',
+      backHtml: '<p>FaceKey prepared back</p>',
+      faceIndex: 2,
+      totalFaces: 3,
+      renderMode: 'default',
+    };
+
+    const wrapper = mount(MultiClozeCardRenderer, {
+      props: {
+        card,
+        showAnswer: false,
+        preparedViewModel,
+        preparedIdentity: buildPreparedIdentity(card),
+      },
+    });
+
+    await flushMicrotasks();
+    await wrapper.vm.$nextTick();
+
+    expect(multiClozeRendererMocks.prepareViewModel).not.toHaveBeenCalled();
+    expect(wrapper.html()).toContain('FaceKey prepared front');
   });
 
   it('does not keep the previous card visible when a new identity fails to load', async () => {

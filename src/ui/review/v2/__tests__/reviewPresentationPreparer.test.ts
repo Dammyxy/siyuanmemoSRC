@@ -134,7 +134,7 @@ describe('reviewPresentationPreparer', () => {
       faces: [{ question: '$$[...]$$', answer: '$$x$$' }],
     });
 
-    const prepared = await prepareReviewPresentation(createState(card), services);
+    const prepared = await prepareReviewPresentation(withRenderPolicy(createState(card), 'multi-cloze'), services);
 
     expect(services.multiClozeCardRenderService.prepareViewModel).toHaveBeenCalledWith(card);
     expect(services.conceptDefinitionCardRenderService.prepareViewModel).not.toHaveBeenCalled();
@@ -142,6 +142,23 @@ describe('reviewPresentationPreparer', () => {
       rendererKind: 'multi-cloze',
       viewModel: { kind: 'multi' },
     });
+  });
+
+  it('does not infer prepared renderer from legacy metadata without render policy', async () => {
+    const services = createServices();
+    const card = createCard({
+      templateID: 'builtin-multi-cloze',
+      clozeRenderMode: 'inline-formula-cloze',
+      renderProfile: 'quick-default',
+      typeMarker: 'concept-definition-forward',
+      faces: [{ question: '$$[...]$$', answer: '$$x$$' }],
+    });
+
+    const prepared = await prepareReviewPresentation(createState(card), services);
+
+    expect(prepared.content.prepared).toBeUndefined();
+    expect(services.multiClozeCardRenderService.prepareViewModel).not.toHaveBeenCalled();
+    expect(services.conceptDefinitionCardRenderService.prepareViewModel).not.toHaveBeenCalled();
   });
 
   it('does not attempt prepared rendering for image occlusion cards', async () => {

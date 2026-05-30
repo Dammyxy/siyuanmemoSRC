@@ -55,41 +55,6 @@ function resolveConceptCardFocus(content: ReviewContent, card: FSRSCard): string
     || normalizeBlockId(card.blockId);
 }
 
-function resolveConceptDefinitionFocus(content: ReviewContent, card: FSRSCard): string {
-  const mappedConcept = readFieldMapping(card, 'concept');
-  if (mappedConcept) {
-    return mappedConcept;
-  }
-
-  const definitionId = readFieldMapping(card, 'definition') || normalizeBlockId(content.id);
-  const front = readStringArray(card, 'frontBlockIDs');
-  const back = readStringArray(card, 'backBlockIDs');
-  const typeMarker = normalizeBlockId(card.meta?.typeMarker);
-  const templateID = normalizeBlockId(card.meta?.templateID);
-
-  if (templateID === 'builtin-concept-definition-reverse' || typeMarker === 'concept-definition-reverse') {
-    return onlyUnambiguous([back[0], front[0]].filter((id) => id && id !== definitionId));
-  }
-
-  if (templateID.startsWith('builtin-concept-definition') || typeMarker.startsWith('concept-definition-')) {
-    return onlyUnambiguous([front[0], back[0]].filter((id) => id && id !== definitionId));
-  }
-
-  return onlyUnambiguous([...front, ...back].filter((id) => id && id !== definitionId));
-}
-
-function resolveDescriptorFocus(card: FSRSCard): string {
-  const mappedConcept = readFieldMapping(card, 'concept');
-  if (mappedConcept) {
-    return mappedConcept;
-  }
-
-  const descriptorId = readFieldMapping(card, 'descriptor');
-  const front = readStringArray(card, 'frontBlockIDs');
-  const back = readStringArray(card, 'backBlockIDs');
-  return onlyUnambiguous([front[0], back[0]].filter((id) => id && id !== descriptorId));
-}
-
 function toTargets(candidates: string[]): ReviewConceptRoamTarget[] {
   return uniqueCandidates(candidates).map((focusBlockId) => ({
     focusBlockId,

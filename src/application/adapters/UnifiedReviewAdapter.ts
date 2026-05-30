@@ -286,6 +286,37 @@ function pickPreferredSemanticBlock(
   return '';
 }
 
+function isNativeRiffSyncXiuyuanCard(card: UnifiedReviewItem): boolean {
+  return isXiuyuanCard(card) && card.meta.templateID === 'builtin-riff-sync';
+}
+
+function isXiuyuanListTemplateCard(card: UnifiedReviewItem): boolean {
+  return isXiuyuanCard(card) && card.meta.templateID === 'builtin-list-item';
+}
+
+function resolveFallbackXiuyuanContentBlockId(card: UnifiedReviewItem, fallbackBlockId: string): string {
+  if (!isXiuyuanCard(card)) {
+    return fallbackBlockId;
+  }
+  if (isNativeRiffSyncXiuyuanCard(card)) {
+    return fallbackBlockId || card.meta.frontBlockIDs[0] || '';
+  }
+  return card.meta.frontBlockIDs[0] || fallbackBlockId;
+}
+
+function buildReviewCardDiagnosticProjection(item: UnifiedReviewItem): Record<string, unknown> {
+  if (!isXiuyuanCard(item)) {
+    return {};
+  }
+  return {
+    templateID: item.meta.templateID,
+    typeMarker: item.meta.typeMarker,
+    faceIndex: item.meta.faceIndex,
+    frontBlockIDs: item.meta.frontBlockIDs,
+    backBlockIDs: item.meta.backBlockIDs,
+  };
+}
+
 function resolveDefinitionContentBlockId(card: UnifiedReviewItem, fallbackBlockId: string): string {
   const definitionId = readFieldMappingBlockId(card.meta, 'definition');
   if (definitionId) {
@@ -383,13 +414,7 @@ function resolveContentBlockId(
       return resolveDefinitionContentBlockId(card, fallbackBlockId);
     }
 
-    if (card.meta.templateID === 'builtin-riff-sync') {
-      return fallbackBlockId || card.meta.frontBlockIDs[0] || '';
-    }
-
-    if (card.meta.frontBlockIDs.length > 0) {
-      return card.meta.frontBlockIDs[0];
-    }
+    return resolveFallbackXiuyuanContentBlockId(card, fallbackBlockId);
   }
 
   return fallbackBlockId;
@@ -404,8 +429,6 @@ function resolveAnswerBlockId(
     return '';
   }
 
-  const templateID = card.meta.templateID;
-  const backBlockIDs = card.meta.backBlockIDs;
   if (
     renderPolicy.specialRendererKind === 'concept-definition'
     || renderPolicy.specialRendererKind === 'descriptor'
@@ -415,7 +438,9 @@ function resolveAnswerBlockId(
     return '';
   }
 
-  if (templateID === 'builtin-riff-sync') {
+  const templateID = card.meta.templateID;
+  const backBlockIDs = card.meta.backBlockIDs;
+  if (isNativeRiffSyncXiuyuanCard(card)) {
     // Native riff-sync cards must render from the container/root block.
     return fallbackBlockId || card.meta.frontBlockIDs[0] || backBlockIDs[0] || '';
   }
@@ -524,7 +549,7 @@ function isNativeInlineHiddenCard(card: UnifiedReviewItem): boolean {
       return false;
     }
 
-    if (card.meta.templateID === 'builtin-riff-sync') {
+    if (isNativeRiffSyncXiuyuanCard(card)) {
       const renderProfile = card.meta.renderProfile;
       return typeof renderProfile !== 'string' || renderProfile.length === 0;
     }
@@ -751,11 +776,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         blockId,
         contentBlockId,
         answerBlockID,
-        templateID: item.meta.templateID,
-        typeMarker: item.meta.typeMarker,
-        faceIndex: item.meta.faceIndex,
-        frontBlockIDs: item.meta.frontBlockIDs,
-        backBlockIDs: item.meta.backBlockIDs,
+        ...buildReviewCardDiagnosticProjection(item),
         showAnswer: context.showAnswer,
       });
     }
@@ -784,7 +805,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         id: contentBlockId,
         answerBlockID,
         card: item,
-        isXiuyuanListTemplate: isXiuyuanCard(item) && item.meta.templateID === 'builtin-list-item',
+        isXiuyuanListTemplate: isXiuyuanListTemplateCard(item),
         xiuyuanMeta: isXiuyuanCard(item) ? item.meta : null,
       },
       actions: {
