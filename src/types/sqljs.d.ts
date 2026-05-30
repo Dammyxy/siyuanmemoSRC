@@ -22,6 +22,7 @@ declare module 'sql.js' {
     prepare(sql: string, params?: SqlValue[] | ParamsObject): Statement;
     export(): Uint8Array;
     close(): void;
+    updateHook(callback: ((operation: string, database: string, table: string, rowid: number) => void) | null): void;
   }
 
   export interface SqlJsStatic {

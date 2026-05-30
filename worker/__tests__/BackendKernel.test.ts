@@ -443,6 +443,12 @@ describe('BackendKernel', () => {
           autoCardActionQueuedTotal: 0,
           maxActionQueueLength: 4096,
         },
+        storage: {
+          sqliteDelta: {
+            fileName: 'sqlite-delta-log.v1.json',
+            pendingCount: 0,
+          },
+        },
       });
     }
   });

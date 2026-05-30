@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-30 (Round 507)
+Last update: 2026-05-31 (Round 508)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-31 - Add SQLite delta checkpoint layer for queue projection
+
+- Task: Implement OpenSpec `add-sqlite-delta-checkpoint-layer` so eligible backend SQLite transactions can persist row deltas without uploading the full `siyuanmemo.db` on the hot path.
+- Touched slice: Backend worker SQLite persistence and queue projection durability; `SqliteDatabaseService`, `SqliteDeltaCheckpoint`, `WorkerSqliteDatabaseService`, `WorkerQueueProjectionRuntime`, backend diagnostics contract, in-memory bridge tests, and focused SQLite/worker tests.
+- Debt fixed now: Added a versioned `sqlite-delta-log.v1.json` layer for the first delta-safe table family: `queue_projection_generations`, `queue_projection_rows`, `queue_projection_counters`, `queue_projection_invalidations`, and `queue_projection_rebuilds`. Capture uses transaction-scoped temp audit triggers plus `updateHook` touched-table detection; replay uses registered primary keys, not rowid. Startup replays pending deltas before dependent reads and keeps them pending until a full `siyuanmemo.db` checkpoint succeeds. Worker diagnostics now separate Review journal status from SQLite delta writes/replay/checkpoint status.
+- Debt deferred: General row-delta support for `cards`, `review_events`, `domain_sync_operations`, `queue_state`, semantic tables, Xiuyuan tables, and other non-Review mutations remains out of scope. Review keeps its command journal and is not converted to physical row deltas.
+- Why deferred: Those tables are authoritative domain data or wider bounded contexts and need separate registry/replay proofs. Queue projection is derived storage with stable primary keys, so it is the safe first family.
+- Next safe step: Add the next table family only after table-specific metadata, delete/update preimage tests, replay tests, and fail-closed checkpoint classification exist for that family.
+- Validation: `pnpm vitest run src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteUpdateHookCapability.test.ts`; `pnpm vitest run worker/__tests__/WorkerSqliteDatabaseService.test.ts`; `pnpm vitest run worker/__tests__/BackendKernel.test.ts --testNamePattern "loads and persists sqlite database through worker methods"`. Boundary/build validation tracked in the OpenSpec task list.
 
 ### 2026-05-30 - Remove Review hot-path full DB upload
 

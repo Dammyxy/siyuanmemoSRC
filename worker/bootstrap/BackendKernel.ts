@@ -646,6 +646,7 @@ export class BackendKernel {
   private async diagnosticsStatus(): Promise<BackendDiagnosticsStatusResult> {
     const status = this.deps.database.getStatus();
     const reviewJournal = await this.deps.database.getReviewFeedbackJournalDiagnostics();
+    const sqliteDelta = await this.deps.database.getSqliteDeltaDiagnostics();
     return {
       runtime: 'srs-backend-worker',
       initialized: status.initialized,
@@ -655,6 +656,9 @@ export class BackendKernel {
       review: {
         ...status.review,
         journal: reviewJournal,
+      },
+      storage: {
+        sqliteDelta,
       },
       ai: status.ai,
       hotspot: this.hotspotRuntime.getDiagnostics(),

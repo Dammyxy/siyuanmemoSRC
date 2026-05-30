@@ -172,6 +172,7 @@ describe('SqliteDatabaseService', () => {
 
     expect(fileService.lastWriteBinaryDiagnostics).toEqual({
       sqlitePersistReason: 'diagnostic.transaction',
+      sqlitePendingDelta: false,
     });
     const events = getRuntimePerformanceDiagnosticsReport().events;
     expect(events).toEqual(expect.arrayContaining([

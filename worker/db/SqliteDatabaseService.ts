@@ -1,5 +1,6 @@
 import type { Database, ParamsObject, SqlValue } from 'sql.js';
 import { SqliteDatabaseService as RuntimeSqliteDatabaseService } from '@/infrastructure/persistence/sqlite';
+import type { SqliteDeltaDiagnostics } from '@/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint';
 import { SQLITE_DB_FILE } from '@/infrastructure/persistence/sqlite/schema';
 import { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository';
 import { SqlQueueProjectionRepository } from '@/infrastructure/persistence/sqlite/SqlQueueProjectionRepository';
@@ -119,7 +120,6 @@ const KERNEL_INGEST_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-ingest.snapshot.js
 const KERNEL_INGEST_QUEUE_SNAPSHOT_VERSION = 1;
 const KERNEL_ACTION_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-actions.snapshot.json';
 const KERNEL_ACTION_QUEUE_SNAPSHOT_VERSION = 1;
-const QUEUE_PROJECTION_PERSIST_DEBOUNCE_MS = 1000;
 const REVIEW_FEEDBACK_JOURNAL_FILE = 'review-feedback-journal.v1.json';
 const REVIEW_FEEDBACK_JOURNAL_VERSION = 1;
 
@@ -784,9 +784,6 @@ export class WorkerSqliteDatabaseService {
   private readonly maxKernelQueuedTransactions: number;
   private readonly maxKernelActionQueueLength: number;
   private readonly kernelTransactionDedupeTtlMs: number;
-  private queueProjectionPersistTimer: ReturnType<typeof setTimeout> | null = null;
-  private queueProjectionPersistPromise: Promise<void> | null = null;
-
   constructor(
     bridge: SqlitePersistenceBridge,
     private readonly dbFile = SQLITE_DB_FILE,
@@ -800,6 +797,7 @@ export class WorkerSqliteDatabaseService {
     this.fileService = createSqliteFileServiceAdapter(bridge);
     this.runtime = new RuntimeSqliteDatabaseService(this.fileService, dbFile, {
       persistOnInit: false,
+      enableDeltaPersistence: true,
     });
     this.maxKernelTransactionQueueLength = Math.max(
       1,
@@ -904,7 +902,6 @@ export class WorkerSqliteDatabaseService {
   }
 
   async reloadFromDisk(): Promise<BackendSyncConflictReloadResult> {
-    await this.flushQueueProjectionPersist();
     this.queueState = null;
     this.semanticActivation = null;
     this.lastDomainSyncStatusSnapshot = null;
@@ -929,11 +926,8 @@ export class WorkerSqliteDatabaseService {
       pendingCountBefore = pendingBefore.length;
       pendingBytesBefore = this.estimateReviewFeedbackJournalPendingBytes(pendingBefore);
       await this.replayPendingReviewFeedbackJournalEntries();
-      const flushedProjectionPersist = await this.flushQueueProjectionPersist();
-      if (!flushedProjectionPersist) {
-        await this.runtime.persist();
-        await this.rememberPersistedHash();
-      }
+      await this.runtime.persist({ reason: 'worker.persist' });
+      await this.rememberPersistedHash();
       await this.clearReviewFeedbackJournal();
       this.lastReviewFeedbackCheckpoint = {
         ok: true,
@@ -1828,7 +1822,7 @@ export class WorkerSqliteDatabaseService {
         reason: request.reason ?? null,
       },
     );
-    logger.debug('Queue projection replace kept in runtime cache', {
+    logger.debug('Queue projection replace persisted through SQLite delta checkpoint layer', {
       queueType: request.queueType,
       reason: request.reason ?? 'queue-projection.replace',
     });
@@ -2225,6 +2219,14 @@ export class WorkerSqliteDatabaseService {
       lastReplay: this.lastReviewFeedbackJournalReplay,
       lastCheckpoint: this.lastReviewFeedbackCheckpoint,
     };
+  }
+
+  async getSqliteDeltaDiagnostics(): Promise<SqliteDeltaDiagnostics> {
+    const diagnostics = await this.runtime.getSqliteDeltaDiagnostics();
+    if (!diagnostics) {
+      throw new Error('SQLite delta diagnostics unavailable');
+    }
+    return diagnostics;
   }
 
   private estimateReviewFeedbackJournalPendingBytes(entries: ReviewFeedbackJournalEntry[]): number {
@@ -4338,97 +4340,6 @@ export class WorkerSqliteDatabaseService {
     });
   }
 
-  private scheduleQueueProjectionPersist(reason: string): void {
-    if (this.queueProjectionPersistTimer) {
-      clearTimeout(this.queueProjectionPersistTimer);
-    }
-    this.queueProjectionPersistTimer = setTimeout(() => {
-      this.queueProjectionPersistTimer = null;
-      this.queueProjectionPersistPromise = this.persistQueueProjection(reason)
-        .catch((error) => {
-          logger.warn('[SiYuanMemo][WorkerSqliteDatabaseService] deferred queue projection persist failed', {
-            reason,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        })
-        .finally(() => {
-          this.queueProjectionPersistPromise = null;
-        });
-    }, QUEUE_PROJECTION_PERSIST_DEBOUNCE_MS);
-  }
-
-  private async flushQueueProjectionPersist(): Promise<boolean> {
-    if (this.queueProjectionPersistTimer) {
-      clearTimeout(this.queueProjectionPersistTimer);
-      this.queueProjectionPersistTimer = null;
-      this.queueProjectionPersistPromise = this.persistQueueProjection('flush');
-    }
-    if (this.queueProjectionPersistPromise) {
-      const pending = this.queueProjectionPersistPromise;
-      try {
-        await pending;
-      } finally {
-        if (this.queueProjectionPersistPromise === pending) {
-          this.queueProjectionPersistPromise = null;
-        }
-      }
-      return true;
-    }
-    return false;
-  }
-
-  private async persistQueueProjection(reason: string): Promise<void> {
-    const startedAt = Date.now();
-    try {
-      await this.measureDiagnosticDatabaseStep(
-        'queueProjection.persist.runtime.persist',
-        () => this.runtime.persist(),
-        {
-          backendMethod: 'queue.projection.replace',
-          queueType: null,
-          reason,
-          dbFile: this.dbFile,
-        },
-      );
-      await this.measureDiagnosticDatabaseStep(
-        'queueProjection.persist.remember-hash',
-        () => this.rememberPersistedHash(),
-        {
-          backendMethod: 'queue.projection.replace',
-          queueType: null,
-          reason,
-          dbFile: this.dbFile,
-        },
-      );
-      recordBackendWorkerInnerStep({
-        layer: 'database',
-        step: 'queueProjection.persist.total',
-        durationMs: Math.max(0, Date.now() - startedAt),
-        queueType: null,
-        extra: {
-          backendMethod: 'queue.projection.replace',
-          reason,
-          dbFile: this.dbFile,
-        },
-      });
-      logger.debug('[SiYuanMemo][WorkerSqliteDatabaseService] deferred queue projection persisted', { reason });
-    } catch (error) {
-      recordBackendWorkerInnerStep({
-        layer: 'database',
-        step: 'queueProjection.persist.total',
-        durationMs: Math.max(0, Date.now() - startedAt),
-        queueType: null,
-        extra: {
-          backendMethod: 'queue.projection.replace',
-          reason,
-          dbFile: this.dbFile,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      });
-      throw error;
-    }
-  }
-
   private invalidateQueueProjectionsForSourceChanges(blockIds: string[], checkedAt: number): void {
     new SourceExistenceProjectionInvalidator({
       queueProjection: this.queueProjection,
@@ -6298,10 +6209,6 @@ export class WorkerSqliteDatabaseService {
   }
 
   dispose(): void {
-    if (this.queueProjectionPersistTimer) {
-      clearTimeout(this.queueProjectionPersistTimer);
-      this.queueProjectionPersistTimer = null;
-    }
     void this.persistKernelIngestQueueSnapshot();
     void this.persistKernelActionQueueSnapshot();
     this.runtime.dispose();

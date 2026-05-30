@@ -11,6 +11,10 @@ import {
   SQLITE_DB_FILE,
   SQLITE_SCHEMA_VERSION,
 } from './schema';
+import {
+  SqliteDeltaCheckpointLayer,
+  type SqliteDeltaDiagnostics,
+} from './SqliteDeltaCheckpoint';
 
 const logger = createLogger('SqliteDatabaseService');
 
@@ -26,6 +30,7 @@ type PersistOptions = {
 type SqliteDatabaseServiceOptions = {
   applySchemaOnInit?: boolean;
   persistOnInit?: boolean;
+  enableDeltaPersistence?: boolean;
 };
 type SqliteFileService = Pick<IFileService, 'readJSON' | 'writeJSON'>
   & Partial<Pick<IFileService, 'readBinary'>>
@@ -131,12 +136,17 @@ export class SqliteDatabaseService {
   private dirtySincePersist = false;
   private currentTransactionMutated = false;
   private fts5Supported: boolean | null = null;
+  private readonly deltaLayer: SqliteDeltaCheckpointLayer | null;
 
   constructor(
     private readonly fileService: SqliteFileService,
     private readonly dbFile = SQLITE_DB_FILE,
     private readonly options: SqliteDatabaseServiceOptions = {},
-  ) {}
+  ) {
+    this.deltaLayer = options.enableDeltaPersistence === true
+      ? new SqliteDeltaCheckpointLayer(fileService)
+      : null;
+  }
 
   async init(): Promise<void> {
     if (this.initialized) {
@@ -158,6 +168,12 @@ export class SqliteDatabaseService {
       this.applySchema();
       this.detectFts5Support();
       this.seedAlgorithmRegistry();
+    }
+    if (this.deltaLayer) {
+      await this.deltaLayer.replayPending(this.requireDb());
+      if (await this.deltaLayer.hasPendingDeltas()) {
+        this.dirtySincePersist = true;
+      }
     }
     this.initialized = true;
     if (this.options.persistOnInit !== false && (this.schemaDirty || shouldPersistLegacyEnvelope)) {
@@ -201,16 +217,20 @@ export class SqliteDatabaseService {
     db.run('BEGIN IMMEDIATE');
     this.transactionDepth = 1;
     this.currentTransactionMutated = false;
+    const deltaCapture = this.deltaLayer?.beginTransaction(db, label) ?? null;
     const changeMark = this.captureDatabaseChangeMark();
+    const schemaVersionBefore = changeMark.schemaVersion;
     const startedAt = Date.now();
     let committed = false;
     try {
       const result = await writer(db);
       const transactionMutated = this.currentTransactionMutated || this.hasDatabaseChangedSince(changeMark);
+      const schemaChanged = this.getSchemaChangeVersion() !== schemaVersionBefore || this.schemaDirty;
+      const deltaCaptureResult = deltaCapture?.finish() ?? null;
       db.run('COMMIT');
       committed = true;
       this.transactionDepth = 0;
-      const persistAfterCommit = (shouldPersist || this.pendingPersist)
+      let persistAfterCommit = (shouldPersist || this.pendingPersist)
         && (transactionMutated || this.dirtySincePersist);
       this.pendingPersist = false;
       if (transactionMutated) {
@@ -219,7 +239,21 @@ export class SqliteDatabaseService {
       this.currentTransactionMutated = false;
       if (persistAfterCommit) {
         try {
-          await this.persist({ reason: label });
+          if (this.deltaLayer && transactionMutated) {
+            const deltaResult = await this.deltaLayer.persistCommittedTransaction({
+              label,
+              capture: deltaCaptureResult,
+              schemaChanged,
+            });
+            if (deltaResult.mode === 'delta') {
+              this.dirtySincePersist = false;
+              persistAfterCommit = false;
+            } else {
+              await this.persist({ reason: `${label}:${deltaResult.reason}` });
+            }
+          } else {
+            await this.persist({ reason: label });
+          }
         } catch (persistError) {
           await this.restoreFromPersistedStore(label, persistError);
           throw persistError;
@@ -239,6 +273,7 @@ export class SqliteDatabaseService {
       return result;
     } catch (error) {
       if (!committed) {
+        deltaCapture?.abort();
         try {
           db.run('ROLLBACK');
         } catch (rollbackError) {
@@ -347,7 +382,8 @@ export class SqliteDatabaseService {
     const reason = typeof options === 'string' ? options : options.reason ?? 'explicit';
     const force = typeof options === 'object' && options.force === true;
     const startedAt = Date.now();
-    if (!force && !this.dirtySincePersist) {
+    const pendingDelta = await this.deltaLayer?.hasPendingDeltas() ?? false;
+    if (!force && !this.dirtySincePersist && !pendingDelta) {
       recordRuntimePerformanceSpan('sqlite', 'persist', Date.now() - startedAt, {
         dbFile: this.dbFile,
         byteLength: null,
@@ -359,7 +395,7 @@ export class SqliteDatabaseService {
 
     const bytes = this.requireDb().export();
     const fingerprint = await fingerprintBytes(bytes);
-    if (!force && fingerprint && fingerprint === this.lastPersistedFingerprint) {
+    if (!force && !pendingDelta && fingerprint && fingerprint === this.lastPersistedFingerprint) {
       recordRuntimePerformanceSpan('sqlite', 'persist', Date.now() - startedAt, {
         dbFile: this.dbFile,
         byteLength: bytes.byteLength,
@@ -371,13 +407,26 @@ export class SqliteDatabaseService {
     }
 
     if (this.fileService.writeBinary) {
-      await this.fileService.writeBinary(this.dbFile, bytes, {
-        diagnostics: {
-          sqlitePersistReason: reason,
-        },
-      });
+      try {
+        await this.fileService.writeBinary(this.dbFile, bytes, {
+          diagnostics: {
+            sqlitePersistReason: reason,
+            sqlitePendingDelta: pendingDelta,
+          },
+        });
+      } catch (error) {
+        await this.deltaLayer?.recordCheckpointFailure(reason, error);
+        throw error;
+      }
       this.lastPersistedFingerprint = fingerprint;
       this.dirtySincePersist = false;
+      this.schemaDirty = false;
+      try {
+        await this.deltaLayer?.clearAfterCheckpoint(reason, bytes.byteLength);
+      } catch (error) {
+        await this.deltaLayer?.recordCheckpointFailure(reason, error);
+        throw error;
+      }
       recordRuntimePerformanceSpan('sqlite', 'persist', Date.now() - startedAt, {
         dbFile: this.dbFile,
         byteLength: bytes.byteLength,
@@ -387,17 +436,29 @@ export class SqliteDatabaseService {
       return;
     }
 
-    await this.fileService.writeJSON(
-      this.dbFile,
-      {
-        encoding: 'base64-sqlite-v1',
-        byteLength: bytes.byteLength,
-        updatedAt: Date.now(),
-        data: toBase64(bytes),
-      } satisfies SqliteEnvelope,
-    );
+    try {
+      await this.fileService.writeJSON(
+        this.dbFile,
+        {
+          encoding: 'base64-sqlite-v1',
+          byteLength: bytes.byteLength,
+          updatedAt: Date.now(),
+          data: toBase64(bytes),
+        } satisfies SqliteEnvelope,
+      );
+    } catch (error) {
+      await this.deltaLayer?.recordCheckpointFailure(reason, error);
+      throw error;
+    }
     this.lastPersistedFingerprint = fingerprint;
     this.dirtySincePersist = false;
+    this.schemaDirty = false;
+    try {
+      await this.deltaLayer?.clearAfterCheckpoint(reason, bytes.byteLength);
+    } catch (error) {
+      await this.deltaLayer?.recordCheckpointFailure(reason, error);
+      throw error;
+    }
     recordRuntimePerformanceSpan('sqlite', 'persist', Date.now() - startedAt, {
       dbFile: this.dbFile,
       byteLength: bytes.byteLength,
@@ -422,6 +483,10 @@ export class SqliteDatabaseService {
     this.db = null;
     this.sqlRuntime = null;
     this.initialized = false;
+  }
+
+  async getSqliteDeltaDiagnostics(): Promise<SqliteDeltaDiagnostics | null> {
+    return this.deltaLayer ? this.deltaLayer.getDiagnostics() : null;
   }
 
   private async loadStoredDatabaseBytes(): Promise<{
@@ -462,6 +527,9 @@ export class SqliteDatabaseService {
         throw new Error('No persisted SQLite database is available for restore');
       }
       const restored = new SQL.Database(stored.bytes);
+      if (this.deltaLayer) {
+        await this.deltaLayer.replayPending(restored);
+      }
       this.db?.close();
       this.db = restored;
       logger.warn('SQLite transaction persist failed; in-memory DB restored from stored file', {

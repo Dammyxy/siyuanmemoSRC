@@ -63,13 +63,14 @@ describe('WorkerSqliteDatabaseService', () => {
     expect(writeBinary).toHaveBeenCalledTimes(writesAfterSeed);
   });
 
-  it('keeps repeated queue projection replacements in runtime cache until explicit persist', async () => {
-    vi.useFakeTimers();
+  it('keeps repeated queue projection replacements out of main database writes until explicit checkpoint', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
+    const writeJSON = vi.fn(bridge.writeJSON!.bind(bridge));
     const database = new WorkerSqliteDatabaseService({
       ...bridge,
       writeBinary,
+      writeJSON,
     });
     await database.init();
     await database.upsertCards([{
@@ -95,6 +96,7 @@ describe('WorkerSqliteDatabaseService', () => {
       updatedAt: 1_700_000_000_000,
       meta: { content: 'projection card' },
     }]);
+    await database.persist();
     const writesBeforeProjection = writeBinary.mock.calls.length;
 
     for (const queueType of ['retrieval-practice', 'incremental-learning', 'final-drill']) {
@@ -120,15 +122,17 @@ describe('WorkerSqliteDatabaseService', () => {
     }
 
     expect(writeBinary).toHaveBeenCalledTimes(writesBeforeProjection);
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(writeBinary).toHaveBeenCalledTimes(writesBeforeProjection);
+    expect(writeJSON.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v1.json')).toHaveLength(3);
     await database.persist();
 
     expect(writeBinary).toHaveBeenCalledTimes(writesBeforeProjection + 1);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 0,
+      lastCheckpoint: { ok: true, cleared: true },
+    });
   });
 
-  it('persists runtime-cached queue projection once on explicit persist and skips clean repeat', async () => {
-    vi.useFakeTimers();
+  it('checkpoints delta-backed queue projection once on explicit persist and skips clean repeat', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
     const database = new WorkerSqliteDatabaseService({
@@ -159,6 +163,7 @@ describe('WorkerSqliteDatabaseService', () => {
       updatedAt: 1_700_000_000_000,
       meta: { content: 'projection flush card' },
     }]);
+    await database.persist();
     const writesBeforeProjection = writeBinary.mock.calls.length;
 
     await database.replaceQueueProjection({
@@ -186,6 +191,524 @@ describe('WorkerSqliteDatabaseService', () => {
 
     await database.persist();
     expect(writeBinary).toHaveBeenCalledTimes(writesBeforeProjection + 1);
+  });
+
+  it('persists queue projection replacement as sqlite delta without writing the main database hot path', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
+    const writeJSON = vi.fn(bridge.writeJSON!.bind(bridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...bridge,
+      writeBinary,
+      writeJSON,
+    });
+    await database.init();
+    await database.upsertCards([{
+      id: 'projection-delta-card',
+      blockId: 'projection-delta-block',
+      due: 1_700_000_000_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 1,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: 1_699_900_000_000,
+      elapsedDays: 1,
+      scheduledDays: 3,
+      priority: 40,
+      type: CardType.Item,
+      tags: [],
+      neuralRoamSeed: false,
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: 1_699_800_000_000,
+      updatedAt: 1_700_000_000_000,
+      meta: { content: 'projection delta card' },
+    }]);
+    await database.persist();
+    const writesBeforeProjection = writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length;
+
+    await database.replaceQueueProjection({
+      queueType: 'retrieval-practice',
+      policyHash: 'retrieval-practice:delta-policy',
+      generation: 1,
+      rows: [{
+        rowId: 'projection-delta-row',
+        cardId: 'projection-delta-card',
+        blockId: 'projection-delta-block',
+        deckId: null,
+        membershipReason: 'test',
+        dueAt: 1_700_000_000_000,
+        dueBucket: 'due',
+        priorityScore: 40,
+        sortKey: '0001:projection-delta',
+        queueIndexHint: 1,
+        payload: { source: 'test' },
+      }],
+      reason: 'test-delta-hot-path',
+    });
+
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
+    expect(writeJSON.mock.calls.some(([path]) => path === 'sqlite-delta-log.v1.json')).toBe(true);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      fileName: 'sqlite-delta-log.v1.json',
+      pendingCount: 1,
+      lastWrite: { ok: true, classification: 'delta' },
+    });
+  });
+
+  it('replays sqlite deltas on restart and keeps them pending until full checkpoint succeeds', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const first = new WorkerSqliteDatabaseService(bridge);
+    await first.init();
+    await first.upsertCards([{
+      id: 'projection-replay-card',
+      blockId: 'projection-replay-block',
+      due: 1_700_000_000_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 1,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: 1_699_900_000_000,
+      elapsedDays: 1,
+      scheduledDays: 3,
+      priority: 40,
+      type: CardType.Item,
+      tags: [],
+      neuralRoamSeed: false,
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: 1_699_800_000_000,
+      updatedAt: 1_700_000_000_000,
+      meta: { content: 'projection replay card' },
+    }]);
+    await first.persist();
+    await first.replaceQueueProjection({
+      queueType: 'retrieval-practice',
+      policyHash: 'retrieval-practice:replay-policy',
+      generation: 1,
+      rows: [{
+        rowId: 'projection-replay-row',
+        cardId: 'projection-replay-card',
+        blockId: 'projection-replay-block',
+        deckId: null,
+        membershipReason: 'test',
+        dueAt: 1_700_000_000_000,
+        dueBucket: 'due',
+        priorityScore: 40,
+        sortKey: '0001:projection-replay',
+        queueIndexHint: 1,
+        payload: { source: 'test' },
+      }],
+      reason: 'test-delta-replay',
+    });
+    first.dispose();
+
+    const second = new WorkerSqliteDatabaseService(bridge);
+    await second.init();
+
+    expect(second.getOne<{ row_id: string }>(
+      'SELECT row_id FROM queue_projection_rows WHERE queue_type = ? AND row_id = ?',
+      ['retrieval-practice', 'projection-replay-row'],
+    )).toEqual({ row_id: 'projection-replay-row' });
+    await expect(second.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 1,
+      lastReplay: { ok: true, replayedCount: 1 },
+    });
+
+    await second.persist();
+    await expect(second.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 0,
+      lastCheckpoint: { ok: true, cleared: true },
+    });
+  });
+
+  it('replays registered table deletes by primary key rather than rowid', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
+    const first = new WorkerSqliteDatabaseService({
+      ...bridge,
+      writeBinary,
+    });
+    await first.init();
+    await first.runTransaction('seed.queue-projection-row-for-delete', (db) => {
+      db.run(
+        `INSERT OR REPLACE INTO queue_projection_generations
+          (queue_type, policy_hash, generation, status, rebuild_reason, updated_at, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ['retrieval-practice', 'delete-policy', 1, 'ready', null, 1_700_000_000_000, '{}'],
+      );
+      db.run(
+        `INSERT OR REPLACE INTO queue_projection_rows
+          (queue_type, row_id, card_id, block_id, membership_reason, due_at, due_bucket, priority_score,
+           sort_key, queue_index_hint, policy_hash, source_generation, payload_json, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'retrieval-practice',
+          'projection-delete-row',
+          'projection-delete-card',
+          'projection-delete-block',
+          'test',
+          1_700_000_000_000,
+          'due',
+          40,
+          '0001:projection-delete',
+          1,
+          'delete-policy',
+          1,
+          '{}',
+          1_700_000_000_000,
+        ],
+      );
+    });
+    await first.persist();
+    const writesBeforeDelete = writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length;
+
+    await first.runTransaction('queue.projection.delete-row', (db) => {
+      db.run(
+        'DELETE FROM queue_projection_rows WHERE queue_type = ? AND row_id = ?',
+        ['retrieval-practice', 'projection-delete-row'],
+      );
+    });
+    first.dispose();
+
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeDelete);
+    const second = new WorkerSqliteDatabaseService(bridge);
+    await second.init();
+
+    expect(second.getOne<{ row_id: string }>(
+      'SELECT row_id FROM queue_projection_rows WHERE queue_type = ? AND row_id = ?',
+      ['retrieval-practice', 'projection-delete-row'],
+    )).toBeNull();
+    await expect(second.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 1,
+      lastReplay: { ok: true, replayedCount: 1 },
+    });
+  });
+
+  it('uses explicit checkpoint mode for unregistered table transactions', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...bridge,
+      writeBinary,
+    });
+    await database.init();
+    await database.upsertCards([{
+      id: 'unsupported-checkpoint-card',
+      blockId: 'unsupported-checkpoint-block',
+      due: 1_700_000_000_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 1,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: 1_699_900_000_000,
+      elapsedDays: 1,
+      scheduledDays: 3,
+      priority: 40,
+      type: CardType.Item,
+      tags: [],
+      neuralRoamSeed: false,
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: 1_699_800_000_000,
+      updatedAt: 1_700_000_000_000,
+      meta: { content: 'unsupported checkpoint card' },
+    }]);
+    await database.persist();
+    const writesBeforeUnsupported = writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length;
+
+    await database.runTransaction('unsupported.cards.update', (db) => {
+      db.run('UPDATE cards SET priority = ? WHERE id = ?', [41, 'unsupported-checkpoint-card']);
+    });
+
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeUnsupported + 1);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 0,
+      lastWrite: {
+        ok: true,
+        classification: 'checkpoint',
+        reason: 'unsupported-table:cards',
+      },
+    });
+  });
+
+  it('uses explicit checkpoint mode for schema-mutating transactions', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...bridge,
+      writeBinary,
+    });
+    await database.init();
+    await database.persist();
+    const writesBeforeSchemaChange = writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length;
+
+    await database.runTransaction('schema.delta-barrier', (db) => {
+      db.run('CREATE TABLE schema_delta_barrier (id TEXT PRIMARY KEY, value TEXT)');
+    });
+
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeSchemaChange + 1);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 0,
+      lastWrite: {
+        ok: true,
+        classification: 'checkpoint',
+        reason: 'schema-dirty',
+      },
+    });
+  });
+
+  it('uses explicit checkpoint mode when sqlite delta size threshold would overflow', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...bridge,
+      writeBinary,
+    });
+    await database.init();
+    await database.upsertCards([{
+      id: 'projection-threshold-card',
+      blockId: 'projection-threshold-block',
+      due: 1_700_000_000_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 1,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: 1_699_900_000_000,
+      elapsedDays: 1,
+      scheduledDays: 3,
+      priority: 40,
+      type: CardType.Item,
+      tags: [],
+      neuralRoamSeed: false,
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: 1_699_800_000_000,
+      updatedAt: 1_700_000_000_000,
+      meta: { content: 'projection threshold card' },
+    }]);
+    await database.persist();
+    const writesBeforeProjection = writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length;
+
+    await database.replaceQueueProjection({
+      queueType: 'retrieval-practice',
+      policyHash: 'retrieval-practice:threshold-policy',
+      generation: 1,
+      rows: [{
+        rowId: 'projection-threshold-row',
+        cardId: 'projection-threshold-card',
+        blockId: 'projection-threshold-block',
+        deckId: null,
+        membershipReason: 'test',
+        dueAt: 1_700_000_000_000,
+        dueBucket: 'due',
+        priorityScore: 40,
+        sortKey: '0001:projection-threshold',
+        queueIndexHint: 1,
+        payload: { source: 'test', large: 'x'.repeat(600_000) },
+      }],
+      reason: 'test-delta-threshold',
+    });
+
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection + 1);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 0,
+      lastWrite: {
+        ok: true,
+        classification: 'checkpoint',
+        reason: 'delta-threshold-exceeded',
+      },
+    });
+  });
+
+  it('fails explicitly when a delta-eligible transaction cannot write the sqlite delta log', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    let failDeltaWrite = false;
+    const writeJSON = vi.fn(async (path: string, value: unknown) => {
+      if (path === 'sqlite-delta-log.v1.json' && failDeltaWrite) {
+        throw new Error('mock delta write failed');
+      }
+      await bridge.writeJSON!(path, value);
+    });
+    const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...bridge,
+      writeBinary,
+      writeJSON,
+    });
+    await database.init();
+    await database.upsertCards([{
+      id: 'projection-delta-fail-card',
+      blockId: 'projection-delta-fail-block',
+      due: 1_700_000_000_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 1,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: 1_699_900_000_000,
+      elapsedDays: 1,
+      scheduledDays: 3,
+      priority: 40,
+      type: CardType.Item,
+      tags: [],
+      neuralRoamSeed: false,
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: 1_699_800_000_000,
+      updatedAt: 1_700_000_000_000,
+      meta: { content: 'projection delta fail card' },
+    }]);
+    await database.persist();
+    const writesBeforeProjection = writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length;
+    failDeltaWrite = true;
+
+    await expect(database.replaceQueueProjection({
+      queueType: 'retrieval-practice',
+      policyHash: 'retrieval-practice:delta-fail-policy',
+      generation: 1,
+      rows: [{
+        rowId: 'projection-delta-fail-row',
+        cardId: 'projection-delta-fail-card',
+        blockId: 'projection-delta-fail-block',
+        deckId: null,
+        membershipReason: 'test',
+        dueAt: 1_700_000_000_000,
+        dueBucket: 'due',
+        priorityScore: 40,
+        sortKey: '0001:projection-delta-fail',
+        queueIndexHint: 1,
+        payload: { source: 'test' },
+      }],
+      reason: 'test-delta-write-fail',
+    })).rejects.toThrow('mock delta write failed');
+
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 0,
+      lastWrite: {
+        ok: false,
+        classification: 'delta',
+        error: 'mock delta write failed',
+      },
+    });
+  });
+
+  it('keeps sqlite delta pending when checkpoint write fails after replay', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const first = new WorkerSqliteDatabaseService(bridge);
+    await first.init();
+    await first.upsertCards([{
+      id: 'projection-checkpoint-fail-card',
+      blockId: 'projection-checkpoint-fail-block',
+      due: 1_700_000_000_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 1,
+      lapses: 0,
+      state: CardState.Review,
+      lastReview: 1_699_900_000_000,
+      elapsedDays: 1,
+      scheduledDays: 3,
+      priority: 40,
+      type: CardType.Item,
+      tags: [],
+      neuralRoamSeed: false,
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: 1_699_800_000_000,
+      updatedAt: 1_700_000_000_000,
+      meta: { content: 'projection checkpoint fail card' },
+    }]);
+    await first.persist();
+    await first.replaceQueueProjection({
+      queueType: 'retrieval-practice',
+      policyHash: 'retrieval-practice:checkpoint-fail-policy',
+      generation: 1,
+      rows: [{
+        rowId: 'projection-checkpoint-fail-row',
+        cardId: 'projection-checkpoint-fail-card',
+        blockId: 'projection-checkpoint-fail-block',
+        deckId: null,
+        membershipReason: 'test',
+        dueAt: 1_700_000_000_000,
+        dueBucket: 'due',
+        priorityScore: 40,
+        sortKey: '0001:projection-checkpoint-fail',
+        queueIndexHint: 1,
+        payload: { source: 'test' },
+      }],
+      reason: 'test-checkpoint-fail',
+    });
+    first.dispose();
+
+    let failMainDbWrite = true;
+    const writeBinary = vi.fn(async (path: string, bytes: Uint8Array) => {
+      if (path === 'siyuanmemo.db' && failMainDbWrite) {
+        failMainDbWrite = false;
+        throw new Error('mock checkpoint failed');
+      }
+      await bridge.writeBinary(path, bytes);
+    });
+    const second = new WorkerSqliteDatabaseService({
+      ...bridge,
+      writeBinary,
+    });
+    await second.init();
+
+    await expect(second.persist()).rejects.toThrow('mock checkpoint failed');
+    await expect(second.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 1,
+      lastCheckpoint: { ok: false, cleared: false },
+    });
+  });
+
+  it('fails closed when sqlite delta log is corrupt', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    await bridge.writeJSON!('sqlite-delta-log.v1.json', {
+      version: 99,
+      entries: [],
+      updatedAt: Date.now(),
+    });
+    const database = new WorkerSqliteDatabaseService(bridge);
+
+    await expect(database.init()).rejects.toThrow(/SQLite delta log unsupported/);
+  });
+
+  it('fails closed when sqlite delta replay references an unsupported table', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    await bridge.writeJSON!('sqlite-delta-log.v1.json', {
+      version: 1,
+      entries: [{
+        id: 'sqlite-delta:unsupported-table',
+        version: 1,
+        label: 'unsupported-table',
+        createdAt: Date.now(),
+        schemaFingerprints: { cards: 'unsupported' },
+        tables: ['cards'],
+        changes: [{
+          table: 'cards',
+          operation: 'delete',
+          primaryKey: { id: 'card-a' },
+          row: null,
+        }],
+        byteEstimate: 1,
+      }],
+      updatedAt: Date.now(),
+    });
+    const database = new WorkerSqliteDatabaseService(bridge);
+
+    await expect(database.init()).rejects.toThrow(/SQLite delta replay unsupported table: cards/);
   });
 
   it('does not persist or append processed-source rows for no-op persisted main DB merge', async () => {

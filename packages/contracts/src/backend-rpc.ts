@@ -485,6 +485,9 @@ export interface BackendDiagnosticsStatusResult {
     feedbackUnavailableTotal: number;
     journal?: BackendReviewFeedbackJournalDiagnostics;
   };
+  storage?: {
+    sqliteDelta?: BackendSqliteDeltaDiagnostics;
+  };
   ai?: {
     sessionCreateTotal: number;
     sessionUpdateTotal: number;
@@ -512,6 +515,42 @@ export interface BackendDiagnosticsStatusResult {
   };
   preRequestMerge?: BackendPreRequestMergeDiagnosticsState;
   domainSync?: BackendDomainSyncStatusResult;
+}
+
+export type BackendSqliteDeltaWriteClassification = 'delta' | 'checkpoint';
+
+export interface BackendSqliteDeltaOperationStatus {
+  ok: boolean;
+  at: number;
+  classification?: BackendSqliteDeltaWriteClassification;
+  label?: string;
+  reason?: string | null;
+  pendingCount?: number;
+  pendingBytes?: number;
+  deltaEntryId?: string | null;
+  deltaEntriesWritten?: number;
+  replayedCount?: number;
+  skippedInMemoryCount?: number;
+  affectedTables?: string[];
+  byteLength?: number | null;
+  cleared?: boolean;
+  error?: string | null;
+}
+
+export interface BackendSqliteDeltaDiagnostics {
+  fileName: string;
+  version: number;
+  registeredTables: string[];
+  pendingCount: number;
+  pendingBytes: number;
+  affectedTables: string[];
+  deltaWritesTotal: number;
+  checkpointWritesTotal: number;
+  checkpointOnlyTotal: number;
+  replayedEntriesTotal: number;
+  lastWrite: BackendSqliteDeltaOperationStatus | null;
+  lastReplay: BackendSqliteDeltaOperationStatus | null;
+  lastCheckpoint: BackendSqliteDeltaOperationStatus | null;
 }
 
 export interface BackendReviewFeedbackJournalOperationStatus {

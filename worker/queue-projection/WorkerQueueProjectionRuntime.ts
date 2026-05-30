@@ -262,7 +262,7 @@ export class WorkerQueueProjectionRuntime {
           materializedBy: 'application',
         },
       });
-    }, { persist: false });
+    });
 
     return {
       queueType,
