@@ -175,6 +175,10 @@ export class ArenaStoreService {
     private readonly sqlRepository?: SqlArenaRepository | null,
   ) {}
 
+  canRecordSrsReviewWithoutSiyuanFileWrite(): boolean {
+    return Boolean(this.sqlRepository);
+  }
+
   async readStore(): Promise<ArenaStoreData> {
     if (this.sqlRepository) {
       return this.sqlRepository.readStore();

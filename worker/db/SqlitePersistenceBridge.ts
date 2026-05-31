@@ -1,3 +1,9 @@
+import {
+  createInMemoryReviewFeedbackJournalStore,
+  type ReviewFeedbackJournalStore,
+} from './ReviewFeedbackJournalStore';
+import type { MessagePackTruthSegmentFileStore } from '../truth/MessagePackTruthSegmentStore';
+
 export interface SqliteConflictDatabaseSource {
   sourceId: string;
   bytes: Uint8Array;
@@ -11,6 +17,8 @@ export interface SqlitePersistenceBridge {
   writeBinary(path: string, bytes: Uint8Array): Promise<void>;
   readJSON?<T>(path: string): Promise<T | null>;
   writeJSON?(path: string, value: unknown): Promise<void>;
+  reviewFeedbackJournalStore?: ReviewFeedbackJournalStore;
+  truthFileStore?: MessagePackTruthSegmentFileStore;
   readSyncConflictDatabaseSources?(): Promise<SqliteConflictDatabaseSource[]>;
   cleanupSyncConflictDatabaseSources?(sourceIds: string[]): Promise<{
     cleaned: Array<{ sourceId: string; path: string | null }>;
@@ -59,8 +67,27 @@ export function createInMemorySqlitePersistenceBridge(): SqlitePersistenceBridge
 } {
   const binary = new Map<string, Uint8Array>();
   const json = new Map<string, unknown>();
+  const reviewFeedbackJournalStore = createInMemoryReviewFeedbackJournalStore();
+  const truthFileStore: MessagePackTruthSegmentFileStore = {
+    async readJSON<T>(path: string): Promise<T | null> {
+      return (json.get(path) as T | undefined) ?? null;
+    },
+    async writeJSON(path: string, value: unknown): Promise<void> {
+      json.set(path, value);
+    },
+    async readBinary(path: string): Promise<Uint8Array | null> {
+      const value = binary.get(path);
+      return value ? new Uint8Array(value) : null;
+    },
+    async writeBinary(path: string, bytes: Uint8Array): Promise<void> {
+      const buffer = toTransferableArrayBuffer(bytes);
+      binary.set(path, new Uint8Array(buffer));
+    },
+  };
 
   return {
+    reviewFeedbackJournalStore,
+    truthFileStore,
     async readBinary(path: string): Promise<Uint8Array | null> {
       const value = binary.get(path);
       return value ? new Uint8Array(value) : null;

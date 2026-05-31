@@ -38,6 +38,7 @@ export type BackendRpcMethod =
   | 'autocard.decision.resolve'
   | 'autocard.execute'
   | 'review.feedback'
+  | 'review.truth.flush'
   | 'ai.session.create'
   | 'ai.session.get'
   | 'ai.session.update'
@@ -484,6 +485,7 @@ export interface BackendDiagnosticsStatusResult {
     feedbackPreviewTotal: number;
     feedbackUnavailableTotal: number;
     journal?: BackendReviewFeedbackJournalDiagnostics;
+    truthFlush?: BackendReviewFeedbackTruthFlushDiagnostics;
   };
   storage?: {
     sqliteDelta?: BackendSqliteDeltaDiagnostics;
@@ -558,6 +560,7 @@ export interface BackendReviewFeedbackJournalOperationStatus {
   at: number;
   entryId?: string | null;
   cardId?: string | null;
+  status?: BackendReviewFeedbackJournalEntryStatus | null;
   pendingCount?: number;
   pendingBytes?: number;
   replayedCount?: number;
@@ -566,15 +569,275 @@ export interface BackendReviewFeedbackJournalOperationStatus {
   error?: string | null;
 }
 
-export interface BackendReviewFeedbackJournalDiagnostics {
-  fileName: string;
-  version: number;
+export type BackendReviewFeedbackJournalEntryStatus =
+  | 'prepared'
+  | 'projection-applied'
+  | 'truth-flushed'
+  | 'projection-failed'
+  | 'unavailable'
+  | 'repair-required';
+
+export type BackendReviewFeedbackJournalBackpressureState = 'ok' | 'warning' | 'unavailable';
+
+export interface BackendReviewFeedbackJournalBackpressureDiagnostics {
+  state: BackendReviewFeedbackJournalBackpressureState;
+  reason: 'pending-count' | 'pending-bytes' | 'oldest-pending-age' | null;
   pendingCount: number;
   pendingBytes: number;
+  oldestPendingAgeMs: number | null;
+  maxPendingCount: number;
+  maxPendingBytes: number;
+  maxOldestPendingAgeMs: number;
+  nextAction: 'continue' | 'flush-or-checkpoint' | 'repair-required';
+}
+
+export interface BackendReviewFeedbackJournalDiagnostics {
+  fileName: string;
+  storage?: 'non-siyuan' | 'unavailable';
+  version: number;
+  entryCount?: number;
+  pendingCount: number;
+  pendingBytes: number;
+  oldestPendingAt?: number | null;
+  oldestPendingAgeMs?: number | null;
+  statusCounts?: Partial<Record<BackendReviewFeedbackJournalEntryStatus, number>>;
+  backpressure?: BackendReviewFeedbackJournalBackpressureDiagnostics;
   appliedInMemoryCount: number;
   lastWrite: BackendReviewFeedbackJournalOperationStatus | null;
   lastReplay: BackendReviewFeedbackJournalOperationStatus | null;
   lastCheckpoint: BackendReviewFeedbackJournalOperationStatus | null;
+}
+
+export const MESSAGEPACK_TRUTH_SCHEMA_VERSION = 1;
+
+export type MessagePackTruthFamily =
+  | 'review-events'
+  | 'card-memory-facts'
+  | 'domain-sync-operations'
+  | 'ai-session-payload-refs'
+  | 'semantic-arena-payload-refs'
+  | 'diagnostics-records';
+
+export type MessagePackTruthPayloadPolicy =
+  | 'event-fact'
+  | 'entity-fact'
+  | 'operation-fact'
+  | 'payload-ref'
+  | 'diagnostic-fact';
+
+export interface MessagePackTruthFamilySchema {
+  family: MessagePackTruthFamily;
+  schemaVersion: typeof MESSAGEPACK_TRUTH_SCHEMA_VERSION;
+  payloadPolicy: MessagePackTruthPayloadPolicy;
+  sqlProjection: 'skinny-index-ref' | 'diagnostic-index-ref';
+  sourceOwner: 'plugin-truth' | 'siyuan-source-plus-plugin-truth';
+}
+
+export const MESSAGEPACK_TRUTH_FAMILY_SCHEMAS = [
+  {
+    family: 'review-events',
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    payloadPolicy: 'event-fact',
+    sqlProjection: 'skinny-index-ref',
+    sourceOwner: 'plugin-truth',
+  },
+  {
+    family: 'card-memory-facts',
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    payloadPolicy: 'entity-fact',
+    sqlProjection: 'skinny-index-ref',
+    sourceOwner: 'siyuan-source-plus-plugin-truth',
+  },
+  {
+    family: 'domain-sync-operations',
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    payloadPolicy: 'operation-fact',
+    sqlProjection: 'skinny-index-ref',
+    sourceOwner: 'plugin-truth',
+  },
+  {
+    family: 'ai-session-payload-refs',
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    payloadPolicy: 'payload-ref',
+    sqlProjection: 'skinny-index-ref',
+    sourceOwner: 'plugin-truth',
+  },
+  {
+    family: 'semantic-arena-payload-refs',
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    payloadPolicy: 'payload-ref',
+    sqlProjection: 'skinny-index-ref',
+    sourceOwner: 'siyuan-source-plus-plugin-truth',
+  },
+  {
+    family: 'diagnostics-records',
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    payloadPolicy: 'diagnostic-fact',
+    sqlProjection: 'diagnostic-index-ref',
+    sourceOwner: 'plugin-truth',
+  },
+] as const satisfies readonly MessagePackTruthFamilySchema[];
+
+export interface MessagePackTruthRef {
+  family: MessagePackTruthFamily;
+  deviceId: string;
+  generationId: string;
+  schemaVersion: typeof MESSAGEPACK_TRUTH_SCHEMA_VERSION;
+  segmentPath: string;
+  recordId?: string | null;
+  idempotencyKey?: string | null;
+  checksum?: string | null;
+}
+
+export interface MessagePackTruthSourceRef {
+  cardId?: string | null;
+  blockId?: string | null;
+  sourceBlockId?: string | null;
+  deckId?: string | null;
+  xiuyuanId?: string | null;
+  cardFaceId?: string | null;
+  sourceHash?: string | null;
+}
+
+export interface MessagePackReviewEventTruthRecord {
+  family: 'review-events';
+  schemaVersion: typeof MESSAGEPACK_TRUTH_SCHEMA_VERSION;
+  type: 'review.feedback.v1' | 'review.skip.v1' | 'review.custom-feedback.v1' | 'review.reschedule.v1' | 'review.drill-only.v1';
+  idempotencyKey: string;
+  journalEntryId?: string | null;
+  logicalTime: number;
+  recordedAt: number;
+  source: MessagePackTruthSourceRef & {
+    cardId: string;
+  };
+  review: {
+    action: 'rating' | 'skip' | 'custom-feedback' | 'reschedule' | 'drill-only';
+    rating?: 1 | 2 | 3 | 4 | null;
+    customActionId?: string | null;
+    reviewedAt: number;
+    scheduler?: string | null;
+  };
+  memory: {
+    baseMemoryHash?: string | null;
+    afterMemoryHash?: string | null;
+    projectionGeneration?: number | null;
+  };
+  queue?: {
+    queueType?: string | null;
+    queueMode?: string | null;
+    commitPolicy?: string | null;
+  };
+}
+
+export interface MessagePackCardMemoryFactTruthRecord {
+  family: 'card-memory-facts';
+  schemaVersion: typeof MESSAGEPACK_TRUTH_SCHEMA_VERSION;
+  type: 'card-memory.created.v1' | 'card-memory.updated.v1' | 'card-memory.tombstoned.v1' | 'source-binding.created.v1' | 'card-face.created.v1';
+  idempotencyKey: string;
+  logicalTime: number;
+  recordedAt: number;
+  source: MessagePackTruthSourceRef & {
+    cardId?: string | null;
+  };
+  memory: {
+    schedulerOwner?: string | null;
+    memoryHash?: string | null;
+    previousMemoryHash?: string | null;
+    lineage?: Record<string, unknown> | null;
+  };
+}
+
+export interface MessagePackDomainSyncOperationTruthRecord {
+  family: 'domain-sync-operations';
+  schemaVersion: typeof MESSAGEPACK_TRUTH_SCHEMA_VERSION;
+  type: 'domain-sync.operation.v1' | 'domain-sync.tombstone.v1' | 'domain-sync.conflict-decision.v1';
+  operationId: string;
+  idempotencyKey: string;
+  logicalTime: number;
+  recordedAt: number;
+  operationType: BackendDomainSyncOperationType | string;
+  source: MessagePackTruthSourceRef;
+  payloadRef?: MessagePackTruthRef | null;
+  payload?: Record<string, unknown> | null;
+}
+
+export interface MessagePackAiSessionPayloadRefTruthRecord {
+  family: 'ai-session-payload-refs';
+  schemaVersion: typeof MESSAGEPACK_TRUTH_SCHEMA_VERSION;
+  type: 'ai-session.payload-ref.v1';
+  idempotencyKey: string;
+  logicalTime: number;
+  recordedAt: number;
+  sessionId: string;
+  payloadKind: 'prompt' | 'response' | 'tool-call' | 'tool-result' | 'stream-event' | 'summary';
+  payloadRef: MessagePackTruthRef;
+  hash: string;
+  summary?: string | null;
+}
+
+export interface MessagePackSemanticArenaPayloadRefTruthRecord {
+  family: 'semantic-arena-payload-refs';
+  schemaVersion: typeof MESSAGEPACK_TRUTH_SCHEMA_VERSION;
+  type: 'semantic.payload-ref.v1' | 'arena.payload-ref.v1';
+  idempotencyKey: string;
+  logicalTime: number;
+  recordedAt: number;
+  source: MessagePackTruthSourceRef;
+  payloadKind: 'semantic-session' | 'semantic-projection' | 'arena-evidence' | 'arena-score';
+  payloadRef: MessagePackTruthRef;
+  hash: string;
+  summary?: string | null;
+}
+
+export interface MessagePackDiagnosticsTruthRecord {
+  family: 'diagnostics-records';
+  schemaVersion: typeof MESSAGEPACK_TRUTH_SCHEMA_VERSION;
+  type: 'diagnostic.record.v1';
+  diagnosticEventId: string;
+  idempotencyKey?: string | null;
+  logicalTime: number;
+  recordedAt: number;
+  category: 'review-hot-path' | 'truth-flush' | 'projection-rebuild' | 'sql-checkpoint' | 'storage-budget' | 'migration' | string;
+  severity: 'info' | 'warning' | 'error';
+  summary: string;
+  payloadRef?: MessagePackTruthRef | null;
+  fields?: Record<string, unknown> | null;
+}
+
+export type MessagePackTruthRecord =
+  | MessagePackReviewEventTruthRecord
+  | MessagePackCardMemoryFactTruthRecord
+  | MessagePackDomainSyncOperationTruthRecord
+  | MessagePackAiSessionPayloadRefTruthRecord
+  | MessagePackSemanticArenaPayloadRefTruthRecord
+  | MessagePackDiagnosticsTruthRecord;
+
+export interface BackendReviewFeedbackTruthFlushRequest {
+  deviceId: string;
+  generationId: string;
+  schemaVersion?: number;
+  maxSegmentBytes?: number;
+  batchLimit?: number;
+}
+
+export interface BackendReviewFeedbackTruthFlushResult {
+  ok: boolean;
+  at: number;
+  journalQueued: number;
+  recordsWritten: number;
+  segmentWritten: boolean;
+  manifestUpdated: boolean;
+  projectionRefreshScheduled: boolean;
+  idempotencyDuplicateSkipped: number;
+  flushedEntryIds: string[];
+  segmentPaths: string[];
+  error: string | null;
+}
+
+export interface BackendReviewFeedbackTruthFlushDiagnostics {
+  family: 'review-events';
+  storage: 'truth-segments' | 'unavailable';
+  last: BackendReviewFeedbackTruthFlushResult | null;
 }
 
 export type BackendUnavailableClass =

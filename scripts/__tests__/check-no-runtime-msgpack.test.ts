@@ -57,4 +57,20 @@ describe('check-no-runtime-msgpack', () => {
 
     expect(evaluate({ rootDir })).toEqual([]);
   });
+
+  it('allows only the bounded MessagePack truth segment adapter in worker runtime', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'worker/truth/MessagePackTruthSegmentStore.ts', `
+      import { encode } from '@msgpack/msgpack';
+      export const write = () => encode({ ok: true });
+    `);
+    writeFile(rootDir, 'worker/truth/OtherRuntimeStore.ts', `
+      import { encode } from '@msgpack/msgpack';
+      export const write = () => encode({ ok: true });
+    `);
+
+    expect(evaluate({ rootDir })).toEqual([
+      expect.stringContaining('worker/truth/OtherRuntimeStore.ts'),
+    ]);
+  });
 });

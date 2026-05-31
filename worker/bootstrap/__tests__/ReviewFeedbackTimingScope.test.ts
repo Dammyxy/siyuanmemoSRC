@@ -3,9 +3,11 @@ import {
   beginBackendWorkerTiming,
   beginBackendWorkerRequest,
   endBackendWorkerRequest,
+  hasActiveBackendWorkerTiming,
   recordBackendWorkerHostEffect,
   recordBackendWorkerInnerStep,
   recordReviewFeedbackInnerStep,
+  shouldSuppressReviewFeedbackPersistenceHostEffect,
 } from '../ReviewFeedbackTimingScope';
 
 describe('ReviewFeedbackTimingScope', () => {
@@ -120,5 +122,23 @@ describe('ReviewFeedbackTimingScope', () => {
     } finally {
       endBackendWorkerRequest(timing);
     }
+  });
+
+  it('reports active review feedback timing under overlapping worker requests', () => {
+    const reviewTiming = beginBackendWorkerRequest(true, 'card-1');
+    const otherTiming = beginBackendWorkerRequest(false);
+
+    try {
+      expect(hasActiveBackendWorkerTiming('review.feedback')).toBe(true);
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeJSON')).toBe(true);
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeBinary')).toBe(true);
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.readJSON')).toBe(false);
+    } finally {
+      endBackendWorkerRequest(otherTiming);
+      endBackendWorkerRequest(reviewTiming);
+    }
+
+    expect(hasActiveBackendWorkerTiming('review.feedback')).toBe(false);
+    expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeJSON')).toBe(false);
   });
 });

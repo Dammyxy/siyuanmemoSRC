@@ -15,6 +15,7 @@ import {
   type BackendXiuyuanRiffReadAuditResult,
 } from '../../packages/contracts/src/backend-rpc';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
+import { createIndexedDbReviewFeedbackJournalStore } from '../db/ReviewFeedbackJournalStore';
 import { BackendKernel } from './BackendKernel';
 import type {
   BackendWorkerHostEffect,
@@ -31,6 +32,7 @@ import {
   recordBackendWorkerHostEffect,
   recordBackendWorkerInnerStep,
   resolveExclusiveActiveBackendWorkerTiming,
+  shouldSuppressReviewFeedbackPersistenceHostEffect,
   type ActiveReviewFeedbackTiming,
 } from './ReviewFeedbackTimingScope';
 import { createLogger } from '@/utils/logger';
@@ -79,6 +81,20 @@ function requestHostEffect<TResult>(effect: BackendWorkerHostEffect): Promise<TR
       ? effect.bytes.byteLength
       : null,
   };
+  const activeTiming = resolveExclusiveActiveBackendWorkerTiming();
+  if (
+    shouldSuppressReviewFeedbackPersistenceHostEffect(effect.kind)
+  ) {
+    recordBackendWorkerHostEffect(
+      activeTiming?.method === 'review.feedback' ? activeTiming : null,
+      effect.kind,
+      Date.now() - startedAt,
+      effectMetadata,
+    );
+    return Promise.reject(new Error(
+      `BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect ${effect.kind}`,
+    ));
+  }
   const pending = new Promise<TResult>((resolve, reject) => {
     pendingHostEffects.set(effectId, {
       resolve: (result) => {
@@ -198,6 +214,7 @@ function logReviewFeedbackWorkerEntryStepIfSlow(
 }
 
 const database = new WorkerSqliteDatabaseService({
+  reviewFeedbackJournalStore: createIndexedDbReviewFeedbackJournalStore(),
   readBinary: (path) => requestHostEffect<Uint8Array | null>({
     kind: 'sqlite.readBinary',
     path,
@@ -237,6 +254,26 @@ const database = new WorkerSqliteDatabaseService({
 
 const backendKernel = new BackendKernel({
   database,
+  truthFileStore: {
+    readBinary: (path) => requestHostEffect<Uint8Array | null>({
+      kind: 'truth.readBinary',
+      path,
+    }),
+    writeBinary: (path, bytes) => requestHostEffect<void>({
+      kind: 'truth.writeBinary',
+      path,
+      bytes,
+    }),
+    readJSON: <T>(path: string) => requestHostEffect<T | null>({
+      kind: 'truth.readJSON',
+      path,
+    }),
+    writeJSON: (path, value) => requestHostEffect<void>({
+      kind: 'truth.writeJSON',
+      path,
+      value,
+    }),
+  },
   resolveExistingBlockIds: (blockIds) => requestHostEffect<string[]>({
     kind: 'siyuan.resolveExistingBlockIds',
     blockIds,

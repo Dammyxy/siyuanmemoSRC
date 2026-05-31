@@ -239,6 +239,74 @@ describe('ReviewCommitUseCase', () => {
     }));
   });
 
+  it('skips Arena SRS review recording on review feedback hot path unless it is SQL backed', async () => {
+    const before = createCard({ id: 'card-non-sql-arena' });
+    const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });
+    const arena = {
+      canRecordSrsReviewWithoutSiyuanFileWrite: vi.fn(() => false),
+      recordSrsReview: vi.fn(async () => undefined),
+    };
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      arena,
+      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: after })) },
+      writerLeaseGuard: {
+        ensureWritable: vi.fn(async () => {}),
+        getMode: () => 'writer',
+      } as never,
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(arena.canRecordSrsReviewWithoutSiyuanFileWrite).toHaveBeenCalledTimes(1);
+    expect(arena.recordSrsReview).not.toHaveBeenCalled();
+  });
+
+  it('keeps SQL backed Arena SRS review recording after review feedback commits', async () => {
+    const before = createCard({ id: 'card-sql-arena' });
+    const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });
+    const arena = {
+      canRecordSrsReviewWithoutSiyuanFileWrite: vi.fn(() => true),
+      recordSrsReview: vi.fn(async () => undefined),
+    };
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      arena,
+      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: after })) },
+      writerLeaseGuard: {
+        ensureWritable: vi.fn(async () => {}),
+        getMode: () => 'writer',
+      } as never,
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(arena.recordSrsReview).toHaveBeenCalledWith(expect.objectContaining({
+      card: before,
+      rating: Rating.Good,
+    }));
+  });
+
   it('fails closed when backend is disabled by runtime policy', async () => {
     const before = createCard({ id: 'card-backend-disabled' });
     const useCase = new ReviewCommitUseCase({

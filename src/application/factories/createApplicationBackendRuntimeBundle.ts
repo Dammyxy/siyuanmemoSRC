@@ -152,6 +152,18 @@ export async function createApplicationBackendRuntimeBundle(
               }
               return bridge.writeJSON(path, value);
             },
+            readTruthBinary: (path) => bridge.truthFileStore?.readBinary(path) ?? bridge.readBinary(path),
+            writeTruthBinary: (path, bytes) => bridge.truthFileStore?.writeBinary(path, bytes) ?? bridge.writeBinary(path, bytes),
+            readTruthJSON: <T>(path: string) => bridge.truthFileStore?.readJSON<T>(path) ?? bridge.readJSON?.<T>(path) ?? Promise.resolve(null),
+            writeTruthJSON: (path, value) => {
+              if (bridge.truthFileStore) {
+                return bridge.truthFileStore.writeJSON(path, value);
+              }
+              if (!bridge.writeJSON) {
+                return Promise.reject(new Error(`SrsBackendWorker truth JSON persistence unavailable for ${path}`));
+              }
+              return bridge.writeJSON(path, value);
+            },
             readSyncConflictDatabaseSources: () => bridge.readSyncConflictDatabaseSources?.() ?? Promise.resolve([]),
             cleanupSyncConflictDatabaseSources: (sourceIds) => bridge.cleanupSyncConflictDatabaseSources?.(sourceIds) ?? Promise.resolve({
               cleaned: [],
@@ -245,7 +257,24 @@ export async function createApplicationBackendRuntimeBundle(
 }
 
 function createWorkerPersistenceBridge(fileService: FileService): SqlitePersistenceBridge {
+  const truthFileStore = {
+    readBinary: async (path: string) => {
+      if (!fileService.readBinary) {
+        return null;
+      }
+      return fileService.readBinary(path);
+    },
+    writeBinary: async (path: string, bytes: Uint8Array) => {
+      if (!fileService.writeBinary) {
+        throw new Error('FileService.writeBinary is unavailable');
+      }
+      await fileService.writeBinary(path, bytes);
+    },
+    readJSON: <T>(path: string) => fileService.readJSON<T>(path),
+    writeJSON: (path: string, value: unknown) => fileService.writeJSON(path, value),
+  };
   return {
+    truthFileStore,
     readBinary: async (path: string) => {
       if (!fileService.readBinary) {
         return null;

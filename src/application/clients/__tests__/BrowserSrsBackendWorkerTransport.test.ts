@@ -782,6 +782,200 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
+  it('routes truth segment host effects through explicit truth handlers', async () => {
+    const worker = new FakeWorker();
+    const readTruthJSON = vi.fn(async () => ({ version: 1 }));
+    const writeTruthBinary = vi.fn(async () => undefined);
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { readTruthJSON, writeTruthBinary },
+    });
+
+    worker.emit({ kind: 'ready' });
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-truth-json',
+      effect: {
+        kind: 'truth.readJSON',
+        path: 'truth/review-events/device-device-A/manifest.v1.json',
+      },
+    });
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-truth-binary',
+      effect: {
+        kind: 'truth.writeBinary',
+        path: 'truth/review-events/device-device-A/seg-000001-test.msgpack',
+        bytes: new Uint8Array([1, 2, 3]),
+      },
+    });
+
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
+    expect(readTruthJSON).toHaveBeenCalledWith('truth/review-events/device-device-A/manifest.v1.json');
+    expect(writeTruthBinary).toHaveBeenCalledWith(
+      'truth/review-events/device-device-A/seg-000001-test.msgpack',
+      new Uint8Array([1, 2, 3]),
+    );
+    expect(worker.posted).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'host-effect-result',
+        effectId: 'effect-truth-json',
+        ok: true,
+        result: { version: 1 },
+      }),
+      expect.objectContaining({
+        kind: 'host-effect-result',
+        effectId: 'effect-truth-binary',
+        ok: true,
+      }),
+    ]));
+    expect(worker.posted).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ok: false,
+      }),
+    ]));
+    transport.dispose();
+  });
+
+  it('does not suppress explicit truth segment writes during the post-review sqlite drain window', async () => {
+    vi.setSystemTime(20_000);
+    const worker = new FakeWorker();
+    const writeTruthBinary = vi.fn(async () => undefined);
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { writeTruthBinary },
+    });
+    const pending = transport.request(createReviewFeedbackRequest(80));
+    worker.emit({ kind: 'ready' });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response: {
+        jsonrpc: BACKEND_RPC_VERSION,
+        id: 80,
+        result: { ok: true },
+      },
+    });
+    await expect(pending).resolves.toEqual(expect.objectContaining({ id: 80 }));
+
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-truth-review-flush',
+      effect: {
+        kind: 'truth.writeBinary',
+        path: 'truth/review-events/device-device-A/seg-000001-test.msgpack',
+        bytes: new Uint8Array([7]),
+      },
+    });
+
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
+    expect(writeTruthBinary).toHaveBeenCalledWith(
+      'truth/review-events/device-device-A/seg-000001-test.msgpack',
+      new Uint8Array([7]),
+    );
+    expect(worker.posted[1]).toEqual(expect.objectContaining({
+      kind: 'host-effect-result',
+      effectId: 'effect-truth-review-flush',
+      ok: true,
+    }));
+    transport.dispose();
+  });
+
+  it('suppresses sqlite persistence host effects while review feedback is in flight', async () => {
+    const worker = new FakeWorker();
+    const writeJSON = vi.fn(async () => undefined);
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { writeJSON },
+    });
+    const pending = transport.request(createReviewFeedbackRequest(78));
+    worker.emit({ kind: 'ready' });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-review-json',
+      effect: {
+        kind: 'sqlite.writeJSON',
+        path: 'kernel-transaction-ingest.snapshot.json',
+        value: { queue: [] },
+      },
+    });
+
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
+    expect(writeJSON).not.toHaveBeenCalled();
+    expect(worker.posted[1]).toEqual({
+      kind: 'host-effect-result',
+      effectId: 'effect-review-json',
+      ok: false,
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect sqlite.writeJSON',
+      },
+    });
+
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response: {
+        jsonrpc: BACKEND_RPC_VERSION,
+        id: 78,
+        result: { ok: true },
+      },
+    });
+    await expect(pending).resolves.toEqual(expect.objectContaining({ id: 78 }));
+    transport.dispose();
+  });
+
+  it('keeps suppressing sqlite persistence host effects during the immediate post-review drain window', async () => {
+    vi.setSystemTime(10_000);
+    const worker = new FakeWorker();
+    const writeBinary = vi.fn(async () => undefined);
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { writeBinary },
+    });
+    const pending = transport.request(createReviewFeedbackRequest(79));
+    worker.emit({ kind: 'ready' });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response: {
+        jsonrpc: BACKEND_RPC_VERSION,
+        id: 79,
+        result: { ok: true },
+      },
+    });
+    await expect(pending).resolves.toEqual(expect.objectContaining({ id: 79 }));
+
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-review-deferred-db',
+      effect: {
+        kind: 'sqlite.writeBinary',
+        path: 'siyuanmemo.db',
+        bytes: new Uint8Array([1, 2, 3]),
+      },
+    });
+
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
+    expect(writeBinary).not.toHaveBeenCalled();
+    expect(worker.posted[1]).toEqual({
+      kind: 'host-effect-result',
+      effectId: 'effect-review-deferred-db',
+      ok: false,
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect sqlite.writeBinary',
+      },
+    });
+    transport.dispose();
+  });
+
   it('serves neural graph query host effects through the typed bridge', async () => {
     const worker = new FakeWorker();
     const resolveNeuralGraphQuery = vi.fn(async () => ({

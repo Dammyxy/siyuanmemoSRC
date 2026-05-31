@@ -97,6 +97,7 @@ describe('ArenaStoreService commitBatch', () => {
 
     expect(sqlRepository.recordBatch).toHaveBeenCalledTimes(1);
     expect(sqlRepository.persist).toHaveBeenCalledTimes(1);
+    expect(service.canRecordSrsReviewWithoutSiyuanFileWrite()).toBe(true);
   });
 
   it('writes one legacy JSON store update for a batch', async () => {
@@ -113,5 +114,6 @@ describe('ArenaStoreService commitBatch', () => {
     expect(fileService.store?.matches).toHaveLength(1);
     expect(fileService.store?.scores).toHaveLength(1);
     expect(fileService.store?.attributions).toHaveLength(2);
+    expect(service.canRecordSrsReviewWithoutSiyuanFileWrite()).toBe(false);
   });
 });

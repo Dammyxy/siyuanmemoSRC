@@ -23,6 +23,7 @@ export interface ReviewCommitCardReader {
 }
 
 export interface ReviewCommitArenaRecorder {
+  canRecordSrsReviewWithoutSiyuanFileWrite?(): boolean;
   recordSrsReview(input: {
     card: FSRSCard;
     rating: number;
@@ -412,6 +413,13 @@ export class ReviewCommitUseCase {
 
   private async recordArenaReview(card: FSRSCard, rating: Rating, schedulingContext?: SrsV2SchedulingContext | null): Promise<void> {
     if (!this.deps.arena) {
+      return;
+    }
+    if (this.deps.arena.canRecordSrsReviewWithoutSiyuanFileWrite?.() !== true) {
+      logger.info('[SiYuanMemo][ReviewCommitUseCase] skipped Arena SRS review recording on review.feedback hot path', {
+        cardId: card.id,
+        reason: 'non-sql-arena-recorder',
+      });
       return;
     }
 

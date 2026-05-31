@@ -16,6 +16,10 @@ export type BackendWorkerHostEffect =
   | { kind: 'sqlite.writeBinary'; path: string; bytes: Uint8Array }
   | { kind: 'sqlite.readJSON'; path: string }
   | { kind: 'sqlite.writeJSON'; path: string; value: unknown }
+  | { kind: 'truth.readBinary'; path: string }
+  | { kind: 'truth.writeBinary'; path: string; bytes: Uint8Array }
+  | { kind: 'truth.readJSON'; path: string }
+  | { kind: 'truth.writeJSON'; path: string; value: unknown }
   | { kind: 'sqlite.readSyncConflictDatabaseSources' }
   | { kind: 'sqlite.cleanupSyncConflictDatabaseSources'; sourceIds: string[] }
   | { kind: 'siyuan.resolveExistingBlockIds'; blockIds: string[] }

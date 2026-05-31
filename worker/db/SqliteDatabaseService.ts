@@ -74,6 +74,7 @@ import type {
   BackendXiuyuanSyncMode,
   BackendXiuyuanSyncLocalFacts,
   BackendReviewFeedbackJournalDiagnostics,
+  BackendReviewFeedbackJournalBackpressureDiagnostics,
   BackendReviewFeedbackJournalOperationStatus,
 } from '../../packages/contracts/src/backend-rpc';
 import type { WorkerXiuyuanSyncApplyInput } from '../xiuyuan/WorkerXiuyuanSyncPlanner';
@@ -96,6 +97,11 @@ import type {
   SourceExistenceUpdate,
 } from '@/application/ports/BrowserDeckReadPort';
 import type { SqliteConflictDatabaseSource, SqlitePersistenceBridge } from './SqlitePersistenceBridge';
+import type {
+  ReviewFeedbackJournalEntryStatus,
+  ReviewFeedbackJournalStore,
+  ReviewFeedbackJournalStoreStats,
+} from './ReviewFeedbackJournalStore';
 import { createLogger } from '@/utils/logger';
 import type { DoOperation } from '@/core/infrastructure/websocket/transaction-types';
 import { AutoCardDecisionService } from './AutoCardDecisionService';
@@ -120,8 +126,20 @@ const KERNEL_INGEST_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-ingest.snapshot.js
 const KERNEL_INGEST_QUEUE_SNAPSHOT_VERSION = 1;
 const KERNEL_ACTION_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-actions.snapshot.json';
 const KERNEL_ACTION_QUEUE_SNAPSHOT_VERSION = 1;
-const REVIEW_FEEDBACK_JOURNAL_FILE = 'review-feedback-journal.v1.json';
+const REVIEW_FEEDBACK_JOURNAL_STORAGE_NAME = 'review-feedback-journal.v1';
 const REVIEW_FEEDBACK_JOURNAL_VERSION = 1;
+const REVIEW_FEEDBACK_JOURNAL_REPLAY_BATCH_LIMIT = 512;
+const DEFAULT_REVIEW_FEEDBACK_JOURNAL_MAX_PENDING_COUNT = 50_000;
+const DEFAULT_REVIEW_FEEDBACK_JOURNAL_MAX_PENDING_BYTES = 16 * 1024 * 1024;
+const DEFAULT_REVIEW_FEEDBACK_JOURNAL_MAX_OLDEST_PENDING_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const REVIEW_FEEDBACK_JOURNAL_STATUSES = new Set<ReviewFeedbackJournalEntryStatus>([
+  'prepared',
+  'projection-applied',
+  'truth-flushed',
+  'projection-failed',
+  'unavailable',
+  'repair-required',
+]);
 
 type SqliteFileServiceAdapter = {
   readJSON<T>(fileName: string): Promise<T | null>;
@@ -176,15 +194,13 @@ type ReviewFeedbackJournalEntry = {
   requestId: string | null;
   cardId: string;
   idempotencyKey: string | null;
+  status: ReviewFeedbackJournalEntryStatus;
   recordedAt: number;
   request: BackendReviewFeedbackRequest;
   appliedAt: number | null;
-};
-
-type ReviewFeedbackJournalSnapshot = {
-  version: typeof REVIEW_FEEDBACK_JOURNAL_VERSION;
-  entries: ReviewFeedbackJournalEntry[];
-  updatedAt: number;
+  projectionAppliedAt: number | null;
+  projectionFailedAt: number | null;
+  lastError: string | null;
 };
 
 type WorkerSyncConflictMergeRequest = BackendSyncConflictMergeRequest & {
@@ -784,6 +800,12 @@ export class WorkerSqliteDatabaseService {
   private readonly maxKernelQueuedTransactions: number;
   private readonly maxKernelActionQueueLength: number;
   private readonly kernelTransactionDedupeTtlMs: number;
+  private readonly reviewFeedbackJournalStore: ReviewFeedbackJournalStore | null;
+  private readonly reviewFeedbackJournalBackpressure: {
+    maxPendingCount: number;
+    maxPendingBytes: number;
+    maxOldestPendingAgeMs: number;
+  };
   constructor(
     bridge: SqlitePersistenceBridge,
     private readonly dbFile = SQLITE_DB_FILE,
@@ -792,9 +814,15 @@ export class WorkerSqliteDatabaseService {
       maxKernelQueuedTransactions?: number;
       maxKernelActionQueueLength?: number;
       kernelTransactionDedupeTtlMs?: number;
+      reviewFeedbackJournalBackpressure?: {
+        maxPendingCount?: number;
+        maxPendingBytes?: number;
+        maxOldestPendingAgeMs?: number;
+      };
     },
   ) {
     this.fileService = createSqliteFileServiceAdapter(bridge);
+    this.reviewFeedbackJournalStore = bridge.reviewFeedbackJournalStore ?? null;
     this.runtime = new RuntimeSqliteDatabaseService(this.fileService, dbFile, {
       persistOnInit: false,
       enableDeltaPersistence: true,
@@ -815,6 +843,29 @@ export class WorkerSqliteDatabaseService {
       5_000,
       Math.floor(Number(options?.kernelTransactionDedupeTtlMs ?? 120_000)),
     );
+    this.reviewFeedbackJournalBackpressure = {
+      maxPendingCount: Math.max(
+        1,
+        Math.floor(Number(
+          options?.reviewFeedbackJournalBackpressure?.maxPendingCount
+            ?? DEFAULT_REVIEW_FEEDBACK_JOURNAL_MAX_PENDING_COUNT,
+        )),
+      ),
+      maxPendingBytes: Math.max(
+        1_024,
+        Math.floor(Number(
+          options?.reviewFeedbackJournalBackpressure?.maxPendingBytes
+            ?? DEFAULT_REVIEW_FEEDBACK_JOURNAL_MAX_PENDING_BYTES,
+        )),
+      ),
+      maxOldestPendingAgeMs: Math.max(
+        1_000,
+        Math.floor(Number(
+          options?.reviewFeedbackJournalBackpressure?.maxOldestPendingAgeMs
+            ?? DEFAULT_REVIEW_FEEDBACK_JOURNAL_MAX_OLDEST_PENDING_AGE_MS,
+        )),
+      ),
+    };
   }
 
   async init(): Promise<void> {
@@ -921,10 +972,9 @@ export class WorkerSqliteDatabaseService {
     let pendingBytesBefore: number | undefined;
     try {
       await this.init();
-      const journalBefore = await this.readReviewFeedbackJournalSnapshot();
-      const pendingBefore = journalBefore.entries.filter((entry) => !entry.appliedAt);
-      pendingCountBefore = pendingBefore.length;
-      pendingBytesBefore = this.estimateReviewFeedbackJournalPendingBytes(pendingBefore);
+      const journalBefore = await this.readReviewFeedbackJournalStats();
+      pendingCountBefore = journalBefore.pendingCount;
+      pendingBytesBefore = journalBefore.pendingBytes;
       await this.replayPendingReviewFeedbackJournalEntries();
       await this.runtime.persist({ reason: 'worker.persist' });
       await this.rememberPersistedHash();
@@ -2021,23 +2071,32 @@ export class WorkerSqliteDatabaseService {
         return journalEntry.request;
       },
     });
-    const result = await this.measureReviewFeedbackDatabaseStep(
-      'reviewFeedback.runtime',
-      request.cardId,
-      () => runtime.reviewFeedback(request),
-      {
-        queueType: request.queueType,
-        queueMode: request.queueMode,
-        commitPolicy: request.commitPolicy,
-        rating: request.rating,
-      },
-    );
+    let result: BackendReviewFeedbackResult;
+    try {
+      result = await this.measureReviewFeedbackDatabaseStep(
+        'reviewFeedback.runtime',
+        request.cardId,
+        () => runtime.reviewFeedback(request),
+        {
+          queueType: request.queueType,
+          queueMode: request.queueMode,
+          commitPolicy: request.commitPolicy,
+          rating: request.rating,
+        },
+      );
+    } catch (error) {
+      if (committedJournalEntryId) {
+        await this.markReviewFeedbackJournalEntryProjectionFailed(committedJournalEntryId, error);
+      }
+      throw error;
+    }
     this.reviewFeedbackTotal += 1;
     if (result.committed) {
       this.reviewFeedbackCommittedTotal += 1;
       this.lastDomainSyncStatusSnapshot = null;
       if (committedJournalEntryId) {
         this.appliedReviewFeedbackJournalEntryIds.add(committedJournalEntryId);
+        await this.markReviewFeedbackJournalEntryProjectionApplied(committedJournalEntryId, result.reviewedAt);
       }
     } else {
       this.reviewFeedbackPreviewTotal += 1;
@@ -2055,24 +2114,24 @@ export class WorkerSqliteDatabaseService {
 
   private async appendReviewFeedbackJournalEntry(entry: ReviewFeedbackJournalEntry): Promise<void> {
     try {
-      const existing = await this.readReviewFeedbackJournalSnapshot();
-      const nextEntries = existing.entries.some((candidate) => candidate.id === entry.id)
-        ? existing.entries.map((candidate) => candidate.id === entry.id ? entry : candidate)
-        : [...existing.entries, entry];
-      const nextSnapshot = {
-        version: REVIEW_FEEDBACK_JOURNAL_VERSION,
-        entries: nextEntries,
-        updatedAt: Date.now(),
-      } satisfies ReviewFeedbackJournalSnapshot;
-      await this.fileService.writeJSON(REVIEW_FEEDBACK_JOURNAL_FILE, nextSnapshot);
-      const pendingEntries = nextEntries.filter((candidate) => !candidate.appliedAt);
+      const beforeStats = await this.readReviewFeedbackJournalStats();
+      const beforeBackpressure = this.buildReviewFeedbackJournalBackpressure(beforeStats, Date.now());
+      if (beforeBackpressure.state === 'unavailable') {
+        throw new Error(
+          `BACKEND_UNAVAILABLE: review.feedback non-SiYuan journal backpressure `
+          + `(${beforeBackpressure.reason}; pending=${beforeBackpressure.pendingCount}, `
+          + `bytes=${beforeBackpressure.pendingBytes})`,
+        );
+      }
+      const stats = await this.appendReviewFeedbackJournalStoreEntry(entry);
       this.lastReviewFeedbackJournalWrite = {
         ok: true,
         at: Date.now(),
         entryId: entry.id,
         cardId: entry.cardId,
-        pendingCount: pendingEntries.length,
-        pendingBytes: this.estimateReviewFeedbackJournalPendingBytes(pendingEntries),
+        status: entry.status,
+        pendingCount: stats.pendingCount,
+        pendingBytes: stats.pendingBytes,
       };
     } catch (error) {
       this.lastReviewFeedbackJournalWrite = {
@@ -2091,8 +2150,7 @@ export class WorkerSqliteDatabaseService {
     let replayedCount = 0;
     let skippedInMemoryCount = 0;
     try {
-      const snapshot = await this.readReviewFeedbackJournalSnapshot();
-      pendingEntries = snapshot.entries.filter((entry) => !entry.appliedAt);
+      pendingEntries = await this.readReplayableReviewFeedbackJournalEntries();
       if (pendingEntries.length === 0) {
         this.lastReviewFeedbackJournalReplay = {
           ok: true,
@@ -2136,7 +2194,7 @@ export class WorkerSqliteDatabaseService {
         ok: true,
         at: Date.now(),
         pendingCount: pendingEntries.length,
-        pendingBytes: this.estimateReviewFeedbackJournalPendingBytes(pendingEntries),
+        pendingBytes: estimateJsonByteLength(pendingEntries),
         replayedCount,
         skippedInMemoryCount,
       };
@@ -2145,7 +2203,7 @@ export class WorkerSqliteDatabaseService {
         ok: false,
         at: Date.now(),
         pendingCount: pendingEntries.length,
-        pendingBytes: this.estimateReviewFeedbackJournalPendingBytes(pendingEntries),
+        pendingBytes: estimateJsonByteLength(pendingEntries),
         replayedCount,
         skippedInMemoryCount,
         error: errorMessage(error),
@@ -2154,28 +2212,103 @@ export class WorkerSqliteDatabaseService {
     }
   }
 
-  private async readReviewFeedbackJournalSnapshot(): Promise<ReviewFeedbackJournalSnapshot> {
-    const snapshot = await this.fileService.readJSON<Partial<ReviewFeedbackJournalSnapshot>>(REVIEW_FEEDBACK_JOURNAL_FILE);
-    if (!snapshot || snapshot.version !== REVIEW_FEEDBACK_JOURNAL_VERSION || !Array.isArray(snapshot.entries)) {
+  private async readPendingReviewFeedbackJournalEntries(): Promise<ReviewFeedbackJournalEntry[]> {
+    if (!this.reviewFeedbackJournalStore) {
+      return [];
+    }
+    return this.normalizeReviewFeedbackJournalEntries(await this.reviewFeedbackJournalStore.listPendingEntries())
+      .filter((entry) => entry.status !== 'truth-flushed');
+  }
+
+  private async readReplayableReviewFeedbackJournalEntries(): Promise<ReviewFeedbackJournalEntry[]> {
+    if (!this.reviewFeedbackJournalStore) {
+      return [];
+    }
+    const statuses: ReviewFeedbackJournalEntryStatus[] = ['prepared', 'projection-applied'];
+    const entries: ReviewFeedbackJournalEntry[] = [];
+    for (const status of statuses) {
+      entries.push(...this.normalizeReviewFeedbackJournalEntries(
+        await this.reviewFeedbackJournalStore.listEntriesByStatus(status, REVIEW_FEEDBACK_JOURNAL_REPLAY_BATCH_LIMIT),
+      ));
+      if (entries.length >= REVIEW_FEEDBACK_JOURNAL_REPLAY_BATCH_LIMIT) {
+        break;
+      }
+    }
+    return entries
+      .sort((a, b) => a.recordedAt - b.recordedAt)
+      .slice(0, REVIEW_FEEDBACK_JOURNAL_REPLAY_BATCH_LIMIT);
+  }
+
+  private async readReviewFeedbackJournalStats(): Promise<ReviewFeedbackJournalStoreStats> {
+    if (!this.reviewFeedbackJournalStore) {
       return {
-        version: REVIEW_FEEDBACK_JOURNAL_VERSION,
-        entries: [],
+        entryCount: 0,
+        pendingCount: 0,
+        pendingBytes: 0,
         updatedAt: 0,
       };
     }
-    return {
-      version: REVIEW_FEEDBACK_JOURNAL_VERSION,
-      entries: snapshot.entries.filter((entry): entry is ReviewFeedbackJournalEntry => {
-        return typeof entry === 'object'
-          && entry !== null
-          && typeof entry.id === 'string'
-          && typeof entry.cardId === 'string'
-          && typeof entry.recordedAt === 'number'
-          && typeof entry.request === 'object'
-          && entry.request !== null;
-      }),
-      updatedAt: Number(snapshot.updatedAt) || 0,
-    };
+    return this.reviewFeedbackJournalStore.getStats();
+  }
+
+  private async appendReviewFeedbackJournalStoreEntry(
+    entry: ReviewFeedbackJournalEntry,
+  ): Promise<ReviewFeedbackJournalStoreStats> {
+    if (!this.reviewFeedbackJournalStore) {
+      throw new Error('BACKEND_UNAVAILABLE: review.feedback non-SiYuan journal store unavailable');
+    }
+    return this.reviewFeedbackJournalStore.appendEntry(entry);
+  }
+
+  private async markReviewFeedbackJournalEntryProjectionApplied(entryId: string, appliedAt: number): Promise<void> {
+    if (!this.reviewFeedbackJournalStore) {
+      return;
+    }
+    await this.reviewFeedbackJournalStore.updateEntryStatus(entryId, 'projection-applied', {
+      appliedAt,
+      projectionAppliedAt: Date.now(),
+      projectionFailedAt: null,
+      lastError: null,
+    });
+  }
+
+  private async markReviewFeedbackJournalEntryProjectionFailed(entryId: string, error: unknown): Promise<void> {
+    if (!this.reviewFeedbackJournalStore) {
+      return;
+    }
+    await this.reviewFeedbackJournalStore.updateEntryStatus(entryId, 'projection-failed', {
+      projectionFailedAt: Date.now(),
+      lastError: errorMessage(error),
+    });
+  }
+
+  private normalizeReviewFeedbackJournalEntries(entries: unknown[]): ReviewFeedbackJournalEntry[] {
+    return entries.filter((entry): entry is ReviewFeedbackJournalEntry => {
+      return typeof entry === 'object'
+        && entry !== null
+        && typeof (entry as ReviewFeedbackJournalEntry).id === 'string'
+        && typeof (entry as ReviewFeedbackJournalEntry).cardId === 'string'
+        && typeof (entry as ReviewFeedbackJournalEntry).recordedAt === 'number'
+        && typeof (entry as ReviewFeedbackJournalEntry).request === 'object'
+        && (entry as ReviewFeedbackJournalEntry).request !== null;
+    }).map((entry) => ({
+      ...entry,
+      status: this.normalizeReviewFeedbackJournalEntryStatus((entry as Partial<ReviewFeedbackJournalEntry>).status),
+      appliedAt: typeof entry.appliedAt === 'number' && Number.isFinite(entry.appliedAt) ? entry.appliedAt : null,
+      projectionAppliedAt: typeof entry.projectionAppliedAt === 'number' && Number.isFinite(entry.projectionAppliedAt)
+        ? entry.projectionAppliedAt
+        : null,
+      projectionFailedAt: typeof entry.projectionFailedAt === 'number' && Number.isFinite(entry.projectionFailedAt)
+        ? entry.projectionFailedAt
+        : null,
+      lastError: typeof entry.lastError === 'string' ? entry.lastError : null,
+    }));
+  }
+
+  private normalizeReviewFeedbackJournalEntryStatus(status: unknown): ReviewFeedbackJournalEntryStatus {
+    return typeof status === 'string' && REVIEW_FEEDBACK_JOURNAL_STATUSES.has(status as ReviewFeedbackJournalEntryStatus)
+      ? status as ReviewFeedbackJournalEntryStatus
+      : 'prepared';
   }
 
   private createReviewFeedbackJournalEntry(request: BackendReviewFeedbackRequest): ReviewFeedbackJournalEntry {
@@ -2194,6 +2327,7 @@ export class WorkerSqliteDatabaseService {
       requestId: null,
       cardId,
       idempotencyKey: normalizedIdempotencyKey,
+      status: 'prepared',
       recordedAt: Date.now(),
       request: {
         ...request,
@@ -2203,22 +2337,35 @@ export class WorkerSqliteDatabaseService {
         idempotencyKey: normalizedIdempotencyKey,
       },
       appliedAt: null,
+      projectionAppliedAt: null,
+      projectionFailedAt: null,
+      lastError: null,
     };
   }
 
   async getReviewFeedbackJournalDiagnostics(): Promise<BackendReviewFeedbackJournalDiagnostics> {
-    const snapshot = await this.readReviewFeedbackJournalSnapshot();
-    const pendingEntries = snapshot.entries.filter((entry) => !entry.appliedAt);
+    const stats = await this.readReviewFeedbackJournalStats();
+    const now = Date.now();
     return {
-      fileName: REVIEW_FEEDBACK_JOURNAL_FILE,
+      fileName: REVIEW_FEEDBACK_JOURNAL_STORAGE_NAME,
+      storage: this.reviewFeedbackJournalStore?.storage ?? 'unavailable',
       version: REVIEW_FEEDBACK_JOURNAL_VERSION,
-      pendingCount: pendingEntries.length,
-      pendingBytes: this.estimateReviewFeedbackJournalPendingBytes(pendingEntries),
+      entryCount: stats.entryCount,
+      pendingCount: stats.pendingCount,
+      pendingBytes: stats.pendingBytes,
+      oldestPendingAt: stats.oldestPendingAt,
+      oldestPendingAgeMs: stats.oldestPendingAt === null ? null : Math.max(0, now - stats.oldestPendingAt),
+      statusCounts: stats.statusCounts,
+      backpressure: this.buildReviewFeedbackJournalBackpressure(stats, now),
       appliedInMemoryCount: this.appliedReviewFeedbackJournalEntryIds.size,
       lastWrite: this.lastReviewFeedbackJournalWrite,
       lastReplay: this.lastReviewFeedbackJournalReplay,
       lastCheckpoint: this.lastReviewFeedbackCheckpoint,
     };
+  }
+
+  getReviewFeedbackJournalStore(): ReviewFeedbackJournalStore | null {
+    return this.reviewFeedbackJournalStore;
   }
 
   async getSqliteDeltaDiagnostics(): Promise<SqliteDeltaDiagnostics> {
@@ -2229,27 +2376,44 @@ export class WorkerSqliteDatabaseService {
     return diagnostics;
   }
 
-  private estimateReviewFeedbackJournalPendingBytes(entries: ReviewFeedbackJournalEntry[]): number {
-    if (entries.length === 0) {
-      return 0;
-    }
-    return estimateJsonByteLength({
-      version: REVIEW_FEEDBACK_JOURNAL_VERSION,
-      entries,
-      updatedAt: Date.now(),
-    } satisfies ReviewFeedbackJournalSnapshot);
-  }
-
   private async clearReviewFeedbackJournal(): Promise<void> {
-    const snapshot = await this.readReviewFeedbackJournalSnapshot();
-    if (snapshot.entries.length === 0) {
+    if (!this.reviewFeedbackJournalStore) {
       return;
     }
-    await this.fileService.writeJSON(REVIEW_FEEDBACK_JOURNAL_FILE, {
-      version: REVIEW_FEEDBACK_JOURNAL_VERSION,
-      entries: [],
-      updatedAt: Date.now(),
-    } satisfies ReviewFeedbackJournalSnapshot);
+    const stats = await this.readReviewFeedbackJournalStats();
+    if (stats.entryCount === 0) {
+      return;
+    }
+    await this.reviewFeedbackJournalStore.clearEntries();
+  }
+
+  private buildReviewFeedbackJournalBackpressure(
+    stats: ReviewFeedbackJournalStoreStats,
+    now: number,
+  ): BackendReviewFeedbackJournalBackpressureDiagnostics {
+    const oldestPendingAgeMs = stats.oldestPendingAt === null ? null : Math.max(0, now - stats.oldestPendingAt);
+    let reason: BackendReviewFeedbackJournalBackpressureDiagnostics['reason'] = null;
+    if (stats.pendingCount >= this.reviewFeedbackJournalBackpressure.maxPendingCount) {
+      reason = 'pending-count';
+    } else if (stats.pendingBytes >= this.reviewFeedbackJournalBackpressure.maxPendingBytes) {
+      reason = 'pending-bytes';
+    } else if (
+      oldestPendingAgeMs !== null
+      && oldestPendingAgeMs >= this.reviewFeedbackJournalBackpressure.maxOldestPendingAgeMs
+    ) {
+      reason = 'oldest-pending-age';
+    }
+    return {
+      state: reason ? 'unavailable' : 'ok',
+      reason,
+      pendingCount: stats.pendingCount,
+      pendingBytes: stats.pendingBytes,
+      oldestPendingAgeMs,
+      maxPendingCount: this.reviewFeedbackJournalBackpressure.maxPendingCount,
+      maxPendingBytes: this.reviewFeedbackJournalBackpressure.maxPendingBytes,
+      maxOldestPendingAgeMs: this.reviewFeedbackJournalBackpressure.maxOldestPendingAgeMs,
+      nextAction: reason ? 'flush-or-checkpoint' : 'continue',
+    };
   }
 
   private async measureReviewFeedbackDatabaseStep<TResult>(

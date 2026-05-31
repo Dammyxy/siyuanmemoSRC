@@ -50,6 +50,10 @@ const allowedRules = [
     file: 'src/index.ts',
     reason: 'uninstall/local cleanup list for old plugin data files',
   },
+  {
+    file: 'worker/truth/MessagePackTruthSegmentStore.ts',
+    reason: 'bounded MessagePack truth segment adapter; callers must stay outside direct msgpack access',
+  },
 ];
 
 const msgpackPattern = /\b(readMsgpack|writeMsgpack)\b|@msgpack\/msgpack|['"`][^'"`]*\.msgpack['"`]/;

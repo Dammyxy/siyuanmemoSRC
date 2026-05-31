@@ -81,6 +81,22 @@ export function resolveExclusiveActiveBackendWorkerTiming(): ActiveBackendWorker
   return activeBackendWorkerTimings.values().next().value ?? null;
 }
 
+export function hasActiveBackendWorkerTiming(method: string): boolean {
+  for (const timing of activeBackendWorkerTimings) {
+    if (timing.method === method) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function shouldSuppressReviewFeedbackPersistenceHostEffect(
+  kind: BackendWorkerHostEffect['kind'],
+): boolean {
+  return hasActiveBackendWorkerTiming('review.feedback')
+    && (kind === 'sqlite.writeJSON' || kind === 'sqlite.writeBinary');
+}
+
 export function resolveExclusiveActiveReviewFeedbackTiming(): ActiveBackendWorkerTiming | null {
   return resolveExclusiveActiveBackendWorkerTiming();
 }

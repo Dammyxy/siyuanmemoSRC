@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BackendKernel } from '../bootstrap/BackendKernel';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
-import { createInMemorySqlitePersistenceBridge } from '../db/SqlitePersistenceBridge';
+import { createInMemoryReviewFeedbackJournalStore } from '../db/ReviewFeedbackJournalStore';
+import {
+  createInMemorySqlitePersistenceBridge,
+  type SqlitePersistenceBridge,
+} from '../db/SqlitePersistenceBridge';
+import type { MessagePackTruthSegmentFileStore } from '../truth/MessagePackTruthSegmentStore';
 import { SqlNeuralRoamRouteRepository } from '@/infrastructure/persistence/sqlite/SqlNeuralRoamRouteRepository';
 import { createDefaultRoute } from '@/core/queue/neural/routes';
 import { buildQueueProjectionSourceCardFingerprint } from '@/application/services/queue-projection/QueueProjectionBuilder';
@@ -15,6 +20,28 @@ import {
   beginBackendWorkerTiming,
   endBackendWorkerRequest,
 } from '../bootstrap/ReviewFeedbackTimingScope';
+
+class MemoryTruthSegmentFileStore implements MessagePackTruthSegmentFileStore {
+  readonly jsonFiles = new Map<string, unknown>();
+  readonly binaryFiles = new Map<string, Uint8Array>();
+
+  async readJSON<T>(fileName: string): Promise<T | null> {
+    return (this.jsonFiles.get(fileName) as T | undefined) ?? null;
+  }
+
+  async writeJSON(fileName: string, data: unknown): Promise<void> {
+    this.jsonFiles.set(fileName, structuredClone(data));
+  }
+
+  async readBinary(fileName: string): Promise<Uint8Array | null> {
+    const bytes = this.binaryFiles.get(fileName);
+    return bytes ? new Uint8Array(bytes) : null;
+  }
+
+  async writeBinary(fileName: string, bytes: Uint8Array): Promise<void> {
+    this.binaryFiles.set(fileName, new Uint8Array(bytes));
+  }
+}
 
 function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = 1_700_000_000_000;
@@ -133,6 +160,19 @@ async function seedQueueProjection(database: WorkerSqliteDatabaseService, input:
 async function flushReviewFeedbackDeferredProjectionMaintenance(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
   await Promise.resolve();
+}
+
+function withoutReviewFeedbackJournalStore(
+  bridge: ReturnType<typeof createInMemorySqlitePersistenceBridge>,
+): SqlitePersistenceBridge {
+  return {
+    readBinary: bridge.readBinary.bind(bridge),
+    writeBinary: bridge.writeBinary.bind(bridge),
+    readJSON: bridge.readJSON?.bind(bridge),
+    writeJSON: bridge.writeJSON?.bind(bridge),
+    readSyncConflictDatabaseSources: bridge.readSyncConflictDatabaseSources?.bind(bridge),
+    cleanupSyncConflictDatabaseSources: bridge.cleanupSyncConflictDatabaseSources?.bind(bridge),
+  };
 }
 
 async function seedReviewEvent(database: WorkerSqliteDatabaseService, input: {
@@ -5317,7 +5357,9 @@ describe('BackendKernel', () => {
       }],
     });
 
-    expect('result' in response).toBe(true);
+    if (!('result' in response)) {
+      throw new Error(response.error.message);
+    }
     if ('result' in response) {
       expect(response.result).toMatchObject({
         queueType: 'neural-roam',
@@ -7374,11 +7416,8 @@ describe('BackendKernel', () => {
       'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
       ['card-review-persist'],
     )?.count).toBe(1);
-    expect(persistenceBridge.jsonSnapshot('review-feedback-journal.v1.json')).toMatchObject({
-      version: 1,
-      entries: [],
-    });
     await expect(database.getReviewFeedbackJournalDiagnostics()).resolves.toMatchObject({
+      storage: 'non-siyuan',
       pendingCount: 0,
       pendingBytes: 0,
       lastCheckpoint: {
@@ -7388,7 +7427,7 @@ describe('BackendKernel', () => {
     });
   });
 
-  it('persists formal review feedback to journal without writing the main sqlite file on the hot path', async () => {
+  it('persists formal review feedback to non-SiYuan journal without bridge file writes on the hot path', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const writeBinary = vi.fn(persistenceBridge.writeBinary.bind(persistenceBridge));
     const writeJSON = vi.fn(persistenceBridge.writeJSON!.bind(persistenceBridge));
@@ -7421,8 +7460,8 @@ describe('BackendKernel', () => {
     });
 
     expect('result' in response).toBe(true);
-    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(0);
-    expect(writeJSON.mock.calls.filter(([path]) => path === 'review-feedback-journal.v1.json')).toHaveLength(1);
+    expect(writeBinary).not.toHaveBeenCalled();
+    expect(writeJSON).not.toHaveBeenCalled();
 
     const diagnostics = await kernel.handle({
       id: 'review-feedback-journal-diagnostics',
@@ -7433,25 +7472,563 @@ describe('BackendKernel', () => {
     expect('result' in diagnostics).toBe(true);
     if ('result' in diagnostics) {
       expect(diagnostics.result.review?.journal).toMatchObject({
-        fileName: 'review-feedback-journal.v1.json',
+        storage: 'non-siyuan',
         version: 1,
         pendingCount: 1,
+        statusCounts: {
+          'projection-applied': 1,
+        },
+        backpressure: {
+          state: 'ok',
+          reason: null,
+          nextAction: 'continue',
+        },
         lastWrite: {
           ok: true,
           entryId: 'review-feedback:review-hot-path-journal-key',
           cardId: 'card-review-journal-hot-path',
+          status: 'prepared',
         },
       });
       expect(diagnostics.result.review?.journal?.pendingBytes).toBeGreaterThan(0);
     }
   });
 
+  it('flushes projection-applied Review journal entries through explicit review.truth.flush', async () => {
+    const reviewFeedbackJournalStore = createInMemoryReviewFeedbackJournalStore();
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const truthFileStore = new MemoryTruthSegmentFileStore();
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      reviewFeedbackJournalStore,
+    });
+    const kernel = new BackendKernel({
+      database,
+      truthFileStore,
+    });
+    await reviewFeedbackJournalStore.appendEntry({
+      id: 'review-feedback:truth-flush-key',
+      requestId: null,
+      cardId: 'card-truth-flush',
+      idempotencyKey: 'truth-flush-key',
+      status: 'projection-applied',
+      recordedAt: 1_700_000_000_001,
+      request: {
+        cardId: 'card-truth-flush',
+        rating: 3,
+        reviewedAt: 1_700_000_000_100,
+        idempotencyKey: 'truth-flush-key',
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+      appliedAt: 1_700_000_000_100,
+      projectionAppliedAt: 1_700_000_000_101,
+      projectionFailedAt: null,
+      lastError: null,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-truth-flush',
+      jsonrpc: '2.0',
+      method: 'review.truth.flush',
+      params: [{
+        deviceId: 'device-A',
+        generationId: 'projection-gen-1',
+        schemaVersion: 1,
+        maxSegmentBytes: 4096,
+        batchLimit: 8,
+      }],
+    });
+
+    if (!('result' in response)) {
+      throw new Error(response.error.message);
+    }
+    expect(response.result).toMatchObject({
+        ok: true,
+        journalQueued: 1,
+        recordsWritten: 1,
+        segmentWritten: true,
+        manifestUpdated: true,
+        projectionRefreshScheduled: true,
+        idempotencyDuplicateSkipped: 0,
+        flushedEntryIds: ['review-feedback:truth-flush-key'],
+    });
+    expect(response.result.segmentPaths[0]).toMatch(
+        /^truth\/review-events\/device-device-A\/seg-\d{6}-[a-z0-9-]+\.msgpack$/,
+    );
+    expect(truthFileStore.binaryFiles.size).toBe(1);
+    await expect(reviewFeedbackJournalStore.getStats()).resolves.toMatchObject({
+      pendingCount: 0,
+      statusCounts: {
+        'truth-flushed': 1,
+      },
+    });
+
+    const diagnostics = await kernel.handle({
+      id: 'review-truth-flush-diagnostics',
+      jsonrpc: '2.0',
+      method: 'diagnostics.status',
+      params: [],
+    });
+    expect('result' in diagnostics).toBe(true);
+    if ('result' in diagnostics) {
+      expect(diagnostics.result.review?.truthFlush).toMatchObject({
+        family: 'review-events',
+        storage: 'truth-segments',
+        last: {
+          ok: true,
+          journalQueued: 1,
+          recordsWritten: 1,
+          manifestUpdated: true,
+          projectionRefreshScheduled: true,
+          idempotencyDuplicateSkipped: 0,
+        },
+      });
+    }
+  });
+
+  it('does not flush Review truth segments from ordinary review.feedback', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const truthFileStore = new MemoryTruthSegmentFileStore();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const reviewedAt = 1_779_187_889_000;
+    await database.upsertCards([buildCard({ id: 'card-review-no-truth-hot-path', due: reviewedAt - 10_000 })]);
+    const kernel = new BackendKernel({
+      database,
+      truthFileStore,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-no-truth-hot-path',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-no-truth-hot-path',
+        rating: 3,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+        idempotencyKey: 'review-no-truth-hot-path-key',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    expect(truthFileStore.binaryFiles.size).toBe(0);
+    expect(truthFileStore.jsonFiles.size).toBe(0);
+  });
+
+  it('appends one review journal entry without reading or rewriting existing pending entries', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const journalEntries = new Map<string, unknown>();
+    let appendEntryCalls = 0;
+    let readSnapshotCalls = 0;
+    let writeSnapshotCalls = 0;
+    let forbidFullSnapshot = false;
+    const clone = <T>(value: T): T => structuredClone(value);
+    const pendingBytes = () => {
+      const value = JSON.stringify(Array.from(journalEntries.values()));
+      return new TextEncoder().encode(value).byteLength;
+    };
+    const journalStore = {
+      storage: 'non-siyuan' as const,
+      async appendEntry(entry: unknown) {
+        appendEntryCalls += 1;
+        const id = typeof entry === 'object' && entry !== null && typeof (entry as { id?: unknown }).id === 'string'
+          ? (entry as { id: string }).id
+          : `entry-${appendEntryCalls}`;
+        journalEntries.set(id, clone(entry));
+        return {
+          entryCount: journalEntries.size,
+          pendingCount: journalEntries.size,
+          pendingBytes: pendingBytes(),
+          updatedAt: Date.now(),
+        };
+      },
+      async listEntries() {
+        return Array.from(journalEntries.values()).map((entry) => clone(entry));
+      },
+      async listPendingEntries() {
+        return Array.from(journalEntries.values()).map((entry) => clone(entry));
+      },
+      async getStats() {
+        return {
+          entryCount: journalEntries.size,
+          pendingCount: journalEntries.size,
+          pendingBytes: pendingBytes(),
+          updatedAt: Date.now(),
+        };
+      },
+      async clearEntries() {
+        journalEntries.clear();
+        return {
+          entryCount: 0,
+          pendingCount: 0,
+          pendingBytes: 0,
+          updatedAt: Date.now(),
+        };
+      },
+      async updateEntryStatus(id: string, status: string, patch: unknown) {
+        const current = journalEntries.get(id);
+        if (typeof current === 'object' && current !== null) {
+          journalEntries.set(id, {
+            ...current,
+            ...(typeof patch === 'object' && patch !== null ? patch : {}),
+            status,
+          });
+        }
+        return {
+          entryCount: journalEntries.size,
+          pendingCount: journalEntries.size,
+          pendingBytes: pendingBytes(),
+          updatedAt: Date.now(),
+          oldestPendingAt: reviewedAt - 10_000,
+          statusCounts: { [status]: 1 },
+        };
+      },
+      async listEntriesByStatus(status: string, limit = 100) {
+        return Array.from(journalEntries.values())
+          .filter((entry) => typeof entry === 'object' && entry !== null && (entry as { status?: unknown }).status === status)
+          .slice(0, limit)
+          .map((entry) => clone(entry));
+      },
+      async readSnapshot() {
+        readSnapshotCalls += 1;
+        if (!forbidFullSnapshot) {
+          return {
+            version: 1,
+            entries: [],
+            updatedAt: 0,
+          };
+        }
+        throw new Error('full review journal snapshot read is forbidden on feedback hot path');
+      },
+      async writeSnapshot() {
+        writeSnapshotCalls += 1;
+        if (!forbidFullSnapshot) {
+          return;
+        }
+        throw new Error('full review journal snapshot write is forbidden on feedback hot path');
+      },
+    };
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      reviewFeedbackJournalStore: journalStore,
+    });
+    const reviewedAt = 1_779_187_889_125;
+    await database.upsertCards([buildCard({ id: 'card-review-journal-indexed', due: reviewedAt - 10_000 })]);
+    await database.persist();
+    for (let index = 0; index < 10_000; index += 1) {
+      journalEntries.set(`existing-${index}`, {
+        id: `existing-${index}`,
+        cardId: `existing-card-${index}`,
+        recordedAt: reviewedAt - index - 1,
+        request: {
+          cardId: `existing-card-${index}`,
+          rating: 3,
+          reviewedAt: reviewedAt - index - 1,
+          queueType: 'retrieval-practice',
+          idempotencyKey: `existing-key-${index}`,
+        },
+        appliedAt: null,
+      });
+    }
+    appendEntryCalls = 0;
+    readSnapshotCalls = 0;
+    writeSnapshotCalls = 0;
+    forbidFullSnapshot = true;
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-journal-indexed',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-journal-indexed',
+        rating: 3,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+        idempotencyKey: 'review-journal-indexed-key',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    expect(appendEntryCalls).toBe(1);
+    expect(readSnapshotCalls).toBe(0);
+    expect(writeSnapshotCalls).toBe(0);
+    expect(journalEntries.has('review-feedback:review-journal-indexed-key')).toBe(true);
+    expect(journalEntries.get('review-feedback:review-journal-indexed-key')).toMatchObject({
+      status: 'projection-applied',
+    });
+    expect(journalEntries.size).toBe(10_001);
+  });
+
+  it('fails review feedback closed when review journal backpressure threshold is exceeded', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const reviewedAt = 1_779_187_889_175;
+    const database = new WorkerSqliteDatabaseService(persistenceBridge, undefined, {
+      reviewFeedbackJournalBackpressure: {
+        maxPendingCount: 1,
+        maxPendingBytes: 1_000_000,
+        maxOldestPendingAgeMs: 86_400_000,
+      },
+    });
+    await database.upsertCards([buildCard({
+      id: 'card-review-journal-backpressure',
+      due: reviewedAt - 10_000,
+      reps: 3,
+    })]);
+    await persistenceBridge.reviewFeedbackJournalStore.appendEntry({
+      id: 'existing-pressure-entry',
+      cardId: 'existing-pressure-card',
+      idempotencyKey: 'existing-pressure-key',
+      status: 'projection-applied',
+      recordedAt: reviewedAt - 1_000,
+      request: {
+        cardId: 'existing-pressure-card',
+        rating: 3,
+        reviewedAt: reviewedAt - 1_000,
+        queueType: 'retrieval-practice',
+        idempotencyKey: 'existing-pressure-key',
+      },
+      appliedAt: reviewedAt - 900,
+    });
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-journal-backpressure',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-journal-backpressure',
+        rating: 3,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+        idempotencyKey: 'review-journal-backpressure-key',
+      }],
+    });
+
+    expect(response).toMatchObject({
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+      },
+    });
+    expect(response.error?.message).toContain('review.feedback non-SiYuan journal backpressure');
+    await expect(database.getReviewFeedbackJournalDiagnostics()).resolves.toMatchObject({
+      backpressure: {
+        state: 'unavailable',
+        reason: 'pending-count',
+        nextAction: 'flush-or-checkpoint',
+      },
+      pendingCount: 1,
+    });
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
+      ['card-review-journal-backpressure'],
+    )?.count).toBe(0);
+    expect((await database.getCard('card-review-journal-backpressure'))?.reps).toBe(3);
+  });
+
+  it('fails review feedback closed when review journal pending bytes threshold is exceeded', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const reviewedAt = 1_779_187_889_190;
+    const database = new WorkerSqliteDatabaseService(persistenceBridge, undefined, {
+      reviewFeedbackJournalBackpressure: {
+        maxPendingCount: 100,
+        maxPendingBytes: 128,
+        maxOldestPendingAgeMs: 86_400_000,
+      },
+    });
+    await database.upsertCards([buildCard({
+      id: 'card-review-journal-bytes-pressure',
+      due: reviewedAt - 10_000,
+      reps: 3,
+    })]);
+    await persistenceBridge.reviewFeedbackJournalStore.appendEntry({
+      id: 'existing-bytes-pressure-entry',
+      cardId: 'existing-bytes-pressure-card',
+      idempotencyKey: 'existing-bytes-pressure-key',
+      status: 'projection-applied',
+      recordedAt: reviewedAt - 1_000,
+      request: {
+        cardId: 'existing-bytes-pressure-card',
+        rating: 3,
+        reviewedAt: reviewedAt - 1_000,
+        queueType: 'retrieval-practice',
+        idempotencyKey: 'existing-bytes-pressure-key',
+        diagnosticPayload: 'x'.repeat(1024),
+      },
+      appliedAt: reviewedAt - 900,
+    });
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-journal-bytes-pressure',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-journal-bytes-pressure',
+        rating: 3,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+        idempotencyKey: 'review-journal-bytes-pressure-key',
+      }],
+    });
+
+    expect(response).toMatchObject({
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+      },
+    });
+    await expect(database.getReviewFeedbackJournalDiagnostics()).resolves.toMatchObject({
+      backpressure: {
+        state: 'unavailable',
+        reason: 'pending-bytes',
+        nextAction: 'flush-or-checkpoint',
+      },
+    });
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
+      ['card-review-journal-bytes-pressure'],
+    )?.count).toBe(0);
+    expect((await database.getCard('card-review-journal-bytes-pressure'))?.reps).toBe(3);
+  });
+
+  it('fails review feedback closed when review journal oldest pending age threshold is exceeded', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const reviewedAt = 1_779_187_889_210;
+    const database = new WorkerSqliteDatabaseService(persistenceBridge, undefined, {
+      reviewFeedbackJournalBackpressure: {
+        maxPendingCount: 100,
+        maxPendingBytes: 1_000_000,
+        maxOldestPendingAgeMs: 1,
+      },
+    });
+    await database.upsertCards([buildCard({
+      id: 'card-review-journal-age-pressure',
+      due: reviewedAt - 10_000,
+      reps: 3,
+    })]);
+    await persistenceBridge.reviewFeedbackJournalStore.appendEntry({
+      id: 'existing-age-pressure-entry',
+      cardId: 'existing-age-pressure-card',
+      idempotencyKey: 'existing-age-pressure-key',
+      status: 'projection-applied',
+      recordedAt: Date.now() - 10_000,
+      request: {
+        cardId: 'existing-age-pressure-card',
+        rating: 3,
+        reviewedAt: reviewedAt - 1_000,
+        queueType: 'retrieval-practice',
+        idempotencyKey: 'existing-age-pressure-key',
+      },
+      appliedAt: reviewedAt - 900,
+    });
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-journal-age-pressure',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-journal-age-pressure',
+        rating: 3,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+        idempotencyKey: 'review-journal-age-pressure-key',
+      }],
+    });
+
+    expect(response).toMatchObject({
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+      },
+    });
+    await expect(database.getReviewFeedbackJournalDiagnostics()).resolves.toMatchObject({
+      backpressure: {
+        state: 'unavailable',
+        reason: 'oldest-pending-age',
+        nextAction: 'flush-or-checkpoint',
+      },
+    });
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
+      ['card-review-journal-age-pressure'],
+    )?.count).toBe(0);
+    expect((await database.getCard('card-review-journal-age-pressure'))?.reps).toBe(3);
+  });
+
+  it('fails review feedback closed when non-SiYuan journal durability is unavailable', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const writeBinary = vi.fn(persistenceBridge.writeBinary.bind(persistenceBridge));
+    const writeJSON = vi.fn(persistenceBridge.writeJSON!.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...withoutReviewFeedbackJournalStore(persistenceBridge),
+      writeBinary,
+      writeJSON,
+    });
+    const reviewedAt = 1_779_187_889_250;
+    await database.upsertCards([buildCard({
+      id: 'card-review-journal-unavailable',
+      due: reviewedAt - 10_000,
+      reps: 3,
+    })]);
+    await database.persist();
+    writeBinary.mockClear();
+    writeJSON.mockClear();
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-journal-unavailable',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-journal-unavailable',
+        rating: 3,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+        idempotencyKey: 'review-journal-unavailable-key',
+      }],
+    });
+
+    expect(response).toMatchObject({
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+      },
+    });
+    expect(response.error?.message).toContain('review.feedback non-SiYuan journal store unavailable');
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
+      ['card-review-journal-unavailable'],
+    )?.count).toBe(0);
+    expect((await database.getCard('card-review-journal-unavailable'))?.reps).toBe(3);
+    expect(writeBinary).not.toHaveBeenCalled();
+    expect(writeJSON).not.toHaveBeenCalled();
+  });
+
   it('keeps queue projection replacement out of ordinary review feedback main DB writes', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const writeBinary = vi.fn(persistenceBridge.writeBinary.bind(persistenceBridge));
+    const writeJSON = vi.fn(persistenceBridge.writeJSON!.bind(persistenceBridge));
     const database = new WorkerSqliteDatabaseService({
       ...persistenceBridge,
       writeBinary,
+      writeJSON,
     });
     const reviewedAt = 1_779_187_889_500;
     const card = buildCard({
@@ -7463,6 +8040,7 @@ describe('BackendKernel', () => {
     await database.upsertCards([card]);
     await database.persist();
     writeBinary.mockClear();
+    writeJSON.mockClear();
     const kernel = new BackendKernel({
       database,
       resolveExistingBlockIds: async (blockIds) => blockIds,
@@ -7497,6 +8075,8 @@ describe('BackendKernel', () => {
       }],
     });
     expect('result' in replace).toBe(true);
+    writeBinary.mockClear();
+    writeJSON.mockClear();
 
     const response = await kernel.handle({
       id: 'review-feedback-projection-hot-path',
@@ -7514,7 +8094,8 @@ describe('BackendKernel', () => {
     });
 
     expect('result' in response).toBe(true);
-    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(0);
+    expect(writeBinary).not.toHaveBeenCalled();
+    expect(writeJSON).not.toHaveBeenCalled();
   });
 
   it('replays pending review feedback journal after restart before checkpoint', async () => {
@@ -7586,7 +8167,7 @@ describe('BackendKernel', () => {
     });
 
     expect('error' in response).toBe(true);
-    expect(writeJSON.mock.calls.filter(([path]) => path === 'review-feedback-journal.v1.json')).toHaveLength(0);
+    expect(writeJSON).not.toHaveBeenCalled();
   });
 
   it('keeps review feedback journal pending when checkpoint main database upload fails', async () => {
@@ -7625,11 +8206,8 @@ describe('BackendKernel', () => {
 
     failMainDbWrite = true;
     await expect(database.persist()).rejects.toThrow('forced main DB upload failure');
-    expect(persistenceBridge.jsonSnapshot('review-feedback-journal.v1.json')).toMatchObject({
-      version: 1,
-      entries: [expect.objectContaining({ idempotencyKey: 'review-checkpoint-fail-key' })],
-    });
     await expect(database.getReviewFeedbackJournalDiagnostics()).resolves.toMatchObject({
+      storage: 'non-siyuan',
       pendingCount: 1,
       lastCheckpoint: {
         ok: false,

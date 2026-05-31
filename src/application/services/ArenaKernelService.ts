@@ -195,6 +195,10 @@ function toSrsArenaLearningEvidenceStatus(status: LearningCurveEvidenceResult['s
 export class ArenaKernelService {
   constructor(private readonly deps: ArenaKernelDeps) {}
 
+  canRecordSrsReviewWithoutSiyuanFileWrite(): boolean {
+    return this.deps.arenaStore.canRecordSrsReviewWithoutSiyuanFileWrite();
+  }
+
   getArenaSettings(): ArenaSettings {
     return this.deps.getArenaSettings();
   }

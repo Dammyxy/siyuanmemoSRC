@@ -30,6 +30,7 @@ import { recordRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnost
 
 const logger = createLogger('BrowserSrsBackendWorkerTransport');
 const REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS = 120;
+const REVIEW_FEEDBACK_PERSISTENCE_SUPPRESSION_DRAIN_MS = 2_000;
 const LONG_BACKEND_COMMAND_REQUEST_TIMEOUT_MS = 300_000;
 const LONG_BACKEND_COMMAND_METHODS = new Set<string>([
   'xiuyuan.sync.execute',
@@ -49,6 +50,10 @@ export interface BrowserSrsBackendWorkerHostEffects {
   writeBinary?: (path: string, bytes: Uint8Array) => Promise<void>;
   readJSON?: <T>(path: string) => Promise<T | null>;
   writeJSON?: (path: string, value: unknown) => Promise<void>;
+  readTruthBinary?: (path: string) => Promise<Uint8Array | null>;
+  writeTruthBinary?: (path: string, bytes: Uint8Array) => Promise<void>;
+  readTruthJSON?: <T>(path: string) => Promise<T | null>;
+  writeTruthJSON?: (path: string, value: unknown) => Promise<void>;
   readSyncConflictDatabaseSources?: () => Promise<Array<{
     sourceId: string;
     bytes: Uint8Array;
@@ -202,6 +207,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
   private lastReadyAt: number | null = null;
   private lastTerminalError: string | null = null;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private reviewFeedbackPersistenceSuppressionUntil = 0;
 
   constructor(private readonly options: BrowserSrsBackendWorkerTransportOptions) {
     this.startWorkerGeneration();
@@ -355,6 +361,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       }
       if (pending.method === 'review.feedback') {
         const now = Date.now();
+        this.extendReviewFeedbackPersistenceSuppressionWindow(now);
         this.logReviewFeedbackWorkerTiming(pending, message.timing, now);
         this.logReviewFeedbackTransportStepIfSlow(
           'worker-roundtrip',
@@ -422,6 +429,15 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
   }
 
   private async executeHostEffect(effect: BackendWorkerHostEffect): Promise<unknown> {
+    if (this.shouldSuppressReviewFeedbackPersistenceHostEffect(effect)) {
+      logger.info('[SiYuanMemo][BrowserSrsBackendWorkerTransport] review.feedback suppressed SiYuan persistence host effect', {
+        kind: effect.kind,
+        path: 'path' in effect ? effect.path : null,
+        pendingReviewFeedbackRequests: this.countPendingReviewFeedbackRequests(),
+        drainRemainingMs: Math.max(0, this.reviewFeedbackPersistenceSuppressionUntil - Date.now()),
+      });
+      throw unavailable(`review.feedback suppressed SiYuan persistence host effect ${effect.kind}`);
+    }
     switch (effect.kind) {
       case 'sqlite.readBinary':
         if (!this.options.hostEffects.readBinary) {
@@ -444,6 +460,28 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           throw unavailable('sqlite.writeJSON host effect unavailable');
         }
         await this.options.hostEffects.writeJSON(effect.path, effect.value);
+        return null;
+      case 'truth.readBinary':
+        if (!this.options.hostEffects.readTruthBinary) {
+          throw unavailable('truth.readBinary host effect unavailable');
+        }
+        return this.options.hostEffects.readTruthBinary(effect.path);
+      case 'truth.writeBinary':
+        if (!this.options.hostEffects.writeTruthBinary) {
+          throw unavailable('truth.writeBinary host effect unavailable');
+        }
+        await this.options.hostEffects.writeTruthBinary(effect.path, effect.bytes);
+        return null;
+      case 'truth.readJSON':
+        if (!this.options.hostEffects.readTruthJSON) {
+          return null;
+        }
+        return this.options.hostEffects.readTruthJSON(effect.path);
+      case 'truth.writeJSON':
+        if (!this.options.hostEffects.writeTruthJSON) {
+          throw unavailable('truth.writeJSON host effect unavailable');
+        }
+        await this.options.hostEffects.writeTruthJSON(effect.path, effect.value);
         return null;
       case 'sqlite.readSyncConflictDatabaseSources':
         if (!this.options.hostEffects.readSyncConflictDatabaseSources) {
@@ -521,6 +559,31 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     }
     const cardId = String((params as { cardId?: unknown }).cardId || '').trim();
     return cardId || null;
+  }
+
+  private shouldSuppressReviewFeedbackPersistenceHostEffect(effect: BackendWorkerHostEffect): boolean {
+    if (effect.kind !== 'sqlite.writeJSON' && effect.kind !== 'sqlite.writeBinary') {
+      return false;
+    }
+    return this.countPendingReviewFeedbackRequests() > 0
+      || Date.now() <= this.reviewFeedbackPersistenceSuppressionUntil;
+  }
+
+  private extendReviewFeedbackPersistenceSuppressionWindow(now = Date.now()): void {
+    this.reviewFeedbackPersistenceSuppressionUntil = Math.max(
+      this.reviewFeedbackPersistenceSuppressionUntil,
+      now + REVIEW_FEEDBACK_PERSISTENCE_SUPPRESSION_DRAIN_MS,
+    );
+  }
+
+  private countPendingReviewFeedbackRequests(): number {
+    let count = 0;
+    for (const pending of this.pendingRequests.values()) {
+      if (pending.method === 'review.feedback') {
+        count += 1;
+      }
+    }
+    return count;
   }
 
   private logReviewFeedbackTransportStepIfSlow(

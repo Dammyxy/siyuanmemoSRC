@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MESSAGEPACK_TRUTH_FAMILY_SCHEMAS } from '../backend-rpc';
 import type {
   BackendBrowserAggregateFocusRequest,
   BackendBrowserAggregatePageResult,
@@ -15,9 +16,69 @@ import type {
   BackendDomainSyncRepairPreviewRequest,
   BackendDomainSyncRepairPreviewResult,
   BackendDomainSyncStatusResult,
+  MessagePackTruthFamily,
+  MessagePackTruthRecord,
   QueueProjectionReadiness,
   QueueProjectionReadinessCause,
 } from '../backend-rpc';
+
+describe('MessagePack truth first-family schema contracts', () => {
+  it('defines explicit schemas for first migrated truth families', () => {
+    expect(MESSAGEPACK_TRUTH_FAMILY_SCHEMAS.map((schema) => schema.family)).toEqual([
+      'review-events',
+      'card-memory-facts',
+      'domain-sync-operations',
+      'ai-session-payload-refs',
+      'semantic-arena-payload-refs',
+      'diagnostics-records',
+    ] satisfies MessagePackTruthFamily[]);
+    expect(MESSAGEPACK_TRUTH_FAMILY_SCHEMAS.every((schema) => schema.schemaVersion === 1)).toBe(true);
+    expect(MESSAGEPACK_TRUTH_FAMILY_SCHEMAS.every((schema) => schema.payloadPolicy !== 'sql-payload')).toBe(true);
+  });
+
+  it('serializes Review event truth with stable schema, refs, and replay guards', () => {
+    const record = {
+      family: 'review-events',
+      schemaVersion: 1,
+      type: 'review.feedback.v1',
+      idempotencyKey: 'review:key-a',
+      logicalTime: 1_700_000_000_010,
+      recordedAt: 1_700_000_000_000,
+      source: {
+        cardId: 'card-a',
+        blockId: 'block-a',
+        sourceBlockId: 'block-a',
+        deckId: 'deck-a',
+        xiuyuanId: 'xiuyuan-a',
+        sourceHash: 'sha256:source-a',
+      },
+      review: {
+        action: 'rating',
+        rating: 3,
+        reviewedAt: 1_700_000_000_010,
+        scheduler: 'fsrs-v6',
+      },
+      memory: {
+        baseMemoryHash: 'sha256:base-a',
+        afterMemoryHash: 'sha256:after-a',
+        projectionGeneration: 12,
+      },
+      queue: {
+        queueType: 'RetrievalPractice',
+        queueMode: 'review',
+        commitPolicy: 'formal',
+      },
+    } satisfies MessagePackTruthRecord;
+
+    expect(JSON.parse(JSON.stringify(record))).toMatchObject({
+      family: 'review-events',
+      schemaVersion: 1,
+      source: { cardId: 'card-a' },
+      review: { action: 'rating', rating: 3 },
+      memory: { projectionGeneration: 12 },
+    });
+  });
+});
 
 describe('backend queue projection readiness contract', () => {
   it('represents ready, refreshing, and unavailable states as a discriminated union', () => {

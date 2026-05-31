@@ -1,5 +1,6 @@
 import {
   BACKEND_RPC_VERSION,
+  MESSAGEPACK_TRUTH_SCHEMA_VERSION,
   type BackendAiPromptExecuteRequest,
   type BackendAiPromptExecuteResult,
   type BackendAiToolJobApprovalRequest,
@@ -53,6 +54,9 @@ import {
   type BackendKernelTransactionRequeueRequest,
   type BackendKernelTransactionRequeueResult,
   type BackendReviewFeedbackResult,
+  type BackendReviewFeedbackTruthFlushDiagnostics,
+  type BackendReviewFeedbackTruthFlushRequest,
+  type BackendReviewFeedbackTruthFlushResult,
   type BackendReviewRiffFeedbackExecuteRequest,
   type BackendReviewRiffFeedbackExecuteResult,
   type BackendReviewSourceRefreshExecuteRequest,
@@ -119,6 +123,11 @@ import {
 } from '../../packages/contracts/src/backend-rpc';
 import type { StructuredCardQuery } from '@/types/card-query';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
+import {
+  createMessagePackTruthSegmentStore,
+  type MessagePackTruthSegmentFileStore,
+} from '../truth/MessagePackTruthSegmentStore';
+import { ReviewFeedbackTruthFlushRuntime } from '../truth/ReviewFeedbackTruthFlushRuntime';
 import { BackendHotspotCommandRuntime } from './BackendHotspotCommandRuntime';
 import { BackendJobRuntime } from './BackendJobRuntime';
 import { WorkerBrowserAggregateReadService } from './WorkerBrowserAggregateReadService';
@@ -170,6 +179,7 @@ interface BackendKernelDependencies {
   executeReviewRiffFeedback?: (
     request: BackendReviewRiffFeedbackExecuteRequest,
   ) => Promise<BackendReviewRiffFeedbackExecuteResult>;
+  truthFileStore?: MessagePackTruthSegmentFileStore;
 }
 
 function buildSuccess<TResult>(
@@ -240,6 +250,7 @@ const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'sync.conflict.merge',
   'sync.conflict.summarize',
   'sync.conflict.reload',
+  'review.truth.flush',
   'kernel.transaction.dequeue',
 ]);
 
@@ -249,6 +260,7 @@ const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_PRESERVE_METHODS = new Set<string>([
   'domainSync.status',
   'sync.reviewDivergence.audit',
   'sync.conflict.summarize',
+  'review.truth.flush',
   'kernel.transaction.dequeue',
 ]);
 
@@ -301,6 +313,7 @@ export class BackendKernel {
   private readonly browserAggregateReadService: WorkerBrowserAggregateReadService;
   private readonly graphQueryService: WorkerGraphQueryService;
   private readonly neuralRoamRuntime: WorkerNeuralRoamAdvanceService;
+  private lastReviewFeedbackTruthFlush: BackendReviewFeedbackTruthFlushResult | null = null;
 
   constructor(private readonly deps: BackendKernelDependencies) {
     this.aiRuntime = new BackendJobRuntime({
@@ -335,6 +348,7 @@ export class BackendKernel {
   static createWithBridge(bridge: SqlitePersistenceBridge): BackendKernel {
     return new BackendKernel({
       database: new WorkerSqliteDatabaseService(bridge),
+      truthFileStore: bridge.truthFileStore,
     });
   }
 
@@ -511,6 +525,8 @@ export class BackendKernel {
             );
             return buildSuccess(request.id, result);
           }
+        case 'review.truth.flush':
+          return buildSuccess(request.id, await this.handleReviewTruthFlush(request.params));
         case 'ai.session.create':
           return buildSuccess(request.id, this.handleAiSessionCreate(request.params));
         case 'ai.session.get':
@@ -590,7 +606,9 @@ export class BackendKernel {
         return buildError(request.id, 'INVALID_REQUEST', message.replace(/^INVALID_REQUEST:\s*/, ''));
       }
       if (
-        message.includes('persistence bridge is unavailable')
+        message.startsWith('BACKEND_UNAVAILABLE:')
+        || message.includes('BACKEND_UNAVAILABLE:')
+        || message.includes('persistence bridge is unavailable')
         || message.includes('is unavailable')
         || message.includes(' unavailable ')
         || message.includes('unavailable:')
@@ -656,6 +674,7 @@ export class BackendKernel {
       review: {
         ...status.review,
         journal: reviewJournal,
+        truthFlush: this.getReviewFeedbackTruthFlushDiagnostics(),
       },
       storage: {
         sqliteDelta,
@@ -664,6 +683,14 @@ export class BackendKernel {
       hotspot: this.hotspotRuntime.getDiagnostics(),
       preRequestMerge: this.getPreRequestMergeDiagnostics(),
       domainSync: await this.deps.database.getDomainSyncStatus(),
+    };
+  }
+
+  private getReviewFeedbackTruthFlushDiagnostics(): BackendReviewFeedbackTruthFlushDiagnostics {
+    return {
+      family: 'review-events',
+      storage: this.deps.truthFileStore ? 'truth-segments' : 'unavailable',
+      last: this.lastReviewFeedbackTruthFlush ? structuredClone(this.lastReviewFeedbackTruthFlush) : null,
     };
   }
 
@@ -919,6 +946,42 @@ export class BackendKernel {
     if (result.committed) {
       this.deps.database.markReviewFeedbackOwnPersistedMainDbClean();
     }
+    return result;
+  }
+
+  private async handleReviewTruthFlush(params: unknown): Promise<BackendReviewFeedbackTruthFlushResult> {
+    const named = this.readNamedParams<BackendReviewFeedbackTruthFlushRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: review.truth.flush requires named params');
+    }
+    const journalStore = this.deps.database.getReviewFeedbackJournalStore();
+    if (!journalStore) {
+      throw new Error('BACKEND_UNAVAILABLE: review.truth.flush requires Review feedback journal store');
+    }
+    if (!this.deps.truthFileStore) {
+      throw new Error('BACKEND_UNAVAILABLE: review.truth.flush requires truth segment file store');
+    }
+    const deviceId = String(named.deviceId || '').trim();
+    const generationId = String(named.generationId || '').trim();
+    if (!deviceId || !generationId) {
+      throw new Error('INVALID_REQUEST: review.truth.flush requires deviceId and generationId');
+    }
+    const truthStore = createMessagePackTruthSegmentStore({
+      fileStore: this.deps.truthFileStore,
+      family: 'review-events',
+      deviceId,
+      generationId,
+      schemaVersion: Math.max(1, Math.floor(Number(named.schemaVersion) || MESSAGEPACK_TRUTH_SCHEMA_VERSION)),
+      maxSegmentBytes: Math.max(256, Math.floor(Number(named.maxSegmentBytes) || 1024 * 1024)),
+    });
+    const runtime = new ReviewFeedbackTruthFlushRuntime({
+      journalStore,
+      truthStore,
+      batchLimit: named.batchLimit,
+      scheduleProjectionRefresh: async () => undefined,
+    });
+    const result = await runtime.flushProjectionApplied();
+    this.lastReviewFeedbackTruthFlush = result;
     return result;
   }
 
