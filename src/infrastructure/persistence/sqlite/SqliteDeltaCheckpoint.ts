@@ -62,6 +62,10 @@ export interface SqliteDeltaOperationStatus {
   at: number;
   classification?: SqliteDeltaWriteClassification;
   label?: string;
+  cause?: string | null;
+  initiator?: string | null;
+  projectionGeneration?: number | null;
+  hotPath?: boolean;
   reason?: string | null;
   pendingCount?: number;
   pendingBytes?: number;
@@ -106,7 +110,14 @@ export interface SqliteDeltaCaptureResult {
 
 export type SqliteDeltaPersistResult =
   | { mode: 'delta'; entry: SqliteDeltaEntry }
-  | { mode: 'checkpoint'; reason: string };
+  | { mode: 'checkpoint'; reason: string; diagnostics: SqliteDeltaDiagnosticsContext };
+
+export interface SqliteDeltaDiagnosticsContext {
+  cause?: string | null;
+  initiator?: string | null;
+  projectionGeneration?: number | null;
+  hotPath?: boolean;
+}
 
 interface AuditRow {
   table_name: string;
@@ -209,6 +220,8 @@ export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
     toColumn('rebuild_reason', 'TEXT', false),
     toColumn('updated_at', 'INTEGER', true),
     toColumn('metadata_json', 'TEXT', true),
+    toColumn('truth_generation_id', 'TEXT', false),
+    toColumn('truth_schema_version', 'INTEGER', false),
   ]),
   tableMetadata('queue_projection_rows', ['queue_type', 'row_id'], [
     toColumn('queue_type', 'TEXT', true, 1),
@@ -226,6 +239,9 @@ export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
     toColumn('source_generation', 'INTEGER', true),
     toColumn('payload_json', 'TEXT', true),
     toColumn('updated_at', 'INTEGER', true),
+    toColumn('truth_refs_json', 'TEXT', false),
+    toColumn('source_hash', 'TEXT', false),
+    toColumn('truth_schema_version', 'INTEGER', false),
   ]),
   tableMetadata('queue_projection_counters', ['queue_type', 'policy_hash'], [
     toColumn('queue_type', 'TEXT', true, 1),
@@ -258,6 +274,8 @@ export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
     toColumn('started_at', 'INTEGER', true),
     toColumn('completed_at', 'INTEGER', false),
     toColumn('metadata_json', 'TEXT', true),
+    toColumn('truth_generation_id', 'TEXT', false),
+    toColumn('truth_schema_version', 'INTEGER', false),
   ]),
 ];
 
@@ -379,6 +397,57 @@ function normalizeChange(value: unknown, entryIndex: number, changeIndex: number
   };
 }
 
+function normalizeDiagnosticsContext(
+  context: SqliteDeltaDiagnosticsContext | undefined,
+): Required<SqliteDeltaDiagnosticsContext> {
+  const hasProjectionGeneration = context?.projectionGeneration !== null
+    && context?.projectionGeneration !== undefined
+    && context?.projectionGeneration !== '';
+  const projectionGeneration = hasProjectionGeneration ? Number(context?.projectionGeneration) : NaN;
+  return {
+    cause: normalizeString(context?.cause) || null,
+    initiator: normalizeString(context?.initiator) || null,
+    projectionGeneration: Number.isFinite(projectionGeneration) ? Math.floor(projectionGeneration) : null,
+    hotPath: context?.hotPath === true,
+  };
+}
+
+function labelLooksHotPath(label: string): boolean {
+  return normalizeString(label).startsWith('review.feedback');
+}
+
+function projectionGenerationFromChange(change: SqliteDeltaChange): number | null {
+  const raw = change.row?.generation ?? change.row?.source_generation ?? null;
+  const generation = Number(raw);
+  return Number.isFinite(generation) ? Math.floor(generation) : null;
+}
+
+function maxProjectionGenerationFromEntries(entries: SqliteDeltaEntry[]): number | null {
+  let result: number | null = null;
+  for (const entry of entries) {
+    for (const change of entry.changes) {
+      const generation = projectionGenerationFromChange(change);
+      if (generation === null) {
+        continue;
+      }
+      result = result === null ? generation : Math.max(result, generation);
+    }
+  }
+  return result;
+}
+
+function maxProjectionGenerationFromChanges(changes: SqliteDeltaChange[]): number | null {
+  let result: number | null = null;
+  for (const change of changes) {
+    const generation = projectionGenerationFromChange(change);
+    if (generation === null) {
+      continue;
+    }
+    result = result === null ? generation : Math.max(result, generation);
+  }
+  return result;
+}
+
 export class SqliteDeltaCheckpointLayer {
   private readonly tableByName = new Map(SQLITE_DELTA_TABLE_REGISTRY.map((table) => [table.tableName, table]));
   private lastWrite: SqliteDeltaOperationStatus | null = null;
@@ -480,17 +549,28 @@ export class SqliteDeltaCheckpointLayer {
     label: string;
     capture: SqliteDeltaCaptureResult | null;
     schemaChanged: boolean;
+    diagnostics?: SqliteDeltaDiagnosticsContext;
   }): Promise<SqliteDeltaPersistResult> {
     const snapshot = await this.readSnapshot();
     const pendingBytes = estimateJsonByteLength(snapshot);
     const checkpointReason = this.classifyCheckpointReason(input, snapshot, pendingBytes);
+    const diagnostics = normalizeDiagnosticsContext(input.diagnostics);
+    const hotPath = diagnostics.hotPath || labelLooksHotPath(input.label);
     if (checkpointReason) {
       this.checkpointOnlyTotal += 1;
+      const checkpointDiagnostics: SqliteDeltaDiagnosticsContext = {
+        cause: input.label,
+        initiator: diagnostics.initiator,
+        projectionGeneration: diagnostics.projectionGeneration
+          ?? maxProjectionGenerationFromChanges(input.capture?.changes ?? []),
+        hotPath,
+      };
       this.lastWrite = {
         ok: true,
         at: Date.now(),
         classification: 'checkpoint',
         label: input.label,
+        ...checkpointDiagnostics,
         reason: checkpointReason,
         pendingCount: snapshot.entries.length,
         pendingBytes,
@@ -499,6 +579,7 @@ export class SqliteDeltaCheckpointLayer {
       return {
         mode: 'checkpoint',
         reason: checkpointReason,
+        diagnostics: checkpointDiagnostics,
       };
     }
 
@@ -513,11 +594,18 @@ export class SqliteDeltaCheckpointLayer {
     if (nextSnapshot.entries.length > MAX_PENDING_DELTA_ENTRIES || nextPendingBytes > MAX_PENDING_DELTA_BYTES) {
       const reason = 'delta-threshold-exceeded';
       this.checkpointOnlyTotal += 1;
+      const checkpointDiagnostics: SqliteDeltaDiagnosticsContext = {
+        cause: input.label,
+        initiator: diagnostics.initiator,
+        projectionGeneration: diagnostics.projectionGeneration ?? maxProjectionGenerationFromEntries([entry]),
+        hotPath,
+      };
       this.lastWrite = {
         ok: true,
         at: Date.now(),
         classification: 'checkpoint',
         label: input.label,
+        ...checkpointDiagnostics,
         reason,
         pendingCount: snapshot.entries.length,
         pendingBytes,
@@ -526,6 +614,7 @@ export class SqliteDeltaCheckpointLayer {
       return {
         mode: 'checkpoint',
         reason,
+        diagnostics: checkpointDiagnostics,
       };
     }
     try {
@@ -551,6 +640,10 @@ export class SqliteDeltaCheckpointLayer {
       at: Date.now(),
       classification: 'delta',
       label: input.label,
+      cause: input.label,
+      initiator: diagnostics.initiator,
+      projectionGeneration: diagnostics.projectionGeneration ?? maxProjectionGenerationFromEntries([entry]),
+      hotPath,
       reason: null,
       pendingCount: nextSnapshot.entries.length,
       pendingBytes: nextPendingBytes,
@@ -612,7 +705,11 @@ export class SqliteDeltaCheckpointLayer {
     return (await this.readSnapshot()).entries.length > 0;
   }
 
-  async clearAfterCheckpoint(reason: string, byteLength: number | null): Promise<void> {
+  async clearAfterCheckpoint(
+    reason: string,
+    byteLength: number | null,
+    diagnosticsContext?: SqliteDeltaDiagnosticsContext,
+  ): Promise<void> {
     const snapshot = await this.readSnapshot();
     const pendingBytes = estimateJsonByteLength(snapshot);
     if (snapshot.entries.length > 0) {
@@ -623,10 +720,15 @@ export class SqliteDeltaCheckpointLayer {
       } satisfies SqliteDeltaLogSnapshot);
     }
     this.checkpointWritesTotal += 1;
+    const diagnostics = normalizeDiagnosticsContext(diagnosticsContext);
     this.lastCheckpoint = {
       ok: true,
       at: Date.now(),
       classification: 'checkpoint',
+      cause: reason,
+      initiator: diagnostics.initiator,
+      projectionGeneration: diagnostics.projectionGeneration ?? maxProjectionGenerationFromEntries(snapshot.entries),
+      hotPath: diagnostics.hotPath || labelLooksHotPath(reason),
       reason,
       pendingCount: snapshot.entries.length,
       pendingBytes,
@@ -636,12 +738,21 @@ export class SqliteDeltaCheckpointLayer {
     };
   }
 
-  async recordCheckpointFailure(reason: string, error: unknown): Promise<void> {
+  async recordCheckpointFailure(
+    reason: string,
+    error: unknown,
+    diagnosticsContext?: SqliteDeltaDiagnosticsContext,
+  ): Promise<void> {
     const snapshot = await this.readSnapshot().catch(() => null);
+    const diagnostics = normalizeDiagnosticsContext(diagnosticsContext);
     this.lastCheckpoint = {
       ok: false,
       at: Date.now(),
       classification: 'checkpoint',
+      cause: reason,
+      initiator: diagnostics.initiator,
+      projectionGeneration: diagnostics.projectionGeneration ?? (snapshot ? maxProjectionGenerationFromEntries(snapshot.entries) : null),
+      hotPath: diagnostics.hotPath || labelLooksHotPath(reason),
       reason,
       pendingCount: snapshot?.entries.length ?? 0,
       pendingBytes: snapshot ? estimateJsonByteLength(snapshot) : 0,

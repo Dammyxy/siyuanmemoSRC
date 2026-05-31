@@ -68,7 +68,11 @@ export class WorkerQueueProjectionRuntime {
         ? this.deps.queueProjection.readLastReadyGeneration(queueType)
         : currentGeneration;
     if (!generation) {
-      return buildUnavailableProjectionSnapshotResult(queueType);
+      return buildRefreshingProjectionSnapshotResult({
+        queueType,
+        policyHash: null,
+        generation: null,
+      });
     }
 
     const policyHash = normalizeOptionalString(request.policyHash) ?? generation.policyHash;
@@ -79,9 +83,10 @@ export class WorkerQueueProjectionRuntime {
         queueType,
         policyHash,
         generation: generation.generation,
-        status: generation.status,
+        status: 'refreshing',
         rows: [],
         counters,
+        freshness: null,
       };
     }
 
@@ -94,15 +99,24 @@ export class WorkerQueueProjectionRuntime {
     });
     const cards = this.deps.repository.getCardsByIds(rows.map((row) => row.cardId));
     const hydrated = buildProjectionSnapshotRows(rows, cards);
-    if (hydrated.freshness.staleRows > 0 || (hydrated.rows.length === 0 && rows.length > 0)) {
+    const countersMissingRows = buildCountersMissingRowsFreshnessEvidence({
+      counters,
+      rows,
+      limit: request.limit,
+      offset: request.offset,
+    });
+    const freshness = countersMissingRows
+      ? mergeProjectionFreshnessEvidence(countersMissingRows, hydrated.freshness)
+      : hydrated.freshness;
+    if (!hydrated.freshnessOk || countersMissingRows) {
       return {
         queueType,
         policyHash,
         generation: requestedGeneration,
-        status: 'unavailable',
+        status: 'refreshing',
         rows: [],
         counters: null,
-        freshness: hydrated.freshness,
+        freshness,
       };
     }
     return {
@@ -118,7 +132,7 @@ export class WorkerQueueProjectionRuntime {
         counters,
         rows: hydrated.rows,
       }),
-      freshness: hydrated.freshness,
+      freshness,
       stale: currentGeneration?.status !== 'ready' && request.allowStale === true,
     };
   }
@@ -138,7 +152,12 @@ export class WorkerQueueProjectionRuntime {
     const generation = this.deps.queueProjection.readGeneration(queueType);
     if (!generation) {
       return {
-        ...buildUnavailableProjectionSnapshotResult(queueType),
+        ...buildRefreshingProjectionSnapshotResult({
+          queueType,
+          policyHash: null,
+          generation: null,
+          freshness: buildMissingIdentityFreshnessEvidence(ids),
+        }),
         cards: [],
       };
     }
@@ -150,9 +169,10 @@ export class WorkerQueueProjectionRuntime {
         queueType,
         policyHash,
         generation: generation.generation,
-        status: generation.status,
+        status: 'refreshing',
         rows: [],
         cards: [],
+        freshness: null,
       };
     }
 
@@ -184,17 +204,18 @@ export class WorkerQueueProjectionRuntime {
     const activeCards = cards.filter((card) => activeCardIds.has(String(card.id || '').trim()));
     const hydrated = buildProjectionSnapshotRows(activeRows, activeCards);
     if (!hydrated.freshnessOk || hydrated.rows.length !== ids.length) {
+      const freshness = mergeProjectionFreshnessEvidence(
+        buildProjectionFreshnessEvidenceForRequestedIds(ids, orderedRows, cards),
+        hydrated.freshness,
+      );
       return {
         queueType,
         policyHash,
         generation: requestedGeneration,
-        status: 'unavailable',
+        status: 'refreshing',
         rows: [],
         cards: [],
-        freshness: mergeProjectionFreshnessEvidence(
-          buildProjectionFreshnessEvidence(orderedRows, cards),
-          hydrated.freshness,
-        ),
+        freshness,
       };
     }
     return {
@@ -339,6 +360,23 @@ function buildUnavailableProjectionSnapshotResult(queueType: unknown): BackendQu
     rows: [],
     counters: null,
     freshness: null,
+  };
+}
+
+function buildRefreshingProjectionSnapshotResult(input: {
+  queueType: unknown;
+  policyHash: string | null;
+  generation: number | null;
+  freshness?: BackendQueueProjectionFreshnessEvidence | null;
+}): BackendQueueProjectionSnapshotResult {
+  return {
+    queueType: String(input.queueType || ''),
+    policyHash: input.policyHash,
+    generation: input.generation,
+    status: 'refreshing',
+    rows: [],
+    counters: null,
+    freshness: input.freshness ?? null,
   };
 }
 
@@ -492,6 +530,69 @@ function buildProjectionFreshnessEvidence(
     missingRows: missingCardIds.length,
     staleCardIds,
     missingCardIds,
+  };
+}
+
+function buildProjectionFreshnessEvidenceForRequestedIds(
+  requestedIds: string[],
+  projectionRows: QueueProjectionRow[],
+  cards: FSRSCard[],
+): BackendQueueProjectionFreshnessEvidence {
+  const evidence = buildProjectionFreshnessEvidence(projectionRows, cards);
+  const foundIdentities = new Set<string>();
+  for (const row of projectionRows) {
+    foundIdentities.add(String(row.rowId || '').trim());
+    foundIdentities.add(String(row.cardId || '').trim());
+    foundIdentities.add(String(row.blockId || '').trim());
+  }
+  const missingRequestedIds = requestedIds
+    .map((id) => String(id || '').trim())
+    .filter((id) => id && !foundIdentities.has(id));
+  return {
+    ...evidence,
+    totalRows: Math.max(evidence.totalRows, requestedIds.length),
+    missingRows: Math.max(evidence.missingRows, missingRequestedIds.length),
+    missingCardIds: uniqueStrings([...evidence.missingCardIds, ...missingRequestedIds]),
+  };
+}
+
+function buildMissingIdentityFreshnessEvidence(ids: string[]): BackendQueueProjectionFreshnessEvidence {
+  const missingIds = uniqueStrings(ids);
+  return {
+    checkedAt: Date.now(),
+    totalRows: missingIds.length,
+    freshRows: 0,
+    staleRows: 0,
+    missingRows: missingIds.length,
+    staleCardIds: [],
+    missingCardIds: missingIds,
+  };
+}
+
+function buildCountersMissingRowsFreshnessEvidence(input: {
+  counters: BackendQueueProjectionSnapshotResult['counters'];
+  rows: QueueProjectionRow[];
+  limit?: number | null;
+  offset?: number | null;
+}): BackendQueueProjectionFreshnessEvidence | null {
+  if (
+    normalizeOptionalInteger(input.limit) !== null
+    || normalizeOptionalInteger(input.offset) !== null
+  ) {
+    return null;
+  }
+  const counterTotal = Math.max(0, Math.floor(Number(input.counters?.total ?? input.counters?.remaining ?? 0)));
+  if (counterTotal <= input.rows.length) {
+    return null;
+  }
+  return {
+    checkedAt: Date.now(),
+    totalRows: counterTotal,
+    freshRows: input.rows.length,
+    staleRows: 0,
+    missingRows: counterTotal - input.rows.length,
+    staleCardIds: [],
+    missingCardIds: [],
   };
 }
 

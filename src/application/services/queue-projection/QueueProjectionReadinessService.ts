@@ -74,6 +74,12 @@ export class QueueProjectionReadinessService {
     if (!snapshot) {
       return 'projection_unavailable';
     }
+    if (hasProjectionFreshnessGap(snapshot.freshness)) {
+      return 'projection_stale';
+    }
+    if (snapshot.status === 'refreshing') {
+      return 'projection_stale';
+    }
     if (snapshot.status === 'invalidated' || snapshot.status === 'rebuilding' || snapshot.status === 'repairing') {
       return 'materialization_in_progress';
     }
@@ -167,4 +173,14 @@ function formatUnknownError(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function hasProjectionFreshnessGap(
+  freshness: BackendQueueProjectionSnapshotResult['freshness'] | null | undefined,
+): boolean {
+  if (!freshness) {
+    return false;
+  }
+  return Math.max(0, Number(freshness.staleRows) || 0) > 0
+    || Math.max(0, Number(freshness.missingRows) || 0) > 0;
 }

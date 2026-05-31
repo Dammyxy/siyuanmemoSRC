@@ -10,9 +10,12 @@ import {
   SQL_SCHEMA_STATEMENTS,
   SQLITE_DB_FILE,
   SQLITE_SCHEMA_VERSION,
+  SQLITE_SKINNY_PROJECTION_COLUMNS,
+  SQLITE_SKINNY_PROJECTION_INDEX_STATEMENTS,
 } from './schema';
 import {
   SqliteDeltaCheckpointLayer,
+  type SqliteDeltaDiagnosticsContext,
   type SqliteDeltaDiagnostics,
 } from './SqliteDeltaCheckpoint';
 
@@ -26,6 +29,7 @@ type TransactionOptions = {
 type PersistOptions = {
   force?: boolean;
   reason?: string;
+  diagnostics?: SqliteDeltaDiagnosticsContext;
 };
 type SqliteDatabaseServiceOptions = {
   applySchemaOnInit?: boolean;
@@ -123,6 +127,33 @@ function resolveSqliteWasmLocation(): string {
     return `${runtime.process.cwd().replace(/\\/g, '/')}${sqliteWasmUrl}`;
   }
   return sqliteWasmUrl;
+}
+
+function normalizePersistDiagnostics(
+  reason: string,
+  options: string | PersistOptions,
+): SqliteDeltaDiagnosticsContext {
+  if (typeof options === 'string') {
+    return {
+      cause: reason,
+      initiator: reason,
+      projectionGeneration: null,
+      hotPath: reason.startsWith('review.feedback'),
+    };
+  }
+  return {
+    cause: options.diagnostics?.cause ?? reason,
+    initiator: options.diagnostics?.initiator ?? reason,
+    projectionGeneration: options.diagnostics?.projectionGeneration ?? null,
+    hotPath: options.diagnostics?.hotPath ?? reason.startsWith('review.feedback'),
+  };
+}
+
+function quoteSqliteIdentifier(identifier: string): string {
+  if (!/^[a-z_][a-z0-9_]*$/i.test(identifier)) {
+    throw new Error(`Invalid SQLite identifier: ${identifier}`);
+  }
+  return `"${identifier}"`;
 }
 
 export class SqliteDatabaseService {
@@ -244,12 +275,24 @@ export class SqliteDatabaseService {
               label,
               capture: deltaCaptureResult,
               schemaChanged,
+              diagnostics: {
+                cause: label,
+                initiator: label,
+                projectionGeneration: null,
+                hotPath: label.startsWith('review.feedback'),
+              },
             });
             if (deltaResult.mode === 'delta') {
               this.dirtySincePersist = false;
               persistAfterCommit = false;
             } else {
-              await this.persist({ reason: `${label}:${deltaResult.reason}` });
+              await this.persist({
+                reason: `${label}:${deltaResult.reason}`,
+                diagnostics: {
+                  ...deltaResult.diagnostics,
+                  cause: label,
+                },
+              });
             }
           } else {
             await this.persist({ reason: label });
@@ -381,6 +424,7 @@ export class SqliteDatabaseService {
 
     const reason = typeof options === 'string' ? options : options.reason ?? 'explicit';
     const force = typeof options === 'object' && options.force === true;
+    const diagnostics = normalizePersistDiagnostics(reason, options);
     const startedAt = Date.now();
     const pendingDelta = await this.deltaLayer?.hasPendingDeltas() ?? false;
     if (!force && !this.dirtySincePersist && !pendingDelta) {
@@ -415,16 +459,16 @@ export class SqliteDatabaseService {
           },
         });
       } catch (error) {
-        await this.deltaLayer?.recordCheckpointFailure(reason, error);
+        await this.deltaLayer?.recordCheckpointFailure(reason, error, diagnostics);
         throw error;
       }
       this.lastPersistedFingerprint = fingerprint;
       this.dirtySincePersist = false;
       this.schemaDirty = false;
       try {
-        await this.deltaLayer?.clearAfterCheckpoint(reason, bytes.byteLength);
+        await this.deltaLayer?.clearAfterCheckpoint(reason, bytes.byteLength, diagnostics);
       } catch (error) {
-        await this.deltaLayer?.recordCheckpointFailure(reason, error);
+        await this.deltaLayer?.recordCheckpointFailure(reason, error, diagnostics);
         throw error;
       }
       recordRuntimePerformanceSpan('sqlite', 'persist', Date.now() - startedAt, {
@@ -447,16 +491,16 @@ export class SqliteDatabaseService {
         } satisfies SqliteEnvelope,
       );
     } catch (error) {
-      await this.deltaLayer?.recordCheckpointFailure(reason, error);
+      await this.deltaLayer?.recordCheckpointFailure(reason, error, diagnostics);
       throw error;
     }
     this.lastPersistedFingerprint = fingerprint;
     this.dirtySincePersist = false;
     this.schemaDirty = false;
     try {
-      await this.deltaLayer?.clearAfterCheckpoint(reason, bytes.byteLength);
+      await this.deltaLayer?.clearAfterCheckpoint(reason, bytes.byteLength, diagnostics);
     } catch (error) {
-      await this.deltaLayer?.recordCheckpointFailure(reason, error);
+      await this.deltaLayer?.recordCheckpointFailure(reason, error, diagnostics);
       throw error;
     }
     recordRuntimePerformanceSpan('sqlite', 'persist', Date.now() - startedAt, {
@@ -554,7 +598,11 @@ export class SqliteDatabaseService {
     this.ensureCardsProjectionColumns(db);
     this.ensureReviewEventCommitIdempotencyColumn(db);
     this.ensureNeuralRoamRouteHistoryLineageColumns(db);
+    this.ensureSkinnyProjectionColumns();
     for (const statement of CARD_PROJECTION_INDEX_STATEMENTS) {
+      this.runSchemaStatement(statement);
+    }
+    for (const statement of SQLITE_SKINNY_PROJECTION_INDEX_STATEMENTS) {
       this.runSchemaStatement(statement);
     }
     const userVersion = this.getUserVersion();
@@ -632,6 +680,31 @@ export class SqliteDatabaseService {
     for (const column of columns) {
       if (!existingColumns.has(column.name)) {
         this.runSchemaMutation(`ALTER TABLE neural_roam_route_history_events ADD COLUMN ${column.definition}`);
+      }
+    }
+  }
+
+  private ensureSkinnyProjectionColumns(): void {
+    const columnsByTable = new Map<string, typeof SQLITE_SKINNY_PROJECTION_COLUMNS>();
+    for (const column of SQLITE_SKINNY_PROJECTION_COLUMNS) {
+      const columns = columnsByTable.get(column.table) ?? [];
+      columns.push(column);
+      columnsByTable.set(column.table, columns);
+    }
+
+    for (const [table, columns] of columnsByTable.entries()) {
+      const existingColumns = new Set(
+        this.getAll<{ name: string }>(`PRAGMA table_info(${quoteSqliteIdentifier(table)})`)
+          .map((row) => row.name)
+          .filter((name): name is string => typeof name === 'string'),
+      );
+      if (existingColumns.size === 0) {
+        continue;
+      }
+      for (const column of columns) {
+        if (!existingColumns.has(column.name)) {
+          this.runSchemaMutation(`ALTER TABLE ${quoteSqliteIdentifier(table)} ADD COLUMN ${column.definition}`);
+        }
       }
     }
   }

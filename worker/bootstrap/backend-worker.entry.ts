@@ -188,6 +188,7 @@ const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
   'browser.deck.page',
   'browser.stats',
   'browser.deck.documentCounts',
+  'storage.projection.rebuild',
   'queue.projection.snapshot',
   'queue.projection.rowsByIds',
   'queue.projection.replace',

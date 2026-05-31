@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Buffer } from 'node:buffer';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import { SqliteDatabaseService } from '@/infrastructure/persistence/sqlite/SqliteDatabaseService';
-import { SQLITE_DB_FILE } from '@/infrastructure/persistence/sqlite/schema';
+import {
+  SQLITE_DB_FILE,
+  SQLITE_SKINNY_PROJECTION_COLUMNS,
+} from '@/infrastructure/persistence/sqlite/schema';
 import { SqlReviewLogRepository } from '@/infrastructure/persistence/sqlite/SqlReviewLogRepository';
 import { CardState, CardType, Rating } from '@/types/card';
 import {
@@ -253,6 +256,25 @@ describe('SqliteDatabaseService', () => {
       'idx_review_events_commit_idempotency',
       'idx_review_events_formal_facts',
     ]);
+  });
+
+  it('materializes skinny projection ownership columns and diagnostics index table', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+
+    for (const column of SQLITE_SKINNY_PROJECTION_COLUMNS) {
+      const columnNames = database.getAll<{ name: string }>(
+        `PRAGMA table_info(${column.table})`,
+      ).map((row) => row.name);
+      expect(columnNames, `${column.table}.${column.name}`).toContain(column.name);
+    }
+
+    expect(database.getOne<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'diagnostics_indexes'",
+    )).toEqual({ name: 'diagnostics_indexes' });
+    expect(database.getOne<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_diagnostics_indexes_category'",
+    )).toEqual({ name: 'idx_diagnostics_indexes_category' });
   });
 
   it('persists ReviewLogV2 commit idempotency through the sqlite review repository', async () => {

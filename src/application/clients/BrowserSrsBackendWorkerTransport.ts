@@ -33,6 +33,7 @@ const REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS = 120;
 const REVIEW_FEEDBACK_PERSISTENCE_SUPPRESSION_DRAIN_MS = 2_000;
 const LONG_BACKEND_COMMAND_REQUEST_TIMEOUT_MS = 300_000;
 const LONG_BACKEND_COMMAND_METHODS = new Set<string>([
+  'storage.projection.rebuild',
   'xiuyuan.sync.execute',
 ]);
 const REVIEW_FEEDBACK_WORKER_HANDLE_TOP_INNER_STEP_COUNT = 5;
@@ -40,6 +41,7 @@ const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
   'browser.deck.page',
   'browser.stats',
   'browser.deck.documentCounts',
+  'storage.projection.rebuild',
   'queue.projection.snapshot',
   'queue.projection.rowsByIds',
   'queue.projection.replace',

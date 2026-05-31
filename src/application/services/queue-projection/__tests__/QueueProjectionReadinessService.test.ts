@@ -61,6 +61,36 @@ describe('QueueProjectionReadinessService', () => {
     expect(readSnapshot).toHaveBeenCalledTimes(1);
   });
 
+  it('returns projection_stale when snapshot freshness shows missing or stale projection rows', async () => {
+    const service = new QueueProjectionReadinessService({
+      readSnapshot: vi.fn(async () => ({
+        queueType: 'retrieval-practice',
+        policyHash: 'policy-stale',
+        generation: 8,
+        status: 'refreshing',
+        rows: [],
+        counters: null,
+        freshness: {
+          checkedAt: 1_700_000_000_000,
+          totalRows: 2,
+          freshRows: 1,
+          staleRows: 1,
+          missingRows: 0,
+          staleCardIds: ['card-stale'],
+          missingCardIds: [],
+        },
+      })),
+    });
+
+    await expect(service.ensureReady({ queueType: 'retrieval-practice' })).resolves.toEqual({
+      status: 'refreshing',
+      queueId: 'retrieval-practice',
+      policyId: service.buildPolicyId({ queueType: 'retrieval-practice' }),
+      cause: 'projection_stale',
+      retryAfterMs: 300,
+    });
+  });
+
   it('returns recoverable unavailable with machine cause when backend read fails', async () => {
     const service = new QueueProjectionReadinessService({
       readSnapshot: vi.fn(async () => {

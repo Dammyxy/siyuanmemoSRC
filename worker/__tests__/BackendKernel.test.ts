@@ -6,7 +6,10 @@ import {
   createInMemorySqlitePersistenceBridge,
   type SqlitePersistenceBridge,
 } from '../db/SqlitePersistenceBridge';
-import type { MessagePackTruthSegmentFileStore } from '../truth/MessagePackTruthSegmentStore';
+import {
+  createMessagePackTruthSegmentStore,
+  type MessagePackTruthSegmentFileStore,
+} from '../truth/MessagePackTruthSegmentStore';
 import { SqlNeuralRoamRouteRepository } from '@/infrastructure/persistence/sqlite/SqlNeuralRoamRouteRepository';
 import { createDefaultRoute } from '@/core/queue/neural/routes';
 import { buildQueueProjectionSourceCardFingerprint } from '@/application/services/queue-projection/QueueProjectionBuilder';
@@ -373,7 +376,16 @@ async function seedNeuralRoamRouteSource(
 }
 
 function createNeuralGraphResolver(
-  dataByBlockId: Record<string, { id: string; content: string; type: string; parent_id?: string; root_id?: string }>,
+  dataByBlockId: Record<string, {
+    id: string;
+    content: string;
+    type: string;
+    parent_id?: string;
+    root_id?: string;
+    attrs?: Record<string, string>;
+    ial?: Record<string, string>;
+    attributes?: Record<string, string>;
+  }>,
 ) {
   return vi.fn(async (
     request: BackendNeuralGraphQueryRequest,
@@ -487,6 +499,13 @@ describe('BackendKernel', () => {
           sqliteDelta: {
             fileName: 'sqlite-delta-log.v1.json',
             pendingCount: 0,
+            lastCheckpoint: {
+              ok: true,
+              cause: 'worker.persist',
+              initiator: 'db.persist',
+              projectionGeneration: null,
+              hotPath: false,
+            },
           },
         },
       });
@@ -4906,7 +4925,7 @@ describe('BackendKernel', () => {
     }
   });
 
-  it('serves projection snapshot active rows while row lookup fails closed when requested ids cannot all hydrate', async () => {
+  it('returns refreshing projection state when snapshot or row hydration cannot fully hydrate projection rows', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
     const activeCard = buildCard({
@@ -4950,12 +4969,9 @@ describe('BackendKernel', () => {
         queueType: 'incremental-learning',
         policyHash: 'policy-a',
         generation: 9,
-        status: 'ready',
-        counters: {
-          generation: 9,
-          remaining: 2,
-          total: 2,
-        },
+        status: 'refreshing',
+        rows: [],
+        counters: null,
         freshness: {
           totalRows: 3,
           freshRows: 2,
@@ -4963,13 +4979,6 @@ describe('BackendKernel', () => {
           missingCardIds: ['projection-missing-card'],
         },
       });
-      expect(snapshot.result.rows.map((row: { fsrsCardId: string; queueIndex?: number }) => ({
-        fsrsCardId: row.fsrsCardId,
-        queueIndex: row.queueIndex,
-      }))).toEqual([
-        { fsrsCardId: 'projection-active-card', queueIndex: 1 },
-        { fsrsCardId: 'projection-unknown-card', queueIndex: 3 },
-      ]);
     }
 
     const rowsByIds = await kernel.handle({
@@ -4988,9 +4997,15 @@ describe('BackendKernel', () => {
         queueType: 'incremental-learning',
         policyHash: 'policy-a',
         generation: 9,
-        status: 'unavailable',
+        status: 'refreshing',
         rows: [],
         cards: [],
+        freshness: {
+          totalRows: 3,
+          freshRows: 2,
+          missingRows: 1,
+          missingCardIds: ['projection-missing-card'],
+        },
       });
     }
   });
@@ -5026,7 +5041,7 @@ describe('BackendKernel', () => {
     if ('result' in snapshot) {
       expect(snapshot.result).toMatchObject({
         queueType: 'final-drill',
-        status: 'invalidated',
+        status: 'refreshing',
         rows: [],
       });
     }
@@ -5055,7 +5070,7 @@ describe('BackendKernel', () => {
     if ('result' in before) {
       expect(before.result).toMatchObject({
         queueType: 'leech',
-        status: 'unavailable',
+        status: 'refreshing',
         generation: null,
       });
     }
@@ -5127,7 +5142,7 @@ describe('BackendKernel', () => {
     }
   });
 
-  it('fails closed when source-card fingerprint is stale after synced review state changes', async () => {
+  it('reports refreshing when source-card fingerprint is stale after synced review state changes', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
     const reviewedCard = buildCard({
@@ -5189,7 +5204,7 @@ describe('BackendKernel', () => {
     expect('result' in snapshot).toBe(true);
     if ('result' in snapshot) {
       expect(snapshot.result).toMatchObject({
-        status: 'unavailable',
+        status: 'refreshing',
         counters: null,
         freshness: {
           totalRows: 1,
@@ -5203,7 +5218,7 @@ describe('BackendKernel', () => {
     }
   });
 
-  it('fails closed when source-card priority changes without projection rematerialization', async () => {
+  it('reports refreshing when source-card priority changes without projection rematerialization', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
     const card = buildCard({
@@ -5235,7 +5250,7 @@ describe('BackendKernel', () => {
         queueType: 'retrieval-practice',
         policyHash: 'policy-a',
         generation: 11,
-        status: 'unavailable',
+        status: 'refreshing',
         rows: [],
         counters: null,
         freshness: {
@@ -7616,6 +7631,808 @@ describe('BackendKernel', () => {
     expect('result' in response).toBe(true);
     expect(truthFileStore.binaryFiles.size).toBe(0);
     expect(truthFileStore.jsonFiles.size).toBe(0);
+  });
+
+  it('returns backend unavailable when projection rebuild has no truth segment store', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({
+      database,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({}),
+    });
+
+    const response = await kernel.handle({
+      id: 'projection-rebuild-no-truth-store',
+      jsonrpc: '2.0',
+      method: 'storage.projection.rebuild',
+      params: [{
+        families: ['review-event-indexes'],
+        deviceId: 'device-A',
+        generationId: 'projection-gen-1',
+        schemaVersion: 1,
+      }],
+    });
+
+    expect(response).toMatchObject({
+      id: 'projection-rebuild-no-truth-store',
+      jsonrpc: '2.0',
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+      },
+    });
+    if ('error' in response) {
+      expect(response.error.message).toContain('truth segment file store');
+    }
+  });
+
+  it('rebuilds review event SQL indexes from MessagePack truth and SiYuan source reads', async () => {
+    const truthFileStore = new MemoryTruthSegmentFileStore();
+    const truthStore = createMessagePackTruthSegmentStore({
+      fileStore: truthFileStore,
+      family: 'review-events',
+      deviceId: 'device-A',
+      generationId: 'projection-gen-1',
+      schemaVersion: 1,
+      maxSegmentBytes: 4096,
+    });
+    await truthStore.appendRecords([{
+      family: 'review-events',
+      schemaVersion: 1,
+      type: 'review.feedback.v1',
+      journalEntryId: 'journal-projection-a',
+      idempotencyKey: 'projection-key-a',
+      cardId: 'card-projection-a',
+      rating: 3,
+      reviewedAt: 1_700_000_000_100,
+      logicalTime: 1_700_000_000_100,
+      recordedAt: 1_700_000_000_001,
+      source: {
+        cardId: 'card-projection-a',
+        blockId: 'block-projection-a',
+        sourceBlockId: 'block-projection-a',
+      },
+      review: {
+        action: 'rating',
+        rating: 3,
+        reviewedAt: 1_700_000_000_100,
+        scheduler: 'fsrs-v6',
+      },
+      memory: {
+        projectionGeneration: 7,
+      },
+      queue: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    }]);
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const resolveNeuralGraphQuery = createNeuralGraphResolver({
+      'block-projection-a': {
+        id: 'block-projection-a',
+        content: 'Source content must stay out of review_events payload_json',
+        type: 'p',
+        root_id: 'doc-projection-a',
+      },
+    });
+    const kernel = new BackendKernel({
+      database,
+      truthFileStore,
+      resolveNeuralGraphQuery,
+    });
+
+    const response = await kernel.handle({
+      id: 'projection-rebuild-review-events',
+      jsonrpc: '2.0',
+      method: 'storage.projection.rebuild',
+      params: [{
+        rebuildId: 'rebuild-review-events',
+        cause: 'sql-missing',
+        families: ['review-event-indexes'],
+        deviceId: 'device-A',
+        generationId: 'projection-gen-1',
+        schemaVersion: 1,
+      }],
+    });
+
+    if (!('result' in response)) {
+      throw new Error(response.error.message);
+    }
+    expect(response.result).toMatchObject({
+      status: 'ready',
+      rebuildId: 'rebuild-review-events',
+      rowsRead: 1,
+      rowsWritten: 1,
+      sourceReadCount: 1,
+      missingSourceIds: [],
+      families: [{
+        family: 'review-event-indexes',
+        status: 'ready',
+        rowsRead: 1,
+        rowsWritten: 1,
+        sourceReadCount: 1,
+        missingSourceIds: [],
+      }],
+    });
+    expect(resolveNeuralGraphQuery).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'fetchBlockData',
+      blockId: 'block-projection-a',
+    }));
+    const row = database.getOne<{
+      card_id: string;
+      rating: number;
+      commit_idempotency_key: string;
+      msgpack_ref: string;
+      truth_schema_version: number;
+      projection_generation: number;
+      payload_json: string;
+    }>(
+      `SELECT card_id, rating, commit_idempotency_key, msgpack_ref,
+              truth_schema_version, projection_generation, payload_json
+         FROM review_events
+        WHERE card_id = ?`,
+      ['card-projection-a'],
+    );
+    expect(row).toMatchObject({
+      card_id: 'card-projection-a',
+      rating: 3,
+      commit_idempotency_key: 'projection-key-a',
+      truth_schema_version: 1,
+      projection_generation: response.result.projectionGeneration,
+    });
+    expect(JSON.parse(row?.msgpack_ref || '{}')).toMatchObject({
+      family: 'review-events',
+      deviceId: 'device-A',
+      generationId: 'projection-gen-1',
+      idempotencyKey: 'projection-key-a',
+    });
+    expect(row?.payload_json).not.toContain('Source content must stay out');
+  });
+
+  it('reports missing SiYuan source during projection rebuild without synthesizing rows', async () => {
+    const truthFileStore = new MemoryTruthSegmentFileStore();
+    const truthStore = createMessagePackTruthSegmentStore({
+      fileStore: truthFileStore,
+      family: 'review-events',
+      deviceId: 'device-A',
+      generationId: 'projection-gen-missing-source',
+      schemaVersion: 1,
+      maxSegmentBytes: 4096,
+    });
+    await truthStore.appendRecords([{
+      family: 'review-events',
+      schemaVersion: 1,
+      type: 'review.feedback.v1',
+      journalEntryId: 'journal-missing-source',
+      idempotencyKey: 'projection-key-missing-source',
+      cardId: 'card-missing-source',
+      rating: 2,
+      reviewedAt: 1_700_000_000_200,
+      logicalTime: 1_700_000_000_200,
+      recordedAt: 1_700_000_000_002,
+      source: {
+        cardId: 'card-missing-source',
+        blockId: 'block-missing-source',
+        sourceBlockId: 'block-missing-source',
+      },
+      review: {
+        action: 'rating',
+        rating: 2,
+        reviewedAt: 1_700_000_000_200,
+      },
+      memory: {
+        projectionGeneration: 8,
+      },
+    }]);
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const resolveNeuralGraphQuery = createNeuralGraphResolver({});
+    const kernel = new BackendKernel({
+      database,
+      truthFileStore,
+      resolveNeuralGraphQuery,
+    });
+
+    const response = await kernel.handle({
+      id: 'projection-rebuild-missing-source',
+      jsonrpc: '2.0',
+      method: 'storage.projection.rebuild',
+      params: [{
+        rebuildId: 'rebuild-missing-source',
+        cause: 'source-missing',
+        families: ['review-event-indexes'],
+        deviceId: 'device-A',
+        generationId: 'projection-gen-missing-source',
+        schemaVersion: 1,
+      }],
+    });
+
+    if (!('result' in response)) {
+      throw new Error(response.error.message);
+    }
+    expect(response.result).toMatchObject({
+      status: 'unavailable',
+      missingSourceIds: ['block-missing-source'],
+      families: [{
+        family: 'review-event-indexes',
+        status: 'unavailable',
+        unavailableReason: 'missing-source',
+        rowsWritten: 0,
+        missingSourceIds: ['block-missing-source'],
+      }],
+    });
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE card_id = ?',
+      ['card-missing-source'],
+    )?.count).toBe(0);
+  });
+
+  it('rebuilds card projections after deleted SQL from synced card memory truth and SiYuan source', async () => {
+    const truthFileStore = new MemoryTruthSegmentFileStore();
+    const truthStore = createMessagePackTruthSegmentStore({
+      fileStore: truthFileStore,
+      family: 'card-memory-facts',
+      deviceId: 'device-remote',
+      generationId: 'projection-gen-cards',
+      schemaVersion: 1,
+      maxSegmentBytes: 4096,
+    });
+    const longSourceContent = 'Remote source content used for projection rebuild. Full source body must stay owned by SiYuan blocks.';
+    await truthStore.appendRecords([
+      {
+        family: 'card-memory-facts',
+        schemaVersion: 1,
+        type: 'card-memory.created.v1',
+        idempotencyKey: 'card:create:remote-a',
+        logicalTime: 1_700_000_010_000,
+        recordedAt: 1_700_000_010_001,
+        source: {
+          cardId: 'card-remote-a',
+          blockId: 'block-remote-a',
+          sourceBlockId: 'block-remote-a',
+          xiuyuanId: 'xy-remote-a',
+          cardFaceId: 'face-remote-a',
+        },
+        memory: {
+          schedulerOwner: 'fsrs-v6',
+          memoryHash: 'memory-remote-a',
+          lineage: {
+            type: 'concept',
+            state: CardState.New,
+            due: 1_700_086_400_000,
+            priority: 17,
+            createdAt: 1_700_000_000_000,
+            updatedAt: 1_700_000_010_000,
+            schedulerType: 'fsrs-v6',
+            tags: ['remote', 'synced'],
+            cardTypeMarker: 'concept',
+          },
+        },
+      },
+      {
+        family: 'card-memory-facts',
+        schemaVersion: 1,
+        type: 'source-binding.created.v1',
+        idempotencyKey: 'binding:create:remote-a',
+        logicalTime: 1_700_000_020_000,
+        recordedAt: 1_700_000_020_001,
+        source: {
+          cardId: 'card-remote-a',
+          blockId: 'block-remote-a',
+          sourceBlockId: 'block-remote-a',
+          xiuyuanId: 'xy-remote-a',
+          cardFaceId: 'face-remote-a',
+        },
+        memory: {
+          schedulerOwner: 'fsrs-v6',
+          memoryHash: 'memory-remote-a',
+          lineage: {
+            xiuyuanId: 'xy-remote-a',
+            sourceHash: 'source-hash-remote-a',
+          },
+        },
+      },
+      {
+        family: 'card-memory-facts',
+        schemaVersion: 1,
+        type: 'card-face.created.v1',
+        idempotencyKey: 'face:create:remote-a',
+        logicalTime: 1_700_000_030_000,
+        recordedAt: 1_700_000_030_001,
+        source: {
+          cardId: 'card-remote-a',
+          blockId: 'block-remote-a',
+          sourceBlockId: 'block-remote-a',
+          xiuyuanId: 'xy-remote-a',
+          cardFaceId: 'face-remote-a',
+        },
+        memory: {
+          schedulerOwner: 'fsrs-v6',
+          memoryHash: 'memory-remote-a',
+          lineage: {
+            faceKey: { ruleId: 'concept-definition', faceIndex: 0 },
+            cardTypeMarker: 'concept',
+          },
+        },
+      },
+    ]);
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const resolveNeuralGraphQuery = createNeuralGraphResolver({
+      'block-remote-a': {
+        id: 'block-remote-a',
+        content: longSourceContent,
+        type: 'p',
+        root_id: 'doc-remote-a',
+      },
+    });
+    const kernel = new BackendKernel({
+      database,
+      truthFileStore,
+      resolveNeuralGraphQuery,
+    });
+
+    const response = await kernel.handle({
+      id: 'projection-rebuild-cards',
+      jsonrpc: '2.0',
+      method: 'storage.projection.rebuild',
+      params: [{
+        rebuildId: 'rebuild-cards-after-sql-delete',
+        cause: 'sql-deleted',
+        families: ['cards'],
+        deviceId: 'device-remote',
+        generationId: 'projection-gen-cards',
+        schemaVersion: 1,
+      }],
+    });
+
+    if (!('result' in response)) {
+      throw new Error(response.error.message);
+    }
+    expect(response.result).toMatchObject({
+      status: 'ready',
+      rebuildId: 'rebuild-cards-after-sql-delete',
+      rowsRead: 3,
+      rowsWritten: 1,
+      sourceReadCount: 1,
+      missingSourceIds: [],
+      families: [{
+        family: 'cards',
+        status: 'ready',
+        rowsRead: 3,
+        rowsWritten: 1,
+        sourceReadCount: 1,
+        missingSourceIds: [],
+      }],
+    });
+    expect(resolveNeuralGraphQuery).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'fetchBlockData',
+      blockId: 'block-remote-a',
+    }));
+    const row = database.getOne<{
+      id: string;
+      block_id: string;
+      xiuyuan_id: string;
+      type: string;
+      state: number;
+      due: number;
+      priority: number;
+      scheduler_type: string;
+      root_id: string;
+      content_text: string;
+      search_text: string;
+      card_type_marker: string;
+      source_exists: number;
+      msgpack_ref: string;
+      truth_hash: string;
+      truth_schema_version: number;
+      projection_generation: number;
+      source_hash: string;
+      payload_json: string;
+      dto_json: string | null;
+    }>(
+      `SELECT id, block_id, xiuyuan_id, type, state, due, priority, scheduler_type,
+              root_id, content_text, search_text, card_type_marker, source_exists,
+              msgpack_ref, truth_hash, truth_schema_version, projection_generation,
+              source_hash, payload_json, dto_json
+         FROM cards
+        WHERE id = ?`,
+      ['card-remote-a'],
+    );
+    expect(row).toMatchObject({
+      id: 'card-remote-a',
+      block_id: 'block-remote-a',
+      xiuyuan_id: 'xy-remote-a',
+      type: 'concept',
+      state: CardState.New,
+      due: 1_700_086_400_000,
+      priority: 17,
+      scheduler_type: 'a-factor-v2',
+      root_id: 'doc-remote-a',
+      content_text: longSourceContent.slice(0, 80),
+      search_text: longSourceContent.toLowerCase().slice(0, 80),
+      card_type_marker: 'concept',
+      source_exists: 1,
+      truth_schema_version: 1,
+      projection_generation: response.result.projectionGeneration,
+      source_hash: 'source-hash-remote-a',
+    });
+    expect(JSON.parse(row?.msgpack_ref || '{}')).toMatchObject({
+      family: 'card-memory-facts',
+      deviceId: 'device-remote',
+      generationId: 'projection-gen-cards',
+      idempotencyKey: 'face:create:remote-a',
+    });
+    expect(row?.truth_hash).toBeTruthy();
+    expect(row?.payload_json).not.toContain('Full source body must stay owned');
+    expect(row?.dto_json || '').not.toContain('Full source body must stay owned');
+  });
+
+  it('rebuilds Xiuyuan binding from allowlisted source attrs during card projection rebuild', async () => {
+    const truthFileStore = new MemoryTruthSegmentFileStore();
+    const truthStore = createMessagePackTruthSegmentStore({
+      fileStore: truthFileStore,
+      family: 'card-memory-facts',
+      deviceId: 'device-attrs',
+      generationId: 'projection-gen-card-attrs',
+      schemaVersion: 1,
+      maxSegmentBytes: 4096,
+    });
+    await truthStore.appendRecords([
+      {
+        family: 'card-memory-facts',
+        schemaVersion: 1,
+        type: 'card-memory.created.v1',
+        idempotencyKey: 'card:create:attrs-a',
+        logicalTime: 1_700_000_040_000,
+        recordedAt: 1_700_000_040_001,
+        source: {
+          cardId: 'card-attrs-a',
+          blockId: 'block-attrs-a',
+          sourceBlockId: 'block-attrs-a',
+        },
+        memory: {
+          schedulerOwner: 'fsrs-v6',
+          memoryHash: 'memory-attrs-a',
+          lineage: {
+            type: 'item',
+            state: CardState.New,
+            due: 1_700_086_500_000,
+            priority: 23,
+            createdAt: 1_700_000_040_000,
+            updatedAt: 1_700_000_040_000,
+          },
+        },
+      },
+      {
+        family: 'card-memory-facts',
+        schemaVersion: 1,
+        type: 'source-binding.created.v1',
+        idempotencyKey: 'binding:create:attrs-a',
+        logicalTime: 1_700_000_050_000,
+        recordedAt: 1_700_000_050_001,
+        source: {
+          cardId: 'card-attrs-a',
+          blockId: 'block-attrs-a',
+          sourceBlockId: 'block-attrs-a',
+        },
+        memory: {
+          schedulerOwner: 'fsrs-v6',
+          memoryHash: 'memory-attrs-a',
+          lineage: {},
+        },
+      },
+    ]);
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({
+      database,
+      truthFileStore,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({
+        'block-attrs-a': {
+          id: 'block-attrs-a',
+          content: 'Attr-bound source content',
+          type: 'p',
+          root_id: 'doc-attrs-a',
+          attrs: {
+            'custom-xiuyuan-id': 'xy-from-allowlisted-attr',
+            'custom-fsrs-due': '9999999999999',
+          },
+        },
+      }),
+    });
+
+    const response = await kernel.handle({
+      id: 'projection-rebuild-card-attrs',
+      jsonrpc: '2.0',
+      method: 'storage.projection.rebuild',
+      params: [{
+        rebuildId: 'rebuild-card-attrs',
+        cause: 'sql-missing',
+        families: ['cards'],
+        deviceId: 'device-attrs',
+        generationId: 'projection-gen-card-attrs',
+        schemaVersion: 1,
+      }],
+    });
+
+    if (!('result' in response)) {
+      throw new Error(response.error.message);
+    }
+    expect(response.result.status).toBe('ready');
+    const row = database.getOne<{
+      xiuyuan_id: string;
+      due: number;
+      scheduler_type: string;
+      payload_json: string;
+    }>(
+      'SELECT xiuyuan_id, due, scheduler_type, payload_json FROM cards WHERE id = ?',
+      ['card-attrs-a'],
+    );
+    expect(row).toMatchObject({
+      xiuyuan_id: 'xy-from-allowlisted-attr',
+      due: 1_700_086_500_000,
+      scheduler_type: 'fsrs-v6',
+    });
+    expect(row?.payload_json).not.toContain('custom-fsrs-due');
+  });
+
+  it('rebuilds supported projections on a second device with deleted SQL after synced truth arrives', async () => {
+    const truthFileStore = new MemoryTruthSegmentFileStore();
+    const reviewTruthStore = createMessagePackTruthSegmentStore({
+      fileStore: truthFileStore,
+      family: 'review-events',
+      deviceId: 'device-origin',
+      generationId: 'projection-gen-second-device',
+      schemaVersion: 1,
+      maxSegmentBytes: 4096,
+    });
+    const cardTruthStore = createMessagePackTruthSegmentStore({
+      fileStore: truthFileStore,
+      family: 'card-memory-facts',
+      deviceId: 'device-origin',
+      generationId: 'projection-gen-second-device',
+      schemaVersion: 1,
+      maxSegmentBytes: 4096,
+    });
+
+    await reviewTruthStore.appendRecords([{
+      family: 'review-events',
+      schemaVersion: 1,
+      type: 'review.feedback.v1',
+      journalEntryId: 'journal-second-device-a',
+      idempotencyKey: 'review:second-device-a',
+      cardId: 'card-second-device-a',
+      rating: 4,
+      reviewedAt: 1_700_000_200_000,
+      logicalTime: 1_700_000_200_000,
+      recordedAt: 1_700_000_200_001,
+      source: {
+        cardId: 'card-second-device-a',
+        blockId: 'block-second-device-a',
+        sourceBlockId: 'block-second-device-a',
+      },
+      review: {
+        action: 'rating',
+        rating: 4,
+        reviewedAt: 1_700_000_200_000,
+        scheduler: 'fsrs-v6',
+      },
+      memory: {
+        baseMemoryHash: 'memory-second-device-before',
+        afterMemoryHash: 'memory-second-device-after',
+        projectionGeneration: 3,
+      },
+      queue: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    }]);
+
+    await cardTruthStore.appendRecords([
+      {
+        family: 'card-memory-facts',
+        schemaVersion: 1,
+        type: 'card-memory.created.v1',
+        idempotencyKey: 'card:create:second-device-a',
+        logicalTime: 1_700_000_100_000,
+        recordedAt: 1_700_000_100_001,
+        source: {
+          cardId: 'card-second-device-a',
+          blockId: 'block-second-device-a',
+          sourceBlockId: 'block-second-device-a',
+          cardFaceId: 'face-second-device-a',
+        },
+        memory: {
+          schedulerOwner: 'fsrs-v6',
+          memoryHash: 'memory-second-device-before',
+          lineage: {
+            type: 'item',
+            state: CardState.Review,
+            due: 1_700_086_600_000,
+            priority: 31,
+            reps: 2,
+            lastReview: 1_700_000_000_000,
+            createdAt: 1_700_000_050_000,
+            updatedAt: 1_700_000_100_000,
+            schedulerType: 'fsrs-v6',
+            tags: ['synced'],
+          },
+        },
+      },
+      {
+        family: 'card-memory-facts',
+        schemaVersion: 1,
+        type: 'source-binding.created.v1',
+        idempotencyKey: 'binding:create:second-device-a',
+        logicalTime: 1_700_000_110_000,
+        recordedAt: 1_700_000_110_001,
+        source: {
+          cardId: 'card-second-device-a',
+          blockId: 'block-second-device-a',
+          sourceBlockId: 'block-second-device-a',
+          xiuyuanId: 'xy-second-device-a',
+          cardFaceId: 'face-second-device-a',
+          sourceHash: 'source-hash-second-device-a',
+        },
+        memory: {
+          schedulerOwner: 'fsrs-v6',
+          memoryHash: 'memory-second-device-before',
+          lineage: {
+            xiuyuanId: 'xy-second-device-a',
+            sourceHash: 'source-hash-second-device-a',
+          },
+        },
+      },
+      {
+        family: 'card-memory-facts',
+        schemaVersion: 1,
+        type: 'card-face.created.v1',
+        idempotencyKey: 'face:create:second-device-a',
+        logicalTime: 1_700_000_120_000,
+        recordedAt: 1_700_000_120_001,
+        source: {
+          cardId: 'card-second-device-a',
+          blockId: 'block-second-device-a',
+          sourceBlockId: 'block-second-device-a',
+          xiuyuanId: 'xy-second-device-a',
+          cardFaceId: 'face-second-device-a',
+        },
+        memory: {
+          schedulerOwner: 'fsrs-v6',
+          memoryHash: 'memory-second-device-before',
+          lineage: {
+            faceKey: { ruleId: 'basic-front', faceIndex: 0 },
+          },
+        },
+      },
+    ]);
+
+    const secondDeviceBridge = createInMemorySqlitePersistenceBridge();
+    expect(secondDeviceBridge.snapshot().bytes).toBeNull();
+    const secondDeviceDatabase = new WorkerSqliteDatabaseService(secondDeviceBridge);
+    await secondDeviceDatabase.init();
+    expect(secondDeviceDatabase.getOne<{ count: number }>('SELECT COUNT(*) AS count FROM cards')?.count).toBe(0);
+    expect(secondDeviceDatabase.getOne<{ count: number }>('SELECT COUNT(*) AS count FROM review_events')?.count).toBe(0);
+
+    const resolveNeuralGraphQuery = createNeuralGraphResolver({
+      'block-second-device-a': {
+        id: 'block-second-device-a',
+        content: 'Second-device source block content from synced SiYuan data',
+        type: 'p',
+        root_id: 'doc-second-device-a',
+        attrs: {
+          'custom-xiuyuan-id': 'xy-second-device-a',
+          'custom-fsrs-due': '9999999999999',
+        },
+      },
+    });
+    const secondDeviceKernel = new BackendKernel({
+      database: secondDeviceDatabase,
+      truthFileStore,
+      resolveNeuralGraphQuery,
+    });
+
+    const response = await secondDeviceKernel.handle({
+      id: 'projection-rebuild-second-device',
+      jsonrpc: '2.0',
+      method: 'storage.projection.rebuild',
+      params: [{
+        rebuildId: 'rebuild-second-device-deleted-sql',
+        cause: 'sql-deleted',
+        families: ['review-event-indexes', 'cards'],
+        deviceId: 'device-origin',
+        generationId: 'projection-gen-second-device',
+        schemaVersion: 1,
+      }],
+    });
+
+    if (!('result' in response)) {
+      throw new Error(response.error.message);
+    }
+    expect(response.result).toMatchObject({
+      status: 'ready',
+      rebuildId: 'rebuild-second-device-deleted-sql',
+      cause: 'sql-deleted',
+      rowsRead: 4,
+      rowsWritten: 2,
+      sourceReadCount: 1,
+      missingSourceIds: [],
+      families: [
+        {
+          family: 'review-event-indexes',
+          status: 'ready',
+          rowsRead: 1,
+          rowsWritten: 1,
+          sourceReadCount: 1,
+        },
+        {
+          family: 'cards',
+          status: 'ready',
+          rowsRead: 3,
+          rowsWritten: 1,
+          sourceReadCount: 1,
+        },
+      ],
+    });
+    expect(resolveNeuralGraphQuery).toHaveBeenCalledTimes(1);
+    expect(resolveNeuralGraphQuery).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'fetchBlockData',
+      blockId: 'block-second-device-a',
+    }));
+
+    const cardRow = secondDeviceDatabase.getOne<{
+      id: string;
+      xiuyuan_id: string;
+      root_id: string;
+      content_text: string;
+      due: number;
+      msgpack_ref: string;
+      source_hash: string;
+      payload_json: string;
+    }>(
+      `SELECT id, xiuyuan_id, root_id, content_text, due, msgpack_ref, source_hash, payload_json
+         FROM cards
+        WHERE id = ?`,
+      ['card-second-device-a'],
+    );
+    expect(cardRow).toMatchObject({
+      id: 'card-second-device-a',
+      xiuyuan_id: 'xy-second-device-a',
+      root_id: 'doc-second-device-a',
+      content_text: 'Second-device source block content from synced SiYuan data',
+      due: 1_700_086_600_000,
+      source_hash: 'source-hash-second-device-a',
+    });
+    expect(JSON.parse(cardRow?.msgpack_ref || '{}')).toMatchObject({
+      family: 'card-memory-facts',
+      deviceId: 'device-origin',
+      generationId: 'projection-gen-second-device',
+      idempotencyKey: 'face:create:second-device-a',
+    });
+    expect(cardRow?.payload_json).not.toContain('custom-fsrs-due');
+
+    const reviewRow = secondDeviceDatabase.getOne<{
+      card_id: string;
+      rating: number;
+      commit_idempotency_key: string;
+      msgpack_ref: string;
+      projection_generation: number;
+    }>(
+      `SELECT card_id, rating, commit_idempotency_key, msgpack_ref, projection_generation
+         FROM review_events
+        WHERE card_id = ?`,
+      ['card-second-device-a'],
+    );
+    expect(reviewRow).toMatchObject({
+      card_id: 'card-second-device-a',
+      rating: 4,
+      commit_idempotency_key: 'review:second-device-a',
+      projection_generation: response.result.projectionGeneration,
+    });
+    expect(JSON.parse(reviewRow?.msgpack_ref || '{}')).toMatchObject({
+      family: 'review-events',
+      deviceId: 'device-origin',
+      generationId: 'projection-gen-second-device',
+      idempotencyKey: 'review:second-device-a',
+    });
   });
 
   it('appends one review journal entry without reading or rewriting existing pending entries', async () => {

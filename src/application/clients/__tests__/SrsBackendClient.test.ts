@@ -709,6 +709,33 @@ describe('SrsBackendClient', () => {
               },
             };
           }
+          case 'storage.projection.rebuild':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                status: 'ready',
+                at: 1,
+                rebuildId: 'rebuild-a',
+                cause: 'manual',
+                projectionGeneration: 1,
+                rowsRead: 1,
+                rowsWritten: 1,
+                sourceReadCount: 1,
+                missingSourceIds: [],
+                families: [{
+                  family: 'review-event-indexes',
+                  status: 'ready',
+                  projectionGeneration: 1,
+                  rowsRead: 1,
+                  rowsWritten: 1,
+                  sourceReadCount: 1,
+                  missingSourceIds: [],
+                  error: null,
+                }],
+                error: null,
+              },
+            };
           case 'neural-roam.advance':
             return {
               jsonrpc: '2.0',
@@ -1002,6 +1029,15 @@ describe('SrsBackendClient', () => {
       status: 'ready',
       cards: [],
     });
+    await expect(client.storageProjectionRebuild({
+      rebuildId: 'rebuild-a',
+      families: ['review-event-indexes'],
+      deviceId: 'device-a',
+      generationId: 'generation-a',
+    })).resolves.toMatchObject({
+      status: 'ready',
+      rowsWritten: 1,
+    });
     await expect(client.neuralRoamAdvance({
       queueType: 'neural-roam',
       sessionId: 'session-neural-1',
@@ -1140,6 +1176,7 @@ describe('SrsBackendClient', () => {
       'sync.conflict.reload',
       'queue.projection.snapshot',
       'queue.projection.rowsByIds',
+      'storage.projection.rebuild',
       'neural-roam.advance',
       'ai.session.create',
       'ai.session.get',
@@ -1187,6 +1224,12 @@ describe('SrsBackendClient', () => {
       limit: 5,
     }]);
     expect(requests[23].params).toEqual([{
+      rebuildId: 'rebuild-a',
+      families: ['review-event-indexes'],
+      deviceId: 'device-a',
+      generationId: 'generation-a',
+    }]);
+    expect(requests[24].params).toEqual([{
       queueType: 'neural-roam',
       sessionId: 'session-neural-1',
       currentItem: {

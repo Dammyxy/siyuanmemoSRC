@@ -1,8 +1,48 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-31 (Round 510)
+Last update: 2026-06-01 (Round 513)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-01 - Rebuild supported projections after second-device SQL loss
+
+- Task: Continue `introduce-msgpack-truth-source-projection-store` tasks 4.5 and 4.6 by covering synced new-card/source-binding rebuild inputs and a second-device deleted-`siyuanmemo.db` rebuild fixture.
+- Touched slice: Backend worker SQL projection rebuild boundary; `BackendKernel`, `WorkerSqliteDatabaseService`, `backend-rpc` card-memory truth contracts, card projection rebuild tests, and `ARCHITECTURE.md`.
+- Debt fixed now: `storage.projection.rebuild` supports the `cards` family from `card-memory-facts` truth records plus SiYuan source reads. It folds `card-memory.created/updated`, `source-binding.created`, and `card-face.created` facts into one skinny card projection row, restores Xiuyuan identity from truth or allowlisted `custom-xiuyuan-id` / `custom-fsrs-xiuyuan-id`, writes MessagePack refs/hash/projection generation/source hash, and avoids storing full source body or forbidden review metadata in `payload_json` / `dto_json`. A second-device fixture now starts with empty SQL projection tables and synced `review-events` + `card-memory-facts` MessagePack segments, rebuilds supported review/card projections from one SiYuan source read, and reports top-level `sourceReadCount` by unique source input rather than per-family duplicate sums.
+- Debt deferred: Xiuyuan aggregate table rebuild, domain-sync/semantic/AI/diagnostics projection rebuild families, queue-family rebuild from card/source-binding truth, legacy SQL payload slimming, and concurrent offline Review conflict replay remain in OpenSpec 5.x / unsupported-family follow-ups.
+- Why deferred: The second-device fixture now proves the currently supported families after SQL loss. Rebuilding every family and slimming legacy canonical payload columns needs broader migration and owner decisions.
+- Next safe step: Start the 5.x storage slimming migration by moving retained SQL `payload_json` / `dto_json` truth reads behind explicit family migration state and expiry diagnostics.
+- Validation: Targeted backend contract/client/SQLite/worker/queue projection Vitest suite passed; `pnpm run check:boundaries`; `node scripts\check-hidden-fallbacks.cjs --json`; `node scripts\check-no-runtime-msgpack.cjs`; `pnpm build`; `openspec validate introduce-msgpack-truth-source-projection-store --strict`; `openspec validate externalize-srs-algorithms-and-index-queues --strict`.
+
+### 2026-06-01 - Add SQL checkpoint/export diagnostics
+
+- Task: Continue `introduce-msgpack-truth-source-projection-store` task 4.4 by exposing SQL export/checkpoint cause, byte size, initiator, projection generation, and hot-path status diagnostics.
+- Touched slice: Backend worker SQLite persistence and queue projection delta/checkpoint diagnostics; backend RPC contract, `SqliteDeltaCheckpoint`, `SqliteDatabaseService`, `WorkerSqliteDatabaseService`, and focused contract/worker/kernel/client tests.
+- Debt fixed now: SQLite delta/checkpoint status now carries machine-readable `cause`, `initiator`, `projectionGeneration`, and `hotPath` fields alongside byte/count status. Explicit `db.persist` reports `worker.persist` / `db.persist` as non-hot-path, queue projection replacement infers generation from `generation` / `source_generation`, and checkpoint-only threshold exits keep both the transaction cause and export cause visible.
+- Debt deferred: At this checkpoint, full rebuild coverage for synced new-card, Xiuyuan, card-face, source-binding events, deleted-second-device DB rebuild fixtures, and non-queue projection families remained in OpenSpec tasks 4.5, 4.6, and 6.2; the deleted-second-device fixture is now closed by the newer supported-projection rebuild delta above.
+- Why deferred: This slice closes observability for existing SQL projection export/checkpoint paths; adding new rebuild families needs separate truth/source fixtures and conflict behavior.
+- Next safe step: Add rebuild coverage for synced card/source-binding families, then prove deletion of `siyuanmemo.db` on a second device rebuilds supported projections from MessagePack truth plus SiYuan source reads.
+- Validation: Focused contract, SQLite, worker, kernel, and SRS backend client tests passed before final validation; full boundary/fallback/msgpack/build/OpenSpec validation rerun for this task.
+
+### 2026-06-01 - Treat stale queue SQL projection as rebuildable
+
+- Task: Continue `introduce-msgpack-truth-source-projection-store` task 4.3 by making Queue Projection Runtime return explicit `ready`, `refreshing`, or `unavailable` for missing/stale SQL projection rows.
+- Touched slice: Queue projection runtime and Browser/manager readiness diagnostics; `WorkerQueueProjectionRuntime`, `QueueProjectionReadinessService`, `QueueProjectionRuntime`, backend queue projection contract status typing, and focused worker/application/manager tests.
+- Debt fixed now: Missing projection generations, invalidated/rebuilding generations, missing requested row identities, row/card hydration gaps, stale source fingerprints, and counter/row mismatches now return `refreshing` with freshness evidence instead of partial `ready` or stale canonical reads. Application readiness maps these states to `projection_stale` or `materialization_in_progress`, preserves backend policy/generation/freshness diagnostics, and only advances via explicit materialization/rebuild paths. Hard storage absence still returns `unavailable`.
+- Debt deferred: At this checkpoint, full queue projection rebuild from synced MessagePack card/source-binding truth, deleted-second-device DB rebuild fixtures, and non-Review projection families remained in OpenSpec tasks 4.5, 4.6, and 6.2; the deleted-second-device fixture is now closed by the newer supported-projection rebuild delta above.
+- Why deferred: This slice closes the runtime state contract without inventing queue truth-family rebuild inputs that are still scoped to later tasks.
+- Next safe step: Add rebuild coverage for synced new-card, Xiuyuan, card-face, source-binding, and queue projection families using SiYuan blocks plus allowlisted attrs.
+- Validation: Focused queue projection runtime/readiness/manager/browser tests passed; `pnpm vitest run worker\__tests__\BackendKernel.test.ts`; `pnpm vitest run packages\contracts\src\__tests__\backend-rpc.test.ts src\application\clients\__tests__\SrsBackendClient.test.ts worker\__tests__\BackendKernel.test.ts`; `pnpm run check:boundaries`; `node scripts\check-hidden-fallbacks.cjs --json`; `node scripts\check-no-runtime-msgpack.cjs`; `pnpm build`; `openspec validate introduce-msgpack-truth-source-projection-store --strict`.
+
+### 2026-06-01 - Add explicit SQL projection rebuild command
+
+- Task: Continue `introduce-msgpack-truth-source-projection-store` task 4.2 with explicit projection rebuild from MessagePack truth plus SiYuan source reads.
+- Touched slice: Backend worker storage projection rebuild boundary; backend RPC contract, `BackendKernel`, `WorkerSqliteDatabaseService`, Srs backend client/transport timing, and focused contract/client/kernel tests.
+- Debt fixed now: Added `storage.projection.rebuild` as an explicit backend command. The first supported family is `review-event-indexes`: it replays `review-events` MessagePack truth with idempotency dedupe, verifies referenced SiYuan source blocks through `fetchBlockData`, and materializes skinny `review_events` rows with `commit_idempotency_key`, `msgpack_ref`, `truth_hash`, `truth_schema_version`, and `projection_generation`. Missing truth store, missing source reader, validation failure, unsupported families, and missing source blocks return explicit unavailable results instead of hidden repair or synthesized content.
+- Debt deferred: At this checkpoint, card, queue, domain-sync, semantic/AI, diagnostics, new-card/source-binding rebuild coverage, and deleted-second-device DB rebuild fixtures remained in OpenSpec tasks 4.5, 4.6, and 6.2 after task 4.3 closed the stale queue projection read behavior; the deleted-second-device fixture is now closed by the newer supported-projection rebuild delta above.
+- Why deferred: Review event indexes are the smallest defensible first family because current truth segments already exist. Other families need their own truth schema, source seam, conflict, and queue materialization proofs.
+- Next safe step: Add queue projection runtime stale/missing handling so callers request explicit rebuild/materialization and return `ready`, `refreshing`, or `unavailable`.
+- Validation: `pnpm vitest run packages\contracts\src\__tests__\backend-rpc.test.ts`; `pnpm vitest run src\application\clients\__tests__\SrsBackendClient.test.ts`; `pnpm vitest run worker\__tests__\BackendKernel.test.ts`; `node scripts\check-hidden-fallbacks.cjs --json`; `node scripts\check-no-runtime-msgpack.cjs`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate introduce-msgpack-truth-source-projection-store --strict`.
 
 ### 2026-05-31 - Flush Review journal to MessagePack truth segments
 

@@ -56,7 +56,7 @@ function createProjectionRow(overrides: Partial<QueueProjectionRow> = {}): Queue
 }
 
 describe('WorkerQueueProjectionRuntime', () => {
-  it('serves the hydrated active subset instead of failing the whole projection when rows reference inactive cards', async () => {
+  it('returns refreshing when ready generation rows reference missing cards', async () => {
     const queueType = QueueType.IncrementalLearning;
     const policyHash = 'policy-browser';
     const generation = 7;
@@ -104,16 +104,19 @@ describe('WorkerQueueProjectionRuntime', () => {
 
     const snapshot = await runtime.snapshot({ queueType });
 
-    expect(snapshot.status).toBe('ready');
-    expect(snapshot.rows.map((row) => row.fsrsCardId)).toEqual(['card-active']);
-    expect(snapshot.counters).toMatchObject({
-      remaining: 1,
-      total: 1,
-      due: 1,
+    expect(snapshot.status).toBe('refreshing');
+    expect(snapshot.rows).toEqual([]);
+    expect(snapshot.counters).toBeNull();
+    expect(snapshot.freshness).toMatchObject({
+      totalRows: 2,
+      freshRows: 1,
+      staleRows: 0,
+      missingRows: 1,
+      missingCardIds: ['card-missing-source'],
     });
   });
 
-  it('serves last-good projection only for soft-stale snapshot reads while current generation rebuilds', async () => {
+  it('returns refreshing for hard reads and serves last-good only for soft-stale reads while current generation rebuilds', async () => {
     const queueType = QueueType.IncrementalLearning;
     const lastReady = {
       queueType,
@@ -170,7 +173,7 @@ describe('WorkerQueueProjectionRuntime', () => {
     });
 
     const hard = await runtime.snapshot({ queueType });
-    expect(hard.status).toBe('invalidated');
+    expect(hard.status).toBe('refreshing');
     expect(hard.rows).toEqual([]);
 
     const soft = await runtime.snapshot({ queueType, allowStale: true });
@@ -179,5 +182,129 @@ describe('WorkerQueueProjectionRuntime', () => {
     expect(soft.generation).toBe(7);
     expect(soft.stale).toBe(true);
     expect(soft.rows.map((snapshotRow) => snapshotRow.fsrsCardId)).toEqual(['card-active']);
+  });
+
+  it('returns refreshing when projection generation is missing but storage is available', async () => {
+    const queueType = QueueType.FilterGroup;
+    const runtime = new WorkerQueueProjectionRuntime({
+      repository: {
+        getCardsByIds: vi.fn(() => []),
+      },
+      queueProjection: {
+        readGeneration: vi.fn(() => null),
+        readLastReadyGeneration: vi.fn(() => null),
+        readCounters: vi.fn(() => null),
+        readRows: vi.fn(() => []),
+        replaceQueueProjection: vi.fn(),
+      },
+      runtime: {
+        runTransaction: vi.fn(async (_name, callback) => callback()),
+      },
+    });
+
+    await expect(runtime.snapshot({ queueType })).resolves.toMatchObject({
+      queueType,
+      status: 'refreshing',
+      policyHash: null,
+      generation: null,
+      rows: [],
+      counters: null,
+    });
+  });
+
+  it('returns refreshing when row freshness proves stale projection membership', async () => {
+    const queueType = QueueType.RetrievalPractice;
+    const policyHash = 'policy-stale';
+    const generation = 4;
+    const row = createProjectionRow({
+      queueType,
+      policyHash,
+      sourceGeneration: generation,
+      cardId: 'card-active',
+      dueAt: 1,
+    });
+    const runtime = new WorkerQueueProjectionRuntime({
+      repository: {
+        getCardsByIds: vi.fn(() => [createCard({ due: 2 })]),
+      },
+      queueProjection: {
+        readGeneration: vi.fn(() => ({
+          queueType,
+          policyHash,
+          generation,
+          status: 'ready',
+          rebuildReason: null,
+          updatedAt: 1_700_000_000_000,
+          metadata: {},
+        })),
+        readLastReadyGeneration: vi.fn(() => null),
+        readCounters: vi.fn(() => buildQueueProjectionCountersFromRows({
+          queueType,
+          policyHash,
+          generation,
+          updatedAt: 1_700_000_000_000,
+          now: 1_700_000_000_000,
+          rows: [row],
+        })),
+        readRows: vi.fn(() => [row]),
+        replaceQueueProjection: vi.fn(),
+      },
+      runtime: {
+        runTransaction: vi.fn(async (_name, callback) => callback()),
+      },
+    });
+
+    const snapshot = await runtime.snapshot({ queueType });
+
+    expect(snapshot.status).toBe('refreshing');
+    expect(snapshot.freshness).toMatchObject({
+      totalRows: 1,
+      freshRows: 0,
+      staleRows: 1,
+      missingRows: 0,
+      staleCardIds: ['card-active'],
+    });
+  });
+
+  it('returns refreshing when row hydration requests missing SQL rows', async () => {
+    const queueType = QueueType.FilterGroup;
+    const policyHash = 'policy-filter';
+    const generation = 5;
+    const runtime = new WorkerQueueProjectionRuntime({
+      repository: {
+        getCardsByIds: vi.fn(() => []),
+      },
+      queueProjection: {
+        readGeneration: vi.fn(() => ({
+          queueType,
+          policyHash,
+          generation,
+          status: 'ready',
+          rebuildReason: null,
+          updatedAt: 1_700_000_000_000,
+          metadata: {},
+        })),
+        readLastReadyGeneration: vi.fn(() => null),
+        readCounters: vi.fn(() => null),
+        readRows: vi.fn(() => []),
+        replaceQueueProjection: vi.fn(),
+      },
+      runtime: {
+        runTransaction: vi.fn(async (_name, callback) => callback()),
+      },
+    });
+
+    const result = await runtime.rowsByIds({ queueType, ids: ['missing-row'] });
+
+    expect(result.status).toBe('refreshing');
+    expect(result.rows).toEqual([]);
+    expect(result.cards).toEqual([]);
+    expect(result.freshness).toMatchObject({
+      totalRows: 1,
+      freshRows: 0,
+      staleRows: 0,
+      missingRows: 1,
+      missingCardIds: ['missing-row'],
+    });
   });
 });

@@ -47,6 +47,11 @@ import {
   type BackendQueueProjectionRowsByIdsResult,
   type BackendQueueProjectionReplaceRequest,
   type BackendQueueProjectionReplaceResult,
+  type BackendStorageProjectionRebuildRequest,
+  type BackendStorageProjectionRebuildResult,
+  type MessagePackTruthFamily,
+  type MessagePackTruthRecord,
+  type SqlProjectionFamily,
   type BackendKernelTransactionIngestRequest,
   type BackendKernelTransactionIngestResult,
   type BackendKernelTransactionDequeueRequest,
@@ -125,7 +130,9 @@ import type { StructuredCardQuery } from '@/types/card-query';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import {
   createMessagePackTruthSegmentStore,
+  MESSAGEPACK_TRUTH_MANIFEST_VERSION,
   type MessagePackTruthSegmentFileStore,
+  type MessagePackTruthSegmentManifest,
 } from '../truth/MessagePackTruthSegmentStore';
 import { ReviewFeedbackTruthFlushRuntime } from '../truth/ReviewFeedbackTruthFlushRuntime';
 import { BackendHotspotCommandRuntime } from './BackendHotspotCommandRuntime';
@@ -147,6 +154,7 @@ const DIAGNOSTIC_TIMING_METHODS = new Set<string>([
   'browser.deck.page',
   'browser.stats',
   'browser.deck.documentCounts',
+  'storage.projection.rebuild',
   'queue.projection.snapshot',
   'queue.projection.rowsByIds',
   'queue.projection.replace',
@@ -224,6 +232,103 @@ function isAuthorizedPrivateMutationCapability(value: unknown): boolean {
     && capability.writerAvailable === true;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readProjectionTruthSourceBlockId(record: Record<string, unknown>): string | null {
+  const source = isRecord(record.source) ? record.source : null;
+  const candidate = String(
+    source?.blockId
+      ?? source?.sourceBlockId
+      ?? record.blockId
+      ?? record.sourceBlockId
+      ?? '',
+  ).trim();
+  return candidate || null;
+}
+
+function uniqueStrings(values: Iterable<unknown>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const normalized = String(value ?? '').trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function projectionTruthFamilies(family: SqlProjectionFamily): MessagePackTruthFamily[] {
+  if (family === 'review-event-indexes') {
+    return ['review-events'];
+  }
+  if (family === 'cards') {
+    return ['card-memory-facts'];
+  }
+  return [];
+}
+
+function mergeProjectionTruthManifests(
+  manifests: MessagePackTruthSegmentManifest[],
+  input: { generationId: string; schemaVersion: number },
+): MessagePackTruthSegmentManifest {
+  if (manifests.length === 1) {
+    return manifests[0];
+  }
+  const updatedAt = manifests.reduce((max, manifest) => Math.max(max, Number(manifest.updatedAt) || 0), 0);
+  return {
+    version: MESSAGEPACK_TRUTH_MANIFEST_VERSION,
+    path: 'projection-rebuild:merged',
+    family: 'projection-rebuild',
+    deviceId: 'projection-rebuild',
+    generationId: input.generationId,
+    schemaVersion: input.schemaVersion,
+    segments: manifests.flatMap((manifest) => manifest.segments),
+    updatedAt,
+  };
+}
+
+function buildProjectionRebuildUnavailableResult(input: {
+  request: BackendStorageProjectionRebuildRequest;
+  reason: 'source-reader-unavailable' | 'validation-failed' | 'invalid-request';
+  message: string;
+  rowsRead?: number;
+  sourceReadCount?: number;
+  missingSourceIds?: string[];
+}): BackendStorageProjectionRebuildResult {
+  const at = Date.now();
+  const rebuildId = String(input.request.rebuildId || '').trim() || `projection-rebuild:${at}`;
+  const cause = String(input.request.cause || '').trim() || 'manual';
+  const families = Array.isArray(input.request.families) ? input.request.families : [];
+  return {
+    status: 'unavailable',
+    at,
+    rebuildId,
+    cause,
+    projectionGeneration: 0,
+    rowsRead: Math.max(0, Math.floor(Number(input.rowsRead || 0))),
+    rowsWritten: 0,
+    sourceReadCount: Math.max(0, Math.floor(Number(input.sourceReadCount || 0))),
+    missingSourceIds: input.missingSourceIds ?? [],
+    families: families.map((family) => ({
+      family,
+      status: 'unavailable',
+      unavailableReason: input.reason,
+      projectionGeneration: 0,
+      rowsRead: Math.max(0, Math.floor(Number(input.rowsRead || 0))),
+      rowsWritten: 0,
+      sourceReadCount: Math.max(0, Math.floor(Number(input.sourceReadCount || 0))),
+      missingSourceIds: input.missingSourceIds ?? [],
+      error: input.message,
+    })),
+    error: input.message,
+  };
+}
+
 const P6_OWNERSHIP_SURFACES = new Set<P6OwnershipSurface>([
   'xiuyuan',
   'progressive',
@@ -251,6 +356,7 @@ const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'sync.conflict.summarize',
   'sync.conflict.reload',
   'review.truth.flush',
+  'storage.projection.rebuild',
   'kernel.transaction.dequeue',
 ]);
 
@@ -485,6 +591,8 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleSourceExistenceSummary(request.params));
         case 'browser.sourceExistence.applySweepHost':
           return buildSuccess(request.id, await this.handleSourceExistenceApplySweepHost(request.params));
+        case 'storage.projection.rebuild':
+          return buildSuccess(request.id, await this.handleStorageProjectionRebuild(request.params));
         case 'queue.projection.snapshot':
           return buildSuccess(request.id, await this.handleQueueProjectionSnapshot(request.params));
         case 'queue.projection.rowsByIds':
@@ -983,6 +1091,123 @@ export class BackendKernel {
     const result = await runtime.flushProjectionApplied();
     this.lastReviewFeedbackTruthFlush = result;
     return result;
+  }
+
+  private async handleStorageProjectionRebuild(params: unknown): Promise<BackendStorageProjectionRebuildResult> {
+    const named = this.readNamedParams<BackendStorageProjectionRebuildRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: storage.projection.rebuild requires named params');
+    }
+    if (!Array.isArray(named.families) || named.families.length === 0) {
+      throw new Error('INVALID_REQUEST: storage.projection.rebuild requires at least one projection family');
+    }
+    if (!this.deps.truthFileStore) {
+      throw new Error('BACKEND_UNAVAILABLE: storage.projection.rebuild requires truth segment file store');
+    }
+    const deviceId = String(named.deviceId || '').trim();
+    const generationId = String(named.generationId || '').trim();
+    if (!deviceId || !generationId) {
+      throw new Error('INVALID_REQUEST: storage.projection.rebuild requires deviceId and generationId');
+    }
+
+    const schemaVersion = Math.max(1, Math.floor(Number(named.schemaVersion) || MESSAGEPACK_TRUTH_SCHEMA_VERSION));
+    const maxSegmentBytes = Math.max(256, Math.floor(Number(named.maxSegmentBytes) || 1024 * 1024));
+    const truthFamilies = uniqueStrings(
+      named.families.flatMap((family) => projectionTruthFamilies(family)),
+    ) as MessagePackTruthFamily[];
+    if (truthFamilies.length === 0) {
+      return this.deps.database.rebuildSqlProjections({
+        ...named,
+        deviceId,
+        generationId,
+        schemaVersion,
+        truthRecords: [],
+        truthManifest: mergeProjectionTruthManifests([], { generationId, schemaVersion }),
+        sourceReads: [],
+      });
+    }
+
+    const truthRecords: MessagePackTruthRecord[] = [];
+    const truthManifests: MessagePackTruthSegmentManifest[] = [];
+    try {
+      for (const family of truthFamilies) {
+        const truthStore = createMessagePackTruthSegmentStore({
+          fileStore: this.deps.truthFileStore,
+          family,
+          deviceId,
+          generationId,
+          schemaVersion,
+          maxSegmentBytes,
+        });
+        const replay = await truthStore.replayRecords({ dedupeByIdempotencyKey: true });
+        truthRecords.push(...replay.records);
+        truthManifests.push(replay.manifest);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return buildProjectionRebuildUnavailableResult({
+        request: named,
+        reason: 'validation-failed',
+        message,
+      });
+    }
+
+    const requestedReviewIndexes = named.families.includes('review-event-indexes');
+    const requestedCards = named.families.includes('cards');
+    const sourceBlockIds = requestedReviewIndexes || requestedCards
+      ? uniqueStrings(
+        truthRecords
+          .filter((record) => isRecord(record) && (
+            (requestedReviewIndexes && record.family === 'review-events')
+            || (requestedCards && record.family === 'card-memory-facts')
+          ))
+          .map((record) => readProjectionTruthSourceBlockId(record)),
+      )
+      : [];
+    if (sourceBlockIds.length > 0 && !this.deps.resolveNeuralGraphQuery) {
+      return buildProjectionRebuildUnavailableResult({
+        request: named,
+        reason: 'source-reader-unavailable',
+        message: 'storage.projection.rebuild requires SiYuan source reader for source-bound records',
+        rowsRead: truthRecords.length,
+      });
+    }
+
+    const sourceReads = [];
+    for (const blockId of sourceBlockIds) {
+      try {
+        const result = await this.deps.resolveNeuralGraphQuery!({
+          operation: 'fetchBlockData',
+          blockId,
+        });
+        sourceReads.push({
+          blockId,
+          status: result.status,
+          found: result.status === 'found' && result.data !== null,
+          data: result.data ?? null,
+          error: result.error ?? null,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return buildProjectionRebuildUnavailableResult({
+          request: named,
+          reason: 'source-reader-unavailable',
+          message,
+          rowsRead: truthRecords.length,
+          sourceReadCount: sourceReads.length,
+        });
+      }
+    }
+
+    return this.deps.database.rebuildSqlProjections({
+      ...named,
+      deviceId,
+      generationId,
+      schemaVersion,
+      truthRecords,
+      truthManifest: mergeProjectionTruthManifests(truthManifests, { generationId, schemaVersion }),
+      sourceReads,
+    });
   }
 
   private async reviewFeedbackWithForcedMainDbRetry(

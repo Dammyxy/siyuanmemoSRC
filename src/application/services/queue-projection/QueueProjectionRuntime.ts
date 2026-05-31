@@ -192,12 +192,14 @@ export class QueueProjectionRuntime {
       return readiness;
     }
     if (readiness.status === 'refreshing') {
+      const currentDiagnostic = this.queueProjectionUnavailableDiagnostics.get(queueType);
       const currentGeneration = this.resolveReadinessMaterializationGeneration(queueType);
       this.recordQueueProjectionUnavailable(queueType, 'refresh-required', {
         unavailableReason: readiness.cause,
-        backendStatus: readiness.status,
-        policyHash: readiness.policyId,
-        generation: currentGeneration > 0 ? currentGeneration : null,
+        backendStatus: currentDiagnostic?.backendStatus ?? readiness.status,
+        policyHash: currentDiagnostic?.policyHash ?? readiness.policyId,
+        generation: currentGeneration > 0 ? currentGeneration : currentDiagnostic?.generation ?? null,
+        freshness: currentDiagnostic?.freshness ?? null,
       });
       if (this.shouldMaterializeDuringReadiness(queueType, readiness)) {
         try {
@@ -289,7 +291,7 @@ export class QueueProjectionRuntime {
           forceRefresh: options.forceRefresh === true,
         });
         this.recordQueueProjectionUnavailable(queueType, 'refresh-required', {
-          unavailableReason: 'refresh-required',
+          unavailableReason: this.resolveReadinessSnapshotUnavailableReason(result.status, result.freshness),
           backendStatus: typeof result.status === 'string' ? result.status : null,
           policyHash: this.isValidProjectionPolicyHash(result.policyHash) ? result.policyHash : null,
           generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
@@ -374,7 +376,7 @@ export class QueueProjectionRuntime {
           forceRefresh: options.forceRefresh === true,
         });
         this.recordQueueProjectionUnavailable(queueType, 'refresh-required', {
-          unavailableReason: 'refresh-required',
+          unavailableReason: this.resolveReadinessSnapshotUnavailableReason(result.status, result.freshness),
           backendStatus: typeof result.status === 'string' ? result.status : null,
           policyHash: this.isValidProjectionPolicyHash(result.policyHash) ? result.policyHash : null,
           generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
@@ -503,7 +505,7 @@ export class QueueProjectionRuntime {
       || !this.isValidProjectionGeneration(result.generation)
     ) {
       this.recordQueueProjectionUnavailable(queueType, 'refresh-required', {
-        unavailableReason: this.resolveReadinessSnapshotUnavailableReason(result.status),
+        unavailableReason: this.resolveReadinessSnapshotUnavailableReason(result.status, result.freshness),
         backendStatus: typeof result.status === 'string' ? result.status : null,
         policyHash: this.isValidProjectionPolicyHash(result.policyHash) ? result.policyHash : null,
         generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
@@ -767,9 +769,18 @@ export class QueueProjectionRuntime {
     return Number.isInteger(generation) && generation > 0 ? generation : 0;
   }
 
-  private resolveReadinessSnapshotUnavailableReason(status: unknown): string {
+  private resolveReadinessSnapshotUnavailableReason(
+    status: unknown,
+    freshness?: BackendQueueProjectionFreshnessEvidence | null,
+  ): string {
+    if (this.hasProjectionFreshnessGap(freshness)) {
+      return 'projection_stale';
+    }
     if (typeof status !== 'string' || status.length === 0) {
       return 'refresh-required';
+    }
+    if (status === 'refreshing') {
+      return 'projection_stale';
     }
     if (status === 'invalidated' || status === 'rebuilding' || status === 'repairing') {
       return 'materialization_in_progress';
@@ -778,6 +789,14 @@ export class QueueProjectionRuntime {
       return 'projection_unavailable';
     }
     return 'refresh-required';
+  }
+
+  private hasProjectionFreshnessGap(freshness: BackendQueueProjectionFreshnessEvidence | null | undefined): boolean {
+    if (!freshness) {
+      return false;
+    }
+    return Math.max(0, Number(freshness.staleRows) || 0) > 0
+      || Math.max(0, Number(freshness.missingRows) || 0) > 0;
   }
 
   private canSubmitQueueProjectionReplace(backend: QueueProjectionBackendClient | null | undefined): boolean {

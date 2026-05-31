@@ -26,6 +26,7 @@ export type BackendRpcMethod =
   | 'browser.sourceExistence.summary'
   | 'browser.sourceExistence.applySweep'
   | 'browser.sourceExistence.applySweepHost'
+  | 'storage.projection.rebuild'
   | 'queue.projection.snapshot'
   | 'queue.projection.rowsByIds'
   | 'queue.projection.replace'
@@ -526,6 +527,10 @@ export interface BackendSqliteDeltaOperationStatus {
   at: number;
   classification?: BackendSqliteDeltaWriteClassification;
   label?: string;
+  cause?: string | null;
+  initiator?: string | null;
+  projectionGeneration?: number | null;
+  hotPath?: boolean;
   reason?: string | null;
   pendingCount?: number;
   pendingBytes?: number;
@@ -677,6 +682,309 @@ export const MESSAGEPACK_TRUTH_FAMILY_SCHEMAS = [
     sourceOwner: 'plugin-truth',
   },
 ] as const satisfies readonly MessagePackTruthFamilySchema[];
+
+export const SQL_PROJECTION_SCHEMA_VERSION = 1;
+
+export type SqlProjectionFamily =
+  | 'cards'
+  | 'review-event-indexes'
+  | 'domain-sync-indexes'
+  | 'queue-projections'
+  | 'semantic-ai-indexes'
+  | 'diagnostics-indexes';
+
+export type SqlProjectionSource =
+  | 'messagepack-truth'
+  | 'siyuan-source'
+  | 'allowlisted-block-attrs'
+  | 'local-projection'
+  | 'worker-diagnostics';
+
+export type SqlProjectionColumnRole =
+  | 'identity'
+  | 'source-ref'
+  | 'truth-ref'
+  | 'skinny-index'
+  | 'search-index'
+  | 'ordering-index'
+  | 'counter'
+  | 'status'
+  | 'summary'
+  | 'rebuild-metadata'
+  | 'retained-import-input';
+
+export type SqlProjectionPayloadColumnPolicy =
+  | 'skinny-index-json'
+  | 'truth-ref-json'
+  | 'retained-import-input';
+
+export interface SqlProjectionColumnOwnership {
+  table: string;
+  column: string;
+  role: SqlProjectionColumnRole;
+  source: SqlProjectionSource | readonly SqlProjectionSource[];
+  payloadPolicy?: SqlProjectionPayloadColumnPolicy;
+}
+
+export interface SqlProjectionFamilySchema {
+  family: SqlProjectionFamily;
+  schemaVersion: typeof SQL_PROJECTION_SCHEMA_VERSION;
+  tables: readonly string[];
+  truthFamilies: readonly MessagePackTruthFamily[];
+  sourceInputs: readonly SqlProjectionSource[];
+  columns: readonly SqlProjectionColumnOwnership[];
+}
+
+function projectionColumn(
+  table: string,
+  column: string,
+  role: SqlProjectionColumnRole,
+  source: SqlProjectionSource | readonly SqlProjectionSource[],
+  payloadPolicy?: SqlProjectionPayloadColumnPolicy,
+): SqlProjectionColumnOwnership {
+  return payloadPolicy
+    ? { table, column, role, source, payloadPolicy }
+    : { table, column, role, source };
+}
+
+export const SQL_PROJECTION_FAMILY_SCHEMAS = [
+  {
+    family: 'cards',
+    schemaVersion: SQL_PROJECTION_SCHEMA_VERSION,
+    tables: ['cards', 'xiuyuans', 'tombstones'],
+    truthFamilies: ['card-memory-facts'],
+    sourceInputs: ['messagepack-truth', 'siyuan-source', 'allowlisted-block-attrs'],
+    columns: [
+      projectionColumn('cards', 'id', 'identity', 'messagepack-truth'),
+      projectionColumn('cards', 'block_id', 'source-ref', ['messagepack-truth', 'siyuan-source']),
+      projectionColumn('cards', 'xiuyuan_id', 'source-ref', ['messagepack-truth', 'allowlisted-block-attrs']),
+      projectionColumn('cards', 'type', 'skinny-index', 'messagepack-truth'),
+      projectionColumn('cards', 'state', 'skinny-index', 'messagepack-truth'),
+      projectionColumn('cards', 'due', 'ordering-index', 'messagepack-truth'),
+      projectionColumn('cards', 'priority', 'ordering-index', 'messagepack-truth'),
+      projectionColumn('cards', 'scheduler_type', 'skinny-index', 'messagepack-truth'),
+      projectionColumn('cards', 'deck_id', 'source-ref', 'siyuan-source'),
+      projectionColumn('cards', 'root_id', 'source-ref', 'siyuan-source'),
+      projectionColumn('cards', 'content_text', 'summary', 'siyuan-source'),
+      projectionColumn('cards', 'tags', 'search-index', 'siyuan-source', 'skinny-index-json'),
+      projectionColumn('cards', 'search_text', 'search-index', 'siyuan-source'),
+      projectionColumn('cards', 'card_type_marker', 'skinny-index', ['messagepack-truth', 'allowlisted-block-attrs']),
+      projectionColumn('cards', 'source_exists', 'status', 'siyuan-source'),
+      projectionColumn('cards', 'source_checked_at', 'status', 'siyuan-source'),
+      projectionColumn('cards', 'source_missing_at', 'status', 'siyuan-source'),
+      projectionColumn('cards', 'msgpack_ref', 'truth-ref', 'messagepack-truth', 'truth-ref-json'),
+      projectionColumn('cards', 'truth_hash', 'truth-ref', 'messagepack-truth'),
+      projectionColumn('cards', 'truth_schema_version', 'truth-ref', 'messagepack-truth'),
+      projectionColumn('cards', 'projection_generation', 'rebuild-metadata', 'local-projection'),
+      projectionColumn('cards', 'source_hash', 'rebuild-metadata', 'siyuan-source'),
+      projectionColumn('cards', 'payload_json', 'retained-import-input', 'messagepack-truth', 'retained-import-input'),
+      projectionColumn('cards', 'dto_json', 'retained-import-input', 'messagepack-truth', 'retained-import-input'),
+    ],
+  },
+  {
+    family: 'review-event-indexes',
+    schemaVersion: SQL_PROJECTION_SCHEMA_VERSION,
+    tables: ['review_events', 'drill_events', 'reschedule_events'],
+    truthFamilies: ['review-events'],
+    sourceInputs: ['messagepack-truth', 'siyuan-source', 'local-projection'],
+    columns: [
+      projectionColumn('review_events', 'id', 'identity', 'messagepack-truth'),
+      projectionColumn('review_events', 'card_id', 'skinny-index', 'messagepack-truth'),
+      projectionColumn('review_events', 'attempt_id', 'skinny-index', 'messagepack-truth'),
+      projectionColumn('review_events', 'rating', 'skinny-index', 'messagepack-truth'),
+      projectionColumn('review_events', 'reviewed_at', 'ordering-index', 'messagepack-truth'),
+      projectionColumn('review_events', 'commit_idempotency_key', 'skinny-index', 'messagepack-truth'),
+      projectionColumn('review_events', 'year', 'ordering-index', 'messagepack-truth'),
+      projectionColumn('review_events', 'month', 'ordering-index', 'messagepack-truth'),
+      projectionColumn('review_events', 'event_type', 'skinny-index', 'messagepack-truth'),
+      projectionColumn('review_events', 'msgpack_ref', 'truth-ref', 'messagepack-truth', 'truth-ref-json'),
+      projectionColumn('review_events', 'truth_hash', 'truth-ref', 'messagepack-truth'),
+      projectionColumn('review_events', 'truth_schema_version', 'truth-ref', 'messagepack-truth'),
+      projectionColumn('review_events', 'projection_generation', 'rebuild-metadata', 'local-projection'),
+      projectionColumn('review_events', 'payload_json', 'retained-import-input', 'messagepack-truth', 'retained-import-input'),
+    ],
+  },
+  {
+    family: 'domain-sync-indexes',
+    schemaVersion: SQL_PROJECTION_SCHEMA_VERSION,
+    tables: [
+      'domain_sync_operations',
+      'domain_sync_processed_sources',
+      'domain_sync_sanity_snapshots',
+      'domain_sync_repair_plans',
+    ],
+    truthFamilies: ['domain-sync-operations'],
+    sourceInputs: ['messagepack-truth', 'local-projection'],
+    columns: [
+      projectionColumn('domain_sync_operations', 'operation_id', 'identity', 'messagepack-truth'),
+      projectionColumn('domain_sync_operations', 'source_id', 'source-ref', 'messagepack-truth'),
+      projectionColumn('domain_sync_operations', 'source_device_id', 'source-ref', 'messagepack-truth'),
+      projectionColumn('domain_sync_operations', 'source_generation', 'rebuild-metadata', 'messagepack-truth'),
+      projectionColumn('domain_sync_operations', 'operation_type', 'skinny-index', 'messagepack-truth'),
+      projectionColumn('domain_sync_operations', 'entity_type', 'skinny-index', 'messagepack-truth'),
+      projectionColumn('domain_sync_operations', 'entity_id', 'skinny-index', 'messagepack-truth'),
+      projectionColumn('domain_sync_operations', 'entity_block_id', 'source-ref', ['messagepack-truth', 'siyuan-source']),
+      projectionColumn('domain_sync_operations', 'occurred_at', 'ordering-index', 'messagepack-truth'),
+      projectionColumn('domain_sync_operations', 'observed_at', 'ordering-index', 'local-projection'),
+      projectionColumn('domain_sync_operations', 'payload_fingerprint', 'truth-ref', 'messagepack-truth'),
+      projectionColumn('domain_sync_operations', 'idempotency_key', 'skinny-index', 'messagepack-truth'),
+      projectionColumn('domain_sync_operations', 'review_event_id', 'skinny-index', 'messagepack-truth'),
+      projectionColumn('domain_sync_operations', 'msgpack_ref', 'truth-ref', 'messagepack-truth', 'truth-ref-json'),
+      projectionColumn('domain_sync_operations', 'truth_hash', 'truth-ref', 'messagepack-truth'),
+      projectionColumn('domain_sync_operations', 'truth_schema_version', 'truth-ref', 'messagepack-truth'),
+      projectionColumn('domain_sync_operations', 'projection_generation', 'rebuild-metadata', 'local-projection'),
+      projectionColumn('domain_sync_operations', 'payload_json', 'retained-import-input', 'messagepack-truth', 'retained-import-input'),
+    ],
+  },
+  {
+    family: 'queue-projections',
+    schemaVersion: SQL_PROJECTION_SCHEMA_VERSION,
+    tables: [
+      'queue_projection_generations',
+      'queue_projection_rows',
+      'queue_projection_counters',
+      'queue_projection_invalidations',
+      'queue_projection_rebuilds',
+    ],
+    truthFamilies: ['review-events', 'card-memory-facts'],
+    sourceInputs: ['messagepack-truth', 'siyuan-source', 'local-projection'],
+    columns: [
+      projectionColumn('queue_projection_generations', 'queue_type', 'identity', 'local-projection'),
+      projectionColumn('queue_projection_generations', 'policy_hash', 'rebuild-metadata', 'local-projection'),
+      projectionColumn('queue_projection_generations', 'generation', 'rebuild-metadata', 'local-projection'),
+      projectionColumn('queue_projection_generations', 'status', 'status', 'local-projection'),
+      projectionColumn('queue_projection_generations', 'truth_generation_id', 'truth-ref', 'messagepack-truth'),
+      projectionColumn('queue_projection_generations', 'truth_schema_version', 'truth-ref', 'messagepack-truth'),
+      projectionColumn('queue_projection_generations', 'metadata_json', 'rebuild-metadata', 'local-projection', 'skinny-index-json'),
+      projectionColumn('queue_projection_rows', 'row_id', 'identity', 'local-projection'),
+      projectionColumn('queue_projection_rows', 'card_id', 'skinny-index', 'messagepack-truth'),
+      projectionColumn('queue_projection_rows', 'block_id', 'source-ref', 'siyuan-source'),
+      projectionColumn('queue_projection_rows', 'deck_id', 'source-ref', 'siyuan-source'),
+      projectionColumn('queue_projection_rows', 'membership_reason', 'skinny-index', 'local-projection'),
+      projectionColumn('queue_projection_rows', 'sort_key', 'ordering-index', 'local-projection'),
+      projectionColumn('queue_projection_rows', 'source_generation', 'rebuild-metadata', 'local-projection'),
+      projectionColumn('queue_projection_rows', 'truth_refs_json', 'truth-ref', 'messagepack-truth', 'truth-ref-json'),
+      projectionColumn('queue_projection_rows', 'source_hash', 'rebuild-metadata', 'siyuan-source'),
+      projectionColumn('queue_projection_rows', 'truth_schema_version', 'truth-ref', 'messagepack-truth'),
+      projectionColumn('queue_projection_rows', 'payload_json', 'summary', 'local-projection', 'skinny-index-json'),
+      projectionColumn('queue_projection_counters', 'buckets_json', 'counter', 'local-projection', 'skinny-index-json'),
+    ],
+  },
+  {
+    family: 'semantic-ai-indexes',
+    schemaVersion: SQL_PROJECTION_SCHEMA_VERSION,
+    tables: [
+      'semantic_sessions',
+      'semantic_events',
+      'semantic_projection_cache',
+      'arena_predictions',
+      'arena_outcomes',
+      'arena_score_snapshots',
+      'ai_arena_events',
+      'ai_card_attributions',
+    ],
+    truthFamilies: ['ai-session-payload-refs', 'semantic-arena-payload-refs'],
+    sourceInputs: ['messagepack-truth', 'siyuan-source', 'local-projection'],
+    columns: [
+      projectionColumn('semantic_sessions', 'session_id', 'identity', 'messagepack-truth'),
+      projectionColumn('semantic_sessions', 'root_focus_node_id', 'source-ref', 'siyuan-source'),
+      projectionColumn('semantic_sessions', 'payload_ref_json', 'truth-ref', 'messagepack-truth', 'truth-ref-json'),
+      projectionColumn('semantic_sessions', 'payload_hash', 'truth-ref', 'messagepack-truth'),
+      projectionColumn('semantic_sessions', 'projection_generation', 'rebuild-metadata', 'local-projection'),
+      projectionColumn('semantic_sessions', 'payload_json', 'retained-import-input', 'messagepack-truth', 'retained-import-input'),
+      projectionColumn('semantic_projection_cache', 'projection_key', 'identity', 'local-projection'),
+      projectionColumn('semantic_projection_cache', 'payload_ref_json', 'truth-ref', 'messagepack-truth', 'truth-ref-json'),
+      projectionColumn('semantic_projection_cache', 'payload_hash', 'truth-ref', 'messagepack-truth'),
+      projectionColumn('semantic_projection_cache', 'payload_json', 'summary', 'local-projection', 'skinny-index-json'),
+      projectionColumn('semantic_events', 'event_id', 'identity', 'messagepack-truth'),
+      projectionColumn('semantic_events', 'payload_ref_json', 'truth-ref', 'messagepack-truth', 'truth-ref-json'),
+      projectionColumn('ai_arena_events', 'id', 'identity', 'messagepack-truth'),
+      projectionColumn('ai_arena_events', 'payload_ref_json', 'truth-ref', 'messagepack-truth', 'truth-ref-json'),
+      projectionColumn('ai_arena_events', 'payload_hash', 'truth-ref', 'messagepack-truth'),
+      projectionColumn('ai_arena_events', 'payload_json', 'retained-import-input', 'messagepack-truth', 'retained-import-input'),
+      projectionColumn('arena_predictions', 'id', 'identity', 'messagepack-truth'),
+      projectionColumn('arena_predictions', 'payload_ref_json', 'truth-ref', 'messagepack-truth', 'truth-ref-json'),
+      projectionColumn('arena_outcomes', 'id', 'identity', 'messagepack-truth'),
+      projectionColumn('arena_outcomes', 'payload_hash', 'truth-ref', 'messagepack-truth'),
+      projectionColumn('arena_outcomes', 'payload_json', 'retained-import-input', 'messagepack-truth', 'retained-import-input'),
+      projectionColumn('arena_score_snapshots', 'payload_ref_json', 'truth-ref', 'messagepack-truth', 'truth-ref-json'),
+      projectionColumn('ai_card_attributions', 'payload_ref_json', 'truth-ref', 'messagepack-truth', 'truth-ref-json'),
+    ],
+  },
+  {
+    family: 'diagnostics-indexes',
+    schemaVersion: SQL_PROJECTION_SCHEMA_VERSION,
+    tables: ['diagnostics_indexes'],
+    truthFamilies: ['diagnostics-records'],
+    sourceInputs: ['messagepack-truth', 'worker-diagnostics', 'local-projection'],
+    columns: [
+      projectionColumn('diagnostics_indexes', 'diagnostic_event_id', 'identity', 'messagepack-truth'),
+      projectionColumn('diagnostics_indexes', 'category', 'skinny-index', 'worker-diagnostics'),
+      projectionColumn('diagnostics_indexes', 'severity', 'status', 'worker-diagnostics'),
+      projectionColumn('diagnostics_indexes', 'recorded_at', 'ordering-index', 'worker-diagnostics'),
+      projectionColumn('diagnostics_indexes', 'summary', 'summary', 'worker-diagnostics'),
+      projectionColumn('diagnostics_indexes', 'payload_ref_json', 'truth-ref', 'messagepack-truth', 'truth-ref-json'),
+      projectionColumn('diagnostics_indexes', 'payload_hash', 'truth-ref', 'messagepack-truth'),
+      projectionColumn('diagnostics_indexes', 'projection_generation', 'rebuild-metadata', 'local-projection'),
+    ],
+  },
+] as const satisfies readonly SqlProjectionFamilySchema[];
+
+export type BackendStorageProjectionRebuildStatus = 'ready' | 'refreshing' | 'unavailable';
+
+export type BackendStorageProjectionRebuildCause =
+  | 'sql-missing'
+  | 'sql-stale'
+  | 'sql-deleted'
+  | 'manual'
+  | 'truth-flush'
+  | 'source-missing'
+  | 'schema-upgrade';
+
+export type BackendStorageProjectionRebuildUnavailableReason =
+  | 'truth-store-unavailable'
+  | 'source-reader-unavailable'
+  | 'missing-source'
+  | 'unsupported-family'
+  | 'validation-failed'
+  | 'invalid-request'
+  | 'internal-error';
+
+export interface BackendStorageProjectionRebuildRequest {
+  rebuildId?: string | null;
+  cause?: BackendStorageProjectionRebuildCause | string | null;
+  families: SqlProjectionFamily[];
+  deviceId: string;
+  generationId: string;
+  schemaVersion?: number | null;
+  maxSegmentBytes?: number | null;
+}
+
+export interface BackendStorageProjectionRebuildFamilyResult {
+  family: SqlProjectionFamily;
+  status: BackendStorageProjectionRebuildStatus;
+  unavailableReason?: BackendStorageProjectionRebuildUnavailableReason | null;
+  projectionGeneration: number;
+  rowsRead: number;
+  rowsWritten: number;
+  sourceReadCount: number;
+  missingSourceIds: string[];
+  error: string | null;
+}
+
+export interface BackendStorageProjectionRebuildResult {
+  status: BackendStorageProjectionRebuildStatus;
+  at: number;
+  rebuildId: string;
+  cause: string;
+  projectionGeneration: number;
+  rowsRead: number;
+  rowsWritten: number;
+  sourceReadCount: number;
+  missingSourceIds: string[];
+  families: BackendStorageProjectionRebuildFamilyResult[];
+  error: string | null;
+}
 
 export interface MessagePackTruthRef {
   family: MessagePackTruthFamily;
@@ -2499,7 +2807,7 @@ export interface BackendQueueProjectionSnapshotResult {
   queueType: string;
   policyHash: string | null;
   generation: number | null;
-  status: 'ready' | 'invalidated' | 'rebuilding' | 'repairing' | 'unavailable' | string;
+  status: 'ready' | 'refreshing' | 'invalidated' | 'rebuilding' | 'repairing' | 'unavailable' | string;
   rows: BackendQueueProjectionSnapshotRow[];
   counters: BackendReviewFeedbackQueueImpactCounters | null;
   freshness?: BackendQueueProjectionFreshnessEvidence | null;

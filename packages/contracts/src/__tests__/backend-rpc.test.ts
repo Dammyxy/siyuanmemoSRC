@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { MESSAGEPACK_TRUTH_FAMILY_SCHEMAS } from '../backend-rpc';
+import {
+  MESSAGEPACK_TRUTH_FAMILY_SCHEMAS,
+  SQL_PROJECTION_FAMILY_SCHEMAS,
+} from '../backend-rpc';
 import type {
   BackendBrowserAggregateFocusRequest,
   BackendBrowserAggregatePageResult,
@@ -7,6 +10,9 @@ import type {
   BackendGraphQueryResult,
   BackendHotspotCommandSubmitRequest,
   BackendHotspotCommandSubmitResult,
+  BackendRpcRequest,
+  BackendStorageProjectionRebuildRequest,
+  BackendStorageProjectionRebuildResult,
   BackendXiuyuanRiffReadAuditRequest,
   BackendXiuyuanRiffReadAuditResult,
   BackendXiuyuanSyncExecuteRequest,
@@ -18,8 +24,10 @@ import type {
   BackendDomainSyncStatusResult,
   MessagePackTruthFamily,
   MessagePackTruthRecord,
+  SqlProjectionFamily,
   QueueProjectionReadiness,
   QueueProjectionReadinessCause,
+  BackendDiagnosticsStatusResult,
 } from '../backend-rpc';
 
 describe('MessagePack truth first-family schema contracts', () => {
@@ -76,6 +84,219 @@ describe('MessagePack truth first-family schema contracts', () => {
       source: { cardId: 'card-a' },
       review: { action: 'rating', rating: 3 },
       memory: { projectionGeneration: 12 },
+    });
+  });
+});
+
+describe('SQL projection skinny schema contracts', () => {
+  it('defines projection ownership for first SQL projection families', () => {
+    expect(SQL_PROJECTION_FAMILY_SCHEMAS.map((schema) => schema.family)).toEqual([
+      'cards',
+      'review-event-indexes',
+      'domain-sync-indexes',
+      'queue-projections',
+      'semantic-ai-indexes',
+      'diagnostics-indexes',
+    ] satisfies SqlProjectionFamily[]);
+    expect(SQL_PROJECTION_FAMILY_SCHEMAS.every((schema) => schema.schemaVersion === 1)).toBe(true);
+  });
+
+  it('keeps payload JSON columns out of canonical SQL truth ownership', () => {
+    const payloadColumns = SQL_PROJECTION_FAMILY_SCHEMAS.flatMap((schema) => (
+      schema.columns.filter((column) => column.column.endsWith('_json') || column.column === 'payload_json')
+    ));
+
+    expect(payloadColumns).not.toEqual([]);
+    expect(payloadColumns.every((column) => (
+      column.payloadPolicy === 'skinny-index-json'
+      || column.payloadPolicy === 'truth-ref-json'
+      || column.payloadPolicy === 'retained-import-input'
+    ))).toBe(true);
+  });
+
+  it('requires truth refs and projection generation metadata for rebuildable index tables', () => {
+    const columnsByFamily = new Map(SQL_PROJECTION_FAMILY_SCHEMAS.map((schema) => [
+      schema.family,
+      schema.columns.map((column) => `${column.table}.${column.column}`),
+    ]));
+
+    expect(columnsByFamily.get('cards')).toEqual(expect.arrayContaining([
+      'cards.msgpack_ref',
+      'cards.truth_hash',
+      'cards.projection_generation',
+      'cards.source_hash',
+    ]));
+    expect(columnsByFamily.get('review-event-indexes')).toEqual(expect.arrayContaining([
+      'review_events.msgpack_ref',
+      'review_events.commit_idempotency_key',
+      'review_events.projection_generation',
+    ]));
+    expect(columnsByFamily.get('domain-sync-indexes')).toEqual(expect.arrayContaining([
+      'domain_sync_operations.msgpack_ref',
+      'domain_sync_operations.idempotency_key',
+      'domain_sync_operations.projection_generation',
+    ]));
+    expect(columnsByFamily.get('queue-projections')).toEqual(expect.arrayContaining([
+      'queue_projection_rows.truth_refs_json',
+      'queue_projection_rows.source_hash',
+      'queue_projection_generations.truth_generation_id',
+    ]));
+    expect(columnsByFamily.get('semantic-ai-indexes')).toEqual(expect.arrayContaining([
+      'semantic_sessions.payload_ref_json',
+      'semantic_projection_cache.payload_hash',
+      'ai_arena_events.payload_ref_json',
+      'arena_outcomes.payload_hash',
+    ]));
+    expect(columnsByFamily.get('diagnostics-indexes')).toEqual(expect.arrayContaining([
+      'diagnostics_indexes.diagnostic_event_id',
+      'diagnostics_indexes.payload_ref_json',
+      'diagnostics_indexes.projection_generation',
+    ]));
+  });
+});
+
+describe('backend SQL projection rebuild contract', () => {
+  it('serializes SQL checkpoint/export diagnostics with cause, initiator, bytes, generation, and hot-path status', () => {
+    const status = {
+      runtime: 'srs-backend-worker',
+      initialized: true,
+      dbFile: 'siyuanmemo.db',
+      storage: {
+        sqliteDelta: {
+          fileName: 'sqlite-delta-log.v1.json',
+          version: 1,
+          registeredTables: ['queue_projection_generations'],
+          pendingCount: 0,
+          pendingBytes: 0,
+          affectedTables: [],
+          deltaWritesTotal: 1,
+          checkpointWritesTotal: 1,
+          checkpointOnlyTotal: 0,
+          replayedEntriesTotal: 1,
+          lastWrite: {
+            ok: true,
+            at: 1_700_000_000_000,
+            classification: 'delta',
+            label: 'queue.projection.replace',
+            cause: 'queue.projection.replace',
+            initiator: 'queue.projection.replace',
+            projectionGeneration: 7,
+            hotPath: false,
+            byteLength: null,
+          },
+          lastReplay: null,
+          lastCheckpoint: {
+            ok: true,
+            at: 1_700_000_000_100,
+            classification: 'checkpoint',
+            cause: 'worker.persist',
+            initiator: 'db.persist',
+            projectionGeneration: 7,
+            hotPath: false,
+            reason: 'worker.persist',
+            byteLength: 4096,
+            cleared: true,
+          },
+        },
+      },
+    } satisfies BackendDiagnosticsStatusResult;
+
+    expect(JSON.parse(JSON.stringify(status))).toMatchObject({
+      storage: {
+        sqliteDelta: {
+          lastCheckpoint: {
+            cause: 'worker.persist',
+            initiator: 'db.persist',
+            projectionGeneration: 7,
+            hotPath: false,
+            byteLength: 4096,
+          },
+        },
+      },
+    });
+  });
+
+  it('binds rebuild to an explicit backend command with family diagnostics', () => {
+    const request = {
+      jsonrpc: '2.0',
+      id: 'projection-rebuild-a',
+      method: 'storage.projection.rebuild',
+      params: {
+        rebuildId: 'rebuild-a',
+        cause: 'sql-missing',
+        families: ['review-event-indexes'],
+        deviceId: 'device-a',
+        generationId: 'truth-generation-a',
+        schemaVersion: 1,
+      },
+    } satisfies BackendRpcRequest<BackendStorageProjectionRebuildRequest>;
+    const result = {
+      status: 'ready',
+      at: 1_700_000_000_000,
+      rebuildId: 'rebuild-a',
+      cause: 'sql-missing',
+      projectionGeneration: 1,
+      rowsRead: 1,
+      rowsWritten: 1,
+      sourceReadCount: 1,
+      missingSourceIds: [],
+      families: [{
+        family: 'review-event-indexes',
+        status: 'ready',
+        projectionGeneration: 1,
+        rowsRead: 1,
+        rowsWritten: 1,
+        sourceReadCount: 1,
+        missingSourceIds: [],
+        error: null,
+      }],
+      error: null,
+    } satisfies BackendStorageProjectionRebuildResult;
+
+    expect(JSON.parse(JSON.stringify({ request, result }))).toMatchObject({
+      request: {
+        method: 'storage.projection.rebuild',
+        params: {
+          families: ['review-event-indexes'],
+          cause: 'sql-missing',
+        },
+      },
+      result: {
+        status: 'ready',
+        families: [{ family: 'review-event-indexes', status: 'ready' }],
+      },
+    });
+  });
+
+  it('represents unsupported or missing-source rebuild as explicit unavailable state', () => {
+    const result = {
+      status: 'unavailable',
+      at: 1_700_000_000_100,
+      rebuildId: 'rebuild-b',
+      cause: 'source-missing',
+      projectionGeneration: 0,
+      rowsRead: 1,
+      rowsWritten: 0,
+      sourceReadCount: 1,
+      missingSourceIds: ['block-missing'],
+      families: [{
+        family: 'cards',
+        status: 'unavailable',
+        unavailableReason: 'missing-source',
+        projectionGeneration: 0,
+        rowsRead: 1,
+        rowsWritten: 0,
+        sourceReadCount: 1,
+        missingSourceIds: ['block-missing'],
+        error: 'missing source blocks: block-missing',
+      }],
+      error: 'missing source blocks: block-missing',
+    } satisfies BackendStorageProjectionRebuildResult;
+
+    expect(result.status).toBe('unavailable');
+    expect(result.families[0]).toMatchObject({
+      status: 'unavailable',
+      unavailableReason: 'missing-source',
     });
   });
 });

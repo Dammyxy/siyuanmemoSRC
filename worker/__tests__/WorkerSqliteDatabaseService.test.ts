@@ -128,7 +128,14 @@ describe('WorkerSqliteDatabaseService', () => {
     expect(writeBinary).toHaveBeenCalledTimes(writesBeforeProjection + 1);
     await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
       pendingCount: 0,
-      lastCheckpoint: { ok: true, cleared: true },
+      lastCheckpoint: {
+        ok: true,
+        cleared: true,
+        cause: 'worker.persist',
+        initiator: 'db.persist',
+        projectionGeneration: 1,
+        hotPath: false,
+      },
     });
   });
 
@@ -525,6 +532,18 @@ describe('WorkerSqliteDatabaseService', () => {
         ok: true,
         classification: 'checkpoint',
         reason: 'delta-threshold-exceeded',
+        cause: 'queue.projection.replace',
+        initiator: 'queue.projection.replace',
+        projectionGeneration: 1,
+        hotPath: false,
+      },
+      lastCheckpoint: {
+        ok: true,
+        cause: 'queue.projection.replace:delta-threshold-exceeded',
+        initiator: 'queue.projection.replace',
+        projectionGeneration: 1,
+        hotPath: false,
+        reason: 'queue.projection.replace:delta-threshold-exceeded',
       },
     });
   });

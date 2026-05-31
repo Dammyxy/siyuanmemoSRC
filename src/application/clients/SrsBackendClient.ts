@@ -49,6 +49,8 @@ import type {
   BackendQueueProjectionReplaceResult,
   BackendQueueProjectionSnapshotRequest,
   BackendQueueProjectionSnapshotResult,
+  BackendStorageProjectionRebuildRequest,
+  BackendStorageProjectionRebuildResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
   BackendReviewRiffFeedbackExecuteRequest,
@@ -294,6 +296,12 @@ export class SrsBackendClient {
     request: BackendQueueProjectionReplaceRequest,
   ): Promise<BackendQueueProjectionReplaceResult> {
     return this.call<BackendQueueProjectionReplaceResult>('queue.projection.replace', request);
+  }
+
+  async storageProjectionRebuild(
+    request: BackendStorageProjectionRebuildRequest,
+  ): Promise<BackendStorageProjectionRebuildResult> {
+    return this.call<BackendStorageProjectionRebuildResult>('storage.projection.rebuild', request);
   }
 
   async neuralRoamAdvance(

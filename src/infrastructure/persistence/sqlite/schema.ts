@@ -1,5 +1,11 @@
 export const SQLITE_DB_FILE = 'siyuanmemo.db';
-export const SQLITE_SCHEMA_VERSION = 4;
+export const SQLITE_SCHEMA_VERSION = 5;
+
+export interface SqliteSkinnyProjectionColumn {
+  table: string;
+  name: string;
+  definition: string;
+}
 
 export const CARD_PROJECTION_COLUMNS: Array<{ name: string; definition: string }> = [
   { name: 'deck_id', definition: 'deck_id TEXT' },
@@ -36,6 +42,98 @@ export const CARD_PROJECTION_INDEX_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_cards_source_checked ON cards(source_checked_at)`,
   `CREATE INDEX IF NOT EXISTS idx_cards_source_root ON cards(source_exists, root_id)`,
   `CREATE INDEX IF NOT EXISTS idx_cards_search_text ON cards(search_text)`,
+];
+
+const SEMANTIC_AI_PAYLOAD_REF_TABLES = [
+  'semantic_sessions',
+  'semantic_events',
+  'semantic_stations',
+  'semantic_relations',
+  'semantic_branch_edges',
+  'semantic_branch_states',
+  'semantic_later_entries',
+  'semantic_irrelevant_feedback',
+  'semantic_suggestions',
+  'semantic_projection_cache',
+  'arena_predictions',
+  'arena_outcomes',
+  'arena_score_snapshots',
+  'ai_arena_events',
+  'ai_card_attributions',
+] as const;
+
+export const SQLITE_SKINNY_PROJECTION_COLUMNS: SqliteSkinnyProjectionColumn[] = [
+  { table: 'cards', name: 'msgpack_ref', definition: 'msgpack_ref TEXT' },
+  { table: 'cards', name: 'truth_hash', definition: 'truth_hash TEXT' },
+  { table: 'cards', name: 'truth_schema_version', definition: 'truth_schema_version INTEGER' },
+  { table: 'cards', name: 'projection_generation', definition: 'projection_generation INTEGER' },
+  { table: 'cards', name: 'source_hash', definition: 'source_hash TEXT' },
+  { table: 'review_events', name: 'msgpack_ref', definition: 'msgpack_ref TEXT' },
+  { table: 'review_events', name: 'truth_hash', definition: 'truth_hash TEXT' },
+  { table: 'review_events', name: 'truth_schema_version', definition: 'truth_schema_version INTEGER' },
+  { table: 'review_events', name: 'projection_generation', definition: 'projection_generation INTEGER' },
+  { table: 'domain_sync_operations', name: 'msgpack_ref', definition: 'msgpack_ref TEXT' },
+  { table: 'domain_sync_operations', name: 'truth_hash', definition: 'truth_hash TEXT' },
+  { table: 'domain_sync_operations', name: 'truth_schema_version', definition: 'truth_schema_version INTEGER' },
+  { table: 'domain_sync_operations', name: 'projection_generation', definition: 'projection_generation INTEGER' },
+  { table: 'queue_projection_generations', name: 'truth_generation_id', definition: 'truth_generation_id TEXT' },
+  { table: 'queue_projection_generations', name: 'truth_schema_version', definition: 'truth_schema_version INTEGER' },
+  { table: 'queue_projection_rows', name: 'truth_refs_json', definition: 'truth_refs_json TEXT' },
+  { table: 'queue_projection_rows', name: 'source_hash', definition: 'source_hash TEXT' },
+  { table: 'queue_projection_rows', name: 'truth_schema_version', definition: 'truth_schema_version INTEGER' },
+  { table: 'queue_projection_rebuilds', name: 'truth_generation_id', definition: 'truth_generation_id TEXT' },
+  { table: 'queue_projection_rebuilds', name: 'truth_schema_version', definition: 'truth_schema_version INTEGER' },
+  ...SEMANTIC_AI_PAYLOAD_REF_TABLES.flatMap((table) => [
+    { table, name: 'payload_ref_json', definition: 'payload_ref_json TEXT' },
+    { table, name: 'payload_hash', definition: 'payload_hash TEXT' },
+    { table, name: 'truth_schema_version', definition: 'truth_schema_version INTEGER' },
+    { table, name: 'projection_generation', definition: 'projection_generation INTEGER' },
+  ]),
+  { table: 'diagnostics_indexes', name: 'diagnostic_event_id', definition: 'diagnostic_event_id TEXT' },
+  { table: 'diagnostics_indexes', name: 'category', definition: 'category TEXT' },
+  { table: 'diagnostics_indexes', name: 'severity', definition: 'severity TEXT' },
+  { table: 'diagnostics_indexes', name: 'recorded_at', definition: 'recorded_at INTEGER' },
+  { table: 'diagnostics_indexes', name: 'summary', definition: 'summary TEXT' },
+  { table: 'diagnostics_indexes', name: 'payload_ref_json', definition: 'payload_ref_json TEXT' },
+  { table: 'diagnostics_indexes', name: 'payload_hash', definition: 'payload_hash TEXT' },
+  { table: 'diagnostics_indexes', name: 'truth_schema_version', definition: 'truth_schema_version INTEGER' },
+  { table: 'diagnostics_indexes', name: 'projection_generation', definition: 'projection_generation INTEGER' },
+];
+
+export const SQLITE_SKINNY_PROJECTION_INDEX_STATEMENTS = [
+  `CREATE INDEX IF NOT EXISTS idx_cards_msgpack_ref ON cards(msgpack_ref)`,
+  `CREATE INDEX IF NOT EXISTS idx_cards_truth_hash ON cards(truth_hash)`,
+  `CREATE INDEX IF NOT EXISTS idx_cards_projection_generation ON cards(projection_generation)`,
+  `CREATE INDEX IF NOT EXISTS idx_cards_source_hash ON cards(source_hash)`,
+  `CREATE INDEX IF NOT EXISTS idx_review_events_msgpack_ref ON review_events(msgpack_ref)`,
+  `CREATE INDEX IF NOT EXISTS idx_review_events_projection_generation ON review_events(projection_generation)`,
+  `CREATE INDEX IF NOT EXISTS idx_domain_sync_operations_msgpack_ref ON domain_sync_operations(msgpack_ref)`,
+  `CREATE INDEX IF NOT EXISTS idx_domain_sync_operations_projection_generation
+    ON domain_sync_operations(projection_generation)`,
+  `CREATE INDEX IF NOT EXISTS idx_queue_projection_generations_truth
+    ON queue_projection_generations(truth_generation_id, truth_schema_version)`,
+  `CREATE INDEX IF NOT EXISTS idx_queue_projection_rows_truth
+    ON queue_projection_rows(queue_type, truth_schema_version, source_hash)`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_sessions_payload_ref
+    ON semantic_sessions(payload_hash, projection_generation)`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_events_payload_ref
+    ON semantic_events(payload_hash, projection_generation)`,
+  `CREATE INDEX IF NOT EXISTS idx_semantic_projection_cache_payload_ref
+    ON semantic_projection_cache(payload_hash, projection_generation)`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_arena_events_payload_ref
+    ON ai_arena_events(payload_hash, projection_generation)`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_card_attributions_payload_ref
+    ON ai_card_attributions(payload_hash, projection_generation)`,
+  `CREATE INDEX IF NOT EXISTS idx_arena_predictions_payload_ref
+    ON arena_predictions(payload_hash, projection_generation)`,
+  `CREATE INDEX IF NOT EXISTS idx_arena_outcomes_payload_ref
+    ON arena_outcomes(payload_hash, projection_generation)`,
+  `CREATE INDEX IF NOT EXISTS idx_arena_score_snapshots_payload_ref
+    ON arena_score_snapshots(payload_hash, projection_generation)`,
+  `CREATE INDEX IF NOT EXISTS idx_diagnostics_indexes_category
+    ON diagnostics_indexes(category, severity, recorded_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_diagnostics_indexes_projection
+    ON diagnostics_indexes(projection_generation, recorded_at DESC)`,
 ];
 
 export const SQL_SCHEMA_STATEMENTS = [
@@ -104,6 +202,18 @@ export const SQL_SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS queue_state (
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS diagnostics_indexes (
+    diagnostic_event_id TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    recorded_at INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    payload_ref_json TEXT,
+    payload_hash TEXT,
+    truth_schema_version INTEGER,
+    projection_generation INTEGER,
     updated_at INTEGER NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS neural_roam_routes (

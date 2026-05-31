@@ -32,6 +32,9 @@ import type {
   BackendQueueProjectionReplaceResult,
   BackendQueueProjectionSnapshotRequest,
   BackendQueueProjectionSnapshotResult,
+  BackendStorageProjectionRebuildRequest,
+  BackendStorageProjectionRebuildResult,
+  BackendStorageProjectionRebuildFamilyResult,
   BackendKernelTransactionAction,
   BackendKernelTransactionDequeueResult,
   BackendKernelTransactionIngestRequest,
@@ -76,7 +79,11 @@ import type {
   BackendReviewFeedbackJournalDiagnostics,
   BackendReviewFeedbackJournalBackpressureDiagnostics,
   BackendReviewFeedbackJournalOperationStatus,
+  MessagePackTruthRecord,
 } from '../../packages/contracts/src/backend-rpc';
+import type {
+  MessagePackTruthSegmentManifest,
+} from '../truth/MessagePackTruthSegmentStore';
 import type { WorkerXiuyuanSyncApplyInput } from '../xiuyuan/WorkerXiuyuanSyncPlanner';
 import type {
   SemanticEvent,
@@ -115,6 +122,11 @@ import {
 } from '../queue-projection/WorkerQueueProjectionRuntime';
 import { SourceExistenceProjectionInvalidator } from '../queue-projection/SourceExistenceProjectionInvalidator';
 import { activePluginCardSql } from '@/infrastructure/persistence/sqlite/cardAdmissionSql';
+import {
+  deriveAlgorithmCardState,
+  stringifyAlgorithmCardState,
+  ACTIVE_ALGORITHM_IDS,
+} from '@/infrastructure/persistence/sqlite/algorithmCardState';
 import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 
 type SqlParams = SqlValue[] | ParamsObject;
@@ -279,6 +291,26 @@ interface DomainSyncProcessedSourceCounters {
   importedCards: number;
   ignoredCards: number;
 }
+
+interface ProjectionRebuildSourceRead {
+  blockId: string;
+  status: string;
+  found: boolean;
+  error: string | null;
+  data?: unknown;
+}
+
+type WorkerStorageProjectionRebuildRequest = Omit<
+  BackendStorageProjectionRebuildRequest,
+  'schemaVersion'
+> & {
+  deviceId: string;
+  generationId: string;
+  schemaVersion: number;
+  truthRecords: MessagePackTruthRecord[];
+  truthManifest: MessagePackTruthSegmentManifest;
+  sourceReads: ProjectionRebuildSourceRead[];
+};
 
 interface ConflictSummaryReviewRow {
   count: number;
@@ -976,7 +1008,15 @@ export class WorkerSqliteDatabaseService {
       pendingCountBefore = journalBefore.pendingCount;
       pendingBytesBefore = journalBefore.pendingBytes;
       await this.replayPendingReviewFeedbackJournalEntries();
-      await this.runtime.persist({ reason: 'worker.persist' });
+      await this.runtime.persist({
+        reason: 'worker.persist',
+        diagnostics: {
+          cause: 'worker.persist',
+          initiator: 'db.persist',
+          projectionGeneration: null,
+          hotPath: false,
+        },
+      });
       await this.rememberPersistedHash();
       await this.clearReviewFeedbackJournal();
       this.lastReviewFeedbackCheckpoint = {
@@ -1877,6 +1917,27 @@ export class WorkerSqliteDatabaseService {
       reason: request.reason ?? 'queue-projection.replace',
     });
     return result;
+  }
+
+  async rebuildSqlProjections(
+    request: WorkerStorageProjectionRebuildRequest,
+  ): Promise<BackendStorageProjectionRebuildResult> {
+    await this.measureDiagnosticDatabaseStep('storageProjection.rebuild.init', () => this.init(), {
+      backendMethod: 'storage.projection.rebuild',
+      families: request.families,
+      cause: request.cause ?? null,
+    });
+    return this.measureDiagnosticDatabaseStep(
+      'storageProjection.rebuild.total',
+      () => this.rebuildSqlProjectionsFromTruth(request),
+      {
+        backendMethod: 'storage.projection.rebuild',
+        families: request.families,
+        cause: request.cause ?? null,
+        truthRecordCount: request.truthRecords.length,
+        sourceReadCount: request.sourceReads.length,
+      },
+    );
   }
 
   async getCard(cardId: string): Promise<FSRSCard | undefined> {
@@ -4496,6 +4557,258 @@ export class WorkerSqliteDatabaseService {
     };
   }
 
+  private rebuildSqlProjectionsFromTruth(
+    request: WorkerStorageProjectionRebuildRequest,
+  ): BackendStorageProjectionRebuildResult {
+    const at = Date.now();
+    const rebuildId = normalizeString(request.rebuildId) || `projection-rebuild:${at}`;
+    const cause = normalizeString(request.cause) || 'manual';
+    const projectionGeneration = at;
+    const families = uniqueStrings(request.families);
+    const familyResults: BackendStorageProjectionRebuildFamilyResult[] = [];
+
+    for (const family of families) {
+      if (family === 'review-event-indexes') {
+        familyResults.push(this.rebuildReviewEventIndexProjection({
+          request,
+          projectionGeneration,
+        }));
+        continue;
+      }
+      if (family === 'cards') {
+        familyResults.push(this.rebuildCardProjection({
+          request,
+          projectionGeneration,
+        }));
+        continue;
+      }
+      familyResults.push({
+        family: family as BackendStorageProjectionRebuildFamilyResult['family'],
+        status: 'unavailable',
+        unavailableReason: 'unsupported-family',
+        projectionGeneration: 0,
+        rowsRead: 0,
+        rowsWritten: 0,
+        sourceReadCount: 0,
+        missingSourceIds: [],
+        error: `storage.projection.rebuild does not support ${family}`,
+      });
+    }
+
+    const missingSourceIds = uniqueStrings(familyResults.flatMap((result) => result.missingSourceIds));
+    const firstError = familyResults.find((result) => result.error)?.error ?? null;
+    const rowsRead = familyResults.reduce((total, result) => total + result.rowsRead, 0);
+    const rowsWritten = familyResults.reduce((total, result) => total + result.rowsWritten, 0);
+    const sourceReadCount = request.sourceReads.length;
+    const hasUnavailable = familyResults.some((result) => result.status === 'unavailable');
+    const hasRefreshing = familyResults.some((result) => result.status === 'refreshing');
+    return {
+      status: hasUnavailable ? 'unavailable' : hasRefreshing ? 'refreshing' : 'ready',
+      at,
+      rebuildId,
+      cause,
+      projectionGeneration: hasUnavailable && rowsWritten === 0 ? 0 : projectionGeneration,
+      rowsRead,
+      rowsWritten,
+      sourceReadCount,
+      missingSourceIds,
+      families: familyResults,
+      error: firstError,
+    };
+  }
+
+  private rebuildReviewEventIndexProjection(input: {
+    request: WorkerStorageProjectionRebuildRequest;
+    projectionGeneration: number;
+  }): BackendStorageProjectionRebuildFamilyResult {
+    const reviewRecords = input.request.truthRecords
+      .filter(isReviewEventTruthRecord);
+    const reviewBlockIds = new Set(reviewRecords
+      .map((record) => readTruthRecordSourceBlockId(record))
+      .filter((blockId): blockId is string => Boolean(blockId)));
+    const missingSourceIds = uniqueStrings(input.request.sourceReads
+      .filter((read) => reviewBlockIds.has(read.blockId) && !read.found)
+      .map((read) => read.blockId));
+    if (missingSourceIds.length > 0) {
+      return {
+        family: 'review-event-indexes',
+        status: 'unavailable',
+        unavailableReason: 'missing-source',
+        projectionGeneration: 0,
+        rowsRead: reviewRecords.length,
+        rowsWritten: 0,
+        sourceReadCount: input.request.sourceReads.length,
+        missingSourceIds,
+        error: `missing source blocks: ${missingSourceIds.join(', ')}`,
+      };
+    }
+
+    const rows = reviewRecords
+      .map((record) => buildReviewEventProjectionRow({
+        record,
+        request: input.request,
+        projectionGeneration: input.projectionGeneration,
+      }))
+      .filter((row): row is ReviewEventProjectionRow => row !== null);
+
+    this.runtime.runTransaction('storage.projection.rebuild.review-event-indexes', () => {
+      for (const row of rows) {
+        if (row.commitIdempotencyKey) {
+          this.runtime.run(
+            `DELETE FROM review_events
+              WHERE commit_idempotency_key = ?
+                AND msgpack_ref IS NOT NULL`,
+            [row.commitIdempotencyKey],
+          );
+        }
+        this.runtime.run(
+          `INSERT OR REPLACE INTO review_events
+            (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key,
+             year, month, event_type, payload_json, msgpack_ref, truth_hash,
+             truth_schema_version, projection_generation)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            row.id,
+            row.cardId,
+            row.attemptId,
+            row.rating,
+            row.reviewedAt,
+            row.commitIdempotencyKey,
+            row.year,
+            row.month,
+            row.eventType,
+            row.payloadJson,
+            row.msgpackRef,
+            row.truthHash,
+            row.truthSchemaVersion,
+            row.projectionGeneration,
+          ],
+        );
+      }
+    });
+
+    return {
+      family: 'review-event-indexes',
+      status: 'ready',
+      projectionGeneration: input.projectionGeneration,
+      rowsRead: reviewRecords.length,
+      rowsWritten: rows.length,
+      sourceReadCount: input.request.sourceReads.length,
+      missingSourceIds: [],
+      error: null,
+    };
+  }
+
+  private rebuildCardProjection(input: {
+    request: WorkerStorageProjectionRebuildRequest;
+    projectionGeneration: number;
+  }): BackendStorageProjectionRebuildFamilyResult {
+    const cardRecords = input.request.truthRecords
+      .filter(isCardMemoryFactTruthRecord);
+    const cardRows = buildCardProjectionRows({
+      request: input.request,
+      records: cardRecords,
+      projectionGeneration: input.projectionGeneration,
+    });
+    const rowBlockIds = new Set(cardRows.map((row) => row.blockId));
+    const missingSourceIds = uniqueStrings(input.request.sourceReads
+      .filter((read) => rowBlockIds.has(read.blockId) && !read.found)
+      .map((read) => read.blockId));
+    if (missingSourceIds.length > 0) {
+      return {
+        family: 'cards',
+        status: 'unavailable',
+        unavailableReason: 'missing-source',
+        projectionGeneration: 0,
+        rowsRead: cardRecords.length,
+        rowsWritten: 0,
+        sourceReadCount: input.request.sourceReads.length,
+        missingSourceIds,
+        error: `missing source blocks: ${missingSourceIds.join(', ')}`,
+      };
+    }
+
+    this.runtime.runTransaction('storage.projection.rebuild.cards', () => {
+      for (const row of cardRows) {
+        this.runtime.run(
+          `INSERT OR REPLACE INTO cards
+            (id, block_id, xiuyuan_id, type, state, due, priority, scheduler_type, updated_at,
+             deck_id, root_id, content_text, tags, suspended, lapses, reps, last_review, created_at,
+             scheduled_days, stability, difficulty, a_factor, search_text, card_type_marker,
+             source_exists, source_checked_at, source_missing_at, payload_json, dto_json,
+             msgpack_ref, truth_hash, truth_schema_version, projection_generation, source_hash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            row.id,
+            row.blockId,
+            row.xiuyuanId,
+            row.type,
+            row.state,
+            row.due,
+            row.priority,
+            row.schedulerType,
+            row.updatedAt,
+            row.deckId,
+            row.rootId,
+            row.contentText,
+            row.tags,
+            row.suspended,
+            row.lapses,
+            row.reps,
+            row.lastReview,
+            row.createdAt,
+            row.scheduledDays,
+            row.stability,
+            row.difficulty,
+            row.aFactor,
+            row.searchText,
+            row.cardTypeMarker,
+            row.sourceExists,
+            row.sourceCheckedAt,
+            row.sourceMissingAt,
+            row.payloadJson,
+            row.dtoJson,
+            row.msgpackRef,
+            row.truthHash,
+            row.truthSchemaVersion,
+            row.projectionGeneration,
+            row.sourceHash,
+          ],
+        );
+        const algorithmState = deriveAlgorithmCardState(row.card);
+        this.runtime.run(
+          `DELETE FROM algorithm_card_state
+           WHERE card_id = ?
+             AND algorithm_id IN (?, ?)
+             AND algorithm_id != ?`,
+          [row.id, ...ACTIVE_ALGORITHM_IDS, algorithmState.algorithmId],
+        );
+        this.runtime.run(
+          `INSERT OR REPLACE INTO algorithm_card_state
+            (card_id, algorithm_id, state_json, updated_at)
+           VALUES (?, ?, ?, ?)`,
+          [
+            row.id,
+            algorithmState.algorithmId,
+            stringifyAlgorithmCardState(algorithmState.state),
+            row.updatedAt,
+          ],
+        );
+      }
+    });
+
+    return {
+      family: 'cards',
+      status: 'ready',
+      projectionGeneration: input.projectionGeneration,
+      rowsRead: cardRecords.length,
+      rowsWritten: cardRows.length,
+      sourceReadCount: input.request.sourceReads.length,
+      missingSourceIds: [],
+      error: null,
+    };
+  }
+
   private createQueueProjectionRuntime(): WorkerQueueProjectionRuntime {
     return new WorkerQueueProjectionRuntime({
       repository: this.repository!,
@@ -6428,6 +6741,478 @@ const NATIVE_RIFF_MARKERS = [
   'riffCard',
   'custom-card-type',
 ];
+const CARD_PROJECTION_SOURCE_PREVIEW_LIMIT = 80;
+
+interface ReviewEventProjectionRow {
+  id: string;
+  cardId: string;
+  attemptId: string | null;
+  rating: number | null;
+  reviewedAt: number;
+  commitIdempotencyKey: string | null;
+  year: number;
+  month: number;
+  eventType: string;
+  payloadJson: string;
+  msgpackRef: string;
+  truthHash: string;
+  truthSchemaVersion: number;
+  projectionGeneration: number;
+}
+
+interface CardProjectionRow {
+  id: string;
+  blockId: string;
+  xiuyuanId: string | null;
+  type: string;
+  state: number;
+  due: number;
+  priority: number;
+  schedulerType: string | null;
+  updatedAt: number;
+  deckId: string | null;
+  rootId: string | null;
+  contentText: string | null;
+  tags: string | null;
+  suspended: number;
+  lapses: number | null;
+  reps: number | null;
+  lastReview: number | null;
+  createdAt: number | null;
+  scheduledDays: number | null;
+  stability: number | null;
+  difficulty: number | null;
+  aFactor: number | null;
+  searchText: string | null;
+  cardTypeMarker: string | null;
+  sourceExists: number;
+  sourceCheckedAt: number;
+  sourceMissingAt: number | null;
+  payloadJson: string;
+  dtoJson: string | null;
+  msgpackRef: string;
+  truthHash: string;
+  truthSchemaVersion: number;
+  projectionGeneration: number;
+  sourceHash: string | null;
+  card: FSRSCard;
+}
+
+function isReviewEventTruthRecord(record: MessagePackTruthRecord): record is MessagePackTruthRecord & Record<string, unknown> {
+  return isRecord(record)
+    && record.family === 'review-events'
+    && Number(record.schemaVersion) >= 1;
+}
+
+function isCardMemoryFactTruthRecord(record: MessagePackTruthRecord): record is MessagePackTruthRecord & Record<string, unknown> {
+  return isRecord(record)
+    && record.family === 'card-memory-facts'
+    && Number(record.schemaVersion) >= 1
+    && (
+      record.type === 'card-memory.created.v1'
+      || record.type === 'card-memory.updated.v1'
+      || record.type === 'source-binding.created.v1'
+      || record.type === 'card-face.created.v1'
+    );
+}
+
+function readTruthRecordSourceBlockId(record: Record<string, unknown>): string | null {
+  const source = isRecord(record.source) ? record.source : {};
+  return readRecordString(source, ['blockId', 'sourceBlockId'])
+    ?? readRecordString(record, ['blockId', 'sourceBlockId']);
+}
+
+function buildReviewEventProjectionRow(input: {
+  record: MessagePackTruthRecord & Record<string, unknown>;
+  request: WorkerStorageProjectionRebuildRequest;
+  projectionGeneration: number;
+}): ReviewEventProjectionRow | null {
+  const source = isRecord(input.record.source) ? input.record.source : {};
+  const review = isRecord(input.record.review) ? input.record.review : {};
+  const queue = isRecord(input.record.queue) ? input.record.queue : {};
+  const cardId = readRecordString(source, ['cardId'])
+    ?? readRecordString(input.record, ['cardId']);
+  const idempotencyKey = readRecordString(input.record, ['idempotencyKey']);
+  if (!cardId || !idempotencyKey) {
+    return null;
+  }
+  const reviewedAt = readRecordNumber(review, ['reviewedAt'])
+    ?? readRecordNumber(input.record, ['reviewedAt', 'logicalTime', 'recordedAt'])
+    ?? Date.now();
+  const eventId = readRecordString(input.record, ['eventId', 'journalEntryId', 'id'])
+    ?? `review-truth:${idempotencyKey}`;
+  const rating = readRecordNumber(review, ['rating'])
+    ?? readRecordNumber(input.record, ['rating']);
+  const reviewedDate = new Date(reviewedAt);
+  const sourceBlockId = readRecordString(source, ['blockId', 'sourceBlockId'])
+    ?? readRecordString(input.record, ['blockId', 'sourceBlockId']);
+  const segmentPath = input.request.truthManifest.segments[0]?.path
+    ?? input.request.truthManifest.path
+    ?? '';
+  const msgpackRef = {
+    family: 'review-events',
+    deviceId: input.request.deviceId,
+    generationId: input.request.generationId,
+    schemaVersion: input.request.schemaVersion,
+    segmentPath,
+    recordId: eventId,
+    idempotencyKey,
+  };
+  const payload = {
+    schemaVersion: 1,
+    projectionKind: 'messagepack-review-event-index',
+    eventId,
+    cardId,
+    attemptId: readRecordString(input.record, ['attemptId']),
+    rating,
+    reviewedAt,
+    commitIdempotencyKey: idempotencyKey,
+    sourceBlockId,
+    reviewAction: readRecordString(review, ['action']),
+    queueType: readRecordString(queue, ['queueType']) ?? readRecordString(input.record, ['queueType']),
+    queueMode: readRecordString(queue, ['queueMode']) ?? readRecordString(input.record, ['queueMode']),
+    commitPolicy: readRecordString(queue, ['commitPolicy']) ?? readRecordString(input.record, ['commitPolicy']),
+  };
+  return {
+    id: eventId,
+    cardId,
+    attemptId: payload.attemptId,
+    rating: rating === null ? null : Math.max(1, Math.min(4, Math.floor(rating))),
+    reviewedAt,
+    commitIdempotencyKey: idempotencyKey,
+    year: reviewedDate.getFullYear(),
+    month: reviewedDate.getMonth() + 1,
+    eventType: 'review-v2',
+    payloadJson: JSON.stringify(payload),
+    msgpackRef: JSON.stringify(msgpackRef),
+    truthHash: hashString(JSON.stringify(input.record)),
+    truthSchemaVersion: input.request.schemaVersion,
+    projectionGeneration: input.projectionGeneration,
+  };
+}
+
+function buildCardProjectionRows(input: {
+  request: WorkerStorageProjectionRebuildRequest;
+  records: Array<MessagePackTruthRecord & Record<string, unknown>>;
+  projectionGeneration: number;
+}): CardProjectionRow[] {
+  const states = new Map<string, {
+    cardId: string;
+    blockId: string;
+    sourceBlockId: string | null;
+    xiuyuanId: string | null;
+    cardFaceId: string | null;
+    schedulerOwner: string | null;
+    memoryHash: string | null;
+    sourceHash: string | null;
+    lineage: Record<string, unknown>;
+    lastRecord: MessagePackTruthRecord & Record<string, unknown>;
+    lastLogicalTime: number;
+  }>();
+  for (const record of input.records) {
+    const source = isRecord(record.source) ? record.source : {};
+    const memory = isRecord(record.memory) ? record.memory : {};
+    const lineage = isRecord(memory.lineage) ? memory.lineage : {};
+    const cardId = readRecordString(source, ['cardId'])
+      ?? readRecordString(record, ['cardId']);
+    const blockId = readRecordString(source, ['blockId', 'sourceBlockId'])
+      ?? readRecordString(record, ['blockId', 'sourceBlockId']);
+    if (!cardId || !blockId || record.type === 'card-memory.tombstoned.v1') {
+      continue;
+    }
+    const logicalTime = readRecordNumber(record, ['logicalTime', 'recordedAt'], 0) ?? 0;
+    const current = states.get(cardId);
+    const nextLineage = {
+      ...(current?.lineage ?? {}),
+      ...lineage,
+    };
+    states.set(cardId, {
+      cardId,
+      blockId,
+      sourceBlockId: readRecordString(source, ['sourceBlockId']) ?? current?.sourceBlockId ?? blockId,
+      xiuyuanId: readRecordString(source, ['xiuyuanId'])
+        ?? readRecordString(lineage, ['xiuyuanId'])
+        ?? current?.xiuyuanId
+        ?? null,
+      cardFaceId: readRecordString(source, ['cardFaceId'])
+        ?? readRecordString(lineage, ['cardFaceId'])
+        ?? current?.cardFaceId
+        ?? null,
+      schedulerOwner: readRecordString(memory, ['schedulerOwner'])
+        ?? current?.schedulerOwner
+        ?? null,
+      memoryHash: readRecordString(memory, ['memoryHash'])
+        ?? current?.memoryHash
+        ?? null,
+      sourceHash: readRecordString(source, ['sourceHash'])
+        ?? readRecordString(lineage, ['sourceHash'])
+        ?? current?.sourceHash
+        ?? null,
+      lineage: nextLineage,
+      lastRecord: logicalTime >= (current?.lastLogicalTime ?? -1) ? record : current?.lastRecord ?? record,
+      lastLogicalTime: Math.max(logicalTime, current?.lastLogicalTime ?? 0),
+    });
+  }
+
+  const rows: CardProjectionRow[] = [];
+  for (const state of states.values()) {
+    const sourceRead = input.request.sourceReads.find((read) => read.blockId === state.blockId);
+    if (sourceRead && !sourceRead.found) {
+      continue;
+    }
+    const sourceData = isRecord(sourceRead?.data) ? sourceRead.data : {};
+    const sourceContent = readRecordString(sourceData, ['content', 'markdown', 'kramdown', 'text']) ?? '';
+    const sourcePreview = trimProjectionText(sourceContent, CARD_PROJECTION_SOURCE_PREVIEW_LIMIT);
+    const rootId = readRecordString(sourceData, ['root_id', 'rootId']);
+    const deckId = readRecordString(sourceData, ['deck_id', 'deckId', 'parent_id', 'parentId']);
+    const xiuyuanId = state.xiuyuanId ?? readAllowlistedXiuyuanBinding(sourceData);
+    const cardTypeMarker = readRecordString(state.lineage, ['cardTypeMarker'])
+      ?? readAllowlistedCardTypeMarker(sourceData);
+    const card = buildProjectionCard({
+      state: {
+        ...state,
+        xiuyuanId,
+        lineage: {
+          ...state.lineage,
+          ...(cardTypeMarker ? { cardTypeMarker } : {}),
+        },
+      },
+      sourcePreview,
+      rootId,
+      deckId,
+    });
+    const sourceHash = state.sourceHash ?? (sourceContent ? hashString(sourceContent) : null);
+    const msgpackRef = {
+      family: 'card-memory-facts',
+      deviceId: input.request.deviceId,
+      generationId: input.request.generationId,
+      schemaVersion: input.request.schemaVersion,
+      segmentPath: input.request.truthManifest.segments.find((segment) => segment.family === 'card-memory-facts')?.path
+        ?? input.request.truthManifest.segments[0]?.path
+        ?? input.request.truthManifest.path
+        ?? '',
+      recordId: readRecordString(state.lastRecord, ['eventId', 'journalEntryId', 'id']),
+      idempotencyKey: readRecordString(state.lastRecord, ['idempotencyKey']),
+    };
+    const payload = {
+      schemaVersion: 1,
+      projectionKind: 'messagepack-card-projection',
+      cardId: state.cardId,
+      blockId: state.blockId,
+      xiuyuanId: state.xiuyuanId,
+      cardFaceId: state.cardFaceId,
+      schedulerOwner: state.schedulerOwner,
+      memoryHash: state.memoryHash,
+      sourceHash,
+      sourcePreview,
+      rootId,
+      deckId,
+      lineage: pickSkinnyLineage(state.lineage),
+    };
+    rows.push({
+      id: card.id,
+      blockId: card.blockId,
+      xiuyuanId,
+      type: card.type,
+      state: Number(card.state) || 0,
+      due: Number(card.due) || 0,
+      priority: Number(card.priority) || 0,
+      schedulerType: card.schedulerType ?? null,
+      updatedAt: Number(card.updatedAt) || Number(state.lastRecord.recordedAt) || Date.now(),
+      deckId,
+      rootId,
+      contentText: sourcePreview || null,
+      tags: encodeProjectionTags(card.tags),
+      suspended: card.state === CardState.Suspended ? 1 : 0,
+      lapses: nullableNumber(card.lapses),
+      reps: nullableNumber(card.reps),
+      lastReview: nullableNumber(card.lastReview),
+      createdAt: nullableNumber(card.createdAt),
+      scheduledDays: nullableNumber(card.scheduledDays),
+      stability: nullableNumber(card.stability),
+      difficulty: nullableNumber(card.difficulty),
+      aFactor: nullableNumber(card.aFactor),
+      searchText: normalizeProjectionSearchText(sourcePreview),
+      cardTypeMarker: cardTypeMarker ?? card.cardTypeMarker ?? null,
+      sourceExists: 1,
+      sourceCheckedAt: Date.now(),
+      sourceMissingAt: null,
+      payloadJson: JSON.stringify(payload),
+      dtoJson: null,
+      msgpackRef: JSON.stringify(msgpackRef),
+      truthHash: hashString(JSON.stringify(state.lastRecord)),
+      truthSchemaVersion: input.request.schemaVersion,
+      projectionGeneration: input.projectionGeneration,
+      sourceHash,
+      card,
+    });
+  }
+  return rows;
+}
+
+function buildProjectionCard(input: {
+  state: {
+    cardId: string;
+    blockId: string;
+    xiuyuanId: string | null;
+    schedulerOwner: string | null;
+    lineage: Record<string, unknown>;
+    lastRecord: Record<string, unknown>;
+  };
+  sourcePreview: string;
+  rootId: string | null;
+  deckId: string | null;
+}): FSRSCard {
+  const lineage = input.state.lineage;
+  const now = readRecordNumber(input.state.lastRecord, ['recordedAt', 'logicalTime'], Date.now()) ?? Date.now();
+  const type = normalizeCardType(readRecordString(lineage, ['type', 'cardType']), CardType.Item);
+  const state = normalizeCardState(readRecordNumber(lineage, ['state'], CardState.New), CardState.New);
+  const card: FSRSCard = {
+    id: input.state.cardId,
+    xiuyuanID: input.state.xiuyuanId ?? '',
+    blockId: input.state.blockId,
+    due: readRecordNumber(lineage, ['due'], now) ?? now,
+    stability: readRecordNumber(lineage, ['stability'], 0) ?? 0,
+    difficulty: readRecordNumber(lineage, ['difficulty'], 0) ?? 0,
+    reps: readRecordNumber(lineage, ['reps'], 0) ?? 0,
+    lapses: readRecordNumber(lineage, ['lapses'], 0) ?? 0,
+    state,
+    lastReview: readRecordNumber(lineage, ['lastReview', 'last_review'], 0) ?? 0,
+    elapsedDays: readRecordNumber(lineage, ['elapsedDays', 'elapsed_days'], 0) ?? 0,
+    scheduledDays: readRecordNumber(lineage, ['scheduledDays', 'scheduled_days'], 0) ?? 0,
+    priority: readRecordNumber(lineage, ['priority'], 50) ?? 50,
+    type,
+    tags: readStringArray(Array.isArray(lineage.tags) ? lineage.tags : []),
+    neuralRoamSeed: false,
+    leechCount: readRecordNumber(lineage, ['leechCount', 'leech_count'], 0) ?? 0,
+    isLeech: lineage.isLeech === true,
+    skipped: lineage.skipped === true,
+    createdAt: readRecordNumber(lineage, ['createdAt', 'created_at'], now) ?? now,
+    updatedAt: readRecordNumber(lineage, ['updatedAt', 'updated_at'], now) ?? now,
+    schedulerType: readRecordString(lineage, ['schedulerType', 'scheduler_type'])
+      ?? input.state.schedulerOwner
+      ?? undefined,
+    meta: {
+      projectionKind: 'messagepack-card-projection',
+      ...(input.deckId ? { deckId: input.deckId } : {}),
+      ...(input.rootId ? { rootId: input.rootId } : {}),
+      ...(input.sourcePreview ? { sourcePreview: input.sourcePreview } : {}),
+    },
+  };
+  const cardTypeMarker = readRecordString(lineage, ['cardTypeMarker']);
+  if (cardTypeMarker === 'concept' || cardTypeMarker === 'descriptor') {
+    card.cardTypeMarker = cardTypeMarker;
+  }
+  const faceKey = isRecord(lineage.faceKey) ? lineage.faceKey : null;
+  if (faceKey) {
+    const ruleId = readRecordString(faceKey, ['ruleId']);
+    if (ruleId) {
+      card.faceKey = {
+        ruleId,
+        ...(readRecordNumber(faceKey, ['faceIndex']) !== null
+          ? { faceIndex: readRecordNumber(faceKey, ['faceIndex'])! }
+          : {}),
+      };
+    }
+  }
+  return canonicalizeSchedulingState(card, {
+    source: 'sql-projection-rebuild',
+    mode: 'repair-external',
+  }).card;
+}
+
+function readAllowlistedXiuyuanBinding(sourceData: Record<string, unknown>): string | null {
+  const attrs = readSourceAttrs(sourceData);
+  return readRecordString(attrs, ['custom-xiuyuan-id', 'custom-fsrs-xiuyuan-id']);
+}
+
+function readAllowlistedCardTypeMarker(sourceData: Record<string, unknown>): string | null {
+  const attrs = readSourceAttrs(sourceData);
+  const marker = readRecordString(attrs, ['custom-fsrs-card-type', 'custom-card-type']);
+  return marker === 'concept' || marker === 'descriptor' ? marker : null;
+}
+
+function readSourceAttrs(sourceData: Record<string, unknown>): Record<string, unknown> {
+  const candidates = [
+    sourceData.attrs,
+    sourceData.ial,
+    sourceData.attributes,
+  ];
+  for (const candidate of candidates) {
+    if (isRecord(candidate)) {
+      return candidate;
+    }
+  }
+  return sourceData;
+}
+
+function pickSkinnyLineage(lineage: Record<string, unknown>): Record<string, unknown> {
+  const keys = [
+    'type',
+    'state',
+    'due',
+    'priority',
+    'createdAt',
+    'updatedAt',
+    'schedulerType',
+    'cardTypeMarker',
+    'faceKey',
+  ];
+  const result: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (lineage[key] !== undefined) {
+      result[key] = lineage[key];
+    }
+  }
+  return result;
+}
+
+function normalizeCardType(value: string | null, fallback: CardType): CardType {
+  if (value && Object.values(CardType).includes(value as CardType)) {
+    return value as CardType;
+  }
+  return fallback;
+}
+
+function normalizeCardState(value: number | null, fallback: CardState): CardState {
+  const normalized = Math.floor(Number(value));
+  if ([
+    CardState.New,
+    CardState.Learning,
+    CardState.Review,
+    CardState.Relearning,
+    CardState.Suspended,
+  ].includes(normalized as CardState)) {
+    return normalized as CardState;
+  }
+  return fallback;
+}
+
+function nullableNumber(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function trimProjectionText(value: string, limit: number): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.length > limit ? normalized.slice(0, limit) : normalized;
+}
+
+function normalizeProjectionSearchText(value: string): string | null {
+  const normalized = trimProjectionText(value, CARD_PROJECTION_SOURCE_PREVIEW_LIMIT).toLowerCase();
+  return normalized || null;
+}
+
+function encodeProjectionTags(tags: string[]): string | null {
+  if (tags.length === 0) {
+    return null;
+  }
+  return `\n${Array.from(new Set(tags)).sort().join('\n')}\n`;
+}
+
+function hashString(value: string): string {
+  return hashBytes(new TextEncoder().encode(value));
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;

@@ -482,10 +482,10 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
   });
 
   it.each([
-    ['missing policy hash', { status: 'ready', policyHash: null, generation: 2 }],
-    ['missing generation', { status: 'ready', policyHash: 'filter-policy', generation: null }],
-    ['invalidated status', { status: 'invalidated', policyHash: 'filter-policy', generation: 2 }],
-  ])('reports projection-unavailable for a promoted deferred queue with %s', async (_name, result) => {
+    ['missing policy hash', { status: 'ready', policyHash: null, generation: 2 }, 'refresh-required'],
+    ['missing generation', { status: 'ready', policyHash: 'filter-policy', generation: null }, 'refresh-required'],
+    ['invalidated status', { status: 'invalidated', policyHash: 'filter-policy', generation: 2 }, 'materialization_in_progress'],
+  ])('reports projection refresh diagnostics for a promoted deferred queue with %s', async (_name, result, unavailableReason) => {
     const backend = {
       queueProjectionSnapshot: vi.fn(async () => ({
         rows: [],
@@ -505,7 +505,68 @@ describe('UnifiedDataSourceManager queue projection rollout diagnostics', () => 
         state: 'projection-unavailable',
         readPath: 'backend-projection',
         reason: 'refresh-required',
-        unavailableReason: 'refresh-required',
+        unavailableReason,
+      }),
+    ]);
+  });
+
+  it('reports stale projection rows as rebuildable refresh state with freshness evidence', async () => {
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.FilterGroup,
+        rows: [],
+        counters: null,
+        status: 'refreshing',
+        policyHash: 'filter-policy',
+        generation: 4,
+        freshness: {
+          checkedAt: 1_700_000_100_000,
+          totalRows: 2,
+          freshRows: 1,
+          staleRows: 0,
+          missingRows: 1,
+          staleCardIds: [],
+          missingCardIds: ['missing-row'],
+        },
+      })),
+      queueProjectionReplace: vi.fn(() => new Promise(() => {})),
+    };
+    const manager = UnifiedDataSourceManager.getInstance();
+    manager.setQueuePersistence({
+      get: vi.fn(() => null),
+      set: vi.fn(async () => {}),
+      delete: vi.fn(async () => {}),
+      keys: vi.fn(() => []),
+    });
+    manager.setAdvancedRouter({
+      ...createRouterWithBackend(backend),
+      getCards: vi.fn(async () => [createCard()]),
+    } as unknown as IDataRouter);
+
+    await expect(manager.ensureQueueProjectionReady({
+      queueType: QueueType.FilterGroup,
+      source: 'browser',
+    })).resolves.toMatchObject({
+      status: 'refreshing',
+      queueId: QueueType.FilterGroup,
+      cause: 'projection_stale',
+    });
+
+    expect(manager.getQueueProjectionRolloutDiagnostics(QueueType.FilterGroup)).toEqual([
+      expect.objectContaining({
+        queueType: QueueType.FilterGroup,
+        projectionBacked: true,
+        state: 'projection-unavailable',
+        readPath: 'backend-projection',
+        reason: 'refresh-required',
+        unavailableReason: 'projection_stale',
+        backendStatus: 'refreshing',
+        policyHash: 'filter-policy',
+        generation: 4,
+        freshness: expect.objectContaining({
+          missingRows: 1,
+          missingCardIds: ['missing-row'],
+        }),
       }),
     ]);
   });
