@@ -53,6 +53,8 @@ import type {
   BackendStorageProjectionRebuildResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  BackendReviewFeedbackTruthFlushRequest,
+  BackendReviewFeedbackTruthFlushResult,
   BackendReviewRiffFeedbackExecuteRequest,
   BackendReviewRiffFeedbackExecuteResult,
   BackendReviewSourceRefreshExecuteRequest,
@@ -118,15 +120,38 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SrsBackendClient');
 const REVIEW_FEEDBACK_CLIENT_STEP_SLOW_MS = 120;
+const REVIEW_TRUTH_FLUSH_DEFAULT_DELAY_MS = 2_100;
 
 export interface SrsBackendTransport {
   request(request: BackendRpcRequest): Promise<BackendRpcResponse>;
 }
 
+export interface SrsBackendReviewTruthFlushSchedulerOptions {
+  deviceId: string;
+  generationId: string;
+  schemaVersion?: number;
+  maxSegmentBytes?: number;
+  batchLimit?: number;
+  delayMs?: number;
+}
+
+export interface SrsBackendClientOptions {
+  reviewTruthFlush?: SrsBackendReviewTruthFlushSchedulerOptions | null;
+}
+
 export class SrsBackendClient {
   private requestId = 0;
+  private readonly reviewTruthFlushOptions: SrsBackendReviewTruthFlushSchedulerOptions | null;
+  private reviewTruthFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private reviewTruthFlushInFlight = false;
+  private reviewTruthFlushQueued = false;
 
-  constructor(private readonly transport: SrsBackendTransport) {}
+  constructor(
+    private readonly transport: SrsBackendTransport,
+    options: SrsBackendClientOptions = {},
+  ) {
+    this.reviewTruthFlushOptions = options.reviewTruthFlush ?? null;
+  }
 
   async systemHealth(): Promise<BackendHealthResult> {
     return this.call<BackendHealthResult>('system.health');
@@ -253,9 +278,17 @@ export class SrsBackendClient {
   }
 
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
-    return this.measureReviewFeedbackClientStep('rpc-call', request, () => (
+    const result = await this.measureReviewFeedbackClientStep('rpc-call', request, () => (
       this.call<BackendReviewFeedbackResult>('review.feedback', request)
     ));
+    this.scheduleReviewTruthFlushAfterFeedback(result);
+    return result;
+  }
+
+  async reviewTruthFlush(
+    request: BackendReviewFeedbackTruthFlushRequest,
+  ): Promise<BackendReviewFeedbackTruthFlushResult> {
+    return this.call<BackendReviewFeedbackTruthFlushResult>('review.truth.flush', request);
   }
 
   async mergeSyncConflicts(
@@ -525,6 +558,92 @@ export class SrsBackendClient {
       throw new Error(`${response.error.code}: ${response.error.message}`);
     }
     return (response as BackendRpcSuccess<TResult>).result;
+  }
+
+  private scheduleReviewTruthFlushAfterFeedback(result: BackendReviewFeedbackResult): void {
+    if (!this.reviewTruthFlushOptions || !this.shouldScheduleReviewTruthFlush(result)) {
+      return;
+    }
+    this.reviewTruthFlushQueued = true;
+    this.armReviewTruthFlushTimer();
+  }
+
+  private shouldScheduleReviewTruthFlush(result: BackendReviewFeedbackResult): boolean {
+    return result.committed === true
+      && result.storage?.truthFlush?.status === 'pending';
+  }
+
+  private armReviewTruthFlushTimer(): void {
+    if (!this.reviewTruthFlushOptions || this.reviewTruthFlushTimer || this.reviewTruthFlushInFlight) {
+      return;
+    }
+    this.reviewTruthFlushTimer = setTimeout(() => {
+      this.reviewTruthFlushTimer = null;
+      void this.runQueuedReviewTruthFlush();
+    }, this.resolveReviewTruthFlushDelayMs());
+  }
+
+  private async runQueuedReviewTruthFlush(): Promise<void> {
+    if (!this.reviewTruthFlushOptions || this.reviewTruthFlushInFlight) {
+      return;
+    }
+    const request = this.buildReviewTruthFlushRequest();
+    if (!request) {
+      this.reviewTruthFlushQueued = false;
+      logger.warn('[SiYuanMemo][SrsBackendClient] skipped Review truth flush because identity is unavailable');
+      return;
+    }
+    this.reviewTruthFlushQueued = false;
+    this.reviewTruthFlushInFlight = true;
+    try {
+      const result = await this.reviewTruthFlush(request);
+      if (!result.ok) {
+        logger.warn('[SiYuanMemo][SrsBackendClient] Review truth flush finished with pending error', {
+          error: result.error,
+          journalQueued: result.journalQueued,
+          recordsWritten: result.recordsWritten,
+        });
+      }
+    } catch (error) {
+      logger.warn('[SiYuanMemo][SrsBackendClient] Review truth flush failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.reviewTruthFlushInFlight = false;
+      if (this.reviewTruthFlushQueued) {
+        this.armReviewTruthFlushTimer();
+      }
+    }
+  }
+
+  private buildReviewTruthFlushRequest(): BackendReviewFeedbackTruthFlushRequest | null {
+    const options = this.reviewTruthFlushOptions;
+    const deviceId = String(options?.deviceId || '').trim();
+    const generationId = String(options?.generationId || '').trim();
+    if (!deviceId || !generationId) {
+      return null;
+    }
+    const request: BackendReviewFeedbackTruthFlushRequest = {
+      deviceId,
+      generationId,
+    };
+    if (Number.isFinite(Number(options?.schemaVersion))) {
+      request.schemaVersion = Math.max(1, Math.floor(Number(options?.schemaVersion)));
+    }
+    if (Number.isFinite(Number(options?.maxSegmentBytes))) {
+      request.maxSegmentBytes = Math.max(256, Math.floor(Number(options?.maxSegmentBytes)));
+    }
+    if (Number.isFinite(Number(options?.batchLimit))) {
+      request.batchLimit = Math.max(1, Math.floor(Number(options?.batchLimit)));
+    }
+    return request;
+  }
+
+  private resolveReviewTruthFlushDelayMs(): number {
+    const configured = Number(this.reviewTruthFlushOptions?.delayMs);
+    return Number.isFinite(configured)
+      ? Math.max(0, Math.floor(configured))
+      : REVIEW_TRUTH_FLUSH_DEFAULT_DELAY_MS;
   }
 
   private async measureReviewFeedbackClientStep<TResult>(

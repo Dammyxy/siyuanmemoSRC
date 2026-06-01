@@ -1,4 +1,8 @@
 import { decode, encode } from '@msgpack/msgpack';
+import {
+  getMessagePackTruthFamilyStoragePolicy,
+  type MessagePackTruthFamily,
+} from '../../packages/contracts/src/backend-rpc';
 
 export const MESSAGEPACK_TRUTH_MANIFEST_VERSION = 1;
 
@@ -84,7 +88,7 @@ export interface MessagePackTruthSegmentStoreOptions {
   deviceId: string;
   generationId: string;
   schemaVersion: number;
-  maxSegmentBytes: number;
+  maxSegmentBytes?: number;
   basePath?: string;
 }
 
@@ -108,7 +112,7 @@ export interface MessagePackTruthReplayResult {
 }
 
 export interface MessagePackTruthCompactionPlanOptions {
-  maxClosedSegments: number;
+  maxClosedSegments?: number;
 }
 
 export interface MessagePackTruthCompactionPlan {
@@ -192,6 +196,20 @@ function normalizeSegmentBudget(value: number): number {
     throw new Error(`Invalid MessagePack truth segment budget: ${value}`);
   }
   return normalized;
+}
+
+function resolveFamilySegmentBudget(family: string, maxSegmentBytes?: number): number {
+  if (maxSegmentBytes !== undefined && maxSegmentBytes !== null) {
+    return normalizeSegmentBudget(maxSegmentBytes);
+  }
+  return getMessagePackTruthFamilyStoragePolicy(family as MessagePackTruthFamily).maxSegmentBytes;
+}
+
+function resolveFamilyTargetClosedSegments(family: string, maxClosedSegments?: number): number {
+  if (maxClosedSegments !== undefined && maxClosedSegments !== null) {
+    return Math.max(1, Math.floor(Number(maxClosedSegments) || 1));
+  }
+  return getMessagePackTruthFamilyStoragePolicy(family as MessagePackTruthFamily).compaction.targetClosedSegments;
 }
 
 function cloneRecord(value: MessagePackTruthRecord): MessagePackTruthRecord {
@@ -365,7 +383,7 @@ export class MessagePackTruthSegmentStore {
     this.deviceId = normalizeIdentity(options.deviceId, 'device id');
     this.generationId = normalizeIdentity(options.generationId, 'generation id');
     this.schemaVersion = normalizeSchemaVersion(options.schemaVersion);
-    this.maxSegmentBytes = normalizeSegmentBudget(options.maxSegmentBytes);
+    this.maxSegmentBytes = resolveFamilySegmentBudget(this.family, options.maxSegmentBytes);
     this.basePath = (options.basePath || 'truth').replace(/\\/g, '/').replace(/\/+$/g, '');
     if (!this.basePath || this.basePath.includes('..')) {
       throw new Error(`Invalid MessagePack truth base path: ${options.basePath}`);
@@ -462,7 +480,7 @@ export class MessagePackTruthSegmentStore {
   async planCompaction(options: MessagePackTruthCompactionPlanOptions): Promise<MessagePackTruthCompactionPlan> {
     const manifest = await this.readManifest();
     this.throwIfManifestInvalid(manifest);
-    const maxClosedSegments = Math.max(1, Math.floor(Number(options.maxClosedSegments) || 1));
+    const maxClosedSegments = resolveFamilyTargetClosedSegments(this.family, options.maxClosedSegments);
     if (manifest.segments.length <= maxClosedSegments) {
       return {
         eligible: false,

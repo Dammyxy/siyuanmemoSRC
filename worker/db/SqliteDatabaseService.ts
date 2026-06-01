@@ -79,6 +79,7 @@ import type {
   BackendReviewFeedbackJournalDiagnostics,
   BackendReviewFeedbackJournalBackpressureDiagnostics,
   BackendReviewFeedbackJournalOperationStatus,
+  BackendReviewFeedbackStorageState,
   MessagePackTruthRecord,
 } from '../../packages/contracts/src/backend-rpc';
 import type {
@@ -2170,7 +2171,113 @@ export class WorkerSqliteDatabaseService {
       committed: result.committed,
       duplicate: result.duplicate,
     });
-    return result;
+    return {
+      ...result,
+      storage: await this.buildReviewFeedbackStorageState(result, committedJournalEntryId),
+    };
+  }
+
+  private async buildReviewFeedbackStorageState(
+    result: BackendReviewFeedbackResult,
+    journalEntryId: string | null,
+  ): Promise<BackendReviewFeedbackStorageState> {
+    const journal = await this.getReviewFeedbackJournalDiagnostics();
+    const sqliteDelta = await this.tryReadSqliteDeltaDiagnosticsForReviewFeedback();
+    const checkpoint = sqliteDelta.diagnostics?.lastCheckpoint ?? null;
+    const queueImpact = result.queueImpact ?? null;
+    const projectionStatus = this.resolveReviewFeedbackSqlProjectionStatus(queueImpact);
+    const projectionGeneration = queueImpact?.affectedQueues
+      .map((entry) => entry.currentGeneration ?? entry.generation ?? entry.counterGeneration ?? null)
+      .find((generation): generation is number => typeof generation === 'number' && Number.isFinite(generation))
+      ?? null;
+    const pendingCount = typeof journal.pendingCount === 'number' ? journal.pendingCount : null;
+    const hotPathCheckpoint = checkpoint?.hotPath === true;
+    const checkpointStatus = sqliteDelta.error
+      ? 'unknown'
+      : hotPathCheckpoint
+      ? (checkpoint?.ok === true ? 'checkpointed' : 'failed')
+      : 'not-run';
+    const localIntentStatus = result.committed
+      ? (journal.storage === 'non-siyuan' ? 'recorded' : 'unavailable')
+      : 'not-required';
+    return {
+      localIntent: {
+        status: localIntentStatus,
+        durable: localIntentStatus === 'recorded',
+        storage: journal.storage ?? 'unavailable',
+        entryId: journalEntryId ?? journal.lastWrite?.entryId ?? null,
+        idempotencyKey: result.idempotencyKey ?? null,
+        journalStatus: journalEntryId
+          ? 'projection-applied'
+          : journal.lastWrite?.status ?? null,
+        pendingCount,
+        pendingBytes: typeof journal.pendingBytes === 'number' ? journal.pendingBytes : null,
+        error: journal.lastWrite?.error ?? null,
+      },
+      truthFlush: {
+        status: pendingCount && pendingCount > 0 ? 'pending' : 'not-required',
+        family: 'review-events',
+        syncVisible: false,
+        pendingCount,
+        oldestPendingAgeMs: journal.oldestPendingAgeMs ?? null,
+        lastError: null,
+      },
+      sqlProjection: {
+        status: projectionStatus,
+        hotPatchable: queueImpact?.hotPatchable === true,
+        refreshRequired: queueImpact?.refreshRequired === true,
+        affectedQueueCount: queueImpact?.affectedQueues.length ?? 0,
+        projectionGeneration,
+      },
+      sqlCheckpoint: {
+        status: checkpointStatus,
+        hotPath: hotPathCheckpoint,
+        cause: hotPathCheckpoint ? checkpoint?.cause ?? null : null,
+        initiator: hotPathCheckpoint ? checkpoint?.initiator ?? null : null,
+        projectionGeneration: hotPathCheckpoint ? checkpoint?.projectionGeneration ?? null : null,
+        byteLength: hotPathCheckpoint ? checkpoint?.byteLength ?? null : null,
+        error: sqliteDelta.error ?? (hotPathCheckpoint ? checkpoint?.error ?? null : null),
+      },
+    };
+  }
+
+  private async tryReadSqliteDeltaDiagnosticsForReviewFeedback(): Promise<{
+    diagnostics: SqliteDeltaDiagnostics | null;
+    error: string | null;
+  }> {
+    try {
+      return {
+        diagnostics: await this.getSqliteDeltaDiagnostics(),
+        error: null,
+      };
+    } catch (error) {
+      return {
+        diagnostics: null,
+        error: errorMessage(error),
+      };
+    }
+  }
+
+  private resolveReviewFeedbackSqlProjectionStatus(
+    queueImpact: BackendReviewFeedbackResult['queueImpact'] | null | undefined,
+  ): BackendReviewFeedbackStorageState['sqlProjection']['status'] {
+    if (!queueImpact) {
+      return 'not-applicable';
+    }
+    if (queueImpact.refreshRequired) {
+      return 'refresh-required';
+    }
+    if (queueImpact.hotPatchable) {
+      return 'patched';
+    }
+    const outcomes = queueImpact.affectedQueues.map((entry) => entry.outcome);
+    if (outcomes.includes('unavailable')) {
+      return 'unavailable';
+    }
+    if (outcomes.includes('deferred')) {
+      return 'deferred';
+    }
+    return 'not-applicable';
   }
 
   private async appendReviewFeedbackJournalEntry(entry: ReviewFeedbackJournalEntry): Promise<void> {

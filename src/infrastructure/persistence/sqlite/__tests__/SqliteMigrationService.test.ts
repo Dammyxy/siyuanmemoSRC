@@ -7,7 +7,11 @@ import { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite/Sql
 import { SqlReviewLogRepository } from '@/infrastructure/persistence/sqlite/SqlReviewLogRepository';
 import { SqliteDatabaseService } from '@/infrastructure/persistence/sqlite/SqliteDatabaseService';
 import { SqliteMigrationService } from '@/infrastructure/persistence/sqlite/SqliteMigrationService';
-import { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository';
+import {
+  type AlgorithmCardStateBackfillSummary,
+  type AlgorithmCardStateDiagnosticSummary,
+  SqlUnifiedStorageRepository,
+} from '@/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository';
 
 class MemoryMigrationFileService implements Pick<IFileService, 'readJSON' | 'writeJSON' | 'readMsgpack' | 'readBinary' | 'writeBinary'> {
   readonly json = new Map<string, unknown>();
@@ -283,5 +287,67 @@ describe('SqliteMigrationService algorithm card state migration', () => {
       dirty: 0,
       invalidStateRows: 0,
     });
+  });
+
+  it('does not emit repeated full repair backups when a prior repair attempt could not make the state clean', async () => {
+    const fileService = new MemoryMigrationFileService();
+    const database = new SqliteDatabaseService(fileService);
+    await database.init();
+    database.markMigration('initial-msgpack-json-import-v1', 1_701_000_000_000);
+    database.markMigration('algorithm-card-state-production-v1', 1_701_000_000_000);
+
+    const dirtyDiagnostic: AlgorithmCardStateDiagnosticSummary = {
+      total: 1,
+      dirty: 1,
+      missingStateRows: 0,
+      invalidStateRows: 1,
+      cardStateMismatches: 0,
+      orphanStateRows: 0,
+      reasons: { 'algorithmState.repaired': 1 },
+    };
+    const repairAttempts: number[] = [];
+    const unified = {
+      getAlgorithmCardStateDiagnostic: () => dirtyDiagnostic,
+      createAlgorithmCardStateMigrationBackup: () => ({
+        cards: [{
+          id: 'irreparable-card',
+          payload_json: JSON.stringify({ id: 'irreparable-card' }),
+          dto_json: null,
+        }],
+        algorithmCardStates: [],
+      }),
+      backfillAlgorithmCardStates: (now?: number): AlgorithmCardStateBackfillSummary => {
+        repairAttempts.push(Number(now));
+        return {
+          ...dirtyDiagnostic,
+          backfilled: 0,
+          repaired: 1,
+          afterDirty: 1,
+        };
+      },
+    } as unknown as SqlUnifiedStorageRepository;
+    const migration = new SqliteMigrationService(
+      database,
+      fileService,
+      {
+        unified,
+        queue: new SqlQueueStateRepository(database),
+        reviewLogs: new SqlReviewLogRepository(database),
+        arena: new SqlArenaRepository(database),
+      },
+      async () => ({ ...createLegacyStore(), cards: {} }),
+    );
+
+    const firstRun = await migration.migrateIfNeeded(1_701_000_000_005);
+    const secondRun = await migration.migrateIfNeeded(1_701_000_000_006);
+    const repairBackupKeys = Array.from(fileService.json.keys())
+      .filter((key) => key.startsWith('migration-backups/algorithm-card-state-repair-'));
+
+    expect(firstRun).toEqual({ migrated: true, usedSql: true });
+    expect(secondRun).toEqual({ migrated: false, usedSql: true });
+    expect(repairAttempts).toEqual([1_701_000_000_005]);
+    expect(repairBackupKeys).toEqual([
+      'migration-backups/algorithm-card-state-repair-1701000000005.json',
+    ]);
   });
 });

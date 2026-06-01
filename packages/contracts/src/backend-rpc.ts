@@ -638,6 +638,29 @@ export interface MessagePackTruthFamilySchema {
   sourceOwner: 'plugin-truth' | 'siyuan-source-plus-plugin-truth';
 }
 
+export type MessagePackTruthRetentionMode =
+  | 'retain-truth-indefinitely'
+  | 'ttl-after-compaction';
+
+export interface MessagePackTruthCompactionPolicy {
+  closedSegmentThreshold: number;
+  targetClosedSegments: number;
+  minSegmentAgeMs: number;
+}
+
+export interface MessagePackTruthRetentionPolicy {
+  mode: MessagePackTruthRetentionMode;
+  keepUntilProjectionCheckpointed: boolean;
+  compactedInputRetainDays: number;
+}
+
+export interface MessagePackTruthFamilyStoragePolicy {
+  family: MessagePackTruthFamily;
+  maxSegmentBytes: number;
+  compaction: MessagePackTruthCompactionPolicy;
+  retention: MessagePackTruthRetentionPolicy;
+}
+
 export const MESSAGEPACK_TRUTH_FAMILY_SCHEMAS = [
   {
     family: 'review-events',
@@ -682,6 +705,50 @@ export const MESSAGEPACK_TRUTH_FAMILY_SCHEMAS = [
     sourceOwner: 'plugin-truth',
   },
 ] as const satisfies readonly MessagePackTruthFamilySchema[];
+
+const ONE_MIB = 1024 * 1024;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function truthStoragePolicy(
+  family: MessagePackTruthFamily,
+  maxSegmentBytes: number,
+  retentionMode: MessagePackTruthRetentionMode = 'retain-truth-indefinitely',
+  compactedInputRetainDays = 30,
+): MessagePackTruthFamilyStoragePolicy {
+  return {
+    family,
+    maxSegmentBytes,
+    compaction: {
+      closedSegmentThreshold: 48,
+      targetClosedSegments: 16,
+      minSegmentAgeMs: DAY_MS,
+    },
+    retention: {
+      mode: retentionMode,
+      keepUntilProjectionCheckpointed: true,
+      compactedInputRetainDays,
+    },
+  };
+}
+
+export const MESSAGEPACK_TRUTH_FAMILY_STORAGE_POLICIES = [
+  truthStoragePolicy('review-events', ONE_MIB),
+  truthStoragePolicy('card-memory-facts', 2 * ONE_MIB),
+  truthStoragePolicy('domain-sync-operations', 2 * ONE_MIB),
+  truthStoragePolicy('ai-session-payload-refs', 4 * ONE_MIB),
+  truthStoragePolicy('semantic-arena-payload-refs', 4 * ONE_MIB),
+  truthStoragePolicy('diagnostics-records', ONE_MIB, 'ttl-after-compaction', 14),
+] as const satisfies readonly MessagePackTruthFamilyStoragePolicy[];
+
+export function getMessagePackTruthFamilyStoragePolicy(
+  family: MessagePackTruthFamily,
+): MessagePackTruthFamilyStoragePolicy {
+  const policy = MESSAGEPACK_TRUTH_FAMILY_STORAGE_POLICIES.find((candidate) => candidate.family === family);
+  if (!policy) {
+    throw new Error(`Unsupported MessagePack truth family storage policy: ${family}`);
+  }
+  return policy;
+}
 
 export const SQL_PROJECTION_SCHEMA_VERSION = 1;
 
@@ -929,6 +996,194 @@ export const SQL_PROJECTION_FAMILY_SCHEMAS = [
     ],
   },
 ] as const satisfies readonly SqlProjectionFamilySchema[];
+
+export type StorageSlimmingFamily =
+  | 'review-events'
+  | 'card-memory'
+  | 'domain-sync-operations'
+  | 'queue-projections'
+  | 'semantic-projections'
+  | 'arena-evidence'
+  | 'ai-sessions'
+  | 'progressive-topic-lineage'
+  | 'diagnostics'
+  | 'block-attrs';
+
+export type StorageSlimmingOwner =
+  | 'messagepack-truth'
+  | 'messagepack-truth-or-ref'
+  | 'messagepack-truth-or-siyuan-source'
+  | 'sql-projection-cache'
+  | 'ttl-diagnostics-truth'
+  | 'siyuan-source-metadata';
+
+export type StorageSlimmingSqlPayloadRole =
+  | 'skinny-index-plus-truth-ref'
+  | 'rebuildable-cache'
+  | 'ttl-index-plus-truth-ref'
+  | 'source-binding-metadata-only';
+
+export type StorageSlimmingWriteMode =
+  | 'messagepack-truth-sql-projection'
+  | 'messagepack-ref-sql-index'
+  | 'projection-cache-only'
+  | 'strict-allowlist-only'
+  | 'background-diagnostics-ttl';
+
+export interface StorageSlimmingLegacyCompatibilityPolicy {
+  legacySources: readonly string[];
+  expiryCondition: string;
+  removalValidation: string;
+}
+
+export interface StorageSlimmingFamilyPolicy {
+  family: StorageSlimmingFamily;
+  owner: StorageSlimmingOwner;
+  truthFamily: MessagePackTruthFamily | null;
+  sqlProjectionFamily: SqlProjectionFamily | null;
+  sqlPayloadRole: StorageSlimmingSqlPayloadRole;
+  writeMode: StorageSlimmingWriteMode;
+  legacyCompatibility: StorageSlimmingLegacyCompatibilityPolicy;
+}
+
+function slimmingPolicy(
+  family: StorageSlimmingFamily,
+  owner: StorageSlimmingOwner,
+  truthFamily: MessagePackTruthFamily | null,
+  sqlProjectionFamily: SqlProjectionFamily | null,
+  sqlPayloadRole: StorageSlimmingSqlPayloadRole,
+  writeMode: StorageSlimmingWriteMode,
+  legacySources: readonly string[],
+  expiryCondition: string,
+  removalValidation: string,
+): StorageSlimmingFamilyPolicy {
+  return {
+    family,
+    owner,
+    truthFamily,
+    sqlProjectionFamily,
+    sqlPayloadRole,
+    writeMode,
+    legacyCompatibility: {
+      legacySources,
+      expiryCondition,
+      removalValidation,
+    },
+  };
+}
+
+export const STORAGE_SLIMMING_FAMILY_POLICIES = [
+  slimmingPolicy(
+    'review-events',
+    'messagepack-truth',
+    'review-events',
+    'review-event-indexes',
+    'skinny-index-plus-truth-ref',
+    'messagepack-truth-sql-projection',
+    ['review_events.payload_json', 'monthly review log files'],
+    'review-events truth flush, rebuild, and idempotency parity pass for imported rows',
+    'storage.projection.rebuild review-event-indexes plus review feedback idempotency tests',
+  ),
+  slimmingPolicy(
+    'card-memory',
+    'messagepack-truth',
+    'card-memory-facts',
+    'cards',
+    'skinny-index-plus-truth-ref',
+    'messagepack-truth-sql-projection',
+    ['cards.payload_json', 'cards.dto_json', 'xiuyuans.payload_json', 'legacy cardDTOs'],
+    'card-memory/source-binding truth segments rebuild cards and Xiuyuan projections on a second device',
+    'storage.projection.rebuild cards tests with deleted SQL and source reads',
+  ),
+  slimmingPolicy(
+    'domain-sync-operations',
+    'messagepack-truth',
+    'domain-sync-operations',
+    'domain-sync-indexes',
+    'skinny-index-plus-truth-ref',
+    'messagepack-truth-sql-projection',
+    ['domain_sync_operations.payload_json', 'sync conflict database rows'],
+    'domain-sync operation facts and conflict decisions are replayable from MessagePack truth',
+    'conflict merge, repair ledger, and idempotency replay tests',
+  ),
+  slimmingPolicy(
+    'queue-projections',
+    'sql-projection-cache',
+    null,
+    'queue-projections',
+    'rebuildable-cache',
+    'projection-cache-only',
+    ['queue_projection_rows.payload_json', 'queue_state.value_json'],
+    'queue projections rebuild from card/review truth plus SiYuan source reads',
+    'queue projection materialization and stale/deleted SQL rebuild checks',
+  ),
+  slimmingPolicy(
+    'semantic-projections',
+    'messagepack-truth-or-ref',
+    'semantic-arena-payload-refs',
+    'semantic-ai-indexes',
+    'skinny-index-plus-truth-ref',
+    'messagepack-ref-sql-index',
+    ['semantic_* payload_json columns'],
+    'semantic payload bodies have payload_ref_json/hash or are documented rebuildable cache rows',
+    'semantic SQL index/ref contract and payload budget tests',
+  ),
+  slimmingPolicy(
+    'arena-evidence',
+    'messagepack-truth-or-ref',
+    'semantic-arena-payload-refs',
+    'semantic-ai-indexes',
+    'skinny-index-plus-truth-ref',
+    'messagepack-ref-sql-index',
+    ['arena_* payload_json columns', 'ai_arena_events.payload_json'],
+    'arena evidence payload bodies have payload_ref_json/hash or TTL/cache classification',
+    'arena SQL-backed recording and payload ref contract tests',
+  ),
+  slimmingPolicy(
+    'ai-sessions',
+    'messagepack-truth-or-ref',
+    'ai-session-payload-refs',
+    'semantic-ai-indexes',
+    'skinny-index-plus-truth-ref',
+    'messagepack-ref-sql-index',
+    ['ai-workbench session JSON records', 'AI session payload_json rows'],
+    'AI session payload bodies move behind backend session/job payload refs or explicit legacy read',
+    'AI backend session contract and legacy session load tests',
+  ),
+  slimmingPolicy(
+    'progressive-topic-lineage',
+    'messagepack-truth-or-siyuan-source',
+    'card-memory-facts',
+    'cards',
+    'skinny-index-plus-truth-ref',
+    'messagepack-ref-sql-index',
+    ['progressive/topic lineage attrs', 'progressive payload JSON records'],
+    'source-binding and topic lineage facts rebuild from MessagePack truth plus SiYuan source metadata',
+    'card/source-binding rebuild and strict block-attr allowlist tests',
+  ),
+  slimmingPolicy(
+    'diagnostics',
+    'ttl-diagnostics-truth',
+    'diagnostics-records',
+    'diagnostics-indexes',
+    'ttl-index-plus-truth-ref',
+    'background-diagnostics-ttl',
+    ['diagnostic payload_json fields', 'debug JSON files'],
+    'diagnostics payloads are TTL truth records or bounded summaries, not permanent SQL truth',
+    'diagnostics index/ref contract and retention policy tests',
+  ),
+  slimmingPolicy(
+    'block-attrs',
+    'siyuan-source-metadata',
+    null,
+    null,
+    'source-binding-metadata-only',
+    'strict-allowlist-only',
+    ['custom-fsrs-* legacy attrs', 'custom-xiuyuan-id legacy binding attrs'],
+    'all non-source-metadata writes are rejected and legacy attrs are read-only or cleanup-only',
+    'BlockAttrPolicy and Siyuan API BLOCK_ATTR_WRITE_FORBIDDEN tests',
+  ),
+] as const satisfies readonly StorageSlimmingFamilyPolicy[];
 
 export type BackendStorageProjectionRebuildStatus = 'ready' | 'refreshing' | 'unavailable';
 
@@ -2945,6 +3200,68 @@ export interface BackendReviewFeedbackQueueImpact {
   affectedQueues: BackendReviewFeedbackQueueImpactEntry[];
 }
 
+export type BackendReviewFeedbackLocalIntentStatus =
+  | 'recorded'
+  | 'not-required'
+  | 'unavailable';
+
+export type BackendReviewFeedbackTruthFlushStatus =
+  | 'pending'
+  | 'flushed'
+  | 'not-required'
+  | 'unavailable';
+
+export type BackendReviewFeedbackSqlProjectionStatus =
+  | 'patched'
+  | 'deferred'
+  | 'refresh-required'
+  | 'unavailable'
+  | 'not-applicable';
+
+export type BackendReviewFeedbackSqlCheckpointStatus =
+  | 'not-run'
+  | 'checkpointed'
+  | 'failed'
+  | 'unknown';
+
+export interface BackendReviewFeedbackStorageState {
+  localIntent: {
+    status: BackendReviewFeedbackLocalIntentStatus;
+    durable: boolean;
+    storage: 'non-siyuan' | 'unavailable';
+    entryId: string | null;
+    idempotencyKey: string | null;
+    journalStatus: BackendReviewFeedbackJournalEntryStatus | null;
+    pendingCount: number | null;
+    pendingBytes: number | null;
+    error: string | null;
+  };
+  truthFlush: {
+    status: BackendReviewFeedbackTruthFlushStatus;
+    family: 'review-events';
+    syncVisible: boolean;
+    pendingCount: number | null;
+    oldestPendingAgeMs: number | null;
+    lastError: string | null;
+  };
+  sqlProjection: {
+    status: BackendReviewFeedbackSqlProjectionStatus;
+    hotPatchable: boolean;
+    refreshRequired: boolean;
+    affectedQueueCount: number;
+    projectionGeneration: number | null;
+  };
+  sqlCheckpoint: {
+    status: BackendReviewFeedbackSqlCheckpointStatus;
+    hotPath: boolean;
+    cause: string | null;
+    initiator: string | null;
+    projectionGeneration: number | null;
+    byteLength: number | null;
+    error: string | null;
+  };
+}
+
 export interface BackendReviewFeedbackResult {
   cardId: string;
   committed: boolean;
@@ -2954,6 +3271,7 @@ export interface BackendReviewFeedbackResult {
   idempotencyKey?: string | null;
   duplicate?: boolean;
   queueImpact?: BackendReviewFeedbackQueueImpact | null;
+  storage?: BackendReviewFeedbackStorageState;
 }
 
 export interface BackendPreRequestMergeDiagnostic {

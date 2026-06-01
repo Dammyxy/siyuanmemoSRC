@@ -16,6 +16,7 @@ import type { SqlArenaRepository } from './SqlArenaRepository';
 const logger = createLogger('SqliteMigrationService');
 const INITIAL_MIGRATION_ID = 'initial-msgpack-json-import-v1';
 const ALGORITHM_CARD_STATE_MIGRATION_ID = 'algorithm-card-state-production-v1';
+const ALGORITHM_CARD_STATE_UNRESOLVED_REPAIR_ID = 'algorithm-card-state-production-repair-unresolved-v1';
 
 type LegacyStoreLoader = (reason?: StorageLoadReason) => Promise<UnifiedCardStore>;
 
@@ -78,10 +79,19 @@ export class SqliteMigrationService {
     if (this.database.hasMigration(ALGORITHM_CARD_STATE_MIGRATION_ID)) {
       const diagnostic = this.repositories.unified.getAlgorithmCardStateDiagnostic();
       if (diagnostic.dirty > 0 || diagnostic.orphanStateRows > 0) {
+        if (this.database.hasMigration(ALGORITHM_CARD_STATE_UNRESOLVED_REPAIR_ID)) {
+          logger.warn('SQLite algorithm card state repair skipped after unresolved prior attempt', diagnostic);
+          return { migrated: false };
+        }
+
         await this.writeAlgorithmCardStateBackup(`migration-backups/algorithm-card-state-repair-${now}.json`, now);
         let summary: AlgorithmCardStateBackfillSummary | null = null;
         await this.database.runTransaction('sqlite.algorithm-card-state-production-repair', () => {
-          summary = this.repositories.unified.backfillAlgorithmCardStates(now);
+          const repairSummary = this.repositories.unified.backfillAlgorithmCardStates(now);
+          summary = repairSummary;
+          if (repairSummary.afterDirty > 0 || repairSummary.orphanStateRows > 0) {
+            this.database.markMigration(ALGORITHM_CARD_STATE_UNRESOLVED_REPAIR_ID, now);
+          }
         });
         if (!summary) {
           throw new Error('Algorithm card state repair did not produce a summary');

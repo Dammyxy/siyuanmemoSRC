@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   MESSAGEPACK_TRUTH_FAMILY_SCHEMAS,
+  MESSAGEPACK_TRUTH_FAMILY_STORAGE_POLICIES,
   SQL_PROJECTION_FAMILY_SCHEMAS,
+  STORAGE_SLIMMING_FAMILY_POLICIES,
 } from '../backend-rpc';
 import type {
   BackendBrowserAggregateFocusRequest,
@@ -28,6 +30,7 @@ import type {
   QueueProjectionReadiness,
   QueueProjectionReadinessCause,
   BackendDiagnosticsStatusResult,
+  BackendReviewFeedbackResult,
 } from '../backend-rpc';
 
 describe('MessagePack truth first-family schema contracts', () => {
@@ -42,6 +45,27 @@ describe('MessagePack truth first-family schema contracts', () => {
     ] satisfies MessagePackTruthFamily[]);
     expect(MESSAGEPACK_TRUTH_FAMILY_SCHEMAS.every((schema) => schema.schemaVersion === 1)).toBe(true);
     expect(MESSAGEPACK_TRUTH_FAMILY_SCHEMAS.every((schema) => schema.payloadPolicy !== 'sql-payload')).toBe(true);
+  });
+
+  it('defines segment budgets, compaction thresholds, and retention for first migrated families', () => {
+    expect(MESSAGEPACK_TRUTH_FAMILY_STORAGE_POLICIES.map((policy) => policy.family)).toEqual(
+      MESSAGEPACK_TRUTH_FAMILY_SCHEMAS.map((schema) => schema.family),
+    );
+    expect(MESSAGEPACK_TRUTH_FAMILY_STORAGE_POLICIES.every((policy) => (
+      policy.maxSegmentBytes >= 1024 * 1024
+      && policy.maxSegmentBytes <= 4 * 1024 * 1024
+      && policy.compaction.closedSegmentThreshold > policy.compaction.targetClosedSegments
+      && policy.compaction.targetClosedSegments >= 1
+      && policy.retention.keepUntilProjectionCheckpointed === true
+      && policy.retention.compactedInputRetainDays >= 7
+    ))).toBe(true);
+    expect(MESSAGEPACK_TRUTH_FAMILY_STORAGE_POLICIES.find((policy) => policy.family === 'diagnostics-records'))
+      .toMatchObject({
+        retention: {
+          mode: 'ttl-after-compaction',
+          compactedInputRetainDays: 14,
+        },
+      });
   });
 
   it('serializes Review event truth with stable schema, refs, and replay guards', () => {
@@ -155,7 +179,162 @@ describe('SQL projection skinny schema contracts', () => {
   });
 });
 
+describe('storage slimming migration contracts', () => {
+  it('declares explicit owner, write mode, and legacy expiry for every phase 5 family', () => {
+    expect(STORAGE_SLIMMING_FAMILY_POLICIES.map((policy) => policy.family)).toEqual([
+      'review-events',
+      'card-memory',
+      'domain-sync-operations',
+      'queue-projections',
+      'semantic-projections',
+      'arena-evidence',
+      'ai-sessions',
+      'progressive-topic-lineage',
+      'diagnostics',
+      'block-attrs',
+    ]);
+
+    expect(STORAGE_SLIMMING_FAMILY_POLICIES.every((policy) => (
+      policy.sqlPayloadRole !== 'canonical-truth'
+      && policy.legacyCompatibility.expiryCondition.length > 0
+      && policy.legacyCompatibility.removalValidation.length > 0
+    ))).toBe(true);
+    expect(STORAGE_SLIMMING_FAMILY_POLICIES.find((policy) => policy.family === 'block-attrs'))
+      .toMatchObject({
+        owner: 'siyuan-source-metadata',
+        writeMode: 'strict-allowlist-only',
+      });
+  });
+
+  it('marks Review, card memory, and domain-sync payloads as MessagePack truth with SQL refs', () => {
+    expect(STORAGE_SLIMMING_FAMILY_POLICIES.find((policy) => policy.family === 'review-events'))
+      .toMatchObject({
+        owner: 'messagepack-truth',
+        truthFamily: 'review-events',
+        sqlPayloadRole: 'skinny-index-plus-truth-ref',
+        writeMode: 'messagepack-truth-sql-projection',
+      });
+    expect(STORAGE_SLIMMING_FAMILY_POLICIES.find((policy) => policy.family === 'card-memory'))
+      .toMatchObject({
+        owner: 'messagepack-truth',
+        truthFamily: 'card-memory-facts',
+        sqlPayloadRole: 'skinny-index-plus-truth-ref',
+      });
+    expect(STORAGE_SLIMMING_FAMILY_POLICIES.find((policy) => policy.family === 'domain-sync-operations'))
+      .toMatchObject({
+        owner: 'messagepack-truth',
+        truthFamily: 'domain-sync-operations',
+        sqlPayloadRole: 'skinny-index-plus-truth-ref',
+      });
+  });
+
+  it('keeps queue, semantic, arena, AI, progressive, and diagnostics payloads out of permanent SQL truth', () => {
+    const byFamily = new Map(STORAGE_SLIMMING_FAMILY_POLICIES.map((policy) => [policy.family, policy]));
+    expect(byFamily.get('queue-projections')).toMatchObject({
+      owner: 'sql-projection-cache',
+      sqlPayloadRole: 'rebuildable-cache',
+    });
+    expect(byFamily.get('semantic-projections')).toMatchObject({
+      owner: 'messagepack-truth-or-ref',
+      sqlPayloadRole: 'skinny-index-plus-truth-ref',
+    });
+    expect(byFamily.get('arena-evidence')).toMatchObject({
+      owner: 'messagepack-truth-or-ref',
+      sqlPayloadRole: 'skinny-index-plus-truth-ref',
+    });
+    expect(byFamily.get('ai-sessions')).toMatchObject({
+      owner: 'messagepack-truth-or-ref',
+      sqlPayloadRole: 'skinny-index-plus-truth-ref',
+    });
+    expect(byFamily.get('progressive-topic-lineage')).toMatchObject({
+      owner: 'messagepack-truth-or-siyuan-source',
+      sqlPayloadRole: 'skinny-index-plus-truth-ref',
+    });
+    expect(byFamily.get('diagnostics')).toMatchObject({
+      owner: 'ttl-diagnostics-truth',
+      sqlPayloadRole: 'ttl-index-plus-truth-ref',
+    });
+  });
+});
+
 describe('backend SQL projection rebuild contract', () => {
+  it('serializes Review feedback storage state without implying sync-directory flush or SQL checkpoint success', () => {
+    const result = {
+      cardId: 'card-review-storage',
+      committed: true,
+      reviewedAt: 1_700_000_000_100,
+      queueType: 'retrieval-practice',
+      updatedCard: { id: 'card-review-storage' },
+      idempotencyKey: 'review-storage-key',
+      duplicate: false,
+      queueImpact: {
+        hotPatchable: true,
+        refreshRequired: false,
+        affectedQueues: [],
+      },
+      storage: {
+        localIntent: {
+          status: 'recorded',
+          durable: true,
+          storage: 'non-siyuan',
+          entryId: 'review-feedback:review-storage-key',
+          idempotencyKey: 'review-storage-key',
+          journalStatus: 'projection-applied',
+          pendingCount: 1,
+          pendingBytes: 512,
+          error: null,
+        },
+        truthFlush: {
+          status: 'pending',
+          family: 'review-events',
+          syncVisible: false,
+          pendingCount: 1,
+          oldestPendingAgeMs: 25,
+          lastError: null,
+        },
+        sqlProjection: {
+          status: 'patched',
+          hotPatchable: true,
+          refreshRequired: false,
+          affectedQueueCount: 1,
+          projectionGeneration: 12,
+        },
+        sqlCheckpoint: {
+          status: 'not-run',
+          hotPath: false,
+          cause: null,
+          initiator: null,
+          projectionGeneration: null,
+          byteLength: null,
+          error: null,
+        },
+      },
+    } satisfies BackendReviewFeedbackResult;
+
+    expect(JSON.parse(JSON.stringify(result))).toMatchObject({
+      storage: {
+        localIntent: {
+          status: 'recorded',
+          durable: true,
+          storage: 'non-siyuan',
+          journalStatus: 'projection-applied',
+        },
+        truthFlush: {
+          status: 'pending',
+          syncVisible: false,
+        },
+        sqlProjection: {
+          status: 'patched',
+          hotPatchable: true,
+        },
+        sqlCheckpoint: {
+          status: 'not-run',
+          hotPath: false,
+        },
+      },
+    });
+  });
+
   it('serializes SQL checkpoint/export diagnostics with cause, initiator, bytes, generation, and hot-path status', () => {
     const status = {
       runtime: 'srs-backend-worker',

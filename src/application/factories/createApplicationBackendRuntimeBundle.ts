@@ -31,9 +31,12 @@ import type {
   BackendXiuyuanRiffReadAuditRequest,
   BackendXiuyuanRiffReadAuditResult,
 } from '../../../packages/contracts/src/backend-rpc';
+import { MESSAGEPACK_TRUTH_SCHEMA_VERSION } from '../../../packages/contracts/src/backend-rpc';
 import type { SqlitePersistenceBridge } from '../../../worker/db/SqlitePersistenceBridge';
 
 const logger = createLogger('ApplicationContext');
+const REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1';
+const REVIEW_TRUTH_GENERATION_ID = `review-events-v${MESSAGEPACK_TRUTH_SCHEMA_VERSION}`;
 
 export type ApplicationBackendRuntimeTransport = SrsBackendTransport & {
   dispose?: () => void;
@@ -188,7 +191,13 @@ export async function createApplicationBackendRuntimeBundle(
             }),
           },
         });
-        srsBackendClient = new SrsBackendClient(srsBackendTransport);
+        srsBackendClient = new SrsBackendClient(srsBackendTransport, {
+          reviewTruthFlush: {
+            deviceId: resolveReviewTruthDeviceId(),
+            generationId: REVIEW_TRUTH_GENERATION_ID,
+            schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+          },
+        });
       });
       logger.info('[ApplicationContext] ✅ SRS backend browser Worker transport bootstrap enabled by feature flag');
     } catch (error) {
@@ -292,6 +301,35 @@ function createWorkerPersistenceBridge(fileService: FileService): SqlitePersiste
     readSyncConflictDatabaseSources: () => fileService.readSyncConflictDatabaseSources(),
     cleanupSyncConflictDatabaseSources: (sourceIds: string[]) => fileService.cleanupSyncConflictDatabaseSources(sourceIds),
   };
+}
+
+function isMessagePackTruthIdentity(value: unknown): value is string {
+  return typeof value === 'string'
+    && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(value.trim())
+    && !value.trim().includes('..');
+}
+
+function createReviewTruthDeviceId(): string {
+  const cryptoApi = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
+  const randomId = typeof cryptoApi?.randomUUID === 'function'
+    ? cryptoApi.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  return `device-${randomId}`;
+}
+
+function resolveReviewTruthDeviceId(): string {
+  try {
+    const storage = typeof globalThis !== 'undefined' ? globalThis.localStorage : undefined;
+    const stored = storage?.getItem(REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY);
+    if (isMessagePackTruthIdentity(stored)) {
+      return stored.trim();
+    }
+    const next = createReviewTruthDeviceId();
+    storage?.setItem(REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY, next);
+    return next;
+  } catch {
+    return createReviewTruthDeviceId();
+  }
 }
 
 async function resolveExistingBlockIdsViaSiyuan(

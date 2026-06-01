@@ -579,6 +579,10 @@ describe('BackendKernel', () => {
       'SELECT payload_json FROM review_events WHERE card_id = ?',
       ['card-review-retry-idempotent'],
     )?.payload_json || '{}');
+    expect(reviewEventPayload.projectionKind).toBe('messagepack-review-event-index');
+    expect(reviewEventPayload).not.toHaveProperty('before');
+    expect(reviewEventPayload).not.toHaveProperty('after');
+    expect(reviewEventPayload).not.toHaveProperty('reviewEventFact');
     expect(reviewEventPayload.reviewEventFactSummary).toMatchObject({
       eventId: expect.stringMatching(/^v2:card-review-retry-idempotent:/),
       cardId: 'card-review-retry-idempotent',
@@ -636,6 +640,8 @@ describe('BackendKernel', () => {
       commitPolicy: 'write-schedule',
       idempotencyKey: 'review-commit:retry-same-action',
     });
+    expect(JSON.parse(ledgerRow?.payload_json || '{}')).not.toHaveProperty('before');
+    expect(JSON.parse(ledgerRow?.payload_json || '{}')).not.toHaveProperty('after');
     expect(afterRetry?.reps).toBe(afterFirst?.reps);
     expect(afterRetry?.lastReview).toBe(afterFirst?.lastReview);
   });
@@ -7475,6 +7481,37 @@ describe('BackendKernel', () => {
     });
 
     expect('result' in response).toBe(true);
+    if (!('result' in response)) {
+      throw new Error(response.error.message);
+    }
+    expect(response.result.storage).toMatchObject({
+      localIntent: {
+        status: 'recorded',
+        durable: true,
+        storage: 'non-siyuan',
+        entryId: 'review-feedback:review-hot-path-journal-key',
+        idempotencyKey: 'review-hot-path-journal-key',
+        journalStatus: 'projection-applied',
+      },
+      truthFlush: {
+        status: 'pending',
+        family: 'review-events',
+        syncVisible: false,
+        pendingCount: 1,
+      },
+      sqlProjection: {
+        status: 'refresh-required',
+        hotPatchable: false,
+        refreshRequired: true,
+        affectedQueueCount: 1,
+      },
+      sqlCheckpoint: {
+        status: 'not-run',
+        hotPath: false,
+        cause: null,
+        initiator: null,
+      },
+    });
     expect(writeBinary).not.toHaveBeenCalled();
     expect(writeJSON).not.toHaveBeenCalled();
 
@@ -7631,6 +7668,74 @@ describe('BackendKernel', () => {
     expect('result' in response).toBe(true);
     expect(truthFileStore.binaryFiles.size).toBe(0);
     expect(truthFileStore.jsonFiles.size).toBe(0);
+  });
+
+  it('reports Review feedback SQL projection patch separately from pending truth flush and checkpoint state', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const reviewedAt = 1_779_187_889_050;
+    const reviewed = buildCard({ id: 'card-review-storage-patch', blockId: 'block-review-storage-patch', due: reviewedAt - 10_000 });
+    await database.upsertCards([reviewed]);
+    await seedQueueProjection(database, {
+      queueType: 'retrieval-practice',
+      policyHash: 'policy-storage',
+      generation: 3,
+      rows: [reviewed],
+      updatedAt: reviewedAt - 1_000,
+    });
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-storage-patch',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-review-storage-patch',
+        rating: 3,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+        projectionGeneration: 3,
+        projectionPolicyHash: 'policy-storage',
+        idempotencyKey: 'review-storage-patch-key',
+      }],
+    });
+
+    if (!('result' in response)) {
+      throw new Error(response.error.message);
+    }
+    expect(response.result.storage).toMatchObject({
+      localIntent: {
+        status: 'recorded',
+        durable: true,
+        entryId: 'review-feedback:review-storage-patch-key',
+        journalStatus: 'projection-applied',
+      },
+      truthFlush: {
+        status: 'pending',
+        syncVisible: false,
+        pendingCount: 1,
+      },
+      sqlProjection: {
+        status: 'patched',
+        hotPatchable: true,
+        refreshRequired: false,
+        affectedQueueCount: 1,
+        projectionGeneration: 4,
+      },
+      sqlCheckpoint: {
+        status: 'not-run',
+        hotPath: false,
+        cause: null,
+        initiator: null,
+      },
+    });
+    expect(response.result.queueImpact).toMatchObject({
+      hotPatchable: true,
+      refreshRequired: false,
+    });
   });
 
   it('returns backend unavailable when projection rebuild has no truth segment store', async () => {
@@ -8315,7 +8420,7 @@ describe('BackendKernel', () => {
     const resolveNeuralGraphQuery = createNeuralGraphResolver({
       'block-second-device-a': {
         id: 'block-second-device-a',
-        content: 'Second-device source block content from synced SiYuan data',
+        content: 'Second-device source block content from synced SiYuan data with a long body that must stay source-owned and outside plugin truth payload storage',
         type: 'p',
         root_id: 'doc-second-device-a',
         attrs: {
@@ -8397,7 +8502,7 @@ describe('BackendKernel', () => {
       id: 'card-second-device-a',
       xiuyuan_id: 'xy-second-device-a',
       root_id: 'doc-second-device-a',
-      content_text: 'Second-device source block content from synced SiYuan data',
+      content_text: 'Second-device source block content from synced SiYuan data with a long body that',
       due: 1_700_086_600_000,
       source_hash: 'source-hash-second-device-a',
     });
@@ -8407,7 +8512,13 @@ describe('BackendKernel', () => {
       generationId: 'projection-gen-second-device',
       idempotencyKey: 'face:create:second-device-a',
     });
+    expect(JSON.parse(cardRow?.payload_json || '{}')).toMatchObject({
+      projectionKind: 'messagepack-card-projection',
+      cardId: 'card-second-device-a',
+      blockId: 'block-second-device-a',
+    });
     expect(cardRow?.payload_json).not.toContain('custom-fsrs-due');
+    expect(cardRow?.payload_json).not.toContain('must stay source-owned and outside plugin truth payload storage');
 
     const reviewRow = secondDeviceDatabase.getOne<{
       card_id: string;
@@ -8415,8 +8526,9 @@ describe('BackendKernel', () => {
       commit_idempotency_key: string;
       msgpack_ref: string;
       projection_generation: number;
+      payload_json: string;
     }>(
-      `SELECT card_id, rating, commit_idempotency_key, msgpack_ref, projection_generation
+      `SELECT card_id, rating, commit_idempotency_key, msgpack_ref, projection_generation, payload_json
          FROM review_events
         WHERE card_id = ?`,
       ['card-second-device-a'],
@@ -8433,6 +8545,13 @@ describe('BackendKernel', () => {
       generationId: 'projection-gen-second-device',
       idempotencyKey: 'review:second-device-a',
     });
+    expect(JSON.parse(reviewRow?.payload_json || '{}')).toMatchObject({
+      projectionKind: 'messagepack-review-event-index',
+      cardId: 'card-second-device-a',
+      commitIdempotencyKey: 'review:second-device-a',
+    });
+    expect(reviewRow?.payload_json).not.toContain('baseMemoryHash');
+    expect(reviewRow?.payload_json).not.toContain('afterMemoryHash');
   });
 
   it('appends one review journal entry without reading or rewriting existing pending entries', async () => {

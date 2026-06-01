@@ -94,7 +94,12 @@ export function shouldSuppressReviewFeedbackPersistenceHostEffect(
   kind: BackendWorkerHostEffect['kind'],
 ): boolean {
   return hasActiveBackendWorkerTiming('review.feedback')
-    && (kind === 'sqlite.writeJSON' || kind === 'sqlite.writeBinary');
+    && (
+      kind === 'sqlite.writeJSON'
+      || kind === 'sqlite.writeBinary'
+      || kind === 'truth.writeJSON'
+      || kind === 'truth.writeBinary'
+    );
 }
 
 export function resolveExclusiveActiveReviewFeedbackTiming(): ActiveBackendWorkerTiming | null {

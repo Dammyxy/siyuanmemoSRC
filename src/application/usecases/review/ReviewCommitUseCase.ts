@@ -168,12 +168,6 @@ export class ReviewCommitUseCase {
     command: QueueReviewCommand,
     relayRuntime: RelayRuntimeState,
   ): Promise<QueueReviewCommitResult> {
-    const card = await measureRuntimePerformance(
-      'review',
-      'commit.read-card',
-      () => this.deps.cards.getCard(command.cardId),
-      { cardId: command.cardId },
-    );
     const rating = normalizeRating(command.rating);
     const context = {
       ...command.context,
@@ -266,17 +260,30 @@ export class ReviewCommitUseCase {
       result = await this.executeLocalWorkerFeedback(requestPayload, command, workerContext, rating);
     }
 
-    const updatedCard = normalizeWorkerUpdatedCard(result.updatedCard, card);
-    await measureRuntimePerformance('review', 'commit.record-arena-review', () => this.recordArenaReview(card, rating, context), {
-      cardId: command.cardId,
-      rating,
-    });
+    const updatedCard = normalizeWorkerUpdatedCard(result.updatedCard, command.cardId);
+    this.scheduleArenaReviewRecord(updatedCard, rating, context);
     return {
-      card,
+      card: updatedCard,
       updatedCard,
       committed: result.committed,
       queueImpact: result.queueImpact ?? null,
     };
+  }
+
+  private scheduleArenaReviewRecord(
+    card: FSRSCard,
+    rating: Rating,
+    context: SrsV2SchedulingContext,
+  ): void {
+    void measureRuntimePerformance('review', 'commit.record-arena-review', () => this.recordArenaReview(card, rating, context), {
+      cardId: card.id,
+      rating,
+    }).catch((error) => {
+      logger.warn('Arena SRS review recording failed after review commit returned', {
+        cardId: card.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 
   private async tryRecoverFollowerNoActiveWriterFeedback(
@@ -576,13 +583,16 @@ function normalizeBackendReviewSchedulerConfig(
   };
 }
 
-function normalizeWorkerUpdatedCard(updatedCard: unknown, fallbackCard: FSRSCard): FSRSCard {
+function normalizeWorkerUpdatedCard(updatedCard: unknown, cardId: string): FSRSCard {
   if (!updatedCard || typeof updatedCard !== 'object') {
-    return fallbackCard;
+    throw new Error('review.feedback worker response missing updatedCard');
   }
   const candidate = updatedCard as FSRSCard;
   if (typeof candidate.id !== 'string' || !candidate.id) {
     throw new Error('review.feedback worker response missing updatedCard.id');
+  }
+  if (candidate.id !== cardId) {
+    throw new Error(`review.feedback worker response card mismatch: ${candidate.id}`);
   }
   return canonicalizeSchedulingState(candidate, {
     source: 'review-commit',

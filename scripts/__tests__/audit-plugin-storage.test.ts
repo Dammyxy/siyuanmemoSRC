@@ -1,0 +1,105 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore cjs import
+import { classifyStoragePath, evaluate } from '../audit-plugin-storage.cjs';
+
+const tempDirs: string[] = [];
+
+function createFixtureRoot(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-storage-audit-'));
+  tempDirs.push(dir);
+  return dir;
+}
+
+function writeFixture(rootDir: string, relativePath: string, size = 1): void {
+  const absolute = path.join(rootDir, relativePath);
+  fs.mkdirSync(path.dirname(absolute), { recursive: true });
+  fs.writeFileSync(absolute, Buffer.alloc(size, 1));
+}
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+describe('audit-plugin-storage', () => {
+  it('classifies active storage contract files separately from cleanup candidates', () => {
+    expect(classifyStoragePath('siyuanmemo.db')).toMatchObject({
+      classification: 'expected-active',
+      kind: 'sql-projection-db',
+    });
+    expect(classifyStoragePath('truth/review-events/device-device-A/seg-000001-test.msgpack')).toMatchObject({
+      classification: 'expected-active',
+      kind: 'messagepack-truth-segment',
+    });
+    expect(classifyStoragePath('truth/review-events/device-device-A/manifest.v1.json')).toMatchObject({
+      classification: 'expected-active',
+      kind: 'messagepack-truth-manifest',
+    });
+    expect(classifyStoragePath('migration-backups/algorithm-card-state-repair-1701000000005.json')).toMatchObject({
+      classification: 'cleanup-candidate',
+      kind: 'algorithm-state-repair-backup',
+    });
+    expect(classifyStoragePath('siyuanmemo.db.shadow-restore-20260526.bak')).toMatchObject({
+      classification: 'cleanup-candidate',
+      kind: 'root-db-backup',
+    });
+    expect(classifyStoragePath('upload.tmp')).toMatchObject({
+      classification: 'temp-artifact',
+    });
+  });
+
+  it('marks legacy and storage-slimming follow-up files without deleting anything', () => {
+    expect(classifyStoragePath('queues.msgpack')).toMatchObject({
+      classification: 'legacy-compat-read',
+    });
+    expect(classifyStoragePath('practice-queue.msgpack')).toMatchObject({
+      classification: 'legacy-compat-read',
+    });
+    expect(classifyStoragePath('progressive-reading.json')).toMatchObject({
+      classification: 'storage-slimming-followup',
+      kind: 'progressive-lineage-json',
+    });
+    expect(classifyStoragePath('siyuanmemo.db.delta.v1.json')).toMatchObject({
+      classification: 'cleanup-candidate',
+      kind: 'legacy-sqlite-delta-log',
+    });
+    expect(classifyStoragePath('ai-workbench/sessions/records/session-1.json')).toMatchObject({
+      classification: 'storage-slimming-followup',
+      kind: 'ai-session-json',
+    });
+    expect(classifyStoragePath('arena/store.json')).toMatchObject({
+      classification: 'storage-slimming-followup',
+      kind: 'arena-legacy-json',
+    });
+    expect(classifyStoragePath('mystery/state.json')).toMatchObject({
+      classification: 'unknown',
+      kind: 'unrecognized-json',
+    });
+  });
+
+  it('summarizes counts and largest files for a plugin storage root', () => {
+    const rootDir = createFixtureRoot();
+    writeFixture(rootDir, 'siyuanmemo.db', 10);
+    writeFixture(rootDir, 'truth/review-events/device-device-A/seg-000001-test.msgpack', 8);
+    writeFixture(rootDir, 'migration-backups/algorithm-card-state-repair-1701000000005.json', 20);
+    writeFixture(rootDir, 'ai-workbench/sessions/records/session-1.json', 5);
+
+    const result = evaluate({ rootDir, topLimit: 2 });
+
+    expect(result.total).toMatchObject({ files: 4, bytes: 43 });
+    expect(result.byClassification).toMatchObject({
+      'cleanup-candidate': { files: 1, bytes: 20 },
+      'expected-active': { files: 2, bytes: 18 },
+      'storage-slimming-followup': { files: 1, bytes: 5 },
+    });
+    expect(result.topFiles.map((file: { relativePath: string }) => file.relativePath)).toEqual([
+      'migration-backups/algorithm-card-state-repair-1701000000005.json',
+      'siyuanmemo.db',
+    ]);
+  });
+});

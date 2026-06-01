@@ -564,7 +564,12 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
   }
 
   private shouldSuppressReviewFeedbackPersistenceHostEffect(effect: BackendWorkerHostEffect): boolean {
-    if (effect.kind !== 'sqlite.writeJSON' && effect.kind !== 'sqlite.writeBinary') {
+    if (
+      effect.kind !== 'sqlite.writeJSON'
+      && effect.kind !== 'sqlite.writeBinary'
+      && effect.kind !== 'truth.writeJSON'
+      && effect.kind !== 'truth.writeBinary'
+    ) {
       return false;
     }
     return this.countPendingReviewFeedbackRequests() > 0

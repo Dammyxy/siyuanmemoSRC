@@ -101,6 +101,41 @@ describe('ReviewCommitUseCase', () => {
     expect(reviewFeedback).toHaveBeenCalledTimes(1);
   });
 
+  it('has no Review block-attribute write dependency on the ordinary feedback success path', async () => {
+    const before = createCard({ id: 'card-no-attrs' });
+    const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });
+    const forbiddenSetBlockAttrs = vi.fn(async () => {
+      throw new Error('setBlockAttrs must stay outside ordinary review.feedback');
+    });
+    const getCard = vi.fn(async () => before);
+
+    const useCase = new ReviewCommitUseCase({
+      cards: {
+        getCard,
+        setBlockAttrs: forbiddenSetBlockAttrs,
+      } as never,
+      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: after })) },
+      writerLeaseGuard: {
+        ensureWritable: vi.fn(async () => {}),
+        getMode: () => 'writer',
+      } as never,
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(forbiddenSetBlockAttrs).not.toHaveBeenCalled();
+    expect(getCard).not.toHaveBeenCalled();
+  });
+
   it('passes review commit idempotency key to backend worker request', async () => {
     const before = createCard({ id: 'card-idempotency-key' });
     const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });
@@ -301,10 +336,50 @@ describe('ReviewCommitUseCase', () => {
       },
     });
 
+    await vi.waitFor(() => expect(arena.recordSrsReview).toHaveBeenCalledTimes(1));
     expect(arena.recordSrsReview).toHaveBeenCalledWith(expect.objectContaining({
-      card: before,
+      card: after,
       rating: Rating.Good,
     }));
+  });
+
+  it('does not wait for SQL backed Arena recording before review feedback returns success', async () => {
+    const before = createCard({ id: 'card-arena-background' });
+    const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });
+    let releaseArenaRecord: (() => void) | null = null;
+    const arena = {
+      canRecordSrsReviewWithoutSiyuanFileWrite: vi.fn(() => true),
+      recordSrsReview: vi.fn(async () => new Promise<void>((resolve) => {
+        releaseArenaRecord = resolve;
+      })),
+    };
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      arena,
+      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: after })) },
+      writerLeaseGuard: {
+        ensureWritable: vi.fn(async () => {}),
+        getMode: () => 'writer',
+      } as never,
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    await expect(useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    })).resolves.toMatchObject({
+      committed: true,
+      updatedCard: after,
+    });
+
+    expect(arena.recordSrsReview).toHaveBeenCalledTimes(1);
+    releaseArenaRecord?.();
   });
 
   it('fails closed when backend is disabled by runtime policy', async () => {

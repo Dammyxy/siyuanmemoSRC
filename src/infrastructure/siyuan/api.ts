@@ -3,6 +3,8 @@
  * 封装思源内核 HTTP API
  */
 
+import { classifyBlockAttrWrite, filterWritableBlockAttrs } from '@/types/block-attr-policy';
+
 const API_BASE = '/api';
 const DEFAULT_SQL_LIMIT = 100000;
 
@@ -258,7 +260,17 @@ export async function getBlockAttrs(id: string): Promise<Record<string, string>>
  * 设置块属性
  */
 export async function setBlockAttrs(id: string, attrs: Record<string, string>): Promise<void> {
-    return request('/attr/setBlockAttrs', { id, attrs });
+    for (const [attrName, value] of Object.entries(attrs)) {
+        const classification = classifyBlockAttrWrite(attrName, value);
+        if (!classification.allowed && value !== '') {
+            throw new Error(`BLOCK_ATTR_WRITE_FORBIDDEN: ${attrName} (${classification.reason})`);
+        }
+    }
+    const writableAttrs = filterWritableBlockAttrs(attrs);
+    if (Object.keys(writableAttrs).length === 0) {
+        return;
+    }
+    return request('/attr/setBlockAttrs', { id, attrs: writableAttrs });
 }
 
 // ==================== SQL 查询 ====================

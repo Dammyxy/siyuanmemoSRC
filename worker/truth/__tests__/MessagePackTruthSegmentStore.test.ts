@@ -86,6 +86,30 @@ describe('MessagePackTruthSegmentStore', () => {
     }
   });
 
+  it('uses first-family storage policy defaults when caller omits segment and compaction budgets', async () => {
+    const fileStore = new MemoryTruthSegmentFileStore();
+    const store = createMessagePackTruthSegmentStore({
+      fileStore,
+      family: 'review-events',
+      deviceId: 'device-A',
+      generationId: 'projection-gen-1',
+      schemaVersion: 1,
+    });
+
+    const result = await store.appendRecords([
+      record('large-a', 10, 600 * 1024),
+      record('large-b', 20, 600 * 1024),
+    ]);
+    const plan = await store.planCompaction({});
+
+    expect(result.segments).toHaveLength(2);
+    expect(result.segments.every((segment) => segment.byteSize <= 1024 * 1024)).toBe(true);
+    expect(plan).toMatchObject({
+      eligible: false,
+      reason: 'within-budget',
+    });
+  });
+
   it('rejects appending to another device-owned segment path', async () => {
     const store = createStore();
 

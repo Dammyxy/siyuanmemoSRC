@@ -169,11 +169,11 @@ export class WorkerReviewCardMutationPersistenceModule {
             month.getFullYear(),
             month.getMonth() + 1,
             'review-v2',
-            JSON.stringify({
-              ...log,
-              reviewEventFact: fact,
-              reviewEventFactSummary: summarizeReviewEventFact(fact),
-            }),
+            JSON.stringify(buildReviewEventIndexPayload({
+              log,
+              factSummary: summarizeReviewEventFact(fact),
+              idempotencyKey: input.idempotencyKey,
+            })),
           ],
         );
         domainSyncLedger.appendReviewCommitted({
@@ -334,6 +334,33 @@ export class WorkerReviewCardMutationPersistenceModule {
 function shouldBuildQueueImpactAfterReviewTransaction(queueType: string): boolean {
   return queueType !== 'retrieval-practice'
     && queueType !== 'incremental-learning';
+}
+
+function buildReviewEventIndexPayload(input: {
+  log: ReturnType<typeof createReviewLogV2>;
+  factSummary: ReturnType<typeof summarizeReviewEventFact>;
+  idempotencyKey: string | null;
+}): Record<string, unknown> {
+  return {
+    schemaVersion: 1,
+    projectionKind: 'messagepack-review-event-index',
+    eventId: input.log.id,
+    cardId: input.log.cardId,
+    attemptId: input.log.attemptId,
+    rating: input.log.rating,
+    reviewedAt: input.log.reviewedAt,
+    commitIdempotencyKey: input.idempotencyKey,
+    schedulerType: input.log.schedulerType,
+    algorithm: input.log.algorithm,
+    queueType: input.log.queueType,
+    queueMode: input.log.queueMode,
+    commitPolicy: input.log.commitPolicy,
+    source: input.log.source,
+    isDrill: input.log.isDrill,
+    isFiltered: input.log.isFiltered,
+    customStudy: input.log.customStudy,
+    reviewEventFactSummary: input.factSummary,
+  };
 }
 
 function parseJsonObject(value: unknown): Record<string, unknown> {

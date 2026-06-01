@@ -76,6 +76,104 @@ describe('SrsBackendClient', () => {
     }));
   });
 
+  it('schedules background Review truth flush after committed feedback with pending truth', async () => {
+    vi.useFakeTimers();
+    try {
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const transport: SrsBackendTransport = {
+        request: vi.fn(async (request) => {
+          requests.push({ method: request.method, params: request.params });
+          if (request.method === 'review.feedback') {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                cardId: 'card-review-truth-flush',
+                committed: true,
+                reviewedAt: 1_700_000_000_000,
+                queueType: 'retrieval-practice',
+                updatedCard: null,
+                storage: {
+                  truthFlush: {
+                    status: 'pending',
+                    family: 'review-events',
+                    syncVisible: false,
+                    pendingCount: 1,
+                    oldestPendingAgeMs: 0,
+                    lastError: null,
+                  },
+                },
+              },
+            };
+          }
+          if (request.method === 'review.truth.flush') {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                ok: true,
+                at: 1_700_000_000_100,
+                journalQueued: 1,
+                recordsWritten: 1,
+                segmentWritten: true,
+                manifestUpdated: true,
+                projectionRefreshScheduled: true,
+                idempotencyDuplicateSkipped: 0,
+                flushedEntryIds: ['review-feedback:truth-flush-key'],
+                segmentPaths: ['truth/review-events/device-device-A/seg-000001-test.msgpack'],
+                error: null,
+              },
+            };
+          }
+          throw new Error(`Unexpected backend method ${request.method}`);
+        }),
+      };
+      const client = new SrsBackendClient(transport, {
+        reviewTruthFlush: {
+          deviceId: 'device-A',
+          generationId: 'review-events-v1',
+          schemaVersion: 1,
+          batchLimit: 8,
+          delayMs: 50,
+        },
+      });
+
+      await expect(client.reviewFeedback({
+        cardId: 'card-review-truth-flush',
+        rating: 3,
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        idempotencyKey: 'truth-flush-key',
+      })).resolves.toMatchObject({
+        committed: true,
+      });
+      expect(requests).toEqual([{
+        method: 'review.feedback',
+        params: [expect.objectContaining({
+          cardId: 'card-review-truth-flush',
+        })],
+      }]);
+
+      await vi.advanceTimersByTimeAsync(49);
+      expect(requests).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.waitFor(() => expect(requests).toHaveLength(2));
+      expect(requests[1]).toEqual({
+        method: 'review.truth.flush',
+        params: [{
+          deviceId: 'device-A',
+          generationId: 'review-events-v1',
+          schemaVersion: 1,
+          batchLimit: 8,
+        }],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('routes backendized hotspot, aggregate, and graph placeholder contracts through typed RPC methods', async () => {
     const requests: Array<{ method: string; params: unknown }> = [];
     const aggregateIdentity = {

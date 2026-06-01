@@ -71,6 +71,30 @@ function createReviewFeedbackRequest(id = 1): BackendRpcRequest {
   };
 }
 
+function createReviewFeedbackRequestForAction(
+  id: number,
+  action: 'rating' | 'skip' | 'custom-feedback',
+): BackendRpcRequest {
+  const feedbackParams = {
+    rating: { rating: 3 },
+    skip: { action: 'skip' },
+    'custom-feedback': { action: 'custom-feedback', customActionId: 'again-later' },
+  }[action];
+  return {
+    jsonrpc: BACKEND_RPC_VERSION,
+    id,
+    method: 'review.feedback',
+    params: [{
+      cardId: `card-${action}`,
+      queueType: 'incremental-learning',
+      queueMode: 'formal',
+      commitPolicy: 'write-schedule',
+      idempotencyKey: `review-${action}-key`,
+      ...feedbackParams,
+    }],
+  };
+}
+
 function createXiuyuanSyncRequest(id = 1): BackendRpcRequest {
   return {
     jsonrpc: BACKEND_RPC_VERSION,
@@ -837,7 +861,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
-  it('does not suppress explicit truth segment writes during the post-review sqlite drain window', async () => {
+  it('suppresses explicit truth segment writes during the post-review drain window', async () => {
     vi.setSystemTime(20_000);
     const worker = new FakeWorker();
     const writeTruthBinary = vi.fn(async () => undefined);
@@ -871,16 +895,112 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     });
 
     await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
-    expect(writeTruthBinary).toHaveBeenCalledWith(
-      'truth/review-events/device-device-A/seg-000001-test.msgpack',
-      new Uint8Array([7]),
-    );
-    expect(worker.posted[1]).toEqual(expect.objectContaining({
+    expect(writeTruthBinary).not.toHaveBeenCalled();
+    expect(worker.posted[1]).toEqual({
       kind: 'host-effect-result',
       effectId: 'effect-truth-review-flush',
-      ok: true,
-    }));
+      ok: false,
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect truth.writeBinary',
+      },
+    });
     transport.dispose();
+  });
+
+  it('suppresses all SiYuan file-write host effects for rating, skip, and custom review feedback', async () => {
+    const forbiddenEffects = [
+      {
+        kind: 'sqlite.writeJSON' as const,
+        effectId: 'effect-sqlite-json',
+        path: 'kernel-transaction-ingest.snapshot.json',
+        value: { queue: [] },
+        expectedMessage: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect sqlite.writeJSON',
+      },
+      {
+        kind: 'sqlite.writeBinary' as const,
+        effectId: 'effect-sqlite-binary',
+        path: 'siyuanmemo.db',
+        bytes: new Uint8Array([1, 2, 3]),
+        expectedMessage: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect sqlite.writeBinary',
+      },
+      {
+        kind: 'truth.writeJSON' as const,
+        effectId: 'effect-truth-json',
+        path: 'truth/review-events/device-device-A/manifest.v1.json',
+        value: { version: 1 },
+        expectedMessage: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect truth.writeJSON',
+      },
+      {
+        kind: 'truth.writeBinary' as const,
+        effectId: 'effect-truth-binary',
+        path: 'truth/review-events/device-device-A/seg-000001-test.msgpack',
+        bytes: new Uint8Array([4, 5, 6]),
+        expectedMessage: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect truth.writeBinary',
+      },
+    ];
+
+    for (const [actionIndex, action] of (['rating', 'skip', 'custom-feedback'] as const).entries()) {
+      const worker = new FakeWorker();
+      const hostEffects = {
+        writeJSON: vi.fn(async () => undefined),
+        writeBinary: vi.fn(async () => undefined),
+        writeTruthJSON: vi.fn(async () => undefined),
+        writeTruthBinary: vi.fn(async () => undefined),
+      };
+      const transport = new BrowserSrsBackendWorkerTransport({
+        workerFactory: () => worker as unknown as Worker,
+        hostEffects,
+      });
+      const pending = transport.request(createReviewFeedbackRequestForAction(100 + actionIndex, action));
+      worker.emit({ kind: 'ready' });
+      await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+
+      for (const [effectIndex, forbidden] of forbiddenEffects.entries()) {
+        worker.emit({
+          kind: 'host-effect',
+          effectId: `${action}-${forbidden.effectId}`,
+          effect: 'bytes' in forbidden
+            ? {
+                kind: forbidden.kind,
+                path: forbidden.path,
+                bytes: forbidden.bytes,
+              }
+            : {
+                kind: forbidden.kind,
+                path: forbidden.path,
+                value: forbidden.value,
+              },
+        });
+        await vi.waitFor(() => expect(worker.posted).toHaveLength(2 + effectIndex));
+        expect(worker.posted[1 + effectIndex]).toEqual({
+          kind: 'host-effect-result',
+          effectId: `${action}-${forbidden.effectId}`,
+          ok: false,
+          error: {
+            code: 'BACKEND_UNAVAILABLE',
+            message: forbidden.expectedMessage,
+          },
+        });
+      }
+
+      expect(hostEffects.writeJSON).not.toHaveBeenCalled();
+      expect(hostEffects.writeBinary).not.toHaveBeenCalled();
+      expect(hostEffects.writeTruthJSON).not.toHaveBeenCalled();
+      expect(hostEffects.writeTruthBinary).not.toHaveBeenCalled();
+
+      worker.emit({
+        kind: 'response',
+        requestId: (worker.posted[0] as { requestId: string }).requestId,
+        response: {
+          jsonrpc: BACKEND_RPC_VERSION,
+          id: 100 + actionIndex,
+          result: { ok: true },
+        },
+      });
+      await expect(pending).resolves.toEqual(expect.objectContaining({ id: 100 + actionIndex }));
+      transport.dispose();
+    }
   });
 
   it('suppresses sqlite persistence host effects while review feedback is in flight', async () => {

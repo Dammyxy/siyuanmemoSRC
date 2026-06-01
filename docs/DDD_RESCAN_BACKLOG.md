@@ -1,8 +1,48 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-01 (Round 513)
+Last update: 2026-06-02 (Round 516)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-02 - Wire Review truth flush after committed feedback
+
+- Task: Resume local conversation `019e7e27-0b90-7840-be01-92dd42704c7f` and close the live gap where `review.truth.flush` existed but production Review feedback did not trigger MessagePack truth segment output.
+- Touched slice: Review backend client and backend runtime composition; `SrsBackendClient`, `createApplicationBackendRuntimeBundle`, focused client/factory tests, and `ARCHITECTURE.md`.
+- Debt fixed now: `SrsBackendClient.reviewFeedback()` now schedules a delayed background `review.truth.flush` RPC when committed Review feedback reports pending truth flush state. The scheduler uses explicit device/generation identity, does not block the Review button success boundary, and logs background flush failures instead of converting an already committed Review into a failed action. Runtime composition now provides a localStorage-backed per-device truth segment id plus `review-events-v1` generation so production can create `truth/review-events/device-*/seg-*.msgpack` rather than leaving all entries pending in local journal/SQL projection.
+- Debt deferred: This slice does not run a live SiYuan two-window smoke or clean existing storage files/backups. It also does not add retry policy beyond coalescing queued client-side flush attempts after each committed feedback.
+- Why deferred: Live storage mutation requires the plugin surface running against the user's real SiYuan data root; cleanup/deletion still needs explicit operator approval. A broader retry/backoff worker could be useful, but the smallest root-cause fix is wiring the existing explicit flush RPC to the production success path outside the hot boundary.
+- Next safe step: Build/deploy the plugin, perform one Review action, then verify `H:\SiYuanXY\data\storage\petal\siyuan-plugin-siyuanmemo\truth\review-events\device-*` receives a segment and manifest after the delayed background flush.
+- Validation: Focused SRS backend client regression test and ApplicationContext backend-runtime boundary test passed before full boundary/fallback/build validation.
+
+### 2026-06-01 - Stop repeated algorithm repair backup pollution
+
+- Task: Investigate live plugin storage pollution after storage-slimming change and prevent new repeat repair backups.
+- Touched slice: SQLite startup migration/repair path and storage diagnostics tooling; `SqliteMigrationService`, focused migration tests, and `scripts/audit-plugin-storage.cjs`.
+- Debt fixed now: Marked algorithm-card-state repair now writes at most one full `migration-backups/algorithm-card-state-repair-*.json` backup for an unresolved dirty state. If that repair attempt still leaves dirty/orphan rows, a durable `algorithm-card-state-production-repair-unresolved-v1` migration marker prevents subsequent startups from looping the same repair and writing another full card-state backup. A read-only storage audit script classifies plugin storage into active files, legacy compatibility reads, storage-slimming follow-ups, cleanup candidates, temp artifacts, and unknowns.
+- Debt deferred: Existing user storage files were not deleted or moved. Live audit of `H:\SiYuanXY\data\storage\petal\siyuan-plugin-siyuanmemo` still shows cleanup candidates from historical runs: 214 files / 640.19 MiB, including 201 algorithm repair backups / 316.95 MiB and 10 root DB backups / 315.86 MiB. AI session JSON, progressive lineage JSON, and Arena JSON remain storage-slimming follow-up families.
+- Why deferred: Deleting or archiving real user backup files needs explicit operator approval and a retention policy. This slice only prevents new pollution and makes the existing directory auditable.
+- Next safe step: After user approval, add a dry-run archive/delete workflow for cleanup candidates that keeps the current `siyuanmemo.db`, settings, active truth files, newest protected backups, and all legacy compatibility inputs until migration expiry checks pass.
+- Validation: `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqliteMigrationService.test.ts`; `pnpm exec vitest run scripts/__tests__/audit-plugin-storage.test.ts`; `node scripts/audit-plugin-storage.cjs --root "H:\SiYuanXY\data\storage\petal\siyuan-plugin-siyuanmemo"`.
+
+### 2026-06-01 - Close storage slimming ownership fence
+
+- Task: Finish `introduce-msgpack-truth-source-projection-store` tasks 5.1 through 5.8 by making storage slimming ownership executable and syncing docs.
+- Touched slice: Backend storage ownership and projection contracts; `packages/contracts/src/backend-rpc.ts`, `worker/review/WorkerReviewCardMutationPersistenceModule.ts`, `worker/domain-sync/DomainSyncLedger.ts`, `worker/db/SqliteDatabaseService.ts`, `worker/truth/MessagePackTruthSegmentStore.ts`, block attr policy/API guards, focused backend/contract/attr tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Review SQL event payloads are now skinny `messagepack-review-event-index` rows instead of full before/after/reviewEventFact payloads; domain-sync Review ledger payloads keep dedupe/audit facts without full scheduler snapshots; card rebuild writes `messagepack-card-projection` rows with truth/source refs and without full source body or forbidden attr-derived scheduler data. `STORAGE_SLIMMING_FAMILY_POLICIES` now names owner, SQL payload role, write mode, legacy sources, expiry condition, and removal validation for Review events, card memory, domain-sync operations, queue projections, semantic projections, arena evidence, AI sessions, progressive/topic lineage, diagnostics, and block attrs. Block attr writes fail closed for Review/scheduler/queue/AI/diagnostics/high-churn payloads while allowing only tiny source metadata and explicit clears.
+- Debt deferred: Full Xiuyuan aggregate rebuild, complete domain-sync/semantic/AI/diagnostics projection rebuild families, AI/session payload-ref runtime cutover, semantic/arena payload-ref runtime cutover, and broad removal of retained SQL `payload_json` / `dto_json` columns remain future family migrations.
+- Why deferred: This slice fences ownership and proves current supported Review/card/domain-sync paths without deleting compatibility/import inputs still used by legacy hydration, conflict import, Xiuyuan sync reads, and staged migration.
+- Next safe step: Pick one remaining family, starting with domain-sync operation truth replay or semantic/AI payload refs, and add its MessagePack truth writer plus SQL projection rebuild before deleting its retained compatibility reads.
+- Validation: Focused contract, worker Review/projection rebuild, MessagePack truth replay/conflict, and block-attr policy/API suites passed before final full validation; boundary/fallback/runtime-msgpack/build/OpenSpec checks are rerun at close.
+
+### 2026-06-01 - Lock truth segment budgets and attr write allowlist
+
+- Task: Continue `introduce-msgpack-truth-source-projection-store` tasks 1.4 and 1.5 by making first-family MessagePack budgets and strict block-attribute write rules executable.
+- Touched slice: Backend truth-store contracts and Siyuan block attr write boundary; `packages/contracts/src/backend-rpc.ts`, `worker/truth/MessagePackTruthSegmentStore.ts`, `src/types/block-attr-policy.ts`, `src/infrastructure/siyuan/api.ts`, `BlockAttrPolicy`, focused tests, and `ARCHITECTURE.md`.
+- Debt fixed now: First migrated MessagePack families now have shared storage policies: 1 MiB Review/diagnostics segments, 2 MiB card-memory/domain-sync segments, 4 MiB AI/semantic-arena payload-ref segments, compaction threshold 48 closed segments, target 16 retained closed segments, keep-until-projection-checkpointed retention, and bounded compacted-input retention. The truth segment store uses these defaults when callers do not pass explicit budgets. Block attr writes now fail closed with `BLOCK_ATTR_WRITE_FORBIDDEN` for non-empty Review/scheduler/queue/card-type/priority/suspended/leech, AI/semantic/arena, diagnostics/debug, image-occlusion, and large/high-churn payload attrs; only `custom-xiuyuan-id` and tiny source relationship `custom-fsrs-reading-*` attrs remain writable. Explicit empty-value clears still work for migration and cleanup.
+- Debt deferred: Existing direct callers that previously tried to write forbidden attrs are now blocked by the lower-level guard, but their domain-specific migrations to MessagePack/SQL owners remain in OpenSpec 5.x, especially Review payload slimming, card memory canonical payload migration, domain-sync payload migration, and legacy attr write removal/fencing.
+- Why deferred: This slice closes the decision gate and active write guard. Moving every historical writer to its final owner requires family-by-family migration and compatibility-read expiry work tracked by 5.x tasks.
+- Next safe step: Start 5.1/5.2 by moving retained SQL `payload_json` / `dto_json` truth reads and legacy attr-derived scheduler/card metadata behind explicit family migration state and expiry diagnostics.
+- Validation: Focused contract/truth/attr/cleanup Vitest suites passed; `pnpm run check:boundaries`; hidden-fallback/runtime-msgpack/build/OpenSpec validation pending final run for this session.
 
 ### 2026-06-01 - Rebuild supported projections after second-device SQL loss
 
