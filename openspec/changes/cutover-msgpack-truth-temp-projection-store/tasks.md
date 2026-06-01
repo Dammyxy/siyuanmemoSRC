@@ -13,7 +13,7 @@
 - [x] 2.3 Implement truth segment write order as segment, checksum, then manifest commit.
 - [x] 2.4 Make truth readers load only manifest-listed segments and report orphan segments without applying them.
 - [x] 2.5 Validate manifest-listed checksums and fail closed with `TRUTH_VALIDATION_FAILED` on mismatch.
-- [ ] 2.6 Represent truth schema upgrades as new family generations instead of in-place manifest mutation.
+- [x] 2.6 Represent truth schema upgrades as new family generations instead of in-place manifest mutation.
 
 ## 3. Legacy MessagePack Migration
 

@@ -501,7 +501,7 @@ export class MessagePackTruthSegmentStore {
   }
 
   private get deviceDirectory(): string {
-    return `${this.basePath}/${this.family}/device-${this.deviceId}`;
+    return `${this.basePath}/${this.family}/${this.generationId}/device-${this.deviceId}`;
   }
 
   private emptyManifest(): MessagePackTruthSegmentManifest {

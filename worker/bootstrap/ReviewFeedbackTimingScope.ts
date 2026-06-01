@@ -50,10 +50,10 @@ export function classifyBackendWorkerHostEffectStorage(
   if (normalizedPath === 'sqlite-delta-log.v1.json') {
     return 'sqlite-delta-log';
   }
-  if (/^truth\/[^/]+\/device-[^/]+\/seg-[^/]+\.msgpack$/.test(normalizedPath)) {
+  if (/^truth\/[^/]+\/[^/]+\/device-[^/]+\/seg-[^/]+\.msgpack$/.test(normalizedPath)) {
     return 'messagepack-truth-segment';
   }
-  if (/^truth\/[^/]+\/device-[^/]+\/manifest\.v1\.json$/.test(normalizedPath)) {
+  if (/^truth\/[^/]+\/[^/]+\/device-[^/]+\/manifest\.v1\.json$/.test(normalizedPath)) {
     return 'messagepack-truth-manifest';
   }
   if (kind.startsWith('sqlite.')) {

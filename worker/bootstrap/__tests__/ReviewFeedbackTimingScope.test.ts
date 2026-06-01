@@ -133,11 +133,11 @@ describe('ReviewFeedbackTimingScope', () => {
       .toBe('sqlite-delta-log');
     expect(classifyBackendWorkerHostEffectStorage(
       'truth.writeBinary',
-      'truth/review-events/device-device-A/seg-000001-test.msgpack',
+      'truth/review-events/review-events-v1/device-device-A/seg-000001-test.msgpack',
     )).toBe('messagepack-truth-segment');
     expect(classifyBackendWorkerHostEffectStorage(
       'truth.writeJSON',
-      'truth/review-events/device-device-A/manifest.v1.json',
+      'truth/review-events/review-events-v1/device-device-A/manifest.v1.json',
     )).toBe('messagepack-truth-manifest');
   });
 

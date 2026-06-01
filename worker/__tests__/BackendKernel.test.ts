@@ -7610,7 +7610,7 @@ describe('BackendKernel', () => {
         flushedEntryIds: ['review-feedback:truth-flush-key'],
     });
     expect(response.result.segmentPaths[0]).toMatch(
-        /^truth\/review-events\/device-device-A\/seg-\d{6}-[a-z0-9-]+\.msgpack$/,
+        /^truth\/review-events\/projection-gen-1\/device-device-A\/seg-\d{6}-[a-z0-9-]+\.msgpack$/,
     );
     expect(truthFileStore.binaryFiles.size).toBe(1);
     await expect(reviewFeedbackJournalStore.getStats()).resolves.toMatchObject({
@@ -7737,7 +7737,7 @@ describe('BackendKernel', () => {
       error: null,
     });
     expect(response.result.segmentPaths[0]).toMatch(
-      /^truth\/review-events\/device-device-A\/seg-\d{6}-[a-z0-9-]+\.msgpack$/,
+      /^truth\/review-events\/projection-gen-backfill\/device-device-A\/seg-\d{6}-[a-z0-9-]+\.msgpack$/,
     );
     const truthStore = createMessagePackTruthSegmentStore({
       fileStore: truthFileStore,
@@ -7970,9 +7970,9 @@ describe('BackendKernel', () => {
 
   it('reports repair-required when projection rebuild finds invalid MessagePack truth manifest', async () => {
     const truthFileStore = new MemoryTruthSegmentFileStore();
-    truthFileStore.jsonFiles.set('truth/review-events/device-device-A/manifest.v1.json', {
+    truthFileStore.jsonFiles.set('truth/review-events/projection-gen-corrupt/device-device-A/manifest.v1.json', {
       version: 1,
-      path: 'truth/review-events/device-device-A/manifest.v1.json',
+      path: 'truth/review-events/projection-gen-corrupt/device-device-A/manifest.v1.json',
       family: 'card-memory-facts',
       deviceId: 'device-A',
       generationId: 'projection-gen-corrupt',

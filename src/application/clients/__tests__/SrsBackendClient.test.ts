@@ -120,7 +120,7 @@ describe('SrsBackendClient', () => {
                 projectionRefreshScheduled: true,
                 idempotencyDuplicateSkipped: 0,
                 flushedEntryIds: ['review-feedback:truth-flush-key'],
-                segmentPaths: ['truth/review-events/device-device-A/seg-000001-test.msgpack'],
+                segmentPaths: ['truth/review-events/review-events-v1/device-device-A/seg-000001-test.msgpack'],
                 error: null,
               },
             };
@@ -231,7 +231,7 @@ describe('SrsBackendClient', () => {
                 projectionRefreshScheduled: true,
                 idempotencyDuplicateSkipped: 0,
                 flushedEntryIds: ['review-feedback:startup-key'],
-                segmentPaths: ['truth/review-events/device-device-A/seg-000001-startup.msgpack'],
+                segmentPaths: ['truth/review-events/review-events-v1/device-device-A/seg-000001-startup.msgpack'],
                 error: null,
               },
             };
@@ -344,7 +344,7 @@ describe('SrsBackendClient', () => {
                 backfilledEventIds: Array.from({ length: rowsInBatch }, (_, index) => `event-startup-${backfillCount}-${index}`),
                 duplicateEventIds: [],
                 repairRequiredEventIds: [],
-                segmentPaths: [`truth/review-events/device-device-A/seg-00000${backfillCount}-startup.msgpack`],
+                segmentPaths: [`truth/review-events/review-events-v1/device-device-A/seg-00000${backfillCount}-startup.msgpack`],
                 syncVisible: true,
                 error: null,
               },

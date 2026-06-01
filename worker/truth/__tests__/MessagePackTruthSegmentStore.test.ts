@@ -78,9 +78,9 @@ describe('MessagePackTruthSegmentStore', () => {
     ]);
 
     expect(result.segments.length).toBeGreaterThan(1);
-    expect(result.manifest.path).toBe('truth/review-events/device-device-A/manifest.v1.json');
+    expect(result.manifest.path).toBe('truth/review-events/projection-gen-1/device-device-A/manifest.v1.json');
     expect(result.manifest.segments).toHaveLength(result.segments.length);
-    expect(fileStore.jsonFiles.has('truth/review-events/device-device-A/manifest.v1.json')).toBe(true);
+    expect(fileStore.jsonFiles.has('truth/review-events/projection-gen-1/device-device-A/manifest.v1.json')).toBe(true);
     expect(Array.from(fileStore.jsonFiles.keys()).some((path) => path.includes('global'))).toBe(false);
     for (const entry of result.manifest.segments) {
       expect(entry).toMatchObject({
@@ -92,7 +92,7 @@ describe('MessagePackTruthSegmentStore', () => {
         recordCount: expect.any(Number),
         byteSize: expect.any(Number),
       });
-      expect(entry.path).toMatch(/^truth\/review-events\/device-device-A\/seg-\d{6}-[a-z0-9-]+\.msgpack$/);
+      expect(entry.path).toMatch(/^truth\/review-events\/projection-gen-1\/device-device-A\/seg-\d{6}-[a-z0-9-]+\.msgpack$/);
       expect(entry.byteSize).toBeLessThanOrEqual(640);
       expect(fileStore.binaryFiles.has(entry.path)).toBe(true);
       expect(fileStore.jsonFiles.get(`${entry.path}.checksum.json`)).toMatchObject({
@@ -114,7 +114,7 @@ describe('MessagePackTruthSegmentStore', () => {
     expect(writeOperations.map((operation) => [operation.type, operation.path])).toEqual([
       ['write-binary', segmentPath],
       ['write-json', checksumPath],
-      ['write-json', 'truth/review-events/device-device-A/manifest.v1.json'],
+      ['write-json', 'truth/review-events/projection-gen-1/device-device-A/manifest.v1.json'],
     ]);
     expect(fileStore.jsonFiles.get(checksumPath)).toMatchObject({
       path: segmentPath,
@@ -122,7 +122,7 @@ describe('MessagePackTruthSegmentStore', () => {
     });
 
     fileStore.binaryFiles.set(
-      'truth/review-events/device-device-A/seg-999999-orphan.msgpack',
+      'truth/review-events/projection-gen-1/device-device-A/seg-999999-orphan.msgpack',
       new Uint8Array(fileStore.binaryFiles.get(segmentPath)!),
     );
 
@@ -132,9 +132,52 @@ describe('MessagePackTruthSegmentStore', () => {
     expect(replay.diagnostics).toEqual([
       expect.objectContaining({
         reason: 'orphan-segment',
-        path: 'truth/review-events/device-device-A/seg-999999-orphan.msgpack',
+        path: 'truth/review-events/projection-gen-1/device-device-A/seg-999999-orphan.msgpack',
       }),
     ]);
+  });
+
+  it('writes schema upgrades to a new generation manifest without mutating the previous generation', async () => {
+    const fileStore = new MemoryTruthSegmentFileStore();
+    const generationV1 = createMessagePackTruthSegmentStore({
+      fileStore,
+      family: 'review-events',
+      deviceId: 'device-A',
+      generationId: 'review-events-v1',
+      schemaVersion: 1,
+      maxSegmentBytes: 1024,
+    });
+    const generationV2 = createMessagePackTruthSegmentStore({
+      fileStore,
+      family: 'review-events',
+      deviceId: 'device-A',
+      generationId: 'review-events-v2',
+      schemaVersion: 2,
+      maxSegmentBytes: 1024,
+    });
+
+    const appendV1 = await generationV1.appendRecords([record('v1', 10)]);
+    const appendV2 = await generationV2.appendRecords([record('v2', 20)]);
+
+    expect(appendV1.manifest.path).toBe('truth/review-events/review-events-v1/device-device-A/manifest.v1.json');
+    expect(appendV2.manifest.path).toBe('truth/review-events/review-events-v2/device-device-A/manifest.v1.json');
+    expect(appendV1.manifest.segments).toHaveLength(1);
+    expect(appendV2.manifest.segments).toHaveLength(1);
+    expect(fileStore.jsonFiles.get(appendV1.manifest.path)).toMatchObject({
+      generationId: 'review-events-v1',
+      segments: [expect.objectContaining({ generationId: 'review-events-v1' })],
+    });
+    expect(fileStore.jsonFiles.get(appendV2.manifest.path)).toMatchObject({
+      generationId: 'review-events-v2',
+      segments: [expect.objectContaining({ generationId: 'review-events-v2' })],
+    });
+
+    await expect(generationV1.replayRecords()).resolves.toMatchObject({
+      records: [expect.objectContaining({ id: 'v1' })],
+    });
+    await expect(generationV2.replayRecords()).resolves.toMatchObject({
+      records: [expect.objectContaining({ id: 'v2' })],
+    });
   });
 
   it('uses first-family storage policy defaults when caller omits segment and compaction budgets', async () => {
@@ -215,18 +258,6 @@ describe('MessagePackTruthSegmentStore', () => {
       diagnostics: [expect.objectContaining({ reason: 'schema-version-mismatch' })],
     });
 
-    const generationReader = createMessagePackTruthSegmentStore({
-      fileStore,
-      family: 'review-events',
-      deviceId: 'device-A',
-      generationId: 'projection-gen-2',
-      schemaVersion: 1,
-      maxSegmentBytes: 1024,
-    });
-    await expect(generationReader.replayRecords()).rejects.toMatchObject({
-      diagnostics: [expect.objectContaining({ reason: 'generation-mismatch' })],
-    });
-
     const manifestPath = append.manifest.path;
     const manifest = structuredClone(fileStore.jsonFiles.get(manifestPath)) as Record<string, unknown>;
     manifest.deviceId = 'device-B';
@@ -273,8 +304,8 @@ describe('MessagePackTruthSegmentStore', () => {
       ['device-A', 1],
     ]);
     const jsonPaths = Array.from(fileStore.jsonFiles.keys()).sort();
-    expect(jsonPaths).toContain('truth/review-events/device-device-A/manifest.v1.json');
-    expect(jsonPaths).toContain('truth/review-events/device-device-B/manifest.v1.json');
+    expect(jsonPaths).toContain('truth/review-events/projection-gen-1/device-device-A/manifest.v1.json');
+    expect(jsonPaths).toContain('truth/review-events/projection-gen-1/device-device-B/manifest.v1.json');
     expect(jsonPaths.some((path) => path.includes('global'))).toBe(false);
   });
 
@@ -461,13 +492,30 @@ describe('MessagePackTruthSegmentStore', () => {
         path: segmentPath,
       }),
     ]);
+
+    const wrongGenerationReplay = await replayMessagePackTruthRemoteSegments({
+      fileStore,
+      manifests: [append.manifest],
+      family: 'review-events',
+      generationId: 'projection-gen-2',
+      schemaVersion: 1,
+      dedupeByIdempotencyKey: true,
+    });
+
+    expect(wrongGenerationReplay.acceptedRecords).toEqual([]);
+    expect(wrongGenerationReplay.validationDiagnostics).toEqual([
+      expect.objectContaining({
+        reason: 'generation-mismatch',
+        path: append.manifest.path,
+      }),
+    ]);
   });
 });
 
 describe('MessagePackTruthValidationError', () => {
   it('carries validation diagnostics for callers', () => {
     const error = new MessagePackTruthValidationError([
-      { reason: 'checksum-mismatch', path: 'truth/review-events/device-device-A/seg-000001-test.msgpack' },
+      { reason: 'checksum-mismatch', path: 'truth/review-events/projection-gen-1/device-device-A/seg-000001-test.msgpack' },
     ]);
 
     expect(error.message).toContain('checksum-mismatch');

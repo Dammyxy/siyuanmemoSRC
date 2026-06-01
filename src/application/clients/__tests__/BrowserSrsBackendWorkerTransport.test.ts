@@ -827,7 +827,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     const readTruthJSON = vi.fn(async () => ({ version: 1 }));
     const writeTruthBinary = vi.fn(async () => undefined);
     const listTruthFiles = vi.fn(async () => [
-      'truth/review-events/device-device-A/seg-000001-test.msgpack',
+      'truth/review-events/review-events-v1/device-device-A/seg-000001-test.msgpack',
     ]);
     const transport = new BrowserSrsBackendWorkerTransport({
       workerFactory: () => worker as unknown as Worker,
@@ -840,7 +840,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       effectId: 'effect-truth-json',
       effect: {
         kind: 'truth.readJSON',
-        path: 'truth/review-events/device-device-A/manifest.v1.json',
+        path: 'truth/review-events/review-events-v1/device-device-A/manifest.v1.json',
       },
     });
     worker.emit({
@@ -848,7 +848,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       effectId: 'effect-truth-binary',
       effect: {
         kind: 'truth.writeBinary',
-        path: 'truth/review-events/device-device-A/seg-000001-test.msgpack',
+        path: 'truth/review-events/review-events-v1/device-device-A/seg-000001-test.msgpack',
         bytes: new Uint8Array([1, 2, 3]),
       },
     });
@@ -857,17 +857,17 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       effectId: 'effect-truth-list',
       effect: {
         kind: 'truth.listFiles',
-        prefix: 'truth/review-events/device-device-A',
+        prefix: 'truth/review-events/review-events-v1/device-device-A',
       },
     });
 
     await vi.waitFor(() => expect(worker.posted).toHaveLength(3));
-    expect(readTruthJSON).toHaveBeenCalledWith('truth/review-events/device-device-A/manifest.v1.json');
+    expect(readTruthJSON).toHaveBeenCalledWith('truth/review-events/review-events-v1/device-device-A/manifest.v1.json');
     expect(writeTruthBinary).toHaveBeenCalledWith(
-      'truth/review-events/device-device-A/seg-000001-test.msgpack',
+      'truth/review-events/review-events-v1/device-device-A/seg-000001-test.msgpack',
       new Uint8Array([1, 2, 3]),
     );
-    expect(listTruthFiles).toHaveBeenCalledWith('truth/review-events/device-device-A');
+    expect(listTruthFiles).toHaveBeenCalledWith('truth/review-events/review-events-v1/device-device-A');
     expect(worker.posted).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: 'host-effect-result',
@@ -884,7 +884,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         kind: 'host-effect-result',
         effectId: 'effect-truth-list',
         ok: true,
-        result: ['truth/review-events/device-device-A/seg-000001-test.msgpack'],
+        result: ['truth/review-events/review-events-v1/device-device-A/seg-000001-test.msgpack'],
       }),
     ]));
     expect(worker.posted).not.toEqual(expect.arrayContaining([
@@ -918,7 +918,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       effectId: 'effect-review-truth-segment',
       effect: {
         kind: 'truth.writeBinary',
-        path: 'truth/review-events/device-device-A/seg-000001-startup.msgpack',
+        path: 'truth/review-events/review-events-v1/device-device-A/seg-000001-startup.msgpack',
         bytes: new Uint8Array([1, 2, 3]),
       },
     });
@@ -927,17 +927,17 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       effectId: 'effect-review-truth-manifest',
       effect: {
         kind: 'truth.writeJSON',
-        path: 'truth/review-events/device-device-A/manifest.v1.json',
+        path: 'truth/review-events/review-events-v1/device-device-A/manifest.v1.json',
         value: { version: 1, segments: [] },
       },
     });
     await vi.waitFor(() => expect(worker.posted).toHaveLength(3));
     expect(writeTruthBinary).toHaveBeenCalledWith(
-      'truth/review-events/device-device-A/seg-000001-startup.msgpack',
+      'truth/review-events/review-events-v1/device-device-A/seg-000001-startup.msgpack',
       new Uint8Array([1, 2, 3]),
     );
     expect(writeTruthJSON).toHaveBeenCalledWith(
-      'truth/review-events/device-device-A/manifest.v1.json',
+      'truth/review-events/review-events-v1/device-device-A/manifest.v1.json',
       { version: 1, segments: [] },
     );
 
@@ -949,7 +949,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         id: 81,
         result: {
           ok: true,
-          segmentPaths: ['truth/review-events/device-device-A/seg-000001-startup.msgpack'],
+          segmentPaths: ['truth/review-events/review-events-v1/device-device-A/seg-000001-startup.msgpack'],
         },
       },
     });
@@ -985,7 +985,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       effectId: 'effect-truth-review-flush',
       effect: {
         kind: 'truth.writeBinary',
-        path: 'truth/review-events/device-device-A/seg-000001-test.msgpack',
+        path: 'truth/review-events/review-events-v1/device-device-A/seg-000001-test.msgpack',
         bytes: new Uint8Array([7]),
       },
     });
@@ -1023,14 +1023,14 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       {
         kind: 'truth.writeJSON' as const,
         effectId: 'effect-truth-json',
-        path: 'truth/review-events/device-device-A/manifest.v1.json',
+        path: 'truth/review-events/review-events-v1/device-device-A/manifest.v1.json',
         value: { version: 1 },
         expectedMessage: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect truth.writeJSON',
       },
       {
         kind: 'truth.writeBinary' as const,
         effectId: 'effect-truth-binary',
-        path: 'truth/review-events/device-device-A/seg-000001-test.msgpack',
+        path: 'truth/review-events/review-events-v1/device-device-A/seg-000001-test.msgpack',
         bytes: new Uint8Array([4, 5, 6]),
         expectedMessage: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect truth.writeBinary',
       },

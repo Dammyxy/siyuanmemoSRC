@@ -129,7 +129,7 @@ describe('ReviewSqlTruthBackfillRuntime', () => {
       syncVisible: true,
       error: null,
     });
-    expect(result.segmentPaths[0]).toMatch(/^truth\/review-events\/device-device-A\/seg-\d{6}-[a-z0-9-]+\.msgpack$/);
+    expect(result.segmentPaths[0]).toMatch(/^truth\/review-events\/projection-gen-1\/device-device-A\/seg-\d{6}-[a-z0-9-]+\.msgpack$/);
     expect(scheduledProjectionRefreshes).toEqual([result.segmentPaths]);
     expect(patches).toHaveLength(1);
     expect(patches[0]).toMatchObject({
