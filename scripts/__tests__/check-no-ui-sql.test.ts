@@ -114,4 +114,31 @@ describe('check-no-ui-sql', () => {
       expect.stringContaining('src/application/services/legacy.ts'),
     ]));
   });
+
+  it('fails renderer Review SQL mutation paths unless explicitly allowlisted', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/application/services/ReviewLogService.ts', `
+      export async function write(sqlRepository, log) {
+        sqlRepository.addReviewLogV2(log);
+      }
+    `);
+
+    expect(evaluate({ rootDir, allowEntries: [] })).toEqual(expect.arrayContaining([
+      expect.stringContaining('review-sql-mutation'),
+    ]));
+    expect(evaluate({
+      rootDir,
+      allowEntries: [{
+        id: 'review-log-service-sql-mutation-legacy-debt',
+        checker: 'check-no-ui-sql',
+        file: 'src/application/services/ReviewLogService.ts',
+        kind: 'review-sql-mutation',
+        symbolPattern: 'sqlRepository.addReviewLog*/addDrillLogV2/addRescheduleLog',
+        owner: 'review-truth-cutover',
+        reason: 'known old writer',
+        removalCondition: 'remove later',
+        trackingTask: 'repair-msgpack-truth-runtime-cutover:2.4',
+      }],
+    })).toEqual([]);
+  });
 });

@@ -50,6 +50,7 @@ export interface BackendWorkerHostEffectTiming {
   durationMs: number;
   path?: string | null;
   byteLength?: number | null;
+  storageClass?: string | null;
 }
 
 export interface BackendWorkerInnerStepTiming {

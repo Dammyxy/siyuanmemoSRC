@@ -71,6 +71,20 @@ function createReviewFeedbackRequest(id = 1): BackendRpcRequest {
   };
 }
 
+function createReviewTruthFlushRequest(id = 1): BackendRpcRequest {
+  return {
+    jsonrpc: BACKEND_RPC_VERSION,
+    id,
+    method: 'review.truth.flush',
+    params: [{
+      deviceId: 'device-A',
+      generationId: 'review-events-v1',
+      schemaVersion: 1,
+      batchLimit: 8,
+    }],
+  };
+}
+
 function createReviewFeedbackRequestForAction(
   id: number,
   action: 'rating' | 'skip' | 'custom-feedback',
@@ -466,6 +480,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
           durationMs: 240,
           path: 'siyuanmemo.db',
           byteLength: 106_233_856,
+          storageClass: 'sql-projection-db',
         },
         innerSteps: [
           {
@@ -508,6 +523,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
           hostEffectAttribution: 'complete',
           slowestHostEffectPath: 'siyuanmemo.db',
           slowestHostEffectByteLength: 106_233_856,
+          slowestHostEffectStorageClass: 'sql-projection-db',
           innerStepCount: 2,
           innerStepAttribution: 'complete',
         }),
@@ -858,6 +874,68 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         ok: false,
       }),
     ]));
+    transport.dispose();
+  });
+
+  it('allows review.truth.flush to write Review truth segment and manifest through the truth bridge', async () => {
+    const worker = new FakeWorker();
+    const writeTruthJSON = vi.fn(async () => undefined);
+    const writeTruthBinary = vi.fn(async () => undefined);
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { writeTruthJSON, writeTruthBinary },
+    });
+    const request = createReviewTruthFlushRequest(81);
+    const pending = transport.request(request);
+
+    worker.emit({ kind: 'ready' });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+    expect(worker.posted[0]).toEqual(expect.objectContaining({
+      kind: 'request',
+      request,
+    }));
+
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-review-truth-segment',
+      effect: {
+        kind: 'truth.writeBinary',
+        path: 'truth/review-events/device-device-A/seg-000001-startup.msgpack',
+        bytes: new Uint8Array([1, 2, 3]),
+      },
+    });
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-review-truth-manifest',
+      effect: {
+        kind: 'truth.writeJSON',
+        path: 'truth/review-events/device-device-A/manifest.v1.json',
+        value: { version: 1, segments: [] },
+      },
+    });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(3));
+    expect(writeTruthBinary).toHaveBeenCalledWith(
+      'truth/review-events/device-device-A/seg-000001-startup.msgpack',
+      new Uint8Array([1, 2, 3]),
+    );
+    expect(writeTruthJSON).toHaveBeenCalledWith(
+      'truth/review-events/device-device-A/manifest.v1.json',
+      { version: 1, segments: [] },
+    );
+
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response: {
+        jsonrpc: BACKEND_RPC_VERSION,
+        id: 81,
+        result: {
+          ok: true,
+          segmentPaths: ['truth/review-events/device-device-A/seg-000001-startup.msgpack'],
+        },
+      },
+    });
+    await expect(pending).resolves.toEqual(expect.objectContaining({ id: 81 }));
     transport.dispose();
   });
 

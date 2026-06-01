@@ -16,6 +16,9 @@ export type ActiveBackendWorkerTiming = {
   slowestHostEffect: {
     kind: BackendWorkerHostEffect['kind'];
     durationMs: number;
+    path?: string | null;
+    byteLength?: number | null;
+    storageClass?: string | null;
   } | null;
   innerSteps: BackendWorkerInnerStepTiming[];
   innerStepAttribution: BackendWorkerResponseTiming['innerStepAttribution'];
@@ -26,6 +29,41 @@ export type ActiveReviewFeedbackTiming = ActiveBackendWorkerTiming;
 
 let activeRequestCount = 0;
 const activeBackendWorkerTimings = new Set<ActiveBackendWorkerTiming>();
+
+export type BackendWorkerHostEffectStorageClass =
+  | 'sql-projection-db'
+  | 'sqlite-delta-log'
+  | 'messagepack-truth-segment'
+  | 'messagepack-truth-manifest'
+  | 'sqlite-storage-other'
+  | 'messagepack-truth-other'
+  | 'non-storage-host-effect';
+
+export function classifyBackendWorkerHostEffectStorage(
+  kind: BackendWorkerHostEffect['kind'],
+  path?: string | null,
+): BackendWorkerHostEffectStorageClass {
+  const normalizedPath = String(path || '').replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase();
+  if (normalizedPath === 'siyuanmemo.db') {
+    return 'sql-projection-db';
+  }
+  if (normalizedPath === 'sqlite-delta-log.v1.json') {
+    return 'sqlite-delta-log';
+  }
+  if (/^truth\/[^/]+\/device-[^/]+\/seg-[^/]+\.msgpack$/.test(normalizedPath)) {
+    return 'messagepack-truth-segment';
+  }
+  if (/^truth\/[^/]+\/device-[^/]+\/manifest\.v1\.json$/.test(normalizedPath)) {
+    return 'messagepack-truth-manifest';
+  }
+  if (kind.startsWith('sqlite.')) {
+    return 'sqlite-storage-other';
+  }
+  if (kind.startsWith('truth.')) {
+    return 'messagepack-truth-other';
+  }
+  return 'non-storage-host-effect';
+}
 
 export function beginBackendWorkerTiming(
   method: string,
@@ -194,6 +232,7 @@ export function recordReviewFeedbackHostEffect(
       durationMs,
       path: metadata.path ?? null,
       byteLength: metadata.byteLength ?? null,
+      storageClass: classifyBackendWorkerHostEffectStorage(kind, metadata.path),
     };
   }
 }

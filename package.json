@@ -36,7 +36,7 @@
     "ag-grid-vue3": "^35.0.0",
     "p-limit": "^7.2.0",
     "sql.js": "^1.14.1",
-    "ts-fsrs": "^5.2.3",
+    "ts-fsrs": "^5.4.1",
     "vue": "^3.3.8"
   },
   "devDependencies": {

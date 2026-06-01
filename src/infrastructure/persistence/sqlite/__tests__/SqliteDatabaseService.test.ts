@@ -463,4 +463,98 @@ describe('SqliteDatabaseService', () => {
     )).toEqual({ name: 'idx_review_events_formal_facts' });
     expect(database.getOne<{ count: number }>('SELECT COUNT(*) AS count FROM review_events')?.count).toBe(1);
   });
+
+  it('persists review event truth ref patches as sqlite delta for legacy review_events column order', async () => {
+    const fileService = new MemorySqliteFileService();
+    const seed = new SqliteDatabaseService(fileService);
+    await seed.init();
+    await seed.runTransaction('seed-legacy-review-events-delta', () => {
+      seed.run('DROP TABLE review_events');
+      seed.run(
+        `CREATE TABLE review_events (
+          id TEXT PRIMARY KEY,
+          card_id TEXT,
+          attempt_id TEXT,
+          rating INTEGER,
+          reviewed_at INTEGER NOT NULL,
+          year INTEGER NOT NULL,
+          month INTEGER NOT NULL,
+          event_type TEXT NOT NULL,
+          payload_json TEXT NOT NULL
+        )`,
+      );
+      seed.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ['event-legacy-delta', 'card-a', 'attempt-a', 3, 1_700_000_000_001, 2026, 5, 'review-v2', '{}'],
+      );
+    });
+    await seed.persist();
+
+    const migrated = new SqliteDatabaseService(fileService);
+    await migrated.init();
+    await migrated.persist();
+    const legacyColumns = migrated.getAll<{ name: string }>('PRAGMA table_info(review_events)').map((row) => row.name);
+    expect(legacyColumns.indexOf('commit_idempotency_key')).toBeGreaterThan(legacyColumns.indexOf('payload_json'));
+    fileService.resetWriteCounts();
+
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.runTransaction('review.truth.backfill.patch-refs', (db) => {
+      db.run(
+        `UPDATE review_events
+            SET msgpack_ref = ?,
+                truth_hash = ?,
+                truth_schema_version = ?,
+                projection_generation = ?
+          WHERE id = ?`,
+        [
+          JSON.stringify({ family: 'review-events', recordId: 'event-legacy-delta' }),
+          'truth-hash-a',
+          1,
+          1_700_000_000_100,
+          'event-legacy-delta',
+        ],
+      );
+    });
+
+    expect(fileService.writeBinaryCount).toBe(0);
+    expect(fileService.json.get('sqlite-delta-log.v1.json')).toMatchObject({
+      version: 1,
+      entries: [{
+        label: 'review.truth.backfill.patch-refs',
+        tables: ['review_events'],
+      }],
+    });
+
+    const reloaded = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await reloaded.init();
+    const row = reloaded.getOne<{
+      msgpack_ref: string | null;
+      truth_hash: string | null;
+      truth_schema_version: number | null;
+      projection_generation: number | null;
+    }>(
+      `SELECT msgpack_ref, truth_hash, truth_schema_version, projection_generation
+         FROM review_events
+        WHERE id = ?`,
+      ['event-legacy-delta'],
+    );
+    expect(JSON.parse(row?.msgpack_ref || '{}')).toMatchObject({
+      family: 'review-events',
+      recordId: 'event-legacy-delta',
+    });
+    expect(row).toMatchObject({
+      truth_hash: 'truth-hash-a',
+      truth_schema_version: 1,
+      projection_generation: 1_700_000_000_100,
+    });
+  });
 });

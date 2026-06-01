@@ -55,6 +55,8 @@ import type {
   BackendReviewFeedbackResult,
   BackendReviewFeedbackTruthFlushRequest,
   BackendReviewFeedbackTruthFlushResult,
+  BackendReviewTruthBackfillRequest,
+  BackendReviewTruthBackfillResult,
   BackendReviewRiffFeedbackExecuteRequest,
   BackendReviewRiffFeedbackExecuteResult,
   BackendReviewSourceRefreshExecuteRequest,
@@ -121,6 +123,8 @@ import { createLogger } from '@/utils/logger';
 const logger = createLogger('SrsBackendClient');
 const REVIEW_FEEDBACK_CLIENT_STEP_SLOW_MS = 120;
 const REVIEW_TRUTH_FLUSH_DEFAULT_DELAY_MS = 2_100;
+const REVIEW_TRUTH_BACKFILL_DEFAULT_BATCH_LIMIT = 64;
+const REVIEW_TRUTH_BACKFILL_MAX_STARTUP_BATCHES = 16;
 
 export interface SrsBackendTransport {
   request(request: BackendRpcRequest): Promise<BackendRpcResponse>;
@@ -145,6 +149,8 @@ export class SrsBackendClient {
   private reviewTruthFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private reviewTruthFlushInFlight = false;
   private reviewTruthFlushQueued = false;
+  private reviewTruthBackfillQueued = false;
+  private reviewTruthBackfillPendingRows = 0;
 
   constructor(
     private readonly transport: SrsBackendTransport,
@@ -167,6 +173,40 @@ export class SrsBackendClient {
 
   async diagnosticsStatus(): Promise<BackendDiagnosticsStatusResult> {
     return this.call<BackendDiagnosticsStatusResult>('diagnostics.status');
+  }
+
+  async schedulePendingReviewTruthFlush(reason = 'startup'): Promise<boolean> {
+    if (!this.reviewTruthFlushOptions) {
+      return false;
+    }
+    try {
+      const status = await this.diagnosticsStatus();
+      const journal = status.review?.journal;
+      const projectionApplied = Number(journal?.statusCounts?.['projection-applied'] ?? 0);
+      const pendingCount = Number(journal?.pendingCount ?? 0);
+      const pendingBackfillRows = Number(status.review?.truthBackfill?.pendingSqlRows ?? 0);
+      if (projectionApplied <= 0 && pendingCount <= 0 && pendingBackfillRows <= 0) {
+        this.reviewTruthBackfillPendingRows = 0;
+        return false;
+      }
+      this.reviewTruthFlushQueued = true;
+      this.reviewTruthBackfillQueued = pendingBackfillRows > 0;
+      this.reviewTruthBackfillPendingRows = pendingBackfillRows > 0 ? pendingBackfillRows : 0;
+      logger.info('[SiYuanMemo][SrsBackendClient] scheduled pending Review truth flush', {
+        reason,
+        pendingCount,
+        projectionApplied,
+        pendingBackfillRows,
+      });
+      this.armReviewTruthFlushTimer();
+      return true;
+    } catch (error) {
+      logger.warn('[SiYuanMemo][SrsBackendClient] skipped pending Review truth flush scheduling', {
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
   }
 
   async domainSyncStatus(request: BackendDomainSyncStatusRequest = {}): Promise<BackendDomainSyncStatusResult> {
@@ -289,6 +329,12 @@ export class SrsBackendClient {
     request: BackendReviewFeedbackTruthFlushRequest,
   ): Promise<BackendReviewFeedbackTruthFlushResult> {
     return this.call<BackendReviewFeedbackTruthFlushResult>('review.truth.flush', request);
+  }
+
+  async reviewTruthBackfill(
+    request: BackendReviewTruthBackfillRequest,
+  ): Promise<BackendReviewTruthBackfillResult> {
+    return this.call<BackendReviewTruthBackfillResult>('review.truth.backfill', request);
   }
 
   async mergeSyncConflicts(
@@ -590,12 +636,21 @@ export class SrsBackendClient {
     const request = this.buildReviewTruthFlushRequest();
     if (!request) {
       this.reviewTruthFlushQueued = false;
+      this.reviewTruthBackfillQueued = false;
+      this.reviewTruthBackfillPendingRows = 0;
       logger.warn('[SiYuanMemo][SrsBackendClient] skipped Review truth flush because identity is unavailable');
       return;
     }
+    const shouldBackfill = this.reviewTruthBackfillQueued;
+    const pendingBackfillRows = this.reviewTruthBackfillPendingRows;
     this.reviewTruthFlushQueued = false;
+    this.reviewTruthBackfillQueued = false;
+    this.reviewTruthBackfillPendingRows = 0;
     this.reviewTruthFlushInFlight = true;
     try {
+      if (shouldBackfill) {
+        await this.runQueuedReviewTruthBackfill(request, pendingBackfillRows);
+      }
       const result = await this.reviewTruthFlush(request);
       if (!result.ok) {
         logger.warn('[SiYuanMemo][SrsBackendClient] Review truth flush finished with pending error', {
@@ -613,6 +668,48 @@ export class SrsBackendClient {
       if (this.reviewTruthFlushQueued) {
         this.armReviewTruthFlushTimer();
       }
+    }
+  }
+
+  private async runQueuedReviewTruthBackfill(
+    request: BackendReviewFeedbackTruthFlushRequest,
+    pendingRows: number,
+  ): Promise<void> {
+    const backfillRequest = this.buildReviewTruthBackfillRequest(request);
+    const batchLimit = this.resolveReviewTruthBackfillBatchLimit(backfillRequest);
+    const plannedBatches = Math.max(1, Math.ceil(Math.max(0, Math.floor(pendingRows)) / batchLimit));
+    const maxBatches = Math.min(REVIEW_TRUTH_BACKFILL_MAX_STARTUP_BATCHES, plannedBatches);
+    for (let batchIndex = 0; batchIndex < maxBatches; batchIndex += 1) {
+      try {
+        const backfillResult = await this.reviewTruthBackfill(backfillRequest);
+        if (!backfillResult.ok) {
+          logger.warn('[SiYuanMemo][SrsBackendClient] Review truth backfill finished with pending error', {
+            error: backfillResult.error,
+            sqlRowsRead: backfillResult.sqlRowsRead,
+            recordsWritten: backfillResult.recordsWritten,
+            repairRequiredEventIds: backfillResult.repairRequiredEventIds,
+          });
+          break;
+        }
+        if (backfillResult.sqlRowsRead < batchLimit) {
+          break;
+        }
+        if (backfillResult.recordsWritten <= 0 && backfillResult.idempotencyDuplicateSkipped <= 0) {
+          break;
+        }
+      } catch (error) {
+        logger.warn('[SiYuanMemo][SrsBackendClient] Review truth backfill failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        break;
+      }
+    }
+    if (plannedBatches > maxBatches) {
+      logger.info('[SiYuanMemo][SrsBackendClient] deferred remaining Review truth backfill batches', {
+        plannedBatches,
+        maxBatches,
+        batchLimit,
+      });
     }
   }
 
@@ -637,6 +734,21 @@ export class SrsBackendClient {
       request.batchLimit = Math.max(1, Math.floor(Number(options?.batchLimit)));
     }
     return request;
+  }
+
+  private buildReviewTruthBackfillRequest(
+    request: BackendReviewFeedbackTruthFlushRequest,
+  ): BackendReviewTruthBackfillRequest {
+    return {
+      ...request,
+    };
+  }
+
+  private resolveReviewTruthBackfillBatchLimit(request: BackendReviewTruthBackfillRequest): number {
+    const configured = Number(request.batchLimit);
+    return Number.isFinite(configured)
+      ? Math.max(1, Math.floor(configured))
+      : REVIEW_TRUTH_BACKFILL_DEFAULT_BATCH_LIMIT;
   }
 
   private resolveReviewTruthFlushDelayMs(): number {

@@ -85,6 +85,10 @@ import type {
 import type {
   MessagePackTruthSegmentManifest,
 } from '../truth/MessagePackTruthSegmentStore';
+import type {
+  ReviewSqlTruthBackfillProjectionPatch,
+  ReviewSqlTruthBackfillRow,
+} from '../truth/ReviewSqlTruthBackfillRuntime';
 import type { WorkerXiuyuanSyncApplyInput } from '../xiuyuan/WorkerXiuyuanSyncPlanner';
 import type {
   SemanticEvent,
@@ -2536,6 +2540,88 @@ export class WorkerSqliteDatabaseService {
     return this.reviewFeedbackJournalStore;
   }
 
+  async countReviewEventsPendingTruthBackfill(): Promise<number> {
+    await this.init();
+    const row = this.runtime.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+         FROM review_events
+        WHERE event_type IN ('review', 'review-v2')
+          AND (msgpack_ref IS NULL OR TRIM(msgpack_ref) = '')`,
+    );
+    return Math.max(0, Math.floor(Number(row?.count || 0)));
+  }
+
+  async listReviewEventsForTruthBackfill(limit = 64): Promise<ReviewSqlTruthBackfillRow[]> {
+    await this.init();
+    const normalizedLimit = Math.max(1, Math.floor(Number(limit) || 64));
+    const rows = this.runtime.getAll<{
+      id: string | null;
+      card_id: string | null;
+      attempt_id: string | null;
+      rating: number | null;
+      reviewed_at: number | null;
+      event_type: string | null;
+      commit_idempotency_key: string | null;
+      payload_json: string | null;
+      msgpack_ref: string | null;
+      truth_hash: string | null;
+      truth_schema_version: number | null;
+      projection_generation: number | null;
+    }>(
+      `SELECT id, card_id, attempt_id, rating, reviewed_at, event_type,
+              commit_idempotency_key, payload_json, msgpack_ref, truth_hash,
+              truth_schema_version, projection_generation
+         FROM review_events
+        WHERE event_type IN ('review', 'review-v2')
+          AND (msgpack_ref IS NULL OR TRIM(msgpack_ref) = '')
+        ORDER BY reviewed_at ASC, id ASC
+        LIMIT ?`,
+      [normalizedLimit],
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      cardId: row.card_id,
+      attemptId: row.attempt_id,
+      rating: row.rating,
+      reviewedAt: row.reviewed_at,
+      eventType: row.event_type,
+      commitIdempotencyKey: row.commit_idempotency_key,
+      payloadJson: row.payload_json,
+      msgpackRef: row.msgpack_ref,
+      truthHash: row.truth_hash,
+      truthSchemaVersion: row.truth_schema_version,
+      projectionGeneration: row.projection_generation,
+    }));
+  }
+
+  async patchReviewTruthBackfillProjectionRefs(
+    patches: ReviewSqlTruthBackfillProjectionPatch[],
+  ): Promise<void> {
+    if (patches.length === 0) {
+      return;
+    }
+    await this.init();
+    await this.runtime.runTransaction('review.truth.backfill.patch-refs', () => {
+      for (const patch of patches) {
+        this.runtime.run(
+          `UPDATE review_events
+              SET msgpack_ref = ?,
+                  truth_hash = ?,
+                  truth_schema_version = ?,
+                  projection_generation = ?
+            WHERE id = ?`,
+          [
+            patch.msgpackRef,
+            patch.truthHash,
+            patch.truthSchemaVersion,
+            patch.projectionGeneration,
+            patch.eventId,
+          ],
+        );
+      }
+    });
+  }
+
   async getSqliteDeltaDiagnostics(): Promise<SqliteDeltaDiagnostics> {
     const diagnostics = await this.runtime.getSqliteDeltaDiagnostics();
     if (!diagnostics) {
@@ -4707,10 +4793,11 @@ export class WorkerSqliteDatabaseService {
     const rowsRead = familyResults.reduce((total, result) => total + result.rowsRead, 0);
     const rowsWritten = familyResults.reduce((total, result) => total + result.rowsWritten, 0);
     const sourceReadCount = request.sourceReads.length;
+    const hasRepairRequired = familyResults.some((result) => result.status === 'repair-required');
     const hasUnavailable = familyResults.some((result) => result.status === 'unavailable');
     const hasRefreshing = familyResults.some((result) => result.status === 'refreshing');
     return {
-      status: hasUnavailable ? 'unavailable' : hasRefreshing ? 'refreshing' : 'ready',
+      status: hasRepairRequired ? 'repair-required' : hasUnavailable ? 'unavailable' : hasRefreshing ? 'refreshing' : 'ready',
       at,
       rebuildId,
       cause,

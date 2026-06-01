@@ -104,6 +104,7 @@ import {
   SqlUnifiedStorageRepository,
   SqlXiuyuanReadRepository,
 } from '@/infrastructure/persistence/sqlite';
+import { SQLITE_DB_FILE } from '@/infrastructure/persistence/sqlite/schema';
 import { SettingsService } from '@/application/services/SettingsService';
 import { ReviewLogService } from '@/application/services/ReviewLogService';
 import { RiffBlacklistService } from '@/application/services/RiffBlacklistService';
@@ -1067,7 +1068,10 @@ export class ApplicationContext {
 
     try {
       await measureRuntimePerformance('startup', 'sqlite.init-and-migrate', async () => {
-        const database = new SqliteDatabaseService(fileService);
+        const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+          persistOnInit: false,
+          enableDeltaPersistence: true,
+        });
         await database.init();
         const unified = new SqlUnifiedStorageRepository(database);
         const queue = new SqlQueueStateRepository(database);
@@ -2653,9 +2657,8 @@ export class ApplicationContext {
 
       if (this.sqlPersistence) {
         try {
-          await this.sqlPersistence.database.persist('application-context.dispose');
           this.sqlPersistence.database.dispose();
-          logger.info('[ApplicationContext] ✅ SQLite database persisted and closed');
+          logger.info('[ApplicationContext] ✅ SQLite database closed without implicit checkpoint');
         } catch (error) {
           logger.error('[ApplicationContext] Error closing SQLite database:', error);
           errors.push({ service: 'sqliteDatabase', error });

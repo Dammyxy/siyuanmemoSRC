@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   beginBackendWorkerTiming,
   beginBackendWorkerRequest,
+  classifyBackendWorkerHostEffectStorage,
   endBackendWorkerRequest,
   hasActiveBackendWorkerTiming,
   recordBackendWorkerHostEffect,
@@ -113,15 +114,31 @@ describe('ReviewFeedbackTimingScope', () => {
         byteLength: 106_233_856,
       });
 
-      expect(timing.slowestHostEffect).toEqual({
+    expect(timing.slowestHostEffect).toEqual({
         kind: 'sqlite.writeBinary',
         durationMs: 250,
         path: 'siyuanmemo.db',
         byteLength: 106_233_856,
+        storageClass: 'sql-projection-db',
       });
     } finally {
       endBackendWorkerRequest(timing);
     }
+  });
+
+  it('classifies storage write host effects by active truth/projection role', () => {
+    expect(classifyBackendWorkerHostEffectStorage('sqlite.writeBinary', 'siyuanmemo.db'))
+      .toBe('sql-projection-db');
+    expect(classifyBackendWorkerHostEffectStorage('sqlite.writeJSON', 'sqlite-delta-log.v1.json'))
+      .toBe('sqlite-delta-log');
+    expect(classifyBackendWorkerHostEffectStorage(
+      'truth.writeBinary',
+      'truth/review-events/device-device-A/seg-000001-test.msgpack',
+    )).toBe('messagepack-truth-segment');
+    expect(classifyBackendWorkerHostEffectStorage(
+      'truth.writeJSON',
+      'truth/review-events/device-device-A/manifest.v1.json',
+    )).toBe('messagepack-truth-manifest');
   });
 
   it('reports active review feedback timing under overlapping worker requests', () => {

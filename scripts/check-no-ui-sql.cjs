@@ -52,6 +52,12 @@ const violationRules = [
     symbolPattern: 'QuerySiyuanAdapter/ManagerSiyuanAdapter/BrowserSiyuanAdapter import',
     pattern: /from\s+['"]@\/infrastructure\/siyuan\/(?:QuerySiyuanAdapter|ManagerSiyuanAdapter|BrowserSiyuanAdapter)['"]/,
   },
+  {
+    kind: 'review-sql-mutation',
+    scopes: ['ui', 'application'],
+    symbolPattern: 'sqlRepository.addReviewLog*/addDrillLogV2/addRescheduleLog',
+    pattern: /sqlRepository\.(?:addReviewLog|addReviewLogV2|addDrillLogV2|addRescheduleLog)\s*\(/,
+  },
 ];
 
 const requiredAllowListFields = [

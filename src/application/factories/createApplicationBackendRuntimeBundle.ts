@@ -198,6 +198,7 @@ export async function createApplicationBackendRuntimeBundle(
             schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
           },
         });
+        void srsBackendClient.schedulePendingReviewTruthFlush('startup');
       });
       logger.info('[ApplicationContext] ✅ SRS backend browser Worker transport bootstrap enabled by feature flag');
     } catch (error) {

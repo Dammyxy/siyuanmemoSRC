@@ -40,6 +40,7 @@ export type BackendRpcMethod =
   | 'autocard.execute'
   | 'review.feedback'
   | 'review.truth.flush'
+  | 'review.truth.backfill'
   | 'ai.session.create'
   | 'ai.session.get'
   | 'ai.session.update'
@@ -487,6 +488,7 @@ export interface BackendDiagnosticsStatusResult {
     feedbackUnavailableTotal: number;
     journal?: BackendReviewFeedbackJournalDiagnostics;
     truthFlush?: BackendReviewFeedbackTruthFlushDiagnostics;
+    truthBackfill?: BackendReviewTruthBackfillDiagnostics;
   };
   storage?: {
     sqliteDelta?: BackendSqliteDeltaDiagnostics;
@@ -1185,7 +1187,7 @@ export const STORAGE_SLIMMING_FAMILY_POLICIES = [
   ),
 ] as const satisfies readonly StorageSlimmingFamilyPolicy[];
 
-export type BackendStorageProjectionRebuildStatus = 'ready' | 'refreshing' | 'unavailable';
+export type BackendStorageProjectionRebuildStatus = 'ready' | 'refreshing' | 'unavailable' | 'repair-required';
 
 export type BackendStorageProjectionRebuildCause =
   | 'sql-missing'
@@ -1401,6 +1403,44 @@ export interface BackendReviewFeedbackTruthFlushDiagnostics {
   family: 'review-events';
   storage: 'truth-segments' | 'unavailable';
   last: BackendReviewFeedbackTruthFlushResult | null;
+}
+
+export interface BackendReviewTruthBackfillRequest {
+  deviceId: string;
+  generationId: string;
+  schemaVersion?: number;
+  maxSegmentBytes?: number;
+  batchLimit?: number;
+  sourceId?: string | null;
+}
+
+export interface BackendReviewTruthBackfillResult {
+  ok: boolean;
+  at: number;
+  source: 'review_events';
+  sqlRowsRead: number;
+  recordsWritten: number;
+  segmentWritten: boolean;
+  manifestUpdated: boolean;
+  projectionRefreshScheduled: boolean;
+  idempotencyDuplicateSkipped: number;
+  backfilledEventIds: string[];
+  duplicateEventIds: string[];
+  repairRequiredEventIds: string[];
+  segmentPaths: string[];
+  syncVisible: boolean;
+  error: string | null;
+}
+
+export interface BackendReviewTruthBackfillDiagnostics {
+  family: 'review-events';
+  source: 'review_events';
+  storage: 'truth-segments' | 'unavailable';
+  pendingSqlRows: number | null;
+  pendingSqlRowsCheckedAt: number | null;
+  syncVisible: boolean;
+  last: BackendReviewTruthBackfillResult | null;
+  lastError: string | null;
 }
 
 export type BackendUnavailableClass =

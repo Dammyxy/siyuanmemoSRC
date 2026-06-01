@@ -30,6 +30,7 @@ export interface SqliteDeltaTableMetadata {
   primaryKeys: string[];
   columns: SqliteDeltaTableColumn[];
   schemaFingerprint: string;
+  acceptedSchemaFingerprints: string[];
   replayMode: SqliteDeltaReplayMode;
 }
 
@@ -105,6 +106,7 @@ export interface SqliteDeltaCaptureResult {
   setupError: string | null;
   touchedTables: string[];
   schemaMismatchedTables: string[];
+  schemaFingerprints: Record<string, string>;
   changes: SqliteDeltaChange[];
 }
 
@@ -201,17 +203,60 @@ function tableMetadata(
   tableName: string,
   primaryKeys: string[],
   columns: SqliteDeltaTableColumn[],
+  acceptedColumnVariants: SqliteDeltaTableColumn[][] = [],
 ): SqliteDeltaTableMetadata {
+  const schemaFingerprint = fingerprintColumns(columns);
   return {
     tableName,
     primaryKeys,
     columns,
-    schemaFingerprint: fingerprintColumns(columns),
+    schemaFingerprint,
+    acceptedSchemaFingerprints: uniqueStrings([
+      schemaFingerprint,
+      ...acceptedColumnVariants.map((variant) => fingerprintColumns(variant)),
+    ]),
     replayMode: 'primary-key-upsert-delete',
   };
 }
 
+const REVIEW_EVENTS_COLUMNS: SqliteDeltaTableColumn[] = [
+  toColumn('id', 'TEXT', false, 1),
+  toColumn('card_id', 'TEXT', false),
+  toColumn('attempt_id', 'TEXT', false),
+  toColumn('rating', 'INTEGER', false),
+  toColumn('reviewed_at', 'INTEGER', true),
+  toColumn('commit_idempotency_key', 'TEXT', false),
+  toColumn('year', 'INTEGER', true),
+  toColumn('month', 'INTEGER', true),
+  toColumn('event_type', 'TEXT', true),
+  toColumn('payload_json', 'TEXT', true),
+  toColumn('msgpack_ref', 'TEXT', false),
+  toColumn('truth_hash', 'TEXT', false),
+  toColumn('truth_schema_version', 'INTEGER', false),
+  toColumn('projection_generation', 'INTEGER', false),
+];
+
+const REVIEW_EVENTS_LEGACY_COMMIT_COLUMN_ORDER: SqliteDeltaTableColumn[] = [
+  toColumn('id', 'TEXT', false, 1),
+  toColumn('card_id', 'TEXT', false),
+  toColumn('attempt_id', 'TEXT', false),
+  toColumn('rating', 'INTEGER', false),
+  toColumn('reviewed_at', 'INTEGER', true),
+  toColumn('year', 'INTEGER', true),
+  toColumn('month', 'INTEGER', true),
+  toColumn('event_type', 'TEXT', true),
+  toColumn('payload_json', 'TEXT', true),
+  toColumn('commit_idempotency_key', 'TEXT', false),
+  toColumn('msgpack_ref', 'TEXT', false),
+  toColumn('truth_hash', 'TEXT', false),
+  toColumn('truth_schema_version', 'INTEGER', false),
+  toColumn('projection_generation', 'INTEGER', false),
+];
+
 export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
+  tableMetadata('review_events', ['id'], REVIEW_EVENTS_COLUMNS, [
+    REVIEW_EVENTS_LEGACY_COMMIT_COLUMN_ORDER,
+  ]),
   tableMetadata('queue_projection_generations', ['queue_type'], [
     toColumn('queue_type', 'TEXT', false, 1),
     toColumn('policy_hash', 'TEXT', true),
@@ -417,7 +462,7 @@ function labelLooksHotPath(label: string): boolean {
 }
 
 function projectionGenerationFromChange(change: SqliteDeltaChange): number | null {
-  const raw = change.row?.generation ?? change.row?.source_generation ?? null;
+  const raw = change.row?.generation ?? change.row?.source_generation ?? change.row?.projection_generation ?? null;
   const generation = Number(raw);
   return Number.isFinite(generation) ? Math.floor(generation) : null;
 }
@@ -463,10 +508,15 @@ export class SqliteDeltaCheckpointLayer {
     private readonly fileName = SQLITE_DELTA_LOG_FILE,
   ) {}
 
+  private acceptsSchemaFingerprint(metadata: SqliteDeltaTableMetadata, fingerprint: string | null | undefined): boolean {
+    return Boolean(fingerprint && metadata.acceptedSchemaFingerprints.includes(fingerprint));
+  }
+
   beginTransaction(db: Database, label: string): SqliteDeltaTransactionCapture {
     const touchedTables = new Set<string>();
     const triggerNames: string[] = [];
     const schemaMismatchedTables: string[] = [];
+    const schemaFingerprints: Record<string, string> = {};
     let setupError: string | null = null;
 
     try {
@@ -491,7 +541,10 @@ export class SqliteDeltaCheckpointLayer {
       db.run(`DELETE FROM ${AUDIT_TABLE}`);
       for (const table of SQLITE_DELTA_TABLE_REGISTRY) {
         const actualFingerprint = getActualSchemaFingerprint(db, table.tableName);
-        if (actualFingerprint !== table.schemaFingerprint) {
+        if (actualFingerprint) {
+          schemaFingerprints[table.tableName] = actualFingerprint;
+        }
+        if (!this.acceptsSchemaFingerprint(table, actualFingerprint)) {
           schemaMismatchedTables.push(table.tableName);
           continue;
         }
@@ -538,6 +591,7 @@ export class SqliteDeltaCheckpointLayer {
           setupError,
           touchedTables: uniqueStrings(touchedTables),
           schemaMismatchedTables: uniqueStrings(schemaMismatchedTables),
+          schemaFingerprints,
           changes,
         };
       },
@@ -584,7 +638,7 @@ export class SqliteDeltaCheckpointLayer {
     }
 
     const capture = input.capture!;
-    const entry = this.buildEntry(input.label, capture.changes);
+    const entry = this.buildEntry(input.label, capture);
     const nextSnapshot: SqliteDeltaLogSnapshot = {
       version: SQLITE_DELTA_LOG_VERSION,
       entries: [...snapshot.entries, entry],
@@ -815,7 +869,8 @@ export class SqliteDeltaCheckpointLayer {
     return null;
   }
 
-  private buildEntry(label: string, changes: SqliteDeltaChange[]): SqliteDeltaEntry {
+  private buildEntry(label: string, capture: SqliteDeltaCaptureResult): SqliteDeltaEntry {
+    const changes = capture.changes;
     const tables = uniqueStrings(changes.map((change) => change.table));
     const entry: Omit<SqliteDeltaEntry, 'byteEstimate'> = {
       id: `sqlite-delta:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`,
@@ -824,7 +879,7 @@ export class SqliteDeltaCheckpointLayer {
       createdAt: Date.now(),
       schemaFingerprints: Object.fromEntries(tables.map((tableName) => [
         tableName,
-        this.tableByName.get(tableName)?.schemaFingerprint ?? '',
+        capture.schemaFingerprints[tableName] || this.tableByName.get(tableName)?.schemaFingerprint || '',
       ])),
       tables,
       changes,
@@ -843,7 +898,7 @@ export class SqliteDeltaCheckpointLayer {
       }
       const actual = getActualSchemaFingerprint(db, tableName);
       const expected = entry.schemaFingerprints[tableName] || metadata.schemaFingerprint;
-      if (actual !== expected || expected !== metadata.schemaFingerprint) {
+      if (!this.acceptsSchemaFingerprint(metadata, actual) || !this.acceptsSchemaFingerprint(metadata, expected)) {
         throw new Error(`SQLite delta replay schema mismatch: ${tableName}`);
       }
     }

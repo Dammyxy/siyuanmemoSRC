@@ -3,15 +3,14 @@
  * 
  * @module ReviewLogService
  * @description
- * 管理复习和重新调度日志，提供日志的添加、查询功能。
- * 按年月分片存储日志，支持追加写入。
+ * 管理复习和重新调度日志的兼容读取。
+ * 写入已迁移到 backend Review truth / writer-owned command path。
  * 
  * **职责**：
- * - 记录复习日志
- * - 记录重新调度日志
+ * - 拒绝 renderer 侧复习/调度日志写入
  * - 按年月查询日志
  * - 查询所有历史日志
- * - 按月分片存储日志文件
+ * - 兼容读取按月分片日志文件
  * 
  * **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5**
  */
@@ -88,6 +87,8 @@ export interface IReviewLogService {
  * 复习日志服务实现
  */
 export class ReviewLogService implements IReviewLogService {
+  private static readonly WRITE_UNAVAILABLE_PREFIX = 'BACKEND_UNAVAILABLE: ReviewLogService renderer writes are retired';
+
   constructor(
     private readonly fileService: IFileService,
     private readonly sqlRepository?: SqlReviewLogRepository | null,
@@ -97,68 +98,28 @@ export class ReviewLogService implements IReviewLogService {
    * 添加复习日志
    */
   async addReviewLog(log: ReviewLog): Promise<void> {
-    const date = new Date(log.review);
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1; // 0-11 -> 1-12
-    
-    if (this.sqlRepository) {
-      this.sqlRepository.addReviewLog(log);
-      await this.sqlRepository.persist();
-      return;
-    }
-
-    await this.appendLog(year, month, 'review', log);
+    this.failWrite('addReviewLog', log.cardId);
   }
 
   /**
    * 添加 SRS v2 复习日志
    */
   async addReviewLogV2(log: ReviewLogV2): Promise<void> {
-    const date = new Date(log.reviewedAt);
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
-
-    if (this.sqlRepository) {
-      this.sqlRepository.addReviewLogV2(log);
-      await this.sqlRepository.persist();
-      return;
-    }
-
-    await this.appendLog(year, month, 'review-v2', log);
+    this.failWrite('addReviewLogV2', log.cardId);
   }
 
   /**
    * 添加 SRS v2 drill-only 练习日志
    */
   async addDrillLogV2(log: DrillLogV2): Promise<void> {
-    const date = new Date(log.reviewedAt);
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
-
-    if (this.sqlRepository) {
-      this.sqlRepository.addDrillLogV2(log);
-      await this.sqlRepository.persist();
-      return;
-    }
-
-    await this.appendLog(year, month, 'drill-v2', log);
+    this.failWrite('addDrillLogV2', log.cardId);
   }
 
   /**
    * 添加重新调度日志
    */
   async addRescheduleLog(log: RescheduleLog): Promise<void> {
-    const date = new Date(log.ts);
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1; // 0-11 -> 1-12
-    
-    if (this.sqlRepository) {
-      this.sqlRepository.addRescheduleLog(log);
-      await this.sqlRepository.persist();
-      return;
-    }
-
-    await this.appendLog(year, month, 'reschedule', log);
+    this.failWrite('addRescheduleLog', log.targets?.[0] ?? null);
   }
 
   /**
@@ -233,56 +194,11 @@ export class ReviewLogService implements IReviewLogService {
     return this.getReviewLogs(year, month);
   }
 
-  /**
-   * 追加日志到月度文件
-   */
-  private async appendLog(
-    year: number,
-    month: number,
-    type: 'review' | 'review-v2' | 'drill-v2' | 'reschedule',
-    log: ReviewLog | ReviewLogV2 | DrillLogV2 | RescheduleLog
-  ): Promise<void> {
-    const fileName = this.getLogFileName(year, month);
-    
-    // 读取现有日志
-    let data = await this.fileService.readJSON<MonthlyReviewLogs>(fileName);
-    
-    // 如果文件不存在，创建新结构
-    if (!data) {
-      data = {
-        reviewLogs: [],
-        reviewLogsV2: [],
-        drillLogsV2: [],
-        rescheduleLogs: []
-      };
-    }
-
-    if (!Array.isArray(data.reviewLogs)) {
-      data.reviewLogs = [];
-    }
-    if (!Array.isArray(data.reviewLogsV2)) {
-      data.reviewLogsV2 = [];
-    }
-    if (!Array.isArray(data.drillLogsV2)) {
-      data.drillLogsV2 = [];
-    }
-    if (!Array.isArray(data.rescheduleLogs)) {
-      data.rescheduleLogs = [];
-    }
-    
-    // 追加新日志
-    if (type === 'review') {
-      data.reviewLogs.push(log as ReviewLog);
-    } else if (type === 'review-v2') {
-      data.reviewLogsV2.push(log as ReviewLogV2);
-    } else if (type === 'drill-v2') {
-      data.drillLogsV2.push(log as DrillLogV2);
-    } else {
-      data.rescheduleLogs.push(log as RescheduleLog);
-    }
-    
-    // 写回文件
-    await this.fileService.writeJSON(fileName, data);
+  private failWrite(method: string, cardId: string | null | undefined): never {
+    const suffix = cardId ? ` cardId=${cardId}` : '';
+    throw new Error(
+      `${ReviewLogService.WRITE_UNAVAILABLE_PREFIX}; ${method} must use backend review.feedback or writer-owned Review truth commands${suffix}`
+    );
   }
 
   /**

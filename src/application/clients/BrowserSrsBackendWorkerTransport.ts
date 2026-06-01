@@ -857,6 +857,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         slowestHostEffectMs: timing.slowestHostEffect?.durationMs ?? null,
         slowestHostEffectPath: timing.slowestHostEffect?.path ?? null,
         slowestHostEffectByteLength: timing.slowestHostEffect?.byteLength ?? null,
+        slowestHostEffectStorageClass: timing.slowestHostEffect?.storageClass ?? null,
         dominantInnerStep: innerStepSummary.dominantInnerStepSummary,
         preRequestMerge: innerStepSummary.preRequestMergeSummary,
         mainDbRead: innerStepSummary.mainDbReadSummary,
@@ -879,6 +880,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           slowestHostEffectMs: timing.slowestHostEffect?.durationMs ?? null,
           slowestHostEffectPath: timing.slowestHostEffect?.path ?? null,
           slowestHostEffectByteLength: timing.slowestHostEffect?.byteLength ?? null,
+          slowestHostEffectStorageClass: timing.slowestHostEffect?.storageClass ?? null,
         },
         {
           endedAt: timing.handledAt,

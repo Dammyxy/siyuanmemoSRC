@@ -62,6 +62,9 @@ import {
   type BackendReviewFeedbackTruthFlushDiagnostics,
   type BackendReviewFeedbackTruthFlushRequest,
   type BackendReviewFeedbackTruthFlushResult,
+  type BackendReviewTruthBackfillDiagnostics,
+  type BackendReviewTruthBackfillRequest,
+  type BackendReviewTruthBackfillResult,
   type BackendReviewRiffFeedbackExecuteRequest,
   type BackendReviewRiffFeedbackExecuteResult,
   type BackendReviewSourceRefreshExecuteRequest,
@@ -135,6 +138,7 @@ import {
   type MessagePackTruthSegmentManifest,
 } from '../truth/MessagePackTruthSegmentStore';
 import { ReviewFeedbackTruthFlushRuntime } from '../truth/ReviewFeedbackTruthFlushRuntime';
+import { ReviewSqlTruthBackfillRuntime } from '../truth/ReviewSqlTruthBackfillRuntime';
 import { BackendHotspotCommandRuntime } from './BackendHotspotCommandRuntime';
 import { BackendJobRuntime } from './BackendJobRuntime';
 import { WorkerBrowserAggregateReadService } from './WorkerBrowserAggregateReadService';
@@ -304,8 +308,9 @@ function buildProjectionRebuildUnavailableResult(input: {
   const rebuildId = String(input.request.rebuildId || '').trim() || `projection-rebuild:${at}`;
   const cause = String(input.request.cause || '').trim() || 'manual';
   const families = Array.isArray(input.request.families) ? input.request.families : [];
+  const status = input.reason === 'validation-failed' ? 'repair-required' : 'unavailable';
   return {
-    status: 'unavailable',
+    status,
     at,
     rebuildId,
     cause,
@@ -316,7 +321,7 @@ function buildProjectionRebuildUnavailableResult(input: {
     missingSourceIds: input.missingSourceIds ?? [],
     families: families.map((family) => ({
       family,
-      status: 'unavailable',
+      status,
       unavailableReason: input.reason,
       projectionGeneration: 0,
       rowsRead: Math.max(0, Math.floor(Number(input.rowsRead || 0))),
@@ -356,6 +361,7 @@ const STORAGE_REFRESH_EXEMPT_METHODS = new Set<string>([
   'sync.conflict.summarize',
   'sync.conflict.reload',
   'review.truth.flush',
+  'review.truth.backfill',
   'storage.projection.rebuild',
   'kernel.transaction.dequeue',
 ]);
@@ -367,6 +373,7 @@ const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_PRESERVE_METHODS = new Set<string>([
   'sync.reviewDivergence.audit',
   'sync.conflict.summarize',
   'review.truth.flush',
+  'review.truth.backfill',
   'kernel.transaction.dequeue',
 ]);
 
@@ -420,6 +427,7 @@ export class BackendKernel {
   private readonly graphQueryService: WorkerGraphQueryService;
   private readonly neuralRoamRuntime: WorkerNeuralRoamAdvanceService;
   private lastReviewFeedbackTruthFlush: BackendReviewFeedbackTruthFlushResult | null = null;
+  private lastReviewTruthBackfill: BackendReviewTruthBackfillResult | null = null;
 
   constructor(private readonly deps: BackendKernelDependencies) {
     this.aiRuntime = new BackendJobRuntime({
@@ -635,6 +643,8 @@ export class BackendKernel {
           }
         case 'review.truth.flush':
           return buildSuccess(request.id, await this.handleReviewTruthFlush(request.params));
+        case 'review.truth.backfill':
+          return buildSuccess(request.id, await this.handleReviewTruthBackfill(request.params));
         case 'ai.session.create':
           return buildSuccess(request.id, this.handleAiSessionCreate(request.params));
         case 'ai.session.get':
@@ -783,6 +793,7 @@ export class BackendKernel {
         ...status.review,
         journal: reviewJournal,
         truthFlush: this.getReviewFeedbackTruthFlushDiagnostics(),
+        truthBackfill: await this.getReviewTruthBackfillDiagnostics(),
       },
       storage: {
         sqliteDelta,
@@ -799,6 +810,28 @@ export class BackendKernel {
       family: 'review-events',
       storage: this.deps.truthFileStore ? 'truth-segments' : 'unavailable',
       last: this.lastReviewFeedbackTruthFlush ? structuredClone(this.lastReviewFeedbackTruthFlush) : null,
+    };
+  }
+
+  private async getReviewTruthBackfillDiagnostics(): Promise<BackendReviewTruthBackfillDiagnostics> {
+    let pendingSqlRows: number | null = null;
+    let pendingSqlRowsCheckedAt: number | null = null;
+    let lastError: string | null = this.lastReviewTruthBackfill?.error ?? null;
+    try {
+      pendingSqlRows = await this.deps.database.countReviewEventsPendingTruthBackfill();
+      pendingSqlRowsCheckedAt = Date.now();
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    return {
+      family: 'review-events',
+      source: 'review_events',
+      storage: this.deps.truthFileStore ? 'truth-segments' : 'unavailable',
+      pendingSqlRows,
+      pendingSqlRowsCheckedAt,
+      syncVisible: this.lastReviewTruthBackfill?.syncVisible === true,
+      last: this.lastReviewTruthBackfill ? structuredClone(this.lastReviewTruthBackfill) : null,
+      lastError,
     };
   }
 
@@ -1090,6 +1123,44 @@ export class BackendKernel {
     });
     const result = await runtime.flushProjectionApplied();
     this.lastReviewFeedbackTruthFlush = result;
+    return result;
+  }
+
+  private async handleReviewTruthBackfill(params: unknown): Promise<BackendReviewTruthBackfillResult> {
+    const named = this.readNamedParams<BackendReviewTruthBackfillRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: review.truth.backfill requires named params');
+    }
+    if (!this.deps.truthFileStore) {
+      throw new Error('BACKEND_UNAVAILABLE: review.truth.backfill requires truth segment file store');
+    }
+    const deviceId = String(named.deviceId || '').trim();
+    const generationId = String(named.generationId || '').trim();
+    if (!deviceId || !generationId) {
+      throw new Error('INVALID_REQUEST: review.truth.backfill requires deviceId and generationId');
+    }
+    const schemaVersion = Math.max(1, Math.floor(Number(named.schemaVersion) || MESSAGEPACK_TRUTH_SCHEMA_VERSION));
+    const truthStore = createMessagePackTruthSegmentStore({
+      fileStore: this.deps.truthFileStore,
+      family: 'review-events',
+      deviceId,
+      generationId,
+      schemaVersion,
+      maxSegmentBytes: Math.max(256, Math.floor(Number(named.maxSegmentBytes) || 1024 * 1024)),
+    });
+    const runtime = new ReviewSqlTruthBackfillRuntime({
+      truthStore,
+      deviceId,
+      generationId,
+      schemaVersion,
+      limit: named.batchLimit,
+      sourceId: named.sourceId,
+      listRows: (limit) => this.deps.database.listReviewEventsForTruthBackfill(limit),
+      patchRows: (patches) => this.deps.database.patchReviewTruthBackfillProjectionRefs(patches),
+      scheduleProjectionRefresh: async () => undefined,
+    });
+    const result = await runtime.backfill();
+    this.lastReviewTruthBackfill = result;
     return result;
   }
 

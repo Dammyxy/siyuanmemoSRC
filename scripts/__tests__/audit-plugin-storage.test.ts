@@ -40,6 +40,10 @@ describe('audit-plugin-storage', () => {
       classification: 'expected-active',
       kind: 'messagepack-truth-manifest',
     });
+    expect(classifyStoragePath('sqlite-delta-log.v1.json')).toMatchObject({
+      classification: 'expected-active',
+      kind: 'sqlite-delta-log',
+    });
     expect(classifyStoragePath('migration-backups/algorithm-card-state-repair-1701000000005.json')).toMatchObject({
       classification: 'cleanup-candidate',
       kind: 'algorithm-state-repair-backup',
@@ -86,20 +90,44 @@ describe('audit-plugin-storage', () => {
     const rootDir = createFixtureRoot();
     writeFixture(rootDir, 'siyuanmemo.db', 10);
     writeFixture(rootDir, 'truth/review-events/device-device-A/seg-000001-test.msgpack', 8);
+    writeFixture(rootDir, 'truth/review-events/device-device-A/manifest.v1.json', 3);
     writeFixture(rootDir, 'migration-backups/algorithm-card-state-repair-1701000000005.json', 20);
     writeFixture(rootDir, 'ai-workbench/sessions/records/session-1.json', 5);
 
     const result = evaluate({ rootDir, topLimit: 2 });
 
-    expect(result.total).toMatchObject({ files: 4, bytes: 43 });
+    expect(result.total).toMatchObject({ files: 5, bytes: 46 });
     expect(result.byClassification).toMatchObject({
       'cleanup-candidate': { files: 1, bytes: 20 },
-      'expected-active': { files: 2, bytes: 18 },
+      'expected-active': { files: 3, bytes: 21 },
       'storage-slimming-followup': { files: 1, bytes: 5 },
+    });
+    expect(result.byKind).toMatchObject({
+      'messagepack-truth-manifest': { files: 1, bytes: 3 },
+      'messagepack-truth-segment': { files: 1, bytes: 8 },
+      'sql-projection-db': { files: 1, bytes: 10 },
     });
     expect(result.topFiles.map((file: { relativePath: string }) => file.relativePath)).toEqual([
       'migration-backups/algorithm-card-state-repair-1701000000005.json',
       'siyuanmemo.db',
     ]);
+  });
+
+  it('reports an active SQL projection without truth files as not yet sync-visible truth', () => {
+    const rootDir = createFixtureRoot();
+    writeFixture(rootDir, 'siyuanmemo.db', 10);
+    writeFixture(rootDir, 'sqlite-delta-log.v1.json', 4);
+
+    const result = evaluate({ rootDir });
+
+    expect(result.byClassification).toMatchObject({
+      'expected-active': { files: 2, bytes: 14 },
+    });
+    expect(result.byKind).toMatchObject({
+      'sql-projection-db': { files: 1, bytes: 10 },
+      'sqlite-delta-log': { files: 1, bytes: 4 },
+    });
+    expect(result.byKind).not.toHaveProperty('messagepack-truth-segment');
+    expect(result.byKind).not.toHaveProperty('messagepack-truth-manifest');
   });
 });

@@ -185,20 +185,22 @@ async function seedReviewEvent(database: WorkerSqliteDatabaseService, input: {
   rating?: number;
   reviewedAt: number;
   eventType?: string;
+  commitIdempotencyKey?: string | null;
   payload?: unknown;
 }): Promise<void> {
   const reviewedAtDate = new Date(input.reviewedAt);
   await database.runTransaction(`seed.review-event.${input.id}`, (db) => {
     db.run(
       `INSERT INTO review_events
-        (id, card_id, attempt_id, rating, reviewed_at, year, month, event_type, payload_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         input.id,
         input.cardId,
         input.attemptId ?? `attempt-${input.id}`,
         input.rating ?? 3,
         input.reviewedAt,
+        input.commitIdempotencyKey ?? null,
         reviewedAtDate.getFullYear(),
         reviewedAtDate.getMonth() + 1,
         input.eventType ?? 'review-v2',
@@ -4324,6 +4326,7 @@ describe('BackendKernel', () => {
         ['event-summary', 'conflict-card', 'attempt-summary', 3, 220, 2026, 5, 'review', '{}'],
       );
     });
+    await conflictDatabase.persist();
     const kernel = new BackendKernel({ database });
 
     const response = await kernel.handle({
@@ -7640,6 +7643,173 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('backfills existing review_events rows into MessagePack truth and patches SQL truth refs', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const writeBinary = vi.fn(persistenceBridge.writeBinary.bind(persistenceBridge));
+    const writeJSON = vi.fn(persistenceBridge.writeJSON!.bind(persistenceBridge));
+    const truthFileStore = new MemoryTruthSegmentFileStore();
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      writeBinary,
+      writeJSON,
+    });
+    await seedReviewEvent(database, {
+      id: 'event-review-backfill-a',
+      cardId: 'card-review-backfill-a',
+      attemptId: 'attempt-review-backfill-a',
+      rating: 4,
+      reviewedAt: 1_700_000_000_300,
+      commitIdempotencyKey: 'review:key-backfill-a',
+      payload: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        schedulerType: 'fsrs-v6',
+        sourceBlockId: 'block-review-backfill-a',
+      },
+    });
+    const mainDbWritesBeforeBackfill = writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length;
+    const deltaWritesBeforeBackfill = writeJSON.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v1.json').length;
+    const kernel = new BackendKernel({
+      database,
+      truthFileStore,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-truth-backfill',
+      jsonrpc: '2.0',
+      method: 'review.truth.backfill',
+      params: [{
+        deviceId: 'device-A',
+        generationId: 'projection-gen-backfill',
+        schemaVersion: 1,
+        maxSegmentBytes: 4096,
+        batchLimit: 8,
+        sourceId: 'local-sql-test',
+      }],
+    });
+
+    if (!('result' in response)) {
+      throw new Error(response.error.message);
+    }
+    expect(response.result).toMatchObject({
+      ok: true,
+      source: 'review_events',
+      sqlRowsRead: 1,
+      recordsWritten: 1,
+      segmentWritten: true,
+      manifestUpdated: true,
+      projectionRefreshScheduled: true,
+      idempotencyDuplicateSkipped: 0,
+      backfilledEventIds: ['event-review-backfill-a'],
+      duplicateEventIds: [],
+      repairRequiredEventIds: [],
+      syncVisible: true,
+      error: null,
+    });
+    expect(response.result.segmentPaths[0]).toMatch(
+      /^truth\/review-events\/device-device-A\/seg-\d{6}-[a-z0-9-]+\.msgpack$/,
+    );
+    const truthStore = createMessagePackTruthSegmentStore({
+      fileStore: truthFileStore,
+      family: 'review-events',
+      deviceId: 'device-A',
+      generationId: 'projection-gen-backfill',
+      schemaVersion: 1,
+      maxSegmentBytes: 4096,
+    });
+    const replay = await truthStore.replayRecords({ dedupeByIdempotencyKey: true });
+    expect(replay.records).toMatchObject([{
+      family: 'review-events',
+      type: 'review.feedback.v1',
+      idempotencyKey: 'review:key-backfill-a',
+      eventId: 'event-review-backfill-a',
+      source: {
+        cardId: 'card-review-backfill-a',
+        sourceBlockId: 'block-review-backfill-a',
+      },
+      review: {
+        action: 'rating',
+        rating: 4,
+        scheduler: 'fsrs-v6',
+      },
+      queue: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+      sqlLineage: {
+        sourceId: 'local-sql-test',
+        table: 'review_events',
+        eventId: 'event-review-backfill-a',
+      },
+    }]);
+    const row = database.getOne<{
+      msgpack_ref: string;
+      truth_hash: string;
+      truth_schema_version: number;
+      projection_generation: number;
+    }>(
+      `SELECT msgpack_ref, truth_hash, truth_schema_version, projection_generation
+         FROM review_events
+        WHERE id = ?`,
+      ['event-review-backfill-a'],
+    );
+    expect(row).toMatchObject({
+      truth_schema_version: 1,
+      projection_generation: response.result.at,
+    });
+    expect(row?.truth_hash).toBeTruthy();
+    expect(JSON.parse(row?.msgpack_ref || '{}')).toMatchObject({
+      family: 'review-events',
+      deviceId: 'device-A',
+      generationId: 'projection-gen-backfill',
+      recordId: 'event-review-backfill-a',
+      idempotencyKey: 'review:key-backfill-a',
+    });
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(
+      mainDbWritesBeforeBackfill,
+    );
+    expect(writeJSON.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v1.json').length).toBeGreaterThan(
+      deltaWritesBeforeBackfill,
+    );
+
+    const restartedDatabase = new WorkerSqliteDatabaseService(persistenceBridge);
+    await restartedDatabase.init();
+    const restartedRow = restartedDatabase.getOne<{ msgpack_ref: string | null }>(
+      'SELECT msgpack_ref FROM review_events WHERE id = ?',
+      ['event-review-backfill-a'],
+    );
+    expect(JSON.parse(restartedRow?.msgpack_ref || '{}')).toMatchObject({
+      family: 'review-events',
+      deviceId: 'device-A',
+      generationId: 'projection-gen-backfill',
+      recordId: 'event-review-backfill-a',
+    });
+
+    const diagnostics = await kernel.handle({
+      id: 'review-truth-backfill-diagnostics',
+      jsonrpc: '2.0',
+      method: 'diagnostics.status',
+      params: [],
+    });
+    expect('result' in diagnostics).toBe(true);
+    if ('result' in diagnostics) {
+      expect(diagnostics.result.review?.truthBackfill).toMatchObject({
+        family: 'review-events',
+        source: 'review_events',
+        storage: 'truth-segments',
+        pendingSqlRows: 0,
+        syncVisible: true,
+        last: {
+          ok: true,
+          recordsWritten: 1,
+          syncVisible: true,
+        },
+      });
+    }
+  });
+
   it('does not flush Review truth segments from ordinary review.feedback', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const truthFileStore = new MemoryTruthSegmentFileStore();
@@ -7767,6 +7937,56 @@ describe('BackendKernel', () => {
     if ('error' in response) {
       expect(response.error.message).toContain('truth segment file store');
     }
+  });
+
+  it('reports repair-required when projection rebuild finds invalid MessagePack truth manifest', async () => {
+    const truthFileStore = new MemoryTruthSegmentFileStore();
+    truthFileStore.jsonFiles.set('truth/review-events/device-device-A/manifest.v1.json', {
+      version: 1,
+      path: 'truth/review-events/device-device-A/manifest.v1.json',
+      family: 'card-memory-facts',
+      deviceId: 'device-A',
+      generationId: 'projection-gen-corrupt',
+      schemaVersion: 1,
+      segments: [],
+      updatedAt: 1_700_000_000_000,
+    });
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({
+      database,
+      truthFileStore,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({}),
+    });
+
+    const response = await kernel.handle({
+      id: 'projection-rebuild-invalid-truth-manifest',
+      jsonrpc: '2.0',
+      method: 'storage.projection.rebuild',
+      params: [{
+        rebuildId: 'rebuild-invalid-truth-manifest',
+        cause: 'sql-stale',
+        families: ['review-event-indexes'],
+        deviceId: 'device-A',
+        generationId: 'projection-gen-corrupt',
+        schemaVersion: 1,
+      }],
+    });
+
+    if (!('result' in response)) {
+      throw new Error(response.error.message);
+    }
+    expect(response.result).toMatchObject({
+      status: 'repair-required',
+      rebuildId: 'rebuild-invalid-truth-manifest',
+      rowsWritten: 0,
+      families: [{
+        family: 'review-event-indexes',
+        status: 'repair-required',
+        unavailableReason: 'validation-failed',
+        rowsWritten: 0,
+      }],
+    });
+    expect(database.getStatus().initialized).toBe(false);
   });
 
   it('rebuilds review event SQL indexes from MessagePack truth and SiYuan source reads', async () => {
