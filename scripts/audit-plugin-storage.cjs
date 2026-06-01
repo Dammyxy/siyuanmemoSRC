@@ -37,9 +37,10 @@ function classifyStoragePath(relativePath, stats = {}) {
 
   if (lower === 'siyuanmemo.db') {
     return {
-      classification: 'expected-active',
-      kind: 'sql-projection-db',
-      policy: 'SQLite projection/cache file; expected until projections are rebuilt from MessagePack truth.',
+      classification: 'forbidden-legacy-petal-db',
+      kind: 'legacy-petal-db-ignored',
+      diagnostic: 'legacy-petal-db-ignored',
+      policy: 'Legacy petal SQLite projection is ignored; projection DB must live in workspace temp or memory.',
     };
   }
 

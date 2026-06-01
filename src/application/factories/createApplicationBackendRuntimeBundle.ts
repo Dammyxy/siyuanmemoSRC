@@ -35,7 +35,8 @@ import { MESSAGEPACK_TRUTH_SCHEMA_VERSION } from '../../../packages/contracts/sr
 import type { SqlitePersistenceBridge } from '../../../worker/db/SqlitePersistenceBridge';
 
 const logger = createLogger('ApplicationContext');
-const REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1';
+const TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.truth.deviceId.v1';
+const LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1';
 const REVIEW_TRUTH_GENERATION_ID = `review-events-v${MESSAGEPACK_TRUTH_SCHEMA_VERSION}`;
 
 export type ApplicationBackendRuntimeTransport = SrsBackendTransport & {
@@ -167,6 +168,7 @@ export async function createApplicationBackendRuntimeBundle(
               }
               return bridge.writeJSON(path, value);
             },
+            listTruthFiles: (prefix) => bridge.truthFileStore?.listFiles?.(prefix) ?? Promise.resolve([]),
             readSyncConflictDatabaseSources: () => bridge.readSyncConflictDatabaseSources?.() ?? Promise.resolve([]),
             cleanupSyncConflictDatabaseSources: (sourceIds) => bridge.cleanupSyncConflictDatabaseSources?.(sourceIds) ?? Promise.resolve({
               cleaned: [],
@@ -191,14 +193,22 @@ export async function createApplicationBackendRuntimeBundle(
             }),
           },
         });
+        const truthDeviceId = resolveTruthDeviceId();
+        if (!truthDeviceId) {
+          logger.warn('[ApplicationContext] TRUTH_DEVICE_ID_UNAVAILABLE: MessagePack truth writes are unavailable because local device identity is not persistent');
+        }
         srsBackendClient = new SrsBackendClient(srsBackendTransport, {
-          reviewTruthFlush: {
-            deviceId: resolveReviewTruthDeviceId(),
-            generationId: REVIEW_TRUTH_GENERATION_ID,
-            schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
-          },
+          reviewTruthFlush: truthDeviceId
+            ? {
+                deviceId: truthDeviceId,
+                generationId: REVIEW_TRUTH_GENERATION_ID,
+                schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+              }
+            : null,
         });
-        void srsBackendClient.schedulePendingReviewTruthFlush('startup');
+        if (truthDeviceId) {
+          void srsBackendClient.schedulePendingReviewTruthFlush('startup');
+        }
       });
       logger.info('[ApplicationContext] ✅ SRS backend browser Worker transport bootstrap enabled by feature flag');
     } catch (error) {
@@ -282,6 +292,7 @@ function createWorkerPersistenceBridge(fileService: FileService): SqlitePersiste
     },
     readJSON: <T>(path: string) => fileService.readJSON<T>(path),
     writeJSON: (path: string, value: unknown) => fileService.writeJSON(path, value),
+    listFiles: (prefix: string) => fileService.listFiles(prefix),
   };
   return {
     truthFileStore,
@@ -310,7 +321,7 @@ function isMessagePackTruthIdentity(value: unknown): value is string {
     && !value.trim().includes('..');
 }
 
-function createReviewTruthDeviceId(): string {
+function createTruthDeviceId(): string {
   const cryptoApi = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
   const randomId = typeof cryptoApi?.randomUUID === 'function'
     ? cryptoApi.randomUUID()
@@ -318,18 +329,27 @@ function createReviewTruthDeviceId(): string {
   return `device-${randomId}`;
 }
 
-function resolveReviewTruthDeviceId(): string {
+function resolveTruthDeviceId(): string | null {
   try {
     const storage = typeof globalThis !== 'undefined' ? globalThis.localStorage : undefined;
-    const stored = storage?.getItem(REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY);
+    if (!storage) {
+      return null;
+    }
+    const stored = storage.getItem(TRUTH_DEVICE_ID_STORAGE_KEY);
     if (isMessagePackTruthIdentity(stored)) {
       return stored.trim();
     }
-    const next = createReviewTruthDeviceId();
-    storage?.setItem(REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY, next);
+    const legacyStored = storage.getItem(LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY);
+    if (isMessagePackTruthIdentity(legacyStored)) {
+      const migrated = legacyStored.trim();
+      storage.setItem(TRUTH_DEVICE_ID_STORAGE_KEY, migrated);
+      return migrated;
+    }
+    const next = createTruthDeviceId();
+    storage.setItem(TRUTH_DEVICE_ID_STORAGE_KEY, next);
     return next;
   } catch {
-    return createReviewTruthDeviceId();
+    return null;
   }
 }
 

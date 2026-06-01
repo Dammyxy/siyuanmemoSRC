@@ -79,6 +79,50 @@ export type BackendRpcMethod =
 
 export type BackendRpcId = number | string;
 
+export const SIYUANMEMO_PLUGIN_PETAL_STORAGE_ROOT = 'storage/petal/siyuan-plugin-siyuanmemo';
+export const SIYUANMEMO_TRUTH_ROOT_PATH = 'truth';
+export const SIYUANMEMO_TRUTH_MIGRATIONS_PATH = `${SIYUANMEMO_TRUTH_ROOT_PATH}/migrations`;
+export const LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH =
+  `${SIYUANMEMO_TRUTH_MIGRATIONS_PATH}/legacy-unified-cards-to-truth.v1.json`;
+export const SIYUANMEMO_TEMP_PROJECTION_ROOT_PATH = 'temp/siyuan-plugin-siyuanmemo';
+export const SIYUANMEMO_TEMP_PROJECTION_DB_PATH = `${SIYUANMEMO_TEMP_PROJECTION_ROOT_PATH}/siyuanmemo.db`;
+export const SIYUANMEMO_FORBIDDEN_PETAL_SQLITE_DB_PATH =
+  `${SIYUANMEMO_PLUGIN_PETAL_STORAGE_ROOT}/siyuanmemo.db`;
+
+export const STORAGE_ERROR_CODES = [
+  'TRUTH_DEVICE_ID_UNAVAILABLE',
+  'LEGACY_MIGRATION_FAILED',
+  'LEGACY_DIVERGENCE_DETECTED',
+  'TRUTH_VALIDATION_FAILED',
+  'PROJECTION_REBUILD_FAILED',
+  'SOURCE_READ_UNAVAILABLE',
+] as const;
+
+export type BackendStorageErrorCode = typeof STORAGE_ERROR_CODES[number];
+
+export const STORAGE_DIAGNOSTIC_KINDS = [
+  'legacy-petal-db-ignored',
+  'orphan-truth-segment',
+  'quarantined-review-log',
+  'repaired-scheduling-memory',
+  'skipped-non-formal-review-log',
+  'projection-rebuild-status',
+] as const;
+
+export type BackendStorageDiagnosticKind = typeof STORAGE_DIAGNOSTIC_KINDS[number];
+
+export interface BackendStorageDiagnostic {
+  kind: BackendStorageDiagnosticKind;
+  severity: 'info' | 'warning' | 'error';
+  at: number;
+  message: string;
+  code?: BackendStorageErrorCode | null;
+  path?: string | null;
+  family?: string | null;
+  projectionFamily?: string | null;
+  details?: Record<string, unknown> | null;
+}
+
 export interface BackendRpcRequest<TParams = unknown> {
   jsonrpc: typeof BACKEND_RPC_VERSION;
   id: BackendRpcId;
@@ -87,6 +131,7 @@ export interface BackendRpcRequest<TParams = unknown> {
 }
 
 export type BackendRpcErrorCode =
+  | BackendStorageErrorCode
   | 'WRITER_UNAVAILABLE'
   | 'LEASE_UNAVAILABLE'
   | 'RELAY_QUEUE_UNAVAILABLE'
@@ -492,6 +537,7 @@ export interface BackendDiagnosticsStatusResult {
   };
   storage?: {
     sqliteDelta?: BackendSqliteDeltaDiagnostics;
+    diagnostics?: BackendStorageDiagnostic[];
   };
   ai?: {
     sessionCreateTotal: number;

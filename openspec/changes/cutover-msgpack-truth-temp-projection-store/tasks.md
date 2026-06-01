@@ -1,18 +1,18 @@
 ## 1. Storage Policy And Contracts
 
-- [ ] 1.1 Add storage path constants for petal truth directories, migration receipt path, temp projection DB path, and forbidden petal DB path.
-- [ ] 1.2 Add typed storage error codes for `TRUTH_DEVICE_ID_UNAVAILABLE`, `LEGACY_MIGRATION_FAILED`, `LEGACY_DIVERGENCE_DETECTED`, `TRUTH_VALIDATION_FAILED`, `PROJECTION_REBUILD_FAILED`, and `SOURCE_READ_UNAVAILABLE`.
-- [ ] 1.3 Add diagnostics contracts for legacy petal DB ignored, orphan truth segment, quarantined review log, repaired scheduling memory, skipped non-formal logs, and projection rebuild status.
-- [ ] 1.4 Verify `ts-fsrs` is upgraded to the version that provides the FSRS-6 seed defaults used by migration repair.
-- [ ] 1.5 Extend storage audit checks so `storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db` cannot be written by production runtime code.
+- [x] 1.1 Add storage path constants for petal truth directories, migration receipt path, temp projection DB path, and forbidden petal DB path.
+- [x] 1.2 Add typed storage error codes for `TRUTH_DEVICE_ID_UNAVAILABLE`, `LEGACY_MIGRATION_FAILED`, `LEGACY_DIVERGENCE_DETECTED`, `TRUTH_VALIDATION_FAILED`, `PROJECTION_REBUILD_FAILED`, and `SOURCE_READ_UNAVAILABLE`.
+- [x] 1.3 Add diagnostics contracts for legacy petal DB ignored, orphan truth segment, quarantined review log, repaired scheduling memory, skipped non-formal logs, and projection rebuild status.
+- [x] 1.4 Verify `ts-fsrs` is upgraded to the version that provides the FSRS-6 seed defaults used by migration repair.
+- [x] 1.5 Extend storage audit checks so `storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db` cannot be written by production runtime code.
 
 ## 2. Truth Device And Segment Infrastructure
 
-- [ ] 2.1 Generalize local device identity from review-truth-only storage to a truth-wide persistent local key.
-- [ ] 2.2 Fail truth writes with `TRUTH_DEVICE_ID_UNAVAILABLE` when persistent local device identity cannot be loaded or created.
-- [ ] 2.3 Implement truth segment write order as segment, checksum, then manifest commit.
-- [ ] 2.4 Make truth readers load only manifest-listed segments and report orphan segments without applying them.
-- [ ] 2.5 Validate manifest-listed checksums and fail closed with `TRUTH_VALIDATION_FAILED` on mismatch.
+- [x] 2.1 Generalize local device identity from review-truth-only storage to a truth-wide persistent local key.
+- [x] 2.2 Fail truth writes with `TRUTH_DEVICE_ID_UNAVAILABLE` when persistent local device identity cannot be loaded or created.
+- [x] 2.3 Implement truth segment write order as segment, checksum, then manifest commit.
+- [x] 2.4 Make truth readers load only manifest-listed segments and report orphan segments without applying them.
+- [x] 2.5 Validate manifest-listed checksums and fail closed with `TRUTH_VALIDATION_FAILED` on mismatch.
 - [ ] 2.6 Represent truth schema upgrades as new family generations instead of in-place manifest mutation.
 
 ## 3. Legacy MessagePack Migration
@@ -69,16 +69,16 @@
 - [ ] 8.4 Add divergence tests proving changed legacy source hash fails with `LEGACY_DIVERGENCE_DETECTED`.
 - [ ] 8.5 Add scheduling tests for unreviewed empty memory preservation and reviewed empty memory repair.
 - [ ] 8.6 Add review-log tests for formal-only migration, stable idempotency keys, skipped drill/reschedule logs, and quarantined malformed records.
-- [ ] 8.7 Add truth validation tests for bad segment checksum, orphan segment diagnostics, and unsupported generation failure.
+- [x] 8.7 Add truth validation tests for bad segment checksum, orphan segment diagnostics, and unsupported generation failure.
 - [ ] 8.8 Add multi-window tests proving follower storage mutation relay and no local truth/projection write.
-- [ ] 8.9 Add storage audit tests proving petal `siyuanmemo.db` is not written and legacy petal DB is ignored.
+- [x] 8.9 Add storage audit tests proving petal `siyuanmemo.db` is not written and legacy petal DB is ignored.
 - [ ] 8.10 Add startup readiness tests proving Review and Browser wait for card plus review-event projection readiness.
 
 ## 9. Documentation And Validation
 
 - [ ] 9.1 Update `ARCHITECTURE.md` with truth ownership, temp projection lifecycle, startup gates, and writer-only truth writes.
-- [ ] 9.2 Update `docs/DDD_RESCAN_BACKLOG.md` with debt retired and deferred work for compaction, optional truth families, and browser-only writer policy.
-- [ ] 9.3 Run `openspec validate cutover-msgpack-truth-temp-projection-store --strict`.
+- [x] 9.2 Update `docs/DDD_RESCAN_BACKLOG.md` with debt retired and deferred work for compaction, optional truth families, and browser-only writer policy.
+- [x] 9.3 Run `openspec validate cutover-msgpack-truth-temp-projection-store --strict`.
 - [ ] 9.4 Run focused migration, truth, projection, startup readiness, and multi-window tests.
-- [ ] 9.5 Run `pnpm run check:boundaries` or `node scripts/check-hidden-fallbacks.cjs`.
-- [ ] 9.6 Run `pnpm build`.
+- [x] 9.5 Run `pnpm run check:boundaries` or `node scripts/check-hidden-fallbacks.cjs`.
+- [x] 9.6 Run `pnpm build`.

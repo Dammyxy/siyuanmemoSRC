@@ -10,22 +10,34 @@ import {
 class MemoryTruthSegmentFileStore implements MessagePackTruthSegmentFileStore {
   readonly jsonFiles = new Map<string, unknown>();
   readonly binaryFiles = new Map<string, Uint8Array>();
+  readonly operations: Array<{ type: 'read-json' | 'write-json' | 'read-binary' | 'write-binary'; path: string }> = [];
 
   async readJSON<T>(fileName: string): Promise<T | null> {
+    this.operations.push({ type: 'read-json', path: fileName });
     return (this.jsonFiles.get(fileName) as T | undefined) ?? null;
   }
 
   async writeJSON(fileName: string, data: unknown): Promise<void> {
+    this.operations.push({ type: 'write-json', path: fileName });
     this.jsonFiles.set(fileName, structuredClone(data));
   }
 
   async readBinary(fileName: string): Promise<Uint8Array | null> {
+    this.operations.push({ type: 'read-binary', path: fileName });
     const bytes = this.binaryFiles.get(fileName);
     return bytes ? new Uint8Array(bytes) : null;
   }
 
   async writeBinary(fileName: string, bytes: Uint8Array): Promise<void> {
+    this.operations.push({ type: 'write-binary', path: fileName });
     this.binaryFiles.set(fileName, new Uint8Array(bytes));
+  }
+
+  async listFiles(prefix: string): Promise<string[]> {
+    return [
+      ...Array.from(this.jsonFiles.keys()),
+      ...Array.from(this.binaryFiles.keys()),
+    ].filter((path) => path.startsWith(prefix));
   }
 }
 
@@ -68,7 +80,7 @@ describe('MessagePackTruthSegmentStore', () => {
     expect(result.segments.length).toBeGreaterThan(1);
     expect(result.manifest.path).toBe('truth/review-events/device-device-A/manifest.v1.json');
     expect(result.manifest.segments).toHaveLength(result.segments.length);
-    expect(Array.from(fileStore.jsonFiles.keys())).toEqual(['truth/review-events/device-device-A/manifest.v1.json']);
+    expect(fileStore.jsonFiles.has('truth/review-events/device-device-A/manifest.v1.json')).toBe(true);
     expect(Array.from(fileStore.jsonFiles.keys()).some((path) => path.includes('global'))).toBe(false);
     for (const entry of result.manifest.segments) {
       expect(entry).toMatchObject({
@@ -83,7 +95,46 @@ describe('MessagePackTruthSegmentStore', () => {
       expect(entry.path).toMatch(/^truth\/review-events\/device-device-A\/seg-\d{6}-[a-z0-9-]+\.msgpack$/);
       expect(entry.byteSize).toBeLessThanOrEqual(640);
       expect(fileStore.binaryFiles.has(entry.path)).toBe(true);
+      expect(fileStore.jsonFiles.get(`${entry.path}.checksum.json`)).toMatchObject({
+        path: entry.path,
+        checksum: entry.checksum,
+      });
     }
+  });
+
+  it('commits segment, checksum sidecar, then manifest and reports orphan segments without applying them', async () => {
+    const fileStore = new MemoryTruthSegmentFileStore();
+    const store = createStore(fileStore, 1024);
+
+    const append = await store.appendRecords([record('a', 10)]);
+    const segmentPath = append.segments[0].path;
+    const checksumPath = `${segmentPath}.checksum.json`;
+    const writeOperations = fileStore.operations.filter((operation) => operation.type.startsWith('write'));
+
+    expect(writeOperations.map((operation) => [operation.type, operation.path])).toEqual([
+      ['write-binary', segmentPath],
+      ['write-json', checksumPath],
+      ['write-json', 'truth/review-events/device-device-A/manifest.v1.json'],
+    ]);
+    expect(fileStore.jsonFiles.get(checksumPath)).toMatchObject({
+      path: segmentPath,
+      checksum: append.segments[0].checksum,
+    });
+
+    fileStore.binaryFiles.set(
+      'truth/review-events/device-device-A/seg-999999-orphan.msgpack',
+      new Uint8Array(fileStore.binaryFiles.get(segmentPath)!),
+    );
+
+    const replay = await store.replayRecords();
+
+    expect(replay.records.map((entry) => entry.id)).toEqual(['a']);
+    expect(replay.diagnostics).toEqual([
+      expect.objectContaining({
+        reason: 'orphan-segment',
+        path: 'truth/review-events/device-device-A/seg-999999-orphan.msgpack',
+      }),
+    ]);
   });
 
   it('uses first-family storage policy defaults when caller omits segment and compaction budgets', async () => {
@@ -164,6 +215,18 @@ describe('MessagePackTruthSegmentStore', () => {
       diagnostics: [expect.objectContaining({ reason: 'schema-version-mismatch' })],
     });
 
+    const generationReader = createMessagePackTruthSegmentStore({
+      fileStore,
+      family: 'review-events',
+      deviceId: 'device-A',
+      generationId: 'projection-gen-2',
+      schemaVersion: 1,
+      maxSegmentBytes: 1024,
+    });
+    await expect(generationReader.replayRecords()).rejects.toMatchObject({
+      diagnostics: [expect.objectContaining({ reason: 'generation-mismatch' })],
+    });
+
     const manifestPath = append.manifest.path;
     const manifest = structuredClone(fileStore.jsonFiles.get(manifestPath)) as Record<string, unknown>;
     manifest.deviceId = 'device-B';
@@ -209,10 +272,10 @@ describe('MessagePackTruthSegmentStore', () => {
       ['device-B', 1],
       ['device-A', 1],
     ]);
-    expect(Array.from(fileStore.jsonFiles.keys()).sort()).toEqual([
-      'truth/review-events/device-device-A/manifest.v1.json',
-      'truth/review-events/device-device-B/manifest.v1.json',
-    ]);
+    const jsonPaths = Array.from(fileStore.jsonFiles.keys()).sort();
+    expect(jsonPaths).toContain('truth/review-events/device-device-A/manifest.v1.json');
+    expect(jsonPaths).toContain('truth/review-events/device-device-B/manifest.v1.json');
+    expect(jsonPaths.some((path) => path.includes('global'))).toBe(false);
   });
 
   it('discovers and replays remote Review segments with idempotency and base-memory conflict diagnostics', async () => {

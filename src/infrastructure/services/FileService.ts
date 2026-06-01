@@ -66,6 +66,11 @@ export interface IFileService {
   }): Promise<void>;
 
   /**
+   * 列出插件数据目录下某个相对目录的直接文件
+   */
+  listFiles?(prefix: string): Promise<string[]>;
+
+  /**
    * Read SiYuan sync conflict copies of the plugin sqlite database.
    */
   readSyncConflictDatabaseSources?(): Promise<Array<{
@@ -340,6 +345,20 @@ export class FileService implements IFileService {
         error instanceof Error ? error : new Error(String(error))
       );
     }
+  }
+
+  async listFiles(prefix: string): Promise<string[]> {
+    const normalized = String(prefix || '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .replace(/\/+$/g, '');
+    if (!normalized || normalized.includes('..')) {
+      throw new FileOperationError('read', prefix, new Error('invalid plugin data directory prefix'));
+    }
+    const entries = await this.readDir(this.resolvePluginDataPath(normalized));
+    return entries
+      .filter((entry) => !entry.isDir)
+      .map((entry) => `${normalized}/${entry.name}`);
   }
 
   async readSyncConflictDatabaseSources(): Promise<Array<{

@@ -83,6 +83,12 @@ export function createInMemorySqlitePersistenceBridge(): SqlitePersistenceBridge
       const buffer = toTransferableArrayBuffer(bytes);
       binary.set(path, new Uint8Array(buffer));
     },
+    async listFiles(prefix: string): Promise<string[]> {
+      return [
+        ...Array.from(json.keys()),
+        ...Array.from(binary.keys()),
+      ].filter((path) => path.startsWith(prefix));
+    },
   };
 
   return {

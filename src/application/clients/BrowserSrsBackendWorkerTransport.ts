@@ -56,6 +56,7 @@ export interface BrowserSrsBackendWorkerHostEffects {
   writeTruthBinary?: (path: string, bytes: Uint8Array) => Promise<void>;
   readTruthJSON?: <T>(path: string) => Promise<T | null>;
   writeTruthJSON?: (path: string, value: unknown) => Promise<void>;
+  listTruthFiles?: (prefix: string) => Promise<string[]>;
   readSyncConflictDatabaseSources?: () => Promise<Array<{
     sourceId: string;
     bytes: Uint8Array;
@@ -485,6 +486,11 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         }
         await this.options.hostEffects.writeTruthJSON(effect.path, effect.value);
         return null;
+      case 'truth.listFiles':
+        if (!this.options.hostEffects.listTruthFiles) {
+          throw unavailable('truth.listFiles host effect unavailable');
+        }
+        return this.options.hostEffects.listTruthFiles(effect.prefix);
       case 'sqlite.readSyncConflictDatabaseSources':
         if (!this.options.hostEffects.readSyncConflictDatabaseSources) {
           return [];

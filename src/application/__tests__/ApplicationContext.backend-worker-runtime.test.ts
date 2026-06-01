@@ -60,6 +60,16 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(source).toContain("diagnostics.health === 'starting'");
   });
 
+  it('uses a truth-wide local device identity key for MessagePack truth writes', () => {
+    const source = readBackendRuntimeFactorySource();
+
+    expect(source).toContain("TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.truth.deviceId.v1'");
+    expect(source).toContain("LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1'");
+    expect(source).toContain('resolveTruthDeviceId');
+    expect(source).toContain('TRUTH_DEVICE_ID_UNAVAILABLE');
+    expect(source).not.toContain("const REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1'");
+  });
+
   it('constructs renderer sqlite projection without implicit startup checkpointing', () => {
     const contextSource = readApplicationContextSource();
 

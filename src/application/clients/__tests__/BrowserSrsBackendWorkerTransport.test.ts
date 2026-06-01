@@ -826,9 +826,12 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     const worker = new FakeWorker();
     const readTruthJSON = vi.fn(async () => ({ version: 1 }));
     const writeTruthBinary = vi.fn(async () => undefined);
+    const listTruthFiles = vi.fn(async () => [
+      'truth/review-events/device-device-A/seg-000001-test.msgpack',
+    ]);
     const transport = new BrowserSrsBackendWorkerTransport({
       workerFactory: () => worker as unknown as Worker,
-      hostEffects: { readTruthJSON, writeTruthBinary },
+      hostEffects: { readTruthJSON, writeTruthBinary, listTruthFiles },
     });
 
     worker.emit({ kind: 'ready' });
@@ -849,13 +852,22 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         bytes: new Uint8Array([1, 2, 3]),
       },
     });
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-truth-list',
+      effect: {
+        kind: 'truth.listFiles',
+        prefix: 'truth/review-events/device-device-A',
+      },
+    });
 
-    await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(3));
     expect(readTruthJSON).toHaveBeenCalledWith('truth/review-events/device-device-A/manifest.v1.json');
     expect(writeTruthBinary).toHaveBeenCalledWith(
       'truth/review-events/device-device-A/seg-000001-test.msgpack',
       new Uint8Array([1, 2, 3]),
     );
+    expect(listTruthFiles).toHaveBeenCalledWith('truth/review-events/device-device-A');
     expect(worker.posted).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: 'host-effect-result',
@@ -867,6 +879,12 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         kind: 'host-effect-result',
         effectId: 'effect-truth-binary',
         ok: true,
+      }),
+      expect.objectContaining({
+        kind: 'host-effect-result',
+        effectId: 'effect-truth-list',
+        ok: true,
+        result: ['truth/review-events/device-device-A/seg-000001-test.msgpack'],
       }),
     ]));
     expect(worker.posted).not.toEqual(expect.arrayContaining([

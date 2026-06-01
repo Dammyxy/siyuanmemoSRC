@@ -274,6 +274,10 @@ const backendKernel = new BackendKernel({
       path,
       value,
     }),
+    listFiles: (prefix) => requestHostEffect<string[]>({
+      kind: 'truth.listFiles',
+      prefix,
+    }),
   },
   resolveExistingBlockIds: (blockIds) => requestHostEffect<string[]>({
     kind: 'siyuan.resolveExistingBlockIds',

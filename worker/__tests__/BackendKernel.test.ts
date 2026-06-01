@@ -7643,6 +7643,35 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('fails truth flush with TRUTH_DEVICE_ID_UNAVAILABLE when local truth identity is missing', async () => {
+    const reviewFeedbackJournalStore = createInMemoryReviewFeedbackJournalStore();
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const kernel = new BackendKernel({
+      database: new WorkerSqliteDatabaseService({
+        ...persistenceBridge,
+        reviewFeedbackJournalStore,
+      }),
+      truthFileStore: new MemoryTruthSegmentFileStore(),
+    });
+
+    const response = await kernel.handle({
+      id: 'review-truth-flush-no-device',
+      jsonrpc: '2.0',
+      method: 'review.truth.flush',
+      params: [{
+        deviceId: '',
+        generationId: 'projection-gen-1',
+        schemaVersion: 1,
+      }],
+    });
+
+    expect(response).toMatchObject({
+      error: {
+        code: 'TRUTH_DEVICE_ID_UNAVAILABLE',
+      },
+    });
+  });
+
   it('backfills existing review_events rows into MessagePack truth and patches SQL truth refs', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const writeBinary = vi.fn(persistenceBridge.writeBinary.bind(persistenceBridge));

@@ -11,6 +11,7 @@ export type MessagePackTruthValidationReason =
   | 'family-mismatch'
   | 'generation-mismatch'
   | 'manifest-device-mismatch'
+  | 'orphan-segment'
   | 'segment-device-mismatch'
   | 'schema-version-mismatch'
   | 'segment-record-count-mismatch'
@@ -38,6 +39,7 @@ export interface MessagePackTruthSegmentFileStore {
   writeJSON(fileName: string, data: unknown): Promise<void>;
   readBinary(fileName: string): Promise<Uint8Array | null>;
   writeBinary(fileName: string, bytes: Uint8Array): Promise<void>;
+  listFiles?(prefix: string): Promise<string[]>;
 }
 
 export type MessagePackTruthRecord = Record<string, unknown>;
@@ -109,6 +111,7 @@ export interface MessagePackTruthReplayResult {
   manifest: MessagePackTruthSegmentManifest;
   records: MessagePackTruthRecord[];
   skippedDuplicateCount: number;
+  diagnostics: MessagePackTruthValidationDiagnostic[];
 }
 
 export interface MessagePackTruthCompactionPlanOptions {
@@ -425,14 +428,14 @@ export class MessagePackTruthSegmentStore {
   async replayRecords(options: MessagePackTruthReplayOptions = {}): Promise<MessagePackTruthReplayResult> {
     const manifest = await this.readManifest();
     this.throwIfManifestInvalid(manifest);
-    const diagnostics: MessagePackTruthValidationDiagnostic[] = [];
+    const validationDiagnostics: MessagePackTruthValidationDiagnostic[] = [];
     const indexedRecords: Array<{
       record: MessagePackTruthRecord;
       segmentSequence: number;
       recordIndex: number;
     }> = [];
     for (const segment of manifest.segments) {
-      const envelope = await this.readAndValidateSegment(segment, diagnostics);
+      const envelope = await this.readAndValidateSegment(segment, validationDiagnostics);
       if (!envelope) {
         continue;
       }
@@ -444,9 +447,10 @@ export class MessagePackTruthSegmentStore {
         });
       });
     }
-    if (diagnostics.length > 0) {
-      throw new MessagePackTruthValidationError(diagnostics);
+    if (validationDiagnostics.length > 0) {
+      throw new MessagePackTruthValidationError(validationDiagnostics);
     }
+    const diagnostics = await this.collectOrphanSegmentDiagnostics(manifest);
     indexedRecords.sort((left, right) => {
       const leftTime = getLogicalTime(left.record) ?? Number.MAX_SAFE_INTEGER;
       const rightTime = getLogicalTime(right.record) ?? Number.MAX_SAFE_INTEGER;
@@ -474,6 +478,7 @@ export class MessagePackTruthSegmentStore {
       manifest,
       records,
       skippedDuplicateCount,
+      diagnostics,
     };
   }
 
@@ -617,7 +622,7 @@ export class MessagePackTruthSegmentStore {
   private async writeSegment(candidate: CandidateSegment): Promise<MessagePackTruthSegmentManifestEntry> {
     const checksum = await sha256(candidate.bytes);
     await this.fileStore.writeBinary(candidate.envelope.path, candidate.bytes);
-    return {
+    const entry: MessagePackTruthSegmentManifestEntry = {
       version: MESSAGEPACK_TRUTH_MANIFEST_VERSION,
       family: this.family,
       deviceId: this.deviceId,
@@ -633,6 +638,38 @@ export class MessagePackTruthSegmentStore {
       closedAt: candidate.envelope.closedAt,
       compactedFrom: [],
     };
+    await this.fileStore.writeJSON(`${candidate.envelope.path}.checksum.json`, {
+      version: MESSAGEPACK_TRUTH_MANIFEST_VERSION,
+      path: entry.path,
+      checksum: entry.checksum,
+      byteSize: entry.byteSize,
+      recordCount: entry.recordCount,
+      writtenAt: entry.closedAt,
+    });
+    return entry;
+  }
+
+  private async collectOrphanSegmentDiagnostics(
+    manifest: MessagePackTruthSegmentManifest,
+  ): Promise<MessagePackTruthValidationDiagnostic[]> {
+    if (!this.fileStore.listFiles) {
+      return [];
+    }
+    const committedSegmentPaths = new Set(manifest.segments.map((segment) => segment.path));
+    const devicePrefix = `${this.deviceDirectory}/`;
+    const paths = await this.fileStore.listFiles(this.deviceDirectory);
+    return Array.from(new Set(
+      paths
+        .map((path) => String(path || '').replace(/\\/g, '/').trim())
+        .filter((path) => path.startsWith(devicePrefix))
+        .filter((path) => path.endsWith('.msgpack'))
+        .filter((path) => !committedSegmentPaths.has(path)),
+    ))
+      .sort()
+      .map((path) => ({
+        reason: 'orphan-segment',
+        path,
+      }));
   }
 
   private async readAndValidateSegment(

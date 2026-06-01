@@ -1,6 +1,7 @@
 import {
   BACKEND_RPC_VERSION,
   MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+  STORAGE_ERROR_CODES,
   type BackendAiPromptExecuteRequest,
   type BackendAiPromptExecuteResult,
   type BackendAiToolJobApprovalRequest,
@@ -114,6 +115,7 @@ import {
   type BackendXiuyuanSyncExecuteRequest,
   type BackendXiuyuanSyncExecuteResult,
   type BackendRpcRequest,
+  type BackendRpcErrorCode,
   type BackendRpcResponse,
   type BackendSemanticCommandRequest,
   type BackendSemanticCommandResult,
@@ -207,7 +209,7 @@ function buildSuccess<TResult>(
 
 function buildError(
   id: number | string,
-  code: 'BACKEND_UNAVAILABLE' | 'INVALID_REQUEST' | 'METHOD_NOT_FOUND' | 'INTERNAL_ERROR',
+  code: BackendRpcErrorCode,
   message: string,
 ): BackendRpcResponse {
   return {
@@ -218,6 +220,15 @@ function buildError(
       message,
     },
   };
+}
+
+const STORAGE_ERROR_CODE_SET = new Set<string>(STORAGE_ERROR_CODES);
+
+function matchStorageErrorCode(message: string): BackendRpcErrorCode | null {
+  const candidate = message.split(':', 1)[0]?.trim();
+  return candidate && STORAGE_ERROR_CODE_SET.has(candidate)
+    ? candidate as BackendRpcErrorCode
+    : null;
 }
 
 function isAuthorizedPrivateMutationCapability(value: unknown): boolean {
@@ -720,6 +731,10 @@ export class BackendKernel {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const storageErrorCode = matchStorageErrorCode(message);
+      if (storageErrorCode) {
+        return buildError(request.id, storageErrorCode, message.replace(new RegExp(`^${storageErrorCode}:\\s*`), ''));
+      }
       if (message.startsWith('INVALID_REQUEST:')) {
         return buildError(request.id, 'INVALID_REQUEST', message.replace(/^INVALID_REQUEST:\s*/, ''));
       }
@@ -1104,8 +1119,11 @@ export class BackendKernel {
     }
     const deviceId = String(named.deviceId || '').trim();
     const generationId = String(named.generationId || '').trim();
-    if (!deviceId || !generationId) {
-      throw new Error('INVALID_REQUEST: review.truth.flush requires deviceId and generationId');
+    if (!deviceId) {
+      throw new Error('TRUTH_DEVICE_ID_UNAVAILABLE: review.truth.flush requires truth-wide persistent local device id');
+    }
+    if (!generationId) {
+      throw new Error('INVALID_REQUEST: review.truth.flush requires generationId');
     }
     const truthStore = createMessagePackTruthSegmentStore({
       fileStore: this.deps.truthFileStore,
@@ -1136,8 +1154,11 @@ export class BackendKernel {
     }
     const deviceId = String(named.deviceId || '').trim();
     const generationId = String(named.generationId || '').trim();
-    if (!deviceId || !generationId) {
-      throw new Error('INVALID_REQUEST: review.truth.backfill requires deviceId and generationId');
+    if (!deviceId) {
+      throw new Error('TRUTH_DEVICE_ID_UNAVAILABLE: review.truth.backfill requires truth-wide persistent local device id');
+    }
+    if (!generationId) {
+      throw new Error('INVALID_REQUEST: review.truth.backfill requires generationId');
     }
     const schemaVersion = Math.max(1, Math.floor(Number(named.schemaVersion) || MESSAGEPACK_TRUTH_SCHEMA_VERSION));
     const truthStore = createMessagePackTruthSegmentStore({
@@ -1177,8 +1198,11 @@ export class BackendKernel {
     }
     const deviceId = String(named.deviceId || '').trim();
     const generationId = String(named.generationId || '').trim();
-    if (!deviceId || !generationId) {
-      throw new Error('INVALID_REQUEST: storage.projection.rebuild requires deviceId and generationId');
+    if (!deviceId) {
+      throw new Error('TRUTH_DEVICE_ID_UNAVAILABLE: storage.projection.rebuild requires truth-wide persistent local device id');
+    }
+    if (!generationId) {
+      throw new Error('INVALID_REQUEST: storage.projection.rebuild requires generationId');
     }
 
     const schemaVersion = Math.max(1, Math.floor(Number(named.schemaVersion) || MESSAGEPACK_TRUTH_SCHEMA_VERSION));

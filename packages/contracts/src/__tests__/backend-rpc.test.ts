@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH,
   MESSAGEPACK_TRUTH_FAMILY_SCHEMAS,
   MESSAGEPACK_TRUTH_FAMILY_STORAGE_POLICIES,
+  SIYUANMEMO_FORBIDDEN_PETAL_SQLITE_DB_PATH,
+  SIYUANMEMO_TEMP_PROJECTION_DB_PATH,
+  SIYUANMEMO_TRUTH_ROOT_PATH,
   SQL_PROJECTION_FAMILY_SCHEMAS,
+  STORAGE_DIAGNOSTIC_KINDS,
+  STORAGE_ERROR_CODES,
   STORAGE_SLIMMING_FAMILY_POLICIES,
 } from '../backend-rpc';
 import type {
@@ -31,6 +37,8 @@ import type {
   QueueProjectionReadinessCause,
   BackendDiagnosticsStatusResult,
   BackendReviewFeedbackResult,
+  BackendStorageDiagnostic,
+  BackendStorageErrorCode,
 } from '../backend-rpc';
 
 describe('MessagePack truth first-family schema contracts', () => {
@@ -444,6 +452,44 @@ describe('backend SQL projection rebuild contract', () => {
         status: 'ready',
         families: [{ family: 'review-event-indexes', status: 'ready' }],
       },
+    });
+  });
+
+  it('declares truth storage paths, storage error codes, and storage diagnostic kinds', () => {
+    const codes = new Set<BackendStorageErrorCode>(STORAGE_ERROR_CODES);
+    const diagnostic: BackendStorageDiagnostic = {
+      kind: 'legacy-petal-db-ignored',
+      severity: 'warning',
+      at: 1_700_000_000_000,
+      message: 'petal sqlite projection ignored',
+      path: SIYUANMEMO_FORBIDDEN_PETAL_SQLITE_DB_PATH,
+    };
+
+    expect(SIYUANMEMO_TRUTH_ROOT_PATH).toBe('truth');
+    expect(LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH)
+      .toBe('truth/migrations/legacy-unified-cards-to-truth.v1.json');
+    expect(SIYUANMEMO_TEMP_PROJECTION_DB_PATH).toBe('temp/siyuan-plugin-siyuanmemo/siyuanmemo.db');
+    expect(SIYUANMEMO_FORBIDDEN_PETAL_SQLITE_DB_PATH)
+      .toBe('storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db');
+    expect(codes).toEqual(new Set<BackendStorageErrorCode>([
+      'TRUTH_DEVICE_ID_UNAVAILABLE',
+      'LEGACY_MIGRATION_FAILED',
+      'LEGACY_DIVERGENCE_DETECTED',
+      'TRUTH_VALIDATION_FAILED',
+      'PROJECTION_REBUILD_FAILED',
+      'SOURCE_READ_UNAVAILABLE',
+    ]));
+    expect(STORAGE_DIAGNOSTIC_KINDS).toEqual(expect.arrayContaining([
+      'legacy-petal-db-ignored',
+      'orphan-truth-segment',
+      'quarantined-review-log',
+      'repaired-scheduling-memory',
+      'skipped-non-formal-review-log',
+      'projection-rebuild-status',
+    ]));
+    expect(JSON.parse(JSON.stringify(diagnostic))).toMatchObject({
+      kind: 'legacy-petal-db-ignored',
+      path: 'storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db',
     });
   });
 

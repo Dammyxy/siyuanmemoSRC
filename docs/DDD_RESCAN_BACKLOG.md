@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-02 (Round 518)
+Last update: 2026-06-02 (Round 519)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-02 - MessagePack truth checksum commit point
+
+- Task: Start `cutover-msgpack-truth-temp-projection-store` by tightening storage contracts, truth device identity, forbidden petal DB audit, and MessagePack truth segment commit/read rules.
+- Touched slice: Backend storage contracts and audit policy; application backend runtime truth identity; Worker truth segment store plus worker/renderer truth host effects; active architecture docs and focused tests.
+- Debt fixed now: Storage paths, storage error codes, and storage diagnostics now have shared contract constants. `storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db` is classified as a forbidden legacy petal DB instead of an active projection target. Production truth writes now use one truth-wide localStorage identity and fail closed with `TRUTH_DEVICE_ID_UNAVAILABLE` when persistent identity is unavailable. MessagePack truth appends now commit as segment binary -> checksum sidecar JSON -> manifest, readers only apply manifest-listed segments, and orphan `.msgpack` files are reported as `orphan-segment` diagnostics without being replayed.
+- Debt deferred: Legacy unified MessagePack import/receipt/divergence, full temp projection relocation, explicit schema-upgrade generation writer flow, compaction, optional truth families, and browser-only/multi-window writer policy remain pending OpenSpec tasks.
+- Why deferred: Those items cross migration, projection rebuild, startup gating, and multi-window authority. This slice only closes the contract and segment-infrastructure root needed before safe legacy import.
+- Next safe step: Implement legacy source detection, source hashing, and truth-side migration receipt reconciliation before importing `unified-cards.msgpack`.
+- Validation: `pnpm vitest run worker/truth/__tests__/MessagePackTruthSegmentStore.test.ts`; `pnpm vitest run src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts --testNamePattern "truth"`; `pnpm vitest run worker/truth/__tests__/ReviewFeedbackTruthFlushRuntime.test.ts worker/truth/__tests__/ReviewSqlTruthBackfillRuntime.test.ts`; `pnpm vitest run worker/__tests__/BackendKernel.test.ts --testNamePattern "truth|TRUTH_DEVICE_ID_UNAVAILABLE"`; `pnpm vitest run scripts/__tests__/audit-plugin-storage.test.ts packages/contracts/src/__tests__/backend-rpc.test.ts`; `pnpm vitest run src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts --testNamePattern "truth-wide local device identity"`; `openspec validate cutover-msgpack-truth-temp-projection-store --strict`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-06-02 - Keep Review backfill ref patches out of main DB checkpoints
 

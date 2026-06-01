@@ -29,8 +29,9 @@ afterEach(() => {
 describe('audit-plugin-storage', () => {
   it('classifies active storage contract files separately from cleanup candidates', () => {
     expect(classifyStoragePath('siyuanmemo.db')).toMatchObject({
-      classification: 'expected-active',
-      kind: 'sql-projection-db',
+      classification: 'forbidden-legacy-petal-db',
+      kind: 'legacy-petal-db-ignored',
+      diagnostic: 'legacy-petal-db-ignored',
     });
     expect(classifyStoragePath('truth/review-events/device-device-A/seg-000001-test.msgpack')).toMatchObject({
       classification: 'expected-active',
@@ -99,13 +100,14 @@ describe('audit-plugin-storage', () => {
     expect(result.total).toMatchObject({ files: 5, bytes: 46 });
     expect(result.byClassification).toMatchObject({
       'cleanup-candidate': { files: 1, bytes: 20 },
-      'expected-active': { files: 3, bytes: 21 },
+      'expected-active': { files: 2, bytes: 11 },
+      'forbidden-legacy-petal-db': { files: 1, bytes: 10 },
       'storage-slimming-followup': { files: 1, bytes: 5 },
     });
     expect(result.byKind).toMatchObject({
+      'legacy-petal-db-ignored': { files: 1, bytes: 10 },
       'messagepack-truth-manifest': { files: 1, bytes: 3 },
       'messagepack-truth-segment': { files: 1, bytes: 8 },
-      'sql-projection-db': { files: 1, bytes: 10 },
     });
     expect(result.topFiles.map((file: { relativePath: string }) => file.relativePath)).toEqual([
       'migration-backups/algorithm-card-state-repair-1701000000005.json',
@@ -113,7 +115,7 @@ describe('audit-plugin-storage', () => {
     ]);
   });
 
-  it('reports an active SQL projection without truth files as not yet sync-visible truth', () => {
+  it('reports a petal SQL DB without truth files as ignored legacy projection debt', () => {
     const rootDir = createFixtureRoot();
     writeFixture(rootDir, 'siyuanmemo.db', 10);
     writeFixture(rootDir, 'sqlite-delta-log.v1.json', 4);
@@ -121,10 +123,11 @@ describe('audit-plugin-storage', () => {
     const result = evaluate({ rootDir });
 
     expect(result.byClassification).toMatchObject({
-      'expected-active': { files: 2, bytes: 14 },
+      'expected-active': { files: 1, bytes: 4 },
+      'forbidden-legacy-petal-db': { files: 1, bytes: 10 },
     });
     expect(result.byKind).toMatchObject({
-      'sql-projection-db': { files: 1, bytes: 10 },
+      'legacy-petal-db-ignored': { files: 1, bytes: 10 },
       'sqlite-delta-log': { files: 1, bytes: 4 },
     });
     expect(result.byKind).not.toHaveProperty('messagepack-truth-segment');
