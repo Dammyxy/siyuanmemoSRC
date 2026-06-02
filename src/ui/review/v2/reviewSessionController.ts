@@ -22,7 +22,7 @@ import type {
 import { createEmptyReviewUIState } from './types';
 
 const logger = createLogger('ReviewSessionController');
-const REVIEW_GRADE_PHASE_SLOW_MS = 120;
+const REVIEW_GRADE_PHASE_SLOW_MS = 500;
 let reviewCommitIdentityCounter = 0;
 
 type RatingValue = 1 | 2 | 3 | 4;

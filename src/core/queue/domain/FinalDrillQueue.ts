@@ -370,7 +370,6 @@ export class FinalDrillQueue extends BaseReviewQueue {
                 return;
             }
             await this.persistEntries();
-            logger.info(`Card ${cardIdOrBlockId} removed`);
         } catch (error) {
             logger.error('Failed to remove card:', error);
             throw error;
@@ -433,7 +432,6 @@ export class FinalDrillQueue extends BaseReviewQueue {
                 // 评分 4：从队列移除
                 await this.removeCard(cardId);
                 await this.appendDrillLog(cardId, rating, 'removed');
-                logger.info(`Card ${cardId} reviewed with rating 4, removed from queue`);
                 this.emitQueueChangedEvent();
                 const counterSnapshot = await this.getCounterSnapshot(true);
                 return {
@@ -450,7 +448,6 @@ export class FinalDrillQueue extends BaseReviewQueue {
                 // 这样下次 FlipElement 可以选中它，避免总是复习同一张卡片
                 await this.moveCardToBack(cardId);
                 await this.appendDrillLog(cardId, rating, 'moved-to-back');
-                logger.info(`Card ${cardId} reviewed with rating ${rating}, moved to back`);
                 this.emitQueueChangedEvent();
                 const counterSnapshot = await this.getCounterSnapshot(true);
                 return {

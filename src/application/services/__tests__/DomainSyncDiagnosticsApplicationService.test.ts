@@ -1,6 +1,73 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DomainSyncDiagnosticsApplicationService } from '../DomainSyncDiagnosticsApplicationService';
-import type { BackendDomainSyncStatusResult } from '../../../../../packages/contracts/src/backend-rpc';
+import type {
+  BackendDomainSyncConflictSourceCleanupCandidatesResult,
+  BackendDomainSyncRepairPreviewResult,
+  BackendDomainSyncStatusResult,
+} from '../../../../../packages/contracts/src/backend-rpc';
+
+function cleanStatusResult(): BackendDomainSyncStatusResult {
+  return {
+    ok: true,
+    ledger: {
+      operationCount: 0,
+      newestOperationAt: null,
+      operationTypes: {},
+    },
+    processedSources: {
+      recent: [],
+      skipped: [],
+      totalProcessed: 0,
+      totalSkipped: 0,
+    },
+    sanity: {
+      status: 'clean',
+      checkedAt: 11,
+      ledgerOperationCount: 0,
+      pendingImportCount: 0,
+      processedSourceCount: 0,
+      skippedSourceCount: 0,
+      repairableDivergenceCount: 0,
+      divergentCardCount: 0,
+      reasonCounts: {},
+      affectedCardIds: [],
+      truncated: false,
+    },
+    repair: {
+      available: false,
+      repairableDivergenceCount: 0,
+      latestPlanId: null,
+    },
+  };
+}
+
+function repairPreviewResult(): BackendDomainSyncRepairPreviewResult {
+  return {
+    ok: true,
+    planId: 'writer-plan',
+    status: 'preview',
+    createdAt: 1_700_002_000_000,
+    affectedCardCount: 1,
+    evidence: [],
+    plannedMutations: [],
+    unrepairableReasons: [],
+    schedulerEvidence: {
+      schedulerType: 'fsrs-v6',
+      configHash: 'hash',
+      capturedAt: 1_700_002_000_000,
+    },
+    truncated: false,
+    limit: 50,
+  };
+}
+
+function cleanupCandidatesResult(): BackendDomainSyncConflictSourceCleanupCandidatesResult {
+  return {
+    ok: true,
+    sanityStatus: 'clean',
+    candidates: [],
+  };
+}
 
 describe('DomainSyncDiagnosticsApplicationService', () => {
   it('reads backend-owned domain sync status and logs a bounded summary', async () => {
@@ -63,46 +130,16 @@ describe('DomainSyncDiagnosticsApplicationService', () => {
   });
 
   it('passes review preflight status context to backend diagnostics reads', async () => {
-    const result: BackendDomainSyncStatusResult = {
-      ok: true,
-      ledger: {
-        operationCount: 0,
-        newestOperationAt: null,
-        operationTypes: {},
-      },
-      processedSources: {
-        recent: [],
-        skipped: [],
-        totalProcessed: 0,
-        totalSkipped: 0,
-      },
-      sanity: {
-        status: 'clean',
-        checkedAt: 11,
-        ledgerOperationCount: 0,
-        pendingImportCount: 0,
-        processedSourceCount: 0,
-        skippedSourceCount: 0,
-        repairableDivergenceCount: 0,
-        divergentCardCount: 0,
-        reasonCounts: {},
-        affectedCardIds: [],
-        truncated: false,
-      },
-      repair: {
-        available: false,
-        repairableDivergenceCount: 0,
-        latestPlanId: null,
-      },
-    };
+    const result = cleanStatusResult();
     const domainSyncStatus = vi.fn(async () => result);
+    const logger = { info: vi.fn() };
     const service = new DomainSyncDiagnosticsApplicationService({
       domainSyncStatus,
       domainSyncRepairPreview: vi.fn(),
       domainSyncRepairApply: vi.fn(),
       domainSyncConflictSourcesCleanup: vi.fn(),
       domainSyncConflictSourceCleanupCandidates: vi.fn(),
-    }, { info: vi.fn() });
+    }, logger);
 
     await expect(service.readStatus({
       context: 'review-feedback-preflight',
@@ -111,6 +148,103 @@ describe('DomainSyncDiagnosticsApplicationService', () => {
     expect(domainSyncStatus).toHaveBeenCalledWith({
       context: 'review-feedback-preflight',
       cardId: 'card-preflight',
+    });
+    expect(logger.info).not.toHaveBeenCalledWith(
+      'Domain sync diagnostics status read',
+      expect.anything(),
+    );
+  });
+
+  it('routes diagnostics status through writer relay when runtime is follower', async () => {
+    const request = {
+      context: 'read-only-preflight' as const,
+      cardId: 'card-status-follower',
+    };
+    const relayResult = cleanStatusResult();
+    const backend = {
+      domainSyncStatus: vi.fn(async () => {
+        throw new Error('follower must not read local domain sync status');
+      }),
+      domainSyncRepairPreview: vi.fn(),
+      domainSyncRepairApply: vi.fn(),
+      domainSyncConflictSourcesCleanup: vi.fn(),
+      domainSyncConflictSourceCleanupCandidates: vi.fn(),
+    };
+    const submitAndWait = vi.fn(async () => relayResult);
+    const service = new DomainSyncDiagnosticsApplicationService(
+      backend,
+      { info: vi.fn() },
+      { getMode: () => 'follower', getInstanceId: () => 'instance-follower-domain-status' },
+      { submitAndWait },
+    );
+
+    await expect(service.readStatus(request)).resolves.toBe(relayResult);
+    expect(backend.domainSyncStatus).not.toHaveBeenCalled();
+    expect(submitAndWait).toHaveBeenCalledWith({
+      instanceId: 'instance-follower-domain-status',
+      method: 'domainSync.status',
+      params: request,
+    });
+  });
+
+  it('routes repair preview through writer relay when runtime is follower so apply sees the same plan', async () => {
+    const request = {
+      cardIds: ['card-preview-follower'],
+      limit: 10,
+      includeUnrepairable: true,
+    };
+    const relayResult = repairPreviewResult();
+    const backend = {
+      domainSyncStatus: vi.fn(),
+      domainSyncRepairPreview: vi.fn(async () => {
+        throw new Error('follower must not create local repair plan');
+      }),
+      domainSyncRepairApply: vi.fn(),
+      domainSyncConflictSourcesCleanup: vi.fn(),
+      domainSyncConflictSourceCleanupCandidates: vi.fn(),
+    };
+    const submitAndWait = vi.fn(async () => relayResult);
+    const service = new DomainSyncDiagnosticsApplicationService(
+      backend,
+      { info: vi.fn() },
+      { getMode: () => 'follower', getInstanceId: () => 'instance-follower-domain-preview' },
+      { submitAndWait },
+    );
+
+    await expect(service.previewRepair(request)).resolves.toBe(relayResult);
+    expect(backend.domainSyncRepairPreview).not.toHaveBeenCalled();
+    expect(submitAndWait).toHaveBeenCalledWith({
+      instanceId: 'instance-follower-domain-preview',
+      method: 'domainSync.repair.preview',
+      params: request,
+    });
+  });
+
+  it('routes cleanup candidates through writer relay when runtime is follower', async () => {
+    const relayResult = cleanupCandidatesResult();
+    const backend = {
+      domainSyncStatus: vi.fn(),
+      domainSyncRepairPreview: vi.fn(),
+      domainSyncRepairApply: vi.fn(),
+      domainSyncConflictSourcesCleanup: vi.fn(),
+      domainSyncConflictSourceCleanupCandidates: vi.fn(async () => {
+        throw new Error('follower must not read local cleanup candidates');
+      }),
+    };
+    const submitAndWait = vi.fn(async () => relayResult);
+    const service = new DomainSyncDiagnosticsApplicationService(
+      backend,
+      { info: vi.fn() },
+      { getMode: () => 'follower', getInstanceId: () => 'instance-follower-domain-candidates' },
+      { submitAndWait },
+    );
+
+    await expect(service.listCleanupCandidates()).resolves.toBe(relayResult);
+    expect(backend.domainSyncConflictSourceCleanupCandidates).not.toHaveBeenCalled();
+    expect(submitAndWait).toHaveBeenCalledWith({
+      instanceId: 'instance-follower-domain-candidates',
+      method: 'domainSync.conflictSources.cleanupCandidates',
+      params: {},
     });
   });
 

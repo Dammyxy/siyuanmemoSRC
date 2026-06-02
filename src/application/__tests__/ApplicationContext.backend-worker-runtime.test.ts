@@ -177,6 +177,136 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(context.getFollowerCommandClient()).toBeNull();
   });
 
+  it('routes follower domain sync diagnostics reads through writer relay runtime', async () => {
+    const domainSyncStatus = vi.fn(async () => {
+      throw new Error('follower must not read local domain sync status');
+    });
+    const domainSyncRepairPreview = vi.fn(async () => {
+      throw new Error('follower must not create local repair preview');
+    });
+    const domainSyncConflictSourceCleanupCandidates = vi.fn(async () => {
+      throw new Error('follower must not read local cleanup candidates');
+    });
+    const statusResult = {
+      ok: true,
+      ledger: {
+        operationCount: 0,
+        newestOperationAt: null,
+        operationTypes: {},
+      },
+      processedSources: {
+        recent: [],
+        skipped: [],
+        totalProcessed: 0,
+        totalSkipped: 0,
+      },
+      sanity: {
+        status: 'clean',
+        checkedAt: 1,
+        ledgerOperationCount: 0,
+        pendingImportCount: 0,
+        processedSourceCount: 0,
+        skippedSourceCount: 0,
+        repairableDivergenceCount: 0,
+        divergentCardCount: 0,
+        reasonCounts: {},
+        affectedCardIds: [],
+        truncated: false,
+      },
+      repair: {
+        available: false,
+        repairableDivergenceCount: 0,
+        latestPlanId: null,
+      },
+    };
+    const previewResult = {
+      ok: true,
+      planId: 'writer-plan',
+      status: 'no-repair',
+      createdAt: 1,
+      affectedCardCount: 0,
+      evidence: [],
+      plannedMutations: [],
+      unrepairableReasons: [],
+      schedulerEvidence: {
+        schedulerType: null,
+        configHash: null,
+        capturedAt: 1,
+      },
+      truncated: false,
+      limit: 50,
+    };
+    const candidatesResult = {
+      ok: true,
+      sanityStatus: 'clean',
+      candidates: [],
+    };
+    const submitAndWait = vi.fn(async (request: { method: string }) => {
+      if (request.method === 'domainSync.status') {
+        return statusResult;
+      }
+      if (request.method === 'domainSync.repair.preview') {
+        return previewResult;
+      }
+      if (request.method === 'domainSync.conflictSources.cleanupCandidates') {
+        return candidatesResult;
+      }
+      throw new Error(`unexpected method ${request.method}`);
+    });
+    const TestableApplicationContext = ApplicationContext as unknown as new (
+      config: unknown,
+      services: unknown,
+    ) => ApplicationContext;
+    const context = new TestableApplicationContext({
+      plugin: { name: 'test-plugin', app: {} },
+      i18n: {},
+    }, {
+      storageManager: {},
+      unifiedStorageManager: { save: vi.fn() },
+      schedulerRouter: {},
+      rescheduleService: {},
+      unifiedDataSourceManager: {},
+      blockMenuHandler: {},
+      srsBackendClient: {
+        domainSyncStatus,
+        domainSyncRepairPreview,
+        domainSyncRepairApply: vi.fn(),
+        domainSyncConflictSourcesCleanup: vi.fn(),
+        domainSyncConflictSourceCleanupCandidates,
+      },
+      frontendInstanceRuntime: {
+        getMode: () => 'follower',
+        getInstanceId: () => 'follower-domain-sync',
+      },
+      followerCommandClient: {
+        submitAndWait,
+      },
+    });
+
+    await expect(context.readDomainSyncDiagnostics({ context: 'read-only-preflight' })).resolves.toBe(statusResult);
+    await expect(context.previewDomainSyncRepair({ limit: 10 })).resolves.toBe(previewResult);
+    await expect(context.listDomainSyncConflictSourceCleanupCandidates()).resolves.toBe(candidatesResult);
+
+    expect(domainSyncStatus).not.toHaveBeenCalled();
+    expect(domainSyncRepairPreview).not.toHaveBeenCalled();
+    expect(domainSyncConflictSourceCleanupCandidates).not.toHaveBeenCalled();
+    expect(submitAndWait).toHaveBeenCalledWith({
+      instanceId: 'follower-domain-sync',
+      method: 'domainSync.status',
+      params: { context: 'read-only-preflight' },
+    });
+    expect(submitAndWait).toHaveBeenCalledWith({
+      instanceId: 'follower-domain-sync',
+      method: 'domainSync.repair.preview',
+      params: { limit: 10 },
+    });
+    expect(submitAndWait).toHaveBeenCalledWith({
+      instanceId: 'follower-domain-sync',
+      method: 'domainSync.conflictSources.cleanupCandidates',
+      params: {},
+    });
+  });
+
   it('does not rewrite a clean sqlite database during dispose when storage persistence is disabled', async () => {
     const fileService = new MemorySqliteFileService();
     const seeded = new SqliteDatabaseService(fileService);

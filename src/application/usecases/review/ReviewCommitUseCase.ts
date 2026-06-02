@@ -16,7 +16,7 @@ import { createLogger } from '@/utils/logger';
 import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics';
 
 const logger = createLogger('ReviewCommitUseCase');
-const REVIEW_COMMIT_STEP_SLOW_MS = 120;
+const REVIEW_COMMIT_STEP_SLOW_MS = 500;
 
 export interface ReviewCommitCardReader {
   getCard(cardId: string, options?: { silent?: boolean }): Promise<FSRSCard>;

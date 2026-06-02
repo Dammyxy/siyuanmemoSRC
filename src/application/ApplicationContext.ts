@@ -2133,7 +2133,12 @@ export class ApplicationContext {
     if (!backendClient) {
       throw new Error('BACKEND_UNAVAILABLE: domain sync diagnostics requires SRS backend');
     }
-    const service = new DomainSyncDiagnosticsApplicationService(backendClient, logger);
+    const service = new DomainSyncDiagnosticsApplicationService(
+      backendClient,
+      logger,
+      this.frontendInstanceRuntime,
+      this.followerCommandClient,
+    );
     return service.readStatus(request);
   }
 
@@ -2144,7 +2149,12 @@ export class ApplicationContext {
     if (!backendClient) {
       throw new Error('BACKEND_UNAVAILABLE: domain sync repair preview requires SRS backend');
     }
-    const service = new DomainSyncDiagnosticsApplicationService(backendClient, logger);
+    const service = new DomainSyncDiagnosticsApplicationService(
+      backendClient,
+      logger,
+      this.frontendInstanceRuntime,
+      this.followerCommandClient,
+    );
     return service.previewRepair(request);
   }
 
@@ -2185,7 +2195,12 @@ export class ApplicationContext {
     if (!backendClient) {
       throw new Error('BACKEND_UNAVAILABLE: domain sync conflict source cleanup candidates require SRS backend');
     }
-    const service = new DomainSyncDiagnosticsApplicationService(backendClient, logger);
+    const service = new DomainSyncDiagnosticsApplicationService(
+      backendClient,
+      logger,
+      this.frontendInstanceRuntime,
+      this.followerCommandClient,
+    );
     return service.listCleanupCandidates();
   }
 

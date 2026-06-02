@@ -1463,11 +1463,6 @@ async function ensureReviewDomainSyncSafeForAction(input: {
       diagnosticsUnavailableReason: decision.message,
     });
     throw error instanceof Error ? error : new Error(String(error));
-  } finally {
-    logger.info('[ReviewView] Domain sync safety checked before Review action', {
-      action: input.action.type,
-      cardId: input.item?.id || input.item?.cardID || null,
-    });
   }
 }
 

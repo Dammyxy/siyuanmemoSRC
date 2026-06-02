@@ -32,6 +32,18 @@ export async function executeWriterRelayCommand(
       };
     });
   }
+  if (command.method === 'domainSync.status') {
+    if (command.params !== undefined && (!command.params || typeof command.params !== 'object')) {
+      throw new Error('INVALID_REQUEST: domainSync.status relay requires params object');
+    }
+    return srsBackendClient.domainSyncStatus((command.params ?? {}) as Parameters<SrsBackendClient['domainSyncStatus']>[0]);
+  }
+  if (command.method === 'domainSync.repair.preview') {
+    if (command.params !== undefined && (!command.params || typeof command.params !== 'object')) {
+      throw new Error('INVALID_REQUEST: domainSync.repair.preview relay requires params object');
+    }
+    return srsBackendClient.domainSyncRepairPreview((command.params ?? {}) as Parameters<SrsBackendClient['domainSyncRepairPreview']>[0]);
+  }
   if (command.method === 'domainSync.repair.apply') {
     if (!command.params || typeof command.params !== 'object') {
       throw new Error('INVALID_REQUEST: domainSync.repair.apply relay requires params object');
@@ -43,6 +55,12 @@ export async function executeWriterRelayCommand(
       confirmedBy?: string | null;
       confirmationText?: string | null;
     });
+  }
+  if (command.method === 'domainSync.conflictSources.cleanupCandidates') {
+    if (command.params !== undefined && (!command.params || typeof command.params !== 'object')) {
+      throw new Error('INVALID_REQUEST: domainSync.conflictSources.cleanupCandidates relay requires params object');
+    }
+    return srsBackendClient.domainSyncConflictSourceCleanupCandidates();
   }
   if (command.method === 'domainSync.conflictSources.cleanup') {
     if (!command.params || typeof command.params !== 'object') {

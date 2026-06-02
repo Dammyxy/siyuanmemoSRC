@@ -366,20 +366,26 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         const now = Date.now();
         this.extendReviewFeedbackPersistenceSuppressionWindow(now);
         this.logReviewFeedbackWorkerTiming(pending, message.timing, now);
-        this.logReviewFeedbackTransportStepIfSlow(
-          'worker-roundtrip',
-          pending.method,
-          pending.cardId,
-          now - (pending.postedAt ?? pending.queuedAt),
-          { pendingRequests: this.pendingRequests.size },
-        );
-        this.logReviewFeedbackTransportStepIfSlow(
-          'request-total',
-          pending.method,
-          pending.cardId,
-          now - pending.queuedAt,
-          { pendingRequests: this.pendingRequests.size },
-        );
+        const roundtripMs = now - (pending.postedAt ?? pending.queuedAt);
+        if (this.shouldLogReviewFeedbackOuterTransportStep(roundtripMs, message.timing)) {
+          this.logReviewFeedbackTransportStepIfSlow(
+            'worker-roundtrip',
+            pending.method,
+            pending.cardId,
+            roundtripMs,
+            { pendingRequests: this.pendingRequests.size },
+          );
+        }
+        const requestTotalMs = now - pending.queuedAt;
+        if (this.shouldLogReviewFeedbackOuterTransportStep(requestTotalMs, message.timing)) {
+          this.logReviewFeedbackTransportStepIfSlow(
+            'request-total',
+            pending.method,
+            pending.cardId,
+            requestTotalMs,
+            { pendingRequests: this.pendingRequests.size },
+          );
+        }
       } else {
         this.recordDiagnosticWorkerTiming(pending, message.timing);
       }
@@ -606,14 +612,9 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     durationMs: number,
     extra?: Record<string, unknown>,
   ): void {
-    const shouldForceLog = step === 'worker-inner-step'
-      && (
-        extra?.innerStep === 'merge.fast-skip-main-db-read'
-        || extra?.forceLogReason === 'worker-handle-top-inner-step'
-      );
     if (
       method !== 'review.feedback'
-      || (!shouldForceLog && durationMs < REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS)
+      || durationMs < REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS
     ) {
       return;
     }
@@ -757,8 +758,25 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         generation: this.generation,
         health: this.health,
         copySummary,
+        hostEffectCount: timing.hostEffectCount,
+        hostEffectTotalMs: timing.hostEffectTotalMs,
+        hostEffectAttribution: timing.hostEffectAttribution,
+        slowestHostEffect: timing.slowestHostEffect,
+        innerStepAttribution: timing.innerStepAttribution,
+        innerStepsTruncated: timing.innerStepsTruncated,
+        ...innerStepSummary,
       },
     );
+  }
+
+  private shouldLogReviewFeedbackOuterTransportStep(
+    durationMs: number,
+    timing: BackendWorkerResponseTiming | null | undefined,
+  ): boolean {
+    if (!timing || timing.handleDurationMs < REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS) {
+      return durationMs >= REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS;
+    }
+    return durationMs - timing.handleDurationMs >= REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS;
   }
 
   private logReviewFeedbackWorkerTiming(
@@ -770,14 +788,6 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       return;
     }
     const innerStepSummary = this.summarizeReviewFeedbackInnerSteps(timing);
-    const shouldForceTopInnerSteps = timing.handleDurationMs >= REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS;
-    const forceLoggedInnerSteps = shouldForceTopInnerSteps
-      ? new Set(
-        [...timing.innerSteps]
-          .sort((left, right) => right.durationMs - left.durationMs)
-          .slice(0, REVIEW_FEEDBACK_WORKER_HANDLE_TOP_INNER_STEP_COUNT),
-      )
-      : new Set();
     this.logReviewFeedbackTransportStepIfSlow(
       'worker-received-delay',
       pending.method,
@@ -789,43 +799,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         transportPostedAt: pending.postedAt,
       },
     );
-    this.logReviewFeedbackTransportStepIfSlow(
-      'worker-handle',
-      pending.method,
-      pending.cardId,
-      timing.handleDurationMs,
-      {
-        pendingRequests: this.pendingRequests.size,
-        hostEffectCount: timing.hostEffectCount,
-        hostEffectTotalMs: timing.hostEffectTotalMs,
-        hostEffectAttribution: timing.hostEffectAttribution,
-        slowestHostEffect: timing.slowestHostEffect,
-        innerStepAttribution: timing.innerStepAttribution,
-        innerStepsTruncated: timing.innerStepsTruncated,
-        ...innerStepSummary,
-      },
-    );
     this.logReviewFeedbackWorkerHandleCopySummary(pending, timing, innerStepSummary);
-    for (const innerStep of timing.innerSteps) {
-      this.logReviewFeedbackTransportStepIfSlow(
-        'worker-inner-step',
-        pending.method,
-        pending.cardId,
-        innerStep.durationMs,
-        {
-          pendingRequests: this.pendingRequests.size,
-          innerLayer: innerStep.layer,
-          innerStep: innerStep.step,
-          innerCardId: innerStep.cardId ?? null,
-          innerQueueType: innerStep.queueType ?? null,
-          innerStepAttribution: timing.innerStepAttribution,
-          ...(forceLoggedInnerSteps.has(innerStep)
-            ? { forceLogReason: 'worker-handle-top-inner-step' }
-            : {}),
-          ...(innerStep.extra ?? {}),
-        },
-      );
-    }
     this.logReviewFeedbackTransportStepIfSlow(
       'main-after-worker',
       pending.method,

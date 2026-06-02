@@ -121,7 +121,7 @@ import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SrsBackendClient');
-const REVIEW_FEEDBACK_CLIENT_STEP_SLOW_MS = 120;
+const REVIEW_FEEDBACK_CLIENT_STEP_SLOW_MS = 500;
 const REVIEW_TRUTH_FLUSH_DEFAULT_DELAY_MS = 2_100;
 const REVIEW_TRUTH_BACKFILL_DEFAULT_BATCH_LIMIT = 64;
 const REVIEW_TRUTH_BACKFILL_MAX_STARTUP_BATCHES = 16;

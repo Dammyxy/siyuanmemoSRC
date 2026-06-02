@@ -124,6 +124,85 @@ describe('ApplicationContext writer relay command dispatch', () => {
     expect(onKernelTransactionIngested).toHaveBeenCalledTimes(1);
   });
 
+  it('dispatches domainSync.status to backend client', async () => {
+    const domainSyncStatus = vi.fn(async () => ({
+      ok: true,
+      sanity: { status: 'clean' },
+    }));
+    const client = {
+      domainSyncStatus,
+    } as unknown as {
+      domainSyncStatus: (request: unknown) => Promise<unknown>;
+    };
+    const request = {
+      context: 'read-only-preflight',
+      cardId: 'card-domain-status',
+    };
+
+    const result = await executeWriterRelayCommand(client, {
+      method: 'domainSync.status',
+      params: request,
+    });
+
+    expect(domainSyncStatus).toHaveBeenCalledWith(request);
+    expect(result).toMatchObject({
+      ok: true,
+      sanity: { status: 'clean' },
+    });
+  });
+
+  it('dispatches domainSync.repair.preview to backend client', async () => {
+    const domainSyncRepairPreview = vi.fn(async () => ({
+      ok: true,
+      planId: 'writer-plan',
+      status: 'preview',
+    }));
+    const client = {
+      domainSyncRepairPreview,
+    } as unknown as {
+      domainSyncRepairPreview: (request: unknown) => Promise<unknown>;
+    };
+    const request = {
+      cardIds: ['card-domain-preview'],
+      includeUnrepairable: true,
+    };
+
+    const result = await executeWriterRelayCommand(client, {
+      method: 'domainSync.repair.preview',
+      params: request,
+    });
+
+    expect(domainSyncRepairPreview).toHaveBeenCalledWith(request);
+    expect(result).toMatchObject({
+      ok: true,
+      planId: 'writer-plan',
+    });
+  });
+
+  it('dispatches domainSync.conflictSources.cleanupCandidates to backend client', async () => {
+    const domainSyncConflictSourceCleanupCandidates = vi.fn(async () => ({
+      ok: true,
+      sanityStatus: 'clean',
+      candidates: [],
+    }));
+    const client = {
+      domainSyncConflictSourceCleanupCandidates,
+    } as unknown as {
+      domainSyncConflictSourceCleanupCandidates: () => Promise<unknown>;
+    };
+
+    const result = await executeWriterRelayCommand(client, {
+      method: 'domainSync.conflictSources.cleanupCandidates',
+      params: {},
+    });
+
+    expect(domainSyncConflictSourceCleanupCandidates).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      ok: true,
+      candidates: [],
+    });
+  });
+
   it('dispatches autocard.decision.resolve to backend client', async () => {
     const resolveAutoCardDecision = vi.fn(async () => ({
       candidateId: 'candidate-1',

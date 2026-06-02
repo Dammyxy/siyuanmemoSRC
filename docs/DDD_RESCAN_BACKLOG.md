@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-02 (Round 530)
+Last update: 2026-06-02 (Round 532)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-02 - Domain sync diagnostics writer relay ownership
+
+- Task: 修复打开 Review/NeuralRoam 时反复出现同步修复弹窗，现场日志显示 `repairableDivergenceCount=5` 但 cleanup candidates 为 0。
+- Touched slice: Review/domain-sync safety gate, writer relay contract/dispatcher, `ApplicationContext`, `DomainSyncDiagnosticsApplicationService`, active architecture/backlog docs.
+- Debt fixed now: Follower 窗口下 `domainSync.status`、`domainSync.repair.preview`、`domainSync.conflictSources.cleanupCandidates` 现在和 apply/cleanup 一样通过 `FollowerCommandClient -> writerRelayCommandDispatcher -> SrsBackendClient` 走 writer relay，不再本地读 follower backend 或本地创建 repair plan。这样安全 gate、repair preview plan、apply repair、post-apply status refresh 都落在同一个 writer-owned backend，避免 follower 读到旧 repairable diagnostics 或把本地 planId 发给 writer。
+- Debt deferred: 未自动清理已有 live conflict DB、旧 repair plan 或历史 repair-applied ledger；若 writer 端真实仍报告 `review-history-newer-than-card-state`，仍需要按弹窗证据继续修复或另开数据清理任务。
+- Why deferred: 本轮根因是 writer/follower 诊断所有权不一致，不是数据删除策略。自动删除同步来源或改写历史 review events 会扩大到数据保留/回滚政策。
+- Next safe step: 重载已构建插件，在同一 Review 入口重试一次；如果仍弹窗，贴新的 `Domain sync diagnostics status read`，重点看 writer relay 后的 `reasonCounts`、repair preview/apply result 和 post-apply status。
+- Validation: Red/green `pnpm exec vitest run src/application/services/__tests__/DomainSyncDiagnosticsApplicationService.test.ts`; `pnpm exec vitest run src/application/__tests__/ApplicationContext.writer-relay.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts`; `pnpm exec vitest run src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts -t "domain sync diagnostics"`; full targeted `pnpm exec vitest run src/application/services/__tests__/DomainSyncDiagnosticsApplicationService.test.ts src/application/__tests__/ApplicationContext.writer-relay.test.ts src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts`; `pnpm exec vitest run src/application/clients/__tests__/SrsBackendClient.test.ts src/application/clients/__tests__/FollowerCommandClient.test.ts`; `pnpm run check:boundaries`; `pnpm build`; `git diff --check`.
+
+### 2026-06-02 - Review feedback log noise cutover
+
+- Task: 收口 `repair-msgpack-truth-runtime-cutover` 后 Review 单次评分日志噪音，保留关键慢路径诊断。
+- Touched slice: Review feedback transport/client/use case/session controller logging, domain-sync review preflight diagnostics, `UnifiedQueueStrategy`, core review queue success logs, focused log-noise tests, active DDD backlog.
+- Debt fixed now: Slow `review.feedback` worker timing no longer同时输出 `worker-handle` 通用对象和每个 `worker-inner-step`；结构化字段集中到一条 `worker-handle-summary`。Review preflight domain-sync read 和 ReviewView safety success path 不再每次打 info。Queue/session success path 去掉 feedback processing、handled、stats、cache invalidation、nextDues、normal card removal/reviewed confirmations。中间层 slow info 阈值从 120ms 提到 500ms，避免 200-300ms 的正常热路径每次被标为 slow。
+- Debt deferred: NeuralRoam、manual add/reload、scheduler preview 和测试 fixture 中仍有较多历史 info/warn 噪音，未在本次 Review scoring 热路径内继续扩大清理。
+- Why deferred: 本次目标是用户提供的一次正式 Review 评分日志；继续清理非评分热路径会跨到 NeuralRoam、manual queue maintenance、test logging hygiene 等独立语义。
+- Next safe step: 如果下一次真实评分日志仍显噪，基于新日志继续只收对应 active hot path；另开任务清理队列初始化/Reload/manual add 的历史 info。
+- Validation: Red/green `pnpm exec vitest run src/application/clients/__tests__/BrowserSrsBackendWorkerTransport.test.ts`; `pnpm exec vitest run src/application/services/__tests__/DomainSyncDiagnosticsApplicationService.test.ts`; `pnpm exec vitest run src/ui/review/v2/__tests__/useReviewSession.spec.ts`; `pnpm exec vitest run src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts src/application/__tests__/UnifiedQueueStrategy.hide-current-in-scope.test.ts`; `pnpm exec vitest run src/core/queue/domain/__tests__/DynamicQueue.review-removal.test.ts src/core/queue/domain/__tests__/RetrievalPracticeQueue.add-card.test.ts src/core/queue/domain/__tests__/BaseReviewQueue.snapshot.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`; `git diff --check`.
 
 ### 2026-06-02 - Runtime startup unblock and temp SQL projection routing
 

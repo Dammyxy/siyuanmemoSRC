@@ -1121,7 +1121,6 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                     );
                 }
                 this.clearSizeCache();
-                logger.info(`[${this.type}] Card ${cardId} reviewed with rating ${rating}, removed from queue`);
                 return {
                     updatedCard,
                     removedFromQueue: true,
@@ -1148,7 +1147,6 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                     );
                 }
                 this.clearSizeCache();
-                logger.info(`[${this.type}] Card ${cardId} reviewed with rating ${rating}, kept in queue`);
                 return {
                     updatedCard,
                     removedFromQueue: false,

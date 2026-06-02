@@ -30,8 +30,18 @@ export interface DomainSyncDiagnosticsFrontendRuntime {
 export interface DomainSyncDiagnosticsFollowerCommandClient {
   submitAndWait<TResult>(request: {
     instanceId: string;
-    method: 'domainSync.repair.apply' | 'domainSync.conflictSources.cleanup';
-    params: BackendDomainSyncRepairApplyRequest | BackendDomainSyncConflictSourceCleanupRequest;
+    method:
+      | 'domainSync.status'
+      | 'domainSync.repair.preview'
+      | 'domainSync.repair.apply'
+      | 'domainSync.conflictSources.cleanupCandidates'
+      | 'domainSync.conflictSources.cleanup';
+    params:
+      | BackendDomainSyncStatusRequest
+      | BackendDomainSyncRepairPreviewRequest
+      | BackendDomainSyncRepairApplyRequest
+      | BackendDomainSyncConflictSourceCleanupRequest
+      | Record<string, never>;
   }): Promise<TResult>;
 }
 
@@ -43,20 +53,58 @@ export class DomainSyncDiagnosticsApplicationService {
     private readonly followerCommandClient: DomainSyncDiagnosticsFollowerCommandClient | null = null,
   ) {}
 
+  private isFollowerRuntime(): boolean {
+    return this.frontendRuntime?.getMode() === 'follower';
+  }
+
+  private requireWriterRelay(method: string): {
+    instanceId: string;
+    client: DomainSyncDiagnosticsFollowerCommandClient;
+  } {
+    const instanceId = this.frontendRuntime?.getInstanceId();
+    if (!instanceId || !this.followerCommandClient) {
+      throw new Error(`BACKEND_UNAVAILABLE: ${method} requires writer relay runtime`);
+    }
+    return {
+      instanceId,
+      client: this.followerCommandClient,
+    };
+  }
+
   async readStatus(request: BackendDomainSyncStatusRequest = {}): Promise<BackendDomainSyncStatusResult> {
-    const result = await this.backend.domainSyncStatus(request);
-    this.logger.info('Domain sync diagnostics status read', {
-      sanityStatus: result.sanity.status,
-      operationCount: result.ledger.operationCount,
-      processedSources: result.processedSources.totalProcessed,
-      skippedSources: result.processedSources.totalSkipped,
-      repairableDivergenceCount: result.sanity.repairableDivergenceCount,
-    });
+    const result = this.isFollowerRuntime()
+      ? await (() => {
+          const relay = this.requireWriterRelay('domainSync.status');
+          return relay.client.submitAndWait<BackendDomainSyncStatusResult>({
+            instanceId: relay.instanceId,
+            method: 'domainSync.status',
+            params: request,
+          });
+        })()
+      : await this.backend.domainSyncStatus(request);
+    if (request.context !== 'review-feedback-preflight') {
+      this.logger.info('Domain sync diagnostics status read', {
+        sanityStatus: result.sanity.status,
+        operationCount: result.ledger.operationCount,
+        processedSources: result.processedSources.totalProcessed,
+        skippedSources: result.processedSources.totalSkipped,
+        repairableDivergenceCount: result.sanity.repairableDivergenceCount,
+      });
+    }
     return result;
   }
 
   async previewRepair(request: BackendDomainSyncRepairPreviewRequest = {}): Promise<BackendDomainSyncRepairPreviewResult> {
-    const result = await this.backend.domainSyncRepairPreview(request);
+    const result = this.isFollowerRuntime()
+      ? await (() => {
+          const relay = this.requireWriterRelay('domainSync.repair.preview');
+          return relay.client.submitAndWait<BackendDomainSyncRepairPreviewResult>({
+            instanceId: relay.instanceId,
+            method: 'domainSync.repair.preview',
+            params: request,
+          });
+        })()
+      : await this.backend.domainSyncRepairPreview(request);
     this.logger.info('Domain sync repair preview read', {
       status: result.status,
       affectedCardCount: result.affectedCardCount,
@@ -67,10 +115,9 @@ export class DomainSyncDiagnosticsApplicationService {
   }
 
   async applyRepair(request: BackendDomainSyncRepairApplyRequest): Promise<BackendDomainSyncRepairApplyResult> {
-    const runtime = this.frontendRuntime;
     let result: BackendDomainSyncRepairApplyResult;
-    if (runtime?.getMode() === 'follower') {
-      const instanceId = runtime.getInstanceId();
+    if (this.isFollowerRuntime()) {
+      const instanceId = this.frontendRuntime?.getInstanceId();
       if (!instanceId || !this.followerCommandClient) {
         return {
           ok: false,
@@ -102,9 +149,8 @@ export class DomainSyncDiagnosticsApplicationService {
   async cleanupConflictSources(
     request: BackendDomainSyncConflictSourceCleanupRequest,
   ): Promise<BackendDomainSyncConflictSourceCleanupResult> {
-    const runtime = this.frontendRuntime;
-    if (runtime?.getMode() === 'follower') {
-      const instanceId = runtime.getInstanceId();
+    if (this.isFollowerRuntime()) {
+      const instanceId = this.frontendRuntime?.getInstanceId();
       if (!instanceId || !this.followerCommandClient) {
         return {
           ok: false,
@@ -125,7 +171,16 @@ export class DomainSyncDiagnosticsApplicationService {
   }
 
   async listCleanupCandidates(): Promise<BackendDomainSyncConflictSourceCleanupCandidatesResult> {
-    const result = await this.backend.domainSyncConflictSourceCleanupCandidates();
+    const result = this.isFollowerRuntime()
+      ? await (() => {
+          const relay = this.requireWriterRelay('domainSync.conflictSources.cleanupCandidates');
+          return relay.client.submitAndWait<BackendDomainSyncConflictSourceCleanupCandidatesResult>({
+            instanceId: relay.instanceId,
+            method: 'domainSync.conflictSources.cleanupCandidates',
+            params: {},
+          });
+        })()
+      : await this.backend.domainSyncConflictSourceCleanupCandidates();
     this.logger.info('Domain sync conflict source cleanup candidates read', {
       sanityStatus: result.sanityStatus,
       candidates: result.candidates.length,

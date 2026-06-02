@@ -8,9 +8,14 @@ import {
 } from '../kernel-rpc';
 
 describe('kernel relay contract', () => {
-  it('declares every backend mutation relay method used by ApplicationContext', () => {
+  it('declares every backend relay method used by ApplicationContext', () => {
     expect(KERNEL_RELAY_METHODS).toEqual(expect.arrayContaining([
       'review.feedback',
+      'domainSync.status',
+      'domainSync.repair.preview',
+      'domainSync.repair.apply',
+      'domainSync.conflictSources.cleanupCandidates',
+      'domainSync.conflictSources.cleanup',
       'browser.sourceExistence.applySweepHost',
       'browser.sourceExistence.update',
       'browser.sourceExistence.applySweep',

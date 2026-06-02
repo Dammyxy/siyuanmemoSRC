@@ -282,9 +282,9 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       }),
     );
     expect(transportLoggerMocks.info).toHaveBeenCalledWith(
-      '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
+      expect.stringContaining('[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback worker-handle summary'),
       expect.objectContaining({
-        step: 'worker-handle',
+        step: 'worker-handle-summary',
         cardId: 'card-1',
         durationMs: 279,
         hostEffectCount: 2,
@@ -321,18 +321,16 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         },
       }),
     );
-    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+    expect(transportLoggerMocks.info).not.toHaveBeenCalledWith(
+      '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
+      expect.objectContaining({
+        step: 'worker-handle',
+      }),
+    );
+    expect(transportLoggerMocks.info).not.toHaveBeenCalledWith(
       '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
       expect.objectContaining({
         step: 'worker-inner-step',
-        cardId: 'card-1',
-        durationMs: 220,
-        innerLayer: 'database',
-        innerStep: 'reviewFeedback.runtime',
-        innerCardId: 'card-1',
-        innerQueueType: 'incremental-learning',
-        innerStepAttribution: 'complete',
-        committed: true,
       }),
     );
     transport.dispose();
@@ -411,11 +409,12 @@ describe('BrowserSrsBackendWorkerTransport', () => {
 
     await expect(pending).resolves.toEqual(response);
     expect(transportLoggerMocks.info).toHaveBeenCalledWith(
-      '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
+      expect.stringContaining('[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback worker-handle summary'),
       expect.objectContaining({
-        step: 'worker-handle',
+        step: 'worker-handle-summary',
         cardId: 'card-1',
         durationMs: 430,
+        copySummary: expect.stringContaining('preMerge=kernel:pre-request-merge 320ms'),
         dominantInnerStepSummary: expect.stringContaining('kernel:pre-request-merge 320ms'),
         preRequestMergeSummary: expect.stringContaining('reason=fast-skip-not-eligible:never-marked-clean'),
         mainDbReadSummary: 'database:merge.read-main-db 210ms',
@@ -423,15 +422,6 @@ describe('BrowserSrsBackendWorkerTransport', () => {
           expect.stringContaining('kernel:pre-request-merge 320ms'),
           'database:merge.read-main-db 210ms',
         ]),
-      }),
-    );
-    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
-      expect.stringContaining('[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback worker-handle summary'),
-      expect.objectContaining({
-        step: 'worker-handle-summary',
-        cardId: 'card-1',
-        durationMs: 430,
-        copySummary: expect.stringContaining('preMerge=kernel:pre-request-merge 320ms'),
       }),
     );
     expect(transportLoggerMocks.info.mock.calls.some(([message]) => (
@@ -605,9 +595,9 @@ describe('BrowserSrsBackendWorkerTransport', () => {
 
     await expect(pending).resolves.toEqual(response);
     expect(transportLoggerMocks.info).toHaveBeenCalledWith(
-      '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
+      expect.stringContaining('[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback worker-handle summary'),
       expect.objectContaining({
-        step: 'worker-handle',
+        step: 'worker-handle-summary',
         cardId: 'card-1',
         durationMs: 340,
         innerStepCount: 3,
@@ -625,25 +615,9 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         unattributedMs: 96,
       }),
     );
-    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
+    expect(transportLoggerMocks.info).not.toHaveBeenCalledWith(
       '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
-      expect.objectContaining({
-        step: 'worker-inner-step',
-        cardId: 'card-1',
-        durationMs: 90,
-        innerStep: 'merge.total',
-        forceLogReason: 'worker-handle-top-inner-step',
-      }),
-    );
-    expect(transportLoggerMocks.info).toHaveBeenCalledWith(
-      '[SiYuanMemo][BrowserSrsBackendWorkerTransport] slow review.feedback transport step',
-      expect.objectContaining({
-        step: 'worker-inner-step',
-        cardId: 'card-1',
-        durationMs: 80,
-        innerStep: 'transaction',
-        forceLogReason: 'worker-handle-top-inner-step',
-      }),
+      expect.objectContaining({ step: 'worker-inner-step' }),
     );
     transport.dispose();
   });

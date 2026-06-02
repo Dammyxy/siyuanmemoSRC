@@ -221,7 +221,10 @@ export interface WriterRelayCommandPayload {
 
 export const KERNEL_RELAY_METHODS = [
   'review.feedback',
+  'domainSync.status',
+  'domainSync.repair.preview',
   'domainSync.repair.apply',
+  'domainSync.conflictSources.cleanupCandidates',
   'domainSync.conflictSources.cleanup',
   'browser.sourceExistence.applySweepHost',
   'browser.sourceExistence.update',

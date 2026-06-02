@@ -52,7 +52,7 @@ const logger = createLogger('UnifiedQueueStrategy');
 type RatingValue = 1 | 2 | 3 | 4;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MIN_SUSPICIOUS_HISTORY_DAYS = 7;
-const REVIEW_FEEDBACK_STEP_SLOW_MS = 120;
+const REVIEW_FEEDBACK_STEP_SLOW_MS = 500;
 
 type CardWithNextDues = FSRSCard & {
     nextDues?: Partial<Record<RatingValue, string>>;
@@ -310,11 +310,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     if (this.pendingSrsV2CounterSnapshot) {
                         this.cursor.counterSnapshot = this.cloneCounterSnapshot(this.pendingSrsV2CounterSnapshot);
                     }
-                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Next card (session-runtime pending):`, {
-                        queueType: this.queueType,
-                        cardId: pending.id,
-                        blockId: pending.blockId,
-                    });
                     return cardWithNextDues;
                 }
 
@@ -327,11 +322,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 const cardWithNextDues = await this.maybeAddNextDues(card);
                 this.setCurrentItem(cardWithNextDues);
                 this.syncCursorFromSrsV2Runtime();
-                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Next card (session-runtime):`, {
-                    queueType: this.queueType,
-                    cardId: card.id,
-                    blockId: card.blockId,
-                });
                 return cardWithNextDues;
             }
 
@@ -358,15 +348,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             }
             const cardWithNextDues = await this.maybeAddNextDues(next.card);
 
-            logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Next card:`, {
-                queueType: this.queueType,
-                cardId: next.card.id,
-                index: next.index,
-                total: next.total,
-                due: new Date(next.card.due).toISOString(),
-                now: new Date(Date.now()).toISOString(),
-            });
-
             this.setCurrentItem(cardWithNextDues);
             return cardWithNextDues;
         } catch (error) {
@@ -391,14 +372,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         let activeTransactionPushed = false;
 
         try {
-            logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Processing feedback:`, {
-                queueType: this.queueType,
-                cardId: activeItem.id,
-                blockId: activeItem.blockId,
-                action: feedback.action,
-                rating: feedback.rating,
-            });
-
             if (this.queueType === QueueType.NeuralRoam) {
                 await this.handleNeuralRoamAdvanceFeedback(activeItem, feedback);
                 return;
@@ -439,16 +412,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 this.pendingSrsV2CounterSnapshot = this.cloneCounterSnapshot(result.counterSnapshot);
                 this.recordReviewHistory(activeItem, activeTransaction);
                 activeTransactionPushed = true;
-                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card handled by session runtime:`, {
-                    queueType: this.queueType,
-                    cardId: activeItem.id,
-                    blockId: activeItem.blockId,
-                    action: feedback.action,
-                    rating: feedback.rating,
-                    status: result.status,
-                    nextCardId: result.nextCard?.id ?? null,
-                    remaining: result.counterSnapshot.remaining,
-                });
                 activeTransaction = null;
                 activeTransactionPushed = false;
                 return;
@@ -816,10 +779,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                         label: `${this.lastNeuralRoamViewState.engineMode === 'hyperspace' ? '深度' : '已看'} ${progress.viewedCount}`,
                         extra: `${this.lastNeuralRoamViewState.engineMode === 'hyperspace' ? '最大深度' : '本轮总数'} ${progress.totalCount}`,
                     };
-                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
-                        queueType: this.queueType,
-                        ...stats,
-                    });
                     return stats;
                 }
                 const batch = resolveNeuralRoamBatchSnapshot(this.queue);
@@ -837,20 +796,12 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                         label: `${label} ${viewed}`,
                         extra: `${scope} ${total}`,
                     };
-                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
-                        queueType: this.queueType,
-                        ...stats,
-                    });
                     return stats;
                 }
 
                 if (!this.isProjectionBackedQueue()) {
                     if (this.cursor.counterSnapshot) {
                         const stats = this.formatStatsFromCounterSnapshot(this.cursor.counterSnapshot);
-                        logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
-                            queueType: this.queueType,
-                            ...stats,
-                        });
                         return stats;
                     }
                     const size = await this.queue.getSize();
@@ -860,11 +811,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                         extra: `${size} total`,
                     };
 
-                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
-                        queueType: this.queueType,
-                        ...stats,
-                    });
-
                     return stats;
                 }
             }
@@ -872,11 +818,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             const counterSnapshot = await this.getCounterSnapshot();
             if (counterSnapshot) {
                 const stats = this.formatStatsFromCounterSnapshot(counterSnapshot);
-
-                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
-                    queueType: this.queueType,
-                    ...stats,
-                });
 
                 return stats;
             }
@@ -888,11 +829,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 label: `${dueToday} due`,
                 extra: `${size} total`,
             };
-
-            logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
-                queueType: this.queueType,
-                ...stats,
-            });
 
             return stats;
         } catch (error) {
@@ -1673,16 +1609,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             }
 
             if (this.shouldSuppressQueueChangedDuringFeedback(queueType, event)) {
-                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Suppressed self-triggered queue change during feedback:`, {
-                    queueType: this.queueType,
-                    cardId: this.feedbackMutation?.cardId,
-                    action: this.feedbackMutation?.action,
-                    rating: this.feedbackMutation?.rating,
-                });
                 return;
             }
 
-            logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue changed, invalidating cache: ${this.queueType}`);
             this.invalidateCache();
             return;
         }
@@ -1800,7 +1729,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
             const cached = cache.get(cacheKey);
             if (cached) {
-                logger.info('[SiYuanMemo][UnifiedQueueStrategy] nextDues from cache:', card.id);
                 return {
                     ...card,
                     nextDues: cached,
@@ -1831,7 +1759,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
             cache.set(cacheKey, nextDues);
 
-            logger.info('[SiYuanMemo][UnifiedQueueStrategy] nextDues calculated and cached:', nextDues);
             this.logSuspiciousRetrievalNextDues(card, nextDues);
 
             return {
@@ -1994,7 +1921,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     private invalidateCache(): void {
         this.cursor.invalidate();
-        logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Cache invalidated: ${this.queueType}`);
     }
 
     private recordReviewHistory(item: FSRSCard, transaction: ReviewTransaction | null): void {

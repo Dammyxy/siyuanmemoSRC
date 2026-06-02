@@ -699,7 +699,7 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
     } = options;
     try {
       await this.ensureInitialLoad();
-      const { wasManuallyAdded } = await this.removeManualCard(cardIdOrBlockId, logger, {
+      await this.removeManualCard(cardIdOrBlockId, logger, {
         persistWhenNotManual,
         addToTemporaryBlacklist,
         persist,
@@ -709,11 +709,6 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
       if (notifyObservers) {
         this.notifyObservers();
       }
-
-      logger.info(`Card ${cardIdOrBlockId} removed`, {
-        wasManuallyAdded,
-        temporaryBlacklistSize: this.temporaryBlacklist.size,
-      });
     } catch (error) {
       logger.error('Failed to remove card:', error);
       if (addToTemporaryBlacklist) {
