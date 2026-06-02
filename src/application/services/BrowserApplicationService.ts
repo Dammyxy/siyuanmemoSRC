@@ -2,7 +2,13 @@ import type { BrowserCardStoragePort } from '@/core/storage/ports';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
-import type { CardFilter, IReviewQueue, IUnifiedDataSourceManagerFacade, QueueType } from '@/types/unified-data-source';
+import { QueueType } from '@/types/unified-data-source';
+import type {
+  CardFilter,
+  FilterGroupQueueSessionSnapshot,
+  IReviewQueue,
+  IUnifiedDataSourceManagerFacade,
+} from '@/types/unified-data-source';
 import {
   getCanonicalBrowserQueueIds,
   isNeuralBrowserQueue,
@@ -14,10 +20,11 @@ import {
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
+import type { BrowserAdvancedSqlQuerySourcePort } from '@/application/ports/BrowserAdvancedSqlQuerySourcePort';
 import type { FSRSCard } from '@/types/card';
 import { GetBrowserCardsQueryHandler } from '../queries/browser/GetBrowserCardsQueryHandler';
 import { BrowserDeckQueryKernel } from '../queries/browser/shared/BrowserDeckQueryKernel';
-import { QueueBrowserQueryKernel } from '../queries/browser/shared/QueueBrowserQueryKernel';
+import { QueueBrowserQueryKernel, type QueueProjectionBrowserReadModelError } from '../queries/browser/shared/QueueBrowserQueryKernel';
 import {
   SOURCE_EXISTENCE_BATCH_SIZE,
   SOURCE_EXISTENCE_BACKGROUND_LIMIT,
@@ -45,6 +52,18 @@ import type {
   QueueBrowserSnapshotQuery,
   QueueBrowserSnapshotResult,
 } from '../queries/browser/queue-browser-query';
+import type {
+  BrowserReadModel,
+  BrowserReadModelActionTargetsByIdsOptions,
+  BrowserReadModelDiagnostic,
+  BrowserReadModelMatchedIdsOptions,
+  BrowserReadModelPageResponse,
+  BrowserReadModelQuery,
+  BrowserReadModelReadState,
+  BrowserReadModelRowsByIdsQuery,
+  BrowserReadModelSnapshotMetadata,
+} from '../queries/browser/browser-read-model';
+import { toBrowserReadModelActionTarget } from '../queries/browser/browser-read-model';
 import type { QueueProjectionReadiness, QueueProjectionReadinessRequest } from '../../../packages/contracts/src/backend-rpc';
 import type {
   IBrowserApplicationService,
@@ -72,6 +91,27 @@ const EMPTY_QUEUE_COUNTS: Record<string, number> = Object.fromEntries(
 const logger = createLogger('BrowserApplicationService');
 const SOURCE_EXISTENCE_PAGE_REFRESH_DELAY_MS = 250;
 const SOURCE_EXISTENCE_STATUS_CACHE_MAX_SIZE = 4096;
+
+type FilterGroupSessionSnapshotProvider = {
+  serializeSessionSnapshot(): FilterGroupQueueSessionSnapshot;
+};
+
+function hasFilterGroupSessionSnapshotProvider(queue: unknown): queue is FilterGroupSessionSnapshotProvider {
+  return Boolean(
+    queue
+    && typeof queue === 'object'
+    && typeof (queue as FilterGroupSessionSnapshotProvider).serializeSessionSnapshot === 'function',
+  );
+}
+
+function normalizeOptionalStringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value
+    .map((entry) => String(entry || '').trim())
+    .filter(Boolean);
+}
 
 function normalizeSignatureValue(value: unknown): unknown {
   if (value instanceof Date) {
@@ -150,6 +190,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private sourceExistencePageRefreshSeq = 0;
   private sourceExistenceLatestRefreshSeq = 0;
   private sourceExistenceStaleCancellationCount = 0;
+  private browserReadModelFacade: BrowserReadModel | null = null;
 
   constructor(
     storageManager: BrowserCardStoragePort,
@@ -163,6 +204,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     private readonly srsBackendClient?: SrsBackendClient | null,
     private readonly frontendInstanceRuntime?: FrontendInstanceRuntime | null,
     private readonly followerCommandClient?: FollowerCommandClient | null,
+    private readonly browserAdvancedSqlQuerySource?: BrowserAdvancedSqlQuerySourcePort | null,
   ) {
     this.browserDeckQueryKernel = new BrowserDeckQueryKernel(
       storageManager,
@@ -205,6 +247,250 @@ export class BrowserApplicationService implements IBrowserApplicationService {
 
   getSiyuanApi(): BrowserSiyuanPort {
     return this.siyuanApi;
+  }
+
+  getBrowserReadModel(): BrowserReadModel {
+    if (this.browserReadModelFacade) {
+      return this.browserReadModelFacade;
+    }
+    this.browserReadModelFacade = {
+      page: (query, range) => this.readBrowserPage(query, range),
+      matchedIds: (query, options) => this.readBrowserMatchedIds(query, options),
+      rowsByIds: (ids, query) => this.readBrowserRowsByIds(ids, query),
+      actionTargetsByIds: (ids, options) => this.readBrowserActionTargetsByIds(ids, options),
+      documentCounts: (scope) => this.getBrowserDocumentCounts(scope),
+    };
+    return this.browserReadModelFacade;
+  }
+
+  private async readBrowserPage(
+    readQuery: BrowserReadModelQuery,
+    range: BrowserDeckPageRequest,
+  ): Promise<BrowserReadModelPageResponse> {
+    if (readQuery.source === 'deck') {
+      const page = await this.getDeckPage(readQuery.query, range);
+      return {
+        status: 'ready',
+        rows: page.rows,
+        total: page.total,
+        ...this.buildDeckReadModelMetadata(readQuery.query, page.generation),
+      };
+    }
+
+    if (readQuery.source === 'queue') {
+      try {
+        const snapshot = await this.getQueueQuerySnapshot(readQuery.query);
+        const startRow = Math.max(0, Math.floor(Number(range.startRow) || 0));
+        const endRow = Math.max(startRow, Math.floor(Number(range.endRow) || startRow));
+        const ids = snapshot.rows.slice(startRow, endRow).map((row) => row.id);
+        const rows = await this.getQueueRowsByIds(readQuery.query.queueId, ids);
+        return {
+          status: 'ready',
+          rows,
+          total: snapshot.total,
+          readOwner: snapshot.readOwner ?? {
+            kind: 'queue-projection',
+            queueId: readQuery.query.queueId,
+            projectionBacked: true,
+          },
+          queryFingerprint: snapshot.queryFingerprint ?? this.buildReadModelFingerprint({
+            source: 'queue',
+            query: readQuery.query,
+          }),
+          generation: snapshot.generation ?? null,
+          diagnostics: snapshot.diagnostics,
+        };
+      } catch (error) {
+        return this.buildQueueReadModelUnavailablePage(readQuery.query, error);
+      }
+    }
+
+    return this.readAdvancedSqlPage(readQuery, range);
+  }
+
+  private async readBrowserMatchedIds(
+    readQuery: BrowserReadModelQuery,
+    options: BrowserReadModelMatchedIdsOptions = {},
+  ): Promise<string[]> {
+    if (readQuery.source === 'deck') {
+      return this.getDeckMatchedIds({
+        ...readQuery.query,
+        fullUniverseReason: options.reason ?? readQuery.query.fullUniverseReason ?? 'matched-ids',
+      });
+    }
+    if (readQuery.source === 'queue') {
+      const snapshot = await this.getQueueQuerySnapshot({
+        ...readQuery.query,
+        forceRefresh: true,
+      });
+      return snapshot.rows.map((row) => row.id);
+    }
+    return this.readAdvancedSqlMatchedIds(readQuery.statement);
+  }
+
+  private async readBrowserRowsByIds(
+    ids: string[],
+    query: BrowserReadModelRowsByIdsQuery = { source: 'deck' },
+  ): Promise<BrowserCard[]> {
+    if (query.source === 'queue') {
+      return this.getQueueRowsByIds(query.queueId, ids);
+    }
+    return this.getDeckRowsByIds(ids);
+  }
+
+  private async readBrowserActionTargetsByIds(
+    ids: string[],
+    options: BrowserReadModelActionTargetsByIdsOptions,
+  ) {
+    const rows = await this.readBrowserRowsByIds(ids, options);
+    return rows.map((row) => toBrowserReadModelActionTarget(row));
+  }
+
+  private buildDeckReadModelMetadata(
+    query: BrowserDeckSnapshotQuery,
+    generation?: number | null,
+  ): BrowserReadModelSnapshotMetadata {
+    return {
+      readOwner: {
+        kind: 'sql-card-universe',
+      },
+      queryFingerprint: this.buildReadModelFingerprint({
+        source: 'deck',
+        query,
+      }),
+      generation: generation ?? 0,
+    };
+  }
+
+  private buildAdvancedSqlUnavailableMetadata(statement: string): BrowserReadModelSnapshotMetadata {
+    return {
+      readOwner: {
+        kind: 'block-id-intersection',
+        reason: 'advanced-sql-query-source',
+      },
+      queryFingerprint: this.buildReadModelFingerprint({
+        source: 'advanced-sql',
+        statement,
+      }),
+      generation: null,
+    };
+  }
+
+  private buildQueueReadModelUnavailablePage(
+    query: Extract<BrowserReadModelQuery, { source: 'queue' }>['query'],
+    error: unknown,
+  ): BrowserReadModelPageResponse {
+    const projectionError = error as QueueProjectionBrowserReadModelError | null | undefined;
+    const status = this.resolveQueueBrowserReadState(error);
+    const reason = error instanceof Error ? error.message : String(error);
+    const diagnosticKind = projectionError?.browserReadModelDiagnosticKind
+      ?? (status === 'unavailable' ? 'owner-unavailable' : 'refresh-required');
+    const rowIds = Array.isArray(projectionError?.browserReadModelRowIds)
+      ? projectionError.browserReadModelRowIds
+      : this.extractQueueProjectionErrorRowIds(reason);
+    const diagnostics: BrowserReadModelDiagnostic[] = [{
+      kind: diagnosticKind,
+      message: reason,
+      ...(rowIds.length > 0 ? { rowIds } : {}),
+    }];
+    const queueType = resolveQueueTypeForBrowserQueueId(query.queueId);
+
+    return {
+      status,
+      rows: [],
+      total: 0,
+      reason,
+      readOwner: {
+        kind: 'queue-projection',
+        queueId: query.queueId,
+        queueType: queueType ?? undefined,
+        projectionBacked: true,
+        readPath: 'backend-projection',
+        state: status === 'unavailable' ? 'projection-unavailable' : 'backend-projection',
+        reason: status === 'repair-required' ? 'refresh-required' : null,
+        unavailableReason: status === 'unavailable' ? reason : null,
+      },
+      queryFingerprint: this.buildReadModelFingerprint({
+        source: 'queue',
+        query,
+      }),
+      generation: typeof projectionError?.browserReadModelGeneration === 'number'
+        ? projectionError.browserReadModelGeneration
+        : null,
+      diagnostics,
+    };
+  }
+
+  private resolveQueueBrowserReadState(error: unknown): Exclude<BrowserReadModelReadState, 'ready'> {
+    const tagged = (error as QueueProjectionBrowserReadModelError | null | undefined)?.browserReadModelState;
+    if (tagged === 'preparing' || tagged === 'repair-required' || tagged === 'unavailable') {
+      return tagged;
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('QUEUE_PROJECTION_REPAIR_REQUIRED') || message.includes('missed requested ids')) {
+      return 'repair-required';
+    }
+    if (message.includes('QUEUE_PROJECTION_NOT_READY') || message.includes('Browser projection snapshot unavailable')) {
+      return 'preparing';
+    }
+    return 'unavailable';
+  }
+
+  private extractQueueProjectionErrorRowIds(reason: string): string[] {
+    const match = /\(([^()]+)\)\s*$/.exec(reason);
+    if (!match) {
+      return [];
+    }
+    return match[1]
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+  }
+
+  private async readAdvancedSqlPage(
+    readQuery: Extract<BrowserReadModelQuery, { source: 'advanced-sql' }>,
+    range: BrowserDeckPageRequest,
+  ): Promise<BrowserReadModelPageResponse> {
+    const metadata = this.buildAdvancedSqlUnavailableMetadata(readQuery.statement);
+    try {
+      const matchedIds = await this.readAdvancedSqlMatchedIds(readQuery.statement);
+      const startRow = Math.max(0, Math.floor(Number(range.startRow) || 0));
+      const endRow = Math.max(startRow, Math.floor(Number(range.endRow) || startRow));
+      const pageIds = matchedIds.slice(startRow, endRow);
+      const rows = pageIds.length > 0
+        ? await this.readBrowserRowsByIds(pageIds, { source: 'deck' })
+        : [];
+      return {
+        status: 'ready',
+        rows,
+        total: matchedIds.length,
+        ...metadata,
+      };
+    } catch (error) {
+      return {
+        status: 'unavailable',
+        rows: [],
+        total: 0,
+        reason: error instanceof Error ? error.message : String(error),
+        ...metadata,
+        diagnostics: [{
+          kind: 'owner-unavailable',
+          message: 'Advanced SQL Browser read source failed behind application ownership',
+        }],
+      };
+    }
+  }
+
+  private async readAdvancedSqlMatchedIds(statement: string): Promise<string[]> {
+    if (!this.browserAdvancedSqlQuerySource) {
+      throw new Error('BROWSER_ADVANCED_SQL_QUERY_SOURCE_UNAVAILABLE');
+    }
+    return this.browserAdvancedSqlQuerySource.matchedIds(statement);
+  }
+
+  private buildReadModelFingerprint(value: unknown): string {
+    return JSON.stringify(normalizeSignatureValue(value));
   }
 
   async getBrowserCards(query: GetBrowserCardsQuery = {}): Promise<GetBrowserCardsQueryResult> {
@@ -314,10 +600,9 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       };
     }
     try {
-      return await this.unifiedDataSourceManager.ensureQueueProjectionReady({
-        ...request,
-        queueType,
-      });
+      return await this.unifiedDataSourceManager.ensureQueueProjectionReady(
+        this.buildSubmittedQueueProjectionReadinessRequest(queueType, request),
+      );
     } catch (error) {
       return {
         status: 'unavailable',
@@ -329,6 +614,39 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         retryAfterMs: 300,
       };
     }
+  }
+
+  private buildSubmittedQueueProjectionReadinessRequest(
+    queueType: QueueType,
+    request: QueueProjectionReadinessRequest,
+  ): QueueProjectionReadinessRequest {
+    const base: QueueProjectionReadinessRequest = {
+      ...request,
+      queueType,
+    };
+    if (queueType !== QueueType.FilterGroup || !this.unifiedDataSourceManager) {
+      return base;
+    }
+
+    const queue = this.unifiedDataSourceManager.getQueue(QueueType.FilterGroup);
+    if (!hasFilterGroupSessionSnapshotProvider(queue)) {
+      return base;
+    }
+
+    const snapshot = queue.serializeSessionSnapshot();
+    const rollback = snapshot.rollbackSnapshot;
+    const snapshotCustomOrder = normalizeOptionalStringList(snapshot.visibleCardIds)
+      ?? normalizeOptionalStringList(rollback?.customOrder)
+      ?? [];
+
+    return {
+      ...base,
+      filterHash: base.filterHash ?? this.buildReadModelFingerprint(snapshot.filter ?? {}),
+      manualCardIds: base.manualCardIds ?? normalizeOptionalStringList(rollback?.manualCards) ?? [],
+      temporaryBlacklistIds: base.temporaryBlacklistIds ?? normalizeOptionalStringList(rollback?.temporaryBlacklist) ?? [],
+      customOrder: base.customOrder ?? snapshotCustomOrder,
+      commitPolicy: base.commitPolicy ?? 'preview-only',
+    };
   }
 
   async getDueCount(): Promise<number> {

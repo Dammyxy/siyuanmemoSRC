@@ -36,6 +36,36 @@ export interface BrowserDeckLiteRow {
   actionTarget?: BrowserActionTarget;
 }
 
+export interface BrowserDeckSkinnySqlRow {
+  id: string;
+  block_id: string | null;
+  xiuyuan_id: string | null;
+  type: string | null;
+  state: number | null;
+  due: number | null;
+  priority: number | null;
+  scheduler_type: string | null;
+  updated_at: number | null;
+  deck_id: string | null;
+  root_id: string | null;
+  content_text: string | null;
+  tags: string | null;
+  suspended: number | null;
+  lapses: number | null;
+  reps: number | null;
+  last_review: number | null;
+  created_at: number | null;
+  scheduled_days: number | null;
+  stability: number | null;
+  difficulty: number | null;
+  a_factor: number | null;
+  card_type_marker: string | null;
+  source_exists: number | null;
+  source_checked_at: number | null;
+  source_missing_at: number | null;
+  projection_generation: number | null;
+}
+
 export interface BrowserDeckSnapshotResult {
   rows: BrowserDeckLiteRow[];
   total: number;
@@ -53,6 +83,7 @@ export interface BrowserDeckPageRequest {
 export interface BrowserDeckPageResult {
   rows: BrowserCard[];
   total: number;
+  generation?: number | null;
 }
 
 export type BrowserDocumentCountsScopeKind = 'deck' | 'queue';
@@ -118,4 +149,5 @@ export type BrowserDocumentCountsResult =
 export interface BrowserDeckCardPageResult {
   cards: FSRSCard[];
   total: number;
+  generation: number | null;
 }

@@ -62,6 +62,12 @@ function createManager(cards: FSRSCard[]) {
 }
 
 describe('FilterGroupQueue session transfer', () => {
+  it('declares submitted Browser reads as backend projection backed', () => {
+    const queue = new FilterGroupQueue(createManager([]) as never, createPersistenceStub());
+
+    expect(queue.getProjectionReadMode()).toBe('backend-projection');
+  });
+
   it('emits a full-refresh queue-changed event only for rebuilds after filter updates', async () => {
     const card1 = createCard('card-1', 'block-1');
     const manager = createManager([card1]);

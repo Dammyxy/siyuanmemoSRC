@@ -181,6 +181,47 @@ describe('browserActionMenuRuntime', () => {
     expect(dataSource.performAction).not.toHaveBeenCalled();
   });
 
+  it('resolves all-matching action ids and action targets at action time', async () => {
+    const allIds = Array.from({ length: 501 }, (_value, index) => `card-${index + 1}`);
+    const selectedIds = allIds.filter((_id, index) => index < 500 || index === 500);
+    const getAllMatchedIds = vi.fn(async () => allIds);
+    const getActionTargetsByIds = vi.fn(async (ids: string[]) => ids.map((id) => ({
+      id,
+      blockId: `block-${id}`,
+      fsrsCardId: id,
+    })));
+    const { dataSource, deps } = createRuntimeDeps({
+      globalSelection: {
+        mode: ref('all-matching'),
+        explicitIds: ref(new Set<string>()),
+        resolveSelectedIds: vi.fn(() => selectedIds),
+      },
+    });
+    Object.assign(dataSource, {
+      getQueryFingerprint: vi.fn(() => 'query:fingerprint'),
+      getAllMatchedIds,
+      getRowsByIds: vi.fn(),
+      getActionTargetsByIds,
+    });
+    const runtime = createBrowserActionMenuRuntime(deps);
+
+    await runtime.handleAction('custom-action', [card('visible')]);
+
+    expect(getAllMatchedIds).toHaveBeenCalledWith('all-select');
+    expect(deps.globalSelection.resolveSelectedIds).toHaveBeenCalledWith(allIds);
+    expect(getActionTargetsByIds).toHaveBeenCalledTimes(2);
+    expect(getActionTargetsByIds).toHaveBeenNthCalledWith(1, selectedIds.slice(0, 500), 'action-targets');
+    expect(getActionTargetsByIds).toHaveBeenNthCalledWith(2, selectedIds.slice(500), 'action-targets');
+    expect(dataSource.performAction).toHaveBeenCalledWith(
+      'custom-action',
+      expect.arrayContaining([
+        expect.objectContaining({ fsrsCardId: 'card-1' }),
+        expect.objectContaining({ fsrsCardId: 'card-501' }),
+      ]),
+      expect.objectContaining({ refresh: expect.any(Function) }),
+    );
+  });
+
   it('builds practice menu through dialog manager and opens at trigger rect', () => {
     const { deps, menuRecorder, openReviewDialog } = createRuntimeDeps();
     const runtime = createBrowserActionMenuRuntime(deps);

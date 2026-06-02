@@ -10,7 +10,7 @@ export interface BrowserGridFirstPageStateInput {
 }
 
 export interface BrowserGridFirstPageState {
-  overlayKind: 'loading' | 'projection-refreshing' | null;
+  overlayKind: 'loading' | 'projection-refreshing' | 'repair-required' | 'unavailable' | null;
   showEmptyState: boolean;
   showGrid: boolean;
   showShellLoading: boolean;
@@ -28,10 +28,21 @@ export function resolveBrowserGridFirstPageState(input: BrowserGridFirstPageStat
 
   const firstRowsPending = !input.hasFirstDataBlockLoaded;
   const datasourcePending = input.loading && input.currentDataSourceReady && firstRowsPending;
-  const projectionRefreshing = firstRowsPending && input.firstRowsStatus === 'projection-not-ready';
+  const projectionRefreshing = firstRowsPending
+    && (input.firstRowsStatus === 'projection-not-ready' || input.firstRowsStatus === 'read-model-preparing');
+  const repairRequired = firstRowsPending && input.firstRowsStatus === 'read-model-repair-required';
+  const unavailable = firstRowsPending && input.firstRowsStatus === 'read-model-unavailable';
 
   return {
-    overlayKind: projectionRefreshing ? 'projection-refreshing' : datasourcePending ? 'loading' : null,
+    overlayKind: repairRequired
+      ? 'repair-required'
+      : unavailable
+      ? 'unavailable'
+      : projectionRefreshing
+      ? 'projection-refreshing'
+      : datasourcePending
+      ? 'loading'
+      : null,
     showEmptyState: !input.loading && input.hasFirstDataBlockLoaded && input.totalRowCount === 0,
     showGrid: input.currentDataSourceReady || !input.loading,
     showShellLoading: input.loading && !input.currentDataSourceReady,

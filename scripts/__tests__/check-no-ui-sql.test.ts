@@ -141,4 +141,38 @@ describe('check-no-ui-sql', () => {
       }],
     })).toEqual([]);
   });
+
+  it('fails Browser hot-path SQL wrappers, inline truth hydrate, full payload parse, and local queue fallback', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/ui/browser/datasource/LegacySqlDataSource.ts', `
+      import { runBrowserSql } from '../browserService';
+      export async function readRows(api) {
+        return runBrowserSql('select * from blocks', api);
+      }
+    `);
+    writeFile(rootDir, 'src/ui/browser/datasource/LegacyTruthHydrateDataSource.ts', `
+      export async function hydrate(fileService) {
+        return fileService.readMsgpack('truth/card-memory-facts.msgpack');
+      }
+    `);
+    writeFile(rootDir, 'src/application/services/BrowserApplicationService.ts', `
+      export async function deckPage(db) {
+        return db.exec('select payload_json, dto_json from cards');
+      }
+    `);
+    writeFile(rootDir, 'src/ui/browser/datasource/LegacyQueueDataSource.ts', `
+      export async function fallback(queue) {
+        return queue.getCards();
+      }
+    `);
+
+    const failures = evaluate({ rootDir, allowEntries: [] });
+
+    expect(failures).toEqual(expect.arrayContaining([
+      expect.stringContaining('browser-ui-sql-wrapper'),
+      expect.stringContaining('browser-inline-msgpack-hydrate'),
+      expect.stringContaining('browser-full-payload-page-parse'),
+      expect.stringContaining('browser-local-queue-fallback'),
+    ]));
+  });
 });

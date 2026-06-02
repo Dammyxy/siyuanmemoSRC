@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-02 (Round 532)
+Last update: 2026-06-02 (Round 533)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-02 - Simplify Browser read model cutover
+
+- Task: Continue OpenSpec `simplify-browser-read-model` by converging Browser deck, queue, and advanced SQL reads behind one application-owned read model.
+- Touched slice: Browser / Queue projection / SQL read-model boundary across `BrowserApplicationService`, Browser read-model query contracts, `QueueBrowserQueryKernel`, `SqlUnifiedStorageRepository`, `DeckDataSource`, `QueryDataSource`, Browser grid lifecycle helpers, `ApplicationContext`, `BrowserAdvancedSqlQuerySourcePort`, `BrowserAdvancedSqlQuerySourceSiyuanAdapter`, focused tests, boundary checker, and active architecture docs.
+- Debt fixed now: Browser UI datasource hot paths now consume `BrowserReadModel.page()` metadata instead of direct UI SQL or local SQL row hydration; deck page reads use skinny SQL Browser rows with `queryFingerprint / generation / readOwner`; advanced Siyuan SQL is an application/backend query source that returns ids before rows are rendered through the same read model; submitted FilterGroup readiness identity includes submitted policy inputs while edit/preview remains ephemeral; projection cold/missing/stale/unavailable states surface as explicit first-row/grid states instead of local `queue.getCards()` fallback; bulk/all-select action flows resolve `matchedIds` and `actionTargetsByIds` at action time; checker coverage now rejects Browser UI SQL wrappers, inline MessagePack hydrate, page `payload_json/dto_json` parse, and hidden local queue fallback.
+- Debt deferred: Historical Browser helper duplication and legacy session helpers that are no longer on the ordinary production hot path remain untouched; true performance tuning for advanced SQL and broader queue rebuild policy stay separate.
+- Why deferred: This change is a contract and ownership cutover. Deduplicating old helpers or optimizing advanced SQL would widen scope beyond the active read-model migration and could mask whether hidden fallback removal is correct.
+- Next safe step: After 6.3-6.5 validation, use real SiYuan Browser smoke on a large library to observe first-page latency, projection preparing/repair overlays, and bulk target resolution before opening any performance-only follow-up.
+- Validation: `pnpm exec vitest run` targeted Browser read model / queue query / queue projection / SQL repository / advanced SQL adapter / FilterGroup policy / datasource / grid stale-response / checker suite (17 files, 174 tests); `pnpm run check:boundaries`; `pnpm build` passed. Build kept existing non-blocking i18n hardcoded-string/content warnings and Sass legacy API warnings.
 
 ### 2026-06-02 - Domain sync diagnostics writer relay ownership
 

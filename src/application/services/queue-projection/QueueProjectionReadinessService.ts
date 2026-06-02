@@ -21,6 +21,13 @@ type CanonicalRequest = Required<Pick<QueueProjectionReadinessRequest, 'queueTyp
   scopeDocIds: string[];
   cardType: string | null;
   source: string | null;
+  filterHash: string | null;
+  manualCardIds: string[];
+  temporaryBlacklistIds: string[];
+  customOrder: string[];
+  transferSessionId: string | null;
+  sessionId: string | null;
+  commitPolicy: string | null;
 };
 
 const DEFAULT_RETRY_AFTER_MS = 300;
@@ -67,7 +74,7 @@ export class QueueProjectionReadinessService {
 
   buildPolicyId(request: QueueProjectionReadinessRequest): string {
     const canonical = this.normalizeRequest(request);
-    return `queue-projection:${stableStringify(canonical)}`;
+    return `queue-projection:${stableStringify(toPolicyIdentity(canonical))}`;
   }
 
   private resolveRefreshingCause(snapshot: BackendQueueProjectionSnapshotResult | null): QueueProjectionReadinessCause {
@@ -132,11 +139,16 @@ export class QueueProjectionReadinessService {
       preset: normalizeString(request.preset),
       searchText: normalizeString(request.searchText),
       docId: normalizeString(request.docId),
-      scopeDocIds: Array.isArray(request.scopeDocIds)
-        ? request.scopeDocIds.map((id) => normalizeString(id)).filter(isNonEmptyString).sort()
-        : [],
+      scopeDocIds: normalizeStringList(request.scopeDocIds, { sort: true }),
       cardType: normalizeString(request.cardType),
       source: normalizeString(request.source),
+      filterHash: normalizeString(request.filterHash),
+      manualCardIds: normalizeStringList(request.manualCardIds, { sort: true }),
+      temporaryBlacklistIds: normalizeStringList(request.temporaryBlacklistIds, { sort: true }),
+      customOrder: normalizeStringList(request.customOrder, { sort: false }),
+      transferSessionId: normalizeString(request.transferSessionId),
+      sessionId: normalizeString(request.sessionId),
+      commitPolicy: normalizeString(request.commitPolicy),
     };
   }
 }
@@ -157,6 +169,23 @@ function normalizeString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
+function normalizeStringList(value: unknown, options: { sort: boolean }): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const item of value) {
+    const entry = normalizeString(item);
+    if (!entry || seen.has(entry)) {
+      continue;
+    }
+    seen.add(entry);
+    normalized.push(entry);
+  }
+  return options.sort ? normalized.sort() : normalized;
+}
+
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((item) => stableStringify(item)).join(',')}]`;
@@ -166,6 +195,30 @@ function stableStringify(value: unknown): string {
     return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`).join(',')}}`;
   }
   return JSON.stringify(value);
+}
+
+function toPolicyIdentity(canonical: CanonicalRequest): Record<string, unknown> {
+  const base: Record<string, unknown> = {
+    queueType: canonical.queueType,
+    preset: canonical.preset,
+    searchText: canonical.searchText,
+    docId: canonical.docId,
+    scopeDocIds: canonical.scopeDocIds,
+    cardType: canonical.cardType,
+    source: canonical.source,
+  };
+
+  if (canonical.queueType === 'filter-group') {
+    base.filterHash = canonical.filterHash;
+    base.manualCardIds = canonical.manualCardIds;
+    base.temporaryBlacklistIds = canonical.temporaryBlacklistIds;
+    base.customOrder = canonical.customOrder;
+    base.transferSessionId = canonical.transferSessionId;
+    base.sessionId = canonical.sessionId;
+    base.commitPolicy = canonical.commitPolicy;
+  }
+
+  return base;
 }
 
 function formatUnknownError(error: unknown): string {

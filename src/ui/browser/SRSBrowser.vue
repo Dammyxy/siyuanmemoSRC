@@ -580,6 +580,10 @@ import { resolveEffectiveSortModel } from './utils/sortModel';
 import { createBrowserGridFirstRowsLifecycle } from './BrowserGridFirstRowsLifecycle';
 import type { BrowserGridRowsLifecycleStatus } from './BrowserGridFirstRowsLifecycle';
 import { createBrowserGridDatasourceLifecycle } from './BrowserGridDatasourceLifecycle';
+import {
+  isBrowserAsyncReadTokenCurrent,
+  type BrowserAsyncReadToken,
+} from './browserAsyncReadGuard';
 import { resolveBrowserGridFirstPageState } from './browserGridFirstPageState';
 import {
   fetchAllRowsFromDataSource,
@@ -631,6 +635,7 @@ import type {
   BrowserDocumentCountRow,
   BrowserDocumentCountsScope,
 } from '@/application/queries/browser/browser-deck-query';
+import type { BrowserReadModelSnapshotMetadata } from '@/application/queries/browser/browser-read-model';
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
 import type { SortField, SortOrder } from '@/core/card/domain/services/CardSortService';
@@ -975,6 +980,7 @@ const gridMaxBlocksInCache = computed(() => gridSizing.value.maxBlocksInCache);
 const gridRowBuffer = computed(() => gridSizing.value.rowBuffer);
 const randomSortRows = ref<BrowserCard[] | null>(null);
 const currentProjectionIdentity = ref<QueueProjectionIdentity | null>(null);
+const currentReadModelSnapshotMetadata = ref<BrowserReadModelSnapshotMetadata | null>(null);
 const SNAPSHOT_HYDRATE_CHUNK_SIZE = 24;
 const SNAPSHOT_FIRST_ROWS_POLL_MS = 50;
 const SOURCE_EXISTENCE_PATCH_DELAY_MS = 32;
@@ -991,6 +997,7 @@ let backgroundSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
 let sourceExistencePatchTimer: ReturnType<typeof setTimeout> | null = null;
 let sourceExistencePatchCoalescedCount = 0;
 let sourceExistencePatchStartedAt = 0;
+let sourceExistencePatchToken: BrowserAsyncReadToken | null = null;
 let globalStatsAfterFirstRowsTimer: ReturnType<typeof setTimeout> | null = null;
 let resolveGlobalStatsAfterFirstRows: (() => void) | null = null;
 let globalStatsAfterFirstRowsSequence = 0;
@@ -1177,6 +1184,17 @@ function clearHierarchyDocumentCountsAfterFirstRowsTimer(): void {
     clearTimeout(hierarchyDocumentCountsAfterFirstRowsTimer);
     hierarchyDocumentCountsAfterFirstRowsTimer = null;
   }
+}
+
+function captureBrowserAsyncReadToken(): BrowserAsyncReadToken {
+  return {
+    datasourceVersion,
+    readModelSnapshotMetadata: currentReadModelSnapshotMetadata.value,
+  };
+}
+
+function isBrowserAsyncReadStillCurrent(token: BrowserAsyncReadToken): boolean {
+  return isBrowserAsyncReadTokenCurrent(token, captureBrowserAsyncReadToken());
 }
 
 function invalidateHierarchySnapshots(): void {
@@ -1618,6 +1636,7 @@ function handleSourceExistenceUpdate(update: BrowserSourceExistenceUpdate): void
     });
     return;
   }
+  sourceExistencePatchToken = captureBrowserAsyncReadToken();
   sourceExistencePatchStartedAt = browserPerfNow();
   scheduleSourceExistencePatchFlush();
 }
@@ -1632,6 +1651,7 @@ function flushPendingSourceExistencePatch(): void {
     sourceExistencePatchCoalescedCount = 0;
     pendingSourceExistenceSources.clear();
     sourceExistencePatchStartedAt = 0;
+    sourceExistencePatchToken = null;
     return;
   }
 
@@ -1652,11 +1672,13 @@ function flushPendingSourceExistencePatch(): void {
     ? 'page-refresh'
     : 'background-sweep';
   const coalescedCount = sourceExistencePatchCoalescedCount;
+  const readToken = sourceExistencePatchToken;
   const overlappedFirstRows = !hasFirstDataBlockLoaded.value;
   pendingSourceExistenceStatuses.clear();
   pendingSourceExistenceSources.clear();
   sourceExistencePatchCoalescedCount = 0;
   sourceExistencePatchStartedAt = 0;
+  sourceExistencePatchToken = null;
 
   applySourceExistenceUpdate({
     source,
@@ -1664,16 +1686,19 @@ function flushPendingSourceExistencePatch(): void {
   }, {
     coalescedCount,
     overlappedFirstRows,
+    readToken,
     sourceCount: sources.length,
   });
 }
 
 function applySourceExistenceUpdate(
   update: BrowserSourceExistenceUpdate,
-  metadata: { coalescedCount: number; overlappedFirstRows: boolean; sourceCount: number },
+  metadata: { coalescedCount: number; overlappedFirstRows: boolean; readToken: BrowserAsyncReadToken | null; sourceCount: number },
 ): void {
   const result = measureRuntimePerformance('source-existence', 'visible-rows-patch.apply', () => {
-    return browserSourceExistenceRuntime.applyUpdate(update);
+    return browserSourceExistenceRuntime.applyUpdate(update, {
+      isCurrent: () => !metadata.readToken || isBrowserAsyncReadStillCurrent(metadata.readToken),
+    });
   }, {
     coalescedCount: metadata.coalescedCount,
     firstRowsLoaded: hasFirstDataBlockLoaded.value,
@@ -1828,9 +1853,13 @@ async function refreshGlobalStats(force = false): Promise<void> {
   const browserService = browserAppServiceRef.value;
   if (browserService?.getStats && !hasActiveScopeDocIds.value) {
     const taskId = ++globalStatsTaskId;
+    const readToken = captureBrowserAsyncReadToken();
     try {
       const stats = await browserService.getStats();
       if (taskId !== globalStatsTaskId) {
+        return;
+      }
+      if (!isBrowserAsyncReadStillCurrent(readToken)) {
         return;
       }
 
@@ -1857,6 +1886,9 @@ async function refreshGlobalStats(force = false): Promise<void> {
       if (taskId !== globalStatsTaskId) {
         return;
       }
+      if (!isBrowserAsyncReadStillCurrent(readToken)) {
+        return;
+      }
 
       if (!force && globalTotalCount.value != null) {
         return;
@@ -1875,6 +1907,7 @@ async function refreshGlobalStats(force = false): Promise<void> {
   }
 
   const taskId = ++globalStatsTaskId;
+  const readToken = captureBrowserAsyncReadToken();
   try {
     const allCardsDataSource = createDeckDataSource(
       unifiedDataSourceManager,
@@ -1894,12 +1927,18 @@ async function refreshGlobalStats(force = false): Promise<void> {
     if (taskId !== globalStatsTaskId) {
       return;
     }
+    if (!isBrowserAsyncReadStillCurrent(readToken)) {
+      return;
+    }
 
     globalTotalCount.value = visibleCards.length;
     globalLostCount.value = 0;
     globalDismissedCount.value = visibleCards.filter((card) => card.suspended).length;
   } catch (error) {
     if (taskId !== globalStatsTaskId) {
+      return;
+    }
+    if (!isBrowserAsyncReadStillCurrent(readToken)) {
       return;
     }
 
@@ -2064,11 +2103,15 @@ const gridDatasourceLifecycle = createBrowserGridDatasourceLifecycle({
   currentSortModel,
   firstRowsLifecycle: gridFirstRowsLifecycle,
   getCurrentVersion: () => datasourceVersion,
+  getExpectedReadModelSnapshotMetadata: () => currentReadModelSnapshotMetadata.value,
   getFirstRowsLoaded: () => hasFirstDataBlockLoaded.value,
   getGridApi: () => gridApi.value,
   getSortRevision: () => sortModelRevision.value,
   isGridApiAlive,
   measureRuntimePerformance,
+  onReadModelSnapshotMetadata: (metadata) => {
+    currentReadModelSnapshotMetadata.value = metadata;
+  },
   randomSortRows,
   sortModelRevision,
   startGridModelUpdate,
@@ -2080,6 +2123,7 @@ function rebuildInfiniteDatasource(forceRefresh = false): void {
   loading.value = true;
   hasFirstDataBlockLoaded.value = false;
   firstRowsStatus.value = 'pending';
+  currentReadModelSnapshotMetadata.value = null;
   clearLoadedRowsCache();
   gridDatasourceLifecycle.rebuildInfiniteDatasource({
     currentDataSource: currentDataSource.value,
@@ -2316,6 +2360,7 @@ async function refreshHierarchyDocumentCounts(): Promise<void> {
 
   const taskId = ++hierarchyDocumentCountsTaskId;
   const scope = buildHierarchyDocumentCountsScope();
+  const readToken = captureBrowserAsyncReadToken();
   hierarchyDocumentCountsStatus.value = 'loading';
   const finishSpan = startRuntimePerformanceSpan('browser', 'hierarchy.document-counts', {
     kind: scope.kind,
@@ -2325,6 +2370,10 @@ async function refreshHierarchyDocumentCounts(): Promise<void> {
   try {
     const result = await browserService.getBrowserDocumentCounts(scope);
     if (taskId !== hierarchyDocumentCountsTaskId) {
+      status = 'idle';
+      return;
+    }
+    if (!isBrowserAsyncReadStillCurrent(readToken)) {
       status = 'idle';
       return;
     }
@@ -2346,6 +2395,10 @@ async function refreshHierarchyDocumentCounts(): Promise<void> {
     });
   } catch (error) {
     if (taskId !== hierarchyDocumentCountsTaskId) {
+      status = 'idle';
+      return;
+    }
+    if (!isBrowserAsyncReadStillCurrent(readToken)) {
       status = 'idle';
       return;
     }
@@ -3173,6 +3226,7 @@ onBeforeUnmount(() => {
   pendingSourceExistenceSources.clear();
   sourceExistencePatchCoalescedCount = 0;
   sourceExistencePatchStartedAt = 0;
+  sourceExistencePatchToken = null;
   loadedRowsDirty = false;
 
   if (unsubscribe) {
@@ -3585,7 +3639,13 @@ const cardTypeDetection = useCardTypeDetection(() => rows.value, {
 
 
 async function refreshQueueCounts(request: BrowserQueueCountsRequest = {}) {
-  await refreshQueueCountsBridge(queueCounts, request);
+  const readToken = captureBrowserAsyncReadToken();
+  const guardedQueueCounts = ref({ ...queueCounts.value });
+  await refreshQueueCountsBridge(guardedQueueCounts, request);
+  if (!isBrowserAsyncReadStillCurrent(readToken)) {
+    return;
+  }
+  queueCounts.value = guardedQueueCounts.value;
 }
 
 async function handleSelectQueue(queueId: string) {

@@ -264,7 +264,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
           deps.currentDataSource.value = measureRuntimePerformance('browser', 'load-data.create-query-datasource', () => createQueryDataSource(sqlStmt, {
             manager: unifiedDataSourceManager,
             plugin: deps.getPlugin(),
-            siyuanApi: deps.browserSiyuanApi.value || undefined,
+            browserService: deps.browserAppService.value || null,
           }));
         } else {
           datasourceKind = 'deck';

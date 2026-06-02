@@ -101,6 +101,7 @@ describe('QueueBrowserQueryKernel', () => {
       }),
     ];
     const queue = {
+      getProjectionReadMode: vi.fn(() => 'backend-projection'),
       getSnapshotRows: vi.fn(async () => projectionRows),
       getCards: vi.fn(async () => [
         buildCard('stale-card', {
@@ -205,7 +206,7 @@ describe('QueueBrowserQueryKernel', () => {
     const manager = {
       getQueue: vi.fn(() => queue),
       getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
-        queueType: 'filter-group',
+        queueType: 'final-drill',
         projectionBacked: true,
         state: 'backend-projection',
         readPath: 'backend-projection',
@@ -215,7 +216,7 @@ describe('QueueBrowserQueryKernel', () => {
     } as never;
     const kernel = new QueueBrowserQueryKernel(manager);
 
-    const snapshot = await kernel.buildSnapshot({ queueId: 'filter-group' });
+    const snapshot = await kernel.buildSnapshot({ queueId: 'final-drill' });
 
     expect(snapshot.total).toBe(1);
     expect(snapshot.readOwner).toMatchObject({
@@ -223,6 +224,25 @@ describe('QueueBrowserQueryKernel', () => {
       projectionBacked: false,
     });
     expect(queue.getCards).toHaveBeenCalledTimes(1);
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
+  });
+
+  it('fails closed instead of using local queue rows when no explicit local policy exists', async () => {
+    const queue = {
+      getSnapshotRows: vi.fn(async () => []),
+      getCards: vi.fn(async () => {
+        throw new Error('hidden local queue fallback should not run');
+      }),
+      getCardsBySnapshotIds: vi.fn(async () => []),
+    };
+    const manager = {
+      getQueue: vi.fn(() => queue),
+    } as never;
+    const kernel = new QueueBrowserQueryKernel(manager);
+
+    await expect(kernel.buildSnapshot({ queueId: 'retrieval' }))
+      .rejects.toThrow('QUEUE_PROJECTION_UNAVAILABLE');
+    expect(queue.getCards).not.toHaveBeenCalled();
     expect(queue.getSnapshotRows).not.toHaveBeenCalled();
   });
 
@@ -263,6 +283,7 @@ describe('QueueBrowserQueryKernel', () => {
       buildCard('card-c', { riffCardId: 'row-c', meta: { content: 'gamma', rootId: 'doc-other', deckId: 'deck-a' }, type: CardType.Descriptor }),
     ];
     const queue = {
+      getProjectionReadMode: vi.fn(() => 'local-queue'),
       getSnapshotRows: vi.fn(async () => snapshotRows),
       getCards: vi.fn(async () => cards),
       getCardsBySnapshotIds: vi.fn(async (ids: string[]) => {
@@ -303,6 +324,7 @@ describe('QueueBrowserQueryKernel', () => {
 
   it('does not pass Browser forceRefresh into Review projection snapshots', async () => {
     const queue = {
+      getProjectionReadMode: vi.fn(() => 'local-queue'),
       getSnapshotRows: vi.fn(async () => [
         buildSnapshotRow('row-a', { fsrsCardId: 'card-a' }),
       ]),
@@ -353,6 +375,7 @@ describe('QueueBrowserQueryKernel', () => {
       }),
     ];
     const queue = {
+      getProjectionReadMode: vi.fn(() => 'local-queue'),
       getSnapshotRows: vi.fn(async () => snapshotRows),
       getCards: vi.fn(async () => cards),
       getCardsBySnapshotIds: vi.fn(async (ids: string[]) => {
@@ -404,6 +427,7 @@ describe('QueueBrowserQueryKernel', () => {
       }),
     ];
     const queue = {
+      getProjectionReadMode: vi.fn(() => 'local-queue'),
       getSnapshotRows: vi.fn(async () => snapshotRows),
       getCards: vi.fn(async () => [
         buildCard('card-existing', { blockId: 'block-existing' }),

@@ -406,10 +406,71 @@ describe('QueueProjectionRuntime', () => {
     expect(queue.getCards).toHaveBeenCalledTimes(1);
     expect(backend.queueProjectionReplace).toHaveBeenCalledWith(expect.objectContaining({
       queueType: QueueType.FilterGroup,
-      policyHash: 'queue-projection:{"cardType":"all","docId":null,"preset":"all","queueType":"filter-group","scopeDocIds":[],"searchText":null,"source":"browser"}',
+      policyHash: expect.stringContaining('"queueType":"filter-group"'),
       generation: expect.any(Number),
       reason: 'materialization_in_progress',
     }));
+    expect(backend.queueProjectionReplace.mock.calls[0]?.[0].policyHash).toContain('"filterHash":null');
+  });
+
+  it('preserves submitted FilterGroup identity in materialized projection policy and row metadata', async () => {
+    const manualCard = createCard({
+      id: 'manual-card',
+      blockId: 'manual-block',
+      due: 1_700_000_000_000,
+      meta: { rootId: 'doc-a', deckId: 'deck-a', content: 'manual filter projection' },
+    });
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.FilterGroup,
+        status: 'invalidated',
+        policyHash: null,
+        generation: null,
+        rows: [],
+        counters: null,
+      })),
+      queueProjectionReplace: vi.fn(async (request: { policyHash: string; generation?: number | null; rows: any[] }) => ({
+        queueType: QueueType.FilterGroup,
+        status: 'ready',
+        policyHash: request.policyHash,
+        generation: request.generation ?? 1,
+        rows: request.rows.length,
+        counters: null,
+      })),
+    };
+    const { runtime } = createRuntime({
+      backend,
+      queueCards: [manualCard],
+    });
+
+    await expect(runtime.ensureReady({
+      queueType: QueueType.FilterGroup,
+      source: 'browser',
+      filterHash: 'filter-hash-a',
+      manualCardIds: ['manual-card'],
+      temporaryBlacklistIds: ['hidden-card'],
+      customOrder: ['manual-card'],
+      transferSessionId: 'transfer-a',
+      sessionId: 'session-a',
+      commitPolicy: 'write-schedule',
+    })).resolves.toMatchObject({
+      status: 'ready',
+      queueId: QueueType.FilterGroup,
+    });
+
+    const replaceRequest = backend.queueProjectionReplace.mock.calls[0]?.[0];
+    expect(replaceRequest.policyHash).toContain('"filterHash":"filter-hash-a"');
+    expect(replaceRequest.policyHash).toContain('"manualCardIds":["manual-card"]');
+    expect(replaceRequest.policyHash).toContain('"temporaryBlacklistIds":["hidden-card"]');
+    expect(replaceRequest.policyHash).toContain('"customOrder":["manual-card"]');
+    expect(replaceRequest.rows[0]?.payload).toMatchObject({
+      queueKind: 'filter-group',
+      filterHash: 'filter-hash-a',
+      transferSessionId: 'transfer-a',
+      commitPolicy: 'write-schedule',
+      membershipSource: 'manual',
+      sessionTransferActive: true,
+    });
   });
 
   it('materializes invalidated projection during forced snapshot reads for queue counters', async () => {

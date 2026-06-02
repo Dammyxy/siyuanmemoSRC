@@ -34,6 +34,7 @@ import type {
   QueueBrowserSnapshotQuery,
   QueueBrowserSnapshotResult,
 } from '../queries/browser/queue-browser-query';
+import type { BrowserReadModel } from '../queries/browser/browser-read-model';
 import type {
   BrowserCardTypeFilter,
   CardFilter,
@@ -97,6 +98,8 @@ export type BrowserDataSourceFactory = (
  * UI 层只依赖此接口，不依赖具体实现。
  */
 export interface IBrowserApplicationService {
+  getBrowserReadModel(): BrowserReadModel;
+
   /**
    * 获取浏览器卡片列表
    * 

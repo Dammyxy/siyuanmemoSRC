@@ -210,7 +210,7 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
     }
 
     public getProjectionReadMode(): QueueProjectionReadMode {
-        return 'local-queue';
+        return 'backend-projection';
     }
     
     /**

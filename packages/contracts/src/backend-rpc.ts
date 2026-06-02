@@ -2940,6 +2940,7 @@ export interface BackendBrowserDeckPageRequest {
 export interface BackendBrowserDeckPageResult {
   total: number;
   cards: unknown[];
+  generation?: number | null;
 }
 
 export type BackendBrowserDocumentCountsScopeKind =
@@ -3073,6 +3074,13 @@ export interface QueueProjectionReadinessRequest {
   scopeDocIds?: string[] | null;
   cardType?: string | null;
   source?: string | null;
+  filterHash?: string | null;
+  manualCardIds?: string[] | null;
+  temporaryBlacklistIds?: string[] | null;
+  customOrder?: string[] | null;
+  transferSessionId?: string | null;
+  sessionId?: string | null;
+  commitPolicy?: string | null;
 }
 
 export interface QueueProjectionReady {

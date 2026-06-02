@@ -58,6 +58,34 @@ const violationRules = [
     symbolPattern: 'sqlRepository.addReviewLog*/addDrillLogV2/addRescheduleLog',
     pattern: /sqlRepository\.(?:addReviewLog|addReviewLogV2|addDrillLogV2|addRescheduleLog)\s*\(/,
   },
+  {
+    kind: 'browser-ui-sql-wrapper',
+    scopes: ['ui', 'application'],
+    symbolPattern: 'runBrowserSql(',
+    pathPattern: /^(?:src\/ui\/browser\/(?:datasource\/|BrowserGrid|browserLoadDataRuntime|SRSBrowser\.vue)|src\/application\/(?:services\/BrowserApplicationService|queries\/browser\/))/,
+    pattern: /\brunBrowserSql\s*(?:<[^>]+>)?\s*\(/,
+  },
+  {
+    kind: 'browser-inline-msgpack-hydrate',
+    scopes: ['ui', 'application'],
+    symbolPattern: 'readMsgpack/writeMsgpack/@msgpack/msgpack',
+    pathPattern: /^(?:src\/ui\/browser\/(?:datasource\/|BrowserGrid|browserLoadDataRuntime|SRSBrowser\.vue)|src\/application\/(?:services\/BrowserApplicationService|queries\/browser\/))/,
+    pattern: /\b(?:readMsgpack|writeMsgpack)\b|@msgpack\/msgpack|['"`][^'"`]*\.msgpack['"`]/,
+  },
+  {
+    kind: 'browser-full-payload-page-parse',
+    scopes: ['ui', 'application'],
+    symbolPattern: 'payload_json/dto_json',
+    pathPattern: /^(?:src\/ui\/browser\/datasource\/DeckDataSource\.ts|src\/application\/(?:services\/BrowserApplicationService|queries\/browser\/))/,
+    pattern: /\b(?:payload_json|dto_json)\b/,
+  },
+  {
+    kind: 'browser-local-queue-fallback',
+    scopes: ['ui'],
+    symbolPattern: 'queue.getCards()',
+    pathPattern: /^src\/ui\/browser\/(?:datasource\/|BrowserQueueViewModule|browserLoadDataRuntime|SRSBrowser\.vue)/,
+    pattern: /\b\w*queue\w*\.getCards\s*\(/i,
+  },
 ];
 
 const requiredAllowListFields = [
@@ -130,6 +158,16 @@ function isAllowed(allowEntries, violation) {
   ));
 }
 
+function ruleAppliesToPath(rule, relativePath) {
+  if (rule.pathPattern && !rule.pathPattern.test(relativePath)) {
+    return false;
+  }
+  if (rule.excludePathPattern && rule.excludePathPattern.test(relativePath)) {
+    return false;
+  }
+  return true;
+}
+
 function evaluate(options = {}) {
   const rootDir = options.rootDir || root;
   const rules = options.rules || violationRules;
@@ -150,6 +188,9 @@ function evaluate(options = {}) {
       const text = fs.readFileSync(file, 'utf8');
       for (const rule of rules) {
         if (!rule.scopes.includes(scanRoot.scope)) {
+          continue;
+        }
+        if (!ruleAppliesToPath(rule, relativePath)) {
           continue;
         }
         if (!rule.pattern.test(text)) {

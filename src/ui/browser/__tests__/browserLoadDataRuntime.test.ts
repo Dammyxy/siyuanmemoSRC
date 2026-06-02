@@ -129,6 +129,86 @@ describe('browserLoadDataRuntime', () => {
     expect(deps.globalSelection.clear).toHaveBeenCalledTimes(1);
   });
 
+  it('backs SQL datasource rows with the application Browser read model', async () => {
+    const page = vi.fn(async () => ({
+      status: 'ready' as const,
+      total: 1,
+      rows: [{
+        id: 'sql-row',
+        fsrsCardId: 'sql-row',
+        blockId: 'block-sql-row',
+        deckId: 'deck-a',
+        content: 'sql row',
+        fullContent: 'sql row',
+        rootId: 'doc-a',
+        state: 0,
+        stateLabel: 'New',
+        due: new Date(),
+        dueFormatted: '',
+        stability: 0,
+        difficulty: 0,
+        retrievability: 0,
+        reps: 0,
+        lapses: 0,
+        elapsedDays: 0,
+        scheduledDays: 0,
+        lastReview: null,
+        lastReviewFormatted: '',
+        interval: 0,
+        firstReview: null,
+        firstReviewFormatted: '',
+        priority: 50,
+        suspended: false,
+        tags: [],
+      } as BrowserCard],
+      queryFingerprint: 'advanced-sql:read-model',
+      generation: null,
+      readOwner: { kind: 'block-id-intersection' as const },
+    }));
+    const browserAppService = {
+      getSiyuanApi: vi.fn(() => ({
+        sql: vi.fn(() => {
+          throw new Error('UI SQL wrapper must not own SQL datasource rows');
+        }),
+      })),
+      getBrowserReadModel: vi.fn(() => ({
+        page,
+        matchedIds: vi.fn(),
+        rowsByIds: vi.fn(),
+        actionTargetsByIds: vi.fn(),
+        documentCounts: vi.fn(),
+      })),
+    };
+    const deps = createDeps({
+      browserAppService: ref(browserAppService as any),
+      browserSiyuanApi: ref({
+        sql: vi.fn(() => {
+          throw new Error('UI SQL wrapper must not own SQL datasource rows');
+        }),
+      } as any),
+      resolveActiveSqlStatement: vi.fn(() => 'select id from blocks'),
+    });
+    const runtime = createBrowserLoadDataRuntime(deps);
+
+    await runtime.loadData(false);
+    const result = await deps.currentDataSource.value!.fetchRows({
+      startRow: 0,
+      endRow: 20,
+      sortModel: [],
+      filterModel: {},
+    });
+
+    expect(result.rows.map((row) => row.fsrsCardId)).toEqual(['sql-row']);
+    expect(result.queryFingerprint).toBe('advanced-sql:read-model');
+    expect(page).toHaveBeenCalledWith({
+      source: 'advanced-sql',
+      statement: 'select id from blocks',
+    }, {
+      startRow: 0,
+      endRow: 20,
+    });
+  });
+
   it('refreshes queue counts passively after default browser open', async () => {
     const deps = createDeps();
     const runtime = createBrowserLoadDataRuntime(deps);

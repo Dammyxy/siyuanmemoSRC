@@ -969,7 +969,7 @@ export class BackendKernel {
     return null;
   }
 
-  private async handleBrowserDeckPage(params: unknown): Promise<{ total: number; cards: unknown[] }> {
+  private async handleBrowserDeckPage(params: unknown): Promise<{ total: number; cards: unknown[]; generation: number | null }> {
     const named = this.readNamedParams<{ query?: BackendBrowserDeckSnapshotQuery; page?: BackendBrowserDeckPageRequest }>(params);
     const query = named?.query ?? {};
     const page = named?.page ?? {};
@@ -977,6 +977,7 @@ export class BackendKernel {
     return {
       total: result?.total ?? 0,
       cards: result?.cards ?? [],
+      generation: result?.generation ?? null,
     };
   }
 

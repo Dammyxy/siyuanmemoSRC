@@ -365,11 +365,15 @@ function mountSemanticPlugin(readMock: ReturnType<typeof vi.fn>, executeMock: Re
   };
 }
 
-function createQueryableDataSource(allRows: BrowserCard[]) {
+function createQueryableDataSource(
+  allRows: BrowserCard[],
+  metadata: Record<string, unknown> = {},
+) {
   return {
     fetchRows: vi.fn(async ({ startRow, endRow }: { startRow: number; endRow: number }) => ({
       rows: allRows.slice(startRow, endRow),
       totalCount: allRows.length,
+      ...metadata,
     })),
     getQueryFingerprint: vi.fn(() => 'browser-test-query'),
     getAllMatchedIds: vi.fn(async () => allRows.map((row) => row.id)),
@@ -936,6 +940,70 @@ describe('SRSBrowser hierarchy regressions', () => {
     }));
     expect(queryable.getAllMatchedIds).not.toHaveBeenCalled();
     expect(queryable.getRowsByIds).not.toHaveBeenCalled();
+  });
+
+  it('discards stale hierarchy document counts after read metadata changes', async () => {
+    let resolveFirstCounts: ((value: unknown) => void) | null = null;
+    const firstRows = [buildBrowserCard('card-old', 'doc-old')];
+    const secondRows = [buildBrowserCard('card-new', 'doc-new')];
+    createDeckDataSourceMock.mockImplementation((_manager, options: { preset?: string }) => {
+      if (options?.preset === 'suspended') {
+        return createQueryableDataSource(secondRows, {
+          queryFingerprint: 'query-new',
+          generation: 2,
+          readOwner: { kind: 'sql-card-universe' },
+        });
+      }
+      return createQueryableDataSource(firstRows, {
+        queryFingerprint: 'query-old',
+        generation: 1,
+        readOwner: { kind: 'sql-card-universe' },
+      });
+    });
+    const browserService = createBrowserService();
+    browserService.getBrowserDocumentCounts
+      .mockImplementationOnce(async () => new Promise((resolve) => {
+        resolveFirstCounts = resolve;
+      }))
+      .mockResolvedValueOnce({
+        status: 'ready',
+        owner: 'sql-card-universe',
+        scope: { kind: 'deck' },
+        rows: [{ rootId: 'doc-new', count: 1 }],
+        diagnostics: {
+          countOnly: true,
+          rowsHydratedForHierarchy: 0,
+        },
+      });
+
+    const wrapper = mountBrowser({ browserService: browserService as never });
+    await advance(0);
+    await advance(0);
+    await advance(80);
+
+    expect(browserService.getBrowserDocumentCounts).toHaveBeenCalledTimes(1);
+
+    await wrapper.get('.select-global-suspended').trigger('click');
+    await advance(0);
+    await advance(0);
+    await advance(80);
+
+    resolveFirstCounts?.({
+      status: 'ready',
+      owner: 'sql-card-universe',
+      scope: { kind: 'deck' },
+      rows: [{ rootId: 'doc-stale', count: 99 }],
+      diagnostics: {
+        countOnly: true,
+        rowsHydratedForHierarchy: 0,
+      },
+    });
+    await flushPromises();
+    await nextTick();
+    await advance(0);
+
+    expect(wrapper.text()).toContain('doc-new:1');
+    expect(wrapper.text()).not.toContain('doc-stale:99');
   });
 
   it('switches all and suspended views without triggering duplicate reloads from watchers', async () => {

@@ -2,7 +2,6 @@ import type { IBrowserApplicationService } from '@/application/interfaces/IBrows
 import type { QueueProjectionReadiness, QueueProjectionReadinessRequest } from '../../../packages/contracts/src/backend-rpc';
 import { QueueType } from '@/types/unified-data-source';
 import {
-  getCanonicalBrowserQueueIds,
   normalizeBrowserQueueId,
   resolveQueueTypeForBrowserQueueId,
   type BrowserQueueId,
@@ -64,24 +63,33 @@ export type BrowserQueueProjectionWarmupRuntimeDeps = {
 };
 
 const DEFAULT_WARMUP_DEBOUNCE_MS = 120;
+const DEFAULT_LIKELY_NEXT_QUEUE_ID: BrowserQueueId = 'retrieval';
+const MAX_RECENT_WARMUP_QUEUES = 2;
 
 function isWarmableQueue(queueType: QueueType | null): queueType is QueueType {
   return Boolean(queueType && queueType !== QueueType.NeuralRoam);
 }
 
-function buildWarmupQueueOrder(activeQueueId: string | null, targetQueueIds?: BrowserQueueId[]): BrowserQueueId[] {
+function buildWarmupQueueOrder(
+  activeQueueId: string | null,
+  targetQueueIds?: BrowserQueueId[],
+  recentQueueIds: BrowserQueueId[] = [],
+): BrowserQueueId[] {
   if (targetQueueIds?.length) {
     const deduped = Array.from(new Set(targetQueueIds));
     return deduped.filter((queueId) => isWarmableQueue(resolveQueueTypeForBrowserQueueId(queueId)));
   }
   const active = normalizeBrowserQueueId(activeQueueId);
-  const all = getCanonicalBrowserQueueIds().filter((queueId) =>
-    isWarmableQueue(resolveQueueTypeForBrowserQueueId(queueId)),
-  );
-  const ordered = active && all.includes(active)
-    ? [active, ...all.filter((queueId) => queueId !== active)]
-    : all;
-  return ordered;
+  if (active && isWarmableQueue(resolveQueueTypeForBrowserQueueId(active))) {
+    return [active];
+  }
+  const recent = Array.from(new Set(recentQueueIds))
+    .filter((queueId) => isWarmableQueue(resolveQueueTypeForBrowserQueueId(queueId)))
+    .slice(0, MAX_RECENT_WARMUP_QUEUES);
+  if (recent.length) {
+    return recent;
+  }
+  return [DEFAULT_LIKELY_NEXT_QUEUE_ID];
 }
 
 function normalizeReadinessStatus(
@@ -172,7 +180,11 @@ export function createBrowserQueueProjectionWarmupRuntime(
       return;
     }
     const scope = currentScope();
-    const queueIds = buildWarmupQueueOrder(scope.activeQueueId, targetQueueIds);
+    const queueIds = buildWarmupQueueOrder(
+      scope.activeQueueId,
+      targetQueueIds,
+      Array.from(statuses.keys()).reverse(),
+    );
     for (const queueId of queueIds) {
       if (seq !== generation) return;
       const queueType = resolveQueueTypeForBrowserQueueId(queueId);

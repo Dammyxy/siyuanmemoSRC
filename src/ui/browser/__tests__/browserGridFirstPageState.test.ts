@@ -50,6 +50,24 @@ describe('browser grid first-page state', () => {
     });
   });
 
+  it.each([
+    ['read-model-preparing', 'projection-refreshing'],
+    ['read-model-repair-required', 'repair-required'],
+    ['read-model-unavailable', 'unavailable'],
+  ] as const)('shows %s overlay without confirming empty state', (firstRowsStatus, overlayKind) => {
+    expect(resolveBrowserGridFirstPageState({
+      ...baseInput,
+      currentDataSourceReady: true,
+      firstRowsStatus,
+      loading: false,
+    })).toEqual({
+      overlayKind,
+      showEmptyState: false,
+      showGrid: true,
+      showShellLoading: false,
+    });
+  });
+
   it('shows empty state only after first rows confirm zero rows', () => {
     expect(resolveBrowserGridFirstPageState({
       ...baseInput,

@@ -178,6 +178,7 @@ export class BrowserCardUniverseReadModule {
           'deck-page',
         ),
         total: initialPage.total,
+        generation: initialPage.generation ?? null,
       };
     } catch (error) {
       throw toBrowserCardUniverseUnavailable('browser.deck.page', error);

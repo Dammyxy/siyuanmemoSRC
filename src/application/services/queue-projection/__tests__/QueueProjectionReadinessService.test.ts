@@ -38,6 +38,38 @@ describe('QueueProjectionReadinessService', () => {
     }));
   });
 
+  it('includes submitted FilterGroup policy identity fields in canonical policy id', () => {
+    const service = new QueueProjectionReadinessService({
+      readSnapshot: vi.fn(),
+    });
+    const submittedFilterGroup = {
+      queueType: 'filter-group',
+      source: 'browser',
+      filterHash: 'filter-hash-a',
+      manualCardIds: ['manual-b', 'manual-a'],
+      temporaryBlacklistIds: ['hidden-b', 'hidden-a'],
+      customOrder: ['card-a', 'card-b'],
+      transferSessionId: 'transfer-a',
+      sessionId: 'session-a',
+      commitPolicy: 'write-schedule',
+    };
+
+    const policyId = service.buildPolicyId(submittedFilterGroup);
+
+    expect(policyId).toBe(service.buildPolicyId({
+      ...submittedFilterGroup,
+      manualCardIds: ['manual-a', 'manual-b'],
+      temporaryBlacklistIds: ['hidden-a', 'hidden-b'],
+    }));
+    expect(policyId).not.toBe(service.buildPolicyId({ ...submittedFilterGroup, filterHash: 'filter-hash-b' }));
+    expect(policyId).not.toBe(service.buildPolicyId({ ...submittedFilterGroup, manualCardIds: ['manual-a'] }));
+    expect(policyId).not.toBe(service.buildPolicyId({ ...submittedFilterGroup, temporaryBlacklistIds: ['hidden-a'] }));
+    expect(policyId).not.toBe(service.buildPolicyId({ ...submittedFilterGroup, customOrder: ['card-b', 'card-a'] }));
+    expect(policyId).not.toBe(service.buildPolicyId({ ...submittedFilterGroup, transferSessionId: 'transfer-b' }));
+    expect(policyId).not.toBe(service.buildPolicyId({ ...submittedFilterGroup, sessionId: 'session-b' }));
+    expect(policyId).not.toBe(service.buildPolicyId({ ...submittedFilterGroup, commitPolicy: 'preview-only' }));
+  });
+
   it('returns refreshing for non-ready snapshots without local repair', async () => {
     const readSnapshot = vi.fn(async () => ({
       queueType: 'retrieval-practice',

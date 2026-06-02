@@ -373,6 +373,47 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     })).toEqual(['card-a', 'card-d', 'card-b']);
   });
 
+  it('serves deck page rows from skinny SQL projections without parsing card payload JSON', async () => {
+    const { database } = await seedRepositories();
+    database.run(
+      'UPDATE cards SET payload_json = ?, dto_json = ?, projection_generation = ? WHERE id = ?',
+      ['{broken payload json', '{broken dto json', 42, 'card-d'],
+    );
+    const diagnosticSteps: string[] = [];
+    const repository = new SqlUnifiedStorageRepository(database, {
+      diagnosticRecorder: (step) => diagnosticSteps.push(step),
+    });
+
+    const page = repository.queryDeckPage({
+      docId: 'doc-a',
+      deckIds: ['deck-a'],
+      searchText: 'Delta',
+      sortModel: [{ colId: 'priority', sort: 'asc' }],
+    }, {
+      startRow: 0,
+      endRow: 10,
+    });
+
+    expect(page?.total).toBe(1);
+    expect(page?.generation).toBe(42);
+    expect(ids(page?.cards || [])).toEqual(['card-d']);
+    expect(page?.cards[0]).toMatchObject({
+      id: 'card-d',
+      blockId: 'block-d',
+      xiuyuanID: 'xy-card-d',
+      meta: {
+        deckId: 'deck-a',
+        rootId: 'doc-a',
+        content: 'Delta review',
+      },
+    });
+    expect(diagnosticSteps).toEqual(expect.arrayContaining([
+      'queryDeckPage.count',
+      'queryDeckPage.select',
+    ]));
+    expect(diagnosticSteps).not.toContain('queryDeckPage.parse');
+  });
+
   it('serves browser document counts from count-only root projections', async () => {
     const { repository } = await seedRepositories();
 
@@ -595,6 +636,7 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     expect(repository.queryDeckPage({ docId: '__lost__' }, { startRow: 0, endRow: 20 })).toEqual({
       cards: [],
       total: 0,
+      generation: null,
     });
   });
 

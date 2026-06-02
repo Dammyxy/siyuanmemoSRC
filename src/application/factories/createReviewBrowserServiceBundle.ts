@@ -1,5 +1,6 @@
 import { CardCreationHelper } from '@/application/helpers/CardCreationHelper';
 import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
+import type { BrowserAdvancedSqlQuerySourcePort } from '@/application/ports/BrowserAdvancedSqlQuerySourcePort';
 import { BrowserApplicationService } from '@/application/services/BrowserApplicationService';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
@@ -40,6 +41,7 @@ export interface CreateReviewBrowserServiceBundleDeps {
   getSrsBackendClient: () => SrsBackendClient | null;
   getFrontendInstanceRuntime: () => FrontendInstanceRuntime | null;
   getFollowerCommandClient: () => FollowerCommandClient | null;
+  createBrowserAdvancedSqlQuerySource: () => BrowserAdvancedSqlQuerySourcePort;
   createManagerSiyuanPort: () => ManagerSiyuanPort;
   createBrowserSiyuanPort: () => BrowserSiyuanPort;
   createReviewSiyuanPort: () => ReviewSiyuanPort;
@@ -101,6 +103,7 @@ export function createReviewBrowserServiceBundle(
       deps.getSrsBackendClient(),
       deps.getFrontendInstanceRuntime(),
       deps.getFollowerCommandClient(),
+      deps.createBrowserAdvancedSqlQuerySource(),
     ),
     createReviewApplicationService: () => new ReviewApplicationService(
       deps.getUnifiedDataSourceManager(),

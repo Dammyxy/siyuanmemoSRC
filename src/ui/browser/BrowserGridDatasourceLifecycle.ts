@@ -1,6 +1,7 @@
 import type { GridApi, IDatasource, IGetRowsParams } from 'ag-grid-community';
 import type { FetchRowsOptions, FetchRowsResult, ICardDataSource, SortModel } from './datasource/types';
 import type { BrowserCard } from './types';
+import type { BrowserReadModelSnapshotMetadata } from '@/application/queries/browser/browser-read-model';
 import type { BrowserGridRowsLifecycleStatus } from './BrowserGridFirstRowsLifecycle';
 import { fetchRowsWithProjectionReadinessRetry } from './utils/projectionReadiness';
 import { resolveEffectiveSortModel } from './utils/sortModel';
@@ -43,6 +44,7 @@ type BrowserGridDatasourceLifecycleDeps = {
   ) => Promise<FetchRowsResult>;
   firstRowsLifecycle: BrowserGridFirstRowsLifecycleLike;
   getCurrentVersion: () => number;
+  getExpectedReadModelSnapshotMetadata?: () => BrowserReadModelSnapshotMetadata | null | undefined;
   getFirstRowsLoaded: () => boolean;
   getGridApi: () => GridApi | null;
   getSortRevision: () => number;
@@ -51,6 +53,7 @@ type BrowserGridDatasourceLifecycleDeps = {
   randomSortRows: ReadonlyRef<BrowserCard[] | null>;
   resolveEffectiveSortModel?: typeof resolveEffectiveSortModel;
   sortModelRevision: ReadonlyRef<number>;
+  onReadModelSnapshotMetadata?: (metadata: BrowserReadModelSnapshotMetadata) => void;
   startGridModelUpdate: (reason: string, metadata?: { version?: number }) => void;
   startRuntimePerformanceSpan: (
     category: string,
@@ -59,7 +62,57 @@ type BrowserGridDatasourceLifecycleDeps = {
   ) => (metadata?: Record<string, unknown>, result?: { ok?: boolean; errorName?: string }) => void;
 };
 
+type BrowserGridReadModelResponseMetadata = Pick<
+  FetchRowsResult,
+  'generation' | 'queryFingerprint' | 'readOwner'
+>;
+
 export type BrowserGridDatasourceLifecycle = ReturnType<typeof createBrowserGridDatasourceLifecycle>;
+
+function stableMetadataString(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableMetadataString).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableMetadataString(record[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function hasReadModelMetadata(result: BrowserGridReadModelResponseMetadata): boolean {
+  return typeof result.queryFingerprint === 'string'
+    && Object.prototype.hasOwnProperty.call(result, 'generation')
+    && Boolean(result.readOwner);
+}
+
+function toBrowserGridReadModelSnapshotMetadata(
+  result: BrowserGridReadModelResponseMetadata,
+): BrowserReadModelSnapshotMetadata | null {
+  if (!hasReadModelMetadata(result)) {
+    return null;
+  }
+  return {
+    queryFingerprint: result.queryFingerprint as string,
+    generation: result.generation ?? null,
+    readOwner: result.readOwner as BrowserReadModelSnapshotMetadata['readOwner'],
+  };
+}
+
+export function isBrowserGridReadModelResponseCurrent(input: {
+  expected?: BrowserReadModelSnapshotMetadata | null;
+  result: BrowserGridReadModelResponseMetadata;
+}): boolean {
+  if (!input.expected) {
+    return true;
+  }
+  if (!hasReadModelMetadata(input.result)) {
+    return false;
+  }
+  return input.result.queryFingerprint === input.expected.queryFingerprint
+    && (input.result.generation ?? null) === (input.expected.generation ?? null)
+    && stableMetadataString(input.result.readOwner ?? null) === stableMetadataString(input.expected.readOwner ?? null);
+}
 
 export function createBrowserGridDatasourceLifecycle(deps: BrowserGridDatasourceLifecycleDeps) {
   const fetchRows = deps.fetchRowsWithReadinessRetry ?? fetchRowsWithProjectionReadinessRetry;
@@ -101,6 +154,7 @@ export function createBrowserGridDatasourceLifecycle(deps: BrowserGridDatasource
 
             let rowsForBlock: BrowserCard[] = [];
             let requestSortRevision = deps.sortModelRevision.value;
+            let readModelSnapshotMetadata: BrowserReadModelSnapshotMetadata | null = null;
 
             if (deps.randomSortRows.value) {
               const fullRows = deps.randomSortRows.value;
@@ -136,6 +190,15 @@ export function createBrowserGridDatasourceLifecycle(deps: BrowserGridDatasource
               });
               rowsForBlock = result.rows;
               totalCount = result.totalCount;
+              readModelSnapshotMetadata = toBrowserGridReadModelSnapshotMetadata(result);
+              if (!isBrowserGridReadModelResponseCurrent({
+                expected: deps.getExpectedReadModelSnapshotMetadata?.() ?? null,
+                result,
+              })) {
+                params.failCallback();
+                status = 'stale-read-model';
+                return;
+              }
             }
             rowsForBlockCount = rowsForBlock.length;
 
@@ -149,6 +212,10 @@ export function createBrowserGridDatasourceLifecycle(deps: BrowserGridDatasource
               params.failCallback();
               status = 'stale-sort';
               return;
+            }
+
+            if (readModelSnapshotMetadata) {
+              deps.onReadModelSnapshotMetadata?.(readModelSnapshotMetadata);
             }
 
             status = deps.measureRuntimePerformance('browser', 'grid.success-callback', () => deps.firstRowsLifecycle.applyLoadedRows({
@@ -175,7 +242,12 @@ export function createBrowserGridDatasourceLifecycle(deps: BrowserGridDatasource
               status,
               totalCount,
             }, {
-              ok: status === 'loaded' || status === 'empty-datasource' || status === 'projection-not-ready',
+              ok: status === 'loaded'
+                || status === 'empty-datasource'
+                || status === 'projection-not-ready'
+                || status === 'read-model-preparing'
+                || status === 'read-model-repair-required'
+                || status === 'read-model-unavailable',
               errorName: status === 'error' ? 'BrowserGridGetRowsError' : undefined,
             });
           }

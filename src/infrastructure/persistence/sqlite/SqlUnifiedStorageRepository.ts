@@ -12,13 +12,14 @@ import type {
   BrowserDocumentCountsResult,
   BrowserDocumentCountsScope,
   BrowserDeckPageRequest,
+  BrowserDeckSkinnySqlRow,
   BrowserDeckSnapshotQuery,
 } from '@/application/queries/browser/browser-deck-query';
 import type { SortModel } from '@/application/interfaces/ICardDataSource';
 import type { CardPersistenceDTO } from '@/infrastructure/persistence/dto/CardPersistenceDTO';
 import { CardMapper } from '@/infrastructure/persistence/mappers/CardMapper';
 import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
-import { CardState, type FSRSCard } from '@/types/card';
+import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { resolveQueueTypeForBrowserQueueId } from '@/types/browser-queue-identity';
 import { QueueType } from '@/types/unified-data-source';
 import type { IXiuyuan } from '@/core/xiuyuan/types';
@@ -124,6 +125,35 @@ const CARD_HAS_RENDERABLE_CONTENT_SQL = "TRIM(COALESCE(content_text, '')) != ''"
 const ACTIVE_CARD_NOT_TOMBSTONED_SQL = activeCardNotTombstonedSql('cards');
 const ACTIVE_SOURCE_STATUS_SQL = activeCardSourceStatusSql('cards');
 const MISSING_SOURCE_STATUS_SQL = missingCardSourceStatusSql('cards');
+const BROWSER_DECK_SKINNY_COLUMNS = [
+  'id',
+  'block_id',
+  'xiuyuan_id',
+  'type',
+  'state',
+  'due',
+  'priority',
+  'scheduler_type',
+  'updated_at',
+  'deck_id',
+  'root_id',
+  'content_text',
+  'tags',
+  'suspended',
+  'lapses',
+  'reps',
+  'last_review',
+  'created_at',
+  'scheduled_days',
+  'stability',
+  'difficulty',
+  'a_factor',
+  'card_type_marker',
+  'source_exists',
+  'source_checked_at',
+  'source_missing_at',
+  'projection_generation',
+].join(', ');
 
 export interface AlgorithmCardStateDiagnosticSummary {
   total: number;
@@ -740,8 +770,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     const { startRow, limit } = this.normalizePageRequest(page, total);
     const rows = this.measureDiagnosticStep(
       'queryDeckPage.select',
-      () => this.database.getAll<{ payload_json: string; dto_json: string | null }>(
-        `SELECT payload_json, dto_json FROM cards ${this.toWhereSql(deckQuery.where)} ${deckQuery.orderBy} LIMIT ? OFFSET ?`,
+      () => this.database.getAll<BrowserDeckSkinnySqlRow>(
+        `SELECT ${BROWSER_DECK_SKINNY_COLUMNS} FROM cards ${this.toWhereSql(deckQuery.where)} ${deckQuery.orderBy} LIMIT ? OFFSET ?`,
         [...(deckQuery.where?.params || []), limit, startRow],
       ),
       {
@@ -750,16 +780,10 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         total,
       },
     );
-    const cards = this.measureDiagnosticStep(
-      'queryDeckPage.parse',
-      () => this.parseCardRows(rows),
-      {
-        rowCount: rows.length,
-      },
-    );
     return {
-      cards,
+      cards: this.buildBrowserDeckSkinnyCards(rows),
       total,
+      generation: this.readProjectionGenerationByWhere(deckQuery.where),
     };
   }
 
@@ -1515,6 +1539,112 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     return Math.max(0, Number(row?.count) || 0);
   }
 
+  private buildBrowserDeckSkinnyCards(rows: BrowserDeckSkinnySqlRow[]): FSRSCard[] {
+    const baseCards = rows.map((row) => this.toBrowserDeckSkinnyCard(row));
+    const stateRows = this.loadAlgorithmStateRowMap(baseCards.map((card) => card.id));
+    return baseCards.map((card) => this.hydrateWithAlgorithmState(card, stateRows));
+  }
+
+  private toBrowserDeckSkinnyCard(row: BrowserDeckSkinnySqlRow): FSRSCard {
+    const id = normalizeString(row.id);
+    const blockId = normalizeString(row.block_id);
+    const now = Date.now();
+    const lastReview = this.normalizeSkinnyNumber(row.last_review, 0);
+    const elapsedDays = lastReview > 0 ? Math.floor((now - lastReview) / 86_400_000) : 0;
+    const tags = this.decodeProjectionTags(row.tags);
+    const content = normalizeString(row.content_text);
+    const rootId = normalizeString(row.root_id);
+    const deckId = normalizeString(row.deck_id);
+    const cardTypeMarker = this.normalizeCardTypeMarker(row.card_type_marker);
+    const cardType = this.normalizeSkinnyCardType(row.type, cardTypeMarker);
+    const meta: Record<string, unknown> = {};
+    if (deckId) meta.deckId = deckId;
+    if (rootId) meta.rootId = rootId;
+    if (content) meta.content = content;
+    if (tags.length > 0) meta.tags = tags;
+    if (cardTypeMarker) meta.cardTypeMarker = cardTypeMarker;
+    if (row.source_exists != null) meta.sourceExists = Number(row.source_exists) === 1;
+    if (row.source_checked_at != null) meta.sourceCheckedAt = this.normalizeSkinnyNumber(row.source_checked_at, 0);
+    if (row.source_missing_at != null) meta.sourceMissingAt = this.normalizeSkinnyNumber(row.source_missing_at, 0);
+
+    return {
+      id,
+      xiuyuanID: normalizeString(row.xiuyuan_id),
+      blockId,
+      due: this.normalizeSkinnyNumber(row.due, 0),
+      stability: this.normalizeSkinnyNumber(row.stability, 0),
+      difficulty: this.normalizeSkinnyNumber(row.difficulty, 0),
+      reps: this.normalizeSkinnyNumber(row.reps, 0),
+      lapses: this.normalizeSkinnyNumber(row.lapses, 0),
+      state: this.normalizeSkinnyCardState(row.state),
+      lastReview,
+      elapsedDays: Math.max(0, elapsedDays),
+      scheduledDays: this.normalizeSkinnyNumber(row.scheduled_days, 0),
+      priority: this.normalizeSkinnyNumber(row.priority, 50),
+      type: cardType,
+      tags,
+      cardTypeMarker,
+      neuralRoamSeed: false,
+      leechCount: this.normalizeSkinnyNumber(row.lapses, 0),
+      isLeech: this.normalizeSkinnyNumber(row.lapses, 0) > 0,
+      skipped: Number(row.suspended) === 1,
+      createdAt: this.normalizeSkinnyNumber(row.created_at, this.normalizeSkinnyNumber(row.updated_at, 0)),
+      updatedAt: this.normalizeSkinnyNumber(row.updated_at, 0),
+      meta,
+      ...(row.a_factor == null ? {} : { aFactor: this.normalizeSkinnyNumber(row.a_factor, 0) }),
+      ...(normalizeString(row.scheduler_type) ? { schedulerType: normalizeString(row.scheduler_type) } : {}),
+    };
+  }
+
+  private normalizeSkinnyNumber(value: unknown, fallback: number): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  private normalizeSkinnyCardState(value: unknown): CardState {
+    const parsed = Math.floor(Number(value));
+    switch (parsed) {
+      case CardState.Learning:
+      case CardState.Review:
+      case CardState.Relearning:
+      case CardState.Suspended:
+      case CardState.New:
+        return parsed as CardState;
+      default:
+        return CardState.New;
+    }
+  }
+
+  private normalizeCardTypeMarker(value: unknown): FSRSCard['cardTypeMarker'] | undefined {
+    const marker = normalizeString(value);
+    return marker === 'concept' || marker === 'descriptor' ? marker : undefined;
+  }
+
+  private normalizeSkinnyCardType(value: unknown, marker?: FSRSCard['cardTypeMarker']): CardType {
+    const normalized = normalizeString(value) || marker || CardType.Item;
+    switch (normalized) {
+      case CardType.Topic:
+      case CardType.Concept:
+      case CardType.Descriptor:
+      case CardType.Incremental:
+      case CardType.Webpage:
+      case CardType.Item:
+        return normalized;
+      default:
+        return CardType.Item;
+    }
+  }
+
+  private decodeProjectionTags(value: unknown): string[] {
+    if (typeof value !== 'string') {
+      return [];
+    }
+    return value
+      .split('\n')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+  }
+
   private parseBaseCardRow(row: { payload_json: string; dto_json?: string | null }): FSRSCard | null {
     if (row.dto_json) {
       const dto = parseJson<CardPersistenceDTO | null>(row.dto_json, null);
@@ -2033,6 +2163,18 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       where?.params,
     );
     return Math.max(0, Number(row?.count) || 0);
+  }
+
+  private readProjectionGenerationByWhere(where: WhereClause | null): number | null {
+    const row = this.database.getOne<{ generation: number | null }>(
+      `SELECT MAX(projection_generation) AS generation FROM cards ${this.toWhereSql(where)}`,
+      where?.params,
+    );
+    if (row?.generation == null) {
+      return null;
+    }
+    const generation = Number(row?.generation);
+    return Number.isFinite(generation) ? Math.max(0, Math.floor(generation)) : null;
   }
 
   private toWhereSql(where?: WhereClause | null): string {

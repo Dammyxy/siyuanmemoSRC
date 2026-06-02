@@ -292,6 +292,8 @@ export interface IUnifiedDataSourceManagerFacade {
     batchRemoveFromQueue?(type: QueueType, cardIdsOrBlockIds: string[]): Promise<QueueBulkMutationResult>;
     getQueueProjectionRolloutDiagnostics?(queueType?: QueueType): QueueProjectionRolloutDiagnostic[];
     ensureQueueProjectionReady?(request: QueueProjectionReadinessRequest): Promise<QueueProjectionReadiness>;
+    readQueueProjectionSnapshot?(queueType: QueueType, options?: { forceRefresh?: boolean }): Promise<QueueProjectionSnapshot | null>;
+    getQueueProjectionCardsBySnapshotIds?(queueType: QueueType, ids: string[], options?: { forceRefresh?: boolean }): Promise<FSRSCard[]>;
     subscribeQueueProjectionLiveIdentityEvents?(listener: QueueProjectionLiveIdentityListener): () => void;
     readNeuralRoamViewState?(request?: BackendNeuralRoamViewStateRequest): Promise<BackendNeuralRoamViewStateResult>;
     neuralRoamCommand?(request: BackendNeuralRoamCommandRequest): Promise<BackendNeuralRoamCommandResult>;

@@ -207,6 +207,10 @@ export class QueueProjectionRuntime {
             currentPolicyHash: readiness.policyId,
             currentGeneration,
             reason: readiness.cause,
+            readinessRequest: {
+              ...request,
+              queueType,
+            },
           }));
           if (result && result.status === 'ready') {
             this.clearQueueProjectionUnavailable(queueType);
@@ -523,6 +527,7 @@ export class QueueProjectionRuntime {
       currentGeneration?: unknown;
       reason?: string;
       queueOverride?: Pick<IReviewQueue, 'getCards'> | null;
+      readinessRequest?: QueueProjectionReadinessRequest | null;
     } = {},
   ): Promise<BackendQueueProjectionReplaceResult | null> {
     const key = this.buildMaterializationInFlightKey(queueType, options);
@@ -556,6 +561,7 @@ export class QueueProjectionRuntime {
       currentGeneration?: unknown;
       reason?: string;
       queueOverride?: Pick<IReviewQueue, 'getCards'> | null;
+      readinessRequest?: QueueProjectionReadinessRequest | null;
     } = {},
   ): Promise<BackendQueueProjectionReplaceResult | null> {
     const finishMaterializeSpan = startRuntimePerformanceSpan('browser', 'queue-projection.materialize.total', {
@@ -620,6 +626,7 @@ export class QueueProjectionRuntime {
           sourceGeneration: generation,
           updatedAt: now,
           membershipReason: this.resolveMaterializedProjectionMembershipReason(queueType),
+          payload: this.buildMaterializedProjectionPayload(queueType, options.readinessRequest),
         }),
         {
           queueType,
@@ -690,6 +697,7 @@ export class QueueProjectionRuntime {
       currentPolicyHash?: unknown;
       currentGeneration?: unknown;
       queueOverride?: Pick<IReviewQueue, 'getCards'> | null;
+      readinessRequest?: QueueProjectionReadinessRequest | null;
     },
   ): string | null {
     if (options.queueOverride) {
@@ -919,6 +927,32 @@ export class QueueProjectionRuntime {
 
   private buildMaterializedProjectionPolicyHash(queueType: QueueType): string {
     return `${queueType}:materialized:v1`;
+  }
+
+  private buildMaterializedProjectionPayload(
+    queueType: QueueType,
+    request?: QueueProjectionReadinessRequest | null,
+  ): ((card: FSRSCard, zeroBasedIndex: number) => Record<string, unknown>) | undefined {
+    if (queueType !== QueueType.FilterGroup || !request) {
+      return undefined;
+    }
+
+    const manualCardIds = new Set(normalizeStringArray(request.manualCardIds));
+    const filterHash = normalizeNullableString(request.filterHash);
+    const transferSessionId = normalizeNullableString(request.transferSessionId);
+    const sessionId = normalizeNullableString(request.sessionId);
+    const commitPolicy = normalizeNullableString(request.commitPolicy) ?? 'preview-only';
+
+    return (card) => ({
+      queueKind: 'filter-group',
+      filterHash,
+      transferSessionId,
+      sessionId,
+      commitPolicy,
+      membershipSource: manualCardIds.has(card.id) || manualCardIds.has(card.blockId) ? 'manual' : 'filter',
+      temporaryBlacklisted: false,
+      sessionTransferActive: Boolean(transferSessionId),
+    });
   }
 
   private resolveMaterializedProjectionMembershipReason(queueType: QueueType): string {
@@ -1264,4 +1298,17 @@ export class QueueProjectionRuntime {
       ? queueType as QueueType
       : null;
   }
+}
+
+function normalizeNullableString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => String(entry || '').trim())
+    .filter(Boolean);
 }

@@ -19,6 +19,7 @@
  */
 
 import type { BrowserCard } from '@/types/browser';
+import type { BrowserReadOwnerMetadata } from '@/application/queries/browser/browser-read-model';
 
 /**
  * 排序模型
@@ -63,6 +64,12 @@ export interface FetchRowsResult {
   rows: BrowserCard[];
   /** 总数量 */
   totalCount: number;
+  /** Browser read-model query identity for stale async response rejection. */
+  queryFingerprint?: string;
+  /** Browser read-model projection generation for stale async response rejection. */
+  generation?: number | null;
+  /** Browser read owner for stale async response rejection. */
+  readOwner?: BrowserReadOwnerMetadata;
 }
 
 /**

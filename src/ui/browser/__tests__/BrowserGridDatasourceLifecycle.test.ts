@@ -28,7 +28,9 @@ async function flush(): Promise<void> {
 function createHarness(overrides: {
   currentVersion?: number;
   fetchRowsWithReadinessRetry?: any;
+  getExpectedReadModelSnapshotMetadata?: any;
   gridApi?: any;
+  onReadModelSnapshotMetadata?: any;
   randomRows?: BrowserCard[] | null;
   sortRevision?: { value: number };
 } = {}) {
@@ -55,11 +57,13 @@ function createHarness(overrides: {
     fetchRowsWithReadinessRetry: overrides.fetchRowsWithReadinessRetry,
     firstRowsLifecycle,
     getCurrentVersion: () => currentVersion.value,
+    getExpectedReadModelSnapshotMetadata: overrides.getExpectedReadModelSnapshotMetadata,
     getFirstRowsLoaded: () => false,
     getGridApi: () => gridApiRef.value,
     getSortRevision: () => sortRevision.value,
     isGridApiAlive: (api) => Boolean(api && !api.isDestroyed?.()),
     measureRuntimePerformance: (_category, _operation, fn) => fn(),
+    onReadModelSnapshotMetadata: overrides.onReadModelSnapshotMetadata,
     randomSortRows: ref(overrides.randomRows ?? null),
     sortModelRevision: sortRevision,
     startGridModelUpdate: vi.fn(),
@@ -176,6 +180,88 @@ describe('BrowserGridDatasourceLifecycle', () => {
 
     expect(params.failCallback).toHaveBeenCalledTimes(1);
     expect(firstRowsLifecycle.applyLoadedRows).not.toHaveBeenCalled();
+  });
+
+  it('fails stale read model metadata without applying rows', async () => {
+    const dataSource = {
+      fetchRows: vi.fn(async () => ({
+        rows: [{ id: 'a', blockId: 'a' }] as BrowserCard[],
+        totalCount: 1,
+        queryFingerprint: 'query-old',
+        generation: 2,
+        readOwner: { kind: 'sql-card-universe' },
+      })),
+    } as unknown as ICardDataSource;
+    const { firstRowsLifecycle, lifecycle } = createHarness({
+      getExpectedReadModelSnapshotMetadata: () => ({
+        queryFingerprint: 'query-new',
+        generation: 2,
+        readOwner: { kind: 'sql-card-universe' },
+      }),
+    });
+    const datasource = lifecycle.createInfiniteDatasource(1, dataSource);
+    const params = createParams();
+
+    datasource.getRows!(params);
+    await flush();
+
+    expect(params.failCallback).toHaveBeenCalledTimes(1);
+    expect(firstRowsLifecycle.applyLoadedRows).not.toHaveBeenCalled();
+  });
+
+  it('publishes accepted read model metadata and rejects later generation or read owner drift', async () => {
+    const expectedMetadata = ref<any>(null);
+    const dataSource = {
+      fetchRows: vi.fn()
+        .mockResolvedValueOnce({
+          rows: [{ id: 'a', blockId: 'a' }] as BrowserCard[],
+          totalCount: 2,
+          queryFingerprint: 'query-a',
+          generation: 7,
+          readOwner: { kind: 'queue-projection', queueId: 'retrieval' },
+        })
+        .mockResolvedValueOnce({
+          rows: [{ id: 'b', blockId: 'b' }] as BrowserCard[],
+          totalCount: 2,
+          queryFingerprint: 'query-a',
+          generation: 8,
+          readOwner: { kind: 'queue-projection', queueId: 'retrieval' },
+        })
+        .mockResolvedValueOnce({
+          rows: [{ id: 'c', blockId: 'c' }] as BrowserCard[],
+          totalCount: 2,
+          queryFingerprint: 'query-a',
+          generation: 7,
+          readOwner: { kind: 'queue-projection', queueId: 'filter-group' },
+        }),
+    } as unknown as ICardDataSource;
+    const { firstRowsLifecycle, lifecycle } = createHarness({
+      getExpectedReadModelSnapshotMetadata: () => expectedMetadata.value,
+      onReadModelSnapshotMetadata: (metadata: any) => {
+        expectedMetadata.value = metadata;
+      },
+    });
+    const datasource = lifecycle.createInfiniteDatasource(1, dataSource);
+    const acceptedParams = createParams({ startRow: 0, endRow: 1 });
+    const staleGenerationParams = createParams({ startRow: 1, endRow: 2 });
+    const staleOwnerParams = createParams({ startRow: 1, endRow: 2 });
+
+    datasource.getRows!(acceptedParams);
+    await flush();
+    datasource.getRows!(staleGenerationParams);
+    await flush();
+    datasource.getRows!(staleOwnerParams);
+    await flush();
+
+    expect(expectedMetadata.value).toEqual({
+      queryFingerprint: 'query-a',
+      generation: 7,
+      readOwner: { kind: 'queue-projection', queueId: 'retrieval' },
+    });
+    expect(acceptedParams.successCallback).toHaveBeenCalledTimes(1);
+    expect(staleGenerationParams.failCallback).toHaveBeenCalledTimes(1);
+    expect(staleOwnerParams.failCallback).toHaveBeenCalledTimes(1);
+    expect(firstRowsLifecycle.applyLoadedRows).toHaveBeenCalledTimes(1);
   });
 
   it('routes projection-not-ready and hard errors through first-row lifecycle', async () => {

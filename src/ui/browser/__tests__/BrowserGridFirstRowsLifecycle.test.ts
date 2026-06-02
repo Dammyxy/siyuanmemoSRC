@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createBrowserGridFirstRowsLifecycle } from '../BrowserGridFirstRowsLifecycle';
 import type { BrowserCard } from '../types';
 import { QueueProjectionNotReadyError } from '@/types/unified-data-source';
+import { BrowserReadModelStateError } from '../utils/browserReadModelStateError';
 
 function ref<T>(value: T): { value: T } {
   return { value };
@@ -126,6 +127,27 @@ describe('BrowserGridFirstRowsLifecycle', () => {
     expect(calls.logger.error).not.toHaveBeenCalled();
     expect(state.hasFirstDataBlockLoaded.value).toBe(false);
     expect(state.loading.value).toBe(false);
+  });
+
+  it.each([
+    ['preparing', 'read-model-preparing'],
+    ['repair-required', 'read-model-repair-required'],
+    ['unavailable', 'read-model-unavailable'],
+  ] as const)('maps read-model %s to explicit first-row state without empty state', (readState, expectedStatus) => {
+    const { calls, lifecycle, state } = createLifecycle();
+
+    const status = lifecycle.applyRowsError({
+      error: new BrowserReadModelStateError(readState, `${readState} reason`),
+      failCallback: calls.failCallback,
+      isCurrentVersion: () => true,
+      version: 8,
+    });
+
+    expect(status).toBe(expectedStatus);
+    expect(calls.failCallback).toHaveBeenCalledTimes(1);
+    expect(state.hasFirstDataBlockLoaded.value).toBe(false);
+    expect(state.loading.value).toBe(false);
+    expect(calls.logger.error).not.toHaveBeenCalled();
   });
 
   it('maps hard getRows errors to explicit grid error state', () => {

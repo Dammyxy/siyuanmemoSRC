@@ -119,8 +119,79 @@ describe('BrowserApplicationService queue query path', () => {
     });
   });
 
-  it('routes Browser queue rows through the queue read model without projection snapshots', async () => {
+  it('enriches submitted FilterGroup readiness with committed queue projection identity', async () => {
+    const readiness = {
+      status: 'refreshing',
+      queueId: QueueType.FilterGroup,
+      policyId: 'policy-filter-group',
+      cause: 'projection_stale',
+      retryAfterMs: 300,
+    } as const;
     const queue = {
+      serializeSessionSnapshot: vi.fn(() => ({
+        filter: {
+          keyword: 'alpha',
+          cardType: ['item'],
+        },
+        rollbackSnapshot: {
+          manualCards: ['manual-b', 'manual-a'],
+          temporaryBlacklist: ['hidden-b', 'hidden-a'],
+          customOrder: ['rollback-b', 'rollback-a'],
+        },
+        visibleCardIds: ['visible-a', 'visible-b'],
+      })),
+    };
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      ensureQueueProjectionReady: vi.fn(async () => readiness),
+    } as never;
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(() => []),
+        getAllCards: vi.fn(() => []),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      manager,
+      {
+        ATTR_CARD_ID: 'custom-fsrs-card-id',
+        ATTR_PRIORITY: 'custom-fsrs-priority',
+        ATTR_SUSPENDED: 'custom-fsrs-suspended',
+        ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+        ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+        sql: vi.fn(async () => []),
+        setBlockAttrs: vi.fn(),
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      } as never,
+    );
+
+    await expect(service.ensureQueueReadModelReady({
+      queueType: 'filter-group',
+      source: 'browser',
+      transferSessionId: 'transfer-a',
+      sessionId: 'session-a',
+      commitPolicy: 'write-schedule',
+    })).resolves.toEqual(readiness);
+
+    expect(manager.ensureQueueProjectionReady).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.FilterGroup,
+      source: 'browser',
+      filterHash: expect.stringContaining('alpha'),
+      manualCardIds: ['manual-b', 'manual-a'],
+      temporaryBlacklistIds: ['hidden-b', 'hidden-a'],
+      customOrder: ['visible-a', 'visible-b'],
+      transferSessionId: 'transfer-a',
+      sessionId: 'session-a',
+      commitPolicy: 'write-schedule',
+    }));
+  });
+
+  it('routes explicit-local Browser queue rows through the queue read model without projection snapshots', async () => {
+    const queue = {
+      getProjectionReadMode: vi.fn(() => 'local-queue'),
       getSnapshotRows: vi.fn(async () => [
         buildSnapshotRow('row-a', { fsrsCardId: 'card-a', priority: 10, queueIndex: 2 }),
         buildSnapshotRow('row-b', { fsrsCardId: 'card-b', priority: 90, queueIndex: 1 }),
@@ -190,6 +261,116 @@ describe('BrowserApplicationService queue query path', () => {
     expect(rows.map((row) => row.fsrsCardId)).toEqual(['card-a', 'card-b']);
     expect(queue.getCards).toHaveBeenCalled();
     expect(queue.getCardsBySnapshotIds).not.toHaveBeenCalled();
+  });
+
+  it('uses backend projection reads for submitted FilterGroup Browser rows while keeping local review mode untouched', async () => {
+    const card = buildCard('filter-card', {
+      blockId: 'filter-block',
+      riffCardId: 'filter-row',
+      priority: 80,
+    });
+    const queue = {
+      getProjectionReadMode: vi.fn(() => 'backend-projection'),
+      getCards: vi.fn(() => {
+        throw new Error('Browser FilterGroup read must not use local queue.getCards fallback');
+      }),
+      getSnapshotRows: vi.fn(() => {
+        throw new Error('Browser FilterGroup read must not use queue local snapshot fallback');
+      }),
+      getCardsBySnapshotIds: vi.fn(),
+    };
+    const readQueueProjectionSnapshot = vi.fn(async () => ({
+      queueType: QueueType.FilterGroup,
+      policyHash: 'filter-policy',
+      generation: 5,
+      rows: [buildSnapshotRow('filter-row', {
+        fsrsCardId: 'filter-card',
+        blockId: 'filter-block',
+        priority: 80,
+        queueIndex: 1,
+      })],
+      counters: null,
+    }));
+    const getQueueProjectionCardsBySnapshotIds = vi.fn(async (_queueType: QueueType, ids: string[]) => (
+      ids.includes('filter-card') ? [card] : []
+    ));
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
+        queueType: QueueType.FilterGroup,
+        projectionBacked: true,
+        readPath: 'backend-projection',
+        state: 'backend-projection',
+        reason: 'rollout-enabled',
+      }]),
+      readQueueProjectionSnapshot,
+      getQueueProjectionCardsBySnapshotIds,
+    } as never;
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(() => []),
+        getAllCards: vi.fn(() => []),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      manager,
+      {
+        ATTR_CARD_ID: 'custom-fsrs-card-id',
+        ATTR_PRIORITY: 'custom-fsrs-priority',
+        ATTR_SUSPENDED: 'custom-fsrs-suspended',
+        ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+        ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+        sql: vi.fn(async () => []),
+        setBlockAttrs: vi.fn(),
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      } as never,
+      null,
+      {
+        getSourceExistenceByBlockIds: vi.fn(() => new Map([['filter-block', true]])),
+      } as never,
+    );
+
+    const page = await service.getBrowserReadModel().page({
+      source: 'queue',
+      query: {
+        queueId: 'filter-group',
+        preset: 'all',
+        searchText: '',
+        cardType: 'all',
+        sortModel: [],
+      },
+    }, {
+      startRow: 0,
+      endRow: 20,
+    });
+
+    expect(page).toMatchObject({
+      status: 'ready',
+      total: 1,
+      generation: 5,
+      readOwner: {
+        kind: 'queue-projection',
+        queueId: 'filter-group',
+        queueType: QueueType.FilterGroup,
+        projectionBacked: true,
+      },
+      rows: [expect.objectContaining({
+        fsrsCardId: 'filter-card',
+        blockId: 'filter-block',
+        priority: 80,
+      })],
+    });
+    expect(readQueueProjectionSnapshot).toHaveBeenCalledWith(QueueType.FilterGroup, { forceRefresh: false });
+    expect(getQueueProjectionCardsBySnapshotIds).toHaveBeenCalledWith(
+      QueueType.FilterGroup,
+      ['filter-card'],
+      { forceRefresh: false },
+    );
+    expect(queue.getCards).not.toHaveBeenCalled();
+    expect(queue.getSnapshotRows).not.toHaveBeenCalled();
   });
 
   it('createDataSource wires queue datasources back to browser service methods', async () => {

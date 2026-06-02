@@ -58,6 +58,7 @@ import {
 } from './shared/browserQueryPayload';
 import type { NeuralRoamEntryActionService } from '@/application/services/NeuralRoamEntryActionService';
 import { toBrowserReadModelActionTarget } from '@/application/queries/browser/browser-read-model';
+import { BrowserReadModelStateError } from '../utils/browserReadModelStateError';
 
 const logger = createLogger('DeckDataSource');
 
@@ -121,7 +122,7 @@ type BrowserServiceQueryOptions = {
 
 type DeckBrowserService = Partial<Pick<
   IBrowserApplicationService,
-  'getDeckAggregatePage' | 'getDeckAggregateSnapshot' | 'getDeckPage' | 'getDeckMatchedIds' | 'getDeckQuerySnapshot' | 'getDeckRowsByIds'
+  'getBrowserReadModel' | 'getDeckAggregatePage' | 'getDeckAggregateSnapshot' | 'getDeckPage' | 'getDeckMatchedIds' | 'getDeckQuerySnapshot' | 'getDeckRowsByIds'
 >>;
 
 type I18nContextLike = {
@@ -174,6 +175,25 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     try {
       const sortModel = normalizeBrowserQuerySortModel(params?.sortModel as SortModel[] | undefined);
       this.lastSortModel = sortModel;
+      if (this.browserService?.getBrowserReadModel) {
+        const result = await this.browserService.getBrowserReadModel().page({
+          source: 'deck',
+          query: this.buildBrowserServiceQuery(sortModel, { forceRefresh: Boolean(params?.forceRefresh) }),
+        }, {
+          startRow: params?.startRow,
+          endRow: params?.endRow,
+        });
+        if (result.status !== 'ready') {
+          throw new BrowserReadModelStateError(result.status, result.reason);
+        }
+        return {
+          rows: result.rows,
+          totalCount: result.total,
+          queryFingerprint: result.queryFingerprint,
+          generation: result.generation,
+          readOwner: result.readOwner,
+        };
+      }
       if (this.browserService?.getDeckPage) {
         const result = await this.browserService.getDeckPage(
           this.buildBrowserServiceQuery(sortModel, { forceRefresh: Boolean(params?.forceRefresh) }),

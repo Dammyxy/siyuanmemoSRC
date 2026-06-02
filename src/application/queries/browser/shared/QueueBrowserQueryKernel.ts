@@ -3,10 +3,12 @@ import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import type {
   IReviewQueue,
   IUnifiedDataSourceManagerFacade,
+  QueueProjectionSnapshot,
   QueueProjectionRolloutDiagnostic,
   QueueType,
 } from '@/types/unified-data-source';
 import type { QueueSnapshotRow } from '@/types/queue-browser';
+import type { FSRSCard } from '@/types/card';
 import {
   isRetrievalBrowserQueue,
   resolveBrowserQueueIdentity,
@@ -28,7 +30,9 @@ import type {
   QueueBrowserSnapshotResult,
 } from '../queue-browser-query';
 import {
+  type BrowserReadModelDiagnostic,
   type BrowserReadOwnerMetadata,
+  type BrowserReadModelReadState,
   toBrowserCardReadModelSource,
   toBrowserReadModelLiteIdentity,
   toQueueSnapshotReadModelSource,
@@ -47,8 +51,49 @@ type QueueReadModelRoute = {
   queueType: QueueType;
   queueId: BrowserQueueId;
   projectionBacked: boolean;
+  requiresManagerProjectionRead: boolean;
   readOwner: BrowserReadOwnerMetadata;
 };
+
+type QueueProjectionFreshnessEvidence = {
+  checkedAt?: unknown;
+  totalRows?: unknown;
+  freshRows?: unknown;
+  staleRows?: unknown;
+  missingRows?: unknown;
+  staleCardIds?: unknown;
+  missingCardIds?: unknown;
+};
+
+type QueueProjectionSnapshotReadModelState = QueueProjectionSnapshot & {
+  status?: unknown;
+  freshness?: QueueProjectionFreshnessEvidence | null;
+  stale?: unknown;
+};
+
+export type QueueProjectionBrowserReadModelError = Error & {
+  browserReadModelState?: Exclude<BrowserReadModelReadState, 'ready'>;
+  browserReadModelDiagnosticKind?: BrowserReadModelDiagnostic['kind'];
+  browserReadModelRowIds?: string[];
+  browserReadModelGeneration?: number | null;
+};
+
+function createQueueProjectionBrowserReadError(
+  message: string,
+  state: Exclude<BrowserReadModelReadState, 'ready'>,
+  diagnosticKind: BrowserReadModelDiagnostic['kind'],
+  options: {
+    rowIds?: string[];
+    generation?: number | null;
+  } = {},
+): QueueProjectionBrowserReadModelError {
+  const error = new Error(message) as QueueProjectionBrowserReadModelError;
+  error.browserReadModelState = state;
+  error.browserReadModelDiagnosticKind = diagnosticKind;
+  error.browserReadModelRowIds = options.rowIds;
+  error.browserReadModelGeneration = options.generation ?? null;
+  return error;
+}
 
 export class QueueBrowserQueryKernel {
   constructor(
@@ -94,9 +139,9 @@ export class QueueBrowserQueryKernel {
 
     const route = this.resolveQueueRoute(queueId);
     if (route.projectionBacked) {
-      const snapshotRows = await route.queue.getSnapshotRows(false);
+      const snapshotRows = await this.readProjectionSnapshotRows(route, false);
       const snapshotRowById = this.buildSnapshotRowLookup(snapshotRows);
-      const rows = await route.queue.getCardsBySnapshotIds(orderedIds, false);
+      const rows = await this.readProjectionCardsBySnapshotIds(route, orderedIds, false);
       const browserRows = await this.markMissingRows(rows.map((card) => {
         const projectionRow = snapshotRowById.get(String(card.id || '').trim())
           || snapshotRowById.get(String(card.riffCardId || '').trim())
@@ -124,8 +169,11 @@ export class QueueBrowserQueryKernel {
       }
       const missingIds = orderedIds.filter((id) => !rowById.has(id));
       if (missingIds.length > 0) {
-        throw new Error(
+        throw createQueueProjectionBrowserReadError(
           `QUEUE_PROJECTION_UNAVAILABLE: ${queueId} projection row hydration missed requested ids (${missingIds.join(', ')})`,
+          'repair-required',
+          'missing-row',
+          { rowIds: missingIds },
         );
       }
       return orderedIds
@@ -160,8 +208,16 @@ export class QueueBrowserQueryKernel {
     const queue = this.manager.getQueue(identity.queueType);
     const explicitMode = resolveQueueProjectionReadMode(queue);
     const diagnostic = this.resolveQueueProjectionDiagnostic(identity.queueType);
-    const projectionBacked = explicitMode === 'backend-projection'
-      || (!explicitMode && diagnostic?.readPath === 'backend-projection' && diagnostic?.projectionBacked === true);
+    const explicitLocal = explicitMode === 'local-queue';
+    const explicitBackendProjection = explicitMode === 'backend-projection';
+    const diagnosticProjectionBacked = !explicitLocal
+      && diagnostic?.readPath === 'backend-projection'
+      && diagnostic?.projectionBacked === true;
+    const diagnosticExplicitLocal = diagnostic?.readPath === 'existing-queue-strategy'
+      && diagnostic?.projectionBacked === false;
+    const projectionBacked = explicitBackendProjection
+      || diagnosticProjectionBacked
+      || (!explicitLocal && !diagnosticExplicitLocal);
     const readOwner = this.buildQueueReadOwner({
       queueId: identity.queueId,
       queueType: identity.queueType,
@@ -175,6 +231,7 @@ export class QueueBrowserQueryKernel {
       queueId: identity.queueId,
       queueType: identity.queueType,
       projectionBacked,
+      requiresManagerProjectionRead: projectionBacked && explicitMode !== 'backend-projection',
       readOwner,
     };
   }
@@ -191,7 +248,8 @@ export class QueueBrowserQueryKernel {
     query: QueueBrowserSnapshotQuery,
     route: QueueReadModelRoute,
   ): Promise<QueueBrowserSnapshotResult> {
-    const rows = await route.queue.getSnapshotRows(Boolean(query.forceRefresh));
+    const projectionSnapshot = await this.readProjectionSnapshot(route, Boolean(query.forceRefresh));
+    const rows = projectionSnapshot.rows;
     const markedRows = await this.markSnapshotMissingRows(rows);
     const filteredRows = applyQueueFiltersToSnapshotRows(
       markedRows,
@@ -219,8 +277,109 @@ export class QueueBrowserQueryKernel {
       total: sortedRows.length,
       readOwner: route.readOwner,
       queryFingerprint: this.buildQueueQueryFingerprint(query, route.readOwner),
-      generation: null,
+      generation: projectionSnapshot.generation,
     };
+  }
+
+  private async readProjectionSnapshot(
+    route: QueueReadModelRoute,
+    forceRefresh: boolean,
+  ): Promise<QueueProjectionSnapshot> {
+    if (typeof this.manager.readQueueProjectionSnapshot === 'function') {
+      const snapshot = await this.manager.readQueueProjectionSnapshot(route.queueType, { forceRefresh });
+      if (snapshot) {
+        this.assertProjectionSnapshotReadable(route, snapshot);
+        return snapshot;
+      }
+      throw createQueueProjectionBrowserReadError(
+        `QUEUE_PROJECTION_UNAVAILABLE: ${route.queueId} Browser projection snapshot unavailable`,
+        'preparing',
+        'refresh-required',
+      );
+    }
+
+    if (route.requiresManagerProjectionRead) {
+      throw createQueueProjectionBrowserReadError(
+        `QUEUE_PROJECTION_UNAVAILABLE: ${route.queueId} Browser projection snapshot reader unavailable`,
+        'unavailable',
+        'owner-unavailable',
+      );
+    }
+
+    return {
+      queueType: route.queueType,
+      policyHash: route.readOwner.reason ?? `${route.queueType}:queue-snapshot`,
+      generation: null,
+      rows: await route.queue.getSnapshotRows(forceRefresh),
+      counters: null,
+    };
+  }
+
+  private async readProjectionSnapshotRows(
+    route: QueueReadModelRoute,
+    forceRefresh: boolean,
+  ): Promise<QueueSnapshotRow[]> {
+    return (await this.readProjectionSnapshot(route, forceRefresh)).rows;
+  }
+
+  private assertProjectionSnapshotReadable(
+    route: QueueReadModelRoute,
+    snapshot: QueueProjectionSnapshot,
+  ): void {
+    const stateSnapshot = snapshot as QueueProjectionSnapshotReadModelState;
+    const status = typeof stateSnapshot.status === 'string' ? stateSnapshot.status : 'ready';
+    if (status === 'unavailable') {
+      throw createQueueProjectionBrowserReadError(
+        `QUEUE_PROJECTION_UNAVAILABLE: ${route.queueId} Browser projection snapshot unavailable`,
+        'unavailable',
+        'owner-unavailable',
+        { generation: normalizeProjectionGeneration(snapshot.generation) },
+      );
+    }
+    if (status !== 'ready') {
+      throw createQueueProjectionBrowserReadError(
+        `QUEUE_PROJECTION_NOT_READY: ${route.queueId} Browser projection snapshot ${status}`,
+        'preparing',
+        'refresh-required',
+        { generation: normalizeProjectionGeneration(snapshot.generation) },
+      );
+    }
+
+    const freshness = stateSnapshot.freshness;
+    const staleRows = Math.max(0, Number(freshness?.staleRows) || 0);
+    const missingRows = Math.max(0, Number(freshness?.missingRows) || 0);
+    if (stateSnapshot.stale === true || staleRows > 0 || missingRows > 0) {
+      const rowIds = normalizeProjectionFreshnessRowIds(freshness);
+      throw createQueueProjectionBrowserReadError(
+        `QUEUE_PROJECTION_REPAIR_REQUIRED: ${route.queueId} projection_stale`,
+        'repair-required',
+        'refresh-required',
+        {
+          rowIds,
+          generation: normalizeProjectionGeneration(snapshot.generation),
+        },
+      );
+    }
+  }
+
+  private async readProjectionCardsBySnapshotIds(
+    route: QueueReadModelRoute,
+    orderedIds: string[],
+    forceRefresh: boolean,
+  ): Promise<FSRSCard[]> {
+    if (typeof this.manager.getQueueProjectionCardsBySnapshotIds === 'function') {
+      return this.manager.getQueueProjectionCardsBySnapshotIds(route.queueType, orderedIds, { forceRefresh });
+    }
+
+    if (route.requiresManagerProjectionRead) {
+      throw createQueueProjectionBrowserReadError(
+        `QUEUE_PROJECTION_UNAVAILABLE: ${route.queueId} Browser projection row hydration unavailable`,
+        'unavailable',
+        'owner-unavailable',
+      );
+    }
+
+    return route.queue.getCardsBySnapshotIds(orderedIds, forceRefresh);
   }
 
   private async readLocalBrowserQueueRows(route: QueueReadModelRoute): Promise<BrowserCard[]> {
@@ -359,4 +518,20 @@ export class QueueBrowserQueryKernel {
   private toLiteRowFromSnapshotRow(row: QueueSnapshotRow): QueueBrowserLiteRow {
     return toBrowserReadModelLiteIdentity(toQueueSnapshotReadModelSource(row));
   }
+}
+
+function normalizeProjectionGeneration(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function normalizeProjectionFreshnessRowIds(
+  freshness: QueueProjectionFreshnessEvidence | null | undefined,
+): string[] {
+  const ids = [
+    ...(Array.isArray(freshness?.staleCardIds) ? freshness.staleCardIds : []),
+    ...(Array.isArray(freshness?.missingCardIds) ? freshness.missingCardIds : []),
+  ]
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+  return Array.from(new Set(ids));
 }

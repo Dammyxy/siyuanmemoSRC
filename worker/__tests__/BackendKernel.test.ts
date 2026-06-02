@@ -4841,7 +4841,6 @@ describe('BackendKernel', () => {
         'database:queryDeckPage.init',
         'database:queryDeckPage.count',
         'database:queryDeckPage.select',
-        'database:queryDeckPage.parse',
         'database:queryDeckPage.total',
       ]));
       expect(timing.innerSteps.find((step) => step.step === 'queryDeckPage.select')?.extra).toMatchObject({
@@ -4849,9 +4848,7 @@ describe('BackendKernel', () => {
         limit: 1,
         total: 1,
       });
-      expect(timing.innerSteps.find((step) => step.step === 'queryDeckPage.parse')?.extra).toMatchObject({
-        rowCount: 1,
-      });
+      expect(timing.innerSteps.find((step) => step.step === 'queryDeckPage.parse')).toBeUndefined();
       expect(timing.innerSteps.find((step) => step.step === 'pre-request-merge')?.extra).toMatchObject({
         mainDbReadSkipped: true,
         mainDbReadSkipReason: 'read-only-preflight-main-db-disabled',

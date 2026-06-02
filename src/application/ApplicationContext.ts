@@ -111,6 +111,7 @@ import { RiffBlacklistService } from '@/application/services/RiffBlacklistServic
 import { ReviewQueuePreparationService } from '@/application/services/ReviewQueuePreparationService';
 import { CardContentQueryService } from '@/application/queries/CardContentQueryService';
 import { BrowserSiyuanAdapter } from '@/infrastructure/siyuan/BrowserSiyuanAdapter';
+import { BrowserAdvancedSqlQuerySourceSiyuanAdapter } from '@/infrastructure/siyuan/BrowserAdvancedSqlQuerySourceSiyuanAdapter';
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
 import { ReviewSiyuanAdapter } from '@/infrastructure/siyuan/ReviewSiyuanAdapter';
@@ -561,6 +562,7 @@ export class ApplicationContext {
       getSrsBackendClient: () => this.srsBackendClient,
       getFrontendInstanceRuntime: () => this.frontendInstanceRuntime,
       getFollowerCommandClient: () => this.followerCommandClient,
+      createBrowserAdvancedSqlQuerySource: () => new BrowserAdvancedSqlQuerySourceSiyuanAdapter(new QuerySiyuanAdapter()),
       createManagerSiyuanPort: () => new ManagerSiyuanAdapter(),
       createBrowserSiyuanPort: () => new BrowserSiyuanAdapter(),
       createReviewSiyuanPort: () => new ReviewSiyuanAdapter(),

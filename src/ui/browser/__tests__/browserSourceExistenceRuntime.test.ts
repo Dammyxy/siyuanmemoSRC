@@ -164,4 +164,23 @@ describe('browserSourceExistenceRuntime', () => {
       shouldReloadActiveQueue: false,
     });
   });
+
+  it('ignores source-existence patches when the captured read metadata is stale', () => {
+    const row = createCard('block-1');
+    const subject = createRuntime({
+      activeQueueId: 'retrieval',
+      rows: [row],
+    });
+
+    const result = subject.runtime.applyUpdate({
+      source: 'visible-page',
+      statuses: [{ blockId: 'block-1', exists: false }],
+    }, {
+      isCurrent: () => false,
+    });
+
+    expect(result).toEqual({ status: 'ignored', reason: 'stale-read-model' });
+    expect(subject.rows[0]).toBe(row);
+    expect(subject.patchGridRows).not.toHaveBeenCalled();
+  });
 });

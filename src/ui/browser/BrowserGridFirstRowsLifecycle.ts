@@ -1,5 +1,9 @@
 import type { BrowserCard } from './types';
 import { isQueueProjectionNotReadyError } from './utils/projectionReadiness';
+import {
+  isBrowserReadModelStateError,
+  toBrowserGridRowsLifecycleStatus,
+} from './utils/browserReadModelStateError';
 
 type MutableRef<T> = {
   value: T;
@@ -40,6 +44,9 @@ export type BrowserGridRowsLifecycleStatus =
   | 'empty-datasource'
   | 'loaded'
   | 'projection-not-ready'
+  | 'read-model-preparing'
+  | 'read-model-repair-required'
+  | 'read-model-unavailable'
   | 'error';
 
 export function createBrowserGridFirstRowsLifecycle(deps: BrowserGridFirstRowsLifecycleDeps) {
@@ -128,6 +135,22 @@ export function createBrowserGridFirstRowsLifecycle(deps: BrowserGridFirstRowsLi
       }
       params.failCallback();
       return 'projection-not-ready';
+    }
+
+    if (isBrowserReadModelStateError(params.error)) {
+      const status = toBrowserGridRowsLifecycleStatus(params.error.browserReadModelState);
+      deps.onStatusChange?.(status);
+      if (params.isCurrentVersion()) {
+        deps.logger.info('[SiYuanMemo][SRSBrowser] Browser read model returned non-ready state; grid request will fail without empty fallback:', {
+          reason: params.error.reason ?? params.error.message,
+          state: params.error.browserReadModelState,
+        });
+        deps.scheduleUiUpdate(params.version, () => {
+          deps.loading.value = false;
+        });
+      }
+      params.failCallback();
+      return status;
     }
 
     if (params.isCurrentVersion()) {

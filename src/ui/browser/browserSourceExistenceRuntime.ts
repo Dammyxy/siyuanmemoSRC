@@ -20,7 +20,7 @@ export type BrowserSourceExistenceRuntimeDeps = {
 };
 
 export type BrowserSourceExistenceApplyResult =
-  | { status: 'ignored'; reason: 'empty-statuses' }
+  | { status: 'ignored'; reason: 'empty-statuses' | 'stale-read-model' }
   | {
       status: 'applied';
       patchedGridRows: number;
@@ -28,6 +28,10 @@ export type BrowserSourceExistenceApplyResult =
       statusCount: number;
       updatedRows: number;
     };
+
+export type BrowserSourceExistenceApplyOptions = {
+  isCurrent?: () => boolean;
+};
 
 export function normalizeBrowserSourceExistenceStatusEntries(
   update: Pick<BrowserSourceExistenceUpdate, 'statuses'>,
@@ -110,7 +114,13 @@ export function createBrowserSourceExistenceRuntime(deps: BrowserSourceExistence
     }
   }
 
-  function applyUpdate(update: BrowserSourceExistenceUpdate): BrowserSourceExistenceApplyResult {
+  function applyUpdate(
+    update: BrowserSourceExistenceUpdate,
+    options: BrowserSourceExistenceApplyOptions = {},
+  ): BrowserSourceExistenceApplyResult {
+    if (options.isCurrent && !options.isCurrent()) {
+      return { status: 'ignored', reason: 'stale-read-model' };
+    }
     const statusEntries = normalizeBrowserSourceExistenceStatusEntries(update);
     if (statusEntries.length === 0) {
       return { status: 'ignored', reason: 'empty-statuses' };

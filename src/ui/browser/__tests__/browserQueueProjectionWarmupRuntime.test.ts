@@ -32,7 +32,7 @@ function createDeps(overrides: Record<string, unknown> = {}) {
 }
 
 describe('browserQueueProjectionWarmupRuntime', () => {
-  it('warms active projection-backed queue first, then warms the other sidebar projection queues', async () => {
+  it('warms only the active projection-backed queue on browser open', async () => {
     vi.useFakeTimers();
     const ensureQueueReadModelReady = vi.fn(async (request) => ({
       status: 'ready',
@@ -51,16 +51,13 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     runtime.schedule('browser-open', 0);
     await vi.runOnlyPendingTimersAsync();
 
-    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(4);
+    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
     expect(ensureQueueReadModelReady.mock.calls[0]?.[0]).toMatchObject({
       queueType: QueueType.IncrementalLearning,
       source: 'browser',
     });
     expect(ensureQueueReadModelReady.mock.calls.map((call) => call[0].queueType)).toEqual([
       QueueType.IncrementalLearning,
-      QueueType.RetrievalPractice,
-      QueueType.FinalDrill,
-      QueueType.FilterGroup,
     ]);
     expect(runtime.getStatus('incremental-learning')).toMatchObject({
       status: 'ready',
@@ -68,7 +65,7 @@ describe('browserQueueProjectionWarmupRuntime', () => {
       queueType: QueueType.IncrementalLearning,
       generation: 3,
     });
-    expect(onQueueReady).toHaveBeenCalledTimes(4);
+    expect(onQueueReady).toHaveBeenCalledTimes(1);
     expect(onQueueReady).toHaveBeenCalledWith(expect.objectContaining({
       status: 'ready',
       queueType: QueueType.IncrementalLearning,
@@ -175,7 +172,66 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     vi.useRealTimers();
   });
 
-  it('does not cancel browser-open sidebar warmup when a ready queue emits a targeted identity rewarm', async () => {
+  it('keeps FilterGroup browser warmup outside submitted projection identity', async () => {
+    vi.useFakeTimers();
+    const ensureQueueReadModelReady = vi.fn(async (request) => ({
+      status: 'refreshing',
+      queueId: request.queueType,
+      policyId: `policy-${request.queueType}`,
+      cause: 'materialization_in_progress',
+      retryAfterMs: 300,
+    }));
+    const deps = createDeps({
+      activeQueueId: ref('filter-group'),
+      browserAppService: ref({ ensureQueueReadModelReady }),
+      searchQuery: ref('edited draft filter text'),
+    });
+    const runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
+
+    runtime.schedule('browser-open', 0, ['filter-group']);
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(ensureQueueReadModelReady).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.FilterGroup,
+      source: 'browser',
+      searchText: 'edited draft filter text',
+    }));
+    expect(ensureQueueReadModelReady.mock.calls[0]?.[0]).not.toHaveProperty('filterHash');
+    expect(ensureQueueReadModelReady.mock.calls[0]?.[0]).not.toHaveProperty('manualCardIds');
+    expect(ensureQueueReadModelReady.mock.calls[0]?.[0]).not.toHaveProperty('temporaryBlacklistIds');
+    expect(ensureQueueReadModelReady.mock.calls[0]?.[0]).not.toHaveProperty('customOrder');
+    expect(ensureQueueReadModelReady.mock.calls[0]?.[0]).not.toHaveProperty('commitPolicy');
+    vi.useRealTimers();
+  });
+
+  it('warms the likely-next retrieval queue when browser opens without an active queue', async () => {
+    vi.useFakeTimers();
+    const ensureQueueReadModelReady = vi.fn(async (request) => ({
+      status: 'ready',
+      queueId: request.queueType,
+      policyId: `policy-${request.queueType}`,
+      generation: 7,
+    }));
+    const deps = createDeps({
+      activeQueueId: ref(null),
+      browserAppService: ref({ ensureQueueReadModelReady }),
+    });
+    const runtime = createBrowserQueueProjectionWarmupRuntime(deps as never);
+
+    runtime.schedule('browser-open', 0);
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(ensureQueueReadModelReady.mock.calls.map((call) => call[0].queueType)).toEqual([
+      QueueType.RetrievalPractice,
+    ]);
+    expect(runtime.getStatus('retrieval')).toMatchObject({
+      status: 'ready',
+      queueType: QueueType.RetrievalPractice,
+    });
+    vi.useRealTimers();
+  });
+
+  it('does not cancel browser-open bounded warmup when a ready queue emits a targeted identity rewarm', async () => {
     vi.useFakeTimers();
     let runtime: ReturnType<typeof createBrowserQueueProjectionWarmupRuntime>;
     let emittedIdentity = false;
@@ -211,14 +267,11 @@ describe('browserQueueProjectionWarmupRuntime', () => {
 
     expect(ensureQueueReadModelReady.mock.calls.map((call) => call[0].queueType)).toEqual([
       QueueType.RetrievalPractice,
-      QueueType.FinalDrill,
-      QueueType.IncrementalLearning,
-      QueueType.FilterGroup,
       QueueType.RetrievalPractice,
     ]);
-    expect(runtime.getStatus('incremental-learning')).toMatchObject({
+    expect(runtime.getStatus('retrieval')).toMatchObject({
       status: 'ready',
-      queueType: QueueType.IncrementalLearning,
+      queueType: QueueType.RetrievalPractice,
     });
     vi.useRealTimers();
   });

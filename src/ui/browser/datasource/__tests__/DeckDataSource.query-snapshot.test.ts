@@ -3,6 +3,7 @@ import { reactive } from 'vue';
 import { DeckDataSource } from '../DeckDataSource';
 import type { BrowserCard } from '../../types';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
+import { BrowserReadModelStateError } from '../../utils/browserReadModelStateError';
 
 function makeBrowserCard(id: string, overrides: Partial<BrowserCard> = {}): BrowserCard {
   return {
@@ -44,6 +45,119 @@ function expectLegacyGetCardsUnused(manager: unknown): void {
 }
 
 describe('DeckDataSource query snapshot path', () => {
+  it('routes normal deck page reads through BrowserReadModel.page metadata contract', async () => {
+    const manager = {
+      getCards: vi.fn(() => {
+        throw new Error('legacy getCards should not be used when read model is available');
+      }),
+      updateCard: vi.fn(),
+      deleteCard: vi.fn(),
+      getQueue: vi.fn(),
+    } as never;
+    const page = vi.fn(async () => ({
+      status: 'ready' as const,
+      total: 1,
+      rows: [makeBrowserCard('card-read-model-page')],
+      queryFingerprint: 'deck-fingerprint:read-model',
+      generation: 42,
+      readOwner: { kind: 'sql-card-universe' as const },
+    }));
+    const browserService = {
+      getBrowserReadModel: vi.fn(() => ({
+        page,
+      })),
+    };
+
+    const dataSource = new DeckDataSource(
+      manager,
+      {
+        preset: 'all',
+        currentDocId: 'doc-a',
+        queryText: 'alpha',
+      },
+      undefined,
+      { browserService: browserService as never },
+    );
+
+    const result = await dataSource.fetchRows({
+      sortModel: [{ colId: 'priority', sort: 'desc' }],
+      filterModel: {},
+      startRow: 0,
+      endRow: 20,
+    });
+
+    expect(result).toMatchObject({
+      totalCount: 1,
+      queryFingerprint: 'deck-fingerprint:read-model',
+      generation: 42,
+      readOwner: { kind: 'sql-card-universe' },
+    });
+    expect(result.rows.map((row) => row.fsrsCardId)).toEqual(['card-read-model-page']);
+    expect(page).toHaveBeenCalledWith({
+      source: 'deck',
+      query: {
+        preset: 'all',
+        docId: 'doc-a',
+        scopeDocIds: null,
+        searchText: 'alpha',
+        cardTypes: undefined,
+        sortModel: [{ colId: 'priority', sort: 'desc' }],
+      },
+    }, {
+      startRow: 0,
+      endRow: 20,
+    });
+    expectLegacyGetCardsUnused(manager);
+  });
+
+  it.each([
+    ['preparing'],
+    ['repair-required'],
+    ['unavailable'],
+  ] as const)('throws typed read-model state error when deck page is %s', async (state) => {
+    const manager = {
+      getCards: vi.fn(() => {
+        throw new Error('legacy getCards should not be used when read model is available');
+      }),
+      updateCard: vi.fn(),
+      deleteCard: vi.fn(),
+      getQueue: vi.fn(),
+    } as never;
+    const page = vi.fn(async () => ({
+      status: state,
+      rows: [],
+      total: 0,
+      reason: `${state} reason`,
+      queryFingerprint: `deck:${state}`,
+      generation: 7,
+      readOwner: { kind: 'sql-card-universe' as const },
+    }));
+    const dataSource = new DeckDataSource(
+      manager,
+      { preset: 'all' },
+      undefined,
+      {
+        browserService: {
+          getBrowserReadModel: vi.fn(() => ({ page })),
+        } as never,
+      },
+    );
+
+    const fetch = dataSource.fetchRows({
+      sortModel: [],
+      filterModel: {},
+      startRow: 0,
+      endRow: 20,
+    });
+
+    await expect(fetch).rejects.toBeInstanceOf(BrowserReadModelStateError);
+    await expect(fetch).rejects.toMatchObject({
+      browserReadModelState: state,
+      reason: `${state} reason`,
+    });
+    expectLegacyGetCardsUnused(manager);
+  });
+
   it('shows symbol quick-card title when persisted content is stored in meta.title', async () => {
     const now = Date.now();
     const symbolCard: FSRSCard = {
