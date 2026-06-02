@@ -211,20 +211,41 @@ function repairUninitializedMemoryState(card: FSRSCard): FsrsReviewStateRepairRe
   const rawStability = Number(card.stability);
   const rawDifficulty = Number(card.difficulty);
   const hasUninitializedStability = !Number.isFinite(rawStability) || rawStability <= 0;
+  const hasUninitializedDifficulty = !Number.isFinite(rawDifficulty) || rawDifficulty <= 0;
   const hasInitializedDifficulty = Number.isFinite(rawDifficulty) && rawDifficulty > 0;
+  const reps = toNonNegativeInteger(card.reps, 0);
+  const reasons: string[] = [];
+  let repairedCard = card;
 
-  if (!hasUninitializedStability || !hasInitializedDifficulty) {
+  if (card.state === CardState.New && hasUninitializedStability && hasUninitializedDifficulty && reps === 0) {
+    const rawLastReview = Number(card.lastReview);
+    if (!Number.isFinite(rawLastReview) || rawLastReview !== 0) {
+      repairedCard = {
+        ...repairedCard,
+        lastReview: 0,
+      };
+      reasons.push('lastReview');
+    }
+  }
+
+  if (hasUninitializedStability && hasInitializedDifficulty) {
+    repairedCard = {
+      ...repairedCard,
+      stability: 0,
+      difficulty: 0,
+    };
+    reasons.push('memoryState');
+  }
+
+  const uniqueReasons = Array.from(new Set(reasons));
+  if (uniqueReasons.length === 0) {
     return { card, repaired: false, reasons: [] };
   }
 
   return {
-    card: {
-      ...card,
-      stability: 0,
-      difficulty: 0,
-    },
+    card: repairedCard,
     repaired: true,
-    reasons: ['memoryState'],
+    reasons: uniqueReasons,
   };
 }
 

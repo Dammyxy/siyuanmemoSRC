@@ -149,6 +149,70 @@ describe('FileService', () => {
     expect(sources).toEqual([]);
   });
 
+  it('reads the sqlite projection database from workspace temp instead of plugin petal storage', async () => {
+    const dbBytes = new Uint8Array([
+      ...Array.from(new TextEncoder().encode('SQLite format 3')),
+      0,
+      8,
+      9,
+      10,
+    ]);
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as { path?: string };
+      if (body.path === '/temp/siyuan-plugin-siyuanmemo/siyuanmemo.db') {
+        return {
+          ok: true,
+          arrayBuffer: async () => dbBytes.buffer.slice(0),
+        } as Response;
+      }
+      return {
+        ok: false,
+        arrayBuffer: async () => new ArrayBuffer(0),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new FileService(createPlugin(vi.fn()));
+
+    await expect(service.readTempProjectionBinary('siyuanmemo.db')).resolves.toEqual(dbBytes);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/file/getFile', expect.objectContaining({
+      body: JSON.stringify({
+        path: '/temp/siyuan-plugin-siyuanmemo/siyuanmemo.db',
+      }),
+    }));
+  });
+
+  it('writes the sqlite projection database to workspace temp instead of plugin petal storage', async () => {
+    const dbBytes = new Uint8Array([
+      ...Array.from(new TextEncoder().encode('SQLite format 3')),
+      0,
+      11,
+      12,
+      13,
+    ]);
+    const writes: Array<{ path: string; bytes: number[] }> = [];
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const formData = init?.body as FormData;
+      const file = formData.get('file') as Blob;
+      writes.push({
+        path: String(formData.get('path')),
+        bytes: Array.from(new Uint8Array(await file.arrayBuffer())),
+      });
+      return {
+        json: async () => ({ code: 0, data: null }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new FileService(createPlugin(vi.fn()));
+
+    await service.writeTempProjectionBinary('siyuanmemo.db', dbBytes);
+
+    expect(writes).toEqual([{
+      path: '/temp/siyuan-plugin-siyuanmemo/siyuanmemo.db',
+      bytes: Array.from(dbBytes),
+    }]);
+  });
+
   it('backs up the current sqlite database before replacement', async () => {
     const current = new Uint8Array([5, 6, 7]);
     const plugin = createPlugin(vi.fn());

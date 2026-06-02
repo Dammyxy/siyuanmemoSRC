@@ -189,6 +189,23 @@ const logger = createLogger('ApplicationContext');
 
 type I18nDictionary = Record<string, string>;
 
+function createSqlProjectionFileService(fileService: FileService) {
+  return {
+    readJSON: <T>(fileName: string) => fileService.readJSON<T>(fileName),
+    writeJSON: (fileName: string, data: unknown) => fileService.writeJSON(fileName, data),
+    readBinary: (fileName: string) => fileName === SQLITE_DB_FILE
+      ? fileService.readTempProjectionBinary(fileName)
+      : fileService.readBinary(fileName),
+    writeBinary: (
+      fileName: string,
+      bytes: Uint8Array,
+      options?: { diagnostics?: Record<string, unknown> },
+    ) => fileName === SQLITE_DB_FILE
+      ? fileService.writeTempProjectionBinary(fileName, bytes, options)
+      : fileService.writeBinary(fileName, bytes, options),
+  };
+}
+
 interface ApplicationServiceRegistry {
   storage: StorageManager;
   unifiedStorage: UnifiedStorageManager;
@@ -1068,7 +1085,8 @@ export class ApplicationContext {
 
     try {
       await measureRuntimePerformance('startup', 'sqlite.init-and-migrate', async () => {
-        const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+        const sqlFileService = createSqlProjectionFileService(fileService);
+        const database = new SqliteDatabaseService(sqlFileService, SQLITE_DB_FILE, {
           persistOnInit: false,
           enableDeltaPersistence: true,
         });

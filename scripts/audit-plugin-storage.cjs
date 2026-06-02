@@ -60,21 +60,35 @@ function classifyStoragePath(relativePath, stats = {}) {
     };
   }
 
-  const truthMatch = rel.match(/^truth\/([^/]+)\/device-[^/]+\/([^/]+)$/);
-  if (truthMatch) {
-    const family = truthMatch[1];
-    const fileName = truthMatch[2];
+  const truthParts = rel.split('/');
+  const truthFamily = truthParts[0] === 'truth' ? truthParts[1] : null;
+  const generationScopedTruth = truthParts.length === 5 && truthParts[3]?.startsWith('device-');
+  const legacyTruth = truthParts.length === 4 && truthParts[2]?.startsWith('device-');
+  if (truthFamily && (generationScopedTruth || legacyTruth)) {
+    const family = truthFamily;
+    const generationId = generationScopedTruth ? truthParts[2] : null;
+    const fileName = generationScopedTruth ? truthParts[4] : truthParts[3];
     if (MESSAGEPACK_TRUTH_FAMILIES.has(family) && fileName === 'manifest.v1.json') {
       return {
         classification: 'expected-active',
         kind: 'messagepack-truth-manifest',
+        generationId,
         policy: 'Per-device MessagePack truth manifest sidecar.',
+      };
+    }
+    if (MESSAGEPACK_TRUTH_FAMILIES.has(family) && /^seg-[^/]+\.msgpack\.checksum\.json$/i.test(fileName)) {
+      return {
+        classification: 'expected-active',
+        kind: 'messagepack-truth-checksum',
+        generationId,
+        policy: 'Per-segment MessagePack truth checksum sidecar.',
       };
     }
     if (MESSAGEPACK_TRUTH_FAMILIES.has(family) && /^seg-[^/]+\.msgpack$/i.test(fileName)) {
       return {
         classification: 'expected-active',
         kind: 'messagepack-truth-segment',
+        generationId,
         policy: 'Bounded immutable MessagePack truth segment.',
       };
     }

@@ -766,6 +766,62 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     });
   });
 
+  it('repairs polluted lastReview on DTO-only unreviewed new-card empty FSRS memory', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+    const repository = new SqlUnifiedStorageRepository(database);
+    const importedAt = 1_777_804_699_943;
+    const dto = createDTO({
+      id: '20260430101444-otdi7bu',
+      blockId: '20260430101444-otdi7bu',
+      state: CardState.New,
+      due: importedAt - 418,
+      stability: 0,
+      difficulty: 0,
+      reps: 0,
+      lapses: 0,
+      lastReview: importedAt,
+      elapsedDays: 0,
+      scheduledDays: 0,
+      learning_step: 0,
+      type: CardType.Item,
+      schedulerType: 'fsrs-v6',
+      xiuyuanID: 'xy_20260430101444-otdi7bu',
+      templateID: 'builtin-riff-sync',
+      frontBlockIDs: ['20260430101444-otdi7bu'],
+      backBlockIDs: ['20260430101444-otdi7bu'],
+    });
+
+    await repository.saveStore({
+      version: 2,
+      xiuyuans: {
+        [dto.xiuyuanID!]: createXiuyuan(dto.xiuyuanID!, dto.blockId),
+      },
+      cards: {},
+      cardDTOs: {
+        [dto.id]: dto,
+      },
+      deletedCardDTOs: {},
+      deletedXiuyuans: {},
+      riffBlacklist: [],
+    });
+
+    const loaded = await repository.loadStore();
+    expect(loaded.cardDTOs?.[dto.id]).toMatchObject({
+      state: CardState.New,
+      stability: 0,
+      difficulty: 0,
+      reps: 0,
+      lastReview: 0,
+    });
+    expect(repository.getCard(dto.id)).toMatchObject({
+      state: CardState.New,
+      lastReview: 0,
+      stability: 0,
+      difficulty: 0,
+    });
+  });
+
   it('saves and reloads review-state a-factor cards with empty FSRS memory fields', async () => {
     const database = new SqliteDatabaseService(new MemorySqliteFileService());
     await database.init();

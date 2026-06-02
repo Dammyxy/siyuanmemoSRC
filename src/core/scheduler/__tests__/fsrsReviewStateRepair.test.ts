@@ -117,6 +117,29 @@ describe('repairFsrsReviewState', () => {
     expect(result.card.stability).toBe(0);
   });
 
+  it('clears polluted lastReview on unreviewed New cards with empty FSRS memory', () => {
+    const importedAt = new Date('2026-05-03T04:24:59+08:00').getTime();
+    const result = repairFsrsReviewState(createCard({
+      id: '20260430101444-otdi7bu',
+      state: CardState.New,
+      due: importedAt - 418,
+      stability: 0,
+      difficulty: 0,
+      reps: 0,
+      lastReview: importedAt,
+      elapsedDays: 0,
+      scheduledDays: 0,
+      learning_step: 0,
+    }));
+
+    expect(result.repaired).toBe(true);
+    expect(result.reasons).toContain('lastReview');
+    expect(result.card.state).toBe(CardState.New);
+    expect(result.card.lastReview).toBe(0);
+    expect(result.card.stability).toBe(0);
+    expect(result.card.difficulty).toBe(0);
+  });
+
   it('promotes mature New cards whose review state was reset but memory remained', () => {
     const due = new Date('2026-05-26T23:39:17+08:00').getTime();
     const lastReview = new Date('2026-05-01T07:02:51+08:00').getTime();

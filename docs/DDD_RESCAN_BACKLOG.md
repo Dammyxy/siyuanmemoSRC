@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-02 (Round 527)
+Last update: 2026-06-02 (Round 530)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-02 - Runtime startup unblock and temp SQL projection routing
+
+- Task: Continue `repair-msgpack-truth-runtime-cutover` task 6.7 by unblocking live SiYuan cold start, auditing truth output, and fixing the petal-root SQL projection write exposed by smoke.
+- Touched slice: FSRS scheduling repair, SQLite initial migration/repository DTO validation, renderer and worker SQL projection file service bridge, generation-scoped truth storage audit, active DDD backlog.
+- Debt fixed now: Initial SQLite migration now repairs unreviewed/New FSRS cards whose empty memory has polluted nonzero `lastReview`, so live card `20260430101444-otdi7bu` no longer fails startup with `Invalid difficulty: empty memory requires unreviewed card state`. Renderer and worker SQLite projection persistence now route the main `siyuanmemo.db` binary through `/temp/siyuan-plugin-siyuanmemo/siyuanmemo.db` instead of `storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db`; truth files and JSON delta/legacy compatibility reads remain on their existing explicit paths. Storage audit now recognizes generation-scoped truth paths and checksum sidecars as active MessagePack truth evidence.
+- Debt deferred: The existing live petal-root `siyuanmemo.db` and older migration backup files remain cleanup candidates only, not deleted in this slice. Storage slimming for AI/session payloads and old compatibility inputs remains follow-up work.
+- Why deferred: This slice only verifies the Review truth/temp-projection cutover. Deleting legacy artifacts or storage-slimming payloads needs an explicit cleanup workflow with retention and rollback rules.
+- Next safe step: Archive `repair-msgpack-truth-runtime-cutover` after reviewing the dirty diff and deciding whether to keep the live-smoke evidence in this backlog entry.
+- Validation: Red/green `pnpm vitest run src/core/scheduler/__tests__/fsrsReviewStateRepair.test.ts -t "polluted lastReview"` and `pnpm vitest run src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts -t "polluted lastReview"`; `pnpm vitest run src/core/scheduler/__tests__/fsrsReviewStateRepair.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteMigrationService.test.ts`; `pnpm vitest run scripts/__tests__/audit-plugin-storage.test.ts`; `pnpm vitest run src/infrastructure/services/__tests__/FileService.test.ts src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate repair-msgpack-truth-runtime-cutover --strict`; `git diff --check`. Live smoke after latest restart: plugin loaded, backend worker present, no `STORAGE_UNAVAILABLE`, local truth device `device-7789176f-b2ae-4b04-9f77-d3e112805f88`, Review opened after the user resolved domain sync conflicts, one visible feedback was performed by revealing the card and clicking `😊 良好 (3)`, queue count moved from 329 to 328, petal-root `siyuanmemo.db` timestamp stayed at `2026-06-02T01:01:55Z`, temp projection `H:\SiYuanXY\temp\siyuan-plugin-siyuanmemo\siyuanmemo.db` updated at `2026-06-02T01:28:02Z`, no `H:\SiYuanXY\temp\os\multipart-*`, and Review truth wrote `truth/review-events/review-events-v1/device-device-7789176f-b2ae-4b04-9f77-d3e112805f88/seg-000004-mpvykj0y-w21agyek.msgpack` plus checksum and manifest at `2026-06-02T01:28:04Z`. Storage audit classified 26 active truth files and kept the old petal-root DB as a forbidden legacy artifact.
 
 ### 2026-06-02 - Legacy review-log truth import
 

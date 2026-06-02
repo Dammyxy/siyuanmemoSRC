@@ -38,6 +38,7 @@ const logger = createLogger('ApplicationContext');
 const TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.truth.deviceId.v1';
 const LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1';
 const REVIEW_TRUTH_GENERATION_ID = `review-events-v${MESSAGEPACK_TRUTH_SCHEMA_VERSION}`;
+const SQLITE_PROJECTION_DB_FILE = 'siyuanmemo.db';
 
 export type ApplicationBackendRuntimeTransport = SrsBackendTransport & {
   dispose?: () => void;
@@ -297,14 +298,15 @@ function createWorkerPersistenceBridge(fileService: FileService): SqlitePersiste
   return {
     truthFileStore,
     readBinary: async (path: string) => {
-      if (!fileService.readBinary) {
-        return null;
+      if (path === SQLITE_PROJECTION_DB_FILE) {
+        return fileService.readTempProjectionBinary(path);
       }
       return fileService.readBinary(path);
     },
     writeBinary: async (path: string, bytes: Uint8Array) => {
-      if (!fileService.writeBinary) {
-        throw new Error('FileService.writeBinary is unavailable');
+      if (path === SQLITE_PROJECTION_DB_FILE) {
+        await fileService.writeTempProjectionBinary(path, bytes);
+        return;
       }
       await fileService.writeBinary(path, bytes);
     },

@@ -70,12 +70,26 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(source).not.toContain("const REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1'");
   });
 
-  it('constructs renderer sqlite projection without implicit startup checkpointing', () => {
+  it('constructs renderer sqlite projection on the temp DB adapter without implicit startup checkpointing', () => {
     const contextSource = readApplicationContextSource();
 
-    expect(contextSource).toContain('new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {');
+    expect(contextSource).toContain('createSqlProjectionFileService(fileService)');
+    expect(contextSource).toContain('fileService.readTempProjectionBinary(fileName)');
+    expect(contextSource).toContain('fileService.writeTempProjectionBinary(fileName, bytes, options)');
+    expect(contextSource).toContain('new SqliteDatabaseService(sqlFileService, SQLITE_DB_FILE, {');
     expect(contextSource).toContain('persistOnInit: false');
     expect(contextSource).toContain('enableDeltaPersistence: true');
+  });
+
+  it('routes backend Worker sqlite projection effects to temp while keeping truth effects on plugin storage', () => {
+    const source = readBackendRuntimeFactorySource();
+
+    expect(source).toContain('path === SQLITE_PROJECTION_DB_FILE');
+    expect(source).toContain('fileService.readTempProjectionBinary(path)');
+    expect(source).toContain('fileService.writeTempProjectionBinary(path, bytes)');
+    expect(source).toContain('truthFileStore');
+    expect(source).toContain('return fileService.readBinary(path)');
+    expect(source).toContain('await fileService.writeBinary(path, bytes)');
   });
 
   it('does not write siyuanmemo.db during renderer sqlite startup fixture initialization', async () => {

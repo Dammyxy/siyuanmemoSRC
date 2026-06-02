@@ -121,6 +121,57 @@ function createDtoOnlyLegacyStore(): UnifiedCardStore {
   };
 }
 
+function createPollutedNewCardLegacyStore(): UnifiedCardStore {
+  const importedAt = 1_777_804_699_943;
+  const card: FSRSCard = {
+    id: '20260430101444-otdi7bu',
+    xiuyuanID: 'xy_20260430101444-otdi7bu',
+    blockId: '20260430101444-otdi7bu',
+    due: importedAt - 418,
+    stability: 0,
+    difficulty: 0,
+    reps: 0,
+    lapses: 0,
+    state: CardState.New,
+    lastReview: importedAt,
+    elapsedDays: 0,
+    scheduledDays: 0,
+    learning_step: 0,
+    priority: 50,
+    type: CardType.Item,
+    tags: [],
+    leechCount: 0,
+    isLeech: false,
+    skipped: false,
+    createdAt: importedAt,
+    updatedAt: importedAt,
+    schedulerType: 'fsrs-v6',
+    meta: {
+      source: 'riff-sync',
+      xiuyuanID: 'xy_20260430101444-otdi7bu',
+    },
+  };
+  const { meta, ...dto } = card;
+  return {
+    version: 2,
+    xiuyuans: {},
+    cards: {},
+    cardDTOs: {
+      [card.id]: {
+        ...dto,
+        templateID: 'builtin-riff-sync',
+        frontBlockIDs: [card.blockId],
+        backBlockIDs: [card.blockId],
+        meta,
+      },
+    },
+    deletedCardDTOs: {},
+    deletedXiuyuans: {},
+    riffBlacklist: [],
+    riffSyncState: {},
+  };
+}
+
 describe('SqliteMigrationService algorithm card state migration', () => {
   it('imports DTO-only legacy cards during initial migration', async () => {
     const fileService = new MemoryMigrationFileService();
@@ -147,6 +198,36 @@ describe('SqliteMigrationService algorithm card state migration', () => {
       id: 'migration-dirty-card',
       xiuyuanID: 'xy-migration-dirty',
       meta: { customSemantic: 'dto-only' },
+    });
+  });
+
+  it('repairs polluted lastReview on unreviewed Riff DTOs during initial migration', async () => {
+    const fileService = new MemoryMigrationFileService();
+    const database = new SqliteDatabaseService(fileService);
+    await database.init();
+    const unified = new SqlUnifiedStorageRepository(database);
+    const migration = new SqliteMigrationService(
+      database,
+      fileService,
+      {
+        unified,
+        queue: new SqlQueueStateRepository(database),
+        reviewLogs: new SqlReviewLogRepository(database),
+        arena: new SqlArenaRepository(database),
+      },
+      async () => createPollutedNewCardLegacyStore(),
+    );
+
+    const result = await migration.migrateIfNeeded(1_701_000_000_007);
+
+    expect(result).toEqual({ migrated: true, usedSql: true });
+    expect(database.hasMigration('initial-msgpack-json-import-v1')).toBe(true);
+    expect(unified.getCard('20260430101444-otdi7bu')).toMatchObject({
+      state: CardState.New,
+      stability: 0,
+      difficulty: 0,
+      reps: 0,
+      lastReview: 0,
     });
   });
 

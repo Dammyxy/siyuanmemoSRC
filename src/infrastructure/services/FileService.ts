@@ -19,6 +19,7 @@ import type SiyuanMemoPlugin from '../../index';
 import { getPluginDataPath, putFile } from '@/infrastructure/siyuan/api';
 import { createLogger } from '@/utils/logger';
 import { recordRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnostics';
+import { SIYUANMEMO_TEMP_PROJECTION_DB_PATH } from '../../../packages/contracts/src/backend-rpc';
 import { ManualSyncBackupInventory } from './ManualSyncBackupInventory';
 
 const logger = createLogger('FileService');
@@ -62,6 +63,18 @@ export interface IFileService {
    * @param bytes 二进制内容
    */
   writeBinary?(fileName: string, bytes: Uint8Array, options?: {
+    diagnostics?: Record<string, unknown>;
+  }): Promise<void>;
+
+  /**
+   * 读取工作空间 temp 中的 SQLite 投影数据库。
+   */
+  readTempProjectionBinary?(fileName: string): Promise<Uint8Array | null>;
+
+  /**
+   * 写入工作空间 temp 中的 SQLite 投影数据库。
+   */
+  writeTempProjectionBinary?(fileName: string, bytes: Uint8Array, options?: {
     diagnostics?: Record<string, unknown>;
   }): Promise<void>;
 
@@ -347,6 +360,53 @@ export class FileService implements IFileService {
     }
   }
 
+  async readTempProjectionBinary(fileName: string): Promise<Uint8Array | null> {
+    return this.readAbsoluteBinary(this.resolveTempProjectionPath(fileName));
+  }
+
+  async writeTempProjectionBinary(fileName: string, bytes: Uint8Array, options: {
+    diagnostics?: Record<string, unknown>;
+  } = {}): Promise<void> {
+    const startedAt = Date.now();
+    const byteLength = bytes.byteLength;
+    const sqliteDatabase = isSqliteDatabaseBytes(bytes);
+    try {
+      const payload = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+        ? bytes.buffer
+        : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      await putFile(
+        this.resolveTempProjectionPath(fileName),
+        new Blob([payload as BlobPart], { type: 'application/x-sqlite3' }),
+      );
+      recordRuntimePerformanceSpan('file', 'write-binary', Date.now() - startedAt, {
+        fileName,
+        byteLength,
+        sqliteDatabase,
+        storageClass: 'temp-sql-projection-db',
+        ...(options.diagnostics || {}),
+        status: 'written',
+      });
+    } catch (error) {
+      recordRuntimePerformanceSpan('file', 'write-binary', Date.now() - startedAt, {
+        fileName,
+        byteLength,
+        sqliteDatabase,
+        storageClass: 'temp-sql-projection-db',
+        ...(options.diagnostics || {}),
+        status: 'failed',
+      }, {
+        ok: false,
+        errorName: error instanceof Error ? error.name : 'Error',
+      });
+      logger.error(`[FileService] Failed to write temp projection binary file "${fileName}":`, error);
+      throw new FileOperationError(
+        'write',
+        fileName,
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+
   async listFiles(prefix: string): Promise<string[]> {
     const normalized = String(prefix || '')
       .replace(/\\/g, '/')
@@ -492,6 +552,16 @@ export class FileService implements IFileService {
     } catch {
       return null;
     }
+  }
+
+  private resolveTempProjectionPath(fileName: string): string {
+    const normalized = String(fileName || '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '');
+    if (normalized !== 'siyuanmemo.db') {
+      throw new FileOperationError('read', fileName, new Error('invalid temp projection binary path'));
+    }
+    return `/${SIYUANMEMO_TEMP_PROJECTION_DB_PATH}`;
   }
 
   private async removeAbsoluteFile(path: string): Promise<void> {
