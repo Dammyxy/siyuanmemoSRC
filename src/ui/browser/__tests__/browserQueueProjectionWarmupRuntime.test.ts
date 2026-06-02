@@ -32,7 +32,7 @@ function createDeps(overrides: Record<string, unknown> = {}) {
 }
 
 describe('browserQueueProjectionWarmupRuntime', () => {
-  it('warms only the active projection-backed queue on browser open', async () => {
+  it('warms the active queue first and then every sidebar projection-backed queue on browser open', async () => {
     vi.useFakeTimers();
     const ensureQueueReadModelReady = vi.fn(async (request) => ({
       status: 'ready',
@@ -51,13 +51,16 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     runtime.schedule('browser-open', 0);
     await vi.runOnlyPendingTimersAsync();
 
-    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(1);
+    expect(ensureQueueReadModelReady).toHaveBeenCalledTimes(4);
     expect(ensureQueueReadModelReady.mock.calls[0]?.[0]).toMatchObject({
       queueType: QueueType.IncrementalLearning,
       source: 'browser',
     });
     expect(ensureQueueReadModelReady.mock.calls.map((call) => call[0].queueType)).toEqual([
       QueueType.IncrementalLearning,
+      QueueType.RetrievalPractice,
+      QueueType.FinalDrill,
+      QueueType.FilterGroup,
     ]);
     expect(runtime.getStatus('incremental-learning')).toMatchObject({
       status: 'ready',
@@ -65,11 +68,12 @@ describe('browserQueueProjectionWarmupRuntime', () => {
       queueType: QueueType.IncrementalLearning,
       generation: 3,
     });
-    expect(onQueueReady).toHaveBeenCalledTimes(1);
+    expect(onQueueReady).toHaveBeenCalledTimes(4);
     expect(onQueueReady).toHaveBeenCalledWith(expect.objectContaining({
       status: 'ready',
       queueType: QueueType.IncrementalLearning,
     }));
+    expect(runtime.getStatus('neural-roam')).toBeNull();
     vi.useRealTimers();
   });
 
@@ -204,7 +208,7 @@ describe('browserQueueProjectionWarmupRuntime', () => {
     vi.useRealTimers();
   });
 
-  it('warms the likely-next retrieval queue when browser opens without an active queue', async () => {
+  it('warms all sidebar projection-backed queues when browser opens without an active queue', async () => {
     vi.useFakeTimers();
     const ensureQueueReadModelReady = vi.fn(async (request) => ({
       status: 'ready',
@@ -223,11 +227,15 @@ describe('browserQueueProjectionWarmupRuntime', () => {
 
     expect(ensureQueueReadModelReady.mock.calls.map((call) => call[0].queueType)).toEqual([
       QueueType.RetrievalPractice,
+      QueueType.IncrementalLearning,
+      QueueType.FinalDrill,
+      QueueType.FilterGroup,
     ]);
     expect(runtime.getStatus('retrieval')).toMatchObject({
       status: 'ready',
       queueType: QueueType.RetrievalPractice,
     });
+    expect(runtime.getStatus('neural-roam')).toBeNull();
     vi.useRealTimers();
   });
 
@@ -267,6 +275,9 @@ describe('browserQueueProjectionWarmupRuntime', () => {
 
     expect(ensureQueueReadModelReady.mock.calls.map((call) => call[0].queueType)).toEqual([
       QueueType.RetrievalPractice,
+      QueueType.IncrementalLearning,
+      QueueType.FinalDrill,
+      QueueType.FilterGroup,
       QueueType.RetrievalPractice,
     ]);
     expect(runtime.getStatus('retrieval')).toMatchObject({

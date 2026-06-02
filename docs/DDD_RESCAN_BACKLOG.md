@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-02 (Round 533)
+Last update: 2026-06-02 (Round 534)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-02 - Browser sidebar queue count warmup
+
+- Task: Fix Browser open where only Retrieval Practice count refreshed and other queue sidebar counts stayed stale.
+- Touched slice: Browser queue projection warmup and queue count tests: `src/ui/browser/browserQueueProjectionWarmupRuntime.ts`, `src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts`, `src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts`.
+- Debt fixed now: Browser-open projection warmup now runs active queue first and then every sidebar projection-backed queue (`retrieval`, `incremental-learning`, `final-drill`, `filter-group`) so each ready projection triggers its targeted count refresh; `neural-roam` remains excluded from projection warmup and keeps route-owned count semantics. Queue-count tests now use the application-owned projection snapshot seam instead of encoding the retired local `queue.getCards()` count path.
+- Debt deferred: No live SiYuan UI smoke was run in this agent turn; existing build-time i18n hardcoded-string warnings and Sass legacy JS API warnings remain unchanged.
+- Why deferred: The regression had a deterministic unit seam and the build already emits these warnings before this change; live smoke depends on the user's running plugin/browser state.
+- Next safe step: Reload the built plugin and reopen Browser; expected logs should show readiness for retrieval, incremental-learning, final-drill, and filter-group, followed by targeted count refreshes for each ready queue.
+- Validation: Red/green `pnpm exec vitest run src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts`; focused `pnpm exec vitest run src/ui/browser/__tests__/browserQueueProjectionWarmupRuntime.test.ts src/ui/browser/__tests__/browserLoadDataRuntime.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts src/ui/browser/composables/__tests__/useQueueBridge.test.ts` (4 files, 40 tests); `pnpm run check:boundaries`; `pnpm build`; `openspec validate simplify-browser-read-model --strict`; `git diff --check`; debug-log grep over `src worker packages scripts`.
 
 ### 2026-06-02 - Simplify Browser read model cutover
 

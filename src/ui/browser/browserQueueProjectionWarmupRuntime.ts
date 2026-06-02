@@ -63,8 +63,12 @@ export type BrowserQueueProjectionWarmupRuntimeDeps = {
 };
 
 const DEFAULT_WARMUP_DEBOUNCE_MS = 120;
-const DEFAULT_LIKELY_NEXT_QUEUE_ID: BrowserQueueId = 'retrieval';
-const MAX_RECENT_WARMUP_QUEUES = 2;
+const BROWSER_OPEN_WARMUP_QUEUE_IDS: BrowserQueueId[] = [
+  'retrieval',
+  'incremental-learning',
+  'final-drill',
+  'filter-group',
+];
 
 function isWarmableQueue(queueType: QueueType | null): queueType is QueueType {
   return Boolean(queueType && queueType !== QueueType.NeuralRoam);
@@ -73,23 +77,17 @@ function isWarmableQueue(queueType: QueueType | null): queueType is QueueType {
 function buildWarmupQueueOrder(
   activeQueueId: string | null,
   targetQueueIds?: BrowserQueueId[],
-  recentQueueIds: BrowserQueueId[] = [],
 ): BrowserQueueId[] {
   if (targetQueueIds?.length) {
     const deduped = Array.from(new Set(targetQueueIds));
     return deduped.filter((queueId) => isWarmableQueue(resolveQueueTypeForBrowserQueueId(queueId)));
   }
   const active = normalizeBrowserQueueId(activeQueueId);
-  if (active && isWarmableQueue(resolveQueueTypeForBrowserQueueId(active))) {
-    return [active];
-  }
-  const recent = Array.from(new Set(recentQueueIds))
-    .filter((queueId) => isWarmableQueue(resolveQueueTypeForBrowserQueueId(queueId)))
-    .slice(0, MAX_RECENT_WARMUP_QUEUES);
-  if (recent.length) {
-    return recent;
-  }
-  return [DEFAULT_LIKELY_NEXT_QUEUE_ID];
+  return Array.from(new Set(
+    active && isWarmableQueue(resolveQueueTypeForBrowserQueueId(active))
+      ? [active, ...BROWSER_OPEN_WARMUP_QUEUE_IDS]
+      : BROWSER_OPEN_WARMUP_QUEUE_IDS,
+  )).filter((queueId) => isWarmableQueue(resolveQueueTypeForBrowserQueueId(queueId)));
 }
 
 function normalizeReadinessStatus(
@@ -183,7 +181,6 @@ export function createBrowserQueueProjectionWarmupRuntime(
     const queueIds = buildWarmupQueueOrder(
       scope.activeQueueId,
       targetQueueIds,
-      Array.from(statuses.keys()).reverse(),
     );
     for (const queueId of queueIds) {
       if (seq !== generation) return;
