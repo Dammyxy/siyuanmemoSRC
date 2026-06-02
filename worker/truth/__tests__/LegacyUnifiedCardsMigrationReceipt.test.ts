@@ -54,6 +54,9 @@ function completedReceipt() {
       tombstones: 1,
       sourceBindings: 1,
       reviewEvents: 0,
+      quarantinedReviewLogs: 0,
+      skippedDrillLogsV2: 0,
+      skippedRescheduleLogs: 0,
     },
     diagnostics: [],
   });

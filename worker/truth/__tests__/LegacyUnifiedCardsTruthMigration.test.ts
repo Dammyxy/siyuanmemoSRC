@@ -4,7 +4,7 @@ import {
   LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH,
   MESSAGEPACK_TRUTH_SCHEMA_VERSION,
 } from '../../../packages/contracts/src/backend-rpc';
-import { CardState, CardType } from '@/types/card';
+import { CardState, CardType, Rating } from '@/types/card';
 import {
   createMessagePackTruthSegmentStore,
   type MessagePackTruthSegmentFileStore,
@@ -60,6 +60,17 @@ function createCardMemoryTruthStore(fileStore: MemoryMigrationFileStore) {
     family: 'card-memory-facts',
     deviceId: 'device-A',
     generationId: 'card-memory-facts-v1',
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    maxSegmentBytes: 4096,
+  });
+}
+
+function createReviewEventTruthStore(fileStore: MemoryMigrationFileStore) {
+  return createMessagePackTruthSegmentStore({
+    fileStore,
+    family: 'review-events',
+    deviceId: 'device-A',
+    generationId: 'review-events-v1',
     schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
     maxSegmentBytes: 4096,
   });
@@ -388,5 +399,491 @@ describe('LegacyUnifiedCardsTruthMigration', () => {
     });
     expect(fileStore.jsonFiles.has(LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH)).toBe(false);
     expect(fileStore.operations.some((operation) => operation.type === 'write-json')).toBe(false);
+  });
+
+  it('imports formal legacy reviewLogs and reviewLogsV2 into review-events truth with stable idempotency identities', async () => {
+    const fileStore = new MemoryMigrationFileStore();
+    fileStore.binaryFiles.set(LEGACY_UNIFIED_CARDS_SOURCE_PATH, encode({
+      version: 2,
+      cards: {},
+      cardDTOs: {},
+      deletedCardDTOs: {},
+    }));
+    fileStore.jsonFiles.set('review-logs/2024-03.json', {
+      reviewLogs: [{
+        id: 'legacy-review-1',
+        cardId: 'card-legacy-review',
+        rating: Rating.Good,
+        state: CardState.Review,
+        scheduledDays: 7,
+        elapsedDays: 6,
+        review: Date.UTC(2024, 2, 15, 8),
+        stability: 4.5,
+        difficulty: 5.5,
+      }],
+      reviewLogsV2: [
+        {
+          schemaVersion: 2,
+          id: 'legacy-v2-commit',
+          attemptId: 'attempt-commit',
+          cardId: 'card-v2-commit',
+          rating: Rating.Easy,
+          reviewedAt: Date.UTC(2024, 2, 16, 9),
+          commitIdempotencyKey: 'commit-key-from-legacy',
+          queueType: 'retrieval-practice',
+          queueMode: 'formal',
+          algorithm: 'fsrs-v6',
+          schedulerType: 'fsrs-v6',
+          commitPolicy: 'write-schedule',
+          before: { id: 'card-v2-commit' },
+          after: { id: 'card-v2-commit' },
+          isDrill: false,
+          isFiltered: false,
+          customStudy: false,
+        },
+        {
+          schemaVersion: 2,
+          id: 'legacy-v2-attempt',
+          attemptId: 'attempt-only',
+          cardId: 'card-v2-attempt',
+          rating: Rating.Hard,
+          reviewedAt: Date.UTC(2024, 2, 17, 10),
+          queueType: 'manual',
+          queueMode: 'formal',
+          algorithm: 'fsrs-v6',
+          schedulerType: 'fsrs-v6',
+          commitPolicy: 'write-schedule',
+          before: { id: 'card-v2-attempt' },
+          after: { id: 'card-v2-attempt' },
+          isDrill: false,
+          isFiltered: false,
+          customStudy: false,
+        },
+      ],
+      drillLogsV2: [],
+      rescheduleLogs: [],
+    });
+    const cardTruthStore = createCardMemoryTruthStore(fileStore);
+    const reviewTruthStore = createReviewEventTruthStore(fileStore);
+
+    const result = await migrateLegacyUnifiedCardsToCardMemoryTruth({
+      sourceFileStore: fileStore,
+      receiptFileStore: fileStore,
+      truthStore: cardTruthStore,
+      reviewLogFileStore: fileStore,
+      reviewTruthStore,
+      reviewGenerationId: 'review-events-v1',
+      truthExists: false,
+      localDeviceId: 'device-A',
+      generationId: 'card-memory-facts-v1',
+      truthSchemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+      now: () => 1_711_000_000_000,
+    });
+
+    const replay = await reviewTruthStore.replayRecords({ dedupeByIdempotencyKey: true });
+    expect(replay.records.map((record) => record.idempotencyKey)).toEqual([
+      `legacy-review-log:2024-03:card-legacy-review:${Date.UTC(2024, 2, 15, 8)}:${Rating.Good}:0`,
+      'commit-key-from-legacy',
+      'attempt-only',
+    ]);
+    expect(replay.records).toMatchObject([
+      {
+        family: 'review-events',
+        type: 'review.feedback.v1',
+        source: {
+          cardId: 'card-legacy-review',
+        },
+        review: {
+          action: 'rating',
+          rating: Rating.Good,
+          reviewedAt: Date.UTC(2024, 2, 15, 8),
+        },
+        legacyLineage: {
+          sourceFile: 'review-logs/2024-03.json',
+          sourceCollection: 'reviewLogs',
+          yearMonth: '2024-03',
+        },
+      },
+      {
+        source: {
+          cardId: 'card-v2-commit',
+        },
+        review: {
+          rating: Rating.Easy,
+          scheduler: 'fsrs-v6',
+        },
+        queue: {
+          queueType: 'retrieval-practice',
+          queueMode: 'formal',
+          commitPolicy: 'write-schedule',
+        },
+      },
+      {
+        source: {
+          cardId: 'card-v2-attempt',
+        },
+        review: {
+          rating: Rating.Hard,
+        },
+      },
+    ]);
+    expect(result.counts.reviewEvents).toBe(3);
+    expect(result.receipt.families).toEqual([
+      expect.objectContaining({
+        family: 'card-memory-facts',
+        recordCount: 0,
+      }),
+      expect.objectContaining({
+        family: 'review-events',
+        generationId: 'review-events-v1',
+        recordCount: 3,
+        segmentRefs: [expect.stringMatching(/^truth\/review-events\/review-events-v1\/device-device-A\/seg-/)],
+      }),
+    ]);
+    expect(result.receipt.diagnostics).toEqual([]);
+  });
+
+  it('skips drillLogsV2 and rescheduleLogs with skipped-count diagnostics', async () => {
+    const fileStore = new MemoryMigrationFileStore();
+    fileStore.binaryFiles.set(LEGACY_UNIFIED_CARDS_SOURCE_PATH, encode({
+      version: 2,
+      cards: {},
+      cardDTOs: {},
+      deletedCardDTOs: {},
+    }));
+    fileStore.jsonFiles.set('review-logs/2024-04.json', {
+      reviewLogsV2: [{
+        schemaVersion: 2,
+        id: 'formal-1',
+        attemptId: 'formal-attempt-1',
+        cardId: 'card-formal',
+        rating: Rating.Good,
+        reviewedAt: Date.UTC(2024, 3, 2, 8),
+        queueMode: 'formal',
+        algorithm: 'fsrs-v6',
+        schedulerType: 'fsrs-v6',
+        commitPolicy: 'write-schedule',
+        before: { id: 'card-formal' },
+        after: { id: 'card-formal' },
+        isDrill: false,
+        isFiltered: false,
+        customStudy: false,
+      }],
+      drillLogsV2: [
+        {
+          schemaVersion: 2,
+          id: 'drill-1',
+          cardId: 'card-drill-1',
+          rating: Rating.Again,
+          reviewedAt: Date.UTC(2024, 3, 2, 9),
+          queueType: 'final-drill',
+          action: 'moved-to-back',
+          isDrill: true,
+        },
+        {
+          schemaVersion: 2,
+          id: 'drill-2',
+          cardId: 'card-drill-2',
+          rating: Rating.Easy,
+          reviewedAt: Date.UTC(2024, 3, 2, 10),
+          queueType: 'final-drill',
+          action: 'removed',
+          isDrill: true,
+        },
+      ],
+      rescheduleLogs: [{
+        ts: Date.UTC(2024, 3, 2, 11),
+        action: 'postpone',
+        source: 'browser',
+        targets: ['card-reschedule'],
+        result: { updated: 1, skipped: 0 },
+        sample: [{ cardId: 'card-reschedule', newDue: '2024-04-05' }],
+      }],
+    });
+    const cardTruthStore = createCardMemoryTruthStore(fileStore);
+    const reviewTruthStore = createReviewEventTruthStore(fileStore);
+
+    const result = await migrateLegacyUnifiedCardsToCardMemoryTruth({
+      sourceFileStore: fileStore,
+      receiptFileStore: fileStore,
+      truthStore: cardTruthStore,
+      reviewLogFileStore: fileStore,
+      reviewTruthStore,
+      reviewGenerationId: 'review-events-v1',
+      truthExists: false,
+      localDeviceId: 'device-A',
+      generationId: 'card-memory-facts-v1',
+      truthSchemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+      now: () => 1_711_000_000_000,
+    });
+
+    const replay = await reviewTruthStore.replayRecords({ dedupeByIdempotencyKey: true });
+    expect(replay.records).toHaveLength(1);
+    expect(replay.records[0]).toMatchObject({
+      source: { cardId: 'card-formal' },
+      idempotencyKey: 'formal-attempt-1',
+    });
+    expect(result.counts.reviewEvents).toBe(1);
+    expect(result.receipt.diagnostics).toEqual([
+      expect.objectContaining({
+        kind: 'skipped-non-formal-review-log',
+        severity: 'info',
+        details: expect.objectContaining({
+          sourceFile: 'review-logs/2024-04.json',
+          yearMonth: '2024-04',
+          drillLogsV2: 2,
+          rescheduleLogs: 1,
+          skippedCount: 3,
+        }),
+      }),
+    ]);
+  });
+
+  it('quarantines malformed formal review logs without writing review-event truth', async () => {
+    const fileStore = new MemoryMigrationFileStore();
+    fileStore.binaryFiles.set(LEGACY_UNIFIED_CARDS_SOURCE_PATH, encode({
+      version: 2,
+      cards: {},
+      cardDTOs: {},
+      deletedCardDTOs: {},
+    }));
+    fileStore.jsonFiles.set('review-logs/2024-05.json', {
+      reviewLogs: [
+        {
+          id: 'valid-review',
+          cardId: 'card-valid',
+          rating: Rating.Good,
+          state: CardState.Review,
+          scheduledDays: 7,
+          elapsedDays: 7,
+          review: Date.UTC(2024, 4, 3, 8),
+          stability: 4.5,
+          difficulty: 5.5,
+        },
+        {
+          id: 'missing-card-id',
+          rating: Rating.Good,
+          state: CardState.Review,
+          review: Date.UTC(2024, 4, 3, 9),
+        },
+      ],
+      reviewLogsV2: [{
+        schemaVersion: 2,
+        id: 'missing-reviewed-at',
+        attemptId: 'attempt-missing-reviewed-at',
+        cardId: 'card-missing-reviewed-at',
+        rating: Rating.Good,
+        queueMode: 'formal',
+        algorithm: 'fsrs-v6',
+        schedulerType: 'fsrs-v6',
+        commitPolicy: 'write-schedule',
+        before: { id: 'card-missing-reviewed-at' },
+        after: { id: 'card-missing-reviewed-at' },
+        isDrill: false,
+        isFiltered: false,
+        customStudy: false,
+      }],
+      drillLogsV2: [],
+      rescheduleLogs: [],
+    });
+    const cardTruthStore = createCardMemoryTruthStore(fileStore);
+    const reviewTruthStore = createReviewEventTruthStore(fileStore);
+
+    const result = await migrateLegacyUnifiedCardsToCardMemoryTruth({
+      sourceFileStore: fileStore,
+      receiptFileStore: fileStore,
+      truthStore: cardTruthStore,
+      reviewLogFileStore: fileStore,
+      reviewTruthStore,
+      reviewGenerationId: 'review-events-v1',
+      truthExists: false,
+      localDeviceId: 'device-A',
+      generationId: 'card-memory-facts-v1',
+      truthSchemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+      now: () => 1_711_000_000_000,
+    });
+
+    const replay = await reviewTruthStore.replayRecords({ dedupeByIdempotencyKey: true });
+    expect(replay.records).toHaveLength(1);
+    expect(replay.records[0]).toMatchObject({
+      source: { cardId: 'card-valid' },
+      legacyLineage: {
+        sourceFile: 'review-logs/2024-05.json',
+        sourceCollection: 'reviewLogs',
+      },
+    });
+    expect(result.receipt.diagnostics).toEqual([
+      expect.objectContaining({
+        kind: 'quarantined-review-log',
+        severity: 'warning',
+        details: expect.objectContaining({
+          sourceFile: 'review-logs/2024-05.json',
+          sourceCollection: 'reviewLogs',
+          legacyId: 'missing-card-id',
+          reason: 'missing-card-id',
+        }),
+      }),
+      expect.objectContaining({
+        kind: 'quarantined-review-log',
+        severity: 'warning',
+        details: expect.objectContaining({
+          sourceFile: 'review-logs/2024-05.json',
+          sourceCollection: 'reviewLogsV2',
+          legacyId: 'missing-reviewed-at',
+          reason: 'missing-reviewed-at',
+        }),
+      }),
+    ]);
+  });
+
+  it('writes review-event counts quarantine skipped counts segment refs and diagnostics to completed receipt', async () => {
+    const fileStore = new MemoryMigrationFileStore();
+    fileStore.binaryFiles.set(LEGACY_UNIFIED_CARDS_SOURCE_PATH, encode({
+      version: 2,
+      cards: {},
+      cardDTOs: {},
+      deletedCardDTOs: {},
+    }));
+    fileStore.jsonFiles.set('review-logs/2024-06.json', {
+      reviewLogs: [
+        {
+          id: 'valid-review-a',
+          cardId: 'card-valid-a',
+          rating: Rating.Good,
+          state: CardState.Review,
+          scheduledDays: 7,
+          elapsedDays: 7,
+          review: Date.UTC(2024, 5, 4, 8),
+          stability: 4.5,
+          difficulty: 5.5,
+        },
+        {
+          id: 'missing-card-id',
+          rating: Rating.Good,
+          state: CardState.Review,
+          review: Date.UTC(2024, 5, 4, 9),
+        },
+      ],
+      reviewLogsV2: [{
+        schemaVersion: 2,
+        id: 'valid-review-b',
+        attemptId: 'valid-attempt-b',
+        cardId: 'card-valid-b',
+        rating: Rating.Easy,
+        reviewedAt: Date.UTC(2024, 5, 4, 10),
+        queueMode: 'formal',
+        algorithm: 'fsrs-v6',
+        schedulerType: 'fsrs-v6',
+        commitPolicy: 'write-schedule',
+        before: { id: 'card-valid-b' },
+        after: { id: 'card-valid-b' },
+        isDrill: false,
+        isFiltered: false,
+        customStudy: false,
+      }],
+      drillLogsV2: [{
+        schemaVersion: 2,
+        id: 'drill-1',
+        cardId: 'card-drill',
+        rating: Rating.Again,
+        reviewedAt: Date.UTC(2024, 5, 4, 11),
+        queueType: 'final-drill',
+        action: 'retained',
+        isDrill: true,
+      }],
+      rescheduleLogs: [{
+        ts: Date.UTC(2024, 5, 4, 12),
+        action: 'advance',
+        source: 'browser',
+        targets: ['card-reschedule'],
+        result: { updated: 1, skipped: 0 },
+        sample: [{ cardId: 'card-reschedule', newDue: '2024-06-05' }],
+      }],
+    });
+    const cardTruthStore = createCardMemoryTruthStore(fileStore);
+    const reviewTruthStore = createReviewEventTruthStore(fileStore);
+
+    const result = await migrateLegacyUnifiedCardsToCardMemoryTruth({
+      sourceFileStore: fileStore,
+      receiptFileStore: fileStore,
+      truthStore: cardTruthStore,
+      reviewLogFileStore: fileStore,
+      reviewTruthStore,
+      reviewGenerationId: 'review-events-v1',
+      truthExists: false,
+      localDeviceId: 'device-A',
+      generationId: 'card-memory-facts-v1',
+      truthSchemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+      now: () => 1_711_000_000_000,
+    });
+
+    expect(result.receipt.counts).toMatchObject({
+      reviewEvents: 2,
+      quarantinedReviewLogs: 1,
+      skippedDrillLogsV2: 1,
+      skippedRescheduleLogs: 1,
+    });
+    expect(result.receipt.families).toEqual([
+      expect.objectContaining({
+        family: 'card-memory-facts',
+      }),
+      expect.objectContaining({
+        family: 'review-events',
+        generationId: 'review-events-v1',
+        recordCount: 2,
+        segmentRefs: [expect.stringMatching(/^truth\/review-events\/review-events-v1\/device-device-A\/seg-/)],
+      }),
+    ]);
+    expect(result.receipt.diagnostics).toEqual([
+      expect.objectContaining({ kind: 'skipped-non-formal-review-log' }),
+      expect.objectContaining({ kind: 'quarantined-review-log' }),
+    ]);
+  });
+
+  it('fails closed without a completed receipt when review-events truth commit fails', async () => {
+    const fileStore = new MemoryMigrationFileStore();
+    fileStore.binaryFiles.set(LEGACY_UNIFIED_CARDS_SOURCE_PATH, encode({
+      version: 2,
+      cards: {},
+      cardDTOs: {},
+      deletedCardDTOs: {},
+    }));
+    fileStore.jsonFiles.set('review-logs/2024-07.json', {
+      reviewLogs: [{
+        id: 'review-fail',
+        cardId: 'card-review-fail',
+        rating: Rating.Good,
+        state: CardState.Review,
+        scheduledDays: 7,
+        elapsedDays: 7,
+        review: Date.UTC(2024, 6, 5, 8),
+        stability: 4.5,
+        difficulty: 5.5,
+      }],
+      drillLogsV2: [],
+      rescheduleLogs: [],
+    });
+    const cardTruthStore = createCardMemoryTruthStore(fileStore);
+    const reviewTruthStore = createReviewEventTruthStore(fileStore);
+    reviewTruthStore.appendRecords = vi.fn(async () => {
+      throw new Error('review segment manifest commit failed');
+    });
+
+    await expect(migrateLegacyUnifiedCardsToCardMemoryTruth({
+      sourceFileStore: fileStore,
+      receiptFileStore: fileStore,
+      truthStore: cardTruthStore,
+      reviewLogFileStore: fileStore,
+      reviewTruthStore,
+      reviewGenerationId: 'review-events-v1',
+      truthExists: false,
+      localDeviceId: 'device-A',
+      generationId: 'card-memory-facts-v1',
+      truthSchemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+      now: () => 1_711_000_000_000,
+    })).rejects.toMatchObject({
+      code: 'LEGACY_MIGRATION_FAILED',
+    });
+    expect(fileStore.jsonFiles.has(LEGACY_UNIFIED_CARDS_MIGRATION_RECEIPT_PATH)).toBe(false);
   });
 });

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-02 (Round 526)
+Last update: 2026-06-02 (Round 527)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-02 - Legacy review-log truth import
+
+- Task: Continue `cutover-msgpack-truth-temp-projection-store` tasks 4.1-4.6 by importing formal legacy monthly review logs into `review-events` truth.
+- Touched slice: Worker legacy unified-to-truth import runtime, migration receipt schema, active architecture docs, OpenSpec task ledger, focused truth tests.
+- Debt fixed now: No-truth migration can now scan `review-logs/YYYY-MM.json`, import only `reviewLogs` and formal `reviewLogsV2` into `review-events` truth, prefer legacy `commitIdempotencyKey` / `attemptId`, derive stable fallback idempotency keys, skip `drillLogsV2` and `rescheduleLogs` with diagnostics, quarantine malformed formal records missing card id or reviewed timestamp, and record review-event segment refs plus review/quarantine/skipped counts in the completed receipt. Review-events truth append failure is fail-closed as `LEGACY_MIGRATION_FAILED` and does not write a completed receipt.
+- Debt deferred: Startup priority, divergence detection, receipt reconciliation after truth exists, temp projection relocation/rebuild, projection readiness gates, and multi-window storage authority remain pending OpenSpec tasks.
+- Why deferred: This slice only closes the legacy review-log-to-truth migration family. Startup authority, projection lifecycle, and writer/follower policy cross later task groups and need separate tests.
+- Next safe step: Start 5.1 by wiring startup source priority as truth, temp projection, then legacy MessagePack only before truth exists.
+- Validation: `pnpm vitest run worker/truth/__tests__/LegacyUnifiedCardsTruthMigration.test.ts worker/truth/__tests__/LegacyUnifiedCardsMigrationReceipt.test.ts worker/truth/__tests__/MessagePackTruthSegmentStore.test.ts worker/truth/__tests__/ReviewFeedbackTruthFlushRuntime.test.ts worker/truth/__tests__/ReviewSqlTruthBackfillRuntime.test.ts packages/contracts/src/__tests__/backend-rpc.test.ts`; `openspec validate cutover-msgpack-truth-temp-projection-store --strict`; `pnpm run check:boundaries`; `pnpm build`; `git diff --check`.
 
 ### 2026-06-02 - Legacy card-memory truth commit failure guard
 

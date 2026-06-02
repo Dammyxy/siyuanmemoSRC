@@ -36,6 +36,9 @@ export interface LegacyUnifiedCardsMigrationReceiptCounts {
   tombstones: number;
   sourceBindings: number;
   reviewEvents: number;
+  quarantinedReviewLogs: number;
+  skippedDrillLogsV2: number;
+  skippedRescheduleLogs: number;
 }
 
 export interface LegacyUnifiedCardsMigrationReceiptDiagnostic {
@@ -191,6 +194,9 @@ function normalizeCounts(value: unknown): LegacyUnifiedCardsMigrationReceiptCoun
     tombstones: finiteNonNegativeInteger(source.tombstones ?? 0, 'counts.tombstones'),
     sourceBindings: finiteNonNegativeInteger(source.sourceBindings ?? 0, 'counts.sourceBindings'),
     reviewEvents: finiteNonNegativeInteger(source.reviewEvents ?? 0, 'counts.reviewEvents'),
+    quarantinedReviewLogs: finiteNonNegativeInteger(source.quarantinedReviewLogs ?? 0, 'counts.quarantinedReviewLogs'),
+    skippedDrillLogsV2: finiteNonNegativeInteger(source.skippedDrillLogsV2 ?? 0, 'counts.skippedDrillLogsV2'),
+    skippedRescheduleLogs: finiteNonNegativeInteger(source.skippedRescheduleLogs ?? 0, 'counts.skippedRescheduleLogs'),
   };
 }
 
@@ -306,6 +312,9 @@ export function createReconciledLegacyUnifiedCardsMigrationReceipt(
       tombstones: 0,
       sourceBindings: 0,
       reviewEvents: 0,
+      quarantinedReviewLogs: 0,
+      skippedDrillLogsV2: 0,
+      skippedRescheduleLogs: 0,
     },
     diagnostics: input.diagnostics ?? [],
   });

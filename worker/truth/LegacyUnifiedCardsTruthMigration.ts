@@ -35,6 +35,11 @@ export type LegacyUnifiedCardsTruthMigrationFileStore =
   LegacyUnifiedCardsSourceFileStore
   & LegacyUnifiedCardsMigrationReceiptFileStore;
 
+export interface LegacyReviewLogFileStore {
+  readJSON<T>(fileName: string): Promise<T | null>;
+  listFiles(prefix: string): Promise<string[]>;
+}
+
 const LEGACY_CARD_STATE = {
   New: 0,
   Learning: 1,
@@ -47,10 +52,16 @@ const LEGACY_REVIEWED_EMPTY_MEMORY_REPAIR = Object.freeze({
   difficulty: roundTo((default_w[4] ?? 0) - Math.exp((Rating.Hard - 1) * (default_w[5] ?? 0)) + 1, 8),
 });
 
+const LEGACY_REVIEW_LOGS_PREFIX = 'review-logs';
+const LEGACY_REVIEW_LOG_FILE_PATTERN = /^review-logs\/(\d{4})-(\d{2})\.json$/;
+
 export interface LegacyUnifiedCardsTruthMigrationOptions {
   sourceFileStore: LegacyUnifiedCardsSourceFileStore;
   receiptFileStore: LegacyUnifiedCardsMigrationReceiptFileStore;
   truthStore: MessagePackTruthSegmentStore;
+  reviewLogFileStore?: LegacyReviewLogFileStore;
+  reviewTruthStore?: MessagePackTruthSegmentStore;
+  reviewGenerationId?: string;
   truthExists: boolean;
   localDeviceId: string;
   generationId: string;
@@ -110,6 +121,11 @@ function readNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function readRating(value: unknown): 1 | 2 | 3 | 4 | null {
+  const rating = Math.floor(Number(value));
+  return rating === 1 || rating === 2 || rating === 3 || rating === 4 ? rating : null;
+}
+
 function readStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
@@ -132,6 +148,9 @@ function emptyCounts(): LegacyUnifiedCardsMigrationReceiptCounts {
     tombstones: 0,
     sourceBindings: 0,
     reviewEvents: 0,
+    quarantinedReviewLogs: 0,
+    skippedDrillLogsV2: 0,
+    skippedRescheduleLogs: 0,
   };
 }
 
@@ -491,6 +510,299 @@ function buildLegacyCardMemoryRecords(input: {
   return { records, counts, diagnostics };
 }
 
+type LegacyReviewLogCollection = 'reviewLogs' | 'reviewLogsV2';
+
+interface LegacyReviewLogCandidate {
+  sourceFile: string;
+  yearMonth: string;
+  collection: LegacyReviewLogCollection;
+  index: number;
+  entry: Record<string, unknown>;
+}
+
+interface LegacyReviewEventBuildResult {
+  records: MessagePackTruthRecord[];
+  diagnostics: LegacyUnifiedCardsMigrationReceiptDiagnostic[];
+  quarantinedReviewLogs: number;
+  skippedDrillLogsV2: number;
+  skippedRescheduleLogs: number;
+}
+
+function sourceFileYearMonth(sourceFile: string): string | null {
+  const normalized = sourceFile.replace(/\\/g, '/');
+  const match = LEGACY_REVIEW_LOG_FILE_PATTERN.exec(normalized);
+  return match ? `${match[1]}-${match[2]}` : null;
+}
+
+function legacyReviewLogFilePaths(paths: string[]): Array<{ sourceFile: string; yearMonth: string }> {
+  return paths
+    .map((path) => String(path || '').replace(/\\/g, '/').trim())
+    .map((sourceFile) => ({ sourceFile, yearMonth: sourceFileYearMonth(sourceFile) }))
+    .filter((entry): entry is { sourceFile: string; yearMonth: string } => entry.yearMonth !== null)
+    .sort((left, right) => left.sourceFile.localeCompare(right.sourceFile));
+}
+
+function monthReviewLogEntries(
+  data: unknown,
+  sourceFile: string,
+  yearMonth: string,
+): LegacyReviewLogCandidate[] {
+  if (!isRecord(data)) {
+    return [];
+  }
+  const candidates: LegacyReviewLogCandidate[] = [];
+  for (const collection of ['reviewLogs', 'reviewLogsV2'] as const) {
+    const entries = data[collection];
+    if (!Array.isArray(entries)) {
+      continue;
+    }
+    entries.forEach((entry, index) => {
+      if (!isRecord(entry)) {
+        return;
+      }
+      candidates.push({
+        sourceFile,
+        yearMonth,
+        collection,
+        index,
+        entry,
+      });
+    });
+  }
+  return candidates;
+}
+
+function collectionCount(data: unknown, field: string): number {
+  if (!isRecord(data) || !Array.isArray(data[field])) {
+    return 0;
+  }
+  return data[field].length;
+}
+
+function skippedNonFormalDiagnostics(input: {
+  data: unknown;
+  sourceFile: string;
+  yearMonth: string;
+}): LegacyUnifiedCardsMigrationReceiptDiagnostic[] {
+  const drillLogsV2 = collectionCount(input.data, 'drillLogsV2');
+  const rescheduleLogs = collectionCount(input.data, 'rescheduleLogs');
+  const skippedCount = drillLogsV2 + rescheduleLogs;
+  if (skippedCount === 0) {
+    return [];
+  }
+  return [{
+    kind: 'skipped-non-formal-review-log',
+    severity: 'info',
+    message: `Skipped ${skippedCount} non-formal legacy review log records from ${input.sourceFile}.`,
+    details: {
+      sourceFile: input.sourceFile,
+      yearMonth: input.yearMonth,
+      drillLogsV2,
+      rescheduleLogs,
+      skippedCount,
+      reason: 'non-formal-legacy-review-log',
+    },
+  }];
+}
+
+function legacyReviewReviewedAt(candidate: LegacyReviewLogCandidate): number | null {
+  return candidate.collection === 'reviewLogs'
+    ? readNumber(candidate.entry.reviewedAt) ?? readNumber(candidate.entry.review)
+    : readNumber(candidate.entry.reviewedAt);
+}
+
+function isFormalReviewLogCandidate(candidate: LegacyReviewLogCandidate): boolean {
+  if (candidate.collection === 'reviewLogs') {
+    return candidate.entry.isDrill !== true;
+  }
+  return candidate.entry.isDrill !== true
+    && candidate.entry.customStudy !== true
+    && (readString(candidate.entry.queueMode) === 'formal' || readString(candidate.entry.queueMode) === 'filtered-rescheduling')
+    && readString(candidate.entry.commitPolicy) === 'write-schedule';
+}
+
+function quarantinedReviewLogDiagnostic(
+  candidate: LegacyReviewLogCandidate,
+): LegacyUnifiedCardsMigrationReceiptDiagnostic | null {
+  if (!isFormalReviewLogCandidate(candidate)) {
+    return null;
+  }
+  const cardId = readString(candidate.entry.cardId);
+  const reviewedAt = legacyReviewReviewedAt(candidate);
+  const reason = !cardId
+    ? 'missing-card-id'
+    : reviewedAt === null
+      ? 'missing-reviewed-at'
+      : null;
+  if (!reason) {
+    return null;
+  }
+  return {
+    kind: 'quarantined-review-log',
+    severity: 'warning',
+    message: `Quarantined malformed formal legacy review log from ${candidate.sourceFile}.`,
+    details: {
+      sourceFile: candidate.sourceFile,
+      yearMonth: candidate.yearMonth,
+      sourceCollection: candidate.collection,
+      sourceIndex: candidate.index,
+      legacyId: readString(candidate.entry.id),
+      cardId,
+      reviewedAt,
+      reason,
+    },
+  };
+}
+
+function legacyReviewIdempotencyKey(input: {
+  candidate: LegacyReviewLogCandidate;
+  cardId: string;
+  reviewedAt: number;
+  rating: 1 | 2 | 3 | 4 | null;
+}): string {
+  const commitIdempotencyKey = readString(input.candidate.entry.commitIdempotencyKey);
+  if (commitIdempotencyKey) {
+    return commitIdempotencyKey;
+  }
+  const attemptId = readString(input.candidate.entry.attemptId);
+  if (attemptId) {
+    return attemptId;
+  }
+  return [
+    'legacy-review-log',
+    input.candidate.yearMonth,
+    input.cardId,
+    input.reviewedAt,
+    input.rating ?? 'null',
+    input.candidate.index,
+  ].join(':');
+}
+
+function buildLegacyReviewEventRecord(input: {
+  candidate: LegacyReviewLogCandidate;
+  importedAt: number;
+}): MessagePackTruthRecord | null {
+  if (!isFormalReviewLogCandidate(input.candidate)) {
+    return null;
+  }
+  const cardId = readString(input.candidate.entry.cardId);
+  const reviewedAt = legacyReviewReviewedAt(input.candidate);
+  if (!cardId || reviewedAt === null) {
+    return null;
+  }
+  const rating = readRating(input.candidate.entry.rating);
+  const idempotencyKey = legacyReviewIdempotencyKey({
+    candidate: input.candidate,
+    cardId,
+    reviewedAt,
+    rating,
+  });
+  return {
+    family: 'review-events' satisfies MessagePackTruthFamily,
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    type: 'review.feedback.v1',
+    eventId: readString(input.candidate.entry.id) ?? idempotencyKey,
+    idempotencyKey,
+    logicalTime: reviewedAt,
+    recordedAt: reviewedAt,
+    source: {
+      cardId,
+    },
+    review: {
+      action: 'rating',
+      rating,
+      reviewedAt,
+      scheduler: readString(input.candidate.entry.schedulerType)
+        ?? readString(input.candidate.entry.scheduler)
+        ?? readString(input.candidate.entry.algorithm),
+    },
+    memory: {
+      baseMemoryHash: readString(input.candidate.entry.baseMemoryHash),
+      afterMemoryHash: readString(input.candidate.entry.afterMemoryHash),
+      projectionGeneration: null,
+    },
+    queue: {
+      queueType: readString(input.candidate.entry.queueType),
+      queueMode: readString(input.candidate.entry.queueMode),
+      commitPolicy: readString(input.candidate.entry.commitPolicy),
+    },
+    legacyLineage: {
+      sourceFile: input.candidate.sourceFile,
+      sourceCollection: input.candidate.collection,
+      yearMonth: input.candidate.yearMonth,
+      sourceIndex: input.candidate.index,
+      legacyId: readString(input.candidate.entry.id),
+      attemptId: readString(input.candidate.entry.attemptId),
+      importedAt: input.importedAt,
+      state: readNumber(input.candidate.entry.state),
+      scheduledDays: readNumber(input.candidate.entry.scheduledDays),
+      elapsedDays: readNumber(input.candidate.entry.elapsedDays),
+      stability: readNumber(input.candidate.entry.stability),
+      difficulty: readNumber(input.candidate.entry.difficulty),
+      elapsedMs: readNumber(input.candidate.entry.elapsedMs),
+    },
+  };
+}
+
+async function buildLegacyReviewEventRecords(input: {
+  fileStore: LegacyReviewLogFileStore | undefined;
+  truthStore: MessagePackTruthSegmentStore | undefined;
+  importedAt: number;
+}): Promise<LegacyReviewEventBuildResult> {
+  if (!input.fileStore && !input.truthStore) {
+    return {
+      records: [],
+      diagnostics: [],
+      quarantinedReviewLogs: 0,
+      skippedDrillLogsV2: 0,
+      skippedRescheduleLogs: 0,
+    };
+  }
+  if (!input.fileStore || !input.truthStore) {
+    throw new LegacyUnifiedCardsTruthMigrationError(
+      'review log migration requires both reviewLogFileStore and reviewTruthStore',
+    );
+  }
+  const files = legacyReviewLogFilePaths(await input.fileStore.listFiles(LEGACY_REVIEW_LOGS_PREFIX));
+  const records: MessagePackTruthRecord[] = [];
+  const diagnostics: LegacyUnifiedCardsMigrationReceiptDiagnostic[] = [];
+  let quarantinedReviewLogs = 0;
+  let skippedDrillLogsV2 = 0;
+  let skippedRescheduleLogs = 0;
+  for (const { sourceFile, yearMonth } of files) {
+    const monthData = await input.fileStore.readJSON<unknown>(sourceFile);
+    skippedDrillLogsV2 += collectionCount(monthData, 'drillLogsV2');
+    skippedRescheduleLogs += collectionCount(monthData, 'rescheduleLogs');
+    diagnostics.push(...skippedNonFormalDiagnostics({
+      data: monthData,
+      sourceFile,
+      yearMonth,
+    }));
+    for (const candidate of monthReviewLogEntries(monthData, sourceFile, yearMonth)) {
+      const quarantine = quarantinedReviewLogDiagnostic(candidate);
+      if (quarantine) {
+        diagnostics.push(quarantine);
+        quarantinedReviewLogs += 1;
+        continue;
+      }
+      const record = buildLegacyReviewEventRecord({
+        candidate,
+        importedAt: input.importedAt,
+      });
+      if (record) {
+        records.push(record);
+      }
+    }
+  }
+  return {
+    records,
+    diagnostics,
+    quarantinedReviewLogs,
+    skippedDrillLogsV2,
+    skippedRescheduleLogs,
+  };
+}
+
 export async function migrateLegacyUnifiedCardsToCardMemoryTruth(
   options: LegacyUnifiedCardsTruthMigrationOptions,
 ): Promise<LegacyUnifiedCardsTruthMigrationResult> {
@@ -525,6 +837,16 @@ export async function migrateLegacyUnifiedCardsToCardMemoryTruth(
     sourceHash: source.sha256,
     importedAt,
   });
+  const reviewRecords = await buildLegacyReviewEventRecords({
+    fileStore: options.reviewLogFileStore,
+    truthStore: options.reviewTruthStore,
+    importedAt,
+  });
+  counts.reviewEvents = reviewRecords.records.length;
+  counts.quarantinedReviewLogs = reviewRecords.quarantinedReviewLogs;
+  counts.skippedDrillLogsV2 = reviewRecords.skippedDrillLogsV2;
+  counts.skippedRescheduleLogs = reviewRecords.skippedRescheduleLogs;
+  diagnostics.push(...reviewRecords.diagnostics);
   let append: MessagePackTruthAppendResult;
   try {
     append = await options.truthStore.appendRecords(records);
@@ -533,6 +855,17 @@ export async function migrateLegacyUnifiedCardsToCardMemoryTruth(
       `failed to commit card-memory truth: ${toError(error).message}`,
       toError(error),
     );
+  }
+  let reviewAppend: MessagePackTruthAppendResult | null = null;
+  if (reviewRecords.records.length > 0) {
+    try {
+      reviewAppend = await options.reviewTruthStore?.appendRecords(reviewRecords.records) ?? null;
+    } catch (error) {
+      throw new LegacyUnifiedCardsTruthMigrationError(
+        `failed to commit review-events truth: ${toError(error).message}`,
+        toError(error),
+      );
+    }
   }
   const receipt = createCompletedLegacyUnifiedCardsMigrationReceipt({
     migratedAt: importedAt,
@@ -543,12 +876,20 @@ export async function migrateLegacyUnifiedCardsToCardMemoryTruth(
       byteLength: source.byteLength,
     },
     truthSchemaVersion: options.truthSchemaVersion,
-    families: [{
-      family: 'card-memory-facts',
-      generationId: options.generationId,
-      recordCount: records.length,
-      segmentRefs: append.segments.map((segment) => segment.path),
-    }],
+    families: [
+      {
+        family: 'card-memory-facts',
+        generationId: options.generationId,
+        recordCount: records.length,
+        segmentRefs: append.segments.map((segment) => segment.path),
+      },
+      ...(options.reviewTruthStore ? [{
+        family: 'review-events' satisfies MessagePackTruthFamily,
+        generationId: readString(options.reviewGenerationId) ?? 'review-events-v1',
+        recordCount: reviewRecords.records.length,
+        segmentRefs: reviewAppend?.segments.map((segment) => segment.path) ?? [],
+      }] : []),
+    ],
     counts,
     diagnostics,
   });

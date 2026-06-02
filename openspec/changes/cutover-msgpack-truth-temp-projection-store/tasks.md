@@ -28,12 +28,12 @@
 
 ## 4. Legacy Review Log Migration
 
-- [ ] 4.1 Implement formal `reviewLogs` and `reviewLogsV2` import from `review-logs/YYYY-MM.json` into `review-events` truth.
-- [ ] 4.2 Prefer legacy `commitIdempotencyKey` or `attemptId` as review-event idempotency identity.
-- [ ] 4.3 Derive stable fallback idempotency keys as `legacy-review-log:<year-month>:<cardId>:<reviewedAt>:<rating>:<attemptId-or-index>`.
-- [ ] 4.4 Skip `drillLogsV2` and `rescheduleLogs` with skipped-count diagnostics.
-- [ ] 4.5 Quarantine formal review records missing card id or reviewed timestamp without writing review-event truth.
-- [ ] 4.6 Include review-event counts, quarantine counts, skipped counts, segment refs, and diagnostics in the migration receipt.
+- [x] 4.1 Implement formal `reviewLogs` and `reviewLogsV2` import from `review-logs/YYYY-MM.json` into `review-events` truth.
+- [x] 4.2 Prefer legacy `commitIdempotencyKey` or `attemptId` as review-event idempotency identity.
+- [x] 4.3 Derive stable fallback idempotency keys as `legacy-review-log:<year-month>:<cardId>:<reviewedAt>:<rating>:<attemptId-or-index>`.
+- [x] 4.4 Skip `drillLogsV2` and `rescheduleLogs` with skipped-count diagnostics.
+- [x] 4.5 Quarantine formal review records missing card id or reviewed timestamp without writing review-event truth.
+- [x] 4.6 Include review-event counts, quarantine counts, skipped counts, segment refs, and diagnostics in the migration receipt.
 
 ## 5. Startup Priority And Divergence
 
@@ -68,7 +68,7 @@
 - [ ] 8.3 Add tests proving truth plus unchanged legacy source ignores legacy import.
 - [ ] 8.4 Add divergence tests proving changed legacy source hash fails with `LEGACY_DIVERGENCE_DETECTED`.
 - [ ] 8.5 Add scheduling tests for unreviewed empty memory preservation and reviewed empty memory repair.
-- [ ] 8.6 Add review-log tests for formal-only migration, stable idempotency keys, skipped drill/reschedule logs, and quarantined malformed records.
+- [x] 8.6 Add review-log tests for formal-only migration, stable idempotency keys, skipped drill/reschedule logs, and quarantined malformed records.
 - [x] 8.7 Add truth validation tests for bad segment checksum, orphan segment diagnostics, and unsupported generation failure.
 - [ ] 8.8 Add multi-window tests proving follower storage mutation relay and no local truth/projection write.
 - [x] 8.9 Add storage audit tests proving petal `siyuanmemo.db` is not written and legacy petal DB is ignored.
