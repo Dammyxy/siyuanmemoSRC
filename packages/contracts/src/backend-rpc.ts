@@ -1343,7 +1343,15 @@ export interface MessagePackReviewEventTruthRecord {
 export interface MessagePackCardMemoryFactTruthRecord {
   family: 'card-memory-facts';
   schemaVersion: typeof MESSAGEPACK_TRUTH_SCHEMA_VERSION;
-  type: 'card-memory.created.v1' | 'card-memory.updated.v1' | 'card-memory.tombstoned.v1' | 'source-binding.created.v1' | 'card-face.created.v1';
+  type:
+    | 'card-memory.created.v1'
+    | 'card-memory.updated.v1'
+    | 'card-memory.tombstoned.v1'
+    | 'source-binding.created.v1'
+    | 'card-face.created.v1'
+    | 'card-memory.snapshot-imported'
+    | 'card-memory.tombstone-imported'
+    | 'source-binding.snapshot-imported';
   idempotencyKey: string;
   logicalTime: number;
   recordedAt: number;

@@ -54,6 +54,14 @@ const allowedRules = [
     file: 'worker/truth/MessagePackTruthSegmentStore.ts',
     reason: 'bounded MessagePack truth segment adapter; callers must stay outside direct msgpack access',
   },
+  {
+    file: 'worker/truth/LegacyUnifiedCardsSource.ts',
+    reason: 'legacy unified-cards source detection exists only as truth migration source metadata',
+  },
+  {
+    file: 'worker/truth/LegacyUnifiedCardsTruthMigration.ts',
+    reason: 'legacy unified-cards import exists only as first-start truth migration source',
+  },
 ];
 
 const msgpackPattern = /\b(readMsgpack|writeMsgpack)\b|@msgpack\/msgpack|['"`][^'"`]*\.msgpack['"`]/;

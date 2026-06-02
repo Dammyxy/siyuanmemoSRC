@@ -64,6 +64,13 @@ describe('check-no-runtime-msgpack', () => {
       import { encode } from '@msgpack/msgpack';
       export const write = () => encode({ ok: true });
     `);
+    writeFile(rootDir, 'worker/truth/LegacyUnifiedCardsSource.ts', `
+      export const path = 'unified-cards.msgpack';
+    `);
+    writeFile(rootDir, 'worker/truth/LegacyUnifiedCardsTruthMigration.ts', `
+      import { decode } from '@msgpack/msgpack';
+      export const read = (bytes) => decode(bytes);
+    `);
     writeFile(rootDir, 'worker/truth/OtherRuntimeStore.ts', `
       import { encode } from '@msgpack/msgpack';
       export const write = () => encode({ ok: true });

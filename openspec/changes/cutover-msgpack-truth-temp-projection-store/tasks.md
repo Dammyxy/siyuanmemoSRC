@@ -17,14 +17,14 @@
 
 ## 3. Legacy MessagePack Migration
 
-- [ ] 3.1 Add legacy source detection and SHA-256 hashing for `unified-cards.msgpack`.
-- [ ] 3.2 Add receipt read/write/reconcile logic for `truth/migrations/legacy-unified-cards-to-truth.v1.json`.
-- [ ] 3.3 Implement no-truth first-start migration from `unified-cards.msgpack` into `card-memory-facts` truth.
-- [ ] 3.4 Map active cards to `card-memory.snapshot-imported`, tombstones to `card-memory.tombstone-imported`, and source bindings to `source-binding.snapshot-imported`.
-- [ ] 3.5 Preserve unreviewed empty memory as `stability=0` and `difficulty=0`.
-- [ ] 3.6 Repair reviewed empty memory with `stability=1.2931` and `difficulty=5.11217071`, with diagnostics.
-- [ ] 3.7 Add fallback import diagnostics for older split `cards.msgpack` or `xiuyuan.msgpack` only when `unified-cards.msgpack` is absent.
-- [ ] 3.8 Fail closed with `LEGACY_MIGRATION_FAILED` when required card-memory truth cannot be committed.
+- [x] 3.1 Add legacy source detection and SHA-256 hashing for `unified-cards.msgpack`.
+- [x] 3.2 Add receipt read/write/reconcile logic for `truth/migrations/legacy-unified-cards-to-truth.v1.json`.
+- [x] 3.3 Implement no-truth first-start migration from `unified-cards.msgpack` into `card-memory-facts` truth.
+- [x] 3.4 Map active cards to `card-memory.snapshot-imported`, tombstones to `card-memory.tombstone-imported`, and source bindings to `source-binding.snapshot-imported`.
+- [x] 3.5 Preserve unreviewed empty memory as `stability=0` and `difficulty=0`.
+- [x] 3.6 Repair reviewed empty memory with `stability=1.2931` and `difficulty=5.11217071`, with diagnostics.
+- [x] 3.7 Add fallback import diagnostics for older split `cards.msgpack` or `xiuyuan.msgpack` only when `unified-cards.msgpack` is absent.
+- [x] 3.8 Fail closed with `LEGACY_MIGRATION_FAILED` when required card-memory truth cannot be committed.
 
 ## 4. Legacy Review Log Migration
 

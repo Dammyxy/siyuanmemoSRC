@@ -1,8 +1,68 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-02 (Round 520)
+Last update: 2026-06-02 (Round 526)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-02 - Legacy card-memory truth commit failure guard
+
+- Task: Continue `cutover-msgpack-truth-temp-projection-store` task 3.8 by failing closed when required card-memory truth cannot be committed.
+- Touched slice: Worker legacy unified-to-card-memory import runtime, active architecture docs, OpenSpec task ledger.
+- Debt fixed now: Card-memory truth append failures during legacy unified import are wrapped as `LEGACY_MIGRATION_FAILED`. Completed receipts are still written only after truth segment/manifest commit succeeds, and the regression test proves a failed commit writes no receipt JSON.
+- Debt deferred: Formal review-log import, startup priority wiring, divergence detection, and full temp projection rebuild policy remain pending OpenSpec tasks.
+- Why deferred: This slice closes the card-memory import failure boundary. Review-log migration and startup authority cross separate truth families and initialization gates.
+- Next safe step: Implement formal `reviewLogs` and `reviewLogsV2` import from `review-logs/YYYY-MM.json` into `review-events` truth.
+- Validation: Red/green `pnpm vitest run worker/truth/__tests__/LegacyUnifiedCardsTruthMigration.test.ts`; final session validation passed with focused truth/contracts suites, truth/projection/client focused suites, OpenSpec strict, `pnpm run check:boundaries`, `pnpm build`, and `git diff --check`.
+
+### 2026-06-02 - Legacy split source fallback diagnostics
+
+- Task: Continue `cutover-msgpack-truth-temp-projection-store` task 3.7 by reporting older split `cards.msgpack` / `xiuyuan.msgpack` sources only when `unified-cards.msgpack` is absent.
+- Touched slice: Worker legacy unified-to-card-memory import runtime, legacy source path constants, active architecture docs, OpenSpec task ledger.
+- Debt fixed now: When no truth exists and `unified-cards.msgpack` is absent, migration now probes `cards.msgpack` and `xiuyuan.msgpack` for existence and byte length, returning `legacy-split-source-fallback` info diagnostics. When unified source exists, split files are not read. The task does not introduce split import or any dual-path truth write.
+- Debt deferred: Split legacy source import, formal review-log import, startup priority wiring, divergence detection, and full temp projection rebuild policy remain pending OpenSpec tasks.
+- Why deferred: This slice closes the requested diagnostics without pretending split import is implemented. Real split import needs its own record mapping, receipt counts, and validation.
+- Next safe step: Implement formal `reviewLogs` and `reviewLogsV2` import from `review-logs/YYYY-MM.json` into `review-events` truth.
+- Validation: Red/green `pnpm vitest run worker/truth/__tests__/LegacyUnifiedCardsTruthMigration.test.ts`; final session validation passed with focused truth/contracts suites, truth/projection/client focused suites, OpenSpec strict, `pnpm run check:boundaries`, `pnpm build`, and `git diff --check`.
+
+### 2026-06-02 - Legacy scheduling memory import repair
+
+- Task: Continue `cutover-msgpack-truth-temp-projection-store` tasks 3.5 and 3.6 by making legacy card-memory snapshot import state-aware for empty FSRS memory.
+- Touched slice: Worker legacy unified-to-card-memory import runtime, migration receipt diagnostics, active architecture docs, OpenSpec task ledger.
+- Debt fixed now: Legacy unified import now preserves unreviewed/New empty scheduling memory as `stability=0` and `difficulty=0`. Legacy cards with review evidence and empty FSRS memory are repaired to the ts-fsrs FSRS-6 Hard seed defaults `stability=1.2931` and `difficulty=5.11217071`, and the completed receipt records a `repaired-scheduling-memory` warning diagnostic with card id, state, original values, repaired values, and reason.
+- Debt deferred: Formal review-log import, startup priority wiring, divergence detection, and full temp projection rebuild policy remain pending OpenSpec tasks.
+- Why deferred: This slice only closes card-memory scheduling invariants during unified snapshot import. Source fallback, review-event migration, and startup authority cross separate storage initialization tasks.
+- Next safe step: Implement formal `reviewLogs` and `reviewLogsV2` import from `review-logs/YYYY-MM.json` into `review-events` truth.
+- Validation: Red/green `pnpm vitest run worker/truth/__tests__/LegacyUnifiedCardsTruthMigration.test.ts`; final session validation passed with focused truth/contracts suites, truth/projection/client focused suites, OpenSpec strict, `pnpm run check:boundaries`, `pnpm build`, and `git diff --check`.
+
+### 2026-06-02 - Legacy unified snapshot import to card-memory truth
+
+- Task: Continue `cutover-msgpack-truth-temp-projection-store` tasks 3.3 and 3.4 by importing no-truth `unified-cards.msgpack` into `card-memory-facts` truth and mapping active cards, tombstones, and source bindings to snapshot import facts.
+- Touched slice: Worker MessagePack truth migration import runtime, card-memory truth contracts, card projection truth-record filter, runtime msgpack boundary checker, active architecture docs, OpenSpec task ledger.
+- Debt fixed now: Added `LegacyUnifiedCardsTruthMigration`, which skips source reads when truth already exists, detects and hashes the unified legacy source, decodes the legacy snapshot only for first-start import, writes `card-memory-facts` truth records, and writes a completed receipt only after segment commit. Active cards now map to `card-memory.snapshot-imported`, tombstones to `card-memory.tombstone-imported`, and source bindings to `source-binding.snapshot-imported`; projection rebuild recognizes the new active snapshot/source-binding records and explicitly ignores tombstone-imported records as active rows.
+- Debt deferred: Formal review-log import, startup priority wiring, divergence detection, and full temp projection rebuild policy remain pending OpenSpec tasks.
+- Why deferred: This slice establishes the card-memory truth import path and event taxonomy. Startup source priority and fallback source handling require separate validation around storage initialization gates.
+- Next safe step: Implement formal `reviewLogs` and `reviewLogsV2` import from `review-logs/YYYY-MM.json` into `review-events` truth.
+- Validation: `pnpm vitest run worker/truth/__tests__/LegacyUnifiedCardsTruthMigration.test.ts`; final session validation passed with focused truth/contracts suites, truth/projection/client focused suites, OpenSpec strict, `pnpm run check:boundaries`, `pnpm build`, and `git diff --check`.
+
+### 2026-06-02 - Legacy migration receipt helper
+
+- Task: Continue `cutover-msgpack-truth-temp-projection-store` task 3.2 by adding receipt read/write/reconcile logic for `truth/migrations/legacy-unified-cards-to-truth.v1.json`.
+- Touched slice: Worker MessagePack truth migration receipt metadata, active architecture docs, OpenSpec task ledger.
+- Debt fixed now: Added a typed receipt helper that reads and writes the truth-side legacy migration receipt, validates `completed` and `reconciled` receipt shape, records source metadata, local device id, truth schema version, generated families, counts, segment refs, and diagnostics, and fails closed with `LEGACY_MIGRATION_FAILED` for invalid or unwritable receipts. Truth-without-receipt reconciliation now writes a reconciled receipt without reading legacy MessagePack or importing records.
+- Debt deferred: Actual no-truth first-start import, active/tombstone/source-binding mapping, scheduling-memory repair, split legacy source diagnostics, and divergence detection remain pending OpenSpec tasks.
+- Why deferred: Receipt metadata can be validated independently; importing legacy records and applying startup source priority cross later migration and startup-policy tasks.
+- Next safe step: Implement no-truth first-start migration from `unified-cards.msgpack` into `card-memory-facts` truth.
+- Validation: `pnpm vitest run worker/truth/__tests__/LegacyUnifiedCardsMigrationReceipt.test.ts`; final session validation passed with focused truth/contracts suites, truth/projection/client focused suites, OpenSpec strict, `pnpm run check:boundaries`, `pnpm build`, and `git diff --check`.
+
+### 2026-06-02 - Legacy unified MessagePack source hash
+
+- Task: Continue `cutover-msgpack-truth-temp-projection-store` task 3.1 by adding legacy source detection and SHA-256 hashing for `unified-cards.msgpack`.
+- Touched slice: Worker MessagePack truth migration source metadata, runtime msgpack boundary checker, active architecture docs, OpenSpec task ledger.
+- Debt fixed now: Added `LegacyUnifiedCardsSource` as a narrow migration-source detector that reads only `unified-cards.msgpack`, returns absent/present metadata, byte length, immutable bytes, and a `sha256:<hex>` source hash. Read or hash failure now fails closed with `SOURCE_READ_UNAVAILABLE`. The runtime msgpack checker explicitly allows this detector while still rejecting unrelated worker/runtime `.msgpack` access.
+- Debt deferred: Truth-side migration receipt read/write/reconcile, first-start card-memory import, split legacy source diagnostics, source divergence handling, and temp projection rebuild policy remain pending OpenSpec tasks.
+- Why deferred: This slice only establishes source identity metadata needed by receipt and import tasks; writing receipts or importing records would cross into tasks 3.2 and 3.3+.
+- Next safe step: Implement receipt read/write/reconcile logic for `truth/migrations/legacy-unified-cards-to-truth.v1.json`.
+- Validation: `pnpm vitest run worker/truth/__tests__/LegacyUnifiedCardsSource.test.ts`; `pnpm vitest run scripts/__tests__/check-no-runtime-msgpack.test.ts`; final session validation passed with focused truth/contracts suites, truth/projection/client focused suites, OpenSpec strict, `pnpm run check:boundaries`, `pnpm build`, and `git diff --check`.
 
 ### 2026-06-02 - Generation-scoped MessagePack truth manifests
 

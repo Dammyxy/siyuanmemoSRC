@@ -7007,6 +7007,9 @@ function isCardMemoryFactTruthRecord(record: MessagePackTruthRecord): record is 
       || record.type === 'card-memory.updated.v1'
       || record.type === 'source-binding.created.v1'
       || record.type === 'card-face.created.v1'
+      || record.type === 'card-memory.snapshot-imported'
+      || record.type === 'source-binding.snapshot-imported'
+      || record.type === 'card-memory.tombstone-imported'
     );
 }
 
@@ -7111,7 +7114,12 @@ function buildCardProjectionRows(input: {
       ?? readRecordString(record, ['cardId']);
     const blockId = readRecordString(source, ['blockId', 'sourceBlockId'])
       ?? readRecordString(record, ['blockId', 'sourceBlockId']);
-    if (!cardId || !blockId || record.type === 'card-memory.tombstoned.v1') {
+    if (
+      !cardId
+      || !blockId
+      || record.type === 'card-memory.tombstoned.v1'
+      || record.type === 'card-memory.tombstone-imported'
+    ) {
       continue;
     }
     const logicalTime = readRecordNumber(record, ['logicalTime', 'recordedAt'], 0) ?? 0;
