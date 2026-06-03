@@ -38,6 +38,7 @@ function createReviewSiyuanApi(overrides: Partial<ReviewSiyuanPort> = {}): Revie
     getBlockAttrs: vi.fn(async () => ({})),
     setBlockAttrs: vi.fn(async () => {}),
     getBlockInfo: vi.fn(async () => ({})),
+    getEditableBlockMarkdown: vi.fn(async () => ''),
     getBlockKramdown: vi.fn(async () => ({ kramdown: '' })),
     getBlockDOM: vi.fn(async () => ({ dom: '' })),
     getBlockBreadcrumb: vi.fn(async () => []),
@@ -190,6 +191,21 @@ describe('ReviewApplicationService reschedule queue membership', () => {
 
     await expect(service.getBlockKramdown('block-1')).resolves.toBe('Original body');
     expect(siyuanApi.getBlockKramdown).toHaveBeenCalledWith('block-1');
+  });
+
+  it('loads editable block markdown through the review siyuan port without reading kramdown', async () => {
+    const manager = {} as unknown as IUnifiedDataSourceManagerFacade;
+    const schedulerRouter = {} as never;
+    const siyuanApi = createReviewSiyuanApi({
+      getEditableBlockMarkdown: vi.fn(async () => 'Original body'),
+      getBlockKramdown: vi.fn(async () => ({ kramdown: 'Original body\n{: id="block-1"}' })),
+      updateBlockMarkdown: vi.fn(async (blockId: string) => blockId),
+    });
+    const service = new ReviewApplicationService(manager, schedulerRouter, siyuanApi);
+
+    await expect(service.getEditableBlockMarkdown('block-1')).resolves.toBe('Original body');
+    expect(siyuanApi.getEditableBlockMarkdown).toHaveBeenCalledWith('block-1');
+    expect(siyuanApi.getBlockKramdown).not.toHaveBeenCalled();
   });
 
   it('updates raw block markdown through the review siyuan port', async () => {

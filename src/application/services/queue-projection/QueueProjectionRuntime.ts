@@ -202,8 +202,30 @@ export class QueueProjectionRuntime {
         freshness: currentDiagnostic?.freshness ?? null,
       });
       if (this.shouldMaterializeDuringReadiness(queueType, readiness)) {
+        const backend = this.deps.getBackendClient();
+        if (!this.canSubmitQueueProjectionReplace(backend)) {
+          const cause = this.isCurrentInstanceFollower()
+            ? 'writer_unavailable'
+            : 'backend_unavailable';
+          this.recordQueueProjectionUnavailable(queueType, 'projection-unavailable', {
+            unavailableReason: cause,
+            backendStatus: 'unavailable',
+            policyHash: readiness.policyId,
+            generation: null,
+            freshness: currentDiagnostic?.freshness ?? null,
+          });
+          return {
+            status: 'unavailable',
+            queueId: queueType,
+            policyId: readiness.policyId,
+            cause,
+            reason: `queue projection materialization unavailable for ${queueType}`,
+            recoverable: true,
+            retryAfterMs: 300,
+          };
+        }
         try {
-          const result = await this.awaitMaterializationShortWindow(this.tryMaterializeQueueProjection(queueType, this.deps.getBackendClient(), {
+          const result = await this.awaitMaterializationShortWindow(this.tryMaterializeQueueProjection(queueType, backend, {
             currentPolicyHash: readiness.policyId,
             currentGeneration,
             reason: readiness.cause,
@@ -295,7 +317,7 @@ export class QueueProjectionRuntime {
           forceRefresh: options.forceRefresh === true,
         });
         this.recordQueueProjectionUnavailable(queueType, 'refresh-required', {
-          unavailableReason: this.resolveReadinessSnapshotUnavailableReason(result.status, result.freshness),
+          unavailableReason: this.resolveReadinessSnapshotUnavailableReason(result.status, result.freshness, result.cacheState),
           backendStatus: typeof result.status === 'string' ? result.status : null,
           policyHash: this.isValidProjectionPolicyHash(result.policyHash) ? result.policyHash : null,
           generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
@@ -380,7 +402,7 @@ export class QueueProjectionRuntime {
           forceRefresh: options.forceRefresh === true,
         });
         this.recordQueueProjectionUnavailable(queueType, 'refresh-required', {
-          unavailableReason: this.resolveReadinessSnapshotUnavailableReason(result.status, result.freshness),
+          unavailableReason: this.resolveReadinessSnapshotUnavailableReason(result.status, result.freshness, result.cacheState),
           backendStatus: typeof result.status === 'string' ? result.status : null,
           policyHash: this.isValidProjectionPolicyHash(result.policyHash) ? result.policyHash : null,
           generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
@@ -509,7 +531,7 @@ export class QueueProjectionRuntime {
       || !this.isValidProjectionGeneration(result.generation)
     ) {
       this.recordQueueProjectionUnavailable(queueType, 'refresh-required', {
-        unavailableReason: this.resolveReadinessSnapshotUnavailableReason(result.status, result.freshness),
+        unavailableReason: this.resolveReadinessSnapshotUnavailableReason(result.status, result.freshness, result.cacheState),
         backendStatus: typeof result.status === 'string' ? result.status : null,
         policyHash: this.isValidProjectionPolicyHash(result.policyHash) ? result.policyHash : null,
         generation: this.isValidProjectionGeneration(result.generation) ? Number(result.generation) : null,
@@ -780,7 +802,11 @@ export class QueueProjectionRuntime {
   private resolveReadinessSnapshotUnavailableReason(
     status: unknown,
     freshness?: BackendQueueProjectionFreshnessEvidence | null,
+    cacheState?: unknown,
   ): string {
+    if (cacheState === 'missing-derived-cache') {
+      return 'missing_derived_cache';
+    }
     if (this.hasProjectionFreshnessGap(freshness)) {
       return 'projection_stale';
     }
@@ -828,6 +854,7 @@ export class QueueProjectionRuntime {
       && (
         readiness.cause === 'materialization_in_progress'
         || readiness.cause === 'projection_unavailable'
+        || readiness.cause === 'missing_derived_cache'
         || readiness.cause === 'projection_stale'
       );
   }

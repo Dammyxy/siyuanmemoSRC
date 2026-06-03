@@ -197,6 +197,105 @@ describe('QueueProjectionRuntime', () => {
     }
   });
 
+  it('materializes missing derived-cache projection during readiness and reports rebuild cause', async () => {
+    const card = createCard({
+      id: 'missing-cache-card',
+      blockId: 'missing-cache-block',
+      due: 1_700_000_000_000,
+      meta: { rootId: 'doc-a', deckId: 'deck-a', content: 'missing cache projection' },
+    });
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.RetrievalPractice,
+        status: 'refreshing',
+        policyHash: null,
+        generation: null,
+        rows: [],
+        counters: null,
+        cacheState: 'missing-derived-cache',
+      })),
+      queueProjectionReplace: vi.fn(async (request: { policyHash: string; generation?: number | null; rows: unknown[]; reason?: string }) => ({
+        queueType: QueueType.RetrievalPractice,
+        status: 'ready',
+        policyHash: request.policyHash,
+        generation: request.generation ?? 1,
+        rows: request.rows.length,
+        counters: {
+          queueType: QueueType.RetrievalPractice,
+          policyHash: request.policyHash,
+          generation: request.generation ?? 1,
+          version: request.generation ?? 1,
+          remaining: request.rows.length,
+          due: request.rows.length,
+          total: request.rows.length,
+          buckets: { all: request.rows.length, item: request.rows.length, descriptor: 0, topic: 0, concept: 0 },
+          updatedAt: 1_700_000_100_000,
+        },
+      })),
+    };
+    const { queue, runtime } = createRuntime({
+      backend,
+      queueCards: [card],
+    });
+
+    await expect(runtime.ensureReady({
+      queueType: QueueType.RetrievalPractice,
+      preset: 'all',
+      cardType: 'all',
+      source: 'browser',
+    })).resolves.toMatchObject({
+      status: 'ready',
+      queueId: QueueType.RetrievalPractice,
+      generation: 1,
+    });
+
+    expect(queue.getCards).toHaveBeenCalledTimes(1);
+    expect(backend.queueProjectionReplace).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: QueueType.RetrievalPractice,
+      generation: 1,
+      reason: 'missing_derived_cache',
+    }));
+    expect(runtime.getRolloutDiagnostics(QueueType.RetrievalPractice)).toEqual([
+      expect.objectContaining({
+        queueType: QueueType.RetrievalPractice,
+        state: 'backend-projection',
+      }),
+    ]);
+  });
+
+  it('returns unavailable when missing derived-cache rebuild cannot be submitted', async () => {
+    const backend = {
+      queueProjectionSnapshot: vi.fn(async () => ({
+        queueType: QueueType.RetrievalPractice,
+        status: 'refreshing',
+        policyHash: null,
+        generation: null,
+        rows: [],
+        counters: null,
+        cacheState: 'missing-derived-cache',
+      })),
+    };
+    const { runtime } = createRuntime({ backend });
+
+    await expect(runtime.ensureReady({
+      queueType: QueueType.RetrievalPractice,
+      source: 'browser',
+    })).resolves.toMatchObject({
+      status: 'unavailable',
+      queueId: QueueType.RetrievalPractice,
+      cause: 'backend_unavailable',
+      recoverable: true,
+    });
+    expect(runtime.getRolloutDiagnostics(QueueType.RetrievalPractice)).toEqual([
+      expect.objectContaining({
+        state: 'projection-unavailable',
+        reason: 'projection-unavailable',
+        unavailableReason: 'backend_unavailable',
+        backendStatus: 'unavailable',
+      }),
+    ]);
+  });
+
   it('dedupes overlapping readiness materialization for the same queue policy', async () => {
     vi.useFakeTimers();
     const card = createCard({

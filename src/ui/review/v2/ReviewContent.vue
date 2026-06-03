@@ -156,7 +156,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import * as siyuan from 'siyuan';
-import type { ReviewEditableSource, ReviewNativeSplitGuardState, ReviewUIState } from './types';
+import type {
+  ReviewEditableTarget,
+  ReviewEditableTargetRole,
+  ReviewNativeSplitGuardState,
+  ReviewUIState,
+} from './types';
 import { createReviewEditorState, type ReviewEditorState } from './reviewEditorState';
 import { OVERLAY_REGISTRY } from './overlays/index';
 import XiuyuanListTemplateCard from './components/XiuyuanListTemplateCard.vue';
@@ -727,62 +732,209 @@ function resolveListTemplateCurrentChildBlockId(meta: unknown): string {
   return typeof child?.id === 'string' ? child.id.trim() : '';
 }
 
-function buildEditableSource(
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function normalizeEditableBlockId(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function readRecordString(value: unknown, key: string): string {
+  return isPlainRecord(value) ? normalizeEditableBlockId(value[key]) : '';
+}
+
+function readNestedRecordString(value: unknown, keys: string[]): string {
+  let cursor: unknown = value;
+  for (const key of keys) {
+    if (!isPlainRecord(cursor)) {
+      return '';
+    }
+    cursor = cursor[key];
+  }
+  return normalizeEditableBlockId(cursor);
+}
+
+function readFieldMappingBlockId(keys: string[]): string {
+  const fieldMapping = props.content.card?.meta?.fieldMapping;
+  if (!isPlainRecord(fieldMapping)) {
+    return '';
+  }
+  for (const key of keys) {
+    const blockId = normalizeEditableBlockId(fieldMapping[key]);
+    if (blockId) {
+      return blockId;
+    }
+  }
+  return '';
+}
+
+function buildEditableTarget(
   blockId: string,
   title: string,
-  rendererKind: ReviewEditableSource['rendererKind'],
-): ReviewEditableSource | null {
+  rendererKind: ReviewEditableTarget['rendererKind'],
+  role: ReviewEditableTargetRole,
+): ReviewEditableTarget | null {
   const trimmedBlockId = String(blockId || '').trim();
   if (!trimmedBlockId) {
     return null;
   }
 
   return {
+    id: `${rendererKind}:${role}:${trimmedBlockId}`,
     blockId: trimmedBlockId,
     title,
     sourceKind: 'block-markdown',
     rendererKind,
+    role,
   };
 }
 
-const editableSource = computed<ReviewEditableSource | null>(() => {
+function appendEditableTarget(
+  targets: ReviewEditableTarget[],
+  seenBlockIds: Set<string>,
+  blockId: string,
+  title: string,
+  rendererKind: ReviewEditableTarget['rendererKind'],
+  role: ReviewEditableTargetRole,
+): void {
+  const target = buildEditableTarget(blockId, title, rendererKind, role);
+  if (!target || seenBlockIds.has(target.blockId)) {
+    return;
+  }
+  seenBlockIds.add(target.blockId);
+  targets.push(target);
+}
+
+const editableTargets = computed<ReviewEditableTarget[]>(() => {
+  const targets: ReviewEditableTarget[] = [];
+  const seenBlockIds = new Set<string>();
+
   if (props.content.type !== 'protyle') {
-    return null;
+    return targets;
   }
 
   if (props.content.isXiuyuanListTemplate && props.content.xiuyuanMeta) {
-    return buildEditableSource(
+    appendEditableTarget(
+      targets,
+      seenBlockIds,
       resolveListTemplateCurrentChildBlockId(props.content.xiuyuanMeta),
       t('editCurrentListItem', '编辑当前列表项'),
       'list-template',
+      'list-item',
     );
+    return targets;
   }
 
   if (shouldUseImageOcclusionRenderer.value) {
-    return null;
+    return targets;
   }
 
   if (shouldUseMultiClozeRenderer.value) {
-    return buildEditableSource(props.content.id, t('editCurrentContent', '编辑当前内容'), 'multi-cloze');
+    appendEditableTarget(
+      targets,
+      seenBlockIds,
+      readRecordString(preparedMultiClozeViewModel.value, 'blockId') || props.content.id,
+      t('editCurrentContent', '编辑当前内容'),
+      'multi-cloze',
+      'current-content',
+    );
+    return targets;
   }
 
   if (shouldUseConceptDefinitionRenderer.value) {
-    return buildEditableSource(props.content.id, t('editCurrentContent', '编辑当前内容'), 'concept-definition');
+    const conceptBlockId = readRecordString(preparedConceptDefinitionViewModel.value, 'conceptBlockId')
+      || readFieldMappingBlockId(['concept']);
+    const definitionBlockId = readRecordString(preparedConceptDefinitionViewModel.value, 'definitionBlockId')
+      || readFieldMappingBlockId(['definition']);
+    appendEditableTarget(
+      targets,
+      seenBlockIds,
+      conceptBlockId,
+      t('editConceptSource', '编辑概念'),
+      'concept-definition',
+      'concept',
+    );
+    appendEditableTarget(
+      targets,
+      seenBlockIds,
+      definitionBlockId,
+      t('editDefinitionSource', '编辑定义'),
+      'concept-definition',
+      'definition',
+    );
+    if (targets.length === 0) {
+      appendEditableTarget(
+        targets,
+        seenBlockIds,
+        props.content.id,
+        t('editCurrentContent', '编辑当前内容'),
+        'concept-definition',
+        'current-content',
+      );
+    }
+    return targets;
   }
 
   if (shouldUseConceptCardRenderer.value) {
-    return buildEditableSource(props.content.id, t('editCurrentContent', '编辑当前内容'), 'concept');
+    appendEditableTarget(
+      targets,
+      seenBlockIds,
+      readRecordString(preparedConceptViewModel.value, 'conceptBlockId')
+        || readRecordString(preparedConceptViewModel.value, 'blockId')
+        || readFieldMappingBlockId(['concept'])
+        || props.content.id,
+      t('editConceptSource', '编辑概念'),
+      'concept',
+      'concept',
+    );
+    return targets;
   }
 
   if (shouldUseDescriptorCardRenderer.value) {
-    return buildEditableSource(props.content.id, t('editCurrentContent', '编辑当前内容'), 'descriptor');
+    appendEditableTarget(
+      targets,
+      seenBlockIds,
+      readNestedRecordString(preparedDescriptorViewModel.value, ['parentConcept', 'blockId'])
+        || readFieldMappingBlockId(['concept']),
+      t('editConceptSource', '编辑概念'),
+      'descriptor',
+      'concept',
+    );
+    appendEditableTarget(
+      targets,
+      seenBlockIds,
+      readRecordString(preparedDescriptorViewModel.value, 'blockId')
+        || readFieldMappingBlockId(['descriptor'])
+        || props.content.id,
+      t('editDescriptorSource', '编辑描述符'),
+      'descriptor',
+      'descriptor',
+    );
+    return targets;
   }
 
   if (shouldUseQuickCardRenderer.value) {
-    return buildEditableSource(props.content.id, t('editCurrentContent', '编辑当前内容'), 'quick');
+    appendEditableTarget(
+      targets,
+      seenBlockIds,
+      readRecordString(preparedQuickViewModel.value, 'blockId') || props.content.id,
+      t('editCurrentContent', '编辑当前内容'),
+      'quick',
+      'current-content',
+    );
+    return targets;
   }
 
-  return buildEditableSource(props.content.id, t('editCurrentContent', '编辑当前内容'), 'main-protyle');
+  appendEditableTarget(
+    targets,
+    seenBlockIds,
+    props.content.id,
+    t('editCurrentContent', '编辑当前内容'),
+    'main-protyle',
+    'current-content',
+  );
+  return targets;
 });
 
 const nativeSplitGuardState = computed<ReviewNativeSplitGuardState>(() => {
@@ -1085,8 +1237,8 @@ function exitEditorByEscape(): boolean {
   return didBlur || focusedAction;
 }
 
-function getEditableSource(): ReviewEditableSource | null {
-  return editableSource.value;
+function getEditableTargets(): ReviewEditableTarget[] {
+  return [...editableTargets.value];
 }
 
 function getNativeSplitGuardState(): ReviewNativeSplitGuardState {
@@ -1151,7 +1303,7 @@ async function refreshVisibleContent(reason?: string): Promise<boolean> {
 
 defineExpose({
   exitEditorByEscape,
-  getEditableSource,
+  getEditableTargets,
   getNativeSplitGuardState,
   getDependencyBlockIds,
   refreshVisibleContent,

@@ -826,6 +826,12 @@ export interface IDataRouter {
     updateCard(card: FSRSCard, options?: CardMutationOptions): Promise<void>;
 
     /**
+     * Refresh the local read model after backend-owned review feedback has already
+     * committed the durable schedule. This must not perform frontend persistence.
+     */
+    refreshCommittedBackendReviewCard?(card: FSRSCard): Promise<void>;
+
+    /**
      * 批量更新卡片。
      */
     batchUpdateCards?(cards: FSRSCard[], options?: CardMutationOptions): Promise<BatchCardMutationResult>;

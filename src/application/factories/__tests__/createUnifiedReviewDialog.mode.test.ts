@@ -151,4 +151,75 @@ describe('createUnifiedReviewDialog', () => {
       persistIdleCheckpoint: false,
     });
   });
+
+  it('requests Review truth flush when the ReviewView close event destroys the dialog', () => {
+    const requestReviewTruthFlush = vi.fn();
+    const plugin = {
+      app: {},
+      isMobile: false,
+      i18n: {},
+      getContext: () => ({
+        getSchedulerRouter: () => ({}),
+        getSettingsService: () => ({
+          getSettings: () => ({
+            progressiveReading: {},
+          }),
+        }),
+        getSrsBackendClient: () => ({ requestReviewTruthFlush }),
+      }),
+    };
+
+    createUnifiedReviewDialog({
+      plugin,
+      queueType: QueueType.RetrievalPractice,
+      title: '提取练习',
+      headerVariant: 'retrieval-practice',
+      eventBus: { subscribe: vi.fn() } as never,
+    });
+
+    const dialogOptions = createVueDialogMock.mock.calls[0]?.[0];
+    dialogOptions.events.close();
+
+    expect(requestReviewTruthFlush).toHaveBeenCalledWith('review-exit');
+  });
+
+  it('deduplicates close finalization when destroy also invokes dialog onClose', async () => {
+    const requestReviewTruthFlush = vi.fn();
+    const onClose = vi.fn();
+    createVueDialogMock.mockImplementationOnce((dialogOptions) => ({
+      destroy: vi.fn(() => {
+        void dialogOptions.onClose();
+      }),
+    }));
+    const plugin = {
+      app: {},
+      isMobile: false,
+      i18n: {},
+      getContext: () => ({
+        getSchedulerRouter: () => ({}),
+        getSettingsService: () => ({
+          getSettings: () => ({
+            progressiveReading: {},
+          }),
+        }),
+        getSrsBackendClient: () => ({ requestReviewTruthFlush }),
+      }),
+    };
+
+    createUnifiedReviewDialog({
+      plugin,
+      queueType: QueueType.RetrievalPractice,
+      title: '提取练习',
+      headerVariant: 'retrieval-practice',
+      eventBus: { subscribe: vi.fn() } as never,
+      onClose,
+    });
+
+    const dialogOptions = createVueDialogMock.mock.calls[0]?.[0];
+    dialogOptions.events.close();
+    await Promise.resolve();
+
+    expect(requestReviewTruthFlush).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

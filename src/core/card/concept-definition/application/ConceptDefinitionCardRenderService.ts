@@ -78,6 +78,7 @@ function isXiuyuanQueryResult(value: unknown): value is XiuyuanQueryResult {
 export interface ConceptDefinitionCardViewModel extends BaseCardViewModel {
   conceptName: string;
   conceptBlockId: string;
+  definitionBlockId: string;
   definitionHtml: string;
   frontHtml: string;  // 🆕 正面 HTML（问题）
   backHtml: string;   // 🆕 背面 HTML（答案）
@@ -316,6 +317,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       ].filter((value): value is string => typeof value === 'string' && value.length > 0))),
       conceptName,
       conceptBlockId,
+      definitionBlockId,
       definitionHtml,
       frontHtml,
       backHtml,

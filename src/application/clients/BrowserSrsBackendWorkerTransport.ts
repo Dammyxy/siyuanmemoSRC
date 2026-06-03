@@ -30,7 +30,6 @@ import { recordRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnost
 
 const logger = createLogger('BrowserSrsBackendWorkerTransport');
 const REVIEW_FEEDBACK_TRANSPORT_STEP_SLOW_MS = 120;
-const REVIEW_FEEDBACK_PERSISTENCE_SUPPRESSION_DRAIN_MS = 2_000;
 const LONG_BACKEND_COMMAND_REQUEST_TIMEOUT_MS = 300_000;
 const LONG_BACKEND_COMMAND_METHODS = new Set<string>([
   'storage.projection.rebuild',
@@ -210,7 +209,6 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
   private lastReadyAt: number | null = null;
   private lastTerminalError: string | null = null;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
-  private reviewFeedbackPersistenceSuppressionUntil = 0;
 
   constructor(private readonly options: BrowserSrsBackendWorkerTransportOptions) {
     this.startWorkerGeneration();
@@ -364,7 +362,6 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
       }
       if (pending.method === 'review.feedback') {
         const now = Date.now();
-        this.extendReviewFeedbackPersistenceSuppressionWindow(now);
         this.logReviewFeedbackWorkerTiming(pending, message.timing, now);
         const roundtripMs = now - (pending.postedAt ?? pending.queuedAt);
         if (this.shouldLogReviewFeedbackOuterTransportStep(roundtripMs, message.timing)) {
@@ -443,7 +440,6 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         kind: effect.kind,
         path: 'path' in effect ? effect.path : null,
         pendingReviewFeedbackRequests: this.countPendingReviewFeedbackRequests(),
-        drainRemainingMs: Math.max(0, this.reviewFeedbackPersistenceSuppressionUntil - Date.now()),
       });
       throw unavailable(`review.feedback suppressed SiYuan persistence host effect ${effect.kind}`);
     }
@@ -582,15 +578,7 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
     ) {
       return false;
     }
-    return this.countPendingReviewFeedbackRequests() > 0
-      || Date.now() <= this.reviewFeedbackPersistenceSuppressionUntil;
-  }
-
-  private extendReviewFeedbackPersistenceSuppressionWindow(now = Date.now()): void {
-    this.reviewFeedbackPersistenceSuppressionUntil = Math.max(
-      this.reviewFeedbackPersistenceSuppressionUntil,
-      now + REVIEW_FEEDBACK_PERSISTENCE_SUPPRESSION_DRAIN_MS,
-    );
+    return this.countPendingReviewFeedbackRequests() > 0;
   }
 
   private countPendingReviewFeedbackRequests(): number {

@@ -8,6 +8,7 @@ import {
   recordBackendWorkerHostEffect,
   recordBackendWorkerInnerStep,
   recordReviewFeedbackInnerStep,
+  resolveExclusiveActiveBackendWorkerTiming,
   shouldSuppressReviewFeedbackPersistenceHostEffect,
 } from '../ReviewFeedbackTimingScope';
 
@@ -151,17 +152,19 @@ describe('ReviewFeedbackTimingScope', () => {
 
     try {
       expect(hasActiveBackendWorkerTiming('review.feedback')).toBe(true);
-      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeJSON')).toBe(false);
-      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeBinary')).toBe(false);
-      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('truth.writeJSON')).toBe(true);
-      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('truth.writeBinary')).toBe(true);
-      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.readJSON')).toBe(false);
+      expect(resolveExclusiveActiveBackendWorkerTiming()).toBeNull();
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeJSON', reviewTiming)).toBe(false);
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeBinary', reviewTiming)).toBe(false);
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('truth.writeJSON', reviewTiming)).toBe(true);
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('truth.writeBinary', reviewTiming)).toBe(true);
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('truth.writeBinary', null)).toBe(false);
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.readJSON', reviewTiming)).toBe(false);
     } finally {
       endBackendWorkerRequest(otherTiming);
       endBackendWorkerRequest(reviewTiming);
     }
 
     expect(hasActiveBackendWorkerTiming('review.feedback')).toBe(false);
-    expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeJSON')).toBe(false);
+    expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeJSON', null)).toBe(false);
   });
 });

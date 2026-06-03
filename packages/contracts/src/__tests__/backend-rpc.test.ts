@@ -353,6 +353,8 @@ describe('backend SQL projection rebuild contract', () => {
           fileName: 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json',
           version: 2,
           registeredTables: ['queue_projection_generations'],
+          durableReplayTables: ['cards', 'review_events'],
+          derivedCacheTables: ['queue_projection_generations', 'queue_projection_rows'],
           pendingCount: 0,
           pendingBytes: 0,
           affectedTables: [],
@@ -370,6 +372,8 @@ describe('backend SQL projection rebuild contract', () => {
             projectionGeneration: 7,
             hotPath: false,
             byteLength: null,
+            skippedDerivedTables: ['queue_projection_rows'],
+            skippedDerivedChangeCount: 12,
           },
           lastReplay: null,
           lastCheckpoint: {
@@ -563,6 +567,8 @@ describe('backend queue projection readiness contract', () => {
   it('uses machine-readable causes instead of UI copy strings', () => {
     const cause: QueueProjectionReadinessCause = 'contract_mismatch';
     expect(cause).toBe('contract_mismatch');
+    const missingCacheCause: QueueProjectionReadinessCause = 'missing_derived_cache';
+    expect(missingCacheCause).toBe('missing_derived_cache');
   });
 });
 

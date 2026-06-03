@@ -76,6 +76,7 @@ export type QueueProjectionBrowserReadModelError = Error & {
   browserReadModelDiagnosticKind?: BrowserReadModelDiagnostic['kind'];
   browserReadModelRowIds?: string[];
   browserReadModelGeneration?: number | null;
+  browserReadOwner?: BrowserReadOwnerMetadata;
 };
 
 function createQueueProjectionBrowserReadError(
@@ -85,6 +86,7 @@ function createQueueProjectionBrowserReadError(
   options: {
     rowIds?: string[];
     generation?: number | null;
+    readOwner?: BrowserReadOwnerMetadata;
   } = {},
 ): QueueProjectionBrowserReadModelError {
   const error = new Error(message) as QueueProjectionBrowserReadModelError;
@@ -92,6 +94,7 @@ function createQueueProjectionBrowserReadError(
   error.browserReadModelDiagnosticKind = diagnosticKind;
   error.browserReadModelRowIds = options.rowIds;
   error.browserReadModelGeneration = options.generation ?? null;
+  error.browserReadOwner = options.readOwner;
   return error;
 }
 
@@ -295,6 +298,7 @@ export class QueueBrowserQueryKernel {
         `QUEUE_PROJECTION_UNAVAILABLE: ${route.queueId} Browser projection snapshot unavailable`,
         'preparing',
         'refresh-required',
+        { readOwner: route.readOwner },
       );
     }
 
@@ -357,6 +361,7 @@ export class QueueBrowserQueryKernel {
         {
           rowIds,
           generation: normalizeProjectionGeneration(snapshot.generation),
+          readOwner: route.readOwner,
         },
       );
     }

@@ -6,6 +6,34 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ReviewView from '../ReviewView.vue';
 import { createEmptyReviewUIState } from '../types';
 
+const reviewSourceBlockRefreshMocks = vi.hoisted(() => ({
+  showMessage: vi.fn(),
+  logger: {
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    log: vi.fn(),
+    trace: vi.fn(),
+  },
+}));
+
+vi.mock('siyuan', () => ({
+  Menu: class MockMenu {
+    addItem = vi.fn();
+    addSeparator = vi.fn();
+    open = vi.fn();
+  },
+  showMessage: reviewSourceBlockRefreshMocks.showMessage,
+}));
+
+vi.mock('@/utils/logger', () => ({
+  createLogger: () => reviewSourceBlockRefreshMocks.logger,
+  logger: reviewSourceBlockRefreshMocks.logger,
+  setGlobalLogLevel: vi.fn(),
+  getGlobalLogLevel: vi.fn(() => 'warn'),
+}));
+
 function buildCard(id: string, blockId: string, options?: { type?: string }) {
   return {
     id,
@@ -95,6 +123,59 @@ function createAdapter() {
 }
 
 const reviewContentRefreshVisibleContent = vi.fn(async () => true);
+
+function createCleanDomainSyncDiagnostics() {
+  return {
+    ok: true,
+    sanity: {
+      status: 'clean',
+      repairableDivergenceCount: 0,
+      unrepairableDivergenceCount: 0,
+      divergentLedgerCount: 0,
+      skippedSourceCount: 0,
+      pendingImportCount: 0,
+      divergentCardCount: 0,
+      reasonCounts: {},
+      affectedCardIds: [],
+      truncated: false,
+    },
+  };
+}
+
+function createReviewSourceRefreshService() {
+  return {
+    executeReviewSourceRefresh: vi.fn(async (request: {
+      commandId: string;
+      idempotencyKey: string;
+      changedBlockIds: string[];
+      dependencyBlockIds: string[];
+      deadlineAt?: number | null;
+    }) => {
+      const dependencyBlockIds = new Set(request.dependencyBlockIds);
+      const matchedBlockIds = request.changedBlockIds.filter((blockId) => dependencyBlockIds.has(blockId));
+      return {
+        status: matchedBlockIds.length > 0 ? 'refresh-required' : 'no-op',
+        commandId: request.commandId,
+        idempotencyKey: request.idempotencyKey,
+        matchedBlockIds,
+        impact: {
+          refreshVisibleContent: matchedBlockIds.length > 0,
+          cleanupMissingSource: false,
+        },
+        diagnostics: {
+          diagnosticEventId: `test:${request.commandId}`,
+          family: 'review.source-refresh',
+          commandId: request.commandId,
+          timing: {
+            submittedAt: 0,
+            deadlineAt: request.deadlineAt ?? null,
+            completedAt: 0,
+          },
+        },
+      };
+    }),
+  };
+}
 
 const ReviewHeaderStub = defineComponent({
   name: 'ReviewHeader',
@@ -217,6 +298,8 @@ describe('ReviewView source block refresh', () => {
           getContext: () => ({
             getUnifiedDataSourceManager: () => manager,
             getTransactionWebSocketService: () => transactionService.service,
+            getReviewService: () => createReviewSourceRefreshService(),
+            readDomainSyncDiagnostics: vi.fn(async () => createCleanDomainSyncDiagnostics()),
             getStorage: () => ({
               getSettings: () => ({}),
             }),
@@ -230,7 +313,6 @@ describe('ReviewView source block refresh', () => {
           ReviewActions: ReviewActionsStub,
           FilterDialog: true,
           AiWorkbenchPane: true,
-          LargeTextEditorDialog: true,
           teleport: true,
         },
       },
@@ -267,6 +349,8 @@ describe('ReviewView source block refresh', () => {
           getContext: () => ({
             getUnifiedDataSourceManager: () => manager,
             getTransactionWebSocketService: () => transactionService.service,
+            getReviewService: () => createReviewSourceRefreshService(),
+            readDomainSyncDiagnostics: vi.fn(async () => createCleanDomainSyncDiagnostics()),
             getStorage: () => ({
               getSettings: () => ({
                 ui: {
@@ -284,7 +368,6 @@ describe('ReviewView source block refresh', () => {
           ReviewActions: ReviewActionsStub,
           FilterDialog: true,
           AiWorkbenchPane: true,
-          LargeTextEditorDialog: true,
           teleport: true,
         },
       },
@@ -386,6 +469,8 @@ describe('ReviewView source block refresh', () => {
           getContext: () => ({
             getUnifiedDataSourceManager: () => manager,
             getTransactionWebSocketService: () => transactionService.service,
+            getReviewService: () => createReviewSourceRefreshService(),
+            readDomainSyncDiagnostics: vi.fn(async () => createCleanDomainSyncDiagnostics()),
             getStorage: () => ({
               getSettings: () => ({
                 ui: {
@@ -403,7 +488,6 @@ describe('ReviewView source block refresh', () => {
           ReviewActions: ReviewActionsStub,
           FilterDialog: true,
           AiWorkbenchPane: true,
-          LargeTextEditorDialog: true,
           teleport: true,
         },
       },
@@ -474,6 +558,8 @@ describe('ReviewView source block refresh', () => {
           getContext: () => ({
             getUnifiedDataSourceManager: () => manager,
             getTransactionWebSocketService: () => transactionService.service,
+            getReviewService: () => createReviewSourceRefreshService(),
+            readDomainSyncDiagnostics: vi.fn(async () => createCleanDomainSyncDiagnostics()),
             getStorage: () => ({
               getSettings: () => ({
                 ui: {
@@ -491,7 +577,6 @@ describe('ReviewView source block refresh', () => {
           ReviewActions: ReviewActionsStub,
           FilterDialog: true,
           AiWorkbenchPane: true,
-          LargeTextEditorDialog: true,
           teleport: true,
         },
       },

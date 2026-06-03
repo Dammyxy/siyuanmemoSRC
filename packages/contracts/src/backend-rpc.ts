@@ -598,6 +598,8 @@ export interface BackendSqliteDeltaOperationStatus {
   replayedCount?: number;
   skippedInMemoryCount?: number;
   affectedTables?: string[];
+  skippedDerivedTables?: string[];
+  skippedDerivedChangeCount?: number;
   byteLength?: number | null;
   cleared?: boolean;
   checkpointStorageClass?: BackendSqliteCheckpointStorageClass;
@@ -608,6 +610,8 @@ export interface BackendSqliteDeltaDiagnostics {
   fileName: string;
   version: number;
   registeredTables: string[];
+  durableReplayTables?: string[];
+  derivedCacheTables?: string[];
   pendingCount: number;
   pendingBytes: number;
   affectedTables: string[];
@@ -3089,6 +3093,7 @@ export interface BackendQueueProjectionSnapshotRequest {
 
 export type QueueProjectionReadinessCause =
   | 'projection_stale'
+  | 'missing_derived_cache'
   | 'materialization_in_progress'
   | 'backend_busy'
   | 'backend_unavailable'
@@ -3192,6 +3197,12 @@ export interface BackendQueueProjectionFreshnessEvidence {
   missingCardIds: string[];
 }
 
+export type BackendQueueProjectionCacheState =
+  | 'ready-empty'
+  | 'ready-populated'
+  | 'missing-derived-cache'
+  | 'stale';
+
 export interface BackendQueueProjectionSnapshotResult {
   queueType: string;
   policyHash: string | null;
@@ -3200,6 +3211,7 @@ export interface BackendQueueProjectionSnapshotResult {
   rows: BackendQueueProjectionSnapshotRow[];
   counters: BackendReviewFeedbackQueueImpactCounters | null;
   freshness?: BackendQueueProjectionFreshnessEvidence | null;
+  cacheState?: BackendQueueProjectionCacheState | null;
   stale?: boolean;
 }
 
@@ -3211,6 +3223,7 @@ export interface BackendQueueProjectionRowsByIdsResult {
   rows: BackendQueueProjectionSnapshotRow[];
   cards: unknown[];
   freshness?: BackendQueueProjectionFreshnessEvidence | null;
+  cacheState?: BackendQueueProjectionCacheState | null;
 }
 
 export interface BackendQueueProjectionReplaceRequest {

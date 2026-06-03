@@ -209,6 +209,54 @@ describe('WorkerQueueProjectionRuntime', () => {
       generation: null,
       rows: [],
       counters: null,
+      cacheState: 'missing-derived-cache',
+    });
+  });
+
+  it('keeps a committed compatible zero-row projection as ready empty', async () => {
+    const queueType = QueueType.FilterGroup;
+    const policyHash = 'policy-empty';
+    const generation = 11;
+    const counters = buildQueueProjectionCountersFromRows({
+      queueType,
+      policyHash,
+      generation,
+      updatedAt: 1_700_000_000_000,
+      now: 1_700_000_000_000,
+      rows: [],
+    });
+    const runtime = new WorkerQueueProjectionRuntime({
+      repository: {
+        getCardsByIds: vi.fn(() => []),
+      },
+      queueProjection: {
+        readGeneration: vi.fn(() => ({
+          queueType,
+          policyHash,
+          generation,
+          status: 'ready',
+          rebuildReason: null,
+          updatedAt: 1_700_000_000_000,
+          metadata: {},
+        })),
+        readLastReadyGeneration: vi.fn(() => null),
+        readCounters: vi.fn((): QueueProjectionCounters => counters),
+        readRows: vi.fn(() => []),
+        replaceQueueProjection: vi.fn(),
+      },
+      runtime: {
+        runTransaction: vi.fn(async (_name, callback) => callback()),
+      },
+    });
+
+    await expect(runtime.snapshot({ queueType })).resolves.toMatchObject({
+      queueType,
+      policyHash,
+      generation,
+      status: 'ready',
+      rows: [],
+      counters: expect.objectContaining({ total: 0 }),
+      cacheState: 'ready-empty',
     });
   });
 
@@ -306,5 +354,6 @@ describe('WorkerQueueProjectionRuntime', () => {
       missingRows: 1,
       missingCardIds: ['missing-row'],
     });
+    expect(result.cacheState).toBe('missing-derived-cache');
   });
 });

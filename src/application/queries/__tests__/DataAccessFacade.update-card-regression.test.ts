@@ -41,6 +41,7 @@ type CardServiceLike = {
   getCard: ReturnType<typeof vi.fn>;
   updateFSRSCard: ReturnType<typeof vi.fn>;
   deleteFSRSCard: ReturnType<typeof vi.fn>;
+  deleteCards: ReturnType<typeof vi.fn>;
   batchUpdateCardsWithoutEvents: ReturnType<typeof vi.fn>;
 };
 
@@ -57,6 +58,14 @@ describe('DataAccessFacade updateCard regression', () => {
       getCard: vi.fn().mockResolvedValue({ card: null }),
       updateFSRSCard: vi.fn(),
       deleteFSRSCard: vi.fn(),
+      deleteCards: vi.fn().mockResolvedValue({
+        ok: true,
+        value: {
+          deletedCount: 1,
+          deletedCardIds: ['card-1'],
+          failedCardIds: [],
+        },
+      }),
       batchUpdateCardsWithoutEvents: vi.fn().mockResolvedValue({
         ok: true,
         value: { updatedCount: 1, failedCount: 0 },
@@ -89,7 +98,7 @@ describe('DataAccessFacade updateCard regression', () => {
 
     await facade.updateCard(nextCard);
 
-    expect(cardService.batchUpdateCardsWithoutEvents).toHaveBeenCalledWith([nextCard]);
+    expect(cardService.batchUpdateCardsWithoutEvents).toHaveBeenCalledWith([nextCard], {});
     expect(cardService.updateFSRSCard).not.toHaveBeenCalled();
   });
 
@@ -102,5 +111,65 @@ describe('DataAccessFacade updateCard regression', () => {
     await expect(facade.updateCard(createCard({ type: CardType.Concept }))).rejects.toThrow(
       'Failed to fully persist card',
     );
+  });
+
+  it('overlays committed backend review cards on local reads without frontend persistence', async () => {
+    const now = Date.now();
+    const before = createCard({
+      id: 'card-review-overlay',
+      blockId: '20260424190358-j8zdutw',
+      due: now - 1_000,
+      scheduledDays: 1,
+      reps: 1,
+    });
+    const after = createCard({
+      ...before,
+      due: now + 7 * 86_400_000,
+      scheduledDays: 7,
+      reps: 2,
+      updatedAt: now,
+    });
+    cardService.getCard.mockResolvedValue({ card: before });
+    cardService.getCards.mockResolvedValue({ cards: [before], total: 1 });
+
+    await facade.refreshCommittedBackendReviewCard(after);
+
+    await expect(facade.getCard(before.id)).resolves.toEqual(expect.objectContaining({
+      id: before.id,
+      due: after.due,
+      scheduledDays: after.scheduledDays,
+      reps: after.reps,
+    }));
+    await expect(facade.getCards({ dueDate: { lte: new Date(now) } })).resolves.toEqual([]);
+    expect(cardService.batchUpdateCardsWithoutEvents).not.toHaveBeenCalled();
+  });
+
+  it('clears committed backend review overlay after batch delete', async () => {
+    const now = Date.now();
+    const deleted = createCard({
+      id: 'card-review-overlay-delete',
+      blockId: '20260424190358-aprfis7',
+      due: now + 7 * 86_400_000,
+      scheduledDays: 7,
+      reps: 2,
+    });
+    cardService.getCards.mockResolvedValue({ cards: [], total: 0 });
+    cardService.deleteCards.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        deletedCount: 1,
+        deletedCardIds: [deleted.id],
+        failedCardIds: [],
+      },
+    });
+
+    await facade.refreshCommittedBackendReviewCard(deleted);
+    await expect(facade.getCards({ blockIds: [deleted.blockId] })).resolves.toEqual([
+      expect.objectContaining({ id: deleted.id }),
+    ]);
+
+    await facade.batchDeleteCards([deleted.id]);
+
+    await expect(facade.getCards({ blockIds: [deleted.blockId] })).resolves.toEqual([]);
   });
 });

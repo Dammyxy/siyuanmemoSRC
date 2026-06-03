@@ -450,6 +450,7 @@ export class UnifiedDataSourceManager {
 
         const result = await kernel.execute(command);
         if (result.committed && result.updatedCard) {
+            await this.refreshLocalReadModelFromCommittedBackendReview(result.updatedCard);
             await this.onCardUpdatedFromScheduler(result.updatedCard);
         }
         if (result.committed) {
@@ -459,6 +460,14 @@ export class UnifiedDataSourceManager {
             }
         }
         return result;
+    }
+
+    private async refreshLocalReadModelFromCommittedBackendReview(card: FSRSCard): Promise<void> {
+        const router = this.getRouter();
+        if (typeof router.refreshCommittedBackendReviewCard !== 'function') {
+            throw new Error('AdvancedDataRouter local review read-model refresh is unavailable');
+        }
+        await router.refreshCommittedBackendReviewCard(card);
     }
 
     public readonly neuralRoamAdvance = async (

@@ -654,6 +654,27 @@ function getEditorStates(wrapper: ReturnType<typeof mount>): ReviewEditorState[]
   return (wrapper.emitted('editor-state-change') ?? []).map(([state]) => state as ReviewEditorState);
 }
 
+type EditableTargetProbe = {
+  blockId: string;
+  rendererKind: string;
+  sourceKind: 'block-markdown';
+  title?: string;
+};
+
+type EditableTargetsExposed = {
+  getEditableTargets: () => EditableTargetProbe[];
+};
+
+function expectEditableTargets(
+  exposed: EditableTargetsExposed,
+  expected: Array<Pick<EditableTargetProbe, 'blockId' | 'rendererKind'>>,
+): void {
+  expect(exposed.getEditableTargets()).toEqual(expected.map(target => expect.objectContaining({
+    ...target,
+    sourceKind: 'block-markdown',
+  })));
+}
+
 function findWarnCall(message: string): unknown[] | undefined {
   return reviewContentLoggerMocks.warn.mock.calls.find(([firstArg]) => firstArg === message);
 }
@@ -965,7 +986,7 @@ describe('ReviewContent editor state', () => {
     wrapper.unmount();
   });
 
-  it('exposes editable sources for supported renderers and keeps image occlusion unsupported', async () => {
+  it('exposes editable targets for supported renderers and keeps image occlusion unsupported', async () => {
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
       props: {
@@ -1000,19 +1021,16 @@ describe('ReviewContent editor state', () => {
     await settleReviewContent();
 
     const exposed = wrapper.vm as unknown as {
-      getEditableSource: () => {
-        blockId: string;
-        rendererKind: string;
-      } | null;
+      getEditableTargets: () => EditableTargetProbe[];
       getNativeSplitGuardState: () => {
         rendererKind: string;
         blockNativeTabSplit: boolean;
       };
     };
-    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+    expectEditableTargets(exposed, [{
       blockId: 'block-1',
       rendererKind: 'main-protyle',
-    }));
+    }]);
     expect(exposed.getNativeSplitGuardState()).toEqual({
       rendererKind: 'main-protyle',
       blockNativeTabSplit: false,
@@ -1022,10 +1040,10 @@ describe('ReviewContent editor state', () => {
       content: createEditableListTemplateContent(),
     });
     await settleReviewContent();
-    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+    expectEditableTargets(exposed, [{
       blockId: 'child-2',
       rendererKind: 'list-template',
-    }));
+    }]);
     expect(exposed.getNativeSplitGuardState()).toEqual({
       rendererKind: 'list-template',
       blockNativeTabSplit: true,
@@ -1037,10 +1055,10 @@ describe('ReviewContent editor state', () => {
       meta: createRenderPolicyMeta(multiClozeContent, 'multi-cloze'),
     });
     await settleReviewContent();
-    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+    expectEditableTargets(exposed, [{
       blockId: 'block-multi-cloze',
       rendererKind: 'multi-cloze',
-    }));
+    }]);
     expect(exposed.getNativeSplitGuardState()).toEqual({
       rendererKind: 'multi-cloze',
       blockNativeTabSplit: true,
@@ -1052,10 +1070,10 @@ describe('ReviewContent editor state', () => {
       meta: createRenderPolicyMeta(inlineFormulaContent, 'multi-cloze'),
     });
     await settleReviewContent();
-    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+    expectEditableTargets(exposed, [{
       blockId: 'block-inline-formula-cloze',
       rendererKind: 'multi-cloze',
-    }));
+    }]);
     expect(exposed.getNativeSplitGuardState()).toEqual({
       rendererKind: 'multi-cloze',
       blockNativeTabSplit: true,
@@ -1067,10 +1085,10 @@ describe('ReviewContent editor state', () => {
       meta: createRenderPolicyMeta(symbolQuickContent, 'quick'),
     });
     await settleReviewContent();
-    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+    expectEditableTargets(exposed, [{
       blockId: 'block-symbol-quick',
       rendererKind: 'quick',
-    }));
+    }]);
     expect(exposed.getNativeSplitGuardState()).toEqual({
       rendererKind: 'quick',
       blockNativeTabSplit: true,
@@ -1082,10 +1100,10 @@ describe('ReviewContent editor state', () => {
       meta: createRenderPolicyMeta(conceptContent, 'concept'),
     });
     await settleReviewContent();
-    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+    expectEditableTargets(exposed, [{
       blockId: 'block-concept',
       rendererKind: 'concept',
-    }));
+    }]);
     expect(exposed.getNativeSplitGuardState()).toEqual({
       rendererKind: 'concept',
       blockNativeTabSplit: true,
@@ -1097,10 +1115,10 @@ describe('ReviewContent editor state', () => {
       meta: createRenderPolicyMeta(conceptDefinitionContent, 'concept-definition'),
     });
     await settleReviewContent();
-    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+    expectEditableTargets(exposed, [{
       blockId: 'block-concept-definition',
       rendererKind: 'concept-definition',
-    }));
+    }]);
     expect(exposed.getNativeSplitGuardState()).toEqual({
       rendererKind: 'concept-definition',
       blockNativeTabSplit: true,
@@ -1112,10 +1130,10 @@ describe('ReviewContent editor state', () => {
       meta: createRenderPolicyMeta(descriptorContent, 'descriptor'),
     });
     await settleReviewContent();
-    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+    expectEditableTargets(exposed, [{
       blockId: 'block-descriptor',
       rendererKind: 'descriptor',
-    }));
+    }]);
     expect(exposed.getNativeSplitGuardState()).toEqual({
       rendererKind: 'descriptor',
       blockNativeTabSplit: true,
@@ -1137,7 +1155,7 @@ describe('ReviewContent editor state', () => {
       meta: createRenderPolicyMeta(imageOcclusionContent, 'image-occlusion'),
     });
     await settleReviewContent();
-    expect(exposed.getEditableSource()).toBeNull();
+    expect(exposed.getEditableTargets()).toEqual([]);
     expect(exposed.getNativeSplitGuardState()).toEqual({
       rendererKind: 'image-occlusion',
       blockNativeTabSplit: true,
@@ -1209,19 +1227,17 @@ describe('ReviewContent editor state', () => {
 
     await settleReviewContent();
 
-    const exposed = wrapper.vm as unknown as {
-      getEditableSource: () => {
-        blockId: string;
-        rendererKind: string;
-      } | null;
-    };
+    const exposed = wrapper.vm as unknown as EditableTargetsExposed;
 
     expect(wrapper.findComponent({ name: 'ConceptDefinitionCardRendererStub' }).exists()).toBe(true);
     expect(reviewContentMocks.instances).toHaveLength(0);
-    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+    expectEditableTargets(exposed, [{
+      blockId: 'concept-block',
+      rendererKind: 'concept-definition',
+    }, {
       blockId: 'definition-block',
       rendererKind: 'concept-definition',
-    }));
+    }]);
 
     await wrapper.setProps({
       renderEpoch: 1,
@@ -1230,6 +1246,85 @@ describe('ReviewContent editor state', () => {
 
     expect(wrapper.findComponent({ name: 'ConceptDefinitionCardRendererStub' }).exists()).toBe(true);
     expect(reviewContentMocks.instances).toHaveLength(0);
+
+    wrapper.unmount();
+  });
+
+  it('uses concept-definition named source blocks without promoting dependency-only blocks to editable targets', async () => {
+    const ConceptDefinitionRendererStub = defineComponent({
+      name: 'ConceptDefinitionCardRendererStub',
+      setup() {
+        return () => h('div', { class: 'concept-definition-renderer-stub' });
+      },
+    });
+    const content = {
+      ...createConceptDefinitionContent(),
+      id: 'definition-block',
+      prepared: {
+        rendererKind: 'concept-definition' as const,
+        identityKey: 'prepared-cdf',
+        viewModel: {
+          blockId: 'definition-block',
+          breadcrumbs: [{ id: 'breadcrumb-block', name: 'Doc', type: 'd' }],
+          dependencyBlockIds: [
+            'definition-block',
+            'concept-block',
+            'breadcrumb-block',
+            'sibling-descriptor-block',
+          ],
+          conceptName: 'Concept',
+          conceptBlockId: 'concept-block',
+          definitionBlockId: 'definition-block',
+          definitionHtml: '',
+          frontHtml: '',
+          backHtml: '',
+          relationArrow: '→',
+        },
+      },
+    };
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        renderServices: createRenderServicesStub(),
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content,
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: createRenderPolicyMeta(content, 'concept-definition'),
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: ConceptDefinitionRendererStub,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    const exposed = wrapper.vm as unknown as EditableTargetsExposed;
+
+    expectEditableTargets(exposed, [{
+      blockId: 'concept-block',
+      rendererKind: 'concept-definition',
+    }, {
+      blockId: 'definition-block',
+      rendererKind: 'concept-definition',
+    }]);
+    expect(exposed.getEditableTargets().map(target => target.blockId)).not.toContain('breadcrumb-block');
+    expect(exposed.getEditableTargets().map(target => target.blockId)).not.toContain('sibling-descriptor-block');
 
     wrapper.unmount();
   });
@@ -1275,20 +1370,18 @@ describe('ReviewContent editor state', () => {
 
     await settleReviewContent();
 
-    const exposed = wrapper.vm as unknown as {
-      getEditableSource: () => {
-        blockId: string;
-        rendererKind: string;
-      } | null;
-    };
+    const exposed = wrapper.vm as unknown as EditableTargetsExposed;
 
     expect(wrapper.findComponent({ name: 'DescriptorCardRendererStub' }).exists()).toBe(true);
     expect(reviewContentMocks.instances).toHaveLength(0);
     expect(reviewContentDescriptorMocks.isDescriptorCard).not.toHaveBeenCalled();
-    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+    expectEditableTargets(exposed, [{
+      blockId: 'concept-block',
+      rendererKind: 'descriptor',
+    }, {
       blockId: 'descriptor-block',
       rendererKind: 'descriptor',
-    }));
+    }]);
 
     wrapper.unmount();
   });
@@ -1334,10 +1427,7 @@ describe('ReviewContent editor state', () => {
     await settleReviewContent();
 
     const exposed = wrapper.vm as unknown as {
-      getEditableSource: () => {
-        blockId: string;
-        rendererKind: string;
-      } | null;
+      getEditableTargets: () => EditableTargetProbe[];
       getNativeSplitGuardState: () => {
         rendererKind: string;
         blockNativeTabSplit: boolean;
@@ -1350,10 +1440,13 @@ describe('ReviewContent editor state', () => {
     expect(reviewContentMocks.instances).toHaveLength(0);
     expect(reviewContentDescriptorMocks.isDescriptorCard).not.toHaveBeenCalled();
     expect(reviewContentQuickCardMocks.isQuickCard).not.toHaveBeenCalled();
-    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+    expectEditableTargets(exposed, [{
+      blockId: 'concept-block',
+      rendererKind: 'descriptor',
+    }, {
       blockId: 'descriptor-policy-block',
       rendererKind: 'descriptor',
-    }));
+    }]);
     expect(exposed.getNativeSplitGuardState()).toEqual({
       rendererKind: 'descriptor',
       blockNativeTabSplit: true,

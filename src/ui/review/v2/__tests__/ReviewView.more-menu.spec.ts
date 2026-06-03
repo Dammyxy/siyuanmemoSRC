@@ -4,6 +4,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ReviewView from '../ReviewView.vue';
+import type { ReviewEditableTarget } from '../types';
 import { createEmptyReviewUIState } from '../types';
 import {
   REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT,
@@ -13,14 +14,7 @@ import {
 } from '@/application/handlers/ReviewCommandRequestEvents';
 import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
 
-let reviewContentEditableSource:
-  | {
-      blockId: string;
-      title: string;
-      sourceKind: 'block-markdown';
-      rendererKind: string;
-    }
-  | null = null;
+let reviewContentEditableTargets: ReviewEditableTarget[] = [];
 const reviewContentRefreshVisibleContent = vi.fn(async () => true);
 const reviewContentExitEditorByEscape = vi.fn(() => false);
 
@@ -118,6 +112,22 @@ function buildCard(id: string, blockId = 'block-1') {
   };
 }
 
+function buildEditableTarget(
+  id: string,
+  blockId: string,
+  title: string,
+  role: ReviewEditableTarget['role'] = 'current-content',
+): ReviewEditableTarget {
+  return {
+    id,
+    blockId,
+    title,
+    role,
+    rendererKind: 'main-protyle',
+    sourceKind: 'block-markdown',
+  };
+}
+
 function createQueue(cards: Array<ReturnType<typeof buildCard>>, queueType = 'retrieval-practice') {
   let index = 0;
 
@@ -211,7 +221,7 @@ const ReviewContentStub = defineComponent({
   setup(props, { expose }) {
     expose({
       exitEditorByEscape: reviewContentExitEditorByEscape,
-      getEditableSource: () => reviewContentEditableSource,
+      getEditableTargets: () => reviewContentEditableTargets,
       refreshVisibleContent: reviewContentRefreshVisibleContent,
     });
     return () => h(
@@ -227,6 +237,7 @@ const ReviewContentStub = defineComponent({
 
 const ReviewActionsStub = defineComponent({
   name: 'ReviewActions',
+  emits: ['reveal', 'grade', 'skip', 'back', 'command', 'openMenu'],
   setup() {
     return () => h('div', { class: 'review-actions-stub' });
   },
@@ -276,6 +287,7 @@ function createPluginContext(overrides?: {
     hasReviewAICompanionTab?: ReturnType<typeof vi.fn>;
   };
   reviewService?: {
+    getEditableBlockMarkdown: ReturnType<typeof vi.fn>;
     getBlockKramdown: ReturnType<typeof vi.fn>;
     updateBlockMarkdown: ReturnType<typeof vi.fn>;
     getSiyuanApi: () => {
@@ -295,6 +307,7 @@ function createPluginContext(overrides?: {
       getCardByBlockId: (blockId: string) => ({ id: 'card-1', blockId }),
     }),
     getReviewService: () => overrides?.reviewService ?? ({
+      getEditableBlockMarkdown: vi.fn(async () => ''),
       getBlockKramdown: vi.fn(async () => ''),
       updateBlockMarkdown: vi.fn(async (blockId: string) => blockId),
       getSiyuanApi: () => ({
@@ -305,6 +318,21 @@ function createPluginContext(overrides?: {
     getCardEditorService: () => overrides?.cardEditorService,
     getReviewAIWorkbenchRegistry: () => overrides?.registry,
     getTabManager: () => overrides?.tabManager,
+    readDomainSyncDiagnostics: vi.fn(async () => ({
+      ok: true,
+      sanity: {
+        status: 'clean',
+        repairableDivergenceCount: 0,
+        unrepairableDivergenceCount: 0,
+        divergentLedgerCount: 0,
+        skippedSourceCount: 0,
+        pendingImportCount: 0,
+        divergentCardCount: 0,
+        reasonCounts: {},
+        affectedCardIds: [],
+        truncated: false,
+      },
+    })),
   };
 }
 
@@ -337,6 +365,7 @@ function mountReviewView(options?: {
     hasReviewAICompanionTab?: ReturnType<typeof vi.fn>;
   };
   reviewService?: {
+    getEditableBlockMarkdown: ReturnType<typeof vi.fn>;
     getBlockKramdown: ReturnType<typeof vi.fn>;
     updateBlockMarkdown: ReturnType<typeof vi.fn>;
     getSiyuanApi: () => {
@@ -471,7 +500,7 @@ describe('ReviewView more menu', () => {
     reviewViewLoggerMocks.info.mockReset();
     reviewViewLoggerMocks.log.mockReset();
     reviewViewLoggerMocks.trace.mockReset();
-    reviewContentEditableSource = null;
+    reviewContentEditableTargets = [];
     reviewContentRefreshVisibleContent.mockClear();
     reviewContentExitEditorByEscape.mockClear();
     reviewContentExitEditorByEscape.mockReturnValue(false);
@@ -565,13 +594,11 @@ describe('ReviewView more menu', () => {
   });
 
   it('shows edit-current-content for editable renderers and saves without advancing the session', async () => {
-    reviewContentEditableSource = {
-      blockId: 'block-1',
-      title: '编辑当前内容',
-      sourceKind: 'block-markdown',
-      rendererKind: 'main-protyle',
-    };
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:block-1', 'block-1', '编辑当前内容'),
+    ];
     const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => 'Original body'),
       getBlockKramdown: vi.fn(async () => 'Original body'),
       updateBlockMarkdown: vi.fn(async (blockId: string) => blockId),
       getSiyuanApi: () => ({
@@ -581,6 +608,9 @@ describe('ReviewView more menu', () => {
     const { wrapper, queue } = mountReviewView({ reviewService });
     await flushPromises();
 
+    const inlineEditButton = wrapper.get('[data-testid="review-inline-edit-button"]');
+    expect(inlineEditButton.text()).toContain('编辑');
+
     wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
     await flushPromises();
 
@@ -589,9 +619,10 @@ describe('ReviewView more menu', () => {
 
     await editCurrentContentItem?.click?.();
     await flushPromises();
-    expect(reviewService.getBlockKramdown).toHaveBeenCalledWith('block-1');
+    expect(reviewService.getEditableBlockMarkdown).toHaveBeenCalledWith('block-1');
+    expect(reviewService.getBlockKramdown).not.toHaveBeenCalled();
 
-    const textarea = wrapper.get('textarea.large-editor__textarea');
+    const textarea = wrapper.get('textarea.review-editable-targets-panel__textarea');
     await textarea.setValue('Updated body');
     await flushPromises();
 
@@ -604,6 +635,121 @@ describe('ReviewView more menu', () => {
     expect(queue.next).toHaveBeenCalledTimes(1);
     expect(reviewContentRefreshVisibleContent).toHaveBeenCalledWith('manual-edit-save');
     expect(wrapper.getComponent(ReviewContentStub).props('renderEpoch')).toBe(0);
+
+    wrapper.unmount();
+  });
+
+  it('opens inline current-content editor with e outside text input only', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:block-1', 'block-1', '编辑当前内容'),
+    ];
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => 'Original body'),
+      getBlockKramdown: vi.fn(async () => 'Original body'),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper } = mountReviewView({ reviewService, attachInDialog: true });
+    await flushPromises();
+
+    const typingInput = document.createElement('input');
+    document.body.appendChild(typingInput);
+    typingInput.focus();
+    typingInput.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'e',
+      bubbles: true,
+      cancelable: true,
+    }));
+    await flushPromises();
+    expect(reviewService.getEditableBlockMarkdown).not.toHaveBeenCalled();
+
+    typingInput.blur();
+    document.body.focus();
+    wrapper.element.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'e',
+      bubbles: true,
+      cancelable: true,
+    }));
+    await flushPromises();
+
+    expect(reviewService.getEditableBlockMarkdown).toHaveBeenCalledWith('block-1');
+    expect(reviewService.getBlockKramdown).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="review-editable-targets-panel"]').exists()).toBe(true);
+
+    typingInput.remove();
+    wrapper.unmount();
+  });
+
+  it('shows an unavailable message when e is pressed without editable targets', async () => {
+    const { wrapper } = mountReviewView({ attachInDialog: true });
+    await flushPromises();
+
+    document.body.focus();
+    wrapper.element.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'e',
+      bubbles: true,
+      cancelable: true,
+    }));
+    await flushPromises();
+
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenCalledWith('当前内容暂不支持编辑', 3000, 'info');
+
+    wrapper.unmount();
+  });
+
+  it('pauses review actions while the inline editor is open and resumes after cancel', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:block-1', 'block-1', '编辑当前内容'),
+    ];
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => 'Original body'),
+      getBlockKramdown: vi.fn(async () => 'Original body'),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper, queue } = mountReviewView({ reviewService, attachInDialog: true });
+    await flushPromises();
+
+    await wrapper.get('[data-testid="review-inline-edit-button"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid="review-editable-targets-panel"]').exists()).toBe(true);
+
+    wrapper.getComponent(ReviewActionsStub).vm.$emit('reveal');
+    wrapper.getComponent(ReviewActionsStub).vm.$emit('grade', 3);
+    wrapper.getComponent(ReviewActionsStub).vm.$emit('skip');
+    wrapper.getComponent(ReviewActionsStub).vm.$emit('back');
+    wrapper.element.dispatchEvent(new KeyboardEvent('keydown', {
+      key: ' ',
+      bubbles: true,
+      cancelable: true,
+    }));
+    wrapper.element.dispatchEvent(new KeyboardEvent('keydown', {
+      key: '3',
+      bubbles: true,
+      cancelable: true,
+    }));
+    await flushPromises();
+
+    expect(queue.onFeedback).not.toHaveBeenCalled();
+    expect(queue.next).toHaveBeenCalledTimes(1);
+
+    const cancelButton = wrapper.findAll('button').find((button) => button.text() === '取消');
+    await cancelButton!.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="review-editable-targets-panel"]').exists()).toBe(false);
+
+    wrapper.getComponent(ReviewActionsStub).vm.$emit('reveal');
+    await flushPromises();
+    wrapper.getComponent(ReviewActionsStub).vm.$emit('grade', 3);
+
+    await vi.waitFor(() => {
+      expect(queue.onFeedback).toHaveBeenCalledTimes(1);
+    });
 
     wrapper.unmount();
   });
@@ -899,12 +1045,9 @@ describe('ReviewView more menu', () => {
   });
 
   it('locates the current review source through review command requests', async () => {
-    reviewContentEditableSource = {
-      blockId: 'source-block-1',
-      title: 'Source',
-      sourceKind: 'block-markdown',
-      rendererKind: 'main-protyle',
-    };
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:source-block-1', 'source-block-1', 'Source'),
+    ];
     const { wrapper } = mountReviewView({ attachInDialog: true });
     await flushPromises();
 

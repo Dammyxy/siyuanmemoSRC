@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue';
-import type { ReviewEditableSource } from './types';
+import type { ReviewEditableTarget } from './types';
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 
 type ReviewTextEditorTranslate = (key: string, fallback: string) => string;
@@ -10,12 +10,18 @@ type ReviewTextEditorLogger = {
   error?: (...args: unknown[]) => void;
 };
 
+export interface ReviewEditableTargetEditorEntry {
+  target: ReviewEditableTarget;
+  value: string;
+  originalValue: string;
+}
+
 export type ReviewCurrentContentEditorRuntimeOptions = {
   t: ReviewTextEditorTranslate;
   showMessage: ReviewTextEditorShowMessage;
   logger?: ReviewTextEditorLogger;
   getReviewService: () => ReviewApplicationService | null;
-  resolveEditableSource: () => ReviewEditableSource | null;
+  resolveEditableTargets: () => ReviewEditableTarget[];
   suppressSourceBlockRefresh: (blockId: string) => void;
   refreshVisibleContent: (reason: string) => Promise<boolean | undefined> | boolean | undefined;
 };
@@ -26,19 +32,21 @@ export function createReviewCurrentContentEditorRuntime(
   const open = ref(false);
   const loading = ref(false);
   const saving = ref(false);
-  const source = ref<ReviewEditableSource | null>(null);
-  const value = ref('');
-  const originalValue = ref('');
+  const targets = ref<ReviewEditableTarget[]>([]);
+  const entries = ref<ReviewEditableTargetEditorEntry[]>([]);
   let seq = 0;
 
+  const dirtyEntries = computed(() => entries.value.filter(entry => entry.value !== entry.originalValue));
   const title = computed(() => (
-    source.value?.title || options.t('editCurrentContent', '编辑当前内容')
+    targets.value.length > 1
+      ? options.t('editCurrentContentTargets', '编辑当前内容')
+      : targets.value[0]?.title || options.t('editCurrentContent', '编辑当前内容')
   ));
   const readonly = computed(() => loading.value || saving.value);
   const confirmDisabled = computed(() => (
     readonly.value
-    || !source.value
-    || value.value === originalValue.value
+    || targets.value.length === 0
+    || dirtyEntries.value.length === 0
   ));
   const hint = computed(() => {
     if (loading.value) {
@@ -50,6 +58,11 @@ export function createReviewCurrentContentEditorRuntime(
     return options.t('editCurrentContentHint', '支持 Markdown，Ctrl/Cmd + Enter 保存');
   });
 
+  function resetLoadedState(): void {
+    targets.value = [];
+    entries.value = [];
+  }
+
   function close(): void {
     if (saving.value) {
       return;
@@ -57,15 +70,21 @@ export function createReviewCurrentContentEditorRuntime(
 
     open.value = false;
     loading.value = false;
-    source.value = null;
-    value.value = '';
-    originalValue.value = '';
+    resetLoadedState();
     seq += 1;
   }
 
+  function updateTargetValue(targetId: string, nextValue: string): void {
+    const entry = entries.value.find(item => item.target.id === targetId);
+    if (!entry) {
+      return;
+    }
+    entry.value = nextValue;
+  }
+
   async function openEditor(): Promise<void> {
-    const editableSource = options.resolveEditableSource();
-    if (!editableSource) {
+    const editableTargets = options.resolveEditableTargets();
+    if (editableTargets.length === 0) {
       options.showMessage(options.t('currentContentNotEditable', '当前内容暂不支持编辑'), 3000, 'info');
       return;
     }
@@ -77,19 +96,28 @@ export function createReviewCurrentContentEditorRuntime(
     }
 
     const currentSeq = ++seq;
-    source.value = editableSource;
+    targets.value = editableTargets;
+    entries.value = editableTargets.map(target => ({
+      target,
+      value: '',
+      originalValue: '',
+    }));
     open.value = true;
     loading.value = true;
-    value.value = '';
-    originalValue.value = '';
 
     try {
-      const kramdown = await reviewService.getBlockKramdown(editableSource.blockId);
+      const loadedEntries = await Promise.all(editableTargets.map(async (target) => {
+        const markdown = await reviewService.getEditableBlockMarkdown(target.blockId);
+        return {
+          target,
+          value: String(markdown ?? ''),
+          originalValue: String(markdown ?? ''),
+        };
+      }));
       if (currentSeq !== seq || !open.value) {
         return;
       }
-      value.value = kramdown;
-      originalValue.value = kramdown;
+      entries.value = loadedEntries;
     } catch (error) {
       if (currentSeq !== seq) {
         return;
@@ -111,8 +139,8 @@ export function createReviewCurrentContentEditorRuntime(
   }
 
   async function confirm(): Promise<void> {
-    const editableSource = source.value;
-    if (!editableSource || confirmDisabled.value) {
+    const pendingEntries = dirtyEntries.value;
+    if (confirmDisabled.value || pendingEntries.length === 0) {
       return;
     }
 
@@ -126,17 +154,21 @@ export function createReviewCurrentContentEditorRuntime(
     saving.value = true;
 
     try {
-      await reviewService.updateBlockMarkdown(editableSource.blockId, value.value);
+      for (const entry of pendingEntries) {
+        await reviewService.updateBlockMarkdown(entry.target.blockId, entry.value);
+        if (currentSeq !== seq) {
+          return;
+        }
+        entry.originalValue = entry.value;
+        options.suppressSourceBlockRefresh(entry.target.blockId);
+      }
+
+      await options.refreshVisibleContent('manual-edit-save');
       if (currentSeq !== seq) {
         return;
       }
 
-      originalValue.value = value.value;
-      options.suppressSourceBlockRefresh(editableSource.blockId);
-      await options.refreshVisibleContent('manual-edit-save');
-
       open.value = false;
-      source.value = null;
       options.showMessage(options.t('currentContentSaved', '当前内容已保存'), 2000, 'info');
     } catch (error) {
       if (currentSeq !== seq) {
@@ -160,14 +192,14 @@ export function createReviewCurrentContentEditorRuntime(
     open,
     loading,
     saving,
-    source,
-    value,
-    originalValue,
+    targets,
+    entries,
     title,
     readonly,
     confirmDisabled,
     hint,
     close,
+    updateTargetValue,
     openEditor,
     confirm,
   };

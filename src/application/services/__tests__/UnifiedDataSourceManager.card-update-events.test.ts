@@ -86,7 +86,7 @@ describe('UnifiedDataSourceManager card update notifications', () => {
     ]);
   });
 
-  it('does not rewrite committed backend review cards from the frontend snapshot', async () => {
+  it('refreshes the local read model after committed backend review without frontend persistence', async () => {
     const manager = UnifiedDataSourceManager.getInstance();
     const now = Date.now();
     const before = createCard();
@@ -123,6 +123,9 @@ describe('UnifiedDataSourceManager card update notifications', () => {
       updateCard: vi.fn(async (card: FSRSCard) => {
         storedCard = { ...card };
       }),
+      refreshCommittedBackendReviewCard: vi.fn(async (card: FSRSCard) => {
+        storedCard = { ...card };
+      }),
       deleteCard: vi.fn(async () => {}),
       getAvailableQueueTypes: vi.fn(() => []),
     } as unknown as IDataRouter & { plugin: unknown };
@@ -145,7 +148,9 @@ describe('UnifiedDataSourceManager card update notifications', () => {
     });
 
     expect(router.updateCard).not.toHaveBeenCalled();
-    expect(storedCard).toEqual(before);
+    expect(router.refreshCommittedBackendReviewCard).toHaveBeenCalledWith(after);
+    await expect(manager.getCard(before.id)).resolves.toEqual(after);
+    await expect(manager.getCards({ dueDate: { lte: new Date(now) } })).resolves.toEqual([]);
     await flushMicrotasks();
     expect(events).toEqual([
       expect.objectContaining({

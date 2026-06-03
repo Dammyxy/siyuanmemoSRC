@@ -123,6 +123,28 @@ describe('QueueProjectionReadinessService', () => {
     });
   });
 
+  it('returns missing_derived_cache when snapshot reports absent non-durable projection cache', async () => {
+    const service = new QueueProjectionReadinessService({
+      readSnapshot: vi.fn(async () => ({
+        queueType: 'retrieval-practice',
+        policyHash: null,
+        generation: null,
+        status: 'refreshing',
+        rows: [],
+        counters: null,
+        cacheState: 'missing-derived-cache',
+      })),
+    });
+
+    await expect(service.ensureReady({ queueType: 'retrieval-practice' })).resolves.toEqual({
+      status: 'refreshing',
+      queueId: 'retrieval-practice',
+      policyId: service.buildPolicyId({ queueType: 'retrieval-practice' }),
+      cause: 'missing_derived_cache',
+      retryAfterMs: 300,
+    });
+  });
+
   it('returns recoverable unavailable with machine cause when backend read fails', async () => {
     const service = new QueueProjectionReadinessService({
       readSnapshot: vi.fn(async () => {

@@ -83,7 +83,7 @@ function requestHostEffect<TResult>(effect: BackendWorkerHostEffect): Promise<TR
   };
   const activeTiming = resolveExclusiveActiveBackendWorkerTiming();
   if (
-    shouldSuppressReviewFeedbackPersistenceHostEffect(effect.kind)
+    shouldSuppressReviewFeedbackPersistenceHostEffect(effect.kind, activeTiming)
   ) {
     recordBackendWorkerHostEffect(
       activeTiming?.method === 'review.feedback' ? activeTiming : null,

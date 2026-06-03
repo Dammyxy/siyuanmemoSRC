@@ -931,7 +931,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
-  it('suppresses explicit truth segment writes during the post-review drain window', async () => {
+  it('allows explicit review.truth.flush truth writes during the post-review drain window', async () => {
     vi.setSystemTime(20_000);
     const worker = new FakeWorker();
     const writeTruthBinary = vi.fn(async () => undefined);
@@ -954,6 +954,13 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     });
     await expect(pending).resolves.toEqual(expect.objectContaining({ id: 80 }));
 
+    const flush = transport.request(createReviewTruthFlushRequest(81));
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
+    expect(worker.posted[1]).toEqual(expect.objectContaining({
+      kind: 'request',
+      request: expect.objectContaining({ method: 'review.truth.flush' }),
+    }));
+
     worker.emit({
       kind: 'host-effect',
       effectId: 'effect-truth-review-flush',
@@ -964,17 +971,28 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       },
     });
 
-    await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
-    expect(writeTruthBinary).not.toHaveBeenCalled();
-    expect(worker.posted[1]).toEqual({
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(3));
+    expect(writeTruthBinary).toHaveBeenCalledWith(
+      'truth/review-events/review-events-v1/device-device-A/seg-000001-test.msgpack',
+      new Uint8Array([7]),
+    );
+    expect(worker.posted[2]).toEqual({
       kind: 'host-effect-result',
       effectId: 'effect-truth-review-flush',
-      ok: false,
-      error: {
-        code: 'BACKEND_UNAVAILABLE',
-        message: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect truth.writeBinary',
+      ok: true,
+      result: null,
+    });
+
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[1] as { requestId: string }).requestId,
+      response: {
+        jsonrpc: BACKEND_RPC_VERSION,
+        id: 81,
+        result: { ok: true },
       },
     });
+    await expect(flush).resolves.toEqual(expect.objectContaining({ id: 81 }));
     transport.dispose();
   });
 

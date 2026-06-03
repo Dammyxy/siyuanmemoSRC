@@ -9,6 +9,7 @@ export interface ReviewSiyuanPort {
   getBlockAttrs(blockId: string): Promise<Record<string, string>>;
   setBlockAttrs(blockId: string, attrs: Record<string, string>): Promise<void>;
   getBlockInfo(blockId: string): Promise<SiyuanRecord>;
+  getEditableBlockMarkdown(blockId: string): Promise<string>;
   getBlockKramdown(blockId: string): Promise<{ kramdown: string }>;
   getBlockDOM(blockId: string): Promise<{ dom: string }>;
   getBlockBreadcrumb(blockId: string): Promise<SiyuanRecord[]>;

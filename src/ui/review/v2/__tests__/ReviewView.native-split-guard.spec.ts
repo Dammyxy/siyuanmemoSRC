@@ -140,7 +140,7 @@ const ReviewContentStub = defineComponent({
   setup(_props, { expose }) {
     expose({
       exitEditorByEscape: () => false,
-      getEditableSource: () => null,
+      getEditableTargets: () => [],
       getNativeSplitGuardState: () => reviewNativeSplitGuardState,
     });
     return () => h('div', { class: 'review-content-stub' });

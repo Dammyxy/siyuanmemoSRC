@@ -15,6 +15,14 @@ import {
 } from './api';
 import { BUILTIN_DECK_ID, reviewRiffCard, skipReviewRiffCard } from '@/core/siyuan/riff';
 
+function escapeSql(value: string): string {
+  return String(value || '').replace(/'/g, "''");
+}
+
+function normalizeEditableMarkdown(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
 export class ReviewSiyuanAdapter implements ReviewSiyuanPort {
   readonly BUILTIN_DECK_ID = BUILTIN_DECK_ID;
 
@@ -36,6 +44,21 @@ export class ReviewSiyuanAdapter implements ReviewSiyuanPort {
 
   async getBlockKramdown(blockId: string): Promise<{ kramdown: string }> {
     return getBlockKramdown(blockId);
+  }
+
+  async getEditableBlockMarkdown(blockId: string): Promise<string> {
+    const safeId = escapeSql(blockId);
+    const rows = await sql<{ markdown?: unknown }>(`
+      SELECT markdown
+      FROM blocks
+      WHERE id = '${safeId}'
+      LIMIT 1
+    `);
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Editable block markdown unavailable: ${blockId}`);
+    }
+    return normalizeEditableMarkdown(row.markdown);
   }
 
   async getBlockDOM(blockId: string): Promise<{ dom: string }> {

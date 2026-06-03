@@ -104,6 +104,33 @@
           @editor-state-change="handleEditorStateChange"
         />
 
+        <div v-if="showInlineEditButton" class="fsrs-review-v2__inline-edit-entry">
+          <button
+            class="b3-button b3-button--outline fsrs-review-v2__inline-edit-button"
+            type="button"
+            data-testid="review-inline-edit-button"
+            @click="openCurrentContentEditor"
+          >
+            <svg><use xlink:href="#iconEdit"></use></svg>
+            <span>{{ t('editCurrentContent', '编辑') }}</span>
+          </button>
+        </div>
+
+        <ReviewEditableTargetsPanel
+          :open="reviewTextEditorOpen"
+          :title="reviewTextEditorTitle"
+          :entries="reviewTextEditorEntries"
+          :readonly="reviewTextEditorReadonly"
+          :placeholder="t('editCurrentContentPlaceholder', '使用 Markdown 编辑当前块内容')"
+          :hint="reviewTextEditorHint"
+          :confirm-label="t('save', '保存')"
+          :confirm-disabled="reviewTextEditorConfirmDisabled"
+          :cancel-label="t('cancel', '取消')"
+          @update-target="updateCurrentContentEditorTarget"
+          @confirm="confirmCurrentContentEditor"
+          @close="closeCurrentContentEditor"
+        />
+
         <div v-if="reviewSemanticTemporaryView" class="fsrs-review-v2__temporary-view" role="status">
           <span>{{ t('semanticTemporaryViewing', 'Viewing: {title}').replace('{title}', reviewSemanticTemporaryView.title) }}</span>
           <button type="button" class="b3-button b3-button--outline" @click="clearSemanticTemporaryView">
@@ -186,21 +213,6 @@
           </div>
         </teleport>
 
-        <LargeTextEditorDialog
-          :open="reviewTextEditorOpen"
-          :title="reviewTextEditorTitle"
-          :model-value="reviewTextEditorValue"
-          :readonly="reviewTextEditorReadonly"
-          :placeholder="t('editCurrentContentPlaceholder', '使用 Markdown 编辑当前块内容')"
-          :hint="reviewTextEditorHint"
-          :confirm-label="t('save', '保存')"
-          :confirm-disabled="reviewTextEditorConfirmDisabled"
-          :cancel-label="t('cancel', '取消')"
-          :close-label="t('close', '关闭')"
-          @update:model-value="reviewTextEditorValue = $event"
-          @confirm="confirmCurrentContentEditor"
-          @close="closeCurrentContentEditor"
-        />
       </div>
 
       <aside v-if="showReviewSideArea" class="fsrs-review-v2__side-area fsrs-review-v2__ai-sidecar">
@@ -267,10 +279,10 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
+import ReviewEditableTargetsPanel from './components/ReviewEditableTargetsPanel.vue';
 import NeuralRoamJourneyHeader from './NeuralRoamJourneyHeader.vue';
 import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
 import AiWorkbenchPane from '@/ui/ai/AiWorkbenchPane.vue';
-import LargeTextEditorDialog from '@/ui/shared/LargeTextEditorDialog.vue';
 import SemanticReviewSidebar from './semantic/SemanticReviewSidebar.vue';
 import {
   buildSemanticPathAnalysisContext,
@@ -287,7 +299,7 @@ import {
 } from './useReviewSession';
 import {
   type RefreshCurrentItemOptions,
-  type ReviewEditableSource,
+  type ReviewEditableTarget,
   type ReviewHeaderVariant,
   type ReviewHeaderRouteControl,
   type ReviewNeuralRoamJourneyProgress,
@@ -650,7 +662,7 @@ type DismissedReviewCardPayload = {
 
 type ReviewContentExpose = {
   exitEditorByEscape: () => boolean;
-  getEditableSource: () => ReviewEditableSource | null;
+  getEditableTargets: () => ReviewEditableTarget[];
   getDependencyBlockIds?: () => string[];
   getNativeSplitGuardState?: () => ReviewNativeSplitGuardState;
   refreshVisibleContent?: (reason?: string) => Promise<boolean>;
@@ -879,12 +891,12 @@ const reviewTextEditorRuntime = createReviewCurrentContentEditorRuntime({
   showMessage,
   logger,
   getReviewService,
-  resolveEditableSource: () => resolveCurrentEditableSource(),
+  resolveEditableTargets: () => resolveCurrentEditableTargets(),
   suppressSourceBlockRefresh: (blockId) => reviewSourceRefreshRuntime.suppressBlock(blockId),
   refreshVisibleContent: (reason) => contentRef.value?.refreshVisibleContent?.(reason),
 });
 const reviewTextEditorOpen = reviewTextEditorRuntime.open;
-const reviewTextEditorValue = reviewTextEditorRuntime.value;
+const reviewTextEditorEntries = reviewTextEditorRuntime.entries;
 const reviewTextEditorTitle = reviewTextEditorRuntime.title;
 const reviewTextEditorReadonly = reviewTextEditorRuntime.readonly;
 const reviewTextEditorConfirmDisabled = reviewTextEditorRuntime.confirmDisabled;
@@ -2469,6 +2481,13 @@ function handleRootClick(e: MouseEvent) {
     logger.debug('[SiYuanMemo][ReviewView] Ignoring forwarded modified hotkey:', { key });
     return;
   }
+  if (key === 'e' && !reviewTextEditorOpen.value) {
+    void openCurrentContentEditor();
+    return;
+  }
+  if (reviewTextEditorOpen.value) {
+    return;
+  }
   handleReviewKeyAction('hotkey', key, e);
 }
 
@@ -2510,10 +2529,26 @@ function handleKeyDown(e: KeyboardEvent) {
     return;
   }
 
+  if (key === 'e' && !reviewTextEditorOpen.value) {
+    e.preventDefault();
+    e.stopPropagation();
+    void openCurrentContentEditor();
+    return;
+  }
+
+  if (reviewTextEditorOpen.value) {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
+
   handleReviewKeyAction('keydown', key, e);
 }
 
 function handleReveal(): void {
+  if (reviewTextEditorOpen.value) {
+    return;
+  }
   if (reviewSemanticTemporaryRuntime.revealTemporaryView()) {
     return;
   }
@@ -2523,6 +2558,9 @@ function handleReveal(): void {
 }
 
 function handleGrade(rating: number): void {
+  if (reviewTextEditorOpen.value) {
+    return;
+  }
   if (reviewSemanticTemporaryView.value?.card) {
     void reviewSemanticTemporaryRuntime.gradeTemporaryReview(rating);
     return;
@@ -2537,6 +2575,9 @@ function handleGrade(rating: number): void {
 }
 
 function handleSkip(): void {
+  if (reviewTextEditorOpen.value) {
+    return;
+  }
   if (reviewSemanticTemporaryView.value) {
     clearSemanticTemporaryView();
     return;
@@ -2548,6 +2589,9 @@ function handleSkip(): void {
 }
 
 function handleBack(): void {
+  if (reviewTextEditorOpen.value) {
+    return;
+  }
   if (reviewSemanticTemporaryView.value) {
     clearSemanticTemporaryView();
     return;
@@ -2901,19 +2945,40 @@ const handleDismissPeerCards = reviewCardActionRuntime.handleDismissPeerCards;
 const handleDeleteCurrentCard = reviewCardActionRuntime.handleDeleteCurrentCard;
 const handleDeletePeerCards = reviewCardActionRuntime.handleDeletePeerCards;
 
-function resolveCurrentEditableSource(): ReviewEditableSource | null {
-  return contentRef.value?.getEditableSource?.() || null;
+function resolveCurrentEditableTargets(): ReviewEditableTarget[] {
+  return contentRef.value?.getEditableTargets?.() || [];
+}
+
+function resolvePrimaryEditableTarget(): ReviewEditableTarget | null {
+  return resolveCurrentEditableTargets()[0] || null;
 }
 
 const closeCurrentContentEditor = reviewTextEditorRuntime.close;
 const openCurrentContentEditor = reviewTextEditorRuntime.openEditor;
 const confirmCurrentContentEditor = reviewTextEditorRuntime.confirm;
+const updateCurrentContentEditorTarget = reviewTextEditorRuntime.updateTargetValue;
+const editableTargetsProbeKey = computed(() => [
+  state.value.content.id,
+  state.value.content.card?.id,
+  state.value.content.card?.blockId,
+  renderEpoch.value,
+].join(':'));
+const showInlineEditButton = computed(() => {
+  editableTargetsProbeKey.value;
+  return (
+    !reviewTextEditorOpen.value
+    && resolveCurrentEditableTargets().length > 0
+  );
+});
 
 function buildMoreMenuItems(): ReviewMenuItem[] {
   const currentCard = state.value.content.card as FSRSCard | null | undefined;
   const openAsItems = buildOpenAsMenuItems();
   const peerInfo = resolveCurrentBlockPeerCards();
-  const editableSource = resolveCurrentEditableSource();
+  const editableTargets = resolveCurrentEditableTargets();
+  const editableSourceTitle = editableTargets.length > 1
+    ? t('editCurrentContent', '编辑当前内容')
+    : editableTargets[0]?.title ?? null;
   const hasReviewCard = hasCurrentReviewCard();
   const hasCardEditorService = Boolean(getCardEditorService());
 
@@ -2927,7 +2992,7 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
     hasProgressiveSourceTarget: Boolean(resolveProgressiveSourceTargetId(currentCard)),
     isLinearPieceReviewCard: isLinearPieceReviewCard(currentCard),
     openAsItems,
-    editableSourceTitle: editableSource?.title ?? null,
+    editableSourceTitle,
     currentPriority: resolveCurrentReviewCardPriority(),
     currentDismissed: resolveCurrentReviewCardDismissed(),
     canEditCurrentPriority: hasReviewCard && hasCardEditorService,
@@ -3506,7 +3571,7 @@ function resolveCurrentReviewBlockId(): string {
 
 function resolveCurrentReviewSourceBlockId(): string {
   return String(
-    resolveCurrentEditableSource()?.blockId
+    resolvePrimaryEditableTarget()?.blockId
     || state.value.content.id
     || state.value.content.data
     || state.value.actions.cardMeta?.blockID
@@ -3801,6 +3866,27 @@ watch(
   min-width: 0; /* 防止 flex 子元素溢出 */
   height: 100%; /* 确保容器有明确的高度 */
   overflow: hidden; /* 防止整体滚动，只允许 ReviewContent 滚动 */
+}
+
+.fsrs-review-v2__inline-edit-entry {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 12px 0;
+}
+
+.fsrs-review-v2__inline-edit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.fsrs-review-v2__inline-edit-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .fsrs-review-v2__arena-hint {

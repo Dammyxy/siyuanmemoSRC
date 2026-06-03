@@ -142,6 +142,41 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
             headerVariant,
             progressiveExcerptEnabled: context.getSettingsService().getSettings().progressiveReading?.altXExcerptEnabled === true,
         });
+
+        let closeFinalized = false;
+        const finalizeClose = async () => {
+            if (closeFinalized) {
+                return;
+            }
+            closeFinalized = true;
+
+            try {
+                context.getSrsBackendClient?.()?.requestReviewTruthFlush?.('review-exit');
+            } catch (error) {
+                logger.warn('[SiYuanMemo][createUnifiedReviewDialog] Failed to request Review truth flush on close:', error);
+            }
+
+            // 🆕 对话框关闭时只同步数据，不刷新 UI
+            // 因为增量更新已经实时更新了浏览器，这里只需要确保数据持久化
+            if (plugin.reviewSyncManager) {
+                // 只调用同步，不触发观察者通知
+                const syncManager = plugin.reviewSyncManager;
+                if (syncManager.reviewCount > 0) {
+                    try {
+                        await context.getHybridSyncService?.()?.incrementalSync(undefined, {
+                            source: 'review-dialog-close',
+                            persistIdleCheckpoint: false,
+                        });
+                        logger.info('Data synced on close');
+                    } catch (err) {
+                        logger.error('Sync failed on close:', err);
+                    }
+                }
+            }
+
+            // 调用用户提供的关闭回调
+            onClose?.();
+        };
         
         // 创建对话框
         const dialog = createVueDialog({
@@ -174,34 +209,12 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
             events: {
                 close: () => {
                     dialog?.destroy();
-                    onClose?.();
+                    void finalizeClose();
                 },
             },
             width: isMobile ? '100vw' : 'min(860px, 96vw)',
             height: isMobile ? '100vh' : 'min(720px, 90vh)',
-            onClose: async () => {
-                context.getSrsBackendClient?.()?.requestReviewTruthFlush?.('review-exit');
-                // 🆕 对话框关闭时只同步数据，不刷新 UI
-                // 因为增量更新已经实时更新了浏览器，这里只需要确保数据持久化
-                if (plugin.reviewSyncManager) {
-                    // 只调用同步，不触发观察者通知
-                    const syncManager = plugin.reviewSyncManager;
-                    if (syncManager.reviewCount > 0) {
-                        try {
-                            await context.getHybridSyncService?.()?.incrementalSync(undefined, {
-                                source: 'review-dialog-close',
-                                persistIdleCheckpoint: false,
-                            });
-                            logger.info('Data synced on close');
-                        } catch (err) {
-                            logger.error('Sync failed on close:', err);
-                        }
-                    }
-                }
-                
-                // 调用用户提供的关闭回调
-                onClose?.();
-            },
+            onClose: finalizeClose,
         });
         
         logger.info(`Dialog created successfully for queue: ${queueType}`);

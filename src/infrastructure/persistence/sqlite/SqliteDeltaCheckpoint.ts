@@ -29,6 +29,7 @@ export type SqliteCheckpointStorageClass = 'durable-checkpoint' | 'volatile-proj
 export type SqliteDeltaOperation = 'insert' | 'update' | 'delete';
 export type SqliteDeltaReplayMode = 'primary-key-upsert-delete';
 export type SqliteDeltaWriteClassification = 'delta' | 'checkpoint';
+export type SqliteDeltaTableDurability = 'durable-replay' | 'derived-cache';
 
 export interface SqliteDeltaTableColumn {
   name: string;
@@ -44,6 +45,7 @@ export interface SqliteDeltaTableMetadata {
   schemaFingerprint: string;
   acceptedSchemaFingerprints: string[];
   replayMode: SqliteDeltaReplayMode;
+  durability: SqliteDeltaTableDurability;
 }
 
 export interface SqliteDeltaChange {
@@ -126,6 +128,8 @@ export interface SqliteDeltaOperationStatus {
   replayedCount?: number;
   skippedInMemoryCount?: number;
   affectedTables?: string[];
+  skippedDerivedTables?: string[];
+  skippedDerivedChangeCount?: number;
   byteLength?: number | null;
   cleared?: boolean;
   checkpointStorageClass?: SqliteCheckpointStorageClass;
@@ -136,6 +140,8 @@ export interface SqliteDeltaDiagnostics {
   fileName: string;
   version: number;
   registeredTables: string[];
+  durableReplayTables: string[];
+  derivedCacheTables: string[];
   pendingCount: number;
   pendingBytes: number;
   affectedTables: string[];
@@ -160,10 +166,13 @@ export interface SqliteDeltaCaptureResult {
   schemaMismatchedTables: string[];
   schemaFingerprints: Record<string, string>;
   changes: SqliteDeltaChange[];
+  skippedDerivedTables: string[];
+  skippedDerivedChangeCount: number;
 }
 
 export type SqliteDeltaPersistResult =
   | { mode: 'delta'; entry: SqliteDeltaEntry }
+  | { mode: 'skipped'; reason: string; diagnostics: SqliteDeltaDiagnosticsContext }
   | { mode: 'checkpoint'; reason: string; diagnostics: SqliteDeltaDiagnosticsContext };
 
 export interface SqliteDeltaDiagnosticsContext {
@@ -331,6 +340,7 @@ function tableMetadata(
   primaryKeys: string[],
   columns: SqliteDeltaTableColumn[],
   acceptedColumnVariants: SqliteDeltaTableColumn[][] = [],
+  options: { durability?: SqliteDeltaTableDurability } = {},
 ): SqliteDeltaTableMetadata {
   const schemaFingerprint = fingerprintColumns(columns);
   return {
@@ -343,6 +353,7 @@ function tableMetadata(
       ...acceptedColumnVariants.map((variant) => fingerprintColumns(variant)),
     ]),
     replayMode: 'primary-key-upsert-delete',
+    durability: options.durability ?? 'durable-replay',
   };
 }
 
@@ -469,7 +480,7 @@ export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
     toColumn('metadata_json', 'TEXT', true),
     toColumn('truth_generation_id', 'TEXT', false),
     toColumn('truth_schema_version', 'INTEGER', false),
-  ]),
+  ], [], { durability: 'derived-cache' }),
   tableMetadata('queue_projection_rows', ['queue_type', 'row_id'], [
     toColumn('queue_type', 'TEXT', true, 1),
     toColumn('row_id', 'TEXT', true, 2),
@@ -489,7 +500,7 @@ export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
     toColumn('truth_refs_json', 'TEXT', false),
     toColumn('source_hash', 'TEXT', false),
     toColumn('truth_schema_version', 'INTEGER', false),
-  ]),
+  ], [], { durability: 'derived-cache' }),
   tableMetadata('queue_projection_counters', ['queue_type', 'policy_hash'], [
     toColumn('queue_type', 'TEXT', true, 1),
     toColumn('policy_hash', 'TEXT', true, 2),
@@ -500,7 +511,7 @@ export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
     toColumn('total', 'INTEGER', true),
     toColumn('buckets_json', 'TEXT', true),
     toColumn('updated_at', 'INTEGER', true),
-  ]),
+  ], [], { durability: 'derived-cache' }),
   tableMetadata('queue_projection_invalidations', ['id'], [
     toColumn('id', 'TEXT', false, 1),
     toColumn('queue_type', 'TEXT', true),
@@ -510,7 +521,7 @@ export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
     toColumn('generation', 'INTEGER', true),
     toColumn('created_at', 'INTEGER', true),
     toColumn('metadata_json', 'TEXT', true),
-  ]),
+  ], [], { durability: 'derived-cache' }),
   tableMetadata('queue_projection_rebuilds', ['id'], [
     toColumn('id', 'TEXT', false, 1),
     toColumn('queue_type', 'TEXT', true),
@@ -523,7 +534,7 @@ export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
     toColumn('metadata_json', 'TEXT', true),
     toColumn('truth_generation_id', 'TEXT', false),
     toColumn('truth_schema_version', 'INTEGER', false),
-  ]),
+  ], [], { durability: 'derived-cache' }),
 ];
 
 function getAll<T extends Record<string, SqlValue>>(db: Database, sql: string, params?: SqlParams): T[] {
@@ -774,6 +785,14 @@ export class SqliteDeltaCheckpointLayer {
     return this.checkpointStorageClass === 'durable-checkpoint';
   }
 
+  private isDerivedCacheTable(tableName: string): boolean {
+    return this.tableByName.get(tableName)?.durability === 'derived-cache';
+  }
+
+  private isDurableReplayTable(tableName: string): boolean {
+    return this.tableByName.get(tableName)?.durability !== 'derived-cache';
+  }
+
   private acceptsSchemaFingerprint(metadata: SqliteDeltaTableMetadata, fingerprint: string | null | undefined): boolean {
     return Boolean(fingerprint && metadata.acceptedSchemaFingerprints.includes(fingerprint));
   }
@@ -852,13 +871,21 @@ export class SqliteDeltaCheckpointLayer {
         } finally {
           cleanup();
         }
+        const skippedDerivedChanges = changes.filter((change) => this.isDerivedCacheTable(change.table));
+        const durableChanges = changes.filter((change) => this.isDurableReplayTable(change.table));
+        const skippedDerivedTables = uniqueStrings([
+          ...Array.from(touchedTables).filter((table) => this.isDerivedCacheTable(table)),
+          ...skippedDerivedChanges.map((change) => change.table),
+        ]);
         return {
           label,
           setupError,
           touchedTables: uniqueStrings(touchedTables),
           schemaMismatchedTables: uniqueStrings(schemaMismatchedTables),
           schemaFingerprints,
-          changes,
+          changes: durableChanges,
+          skippedDerivedTables,
+          skippedDerivedChangeCount: skippedDerivedChanges.length,
         };
       },
       abort: cleanup,
@@ -879,6 +906,37 @@ export class SqliteDeltaCheckpointLayer {
       : rawCheckpointReason;
     const diagnostics = normalizeDiagnosticsContext(input.diagnostics);
     const hotPath = diagnostics.hotPath || labelLooksHotPath(input.label);
+    const skippedDerivedTables = input.capture?.skippedDerivedTables ?? [];
+    const skippedDerivedChangeCount = input.capture?.skippedDerivedChangeCount ?? 0;
+    if (checkpointReason === 'derived-cache-only') {
+      const skipDiagnostics: SqliteDeltaDiagnosticsContext = {
+        cause: input.label,
+        initiator: diagnostics.initiator,
+        projectionGeneration: diagnostics.projectionGeneration,
+        hotPath,
+      };
+      this.lastWrite = {
+        ok: true,
+        at: Date.now(),
+        classification: 'delta',
+        label: input.label,
+        ...skipDiagnostics,
+        reason: checkpointReason,
+        pendingCount: snapshot.entries.length,
+        pendingBytes,
+        deltaEntryId: null,
+        deltaEntriesWritten: 0,
+        affectedTables: [],
+        skippedDerivedTables,
+        skippedDerivedChangeCount,
+        checkpointStorageClass: this.checkpointStorageClass,
+      };
+      return {
+        mode: 'skipped',
+        reason: checkpointReason,
+        diagnostics: skipDiagnostics,
+      };
+    }
     if (checkpointReason) {
       if (hotPath && checkpointReason !== 'delta-threshold-exceeded') {
         const error = new Error(
@@ -898,6 +956,8 @@ export class SqliteDeltaCheckpointLayer {
           pendingCount: snapshot.entries.length,
           pendingBytes,
           affectedTables: input.capture?.touchedTables ?? [],
+          skippedDerivedTables,
+          skippedDerivedChangeCount,
           error: error.message,
           checkpointStorageClass: this.checkpointStorageClass,
         };
@@ -921,6 +981,8 @@ export class SqliteDeltaCheckpointLayer {
         pendingCount: snapshot.entries.length,
         pendingBytes,
         affectedTables: input.capture?.touchedTables ?? [],
+        skippedDerivedTables,
+        skippedDerivedChangeCount,
         checkpointStorageClass: this.checkpointStorageClass,
       };
       return {
@@ -960,6 +1022,8 @@ export class SqliteDeltaCheckpointLayer {
         pendingCount: snapshot.entries.length,
         pendingBytes,
         affectedTables: entry.tables,
+        skippedDerivedTables,
+        skippedDerivedChangeCount,
         checkpointStorageClass: this.checkpointStorageClass,
       };
       return {
@@ -982,6 +1046,8 @@ export class SqliteDeltaCheckpointLayer {
         pendingBytes,
         deltaEntryId: entry.id,
         affectedTables: entry.tables,
+        skippedDerivedTables,
+        skippedDerivedChangeCount,
         error: error instanceof Error ? error.message : String(error),
         checkpointStorageClass: this.checkpointStorageClass,
       };
@@ -1003,6 +1069,8 @@ export class SqliteDeltaCheckpointLayer {
       deltaEntryId: entry.id,
       deltaEntriesWritten: 1,
       affectedTables: entry.tables,
+      skippedDerivedTables,
+      skippedDerivedChangeCount,
       checkpointStorageClass: this.checkpointStorageClass,
     };
     return {
@@ -1222,6 +1290,12 @@ export class SqliteDeltaCheckpointLayer {
       fileName: this.fileName,
       version: SQLITE_DELTA_LOG_VERSION,
       registeredTables: SQLITE_DELTA_TABLE_REGISTRY.map((table) => table.tableName),
+      durableReplayTables: SQLITE_DELTA_TABLE_REGISTRY
+        .filter((table) => table.durability === 'durable-replay')
+        .map((table) => table.tableName),
+      derivedCacheTables: SQLITE_DELTA_TABLE_REGISTRY
+        .filter((table) => table.durability === 'derived-cache')
+        .map((table) => table.tableName),
       pendingCount: snapshot.entries.length,
       pendingBytes: estimateJsonByteLength(snapshot),
       affectedTables: uniqueStrings(snapshot.entries.flatMap((entry) => entry.tables)),
@@ -1360,11 +1434,16 @@ export class SqliteDeltaCheckpointLayer {
     if (unsupportedTables.length > 0) {
       return `unsupported-table:${unsupportedTables.join(',')}`;
     }
-    const schemaDirtyTables = input.capture.schemaMismatchedTables.filter((table) => touchedTables.includes(table));
+    const schemaDirtyTables = input.capture.schemaMismatchedTables
+      .filter((table) => touchedTables.includes(table) && this.isDurableReplayTable(table));
     if (schemaDirtyTables.length > 0) {
       return `schema-fingerprint-mismatch:${schemaDirtyTables.join(',')}`;
     }
     if (input.capture.changes.length === 0) {
+      if ((input.capture.skippedDerivedTables.length > 0 || input.capture.skippedDerivedChangeCount > 0)
+        && touchedTables.every((table) => this.tableByName.has(table))) {
+        return 'derived-cache-only';
+      }
       return 'delta-capture-empty';
     }
     if (snapshot.entries.length >= MAX_PENDING_DELTA_ENTRIES || pendingBytes >= MAX_PENDING_DELTA_BYTES) {

@@ -162,6 +162,8 @@ export class DataAccessFacade implements IDataRouter {
     private cardsCache: FSRSCard[] | null = null;
     private cardsCacheTimestamp: number = 0;
     private readonly CACHE_TTL = 1000; // 缓存有效期 1 秒
+    private readonly committedBackendReviewCardsById = new Map<string, FSRSCard>();
+    private readonly committedBackendReviewCardIdsByBlockId = new Map<string, string>();
 
     private readonly BLOCK_CHECK_BATCH_SIZE = 500;
     private readonly knownMissingBlockIds = new Set<string>();
@@ -240,7 +242,10 @@ export class DataAccessFacade implements IDataRouter {
      */
     async getCard(cardId: string, options?: { silent?: boolean }): Promise<FSRSCard> {
         void options;
-        const result = await this.cardService.getCard({ cardId });
+        const overlayCard = this.resolveCommittedBackendReviewCard(cardId);
+        const result = overlayCard
+            ? { card: overlayCard }
+            : await this.cardService.getCard({ cardId });
         
         if (!result.card) {
             throw new Error(`Card not found: ${cardId}`);
@@ -303,6 +308,7 @@ export class DataAccessFacade implements IDataRouter {
             
             // 应用迁移逻辑:确保所有卡片都有 learning_step 字段
             cards = cards.map(card => migrateCard(card));
+            cards = this.applyCommittedBackendReviewOverlay(cards, prefilter);
             
             // 缓存写入统一在过滤和补全之后执行
         }
@@ -368,6 +374,28 @@ export class DataAccessFacade implements IDataRouter {
         this.cardsCacheTimestamp = 0;
         logger.debug(`[SiYuanMemo][DataAccessFacade] Cards cache invalidated`);
     }
+
+    async refreshCommittedBackendReviewCard(card: FSRSCard): Promise<void> {
+        const normalizedId = String(card?.id || '').trim();
+        if (!normalizedId) {
+            logger.error('[SiYuanMemo][DataAccessFacade] LOCAL_REVIEW_READ_MODEL_REFRESH_INVALID_CARD: missing card id');
+            return;
+        }
+
+        const previous = this.committedBackendReviewCardsById.get(normalizedId);
+        const previousBlockId = String(previous?.blockId || '').trim();
+        if (previousBlockId) {
+            this.committedBackendReviewCardIdsByBlockId.delete(previousBlockId);
+        }
+
+        const refreshedCard = this.cloneCard(card);
+        this.committedBackendReviewCardsById.set(normalizedId, refreshedCard);
+        const blockId = String(refreshedCard.blockId || '').trim();
+        if (blockId) {
+            this.committedBackendReviewCardIdsByBlockId.set(blockId, normalizedId);
+        }
+        this.invalidateCardsCache();
+    }
     
     /**
      * 更新卡片
@@ -395,6 +423,7 @@ export class DataAccessFacade implements IDataRouter {
         }
         
         // 🚀 性能优化：失效缓存
+        this.clearCommittedBackendReviewCard(card.id);
         this.invalidateCardsCache();
         
         // 仅在用户明确选择 Riff 调度器时才同步
@@ -433,6 +462,9 @@ export class DataAccessFacade implements IDataRouter {
                 .map((card) => card.id);
 
         if (updatedCardIds.length > 0) {
+            for (const cardId of updatedCardIds) {
+                this.clearCommittedBackendReviewCard(cardId);
+            }
             this.invalidateCardsCache();
             await this.syncUpdatedRiffCards(cardsToUpdate, updatedCardIds);
         }
@@ -471,6 +503,8 @@ export class DataAccessFacade implements IDataRouter {
         if (isErr(result)) {
             throw new Error(`Failed to delete card ${cardId}: ${result.error}`);
         }
+        this.clearCommittedBackendReviewCard(cardId);
+        this.invalidateCardsCache();
     }
 
     async batchDeleteCards(cardIds: string[]): Promise<BatchCardDeleteResult> {
@@ -489,11 +523,15 @@ export class DataAccessFacade implements IDataRouter {
             throw new Error(`Failed to batch delete cards: ${result.error}`);
         }
 
+        const deletedCardIds = this.normalizeIds(result.value.deletedCardIds);
+        for (const cardId of deletedCardIds) {
+            this.clearCommittedBackendReviewCard(cardId);
+        }
         this.invalidateCardsCache();
         return {
             attemptedCount: normalizedCardIds.length,
             deletedCount: result.value.deletedCount,
-            deletedCardIds: this.normalizeIds(result.value.deletedCardIds),
+            deletedCardIds,
             failedCardIds: this.normalizeIds(result.value.failedCardIds),
         };
     }
@@ -690,6 +728,135 @@ export class DataAccessFacade implements IDataRouter {
     private getDueDateUpperBound(_lte: Date): number {
         const dayStartHour = this.plugin ? getDayStartHour(this.plugin) : 4;
         return getCurrentDayEnd(dayStartHour);
+    }
+
+    private applyCommittedBackendReviewOverlay(cards: FSRSCard[], filter?: QueryCardFilter): FSRSCard[] {
+        if (this.committedBackendReviewCardsById.size === 0) {
+            return cards;
+        }
+
+        const overlaidCards: FSRSCard[] = [];
+        const seenIds = new Set<string>();
+
+        for (const card of cards) {
+            const overlay = this.resolveCommittedBackendReviewCard(card.id)
+                || this.resolveCommittedBackendReviewCard(card.blockId);
+            const candidate = overlay ?? card;
+            if (!this.matchesQueryPrefilter(candidate, filter)) {
+                continue;
+            }
+            overlaidCards.push(candidate);
+            seenIds.add(String(candidate.id || '').trim());
+        }
+
+        for (const overlay of this.committedBackendReviewCardsById.values()) {
+            const cardId = String(overlay.id || '').trim();
+            if (!cardId || seenIds.has(cardId)) {
+                continue;
+            }
+            if (!this.matchesQueryPrefilter(overlay, filter)) {
+                continue;
+            }
+            overlaidCards.push(this.cloneCard(overlay));
+            seenIds.add(cardId);
+        }
+
+        return filter?.dueDate
+            ? overlaidCards.sort((left, right) => left.due - right.due || left.id.localeCompare(right.id))
+            : overlaidCards;
+    }
+
+    private resolveCommittedBackendReviewCard(cardIdOrBlockId: unknown): FSRSCard | null {
+        const normalized = String(cardIdOrBlockId || '').trim();
+        if (!normalized) {
+            return null;
+        }
+        const byId = this.committedBackendReviewCardsById.get(normalized);
+        if (byId) {
+            return this.cloneCard(byId);
+        }
+        const cardId = this.committedBackendReviewCardIdsByBlockId.get(normalized);
+        const byBlockId = cardId ? this.committedBackendReviewCardsById.get(cardId) : undefined;
+        return byBlockId ? this.cloneCard(byBlockId) : null;
+    }
+
+    private clearCommittedBackendReviewCard(cardIdOrBlockId: unknown): void {
+        const normalized = String(cardIdOrBlockId || '').trim();
+        if (!normalized) {
+            return;
+        }
+        const existingById = this.committedBackendReviewCardsById.get(normalized);
+        const cardId = existingById
+            ? normalized
+            : this.committedBackendReviewCardIdsByBlockId.get(normalized);
+        if (!cardId) {
+            return;
+        }
+        const existing = this.committedBackendReviewCardsById.get(cardId);
+        const blockId = String(existing?.blockId || '').trim();
+        this.committedBackendReviewCardsById.delete(cardId);
+        if (blockId) {
+            this.committedBackendReviewCardIdsByBlockId.delete(blockId);
+        }
+    }
+
+    private matchesQueryPrefilter(card: FSRSCard, filter?: QueryCardFilter): boolean {
+        if (!filter) {
+            return true;
+        }
+
+        if (filter.blockIds && filter.blockIds.length > 0) {
+            const blockIds = new Set(filter.blockIds.map((blockId) => String(blockId || '').trim()).filter(Boolean));
+            if (!blockIds.has(String(card.blockId || '').trim()) && !blockIds.has(String(card.id || '').trim())) {
+                return false;
+            }
+        }
+
+        if (filter.cardTypes && filter.cardTypes.length > 0) {
+            const cardTypes = new Set(filter.cardTypes.map((type) => String(type || '').trim()).filter(Boolean));
+            if (!cardTypes.has(String(card.type || '').trim())) {
+                return false;
+            }
+        }
+
+        if (filter.cardStatus && filter.cardStatus.length > 0) {
+            const states = new Set(filter.cardStatus.map((status) => this.toCardStateNumber(status)));
+            if (!states.has(Number(card.state))) {
+                return false;
+            }
+        }
+
+        if (filter.dueDate?.lte && card.due > filter.dueDate.lte.getTime()) {
+            return false;
+        }
+        if (filter.dueDate?.gte && card.due < filter.dueDate.gte.getTime()) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private toCardStateNumber(status: NonNullable<QueryCardFilter['cardStatus']>[number]): number {
+        switch (status) {
+            case 'new':
+                return 0;
+            case 'learning':
+                return 1;
+            case 'review':
+                return 2;
+            case 'relearning':
+                return 3;
+            default:
+                return Number.NaN;
+        }
+    }
+
+    private cloneCard(card: FSRSCard): FSRSCard {
+        return {
+            ...card,
+            tags: [...(card.tags ?? [])],
+            meta: card.meta ? { ...card.meta } : card.meta,
+        } as FSRSCard;
     }
 
     private getDueDateLowerBound(gte: Date): number {

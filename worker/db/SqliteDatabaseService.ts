@@ -1927,7 +1927,7 @@ export class WorkerSqliteDatabaseService {
         reason: request.reason ?? null,
       },
     );
-    logger.debug('Queue projection replace persisted through SQLite delta checkpoint layer', {
+    logger.debug('Queue projection replace applied as derived cache update', {
       queueType: request.queueType,
       reason: request.reason ?? 'queue-projection.replace',
     });

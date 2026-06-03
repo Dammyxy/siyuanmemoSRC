@@ -16,11 +16,20 @@ export type ReviewEditableRendererKind =
   | 'concept-definition'
   | 'descriptor';
 
-export interface ReviewEditableSource {
+export type ReviewEditableTargetRole =
+  | 'current-content'
+  | 'list-item'
+  | 'concept'
+  | 'definition'
+  | 'descriptor';
+
+export interface ReviewEditableTarget {
+  id: string;
   blockId: string;
   title: string;
   sourceKind: 'block-markdown';
   rendererKind: ReviewEditableRendererKind;
+  role: ReviewEditableTargetRole;
 }
 
 export type ReviewNativeSplitGuardRendererKind =

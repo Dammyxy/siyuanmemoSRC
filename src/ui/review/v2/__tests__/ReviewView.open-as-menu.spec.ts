@@ -4,18 +4,11 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ReviewView from '../ReviewView.vue';
-import { createEmptyReviewUIState } from '../types';
+import { createEmptyReviewUIState, type ReviewEditableTarget } from '../types';
 import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
 import { QueueType } from '@/types/unified-data-source';
 
-let reviewContentEditableSource:
-  | {
-      blockId: string;
-      title: string;
-      sourceKind: 'block-markdown';
-      rendererKind: string;
-    }
-  | null = null;
+let reviewContentEditableTargets: ReviewEditableTarget[] = [];
 
 const reviewViewMenuMocks = vi.hoisted(() => {
   const menuOpen = vi.fn();
@@ -155,7 +148,7 @@ const ReviewContentStub = defineComponent({
   name: 'ReviewContent',
   setup(_props, { expose }) {
     expose({
-      getEditableSource: () => reviewContentEditableSource,
+      getEditableTargets: () => reviewContentEditableTargets,
     });
     return () => h('div', { class: 'review-content-stub' });
   },
@@ -178,7 +171,7 @@ describe('ReviewView open-as menu', () => {
     reviewViewLoggerMocks.info.mockReset();
     reviewViewLoggerMocks.log.mockReset();
     reviewViewLoggerMocks.trace.mockReset();
-    reviewContentEditableSource = null;
+    reviewContentEditableTargets = [];
     vi.mocked(openReviewBlockAtSource).mockReset();
   });
 
@@ -554,13 +547,15 @@ describe('ReviewView open-as menu', () => {
     wrapper.unmount();
   });
 
-  it('uses the editable source block for list-template review cards when locating source', async () => {
-    reviewContentEditableSource = {
+  it('uses the editable target block for list-template review cards when locating source', async () => {
+    reviewContentEditableTargets = [{
+      id: 'list-template:list-item:list-child-2',
       blockId: 'list-child-2',
       title: '编辑当前列表项',
       sourceKind: 'block-markdown',
       rendererKind: 'list-template',
-    };
+      role: 'list-item',
+    }];
 
     const card = buildCard();
     const queue = createQueue(card);

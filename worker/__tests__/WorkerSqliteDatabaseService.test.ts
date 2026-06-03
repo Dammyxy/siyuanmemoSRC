@@ -127,13 +127,26 @@ describe('WorkerSqliteDatabaseService', () => {
 
     expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
     expect(writeJSON.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v1.json')).toHaveLength(0);
-    expect(writeJSON.mock.calls.filter(([path]) => path === SQLITE_DELTA_V2_MANIFEST).length).toBeGreaterThan(0);
-    expect(writeBinary.mock.calls.filter(([path]) => path === SQLITE_DELTA_V2_OPEN_SEGMENT).length).toBeGreaterThan(0);
+    expect(writeJSON.mock.calls.filter(([path]) => path === SQLITE_DELTA_V2_MANIFEST)).toHaveLength(0);
+    expect(writeBinary.mock.calls.filter(([path]) => path === SQLITE_DELTA_V2_OPEN_SEGMENT)).toHaveLength(0);
     await database.persist();
 
     expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
     await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
-      pendingCount: 3,
+      pendingCount: 0,
+      lastWrite: {
+        ok: true,
+        classification: 'delta',
+        reason: 'derived-cache-only',
+        deltaEntriesWritten: 0,
+        affectedTables: [],
+        skippedDerivedTables: expect.arrayContaining([
+          'queue_projection_generations',
+          'queue_projection_rows',
+          'queue_projection_counters',
+        ]),
+        skippedDerivedChangeCount: expect.any(Number),
+      },
       lastCheckpoint: {
         ok: true,
         cleared: false,
@@ -205,7 +218,18 @@ describe('WorkerSqliteDatabaseService', () => {
     await database.persist();
     expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
     await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
-      pendingCount: 1,
+      pendingCount: 0,
+      lastWrite: {
+        ok: true,
+        classification: 'delta',
+        reason: 'derived-cache-only',
+        deltaEntriesWritten: 0,
+        skippedDerivedTables: expect.arrayContaining([
+          'queue_projection_generations',
+          'queue_projection_rows',
+          'queue_projection_counters',
+        ]),
+      },
       lastCheckpoint: {
         ok: true,
         cleared: false,
@@ -214,7 +238,7 @@ describe('WorkerSqliteDatabaseService', () => {
     });
   });
 
-  it('persists queue projection replacement as sqlite delta without writing the main database hot path', async () => {
+  it('skips queue projection replacement from sqlite delta without writing the main database hot path', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
     const writeJSON = vi.fn(bridge.writeJSON!.bind(bridge));
@@ -272,72 +296,146 @@ describe('WorkerSqliteDatabaseService', () => {
 
     expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
     expect(writeJSON.mock.calls.some(([path]) => path === 'sqlite-delta-log.v1.json')).toBe(false);
-    expect(writeJSON.mock.calls.some(([path]) => path === SQLITE_DELTA_V2_MANIFEST)).toBe(true);
-    expect(writeBinary.mock.calls.some(([path]) => path === SQLITE_DELTA_V2_OPEN_SEGMENT)).toBe(true);
+    expect(writeJSON.mock.calls.some(([path]) => path === SQLITE_DELTA_V2_MANIFEST)).toBe(false);
+    expect(writeBinary.mock.calls.some(([path]) => path === SQLITE_DELTA_V2_OPEN_SEGMENT)).toBe(false);
     await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
       fileName: SQLITE_DELTA_V2_MANIFEST,
       version: 2,
-      pendingCount: 1,
-      lastWrite: { ok: true, classification: 'delta' },
+      pendingCount: 0,
+      lastWrite: {
+        ok: true,
+        classification: 'delta',
+        reason: 'derived-cache-only',
+        deltaEntriesWritten: 0,
+        affectedTables: [],
+        skippedDerivedTables: expect.arrayContaining([
+          'queue_projection_generations',
+          'queue_projection_rows',
+          'queue_projection_counters',
+        ]),
+      },
     });
   });
 
-  it('replays sqlite deltas on restart and keeps them pending until full checkpoint succeeds', async () => {
+  it('replays review feedback canonical sqlite deltas without queue projection rows', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     const first = new WorkerSqliteDatabaseService(bridge);
     await first.init();
-    await first.upsertCards([{
-      id: 'projection-replay-card',
-      blockId: 'projection-replay-block',
-      due: 1_700_000_000_000,
-      stability: 4,
-      difficulty: 5,
-      reps: 1,
-      lapses: 0,
-      state: CardState.Review,
-      lastReview: 1_699_900_000_000,
-      elapsedDays: 1,
-      scheduledDays: 3,
-      priority: 40,
-      type: CardType.Item,
-      tags: [],
-      neuralRoamSeed: false,
-      leechCount: 0,
-      isLeech: false,
-      skipped: false,
-      createdAt: 1_699_800_000_000,
-      updatedAt: 1_700_000_000_000,
-      meta: { content: 'projection replay card' },
-    }]);
     await first.persist();
-    await first.replaceQueueProjection({
-      queueType: 'retrieval-practice',
-      policyHash: 'retrieval-practice:replay-policy',
-      generation: 1,
-      rows: [{
-        rowId: 'projection-replay-row',
-        cardId: 'projection-replay-card',
-        blockId: 'projection-replay-block',
-        deckId: null,
-        membershipReason: 'test',
-        dueAt: 1_700_000_000_000,
-        dueBucket: 'due',
-        priorityScore: 40,
-        sortKey: '0001:projection-replay',
-        queueIndexHint: 1,
-        payload: { source: 'test' },
-      }],
-      reason: 'test-delta-replay',
+    await first.runTransaction('review.feedback', (db) => {
+      db.run(
+        `INSERT OR REPLACE INTO cards
+          (id, block_id, type, state, due, priority, scheduler_type, updated_at, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'review-replay-card',
+          'review-replay-block',
+          CardType.Item,
+          CardState.Review,
+          1_700_000_000_000,
+          40,
+          'fsrs',
+          1_700_000_000_100,
+          JSON.stringify({ content: 'review replay card' }),
+        ],
+      );
+      db.run(
+        `INSERT OR REPLACE INTO algorithm_card_state
+          (card_id, algorithm_id, state_json, updated_at)
+         VALUES (?, ?, ?, ?)`,
+        [
+          'review-replay-card',
+          'fsrs',
+          JSON.stringify({ stability: 4, difficulty: 5 }),
+          1_700_000_000_100,
+        ],
+      );
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'review-replay-event',
+          'review-replay-card',
+          'review-replay-attempt',
+          3,
+          1_700_000_000_100,
+          'review-replay-commit',
+          2026,
+          5,
+          'review-v2',
+          JSON.stringify({ source: 'test' }),
+        ],
+      );
+      db.run(
+        `INSERT INTO domain_sync_operations
+          (operation_id, source_id, source_device_id, source_generation, operation_type,
+           entity_type, entity_id, entity_block_id, occurred_at, observed_at,
+           payload_fingerprint, idempotency_key, review_event_id, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'review-replay-domain-sync',
+          'source-review-replay',
+          null,
+          1,
+          'review-committed',
+          'card',
+          'review-replay-card',
+          'review-replay-block',
+          1_700_000_000_100,
+          1_700_000_000_101,
+          'fingerprint-review-replay',
+          'domain-sync-review-replay',
+          'review-replay-event',
+          JSON.stringify({ source: 'test' }),
+        ],
+      );
+      db.run(
+        `INSERT OR REPLACE INTO queue_projection_generations
+          (queue_type, policy_hash, generation, status, rebuild_reason, updated_at, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ['retrieval-practice', 'review-replay-policy', 1, 'ready', null, 1_700_000_000_100, '{}'],
+      );
+      db.run(
+        `INSERT OR REPLACE INTO queue_projection_rows
+          (queue_type, row_id, card_id, block_id, membership_reason, due_at, due_bucket, priority_score,
+           sort_key, queue_index_hint, policy_hash, source_generation, payload_json, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'retrieval-practice',
+          'review-replay-projection-row',
+          'review-replay-card',
+          'review-replay-block',
+          'test',
+          1_700_000_000_000,
+          'due',
+          40,
+          '0001:review-replay-projection',
+          1,
+          'review-replay-policy',
+          1,
+          '{}',
+          1_700_000_000_100,
+        ],
+      );
     });
     first.dispose();
 
     const second = new WorkerSqliteDatabaseService(bridge);
     await second.init();
 
+    expect(second.getOne<{ id: string }>('SELECT id FROM cards WHERE id = ?', ['review-replay-card']))
+      .toEqual({ id: 'review-replay-card' });
+    expect(second.getOne<{ id: string }>('SELECT id FROM review_events WHERE id = ?', ['review-replay-event']))
+      .toEqual({ id: 'review-replay-event' });
+    expect(second.getOne<{ operation_id: string }>(
+      'SELECT operation_id FROM domain_sync_operations WHERE operation_id = ?',
+      ['review-replay-domain-sync'],
+    )).toEqual({ operation_id: 'review-replay-domain-sync' });
     expect(second.getOne<{ row_id: string }>(
       'SELECT row_id FROM queue_projection_rows WHERE queue_type = ? AND row_id = ?',
-      ['retrieval-practice', 'projection-replay-row'],
-    )).toEqual({ row_id: 'projection-replay-row' });
+      ['retrieval-practice', 'review-replay-projection-row'],
+    )).toBeNull();
     await expect(second.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
       pendingCount: 1,
       lastReplay: { ok: true, replayedCount: 1 },
@@ -362,43 +460,32 @@ describe('WorkerSqliteDatabaseService', () => {
       writeBinary,
     });
     await first.init();
-    await first.runTransaction('seed.queue-projection-row-for-delete', (db) => {
+    await first.runTransaction('seed.review-event-row-for-delete', (db) => {
       db.run(
-        `INSERT OR REPLACE INTO queue_projection_generations
-          (queue_type, policy_hash, generation, status, rebuild_reason, updated_at, metadata_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        ['retrieval-practice', 'delete-policy', 1, 'ready', null, 1_700_000_000_000, '{}'],
-      );
-      db.run(
-        `INSERT OR REPLACE INTO queue_projection_rows
-          (queue_type, row_id, card_id, block_id, membership_reason, due_at, due_bucket, priority_score,
-           sort_key, queue_index_hint, policy_hash, source_generation, payload_json, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          'retrieval-practice',
-          'projection-delete-row',
-          'projection-delete-card',
-          'projection-delete-block',
-          'test',
+          'review-delete-row',
+          'review-delete-card',
+          'review-delete-attempt',
+          3,
           1_700_000_000_000,
-          'due',
-          40,
-          '0001:projection-delete',
-          1,
-          'delete-policy',
-          1,
-          '{}',
-          1_700_000_000_000,
+          'review-delete-commit',
+          2026,
+          5,
+          'review-v2',
+          JSON.stringify({ source: 'delete-test' }),
         ],
       );
     });
     await first.persist();
     const writesBeforeDelete = writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length;
 
-    await first.runTransaction('queue.projection.delete-row', (db) => {
+    await first.runTransaction('review-events.delete-row', (db) => {
       db.run(
-        'DELETE FROM queue_projection_rows WHERE queue_type = ? AND row_id = ?',
-        ['retrieval-practice', 'projection-delete-row'],
+        'DELETE FROM review_events WHERE id = ?',
+        ['review-delete-row'],
       );
     });
     first.dispose();
@@ -407,9 +494,9 @@ describe('WorkerSqliteDatabaseService', () => {
     const second = new WorkerSqliteDatabaseService(bridge);
     await second.init();
 
-    expect(second.getOne<{ row_id: string }>(
-      'SELECT row_id FROM queue_projection_rows WHERE queue_type = ? AND row_id = ?',
-      ['retrieval-practice', 'projection-delete-row'],
+    expect(second.getOne<{ id: string }>(
+      'SELECT id FROM review_events WHERE id = ?',
+      ['review-delete-row'],
     )).toBeNull();
     await expect(second.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
       pendingCount: 2,
@@ -475,7 +562,7 @@ describe('WorkerSqliteDatabaseService', () => {
     });
   });
 
-  it('uses explicit checkpoint mode when sqlite delta size threshold would overflow', async () => {
+  it('skips projection-only payloads even when their derived cache rows exceed the delta threshold', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
     const database = new WorkerSqliteDatabaseService({
@@ -531,16 +618,20 @@ describe('WorkerSqliteDatabaseService', () => {
 
     expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
     await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
-      pendingCount: 1,
+      pendingCount: 0,
       lastWrite: {
         ok: true,
         classification: 'delta',
-        reason: null,
+        reason: 'derived-cache-only',
         cause: 'queue.projection.replace',
         initiator: 'queue.projection.replace',
-        projectionGeneration: 1,
+        projectionGeneration: null,
         hotPath: false,
         checkpointStorageClass: 'volatile-projection',
+        deltaEntriesWritten: 0,
+        skippedDerivedTables: expect.arrayContaining([
+          'queue_projection_rows',
+        ]),
       },
     });
   });
@@ -561,54 +652,18 @@ describe('WorkerSqliteDatabaseService', () => {
       writeJSON,
     });
     await database.init();
-    await database.upsertCards([{
-      id: 'projection-delta-fail-card',
-      blockId: 'projection-delta-fail-block',
-      due: 1_700_000_000_000,
-      stability: 4,
-      difficulty: 5,
-      reps: 1,
-      lapses: 0,
-      state: CardState.Review,
-      lastReview: 1_699_900_000_000,
-      elapsedDays: 1,
-      scheduledDays: 3,
-      priority: 40,
-      type: CardType.Item,
-      tags: [],
-      neuralRoamSeed: false,
-      leechCount: 0,
-      isLeech: false,
-      skipped: false,
-      createdAt: 1_699_800_000_000,
-      updatedAt: 1_700_000_000_000,
-      meta: { content: 'projection delta fail card' },
-    }]);
     await database.persist();
-    const writesBeforeProjection = writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length;
+    const writesBeforeDurableDelta = writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length;
     failDeltaWrite = true;
 
-    await expect(database.replaceQueueProjection({
-      queueType: 'retrieval-practice',
-      policyHash: 'retrieval-practice:delta-fail-policy',
-      generation: 1,
-      rows: [{
-        rowId: 'projection-delta-fail-row',
-        cardId: 'projection-delta-fail-card',
-        blockId: 'projection-delta-fail-block',
-        deckId: null,
-        membershipReason: 'test',
-        dueAt: 1_700_000_000_000,
-        dueBucket: 'due',
-        priorityScore: 40,
-        sortKey: '0001:projection-delta-fail',
-        queueIndexHint: 1,
-        payload: { source: 'test' },
-      }],
-      reason: 'test-delta-write-fail',
+    await expect(database.runTransaction('metadata.delta-write-fail', (db) => {
+      db.run(
+        'INSERT OR REPLACE INTO store_metadata (key, value_json, updated_at) VALUES (?, ?, ?)',
+        ['delta-write-fail', JSON.stringify({ source: 'test' }), 1_700_000_000_000],
+      );
     })).rejects.toThrow('mock delta write failed');
 
-    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeDurableDelta);
     await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
       pendingCount: 0,
       lastWrite: {
@@ -623,48 +678,12 @@ describe('WorkerSqliteDatabaseService', () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     const first = new WorkerSqliteDatabaseService(bridge);
     await first.init();
-    await first.upsertCards([{
-      id: 'projection-checkpoint-fail-card',
-      blockId: 'projection-checkpoint-fail-block',
-      due: 1_700_000_000_000,
-      stability: 4,
-      difficulty: 5,
-      reps: 1,
-      lapses: 0,
-      state: CardState.Review,
-      lastReview: 1_699_900_000_000,
-      elapsedDays: 1,
-      scheduledDays: 3,
-      priority: 40,
-      type: CardType.Item,
-      tags: [],
-      neuralRoamSeed: false,
-      leechCount: 0,
-      isLeech: false,
-      skipped: false,
-      createdAt: 1_699_800_000_000,
-      updatedAt: 1_700_000_000_000,
-      meta: { content: 'projection checkpoint fail card' },
-    }]);
     await first.persist();
-    await first.replaceQueueProjection({
-      queueType: 'retrieval-practice',
-      policyHash: 'retrieval-practice:checkpoint-fail-policy',
-      generation: 1,
-      rows: [{
-        rowId: 'projection-checkpoint-fail-row',
-        cardId: 'projection-checkpoint-fail-card',
-        blockId: 'projection-checkpoint-fail-block',
-        deckId: null,
-        membershipReason: 'test',
-        dueAt: 1_700_000_000_000,
-        dueBucket: 'due',
-        priorityScore: 40,
-        sortKey: '0001:projection-checkpoint-fail',
-        queueIndexHint: 1,
-        payload: { source: 'test' },
-      }],
-      reason: 'test-checkpoint-fail',
+    await first.runTransaction('metadata.checkpoint-fail', (db) => {
+      db.run(
+        'INSERT OR REPLACE INTO store_metadata (key, value_json, updated_at) VALUES (?, ?, ?)',
+        ['checkpoint-fail', JSON.stringify({ source: 'test' }), 1_700_000_000_000],
+      );
     });
     first.dispose();
 

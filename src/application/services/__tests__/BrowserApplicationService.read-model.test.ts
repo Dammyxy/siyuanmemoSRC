@@ -414,6 +414,53 @@ describe('BrowserApplicationService BrowserReadModel facade', () => {
     expect(readQueueProjectionSnapshot).toHaveBeenCalledWith(QueueType.RetrievalPractice, { forceRefresh: false });
   });
 
+  it('returns preparing for missing derived-cache projection instead of ready empty or local fallback', async () => {
+    const readQueueProjectionSnapshot = vi.fn(async () => null);
+    const service = createProjectionQueueService({
+      readQueueProjectionSnapshot,
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
+        queueType: QueueType.RetrievalPractice,
+        projectionBacked: true,
+        readPath: 'backend-projection',
+        state: 'projection-unavailable',
+        reason: 'refresh-required',
+        unavailableReason: 'missing_derived_cache',
+        backendStatus: 'refreshing',
+        policyHash: null,
+        generation: null,
+      }]),
+    });
+
+    const page = await service.getBrowserReadModel().page({
+      source: 'queue',
+      query: {
+        queueId: 'retrieval',
+        preset: 'all',
+        searchText: '',
+        cardType: 'all',
+        sortModel: [],
+      },
+    }, {
+      startRow: 0,
+      endRow: 20,
+    });
+
+    expect(page).toMatchObject({
+      status: 'preparing',
+      rows: [],
+      total: 0,
+      readOwner: {
+        kind: 'queue-projection',
+        queueId: 'retrieval',
+        projectionBacked: true,
+        state: 'projection-unavailable',
+        unavailableReason: 'missing_derived_cache',
+      },
+      diagnostics: [expect.objectContaining({ kind: 'refresh-required' })],
+    });
+    expect(readQueueProjectionSnapshot).toHaveBeenCalledWith(QueueType.RetrievalPractice, { forceRefresh: false });
+  });
+
   it('returns repair-required when queue projection freshness reports stale or missing rows', async () => {
     const service = createProjectionQueueService({
       readQueueProjectionSnapshot: vi.fn(async () => ({

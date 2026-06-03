@@ -394,6 +394,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       ...(rowIds.length > 0 ? { rowIds } : {}),
     }];
     const queueType = resolveQueueTypeForBrowserQueueId(query.queueId);
+    const errorReadOwner = projectionError?.browserReadOwner;
 
     return {
       status,
@@ -406,9 +407,10 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         queueType: queueType ?? undefined,
         projectionBacked: true,
         readPath: 'backend-projection',
-        state: status === 'unavailable' ? 'projection-unavailable' : 'backend-projection',
-        reason: status === 'repair-required' ? 'refresh-required' : null,
-        unavailableReason: status === 'unavailable' ? reason : null,
+        ...errorReadOwner,
+        state: errorReadOwner?.state ?? (status === 'unavailable' ? 'projection-unavailable' : 'backend-projection'),
+        reason: errorReadOwner?.reason ?? (status === 'repair-required' ? 'refresh-required' : null),
+        unavailableReason: errorReadOwner?.unavailableReason ?? (status === 'unavailable' ? reason : null),
       },
       queryFingerprint: this.buildReadModelFingerprint({
         source: 'queue',

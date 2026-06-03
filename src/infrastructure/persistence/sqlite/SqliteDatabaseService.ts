@@ -307,7 +307,7 @@ export class SqliteDatabaseService {
                 hotPath: label.startsWith('review.feedback'),
               },
             });
-            if (deltaResult.mode === 'delta') {
+            if (deltaResult.mode === 'delta' || deltaResult.mode === 'skipped') {
               this.dirtySincePersist = false;
               persistAfterCommit = false;
             } else {

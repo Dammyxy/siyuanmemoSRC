@@ -23,6 +23,12 @@ const SQLITE_DELTA_V2_SEALED_1 = `${SQLITE_DELTA_V2_DIR}/sqlite-delta-log.v2.sea
 const LEGACY_SQLITE_DELTA_V2_MANIFEST = 'sqlite-delta-log.v2.manifest.json';
 const LEGACY_SQLITE_DELTA_V2_OPEN_SEGMENT = 'sqlite-delta-log.v2.open.msgpack';
 
+type TestSqliteDeltaEntry = {
+  tables: string[];
+  changes: Array<{ table: string }>;
+  byteEstimate: number;
+};
+
 class MemorySqliteFileService implements JsonFileService {
   readonly json = new Map<string, unknown>();
   readonly binary = new Map<string, Uint8Array>();
@@ -118,6 +124,24 @@ class SplitProjectionSqliteFileService implements JsonFileService {
 
 function toBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64');
+}
+
+function readSqliteDeltaEntries(fileService: MemorySqliteFileService): TestSqliteDeltaEntry[] {
+  const manifest = fileService.json.get(SQLITE_DELTA_V2_MANIFEST) as {
+    openSegment?: { path: string } | null;
+    sealedSegments?: Array<{ path: string }>;
+  } | undefined;
+  expect(manifest).toBeTruthy();
+  const segmentPaths = [
+    ...(manifest?.sealedSegments ?? []).map((segment) => segment.path),
+    ...(manifest?.openSegment ? [manifest.openSegment.path] : []),
+  ];
+  return segmentPaths.flatMap((path) => {
+    const bytes = fileService.binary.get(path);
+    expect(bytes).toBeTruthy();
+    const envelope = decode(bytes!) as { entries?: TestSqliteDeltaEntry[] };
+    return envelope.entries ?? [];
+  });
 }
 
 describe('SqliteDatabaseService', () => {
@@ -662,6 +686,209 @@ describe('SqliteDatabaseService', () => {
     await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
       fileName: SQLITE_DELTA_V2_MANIFEST,
       pendingCount: 1,
+    });
+  });
+
+  it('excludes queue projection cache from review feedback sqlite delta while retaining canonical writes', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    await database.runTransaction('review.feedback', (db) => {
+      db.run(
+        `INSERT OR REPLACE INTO cards
+          (id, block_id, type, state, due, priority, scheduler_type, updated_at, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'card-delta-slim',
+          'block-delta-slim',
+          CardType.Item,
+          CardState.Review,
+          1_700_000_000_000,
+          40,
+          'fsrs',
+          1_700_000_000_100,
+          JSON.stringify({ content: 'canonical card payload' }),
+        ],
+      );
+      db.run(
+        `INSERT OR REPLACE INTO algorithm_card_state
+          (card_id, algorithm_id, state_json, updated_at)
+         VALUES (?, ?, ?, ?)`,
+        [
+          'card-delta-slim',
+          'fsrs',
+          JSON.stringify({ stability: 4, difficulty: 5 }),
+          1_700_000_000_100,
+        ],
+      );
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-delta-slim',
+          'card-delta-slim',
+          'attempt-delta-slim',
+          3,
+          1_700_000_000_100,
+          'commit-delta-slim',
+          2026,
+          5,
+          'review-v2',
+          JSON.stringify({ summary: 'review event index' }),
+        ],
+      );
+      db.run(
+        `INSERT INTO domain_sync_operations
+          (operation_id, source_id, source_device_id, source_generation, operation_type,
+           entity_type, entity_id, entity_block_id, occurred_at, observed_at,
+           payload_fingerprint, idempotency_key, review_event_id, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'domain-sync-delta-slim',
+          'source-delta-slim',
+          null,
+          1,
+          'review-committed',
+          'card',
+          'card-delta-slim',
+          'block-delta-slim',
+          1_700_000_000_100,
+          1_700_000_000_101,
+          'fingerprint-delta-slim',
+          'domain-sync-key-delta-slim',
+          'event-delta-slim',
+          JSON.stringify({ summary: 'domain sync index' }),
+        ],
+      );
+      db.run(
+        'INSERT OR REPLACE INTO store_metadata (key, value_json, updated_at) VALUES (?, ?, ?)',
+        ['review-feedback:last-applied', JSON.stringify({ eventId: 'event-delta-slim' }), 1_700_000_000_100],
+      );
+      db.run(
+        `INSERT OR REPLACE INTO queue_projection_generations
+          (queue_type, policy_hash, generation, status, rebuild_reason, updated_at, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ['retrieval-practice', 'policy-delta-slim', 7, 'ready', null, 1_700_000_000_100, '{}'],
+      );
+      for (let index = 0; index < 96; index += 1) {
+        const rowId = `projection-delta-slim-${index}`;
+        db.run(
+          `INSERT OR REPLACE INTO queue_projection_rows
+            (queue_type, row_id, card_id, block_id, deck_id, membership_reason, due_at, due_bucket,
+             priority_score, sort_key, queue_index_hint, policy_hash, source_generation, payload_json, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            'retrieval-practice',
+            rowId,
+            `card-delta-slim-${index}`,
+            `block-delta-slim-${index}`,
+            null,
+            'due',
+            1_700_000_000_000 + index,
+            'due',
+            40,
+            `0001:${rowId}`,
+            index,
+            'policy-delta-slim',
+            7,
+            JSON.stringify({
+              rowId,
+              stableSalt: 'stable-salt-for-review-feedback-delta-slimming-fixture',
+              sourceCardFingerprint: {
+                version: 1,
+                cardId: `card-delta-slim-${index}`,
+                blockId: `block-delta-slim-${index}`,
+                schedulerType: 'fsrs',
+                fingerprint: `fingerprint-${index}`,
+                due: 1_700_000_000_000 + index,
+                stability: 4,
+                difficulty: 5,
+                reps: 2,
+                lapses: 0,
+                state: CardState.Review,
+              },
+            }),
+            1_700_000_000_100,
+          ],
+        );
+      }
+      db.run(
+        `INSERT OR REPLACE INTO queue_projection_counters
+          (queue_type, policy_hash, generation, version, remaining, due, total, buckets_json, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'retrieval-practice',
+          'policy-delta-slim',
+          7,
+          1,
+          96,
+          96,
+          96,
+          JSON.stringify({ due: 96 }),
+          1_700_000_000_100,
+        ],
+      );
+      db.run(
+        `INSERT OR REPLACE INTO queue_projection_invalidations
+          (id, queue_type, reason, affected_card_ids_json, affected_block_ids_json, generation, created_at, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'projection-invalidation-delta-slim',
+          'retrieval-practice',
+          'review-feedback',
+          JSON.stringify(['card-delta-slim']),
+          JSON.stringify(['block-delta-slim']),
+          7,
+          1_700_000_000_100,
+          '{}',
+        ],
+      );
+    });
+
+    const [entry] = readSqliteDeltaEntries(fileService);
+    expect(entry.tables).toEqual(expect.arrayContaining([
+      'cards',
+      'algorithm_card_state',
+      'review_events',
+      'domain_sync_operations',
+      'store_metadata',
+    ]));
+    expect(entry.tables).not.toEqual(expect.arrayContaining([
+      'queue_projection_generations',
+      'queue_projection_rows',
+      'queue_projection_counters',
+      'queue_projection_invalidations',
+    ]));
+    expect(entry.changes.map((change) => change.table)).not.toEqual(expect.arrayContaining([
+      'queue_projection_rows',
+      'queue_projection_counters',
+    ]));
+    expect(entry.byteEstimate).toBeLessThan(64 * 1024);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 1,
+      lastWrite: {
+        ok: true,
+        classification: 'delta',
+        affectedTables: expect.arrayContaining([
+          'cards',
+          'review_events',
+          'domain_sync_operations',
+        ]),
+        skippedDerivedTables: expect.arrayContaining([
+          'queue_projection_generations',
+          'queue_projection_rows',
+          'queue_projection_counters',
+          'queue_projection_invalidations',
+        ]),
+        skippedDerivedChangeCount: expect.any(Number),
+      },
     });
   });
 

@@ -81,6 +81,9 @@ export class QueueProjectionReadinessService {
     if (!snapshot) {
       return 'projection_unavailable';
     }
+    if (snapshot.cacheState === 'missing-derived-cache') {
+      return 'missing_derived_cache';
+    }
     if (hasProjectionFreshnessGap(snapshot.freshness)) {
       return 'projection_stale';
     }

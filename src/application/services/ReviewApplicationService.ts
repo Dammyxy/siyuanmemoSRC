@@ -111,6 +111,10 @@ export class ReviewApplicationService {
     return kramdown;
   }
 
+  async getEditableBlockMarkdown(blockId: string): Promise<string> {
+    return this.siyuanApi.getEditableBlockMarkdown(blockId);
+  }
+
   async updateBlockMarkdown(blockId: string, markdown: string): Promise<string> {
     return this.siyuanApi.updateBlockMarkdown(blockId, markdown);
   }

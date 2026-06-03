@@ -137,8 +137,9 @@ export function hasActiveBackendWorkerTiming(method: string): boolean {
 
 export function shouldSuppressReviewFeedbackPersistenceHostEffect(
   kind: BackendWorkerHostEffect['kind'],
+  activeTiming: ActiveBackendWorkerTiming | null,
 ): boolean {
-  return hasActiveBackendWorkerTiming('review.feedback')
+  return activeTiming?.method === 'review.feedback'
     && (
       kind === 'truth.writeJSON'
       || kind === 'truth.writeBinary'

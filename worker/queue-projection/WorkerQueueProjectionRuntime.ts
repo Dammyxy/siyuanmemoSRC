@@ -16,6 +16,7 @@ import type {
   BackendQueueProjectionReplaceResult,
   BackendQueueProjectionRowsByIdsRequest,
   BackendQueueProjectionRowsByIdsResult,
+  type BackendQueueProjectionCacheState,
   type BackendQueueProjectionFreshnessEvidence,
   BackendQueueProjectionSnapshotRequest,
   BackendQueueProjectionSnapshotResult,
@@ -72,6 +73,7 @@ export class WorkerQueueProjectionRuntime {
         queueType,
         policyHash: null,
         generation: null,
+        cacheState: 'missing-derived-cache',
       });
     }
 
@@ -109,6 +111,9 @@ export class WorkerQueueProjectionRuntime {
       ? mergeProjectionFreshnessEvidence(countersMissingRows, hydrated.freshness)
       : hydrated.freshness;
     if (!hydrated.freshnessOk || countersMissingRows) {
+      const cacheState: BackendQueueProjectionCacheState = countersMissingRows
+        ? 'missing-derived-cache'
+        : 'stale';
       return {
         queueType,
         policyHash,
@@ -117,6 +122,7 @@ export class WorkerQueueProjectionRuntime {
         rows: [],
         counters: null,
         freshness,
+        cacheState,
       };
     }
     return {
@@ -133,6 +139,7 @@ export class WorkerQueueProjectionRuntime {
         rows: hydrated.rows,
       }),
       freshness,
+      cacheState: hydrated.rows.length === 0 ? 'ready-empty' : 'ready-populated',
       stale: currentGeneration?.status !== 'ready' && request.allowStale === true,
     };
   }
@@ -157,6 +164,7 @@ export class WorkerQueueProjectionRuntime {
           policyHash: null,
           generation: null,
           freshness: buildMissingIdentityFreshnessEvidence(ids),
+          cacheState: 'missing-derived-cache',
         }),
         cards: [],
       };
@@ -208,6 +216,9 @@ export class WorkerQueueProjectionRuntime {
         buildProjectionFreshnessEvidenceForRequestedIds(ids, orderedRows, cards),
         hydrated.freshness,
       );
+      const cacheState: BackendQueueProjectionCacheState = orderedRows.length !== ids.length
+        ? 'missing-derived-cache'
+        : 'stale';
       return {
         queueType,
         policyHash,
@@ -216,6 +227,7 @@ export class WorkerQueueProjectionRuntime {
         rows: [],
         cards: [],
         freshness,
+        cacheState,
       };
     }
     return {
@@ -226,6 +238,7 @@ export class WorkerQueueProjectionRuntime {
       rows: hydrated.rows,
       cards: activeCards,
       freshness: hydrated.freshness,
+      cacheState: hydrated.rows.length === 0 ? 'ready-empty' : 'ready-populated',
     };
   }
 
@@ -368,6 +381,7 @@ function buildRefreshingProjectionSnapshotResult(input: {
   policyHash: string | null;
   generation: number | null;
   freshness?: BackendQueueProjectionFreshnessEvidence | null;
+  cacheState?: BackendQueueProjectionCacheState | null;
 }): BackendQueueProjectionSnapshotResult {
   return {
     queueType: String(input.queueType || ''),
@@ -377,6 +391,7 @@ function buildRefreshingProjectionSnapshotResult(input: {
     rows: [],
     counters: null,
     freshness: input.freshness ?? null,
+    cacheState: input.cacheState ?? null,
   };
 }
 
