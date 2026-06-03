@@ -97,6 +97,7 @@ import type {
   BackendSourceExistenceSummary,
   BackendSourceExistenceUpdate,
   BackendDiagnosticsStatusResult,
+  BackendReviewTruthDeviceDiagnostics,
   BackendHealthResult,
   BackendGraphQueryRequest,
   BackendGraphQueryResult,
@@ -148,11 +149,13 @@ export interface SrsBackendReviewTruthFlushSchedulerOptions {
 
 export interface SrsBackendClientOptions {
   reviewTruthFlush?: SrsBackendReviewTruthFlushSchedulerOptions | null;
+  reviewTruthDevice?: BackendReviewTruthDeviceDiagnostics | null;
 }
 
 export class SrsBackendClient {
   private requestId = 0;
   private readonly reviewTruthFlushOptions: SrsBackendReviewTruthFlushSchedulerOptions | null;
+  private readonly reviewTruthDeviceDiagnostics: BackendReviewTruthDeviceDiagnostics | null;
   private reviewTruthFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private reviewTruthFlushInFlight = false;
   private reviewTruthFlushInFlightPromise: Promise<void> | null = null;
@@ -165,6 +168,7 @@ export class SrsBackendClient {
     options: SrsBackendClientOptions = {},
   ) {
     this.reviewTruthFlushOptions = options.reviewTruthFlush ?? null;
+    this.reviewTruthDeviceDiagnostics = options.reviewTruthDevice ?? null;
   }
 
   async systemHealth(): Promise<BackendHealthResult> {
@@ -180,7 +184,21 @@ export class SrsBackendClient {
   }
 
   async diagnosticsStatus(): Promise<BackendDiagnosticsStatusResult> {
-    return this.call<BackendDiagnosticsStatusResult>('diagnostics.status');
+    const status = await this.call<BackendDiagnosticsStatusResult>('diagnostics.status');
+    if (!this.reviewTruthDeviceDiagnostics) {
+      return status;
+    }
+    return {
+      ...status,
+      review: {
+        feedbackTotal: 0,
+        feedbackCommittedTotal: 0,
+        feedbackPreviewTotal: 0,
+        feedbackUnavailableTotal: 0,
+        ...(status.review ?? {}),
+        truthDevice: this.reviewTruthDeviceDiagnostics,
+      },
+    };
   }
 
   async schedulePendingReviewTruthFlush(reason = 'startup'): Promise<boolean> {

@@ -24,6 +24,9 @@ import {
   endBackendWorkerRequest,
 } from '../bootstrap/ReviewFeedbackTimingScope';
 
+const SQLITE_DELTA_V2_MANIFEST = 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json';
+const SQLITE_DELTA_V2_OPEN_SEGMENT = 'sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack';
+
 class MemoryTruthSegmentFileStore implements MessagePackTruthSegmentFileStore {
   readonly jsonFiles = new Map<string, unknown>();
   readonly binaryFiles = new Map<string, Uint8Array>();
@@ -499,7 +502,7 @@ describe('BackendKernel', () => {
         },
         storage: {
           sqliteDelta: {
-            fileName: 'sqlite-delta-log.v2.manifest.json',
+            fileName: SQLITE_DELTA_V2_MANIFEST,
             pendingCount: 0,
             lastCheckpoint: {
               ok: true,
@@ -7517,9 +7520,9 @@ describe('BackendKernel', () => {
         status: 'not-run',
       },
     });
-    expect(writeBinary.mock.calls.some(([path]) => path === 'sqlite-delta-log.v2.open.msgpack')).toBe(true);
+    expect(writeBinary.mock.calls.some(([path]) => path === SQLITE_DELTA_V2_OPEN_SEGMENT)).toBe(true);
     expect(writeBinary.mock.calls.some(([path]) => path === 'siyuanmemo.db')).toBe(false);
-    expect(writeJSON.mock.calls.some(([path]) => path === 'sqlite-delta-log.v2.manifest.json')).toBe(true);
+    expect(writeJSON.mock.calls.some(([path]) => path === SQLITE_DELTA_V2_MANIFEST)).toBe(true);
     await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
       pendingCount: 1,
       lastWrite: {
@@ -7717,7 +7720,7 @@ describe('BackendKernel', () => {
       },
     });
     const mainDbWritesBeforeBackfill = writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length;
-    const deltaWritesBeforeBackfill = writeJSON.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v2.manifest.json').length;
+    const deltaWritesBeforeBackfill = writeJSON.mock.calls.filter(([path]) => path === SQLITE_DELTA_V2_MANIFEST).length;
     const kernel = new BackendKernel({
       database,
       truthFileStore,
@@ -7818,10 +7821,10 @@ describe('BackendKernel', () => {
     expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(
       mainDbWritesBeforeBackfill,
     );
-    expect(writeJSON.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v2.manifest.json').length).toBeGreaterThan(
+    expect(writeJSON.mock.calls.filter(([path]) => path === SQLITE_DELTA_V2_MANIFEST).length).toBeGreaterThan(
       deltaWritesBeforeBackfill,
     );
-    expect(writeBinary.mock.calls.some(([path]) => path === 'sqlite-delta-log.v2.open.msgpack')).toBe(true);
+    expect(writeBinary.mock.calls.some(([path]) => path === SQLITE_DELTA_V2_OPEN_SEGMENT)).toBe(true);
 
     const restartedDatabase = new WorkerSqliteDatabaseService(persistenceBridge);
     await restartedDatabase.init();
@@ -9548,9 +9551,9 @@ describe('BackendKernel', () => {
       },
     });
     expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(0);
-    expect(writeBinary.mock.calls.some(([path]) => path === 'sqlite-delta-log.v2.open.msgpack')).toBe(true);
+    expect(writeBinary.mock.calls.some(([path]) => path === SQLITE_DELTA_V2_OPEN_SEGMENT)).toBe(true);
     expect(writeJSON.mock.calls).toHaveLength(1);
-    expect(writeJSON.mock.calls[0][0]).toBe('sqlite-delta-log.v2.manifest.json');
+    expect(writeJSON.mock.calls[0][0]).toBe(SQLITE_DELTA_V2_MANIFEST);
   });
 
   it('replays pending review feedback journal after restart before checkpoint', async () => {
@@ -10876,7 +10879,7 @@ describe('BackendKernel', () => {
       ...baseBridge,
       writeJSON: vi.fn((path: string, value: unknown) => baseBridge.writeJSON!(path, value)),
       writeBinary: vi.fn(async (path: string, bytes: Uint8Array) => {
-        if (path === 'sqlite-delta-log.v2.open.msgpack' && failDurabilityWrites) {
+        if (path === SQLITE_DELTA_V2_OPEN_SEGMENT && failDurabilityWrites) {
           throw new Error('BACKEND_UNAVAILABLE: mock sqlite delta durability failed');
         }
         if (path === 'siyuanmemo.db' && failDurabilityWrites) {

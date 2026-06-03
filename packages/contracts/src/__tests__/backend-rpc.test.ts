@@ -350,7 +350,7 @@ describe('backend SQL projection rebuild contract', () => {
       dbFile: 'siyuanmemo.db',
       storage: {
         sqliteDelta: {
-          fileName: 'sqlite-delta-log.v2.manifest.json',
+          fileName: 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json',
           version: 2,
           registeredTables: ['queue_projection_generations'],
           pendingCount: 0,

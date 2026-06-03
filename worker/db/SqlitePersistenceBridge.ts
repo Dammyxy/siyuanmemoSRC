@@ -17,6 +17,7 @@ export interface SqlitePersistenceBridge {
   writeBinary(path: string, bytes: Uint8Array): Promise<void>;
   readJSON?<T>(path: string): Promise<T | null>;
   writeJSON?(path: string, value: unknown): Promise<void>;
+  deleteFile?(path: string): Promise<void>;
   reviewFeedbackJournalStore?: ReviewFeedbackJournalStore;
   truthFileStore?: MessagePackTruthSegmentFileStore;
   readSyncConflictDatabaseSources?(): Promise<SqliteConflictDatabaseSource[]>;
@@ -46,6 +47,9 @@ export function createUnavailableSqlitePersistenceBridge(reason: string): Sqlite
       throw new Error(reason);
     },
     async writeJSON(): Promise<void> {
+      throw new Error(reason);
+    },
+    async deleteFile(): Promise<void> {
       throw new Error(reason);
     },
     async readSyncConflictDatabaseSources(): Promise<SqliteConflictDatabaseSource[]> {
@@ -107,6 +111,10 @@ export function createInMemorySqlitePersistenceBridge(): SqlitePersistenceBridge
     },
     async writeJSON(path: string, value: unknown): Promise<void> {
       json.set(path, value);
+    },
+    async deleteFile(path: string): Promise<void> {
+      json.delete(path);
+      binary.delete(path);
     },
     async readSyncConflictDatabaseSources(): Promise<SqliteConflictDatabaseSource[]> {
       return [];

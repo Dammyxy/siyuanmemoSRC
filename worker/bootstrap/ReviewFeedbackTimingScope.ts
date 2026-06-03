@@ -51,6 +51,9 @@ export function classifyBackendWorkerHostEffectStorage(
     normalizedPath === 'sqlite-delta-log.v2.manifest.json'
     || normalizedPath === 'sqlite-delta-log.v2.open.msgpack'
     || /^sqlite-delta-log\.v2\.sealed-\d+\.msgpack$/.test(normalizedPath)
+    || normalizedPath === 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json'
+    || normalizedPath === 'sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack'
+    || /^sqlite-delta\/v2\/sqlite-delta-log\.v2\.sealed-\d+\.msgpack$/.test(normalizedPath)
   ) {
     return 'sqlite-delta-log';
   }

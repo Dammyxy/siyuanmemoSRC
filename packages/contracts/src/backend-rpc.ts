@@ -532,6 +532,7 @@ export interface BackendDiagnosticsStatusResult {
     feedbackPreviewTotal: number;
     feedbackUnavailableTotal: number;
     journal?: BackendReviewFeedbackJournalDiagnostics;
+    truthDevice?: BackendReviewTruthDeviceDiagnostics;
     truthFlush?: BackendReviewFeedbackTruthFlushDiagnostics;
     truthBackfill?: BackendReviewTruthBackfillDiagnostics;
   };
@@ -566,6 +567,15 @@ export interface BackendDiagnosticsStatusResult {
   };
   preRequestMerge?: BackendPreRequestMergeDiagnosticsState;
   domainSync?: BackendDomainSyncStatusResult;
+}
+
+export interface BackendReviewTruthDeviceDiagnostics {
+  deviceId: string | null;
+  source: 'temp-local' | 'localStorage' | 'legacy-localStorage' | 'generated' | 'unavailable';
+  localStatePath: string;
+  persisted: boolean;
+  cacheUpdated: boolean;
+  error: string | null;
 }
 
 export type BackendSqliteDeltaWriteClassification = 'delta' | 'checkpoint';

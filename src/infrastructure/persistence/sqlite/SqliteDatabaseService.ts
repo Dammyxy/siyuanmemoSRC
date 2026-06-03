@@ -39,7 +39,7 @@ type SqliteDatabaseServiceOptions = {
   checkpointStorageClass?: SqliteCheckpointStorageClass;
 };
 type SqliteFileService = Pick<IFileService, 'readJSON' | 'writeJSON'>
-  & Partial<Pick<IFileService, 'readBinary'>>
+  & Partial<Pick<IFileService, 'readBinary' | 'deleteFile'>>
   & {
     writeBinary?: (
       fileName: string,
@@ -193,6 +193,9 @@ export class SqliteDatabaseService {
           }
           await fileService.writeBinary(fileName, bytes);
         },
+        ...(fileService.deleteFile
+          ? { deleteFile: (fileName: string) => fileService.deleteFile!(fileName) }
+          : {}),
       }, undefined, {
         checkpointStorageClass: options.checkpointStorageClass,
       })

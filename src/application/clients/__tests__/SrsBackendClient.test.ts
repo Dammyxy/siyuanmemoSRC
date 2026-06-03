@@ -448,6 +448,54 @@ describe('SrsBackendClient', () => {
     }
   });
 
+  it('adds client-side Review truth device diagnostics to backend status', async () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          runtime: 'srs-backend-worker',
+          initialized: true,
+          dbFile: 'siyuanmemo.db',
+          review: {
+            feedbackTotal: 0,
+            feedbackCommittedTotal: 0,
+            feedbackPreviewTotal: 0,
+            feedbackUnavailableTotal: 0,
+            truthFlush: {
+              family: 'review-events',
+              storage: 'truth-segments',
+              last: null,
+            },
+          },
+        },
+      })),
+    };
+    const client = new SrsBackendClient(transport, {
+      reviewTruthDevice: {
+        deviceId: 'device-stable',
+        source: 'temp-local',
+        localStatePath: 'truth-device-id.v1.json',
+        persisted: true,
+        cacheUpdated: true,
+        error: null,
+      },
+    });
+
+    await expect(client.diagnosticsStatus()).resolves.toMatchObject({
+      review: {
+        truthDevice: {
+          deviceId: 'device-stable',
+          source: 'temp-local',
+          localStatePath: 'truth-device-id.v1.json',
+          persisted: true,
+          cacheUpdated: true,
+          error: null,
+        },
+      },
+    });
+  });
+
   it('schedules Review SQL truth backfill after startup diagnostics show rows without truth refs', async () => {
     vi.useFakeTimers();
     try {

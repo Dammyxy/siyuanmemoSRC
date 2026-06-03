@@ -16,6 +16,22 @@ interface TruthDeviceIdentityState {
   deviceId?: unknown;
 }
 
+export type TruthDeviceIdentitySource =
+  | 'temp-local'
+  | 'localStorage'
+  | 'legacy-localStorage'
+  | 'generated'
+  | 'unavailable';
+
+export interface TruthDeviceIdentityResolution {
+  deviceId: string | null;
+  source: TruthDeviceIdentitySource;
+  localStatePath: typeof TRUTH_DEVICE_ID_LOCAL_STATE_PATH;
+  persisted: boolean;
+  cacheUpdated: boolean;
+  error: string | null;
+}
+
 export interface ResolveTruthDeviceIdOptions {
   localStore?: TruthDeviceIdentityLocalStore | null;
   storage?: TruthDeviceIdentityStorage | null;
@@ -38,13 +54,27 @@ export function createTruthDeviceId(): string {
 }
 
 export async function resolveTruthDeviceId(options: ResolveTruthDeviceIdOptions = {}): Promise<string | null> {
+  return (await resolveTruthDeviceIdentity(options)).deviceId;
+}
+
+export async function resolveTruthDeviceIdentity(options: ResolveTruthDeviceIdOptions = {}): Promise<TruthDeviceIdentityResolution> {
   const localStore = options.localStore ?? null;
   const storage = options.storage ?? resolveGlobalStorage();
   const now = options.now ?? Date.now;
   const localDeviceId = await readTempLocalDeviceId(localStore);
-  if (localDeviceId) {
-    writeStorageDeviceId(storage, TRUTH_DEVICE_ID_STORAGE_KEY, localDeviceId);
-    return localDeviceId;
+  if (localDeviceId.error) {
+    return unavailable(localDeviceId.error);
+  }
+  if (localDeviceId.deviceId) {
+    const cacheUpdated = writeStorageDeviceId(storage, TRUTH_DEVICE_ID_STORAGE_KEY, localDeviceId.deviceId);
+    return {
+      deviceId: localDeviceId.deviceId,
+      source: 'temp-local',
+      localStatePath: TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
+      persisted: true,
+      cacheUpdated,
+      error: null,
+    };
   }
 
   const stored = readStorageDeviceId(storage, TRUTH_DEVICE_ID_STORAGE_KEY);
@@ -59,7 +89,7 @@ export async function resolveTruthDeviceId(options: ResolveTruthDeviceIdOptions 
 
   const next = (options.createId ?? createTruthDeviceId)();
   if (!isMessagePackTruthIdentity(next)) {
-    return null;
+    return unavailable(`invalid generated truth device id: ${String(next)}`);
   }
   return await persistAndReturn(localStore, storage, next.trim(), 'generated', now);
 }
@@ -72,16 +102,22 @@ function resolveGlobalStorage(): TruthDeviceIdentityStorage | null {
   }
 }
 
-async function readTempLocalDeviceId(localStore: TruthDeviceIdentityLocalStore | null): Promise<string | null> {
+async function readTempLocalDeviceId(localStore: TruthDeviceIdentityLocalStore | null): Promise<{
+  deviceId: string | null;
+  error: string | null;
+}> {
   if (!localStore?.readTempLocalJSON) {
-    return null;
+    return { deviceId: null, error: null };
   }
   try {
     const state = await localStore.readTempLocalJSON<TruthDeviceIdentityState>(TRUTH_DEVICE_ID_LOCAL_STATE_PATH);
     const deviceId = state?.deviceId;
-    return isMessagePackTruthIdentity(deviceId) ? deviceId.trim() : null;
-  } catch {
-    return null;
+    return {
+      deviceId: isMessagePackTruthIdentity(deviceId) ? deviceId.trim() : null,
+      error: null,
+    };
+  } catch (error) {
+    return { deviceId: null, error: toErrorMessage(error) };
   }
 }
 
@@ -91,13 +127,20 @@ async function persistAndReturn(
   deviceId: string,
   source: 'localStorage' | 'legacy-localStorage' | 'generated',
   now: () => number,
-): Promise<string | null> {
+): Promise<TruthDeviceIdentityResolution> {
   const persisted = await writeTempLocalDeviceId(localStore, deviceId, source, now);
-  if (!persisted && localStore) {
-    return null;
+  if (!persisted.ok && localStore) {
+    return unavailable(persisted.error);
   }
-  writeStorageDeviceId(storage, TRUTH_DEVICE_ID_STORAGE_KEY, deviceId);
-  return deviceId;
+  const cacheUpdated = writeStorageDeviceId(storage, TRUTH_DEVICE_ID_STORAGE_KEY, deviceId);
+  return {
+    deviceId,
+    source,
+    localStatePath: TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
+    persisted: persisted.ok,
+    cacheUpdated,
+    error: null,
+  };
 }
 
 async function writeTempLocalDeviceId(
@@ -105,9 +148,9 @@ async function writeTempLocalDeviceId(
   deviceId: string,
   source: 'localStorage' | 'legacy-localStorage' | 'generated',
   now: () => number,
-): Promise<boolean> {
+): Promise<{ ok: boolean; error: string | null }> {
   if (!localStore?.writeTempLocalJSON) {
-    return false;
+    return { ok: false, error: 'temp-local write API unavailable' };
   }
   try {
     await localStore.writeTempLocalJSON(TRUTH_DEVICE_ID_LOCAL_STATE_PATH, {
@@ -116,9 +159,9 @@ async function writeTempLocalDeviceId(
       source,
       updatedAt: now(),
     });
-    return true;
-  } catch {
-    return false;
+    return { ok: true, error: null };
+  } catch (error) {
+    return { ok: false, error: toErrorMessage(error) };
   }
 }
 
@@ -135,10 +178,27 @@ function writeStorageDeviceId(
   storage: TruthDeviceIdentityStorage | null,
   key: string,
   deviceId: string,
-): void {
+): boolean {
   try {
     storage?.setItem(key, deviceId);
+    return Boolean(storage);
   } catch {
     // Temp-local state is authoritative; localStorage is only a cache.
+    return false;
   }
+}
+
+function unavailable(error: string | null): TruthDeviceIdentityResolution {
+  return {
+    deviceId: null,
+    source: 'unavailable',
+    localStatePath: TRUTH_DEVICE_ID_LOCAL_STATE_PATH,
+    persisted: false,
+    cacheUpdated: false,
+    error,
+  };
+}
+
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-03 (Round 537)
+Last update: 2026-06-03 (Round 538)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-03 - Review truth identity fail-closed and SQLite delta directory cleanup
+
+- Task: Stabilize Review truth device identity failure behavior and move `sqlite-delta-log.v2.*` segment files into one directory with effective checkpoint cleanup.
+- Touched slice: Review truth device identity bootstrap and diagnostics, `SrsBackendClient` diagnostics enrichment, SQLite delta v2 checkpoint layer, renderer/worker SQLite file adapters, backend RPC diagnostics contract, worker host-effect storage classification, and focused identity/SQLite/worker/kernel tests.
+- Debt fixed now: `resolveTruthDeviceIdentity()` now exposes device id source, temp-local path, persisted/cache state, and error details; temp-local read/write failures return explicit unavailable instead of silently generating a fresh device id. Runtime `diagnostics.status` now includes client-side `review.truthDevice` diagnostics. SQLite delta v2 now writes manifest/open/sealed files under `sqlite-delta/v2/`, keeps replay compatibility for legacy root manifest/segment files, and deletes covered segment files after a durable checkpoint when the file adapter exposes `deleteFile`. Worker and renderer SQLite adapters now pass that delete port, and host-effect classification recognizes both new directory paths and legacy root paths.
+- Debt deferred: Existing root-level live `sqlite-delta-log.v2.*` files and historical `truth/review-events/.../device-*` directories are not deleted or merged by this task.
+- Why deferred: Legacy delta files may still be needed for upgrade replay until a successful checkpoint proves coverage; Review truth device directories are sync-visible history and need separate retention/compaction policy.
+- Next safe step: Deploy/reload the rebuilt plugin, confirm `/temp/siyuan-plugin-siyuanmemo/local/truth-device-id.v1.json`, review once, then verify new delta files appear under `sqlite-delta/v2/` and no same-workspace restart creates a fresh Review truth device directory.
+- Validation: Red/green `pnpm vitest run src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`; targeted `pnpm vitest run src/application/factories/__tests__/truthDeviceIdentity.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts worker/__tests__/WorkerSqliteDatabaseService.test.ts worker/bootstrap/__tests__/ReviewFeedbackTimingScope.test.ts packages/contracts/src/__tests__/backend-rpc.test.ts worker/__tests__/BackendKernel.test.ts -t "sqlite delta|formal review feedback|Review SQL truth backfill|hot path|truth device|diagnostics|SrsBackendClient|SqliteDatabaseService|WorkerSqliteDatabaseService|ReviewFeedbackTimingScope|backend rpc"`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
 
 ### 2026-06-03 - Review truth device identity stability
 

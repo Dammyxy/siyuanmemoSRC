@@ -4,6 +4,9 @@ import { CardState, CardType } from '@/types/card';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { createInMemorySqlitePersistenceBridge } from '../db/SqlitePersistenceBridge';
 
+const SQLITE_DELTA_V2_MANIFEST = 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json';
+const SQLITE_DELTA_V2_OPEN_SEGMENT = 'sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack';
+
 describe('WorkerSqliteDatabaseService', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -124,8 +127,8 @@ describe('WorkerSqliteDatabaseService', () => {
 
     expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
     expect(writeJSON.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v1.json')).toHaveLength(0);
-    expect(writeJSON.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v2.manifest.json').length).toBeGreaterThan(0);
-    expect(writeBinary.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v2.open.msgpack').length).toBeGreaterThan(0);
+    expect(writeJSON.mock.calls.filter(([path]) => path === SQLITE_DELTA_V2_MANIFEST).length).toBeGreaterThan(0);
+    expect(writeBinary.mock.calls.filter(([path]) => path === SQLITE_DELTA_V2_OPEN_SEGMENT).length).toBeGreaterThan(0);
     await database.persist();
 
     expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
@@ -269,10 +272,10 @@ describe('WorkerSqliteDatabaseService', () => {
 
     expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
     expect(writeJSON.mock.calls.some(([path]) => path === 'sqlite-delta-log.v1.json')).toBe(false);
-    expect(writeJSON.mock.calls.some(([path]) => path === 'sqlite-delta-log.v2.manifest.json')).toBe(true);
-    expect(writeBinary.mock.calls.some(([path]) => path === 'sqlite-delta-log.v2.open.msgpack')).toBe(true);
+    expect(writeJSON.mock.calls.some(([path]) => path === SQLITE_DELTA_V2_MANIFEST)).toBe(true);
+    expect(writeBinary.mock.calls.some(([path]) => path === SQLITE_DELTA_V2_OPEN_SEGMENT)).toBe(true);
     await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
-      fileName: 'sqlite-delta-log.v2.manifest.json',
+      fileName: SQLITE_DELTA_V2_MANIFEST,
       version: 2,
       pendingCount: 1,
       lastWrite: { ok: true, classification: 'delta' },
@@ -547,7 +550,7 @@ describe('WorkerSqliteDatabaseService', () => {
     let failDeltaWrite = false;
     const writeJSON = vi.fn(bridge.writeJSON!.bind(bridge));
     const writeBinary = vi.fn(async (path: string, bytes: Uint8Array) => {
-      if (path === 'sqlite-delta-log.v2.open.msgpack' && failDeltaWrite) {
+      if (path === SQLITE_DELTA_V2_OPEN_SEGMENT && failDeltaWrite) {
         throw new Error('mock delta write failed');
       }
       await bridge.writeBinary(path, bytes);

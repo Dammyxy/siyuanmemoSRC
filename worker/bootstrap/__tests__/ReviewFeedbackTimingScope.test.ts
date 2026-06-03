@@ -129,7 +129,9 @@ describe('ReviewFeedbackTimingScope', () => {
   it('classifies storage write host effects by active truth/projection role', () => {
     expect(classifyBackendWorkerHostEffectStorage('sqlite.writeBinary', 'siyuanmemo.db'))
       .toBe('sql-projection-db');
-    expect(classifyBackendWorkerHostEffectStorage('sqlite.writeJSON', 'sqlite-delta-log.v2.manifest.json'))
+    expect(classifyBackendWorkerHostEffectStorage('sqlite.writeJSON', 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json'))
+      .toBe('sqlite-delta-log');
+    expect(classifyBackendWorkerHostEffectStorage('sqlite.writeBinary', 'sqlite-delta/v2/sqlite-delta-log.v2.open.msgpack'))
       .toBe('sqlite-delta-log');
     expect(classifyBackendWorkerHostEffectStorage('sqlite.writeBinary', 'sqlite-delta-log.v2.open.msgpack'))
       .toBe('sqlite-delta-log');

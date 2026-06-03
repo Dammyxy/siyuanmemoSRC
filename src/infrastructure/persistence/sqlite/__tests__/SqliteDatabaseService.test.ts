@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { Buffer } from 'node:buffer';
+import { decode, encode } from '@msgpack/msgpack';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import { SqliteDatabaseService } from '@/infrastructure/persistence/sqlite/SqliteDatabaseService';
 import {
@@ -13,12 +14,20 @@ import {
   setRuntimePerformanceDiagnosticsEnabled,
 } from '@/utils/runtimePerformanceDiagnostics';
 
-type JsonFileService = Pick<IFileService, 'readJSON' | 'writeJSON' | 'readBinary' | 'writeBinary'>;
+type JsonFileService = Pick<IFileService, 'readJSON' | 'writeJSON' | 'readBinary' | 'writeBinary' | 'deleteFile'>;
+
+const SQLITE_DELTA_V2_DIR = 'sqlite-delta/v2';
+const SQLITE_DELTA_V2_MANIFEST = `${SQLITE_DELTA_V2_DIR}/sqlite-delta-log.v2.manifest.json`;
+const SQLITE_DELTA_V2_OPEN_SEGMENT = `${SQLITE_DELTA_V2_DIR}/sqlite-delta-log.v2.open.msgpack`;
+const SQLITE_DELTA_V2_SEALED_1 = `${SQLITE_DELTA_V2_DIR}/sqlite-delta-log.v2.sealed-1.msgpack`;
+const LEGACY_SQLITE_DELTA_V2_MANIFEST = 'sqlite-delta-log.v2.manifest.json';
+const LEGACY_SQLITE_DELTA_V2_OPEN_SEGMENT = 'sqlite-delta-log.v2.open.msgpack';
 
 class MemorySqliteFileService implements JsonFileService {
   readonly json = new Map<string, unknown>();
   readonly binary = new Map<string, Uint8Array>();
   readonly writeBinaryFiles: string[] = [];
+  readonly deletedFiles: string[] = [];
   writeBinaryCount = 0;
   failNextWriteBinary = false;
   lastWriteBinaryDiagnostics: Record<string, unknown> | null = null;
@@ -47,6 +56,12 @@ class MemorySqliteFileService implements JsonFileService {
     this.binary.set(fileName, new Uint8Array(bytes));
   }
 
+  async deleteFile(fileName: string): Promise<void> {
+    this.deletedFiles.push(fileName);
+    this.json.delete(fileName);
+    this.binary.delete(fileName);
+  }
+
   resetWriteCounts(): void {
     this.writeBinaryCount = 0;
     this.writeBinaryFiles.length = 0;
@@ -59,6 +74,7 @@ class SplitProjectionSqliteFileService implements JsonFileService {
   readonly durableBinary: Map<string, Uint8Array>;
   readonly tempBinary = new Map<string, Uint8Array>();
   readonly writeBinaryFiles: string[] = [];
+  readonly deletedFiles: string[] = [];
 
   constructor(source?: {
     json?: Map<string, unknown>;
@@ -90,6 +106,13 @@ class SplitProjectionSqliteFileService implements JsonFileService {
     this.writeBinaryFiles.push(fileName);
     const target = fileName === SQLITE_DB_FILE ? this.tempBinary : this.durableBinary;
     target.set(fileName, new Uint8Array(bytes));
+  }
+
+  async deleteFile(fileName: string): Promise<void> {
+    this.deletedFiles.push(fileName);
+    this.json.delete(fileName);
+    this.durableBinary.delete(fileName);
+    this.tempBinary.delete(fileName);
   }
 }
 
@@ -567,11 +590,11 @@ describe('SqliteDatabaseService', () => {
     });
 
     expect(fileService.binary.get(SQLITE_DB_FILE)).toBe(dbBytesBeforePatch);
-    expect(fileService.binary.get('sqlite-delta-log.v2.open.msgpack')).toBeTruthy();
-    expect(fileService.json.get('sqlite-delta-log.v2.manifest.json')).toMatchObject({
+    expect(fileService.binary.get(SQLITE_DELTA_V2_OPEN_SEGMENT)).toBeTruthy();
+    expect(fileService.json.get(SQLITE_DELTA_V2_MANIFEST)).toMatchObject({
       version: 2,
       openSegment: {
-        path: 'sqlite-delta-log.v2.open.msgpack',
+        path: SQLITE_DELTA_V2_OPEN_SEGMENT,
         entryCount: 1,
       },
     });
@@ -600,6 +623,165 @@ describe('SqliteDatabaseService', () => {
       truth_hash: 'truth-hash-a',
       truth_schema_version: 1,
       projection_generation: 1_700_000_000_100,
+    });
+  });
+
+  it('stores sqlite delta v2 manifest and segment files under one versioned directory', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    await database.runTransaction('delta-directory', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-delta-directory',
+          'card-delta-directory',
+          'attempt-delta-directory',
+          3,
+          1_700_000_000_000,
+          'commit-delta-directory',
+          2026,
+          5,
+          'review-v2',
+          '{}',
+        ],
+      );
+    });
+
+    expect(fileService.json.has(SQLITE_DELTA_V2_MANIFEST)).toBe(true);
+    expect(fileService.binary.has(SQLITE_DELTA_V2_OPEN_SEGMENT)).toBe(true);
+    expect(fileService.json.has(LEGACY_SQLITE_DELTA_V2_MANIFEST)).toBe(false);
+    expect(fileService.binary.has(LEGACY_SQLITE_DELTA_V2_OPEN_SEGMENT)).toBe(false);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      fileName: SQLITE_DELTA_V2_MANIFEST,
+      pendingCount: 1,
+    });
+  });
+
+  it('replays sqlite delta v2 files from legacy root paths during directory migration', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    await database.runTransaction('legacy-delta-source', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-legacy-root-replay',
+          'card-legacy-root-replay',
+          'attempt-legacy-root-replay',
+          3,
+          1_700_000_000_000,
+          'commit-legacy-root-replay',
+          2026,
+          5,
+          'review-v2',
+          '{}',
+        ],
+      );
+    });
+
+    const sourceManifestPath = fileService.json.has(SQLITE_DELTA_V2_MANIFEST)
+      ? SQLITE_DELTA_V2_MANIFEST
+      : LEGACY_SQLITE_DELTA_V2_MANIFEST;
+    const sourceOpenSegmentPath = fileService.binary.has(SQLITE_DELTA_V2_OPEN_SEGMENT)
+      ? SQLITE_DELTA_V2_OPEN_SEGMENT
+      : LEGACY_SQLITE_DELTA_V2_OPEN_SEGMENT;
+    const sourceManifest = structuredClone(fileService.json.get(sourceManifestPath)) as {
+      path: string;
+      openSegment: { path: string; checksum: string } | null;
+    };
+    const sourceBytes = fileService.binary.get(sourceOpenSegmentPath);
+    expect(sourceManifest).toBeTruthy();
+    expect(sourceBytes).toBeTruthy();
+
+    const legacyEnvelope = {
+      ...(decode(sourceBytes!) as Record<string, unknown>),
+      path: LEGACY_SQLITE_DELTA_V2_OPEN_SEGMENT,
+    };
+    sourceManifest.path = LEGACY_SQLITE_DELTA_V2_MANIFEST;
+    if (sourceManifest.openSegment) {
+      sourceManifest.openSegment.path = LEGACY_SQLITE_DELTA_V2_OPEN_SEGMENT;
+      sourceManifest.openSegment.checksum = '';
+    }
+    fileService.json.clear();
+    fileService.binary.clear();
+    fileService.json.set(LEGACY_SQLITE_DELTA_V2_MANIFEST, sourceManifest);
+    fileService.binary.set(LEGACY_SQLITE_DELTA_V2_OPEN_SEGMENT, encode(legacyEnvelope));
+
+    const reloaded = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await reloaded.init();
+
+    expect(reloaded.getOne<{ id: string }>(
+      'SELECT id FROM review_events WHERE id = ?',
+      ['event-legacy-root-replay'],
+    )).toEqual({ id: 'event-legacy-root-replay' });
+  });
+
+  it('removes covered sqlite delta segment files after a durable checkpoint', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    for (let index = 0; index < 17; index += 1) {
+      await database.runTransaction(`delta-cleanup-${index}`, (db) => {
+        db.run(
+          `INSERT INTO review_events
+            (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            `event-cleanup-${index}`,
+            'card-cleanup',
+            `attempt-cleanup-${index}`,
+            3,
+            1_700_000_000_000 + index,
+            `commit-cleanup-${index}`,
+            2026,
+            5,
+            'review-v2',
+            '{}',
+          ],
+        );
+      });
+    }
+
+    expect(fileService.binary.get(SQLITE_DELTA_V2_SEALED_1)).toBeTruthy();
+    expect(fileService.binary.get(SQLITE_DELTA_V2_OPEN_SEGMENT)).toBeTruthy();
+
+    await database.persist('durable-checkpoint-cleanup');
+
+    expect(fileService.binary.get(SQLITE_DELTA_V2_SEALED_1)).toBeUndefined();
+    expect(fileService.binary.get(SQLITE_DELTA_V2_OPEN_SEGMENT)).toBeUndefined();
+    expect(fileService.deletedFiles).toEqual(expect.arrayContaining([
+      SQLITE_DELTA_V2_SEALED_1,
+      SQLITE_DELTA_V2_OPEN_SEGMENT,
+    ]));
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 0,
+      lastCheckpoint: {
+        ok: true,
+        cleared: true,
+      },
     });
   });
 
@@ -635,27 +817,27 @@ describe('SqliteDatabaseService', () => {
       });
     }
 
-    const manifest = fileService.json.get('sqlite-delta-log.v2.manifest.json') as {
+    const manifest = fileService.json.get(SQLITE_DELTA_V2_MANIFEST) as {
       openSegment: { path: string; sequence: number; sealed: boolean; entryCount: number } | null;
       sealedSegments: Array<{ path: string; sequence: number; sealed: boolean; entryCount: number }>;
     };
     expect(manifest.sealedSegments).toHaveLength(1);
     expect(manifest.sealedSegments[0]).toMatchObject({
-      path: 'sqlite-delta-log.v2.sealed-1.msgpack',
+      path: SQLITE_DELTA_V2_SEALED_1,
       sequence: 1,
       sealed: true,
       entryCount: 16,
     });
     expect(manifest.openSegment).toMatchObject({
-      path: 'sqlite-delta-log.v2.open.msgpack',
+      path: SQLITE_DELTA_V2_OPEN_SEGMENT,
       sequence: 2,
       sealed: false,
       entryCount: 1,
     });
     expect(
-      fileService.writeBinaryFiles.filter((fileName) => fileName === 'sqlite-delta-log.v2.sealed-1.msgpack'),
+      fileService.writeBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1),
     ).toHaveLength(1);
-    const sealedBytes = fileService.binary.get('sqlite-delta-log.v2.sealed-1.msgpack');
+    const sealedBytes = fileService.binary.get(SQLITE_DELTA_V2_SEALED_1);
     expect(sealedBytes).toBeTruthy();
 
     await database.runTransaction('delta-seal-after-threshold', (db) => {
@@ -678,9 +860,9 @@ describe('SqliteDatabaseService', () => {
       );
     });
 
-    expect(fileService.binary.get('sqlite-delta-log.v2.sealed-1.msgpack')).toBe(sealedBytes);
+    expect(fileService.binary.get(SQLITE_DELTA_V2_SEALED_1)).toBe(sealedBytes);
     expect(
-      fileService.writeBinaryFiles.filter((fileName) => fileName === 'sqlite-delta-log.v2.sealed-1.msgpack'),
+      fileService.writeBinaryFiles.filter((fileName) => fileName === SQLITE_DELTA_V2_SEALED_1),
     ).toHaveLength(1);
   });
 
@@ -883,17 +1065,17 @@ describe('SqliteDatabaseService', () => {
       });
     }
 
-    expect(fileService.durableBinary.get('sqlite-delta-log.v2.sealed-1.msgpack')).toBeTruthy();
-    fileService.json.set('sqlite-delta-log.v2.manifest.json', {
+    expect(fileService.durableBinary.get(SQLITE_DELTA_V2_SEALED_1)).toBeTruthy();
+    fileService.json.set(SQLITE_DELTA_V2_MANIFEST, {
       version: 2,
-      path: 'sqlite-delta-log.v2.manifest.json',
+      path: SQLITE_DELTA_V2_MANIFEST,
       openSegment: null,
       sealedSegments: [],
       updatedAt: Date.now(),
       nextSequence: 2,
       checkpoint: {
         clearedAt: Date.now(),
-        coveredSegmentPaths: ['sqlite-delta-log.v2.sealed-1.msgpack'],
+        coveredSegmentPaths: [SQLITE_DELTA_V2_SEALED_1],
         reason: 'review.feedback:delta-threshold-exceeded',
       },
     });

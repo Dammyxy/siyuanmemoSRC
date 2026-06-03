@@ -1,8 +1,11 @@
 import type { Database, ParamsObject, SqlValue } from 'sql.js';
 import { decode, encode } from '@msgpack/msgpack';
 
-export const SQLITE_DELTA_LOG_FILE = 'sqlite-delta-log.v2.manifest.json';
-export const SQLITE_DELTA_OPEN_SEGMENT_FILE = 'sqlite-delta-log.v2.open.msgpack';
+export const SQLITE_DELTA_LOG_DIR = 'sqlite-delta/v2';
+export const LEGACY_SQLITE_DELTA_LOG_FILE = 'sqlite-delta-log.v2.manifest.json';
+export const LEGACY_SQLITE_DELTA_OPEN_SEGMENT_FILE = 'sqlite-delta-log.v2.open.msgpack';
+export const SQLITE_DELTA_LOG_FILE = `${SQLITE_DELTA_LOG_DIR}/sqlite-delta-log.v2.manifest.json`;
+export const SQLITE_DELTA_OPEN_SEGMENT_FILE = `${SQLITE_DELTA_LOG_DIR}/sqlite-delta-log.v2.open.msgpack`;
 export const SQLITE_DELTA_LOG_VERSION = 2;
 
 const AUDIT_TABLE = '__siyuanmemo_delta_audit';
@@ -18,6 +21,7 @@ type SqliteDeltaFileService = {
   writeJSON(fileName: string, data: unknown): Promise<void>;
   readBinary(fileName: string): Promise<Uint8Array | null>;
   writeBinary(fileName: string, bytes: Uint8Array): Promise<void>;
+  deleteFile?(fileName: string): Promise<void>;
 };
 
 export type SqliteCheckpointStorageClass = 'durable-checkpoint' | 'volatile-projection';
@@ -208,6 +212,10 @@ function emptyManifest(updatedAt = 0): SqliteDeltaSegmentManifest {
     nextSequence: 1,
     checkpoint: null,
   };
+}
+
+function sqliteDeltaSealedSegmentFile(sequence: number): string {
+  return `${SQLITE_DELTA_LOG_DIR}/sqlite-delta-log.v2.sealed-${sequence}.msgpack`;
 }
 
 function normalizeManifest(value: unknown): SqliteDeltaSegmentManifest {
@@ -1029,7 +1037,7 @@ export class SqliteDeltaCheckpointLayer {
     let openSegmentEntry: SqliteDeltaSegmentManifestEntry | null = null;
 
     if (shouldSealCandidate) {
-      const sealedPath = `sqlite-delta-log.v2.sealed-${candidateSequence}.msgpack`;
+      const sealedPath = sqliteDeltaSealedSegmentFile(candidateSequence);
       if (manifest.sealedSegments.some((segment) => segment.path === sealedPath)) {
         throw new Error(`SQLite delta sealed segment already exists in manifest: ${sealedPath}`);
       }
@@ -1132,6 +1140,7 @@ export class SqliteDeltaCheckpointLayer {
     const snapshot = await this.readSnapshot();
     const pendingBytes = estimateJsonByteLength(snapshot);
     const clearCoveredDeltas = this.canClearDeltaAfterCheckpoint();
+    let cleanupError: string | null = null;
     if (snapshot.entries.length > 0 && clearCoveredDeltas) {
       const coveredSegmentPaths = [
         ...snapshot.manifest.sealedSegments.map((segment) => segment.path),
@@ -1145,6 +1154,7 @@ export class SqliteDeltaCheckpointLayer {
           reason,
         },
       } satisfies SqliteDeltaSegmentManifest);
+      cleanupError = await this.deleteCoveredSegmentFiles(coveredSegmentPaths);
     }
     this.checkpointWritesTotal += 1;
     const diagnostics = normalizeDiagnosticsContext(diagnosticsContext);
@@ -1163,6 +1173,7 @@ export class SqliteDeltaCheckpointLayer {
       cleared: snapshot.entries.length > 0 && clearCoveredDeltas,
       affectedTables: uniqueStrings(snapshot.entries.flatMap((entry) => entry.tables)),
       checkpointStorageClass: this.checkpointStorageClass,
+      error: cleanupError,
     };
   }
 
@@ -1190,6 +1201,21 @@ export class SqliteDeltaCheckpointLayer {
     };
   }
 
+  private async deleteCoveredSegmentFiles(paths: string[]): Promise<string | null> {
+    if (!this.fileService.deleteFile) {
+      return null;
+    }
+    const failures: string[] = [];
+    for (const path of uniqueStrings(paths)) {
+      try {
+        await this.fileService.deleteFile(path);
+      } catch (error) {
+        failures.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return failures.length > 0 ? `sqlite-delta-segment-cleanup-failed: ${failures.join('; ')}` : null;
+  }
+
   async getDiagnostics(): Promise<SqliteDeltaDiagnostics> {
     const snapshot = await this.readSnapshot();
     return {
@@ -1210,7 +1236,7 @@ export class SqliteDeltaCheckpointLayer {
   }
 
   private async readSnapshot(): Promise<SqliteDeltaLogSnapshot> {
-    const manifest = normalizeManifest(await this.fileService.readJSON<SqliteDeltaSegmentManifest>(this.fileName));
+    const manifest = await this.readManifest();
     const segmentRefs = [
       ...manifest.sealedSegments,
       ...(manifest.openSegment ? [manifest.openSegment] : []),
@@ -1261,6 +1287,18 @@ export class SqliteDeltaCheckpointLayer {
       updatedAt: recoveredManifest.updatedAt,
       manifest: recoveredManifest,
     };
+  }
+
+  private async readManifest(): Promise<SqliteDeltaSegmentManifest> {
+    const current = await this.fileService.readJSON<SqliteDeltaSegmentManifest>(this.fileName);
+    if (current !== null && current !== undefined) {
+      return normalizeManifest(current);
+    }
+    if (this.fileName !== SQLITE_DELTA_LOG_FILE) {
+      return normalizeManifest(null);
+    }
+    const legacy = await this.fileService.readJSON<SqliteDeltaSegmentManifest>(LEGACY_SQLITE_DELTA_LOG_FILE);
+    return normalizeManifest(legacy);
   }
 
   private shouldReplayVolatileCheckpointSegments(manifest: SqliteDeltaSegmentManifest): boolean {

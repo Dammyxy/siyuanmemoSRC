@@ -204,6 +204,9 @@ function createSqlProjectionFileService(fileService: FileService) {
     ) => fileName === SQLITE_DB_FILE
       ? fileService.writeTempProjectionBinary(fileName, bytes, options)
       : fileService.writeBinary(fileName, bytes, options),
+    deleteFile: (fileName: string) => fileName === SQLITE_DB_FILE
+      ? Promise.resolve()
+      : fileService.deleteFile(fileName),
   };
 }
 

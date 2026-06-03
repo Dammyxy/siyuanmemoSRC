@@ -164,6 +164,7 @@ type SqliteFileServiceAdapter = {
   writeJSON(fileName: string, data: unknown): Promise<void>;
   readBinary(fileName: string): Promise<Uint8Array | null>;
   writeBinary(fileName: string, bytes: Uint8Array): Promise<void>;
+  deleteFile(fileName: string): Promise<void>;
   readSyncConflictDatabaseSources(): Promise<SqliteConflictDatabaseSource[]>;
   cleanupSyncConflictDatabaseSources(sourceIds: string[]): Promise<{
     cleaned: Array<{ sourceId: string; path: string | null }>;
@@ -416,6 +417,12 @@ function createSqliteFileServiceAdapter(bridge: SqlitePersistenceBridge): Sqlite
     },
     readBinary: (fileName: string) => bridge.readBinary(fileName),
     writeBinary: (fileName: string, bytes: Uint8Array) => bridge.writeBinary(fileName, bytes),
+    deleteFile: async (fileName: string): Promise<void> => {
+      if (!bridge.deleteFile) {
+        return;
+      }
+      await bridge.deleteFile(fileName);
+    },
     readSyncConflictDatabaseSources: async () => {
       if (!bridge.readSyncConflictDatabaseSources) {
         return [];
@@ -441,6 +448,7 @@ function createReadonlyConflictFileService(bytes: Uint8Array): SqliteFileService
     writeJSON: async (): Promise<void> => undefined,
     readBinary: async (): Promise<Uint8Array> => new Uint8Array(bytes),
     writeBinary: async (): Promise<void> => undefined,
+    deleteFile: async (): Promise<void> => undefined,
     readSyncConflictDatabaseSources: async (): Promise<SqliteConflictDatabaseSource[]> => [],
     cleanupSyncConflictDatabaseSources: async (sourceIds: string[]) => ({
       cleaned: [],

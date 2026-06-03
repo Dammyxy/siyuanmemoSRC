@@ -19,7 +19,7 @@ import {
 import { FileService } from '@/infrastructure/services/FileService';
 import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKernelCompanionAdapter';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
-import { resolveTruthDeviceId } from '@/application/factories/truthDeviceIdentity';
+import { resolveTruthDeviceIdentity } from '@/application/factories/truthDeviceIdentity';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import type { AINetworkProxyPort } from '@/application/ports/AINetworkProxyPort';
 import type { NeuralRoamNodeTypeResolverPort } from '@/core/queue/domain/ports';
@@ -193,11 +193,23 @@ export async function createApplicationBackendRuntimeBundle(
             }),
           },
         });
-        const truthDeviceId = await resolveTruthDeviceId({ localStore: options.fileService });
+        const truthDeviceIdentity = await resolveTruthDeviceIdentity({ localStore: options.fileService });
+        const truthDeviceId = truthDeviceIdentity.deviceId;
         if (!truthDeviceId) {
-          logger.warn('[ApplicationContext] TRUTH_DEVICE_ID_UNAVAILABLE: MessagePack truth writes are unavailable because local device identity is not persistent');
+          logger.warn('[ApplicationContext] TRUTH_DEVICE_ID_UNAVAILABLE: MessagePack truth writes are unavailable because local device identity is not persistent', {
+            source: truthDeviceIdentity.source,
+            localStatePath: truthDeviceIdentity.localStatePath,
+            error: truthDeviceIdentity.error,
+          });
+        } else {
+          logger.info('[ApplicationContext] MessagePack truth device identity ready', {
+            source: truthDeviceIdentity.source,
+            localStatePath: truthDeviceIdentity.localStatePath,
+            deviceId: truthDeviceIdentity.deviceId,
+          });
         }
         srsBackendClient = new SrsBackendClient(srsBackendTransport, {
+          reviewTruthDevice: truthDeviceIdentity,
           reviewTruthFlush: truthDeviceId
             ? {
                 deviceId: truthDeviceId,
