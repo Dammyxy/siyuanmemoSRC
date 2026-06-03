@@ -499,7 +499,7 @@ describe('BackendKernel', () => {
         },
         storage: {
           sqliteDelta: {
-            fileName: 'sqlite-delta-log.v1.json',
+            fileName: 'sqlite-delta-log.v2.manifest.json',
             pendingCount: 0,
             lastCheckpoint: {
               ok: true,
@@ -884,6 +884,7 @@ describe('BackendKernel', () => {
         ],
       );
     });
+    await conflictDatabase.persist();
     const conflictBytes = conflictBridge.snapshot().bytes;
     expect(conflictBytes).toBeTruthy();
 
@@ -3587,6 +3588,7 @@ describe('BackendKernel', () => {
         ],
       );
     });
+    await conflictDatabase.persist();
     const conflictBytes = conflictBridge.snapshot().bytes;
     expect(conflictBytes).toBeTruthy();
     await currentDatabase.runTransaction('seed.existing-review-event', (db) => {
@@ -4160,6 +4162,7 @@ describe('BackendKernel', () => {
         ],
       );
     });
+    await remoteDatabase.persist();
     const remoteBytes = remoteBridge.snapshot().bytes;
     expect(remoteBytes).toBeTruthy();
     await persistenceBridge.writeBinary('siyuanmemo.db', remoteBytes!);
@@ -4222,6 +4225,7 @@ describe('BackendKernel', () => {
         ],
       );
     });
+    await database.persist();
     await persistenceBridge.writeBinary('siyuanmemo.db', persistenceBridge.snapshot().bytes!);
 
     const conflictBridge = createInMemorySqlitePersistenceBridge();
@@ -4253,6 +4257,7 @@ describe('BackendKernel', () => {
         ],
       );
     });
+    await conflictDatabase.persist();
     const conflictBytes = conflictBridge.snapshot().bytes;
     expect(conflictBytes).toBeTruthy();
     persistenceBridge.readSyncConflictDatabaseSources = vi.fn(async () => [{
@@ -4430,6 +4435,7 @@ describe('BackendKernel', () => {
       result: {
         total: 0,
         cards: [],
+        generation: null,
       },
     });
 
@@ -7439,16 +7445,18 @@ describe('BackendKernel', () => {
     )?.count).toBe(1);
     await expect(database.getReviewFeedbackJournalDiagnostics()).resolves.toMatchObject({
       storage: 'non-siyuan',
-      pendingCount: 0,
-      pendingBytes: 0,
+      pendingCount: 1,
+      statusCounts: {
+        'projection-applied': 1,
+      },
       lastCheckpoint: {
         ok: true,
-        cleared: true,
+        cleared: false,
       },
     });
   });
 
-  it('persists formal review feedback to non-SiYuan journal without bridge file writes on the hot path', async () => {
+  it('persists formal review feedback to non-SiYuan journal with required sqlite delta durability on the hot path', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const writeBinary = vi.fn(persistenceBridge.writeBinary.bind(persistenceBridge));
     const writeJSON = vi.fn(persistenceBridge.writeJSON!.bind(persistenceBridge));
@@ -7507,13 +7515,27 @@ describe('BackendKernel', () => {
       },
       sqlCheckpoint: {
         status: 'not-run',
-        hotPath: false,
-        cause: null,
-        initiator: null,
       },
     });
-    expect(writeBinary).not.toHaveBeenCalled();
-    expect(writeJSON).not.toHaveBeenCalled();
+    expect(writeBinary.mock.calls.some(([path]) => path === 'sqlite-delta-log.v2.open.msgpack')).toBe(true);
+    expect(writeBinary.mock.calls.some(([path]) => path === 'siyuanmemo.db')).toBe(false);
+    expect(writeJSON.mock.calls.some(([path]) => path === 'sqlite-delta-log.v2.manifest.json')).toBe(true);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 1,
+      lastWrite: {
+        ok: true,
+        classification: 'delta',
+        label: 'review.feedback',
+        hotPath: true,
+        affectedTables: expect.arrayContaining([
+          'cards',
+          'algorithm_card_state',
+          'review_events',
+          'domain_sync_operations',
+          'store_metadata',
+        ]),
+      },
+    });
 
     const diagnostics = await kernel.handle({
       id: 'review-feedback-journal-diagnostics',
@@ -7695,7 +7717,7 @@ describe('BackendKernel', () => {
       },
     });
     const mainDbWritesBeforeBackfill = writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length;
-    const deltaWritesBeforeBackfill = writeJSON.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v1.json').length;
+    const deltaWritesBeforeBackfill = writeJSON.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v2.manifest.json').length;
     const kernel = new BackendKernel({
       database,
       truthFileStore,
@@ -7796,9 +7818,10 @@ describe('BackendKernel', () => {
     expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(
       mainDbWritesBeforeBackfill,
     );
-    expect(writeJSON.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v1.json').length).toBeGreaterThan(
+    expect(writeJSON.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v2.manifest.json').length).toBeGreaterThan(
       deltaWritesBeforeBackfill,
     );
+    expect(writeBinary.mock.calls.some(([path]) => path === 'sqlite-delta-log.v2.open.msgpack')).toBe(true);
 
     const restartedDatabase = new WorkerSqliteDatabaseService(persistenceBridge);
     await restartedDatabase.init();
@@ -7864,6 +7887,239 @@ describe('BackendKernel', () => {
     expect('result' in response).toBe(true);
     expect(truthFileStore.binaryFiles.size).toBe(0);
     expect(truthFileStore.jsonFiles.size).toBe(0);
+  });
+
+  it('stores Review truth v2 in the journal, flushes it asynchronously, and rebuilds card state from after-card truth', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const truthFileStore = new MemoryTruthSegmentFileStore();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const reviewedAt = 1_779_188_410_000;
+    const card = buildCard({
+      id: 'card-review-truth-v2',
+      blockId: 'block-review-truth-v2',
+      due: reviewedAt - 10_000,
+      lastReview: reviewedAt - 86_400_000,
+      reps: 4,
+      stability: 4,
+      difficulty: 5,
+      createdAt: reviewedAt - 7 * 86_400_000,
+      updatedAt: reviewedAt - 86_400_000,
+      meta: { content: 'review truth v2 source card' },
+    });
+    await database.upsertCards([card]);
+    await seedQueueProjection(database, {
+      queueType: 'retrieval-practice',
+      policyHash: 'policy-truth-v2',
+      generation: 1,
+      rows: [card],
+      updatedAt: reviewedAt - 1_000,
+    });
+    const kernel = new BackendKernel({
+      database,
+      truthFileStore,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({
+        'block-review-truth-v2': {
+          id: 'block-review-truth-v2',
+          content: 'Review truth v2 source block content',
+          type: 'p',
+          root_id: 'doc-review-truth-v2',
+          attrs: {},
+        },
+      }),
+    });
+
+    const feedback = await kernel.handle({
+      id: 'review-feedback-truth-v2',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: card.id,
+        rating: 4,
+        reviewedAt,
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        projectionGeneration: 1,
+        projectionPolicyHash: 'policy-truth-v2',
+        idempotencyKey: 'review-truth-v2-key',
+      }],
+    });
+    if (!('result' in feedback)) {
+      throw new Error(feedback.error.message);
+    }
+    expect(feedback.result).toMatchObject({
+      committed: true,
+      storage: {
+        localIntent: {
+          durable: true,
+          journalStatus: 'projection-applied',
+        },
+        truthFlush: {
+          status: 'pending',
+          syncVisible: false,
+        },
+      },
+    });
+
+    const journalEntries = await persistenceBridge.reviewFeedbackJournalStore.listEntries();
+    expect(journalEntries).toHaveLength(1);
+    expect(journalEntries[0]).toMatchObject({
+      id: 'review-feedback:review-truth-v2-key',
+      status: 'projection-applied',
+      truthCandidate: {
+        family: 'review-events',
+        type: 'review.feedback.v2',
+        idempotencyKey: 'review-truth-v2-key',
+        source: {
+          cardId: card.id,
+          blockId: 'block-review-truth-v2',
+        },
+        queue: {
+          queueType: 'retrieval-practice',
+          queueMode: 'formal',
+          commitPolicy: 'write-schedule',
+        },
+        scheduler: {
+          schedulerType: 'fsrs-v6',
+        },
+        beforeCard: expect.objectContaining({
+          id: card.id,
+          due: card.due,
+          reps: card.reps,
+          lastReview: card.lastReview,
+        }),
+        afterCard: expect.objectContaining({
+          id: card.id,
+          blockId: 'block-review-truth-v2',
+          lastReview: reviewedAt,
+        }),
+        projection: {
+          generation: expect.any(Number),
+          policyHash: 'policy-truth-v2',
+        },
+      },
+    });
+
+    const flush = await kernel.handle({
+      id: 'review-truth-v2-flush',
+      jsonrpc: '2.0',
+      method: 'review.truth.flush',
+      params: [{
+        deviceId: 'device-v2',
+        generationId: 'projection-gen-truth-v2',
+        schemaVersion: 1,
+        maxSegmentBytes: 16_384,
+        batchLimit: 8,
+      }],
+    });
+    if (!('result' in flush)) {
+      throw new Error(flush.error.message);
+    }
+    expect(flush.result).toMatchObject({
+      ok: true,
+      journalQueued: 1,
+      recordsWritten: 1,
+      flushedEntryIds: ['review-feedback:review-truth-v2-key'],
+    });
+    const truthStore = createMessagePackTruthSegmentStore({
+      fileStore: truthFileStore,
+      family: 'review-events',
+      deviceId: 'device-v2',
+      generationId: 'projection-gen-truth-v2',
+      schemaVersion: 1,
+      maxSegmentBytes: 16_384,
+    });
+    const replay = await truthStore.replayRecords({ dedupeByIdempotencyKey: true });
+    expect(replay.records).toMatchObject([{
+      family: 'review-events',
+      type: 'review.feedback.v2',
+      idempotencyKey: 'review-truth-v2-key',
+      source: {
+        cardId: card.id,
+        blockId: 'block-review-truth-v2',
+      },
+      beforeCard: expect.objectContaining({
+        id: card.id,
+        due: card.due,
+      }),
+      afterCard: expect.objectContaining({
+        id: card.id,
+        lastReview: reviewedAt,
+      }),
+    }]);
+
+    const rebuiltBridge = createInMemorySqlitePersistenceBridge();
+    const rebuiltDatabase = new WorkerSqliteDatabaseService(rebuiltBridge);
+    const rebuiltKernel = new BackendKernel({
+      database: rebuiltDatabase,
+      truthFileStore,
+      resolveNeuralGraphQuery: createNeuralGraphResolver({
+        'block-review-truth-v2': {
+          id: 'block-review-truth-v2',
+          content: 'Review truth v2 source block content',
+          type: 'p',
+          root_id: 'doc-review-truth-v2',
+          attrs: {},
+        },
+      }),
+    });
+    const rebuild = await rebuiltKernel.handle({
+      id: 'review-truth-v2-rebuild',
+      jsonrpc: '2.0',
+      method: 'storage.projection.rebuild',
+      params: [{
+        rebuildId: 'rebuild-review-truth-v2',
+        cause: 'sql-deleted',
+        families: ['cards', 'review-event-indexes'],
+        deviceId: 'device-v2',
+        generationId: 'projection-gen-truth-v2',
+        schemaVersion: 1,
+        maxSegmentBytes: 16_384,
+      }],
+    });
+    if (!('result' in rebuild)) {
+      throw new Error(rebuild.error.message);
+    }
+    expect(rebuild.result).toMatchObject({
+      status: 'ready',
+      rowsWritten: 2,
+      families: expect.arrayContaining([
+        expect.objectContaining({ family: 'cards', rowsWritten: 1 }),
+        expect.objectContaining({ family: 'review-event-indexes', rowsWritten: 1 }),
+      ]),
+    });
+    const updatedDue = Number((feedback.result.updatedCard as { due?: number } | null)?.due);
+    expect(rebuiltDatabase.getOne<{
+      id: string;
+      block_id: string;
+      due: number;
+      last_review: number;
+      scheduler_type: string | null;
+    }>(
+      'SELECT id, block_id, due, last_review, scheduler_type FROM cards WHERE id = ?',
+      [card.id],
+    )).toMatchObject({
+      id: card.id,
+      block_id: 'block-review-truth-v2',
+      due: Number.isFinite(updatedDue) ? updatedDue : expect.any(Number),
+      last_review: reviewedAt,
+      scheduler_type: 'fsrs-v6',
+    });
+    expect(rebuiltDatabase.getOne<{
+      card_id: string;
+      rating: number;
+      reviewed_at: number;
+      commit_idempotency_key: string;
+      payload_json: string;
+    }>(
+      'SELECT card_id, rating, reviewed_at, commit_idempotency_key, payload_json FROM review_events WHERE commit_idempotency_key = ?',
+      ['review-truth-v2-key'],
+    )).toMatchObject({
+      card_id: card.id,
+      rating: 4,
+      reviewed_at: reviewedAt,
+      commit_idempotency_key: 'review-truth-v2-key',
+    });
   });
 
   it('reports Review feedback SQL projection patch separately from pending truth flush and checkpoint state', async () => {
@@ -9203,7 +9459,7 @@ describe('BackendKernel', () => {
     expect(writeJSON).not.toHaveBeenCalled();
   });
 
-  it('keeps queue projection replacement out of ordinary review feedback main DB writes', async () => {
+  it('keeps queue projection replacement patchable while allowing required review checkpoint writes', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const writeBinary = vi.fn(persistenceBridge.writeBinary.bind(persistenceBridge));
     const writeJSON = vi.fn(persistenceBridge.writeJSON!.bind(persistenceBridge));
@@ -9276,8 +9532,25 @@ describe('BackendKernel', () => {
     });
 
     expect('result' in response).toBe(true);
-    expect(writeBinary).not.toHaveBeenCalled();
-    expect(writeJSON).not.toHaveBeenCalled();
+    if (!('result' in response)) {
+      throw new Error(response.error.message);
+    }
+    expect(response.result.storage).toMatchObject({
+      sqlProjection: {
+        status: 'patched',
+        hotPatchable: true,
+        refreshRequired: false,
+      },
+      sqlCheckpoint: {
+        status: 'not-run',
+        hotPath: false,
+        initiator: null,
+      },
+    });
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(0);
+    expect(writeBinary.mock.calls.some(([path]) => path === 'sqlite-delta-log.v2.open.msgpack')).toBe(true);
+    expect(writeJSON.mock.calls).toHaveLength(1);
+    expect(writeJSON.mock.calls[0][0]).toBe('sqlite-delta-log.v2.manifest.json');
   });
 
   it('replays pending review feedback journal after restart before checkpoint', async () => {
@@ -9352,7 +9625,7 @@ describe('BackendKernel', () => {
     expect(writeJSON).not.toHaveBeenCalled();
   });
 
-  it('keeps review feedback journal pending when checkpoint main database upload fails', async () => {
+  it('keeps projection-applied review feedback journal entries after explicit checkpoint for async truth flush', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     let failMainDbWrite = false;
     const database = new WorkerSqliteDatabaseService({
@@ -9387,14 +9660,17 @@ describe('BackendKernel', () => {
     expect('result' in response).toBe(true);
 
     failMainDbWrite = true;
-    await expect(database.persist()).rejects.toThrow('forced main DB upload failure');
+    await expect(database.persist()).rejects.toThrow(/forced main DB upload failure/);
     await expect(database.getReviewFeedbackJournalDiagnostics()).resolves.toMatchObject({
       storage: 'non-siyuan',
       pendingCount: 1,
+      statusCounts: {
+        'projection-applied': 1,
+      },
       lastCheckpoint: {
         ok: false,
         cleared: false,
-        error: 'forced main DB upload failure',
+        error: expect.stringContaining('forced main DB upload failure'),
       },
     });
   });
@@ -9956,6 +10232,7 @@ describe('BackendKernel', () => {
     await currentDatabase.updateSourceExistence([
       { cardId, blockId, exists: true },
     ], 1_779_188_015_100);
+    await currentDatabase.persist();
     const currentPersistedBytes = await currentBridge.readBinary('siyuanmemo.db');
     expect(currentPersistedBytes).toBeTruthy();
 
@@ -10460,6 +10737,350 @@ describe('BackendKernel', () => {
       ['incremental-learning', 'card-impact-incremental-remove'],
     );
     expect(remainingRow?.count).toBe(0);
+  });
+
+  it('keeps a reviewed incremental-learning card out of ready count after truth-flushed restart replay', async () => {
+    const reviewedAt = 1_779_188_200_000;
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'card-incremental-restart-durable',
+      blockId: 'block-incremental-restart-durable',
+      due: reviewedAt - 10_000,
+      lastReview: reviewedAt - 86_400_000,
+      stability: 4,
+      difficulty: 5,
+      reps: 4,
+    });
+    await database.upsertCards([card]);
+    await seedQueueProjection(database, {
+      queueType: 'incremental-learning',
+      generation: 1,
+      rows: [card],
+      updatedAt: reviewedAt,
+    });
+    await database.persist();
+    const kernel = new BackendKernel({
+      database,
+      truthFileStore: persistenceBridge.truthFileStore,
+    });
+
+    const before = await kernel.handle({
+      id: 'incremental-before-review',
+      jsonrpc: '2.0',
+      method: 'queue.projection.snapshot',
+      params: [{
+        queueType: 'incremental-learning',
+        policyHash: 'policy-a',
+        generation: 1,
+      }],
+    });
+    expect(before).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'ready',
+        counters: expect.objectContaining({ remaining: 1 }),
+      }),
+    }));
+
+    const feedback = await kernel.handle({
+      id: 'review-feedback-incremental-restart-durable',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: card.id,
+        rating: 4,
+        queueType: 'incremental-learning',
+        projectionGeneration: 1,
+        projectionPolicyHash: 'policy-a',
+        reviewedAt,
+        idempotencyKey: 'review-commit:incremental-restart-durable',
+      }],
+    });
+    expect(feedback).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        committed: true,
+        queueImpact: expect.objectContaining({
+          affectedQueues: [expect.objectContaining({
+            queueType: 'incremental-learning',
+            counters: expect.objectContaining({ remaining: 0 }),
+          })],
+        }),
+      }),
+    }));
+
+    const afterReview = await kernel.handle({
+      id: 'incremental-after-review',
+      jsonrpc: '2.0',
+      method: 'queue.projection.snapshot',
+      params: [{
+        queueType: 'incremental-learning',
+        policyHash: 'policy-a',
+        generation: 2,
+      }],
+    });
+    expect(afterReview).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'ready',
+        counters: expect.objectContaining({ remaining: 0 }),
+      }),
+    }));
+
+    const truthFlush = await kernel.handle({
+      id: 'review-truth-flush-after-incremental-review',
+      jsonrpc: '2.0',
+      method: 'review.truth.flush',
+      params: [{
+        deviceId: 'device-A',
+        generationId: 'review-events-v1',
+        schemaVersion: 1,
+        batchLimit: 8,
+      }],
+    });
+    expect(truthFlush).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        ok: true,
+        flushedEntryIds: ['review-feedback:review-commit:incremental-restart-durable'],
+      }),
+    }));
+
+    database.dispose();
+    const restartedDatabase = new WorkerSqliteDatabaseService(persistenceBridge);
+    const restartedKernel = new BackendKernel({
+      database: restartedDatabase,
+      truthFileStore: persistenceBridge.truthFileStore,
+    });
+    const afterRestart = await restartedKernel.handle({
+      id: 'incremental-after-restart',
+      jsonrpc: '2.0',
+      method: 'queue.projection.snapshot',
+      params: [{
+        queueType: 'incremental-learning',
+        policyHash: 'policy-a',
+        generation: 2,
+      }],
+    });
+
+    expect(afterRestart).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'ready',
+        counters: expect.objectContaining({ remaining: 0 }),
+        rows: [],
+      }),
+    }));
+  });
+
+  it('does not report review.feedback success when SQL delta or checkpoint durability fails', async () => {
+    const baseBridge = createInMemorySqlitePersistenceBridge();
+    let failDurabilityWrites = false;
+    const persistenceBridge = {
+      ...baseBridge,
+      writeJSON: vi.fn((path: string, value: unknown) => baseBridge.writeJSON!(path, value)),
+      writeBinary: vi.fn(async (path: string, bytes: Uint8Array) => {
+        if (path === 'sqlite-delta-log.v2.open.msgpack' && failDurabilityWrites) {
+          throw new Error('BACKEND_UNAVAILABLE: mock sqlite delta durability failed');
+        }
+        if (path === 'siyuanmemo.db' && failDurabilityWrites) {
+          throw new Error('BACKEND_UNAVAILABLE: mock sqlite checkpoint durability failed');
+        }
+        await baseBridge.writeBinary(path, bytes);
+      }),
+    };
+    const reviewedAt = 1_779_188_300_000;
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'card-incremental-durability-fail',
+      due: reviewedAt - 10_000,
+      lastReview: reviewedAt - 86_400_000,
+      reps: 4,
+    });
+    await database.upsertCards([card]);
+    await seedQueueProjection(database, {
+      queueType: 'incremental-learning',
+      generation: 1,
+      rows: [card],
+      updatedAt: reviewedAt,
+    });
+    await database.persist();
+    failDurabilityWrites = true;
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-durability-fail',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: card.id,
+        rating: 4,
+        queueType: 'incremental-learning',
+        projectionGeneration: 1,
+        projectionPolicyHash: 'policy-a',
+        reviewedAt,
+        idempotencyKey: 'review-commit:durability-fail',
+      }],
+    });
+
+    expect(response).toEqual(expect.objectContaining({
+      error: expect.objectContaining({
+        code: 'BACKEND_UNAVAILABLE',
+        message: expect.stringContaining('durability failed'),
+      }),
+    }));
+  });
+
+  it('reconciles prepared review journal entries by replaying durable SQL before queues become ready', async () => {
+    const reviewedAt = 1_779_188_350_000;
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const seedDatabase = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'card-journal-prepared-replay',
+      blockId: 'block-journal-prepared-replay',
+      due: reviewedAt - 10_000,
+      lastReview: reviewedAt - 86_400_000,
+      reps: 4,
+    });
+    await seedDatabase.upsertCards([card]);
+    await seedQueueProjection(seedDatabase, {
+      queueType: 'incremental-learning',
+      generation: 1,
+      rows: [card],
+      updatedAt: reviewedAt,
+    });
+    await seedDatabase.persist();
+    seedDatabase.dispose();
+    await persistenceBridge.reviewFeedbackJournalStore.appendEntry({
+      id: 'review-feedback:journal-prepared-replay',
+      requestId: null,
+      cardId: card.id,
+      idempotencyKey: 'journal-prepared-replay',
+      status: 'prepared',
+      recordedAt: reviewedAt - 1_000,
+      request: {
+        cardId: card.id,
+        rating: 4,
+        queueType: 'incremental-learning',
+        projectionGeneration: 1,
+        projectionPolicyHash: 'policy-a',
+        reviewedAt,
+        idempotencyKey: 'journal-prepared-replay',
+      },
+      appliedAt: null,
+      projectionAppliedAt: null,
+      projectionFailedAt: null,
+      lastError: null,
+    });
+
+    const restartedDatabase = new WorkerSqliteDatabaseService(persistenceBridge);
+    const restartedKernel = new BackendKernel({ database: restartedDatabase });
+    const snapshot = await restartedKernel.handle({
+      id: 'journal-prepared-replay-snapshot',
+      jsonrpc: '2.0',
+      method: 'queue.projection.snapshot',
+      params: [{
+        queueType: 'incremental-learning',
+        policyHash: 'policy-a',
+        generation: 2,
+      }],
+    });
+
+    expect(snapshot).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'ready',
+        counters: expect.objectContaining({ remaining: 0 }),
+        rows: [],
+      }),
+    }));
+    expect(restartedDatabase.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE commit_idempotency_key = ?',
+      ['journal-prepared-replay'],
+    )?.count).toBe(1);
+    await expect(persistenceBridge.reviewFeedbackJournalStore.listEntriesByStatus('projection-applied', 10))
+      .resolves.toMatchObject([{
+        id: 'review-feedback:journal-prepared-replay',
+        status: 'projection-applied',
+        appliedAt: reviewedAt,
+      }]);
+  });
+
+  it('advances stale prepared review journal status when durable SQL already has the idempotent review event', async () => {
+    const reviewedAt = 1_779_188_360_000;
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const seedDatabase = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'card-journal-sql-durable',
+      blockId: 'block-journal-sql-durable',
+      due: reviewedAt - 10_000,
+      lastReview: reviewedAt - 86_400_000,
+      reps: 4,
+    });
+    await seedDatabase.upsertCards([card]);
+    await seedQueueProjection(seedDatabase, {
+      queueType: 'incremental-learning',
+      generation: 1,
+      rows: [card],
+      updatedAt: reviewedAt,
+    });
+    const seedKernel = new BackendKernel({ database: seedDatabase });
+    await expect(seedKernel.handle({
+      id: 'journal-sql-durable-feedback',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: card.id,
+        rating: 4,
+        queueType: 'incremental-learning',
+        projectionGeneration: 1,
+        projectionPolicyHash: 'policy-a',
+        reviewedAt,
+        idempotencyKey: 'journal-sql-durable',
+      }],
+    })).resolves.toEqual(expect.objectContaining({
+      result: expect.objectContaining({ committed: true }),
+    }));
+    expect(seedDatabase.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE commit_idempotency_key = ?',
+      ['journal-sql-durable'],
+    )?.count).toBe(1);
+    await persistenceBridge.reviewFeedbackJournalStore.updateEntryStatus(
+      'review-feedback:journal-sql-durable',
+      'prepared',
+      {
+        appliedAt: null,
+        projectionAppliedAt: null,
+        lastError: null,
+      },
+    );
+    seedDatabase.dispose();
+
+    const restartedDatabase = new WorkerSqliteDatabaseService(persistenceBridge);
+    const restartedKernel = new BackendKernel({ database: restartedDatabase });
+    const snapshot = await restartedKernel.handle({
+      id: 'journal-sql-durable-snapshot',
+      jsonrpc: '2.0',
+      method: 'queue.projection.snapshot',
+      params: [{
+        queueType: 'incremental-learning',
+        policyHash: 'policy-a',
+        generation: 2,
+      }],
+    });
+
+    expect(snapshot).toEqual(expect.objectContaining({
+      result: expect.objectContaining({
+        status: 'ready',
+        counters: expect.objectContaining({ remaining: 0 }),
+        rows: [],
+      }),
+    }));
+    expect(restartedDatabase.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM review_events WHERE commit_idempotency_key = ?',
+      ['journal-sql-durable'],
+    )?.count).toBe(1);
+    await expect(persistenceBridge.reviewFeedbackJournalStore.listEntriesByStatus('projection-applied', 10))
+      .resolves.toMatchObject([{
+        id: 'review-feedback:journal-sql-durable',
+        status: 'projection-applied',
+        appliedAt: reviewedAt,
+      }]);
   });
 
   it('rolls back review feedback card and log writes when projection impact persistence fails', async () => {

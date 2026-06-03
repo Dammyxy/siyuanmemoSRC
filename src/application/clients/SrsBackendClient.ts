@@ -119,10 +119,14 @@ import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
+import { assertCommittedReviewFeedbackDurability } from './reviewFeedbackDurability';
 
 const logger = createLogger('SrsBackendClient');
 const REVIEW_FEEDBACK_CLIENT_STEP_SLOW_MS = 500;
-const REVIEW_TRUTH_FLUSH_DEFAULT_DELAY_MS = 2_100;
+const REVIEW_TRUTH_FLUSH_STARTUP_DELAY_MS = 2_100;
+const REVIEW_TRUTH_FLUSH_LONG_IDLE_DELAY_MS = 5 * 60 * 1000;
+const REVIEW_TRUTH_FLUSH_DEFAULT_THRESHOLD = 8;
+const REVIEW_TRUTH_FLUSH_UNLOAD_WAIT_MS = 1000;
 const REVIEW_TRUTH_BACKFILL_DEFAULT_BATCH_LIMIT = 64;
 const REVIEW_TRUTH_BACKFILL_MAX_STARTUP_BATCHES = 16;
 
@@ -137,6 +141,9 @@ export interface SrsBackendReviewTruthFlushSchedulerOptions {
   maxSegmentBytes?: number;
   batchLimit?: number;
   delayMs?: number;
+  longIdleDelayMs?: number;
+  flushThreshold?: number;
+  unloadWaitMs?: number;
 }
 
 export interface SrsBackendClientOptions {
@@ -148,6 +155,7 @@ export class SrsBackendClient {
   private readonly reviewTruthFlushOptions: SrsBackendReviewTruthFlushSchedulerOptions | null;
   private reviewTruthFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private reviewTruthFlushInFlight = false;
+  private reviewTruthFlushInFlightPromise: Promise<void> | null = null;
   private reviewTruthFlushQueued = false;
   private reviewTruthBackfillQueued = false;
   private reviewTruthBackfillPendingRows = 0;
@@ -321,6 +329,10 @@ export class SrsBackendClient {
     const result = await this.measureReviewFeedbackClientStep('rpc-call', request, () => (
       this.call<BackendReviewFeedbackResult>('review.feedback', request)
     ));
+    assertCommittedReviewFeedbackDurability(result, {
+      source: 'SrsBackendClient',
+      requireQueueImpact: request.commitPolicy === 'write-schedule',
+    });
     this.scheduleReviewTruthFlushAfterFeedback(result);
     return result;
   }
@@ -537,6 +549,42 @@ export class SrsBackendClient {
     return this.call<BackendGraphQueryResult>('graph.query', request);
   }
 
+  requestReviewTruthFlush(reason: 'review-exit' | 'queue-complete' | 'manual' = 'manual'): boolean {
+    if (!this.reviewTruthFlushOptions) {
+      return false;
+    }
+    this.reviewTruthFlushQueued = true;
+    this.armReviewTruthFlushTimer(0, { replaceExisting: true, reason });
+    return true;
+  }
+
+  async flushReviewTruthNow(reason: 'review-exit' | 'queue-complete' | 'manual' = 'manual'): Promise<boolean> {
+    if (!this.reviewTruthFlushOptions) {
+      return false;
+    }
+    this.reviewTruthFlushQueued = true;
+    this.clearReviewTruthFlushTimer();
+    await this.runQueuedReviewTruthFlush();
+    return true;
+  }
+
+  async flushReviewTruthBeforeUnload(timeoutMs = this.resolveReviewTruthFlushUnloadWaitMs()): Promise<boolean> {
+    if (!this.reviewTruthFlushOptions) {
+      return false;
+    }
+    this.reviewTruthFlushQueued = true;
+    this.clearReviewTruthFlushTimer();
+    const flush = this.runQueuedReviewTruthFlush().then(() => true);
+    const boundedWait = new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(false), Math.max(0, Math.floor(timeoutMs)));
+    });
+    return Promise.race([flush, boundedWait]);
+  }
+
+  dispose(): void {
+    this.clearReviewTruthFlushTimer();
+  }
+
   async semanticCommand(request: BackendSemanticCommandRequest): Promise<BackendSemanticCommandResult> {
     return this.call<BackendSemanticCommandResult>(request.method, request);
   }
@@ -611,7 +659,13 @@ export class SrsBackendClient {
       return;
     }
     this.reviewTruthFlushQueued = true;
-    this.armReviewTruthFlushTimer();
+    const pendingCount = Number(result.storage?.truthFlush?.pendingCount ?? 0);
+    const reachedThreshold = Number.isFinite(pendingCount)
+      && pendingCount >= this.resolveReviewTruthFlushThreshold();
+    this.armReviewTruthFlushTimer(
+      reachedThreshold ? 0 : this.resolveReviewTruthFlushLongIdleDelayMs(),
+      { replaceExisting: reachedThreshold, reason: reachedThreshold ? 'threshold' : 'long-idle' },
+    );
   }
 
   private shouldScheduleReviewTruthFlush(result: BackendReviewFeedbackResult): boolean {
@@ -619,20 +673,56 @@ export class SrsBackendClient {
       && result.storage?.truthFlush?.status === 'pending';
   }
 
-  private armReviewTruthFlushTimer(): void {
-    if (!this.reviewTruthFlushOptions || this.reviewTruthFlushTimer || this.reviewTruthFlushInFlight) {
+  private armReviewTruthFlushTimer(
+    delayMs = this.resolveReviewTruthFlushDelayMs(REVIEW_TRUTH_FLUSH_STARTUP_DELAY_MS),
+    options: { replaceExisting?: boolean; reason?: string } = {},
+  ): void {
+    if (!this.reviewTruthFlushOptions || this.reviewTruthFlushInFlight) {
+      return;
+    }
+    if (this.reviewTruthFlushTimer) {
+      if (!options.replaceExisting) {
+        return;
+      }
+      this.clearReviewTruthFlushTimer();
+    }
+    const resolvedDelayMs = Math.max(0, Math.floor(delayMs));
+    if (resolvedDelayMs === 0) {
+      void this.runQueuedReviewTruthFlush();
       return;
     }
     this.reviewTruthFlushTimer = setTimeout(() => {
       this.reviewTruthFlushTimer = null;
       void this.runQueuedReviewTruthFlush();
-    }, this.resolveReviewTruthFlushDelayMs());
+    }, resolvedDelayMs);
+  }
+
+  private clearReviewTruthFlushTimer(): void {
+    if (!this.reviewTruthFlushTimer) {
+      return;
+    }
+    clearTimeout(this.reviewTruthFlushTimer);
+    this.reviewTruthFlushTimer = null;
   }
 
   private async runQueuedReviewTruthFlush(): Promise<void> {
-    if (!this.reviewTruthFlushOptions || this.reviewTruthFlushInFlight) {
+    if (!this.reviewTruthFlushOptions) {
       return;
     }
+    if (this.reviewTruthFlushInFlight) {
+      await this.reviewTruthFlushInFlightPromise;
+      return;
+    }
+    const flush = this.executeQueuedReviewTruthFlush();
+    this.reviewTruthFlushInFlightPromise = flush;
+    try {
+      await flush;
+    } finally {
+      this.reviewTruthFlushInFlightPromise = null;
+    }
+  }
+
+  private async executeQueuedReviewTruthFlush(): Promise<void> {
     const request = this.buildReviewTruthFlushRequest();
     if (!request) {
       this.reviewTruthFlushQueued = false;
@@ -751,11 +841,32 @@ export class SrsBackendClient {
       : REVIEW_TRUTH_BACKFILL_DEFAULT_BATCH_LIMIT;
   }
 
-  private resolveReviewTruthFlushDelayMs(): number {
+  private resolveReviewTruthFlushDelayMs(defaultDelayMs: number): number {
     const configured = Number(this.reviewTruthFlushOptions?.delayMs);
     return Number.isFinite(configured)
       ? Math.max(0, Math.floor(configured))
-      : REVIEW_TRUTH_FLUSH_DEFAULT_DELAY_MS;
+      : defaultDelayMs;
+  }
+
+  private resolveReviewTruthFlushLongIdleDelayMs(): number {
+    const configured = Number(this.reviewTruthFlushOptions?.longIdleDelayMs);
+    return Number.isFinite(configured)
+      ? Math.max(0, Math.floor(configured))
+      : this.resolveReviewTruthFlushDelayMs(REVIEW_TRUTH_FLUSH_LONG_IDLE_DELAY_MS);
+  }
+
+  private resolveReviewTruthFlushThreshold(): number {
+    const configured = Number(this.reviewTruthFlushOptions?.flushThreshold);
+    return Number.isFinite(configured)
+      ? Math.max(1, Math.floor(configured))
+      : REVIEW_TRUTH_FLUSH_DEFAULT_THRESHOLD;
+  }
+
+  private resolveReviewTruthFlushUnloadWaitMs(): number {
+    const configured = Number(this.reviewTruthFlushOptions?.unloadWaitMs);
+    return Number.isFinite(configured)
+      ? Math.max(0, Math.floor(configured))
+      : REVIEW_TRUTH_FLUSH_UNLOAD_WAIT_MS;
   }
 
   private async measureReviewFeedbackClientStep<TResult>(

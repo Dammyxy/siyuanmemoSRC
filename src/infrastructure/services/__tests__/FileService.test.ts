@@ -213,6 +213,58 @@ describe('FileService', () => {
     }]);
   });
 
+  it('reads temp-local JSON from workspace temp instead of plugin petal storage', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as { path?: string };
+      if (body.path === '/temp/siyuan-plugin-siyuanmemo/local/truth-device-id.v1.json') {
+        return {
+          ok: true,
+          text: async () => '{"deviceId":"device-stable"}',
+        } as Response;
+      }
+      return {
+        ok: false,
+        text: async () => '',
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new FileService(createPlugin(vi.fn()));
+
+    await expect(service.readTempLocalJSON('truth-device-id.v1.json')).resolves.toEqual({
+      deviceId: 'device-stable',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/file/getFile', expect.objectContaining({
+      body: JSON.stringify({
+        path: '/temp/siyuan-plugin-siyuanmemo/local/truth-device-id.v1.json',
+      }),
+    }));
+  });
+
+  it('writes temp-local JSON to workspace temp instead of plugin petal storage', async () => {
+    const writes: Array<{ path: string; text: string }> = [];
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const formData = init?.body as FormData;
+      const file = formData.get('file') as Blob;
+      writes.push({
+        path: String(formData.get('path')),
+        text: new TextDecoder().decode(await file.arrayBuffer()),
+      });
+      return {
+        json: async () => ({ code: 0, data: null }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new FileService(createPlugin(vi.fn()));
+
+    await service.writeTempLocalJSON('truth-device-id.v1.json', { deviceId: 'device-stable' });
+
+    expect(writes).toEqual([{
+      path: '/temp/siyuan-plugin-siyuanmemo/local/truth-device-id.v1.json',
+      text: JSON.stringify({ deviceId: 'device-stable' }, null, 2),
+    }]);
+  });
+
   it('backs up the current sqlite database before replacement', async () => {
     const current = new Uint8Array([5, 6, 7]);
     const plugin = createPlugin(vi.fn());

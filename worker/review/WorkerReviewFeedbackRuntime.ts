@@ -16,7 +16,10 @@ import type {
 } from '../../packages/contracts/src/backend-rpc';
 import { DomainSyncLedger } from '../domain-sync/DomainSyncLedger';
 import { buildQueueProjectionCountersFromRows } from '../queue-projection/WorkerQueueProjectionRuntime';
-import { WorkerReviewCardMutationPersistenceModule } from './WorkerReviewCardMutationPersistenceModule';
+import {
+  WorkerReviewCardMutationPersistenceModule,
+  type WorkerReviewFeedbackTruthCandidate,
+} from './WorkerReviewCardMutationPersistenceModule';
 import { recordReviewFeedbackInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
 import { createLogger } from '@/utils/logger';
 
@@ -59,6 +62,7 @@ export type WorkerReviewFeedbackRuntimeDeps = {
   domainSyncLedger?: DomainSyncLedger;
   recordUnavailable?: () => void;
   persistReviewJournal?: (request: BackendReviewFeedbackRequest) => Promise<BackendReviewFeedbackRequest>;
+  recordReviewTruthCandidate?: (candidate: WorkerReviewFeedbackTruthCandidate) => void;
 };
 
 type WorkerReviewFeedbackQueueProjection = NonNullable<WorkerReviewFeedbackRuntimeDeps['queueProjection']>;
@@ -180,6 +184,7 @@ export class WorkerReviewFeedbackRuntime {
         idempotencyKey: durableIdempotencyKey,
       },
       (input) => this.buildReviewFeedbackQueueImpact(input),
+      (candidate) => this.deps.recordReviewTruthCandidate?.(candidate),
     );
   }
 

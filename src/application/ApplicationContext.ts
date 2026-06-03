@@ -1091,6 +1091,7 @@ export class ApplicationContext {
         const database = new SqliteDatabaseService(sqlFileService, SQLITE_DB_FILE, {
           persistOnInit: false,
           enableDeltaPersistence: true,
+          checkpointStorageClass: 'volatile-projection',
         });
         await database.init();
         const unified = new SqlUnifiedStorageRepository(database);
@@ -2659,6 +2660,21 @@ export class ApplicationContext {
       
       // 4. 销毁所有已创建的服务（按创建顺序的逆序）
       await this.disposeServices(errors);
+
+      if (this.srsBackendClient) {
+        try {
+          if (typeof this.srsBackendClient.flushReviewTruthBeforeUnload === 'function') {
+            const completed = await this.srsBackendClient.flushReviewTruthBeforeUnload();
+            if (!completed) {
+              logger.warn('[ApplicationContext] Review truth flush did not finish before unload timeout; startup compensation will retry');
+            }
+          }
+          this.srsBackendClient.dispose?.();
+        } catch (error) {
+          logger.error('[ApplicationContext] Error flushing Review truth before unload:', error);
+          errors.push({ service: 'srsBackendClient.reviewTruthFlush', error });
+        }
+      }
 
       if (this.srsBackendTransport) {
         try {

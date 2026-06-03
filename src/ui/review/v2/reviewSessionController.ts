@@ -132,6 +132,7 @@ export interface CreateReviewSessionControllerOptions<TItem extends QueueItem = 
     action: ReviewSessionRetryAction;
     item: TItem | null;
   }) => Promise<void>;
+  onQueueCompleted?: (input: { reason: Extract<ReviewSessionUpdateReason, 'grade' | 'skip' | 'custom'> }) => void | Promise<void>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -396,6 +397,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
   let disposed = false;
   let startPromise: Promise<void> | null = null;
   let serializedAction: Promise<void> = Promise.resolve();
+  let queueCompletionNotified = false;
   const pendingCommitKeys = new Map<string, string>();
   const attachedSurfaceIds = new Set<string>();
   const subscribers = new Set<(snapshot: ReviewSessionControllerSnapshot<TItem>) => void>();
@@ -481,6 +483,25 @@ export function createReviewSessionController<TItem extends QueueItem>(
     }
   };
 
+  const maybeNotifyQueueCompleted = (reason: SessionUpdateReason): void => {
+    if (currentItem.value) {
+      queueCompletionNotified = false;
+      return;
+    }
+    if (reason !== 'grade' && reason !== 'skip' && reason !== 'custom') {
+      return;
+    }
+    if (queueCompletionNotified) {
+      return;
+    }
+    queueCompletionNotified = true;
+    try {
+      void options?.onQueueCompleted?.({ reason });
+    } catch (error) {
+      logger.warn('Review queue completion listener failed:', error);
+    }
+  };
+
   const updateState = async (
     reason: SessionUpdateReason,
     updateOptions?: { skipPrepare?: boolean },
@@ -520,6 +541,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
       state.value = nextState;
       notifySubscribers();
     }, { reason });
+    maybeNotifyQueueCompleted(reason);
 
     if (reason !== 'reveal' && adapter.fetchAuxiliaryData) {
       measureRuntimePerformance(

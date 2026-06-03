@@ -1,18 +1,26 @@
 import type { Database, ParamsObject, SqlValue } from 'sql.js';
+import { decode, encode } from '@msgpack/msgpack';
 
-export const SQLITE_DELTA_LOG_FILE = 'sqlite-delta-log.v1.json';
-export const SQLITE_DELTA_LOG_VERSION = 1;
+export const SQLITE_DELTA_LOG_FILE = 'sqlite-delta-log.v2.manifest.json';
+export const SQLITE_DELTA_OPEN_SEGMENT_FILE = 'sqlite-delta-log.v2.open.msgpack';
+export const SQLITE_DELTA_LOG_VERSION = 2;
 
 const AUDIT_TABLE = '__siyuanmemo_delta_audit';
 const MAX_PENDING_DELTA_ENTRIES = 256;
 const MAX_PENDING_DELTA_BYTES = 512 * 1024;
+const MAX_OPEN_SEGMENT_DELTA_ENTRIES = 16;
+const MAX_OPEN_SEGMENT_BYTES = 64 * 1024;
 
 type SqlParams = SqlValue[] | ParamsObject;
 
 type SqliteDeltaFileService = {
   readJSON<T>(fileName: string): Promise<T | null>;
   writeJSON(fileName: string, data: unknown): Promise<void>;
+  readBinary(fileName: string): Promise<Uint8Array | null>;
+  writeBinary(fileName: string, bytes: Uint8Array): Promise<void>;
 };
+
+export type SqliteCheckpointStorageClass = 'durable-checkpoint' | 'volatile-projection';
 
 export type SqliteDeltaOperation = 'insert' | 'update' | 'delete';
 export type SqliteDeltaReplayMode = 'primary-key-upsert-delete';
@@ -56,6 +64,45 @@ export interface SqliteDeltaLogSnapshot {
   version: typeof SQLITE_DELTA_LOG_VERSION;
   entries: SqliteDeltaEntry[];
   updatedAt: number;
+  manifest: SqliteDeltaSegmentManifest;
+}
+
+export interface SqliteDeltaSegmentManifestEntry {
+  version: typeof SQLITE_DELTA_LOG_VERSION;
+  path: string;
+  sequence: number;
+  sealed: boolean;
+  checksum: string;
+  entryCount: number;
+  byteSize: number;
+  minCreatedAt: number | null;
+  maxCreatedAt: number | null;
+  sealedAt: number | null;
+}
+
+export interface SqliteDeltaSegmentManifest {
+  version: typeof SQLITE_DELTA_LOG_VERSION;
+  path: string;
+  openSegment: SqliteDeltaSegmentManifestEntry | null;
+  sealedSegments: SqliteDeltaSegmentManifestEntry[];
+  updatedAt: number;
+  nextSequence: number;
+  checkpoint?: {
+    clearedAt: number;
+    coveredSegmentPaths: string[];
+    reason: string;
+  } | null;
+}
+
+interface SqliteDeltaSegmentEnvelope {
+  version: typeof SQLITE_DELTA_LOG_VERSION;
+  kind: 'sqlite-delta-segment';
+  path: string;
+  sequence: number;
+  sealed: boolean;
+  createdAt: number;
+  updatedAt: number;
+  entries: SqliteDeltaEntry[];
 }
 
 export interface SqliteDeltaOperationStatus {
@@ -77,6 +124,7 @@ export interface SqliteDeltaOperationStatus {
   affectedTables?: string[];
   byteLength?: number | null;
   cleared?: boolean;
+  checkpointStorageClass?: SqliteCheckpointStorageClass;
   error?: string | null;
 }
 
@@ -139,6 +187,77 @@ interface TableInfoRow {
 function estimateJsonByteLength(value: unknown): number {
   const json = JSON.stringify(value);
   return json ? new TextEncoder().encode(json).byteLength : 0;
+}
+
+function checksumBytes(bytes: Uint8Array): string {
+  let hash = 0x811c9dc5;
+  for (const byte of bytes) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+function emptyManifest(updatedAt = 0): SqliteDeltaSegmentManifest {
+  return {
+    version: SQLITE_DELTA_LOG_VERSION,
+    path: SQLITE_DELTA_LOG_FILE,
+    openSegment: null,
+    sealedSegments: [],
+    updatedAt,
+    nextSequence: 1,
+    checkpoint: null,
+  };
+}
+
+function normalizeManifest(value: unknown): SqliteDeltaSegmentManifest {
+  if (value === null || value === undefined) {
+    return emptyManifest();
+  }
+  if (!isRecord(value) || value.version !== SQLITE_DELTA_LOG_VERSION) {
+    throw new Error(`SQLite delta log unsupported: expected version ${SQLITE_DELTA_LOG_VERSION}`);
+  }
+  return {
+    version: SQLITE_DELTA_LOG_VERSION,
+    path: normalizeString(value.path) || SQLITE_DELTA_LOG_FILE,
+    openSegment: value.openSegment ? normalizeManifestEntry(value.openSegment, 'openSegment') : null,
+    sealedSegments: Array.isArray(value.sealedSegments)
+      ? value.sealedSegments.map((entry, index) => normalizeManifestEntry(entry, `sealedSegments[${index}]`))
+      : [],
+    updatedAt: Math.max(0, Math.floor(Number(value.updatedAt || 0))),
+    nextSequence: Math.max(1, Math.floor(Number(value.nextSequence || 1))),
+    checkpoint: isRecord(value.checkpoint)
+      ? {
+        clearedAt: Math.max(0, Math.floor(Number(value.checkpoint.clearedAt || 0))),
+        coveredSegmentPaths: uniqueStrings(Array.isArray(value.checkpoint.coveredSegmentPaths)
+          ? value.checkpoint.coveredSegmentPaths
+          : []),
+        reason: normalizeString(value.checkpoint.reason),
+      }
+      : null,
+  };
+}
+
+function normalizeManifestEntry(value: unknown, context: string): SqliteDeltaSegmentManifestEntry {
+  if (!isRecord(value)) {
+    throw new Error(`SQLite delta manifest corrupt: ${context} must be an object`);
+  }
+  const path = normalizeString(value.path);
+  if (!path) {
+    throw new Error(`SQLite delta manifest corrupt: ${context} missing path`);
+  }
+  return {
+    version: SQLITE_DELTA_LOG_VERSION,
+    path,
+    sequence: Math.max(0, Math.floor(Number(value.sequence || 0))),
+    sealed: value.sealed === true,
+    checksum: normalizeString(value.checksum),
+    entryCount: Math.max(0, Math.floor(Number(value.entryCount || 0))),
+    byteSize: Math.max(0, Math.floor(Number(value.byteSize || 0))),
+    minCreatedAt: Number.isFinite(Number(value.minCreatedAt)) ? Math.floor(Number(value.minCreatedAt)) : null,
+    maxCreatedAt: Number.isFinite(Number(value.maxCreatedAt)) ? Math.floor(Number(value.maxCreatedAt)) : null,
+    sealedAt: Number.isFinite(Number(value.sealedAt)) ? Math.floor(Number(value.sealedAt)) : null,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -253,7 +372,82 @@ const REVIEW_EVENTS_LEGACY_COMMIT_COLUMN_ORDER: SqliteDeltaTableColumn[] = [
   toColumn('projection_generation', 'INTEGER', false),
 ];
 
+const CARDS_COLUMNS: SqliteDeltaTableColumn[] = [
+  toColumn('id', 'TEXT', false, 1),
+  toColumn('block_id', 'TEXT', false),
+  toColumn('xiuyuan_id', 'TEXT', false),
+  toColumn('type', 'TEXT', false),
+  toColumn('state', 'INTEGER', false),
+  toColumn('due', 'INTEGER', false),
+  toColumn('priority', 'INTEGER', false),
+  toColumn('scheduler_type', 'TEXT', false),
+  toColumn('updated_at', 'INTEGER', false),
+  toColumn('deck_id', 'TEXT', false),
+  toColumn('root_id', 'TEXT', false),
+  toColumn('content_text', 'TEXT', false),
+  toColumn('tags', 'TEXT', false),
+  toColumn('suspended', 'INTEGER', false),
+  toColumn('lapses', 'INTEGER', false),
+  toColumn('reps', 'INTEGER', false),
+  toColumn('last_review', 'INTEGER', false),
+  toColumn('created_at', 'INTEGER', false),
+  toColumn('scheduled_days', 'INTEGER', false),
+  toColumn('stability', 'REAL', false),
+  toColumn('difficulty', 'REAL', false),
+  toColumn('a_factor', 'REAL', false),
+  toColumn('search_text', 'TEXT', false),
+  toColumn('card_type_marker', 'TEXT', false),
+  toColumn('source_exists', 'INTEGER', false),
+  toColumn('source_checked_at', 'INTEGER', false),
+  toColumn('source_missing_at', 'INTEGER', false),
+  toColumn('payload_json', 'TEXT', true),
+  toColumn('dto_json', 'TEXT', false),
+  toColumn('msgpack_ref', 'TEXT', false),
+  toColumn('truth_hash', 'TEXT', false),
+  toColumn('truth_schema_version', 'INTEGER', false),
+  toColumn('projection_generation', 'INTEGER', false),
+  toColumn('source_hash', 'TEXT', false),
+];
+
+const ALGORITHM_CARD_STATE_COLUMNS: SqliteDeltaTableColumn[] = [
+  toColumn('card_id', 'TEXT', true, 1),
+  toColumn('algorithm_id', 'TEXT', true, 2),
+  toColumn('state_json', 'TEXT', true),
+  toColumn('updated_at', 'INTEGER', true),
+];
+
+const DOMAIN_SYNC_OPERATIONS_COLUMNS: SqliteDeltaTableColumn[] = [
+  toColumn('operation_id', 'TEXT', false, 1),
+  toColumn('source_id', 'TEXT', true),
+  toColumn('source_device_id', 'TEXT', false),
+  toColumn('source_generation', 'INTEGER', false),
+  toColumn('operation_type', 'TEXT', true),
+  toColumn('entity_type', 'TEXT', true),
+  toColumn('entity_id', 'TEXT', true),
+  toColumn('entity_block_id', 'TEXT', false),
+  toColumn('occurred_at', 'INTEGER', true),
+  toColumn('observed_at', 'INTEGER', true),
+  toColumn('payload_fingerprint', 'TEXT', true),
+  toColumn('idempotency_key', 'TEXT', false),
+  toColumn('review_event_id', 'TEXT', false),
+  toColumn('payload_json', 'TEXT', true),
+  toColumn('msgpack_ref', 'TEXT', false),
+  toColumn('truth_hash', 'TEXT', false),
+  toColumn('truth_schema_version', 'INTEGER', false),
+  toColumn('projection_generation', 'INTEGER', false),
+];
+
+const STORE_METADATA_COLUMNS: SqliteDeltaTableColumn[] = [
+  toColumn('key', 'TEXT', false, 1),
+  toColumn('value_json', 'TEXT', true),
+  toColumn('updated_at', 'INTEGER', true),
+];
+
 export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
+  tableMetadata('cards', ['id'], CARDS_COLUMNS),
+  tableMetadata('algorithm_card_state', ['card_id', 'algorithm_id'], ALGORITHM_CARD_STATE_COLUMNS),
+  tableMetadata('domain_sync_operations', ['operation_id'], DOMAIN_SYNC_OPERATIONS_COLUMNS),
+  tableMetadata('store_metadata', ['key'], STORE_METADATA_COLUMNS),
   tableMetadata('review_events', ['id'], REVIEW_EVENTS_COLUMNS, [
     REVIEW_EVENTS_LEGACY_COMMIT_COLUMN_ORDER,
   ]),
@@ -377,27 +571,6 @@ function mapAuditRows(rows: AuditRow[]): SqliteDeltaChange[] {
   }));
 }
 
-function normalizeSnapshot(value: unknown): SqliteDeltaLogSnapshot {
-  if (value === null || value === undefined) {
-    return {
-      version: SQLITE_DELTA_LOG_VERSION,
-      entries: [],
-      updatedAt: 0,
-    };
-  }
-  if (!isRecord(value) || value.version !== SQLITE_DELTA_LOG_VERSION) {
-    throw new Error(`SQLite delta log unsupported: expected version ${SQLITE_DELTA_LOG_VERSION}`);
-  }
-  if (!Array.isArray(value.entries)) {
-    throw new Error('SQLite delta log corrupt: entries must be an array');
-  }
-  return {
-    version: SQLITE_DELTA_LOG_VERSION,
-    entries: value.entries.map((entry, index) => normalizeEntry(entry, index)),
-    updatedAt: Math.max(0, Math.floor(Number(value.updatedAt || 0))),
-  };
-}
-
 function normalizeEntry(value: unknown, index: number): SqliteDeltaEntry {
   if (!isRecord(value) || value.version !== 1) {
     throw new Error(`SQLite delta log corrupt: entry ${index} has unsupported version`);
@@ -418,6 +591,76 @@ function normalizeEntry(value: unknown, index: number): SqliteDeltaEntry {
     changes,
     byteEstimate: Math.max(0, Math.floor(Number(value.byteEstimate || 0))),
   };
+}
+
+function normalizeSegmentEnvelope(value: unknown, path: string): SqliteDeltaSegmentEnvelope {
+  if (!isRecord(value)
+    || value.version !== SQLITE_DELTA_LOG_VERSION
+    || value.kind !== 'sqlite-delta-segment'
+    || normalizeString(value.path) !== path
+    || !Array.isArray(value.entries)) {
+    throw new Error(`SQLite delta segment corrupt: ${path}`);
+  }
+  return {
+    version: SQLITE_DELTA_LOG_VERSION,
+    kind: 'sqlite-delta-segment',
+    path,
+    sequence: Math.max(0, Math.floor(Number(value.sequence || 0))),
+    sealed: value.sealed === true,
+    createdAt: Math.max(0, Math.floor(Number(value.createdAt || 0))),
+    updatedAt: Math.max(0, Math.floor(Number(value.updatedAt || 0))),
+    entries: value.entries.map((entry, index) => normalizeEntry(entry, index)),
+  };
+}
+
+function buildSegmentEnvelope(input: {
+  path: string;
+  sequence: number;
+  sealed: boolean;
+  entries: SqliteDeltaEntry[];
+  previous?: SqliteDeltaSegmentEnvelope | null;
+}): SqliteDeltaSegmentEnvelope {
+  const now = Date.now();
+  return {
+    version: SQLITE_DELTA_LOG_VERSION,
+    kind: 'sqlite-delta-segment',
+    path: input.path,
+    sequence: input.sequence,
+    sealed: input.sealed,
+    createdAt: input.previous?.createdAt ?? now,
+    updatedAt: now,
+    entries: input.entries,
+  };
+}
+
+function buildSegmentManifestEntry(input: {
+  envelope: SqliteDeltaSegmentEnvelope;
+  bytes: Uint8Array;
+  sealedAt?: number | null;
+}): SqliteDeltaSegmentManifestEntry {
+  const createdAtValues = input.envelope.entries.map((entry) => entry.createdAt);
+  const minCreatedAt = createdAtValues.length > 0 ? Math.min(...createdAtValues) : null;
+  const maxCreatedAt = createdAtValues.length > 0 ? Math.max(...createdAtValues) : null;
+  return {
+    version: SQLITE_DELTA_LOG_VERSION,
+    path: input.envelope.path,
+    sequence: input.envelope.sequence,
+    sealed: input.envelope.sealed,
+    checksum: checksumBytes(input.bytes),
+    entryCount: input.envelope.entries.length,
+    byteSize: input.bytes.byteLength,
+    minCreatedAt,
+    maxCreatedAt,
+    sealedAt: input.sealedAt ?? (input.envelope.sealed ? Date.now() : null),
+  };
+}
+
+function uniqueSegmentEntriesByPath(entries: SqliteDeltaSegmentManifestEntry[]): SqliteDeltaSegmentManifestEntry[] {
+  const byPath = new Map<string, SqliteDeltaSegmentManifestEntry>();
+  for (const entry of entries) {
+    byPath.set(entry.path, entry);
+  }
+  return Array.from(byPath.values()).sort((left, right) => left.sequence - right.sequence);
 }
 
 function normalizeChange(value: unknown, entryIndex: number, changeIndex: number): SqliteDeltaChange {
@@ -506,7 +749,22 @@ export class SqliteDeltaCheckpointLayer {
   constructor(
     private readonly fileService: SqliteDeltaFileService,
     private readonly fileName = SQLITE_DELTA_LOG_FILE,
+    private readonly options: {
+      checkpointStorageClass?: SqliteCheckpointStorageClass;
+    } = {},
   ) {}
+
+  private get checkpointStorageClass(): SqliteCheckpointStorageClass {
+    return this.options.checkpointStorageClass ?? 'durable-checkpoint';
+  }
+
+  private canClearDeltaAfterCheckpoint(): boolean {
+    return this.checkpointStorageClass === 'durable-checkpoint';
+  }
+
+  private canUseCheckpointForThreshold(): boolean {
+    return this.checkpointStorageClass === 'durable-checkpoint';
+  }
 
   private acceptsSchemaFingerprint(metadata: SqliteDeltaTableMetadata, fingerprint: string | null | undefined): boolean {
     return Boolean(fingerprint && metadata.acceptedSchemaFingerprints.includes(fingerprint));
@@ -607,10 +865,36 @@ export class SqliteDeltaCheckpointLayer {
   }): Promise<SqliteDeltaPersistResult> {
     const snapshot = await this.readSnapshot();
     const pendingBytes = estimateJsonByteLength(snapshot);
-    const checkpointReason = this.classifyCheckpointReason(input, snapshot, pendingBytes);
+    const rawCheckpointReason = this.classifyCheckpointReason(input, snapshot, pendingBytes);
+    const checkpointReason = rawCheckpointReason === 'delta-threshold-exceeded' && !this.canUseCheckpointForThreshold()
+      ? null
+      : rawCheckpointReason;
     const diagnostics = normalizeDiagnosticsContext(input.diagnostics);
     const hotPath = diagnostics.hotPath || labelLooksHotPath(input.label);
     if (checkpointReason) {
+      if (hotPath && checkpointReason !== 'delta-threshold-exceeded') {
+        const error = new Error(
+          `BACKEND_UNAVAILABLE: SQLite delta durability unavailable for hot path ${input.label}: ${checkpointReason}`,
+        );
+        this.lastWrite = {
+          ok: false,
+          at: Date.now(),
+          classification: 'delta',
+          label: input.label,
+          cause: input.label,
+          initiator: diagnostics.initiator,
+          projectionGeneration: diagnostics.projectionGeneration
+            ?? maxProjectionGenerationFromChanges(input.capture?.changes ?? []),
+          hotPath,
+          reason: checkpointReason,
+          pendingCount: snapshot.entries.length,
+          pendingBytes,
+          affectedTables: input.capture?.touchedTables ?? [],
+          error: error.message,
+          checkpointStorageClass: this.checkpointStorageClass,
+        };
+        throw error;
+      }
       this.checkpointOnlyTotal += 1;
       const checkpointDiagnostics: SqliteDeltaDiagnosticsContext = {
         cause: input.label,
@@ -629,6 +913,7 @@ export class SqliteDeltaCheckpointLayer {
         pendingCount: snapshot.entries.length,
         pendingBytes,
         affectedTables: input.capture?.touchedTables ?? [],
+        checkpointStorageClass: this.checkpointStorageClass,
       };
       return {
         mode: 'checkpoint',
@@ -639,13 +924,16 @@ export class SqliteDeltaCheckpointLayer {
 
     const capture = input.capture!;
     const entry = this.buildEntry(input.label, capture);
+    const nextEntries = [...snapshot.entries, entry];
     const nextSnapshot: SqliteDeltaLogSnapshot = {
       version: SQLITE_DELTA_LOG_VERSION,
-      entries: [...snapshot.entries, entry],
+      entries: nextEntries,
       updatedAt: Date.now(),
+      manifest: snapshot.manifest,
     };
     const nextPendingBytes = estimateJsonByteLength(nextSnapshot);
-    if (nextSnapshot.entries.length > MAX_PENDING_DELTA_ENTRIES || nextPendingBytes > MAX_PENDING_DELTA_BYTES) {
+    if (this.canUseCheckpointForThreshold()
+      && (nextEntries.length > MAX_PENDING_DELTA_ENTRIES || nextPendingBytes > MAX_PENDING_DELTA_BYTES)) {
       const reason = 'delta-threshold-exceeded';
       this.checkpointOnlyTotal += 1;
       const checkpointDiagnostics: SqliteDeltaDiagnosticsContext = {
@@ -664,6 +952,7 @@ export class SqliteDeltaCheckpointLayer {
         pendingCount: snapshot.entries.length,
         pendingBytes,
         affectedTables: entry.tables,
+        checkpointStorageClass: this.checkpointStorageClass,
       };
       return {
         mode: 'checkpoint',
@@ -672,7 +961,8 @@ export class SqliteDeltaCheckpointLayer {
       };
     }
     try {
-      await this.fileService.writeJSON(this.fileName, nextSnapshot);
+      const writeResult = await this.appendDeltaEntryToSegments(snapshot.manifest, entry);
+      nextSnapshot.manifest = writeResult.manifest;
     } catch (error) {
       this.lastWrite = {
         ok: false,
@@ -685,6 +975,7 @@ export class SqliteDeltaCheckpointLayer {
         deltaEntryId: entry.id,
         affectedTables: entry.tables,
         error: error instanceof Error ? error.message : String(error),
+        checkpointStorageClass: this.checkpointStorageClass,
       };
       throw error;
     }
@@ -704,11 +995,81 @@ export class SqliteDeltaCheckpointLayer {
       deltaEntryId: entry.id,
       deltaEntriesWritten: 1,
       affectedTables: entry.tables,
+      checkpointStorageClass: this.checkpointStorageClass,
     };
     return {
       mode: 'delta',
       entry,
     };
+  }
+
+  private async appendDeltaEntryToSegments(
+    manifest: SqliteDeltaSegmentManifest,
+    entry: SqliteDeltaEntry,
+  ): Promise<{ manifest: SqliteDeltaSegmentManifest }> {
+    const openEnvelope = manifest.openSegment
+      ? await this.readSegmentEnvelope(manifest.openSegment)
+      : null;
+    const openEntries = openEnvelope?.entries ?? [];
+    const candidateEntries = [...openEntries, entry];
+    const candidateSequence = openEnvelope?.sequence ?? manifest.nextSequence;
+    const candidateEnvelope = buildSegmentEnvelope({
+      path: SQLITE_DELTA_OPEN_SEGMENT_FILE,
+      sequence: candidateSequence,
+      sealed: false,
+      entries: candidateEntries,
+      previous: openEnvelope,
+    });
+    const candidateBytes = encode(candidateEnvelope);
+    const shouldSealCandidate = candidateEntries.length >= MAX_OPEN_SEGMENT_DELTA_ENTRIES
+      || candidateBytes.byteLength >= MAX_OPEN_SEGMENT_BYTES;
+
+    let sealedSegments = manifest.sealedSegments;
+    let nextSequence = Math.max(manifest.nextSequence, candidateSequence + 1);
+    let openSegmentEntry: SqliteDeltaSegmentManifestEntry | null = null;
+
+    if (shouldSealCandidate) {
+      const sealedPath = `sqlite-delta-log.v2.sealed-${candidateSequence}.msgpack`;
+      if (manifest.sealedSegments.some((segment) => segment.path === sealedPath)) {
+        throw new Error(`SQLite delta sealed segment already exists in manifest: ${sealedPath}`);
+      }
+      const sealedEnvelope = buildSegmentEnvelope({
+        path: sealedPath,
+        sequence: candidateSequence,
+        sealed: true,
+        entries: candidateEntries,
+        previous: openEnvelope,
+      });
+      const sealedBytes = encode(sealedEnvelope);
+      await this.fileService.writeBinary(sealedPath, sealedBytes);
+      sealedSegments = [
+        ...manifest.sealedSegments.filter((segment) => segment.path !== sealedPath),
+        buildSegmentManifestEntry({
+          envelope: sealedEnvelope,
+          bytes: sealedBytes,
+          sealedAt: Date.now(),
+        }),
+      ].sort((left, right) => left.sequence - right.sequence);
+    } else {
+      await this.fileService.writeBinary(SQLITE_DELTA_OPEN_SEGMENT_FILE, candidateBytes);
+      openSegmentEntry = buildSegmentManifestEntry({
+        envelope: candidateEnvelope,
+        bytes: candidateBytes,
+        sealedAt: null,
+      });
+    }
+
+    const nextManifest: SqliteDeltaSegmentManifest = {
+      version: SQLITE_DELTA_LOG_VERSION,
+      path: this.fileName,
+      openSegment: openSegmentEntry,
+      sealedSegments,
+      updatedAt: Date.now(),
+      nextSequence,
+      checkpoint: null,
+    };
+    await this.fileService.writeJSON(this.fileName, nextManifest);
+    return { manifest: nextManifest };
   }
 
   async replayPending(db: Database): Promise<SqliteDeltaOperationStatus> {
@@ -759,6 +1120,10 @@ export class SqliteDeltaCheckpointLayer {
     return (await this.readSnapshot()).entries.length > 0;
   }
 
+  async hasCheckpointablePendingDeltas(): Promise<boolean> {
+    return this.canClearDeltaAfterCheckpoint() && (await this.readSnapshot()).entries.length > 0;
+  }
+
   async clearAfterCheckpoint(
     reason: string,
     byteLength: number | null,
@@ -766,12 +1131,20 @@ export class SqliteDeltaCheckpointLayer {
   ): Promise<void> {
     const snapshot = await this.readSnapshot();
     const pendingBytes = estimateJsonByteLength(snapshot);
-    if (snapshot.entries.length > 0) {
+    const clearCoveredDeltas = this.canClearDeltaAfterCheckpoint();
+    if (snapshot.entries.length > 0 && clearCoveredDeltas) {
+      const coveredSegmentPaths = [
+        ...snapshot.manifest.sealedSegments.map((segment) => segment.path),
+        ...(snapshot.manifest.openSegment ? [snapshot.manifest.openSegment.path] : []),
+      ];
       await this.fileService.writeJSON(this.fileName, {
-        version: SQLITE_DELTA_LOG_VERSION,
-        entries: [],
-        updatedAt: Date.now(),
-      } satisfies SqliteDeltaLogSnapshot);
+        ...emptyManifest(Date.now()),
+        checkpoint: {
+          clearedAt: Date.now(),
+          coveredSegmentPaths,
+          reason,
+        },
+      } satisfies SqliteDeltaSegmentManifest);
     }
     this.checkpointWritesTotal += 1;
     const diagnostics = normalizeDiagnosticsContext(diagnosticsContext);
@@ -787,8 +1160,9 @@ export class SqliteDeltaCheckpointLayer {
       pendingCount: snapshot.entries.length,
       pendingBytes,
       byteLength,
-      cleared: snapshot.entries.length > 0,
+      cleared: snapshot.entries.length > 0 && clearCoveredDeltas,
       affectedTables: uniqueStrings(snapshot.entries.flatMap((entry) => entry.tables)),
+      checkpointStorageClass: this.checkpointStorageClass,
     };
   }
 
@@ -811,6 +1185,7 @@ export class SqliteDeltaCheckpointLayer {
       pendingCount: snapshot?.entries.length ?? 0,
       pendingBytes: snapshot ? estimateJsonByteLength(snapshot) : 0,
       cleared: false,
+      checkpointStorageClass: this.checkpointStorageClass,
       error: error instanceof Error ? error.message : String(error),
     };
   }
@@ -835,7 +1210,98 @@ export class SqliteDeltaCheckpointLayer {
   }
 
   private async readSnapshot(): Promise<SqliteDeltaLogSnapshot> {
-    return normalizeSnapshot(await this.fileService.readJSON<SqliteDeltaLogSnapshot>(this.fileName));
+    const manifest = normalizeManifest(await this.fileService.readJSON<SqliteDeltaSegmentManifest>(this.fileName));
+    const segmentRefs = [
+      ...manifest.sealedSegments,
+      ...(manifest.openSegment ? [manifest.openSegment] : []),
+    ].sort((left, right) => left.sequence - right.sequence);
+    const envelopes: SqliteDeltaSegmentEnvelope[] = [];
+    const seenPaths = new Set<string>();
+    const recoveredSealedSegments: SqliteDeltaSegmentManifestEntry[] = [];
+    let recoveredOpenSegment: SqliteDeltaSegmentManifestEntry | null = null;
+    for (const segment of segmentRefs) {
+      envelopes.push(await this.readSegmentEnvelope(segment));
+      seenPaths.add(segment.path);
+    }
+    if (this.shouldReplayVolatileCheckpointSegments(manifest)) {
+      for (const path of manifest.checkpoint?.coveredSegmentPaths ?? []) {
+        if (seenPaths.has(path)) {
+          continue;
+        }
+        const recovered = await this.readSegmentEnvelopeByPath(path);
+        envelopes.push(recovered.envelope);
+        if (recovered.envelope.sealed) {
+          recoveredSealedSegments.push(recovered.manifestEntry);
+        } else if (!manifest.openSegment && !recoveredOpenSegment) {
+          recoveredOpenSegment = recovered.manifestEntry;
+        }
+        seenPaths.add(path);
+      }
+    }
+    envelopes.sort((left, right) => left.sequence - right.sequence || left.path.localeCompare(right.path));
+    const entries = envelopes.flatMap((envelope) => envelope.entries);
+    const recoveredManifest = recoveredSealedSegments.length > 0 || recoveredOpenSegment
+      ? {
+        ...manifest,
+        openSegment: manifest.openSegment ?? recoveredOpenSegment,
+        sealedSegments: uniqueSegmentEntriesByPath([
+          ...manifest.sealedSegments,
+          ...recoveredSealedSegments,
+        ]),
+        nextSequence: Math.max(
+          manifest.nextSequence,
+          ...envelopes.map((envelope) => envelope.sequence + 1),
+          1,
+        ),
+      }
+      : manifest;
+    return {
+      version: SQLITE_DELTA_LOG_VERSION,
+      entries,
+      updatedAt: recoveredManifest.updatedAt,
+      manifest: recoveredManifest,
+    };
+  }
+
+  private shouldReplayVolatileCheckpointSegments(manifest: SqliteDeltaSegmentManifest): boolean {
+    return this.checkpointStorageClass === 'volatile-projection'
+      && Array.isArray(manifest.checkpoint?.coveredSegmentPaths)
+      && manifest.checkpoint.coveredSegmentPaths.length > 0;
+  }
+
+  private async readSegmentEnvelope(segment: SqliteDeltaSegmentManifestEntry): Promise<SqliteDeltaSegmentEnvelope> {
+    const bytes = await this.fileService.readBinary(segment.path);
+    if (!bytes) {
+      throw new Error(`SQLite delta segment missing: ${segment.path}`);
+    }
+    const checksum = checksumBytes(bytes);
+    if (segment.checksum && checksum !== segment.checksum) {
+      throw new Error(`SQLite delta segment checksum mismatch: ${segment.path}`);
+    }
+    const envelope = normalizeSegmentEnvelope(decode(bytes), segment.path);
+    if (envelope.entries.length !== segment.entryCount) {
+      throw new Error(`SQLite delta segment entry count mismatch: ${segment.path}`);
+    }
+    return envelope;
+  }
+
+  private async readSegmentEnvelopeByPath(path: string): Promise<{
+    envelope: SqliteDeltaSegmentEnvelope;
+    manifestEntry: SqliteDeltaSegmentManifestEntry;
+  }> {
+    const bytes = await this.fileService.readBinary(path);
+    if (!bytes) {
+      throw new Error(`SQLite delta segment missing: ${path}`);
+    }
+    const envelope = normalizeSegmentEnvelope(decode(bytes), path);
+    return {
+      envelope,
+      manifestEntry: buildSegmentManifestEntry({
+        envelope,
+        bytes,
+        sealedAt: envelope.sealed ? envelope.updatedAt : null,
+      }),
+    };
   }
 
   private classifyCheckpointReason(input: {

@@ -52,11 +52,27 @@ function classifyStoragePath(relativePath, stats = {}) {
     };
   }
 
-  if (lower === 'sqlite-delta-log.v1.json') {
+  if (lower === 'sqlite-delta-log.v2.manifest.json') {
     return {
       classification: 'expected-active',
-      kind: 'sqlite-delta-log',
-      policy: 'Bounded projection delta log; pending entries should clear after full DB checkpoint.',
+      kind: 'sqlite-delta-manifest',
+      policy: 'SQLite delta v2 manifest; durable delta entries clear only after a same-domain durable checkpoint.',
+    };
+  }
+
+  if (lower === 'sqlite-delta-log.v2.open.msgpack') {
+    return {
+      classification: 'expected-active',
+      kind: 'sqlite-delta-open-segment',
+      policy: 'Bounded mutable SQLite delta v2 open segment.',
+    };
+  }
+
+  if (/^sqlite-delta-log\.v2\.sealed-\d+\.msgpack$/i.test(rel)) {
+    return {
+      classification: 'expected-active',
+      kind: 'sqlite-delta-sealed-segment',
+      policy: 'Immutable SQLite delta v2 sealed segment.',
     };
   }
 
@@ -148,11 +164,11 @@ function classifyStoragePath(relativePath, stats = {}) {
     };
   }
 
-  if (lower === 'siyuanmemo.db.delta.v1.json') {
+  if (lower === 'sqlite-delta-log.v1.json' || lower === 'siyuanmemo.db.delta.v1.json') {
     return {
       classification: 'cleanup-candidate',
       kind: 'legacy-sqlite-delta-log',
-      policy: 'Legacy or wrong-name SQLite delta log; active delta log path is sqlite-delta-log.v1.json.',
+      policy: 'Legacy or wrong-name SQLite delta log; active delta paths are sqlite-delta-log.v2.manifest.json and v2 MessagePack segments.',
     };
   }
 

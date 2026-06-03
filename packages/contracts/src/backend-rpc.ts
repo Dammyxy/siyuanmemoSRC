@@ -569,6 +569,7 @@ export interface BackendDiagnosticsStatusResult {
 }
 
 export type BackendSqliteDeltaWriteClassification = 'delta' | 'checkpoint';
+export type BackendSqliteCheckpointStorageClass = 'durable-checkpoint' | 'volatile-projection';
 
 export interface BackendSqliteDeltaOperationStatus {
   ok: boolean;
@@ -589,6 +590,7 @@ export interface BackendSqliteDeltaOperationStatus {
   affectedTables?: string[];
   byteLength?: number | null;
   cleared?: boolean;
+  checkpointStorageClass?: BackendSqliteCheckpointStorageClass;
   error?: string | null;
 }
 
@@ -1313,8 +1315,16 @@ export interface MessagePackTruthSourceRef {
 export interface MessagePackReviewEventTruthRecord {
   family: 'review-events';
   schemaVersion: typeof MESSAGEPACK_TRUTH_SCHEMA_VERSION;
-  type: 'review.feedback.v1' | 'review.skip.v1' | 'review.custom-feedback.v1' | 'review.reschedule.v1' | 'review.drill-only.v1';
+  type:
+    | 'review.feedback.v1'
+    | 'review.feedback.v2'
+    | 'review.skip.v1'
+    | 'review.custom-feedback.v1'
+    | 'review.reschedule.v1'
+    | 'review.drill-only.v1';
   idempotencyKey: string;
+  eventId?: string | null;
+  attemptId?: string | null;
   journalEntryId?: string | null;
   logicalTime: number;
   recordedAt: number;
@@ -1338,6 +1348,18 @@ export interface MessagePackReviewEventTruthRecord {
     queueMode?: string | null;
     commitPolicy?: string | null;
   };
+  scheduler?: {
+    schedulerType?: string | null;
+    algorithm?: string | null;
+    configHash?: string | null;
+  };
+  projection?: {
+    generation?: number | null;
+    policyHash?: string | null;
+    schemaVersion?: number | null;
+  };
+  beforeCard?: Record<string, unknown> | null;
+  afterCard?: Record<string, unknown> | null;
 }
 
 export interface MessagePackCardMemoryFactTruthRecord {

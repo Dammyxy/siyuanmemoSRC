@@ -44,6 +44,63 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   };
 }
 
+function createDurableReviewFeedbackResult(
+  updatedCard: FSRSCard,
+  overrides: Record<string, unknown> = {},
+) {
+  const queueImpact = overrides.queueImpact ?? {
+    hotPatchable: true,
+    refreshRequired: false,
+    affectedQueues: [],
+  };
+  return {
+    cardId: updatedCard.id,
+    committed: true,
+    reviewedAt: updatedCard.lastReview ?? updatedCard.updatedAt ?? Date.now(),
+    queueType: 'retrieval-practice',
+    updatedCard,
+    queueImpact,
+    storage: {
+      localIntent: {
+        status: 'recorded',
+        durable: true,
+        storage: 'non-siyuan',
+        entryId: `journal:${updatedCard.id}`,
+        idempotencyKey: null,
+        journalStatus: 'projection-applied',
+        pendingCount: 1,
+        pendingBytes: 256,
+        error: null,
+      },
+      truthFlush: {
+        status: 'pending',
+        family: 'review-events',
+        syncVisible: false,
+        pendingCount: 1,
+        oldestPendingAgeMs: 0,
+        lastError: null,
+      },
+      sqlProjection: {
+        status: 'patched',
+        hotPatchable: true,
+        refreshRequired: false,
+        affectedQueueCount: 0,
+        projectionGeneration: null,
+      },
+      sqlCheckpoint: {
+        status: 'not-run',
+        hotPath: false,
+        cause: null,
+        initiator: null,
+        projectionGeneration: null,
+        byteLength: null,
+        error: null,
+      },
+    },
+    ...overrides,
+  };
+}
+
 function createReleasePolicy(overrides?: {
   backendWorker?: string;
   writerLeaseGuard?: string;
@@ -73,7 +130,7 @@ describe('ReviewCommitUseCase', () => {
   it('uses backend worker write path in default release env (backend+writer writer mode)', async () => {
     const before = createCard({ id: 'card-default-env' });
     const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });
-    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after }));
+    const reviewFeedback = vi.fn(async () => createDurableReviewFeedbackResult(after));
     const ensureWritable = vi.fn(async () => {});
 
     const useCase = new ReviewCommitUseCase({
@@ -101,6 +158,40 @@ describe('ReviewCommitUseCase', () => {
     expect(reviewFeedback).toHaveBeenCalledTimes(1);
   });
 
+  it('fails closed when committed backend feedback omits durable storage status', async () => {
+    const before = createCard({ id: 'card-missing-storage' });
+    const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });
+    const reviewFeedback = vi.fn(async () => ({
+      committed: true,
+      updatedCard: after,
+      queueImpact: {
+        hotPatchable: true,
+        refreshRequired: false,
+        affectedQueues: [],
+      },
+    }));
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      srsBackend: { reviewFeedback },
+      writerLeaseGuard: {
+        ensureWritable: vi.fn(async () => {}),
+        getMode: () => 'writer',
+      } as never,
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    await expect(useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: review.feedback committed result failed durability gate');
+  });
+
   it('has no Review block-attribute write dependency on the ordinary feedback success path', async () => {
     const before = createCard({ id: 'card-no-attrs' });
     const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });
@@ -114,7 +205,7 @@ describe('ReviewCommitUseCase', () => {
         getCard,
         setBlockAttrs: forbiddenSetBlockAttrs,
       } as never,
-      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: after })) },
+      srsBackend: { reviewFeedback: vi.fn(async () => createDurableReviewFeedbackResult(after)) },
       writerLeaseGuard: {
         ensureWritable: vi.fn(async () => {}),
         getMode: () => 'writer',
@@ -139,9 +230,7 @@ describe('ReviewCommitUseCase', () => {
   it('passes review commit idempotency key to backend worker request', async () => {
     const before = createCard({ id: 'card-idempotency-key' });
     const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });
-    const reviewFeedback = vi.fn(async () => ({
-      committed: true,
-      updatedCard: after,
+    const reviewFeedback = vi.fn(async () => createDurableReviewFeedbackResult(after, {
       idempotencyKey: 'review-commit:key-1',
       duplicate: false,
     }));
@@ -175,7 +264,7 @@ describe('ReviewCommitUseCase', () => {
   it('uses local backend worker write path on mobile without kernel writer relay', async () => {
     const before = createCard({ id: 'card-mobile-local-worker' });
     const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });
-    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after }));
+    const reviewFeedback = vi.fn(async () => createDurableReviewFeedbackResult(after));
 
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
@@ -207,7 +296,7 @@ describe('ReviewCommitUseCase', () => {
       requestRetention: 0.97,
       enableFuzz: false,
     };
-    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after }));
+    const reviewFeedback = vi.fn(async () => createDurableReviewFeedbackResult(after));
 
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
@@ -244,7 +333,7 @@ describe('ReviewCommitUseCase', () => {
   it('passes projection snapshot identity to backend review feedback', async () => {
     const before = createCard({ id: 'card-projection-context' });
     const after = createCard({ id: before.id, due: before.due + 4 * 86_400_000 });
-    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after }));
+    const reviewFeedback = vi.fn(async () => createDurableReviewFeedbackResult(after));
 
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
@@ -285,7 +374,7 @@ describe('ReviewCommitUseCase', () => {
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
       arena,
-      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: after })) },
+      srsBackend: { reviewFeedback: vi.fn(async () => createDurableReviewFeedbackResult(after)) },
       writerLeaseGuard: {
         ensureWritable: vi.fn(async () => {}),
         getMode: () => 'writer',
@@ -318,7 +407,7 @@ describe('ReviewCommitUseCase', () => {
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
       arena,
-      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: after })) },
+      srsBackend: { reviewFeedback: vi.fn(async () => createDurableReviewFeedbackResult(after)) },
       writerLeaseGuard: {
         ensureWritable: vi.fn(async () => {}),
         getMode: () => 'writer',
@@ -357,7 +446,7 @@ describe('ReviewCommitUseCase', () => {
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
       arena,
-      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: after })) },
+      srsBackend: { reviewFeedback: vi.fn(async () => createDurableReviewFeedbackResult(after)) },
       writerLeaseGuard: {
         ensureWritable: vi.fn(async () => {}),
         getMode: () => 'writer',
@@ -386,7 +475,7 @@ describe('ReviewCommitUseCase', () => {
     const before = createCard({ id: 'card-backend-disabled' });
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
+      srsBackend: { reviewFeedback: vi.fn(async () => createDurableReviewFeedbackResult(before)) },
       runtimePolicy: createReleasePolicy({ backendWorker: 'false', writerLeaseGuard: 'false' }),
     });
 
@@ -406,7 +495,7 @@ describe('ReviewCommitUseCase', () => {
     const before = createCard({ id: 'card-backend-only' });
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
+      srsBackend: { reviewFeedback: vi.fn(async () => createDurableReviewFeedbackResult(before)) },
       runtimePolicy: createReleasePolicy({ backendWorker: 'true', writerLeaseGuard: 'false' }),
     });
 
@@ -425,8 +514,8 @@ describe('ReviewCommitUseCase', () => {
   it('uses follower relay in follower mode for backend+writer policy', async () => {
     const before = createCard({ id: 'card-follower-mode' });
     const after = createCard({ id: before.id, due: before.due + 3 * 86_400_000 });
-    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after }));
-    const submitAndWait = vi.fn(async () => ({ committed: true, updatedCard: after }));
+    const reviewFeedback = vi.fn(async () => createDurableReviewFeedbackResult(after));
+    const submitAndWait = vi.fn(async () => createDurableReviewFeedbackResult(after));
 
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
@@ -462,7 +551,7 @@ describe('ReviewCommitUseCase', () => {
     const before = createCard({ id: 'card-stale-follower-primary' });
     const after = createCard({ id: before.id, due: before.due + 3 * 86_400_000 });
     let mode: 'follower' | 'writer' = 'follower';
-    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after }));
+    const reviewFeedback = vi.fn(async () => createDurableReviewFeedbackResult(after));
     const ensureWritable = vi.fn(async () => {
       mode = 'writer';
     });
@@ -503,7 +592,7 @@ describe('ReviewCommitUseCase', () => {
 
   it('fails closed for non-primary follower when no-active-writer recovery is rejected', async () => {
     const before = createCard({ id: 'card-non-primary-follower' });
-    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: before }));
+    const reviewFeedback = vi.fn(async () => createDurableReviewFeedbackResult(before));
     const ensureWritable = vi.fn(async () => {
       throw new Error('BACKEND_UNAVAILABLE: writer unavailable: desktop Electron document window is follower-only');
     });
@@ -543,10 +632,8 @@ describe('ReviewCommitUseCase', () => {
   it('carries review commit idempotency key through follower relay payload', async () => {
     const before = createCard({ id: 'card-follower-idempotency' });
     const after = createCard({ id: before.id, due: before.due + 3 * 86_400_000 });
-    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after }));
-    const submitAndWait = vi.fn(async () => ({
-      committed: true,
-      updatedCard: after,
+    const reviewFeedback = vi.fn(async () => createDurableReviewFeedbackResult(after));
+    const submitAndWait = vi.fn(async () => createDurableReviewFeedbackResult(after, {
       idempotencyKey: 'review-commit:follower-key',
       duplicate: false,
     }));
@@ -607,8 +694,8 @@ describe('ReviewCommitUseCase', () => {
         },
       }],
     };
-    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after, queueImpact }));
-    const submitAndWait = vi.fn(async () => ({ committed: true, updatedCard: after, queueImpact }));
+    const reviewFeedback = vi.fn(async () => createDurableReviewFeedbackResult(after, { queueImpact }));
+    const submitAndWait = vi.fn(async () => createDurableReviewFeedbackResult(after, { queueImpact }));
 
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
@@ -640,7 +727,7 @@ describe('ReviewCommitUseCase', () => {
     const before = createCard({ id: 'card-partial-di' });
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
+      srsBackend: { reviewFeedback: vi.fn(async () => createDurableReviewFeedbackResult(before)) },
       writerLeaseGuard: {
         ensureWritable: vi.fn(async () => {}),
       } as never,
@@ -664,7 +751,7 @@ describe('ReviewCommitUseCase', () => {
     const writerError = new Error('BACKEND_UNAVAILABLE: writer lease not owned by current instance');
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
+      srsBackend: { reviewFeedback: vi.fn(async () => createDurableReviewFeedbackResult(before)) },
       writerLeaseGuard: {
         ensureWritable: vi.fn(async () => {
           throw writerError;
@@ -695,7 +782,7 @@ describe('ReviewCommitUseCase', () => {
     const relayTimeout = new Error('BACKEND_UNAVAILABLE: writer relay timeout');
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
-      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
+      srsBackend: { reviewFeedback: vi.fn(async () => createDurableReviewFeedbackResult(before)) },
       writerLeaseGuard: {
         ensureWritable: vi.fn(async () => {}),
         getMode: () => 'follower',

@@ -45,9 +45,21 @@ describe('audit-plugin-storage', () => {
       classification: 'expected-active',
       kind: 'messagepack-truth-manifest',
     });
-    expect(classifyStoragePath('sqlite-delta-log.v1.json')).toMatchObject({
+    expect(classifyStoragePath('sqlite-delta-log.v2.manifest.json')).toMatchObject({
       classification: 'expected-active',
-      kind: 'sqlite-delta-log',
+      kind: 'sqlite-delta-manifest',
+    });
+    expect(classifyStoragePath('sqlite-delta-log.v2.open.msgpack')).toMatchObject({
+      classification: 'expected-active',
+      kind: 'sqlite-delta-open-segment',
+    });
+    expect(classifyStoragePath('sqlite-delta-log.v2.sealed-1.msgpack')).toMatchObject({
+      classification: 'expected-active',
+      kind: 'sqlite-delta-sealed-segment',
+    });
+    expect(classifyStoragePath('sqlite-delta-log.v1.json')).toMatchObject({
+      classification: 'cleanup-candidate',
+      kind: 'legacy-sqlite-delta-log',
     });
     expect(classifyStoragePath('migration-backups/algorithm-card-state-repair-1701000000005.json')).toMatchObject({
       classification: 'cleanup-candidate',
@@ -124,17 +136,19 @@ describe('audit-plugin-storage', () => {
   it('reports a petal SQL DB without truth files as ignored legacy projection debt', () => {
     const rootDir = createFixtureRoot();
     writeFixture(rootDir, 'siyuanmemo.db', 10);
-    writeFixture(rootDir, 'sqlite-delta-log.v1.json', 4);
+    writeFixture(rootDir, 'sqlite-delta-log.v2.manifest.json', 4);
+    writeFixture(rootDir, 'sqlite-delta-log.v2.sealed-1.msgpack', 6);
 
     const result = evaluate({ rootDir });
 
     expect(result.byClassification).toMatchObject({
-      'expected-active': { files: 1, bytes: 4 },
+      'expected-active': { files: 2, bytes: 10 },
       'forbidden-legacy-petal-db': { files: 1, bytes: 10 },
     });
     expect(result.byKind).toMatchObject({
       'legacy-petal-db-ignored': { files: 1, bytes: 10 },
-      'sqlite-delta-log': { files: 1, bytes: 4 },
+      'sqlite-delta-manifest': { files: 1, bytes: 4 },
+      'sqlite-delta-sealed-segment': { files: 1, bytes: 6 },
     });
     expect(result.byKind).not.toHaveProperty('messagepack-truth-segment');
     expect(result.byKind).not.toHaveProperty('messagepack-truth-manifest');

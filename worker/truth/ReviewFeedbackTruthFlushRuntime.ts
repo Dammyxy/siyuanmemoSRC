@@ -63,6 +63,7 @@ type ReviewFeedbackJournalEntry = {
   appliedAt?: number | null;
   projectionAppliedAt?: number | null;
   projectionGeneration?: number | null;
+  truthCandidate?: MessagePackReviewEventTruthRecord | null;
   lastError?: string | null;
 };
 
@@ -108,8 +109,27 @@ function normalizeEntry(value: unknown): ReviewFeedbackJournalEntry | null {
       : null,
     projectionGeneration: finiteNumberOrNull(value.projectionGeneration)
       ?? finiteNumberOrNull(value.request.projectionGeneration),
+    truthCandidate: normalizeTruthCandidate(value.truthCandidate),
     lastError: typeof value.lastError === 'string' ? value.lastError : null,
   };
+}
+
+function normalizeTruthCandidate(value: unknown): MessagePackReviewEventTruthRecord | null {
+  if (!isRecord(value)
+    || value.family !== 'review-events'
+    || value.type !== 'review.feedback.v2'
+    || typeof value.idempotencyKey !== 'string'
+    || !value.idempotencyKey.trim()
+    || !isRecord(value.source)
+    || typeof value.source.cardId !== 'string'
+    || !value.source.cardId.trim()
+    || !isRecord(value.review)
+    || !Number.isFinite(Number(value.review.reviewedAt))
+    || !isRecord(value.beforeCard)
+    || !isRecord(value.afterCard)) {
+    return null;
+  }
+  return value as MessagePackReviewEventTruthRecord;
 }
 
 function getIdempotencyKey(entry: ReviewFeedbackJournalEntry): string {
@@ -132,6 +152,13 @@ function toSourceRef(entry: ReviewFeedbackJournalEntry): MessagePackTruthSourceR
 }
 
 function toReviewEventTruthRecord(entry: ReviewFeedbackJournalEntry, flushedAt: number): MessagePackReviewEventTruthRecord & MessagePackTruthRecord {
+  if (entry.truthCandidate) {
+    return {
+      ...entry.truthCandidate,
+      journalEntryId: entry.id,
+      flushedAt,
+    } as MessagePackReviewEventTruthRecord & MessagePackTruthRecord;
+  }
   const reviewedAt = Number(entry.request.reviewedAt || entry.appliedAt || entry.recordedAt);
   const rating = Number(entry.request.rating || 0);
   const normalizedReviewedAt = Number.isFinite(reviewedAt) ? reviewedAt : entry.recordedAt;

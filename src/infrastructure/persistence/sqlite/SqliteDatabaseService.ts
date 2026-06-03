@@ -17,6 +17,7 @@ import {
   SqliteDeltaCheckpointLayer,
   type SqliteDeltaDiagnosticsContext,
   type SqliteDeltaDiagnostics,
+  type SqliteCheckpointStorageClass,
 } from './SqliteDeltaCheckpoint';
 
 const logger = createLogger('SqliteDatabaseService');
@@ -35,6 +36,7 @@ type SqliteDatabaseServiceOptions = {
   applySchemaOnInit?: boolean;
   persistOnInit?: boolean;
   enableDeltaPersistence?: boolean;
+  checkpointStorageClass?: SqliteCheckpointStorageClass;
 };
 type SqliteFileService = Pick<IFileService, 'readJSON' | 'writeJSON'>
   & Partial<Pick<IFileService, 'readBinary'>>
@@ -163,6 +165,7 @@ export class SqliteDatabaseService {
   private transactionDepth = 0;
   private pendingPersist = false;
   private schemaDirty = false;
+  private currentTransactionSchemaDirty = false;
   private lastPersistedFingerprint: string | null = null;
   private dirtySincePersist = false;
   private currentTransactionMutated = false;
@@ -175,7 +178,24 @@ export class SqliteDatabaseService {
     private readonly options: SqliteDatabaseServiceOptions = {},
   ) {
     this.deltaLayer = options.enableDeltaPersistence === true
-      ? new SqliteDeltaCheckpointLayer(fileService)
+      ? new SqliteDeltaCheckpointLayer({
+        readJSON: fileService.readJSON.bind(fileService),
+        writeJSON: fileService.writeJSON.bind(fileService),
+        readBinary: async (fileName) => {
+          if (!fileService.readBinary) {
+            throw new Error('BACKEND_UNAVAILABLE: SQLite delta v2 requires readBinary');
+          }
+          return fileService.readBinary(fileName);
+        },
+        writeBinary: async (fileName, bytes) => {
+          if (!fileService.writeBinary) {
+            throw new Error('BACKEND_UNAVAILABLE: SQLite delta v2 requires writeBinary');
+          }
+          await fileService.writeBinary(fileName, bytes);
+        },
+      }, undefined, {
+        checkpointStorageClass: options.checkpointStorageClass,
+      })
       : null;
   }
 
@@ -248,6 +268,7 @@ export class SqliteDatabaseService {
     db.run('BEGIN IMMEDIATE');
     this.transactionDepth = 1;
     this.currentTransactionMutated = false;
+    this.currentTransactionSchemaDirty = false;
     const deltaCapture = this.deltaLayer?.beginTransaction(db, label) ?? null;
     const changeMark = this.captureDatabaseChangeMark();
     const schemaVersionBefore = changeMark.schemaVersion;
@@ -256,7 +277,7 @@ export class SqliteDatabaseService {
     try {
       const result = await writer(db);
       const transactionMutated = this.currentTransactionMutated || this.hasDatabaseChangedSince(changeMark);
-      const schemaChanged = this.getSchemaChangeVersion() !== schemaVersionBefore || this.schemaDirty;
+      const schemaChanged = this.getSchemaChangeVersion() !== schemaVersionBefore || this.currentTransactionSchemaDirty;
       const deltaCaptureResult = deltaCapture?.finish() ?? null;
       db.run('COMMIT');
       committed = true;
@@ -268,6 +289,7 @@ export class SqliteDatabaseService {
         this.dirtySincePersist = true;
       }
       this.currentTransactionMutated = false;
+      this.currentTransactionSchemaDirty = false;
       if (persistAfterCommit) {
         try {
           if (this.deltaLayer && transactionMutated) {
@@ -326,6 +348,7 @@ export class SqliteDatabaseService {
       this.transactionDepth = 0;
       this.pendingPersist = false;
       this.currentTransactionMutated = false;
+      this.currentTransactionSchemaDirty = false;
       recordRuntimePerformanceSpan('sqlite', 'transaction', Date.now() - startedAt, {
         label,
         persisted: false,
@@ -350,6 +373,9 @@ export class SqliteDatabaseService {
   runSchemaMutation(sql: string, params?: SqlParams): void {
     this.run(sql, params);
     this.schemaDirty = true;
+    if (this.transactionDepth > 0) {
+      this.currentTransactionSchemaDirty = true;
+    }
   }
 
   private runSchemaStatement(sql: string): void {
@@ -358,6 +384,9 @@ export class SqliteDatabaseService {
     if (this.getSchemaChangeVersion() !== before) {
       this.schemaDirty = true;
       this.dirtySincePersist = true;
+      if (this.transactionDepth > 0) {
+        this.currentTransactionSchemaDirty = true;
+      }
     }
   }
 
@@ -426,8 +455,8 @@ export class SqliteDatabaseService {
     const force = typeof options === 'object' && options.force === true;
     const diagnostics = normalizePersistDiagnostics(reason, options);
     const startedAt = Date.now();
-    const pendingDelta = await this.deltaLayer?.hasPendingDeltas() ?? false;
-    if (!force && !this.dirtySincePersist && !pendingDelta) {
+    const checkpointablePendingDelta = await this.deltaLayer?.hasCheckpointablePendingDeltas() ?? false;
+    if (!force && !this.dirtySincePersist && !this.schemaDirty && !checkpointablePendingDelta) {
       recordRuntimePerformanceSpan('sqlite', 'persist', Date.now() - startedAt, {
         dbFile: this.dbFile,
         byteLength: null,
@@ -439,7 +468,7 @@ export class SqliteDatabaseService {
 
     const bytes = this.requireDb().export();
     const fingerprint = await fingerprintBytes(bytes);
-    if (!force && !pendingDelta && fingerprint && fingerprint === this.lastPersistedFingerprint) {
+    if (!force && !this.schemaDirty && !checkpointablePendingDelta && fingerprint && fingerprint === this.lastPersistedFingerprint) {
       recordRuntimePerformanceSpan('sqlite', 'persist', Date.now() - startedAt, {
         dbFile: this.dbFile,
         byteLength: bytes.byteLength,
@@ -455,7 +484,7 @@ export class SqliteDatabaseService {
         await this.fileService.writeBinary(this.dbFile, bytes, {
           diagnostics: {
             sqlitePersistReason: reason,
-            sqlitePendingDelta: pendingDelta,
+            sqlitePendingDelta: checkpointablePendingDelta,
           },
         });
       } catch (error) {

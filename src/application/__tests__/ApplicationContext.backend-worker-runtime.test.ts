@@ -14,6 +14,10 @@ function readBackendRuntimeFactorySource(): string {
   return readFileSync(resolve(process.cwd(), 'src/application/factories/createApplicationBackendRuntimeBundle.ts'), 'utf8');
 }
 
+function readTruthDeviceIdentitySource(): string {
+  return readFileSync(resolve(process.cwd(), 'src/application/factories/truthDeviceIdentity.ts'), 'utf8');
+}
+
 class MemorySqliteFileService implements Pick<IFileService, 'readJSON' | 'writeJSON' | 'readBinary' | 'writeBinary'> {
   readonly json = new Map<string, unknown>();
   readonly binary = new Map<string, Uint8Array>();
@@ -61,13 +65,15 @@ describe('ApplicationContext backend worker runtime boundary', () => {
   });
 
   it('uses a truth-wide local device identity key for MessagePack truth writes', () => {
-    const source = readBackendRuntimeFactorySource();
+    const factorySource = readBackendRuntimeFactorySource();
+    const identitySource = readTruthDeviceIdentitySource();
 
-    expect(source).toContain("TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.truth.deviceId.v1'");
-    expect(source).toContain("LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1'");
-    expect(source).toContain('resolveTruthDeviceId');
-    expect(source).toContain('TRUTH_DEVICE_ID_UNAVAILABLE');
-    expect(source).not.toContain("const REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1'");
+    expect(factorySource).toContain('resolveTruthDeviceId({ localStore: options.fileService })');
+    expect(factorySource).toContain('TRUTH_DEVICE_ID_UNAVAILABLE');
+    expect(identitySource).toContain("TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.truth.deviceId.v1'");
+    expect(identitySource).toContain("LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1'");
+    expect(identitySource).toContain("TRUTH_DEVICE_ID_LOCAL_STATE_PATH = 'truth-device-id.v1.json'");
+    expect(identitySource).not.toContain("const REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1'");
   });
 
   it('constructs renderer sqlite projection on the temp DB adapter without implicit startup checkpointing', () => {
@@ -79,10 +85,12 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(contextSource).toContain('new SqliteDatabaseService(sqlFileService, SQLITE_DB_FILE, {');
     expect(contextSource).toContain('persistOnInit: false');
     expect(contextSource).toContain('enableDeltaPersistence: true');
+    expect(contextSource).toContain("checkpointStorageClass: 'volatile-projection'");
   });
 
   it('routes backend Worker sqlite projection effects to temp while keeping truth effects on plugin storage', () => {
     const source = readBackendRuntimeFactorySource();
+    const workerSource = readFileSync(resolve(process.cwd(), 'worker/db/SqliteDatabaseService.ts'), 'utf8');
 
     expect(source).toContain('path === SQLITE_PROJECTION_DB_FILE');
     expect(source).toContain('fileService.readTempProjectionBinary(path)');
@@ -90,6 +98,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(source).toContain('truthFileStore');
     expect(source).toContain('return fileService.readBinary(path)');
     expect(source).toContain('await fileService.writeBinary(path, bytes)');
+    expect(workerSource).toContain("checkpointStorageClass: 'volatile-projection'");
   });
 
   it('does not write siyuanmemo.db during renderer sqlite startup fixture initialization', async () => {

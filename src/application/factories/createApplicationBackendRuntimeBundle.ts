@@ -19,6 +19,7 @@ import {
 import { FileService } from '@/infrastructure/services/FileService';
 import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKernelCompanionAdapter';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
+import { resolveTruthDeviceId } from '@/application/factories/truthDeviceIdentity';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import type { AINetworkProxyPort } from '@/application/ports/AINetworkProxyPort';
 import type { NeuralRoamNodeTypeResolverPort } from '@/core/queue/domain/ports';
@@ -35,8 +36,6 @@ import { MESSAGEPACK_TRUTH_SCHEMA_VERSION } from '../../../packages/contracts/sr
 import type { SqlitePersistenceBridge } from '../../../worker/db/SqlitePersistenceBridge';
 
 const logger = createLogger('ApplicationContext');
-const TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.truth.deviceId.v1';
-const LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1';
 const REVIEW_TRUTH_GENERATION_ID = `review-events-v${MESSAGEPACK_TRUTH_SCHEMA_VERSION}`;
 const SQLITE_PROJECTION_DB_FILE = 'siyuanmemo.db';
 
@@ -194,7 +193,7 @@ export async function createApplicationBackendRuntimeBundle(
             }),
           },
         });
-        const truthDeviceId = resolveTruthDeviceId();
+        const truthDeviceId = await resolveTruthDeviceId({ localStore: options.fileService });
         if (!truthDeviceId) {
           logger.warn('[ApplicationContext] TRUTH_DEVICE_ID_UNAVAILABLE: MessagePack truth writes are unavailable because local device identity is not persistent');
         }
@@ -315,44 +314,6 @@ function createWorkerPersistenceBridge(fileService: FileService): SqlitePersiste
     readSyncConflictDatabaseSources: () => fileService.readSyncConflictDatabaseSources(),
     cleanupSyncConflictDatabaseSources: (sourceIds: string[]) => fileService.cleanupSyncConflictDatabaseSources(sourceIds),
   };
-}
-
-function isMessagePackTruthIdentity(value: unknown): value is string {
-  return typeof value === 'string'
-    && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(value.trim())
-    && !value.trim().includes('..');
-}
-
-function createTruthDeviceId(): string {
-  const cryptoApi = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
-  const randomId = typeof cryptoApi?.randomUUID === 'function'
-    ? cryptoApi.randomUUID()
-    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-  return `device-${randomId}`;
-}
-
-function resolveTruthDeviceId(): string | null {
-  try {
-    const storage = typeof globalThis !== 'undefined' ? globalThis.localStorage : undefined;
-    if (!storage) {
-      return null;
-    }
-    const stored = storage.getItem(TRUTH_DEVICE_ID_STORAGE_KEY);
-    if (isMessagePackTruthIdentity(stored)) {
-      return stored.trim();
-    }
-    const legacyStored = storage.getItem(LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY);
-    if (isMessagePackTruthIdentity(legacyStored)) {
-      const migrated = legacyStored.trim();
-      storage.setItem(TRUTH_DEVICE_ID_STORAGE_KEY, migrated);
-      return migrated;
-    }
-    const next = createTruthDeviceId();
-    storage.setItem(TRUTH_DEVICE_ID_STORAGE_KEY, next);
-    return next;
-  } catch {
-    return null;
-  }
 }
 
 async function resolveExistingBlockIdsViaSiyuan(

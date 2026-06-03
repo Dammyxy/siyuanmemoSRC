@@ -109,6 +109,7 @@ function mountHook(options: {
   onActionError?: ReturnType<typeof vi.fn>;
   prepareStateBeforeCommit?: (state: ReviewUIState, reason: string) => Promise<ReviewUIState>;
   ensureActionSafe?: () => Promise<void>;
+  onQueueCompleted?: ReturnType<typeof vi.fn>;
 } = {}) {
   const queue = options.queue ?? createQueue();
   const adapter = options.adapter ?? createAdapter();
@@ -124,6 +125,7 @@ function mountHook(options: {
         onActionError: options.onActionError,
         prepareStateBeforeCommit: options.prepareStateBeforeCommit as never,
         ensureActionSafe: options.ensureActionSafe as never,
+        onQueueCompleted: options.onQueueCompleted as never,
       });
       return () => h('div');
     },
@@ -988,6 +990,22 @@ describe('useReviewSession', () => {
 
     expect((adapter.fetchAuxiliaryData as ReturnType<typeof vi.fn>).mock.calls.length).toBe(initialCalls);
     wrapper.unmount();
+  });
+
+  it('notifies queue completion once when the last graded card advances to empty', async () => {
+    const onQueueCompleted = vi.fn();
+    const { getHook } = mountHook({ onQueueCompleted });
+    await flushAsync();
+
+    await getHook().grade(3);
+    expect(onQueueCompleted).not.toHaveBeenCalled();
+
+    await getHook().grade(3);
+    expect(onQueueCompleted).not.toHaveBeenCalled();
+
+    await getHook().grade(3);
+    expect(onQueueCompleted).toHaveBeenCalledTimes(1);
+    expect(onQueueCompleted).toHaveBeenCalledWith({ reason: 'grade' });
   });
 
   it('calls queue cleanup on unmount', async () => {

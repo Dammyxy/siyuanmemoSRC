@@ -81,6 +81,7 @@ import type {
   BackendReviewFeedbackJournalOperationStatus,
   BackendReviewFeedbackStorageState,
   MessagePackTruthRecord,
+  MessagePackReviewEventTruthRecord,
 } from '../../packages/contracts/src/backend-rpc';
 import type {
   MessagePackTruthSegmentManifest,
@@ -217,6 +218,7 @@ type ReviewFeedbackJournalEntry = {
   appliedAt: number | null;
   projectionAppliedAt: number | null;
   projectionFailedAt: number | null;
+  truthCandidate?: MessagePackReviewEventTruthRecord | null;
   lastError: string | null;
 };
 
@@ -863,6 +865,7 @@ export class WorkerSqliteDatabaseService {
     this.runtime = new RuntimeSqliteDatabaseService(this.fileService, dbFile, {
       persistOnInit: false,
       enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
     });
     this.maxKernelTransactionQueueLength = Math.max(
       1,
@@ -1023,13 +1026,12 @@ export class WorkerSqliteDatabaseService {
         },
       });
       await this.rememberPersistedHash();
-      await this.clearReviewFeedbackJournal();
       this.lastReviewFeedbackCheckpoint = {
         ok: true,
         at: Date.now(),
         pendingCount: pendingCountBefore,
         pendingBytes: pendingBytesBefore,
-        cleared: true,
+        cleared: false,
       };
     } catch (error) {
       this.lastReviewFeedbackCheckpoint = {
@@ -2112,6 +2114,7 @@ export class WorkerSqliteDatabaseService {
     const totalStartedAt = Date.now();
     await this.measureReviewFeedbackDatabaseStep('reviewFeedback.init', request.cardId, () => this.init());
     let committedJournalEntryId: string | null = null;
+    let truthCandidate: MessagePackReviewEventTruthRecord | null = null;
     const runtime = new WorkerReviewFeedbackRuntime({
       repository: this.repository!,
       queueProjection: this.queueProjection,
@@ -2135,6 +2138,9 @@ export class WorkerSqliteDatabaseService {
         );
         committedJournalEntryId = journalEntry.id;
         return journalEntry.request;
+      },
+      recordReviewTruthCandidate: (candidate) => {
+        truthCandidate = this.validateReviewFeedbackTruthCandidate(candidate);
       },
     });
     let result: BackendReviewFeedbackResult;
@@ -2162,7 +2168,11 @@ export class WorkerSqliteDatabaseService {
       this.lastDomainSyncStatusSnapshot = null;
       if (committedJournalEntryId) {
         this.appliedReviewFeedbackJournalEntryIds.add(committedJournalEntryId);
-        await this.markReviewFeedbackJournalEntryProjectionApplied(committedJournalEntryId, result.reviewedAt);
+        await this.markReviewFeedbackJournalEntryProjectionApplied(
+          committedJournalEntryId,
+          result.reviewedAt,
+          truthCandidate,
+        );
       }
     } else {
       this.reviewFeedbackPreviewTotal += 1;
@@ -2361,6 +2371,10 @@ export class WorkerSqliteDatabaseService {
         );
         replayedCount += 1;
         this.appliedReviewFeedbackJournalEntryIds.add(entry.id);
+        await this.markReviewFeedbackJournalEntryProjectionApplied(
+          entry.id,
+          Number(entry.request.reviewedAt ?? entry.appliedAt ?? Date.now()),
+        );
       }
       this.lastReviewFeedbackJournalReplay = {
         ok: true,
@@ -2396,7 +2410,7 @@ export class WorkerSqliteDatabaseService {
     if (!this.reviewFeedbackJournalStore) {
       return [];
     }
-    const statuses: ReviewFeedbackJournalEntryStatus[] = ['prepared', 'projection-applied'];
+    const statuses: ReviewFeedbackJournalEntryStatus[] = ['prepared'];
     const entries: ReviewFeedbackJournalEntry[] = [];
     for (const status of statuses) {
       entries.push(...this.normalizeReviewFeedbackJournalEntries(
@@ -2432,13 +2446,18 @@ export class WorkerSqliteDatabaseService {
     return this.reviewFeedbackJournalStore.appendEntry(entry);
   }
 
-  private async markReviewFeedbackJournalEntryProjectionApplied(entryId: string, appliedAt: number): Promise<void> {
+  private async markReviewFeedbackJournalEntryProjectionApplied(
+    entryId: string,
+    appliedAt: number,
+    truthCandidate?: MessagePackReviewEventTruthRecord | null,
+  ): Promise<void> {
     if (!this.reviewFeedbackJournalStore) {
       return;
     }
     await this.reviewFeedbackJournalStore.updateEntryStatus(entryId, 'projection-applied', {
       appliedAt,
       projectionAppliedAt: Date.now(),
+      ...(truthCandidate ? { truthCandidate: { ...truthCandidate, journalEntryId: entryId } } : {}),
       projectionFailedAt: null,
       lastError: null,
     });
@@ -2473,8 +2492,32 @@ export class WorkerSqliteDatabaseService {
       projectionFailedAt: typeof entry.projectionFailedAt === 'number' && Number.isFinite(entry.projectionFailedAt)
         ? entry.projectionFailedAt
         : null,
+      truthCandidate: this.validateReviewFeedbackTruthCandidateOrNull((entry as Partial<ReviewFeedbackJournalEntry>).truthCandidate),
       lastError: typeof entry.lastError === 'string' ? entry.lastError : null,
     }));
+  }
+
+  private validateReviewFeedbackTruthCandidateOrNull(value: unknown): MessagePackReviewEventTruthRecord | null {
+    return value ? this.validateReviewFeedbackTruthCandidate(value) : null;
+  }
+
+  private validateReviewFeedbackTruthCandidate(value: unknown): MessagePackReviewEventTruthRecord {
+    if (!isRecord(value)
+      || value.family !== 'review-events'
+      || value.type !== 'review.feedback.v2'
+      || typeof value.idempotencyKey !== 'string'
+      || !value.idempotencyKey.trim()
+      || !isRecord(value.source)
+      || typeof value.source.cardId !== 'string'
+      || !value.source.cardId.trim()
+      || !isRecord(value.review)
+      || ![1, 2, 3, 4].includes(Number(value.review.rating))
+      || !Number.isFinite(Number(value.review.reviewedAt))
+      || !isRecord(value.beforeCard)
+      || !isRecord(value.afterCard)) {
+      throw new Error('INVALID_STATE: review.feedback truth v2 candidate is incomplete');
+    }
+    return value as MessagePackReviewEventTruthRecord;
   }
 
   private normalizeReviewFeedbackJournalEntryStatus(status: unknown): ReviewFeedbackJournalEntryStatus {
@@ -2628,17 +2671,6 @@ export class WorkerSqliteDatabaseService {
       throw new Error('SQLite delta diagnostics unavailable');
     }
     return diagnostics;
-  }
-
-  private async clearReviewFeedbackJournal(): Promise<void> {
-    if (!this.reviewFeedbackJournalStore) {
-      return;
-    }
-    const stats = await this.readReviewFeedbackJournalStats();
-    if (stats.entryCount === 0) {
-      return;
-    }
-    await this.reviewFeedbackJournalStore.clearEntries();
   }
 
   private buildReviewFeedbackJournalBackpressure(
@@ -4898,7 +4930,9 @@ export class WorkerSqliteDatabaseService {
     projectionGeneration: number;
   }): BackendStorageProjectionRebuildFamilyResult {
     const cardRecords = input.request.truthRecords
-      .filter(isCardMemoryFactTruthRecord);
+      .filter((record): record is MessagePackTruthRecord & Record<string, unknown> => (
+        isCardMemoryFactTruthRecord(record) || isReviewFeedbackV2CardTruthRecord(record)
+      ));
     const cardRows = buildCardProjectionRows({
       request: input.request,
       records: cardRecords,
@@ -7013,6 +7047,13 @@ function isCardMemoryFactTruthRecord(record: MessagePackTruthRecord): record is 
     );
 }
 
+function isReviewFeedbackV2CardTruthRecord(record: MessagePackTruthRecord): record is MessagePackTruthRecord & Record<string, unknown> {
+  return isRecord(record)
+    && record.family === 'review-events'
+    && record.type === 'review.feedback.v2'
+    && isRecord(record.afterCard);
+}
+
 function readTruthRecordSourceBlockId(record: Record<string, unknown>): string | null {
   const source = isRecord(record.source) ? record.source : {};
   return readRecordString(source, ['blockId', 'sourceBlockId'])
@@ -7109,7 +7150,13 @@ function buildCardProjectionRows(input: {
   for (const record of input.records) {
     const source = isRecord(record.source) ? record.source : {};
     const memory = isRecord(record.memory) ? record.memory : {};
-    const lineage = isRecord(memory.lineage) ? memory.lineage : {};
+    const reviewAfterCard = record.family === 'review-events'
+      && record.type === 'review.feedback.v2'
+      && isRecord(record.afterCard)
+      ? record.afterCard
+      : null;
+    const scheduler = isRecord(record.scheduler) ? record.scheduler : {};
+    const lineage = reviewAfterCard ?? (isRecord(memory.lineage) ? memory.lineage : {});
     const cardId = readRecordString(source, ['cardId'])
       ?? readRecordString(record, ['cardId']);
     const blockId = readRecordString(source, ['blockId', 'sourceBlockId'])
@@ -7133,7 +7180,7 @@ function buildCardProjectionRows(input: {
       blockId,
       sourceBlockId: readRecordString(source, ['sourceBlockId']) ?? current?.sourceBlockId ?? blockId,
       xiuyuanId: readRecordString(source, ['xiuyuanId'])
-        ?? readRecordString(lineage, ['xiuyuanId'])
+        ?? readRecordString(lineage, ['xiuyuanId', 'xiuyuanID'])
         ?? current?.xiuyuanId
         ?? null,
       cardFaceId: readRecordString(source, ['cardFaceId'])
@@ -7141,6 +7188,7 @@ function buildCardProjectionRows(input: {
         ?? current?.cardFaceId
         ?? null,
       schedulerOwner: readRecordString(memory, ['schedulerOwner'])
+        ?? readRecordString(scheduler, ['schedulerType'])
         ?? current?.schedulerOwner
         ?? null,
       memoryHash: readRecordString(memory, ['memoryHash'])

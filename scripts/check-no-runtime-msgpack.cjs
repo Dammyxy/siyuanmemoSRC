@@ -31,6 +31,10 @@ const allowedRules = [
     reason: 'SQLite initial migration reads old msgpack storage as migration source',
   },
   {
+    file: 'src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts',
+    reason: 'bounded SQLite delta v2 MessagePack segment adapter',
+  },
+  {
     file: 'src/core/storage/UnifiedStoragePersistence.ts',
     reason: 'legacy unified-store loader exists only as SQLite initial migration source',
   },
@@ -53,6 +57,10 @@ const allowedRules = [
   {
     file: 'worker/truth/MessagePackTruthSegmentStore.ts',
     reason: 'bounded MessagePack truth segment adapter; callers must stay outside direct msgpack access',
+  },
+  {
+    file: 'worker/bootstrap/ReviewFeedbackTimingScope.ts',
+    reason: 'classifies bounded SQLite delta/truth segment host-effect paths for review durability diagnostics',
   },
   {
     file: 'worker/truth/LegacyUnifiedCardsSource.ts',

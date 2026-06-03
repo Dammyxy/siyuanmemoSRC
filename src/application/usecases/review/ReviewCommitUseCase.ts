@@ -11,9 +11,11 @@ import type { BackendMigrationRuntimePolicy } from '@/application/backendMigrati
 import type {
   BackendReviewFeedbackQueueImpact,
   BackendReviewSchedulerConfig,
+  BackendReviewFeedbackStorageState,
 } from '../../../../packages/contracts/src/backend-rpc';
 import { createLogger } from '@/utils/logger';
 import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics';
+import { assertCommittedReviewFeedbackDurability } from '@/application/clients/reviewFeedbackDurability';
 
 const logger = createLogger('ReviewCommitUseCase');
 const REVIEW_COMMIT_STEP_SLOW_MS = 500;
@@ -56,6 +58,7 @@ type ReviewFeedbackWriteResult = {
   idempotencyKey?: string | null;
   duplicate?: boolean;
   queueImpact?: BackendReviewFeedbackQueueImpact | null;
+  storage?: BackendReviewFeedbackStorageState;
 };
 
 export interface ReviewCommitWriterLeaseGuard {
@@ -260,6 +263,10 @@ export class ReviewCommitUseCase {
       result = await this.executeLocalWorkerFeedback(requestPayload, command, workerContext, rating);
     }
 
+    assertCommittedReviewFeedbackDurability(result, {
+      source: 'ReviewCommitUseCase',
+      requireQueueImpact: workerContext.commitPolicy === 'write-schedule',
+    });
     const updatedCard = normalizeWorkerUpdatedCard(result.updatedCard, command.cardId);
     this.scheduleArenaReviewRecord(updatedCard, rating, context);
     return {
@@ -489,11 +496,7 @@ function isNoActiveWriterRelayUnavailableError(error: unknown): boolean {
   return message.includes('writer command unavailable: no active writer lease');
 }
 
-function normalizeRelayFeedbackResult(payload: unknown): {
-  committed: boolean;
-  updatedCard: unknown | null;
-  queueImpact?: BackendReviewFeedbackQueueImpact | null;
-} {
+function normalizeRelayFeedbackResult(payload: unknown): ReviewFeedbackWriteResult {
   if (!payload || typeof payload !== 'object') {
     throw new Error('review.feedback follower relay returned invalid payload');
   }
@@ -503,6 +506,7 @@ function normalizeRelayFeedbackResult(payload: unknown): {
     idempotencyKey?: unknown;
     duplicate?: unknown;
     queueImpact?: unknown;
+    storage?: unknown;
   };
   if (typeof candidate.committed !== 'boolean') {
     throw new Error('review.feedback follower relay payload missing committed');
@@ -513,6 +517,7 @@ function normalizeRelayFeedbackResult(payload: unknown): {
     idempotencyKey: normalizeOptionalString(candidate.idempotencyKey),
     duplicate: candidate.duplicate === true,
     queueImpact: normalizeRelayQueueImpact(candidate.queueImpact),
+    storage: candidate.storage as BackendReviewFeedbackStorageState | undefined,
   };
 }
 

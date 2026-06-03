@@ -18,6 +18,7 @@ type JsonFileService = Pick<IFileService, 'readJSON' | 'writeJSON' | 'readBinary
 class MemorySqliteFileService implements JsonFileService {
   readonly json = new Map<string, unknown>();
   readonly binary = new Map<string, Uint8Array>();
+  readonly writeBinaryFiles: string[] = [];
   writeBinaryCount = 0;
   failNextWriteBinary = false;
   lastWriteBinaryDiagnostics: Record<string, unknown> | null = null;
@@ -37,6 +38,7 @@ class MemorySqliteFileService implements JsonFileService {
 
   async writeBinary(fileName: string, bytes: Uint8Array, options?: { diagnostics?: Record<string, unknown> }): Promise<void> {
     this.writeBinaryCount += 1;
+    this.writeBinaryFiles.push(fileName);
     this.lastWriteBinaryDiagnostics = options?.diagnostics ?? null;
     if (this.failNextWriteBinary) {
       this.failNextWriteBinary = false;
@@ -47,7 +49,47 @@ class MemorySqliteFileService implements JsonFileService {
 
   resetWriteCounts(): void {
     this.writeBinaryCount = 0;
+    this.writeBinaryFiles.length = 0;
     this.lastWriteBinaryDiagnostics = null;
+  }
+}
+
+class SplitProjectionSqliteFileService implements JsonFileService {
+  readonly json: Map<string, unknown>;
+  readonly durableBinary: Map<string, Uint8Array>;
+  readonly tempBinary = new Map<string, Uint8Array>();
+  readonly writeBinaryFiles: string[] = [];
+
+  constructor(source?: {
+    json?: Map<string, unknown>;
+    durableBinary?: Map<string, Uint8Array>;
+  }) {
+    this.json = source?.json
+      ? new Map(Array.from(source.json.entries()).map(([key, value]) => [key, structuredClone(value)]))
+      : new Map();
+    this.durableBinary = source?.durableBinary
+      ? new Map(Array.from(source.durableBinary.entries()).map(([key, value]) => [key, new Uint8Array(value)]))
+      : new Map();
+  }
+
+  async readJSON<T>(fileName: string): Promise<T | null> {
+    return (this.json.get(fileName) as T | undefined) ?? null;
+  }
+
+  async writeJSON(fileName: string, data: unknown): Promise<void> {
+    this.json.set(fileName, data);
+  }
+
+  async readBinary(fileName: string): Promise<Uint8Array | null> {
+    const source = fileName === SQLITE_DB_FILE ? this.tempBinary : this.durableBinary;
+    const bytes = source.get(fileName);
+    return bytes ? new Uint8Array(bytes) : null;
+  }
+
+  async writeBinary(fileName: string, bytes: Uint8Array): Promise<void> {
+    this.writeBinaryFiles.push(fileName);
+    const target = fileName === SQLITE_DB_FILE ? this.tempBinary : this.durableBinary;
+    target.set(fileName, new Uint8Array(bytes));
   }
 }
 
@@ -498,6 +540,8 @@ describe('SqliteDatabaseService', () => {
     const legacyColumns = migrated.getAll<{ name: string }>('PRAGMA table_info(review_events)').map((row) => row.name);
     expect(legacyColumns.indexOf('commit_idempotency_key')).toBeGreaterThan(legacyColumns.indexOf('payload_json'));
     fileService.resetWriteCounts();
+    const dbBytesBeforePatch = fileService.binary.get(SQLITE_DB_FILE);
+    expect(dbBytesBeforePatch).toBeTruthy();
 
     const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
       persistOnInit: false,
@@ -522,13 +566,14 @@ describe('SqliteDatabaseService', () => {
       );
     });
 
-    expect(fileService.writeBinaryCount).toBe(0);
-    expect(fileService.json.get('sqlite-delta-log.v1.json')).toMatchObject({
-      version: 1,
-      entries: [{
-        label: 'review.truth.backfill.patch-refs',
-        tables: ['review_events'],
-      }],
+    expect(fileService.binary.get(SQLITE_DB_FILE)).toBe(dbBytesBeforePatch);
+    expect(fileService.binary.get('sqlite-delta-log.v2.open.msgpack')).toBeTruthy();
+    expect(fileService.json.get('sqlite-delta-log.v2.manifest.json')).toMatchObject({
+      version: 2,
+      openSegment: {
+        path: 'sqlite-delta-log.v2.open.msgpack',
+        entryCount: 1,
+      },
     });
 
     const reloaded = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
@@ -555,6 +600,325 @@ describe('SqliteDatabaseService', () => {
       truth_hash: 'truth-hash-a',
       truth_schema_version: 1,
       projection_generation: 1_700_000_000_100,
+    });
+  });
+
+  it('seals sqlite delta v2 open segments when the entry threshold is reached', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+    fileService.resetWriteCounts();
+
+    for (let index = 0; index < 17; index += 1) {
+      await database.runTransaction(`delta-seal-${index}`, (db) => {
+        db.run(
+          `INSERT INTO review_events
+            (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            `event-seal-${index}`,
+            'card-seal',
+            `attempt-seal-${index}`,
+            3,
+            1_700_000_000_000 + index,
+            `commit-seal-${index}`,
+            2026,
+            5,
+            'review-v2',
+            '{}',
+          ],
+        );
+      });
+    }
+
+    const manifest = fileService.json.get('sqlite-delta-log.v2.manifest.json') as {
+      openSegment: { path: string; sequence: number; sealed: boolean; entryCount: number } | null;
+      sealedSegments: Array<{ path: string; sequence: number; sealed: boolean; entryCount: number }>;
+    };
+    expect(manifest.sealedSegments).toHaveLength(1);
+    expect(manifest.sealedSegments[0]).toMatchObject({
+      path: 'sqlite-delta-log.v2.sealed-1.msgpack',
+      sequence: 1,
+      sealed: true,
+      entryCount: 16,
+    });
+    expect(manifest.openSegment).toMatchObject({
+      path: 'sqlite-delta-log.v2.open.msgpack',
+      sequence: 2,
+      sealed: false,
+      entryCount: 1,
+    });
+    expect(
+      fileService.writeBinaryFiles.filter((fileName) => fileName === 'sqlite-delta-log.v2.sealed-1.msgpack'),
+    ).toHaveLength(1);
+    const sealedBytes = fileService.binary.get('sqlite-delta-log.v2.sealed-1.msgpack');
+    expect(sealedBytes).toBeTruthy();
+
+    await database.runTransaction('delta-seal-after-threshold', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-seal-after-threshold',
+          'card-seal',
+          'attempt-seal-after-threshold',
+          3,
+          1_700_000_001_000,
+          'commit-seal-after-threshold',
+          2026,
+          5,
+          'review-v2',
+          '{}',
+        ],
+      );
+    });
+
+    expect(fileService.binary.get('sqlite-delta-log.v2.sealed-1.msgpack')).toBe(sealedBytes);
+    expect(
+      fileService.writeBinaryFiles.filter((fileName) => fileName === 'sqlite-delta-log.v2.sealed-1.msgpack'),
+    ).toHaveLength(1);
+  });
+
+  it('checkpoints a hot review.feedback transaction when sqlite delta v2 reaches the pending threshold', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+    fileService.resetWriteCounts();
+
+    for (let index = 0; index < 256; index += 1) {
+      await database.runTransaction(`seed-pending-delta-${index}`, (db) => {
+        db.run(
+          `INSERT INTO review_events
+            (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            `event-pending-${index}`,
+            'card-pending',
+            `attempt-pending-${index}`,
+            3,
+            1_700_000_000_000 + index,
+            `commit-pending-${index}`,
+            2026,
+            5,
+            'review-v2',
+            '{}',
+          ],
+        );
+      });
+    }
+
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 256,
+    });
+
+    await database.runTransaction('review.feedback', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-hot-threshold',
+          'card-hot-threshold',
+          'attempt-hot-threshold',
+          4,
+          1_700_000_001_000,
+          'commit-hot-threshold',
+          2026,
+          5,
+          'review-v2',
+          '{}',
+        ],
+      );
+    });
+
+    expect(database.getOne<{ id: string }>(
+      'SELECT id FROM review_events WHERE id = ?',
+      ['event-hot-threshold'],
+    )).toEqual({ id: 'event-hot-threshold' });
+    expect(fileService.writeBinaryFiles.some((fileName) => fileName === SQLITE_DB_FILE)).toBe(true);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 0,
+      lastWrite: {
+        ok: true,
+        classification: 'checkpoint',
+        label: 'review.feedback',
+        hotPath: true,
+        reason: 'delta-threshold-exceeded',
+      },
+      lastCheckpoint: {
+        ok: true,
+        cause: 'review.feedback:delta-threshold-exceeded',
+        hotPath: true,
+      },
+    });
+
+    const reloaded = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await reloaded.init();
+    expect(reloaded.getOne<{ id: string }>(
+      'SELECT id FROM review_events WHERE id = ?',
+      ['event-hot-threshold'],
+    )).toEqual({ id: 'event-hot-threshold' });
+  });
+
+  it('keeps durable sqlite deltas when a volatile temp projection reaches the checkpoint threshold', async () => {
+    const fileService = new SplitProjectionSqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init();
+    await database.persist('seed-temp-schema');
+
+    for (let index = 0; index < 256; index += 1) {
+      await database.runTransaction(`seed-volatile-pending-delta-${index}`, (db) => {
+        db.run(
+          `INSERT INTO review_events
+            (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            `event-volatile-pending-${index}`,
+            'card-volatile-pending',
+            `attempt-volatile-pending-${index}`,
+            3,
+            1_700_000_000_000 + index,
+            `commit-volatile-pending-${index}`,
+            2026,
+            5,
+            'review-v2',
+            '{}',
+          ],
+        );
+      });
+    }
+
+    await database.runTransaction('review.feedback', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-volatile-hot-threshold',
+          'card-volatile-hot-threshold',
+          'attempt-volatile-hot-threshold',
+          4,
+          1_700_000_001_000,
+          'commit-volatile-hot-threshold',
+          2026,
+          5,
+          'review-v2',
+          '{}',
+        ],
+      );
+    });
+
+    expect(fileService.writeBinaryFiles.filter((fileName) => fileName === SQLITE_DB_FILE)).toHaveLength(1);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 257,
+      lastWrite: {
+        ok: true,
+        classification: 'delta',
+        label: 'review.feedback',
+      },
+    });
+
+    const reloadedWithoutTemp = new SplitProjectionSqliteFileService({
+      json: fileService.json,
+      durableBinary: fileService.durableBinary,
+    });
+    const reloaded = new SqliteDatabaseService(reloadedWithoutTemp, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await reloaded.init();
+
+    expect(reloaded.getOne<{ id: string }>(
+      'SELECT id FROM review_events WHERE id = ?',
+      ['event-volatile-hot-threshold'],
+    )).toEqual({ id: 'event-volatile-hot-threshold' });
+  });
+
+  it('recovers volatile projection deltas from a manifest cleared by an old temp checkpoint', async () => {
+    const fileService = new SplitProjectionSqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await database.init();
+    await database.persist('seed-temp-schema');
+
+    for (let index = 0; index < 16; index += 1) {
+      await database.runTransaction(`seed-volatile-sealed-${index}`, (db) => {
+        db.run(
+          `INSERT INTO review_events
+            (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            `event-volatile-sealed-${index}`,
+            'card-volatile-sealed',
+            `attempt-volatile-sealed-${index}`,
+            3,
+            1_700_000_000_000 + index,
+            `commit-volatile-sealed-${index}`,
+            2026,
+            5,
+            'review-v2',
+            '{}',
+          ],
+        );
+      });
+    }
+
+    expect(fileService.durableBinary.get('sqlite-delta-log.v2.sealed-1.msgpack')).toBeTruthy();
+    fileService.json.set('sqlite-delta-log.v2.manifest.json', {
+      version: 2,
+      path: 'sqlite-delta-log.v2.manifest.json',
+      openSegment: null,
+      sealedSegments: [],
+      updatedAt: Date.now(),
+      nextSequence: 2,
+      checkpoint: {
+        clearedAt: Date.now(),
+        coveredSegmentPaths: ['sqlite-delta-log.v2.sealed-1.msgpack'],
+        reason: 'review.feedback:delta-threshold-exceeded',
+      },
+    });
+
+    const reloadedWithoutTemp = new SplitProjectionSqliteFileService({
+      json: fileService.json,
+      durableBinary: fileService.durableBinary,
+    });
+    const reloaded = new SqliteDatabaseService(reloadedWithoutTemp, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+      checkpointStorageClass: 'volatile-projection',
+    });
+    await reloaded.init();
+
+    expect(reloaded.getOne<{ id: string }>(
+      'SELECT id FROM review_events WHERE id = ?',
+      ['event-volatile-sealed-15'],
+    )).toEqual({ id: 'event-volatile-sealed-15' });
+    await expect(reloaded.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 16,
+      lastReplay: {
+        ok: true,
+        replayedCount: 16,
+      },
     });
   });
 });

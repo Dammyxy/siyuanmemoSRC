@@ -47,7 +47,11 @@ export function classifyBackendWorkerHostEffectStorage(
   if (normalizedPath === 'siyuanmemo.db') {
     return 'sql-projection-db';
   }
-  if (normalizedPath === 'sqlite-delta-log.v1.json') {
+  if (
+    normalizedPath === 'sqlite-delta-log.v2.manifest.json'
+    || normalizedPath === 'sqlite-delta-log.v2.open.msgpack'
+    || /^sqlite-delta-log\.v2\.sealed-\d+\.msgpack$/.test(normalizedPath)
+  ) {
     return 'sqlite-delta-log';
   }
   if (/^truth\/[^/]+\/[^/]+\/device-[^/]+\/seg-[^/]+\.msgpack$/.test(normalizedPath)) {
@@ -133,9 +137,7 @@ export function shouldSuppressReviewFeedbackPersistenceHostEffect(
 ): boolean {
   return hasActiveBackendWorkerTiming('review.feedback')
     && (
-      kind === 'sqlite.writeJSON'
-      || kind === 'sqlite.writeBinary'
-      || kind === 'truth.writeJSON'
+      kind === 'truth.writeJSON'
       || kind === 'truth.writeBinary'
     );
 }

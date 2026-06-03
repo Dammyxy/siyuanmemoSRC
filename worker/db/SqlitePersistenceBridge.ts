@@ -123,7 +123,7 @@ export function createInMemorySqlitePersistenceBridge(): SqlitePersistenceBridge
       };
     },
     snapshot() {
-      const first = binary.values().next().value as Uint8Array | undefined;
+      const first = binary.get('siyuanmemo.db');
       return {
         bytes: first ? new Uint8Array(first) : null,
       };

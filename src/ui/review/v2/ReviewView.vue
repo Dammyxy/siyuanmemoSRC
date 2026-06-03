@@ -534,6 +534,9 @@ type ReviewPluginContextLike = {
       })
     | undefined;
   getHybridSyncService?: () => { incrementalSync: () => Promise<void> } | undefined;
+  getSrsBackendClient?: () => {
+    requestReviewTruthFlush?: (reason: 'review-exit' | 'queue-complete' | 'manual') => boolean;
+  } | null | undefined;
   getStorage?: () => {
     getSettings?: () => ReviewRuntimeSettingsLike;
     getCard?: (cardId: string) => { id: string; blockId?: string } | undefined;
@@ -675,6 +678,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function getPluginContext(plugin: unknown): ReviewPluginContextLike | undefined {
   return (plugin as ReviewPluginLike | undefined)?.getContext?.();
+}
+
+function requestReviewTruthFlush(reason: 'review-exit' | 'queue-complete' | 'manual'): void {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  const client = contextFromProps?.getSrsBackendClient?.()
+    || contextFromWindow?.getSrsBackendClient?.()
+    || null;
+  try {
+    client?.requestReviewTruthFlush?.(reason);
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to request Review truth flush', {
+      reason,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 function getWindowPlugin(): ReviewPluginLike | null {
@@ -1479,6 +1498,7 @@ function createReviewSessionControllerInstance(): ReviewSessionController<Active
       initialShowAnswer: effectiveInitialShowAnswer,
       prepareStateBeforeCommit: prepareReviewStateBeforeCommit,
       ensureActionSafe: ensureReviewDomainSyncSafeForAction as never,
+      onQueueCompleted: () => requestReviewTruthFlush('queue-complete'),
     },
   ) as ReviewSessionController<ActiveReviewItem>;
 }
@@ -1516,6 +1536,7 @@ const hook = useReviewSession(
     initialShowAnswer: effectiveInitialShowAnswer,
     prepareStateBeforeCommit: prepareReviewStateBeforeCommit,
     ensureActionSafe: ensureReviewDomainSyncSafeForAction as never,
+    onQueueCompleted: () => requestReviewTruthFlush('queue-complete'),
     controller: reviewSessionController as never,
     surfaceId: reviewSessionId.value,
   }

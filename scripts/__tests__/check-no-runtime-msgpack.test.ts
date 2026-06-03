@@ -80,4 +80,24 @@ describe('check-no-runtime-msgpack', () => {
       expect.stringContaining('worker/truth/OtherRuntimeStore.ts'),
     ]);
   });
+
+  it('allows only the bounded SQLite delta v2 adapter and review timing path classifier', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/infrastructure/persistence/sqlite/SqliteDeltaCheckpoint.ts', `
+      import { encode } from '@msgpack/msgpack';
+      export const path = 'sqlite-delta-log.v2.open.msgpack';
+      export const write = () => encode({ ok: true });
+    `);
+    writeFile(rootDir, 'worker/bootstrap/ReviewFeedbackTimingScope.ts', `
+      export const isDelta = (path: string) => /sqlite-delta-log\\.v2\\.sealed-\\d+\\.msgpack$/.test(path);
+    `);
+    writeFile(rootDir, 'src/infrastructure/persistence/sqlite/OtherDeltaRuntime.ts', `
+      import { encode } from '@msgpack/msgpack';
+      export const write = () => encode({ ok: true });
+    `);
+
+    expect(evaluate({ rootDir })).toEqual([
+      expect.stringContaining('src/infrastructure/persistence/sqlite/OtherDeltaRuntime.ts'),
+    ]);
+  });
 });

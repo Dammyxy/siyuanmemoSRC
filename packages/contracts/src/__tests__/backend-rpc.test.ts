@@ -350,8 +350,8 @@ describe('backend SQL projection rebuild contract', () => {
       dbFile: 'siyuanmemo.db',
       storage: {
         sqliteDelta: {
-          fileName: 'sqlite-delta-log.v1.json',
-          version: 1,
+          fileName: 'sqlite-delta-log.v2.manifest.json',
+          version: 2,
           registeredTables: ['queue_projection_generations'],
           pendingCount: 0,
           pendingBytes: 0,
@@ -383,6 +383,7 @@ describe('backend SQL projection rebuild contract', () => {
             reason: 'worker.persist',
             byteLength: 4096,
             cleared: true,
+            checkpointStorageClass: 'durable-checkpoint',
           },
         },
       },
@@ -397,6 +398,7 @@ describe('backend SQL projection rebuild contract', () => {
             projectionGeneration: 7,
             hotPath: false,
             byteLength: 4096,
+            checkpointStorageClass: 'durable-checkpoint',
           },
         },
       },

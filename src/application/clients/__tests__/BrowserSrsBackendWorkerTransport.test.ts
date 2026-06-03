@@ -978,22 +978,22 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
-  it('suppresses all SiYuan file-write host effects for rating, skip, and custom review feedback', async () => {
-    const forbiddenEffects = [
+  it('allows required SQLite durability host effects for rating, skip, and custom review feedback', async () => {
+    const requiredSqliteEffects = [
       {
         kind: 'sqlite.writeJSON' as const,
         effectId: 'effect-sqlite-json',
         path: 'kernel-transaction-ingest.snapshot.json',
         value: { queue: [] },
-        expectedMessage: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect sqlite.writeJSON',
       },
       {
         kind: 'sqlite.writeBinary' as const,
         effectId: 'effect-sqlite-binary',
         path: 'siyuanmemo.db',
         bytes: new Uint8Array([1, 2, 3]),
-        expectedMessage: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect sqlite.writeBinary',
       },
+    ];
+    const deferredTruthEffects = [
       {
         kind: 'truth.writeJSON' as const,
         effectId: 'effect-truth-json',
@@ -1026,7 +1026,32 @@ describe('BrowserSrsBackendWorkerTransport', () => {
       worker.emit({ kind: 'ready' });
       await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
 
-      for (const [effectIndex, forbidden] of forbiddenEffects.entries()) {
+      for (const [effectIndex, required] of requiredSqliteEffects.entries()) {
+        worker.emit({
+          kind: 'host-effect',
+          effectId: `${action}-${required.effectId}`,
+          effect: 'bytes' in required
+            ? {
+                kind: required.kind,
+                path: required.path,
+                bytes: required.bytes,
+              }
+            : {
+                kind: required.kind,
+                path: required.path,
+                value: required.value,
+              },
+        });
+        await vi.waitFor(() => expect(worker.posted).toHaveLength(2 + effectIndex));
+        expect(worker.posted[1 + effectIndex]).toEqual({
+          kind: 'host-effect-result',
+          effectId: `${action}-${required.effectId}`,
+          ok: true,
+          result: null,
+        });
+      }
+
+      for (const [effectIndex, forbidden] of deferredTruthEffects.entries()) {
         worker.emit({
           kind: 'host-effect',
           effectId: `${action}-${forbidden.effectId}`,
@@ -1042,8 +1067,8 @@ describe('BrowserSrsBackendWorkerTransport', () => {
                 value: forbidden.value,
               },
         });
-        await vi.waitFor(() => expect(worker.posted).toHaveLength(2 + effectIndex));
-        expect(worker.posted[1 + effectIndex]).toEqual({
+        await vi.waitFor(() => expect(worker.posted).toHaveLength(4 + effectIndex));
+        expect(worker.posted[3 + effectIndex]).toEqual({
           kind: 'host-effect-result',
           effectId: `${action}-${forbidden.effectId}`,
           ok: false,
@@ -1054,8 +1079,8 @@ describe('BrowserSrsBackendWorkerTransport', () => {
         });
       }
 
-      expect(hostEffects.writeJSON).not.toHaveBeenCalled();
-      expect(hostEffects.writeBinary).not.toHaveBeenCalled();
+      expect(hostEffects.writeJSON).toHaveBeenCalledWith('kernel-transaction-ingest.snapshot.json', { queue: [] });
+      expect(hostEffects.writeBinary).toHaveBeenCalledWith('siyuanmemo.db', new Uint8Array([1, 2, 3]));
       expect(hostEffects.writeTruthJSON).not.toHaveBeenCalled();
       expect(hostEffects.writeTruthBinary).not.toHaveBeenCalled();
 
@@ -1073,7 +1098,7 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     }
   });
 
-  it('suppresses sqlite persistence host effects while review feedback is in flight', async () => {
+  it('allows sqlite persistence host effects while review feedback is in flight', async () => {
     const worker = new FakeWorker();
     const writeJSON = vi.fn(async () => undefined);
     const transport = new BrowserSrsBackendWorkerTransport({
@@ -1095,15 +1120,12 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     });
 
     await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
-    expect(writeJSON).not.toHaveBeenCalled();
+    expect(writeJSON).toHaveBeenCalledWith('kernel-transaction-ingest.snapshot.json', { queue: [] });
     expect(worker.posted[1]).toEqual({
       kind: 'host-effect-result',
       effectId: 'effect-review-json',
-      ok: false,
-      error: {
-        code: 'BACKEND_UNAVAILABLE',
-        message: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect sqlite.writeJSON',
-      },
+      ok: true,
+      result: null,
     });
 
     worker.emit({
@@ -1119,7 +1141,55 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
-  it('keeps suppressing sqlite persistence host effects during the immediate post-review drain window', async () => {
+  it('propagates sqlite durability host effect failures while review feedback is in flight', async () => {
+    const worker = new FakeWorker();
+    const writeJSON = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: mock sqlite delta durability failed');
+    });
+    const transport = new BrowserSrsBackendWorkerTransport({
+      workerFactory: () => worker as unknown as Worker,
+      hostEffects: { writeJSON },
+    });
+    const pending = transport.request(createReviewFeedbackRequest(79));
+    worker.emit({ kind: 'ready' });
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
+
+    worker.emit({
+      kind: 'host-effect',
+      effectId: 'effect-review-json-fail',
+      effect: {
+        kind: 'sqlite.writeJSON',
+        path: 'sqlite-delta/v2/open.msgpack',
+        value: { queue: [] },
+      },
+    });
+
+    await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
+    expect(writeJSON).toHaveBeenCalledWith('sqlite-delta/v2/open.msgpack', { queue: [] });
+    expect(worker.posted[1]).toEqual({
+      kind: 'host-effect-result',
+      effectId: 'effect-review-json-fail',
+      ok: false,
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'BACKEND_UNAVAILABLE: mock sqlite delta durability failed',
+      },
+    });
+
+    worker.emit({
+      kind: 'response',
+      requestId: (worker.posted[0] as { requestId: string }).requestId,
+      response: {
+        jsonrpc: BACKEND_RPC_VERSION,
+        id: 79,
+        result: { ok: true },
+      },
+    });
+    await expect(pending).resolves.toEqual(expect.objectContaining({ id: 79 }));
+    transport.dispose();
+  });
+
+  it('allows sqlite persistence host effects during the immediate post-review drain window', async () => {
     vi.setSystemTime(10_000);
     const worker = new FakeWorker();
     const writeBinary = vi.fn(async () => undefined);
@@ -1153,15 +1223,12 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     });
 
     await vi.waitFor(() => expect(worker.posted).toHaveLength(2));
-    expect(writeBinary).not.toHaveBeenCalled();
+    expect(writeBinary).toHaveBeenCalledWith('siyuanmemo.db', new Uint8Array([1, 2, 3]));
     expect(worker.posted[1]).toEqual({
       kind: 'host-effect-result',
       effectId: 'effect-review-deferred-db',
-      ok: false,
-      error: {
-        code: 'BACKEND_UNAVAILABLE',
-        message: 'BACKEND_UNAVAILABLE: review.feedback suppressed SiYuan persistence host effect sqlite.writeBinary',
-      },
+      ok: true,
+      result: null,
     });
     transport.dispose();
   });

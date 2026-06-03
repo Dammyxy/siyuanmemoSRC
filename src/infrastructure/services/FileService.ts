@@ -19,7 +19,10 @@ import type SiyuanMemoPlugin from '../../index';
 import { getPluginDataPath, putFile } from '@/infrastructure/siyuan/api';
 import { createLogger } from '@/utils/logger';
 import { recordRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnostics';
-import { SIYUANMEMO_TEMP_PROJECTION_DB_PATH } from '../../../packages/contracts/src/backend-rpc';
+import {
+  SIYUANMEMO_TEMP_PROJECTION_DB_PATH,
+  SIYUANMEMO_TEMP_PROJECTION_ROOT_PATH,
+} from '../../../packages/contracts/src/backend-rpc';
 import { ManualSyncBackupInventory } from './ManualSyncBackupInventory';
 
 const logger = createLogger('FileService');
@@ -77,6 +80,16 @@ export interface IFileService {
   writeTempProjectionBinary?(fileName: string, bytes: Uint8Array, options?: {
     diagnostics?: Record<string, unknown>;
   }): Promise<void>;
+
+  /**
+   * Read local-only temp JSON. This is workspace-local state, not plugin petal storage.
+   */
+  readTempLocalJSON?<T>(fileName: string): Promise<T | null>;
+
+  /**
+   * Write local-only temp JSON. This is workspace-local state, not plugin petal storage.
+   */
+  writeTempLocalJSON?(fileName: string, data: unknown): Promise<void>;
 
   /**
    * 列出插件数据目录下某个相对目录的直接文件
@@ -407,6 +420,51 @@ export class FileService implements IFileService {
     }
   }
 
+  async readTempLocalJSON<T>(fileName: string): Promise<T | null> {
+    try {
+      const response = await fetch('/api/file/getFile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: this.resolveTempLocalPath(fileName, 'read') }),
+      });
+      if (!response.ok) {
+        return null;
+      }
+      const text = await response.text();
+      if (!text.trim()) {
+        return null;
+      }
+      return JSON.parse(text) as T;
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        logger.warn(`[FileService] Invalid temp-local JSON in "${fileName}", treating as missing`);
+        return null;
+      }
+      logger.error(`[FileService] Failed to read temp-local JSON "${fileName}":`, error);
+      throw new FileOperationError(
+        'read',
+        fileName,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+  }
+
+  async writeTempLocalJSON(fileName: string, data: unknown): Promise<void> {
+    try {
+      await putFile(
+        this.resolveTempLocalPath(fileName, 'write'),
+        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+      );
+    } catch (error) {
+      logger.error(`[FileService] Failed to write temp-local JSON "${fileName}":`, error);
+      throw new FileOperationError(
+        'write',
+        fileName,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+  }
+
   async listFiles(prefix: string): Promise<string[]> {
     const normalized = String(prefix || '')
       .replace(/\\/g, '/')
@@ -562,6 +620,16 @@ export class FileService implements IFileService {
       throw new FileOperationError('read', fileName, new Error('invalid temp projection binary path'));
     }
     return `/${SIYUANMEMO_TEMP_PROJECTION_DB_PATH}`;
+  }
+
+  private resolveTempLocalPath(fileName: string, operation: 'read' | 'write'): string {
+    const normalized = String(fileName || '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '');
+    if (!normalized || normalized.includes('..')) {
+      throw new FileOperationError(operation, fileName, new Error('invalid temp-local path'));
+    }
+    return `/${SIYUANMEMO_TEMP_PROJECTION_ROOT_PATH}/local/${normalized}`;
   }
 
   private async removeAbsoluteFile(path: string): Promise<void> {

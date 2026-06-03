@@ -1491,6 +1491,7 @@ export class TabManager {
     }
 
     try {
+      this.context.getSrsBackendClient()?.requestReviewTruthFlush('review-exit');
       if (typeof runtime.custom.tab?.close === 'function') {
         runtime.custom.tab.close();
         return;

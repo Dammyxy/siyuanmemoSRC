@@ -47,6 +47,9 @@ type ReviewDialogPluginLike = {
                 options?: { source?: string; persistIdleCheckpoint?: boolean },
             ) => Promise<unknown>;
         } | undefined;
+        getSrsBackendClient?: () => {
+            requestReviewTruthFlush?: (reason: 'review-exit' | 'queue-complete' | 'manual') => boolean;
+        } | null | undefined;
     } | undefined;
 };
 
@@ -177,6 +180,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
             width: isMobile ? '100vw' : 'min(860px, 96vw)',
             height: isMobile ? '100vh' : 'min(720px, 90vh)',
             onClose: async () => {
+                context.getSrsBackendClient?.()?.requestReviewTruthFlush?.('review-exit');
                 // 🆕 对话框关闭时只同步数据，不刷新 UI
                 // 因为增量更新已经实时更新了浏览器，这里只需要确保数据持久化
                 if (plugin.reviewSyncManager) {

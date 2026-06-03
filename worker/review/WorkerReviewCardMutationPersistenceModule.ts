@@ -14,6 +14,7 @@ import type {
   BackendReviewFeedbackQueueImpact,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  MessagePackReviewEventTruthRecord,
 } from '../../packages/contracts/src/backend-rpc';
 import { DomainSyncLedger } from '../domain-sync/DomainSyncLedger';
 import { recordReviewFeedbackInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
@@ -33,6 +34,8 @@ type ReviewFeedbackRuntime = Pick<RuntimeSqliteDatabaseService, 'run' | 'getOne'
 };
 const logger = createLogger('WorkerReviewCardMutationPersistenceModule');
 const REVIEW_FEEDBACK_WORKER_STEP_SLOW_MS = 120;
+
+export type WorkerReviewFeedbackTruthCandidate = MessagePackReviewEventTruthRecord;
 
 type ExistingReviewCommitRow = {
   id: string;
@@ -73,6 +76,7 @@ export class WorkerReviewCardMutationPersistenceModule {
   async commitReviewFeedback(
     input: WorkerReviewFeedbackMutationInput,
     buildQueueImpact: WorkerReviewFeedbackQueueImpactBuilder,
+    onTruthCandidate?: (candidate: WorkerReviewFeedbackTruthCandidate) => void,
   ): Promise<BackendReviewFeedbackResult> {
     let postCommitQueueImpactInput: Parameters<WorkerReviewFeedbackQueueImpactBuilder>[0] | null = null;
     const result = await this.measureReviewFeedbackStep('transaction', input, () => this.deps.runtime.runTransaction('review.feedback', async () => {
@@ -186,6 +190,15 @@ export class WorkerReviewCardMutationPersistenceModule {
           commitPolicy: input.commitPolicy,
           idempotencyKey: input.idempotencyKey ?? null,
         });
+        onTruthCandidate?.(buildReviewFeedbackTruthCandidate({
+          input,
+          log,
+          beforeCard: decision.before,
+          afterCard: commitResult.updatedCard,
+          schedulerType: decision.schedulerType,
+          algorithm: decision.algorithm,
+          attemptId: decision.attempt.id,
+        }));
       }
 
       const queueImpactInput = {
@@ -220,7 +233,7 @@ export class WorkerReviewCardMutationPersistenceModule {
         duplicate: false,
         queueImpact,
       };
-    }, { persist: false }));
+    }, { persist: input.commitPolicy === 'write-schedule' }));
     if (!postCommitQueueImpactInput) {
       return result;
     }
@@ -361,6 +374,109 @@ function buildReviewEventIndexPayload(input: {
     customStudy: input.log.customStudy,
     reviewEventFactSummary: input.factSummary,
   };
+}
+
+function buildReviewFeedbackTruthCandidate(input: {
+  input: WorkerReviewFeedbackMutationInput;
+  log: ReturnType<typeof createReviewLogV2>;
+  beforeCard: FSRSCard;
+  afterCard: FSRSCard;
+  schedulerType: string;
+  algorithm: string;
+  attemptId: string;
+}): WorkerReviewFeedbackTruthCandidate {
+  const request = input.input.request;
+  const requestRecord = request as Record<string, unknown>;
+  return {
+    family: 'review-events',
+    schemaVersion: 1,
+    type: 'review.feedback.v2',
+    idempotencyKey: input.input.idempotencyKey ?? input.log.commitIdempotencyKey ?? input.log.id,
+    eventId: input.log.id,
+    attemptId: input.attemptId,
+    journalEntryId: null,
+    logicalTime: input.log.reviewedAt,
+    recordedAt: Date.now(),
+    source: {
+      cardId: input.log.cardId,
+      blockId: input.afterCard.blockId || input.beforeCard.blockId || null,
+      sourceBlockId: input.afterCard.blockId || input.beforeCard.blockId || null,
+      deckId: stringOrNull(readCardMeta(input.afterCard).deckId ?? readCardMeta(input.beforeCard).deckId),
+      xiuyuanId: input.afterCard.xiuyuanID || input.beforeCard.xiuyuanID || null,
+      cardFaceId: input.afterCard.faceKey?.ruleId ?? input.beforeCard.faceKey?.ruleId ?? null,
+      sourceHash: stringOrNull(requestRecord.sourceHash),
+    },
+    review: {
+      action: 'rating',
+      rating: input.log.rating,
+      reviewedAt: input.log.reviewedAt,
+      scheduler: input.schedulerType,
+    },
+    memory: {
+      baseMemoryHash: stringOrNull(requestRecord.baseMemoryHash),
+      afterMemoryHash: stringOrNull(requestRecord.afterMemoryHash),
+      projectionGeneration: numberOrNull(request.projectionGeneration),
+    },
+    queue: {
+      queueType: input.log.queueType ?? input.input.queueType,
+      queueMode: input.log.queueMode ?? input.input.queueMode,
+      commitPolicy: input.log.commitPolicy ?? input.input.commitPolicy,
+    },
+    scheduler: {
+      schedulerType: input.schedulerType,
+      algorithm: input.algorithm,
+      configHash: stringOrNull(requestRecord.schedulerConfigHash),
+    },
+    projection: {
+      generation: numberOrNull(request.projectionGeneration),
+      policyHash: stringOrNull(request.projectionPolicyHash),
+      schemaVersion: numberOrNull(requestRecord.projectionSchemaVersion),
+    },
+    beforeCard: createReviewLogV2SnapshotCompat(input.beforeCard),
+    afterCard: createReviewLogV2SnapshotCompat(input.afterCard),
+  };
+}
+
+function createReviewLogV2SnapshotCompat(card: FSRSCard): Record<string, unknown> {
+  return {
+    id: card.id,
+    xiuyuanID: card.xiuyuanID,
+    blockId: card.blockId,
+    due: card.due,
+    stability: card.stability,
+    difficulty: card.difficulty,
+    reps: card.reps,
+    lapses: card.lapses,
+    state: card.state,
+    lastReview: card.lastReview,
+    elapsedDays: card.elapsedDays,
+    scheduledDays: card.scheduledDays,
+    learning_step: card.learning_step,
+    priority: card.priority,
+    type: card.type,
+    tags: card.tags,
+    schedulerType: card.schedulerType,
+    aFactor: card.aFactor,
+    createdAt: card.createdAt,
+    updatedAt: card.updatedAt,
+    cardTypeMarker: card.cardTypeMarker,
+    faceKey: card.faceKey,
+  };
+}
+
+function readCardMeta(card: FSRSCard): Record<string, unknown> {
+  return typeof card.meta === 'object' && card.meta !== null && !Array.isArray(card.meta)
+    ? card.meta
+    : {};
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function numberOrNull(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function parseJsonObject(value: unknown): Record<string, unknown> {

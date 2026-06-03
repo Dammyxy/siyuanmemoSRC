@@ -129,7 +129,9 @@ describe('ReviewFeedbackTimingScope', () => {
   it('classifies storage write host effects by active truth/projection role', () => {
     expect(classifyBackendWorkerHostEffectStorage('sqlite.writeBinary', 'siyuanmemo.db'))
       .toBe('sql-projection-db');
-    expect(classifyBackendWorkerHostEffectStorage('sqlite.writeJSON', 'sqlite-delta-log.v1.json'))
+    expect(classifyBackendWorkerHostEffectStorage('sqlite.writeJSON', 'sqlite-delta-log.v2.manifest.json'))
+      .toBe('sqlite-delta-log');
+    expect(classifyBackendWorkerHostEffectStorage('sqlite.writeBinary', 'sqlite-delta-log.v2.open.msgpack'))
       .toBe('sqlite-delta-log');
     expect(classifyBackendWorkerHostEffectStorage(
       'truth.writeBinary',
@@ -147,8 +149,10 @@ describe('ReviewFeedbackTimingScope', () => {
 
     try {
       expect(hasActiveBackendWorkerTiming('review.feedback')).toBe(true);
-      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeJSON')).toBe(true);
-      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeBinary')).toBe(true);
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeJSON')).toBe(false);
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.writeBinary')).toBe(false);
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('truth.writeJSON')).toBe(true);
+      expect(shouldSuppressReviewFeedbackPersistenceHostEffect('truth.writeBinary')).toBe(true);
       expect(shouldSuppressReviewFeedbackPersistenceHostEffect('sqlite.readJSON')).toBe(false);
     } finally {
       endBackendWorkerRequest(otherTiming);

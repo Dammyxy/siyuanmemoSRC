@@ -1,6 +1,59 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SrsBackendClient, type SrsBackendTransport } from '../SrsBackendClient';
 
+function createDurableReviewFeedbackResult(overrides: Record<string, unknown> = {}) {
+  return {
+    cardId: 'card-review-truth-flush',
+    committed: true,
+    reviewedAt: 1_700_000_000_000,
+    queueType: 'retrieval-practice',
+    updatedCard: null,
+    queueImpact: {
+      hotPatchable: true,
+      refreshRequired: false,
+      affectedQueues: [],
+    },
+    storage: {
+      localIntent: {
+        status: 'recorded',
+        durable: true,
+        storage: 'non-siyuan',
+        entryId: 'review-feedback:truth-flush-key',
+        idempotencyKey: 'truth-flush-key',
+        journalStatus: 'projection-applied',
+        pendingCount: 1,
+        pendingBytes: 256,
+        error: null,
+      },
+      truthFlush: {
+        status: 'pending',
+        family: 'review-events',
+        syncVisible: false,
+        pendingCount: 1,
+        oldestPendingAgeMs: 0,
+        lastError: null,
+      },
+      sqlProjection: {
+        status: 'patched',
+        hotPatchable: true,
+        refreshRequired: false,
+        affectedQueueCount: 0,
+        projectionGeneration: null,
+      },
+      sqlCheckpoint: {
+        status: 'not-run',
+        hotPath: false,
+        cause: null,
+        initiator: null,
+        projectionGeneration: null,
+        byteLength: null,
+        error: null,
+      },
+    },
+    ...overrides,
+  };
+}
+
 describe('SrsBackendClient', () => {
   it('routes xiuyuan.sync.execute through the typed backend RPC method', async () => {
     const transport: SrsBackendTransport = {
@@ -87,23 +140,7 @@ describe('SrsBackendClient', () => {
             return {
               jsonrpc: '2.0',
               id: request.id,
-              result: {
-                cardId: 'card-review-truth-flush',
-                committed: true,
-                reviewedAt: 1_700_000_000_000,
-                queueType: 'retrieval-practice',
-                updatedCard: null,
-                storage: {
-                  truthFlush: {
-                    status: 'pending',
-                    family: 'review-events',
-                    syncVisible: false,
-                    pendingCount: 1,
-                    oldestPendingAgeMs: 0,
-                    lastError: null,
-                  },
-                },
-              },
+              result: createDurableReviewFeedbackResult(),
             };
           }
           if (request.method === 'review.truth.flush') {
@@ -169,6 +206,143 @@ describe('SrsBackendClient', () => {
           batchLimit: 8,
         }],
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('flushes Review truth immediately when pending feedback reaches threshold 8', async () => {
+    vi.useFakeTimers();
+    try {
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const transport: SrsBackendTransport = {
+        request: vi.fn(async (request) => {
+          requests.push({ method: request.method, params: request.params });
+          if (request.method === 'review.feedback') {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: createDurableReviewFeedbackResult({
+                storage: {
+                  ...(createDurableReviewFeedbackResult().storage as Record<string, unknown>),
+                  truthFlush: {
+                    status: 'pending',
+                    family: 'review-events',
+                    syncVisible: false,
+                    pendingCount: 8,
+                    oldestPendingAgeMs: 0,
+                    lastError: null,
+                  },
+                },
+              }),
+            };
+          }
+          if (request.method === 'review.truth.flush') {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                ok: true,
+                at: 1_700_000_000_100,
+                journalQueued: 8,
+                recordsWritten: 8,
+                segmentWritten: true,
+                manifestUpdated: true,
+                projectionRefreshScheduled: true,
+                idempotencyDuplicateSkipped: 0,
+                flushedEntryIds: [],
+                segmentPaths: [],
+                error: null,
+              },
+            };
+          }
+          throw new Error(`Unexpected backend method ${request.method}`);
+        }),
+      };
+      const client = new SrsBackendClient(transport, {
+        reviewTruthFlush: {
+          deviceId: 'device-A',
+          generationId: 'review-events-v1',
+          schemaVersion: 1,
+          batchLimit: 8,
+          delayMs: 10_000,
+        },
+      });
+
+      await client.reviewFeedback({
+        cardId: 'card-review-truth-flush',
+        rating: 3,
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        idempotencyKey: 'truth-flush-key',
+      });
+
+      await vi.waitFor(() => expect(requests.map((request) => request.method)).toEqual([
+        'review.feedback',
+        'review.truth.flush',
+      ]));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails review.feedback closed when committed result omits durability status', async () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          cardId: 'card-review-missing-storage',
+          committed: true,
+          reviewedAt: 1_700_000_000_000,
+          queueType: 'retrieval-practice',
+          updatedCard: null,
+          queueImpact: {
+            hotPatchable: true,
+            refreshRequired: false,
+            affectedQueues: [],
+          },
+        },
+      })),
+    };
+    const client = new SrsBackendClient(transport);
+
+    await expect(client.reviewFeedback({
+      cardId: 'card-review-missing-storage',
+      rating: 3,
+      queueType: 'retrieval-practice',
+      queueMode: 'formal',
+      commitPolicy: 'write-schedule',
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: review.feedback committed result failed durability gate');
+  });
+
+  it('bounds plugin unload Review truth flush wait to 1 second', async () => {
+    vi.useFakeTimers();
+    try {
+      const requests: string[] = [];
+      const transport: SrsBackendTransport = {
+        request: vi.fn(async (request) => {
+          requests.push(request.method);
+          if (request.method === 'review.truth.flush') {
+            return new Promise(() => undefined);
+          }
+          throw new Error(`Unexpected backend method ${request.method}`);
+        }),
+      };
+      const client = new SrsBackendClient(transport, {
+        reviewTruthFlush: {
+          deviceId: 'device-A',
+          generationId: 'review-events-v1',
+          schemaVersion: 1,
+        },
+      });
+
+      const result = client.flushReviewTruthBeforeUnload();
+      await vi.advanceTimersByTimeAsync(999);
+      expect(requests).toEqual(['review.truth.flush']);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(result).resolves.toBe(false);
     } finally {
       vi.useRealTimers();
     }

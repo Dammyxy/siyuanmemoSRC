@@ -282,7 +282,7 @@ function projectionTruthFamilies(family: SqlProjectionFamily): MessagePackTruthF
     return ['review-events'];
   }
   if (family === 'cards') {
-    return ['card-memory-facts'];
+    return ['card-memory-facts', 'review-events'];
   }
   return [];
 }
@@ -1255,7 +1255,10 @@ export class BackendKernel {
         truthRecords
           .filter((record) => isRecord(record) && (
             (requestedReviewIndexes && record.family === 'review-events')
-            || (requestedCards && record.family === 'card-memory-facts')
+            || (requestedCards && (
+              record.family === 'card-memory-facts'
+              || (record.family === 'review-events' && record.type === 'review.feedback.v2' && isRecord(record.afterCard))
+            ))
           ))
           .map((record) => readProjectionTruthSourceBlockId(record)),
       )

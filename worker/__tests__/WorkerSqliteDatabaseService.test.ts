@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { encode } from '@msgpack/msgpack';
 import { CardState, CardType } from '@/types/card';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { createInMemorySqlitePersistenceBridge } from '../db/SqlitePersistenceBridge';
@@ -63,7 +64,7 @@ describe('WorkerSqliteDatabaseService', () => {
     expect(writeBinary).toHaveBeenCalledTimes(writesAfterSeed);
   });
 
-  it('keeps repeated queue projection replacements out of main database writes until explicit checkpoint', async () => {
+  it('keeps repeated queue projection replacements out of durable main database writes', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
     const writeJSON = vi.fn(bridge.writeJSON!.bind(bridge));
@@ -121,25 +122,27 @@ describe('WorkerSqliteDatabaseService', () => {
       });
     }
 
-    expect(writeBinary).toHaveBeenCalledTimes(writesBeforeProjection);
-    expect(writeJSON.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v1.json')).toHaveLength(3);
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
+    expect(writeJSON.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v1.json')).toHaveLength(0);
+    expect(writeJSON.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v2.manifest.json').length).toBeGreaterThan(0);
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'sqlite-delta-log.v2.open.msgpack').length).toBeGreaterThan(0);
     await database.persist();
 
-    expect(writeBinary).toHaveBeenCalledTimes(writesBeforeProjection + 1);
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
     await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
-      pendingCount: 0,
+      pendingCount: 3,
       lastCheckpoint: {
         ok: true,
-        cleared: true,
+        cleared: false,
         cause: 'worker.persist',
         initiator: 'db.persist',
-        projectionGeneration: 1,
         hotPath: false,
+        checkpointStorageClass: 'volatile-projection',
       },
     });
   });
 
-  it('checkpoints delta-backed queue projection once on explicit persist and skips clean repeat', async () => {
+  it('does not use explicit persist as a durable delta checkpoint for the temp projection', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
     const database = new WorkerSqliteDatabaseService({
@@ -194,10 +197,18 @@ describe('WorkerSqliteDatabaseService', () => {
     });
 
     await database.persist();
-    expect(writeBinary).toHaveBeenCalledTimes(writesBeforeProjection + 1);
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
 
     await database.persist();
-    expect(writeBinary).toHaveBeenCalledTimes(writesBeforeProjection + 1);
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 1,
+      lastCheckpoint: {
+        ok: true,
+        cleared: false,
+        checkpointStorageClass: 'volatile-projection',
+      },
+    });
   });
 
   it('persists queue projection replacement as sqlite delta without writing the main database hot path', async () => {
@@ -257,9 +268,12 @@ describe('WorkerSqliteDatabaseService', () => {
     });
 
     expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
-    expect(writeJSON.mock.calls.some(([path]) => path === 'sqlite-delta-log.v1.json')).toBe(true);
+    expect(writeJSON.mock.calls.some(([path]) => path === 'sqlite-delta-log.v1.json')).toBe(false);
+    expect(writeJSON.mock.calls.some(([path]) => path === 'sqlite-delta-log.v2.manifest.json')).toBe(true);
+    expect(writeBinary.mock.calls.some(([path]) => path === 'sqlite-delta-log.v2.open.msgpack')).toBe(true);
     await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
-      fileName: 'sqlite-delta-log.v1.json',
+      fileName: 'sqlite-delta-log.v2.manifest.json',
+      version: 2,
       pendingCount: 1,
       lastWrite: { ok: true, classification: 'delta' },
     });
@@ -328,8 +342,12 @@ describe('WorkerSqliteDatabaseService', () => {
 
     await second.persist();
     await expect(second.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
-      pendingCount: 0,
-      lastCheckpoint: { ok: true, cleared: true },
+      pendingCount: 1,
+      lastCheckpoint: {
+        ok: true,
+        cleared: false,
+        checkpointStorageClass: 'volatile-projection',
+      },
     });
   });
 
@@ -391,8 +409,8 @@ describe('WorkerSqliteDatabaseService', () => {
       ['retrieval-practice', 'projection-delete-row'],
     )).toBeNull();
     await expect(second.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
-      pendingCount: 1,
-      lastReplay: { ok: true, replayedCount: 1 },
+      pendingCount: 2,
+      lastReplay: { ok: true, replayedCount: 2 },
     });
   });
 
@@ -404,34 +422,17 @@ describe('WorkerSqliteDatabaseService', () => {
       writeBinary,
     });
     await database.init();
-    await database.upsertCards([{
-      id: 'unsupported-checkpoint-card',
-      blockId: 'unsupported-checkpoint-block',
-      due: 1_700_000_000_000,
-      stability: 4,
-      difficulty: 5,
-      reps: 1,
-      lapses: 0,
-      state: CardState.Review,
-      lastReview: 1_699_900_000_000,
-      elapsedDays: 1,
-      scheduledDays: 3,
-      priority: 40,
-      type: CardType.Item,
-      tags: [],
-      neuralRoamSeed: false,
-      leechCount: 0,
-      isLeech: false,
-      skipped: false,
-      createdAt: 1_699_800_000_000,
-      updatedAt: 1_700_000_000_000,
-      meta: { content: 'unsupported checkpoint card' },
-    }]);
+    await database.runTransaction('seed.unsupported-fixture-table', (db) => {
+      db.run('CREATE TABLE delta_unsupported_fixture (id TEXT PRIMARY KEY, value TEXT)');
+    });
     await database.persist();
     const writesBeforeUnsupported = writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db').length;
 
-    await database.runTransaction('unsupported.cards.update', (db) => {
-      db.run('UPDATE cards SET priority = ? WHERE id = ?', [41, 'unsupported-checkpoint-card']);
+    await database.runTransaction('unsupported.fixture.update', (db) => {
+      db.run(
+        'INSERT OR REPLACE INTO delta_unsupported_fixture (id, value) VALUES (?, ?)',
+        ['unsupported-checkpoint-row', 'changed'],
+      );
     });
 
     expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeUnsupported + 1);
@@ -440,7 +441,7 @@ describe('WorkerSqliteDatabaseService', () => {
       lastWrite: {
         ok: true,
         classification: 'checkpoint',
-        reason: 'unsupported-table:cards',
+        reason: 'unsupported-table:delta_unsupported_fixture',
       },
     });
   });
@@ -525,25 +526,18 @@ describe('WorkerSqliteDatabaseService', () => {
       reason: 'test-delta-threshold',
     });
 
-    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection + 1);
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(writesBeforeProjection);
     await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
-      pendingCount: 0,
+      pendingCount: 1,
       lastWrite: {
         ok: true,
-        classification: 'checkpoint',
-        reason: 'delta-threshold-exceeded',
+        classification: 'delta',
+        reason: null,
         cause: 'queue.projection.replace',
         initiator: 'queue.projection.replace',
         projectionGeneration: 1,
         hotPath: false,
-      },
-      lastCheckpoint: {
-        ok: true,
-        cause: 'queue.projection.replace:delta-threshold-exceeded',
-        initiator: 'queue.projection.replace',
-        projectionGeneration: 1,
-        hotPath: false,
-        reason: 'queue.projection.replace:delta-threshold-exceeded',
+        checkpointStorageClass: 'volatile-projection',
       },
     });
   });
@@ -551,13 +545,13 @@ describe('WorkerSqliteDatabaseService', () => {
   it('fails explicitly when a delta-eligible transaction cannot write the sqlite delta log', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
     let failDeltaWrite = false;
-    const writeJSON = vi.fn(async (path: string, value: unknown) => {
-      if (path === 'sqlite-delta-log.v1.json' && failDeltaWrite) {
+    const writeJSON = vi.fn(bridge.writeJSON!.bind(bridge));
+    const writeBinary = vi.fn(async (path: string, bytes: Uint8Array) => {
+      if (path === 'sqlite-delta-log.v2.open.msgpack' && failDeltaWrite) {
         throw new Error('mock delta write failed');
       }
-      await bridge.writeJSON!(path, value);
+      await bridge.writeBinary(path, bytes);
     });
-    const writeBinary = vi.fn(bridge.writeBinary.bind(bridge));
     const database = new WorkerSqliteDatabaseService({
       ...bridge,
       writeBinary,
@@ -694,9 +688,8 @@ describe('WorkerSqliteDatabaseService', () => {
 
   it('fails closed when sqlite delta log is corrupt', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
-    await bridge.writeJSON!('sqlite-delta-log.v1.json', {
+    await bridge.writeJSON!('sqlite-delta-log.v2.manifest.json', {
       version: 99,
-      entries: [],
       updatedAt: Date.now(),
     });
     const database = new WorkerSqliteDatabaseService(bridge);
@@ -706,28 +699,54 @@ describe('WorkerSqliteDatabaseService', () => {
 
   it('fails closed when sqlite delta replay references an unsupported table', async () => {
     const bridge = createInMemorySqlitePersistenceBridge();
-    await bridge.writeJSON!('sqlite-delta-log.v1.json', {
+    const now = Date.now();
+    const entry = {
+      id: 'sqlite-delta:unsupported-table',
       version: 1,
-      entries: [{
-        id: 'sqlite-delta:unsupported-table',
-        version: 1,
-        label: 'unsupported-table',
-        createdAt: Date.now(),
-        schemaFingerprints: { cards: 'unsupported' },
-        tables: ['cards'],
-        changes: [{
-          table: 'cards',
-          operation: 'delete',
-          primaryKey: { id: 'card-a' },
-          row: null,
-        }],
-        byteEstimate: 1,
+      label: 'unsupported-table',
+      createdAt: now,
+      schemaFingerprints: { delta_unsupported_fixture: 'unsupported' },
+      tables: ['delta_unsupported_fixture'],
+      changes: [{
+        table: 'delta_unsupported_fixture',
+        operation: 'delete',
+        primaryKey: { id: 'card-a' },
+        row: null,
       }],
+      byteEstimate: 1,
+    };
+    await bridge.writeBinary('sqlite-delta-log.v2.open.msgpack', encode({
+      version: 2,
+      kind: 'sqlite-delta-segment',
+      path: 'sqlite-delta-log.v2.open.msgpack',
+      sequence: 1,
+      sealed: false,
+      createdAt: now,
       updatedAt: Date.now(),
+      entries: [entry],
+    }));
+    await bridge.writeJSON!('sqlite-delta-log.v2.manifest.json', {
+      version: 2,
+      path: 'sqlite-delta-log.v2.manifest.json',
+      openSegment: {
+        version: 2,
+        path: 'sqlite-delta-log.v2.open.msgpack',
+        sequence: 1,
+        sealed: false,
+        checksum: '',
+        entryCount: 1,
+        byteSize: 1,
+        minCreatedAt: now,
+        maxCreatedAt: now,
+        sealedAt: null,
+      },
+      sealedSegments: [],
+      updatedAt: now,
+      nextSequence: 2,
     });
     const database = new WorkerSqliteDatabaseService(bridge);
 
-    await expect(database.init()).rejects.toThrow(/SQLite delta replay unsupported table: cards/);
+    await expect(database.init()).rejects.toThrow(/SQLite delta replay unsupported table: delta_unsupported_fixture/);
   });
 
   it('does not persist or append processed-source rows for no-op persisted main DB merge', async () => {
