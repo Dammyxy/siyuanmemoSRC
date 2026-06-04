@@ -200,4 +200,71 @@ describe('SrsV2QueuePolicy', () => {
 
     expect(result.map((item) => item.id)).toEqual(['formal', 'topic']);
   });
+
+  it('excludes live CDF relation cards unless relation is active and content is complete', () => {
+    const eligible = card('cdf-active-complete', {
+      type: CardType.Descriptor,
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'source:concept:descriptor-forward',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        liveRelationIssues: [],
+      },
+    });
+    const incomplete = card('cdf-content-incomplete', {
+      type: CardType.Descriptor,
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'source:concept:descriptor-reverse',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-incomplete',
+        liveRelationIssues: [],
+      },
+    });
+    const orphaned = card('cdf-orphaned', {
+      type: CardType.Descriptor,
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'source:concept:definition-forward',
+        liveRelationStatus: 'orphaned-by-live-relation',
+        liveContentStatus: 'content-complete',
+        liveRelationIssues: [],
+      },
+    });
+    const blocked = card('cdf-blocked', {
+      type: CardType.Descriptor,
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'source:concept:definition-reverse',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        liveRelationIssues: [{ code: 'missing-concept-ref', severity: 'blocking' }],
+      },
+    });
+    const legacyWithoutLiveMetadata = card('legacy-cdf-open-migrates', {
+      type: CardType.Descriptor,
+      meta: {
+        templateID: 'builtin-concept-descriptor',
+        fieldMapping: { concept: 'concept', descriptor: 'source' },
+      },
+    });
+
+    const result = SrsV2QueuePolicy.buildRetrievalPracticeQueue({
+      ...baseInput([
+        incomplete,
+        orphaned,
+        blocked,
+        legacyWithoutLiveMetadata,
+        eligible,
+      ]),
+      reviewsPerDay: 0,
+    });
+
+    expect(result.map((item) => item.id)).toEqual(expect.arrayContaining([
+      'cdf-active-complete',
+      'legacy-cdf-open-migrates',
+    ]));
+    expect(result).toHaveLength(2);
+  });
 });

@@ -1,4 +1,8 @@
 import { CardState, CardType, type FSRSCard } from '@/types/card';
+import {
+  hasCdfLiveRelationMetadata,
+  isCdfLiveRelationQueueEligible,
+} from '@/core/card/cdf-live-relation';
 
 const DEFAULT_PRIORITY = 50;
 
@@ -78,7 +82,18 @@ export class SrsV2QueuePolicy {
 }
 
 function filterVisible(cards: FSRSCard[], input: SrsV2QueueBuildInput): FSRSCard[] {
-  return cards.filter((card) => !input.isBlacklisted(card) && !input.isDismissed(card));
+  return cards.filter((card) => (
+    !input.isBlacklisted(card)
+    && !input.isDismissed(card)
+    && isQueueEligibleCdfLiveRelation(card)
+  ));
+}
+
+function isQueueEligibleCdfLiveRelation(card: FSRSCard): boolean {
+  if (!hasCdfLiveRelationMetadata(card)) {
+    return true;
+  }
+  return isCdfLiveRelationQueueEligible(card);
 }
 
 function selectFormalMemoryCards(

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CdfLiveRelationRefreshService } from '../CdfLiveRelationRefreshService';
+import {
+  CdfLiveRelationRefreshService,
+  CdfLiveRelationSqlSourceLoader,
+} from '../CdfLiveRelationRefreshService';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import type { CdfLiveBlockNode } from '@/core/card/cdf-live-relation';
 
@@ -59,6 +62,14 @@ function createManager(cardsById = new Map<string, FSRSCard>()) {
         throw new Error(`missing ${cardId}`);
       }
       return card;
+    }),
+    getCards: vi.fn(async (filter?: { blockIds?: string[] }) => {
+      const cards = Array.from(cardsById.values());
+      if (!filter?.blockIds?.length) {
+        return cards;
+      }
+      const blockIds = new Set(filter.blockIds);
+      return cards.filter((card) => blockIds.has(card.blockId));
     }),
     updateCard: vi.fn(async () => undefined),
   };
@@ -173,5 +184,157 @@ describe('CdfLiveRelationRefreshService', () => {
     expect(result.reason).toBe('non-cdf-card');
     expect(result.attempted).toBe(false);
     expect(manager.updateCard).not.toHaveBeenCalled();
+  });
+
+  it('reconciles current Review duplicate outcome across same-source CDF cards', async () => {
+    const liveRelationKey = `${SOURCE_ID}:${CONCEPT_ID}:definition-forward`;
+    const canonical = buildCard({
+      id: 'canonical-card',
+      reps: 9,
+      createdAt: 20,
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey,
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        relationKind: 'definition-forward',
+        sourceBlockId: SOURCE_ID,
+        conceptBlockId: CONCEPT_ID,
+      },
+    });
+    const currentDuplicate = buildCard({
+      id: 'current-card',
+      reps: 1,
+      createdAt: 10,
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey,
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        relationKind: 'definition-forward',
+        sourceBlockId: SOURCE_ID,
+        conceptBlockId: CONCEPT_ID,
+      },
+    });
+    const cardsById = new Map([
+      [canonical.id, canonical],
+      [currentDuplicate.id, currentDuplicate],
+    ]);
+    const manager = createManager(cardsById);
+    const service = new CdfLiveRelationRefreshService({
+      manager,
+      now: () => 1_700_000_000_456,
+    });
+
+    const result = await service.refreshCurrentCardOnOpen(currentDuplicate, {
+      surface: 'review-open',
+      sourceTree: sourceNode(`((${CONCEPT_ID} "Concept")) :> definition body`),
+    });
+
+    expect(result.currentReviewDuplicateOutcome).toEqual({
+      cardId: 'current-card',
+      relationKey: liveRelationKey,
+      kind: 'current-noncanonical-exits',
+      canonicalCardId: 'canonical-card',
+      duplicateCardIds: ['current-card'],
+    });
+    expect(result.updatedCard).toMatchObject({
+      id: 'current-card',
+      updatedAt: 1_700_000_000_456,
+      meta: expect.objectContaining({
+        liveRelationStatus: 'duplicate-live-relation',
+        liveContentStatus: 'content-complete',
+      }),
+    });
+    expect(manager.updateCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'canonical-card',
+        meta: expect.objectContaining({ liveRelationStatus: 'active-live' }),
+      }),
+      { suppressDueIndexSort: true },
+    );
+    expect(manager.updateCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'current-card',
+        meta: expect.objectContaining({ liveRelationStatus: 'duplicate-live-relation' }),
+      }),
+      { suppressDueIndexSort: true },
+    );
+  });
+});
+
+describe('CdfLiveRelationSqlSourceLoader', () => {
+  it('returns a block-edit scoped tree for the changed source while keeping boundary context', async () => {
+    const sql = vi.fn(async (statement: string) => {
+      if (statement.includes('LIMIT 1')) {
+        return [{
+          id: 'descriptor-a',
+          parent_id: 'doc-root',
+          root_id: 'doc-root',
+          type: 'i',
+          markdown: 'cue A ;; answer A',
+          sort: '0002',
+        }];
+      }
+      return [
+        {
+          id: 'doc-root',
+          parent_id: '',
+          root_id: 'doc-root',
+          type: 'd',
+          markdown: 'Document',
+          sort: '0000',
+        },
+        {
+          id: 'boundary-a',
+          parent_id: 'doc-root',
+          root_id: 'doc-root',
+          type: 'i',
+          markdown: `((${CONCEPT_ID}))`,
+          sort: '0001',
+        },
+        {
+          id: 'descriptor-a',
+          parent_id: 'doc-root',
+          root_id: 'doc-root',
+          type: 'i',
+          markdown: 'cue A ;; answer A',
+          sort: '0002',
+        },
+        {
+          id: 'boundary-b',
+          parent_id: 'doc-root',
+          root_id: 'doc-root',
+          type: 'i',
+          markdown: `((${CONCEPT_ID.replace('aaaaaaa', 'bbbbbbb')}))`,
+          sort: '0003',
+        },
+        {
+          id: 'descriptor-b',
+          parent_id: 'doc-root',
+          root_id: 'doc-root',
+          type: 'i',
+          markdown: 'cue B ;; answer B',
+          sort: '0004',
+        },
+      ];
+    });
+    const loader = new CdfLiveRelationSqlSourceLoader({ sql });
+
+    const tree = await loader.loadSourceTree('descriptor-a', {
+      reconciliationScope: 'block-edit',
+      changedBlockId: 'descriptor-a',
+    });
+
+    expect(sql).toHaveBeenCalledTimes(2);
+    expect(sql.mock.calls[1]?.[0]).toContain("WHERE root_id = 'doc-root' OR id = 'doc-root'");
+    expect(tree).toEqual(expect.objectContaining({
+      id: 'doc-root',
+      children: [
+        expect.objectContaining({ id: 'boundary-a' }),
+        expect.objectContaining({ id: 'descriptor-a' }),
+      ],
+    }));
+    expect(JSON.stringify(tree)).not.toContain('descriptor-b');
   });
 });

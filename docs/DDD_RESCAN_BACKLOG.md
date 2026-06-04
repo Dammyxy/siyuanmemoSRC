@@ -1,8 +1,58 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-05 (Round 547)
+Last update: 2026-06-05 (Round 551)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-05 - Review explicit field extraction
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` task 5.3 by extracting Review structured editor fields from explicit `fieldMapping`, loaded editable targets, and front/back block ids.
+- Touched slice: Review UI structured editor path: `reviewStructuredFieldModel.ts`, `ReviewView.vue`, `ReviewContent.vue`, `ReviewInlineCardEditor.vue`, Review editor tests, and Review i18n keys.
+- Debt fixed now: Structured Review editing now converts safe explicit Item question/answer, Definition content, Descriptor source identity, and front/back block-id pairs into typed fields instead of always showing the pending source fallback. The UI keeps the existing block-markdown save targets, so this closes field identity display without adding a hidden save path or relation mutation.
+- Debt deferred: Card Source Grammar parsing, Descriptor cue/answer split, Definition/Item format-preserving writes, draft save/conflict handling, relation-change preview, reset actions, and content-incomplete editor transitions remain in later OpenSpec tasks.
+- Why deferred: Task 5.3 is only explicit identity extraction. Grammar parsing and source rewrite semantics can change relation/content state, so they need separate focused parser/write tests and preview/conflict handling.
+- Next safe step: Implement task 5.4 safe Card Source Grammar field extraction and unsafe source fallback, keeping relation chips/direction read-only.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/reviewStructuredFieldModel.test.ts`; `pnpm exec vitest run src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts -t "inline|structured question|metadata-only|card type|live relation context"`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check`; `pnpm build`.
+
+### 2026-06-05 - Review structured field model
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` task 5.2 by adding a typed Review structured editor field model for Item, Definition, Descriptor, source fallback, read-only relation chips, read-only direction, and field origin hashes.
+- Touched slice: Review UI editor model path: `reviewStructuredFieldModel.ts`, `ReviewInlineCardEditor.vue`, `ReviewView.vue`, Review editor focused tests, and Review i18n keys.
+- Debt fixed now: Structured Review editing now has a pure TS field model that separates editable content fields from read-only relation context, records deterministic per-field origin hashes for later conflict checks, keeps CDF concept chips and direction read-only in the inline editor shell, and exposes unsafe/unfinished extraction as one source fallback instead of guessing field boundaries.
+- Debt deferred: Explicit `fieldMapping`/block-id extraction, safe Card Source Grammar extraction, true Definition/Descriptor/Item field editors, save/conflict handling, relation-change preview, and reset actions remain in later OpenSpec tasks.
+- Why deferred: Task 5.2 defines the field model contract and minimal shell display only. Parsing/writing fields and draft save semantics need their own focused extraction and persistence tests to avoid hidden relation mutation or format loss.
+- Next safe step: Implement task 5.3 by extracting structured fields from explicit `fieldMapping` and block ids into this model before adding grammar parsing.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/reviewStructuredFieldModel.test.ts`; `pnpm exec vitest run src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts -t "inline|metadata-only|card type|live relation context"`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check`; `pnpm build`.
+
+### 2026-06-05 - Review structured editor shell
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` task 5.1 by replacing the primary inline Review editor body with a structured content editor shell while keeping SRS metadata editing out of the primary content surface.
+- Touched slice: Review UI editor path: `ReviewInlineCardEditor.vue`, `ReviewView.more-menu.spec.ts`, and OpenSpec task state.
+- Debt fixed now: Inline Review editing now has an explicit primary content shell. Existing Markdown source editing remains inside that content surface, while the existing `SrsEditorDialog` stays available only in a secondary collapsed card-attribute section. Tests assert SRS fields such as card type are not rendered inside the primary structured content shell.
+- Debt deferred: Actual Item/Definition/Descriptor field model, relation chips/direction display, field extraction, draft save conflicts, relation-change preview, and reset actions remain in following structured-editor tasks.
+- Why deferred: Task 5.1 only establishes the shell and ownership split. Field extraction and save semantics need model-level contracts and focused tests before broad UI behavior changes.
+- Next safe step: Implement task 5.2 by adding a typed editor field model for Item, Definition, Descriptor, source fallback, read-only relation chips/direction, and field origin hashes.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts -t "inline|metadata-only|card type"`.
+
+### 2026-06-05 - CDF concept assets and scoped block-edit reconciliation
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` through concept simple-card asset behavior, scoped block-edit reconciliation, reconciliation coverage, and content-complete restoration checks.
+- Touched slice: Card/CDF write-repair and live derive path: `CdfLiveRelationWriteRepairService`, `CdfLiveRelationRefreshService`, `core/card/cdf-live-relation/blockEditScope.ts`, CDF metadata/content-status tests, focused write-repair/refresh/reconciler tests, and OpenSpec task state.
+- Debt fixed now: Write/repair creation now ensures missing concept simple assets only when new relation cards are created, while relation authority remains the concept document block id. Block-edit reconciliation now has an explicit `block-edit` scope that prunes derive/reconcile to the edited source, edited boundary area, or edited group leaves instead of reconciling unrelated sibling areas. Content-status tests now cover every required-field shape and precedence with relation status/issues; filling required fields refreshes `content-complete` without resetting FSRS fields.
+- Debt deferred: Structured Review editor UI, relation-change preview/confirm, Browser abnormal repair actions, full repair dry-run/execute toggles, Review blocking panel, and session tail insertion/statistics remain separate OpenSpec phases.
+- Why deferred: This slice only adds the application/core reconciliation contract and coverage needed before editor/Browser surfaces call it. UI preview, conflict handling, and session insertion require broader Review/Browser contracts and visible workflow tests.
+- Next safe step: Start Phase 2 task 5.1 by replacing the primary Review inline editor body with a structured content editor shell while keeping the existing SRS dialog out of the primary content editing surface.
+- Validation: `pnpm exec vitest run src/core/card/cdf-live-relation/__tests__/metadataAndContentStatus.test.ts src/core/card/cdf-live-relation/__tests__/liveRelationScanner.test.ts src/core/card/cdf-live-relation/__tests__/reconciler.test.ts src/application/services/__tests__/CdfLiveRelationWriteRepairService.test.ts src/application/services/__tests__/CdfLiveRelationRefreshService.test.ts`.
+
+### 2026-06-05 - CDF queue eligibility and duplicate Review exit
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` by finishing queue eligibility/content-incomplete exclusion and OpenSpec task 3.11 current Review duplicate outcomes.
+- Touched slice: Review/Queue/Browser CDF live relation path: `CdfLiveRelationRefreshService`, `UnifiedQueueStrategy`, SRS v2 queue profiles/policy, Browser deck query kernel, CDF metadata helpers, focused Review/Queue/Browser tests, and OpenSpec task state.
+- Debt fixed now: Live CDF queue membership now requires `active-live`, `content-complete`, and no blocking relation issues when live relation metadata exists, while legacy CDF cards without live metadata still pass so open-time lazy migration can run. Review-open refresh now reconciles same-source duplicate CDF cards instead of looking only at the current card; if the current card is canonical it continues, and if it is noncanonical Review removes it from the current session without calling `skip`, `handleReview`, or writing score/history.
+- Debt deferred: Canonical due-card tail insertion, blocked/interruption panel diagnostics, Browser abnormal duplicate actions, concept simple-card asset behavior, scoped block-edit reconciliation, and full same-source spreading/statistics are still separate OpenSpec tasks.
+- Why deferred: This slice closes the no-score duplicate current-card outcome and normal eligibility gates only. Tail insertion and UI diagnostics require later session insertion/Browser repair contracts and broader counters/UI tests.
+- Next safe step: Implement task 3.12 concept document block authority over optional concept simple card assets, or task 3.13 scoped block-edit reconciliation if the next slice should prepare write/save repair.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/CdfLiveRelationRefreshService.test.ts`; `pnpm exec vitest run src/application/adapters/__tests__/UnifiedQueueStrategy.cdf-live-relation-open.spec.ts`; additional focused Queue/Browser tests pending in this session.
 
 ### 2026-06-05 - CDF write repair create missing
 

@@ -13,6 +13,7 @@ import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import { isHideCurrentInScopeCommandId } from '@/core/queue/abstraction/customActionIds';
 import { shouldReadQueueLocally } from '@/core/queue/domain/queueProjectionReadPolicy';
 import { formatNextDue } from '@/application/helpers/formatNextDue';
+import type { CdfCurrentReviewDuplicateOutcome } from '@/core/card/cdf-live-relation';
 import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
 import { CacheManagerObserver } from '../observers/CacheManagerObserver';
 import {
@@ -90,6 +91,7 @@ type ReviewSessionAuthorityContext = {
 type CdfLiveRelationReviewOpenRefresher = {
     refreshCdfLiveRelationOnOpen: (card: FSRSCard | string) => Promise<{
         updatedCard?: FSRSCard | null;
+        currentReviewDuplicateOutcome?: CdfCurrentReviewDuplicateOutcome | null;
     }>;
 };
 
@@ -273,7 +275,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 if (!replayCard) {
                     return null;
                 }
-                const replayCardWithNextDues = await this.maybeAddNextDues(replayCard);
+                const replayCardWithNextDues = await this.prepareSelectedReviewCard(replayCard);
+                if (!replayCardWithNextDues) {
+                    return await this.next();
+                }
                 this.setCurrentItem(replayCardWithNextDues);
                 return replayCardWithNextDues;
             }
@@ -294,7 +299,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     cardId: card.id,
                     total: this.cursor.length,
                 });
-                const refreshedCard = await this.maybeRefreshCdfLiveRelationOnReviewOpen(card);
+                const refreshedCard = await this.prepareSelectedReviewCard(card);
+                if (!refreshedCard) {
+                    return await this.next();
+                }
                 this.setCurrentItem(refreshedCard);
                 return refreshedCard;
             }
@@ -312,7 +320,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                         logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Runtime-backed queue exhausted: ${this.queueType}`);
                         return null;
                     }
-                    const cardWithNextDues = await this.maybeAddNextDues(pending);
+                    const cardWithNextDues = await this.prepareSelectedReviewCard(pending);
+                    if (!cardWithNextDues) {
+                        return await this.next();
+                    }
                     this.setCurrentItem(cardWithNextDues);
                     this.syncCursorFromSrsV2Runtime();
                     if (this.pendingSrsV2CounterSnapshot) {
@@ -327,7 +338,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Runtime-backed queue is empty: ${this.queueType}`);
                     return null;
                 }
-                const cardWithNextDues = await this.maybeAddNextDues(card);
+                const cardWithNextDues = await this.prepareSelectedReviewCard(card);
+                if (!cardWithNextDues) {
+                    return await this.next();
+                }
                 this.setCurrentItem(cardWithNextDues);
                 this.syncCursorFromSrsV2Runtime();
                 return cardWithNextDues;
@@ -354,7 +368,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue exhausted without reload: ${this.queueType}`);
                 return null;
             }
-            const cardWithNextDues = await this.maybeAddNextDues(next.card);
+            const cardWithNextDues = await this.prepareSelectedReviewCard(next.card);
+            if (!cardWithNextDues) {
+                return await this.next();
+            }
 
             this.setCurrentItem(cardWithNextDues);
             return cardWithNextDues;
@@ -1061,7 +1078,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return null;
         }
 
-        const cardWithNextDues = await this.maybeAddNextDues(selection.card);
+        const cardWithNextDues = await this.prepareSelectedReviewCard(selection.card);
+        if (!cardWithNextDues) {
+            return await this.nextFromRequeryQueue();
+        }
 
         logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Next card (requery-after-feedback):`, {
             queueType: this.queueType,
@@ -1780,19 +1800,62 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private async maybeAddNextDues(card: FSRSCard): Promise<CardWithNextDues> {
-        const refreshedCard = await this.maybeRefreshCdfLiveRelationOnReviewOpen(card);
+        const result = await this.refreshCdfLiveRelationOnReviewOpen(card);
+        const refreshedCard = result.updatedCard ?? card;
         if (!this.shouldComputeNextDues(refreshedCard)) {
             return refreshedCard;
         }
         return this.addNextDues(refreshedCard);
     }
 
-    private async maybeRefreshCdfLiveRelationOnReviewOpen(card: FSRSCard): Promise<FSRSCard> {
-        if (!this.cdfLiveRelationReviewOpenRefresher) {
-            return card;
+    private async prepareSelectedReviewCard(card: FSRSCard): Promise<CardWithNextDues | null> {
+        const result = await this.refreshCdfLiveRelationOnReviewOpen(card);
+        if (this.shouldExitCurrentCdfDuplicate(card, result.currentReviewDuplicateOutcome ?? null)) {
+            this.discardCurrentCdfDuplicateWithoutScoring(card, result.currentReviewDuplicateOutcome!);
+            return null;
         }
-        const result = await this.cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen(card);
-        return result.updatedCard ?? card;
+
+        const refreshedCard = result.updatedCard ?? card;
+        if (!this.shouldComputeNextDues(refreshedCard)) {
+            return refreshedCard;
+        }
+        return this.addNextDues(refreshedCard);
+    }
+
+    private async refreshCdfLiveRelationOnReviewOpen(card: FSRSCard): Promise<{
+        updatedCard?: FSRSCard | null;
+        currentReviewDuplicateOutcome?: CdfCurrentReviewDuplicateOutcome | null;
+    }> {
+        if (!this.cdfLiveRelationReviewOpenRefresher) {
+            return {};
+        }
+        return this.cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen(card);
+    }
+
+    private shouldExitCurrentCdfDuplicate(
+        card: FSRSCard,
+        outcome: CdfCurrentReviewDuplicateOutcome | null
+    ): boolean {
+        return outcome?.kind === 'current-noncanonical-exits'
+            && outcome.cardId === card.id;
+    }
+
+    private discardCurrentCdfDuplicateWithoutScoring(
+        card: FSRSCard,
+        outcome: CdfCurrentReviewDuplicateOutcome
+    ): void {
+        this.feedbackAdvancement.applyUnavailableItem(card);
+        this.srsV2SessionQueueRuntime?.discardCard(card);
+        this.syncCursorFromSrsV2Runtime();
+        this.pendingSrsV2NextCard = undefined;
+        this.pendingSrsV2CounterSnapshot = this.srsV2SessionQueueRuntime?.getCounterSnapshot() ?? null;
+        logger.info('[SiYuanMemo][UnifiedQueueStrategy] Current CDF duplicate exited without scoring:', {
+            queueType: this.queueType,
+            cardId: card.id,
+            blockId: card.blockId,
+            relationKey: outcome.relationKey,
+            canonicalCardId: outcome.canonicalCardId,
+        });
     }
 
     private getReviewSchedulingContext(card: FSRSCard): QueueReviewSchedulingContext | null {

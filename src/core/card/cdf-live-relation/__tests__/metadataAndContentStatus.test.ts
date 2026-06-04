@@ -9,22 +9,28 @@ import {
 
 describe('CDF live relation metadata and content status', () => {
   it('evaluates required fields per content shape', () => {
-    expect(evaluateCdfContentStatus({
-      shape: 'definition',
-      content: { definition: '' },
-    })).toBe('content-incomplete');
-    expect(evaluateCdfContentStatus({
-      shape: 'descriptor-group-plain',
-      content: { cue: '', answer: 'answer' },
-    })).toBe('content-complete');
-    expect(evaluateCdfContentStatus({
-      shape: 'descriptor-group-arrow',
-      content: { cue: '', answer: 'answer' },
-    })).toBe('content-incomplete');
-    expect(evaluateCdfContentStatus({
-      shape: 'item',
-      content: { question: 'question', answer: 'answer' },
-    })).toBe('content-complete');
+    const cases: Array<[
+      Parameters<typeof evaluateCdfContentStatus>[0],
+      ReturnType<typeof evaluateCdfContentStatus>,
+    ]> = [
+      [{ shape: 'definition', content: { definition: '' } }, 'content-incomplete'],
+      [{ shape: 'definition', content: { definition: 'definition' } }, 'content-complete'],
+      [{ shape: 'item', content: { question: '', answer: 'answer' } }, 'content-incomplete'],
+      [{ shape: 'item', content: { question: 'question', answer: '' } }, 'content-incomplete'],
+      [{ shape: 'item', content: { question: 'question', answer: 'answer' } }, 'content-complete'],
+      [{ shape: 'descriptor-explicit', content: { cue: '', answer: 'answer' } }, 'content-incomplete'],
+      [{ shape: 'descriptor-explicit', content: { cue: 'cue', answer: '' } }, 'content-incomplete'],
+      [{ shape: 'descriptor-explicit', content: { cue: 'cue', answer: 'answer' } }, 'content-complete'],
+      [{ shape: 'descriptor-group-plain', content: { cue: '', answer: '' } }, 'content-incomplete'],
+      [{ shape: 'descriptor-group-plain', content: { cue: '', answer: 'answer' } }, 'content-complete'],
+      [{ shape: 'descriptor-group-arrow', content: { cue: '', answer: 'answer' } }, 'content-incomplete'],
+      [{ shape: 'descriptor-group-arrow', content: { cue: 'cue', answer: '' } }, 'content-incomplete'],
+      [{ shape: 'descriptor-group-arrow', content: { cue: 'cue', answer: 'answer' } }, 'content-complete'],
+    ];
+
+    for (const [input, expected] of cases) {
+      expect(evaluateCdfContentStatus(input)).toBe(expected);
+    }
   });
 
   it('reads and writes live relation metadata without using fieldMapping as authority', () => {
@@ -72,8 +78,22 @@ describe('CDF live relation metadata and content status', () => {
     })).toBe(false);
     expect(isCdfLiveRelationQueueEligible({
       liveRelationStatus: 'active-live',
+      liveRelationIssues: [],
+    })).toBe(false);
+    expect(isCdfLiveRelationQueueEligible({
+      liveRelationStatus: 'active-live',
       liveContentStatus: 'content-complete',
       liveRelationIssues: [{ code: 'missing-concept-ref', severity: 'blocking' }],
+    })).toBe(false);
+    expect(isCdfLiveRelationQueueEligible({
+      liveRelationStatus: 'active-live',
+      liveContentStatus: 'content-complete',
+      liveRelationIssues: [{ code: 'duplicate-ref', severity: 'warning' }],
+    })).toBe(true);
+    expect(isCdfLiveRelationQueueEligible({
+      liveRelationStatus: 'duplicate-live-relation',
+      liveContentStatus: 'content-incomplete',
+      liveRelationIssues: [{ code: 'duplicate-ref', severity: 'warning' }],
     })).toBe(false);
   });
 });

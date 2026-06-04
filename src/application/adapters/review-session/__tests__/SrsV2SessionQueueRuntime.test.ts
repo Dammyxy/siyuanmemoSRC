@@ -128,6 +128,59 @@ function createQueue(cards: FSRSCard[], options: {
 }
 
 describe('SrsV2SessionQueueRuntime', () => {
+  it('treats live CDF relation cards as session-eligible only when active and content-complete', () => {
+    const profile = createSrsV2QueueProfile(QueueType.RetrievalPractice);
+    const eligible = createCard({
+      id: 'cdf-active-complete',
+      type: CardType.Descriptor,
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'source:concept:descriptor-forward',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        liveRelationIssues: [],
+      },
+    });
+    const incomplete = createCard({
+      id: 'cdf-content-incomplete',
+      type: CardType.Descriptor,
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'source:concept:descriptor-reverse',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-incomplete',
+        liveRelationIssues: [],
+      },
+    });
+    const orphaned = createCard({
+      id: 'cdf-orphaned',
+      type: CardType.Descriptor,
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'source:concept:definition-forward',
+        liveRelationStatus: 'orphaned-by-live-relation',
+        liveContentStatus: 'content-complete',
+        liveRelationIssues: [],
+      },
+    });
+    const blocked = createCard({
+      id: 'cdf-blocked',
+      type: CardType.Descriptor,
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'source:concept:definition-reverse',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        liveRelationIssues: [{ code: 'missing-concept-ref', severity: 'blocking' }],
+      },
+    });
+
+    expect(profile.isEligible(eligible)).toBe(true);
+    expect(profile.isEligible(incomplete)).toBe(false);
+    expect(profile.isEligible(orphaned)).toBe(false);
+    expect(profile.isEligible(blocked)).toBe(false);
+  });
+
   it('answers and advances from the session queue without projection readiness', async () => {
     const first = createCard({ id: 'card-1', blockId: 'block-1' });
     const second = createCard({ id: 'card-2', blockId: 'block-2' });

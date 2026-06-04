@@ -930,7 +930,15 @@ const editableTargets = computed<ReviewEditableTarget[]>(() => {
     targets,
     seenBlockIds,
     props.content.id,
-    t('editCurrentContent', '编辑当前内容'),
+    props.content.answerBlockID ? t('editQuestionSource', '编辑问题') : t('editCurrentContent', '编辑当前内容'),
+    'main-protyle',
+    'current-content',
+  );
+  appendEditableTarget(
+    targets,
+    seenBlockIds,
+    props.content.answerBlockID || '',
+    t('editAnswerSource', '编辑答案'),
     'main-protyle',
     'current-content',
   );

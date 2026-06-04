@@ -1,6 +1,7 @@
 import {
   deriveCdfLiveRelations,
   reconcileCdfLiveRelations,
+  scopeCdfLiveBlockEditTree,
   writeCdfLiveRelationMetadata,
   type CdfLiveBlockNode,
   type CdfLiveRelationCandidate,
@@ -24,8 +25,18 @@ export interface CdfLiveRelationCardCreatorPort {
   createCards(cards: FSRSCard[], xiuyuans: IXiuyuan[], options?: CardMutationOptions): Promise<void>;
 }
 
+export type CdfLiveRelationWriteRepairScope = 'source' | 'block-edit';
+
+export interface CdfLiveRelationWriteRepairSourceLoadOptions {
+  reconciliationScope?: CdfLiveRelationWriteRepairScope;
+  changedBlockId?: string;
+}
+
 export interface CdfLiveRelationWriteRepairSourceLoader {
-  loadSourceTree(sourceBlockId: string): Promise<CdfLiveBlockNode | CdfLiveBlockNode[] | null>;
+  loadSourceTree(
+    sourceBlockId: string,
+    options?: CdfLiveRelationWriteRepairSourceLoadOptions,
+  ): Promise<CdfLiveBlockNode | CdfLiveBlockNode[] | null>;
 }
 
 export interface CdfLiveRelationWriteRepairServiceDeps {
@@ -39,6 +50,8 @@ export interface CdfLiveRelationWriteRepairServiceDeps {
 
 export interface CdfLiveRelationWriteRepairOptions {
   sourceBlockId?: string;
+  changedBlockId?: string;
+  reconciliationScope?: CdfLiveRelationWriteRepairScope;
   sourceTree?: CdfLiveBlockNode | CdfLiveBlockNode[] | null;
   existingCards?: FSRSCard[];
   persist?: boolean;
@@ -399,6 +412,106 @@ function buildNewXiuyuan(params: {
   };
 }
 
+function createConceptAssetIds(conceptBlockId: string): { cardId: string; xiuyuanId: string } {
+  const stableBlockId = conceptBlockId.replace(/[^a-zA-Z0-9_-]+/g, '_');
+  const xiuyuanId = `xy_${stableBlockId}`;
+  return {
+    cardId: `card_${xiuyuanId}_0`,
+    xiuyuanId,
+  };
+}
+
+function buildConceptSimpleMetadata(params: {
+  conceptBlockId: string;
+  cardId: string;
+  xiuyuanId: string;
+}): Record<string, unknown> {
+  return {
+    xiuyuanID: params.xiuyuanId,
+    templateID: 'builtin-concept-simple',
+    faceIndex: 0,
+    frontBlockIDs: [params.conceptBlockId],
+    backBlockIDs: [params.conceptBlockId],
+    typeMarker: 'C',
+    cardTypeMarker: 'concept',
+    source: 'cdf-live-relation-concept-asset',
+    cardIds: [params.cardId],
+    fieldMapping: {
+      concept: params.conceptBlockId,
+    },
+  };
+}
+
+function buildConceptSimpleCard(params: {
+  conceptBlockId: string;
+  cardId: string;
+  xiuyuanId: string;
+  now: number;
+}): FSRSCard {
+  return {
+    id: params.cardId,
+    xiuyuanID: params.xiuyuanId,
+    blockId: params.conceptBlockId,
+    faceKey: { ruleId: 'C', faceIndex: 0 },
+    due: params.now,
+    stability: 0,
+    difficulty: 0,
+    reps: 0,
+    lapses: 0,
+    state: CardState.New,
+    lastReview: 0,
+    elapsedDays: 0,
+    scheduledDays: 0,
+    learning_step: 0,
+    priority: 50,
+    type: CardType.Concept,
+    tags: [],
+    cardTypeMarker: 'concept',
+    leechCount: 0,
+    isLeech: false,
+    skipped: false,
+    createdAt: params.now,
+    updatedAt: params.now,
+    schedulerType: 'fsrs-v6',
+    meta: buildConceptSimpleMetadata(params),
+  };
+}
+
+function buildConceptSimpleXiuyuan(params: {
+  conceptBlockId: string;
+  cardId: string;
+  xiuyuanId: string;
+  now: number;
+}): IXiuyuan {
+  return {
+    id: params.xiuyuanId,
+    blockIDs: [params.conceptBlockId],
+    fields: [{ name: 'concept', blockID: params.conceptBlockId }],
+    templateID: 'builtin-concept-simple',
+    createdAt: params.now,
+    updatedAt: params.now,
+    meta: buildConceptSimpleMetadata(params),
+  };
+}
+
+function isConceptSimpleAssetForBlock(card: FSRSCard, conceptBlockId: string): boolean {
+  if (card.blockId !== conceptBlockId) {
+    return false;
+  }
+
+  const meta = isRecord(card.meta) ? card.meta : {};
+  const fieldMapping = readFieldMapping(meta);
+  const templateId = readString(meta.templateID);
+  const typeMarker = readString(meta.typeMarker);
+  const metaCardTypeMarker = readString(meta.cardTypeMarker);
+
+  return templateId === 'builtin-concept-simple'
+    || typeMarker === 'C'
+    || card.cardTypeMarker === 'concept'
+    || metaCardTypeMarker === 'concept'
+    || (card.type === CardType.Concept && fieldMapping.concept === conceptBlockId);
+}
+
 export function createCdfLiveRelationCardCreatorFromUnifiedStorage(
   storage: CdfLiveRelationUnifiedStorageCreatePort | null | undefined,
 ): CdfLiveRelationCardCreatorPort {
@@ -447,8 +560,13 @@ export class CdfLiveRelationWriteRepairService {
       return this.result(true, [], [], [], 0, 'source-missing');
     }
 
-    const deriveResult = deriveCdfLiveRelations(sourceTree);
-    const sourceBlockIds = this.resolveExistingCardScope(sourceTree, deriveResult.relations, options.sourceBlockId);
+    const scopedSourceTree = this.resolveReconciliationScope(sourceTree, options);
+    if (scopedSourceTree === null) {
+      return this.result(true, [], [], [], 0, 'source-missing');
+    }
+
+    const deriveResult = deriveCdfLiveRelations(scopedSourceTree);
+    const sourceBlockIds = this.resolveExistingCardScope(scopedSourceTree, deriveResult.relations, options.sourceBlockId);
     const existingCards = options.existingCards ?? (
       sourceBlockIds.length > 0
         ? (await this.deps.manager.getCards({ blockIds: sourceBlockIds })).filter(isCdfRelationCard)
@@ -519,7 +637,24 @@ export class CdfLiveRelationWriteRepairService {
     if (!sourceBlockId || !this.sourceLoader) {
       return undefined;
     }
-    return this.sourceLoader.loadSourceTree(sourceBlockId);
+    return this.sourceLoader.loadSourceTree(sourceBlockId, {
+      reconciliationScope: options.reconciliationScope,
+      changedBlockId: options.changedBlockId,
+    });
+  }
+
+  private resolveReconciliationScope(
+    sourceTree: CdfLiveBlockNode | CdfLiveBlockNode[],
+    options: CdfLiveRelationWriteRepairOptions,
+  ): CdfLiveBlockNode | CdfLiveBlockNode[] | null {
+    if (options.reconciliationScope !== 'block-edit') {
+      return sourceTree;
+    }
+    const changedBlockId = readString(options.changedBlockId) || readString(options.sourceBlockId);
+    if (!changedBlockId) {
+      return sourceTree;
+    }
+    return scopeCdfLiveBlockEditTree(sourceTree, changedBlockId);
   }
 
   private resolveExistingCardScope(
@@ -540,10 +675,11 @@ export class CdfLiveRelationWriteRepairService {
     updatedCards: FSRSCard[],
   ): Promise<void> {
     const mutationOptions: CardMutationOptions = { suppressDueIndexSort: true };
+    const createdConceptAssetCards = await this.ensureConceptSimpleAssetsForNewRelations(createdCards, mutationOptions);
     if (createdCards.length > 0) {
       await this.deps.cardCreator.createCards(createdCards, createdXiuyuans, mutationOptions);
       if (typeof this.deps.manager.onCardCreated === 'function') {
-        for (const card of createdCards) {
+        for (const card of [...createdConceptAssetCards, ...createdCards]) {
           await this.deps.manager.onCardCreated(card);
         }
       }
@@ -551,6 +687,40 @@ export class CdfLiveRelationWriteRepairService {
     for (const card of updatedCards) {
       await this.deps.manager.updateCard(card, mutationOptions);
     }
+  }
+
+  private async ensureConceptSimpleAssetsForNewRelations(
+    createdRelationCards: FSRSCard[],
+    mutationOptions: CardMutationOptions,
+  ): Promise<FSRSCard[]> {
+    const conceptBlockIds = Array.from(new Set(
+      createdRelationCards
+        .map((card) => readString(isRecord(card.meta) ? card.meta.conceptBlockId : ''))
+        .filter(Boolean),
+    ));
+    if (conceptBlockIds.length === 0) {
+      return [];
+    }
+
+    const existingConceptCards = await this.deps.manager.getCards({ blockIds: conceptBlockIds });
+    const missingConceptBlockIds = conceptBlockIds.filter((conceptBlockId) => (
+      !existingConceptCards.some((card) => isConceptSimpleAssetForBlock(card, conceptBlockId))
+    ));
+    if (missingConceptBlockIds.length === 0) {
+      return [];
+    }
+
+    const now = this.now();
+    const conceptCards: FSRSCard[] = [];
+    const conceptXiuyuans: IXiuyuan[] = [];
+    for (const conceptBlockId of missingConceptBlockIds) {
+      const ids = createConceptAssetIds(conceptBlockId);
+      conceptCards.push(buildConceptSimpleCard({ conceptBlockId, ...ids, now }));
+      conceptXiuyuans.push(buildConceptSimpleXiuyuan({ conceptBlockId, ...ids, now }));
+    }
+
+    await this.deps.cardCreator.createCards(conceptCards, conceptXiuyuans, mutationOptions);
+    return conceptCards;
   }
 
   private result(

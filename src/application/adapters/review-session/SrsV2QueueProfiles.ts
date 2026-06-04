@@ -1,5 +1,9 @@
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import {
+  hasCdfLiveRelationMetadata,
+  isCdfLiveRelationQueueEligible,
+} from '@/core/card/cdf-live-relation';
+import {
   QueueType,
   type IReviewQueue,
 } from '@/types/unified-data-source';
@@ -24,7 +28,15 @@ abstract class BaseSrsV2QueueProfile implements SrsV2QueueProfile {
       && card.skipped !== true
       && card.meta?.dismissed !== true
       && card.meta?.deleted !== true
-      && card.meta?.outOfScope !== true;
+      && card.meta?.outOfScope !== true
+      && this.isCdfLiveRelationEligible(card);
+  }
+
+  private isCdfLiveRelationEligible(card: FSRSCard): boolean {
+    if (!hasCdfLiveRelationMetadata(card)) {
+      return true;
+    }
+    return isCdfLiveRelationQueueEligible(card);
   }
 
   async hydrateEntry(queue: IReviewQueue, entry: ReviewSessionQueueEntry): Promise<ReviewSessionNextEntryRepairResult> {

@@ -123,6 +123,7 @@
           :source-placeholder="t('editCurrentContentPlaceholder', '使用 Markdown 编辑当前块内容')"
           :source-hint="reviewTextEditorHint"
           :source-confirm-disabled="reviewTextEditorConfirmDisabled"
+          :structured-model="reviewInlineCardEditorStructuredModel"
           :cancel-label="t('cancel', '取消')"
           :save-label="t('save', '保存')"
           :close-label="t('cancel', '取消')"
@@ -480,6 +481,9 @@ import {
 } from './reviewArenaCommands';
 import { createReviewCardActionRuntime, type ReviewCardPeerInfo } from './reviewCardActionCommands';
 import { createReviewCurrentContentEditorRuntime } from './reviewCurrentContentEditorRuntime';
+import {
+  buildReviewStructuredFieldModelFromExplicitSources,
+} from './reviewStructuredFieldModel';
 import { createReviewFilterRuntime, type ReviewFilterCommandClient, type ReviewFilterGroupQueueLike } from './reviewFilterCommands';
 import { createReviewDataObserverRuntime } from './reviewDataObserverRuntime';
 import { createReviewNativeSplitRuntime } from './reviewNativeSplitRuntime';
@@ -2003,6 +2007,20 @@ const reviewInlineCardEditorCard = computed(() => {
     blockId: blockId || undefined,
     deckId: reviewInlineCardEditorDeckId.value,
   };
+});
+const reviewInlineCardEditorStructuredModel = computed(() => {
+  const card = state.value.content.card as FSRSCard | null | undefined;
+  return buildReviewStructuredFieldModelFromExplicitSources({
+    card,
+    sources: reviewTextEditorEntries.value.map(entry => ({
+      id: entry.target.id,
+      blockId: entry.target.blockId,
+      title: entry.target.title,
+      role: entry.target.role,
+      rendererKind: entry.target.rendererKind,
+      value: entry.value,
+    })),
+  });
 });
 const reviewInlineCardEditorReviewService = computed(() => getReviewService());
 const reviewInlineCardEditorSchedulingContext = computed(() => resolveCurrentReviewSchedulingContext(

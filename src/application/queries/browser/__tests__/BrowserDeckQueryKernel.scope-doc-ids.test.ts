@@ -3,7 +3,14 @@ import { CardState } from '@/core/card/domain/services/CardScheduleService';
 import type { FSRSCard } from '@/types/card';
 import { BrowserDeckQueryKernel } from '../shared/BrowserDeckQueryKernel';
 
-function buildCard(id: string, blockId: string, rootId: string, due: number, content: string): FSRSCard {
+function buildCard(
+  id: string,
+  blockId: string,
+  rootId: string,
+  due: number,
+  content: string,
+  overrides: Partial<FSRSCard> = {},
+): FSRSCard {
   return {
     id,
     blockId,
@@ -20,9 +27,11 @@ function buildCard(id: string, blockId: string, rootId: string, due: number, con
     priority: 50,
     createdAt: due - 172_800_000,
     updatedAt: due - 43_200_000,
+    ...overrides,
     meta: {
       rootId,
       content,
+      ...(overrides.meta ?? {}),
     },
   } as FSRSCard;
 }
@@ -128,6 +137,78 @@ describe('BrowserDeckQueryKernel scopeDocIds', () => {
 
     const hydrated = await kernel.getBrowserCardsByIds(['card-missing']);
     expect(hydrated[0]?.meta?.blockType).toBe('missing');
+  });
+
+  it('excludes live CDF abnormal and content-incomplete cards from normal deck snapshots', async () => {
+    const now = Date.now();
+    const cards = [
+      buildCard('card-active', 'block-active', 'doc-1', now - 1_000, 'active', {
+        type: 'descriptor',
+        meta: {
+          relationAuthority: 'live-backlink',
+          liveRelationKey: 'source:concept:descriptor-forward',
+          liveRelationStatus: 'active-live',
+          liveContentStatus: 'content-complete',
+          liveRelationIssues: [],
+        },
+      }),
+      buildCard('card-incomplete', 'block-incomplete', 'doc-1', now - 1_000, 'incomplete', {
+        type: 'descriptor',
+        meta: {
+          relationAuthority: 'live-backlink',
+          liveRelationKey: 'source:concept:descriptor-reverse',
+          liveRelationStatus: 'active-live',
+          liveContentStatus: 'content-incomplete',
+          liveRelationIssues: [],
+        },
+      }),
+      buildCard('card-orphaned', 'block-orphaned', 'doc-1', now - 1_000, 'orphaned', {
+        type: 'descriptor',
+        meta: {
+          relationAuthority: 'live-backlink',
+          liveRelationKey: 'source:concept:definition-forward',
+          liveRelationStatus: 'orphaned-by-live-relation',
+          liveContentStatus: 'content-complete',
+          liveRelationIssues: [],
+        },
+      }),
+      buildCard('card-legacy', 'block-legacy', 'doc-1', now - 1_000, 'legacy', {
+        type: 'descriptor',
+        meta: {
+          templateID: 'builtin-concept-descriptor',
+          fieldMapping: { concept: 'concept', descriptor: 'source' },
+        },
+      }),
+    ];
+    const storageManager = {
+      queryCards: vi.fn((query?: { blockIds?: string[] }) => {
+        if (!query?.blockIds?.length) {
+          return cards;
+        }
+        const blockIdSet = new Set(query.blockIds);
+        return cards.filter((card) => blockIdSet.has(card.blockId));
+      }),
+      getAllCards: vi.fn(() => cards),
+    };
+    const siyuanApi = {
+      ATTR_CARD_TYPE: 'custom-card-type',
+      sql: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM blocks') && sql.includes('WHERE id IN')) {
+          return cards.map((card) => ({ id: card.blockId }));
+        }
+        return [];
+      }),
+    };
+    const kernel = new BrowserDeckQueryKernel(
+      storageManager as never,
+      {} as never,
+      {} as never,
+      siyuanApi as never,
+    );
+
+    const normal = await kernel.buildSnapshot({ preset: 'all' });
+
+    expect(normal.rows.map((row) => row.id)).toEqual(['card-active', 'card-legacy']);
   });
 
   it('hydrates riff-managed cards from riffCardId content when the local block payload is blank', async () => {

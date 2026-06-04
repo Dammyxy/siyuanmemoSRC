@@ -1,3 +1,4 @@
+export * from './blockEditScope';
 export * from './contentStatus';
 export * from './liveRelationScanner';
 export * from './metadata';

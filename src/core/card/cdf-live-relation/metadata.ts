@@ -100,6 +100,17 @@ export function isCdfLiveRelationQueueEligible(cardOrMeta: FSRSCard | Record<str
   const meta = readCdfLiveRelationMetadata(cardOrMeta);
   const hasBlockingIssue = (meta.liveRelationIssues || []).some((issue) => issue.severity === 'blocking');
   return meta.liveRelationStatus === 'active-live'
-    && meta.liveContentStatus !== 'content-incomplete'
+    && meta.liveContentStatus === 'content-complete'
     && !hasBlockingIssue;
+}
+
+export function hasCdfLiveRelationMetadata(cardOrMeta: FSRSCard | Record<string, unknown> | null | undefined): boolean {
+  const meta = readCdfLiveRelationMetadata(cardOrMeta);
+  return Boolean(
+    meta.relationAuthority
+    || meta.liveRelationKey
+    || meta.liveRelationStatus
+    || meta.liveContentStatus
+    || (meta.liveRelationIssues || []).length > 0
+  );
 }

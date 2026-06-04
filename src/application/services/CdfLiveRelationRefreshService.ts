@@ -1,6 +1,7 @@
 import {
   deriveCdfLiveRelations,
   reconcileCdfLiveRelations,
+  scopeCdfLiveBlockEditTree,
   type CdfLiveBlockNode,
   type CdfLiveRelationCandidate,
   type CdfRelationKind,
@@ -23,12 +24,17 @@ export interface CdfLiveRelationSqlPort {
   sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]>;
 }
 
+export interface CdfLiveRelationSqlSourceLoadOptions {
+  reconciliationScope?: 'source' | 'block-edit';
+  changedBlockId?: string;
+}
+
 export interface CdfLiveRelationRefreshSourceLoader {
   loadSourceTree(sourceBlockId: string, card: FSRSCard): Promise<CdfLiveBlockNode | CdfLiveBlockNode[] | null>;
 }
 
 export interface CdfLiveRelationRefreshServiceDeps {
-  manager: Pick<IUnifiedDataSourceManagerFacade, 'getCard' | 'updateCard'>;
+  manager: Pick<IUnifiedDataSourceManagerFacade, 'getCard' | 'getCards' | 'updateCard'>;
   source?: CdfLiveRelationSqlPort | null;
   sourceLoader?: CdfLiveRelationRefreshSourceLoader | null;
   now?: () => number;
@@ -282,10 +288,24 @@ function buildBlockTree(rows: CdfLiveRelationBlockRow[], preferredRootId: string
   return materialize(root);
 }
 
+function uniqueCardsById(cards: FSRSCard[]): FSRSCard[] {
+  const byId = new Map<string, FSRSCard>();
+  for (const card of cards) {
+    const cardId = readString(card.id);
+    if (cardId) {
+      byId.set(cardId, card);
+    }
+  }
+  return Array.from(byId.values());
+}
+
 export class CdfLiveRelationSqlSourceLoader implements CdfLiveRelationRefreshSourceLoader {
   constructor(private readonly source: CdfLiveRelationSqlPort) {}
 
-  async loadSourceTree(sourceBlockId: string): Promise<CdfLiveBlockNode | null> {
+  async loadSourceTree(
+    sourceBlockId: string,
+    cardOrOptions?: FSRSCard | CdfLiveRelationSqlSourceLoadOptions,
+  ): Promise<CdfLiveBlockNode | null> {
     const normalizedSourceBlockId = readString(sourceBlockId);
     if (!normalizedSourceBlockId) {
       return null;
@@ -309,7 +329,21 @@ export class CdfLiveRelationSqlSourceLoader implements CdfLiveRelationRefreshSou
       WHERE root_id = '${escapeSql(rootId)}' OR id = '${escapeSql(rootId)}'
       ORDER BY parent_id ASC, sort ASC, id ASC
     `);
-    return buildBlockTree(rows.length > 0 ? rows : [sourceRow], rootId);
+    const sourceTree = buildBlockTree(rows.length > 0 ? rows : [sourceRow], rootId);
+    if (!sourceTree) {
+      return null;
+    }
+
+    const options = isRecord(cardOrOptions) && readString(cardOrOptions.reconciliationScope)
+      ? cardOrOptions as unknown as CdfLiveRelationSqlSourceLoadOptions
+      : null;
+    if (options?.reconciliationScope !== 'block-edit') {
+      return sourceTree;
+    }
+
+    const changedBlockId = readString(options.changedBlockId) || normalizedSourceBlockId;
+    const scopedTree = scopeCdfLiveBlockEditTree(sourceTree, changedBlockId);
+    return Array.isArray(scopedTree) ? scopedTree[0] ?? null : scopedTree;
   }
 }
 
@@ -349,43 +383,67 @@ export class CdfLiveRelationRefreshService {
     }
 
     const deriveResult = deriveCdfLiveRelations(sourceTree);
-    const legacyRelation = readString(meta.liveRelationKey)
-      ? undefined
-      : findLegacyRelationForCard(card, deriveResult.relations);
+    const existingCards = await this.loadExistingCardsForRefresh(card, sourceBlockId);
     const reconciliation = reconcileCdfLiveRelations({
       liveRelations: deriveResult.relations,
-      existingCards: [card],
+      existingCards,
       allowCreateMissing: false,
       currentCardId: options.surface === 'review-open' ? card.id : undefined,
-      legacyDeriveResults: readString(meta.liveRelationKey)
-        ? undefined
-        : [{ cardId: card.id, relation: legacyRelation }],
+      legacyDeriveResults: existingCards
+        .filter((existingCard) => !readString(readMeta(existingCard).liveRelationKey))
+        .map((existingCard) => ({
+          cardId: existingCard.id,
+          relation: findLegacyRelationForCard(existingCard, deriveResult.relations),
+        })),
     });
 
+    const existingById = new Map(existingCards.map((existingCard) => [existingCard.id, existingCard]));
     const updateActions = reconciliation.actions.filter((action): action is Extract<CdfReconciliationAction, { kind: 'update-card-meta' }> => (
       action.kind === 'update-card-meta'
-      && action.cardId === card.id
     ));
-    const updateAction = updateActions[updateActions.length - 1] ?? null;
-    if (!updateAction) {
+    if (updateActions.length === 0) {
       return this.result(true, card, null, reconciliation.actions, deriveResult.relations.length, reconciliation.currentReviewDuplicateOutcome, 'unchanged');
     }
 
-    const updatedCard: FSRSCard = {
-      ...card,
-      meta: updateAction.meta,
-      updatedAt: this.now(),
-    };
-    if (metadataEqual(card.meta, updatedCard.meta)) {
+    const now = this.now();
+    const updatedCards = updateActions
+      .map((action) => {
+        const existingCard = existingById.get(action.cardId);
+        if (!existingCard) {
+          return null;
+        }
+        return {
+          ...existingCard,
+          meta: action.meta,
+          updatedAt: now,
+        } satisfies FSRSCard;
+      })
+      .filter((updatedCard): updatedCard is FSRSCard => Boolean(updatedCard));
+    const changedCards = updatedCards.filter((updatedCard) => {
+      const previous = existingById.get(updatedCard.id);
+      return previous ? !metadataEqual(previous.meta, updatedCard.meta) : false;
+    });
+    const updatedCard = updatedCards.find((candidate) => candidate.id === card.id) ?? null;
+    if (changedCards.length === 0) {
       return this.result(true, card, updatedCard, reconciliation.actions, deriveResult.relations.length, reconciliation.currentReviewDuplicateOutcome, 'unchanged');
     }
 
     if (options.persist !== false) {
       const mutationOptions: CardMutationOptions = { suppressDueIndexSort: true };
-      await this.deps.manager.updateCard(updatedCard, mutationOptions);
+      for (const changedCard of changedCards) {
+        await this.deps.manager.updateCard(changedCard, mutationOptions);
+      }
     }
 
     return this.result(true, card, updatedCard, reconciliation.actions, deriveResult.relations.length, reconciliation.currentReviewDuplicateOutcome, 'refreshed');
+  }
+
+  private async loadExistingCardsForRefresh(card: FSRSCard, sourceBlockId: string): Promise<FSRSCard[]> {
+    const sourceCards = await this.deps.manager.getCards({ blockIds: [sourceBlockId] });
+    return uniqueCardsById([
+      ...sourceCards.filter((candidate) => isCdfRelationCard(candidate, readMeta(candidate))),
+      card,
+    ]);
   }
 
   private async resolveCard(cardOrId: FSRSCard | string | null | undefined): Promise<FSRSCard | null> {

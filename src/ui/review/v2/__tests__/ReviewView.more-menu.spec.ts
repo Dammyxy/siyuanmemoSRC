@@ -692,6 +692,12 @@ describe('ReviewView more menu', () => {
     expect(activeEditToolbarButton?.active).toBe(true);
     expect(wrapper.get('[data-toolbar-action="edit-current-content"]').attributes('aria-pressed')).toBe('true');
     expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="review-structured-content-editor"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="review-inline-card-secondary"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="review-inline-card-secondary"]').element.tagName.toLowerCase()).toBe('details');
+    expect(wrapper.find('[data-testid="review-inline-card-secondary"]').attributes('open')).toBeUndefined();
+    expect(wrapper.find('[data-testid="review-inline-card-metadata"]').exists()).toBe(true);
+    expect(wrapper.get('[data-testid="review-structured-content-editor"]').find('[data-field="cardType"]').exists()).toBe(false);
     expect(wrapper.get('.fsrs-review-v2-content').attributes('style')).toContain('display: none');
 
     const textarea = wrapper.get('textarea.review-editable-targets-panel__textarea');
@@ -714,6 +720,62 @@ describe('ReviewView more menu', () => {
     expect(wrapper.getComponent(ReviewContentStub).props('renderEpoch')).toBe(0);
     expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(false);
     expect(wrapper.get('.fsrs-review-v2-content').attributes('style') || '').not.toContain('display: none');
+
+    wrapper.unmount();
+  });
+
+  it('shows structured question and answer fields from explicit mapping while preserving block writes', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:question-block', 'question-block', '编辑问题'),
+      buildEditableTarget('main-protyle:current-content:answer-block', 'answer-block', '编辑答案'),
+    ];
+    const mappedCard = {
+      ...buildCard('card-1', 'question-block'),
+      meta: {
+        fieldMapping: {
+          question: 'question-block',
+          answer: 'answer-block',
+        },
+      },
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async (blockId: string) => (
+        blockId === 'answer-block' ? 'Original answer' : 'Original question'
+      )),
+      getBlockKramdown: vi.fn(async () => ''),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [mappedCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    const fieldTitles = wrapper.findAll('.review-editable-targets-panel__target-title')
+      .map(title => title.text());
+    expect(fieldTitles).toEqual(['Question', 'Answer']);
+    expect(reviewService.getEditableBlockMarkdown).toHaveBeenCalledWith('question-block');
+    expect(reviewService.getEditableBlockMarkdown).toHaveBeenCalledWith('answer-block');
+
+    const textareas = wrapper.findAll('textarea.review-editable-targets-panel__textarea');
+    expect((textareas[0].element as HTMLTextAreaElement).value).toBe('Original question');
+    expect((textareas[1].element as HTMLTextAreaElement).value).toBe('Original answer');
+    await textareas[1].setValue('Updated answer');
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith('answer-block', 'Updated answer');
 
     wrapper.unmount();
   });
@@ -774,11 +836,65 @@ describe('ReviewView more menu', () => {
     await flushPromises();
 
     expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="review-structured-content-editor"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="review-editable-targets-panel"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="review-structured-content-placeholder"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="review-inline-card-secondary"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="review-inline-card-metadata"]').exists()).toBe(true);
+    expect(wrapper.get('[data-testid="review-structured-content-editor"]').find('[data-field="cardType"]').exists()).toBe(false);
     expect(wrapper.get('.fsrs-review-v2-content').attributes('style')).toContain('display: none');
     expect(cardEditorService.loadSnapshot).toHaveBeenCalledWith('block-1', 'card-1');
     expect(reviewViewMoreMenuMocks.showMessage).not.toHaveBeenCalledWith('当前内容暂不支持编辑', 3000, 'info');
+
+    wrapper.unmount();
+  });
+
+  it('shows readonly live relation context in the structured editor shell', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('descriptor:descriptor:descriptor-block', 'descriptor-block', '编辑描述符', 'descriptor'),
+    ];
+    const cdfCard = {
+      ...buildCard('card-1', 'descriptor-block'),
+      type: 'descriptor',
+      meta: {
+        relationAuthority: 'live-backlink',
+        sourceBlockId: 'descriptor-block',
+        conceptBlockId: 'concept-doc',
+        relationKind: 'descriptor-reverse',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        conceptSnapshot: {
+          conceptBlockId: 'concept-doc',
+          displayText: '操作系统',
+          order: 0,
+        },
+      },
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => 'Descriptor body'),
+      getBlockKramdown: vi.fn(async () => 'Descriptor body'),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [cdfCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="review-structured-field-context"]').exists()).toBe(true);
+    const chip = wrapper.get('[data-testid="review-structured-relation-chip"]');
+    expect(chip.text()).toBe('操作系统');
+    expect(chip.attributes('data-readonly')).toBe('true');
+    const direction = wrapper.get('[data-testid="review-structured-direction"]');
+    expect(direction.text()).toBe('反向');
+    expect(direction.attributes('data-readonly')).toBe('true');
 
     wrapper.unmount();
   });
