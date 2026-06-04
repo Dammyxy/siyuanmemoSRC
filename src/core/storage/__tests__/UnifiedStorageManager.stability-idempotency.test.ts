@@ -73,6 +73,64 @@ function createDTO(
   };
 }
 
+function createCdfXiuyuan(
+  id: string,
+  sourceBlockId: string,
+  conceptBlockId: string,
+  liveRelationKey: string,
+  updatedAt: number,
+): IXiuyuan {
+  return {
+    id,
+    blockIDs: [conceptBlockId, sourceBlockId],
+    fields: [
+      { name: 'concept', blockID: conceptBlockId },
+      { name: 'definition', blockID: sourceBlockId },
+    ],
+    templateID: 'builtin-concept-definition-forward',
+    createdAt: updatedAt - 1000,
+    updatedAt,
+    meta: {
+      liveRelationKey,
+      relationAuthority: 'live-backlink',
+      sourceBlockId,
+      conceptBlockId,
+      relationKind: 'definition-forward',
+      cardIds: [],
+    },
+  };
+}
+
+function createCdfDTO(
+  cardId: string,
+  xiuyuanId: string,
+  sourceBlockId: string,
+  conceptBlockId: string,
+  liveRelationKey: string,
+): CardPersistenceDTO {
+  return createDTO(cardId, xiuyuanId, 0, {
+    blockId: sourceBlockId,
+    type: CardType.Concept,
+    templateID: 'builtin-concept-definition-forward',
+    frontBlockIDs: [conceptBlockId],
+    backBlockIDs: [sourceBlockId],
+    fieldMapping: {
+      concept: conceptBlockId,
+      definition: sourceBlockId,
+    },
+    meta: {
+      faceIndex: 0,
+      liveRelationKey,
+      relationAuthority: 'live-backlink',
+      sourceBlockId,
+      conceptBlockId,
+      relationKind: 'definition-forward',
+      liveRelationStatus: 'active-live',
+      liveContentStatus: 'content-complete',
+    },
+  });
+}
+
 describe('UnifiedStorageManager stability and idempotency', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -166,6 +224,32 @@ describe('UnifiedStorageManager stability and idempotency', () => {
     expect(storage.getAllXiuYuans()).toHaveLength(1);
     expect(Object.keys(remoteStore.cardDTOs || {})).toEqual(['card-local']);
     expect(Object.keys(remoteStore.xiuyuans || {})).toHaveLength(1);
+  });
+
+  it('keeps same-source CDF live relation cards distinct by live relation key', async () => {
+    const storage = new UnifiedStorageManager();
+    const sourceBlockId = 'cdf-source-shared';
+    const conceptAId = 'concept-a';
+    const conceptBId = 'concept-b';
+    const relationA = `${sourceBlockId}:${conceptAId}:definition-forward`;
+    const relationB = `${sourceBlockId}:${conceptBId}:definition-forward`;
+
+    const firstCreate = await storage.createCardDTO(
+      createCdfXiuyuan('xy-cdf-a', sourceBlockId, conceptAId, relationA, 1_000),
+      createCdfDTO('card-cdf-a', 'xy-cdf-a', sourceBlockId, conceptAId, relationA),
+    );
+    const secondCreate = await storage.createCardDTO(
+      createCdfXiuyuan('xy-cdf-b', sourceBlockId, conceptBId, relationB, 2_000),
+      createCdfDTO('card-cdf-b', 'xy-cdf-b', sourceBlockId, conceptBId, relationB),
+    );
+
+    expect(firstCreate.ok).toBe(true);
+    expect(secondCreate.ok).toBe(true);
+    expect(storage.getAllCards().map((card) => card.id).sort()).toEqual(['card-cdf-a', 'card-cdf-b']);
+    expect(storage.getCardsByBlockId(sourceBlockId).map((card) => card.id).sort()).toEqual(['card-cdf-a', 'card-cdf-b']);
+    expect(storage.getAllXiuYuans().map((xiuyuan) => xiuyuan.id).sort()).toEqual(['xy-cdf-a', 'xy-cdf-b']);
+    expect(storage.getCardDTO('card-cdf-a')?.meta?.liveRelationKey).toBe(relationA);
+    expect(storage.getCardDTO('card-cdf-b')?.meta?.liveRelationKey).toBe(relationB);
   });
 
   it('keeps scheduler-updated fields from incoming DTO during a scheduler logical merge', () => {

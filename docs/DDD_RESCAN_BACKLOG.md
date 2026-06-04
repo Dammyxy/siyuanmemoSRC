@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-05 (Round 546)
+Last update: 2026-06-05 (Round 547)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-05 - CDF write repair create missing
+
+- Task: Finish OpenSpec task 3.5 for `cdf-live-relation-authority-and-review-editor`: write/repair reconciliation creates missing live relation cards as active-live cards with new FSRS state.
+- Touched slice: Review/Browser/Card CRUD CDF write-repair path: `CdfLiveRelationWriteRepairService`, `ReviewApplicationService`, `BrowserApplicationService`, `createReviewBrowserServiceBundle`, `IBrowserApplicationService`, `UnifiedStorageManager` logical identity, focused service/storage tests, `ARCHITECTURE.md`, and OpenSpec task state.
+- Debt fixed now: Missing CDF live relation creation now lives behind one explicit application write/repair service that calls the core reconciler with `allowCreateMissing=true`, creates Xiuyuan/card payloads with `liveRelationStatus='active-live'`, derived snapshots, and new FSRS memory, and persists through a narrow unified-storage create port. Review/Browser open still use the separate no-create refresh path. Unified storage logical keys now prefer `meta.liveRelationKey`, so same-source multi-concept CDF relation cards are not merged as block-level duplicates.
+- Debt deferred: Queue eligibility filtering by relation/content status, current Review duplicate outcomes, concept simple-card asset ensure behavior, scoped block-edit reconciliation, Browser repair UI/dry-run toggles, structured editor preview flows, and Review session insertion/statistics remain in later OpenSpec tasks.
+- Why deferred: Task 3.5 only establishes the authorized write/repair create-missing path and persistence identity. Eligibility, UI repair execution, editor save previews, and session effects have separate acceptance rules and need their own focused tests.
+- Next safe step: Implement task 3.10 queue eligibility checks, or task 3.13 if the next slice should wire scoped block-edit reconciliation before UI repair.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/CdfLiveRelationWriteRepairService.test.ts src/core/storage/__tests__/UnifiedStorageManager.stability-idempotency.test.ts src/core/storage/stability/__tests__/logicalKeys.ownership.test.ts src/application/services/__tests__/CdfLiveRelationRefreshService.test.ts src/core/card/cdf-live-relation/__tests__/reconciler.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
 
 ### 2026-06-05 - CDF current-card open refresh
 

@@ -83,7 +83,18 @@ import {
 } from '@/utils/runtimePerformanceDiagnostics';
 import { hasFilterSetter, hasRebuildAction } from './browser/filterGroupQueueContract';
 import { BrowserCardUniverseReadModule } from './browser/BrowserCardUniverseReadModule';
-import { CdfLiveRelationRefreshService, type CdfLiveRelationRefreshResult, type CdfLiveRelationSqlPort } from './CdfLiveRelationRefreshService';
+import {
+  CdfLiveRelationRefreshService,
+  CdfLiveRelationSqlSourceLoader,
+  type CdfLiveRelationRefreshResult,
+  type CdfLiveRelationSqlPort,
+} from './CdfLiveRelationRefreshService';
+import {
+  CdfLiveRelationWriteRepairService,
+  type CdfLiveRelationCardCreatorPort,
+  type CdfLiveRelationWriteRepairOptions,
+  type CdfLiveRelationWriteRepairResult,
+} from './CdfLiveRelationWriteRepairService';
 
 const EMPTY_QUEUE_COUNTS: Record<string, number> = Object.fromEntries(
   getCanonicalBrowserQueueIds().map((queueId) => [queueId, 0]),
@@ -193,6 +204,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private sourceExistenceStaleCancellationCount = 0;
   private browserReadModelFacade: BrowserReadModel | null = null;
   private readonly cdfLiveRelationRefresh: CdfLiveRelationRefreshService | null;
+  private readonly cdfLiveRelationWriteRepair: CdfLiveRelationWriteRepairService | null;
 
   constructor(
     storageManager: BrowserCardStoragePort,
@@ -207,6 +219,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     private readonly frontendInstanceRuntime?: FrontendInstanceRuntime | null,
     private readonly followerCommandClient?: FollowerCommandClient | null,
     private readonly browserAdvancedSqlQuerySource?: BrowserAdvancedSqlQuerySourcePort | null,
+    cdfLiveRelationCardCreator?: CdfLiveRelationCardCreatorPort | null,
   ) {
     this.browserDeckQueryKernel = new BrowserDeckQueryKernel(
       storageManager,
@@ -236,6 +249,13 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       ? new CdfLiveRelationRefreshService({
         manager: unifiedDataSourceManager,
         source: siyuanApi as unknown as CdfLiveRelationSqlPort,
+      })
+      : null;
+    this.cdfLiveRelationWriteRepair = unifiedDataSourceManager && cdfLiveRelationCardCreator
+      ? new CdfLiveRelationWriteRepairService({
+        manager: unifiedDataSourceManager,
+        cardCreator: cdfLiveRelationCardCreator,
+        sourceLoader: new CdfLiveRelationSqlSourceLoader(siyuanApi as unknown as CdfLiveRelationSqlPort),
       })
       : null;
     this.browserCardUniverseReadModule = new BrowserCardUniverseReadModule({
@@ -272,6 +292,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     return this.cdfLiveRelationRefresh.refreshCurrentCardOnOpen(card, {
       surface: 'browser-open',
     });
+  }
+
+  async reconcileCdfLiveRelationsInWriteRepairFlow(
+    options: CdfLiveRelationWriteRepairOptions,
+  ): Promise<CdfLiveRelationWriteRepairResult> {
+    if (!this.cdfLiveRelationWriteRepair) {
+      throw new Error('CDF_LIVE_RELATION_CREATE_UNAVAILABLE: Browser CDF write/repair creator is unavailable');
+    }
+    return this.cdfLiveRelationWriteRepair.reconcileWriteOrRepair(options);
   }
 
   getBrowserReadModel(): BrowserReadModel {

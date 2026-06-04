@@ -1,5 +1,15 @@
 import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
-import { CdfLiveRelationRefreshService, type CdfLiveRelationRefreshResult } from '@/application/services/CdfLiveRelationRefreshService';
+import {
+  CdfLiveRelationRefreshService,
+  CdfLiveRelationSqlSourceLoader,
+  type CdfLiveRelationRefreshResult,
+} from '@/application/services/CdfLiveRelationRefreshService';
+import {
+  CdfLiveRelationWriteRepairService,
+  type CdfLiveRelationCardCreatorPort,
+  type CdfLiveRelationWriteRepairOptions,
+  type CdfLiveRelationWriteRepairResult,
+} from '@/application/services/CdfLiveRelationWriteRepairService';
 import type { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
 import type { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
 import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
@@ -46,6 +56,7 @@ function withManualScheduleFields(card: FSRSCard, options: RescheduleOptions): F
 
 export class ReviewApplicationService {
   private readonly cdfLiveRelationRefresh: CdfLiveRelationRefreshService;
+  private readonly cdfLiveRelationWriteRepair: CdfLiveRelationWriteRepairService | null;
 
   constructor(
     private readonly manager: IUnifiedDataSourceManagerFacade,
@@ -54,11 +65,19 @@ export class ReviewApplicationService {
     private readonly backendClient: Pick<SrsBackendClient, 'executeReviewRiffFeedback' | 'executeReviewSourceRefresh'> | null = null,
     private readonly frontendInstanceRuntime: Pick<FrontendInstanceRuntime, 'getMode' | 'getInstanceId'> | null = null,
     private readonly followerCommandClient: Pick<FollowerCommandClient, 'submitAndWait'> | null = null,
+    cdfLiveRelationCardCreator: CdfLiveRelationCardCreatorPort | null = null,
   ) {
     this.cdfLiveRelationRefresh = new CdfLiveRelationRefreshService({
       manager,
       source: siyuanApi,
     });
+    this.cdfLiveRelationWriteRepair = cdfLiveRelationCardCreator
+      ? new CdfLiveRelationWriteRepairService({
+        manager,
+        cardCreator: cdfLiveRelationCardCreator,
+        sourceLoader: new CdfLiveRelationSqlSourceLoader(siyuanApi),
+      })
+      : null;
   }
 
   async rescheduleCard(cardId: string, options: RescheduleOptions): Promise<FSRSCard> {
@@ -131,6 +150,15 @@ export class ReviewApplicationService {
     return this.cdfLiveRelationRefresh.refreshCurrentCardOnOpen(card, {
       surface: 'review-open',
     });
+  }
+
+  async reconcileCdfLiveRelationsInWriteRepairFlow(
+    options: CdfLiveRelationWriteRepairOptions,
+  ): Promise<CdfLiveRelationWriteRepairResult> {
+    if (!this.cdfLiveRelationWriteRepair) {
+      throw new Error('CDF_LIVE_RELATION_CREATE_UNAVAILABLE: Review CDF write/repair creator is unavailable');
+    }
+    return this.cdfLiveRelationWriteRepair.reconcileWriteOrRepair(options);
   }
 
   async executeFinalDrillRiffFeedback(

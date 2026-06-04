@@ -4,6 +4,7 @@ import type { BrowserAdvancedSqlQuerySourcePort } from '@/application/ports/Brow
 import { BrowserApplicationService } from '@/application/services/BrowserApplicationService';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
+import { createCdfLiveRelationCardCreatorFromUnifiedStorage } from '@/application/services/CdfLiveRelationWriteRepairService';
 import { NeuralRoamEntryActionService, type NeuralRoamOpenOptions } from '@/application/services/NeuralRoamEntryActionService';
 import { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import type { ReviewLogService } from '@/application/services/ReviewLogService';
@@ -104,6 +105,7 @@ export function createReviewBrowserServiceBundle(
       deps.getFrontendInstanceRuntime(),
       deps.getFollowerCommandClient(),
       deps.createBrowserAdvancedSqlQuerySource(),
+      createCdfLiveRelationCardCreatorFromUnifiedStorage(deps.getUnifiedStorage()),
     ),
     createReviewApplicationService: () => new ReviewApplicationService(
       deps.getUnifiedDataSourceManager(),
@@ -112,6 +114,7 @@ export function createReviewBrowserServiceBundle(
       deps.getSrsBackendClient(),
       deps.getFrontendInstanceRuntime(),
       deps.getFollowerCommandClient(),
+      createCdfLiveRelationCardCreatorFromUnifiedStorage(deps.getUnifiedStorage()),
     ),
     createCardEditorApplicationService: () => new CardEditorApplicationService(
       deps.getUnifiedDataSourceManager(),

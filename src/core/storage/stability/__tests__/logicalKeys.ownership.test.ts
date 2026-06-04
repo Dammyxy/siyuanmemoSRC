@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildLogicalCardKey,
+  buildLogicalXiuyuanKey,
   chooseCanonicalXiuyuan,
   compareXiuyuanAuthority,
   inferXiuyuanOwnership,
@@ -116,5 +118,46 @@ describe('logicalKeys Xiuyuan ownership authority', () => {
     expect(merged.meta?.ownership).toBe('local-owned');
     expect(merged.meta?.source).toBe('riff-sync');
     expect(merged.meta?.cardIds).toEqual(['local-card', 'riff-card']);
+  });
+
+  it('uses live relation key as logical identity for CDF relation cards and Xiuyuans', () => {
+    const firstXiuyuan = createXiuyuanSnapshot({
+      id: 'xy-first',
+      blockIDs: ['concept-block', 'shared-source-block'],
+      templateID: 'builtin-concept-definition-forward',
+      meta: {
+        liveRelationKey: 'shared-source-block:concept-a:definition-forward',
+      },
+    });
+    const secondXiuyuan = createXiuyuanSnapshot({
+      id: 'xy-second',
+      blockIDs: ['concept-block', 'shared-source-block'],
+      templateID: 'builtin-concept-definition-forward',
+      meta: {
+        liveRelationKey: 'shared-source-block:concept-b:definition-forward',
+      },
+    });
+    const firstCard = {
+      xiuyuanID: 'xy-first',
+      blockId: 'shared-source-block',
+      meta: {
+        faceIndex: 0,
+        liveRelationKey: 'shared-source-block:concept-a:definition-forward',
+      },
+    };
+    const secondCard = {
+      xiuyuanID: 'xy-second',
+      blockId: 'shared-source-block',
+      meta: {
+        faceIndex: 0,
+        liveRelationKey: 'shared-source-block:concept-b:definition-forward',
+      },
+    };
+
+    expect(buildLogicalXiuyuanKey(firstXiuyuan)).toBe('cdf-live:shared-source-block:concept-a:definition-forward');
+    expect(buildLogicalXiuyuanKey(secondXiuyuan)).toBe('cdf-live:shared-source-block:concept-b:definition-forward');
+    expect(buildLogicalCardKey(firstCard, firstXiuyuan)).toBe('cdf-live:shared-source-block:concept-a:definition-forward');
+    expect(buildLogicalCardKey(secondCard, secondXiuyuan)).toBe('cdf-live:shared-source-block:concept-b:definition-forward');
+    expect(buildLogicalCardKey(firstCard, firstXiuyuan)).not.toBe(buildLogicalCardKey(secondCard, secondXiuyuan));
   });
 });

@@ -128,7 +128,14 @@ export function getXiuyuanRepresentativeBlockId(xiuyuan: Pick<IXiuyuan, 'blockID
   return blockIDs[0];
 }
 
-export function buildLogicalXiuyuanKey(xiuyuan: Pick<IXiuyuan, 'id' | 'blockIDs' | 'templateID'>): LogicalXiuyuanKey {
+export function buildLogicalXiuyuanKey(
+  xiuyuan: Pick<IXiuyuan, 'id' | 'blockIDs' | 'templateID'> & { meta?: unknown },
+): LogicalXiuyuanKey {
+  const liveRelationKey = readLiveRelationKey(xiuyuan.meta);
+  if (liveRelationKey) {
+    return `cdf-live:${liveRelationKey}`;
+  }
+
   const representativeBlockId = getXiuyuanRepresentativeBlockId(xiuyuan);
   if (representativeBlockId) {
     return `block:${representativeBlockId}`;
@@ -150,7 +157,24 @@ export function readCardFaceIndex(meta: unknown): number {
   return Math.max(0, Math.floor(faceIndex));
 }
 
-export function buildLogicalCardKey(card: CardLike, xiuyuan?: Pick<IXiuyuan, 'id' | 'blockIDs' | 'templateID'>): LogicalCardKey {
+function readLiveRelationKey(meta: unknown): string {
+  if (!isObjectRecord(meta)) {
+    return '';
+  }
+
+  const relationKey = typeof meta.liveRelationKey === 'string' ? meta.liveRelationKey.trim() : '';
+  return relationKey;
+}
+
+export function buildLogicalCardKey(
+  card: CardLike,
+  xiuyuan?: Pick<IXiuyuan, 'id' | 'blockIDs' | 'templateID'> & { meta?: unknown },
+): LogicalCardKey {
+  const liveRelationKey = readLiveRelationKey(card.meta);
+  if (liveRelationKey) {
+    return `cdf-live:${liveRelationKey}`;
+  }
+
   const logicalXiuyuanKey = xiuyuan
     ? buildLogicalXiuyuanKey(xiuyuan)
     : (() => {
