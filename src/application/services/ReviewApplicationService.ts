@@ -1,4 +1,5 @@
 import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
+import { CdfLiveRelationRefreshService, type CdfLiveRelationRefreshResult } from '@/application/services/CdfLiveRelationRefreshService';
 import type { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
 import type { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
 import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
@@ -44,6 +45,8 @@ function withManualScheduleFields(card: FSRSCard, options: RescheduleOptions): F
 }
 
 export class ReviewApplicationService {
+  private readonly cdfLiveRelationRefresh: CdfLiveRelationRefreshService;
+
   constructor(
     private readonly manager: IUnifiedDataSourceManagerFacade,
     private readonly schedulerRouter: SchedulerRouter,
@@ -51,7 +54,12 @@ export class ReviewApplicationService {
     private readonly backendClient: Pick<SrsBackendClient, 'executeReviewRiffFeedback' | 'executeReviewSourceRefresh'> | null = null,
     private readonly frontendInstanceRuntime: Pick<FrontendInstanceRuntime, 'getMode' | 'getInstanceId'> | null = null,
     private readonly followerCommandClient: Pick<FollowerCommandClient, 'submitAndWait'> | null = null,
-  ) {}
+  ) {
+    this.cdfLiveRelationRefresh = new CdfLiveRelationRefreshService({
+      manager,
+      source: siyuanApi,
+    });
+  }
 
   async rescheduleCard(cardId: string, options: RescheduleOptions): Promise<FSRSCard> {
     const card = await this.manager.getCard(cardId);
@@ -117,6 +125,12 @@ export class ReviewApplicationService {
 
   async updateBlockMarkdown(blockId: string, markdown: string): Promise<string> {
     return this.siyuanApi.updateBlockMarkdown(blockId, markdown);
+  }
+
+  async refreshCdfLiveRelationOnOpen(card: FSRSCard | string): Promise<CdfLiveRelationRefreshResult> {
+    return this.cdfLiveRelationRefresh.refreshCurrentCardOnOpen(card, {
+      surface: 'review-open',
+    });
   }
 
   async executeFinalDrillRiffFeedback(

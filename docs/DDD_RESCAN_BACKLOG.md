@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-04 (Round 545)
+Last update: 2026-06-05 (Round 546)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-05 - CDF current-card open refresh
+
+- Task: Finish OpenSpec task 3.4 for `cdf-live-relation-authority-and-review-editor`: current-card live derive on Review/Browser open may update status, but must not create missing cards.
+- Touched slice: Review/Browser/Queue CDF open path: `UnifiedQueueStrategy`, `ReviewApplicationService`, `BrowserApplicationService`, `createUnifiedReviewDialog`, `TabManager`, `SRSBrowser.vue`, `CdfLiveRelationRefreshService`, focused tests, `ARCHITECTURE.md`, and OpenSpec task state.
+- Debt fixed now: Review dialog, restored Review tab, and Browser row open now share the application-owned `CdfLiveRelationRefreshService` instead of leaving CDF relation metadata stale until later flows. The refresh materializes source block trees through a narrow SiYuan SQL port, derives from live CDF structure, updates only the current card metadata/status plus derived `fieldMapping` snapshot, and keeps `allowCreateMissing=false` so open-time reads cannot silently create cards or treat `fieldMapping` as relation authority.
+- Debt deferred: Write/repair create-missing reconciliation, queue eligibility exclusion for active/content status, duplicate current-card Review outcomes, structured editor save/preview flows, Browser repair diagnostics, and Review session blocked/inserted-card statistics remain in later OpenSpec tasks.
+- Why deferred: Task 3.4 is only the current-card open hot path. Creating cards, changing queue membership policy, or removing the current card without scoring needs the dedicated write/repair/session tasks and broader tests.
+- Next safe step: Implement task 3.5 by wiring write/repair reconciliation with explicit create permissions, or task 3.10 if the next slice should make open-time status changes affect queue eligibility.
+- Validation: `pnpm exec vitest run src/core/card/cdf-live-relation/__tests__/sourceGrammar.test.ts src/core/card/cdf-live-relation/__tests__/liveRelationScanner.test.ts src/core/card/cdf-live-relation/__tests__/metadataAndContentStatus.test.ts src/core/card/cdf-live-relation/__tests__/reconciler.test.ts src/application/services/__tests__/CdfLiveRelationRefreshService.test.ts src/application/adapters/__tests__/UnifiedQueueStrategy.cdf-live-relation-open.spec.ts src/application/factories/__tests__/createReviewBrowserServiceBundle.test.ts src/application/factories/__tests__/createUnifiedReviewDialog.mode.test.ts src/application/services/__tests__/BrowserApplicationService.read-model.test.ts src/application/managers/TabManager.test.ts src/index.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check`; `pnpm build`.
+
+### 2026-06-05 - CDF live relation core authority
+
+- Task: Start `cdf-live-relation-authority-and-review-editor` with the live CDF relation authority domain layer.
+- Touched slice: Card/CDF core domain: `src/core/card/cdf-live-relation/*`, focused parser/scanner/metadata/reconciler tests, OpenSpec task state, and `docs/cdf-live-relation-authority.md`.
+- Debt fixed now: CDF parser, live relation candidate scanner, relation key, metadata helper, content completeness evaluator, queue eligibility predicate, and core reconciler now live in one explicit card-domain module instead of adding more `fieldMapping` authority logic to Review/Browser/UI paths. The scanner rejects heading/document fallback and the reconciler only migrates legacy cards from explicit live derive results.
+- Debt deferred: Runtime wiring into Review open, Browser open, block-edit save, repair flows, structured editor UI, actual card creation with new FSRS state, and session insertion/statistics are still pending.
+- Why deferred: This turn established a tested core authority layer first so later UI/application flows can consume one contract without adding hidden fallback or dual authority.
+- Next safe step: Wire current-card derive into Review/Browser open with `allowCreateMissing: false`, then add write/repair entry points that call the reconciler with explicit create permissions.
+- Validation: `pnpm exec vitest run src/core/card/cdf-live-relation/__tests__/sourceGrammar.test.ts src/core/card/cdf-live-relation/__tests__/liveRelationScanner.test.ts src/core/card/cdf-live-relation/__tests__/metadataAndContentStatus.test.ts src/core/card/cdf-live-relation/__tests__/reconciler.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
 
 ### 2026-06-04 - Review inline card editor MVP
 

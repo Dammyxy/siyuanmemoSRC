@@ -8,6 +8,11 @@ const mocks = vi.hoisted(() => ({
     mount: vi.fn(),
     unmount: vi.fn(),
   })),
+  unifiedQueueStrategy: vi.fn().mockImplementation(() => ({
+    restoreSessionSnapshot: vi.fn(),
+    startNeuralRoamFromFocusOnNextAdvance: vi.fn(),
+  })),
+  unifiedReviewAdapter: vi.fn().mockImplementation((options) => ({ options })),
 }));
 
 vi.mock('siyuan', () => ({
@@ -38,6 +43,14 @@ vi.mock('@/ui/ai/AiWorkbenchPane.vue', () => ({
   default: {},
 }));
 
+vi.mock('@/application/adapters/UnifiedQueueStrategy', () => ({
+  UnifiedQueueStrategy: mocks.unifiedQueueStrategy,
+}));
+
+vi.mock('@/application/adapters/UnifiedReviewAdapter', () => ({
+  UnifiedReviewAdapter: mocks.unifiedReviewAdapter,
+}));
+
 function createSiyuanApiMock() {
   return {
     pushErrMsg: vi.fn().mockResolvedValue(undefined),
@@ -45,6 +58,15 @@ function createSiyuanApiMock() {
 }
 
 function createManager() {
+  const refreshCdfLiveRelationOnOpen = vi.fn(async () => ({
+    attempted: true,
+    card: null,
+    updatedCard: null,
+    actions: [],
+    derivedRelationCount: 0,
+    currentReviewDuplicateOutcome: null,
+    reason: 'unchanged' as const,
+  }));
   const context = {
     getI18n: vi.fn(() => ({
       srsBrowser: 'SRS Browser',
@@ -52,6 +74,22 @@ function createManager() {
       openFailed: 'Open failed',
     })),
     getReviewQueuePreparationService: vi.fn(() => undefined),
+    getUnifiedDataSourceManager: vi.fn(() => ({
+      getQueue: vi.fn(),
+    })),
+    getEventBus: vi.fn(() => ({
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    })),
+    getSchedulerRouter: vi.fn(() => ({})),
+    getSettingsService: vi.fn(() => ({
+      getSettings: () => ({
+        progressiveReading: {},
+      }),
+    })),
+    getReviewService: vi.fn(() => ({
+      refreshCdfLiveRelationOnOpen,
+    })),
   } as any;
 
   const plugin = {
@@ -63,6 +101,7 @@ function createManager() {
   return {
     tabManager: new TabManager(context, plugin, { siyuanApi: createSiyuanApiMock() } as never),
     plugin,
+    refreshCdfLiveRelationOnOpen,
   };
 }
 
@@ -169,6 +208,45 @@ describe('TabManager browser and review tab wiring', () => {
       position: 'bottom',
     });
     expect(fallbackCall).not.toHaveProperty('position');
+  });
+
+  it('injects Review-open CDF live relation refresh into restored review tabs', async () => {
+    const { tabManager, plugin, refreshCdfLiveRelationOnOpen } = createManager();
+    tabManager.registerAll();
+
+    const reviewRegistration = (plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[1][0];
+    const runtime = {
+      id: 'review-runtime-1',
+      element: document.createElement('div'),
+      data: {
+        providerId: 'retrieval',
+        title: 'Review',
+        queueType: QueueType.RetrievalPractice,
+        headerVariant: 'retrieval-practice',
+      },
+      tab: {
+        id: 'review-runtime-1',
+        headElement: document.createElement('button'),
+        parent: {
+          switchTab: vi.fn(),
+        },
+      },
+    };
+
+    await reviewRegistration.init.call(runtime);
+
+    const refresher = mocks.unifiedQueueStrategy.mock.calls[0]?.[4];
+    await expect(refresher.refreshCdfLiveRelationOnOpen('card-1')).resolves.toMatchObject({
+      reason: 'unchanged',
+    });
+    expect(refreshCdfLiveRelationOnOpen).toHaveBeenCalledWith('card-1');
+    expect(mocks.createApp).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        mode: 'tab',
+        queue: expect.anything(),
+      }),
+    );
   });
 
   it('returns false when openTab throws', () => {

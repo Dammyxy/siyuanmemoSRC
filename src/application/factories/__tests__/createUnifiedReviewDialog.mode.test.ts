@@ -117,6 +117,47 @@ describe('createUnifiedReviewDialog', () => {
     }));
   });
 
+  it('injects Review-open CDF live relation refresh into the queue strategy', async () => {
+    const refreshCdfLiveRelationOnOpen = vi.fn(async () => ({
+      attempted: true,
+      card: null,
+      updatedCard: null,
+      actions: [],
+      derivedRelationCount: 0,
+      currentReviewDuplicateOutcome: null,
+      reason: 'unchanged' as const,
+    }));
+    const plugin = {
+      app: {},
+      isMobile: false,
+      i18n: {},
+      getContext: () => ({
+        getSchedulerRouter: () => ({}),
+        getSettingsService: () => ({
+          getSettings: () => ({
+            progressiveReading: {},
+          }),
+        }),
+        getReviewService: () => ({ refreshCdfLiveRelationOnOpen }),
+      }),
+    };
+
+    createUnifiedReviewDialog({
+      plugin,
+      queueType: QueueType.RetrievalPractice,
+      title: '提取练习',
+      headerVariant: 'retrieval-practice',
+      eventBus: { subscribe: vi.fn() } as never,
+    });
+
+    const refresher = unifiedQueueStrategyMock.mock.calls[0]?.[4];
+    await expect(refresher.refreshCdfLiveRelationOnOpen('card-1')).resolves.toMatchObject({
+      reason: 'unchanged',
+    });
+
+    expect(refreshCdfLiveRelationOnOpen).toHaveBeenCalledWith('card-1');
+  });
+
   it('marks dialog onClose sync as non-persistent when review count exists', async () => {
     const incrementalSync = vi.fn(async () => ({ success: true }));
     const plugin = {

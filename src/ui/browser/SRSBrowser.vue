@@ -2793,9 +2793,11 @@ function onRowClicked(event: RowClickedEvent<BrowserCard>) {
   }
 
   previewCard.value = event.data;
+  void refreshCdfLiveRelationForBrowserOpen(event.data);
 }
 
 async function onRowDoubleClicked(event: RowDoubleClickedEvent<BrowserCard>) {
+  await refreshCdfLiveRelationForBrowserOpen(event.data);
   const blockId = event.data?.blockId;
   if (!blockId) {
     logger.warn('[SiYuanMemo][CardBrowser] No blockId found in row data:', event.data);
@@ -2803,6 +2805,14 @@ async function onRowDoubleClicked(event: RowDoubleClickedEvent<BrowserCard>) {
   }
 
   await openDocumentTabById(blockId);
+}
+
+async function refreshCdfLiveRelationForBrowserOpen(card: BrowserCard | null | undefined): Promise<void> {
+  const cardId = String(card?.fsrsCardId || card?.id || '').trim();
+  if (!cardId) {
+    return;
+  }
+  await browserAppServiceRef.value?.refreshCdfLiveRelationOnOpen?.(cardId);
 }
 
 // Resizer drag logic

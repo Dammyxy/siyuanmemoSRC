@@ -24,6 +24,8 @@ import {
 } from '@/types/unified-data-source';
 import type { ReviewQueueSessionSnapshot, ReviewTabRuntimeState } from '@/types/review-tab';
 import type { ISchedulerRouter } from '@/application/interfaces/ISchedulerRouter';
+import type { CdfLiveRelationRefreshResult } from '@/application/services/CdfLiveRelationRefreshService';
+import type { FSRSCard } from '@/types/card';
 import {
   buildReviewPresentationSnapshotKeyParts,
   resolveReviewPresentation,
@@ -56,6 +58,10 @@ type ReviewProviderRef = {
 
 type ReviewQueueRef = {
   getType?: () => unknown;
+};
+
+type CdfLiveRelationReviewOpenRefresher = {
+  refreshCdfLiveRelationOnOpen: (card: FSRSCard | string) => Promise<CdfLiveRelationRefreshResult>;
 };
 
 interface ReviewTabData {
@@ -1661,7 +1667,8 @@ export class TabManager {
       queueType,
       this.context.getUnifiedDataSourceManager(),
       this.context.getEventBus(),
-      this.context.getSchedulerRouter() as unknown as ISchedulerRouter
+      this.context.getSchedulerRouter() as unknown as ISchedulerRouter,
+      this.createCdfLiveRelationReviewOpenRefresher()
     );
   }
 
@@ -1672,10 +1679,18 @@ export class TabManager {
       this.context.getUnifiedDataSourceManager(),
       this.context.getEventBus(),
       this.context.getSchedulerRouter() as unknown as ISchedulerRouter,
+      this.createCdfLiveRelationReviewOpenRefresher(),
     );
     strategy.restoreSessionSnapshot?.(data.reviewState?.queueSnapshot);
     strategy.startNeuralRoamFromFocusOnNextAdvance?.(data.neuralRoamStartFromFocus);
     return strategy;
+  }
+
+  private createCdfLiveRelationReviewOpenRefresher(): CdfLiveRelationReviewOpenRefresher {
+    const reviewService = this.context.getReviewService();
+    return {
+      refreshCdfLiveRelationOnOpen: (card) => reviewService.refreshCdfLiveRelationOnOpen(card),
+    };
   }
 
   private buildTransferredReviewQueue(transferState?: ReviewTabTransferState | null): IReviewQueue | null {

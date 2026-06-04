@@ -19,12 +19,51 @@ describe('createReviewBrowserServiceBundle', () => {
       neuralRoamCommand: vi.fn(),
     };
     const reviewSiyuanApi = {
+      BUILTIN_DECK_ID: 'builtin',
+      sql: vi.fn(async () => []),
       getBlockAttrs: vi.fn(async () => ({})),
       getBlockKramdown: vi.fn(async () => ({ kramdown: '' })),
+      setBlockAttrs: vi.fn(async () => undefined),
+      getBlockInfo: vi.fn(async () => ({})),
+      getEditableBlockMarkdown: vi.fn(async () => ''),
+      getBlockDOM: vi.fn(async () => ({ dom: '' })),
+      getBlockBreadcrumb: vi.fn(async () => []),
+      getIconByType: vi.fn(() => ''),
+      updateBlockMarkdown: vi.fn(async (_blockId: string, markdown: string) => markdown),
+      reviewRiffCard: vi.fn(async () => undefined),
+      skipReviewRiffCard: vi.fn(async () => undefined),
+      pushMsg: vi.fn(async () => undefined),
+      pushErrMsg: vi.fn(async () => undefined),
+    };
+    const managerSiyuanApi = {
+      BUILTIN_DECK_ID: 'builtin',
+      CARD_ID_ATTR: 'custom-riff-decks',
+      sql: vi.fn(async () => []),
+      getBlockAttrs: vi.fn(async () => ({})),
+      getBlockKramdown: vi.fn(async () => ({ kramdown: '' })),
+      getBlockText: vi.fn(async () => ''),
+      setBlockAttrs: vi.fn(async () => undefined),
+      markBlockAsCard: vi.fn(async () => undefined),
+      getCardBlockIds: vi.fn(async () => []),
+      addRiffCards: vi.fn(async () => ({ name: 'builtin', size: 0 })),
+      pushMsg: vi.fn(async () => undefined),
+      pushErrMsg: vi.fn(async () => undefined),
+    };
+    const browserSiyuanApi = {
+      ATTR_CARD_ID: 'custom-riff-decks',
+      ATTR_PRIORITY: 'custom-riff-priority',
+      ATTR_SUSPENDED: 'custom-riff-suspended',
+      ATTR_CARD_TYPE: 'custom-riff-card-type',
+      ATTR_A_FACTOR: 'custom-riff-a-factor',
+      BUILTIN_DECK_ID: 'builtin',
+      sql: vi.fn(async () => []),
+      setBlockAttrs: vi.fn(async () => undefined),
+      pushMsg: vi.fn(async () => undefined),
+      pushErrMsg: vi.fn(async () => undefined),
     };
     const bundle = createReviewBrowserServiceBundle({
       getStorage: () => ({ getCardByBlockId: vi.fn() } as never),
-      getCardService: () => ({ updateFSRSCard: vi.fn() } as never),
+      getCardService: () => ({ updateFSRSCard: vi.fn(), getCard: vi.fn() } as never),
       getUnifiedStorage: () => ({ getAllCards: vi.fn(() => []) } as never),
       getUnifiedDataSourceManager: () => unifiedDataSourceManager as never,
       getScheduler: () => ({ getSchedulerType: vi.fn(), preview: vi.fn() } as never),
@@ -36,6 +75,10 @@ describe('createReviewBrowserServiceBundle', () => {
       getSrsBackendClient: () => null,
       getFrontendInstanceRuntime: () => null,
       getFollowerCommandClient: () => null,
+      createBrowserAdvancedSqlQuerySource: () => ({ matchedIds: vi.fn(async () => []) }),
+      createManagerSiyuanPort: () => managerSiyuanApi,
+      createBrowserSiyuanPort: () => browserSiyuanApi,
+      createReviewSiyuanPort: () => reviewSiyuanApi,
       openNeuralRoamDialog: vi.fn(async () => undefined),
     });
 

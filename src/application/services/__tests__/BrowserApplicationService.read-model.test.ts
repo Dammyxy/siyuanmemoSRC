@@ -146,6 +146,82 @@ function createProjectionQueueService(managerOverrides: Record<string, unknown>)
 }
 
 describe('BrowserApplicationService BrowserReadModel facade', () => {
+  it('refreshes current-card CDF live relation metadata on Browser open by card id', async () => {
+    const conceptId = '20260101000000-aaaaaaa';
+    const sourceId = '20260101000001-bbbbbbb';
+    const card = buildCard({
+      id: 'cdf-card',
+      blockId: sourceId,
+      type: CardType.Descriptor,
+      meta: {
+        relationAuthority: 'live-backlink',
+        templateID: 'builtin-concept-definition-forward',
+        typeMarker: 'concept-definition-forward',
+        sourceBlockId: sourceId,
+        fieldMapping: {
+          concept: conceptId,
+          definition: sourceId,
+        },
+      },
+    });
+    const manager = {
+      getCard: vi.fn(async (cardId: string) => {
+        if (cardId !== 'cdf-card') {
+          throw new Error(`missing ${cardId}`);
+        }
+        return card;
+      }),
+      updateCard: vi.fn(async () => undefined),
+    };
+    const sql = vi.fn(async (statement: string) => {
+      if (statement.includes('LIMIT 1')) {
+        return [{
+          id: sourceId,
+          parent_id: '',
+          root_id: sourceId,
+          type: 'p',
+          markdown: `((${conceptId} "Concept")) :> definition body`,
+          sort: '0',
+        }];
+      }
+      return [{
+        id: sourceId,
+        parent_id: '',
+        root_id: sourceId,
+        type: 'p',
+        markdown: `((${conceptId} "Concept")) :> definition body`,
+        sort: '0',
+      }];
+    });
+    const service = createService({
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
+        checked: 0,
+        updated: 0,
+        changed: false,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map()),
+    }, { sql }, manager);
+
+    const result = await service.refreshCdfLiveRelationOnOpen('cdf-card');
+
+    expect(result.reason).toBe('refreshed');
+    expect(result.actions.some((action) => action.kind === 'create-card')).toBe(false);
+    expect(manager.getCard).toHaveBeenCalledWith('cdf-card', { silent: true });
+    expect(manager.updateCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'cdf-card',
+        meta: expect.objectContaining({
+          liveRelationKey: `${sourceId}:${conceptId}:definition-forward`,
+          relationAuthority: 'live-backlink',
+          liveRelationStatus: 'active-live',
+          liveContentStatus: 'content-complete',
+        }),
+      }),
+      { suppressDueIndexSort: true },
+    );
+  });
+
   it('returns deck page rows with read model metadata', async () => {
     const card = buildCard();
     const backendClient = {

@@ -87,6 +87,12 @@ type ReviewSessionAuthorityContext = {
     getFrontendInstanceRuntime?: () => ReviewSessionAuthorityRuntime | null | undefined;
 };
 
+type CdfLiveRelationReviewOpenRefresher = {
+    refreshCdfLiveRelationOnOpen: (card: FSRSCard | string) => Promise<{
+        updatedCard?: FSRSCard | null;
+    }>;
+};
+
 type ReviewSessionAuthorityManager = UnifiedDataSourceManager & {
     resolvePluginContext?: () => ReviewSessionAuthorityContext | null | undefined;
 };
@@ -177,7 +183,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         queueTypeOrQueue: QueueType | IReviewQueue,
         manager: UnifiedDataSourceManager,
         _eventBus: EventBus,
-        schedulerRouter: ISchedulerRouter | null = null
+        schedulerRouter: ISchedulerRouter | null = null,
+        private readonly cdfLiveRelationReviewOpenRefresher: CdfLiveRelationReviewOpenRefresher | null = null
     ) {
         this.manager = manager;
         this.schedulerRouter = schedulerRouter;
@@ -287,8 +294,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     cardId: card.id,
                     total: this.cursor.length,
                 });
-                this.setCurrentItem(card);
-                return card;
+                const refreshedCard = await this.maybeRefreshCdfLiveRelationOnReviewOpen(card);
+                this.setCurrentItem(refreshedCard);
+                return refreshedCard;
             }
 
             if (this.queueType === QueueType.NeuralRoam) {
@@ -1772,10 +1780,19 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private async maybeAddNextDues(card: FSRSCard): Promise<CardWithNextDues> {
-        if (!this.shouldComputeNextDues(card)) {
+        const refreshedCard = await this.maybeRefreshCdfLiveRelationOnReviewOpen(card);
+        if (!this.shouldComputeNextDues(refreshedCard)) {
+            return refreshedCard;
+        }
+        return this.addNextDues(refreshedCard);
+    }
+
+    private async maybeRefreshCdfLiveRelationOnReviewOpen(card: FSRSCard): Promise<FSRSCard> {
+        if (!this.cdfLiveRelationReviewOpenRefresher) {
             return card;
         }
-        return this.addNextDues(card);
+        const result = await this.cdfLiveRelationReviewOpenRefresher.refreshCdfLiveRelationOnOpen(card);
+        return result.updatedCard ?? card;
     }
 
     private getReviewSchedulingContext(card: FSRSCard): QueueReviewSchedulingContext | null {

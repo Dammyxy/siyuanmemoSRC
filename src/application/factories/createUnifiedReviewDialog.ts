@@ -22,6 +22,7 @@ import type { ReviewHeaderVariant } from '@/ui/review/v2/types';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { ISchedulerRouter } from '@/application/interfaces/ISchedulerRouter';
+import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import type { BackendNeuralRoamStartFromFocusRequest } from '../../../packages/contracts/src/backend-rpc';
 import { createLogger } from '@/utils/logger';
 
@@ -50,6 +51,7 @@ type ReviewDialogPluginLike = {
         getSrsBackendClient?: () => {
             requestReviewTruthFlush?: (reason: 'review-exit' | 'queue-complete' | 'manual') => boolean;
         } | null | undefined;
+        getReviewService?: () => Pick<ReviewApplicationService, 'refreshCdfLiveRelationOnOpen'> | null | undefined;
     } | undefined;
 };
 
@@ -133,7 +135,10 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
         
         // 创建统一队列策略（使用依赖注入）
         const schedulerRouter = context.getSchedulerRouter();
-        const queue = new UnifiedQueueStrategy(queueInstance ?? queueType, manager, eventBus, schedulerRouter);
+        const reviewService = context.getReviewService?.();
+        const queue = new UnifiedQueueStrategy(queueInstance ?? queueType, manager, eventBus, schedulerRouter, reviewService
+            ? { refreshCdfLiveRelationOnOpen: (card) => reviewService.refreshCdfLiveRelationOnOpen(card) }
+            : null);
         queue.startNeuralRoamFromFocusOnNextAdvance(neuralRoamStartFromFocus);
         
         // 创建统一复习适配器

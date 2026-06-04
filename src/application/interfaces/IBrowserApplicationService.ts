@@ -45,6 +45,8 @@ import type {
 import type { BrowserQueueId } from '@/types/browser-queue-identity';
 export type { BrowserQueueId } from '@/types/browser-queue-identity';
 import type { BrowserSiyuanPort } from '../ports/BrowserSiyuanPort';
+import type { FSRSCard } from '@/types/card';
+import type { CdfLiveRelationRefreshResult } from '../services/CdfLiveRelationRefreshService';
 import type { QueueProjectionReadiness, QueueProjectionReadinessRequest } from '../../../packages/contracts/src/backend-rpc';
 
 export interface BrowserQueueCountsRequest {
@@ -99,6 +101,8 @@ export type BrowserDataSourceFactory = (
  */
 export interface IBrowserApplicationService {
   getBrowserReadModel(): BrowserReadModel;
+
+  refreshCdfLiveRelationOnOpen?(card: FSRSCard | string): Promise<CdfLiveRelationRefreshResult>;
 
   /**
    * 获取浏览器卡片列表

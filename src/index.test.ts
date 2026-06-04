@@ -223,6 +223,17 @@ function createContext(plugin: any) {
     getCardService: vi.fn(() => ({
       getDueCount: vi.fn(async () => 0),
     })),
+    getReviewService: vi.fn(() => ({
+      refreshCdfLiveRelationOnOpen: vi.fn(async () => ({
+        attempted: true,
+        card: null,
+        updatedCard: null,
+        actions: [],
+        derivedRelationCount: 0,
+        currentReviewDuplicateOutcome: null,
+        reason: 'unchanged',
+      })),
+    })),
     getHybridSyncService: vi.fn(() => undefined),
     dispose: vi.fn(async () => undefined),
   };

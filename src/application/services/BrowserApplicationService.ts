@@ -83,6 +83,7 @@ import {
 } from '@/utils/runtimePerformanceDiagnostics';
 import { hasFilterSetter, hasRebuildAction } from './browser/filterGroupQueueContract';
 import { BrowserCardUniverseReadModule } from './browser/BrowserCardUniverseReadModule';
+import { CdfLiveRelationRefreshService, type CdfLiveRelationRefreshResult, type CdfLiveRelationSqlPort } from './CdfLiveRelationRefreshService';
 
 const EMPTY_QUEUE_COUNTS: Record<string, number> = Object.fromEntries(
   getCanonicalBrowserQueueIds().map((queueId) => [queueId, 0]),
@@ -191,6 +192,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private sourceExistenceLatestRefreshSeq = 0;
   private sourceExistenceStaleCancellationCount = 0;
   private browserReadModelFacade: BrowserReadModel | null = null;
+  private readonly cdfLiveRelationRefresh: CdfLiveRelationRefreshService | null;
 
   constructor(
     storageManager: BrowserCardStoragePort,
@@ -230,6 +232,12 @@ export class BrowserApplicationService implements IBrowserApplicationService {
 
     this.unifiedDataSourceManager = unifiedDataSourceManager ?? null;
     this.siyuanApi = siyuanApi;
+    this.cdfLiveRelationRefresh = unifiedDataSourceManager
+      ? new CdfLiveRelationRefreshService({
+        manager: unifiedDataSourceManager,
+        source: siyuanApi as unknown as CdfLiveRelationSqlPort,
+      })
+      : null;
     this.browserCardUniverseReadModule = new BrowserCardUniverseReadModule({
       backendClient: srsBackendClient,
       browserDeckQueryKernel: this.browserDeckQueryKernel,
@@ -247,6 +255,23 @@ export class BrowserApplicationService implements IBrowserApplicationService {
 
   getSiyuanApi(): BrowserSiyuanPort {
     return this.siyuanApi;
+  }
+
+  async refreshCdfLiveRelationOnOpen(card: FSRSCard | string): Promise<CdfLiveRelationRefreshResult> {
+    if (!this.cdfLiveRelationRefresh) {
+      return {
+        attempted: false,
+        card: null,
+        updatedCard: null,
+        actions: [],
+        derivedRelationCount: 0,
+        currentReviewDuplicateOutcome: null,
+        reason: 'source-unavailable',
+      };
+    }
+    return this.cdfLiveRelationRefresh.refreshCurrentCardOnOpen(card, {
+      surface: 'browser-open',
+    });
   }
 
   getBrowserReadModel(): BrowserReadModel {
