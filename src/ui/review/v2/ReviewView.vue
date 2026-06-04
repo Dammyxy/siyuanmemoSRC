@@ -90,6 +90,7 @@
         </div>
 
         <ReviewContent
+          v-show="!reviewInlineCardEditorOpen"
           ref="contentRef"
           :app="app"
           :plugin="props.plugin"
@@ -104,31 +105,32 @@
           @editor-state-change="handleEditorStateChange"
         />
 
-        <div v-if="showInlineEditButton" class="fsrs-review-v2__inline-edit-entry">
-          <button
-            class="b3-button b3-button--outline fsrs-review-v2__inline-edit-button"
-            type="button"
-            data-testid="review-inline-edit-button"
-            @click="openCurrentContentEditor"
-          >
-            <svg><use xlink:href="#iconEdit"></use></svg>
-            <span>{{ t('editCurrentContent', '编辑') }}</span>
-          </button>
-        </div>
-
-        <ReviewEditableTargetsPanel
-          :open="reviewTextEditorOpen"
-          :title="reviewTextEditorTitle"
-          :entries="reviewTextEditorEntries"
-          :readonly="reviewTextEditorReadonly"
-          :placeholder="t('editCurrentContentPlaceholder', '使用 Markdown 编辑当前块内容')"
-          :hint="reviewTextEditorHint"
-          :confirm-label="t('save', '保存')"
-          :confirm-disabled="reviewTextEditorConfirmDisabled"
+        <ReviewInlineCardEditor
+          v-if="reviewInlineCardEditorOpen"
+          :open="reviewInlineCardEditorOpen"
+          :title="reviewInlineCardEditorTitle"
+          :hint="reviewInlineCardEditorHint"
+          :card="reviewInlineCardEditorCard"
+          :deck-id="reviewInlineCardEditorDeckId"
+          :i18n="i18n"
+          :plugin="props.plugin as never"
+          :review-service="reviewInlineCardEditorReviewService"
+          :scheduling-context="reviewInlineCardEditorSchedulingContext"
+          :source-open="reviewTextEditorOpen"
+          :source-title="reviewTextEditorTitle"
+          :source-entries="reviewTextEditorEntries"
+          :source-readonly="reviewTextEditorReadonly"
+          :source-placeholder="t('editCurrentContentPlaceholder', '使用 Markdown 编辑当前块内容')"
+          :source-hint="reviewTextEditorHint"
+          :source-confirm-disabled="reviewTextEditorConfirmDisabled"
           :cancel-label="t('cancel', '取消')"
-          @update-target="updateCurrentContentEditorTarget"
-          @confirm="confirmCurrentContentEditor"
-          @close="closeCurrentContentEditor"
+          :save-label="t('save', '保存')"
+          :close-label="t('cancel', '取消')"
+          @update-source-target="updateCurrentContentEditorTarget"
+          @confirm-source="confirmInlineCardEditorSource"
+          @close="closeInlineCardEditor"
+          @scheduled="handleInlineCardEditorScheduled"
+          @dismissed="handleInlineCardEditorDismissed"
         />
 
         <div v-if="reviewSemanticTemporaryView" class="fsrs-review-v2__temporary-view" role="status">
@@ -279,7 +281,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
-import ReviewEditableTargetsPanel from './components/ReviewEditableTargetsPanel.vue';
+import ReviewInlineCardEditor from './components/ReviewInlineCardEditor.vue';
 import NeuralRoamJourneyHeader from './NeuralRoamJourneyHeader.vue';
 import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
 import AiWorkbenchPane from '@/ui/ai/AiWorkbenchPane.vue';
@@ -901,6 +903,7 @@ const reviewTextEditorTitle = reviewTextEditorRuntime.title;
 const reviewTextEditorReadonly = reviewTextEditorRuntime.readonly;
 const reviewTextEditorConfirmDisabled = reviewTextEditorRuntime.confirmDisabled;
 const reviewTextEditorHint = reviewTextEditorRuntime.hint;
+const reviewInlineCardEditorOpen = ref(false);
 const reviewCardActionRuntime = createReviewCardActionRuntime({
   t,
   showMessage,
@@ -1795,19 +1798,47 @@ const displayedReviewContent = computed<ReviewUIState['content']>(() => {
 
 const displayedReviewHeader = computed<ReviewUIState['header']>(() => {
   const header = state.value.header;
-  const toolbar = Array.isArray(header.toolbar) ? header.toolbar : [];
-  if (
+  let toolbar = Array.isArray(header.toolbar) ? header.toolbar : [];
+  let toolbarChanged = false;
+  const editLabel = t('editCurrentContent', '编辑当前内容');
+  if (shouldExposeHeaderEditButton()) {
+    const editButtonActive = reviewInlineCardEditorOpen.value ? true : undefined;
+    const editButtonIndex = toolbar.findIndex((button) => button.type === 'edit-current-content');
+    if (editButtonIndex < 0) {
+      toolbar = [
+        ...toolbar.slice(0, 1),
+        {
+          icon: '#iconEdit',
+          type: 'edit-current-content',
+          ariaLabel: editLabel,
+          tooltip: editLabel,
+          active: editButtonActive,
+        },
+        ...toolbar.slice(1),
+      ];
+      toolbarChanged = true;
+    } else {
+      const currentButton = toolbar[editButtonIndex];
+      if (currentButton.active !== editButtonActive) {
+        toolbar = toolbar.map((button, index) => (
+          index === editButtonIndex
+            ? { ...button, active: editButtonActive }
+            : button
+        ));
+        toolbarChanged = true;
+      }
+    }
+  }
+
+  const canShowNeuralRoamEntry = !(
     state.value.content.type === 'empty'
     || !resolveCurrentReviewBlockId()
     || !getNeuralRoamEntryActionService()
     || toolbar.some((button) => button.type === 'neural-roam-entry')
-  ) {
-    return header;
-  }
+  );
 
-  return {
-    ...header,
-    toolbar: [
+  if (canShowNeuralRoamEntry) {
+    toolbar = [
       ...toolbar.slice(0, 1),
       {
         icon: '#iconGraph',
@@ -1816,7 +1847,17 @@ const displayedReviewHeader = computed<ReviewUIState['header']>(() => {
         tooltip: t('neuralRoam', '神经漫游'),
       },
       ...toolbar.slice(1),
-    ],
+    ];
+    toolbarChanged = true;
+  }
+
+  if (!toolbarChanged) {
+    return header;
+  }
+
+  return {
+    ...header,
+    toolbar,
   };
 });
 
@@ -1942,6 +1983,30 @@ const showLearnAheadAction = computed(() => (
   isEmptyReviewContent.value
   && state.value.meta.emptyStateMode === 'completed'
   && typeof (props.queue as QueueStrategyWithLearnAhead | null | undefined)?.learnAhead === 'function'
+));
+
+const reviewInlineCardEditorTitle = computed(() => t('editCurrentCard', '编辑当前卡片'));
+const reviewInlineCardEditorHint = computed(() => (
+  reviewTextEditorOpen.value
+    ? t('inlineCardEditorHint', '源码修改需要保存；卡片属性沿用现有 SRS 编辑器的即时或确认式保存。')
+    : t('inlineCardEditorMetadataOnlyHint', '当前卡片可编辑 SRS 属性；没有可编辑源码目标。')
+));
+const reviewInlineCardEditorDeckId = computed(() => getReviewService()?.getSiyuanApi?.()?.BUILTIN_DECK_ID);
+const reviewInlineCardEditorCard = computed(() => {
+  const cardId = resolveCurrentReviewCardId();
+  const blockId = resolveCurrentReviewBlockId();
+  if (!cardId && !blockId) {
+    return null;
+  }
+  return {
+    id: cardId || undefined,
+    blockId: blockId || undefined,
+    deckId: reviewInlineCardEditorDeckId.value,
+  };
+});
+const reviewInlineCardEditorReviewService = computed(() => getReviewService());
+const reviewInlineCardEditorSchedulingContext = computed(() => resolveCurrentReviewSchedulingContext(
+  state.value.content.card as FSRSCard | null | undefined,
 ));
 
 function getReviewActionErrorMessage(payload: ReviewSessionActionError<ActiveReviewItem>): string {
@@ -2481,11 +2546,11 @@ function handleRootClick(e: MouseEvent) {
     logger.debug('[SiYuanMemo][ReviewView] Ignoring forwarded modified hotkey:', { key });
     return;
   }
-  if (key === 'e' && !reviewTextEditorOpen.value) {
-    void openCurrentContentEditor();
+  if (key === 'e' && !reviewInlineCardEditorOpen.value) {
+    void openInlineCardEditor();
     return;
   }
-  if (reviewTextEditorOpen.value) {
+  if (reviewInlineCardEditorOpen.value) {
     return;
   }
   handleReviewKeyAction('hotkey', key, e);
@@ -2529,14 +2594,14 @@ function handleKeyDown(e: KeyboardEvent) {
     return;
   }
 
-  if (key === 'e' && !reviewTextEditorOpen.value) {
+  if (key === 'e' && !reviewInlineCardEditorOpen.value) {
     e.preventDefault();
     e.stopPropagation();
-    void openCurrentContentEditor();
+    void openInlineCardEditor();
     return;
   }
 
-  if (reviewTextEditorOpen.value) {
+  if (reviewInlineCardEditorOpen.value) {
     e.preventDefault();
     e.stopPropagation();
     return;
@@ -2546,7 +2611,7 @@ function handleKeyDown(e: KeyboardEvent) {
 }
 
 function handleReveal(): void {
-  if (reviewTextEditorOpen.value) {
+  if (reviewInlineCardEditorOpen.value) {
     return;
   }
   if (reviewSemanticTemporaryRuntime.revealTemporaryView()) {
@@ -2558,7 +2623,7 @@ function handleReveal(): void {
 }
 
 function handleGrade(rating: number): void {
-  if (reviewTextEditorOpen.value) {
+  if (reviewInlineCardEditorOpen.value) {
     return;
   }
   if (reviewSemanticTemporaryView.value?.card) {
@@ -2575,7 +2640,7 @@ function handleGrade(rating: number): void {
 }
 
 function handleSkip(): void {
-  if (reviewTextEditorOpen.value) {
+  if (reviewInlineCardEditorOpen.value) {
     return;
   }
   if (reviewSemanticTemporaryView.value) {
@@ -2589,7 +2654,7 @@ function handleSkip(): void {
 }
 
 function handleBack(): void {
-  if (reviewTextEditorOpen.value) {
+  if (reviewInlineCardEditorOpen.value) {
     return;
   }
   if (reviewSemanticTemporaryView.value) {
@@ -2953,23 +3018,79 @@ function resolvePrimaryEditableTarget(): ReviewEditableTarget | null {
   return resolveCurrentEditableTargets()[0] || null;
 }
 
+function getEditableTargetsProbeKey(): string {
+  return [
+    state.value.content.id,
+    state.value.content.card?.id,
+    state.value.content.card?.blockId,
+    renderEpoch.value,
+  ].join(':');
+}
+
+function shouldExposeHeaderEditButton(): boolean {
+  getEditableTargetsProbeKey();
+  return canOpenInlineCardEditor();
+}
+
 const closeCurrentContentEditor = reviewTextEditorRuntime.close;
 const openCurrentContentEditor = reviewTextEditorRuntime.openEditor;
 const confirmCurrentContentEditor = reviewTextEditorRuntime.confirm;
 const updateCurrentContentEditorTarget = reviewTextEditorRuntime.updateTargetValue;
-const editableTargetsProbeKey = computed(() => [
-  state.value.content.id,
-  state.value.content.card?.id,
-  state.value.content.card?.blockId,
-  renderEpoch.value,
-].join(':'));
-const showInlineEditButton = computed(() => {
-  editableTargetsProbeKey.value;
-  return (
-    !reviewTextEditorOpen.value
-    && resolveCurrentEditableTargets().length > 0
-  );
-});
+
+function canOpenInlineCardEditor(): boolean {
+  return resolveCurrentEditableTargets().length > 0
+    || Boolean((resolveCurrentReviewCardId() || resolveCurrentReviewBlockId()) && getCardEditorService());
+}
+
+async function openInlineCardEditor(): Promise<void> {
+  if (reviewInlineCardEditorOpen.value) {
+    return;
+  }
+
+  const editableTargets = resolveCurrentEditableTargets();
+  if (editableTargets.length === 0 && !reviewInlineCardEditorCard.value) {
+    showMessage(t('currentContentNotEditable', '当前内容暂不支持编辑'), 3000, 'info');
+    return;
+  }
+
+  reviewInlineCardEditorOpen.value = true;
+  if (editableTargets.length > 0) {
+    const opened = await openCurrentContentEditor();
+    if (!opened && !reviewInlineCardEditorCard.value) {
+      reviewInlineCardEditorOpen.value = false;
+    }
+  }
+}
+
+function closeInlineCardEditor(): void {
+  closeCurrentContentEditor();
+  reviewInlineCardEditorOpen.value = false;
+}
+
+async function confirmInlineCardEditorSource(): Promise<void> {
+  const saved = await confirmCurrentContentEditor();
+  if (saved) {
+    reviewInlineCardEditorOpen.value = false;
+  }
+}
+
+async function handleInlineCardEditorScheduled(payload: unknown): Promise<void> {
+  const scheduledPayload = isRecord(payload) ? payload as ScheduledReviewCardPayload : {};
+  await advanceScheduledCurrentCard({
+    cardId: typeof scheduledPayload.cardId === 'string' ? scheduledPayload.cardId : resolveCurrentReviewCardId(),
+    blockId: typeof scheduledPayload.blockId === 'string' ? scheduledPayload.blockId : resolveCurrentReviewBlockId(),
+    dueTimestamp: typeof scheduledPayload.dueTimestamp === 'number' ? scheduledPayload.dueTimestamp : undefined,
+  });
+}
+
+async function handleInlineCardEditorDismissed(payload: unknown): Promise<void> {
+  const dismissedPayload = isRecord(payload) ? payload as DismissedReviewCardPayload : {};
+  await advanceDismissedCurrentCard({
+    cardId: typeof dismissedPayload.cardId === 'string' ? dismissedPayload.cardId : resolveCurrentReviewCardId(),
+    blockId: typeof dismissedPayload.blockId === 'string' ? dismissedPayload.blockId : resolveCurrentReviewBlockId(),
+    dismissed: dismissedPayload.dismissed === true,
+  });
+}
 
 function buildMoreMenuItems(): ReviewMenuItem[] {
   const currentCard = state.value.content.card as FSRSCard | null | undefined;
@@ -3005,7 +3126,7 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
       progressiveOpenSource: handleProgressiveOpenSource,
       progressiveCompletePiece: () => void handleProgressiveCompletePiece(),
       editSrs: openCurrentSrsEditor,
-      editCurrentContent: () => void openCurrentContentEditor(),
+      editCurrentContent: () => void openInlineCardEditor(),
       toggleFullscreen: toggleReviewFullscreen,
       editPriority: () => void handleEditCurrentCardPriority(),
       toggleDismissed: () => void handleDismissCurrentCard(),
@@ -3287,6 +3408,11 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
 
   if (actionType === 'progressive-complete-piece') {
     void handleProgressiveCompletePiece();
+    return;
+  }
+
+  if (actionType === 'edit-current-content') {
+    void openInlineCardEditor();
     return;
   }
 
@@ -3866,27 +3992,6 @@ watch(
   min-width: 0; /* 防止 flex 子元素溢出 */
   height: 100%; /* 确保容器有明确的高度 */
   overflow: hidden; /* 防止整体滚动，只允许 ReviewContent 滚动 */
-}
-
-.fsrs-review-v2__inline-edit-entry {
-  display: flex;
-  justify-content: flex-end;
-  padding: 6px 12px 0;
-}
-
-.fsrs-review-v2__inline-edit-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 28px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 12px;
-}
-
-.fsrs-review-v2__inline-edit-button svg {
-  width: 14px;
-  height: 14px;
 }
 
 .fsrs-review-v2__arena-hint {

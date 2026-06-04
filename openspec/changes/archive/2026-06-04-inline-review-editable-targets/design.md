@@ -66,7 +66,7 @@ Alternatives considered:
 
 ### Decision 3: Inline panel replaces the modal editor for review content
 
-The visible edit button and `e` shortcut open an inline editor panel in the review content area. The panel shows all targets expanded by default. Each target loads its Markdown and tracks dirty state independently. Save writes only dirty targets; Cancel discards all in-panel changes.
+The visible edit button and `e` shortcut open an inline editor panel in the review content area. The visible button lives in the Review header toolbar as a compact icon-only action with tooltip/aria text, so the review content area is not occupied by a labeled "edit current content" row. The button remains visible and uses an active/pressed state while the inline editor is open; activating it again is a no-op so dirty editor contents are not reloaded. The panel shows all targets expanded by default. Each target loads its Markdown and tracks dirty state independently. Save writes only dirty targets; Cancel discards all in-panel changes.
 
 The existing modal entry for "edit current content" should be replaced, not kept as a second visible path. The old runtime may be refactored into an inline multi-target runtime or removed once the inline runtime owns the flow.
 

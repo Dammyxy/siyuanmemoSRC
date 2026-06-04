@@ -21,6 +21,8 @@
 - [x] 3.3 Replace `LargeTextEditorDialog` usage for review content editing with the inline panel; keep SRS editor dialog behavior unchanged.
 - [x] 3.4 Update More menu `edit-current-content` to open the inline panel and use target-aware availability.
 - [x] 3.5 Add review editor state wiring for inline Markdown editing so ReviewView can observe open/closed edit state.
+- [x] 3.6 Move the visible edit affordance into the Review header toolbar as an icon-only button with tooltip/aria text.
+- [x] 3.7 Keep the header edit button visible while inline editing, mark it active/pressed, and make repeat activation a no-op.
 
 ## 4. Review Action Protection
 

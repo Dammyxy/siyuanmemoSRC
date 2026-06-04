@@ -1,8 +1,9 @@
-import type { FSRSCard } from '@/types/card';
+import type { CardFaceKey, FSRSCard } from '@/types/card';
 import {
   analyzeProtectedSemanticOverwrite,
   type SemanticOverwriteAnalysis,
 } from '@/core/card/semanticPayload';
+import { resolveCardRuleDirection } from '@/core/card/cardSemanticLocator';
 
 type CardMetaRecord = Record<string, unknown>;
 
@@ -62,6 +63,20 @@ const CONCEPTUAL_RENDER_PROFILES = new Set([
   'descriptor',
   'concept-definition',
 ]);
+
+const DIRECTIONAL_FACE_RULE_IDS = new Set([
+  'concept-definition-forward',
+  'concept-definition-reverse',
+  'descriptor-forward',
+  'descriptor-reverse',
+]);
+
+const TARGET_FACE_RULE_ID: Partial<Record<EditableRenderTarget, string>> = {
+  'concept-definition-forward': 'concept-definition-forward',
+  'concept-definition-reverse': 'concept-definition-reverse',
+  'descriptor-forward': 'descriptor-forward',
+  'descriptor-reverse': 'descriptor-reverse',
+};
 
 function cloneMeta(meta: unknown): CardMetaRecord {
   if (meta && typeof meta === 'object') {
@@ -145,10 +160,66 @@ function applyConceptualRender(meta: CardMetaRecord, target: EditableRenderTarge
   return changed;
 }
 
+function isCardFaceKey(value: unknown): value is CardFaceKey {
+  return !!value
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && typeof (value as CardFaceKey).ruleId === 'string'
+    && (value as CardFaceKey).ruleId.trim().length > 0;
+}
+
+function syncDirectionalFaceKey(
+  faceKey: CardFaceKey | undefined,
+  target: EditableRenderTarget,
+): { faceKey: CardFaceKey | undefined; changed: boolean } {
+  const targetRuleId = TARGET_FACE_RULE_ID[target];
+  if (!targetRuleId || !faceKey || !DIRECTIONAL_FACE_RULE_IDS.has(faceKey.ruleId)) {
+    return { faceKey, changed: false };
+  }
+
+  if (faceKey.ruleId === targetRuleId) {
+    return { faceKey, changed: false };
+  }
+
+  return {
+    faceKey: {
+      ...faceKey,
+      ruleId: targetRuleId,
+    },
+    changed: true,
+  };
+}
+
+function syncDirectionalFaceIdentity(
+  card: FSRSCard,
+  meta: CardMetaRecord,
+  target: EditableRenderTarget,
+): boolean {
+  let changed = false;
+
+  const syncedCardFaceKey = syncDirectionalFaceKey(card.faceKey, target);
+  if (syncedCardFaceKey.changed) {
+    card.faceKey = syncedCardFaceKey.faceKey;
+    changed = true;
+  }
+
+  const metaFaceKey = meta.faceKey;
+  if (isCardFaceKey(metaFaceKey)) {
+    const syncedMetaFaceKey = syncDirectionalFaceKey(metaFaceKey, target);
+    if (syncedMetaFaceKey.changed) {
+      meta.faceKey = syncedMetaFaceKey.faceKey;
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
 export function resolveEditableRenderTarget(card: FSRSCard | null | undefined): EditableRenderTarget {
   const meta = (card?.meta && typeof card.meta === 'object')
     ? (card.meta as CardMetaRecord)
     : {};
+  const authoritativeDirection = resolveCardRuleDirection(card);
 
   if (meta.forceProtyleRender === true) {
     return 'default';
@@ -173,9 +244,15 @@ export function resolveEditableRenderTarget(card: FSRSCard | null | undefined): 
     || templateID === 'builtin-concept-definition-reverse'
   ) {
     return (
-      typeMarker === 'concept-definition-reverse'
-      || typeMarker.endsWith('-reverse')
-      || templateID === 'builtin-concept-definition-reverse'
+      authoritativeDirection === 'reverse'
+      || (
+        authoritativeDirection !== 'forward'
+        && (
+          typeMarker === 'concept-definition-reverse'
+          || typeMarker.endsWith('-reverse')
+          || templateID === 'builtin-concept-definition-reverse'
+        )
+      )
     )
       ? 'concept-definition-reverse'
       : 'concept-definition-forward';
@@ -189,8 +266,14 @@ export function resolveEditableRenderTarget(card: FSRSCard | null | undefined): 
     || templateID === 'builtin-concept-descriptor-reverse'
   ) {
     return (
-      typeMarker.endsWith('-reverse')
-      || templateID === 'builtin-concept-descriptor-reverse'
+      authoritativeDirection === 'reverse'
+      || (
+        authoritativeDirection !== 'forward'
+        && (
+          typeMarker.endsWith('-reverse')
+          || templateID === 'builtin-concept-descriptor-reverse'
+        )
+      )
     )
       ? 'descriptor-reverse'
       : 'descriptor-forward';
@@ -260,6 +343,7 @@ export function applyRenderTargetTransition(
       changed = applyConceptualRender(meta, target);
       break;
   }
+  changed = syncDirectionalFaceIdentity(nextCard, meta, target) || changed;
 
   if (Object.keys(meta).length === 0) {
     nextCard.meta = undefined;

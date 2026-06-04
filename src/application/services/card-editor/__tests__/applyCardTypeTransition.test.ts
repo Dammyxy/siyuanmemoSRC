@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { initializeAFactor } from '@/core/card-builder/detectCardType';
+import { resolveCardRuleDirection } from '@/core/card/cardSemanticLocator';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { applyCardTypeTransition } from '../applyCardTypeTransition';
 
@@ -9,6 +10,7 @@ function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
     id: overrides.id ?? 'card-1',
     xiuyuanID: overrides.xiuyuanID ?? 'xiuyuan-1',
     blockId: overrides.blockId ?? 'block-1',
+    faceKey: overrides.faceKey ? { ...overrides.faceKey } : undefined,
     due: overrides.due ?? now,
     stability: overrides.stability ?? 1,
     difficulty: overrides.difficulty ?? 5,
@@ -96,10 +98,11 @@ describe('applyCardTypeTransition', () => {
     const result = applyCardTypeTransition(
       buildCard({
         type: CardType.Descriptor,
+        faceKey: { ruleId: 'descriptor-reverse', faceIndex: 1 },
         meta: {
           renderProfile: 'descriptor',
-          typeMarker: 'concept-descriptor-reverse',
-          templateID: 'builtin-concept-descriptor-reverse',
+          typeMarker: 'concept-descriptor-forward',
+          templateID: 'builtin-concept-descriptor',
         },
       }),
       CardType.Descriptor,
@@ -107,12 +110,14 @@ describe('applyCardTypeTransition', () => {
 
     expect(result.descriptorDirection).toBe('reverse');
     expect(result.recommendedRenderTarget).toBe('descriptor-reverse');
+    expect(result.card.faceKey).toEqual({ ruleId: 'descriptor-reverse', faceIndex: 1 });
     expect(result.card.meta).toMatchObject({
       renderProfile: 'descriptor',
       typeMarker: 'concept-descriptor-reverse',
       templateID: 'builtin-concept-descriptor-reverse',
       cardTypeMarker: 'descriptor',
     });
+    expect(resolveCardRuleDirection(result.card)).toBe('reverse');
   });
 
   it('defaults descriptor direction to forward outside descriptor render family', () => {

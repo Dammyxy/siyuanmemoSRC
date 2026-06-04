@@ -166,6 +166,7 @@ export interface ReviewUIState {
       ariaLabel?: string;
       tooltip?: string;
       disabled?: boolean;
+      active?: boolean;
     }>;
     navigationState?: {
       currentPathIndex: number;

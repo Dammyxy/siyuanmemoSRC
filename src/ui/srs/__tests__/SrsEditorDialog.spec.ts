@@ -467,6 +467,98 @@ describe('SrsEditorDialog', () => {
     expect(pushMsg).toHaveBeenLastCalledWith('渲染已更新', 3000);
   });
 
+  it('confirms protected card type overwrite before retrying with explicit semantic intent', async () => {
+    const pushMsg = vi.fn();
+    const updateCardType = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...buildSnapshot({
+          type: CardType.Item,
+          meta: {
+            templateID: 'custom-owned-template',
+            typeMarker: 'custom-owned-rule',
+            renderProfile: 'custom-render-profile',
+          },
+        }),
+        status: 'confirmation-required',
+        semanticOverwrite: {
+          reason: 'protected-semantic-payload',
+          fields: [
+            { path: 'meta.templateID', kind: 'template', before: 'custom-owned-template', after: 'builtin-concept-simple', custom: true },
+            { path: 'meta.typeMarker', kind: 'render', before: 'custom-owned-rule', after: 'C', custom: true },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        ...buildSnapshot({
+          type: CardType.Concept,
+          cardTypeMarker: 'concept',
+          meta: {
+            templateID: 'builtin-concept-simple',
+            typeMarker: 'C',
+            renderProfile: 'concept',
+            cardTypeMarker: 'concept',
+          },
+        }),
+        status: 'applied',
+        semanticOverwrite: {
+          reason: 'protected-semantic-payload',
+          fields: [
+            { path: 'meta.templateID', kind: 'template', before: 'custom-owned-template', after: 'builtin-concept-simple', custom: true },
+          ],
+        },
+      });
+
+    const wrapper = mount(SrsEditorDialog, {
+      props: {
+        card: { id: 'card-1', blockId: 'block-1' },
+        plugin: createPlugin({
+          loadSnapshot: vi.fn(async () => buildSnapshot({
+            meta: {
+              templateID: 'custom-owned-template',
+              typeMarker: 'custom-owned-rule',
+              renderProfile: 'custom-render-profile',
+            },
+          })),
+          updateCardType,
+          updateRender: vi.fn(),
+          updatePriority: vi.fn(),
+          scheduleCard: vi.fn(),
+          setDismissed: vi.fn(),
+          resetProgress: vi.fn(),
+        }, {
+          getSiyuanApi: () => ({ pushMsg, pushErrMsg: vi.fn() }),
+        }, {
+          registerObserver: vi.fn(),
+          unregisterObserver: vi.fn(),
+        }) as never,
+      },
+    });
+
+    await flushPromises();
+    await openDetails(wrapper, '[data-section="more-edit"]');
+
+    await wrapper.findAll('[data-field="cardType"] .srs-type-option')[2].trigger('click');
+    await flushPromises();
+
+    expect(updateCardType).toHaveBeenCalledTimes(1);
+    expect(updateCardType).toHaveBeenLastCalledWith('card-1', CardType.Concept);
+    expect(wrapper.text()).toContain('确认覆盖');
+    expect(wrapper.text()).toContain('模板 ID');
+    expect(wrapper.text()).toContain('Type Marker');
+
+    await wrapper.get('[data-action="confirm-semantic-overwrite"]').trigger('click');
+    await flushPromises();
+
+    expect(updateCardType).toHaveBeenCalledTimes(2);
+    expect(updateCardType).toHaveBeenLastCalledWith('card-1', CardType.Concept, {
+      semanticOverwriteIntent: { confirmed: true },
+    });
+    expect(wrapper.text()).toContain('卡片类型已更新');
+    expect(wrapper.find('[data-action="confirm-semantic-overwrite"]').exists()).toBe(false);
+    expect(pushMsg).toHaveBeenLastCalledWith('卡片类型已更新', 3000);
+  });
+
   it('clears pending semantic overwrite when a different card snapshot is loaded', async () => {
     const updateRender = vi.fn(async () => ({
       ...buildSnapshot({
@@ -611,6 +703,56 @@ describe('SrsEditorDialog', () => {
       { cardId: 'card-1', blockId: 'block-1', dismissed: true },
     ]);
     expect(wrapper.get('[data-action="dismiss"]').text()).toContain('Restore');
+  });
+
+  it('confirms reset before clearing review progress through the card editor service', async () => {
+    const resetProgress = vi.fn(async () => buildSnapshot({
+      state: CardState.New,
+      reps: 0,
+      lapses: 0,
+      leechCount: 0,
+      isLeech: false,
+    }));
+    const pushMsg = vi.fn();
+
+    const wrapper = mount(SrsEditorDialog, {
+      props: {
+        card: { id: 'card-1', blockId: 'block-1' },
+        plugin: createPlugin({
+          loadSnapshot: vi.fn(async () => buildSnapshot({
+            state: CardState.Review,
+            reps: 8,
+            lapses: 2,
+            leechCount: 3,
+            isLeech: true,
+          })),
+          updateCardType: vi.fn(),
+          updateRender: vi.fn(),
+          updatePriority: vi.fn(),
+          scheduleCard: vi.fn(),
+          setDismissed: vi.fn(),
+          resetProgress,
+        }, {
+          getSiyuanApi: () => ({ pushMsg, pushErrMsg: vi.fn() }),
+        }, {
+          registerObserver: vi.fn(),
+          unregisterObserver: vi.fn(),
+        }) as never,
+      },
+    });
+
+    await flushPromises();
+    await openDetails(wrapper, '[data-section="danger-zone"]');
+
+    await wrapper.get('[data-section="danger-zone"] .b3-button--warning').trigger('click');
+    await flushPromises();
+
+    expect(confirmDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: '确认重置学习进度',
+    }));
+    expect(resetProgress).toHaveBeenCalledWith('card-1');
+    expect(wrapper.text()).toContain('新卡');
+    expect(pushMsg).toHaveBeenLastCalledWith('学习进度已重置', 3000);
   });
 
   it('refreshes the same card when unified manager emits a matching update', async () => {

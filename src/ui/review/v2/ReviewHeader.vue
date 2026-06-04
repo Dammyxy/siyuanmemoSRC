@@ -221,8 +221,12 @@
           :key="btn.type"
           :data-type="btn.type"
           class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__toolbar-button"
-          :class="{ 'siyuanmemo-review-header__toolbar-button--with-label': !!btn.label }"
+          :class="{
+            'siyuanmemo-review-header__toolbar-button--with-label': !!btn.label,
+            'siyuanmemo-review-header__toolbar-button--active': btn.active === true,
+          }"
           :aria-label="btn.ariaLabel"
+          :aria-pressed="btn.active === true ? 'true' : undefined"
           :title="btn.tooltip || btn.ariaLabel"
           :disabled="btn.disabled"
           @click="handleToolbarClick(btn, $event)"
@@ -1231,6 +1235,12 @@ onUnmounted(() => {
 .siyuanmemo-review-header__toolbar-button:disabled {
   opacity: 0.46;
   cursor: not-allowed;
+}
+
+.siyuanmemo-review-header__toolbar-button--active {
+  color: var(--b3-theme-primary);
+  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 72%, var(--b3-theme-background));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--b3-theme-primary) 34%, transparent);
 }
 
 .siyuanmemo-review-header__toolbar-button--with-label {

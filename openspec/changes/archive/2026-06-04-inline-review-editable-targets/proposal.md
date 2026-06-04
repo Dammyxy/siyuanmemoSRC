@@ -4,7 +4,8 @@ Custom-rendered review cards are readable but awkward to fix during review becau
 
 ## What Changes
 
-- Replace the review "edit current content" modal entry with an inline review editor panel opened from a visible edit button and the `e` shortcut.
+- Replace the review "edit current content" modal entry with an inline review editor panel opened from a compact right-top review toolbar edit button and the `e` shortcut.
+- Keep that header edit button visible and highlighted while the inline editor is open, so the review surface has an explicit editing-state indicator.
 - Introduce `EditableTarget` as the review-side contract for one or more source blocks, with each target editing whole `block-markdown` in MVP.
 - Show all available editable targets in an Anki-style panel, expanded by default, with explicit Save and Cancel actions.
 - Load editable target Markdown from a clean block Markdown read boundary so Kramdown IAL/block IDs are not shown in the inline editor.

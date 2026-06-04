@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-03 (Round 544)
+Last update: 2026-06-04 (Round 545)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-04 - Review inline card editor MVP
+
+- Task: Finish `review-inline-card-editor-mvp` by replacing the source-only Review edit path with a full inline card editor surface.
+- Touched slice: Review/SRS editor UI: `ReviewView.vue`, `ReviewInlineCardEditor.vue`, `reviewCurrentContentEditorRuntime.ts`, `SrsEditorDialog.vue` reuse path, card-editor transition tests, ReviewView/SRS editor focused tests, and `review-inline-card-editor-mvp` OpenSpec artifacts.
+- Debt fixed now: Review edit mode now hides the rendered preview, keeps the header edit action active, embeds source Markdown editing as one source section, and reuses the existing `SrsEditorDialog`/`CardEditorApplicationService` path for card type, render, priority, schedule, suspend, reset, and protected semantic overwrite confirmation. The old standalone source-only inline panel/button path was removed or adapted into the full editor source section.
+- Debt deferred: Safe named field editors and source semantic parsing remain out of scope; the MVP keeps whole-block Markdown source editing plus existing metadata controls.
+- Why deferred: Field-level editing needs renderer-specific parser/rewrite contracts and explicit unavailable behavior for ambiguous source syntax.
+- Next safe step: Run a live SiYuan Review smoke: open edit mode with `e`, switch card type, confirm protected overwrite if prompted, save/cancel source edits, and verify Review actions resume without advancing during edit mode.
+- Validation: Focused `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/ui/srs/__tests__/SrsEditorDialog.spec.ts`; remaining OpenSpec validation, boundary check, and build are still pending in this session.
+
+### 2026-06-04 - Review inline edit header icon
+
+- Task: Move the visible inline Review edit affordance out of the content area into the Review header right-side toolbar, leaving an icon-only button with editing-state feedback.
+- Touched slice: Review UI header/edit affordance: `ReviewView.vue`, `ReviewHeader.vue`, `types.ts`, `ReviewHeader.spec.ts`, `ReviewView.more-menu.spec.ts`, and `inline-review-editable-targets` OpenSpec artifacts.
+- Debt fixed now: The labeled `编辑当前内容` row below Review content was removed. Editable cards now inject an `edit-current-content` toolbar action with `#iconEdit`, no visible label, and retained aria/tooltip text; the button stays visible while the inline editor is open, exposes `aria-pressed`, and gets a restrained active style. Re-clicking it while editing is a no-op, so dirty textarea contents are not reloaded. The More menu and `e` shortcut still open the same inline panel.
+- Debt deferred: Semantic field-level editors remain out of scope; this task only changes affordance placement and visual density.
+- Why deferred: Field editing needs renderer-specific parser/rewrite contracts; mixing it with visual placement would widen the Review UI slice.
+- Next safe step: Archive `inline-review-editable-targets` after one quick live smoke confirms the header icon opens the panel, stays highlighted while editing, and clears active state after Save/Cancel.
+- Validation: Red/green `pnpm exec vitest run src/ui/review/v2/__tests__/ReviewHeader.spec.ts src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts`; focused `pnpm exec vitest run src/ui/review/v2/__tests__/ReviewHeader.spec.ts src/ui/review/v2/__tests__/ReviewHeader.styles.spec.ts src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/ui/review/v2/__tests__/reviewCurrentContentEditorRuntime.test.ts src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/ui/review/v2/__tests__/ReviewView.source-block-refresh.spec.ts`; `openspec validate inline-review-editable-targets --strict`; `git diff --check`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-06-03 - Review committed read-model refresh
 

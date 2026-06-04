@@ -523,6 +523,29 @@ describe('ReviewHeader', () => {
     expect(button.text()).toContain('Plan Scope');
   });
 
+  it('marks active toolbar buttons as pressed and highlighted', () => {
+    const header = createHeaderState();
+    header.toolbar?.unshift({
+      type: 'edit-current-content',
+      icon: '#iconEdit',
+      ariaLabel: 'Edit current content',
+      active: true,
+    });
+
+    const wrapper = mount(ReviewHeader, {
+      props: {
+        header,
+        meta: createMetaState(),
+        isMobile: false,
+        mode: 'dialog',
+      },
+    });
+
+    const button = wrapper.get('button[data-type="edit-current-content"]');
+    expect(button.attributes('aria-pressed')).toBe('true');
+    expect(button.classes()).toContain('siyuanmemo-review-header__toolbar-button--active');
+  });
+
   it('uses i18n labels for orbit review toolbar buttons', () => {
     const header = createHeaderState();
     header.toolbar?.push(

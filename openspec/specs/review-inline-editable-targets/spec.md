@@ -1,5 +1,8 @@
-## ADDED Requirements
+# review-inline-editable-targets Specification
 
+## Purpose
+TBD - created by archiving change inline-review-editable-targets. Update Purpose after archive.
+## Requirements
 ### Requirement: Review content exposes editable targets
 The system SHALL expose editable review-card source material as an ordered list of `EditableTarget` records. Each target SHALL identify one source block, its renderer kind, display label, and `block-markdown` source kind.
 
@@ -27,6 +30,17 @@ The system SHALL provide a visible review edit button and an `e` keyboard shortc
 - **WHEN** editable targets exist for the current review card and the user activates the visible edit button
 - **THEN** Review SHALL open an inline editor panel in the review surface instead of opening the large text editor modal
 - **AND** the panel SHALL show all editable targets expanded by default
+
+#### Scenario: Edit button is compact in the review header
+- **WHEN** editable targets exist for the current review card and the inline editor is closed
+- **THEN** Review SHALL expose the visible edit affordance as an icon-only action in the review header toolbar
+- **AND** the action SHALL retain accessible label and tooltip text
+
+#### Scenario: Edit button indicates inline editing state
+- **WHEN** editable targets exist for the current review card and the inline editor is open
+- **THEN** Review SHALL keep the header edit action visible
+- **AND** the action SHALL expose an active or pressed state for visual and accessible editing status
+- **AND** activating the action SHALL NOT reload or discard in-panel edits
 
 #### Scenario: Shortcut opens inline editor
 - **WHEN** editable targets exist and the user presses `e` outside text input while the inline editor is closed
@@ -94,3 +108,4 @@ The system SHALL prevent review advancement actions from firing while the inline
 #### Scenario: Review actions resume after editing closes
 - **WHEN** the inline editor closes after Save or Cancel
 - **THEN** reveal, grade, skip, back, and review hotkeys SHALL resume normal behavior for the current card
+

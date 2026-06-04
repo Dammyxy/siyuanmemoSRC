@@ -82,17 +82,17 @@ export function createReviewCurrentContentEditorRuntime(
     entry.value = nextValue;
   }
 
-  async function openEditor(): Promise<void> {
+  async function openEditor(): Promise<boolean> {
     const editableTargets = options.resolveEditableTargets();
     if (editableTargets.length === 0) {
       options.showMessage(options.t('currentContentNotEditable', '当前内容暂不支持编辑'), 3000, 'info');
-      return;
+      return false;
     }
 
     const reviewService = options.getReviewService();
     if (!reviewService) {
       options.showMessage(options.t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-      return;
+      return false;
     }
 
     const currentSeq = ++seq;
@@ -115,12 +115,13 @@ export function createReviewCurrentContentEditorRuntime(
         };
       }));
       if (currentSeq !== seq || !open.value) {
-        return;
+        return false;
       }
       entries.value = loadedEntries;
+      return true;
     } catch (error) {
       if (currentSeq !== seq) {
-        return;
+        return false;
       }
       options.logger?.error?.('[SiYuanMemo][ReviewView] Failed to load editable review content:', error);
       close();
@@ -130,7 +131,7 @@ export function createReviewCurrentContentEditorRuntime(
         5000,
         'error',
       );
-      return;
+      return false;
     } finally {
       if (currentSeq === seq) {
         loading.value = false;
@@ -138,16 +139,16 @@ export function createReviewCurrentContentEditorRuntime(
     }
   }
 
-  async function confirm(): Promise<void> {
+  async function confirm(): Promise<boolean> {
     const pendingEntries = dirtyEntries.value;
     if (confirmDisabled.value || pendingEntries.length === 0) {
-      return;
+      return false;
     }
 
     const reviewService = options.getReviewService();
     if (!reviewService) {
       options.showMessage(options.t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-      return;
+      return false;
     }
 
     const currentSeq = ++seq;
@@ -157,7 +158,7 @@ export function createReviewCurrentContentEditorRuntime(
       for (const entry of pendingEntries) {
         await reviewService.updateBlockMarkdown(entry.target.blockId, entry.value);
         if (currentSeq !== seq) {
-          return;
+          return false;
         }
         entry.originalValue = entry.value;
         options.suppressSourceBlockRefresh(entry.target.blockId);
@@ -165,14 +166,15 @@ export function createReviewCurrentContentEditorRuntime(
 
       await options.refreshVisibleContent('manual-edit-save');
       if (currentSeq !== seq) {
-        return;
+        return false;
       }
 
       open.value = false;
       options.showMessage(options.t('currentContentSaved', '当前内容已保存'), 2000, 'info');
+      return true;
     } catch (error) {
       if (currentSeq !== seq) {
-        return;
+        return false;
       }
       options.logger?.error?.('[SiYuanMemo][ReviewView] Failed to save editable review content:', error);
       options.showMessage(
@@ -181,6 +183,7 @@ export function createReviewCurrentContentEditorRuntime(
         5000,
         'error',
       );
+      return false;
     } finally {
       if (currentSeq === seq) {
         saving.value = false;
