@@ -17,6 +17,8 @@ function createActions() {
     editCurrentContent: vi.fn(),
     toggleFullscreen: vi.fn(),
     editPriority: vi.fn(),
+    resetCurrentProgress: vi.fn(),
+    resetSameSourceProgress: vi.fn(),
     toggleDismissed: vi.fn(),
     dismissPeers: vi.fn(),
     deleteCurrent: vi.fn(),
@@ -37,6 +39,8 @@ function buildItems(overrides: Partial<Parameters<typeof buildReviewMoreMenuItem
     currentPriority: null,
     currentDismissed: false,
     canEditCurrentPriority: false,
+    canResetCurrentProgress: false,
+    canResetSameSourceProgress: false,
     canSuspendCurrentCard: false,
     canDeleteCurrentCard: false,
     peerCount: 0,
@@ -70,6 +74,8 @@ describe('reviewMoreMenuItems', () => {
       'fullscreen',
       'separator-card-actions',
       'edit-current-priority',
+      'reset-current-progress',
+      'reset-same-source-progress',
       'pause-current-card',
       'delete-current-card',
     ]);
@@ -84,6 +90,8 @@ describe('reviewMoreMenuItems', () => {
       currentPriority: 7,
       currentDismissed: true,
       canEditCurrentPriority: true,
+      canResetCurrentProgress: true,
+      canResetSameSourceProgress: true,
       canSuspendCurrentCard: true,
       canDeleteCurrentCard: true,
       peerCount: 2,
@@ -103,6 +111,14 @@ describe('reviewMoreMenuItems', () => {
     expect(items.find((item) => item.id === 'edit-current-priority')).toMatchObject({
       disabled: false,
       label: 'reviewPriorityMenuLabel:优先级：7',
+    });
+    expect(items.find((item) => item.id === 'reset-current-progress')).toMatchObject({
+      disabled: false,
+      label: 'reviewResetCurrentProgress:重置当前卡学习进度',
+    });
+    expect(items.find((item) => item.id === 'reset-same-source-progress')).toMatchObject({
+      disabled: false,
+      label: 'reviewResetSameSourceProgress:重置同源活跃关系卡学习进度',
     });
     expect(items.find((item) => item.id === 'pause-current-card')).toMatchObject({
       disabled: false,

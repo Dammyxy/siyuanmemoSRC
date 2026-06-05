@@ -11,6 +11,19 @@ function card(id: string): BrowserCard {
   return { id, blockId: `block-${id}` } as BrowserCard;
 }
 
+function cdfCard(id: string, meta: Record<string, unknown>): BrowserCard {
+  return {
+    ...card(id),
+    meta: {
+      relationAuthority: 'live-backlink',
+      liveRelationKey: 'source:concept:descriptor-forward',
+      liveContentStatus: 'content-complete',
+      liveRelationIssues: [],
+      ...meta,
+    },
+  } as BrowserCard;
+}
+
 function createLogger() {
   return {
     debug: vi.fn(),
@@ -246,5 +259,57 @@ describe('browserActionMenuRuntime', () => {
 
     menuRecorder.menus[0].items[0].click?.();
     expect(openReviewDialog).toHaveBeenCalledTimes(1);
+  });
+
+  it('prepends state-specific CDF diagnostic actions to row context menus', async () => {
+    const { dataSource, deps, menuRecorder } = createRuntimeDeps({
+      t: (key: string, fallback: string) => ({
+        cdfViewCanonical: 'View canonical',
+        cdfKeepDuplicatePaused: 'Keep duplicate paused',
+        cdfRepairActionUnavailable: 'CDF repair unavailable',
+      } as Record<string, string>)[key] || fallback,
+    });
+    dataSource.getSupportedActions = vi.fn(() => [
+      { id: 'open', label: 'Open' },
+      { id: 'delete-card', label: 'Delete card' },
+      { id: 'custom-action', label: 'Custom Action' },
+    ]) as never;
+    const runtime = createBrowserActionMenuRuntime(deps);
+    const row = cdfCard('duplicate', {
+      liveRelationStatus: 'duplicate-live-relation',
+      liveContentStatus: 'content-incomplete',
+    });
+    const event = {
+      data: row,
+      event: {
+        preventDefault: vi.fn(),
+        clientX: 10,
+        clientY: 20,
+      },
+    };
+
+    runtime.onCellContextMenu(event as never);
+
+    const menu = menuRecorder.menus.find((entry) => entry.id === 'card-browser-context');
+    const labels = menu?.items.map((item) => item.label).filter(Boolean) || [];
+    expect(labels).toEqual(expect.arrayContaining([
+      'View canonical',
+      'Keep duplicate paused',
+      'Open',
+      'Delete card',
+      'Custom Action',
+    ]));
+    expect(labels.indexOf('View canonical')).toBeLessThan(labels.indexOf('Open'));
+
+    const viewCanonical = menu?.items.find((item) => item.label === 'View canonical');
+    viewCanonical?.click?.();
+    await Promise.resolve();
+
+    expect(dataSource.performAction).not.toHaveBeenCalledWith(
+      'cdf-view-canonical',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(deps.pushErrMsg).toHaveBeenCalledWith('CDF repair unavailable');
   });
 });

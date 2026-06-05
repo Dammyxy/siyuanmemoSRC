@@ -90,8 +90,16 @@ import {
   type CdfLiveRelationSqlPort,
 } from './CdfLiveRelationRefreshService';
 import {
+  CdfLiveRelationSqlCandidateSourceScanner,
   CdfLiveRelationWriteRepairService,
+  type CdfLiveRelationCandidateSqlPort,
   type CdfLiveRelationCardCreatorPort,
+  type CdfLiveRelationFullRepairDryRunOptions,
+  type CdfLiveRelationFullRepairDryRunResult,
+  type CdfLiveRelationFullRepairExecuteOptions,
+  type CdfLiveRelationFullRepairExecuteResult,
+  type CdfLiveRelationSingleSourceRepairOptions,
+  type CdfLiveRelationSingleSourceRepairResult,
   type CdfLiveRelationWriteRepairOptions,
   type CdfLiveRelationWriteRepairResult,
 } from './CdfLiveRelationWriteRepairService';
@@ -256,6 +264,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         manager: unifiedDataSourceManager,
         cardCreator: cdfLiveRelationCardCreator,
         sourceLoader: new CdfLiveRelationSqlSourceLoader(siyuanApi as unknown as CdfLiveRelationSqlPort),
+        candidateScanner: new CdfLiveRelationSqlCandidateSourceScanner(siyuanApi as unknown as CdfLiveRelationCandidateSqlPort),
       })
       : null;
     this.browserCardUniverseReadModule = new BrowserCardUniverseReadModule({
@@ -301,6 +310,42 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       throw new Error('CDF_LIVE_RELATION_CREATE_UNAVAILABLE: Browser CDF write/repair creator is unavailable');
     }
     return this.cdfLiveRelationWriteRepair.reconcileWriteOrRepair(options);
+  }
+
+  async previewFullCdfLiveRelationRepair(
+    options: CdfLiveRelationFullRepairDryRunOptions = {},
+  ): Promise<CdfLiveRelationFullRepairDryRunResult> {
+    if (!this.cdfLiveRelationWriteRepair) {
+      throw new Error('CDF_LIVE_RELATION_REPAIR_PREVIEW_UNAVAILABLE: Browser CDF repair preview is unavailable');
+    }
+    return this.cdfLiveRelationWriteRepair.previewFullRepairDryRun(options);
+  }
+
+  async executeFullCdfLiveRelationRepair(
+    options: CdfLiveRelationFullRepairExecuteOptions = {},
+  ): Promise<CdfLiveRelationFullRepairExecuteResult> {
+    if (!this.cdfLiveRelationWriteRepair) {
+      throw new Error('CDF_LIVE_RELATION_REPAIR_EXECUTE_UNAVAILABLE: Browser CDF repair execute is unavailable');
+    }
+    return this.cdfLiveRelationWriteRepair.executeFullRepair(options);
+  }
+
+  async previewSingleSourceCdfLiveRelationRepair(
+    options: CdfLiveRelationSingleSourceRepairOptions,
+  ): Promise<CdfLiveRelationSingleSourceRepairResult> {
+    if (!this.cdfLiveRelationWriteRepair) {
+      throw new Error('CDF_LIVE_RELATION_SINGLE_SOURCE_REPAIR_PREVIEW_UNAVAILABLE: Browser CDF single-source repair preview is unavailable');
+    }
+    return this.cdfLiveRelationWriteRepair.previewSingleSourceRepairDryRun(options);
+  }
+
+  async executeSingleSourceCdfLiveRelationRepair(
+    options: CdfLiveRelationSingleSourceRepairOptions,
+  ): Promise<CdfLiveRelationSingleSourceRepairResult> {
+    if (!this.cdfLiveRelationWriteRepair) {
+      throw new Error('CDF_LIVE_RELATION_SINGLE_SOURCE_REPAIR_EXECUTE_UNAVAILABLE: Browser CDF single-source repair execute is unavailable');
+    }
+    return this.cdfLiveRelationWriteRepair.executeSingleSourceRepair(options);
   }
 
   getBrowserReadModel(): BrowserReadModel {

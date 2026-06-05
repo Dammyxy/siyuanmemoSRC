@@ -27,6 +27,7 @@ export interface QueueSnapshotRow {
   queueIndex?: number;
   tags: string[];
   blockType?: string | null;
+  meta?: Record<string, unknown>;
 }
 
 export interface QueueSnapshotResult {

@@ -707,6 +707,57 @@ describe('useReviewSession', () => {
     wrapper.unmount();
   });
 
+  it('advances blocked CDF cards without feedback while recording only session diagnostics', async () => {
+    const queue = {
+      ...createQueue(),
+      next: vi.fn(async () => createItem('card-2')),
+    };
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+    });
+    const { getHook, wrapper } = mountHook({
+      queue,
+      adapter,
+      initialCurrentItem: createItem('card-1'),
+      initialSessionState: {
+        initialTotal: 3,
+        answeredCount: 0,
+        correctCount: 0,
+      },
+    });
+    await flushAsync();
+
+    const hook = getHook();
+    await hook.advanceWithoutFeedback({
+      diagnostic: {
+        kind: 'blocked-cdf',
+        cardId: 'card-1',
+        blockId: 'block-card-1',
+        sourceBlockId: 'source-1',
+        reasonCode: 'content-incomplete',
+        reasonLabel: 'Content incomplete',
+      },
+    });
+
+    expect(queue.onFeedback).not.toHaveBeenCalled();
+    expect(hook.state.value.content.id).toBe('card-2');
+    expect(hook.context.value.session?.initialTotal).toBe(2);
+    expect(hook.context.value.session?.answeredCount).toBe(0);
+    expect(hook.context.value.session?.correctCount).toBe(0);
+    expect(hook.context.value.session?.blockedSkippedCount).toBe(1);
+    expect(hook.context.value.session?.blockedSkippedCards).toEqual([
+      expect.objectContaining({
+        kind: 'blocked-cdf',
+        cardId: 'card-1',
+        blockId: 'block-card-1',
+        reasonCode: 'content-incomplete',
+      }),
+    ]);
+    expect(hook.context.value.session?.reviewHistory).toEqual([]);
+
+    wrapper.unmount();
+  });
+
   it('rolls back the last graded session counters on back', async () => {
     const { getHook, wrapper } = mountHook();
     await flushAsync();

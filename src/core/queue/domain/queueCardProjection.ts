@@ -26,6 +26,7 @@ export function buildQueueCardProjection(
   const source = buildSourceContentProjectionFromCard(card);
   return {
     ...buildQueueSnapshotRowFromPayload(memory, source),
+    meta: card.meta,
     note: source.note,
   };
 }
@@ -36,5 +37,8 @@ export function buildQueueSnapshotRow(
 ): QueueSnapshotRow {
   const memory = buildMemoryItemSnapshot(card, options);
   const source = buildSourceContentProjectionFromCard(card);
-  return buildQueueSnapshotRowFromPayload(memory, source);
+  return {
+    ...buildQueueSnapshotRowFromPayload(memory, source),
+    meta: card.meta,
+  };
 }

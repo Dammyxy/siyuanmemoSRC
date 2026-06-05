@@ -35,6 +35,25 @@ function card(overrides: Partial<FSRSCard> = {}): FSRSCard {
   };
 }
 
+function cdfCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
+  return card({
+    id: 'cdf-card-1',
+    blockId: 'cdf-source-1',
+    due: 100,
+    type: CardType.Concept,
+    meta: {
+      relationAuthority: 'live-backlink',
+      liveRelationKey: 'cdf-source-1:concept-1:definition-forward',
+      sourceBlockId: 'cdf-source-1',
+      conceptBlockId: 'concept-1',
+      relationKind: 'definition-forward',
+      liveRelationStatus: 'active-live',
+      liveContentStatus: 'content-complete',
+    },
+    ...overrides,
+  });
+}
+
 describe('reviewDataObserverRuntime', () => {
   it('normalizes filter ids and matches scoped card type', () => {
     const current = card({ type: CardType.Concept, meta: { rootID: ' doc-1 ' } });
@@ -105,6 +124,55 @@ describe('reviewDataObserverRuntime', () => {
     });
   });
 
+  it('does not append created live CDF cards through the generic doc-scope created path', async () => {
+    const createdCdf = cdfCard({
+      id: 'created-cdf',
+      blockId: 'created-cdf-source',
+      meta: {
+        rootId: 'doc-1',
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'created-cdf-source:concept-1:definition-forward',
+        sourceBlockId: 'created-cdf-source',
+        conceptBlockId: 'concept-1',
+        relationKind: 'definition-forward',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+      },
+    });
+    const appendCardsToTail = vi.fn(() => 1);
+    const manager = {
+      getCard: vi.fn(async () => createdCdf),
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+    };
+    const runtime = createReviewDataObserverRuntime({
+      logger: {},
+      getManager: () => manager as never,
+      getFilterGroupQueue: () => ({
+        getFilter: () => ({ scopeDocIds: ['doc-1'], blockIds: [], cardType: CardType.Concept }),
+      }),
+      getFilterCommandClient: () => ({ setFilterGroupFilter: vi.fn(async () => true) }),
+      getQueueStrategyWithTailAppend: () => ({ appendCardsToTail }),
+      getActiveQueueStrategy: () => null,
+      getCurrentReference: () => ({ cardId: 'current', blockId: 'current-block' }),
+      getCurrentCard: () => null,
+      getSession: () => ({ initialTotal: 2 }),
+      setAppliedFilter: vi.fn(),
+      setShowAnswer: vi.fn(),
+      isAdvancePending: () => false,
+      buildExpectedRefreshOptions: () => ({ expectedCurrentCardId: '', expectedCurrentBlockId: '' }),
+      refreshCurrentItem: vi.fn(),
+      refreshCurrentReviewCard: vi.fn(),
+      advanceCurrentReviewCardByReference: vi.fn(),
+      removeCardIdsFromActiveQueue: vi.fn(),
+    });
+
+    runtime.bind();
+    await runtime.appendCreatedCardsToActiveScopeQueue(['created-cdf']);
+
+    expect(appendCardsToTail).not.toHaveBeenCalled();
+  });
+
   it('routes delete and pending update events through injected review actions', () => {
     const advance = vi.fn();
     const remove = vi.fn();
@@ -136,5 +204,119 @@ describe('reviewDataObserverRuntime', () => {
     expect(advance).toHaveBeenCalledWith({ cardId: 'current', blockId: 'block-current' });
     expect(remove).toHaveBeenCalledWith(['other']);
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('appends externally restored due CDF cards once without interrupting the current card', async () => {
+    const currentCard = card({ id: 'current', blockId: 'current-block' });
+    const restored = cdfCard({
+      id: 'restored-due',
+      blockId: 'restored-source',
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'restored-source:concept-1:definition-forward',
+        sourceBlockId: 'restored-source',
+        conceptBlockId: 'concept-1',
+        relationKind: 'definition-forward',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+      },
+    });
+    const notDue = cdfCard({
+      id: 'restored-not-due',
+      due: 200,
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'not-due-source:concept-1:definition-forward',
+        sourceBlockId: 'not-due-source',
+        conceptBlockId: 'concept-1',
+        relationKind: 'definition-forward',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+      },
+    });
+    const incomplete = cdfCard({
+      id: 'restored-incomplete',
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'incomplete-source:concept-1:definition-forward',
+        sourceBlockId: 'incomplete-source',
+        conceptBlockId: 'concept-1',
+        relationKind: 'definition-forward',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-incomplete',
+      },
+    });
+    const appendCardsToTail = vi.fn(() => 1);
+    const refreshCurrentItem = vi.fn();
+    const notifyMidSessionInserted = vi.fn();
+    const session = {
+      initialTotal: 2,
+      reviewHistory: [],
+    };
+    const manager = {
+      getCard: vi.fn(async (cardId: string) => {
+        if (cardId === 'restored-due') return restored;
+        if (cardId === 'restored-not-due') return notDue;
+        if (cardId === 'restored-incomplete') return incomplete;
+        return null;
+      }),
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+    };
+
+    const runtime = createReviewDataObserverRuntime({
+      logger: {},
+      now: () => 100,
+      notifyMidSessionInserted,
+      getManager: () => manager as never,
+      getFilterGroupQueue: () => null,
+      getFilterCommandClient: () => null,
+      getQueueStrategyWithTailAppend: () => ({ appendCardsToTail }),
+      getActiveQueueStrategy: () => null,
+      getCurrentReference: () => ({ cardId: 'current', blockId: 'current-block' }),
+      getCurrentCard: () => currentCard,
+      getSession: () => session,
+      setAppliedFilter: vi.fn(),
+      setShowAnswer: vi.fn(),
+      isAdvancePending: () => false,
+      buildExpectedRefreshOptions: (reference) => ({
+        expectedCurrentCardId: String(reference?.cardId || ''),
+        expectedCurrentBlockId: String(reference?.blockId || ''),
+      }),
+      refreshCurrentItem,
+      refreshCurrentReviewCard: vi.fn(),
+      advanceCurrentReviewCardByReference: vi.fn(),
+      removeCardIdsFromActiveQueue: vi.fn(),
+    });
+
+    runtime.bind();
+    await runtime.appendDueCdfCardsByIds([
+      'restored-due',
+      'restored-not-due',
+      'restored-incomplete',
+      'restored-due',
+    ], 'external-cdf-repair');
+
+    expect(appendCardsToTail).toHaveBeenCalledWith([restored]);
+    expect(session.initialTotal).toBe(3);
+    expect(session.midSessionInsertedCount).toBe(1);
+    expect(session.midSessionInsertedCards).toEqual([
+      expect.objectContaining({
+        origin: 'external-cdf-repair',
+        cardId: 'restored-due',
+        blockId: 'restored-source',
+        sourceBlockId: 'restored-source',
+      }),
+    ]);
+    expect(session.reviewHistory).toEqual([]);
+    expect(notifyMidSessionInserted).toHaveBeenCalledWith({
+      count: 1,
+      origin: 'external-cdf-repair',
+      cards: [restored],
+    });
+    expect(refreshCurrentItem).toHaveBeenCalledWith(currentCard, {
+      expectedCurrentCardId: 'current',
+      expectedCurrentBlockId: 'current-block',
+    });
   });
 });

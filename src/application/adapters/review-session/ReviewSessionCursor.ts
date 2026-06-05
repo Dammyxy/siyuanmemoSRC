@@ -405,6 +405,7 @@ export class ReviewSessionCursor {
     if (!Array.isArray(cards) || cards.length === 0) {
       return 0;
     }
+    const previousLength = this.cachedCards.length;
     const existingCardIds = new Set(this.cachedCards.map((card) => normalizeCardId(card.id)).filter(Boolean));
     const appendedCards = cards
       .filter((card) => {
@@ -419,6 +420,7 @@ export class ReviewSessionCursor {
       return 0;
     }
     this.cachedCards.push(...appendedCards);
+    this.spreadSameSourceTail(previousLength);
     this.lastCounterSnapshot = null;
     return appendedCards.length;
   }
@@ -609,6 +611,47 @@ export class ReviewSessionCursor {
       this.currentIndex = this.cachedCards.length;
     }
   }
+
+  private spreadSameSourceTail(previousLength: number): void {
+    const tailStart = this.resolveTailSpreadStart(previousLength);
+    if (tailStart >= this.cachedCards.length - 1) {
+      return;
+    }
+
+    const prefix = this.cachedCards.slice(0, tailStart);
+    const tail = this.spreadSameSourceCards(
+      this.cachedCards.slice(tailStart),
+      tailStart > 0 ? readSourceBlockId(this.cachedCards[tailStart - 1]) : '',
+    );
+    this.cachedCards = [...prefix, ...tail];
+  }
+
+  private resolveTailSpreadStart(previousLength: number): number {
+    const hasPreparedNext = this.currentIndex < Math.max(0, previousLength);
+    return Math.max(0, Math.min(
+      this.cachedCards.length,
+      this.currentIndex + (hasPreparedNext ? 1 : 0),
+    ));
+  }
+
+  private spreadSameSourceCards(cards: FSRSCard[], previousSourceBlockId: string): FSRSCard[] {
+    const remaining = cards.map(cloneCard);
+    const ordered: FSRSCard[] = [];
+    let lastSourceBlockId = previousSourceBlockId;
+
+    while (remaining.length > 0) {
+      const nextIndex = remaining.findIndex((card) => !isSameNonEmptySource(card, lastSourceBlockId));
+      const selectedIndex = nextIndex >= 0 ? nextIndex : 0;
+      const [selected] = remaining.splice(selectedIndex, 1);
+      if (!selected) {
+        break;
+      }
+      ordered.push(selected);
+      lastSourceBlockId = readSourceBlockId(selected) || lastSourceBlockId;
+    }
+
+    return ordered;
+  }
 }
 
 function cloneCard(card: FSRSCard): FSRSCard {
@@ -625,4 +668,28 @@ function normalizeCardId(cardId: string | null | undefined): string {
 
 function matchesAnyCardIdentity(card: Pick<FSRSCard, 'id' | 'blockId'>, identities: Set<string>): boolean {
   return identities.has(normalizeCardId(card.id)) || identities.has(normalizeCardId(card.blockId));
+}
+
+function readSourceBlockId(card: Pick<FSRSCard, 'blockId' | 'meta'> | undefined): string {
+  const meta = card?.meta;
+  if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+    const source = meta as Record<string, unknown>;
+    const relationAuthority = typeof source.relationAuthority === 'string' ? source.relationAuthority.trim() : '';
+    const liveRelationKey = typeof source.liveRelationKey === 'string' ? source.liveRelationKey.trim() : '';
+    if (relationAuthority !== 'live-backlink' && !liveRelationKey) {
+      return '';
+    }
+    const sourceBlockId = source.sourceBlockId;
+    if (typeof sourceBlockId === 'string' && sourceBlockId.trim().length > 0) {
+      return sourceBlockId.trim();
+    }
+  }
+  return '';
+}
+
+function isSameNonEmptySource(card: FSRSCard, previousSourceBlockId: string): boolean {
+  const sourceBlockId = readSourceBlockId(card);
+  return sourceBlockId.length > 0
+    && previousSourceBlockId.length > 0
+    && sourceBlockId === previousSourceBlockId;
 }

@@ -39,7 +39,11 @@ function makeCard(overrides: Partial<BrowserCard> = {}): BrowserCard {
 
 describe('browser column suspended badge', () => {
   const t = (key: string, fallback: string) => (
-    key === 'suspendedBadge' ? '暂停中' : fallback
+    ({
+      cdfContentIncomplete: '内容不完整',
+      cdfRelationDuplicate: '重复关系',
+      suspendedBadge: '暂停中',
+    } as Record<string, string>)[key] || fallback
   );
 
   it('renders suspended badge only from the unified row suspended flag', () => {
@@ -65,5 +69,23 @@ describe('browser column suspended badge', () => {
     expect(rendered instanceof HTMLElement ? rendered.outerHTML : rendered).toContain('暂停中');
     expect(renderedFromNode instanceof HTMLElement ? renderedFromNode.outerHTML : renderedFromNode).toContain('暂停中');
     expect(stateColumn?.valueGetter?.({ data: makeCard({ state: 2 }) })).toBe('复习');
+  });
+
+  it('renders relation abnormal CDF badge before secondary content badge', () => {
+    const rendered = renderBrowserStateCell(makeCard({
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'source:concept:descriptor-forward',
+        liveRelationStatus: 'duplicate-live-relation',
+        liveContentStatus: 'content-incomplete',
+        liveRelationIssues: [],
+      },
+    }), t);
+
+    expect(rendered).toContain('card-browser-grid__cdf-badge--relation');
+    expect(rendered).toContain('重复关系');
+    expect(rendered).toContain('card-browser-grid__cdf-badge--content');
+    expect(rendered).toContain('内容不完整');
+    expect(rendered.indexOf('重复关系')).toBeLessThan(rendered.indexOf('内容不完整'));
   });
 });

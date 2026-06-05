@@ -1,6 +1,10 @@
 import type { FSRSCard } from '@/types/card';
 import type { CdfRelationKind } from '@/core/card/cdf-live-relation';
-import { readCdfLiveRelationMetadata } from '@/core/card/cdf-live-relation';
+import {
+  type CdfContentShape,
+  extractSafeCardSourceGrammarFields,
+  readCdfLiveRelationMetadata,
+} from '@/core/card/cdf-live-relation';
 
 export type ReviewStructuredCardFamily =
   | 'item'
@@ -104,6 +108,57 @@ export interface ReviewStructuredFieldModel {
   relationChips: ReviewStructuredRelationChip[];
   direction: ReviewStructuredDirection;
   fallbackReason: string | null;
+}
+
+const STRUCTURED_FIELD_TARGET_ID_SEPARATOR = '::structured-field::';
+
+export function createReviewStructuredFieldTargetId(sourceTargetId: string, fieldId: string): string {
+  return `${sourceTargetId}${STRUCTURED_FIELD_TARGET_ID_SEPARATOR}${fieldId}`;
+}
+
+export function parseReviewStructuredFieldTargetId(targetId: string): {
+  sourceTargetId: string;
+  fieldId: string;
+} | null {
+  const index = targetId.indexOf(STRUCTURED_FIELD_TARGET_ID_SEPARATOR);
+  if (index < 0) {
+    return null;
+  }
+
+  const sourceTargetId = targetId.slice(0, index);
+  const fieldId = targetId.slice(index + STRUCTURED_FIELD_TARGET_ID_SEPARATOR.length);
+  if (!sourceTargetId || !fieldId) {
+    return null;
+  }
+
+  return { sourceTargetId, fieldId };
+}
+
+export function extractReviewStructuredGrammarFieldValue(input: {
+  field: ReviewStructuredField;
+  family: Exclude<ReviewStructuredCardFamily, 'source'>;
+  source: string;
+  descriptorGroupLeaf?: boolean;
+}): string | null {
+  if (input.field.origin.kind !== 'grammar') {
+    return null;
+  }
+
+  const extracted = extractSafeCardSourceGrammarFields({
+    source: input.source,
+    family: input.family,
+    descriptorGroupLeaf: input.descriptorGroupLeaf,
+  });
+  if (!extracted.ok) {
+    return null;
+  }
+
+  return extracted.fields.find(field => field.role === input.field.role)?.value ?? null;
+}
+
+interface ReviewStructuredFieldBuildResult {
+  fields: ReviewStructuredFieldInput[];
+  fallbackReason?: string;
 }
 
 const FIELD_LABELS: Record<ReviewStructuredFieldRole, string> = {
@@ -396,6 +451,72 @@ function createExplicitField(
   };
 }
 
+function createGrammarField(
+  role: ReviewStructuredFieldRole,
+  value: string,
+  source: ReviewStructuredExplicitFieldSource,
+): ReviewStructuredFieldInput {
+  return {
+    id: role,
+    role,
+    value,
+    blockId: source.blockId,
+    originKind: 'grammar',
+  };
+}
+
+function readMetaContentShape(card: FSRSCard | null | undefined): string {
+  return normalizeString(card?.meta?.contentShape)
+    || normalizeString(card?.meta?.liveContentShape);
+}
+
+export function hasReviewStructuredDescriptorGroupLeafShape(card: FSRSCard | null | undefined): boolean {
+  const shape = readMetaContentShape(card);
+  return shape === 'descriptor-group-plain' || shape === 'descriptor-group-arrow';
+}
+
+export function readReviewStructuredContentShape(
+  card: FSRSCard | null | undefined,
+): CdfContentShape | null {
+  const shape = readMetaContentShape(card);
+  if (
+    shape === 'definition'
+    || shape === 'item'
+    || shape === 'descriptor-explicit'
+    || shape === 'descriptor-group-plain'
+    || shape === 'descriptor-group-arrow'
+  ) {
+    return shape;
+  }
+  return null;
+}
+
+function buildGrammarFieldsFromExplicitSource(
+  family: Exclude<ReviewStructuredCardFamily, 'source'>,
+  source: ReviewStructuredExplicitFieldSource,
+  options: { descriptorGroupLeaf?: boolean } = {},
+): ReviewStructuredFieldBuildResult {
+  const extracted = extractSafeCardSourceGrammarFields({
+    source: source.value,
+    family,
+    descriptorGroupLeaf: options.descriptorGroupLeaf,
+  });
+  if (!extracted.ok) {
+    return {
+      fields: [],
+      fallbackReason: extracted.reason,
+    };
+  }
+
+  return {
+    fields: extracted.fields.map(field => createGrammarField(
+      field.role,
+      field.value,
+      source,
+    )),
+  };
+}
+
 function createExplicitSourceFallback(
   input: ReviewStructuredExplicitFieldModelInput,
   sources: ReviewStructuredExplicitFieldSource[],
@@ -417,7 +538,7 @@ function createExplicitSourceFallback(
 function buildItemFieldsFromExplicitSources(
   card: FSRSCard | null | undefined,
   sources: ReviewStructuredExplicitFieldSource[],
-): ReviewStructuredFieldInput[] {
+): ReviewStructuredFieldBuildResult {
   const fieldMapping = readFieldMapping(card);
   const mappedQuestionBlockId = fieldMapping.question || fieldMapping.front || fieldMapping.prompt || '';
   const mappedAnswerBlockId = fieldMapping.answer || fieldMapping.back || fieldMapping.response || '';
@@ -425,10 +546,12 @@ function buildItemFieldsFromExplicitSources(
     const question = findExplicitSourceByBlockId(sources, mappedQuestionBlockId);
     const answer = findExplicitSourceByBlockId(sources, mappedAnswerBlockId);
     if (question && answer) {
-      return [
-        createExplicitField('question', question, 'field-mapping'),
-        createExplicitField('answer', answer, 'field-mapping'),
-      ];
+      return {
+        fields: [
+          createExplicitField('question', question, 'field-mapping'),
+          createExplicitField('answer', answer, 'field-mapping'),
+        ],
+      };
     }
   }
 
@@ -438,60 +561,104 @@ function buildItemFieldsFromExplicitSources(
     const question = findExplicitSourceByBlockId(sources, metaQuestionBlockId);
     const answer = findExplicitSourceByBlockId(sources, metaAnswerBlockId);
     if (question && answer) {
-      return [
-        createExplicitField('question', question, 'block-id'),
-        createExplicitField('answer', answer, 'block-id'),
-      ];
+      return {
+        fields: [
+          createExplicitField('question', question, 'block-id'),
+          createExplicitField('answer', answer, 'block-id'),
+        ],
+      };
     }
   }
 
-  return [];
+  const hasExplicitIdentityHint = Boolean(
+    mappedQuestionBlockId
+    || mappedAnswerBlockId
+    || metaQuestionBlockId
+    || metaAnswerBlockId,
+  );
+  if (!hasExplicitIdentityHint && sources.length === 1) {
+    return buildGrammarFieldsFromExplicitSource('item', sources[0]);
+  }
+
+  return { fields: [] };
 }
 
 function buildDefinitionFieldsFromExplicitSources(
   card: FSRSCard | null | undefined,
   sources: ReviewStructuredExplicitFieldSource[],
-): ReviewStructuredFieldInput[] {
+): ReviewStructuredFieldBuildResult {
   const fieldMapping = readFieldMapping(card);
   const liveMeta = readCdfLiveRelationMetadata(card);
   const mappedDefinitionBlockId = fieldMapping.definition || '';
   const mappedDefinition = findExplicitSourceByBlockId(sources, mappedDefinitionBlockId)
     || (mappedDefinitionBlockId ? null : findExplicitSourceByRole(sources, 'definition'));
   if (mappedDefinition) {
-    return [createExplicitField('definition', mappedDefinition, 'field-mapping')];
+    const grammar = buildGrammarFieldsFromExplicitSource('definition', mappedDefinition);
+    if (grammar.fields.length > 0 || grammar.fallbackReason === 'invalid-source-grammar') {
+      return grammar;
+    }
+    return {
+      fields: [createExplicitField('definition', mappedDefinition, 'field-mapping')],
+    };
   }
 
   const sourceBlockId = liveMeta.relationKind?.startsWith('definition-')
     ? liveMeta.sourceBlockId || readFirstMetaBlockId(card, 'backBlockIDs') || readFirstMetaBlockId(card, 'frontBlockIDs')
     : '';
   const source = findExplicitSourceByBlockId(sources, sourceBlockId);
-  return source ? [createExplicitField('definition', source, 'block-id')] : [];
+  if (!source) {
+    return { fields: [] };
+  }
+
+  const grammar = buildGrammarFieldsFromExplicitSource('definition', source);
+  if (grammar.fields.length > 0 || grammar.fallbackReason === 'invalid-source-grammar') {
+    return grammar;
+  }
+
+  return {
+    fields: [createExplicitField('definition', source, 'block-id')],
+  };
 }
 
 function buildDescriptorFieldsFromExplicitSources(
   card: FSRSCard | null | undefined,
   sources: ReviewStructuredExplicitFieldSource[],
-): ReviewStructuredFieldInput[] {
+): ReviewStructuredFieldBuildResult {
   const fieldMapping = readFieldMapping(card);
   const liveMeta = readCdfLiveRelationMetadata(card);
   const mappedDescriptorBlockId = fieldMapping.descriptor || '';
   const mappedDescriptor = findExplicitSourceByBlockId(sources, mappedDescriptorBlockId)
     || (mappedDescriptorBlockId ? null : findExplicitSourceByRole(sources, 'descriptor'));
   if (mappedDescriptor) {
-    return [createExplicitField('source', mappedDescriptor, 'field-mapping', 'Descriptor')];
+    const grammar = buildGrammarFieldsFromExplicitSource('descriptor', mappedDescriptor, {
+      descriptorGroupLeaf: hasReviewStructuredDescriptorGroupLeafShape(card),
+    });
+    if (grammar.fields.length > 0 || grammar.fallbackReason === 'invalid-source-grammar') {
+      return grammar;
+    }
+    return {
+      fields: [createExplicitField('source', mappedDescriptor, 'field-mapping', 'Descriptor')],
+    };
   }
 
   const sourceBlockId = liveMeta.relationKind?.startsWith('descriptor-')
     ? liveMeta.sourceBlockId || readFirstMetaBlockId(card, 'frontBlockIDs') || readFirstMetaBlockId(card, 'backBlockIDs')
     : '';
   const source = findExplicitSourceByBlockId(sources, sourceBlockId);
-  return source ? [createExplicitField('source', source, 'block-id', 'Descriptor')] : [];
-}
+  if (!source) {
+    return { fields: [] };
+  }
 
-function hasBlockingInvalidGrammarIssue(card: FSRSCard | null | undefined): boolean {
-  return readCdfLiveRelationMetadata(card).liveRelationIssues.some(issue => (
-    issue.code === 'invalid-source-grammar' && issue.severity === 'blocking'
-  ));
+  const grammar = buildGrammarFieldsFromExplicitSource('descriptor', source, {
+    descriptorGroupLeaf: hasReviewStructuredDescriptorGroupLeafShape(card),
+  });
+  if (grammar.fields.length > 0 || grammar.fallbackReason === 'invalid-source-grammar') {
+    return grammar;
+  }
+
+  return {
+    fields: [createExplicitField('source', source, 'block-id', 'Descriptor')],
+  };
 }
 
 export function buildReviewStructuredFieldModelFromExplicitSources(
@@ -509,27 +676,23 @@ export function buildReviewStructuredFieldModelFromExplicitSources(
     });
   }
 
-  if (hasBlockingInvalidGrammarIssue(input.card)) {
-    return createExplicitSourceFallback(input, sources, 'invalid-source-grammar');
-  }
-
-  const fields = family === 'definition'
+  const fieldBuild = family === 'definition'
     ? buildDefinitionFieldsFromExplicitSources(input.card, sources)
     : family === 'descriptor'
       ? buildDescriptorFieldsFromExplicitSources(input.card, sources)
       : buildItemFieldsFromExplicitSources(input.card, sources);
 
-  if (fields.length === 0) {
+  if (fieldBuild.fields.length === 0) {
     return createExplicitSourceFallback(
       input,
       sources,
-      input.fallbackReason || 'explicit-field-identity-unavailable',
+      fieldBuild.fallbackReason || input.fallbackReason || 'explicit-field-identity-unavailable',
     );
   }
 
   return buildReviewStructuredFieldModel({
     card: input.card,
     family,
-    fields,
+    fields: fieldBuild.fields,
   });
 }

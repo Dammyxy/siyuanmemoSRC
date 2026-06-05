@@ -1,6 +1,11 @@
 import { evaluateCdfContentStatus } from './contentStatus';
 import { createCdfLiveRelationKey } from './relationKey';
-import { parseCardSourceGrammar, splitSourceByOperator, type CardSourceOperatorToken } from './sourceGrammar';
+import {
+  parseCardSourceGrammar,
+  splitGroupedDescriptorLeafSource,
+  splitSourceByOperator,
+  type CardSourceOperatorToken,
+} from './sourceGrammar';
 import type {
   CdfConceptBinding,
   CdfConceptTarget,
@@ -41,7 +46,6 @@ interface RefOccurrence {
 
 const BLOCK_REF_RE = /\(\((\d{14}-[a-z0-9]{7})(?:\s+[^\)]*)?\)\)/gi;
 const TRAILING_BLOCK_ATTR_PATTERN = /\s*\{:[^{}]*\}\s*$/s;
-const ARROW_SPLIT_RE = /^(.*?)\s*(?:->|→)\s*(.+)$/s;
 
 function normalizeText(value: string | null | undefined): string {
   return String(value || '').replace(TRAILING_BLOCK_ATTR_PATTERN, '').trim();
@@ -201,30 +205,6 @@ function isDefinitionGroup(operator: CardSourceOperatorToken | null): operator i
 
 function isDescriptorGroup(operator: CardSourceOperatorToken | null): operator is CardSourceOperatorToken {
   return !!operator && operator.role === 'group' && operator.family === 'descriptor';
-}
-
-function splitGroupedDescriptorLeaf(source: string): {
-  shape: CdfContentShape;
-  content: CdfLiveRelationContentFields;
-} {
-  const arrow = source.match(ARROW_SPLIT_RE);
-  if (arrow) {
-    return {
-      shape: 'descriptor-group-arrow',
-      content: {
-        cue: normalizeText(arrow[1]),
-        answer: normalizeText(arrow[2]),
-      },
-    };
-  }
-
-  return {
-    shape: 'descriptor-group-plain',
-    content: {
-      cue: '',
-      answer: normalizeText(source),
-    },
-  };
 }
 
 function createCandidate(input: {
@@ -387,7 +367,7 @@ function scanDescriptorGroupLeaf(
   context: ScanContext,
   state: MutableDeriveState,
 ): void {
-  const parsed = splitGroupedDescriptorLeaf(readNodeMarkdown(node));
+  const parsed = splitGroupedDescriptorLeafSource(readNodeMarkdown(node));
   addCandidatesForConcepts({
     state,
     node,
@@ -489,12 +469,6 @@ function scanNode(
     scanDefinitionGroupPlainChild(node, context, state);
   } else if (context.descriptorGroup && isLeaf(node) && source.length > 0) {
     scanDescriptorGroupLeaf(node, context, state);
-  } else if (source.length === 0 && grammar.operators.length === 0 && (context.definitionGroup || context.descriptorGroup)) {
-    addSourceIssues(state, node.id, [{
-      code: 'empty-source',
-      severity: 'blocking',
-      sourceBlockId: node.id,
-    }]);
   } else {
     addSourceIssues(state, node.id, grammarIssues);
   }

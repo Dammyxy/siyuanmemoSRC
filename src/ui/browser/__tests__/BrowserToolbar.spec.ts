@@ -13,6 +13,11 @@ const baseProps = {
     overdue: 'Overdue',
     leech: 'Leech',
     new: 'New',
+    filterPresetCdfAbnormal: 'CDF Abnormal',
+    filterPresetCdfOrphaned: 'CDF Orphaned',
+    filterPresetCdfDuplicate: 'CDF Duplicate',
+    filterPresetCdfLegacyUnavailable: 'CDF Legacy Unavailable',
+    filterPresetCdfContentIncomplete: 'CDF Content Incomplete',
     allFlashcards: 'All flashcards',
     cardTypeAll: 'All types',
     hierarchyView: 'Hierarchy',
@@ -147,6 +152,29 @@ describe('BrowserToolbar surface actions', () => {
 
     expect(chips.length).toBeGreaterThan(0);
     expect(chips.some((chip) => chip.includes('Hierarchy'))).toBe(true);
+  });
+
+  it('offers CDF diagnostic presets and labels the active preset chip', () => {
+    const wrapper = mount(BrowserToolbar, {
+      props: {
+        ...baseProps,
+        mode: 'tab',
+        layoutProfile: 'tab-narrow',
+        currentPreset: 'cdf-content-incomplete',
+      },
+    });
+
+    const presetOptions = wrapper.findAll('select').at(0)?.findAll('option').map((option) => option.attributes('value'));
+    const chips = wrapper.findAll('.toolbar__chip').map((chip) => chip.text());
+
+    expect(presetOptions).toEqual(expect.arrayContaining([
+      'cdf-abnormal',
+      'cdf-orphaned',
+      'cdf-duplicate',
+      'cdf-legacy-unavailable',
+      'cdf-content-incomplete',
+    ]));
+    expect(chips.some((chip) => chip.includes('CDF Content Incomplete'))).toBe(true);
   });
 
   it('shows document-tree scope affordances when scoped doc ids are active', () => {

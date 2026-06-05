@@ -48,6 +48,12 @@ import type { BrowserSiyuanPort } from '../ports/BrowserSiyuanPort';
 import type { FSRSCard } from '@/types/card';
 import type { CdfLiveRelationRefreshResult } from '../services/CdfLiveRelationRefreshService';
 import type {
+  CdfLiveRelationFullRepairExecuteOptions,
+  CdfLiveRelationFullRepairExecuteResult,
+  CdfLiveRelationFullRepairDryRunOptions,
+  CdfLiveRelationFullRepairDryRunResult,
+  CdfLiveRelationSingleSourceRepairOptions,
+  CdfLiveRelationSingleSourceRepairResult,
   CdfLiveRelationWriteRepairOptions,
   CdfLiveRelationWriteRepairResult,
 } from '../services/CdfLiveRelationWriteRepairService';
@@ -108,6 +114,10 @@ export interface IBrowserApplicationService {
 
   refreshCdfLiveRelationOnOpen?(card: FSRSCard | string): Promise<CdfLiveRelationRefreshResult>;
   reconcileCdfLiveRelationsInWriteRepairFlow?(options: CdfLiveRelationWriteRepairOptions): Promise<CdfLiveRelationWriteRepairResult>;
+  previewFullCdfLiveRelationRepair?(options?: CdfLiveRelationFullRepairDryRunOptions): Promise<CdfLiveRelationFullRepairDryRunResult>;
+  executeFullCdfLiveRelationRepair?(options?: CdfLiveRelationFullRepairExecuteOptions): Promise<CdfLiveRelationFullRepairExecuteResult>;
+  previewSingleSourceCdfLiveRelationRepair?(options: CdfLiveRelationSingleSourceRepairOptions): Promise<CdfLiveRelationSingleSourceRepairResult>;
+  executeSingleSourceCdfLiveRelationRepair?(options: CdfLiveRelationSingleSourceRepairOptions): Promise<CdfLiveRelationSingleSourceRepairResult>;
 
   /**
    * 获取浏览器卡片列表

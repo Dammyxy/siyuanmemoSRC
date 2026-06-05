@@ -27,6 +27,13 @@
       >
         <header class="review-inline-card-editor__content-header">
           <div class="review-inline-card-editor__section-title">{{ contentTitle }}</div>
+          <span
+            v-if="sourceFallbackWarning"
+            class="review-inline-card-editor__field-warning"
+            data-testid="review-structured-field-warning"
+          >
+            {{ sourceFallbackWarning }}
+          </span>
         </header>
 
         <div
@@ -71,7 +78,10 @@
           :confirm-label="saveLabel"
           :confirm-disabled="sourceConfirmDisabled"
           :cancel-label="cancelLabel"
+          :source-latest-conflict-label="sourceLatestConflictLabel"
+          :draft-overwrite-conflict-label="draftOverwriteConflictLabel"
           @update-target="(targetId, value) => emit('update-source-target', targetId, value)"
+          @resolve-conflict="(targetId, resolution) => emit('resolve-source-conflict', targetId, resolution)"
           @confirm="emit('confirm-source')"
           @close="emit('close')"
         />
@@ -120,10 +130,18 @@ import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import type FSRSPlugin from '@/index';
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import type { QueueReviewSchedulingContext } from '@/types/unified-data-source';
-import type { ReviewEditableTargetEditorEntry } from '../reviewCurrentContentEditorRuntime';
+import type {
+  ReviewEditableTargetConflictResolution,
+  ReviewEditableTargetEditorEntry,
+} from '../reviewCurrentContentEditorRuntime';
 import type {
   ReviewStructuredDirectionKind,
+  ReviewStructuredField,
   ReviewStructuredFieldModel,
+} from '../reviewStructuredFieldModel';
+import {
+  createReviewStructuredFieldTargetId,
+  extractReviewStructuredGrammarFieldValue,
 } from '../reviewStructuredFieldModel';
 
 const props = defineProps<{
@@ -147,10 +165,13 @@ const props = defineProps<{
   cancelLabel: string;
   saveLabel: string;
   closeLabel: string;
+  sourceLatestConflictLabel: string;
+  draftOverwriteConflictLabel: string;
 }>();
 
 const emit = defineEmits<{
   (e: 'update-source-target', targetId: string, value: string): void;
+  (e: 'resolve-source-conflict', targetId: string, resolution: ReviewEditableTargetConflictResolution): void;
   (e: 'confirm-source'): void;
   (e: 'close'): void;
   (e: 'scheduled', payload: unknown): void;
@@ -166,6 +187,12 @@ const contentTitle = computed(() => t('reviewStructuredContentTitle', '内容'))
 const contentPlaceholder = computed(() => t('reviewStructuredContentNoFields', '当前卡片没有可编辑内容字段'));
 const secondaryTitle = computed(() => t('reviewCardAttributeSection', '卡片属性'));
 const relationChips = computed(() => props.structuredModel?.relationChips || []);
+const sourceFallbackWarning = computed(() => {
+  if (props.structuredModel?.fallbackReason === 'invalid-source-grammar') {
+    return t('reviewStructuredInvalidGrammarWarning', '当前源码语法无效，请修正后保存以恢复结构化字段');
+  }
+  return '';
+});
 const directionKind = computed<ReviewStructuredDirectionKind>(() => (
   props.structuredModel?.direction.kind || 'unknown'
 ));
@@ -177,12 +204,29 @@ const structuredSourceEntries = computed<ReviewEditableTargetEditorEntry[]>(() =
     return props.sourceEntries;
   }
 
-  return props.sourceEntries.map((entry) => {
-    const fieldIndex = fields.findIndex(field => field.origin.blockId === entry.target.blockId);
-    if (fieldIndex < 0) {
-      return entry;
+  return props.sourceEntries.flatMap((entry) => {
+    const matchingFields = fields.filter(field => field.origin.blockId === entry.target.blockId);
+    const field = matchingFields[0];
+    if (!field) {
+      return [entry];
     }
-    const [field] = fields.splice(fieldIndex, 1);
+
+    const projectedFields = matchingFields.filter(item => shouldUseStructuredFieldValue(item, matchingFields.length));
+    if (projectedFields.length > 0) {
+      return projectedFields.map(projectedField => ({
+        ...entry,
+        value: projectedField.value,
+        originalValue: resolveStructuredFieldOriginalValue(projectedField, entry),
+        saveError: entry.fieldErrors?.[projectedField.id] ?? entry.saveError,
+        conflict: entry.fieldConflicts?.[projectedField.id] ?? entry.conflict,
+        target: {
+          ...entry.target,
+          id: createReviewStructuredFieldTargetId(entry.target.id, projectedField.id),
+          title: projectedField.label,
+        },
+      }));
+    }
+
     return {
       ...entry,
       target: {
@@ -192,6 +236,42 @@ const structuredSourceEntries = computed<ReviewEditableTargetEditorEntry[]>(() =
     };
   });
 });
+
+function shouldUseStructuredFieldValue(field: ReviewStructuredField, sameBlockFieldCount: number): boolean {
+  if (field.origin.kind !== 'grammar') {
+    return false;
+  }
+
+  const family = props.structuredModel?.family;
+  if (family === 'definition') {
+    return sameBlockFieldCount === 1 && field.role === 'definition';
+  }
+  if (family === 'descriptor') {
+    return field.role === 'cue' || field.role === 'answer';
+  }
+  if (family === 'item') {
+    return field.role === 'question' || field.role === 'answer';
+  }
+
+  return false;
+}
+
+function resolveStructuredFieldOriginalValue(
+  field: ReviewStructuredField,
+  entry: ReviewEditableTargetEditorEntry,
+): string {
+  const family = props.structuredModel?.family;
+  if (family !== 'item' && family !== 'definition' && family !== 'descriptor') {
+    return entry.originalValue;
+  }
+
+  return extractReviewStructuredGrammarFieldValue({
+    field,
+    family,
+    source: entry.originalValue,
+    descriptorGroupLeaf: family === 'descriptor',
+  }) ?? field.originalValue;
+}
 const showStructuredContext = computed(() => (
   relationChips.value.length > 0 || directionKind.value !== 'unknown'
 ));
@@ -284,6 +364,8 @@ const directionLabel = computed(() => resolveDirectionLabel(directionKind.value)
 .review-inline-card-editor__content-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   border-bottom: 1px solid var(--b3-border-color);
 }
 
@@ -292,6 +374,14 @@ const directionLabel = computed(() => resolveDirectionLabel(directionKind.value)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.review-inline-card-editor__field-warning {
+  min-width: 0;
+  color: var(--b3-theme-error);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
 }
 
 .review-inline-card-editor__source {

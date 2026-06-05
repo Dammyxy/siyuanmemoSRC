@@ -172,6 +172,35 @@ describe('BrowserDeckQueryKernel scopeDocIds', () => {
           liveRelationIssues: [],
         },
       }),
+      buildCard('card-duplicate', 'block-duplicate', 'doc-1', now - 1_000, 'duplicate', {
+        type: 'descriptor',
+        meta: {
+          relationAuthority: 'live-backlink',
+          liveRelationKey: 'source:concept:definition-forward',
+          liveRelationStatus: 'duplicate-live-relation',
+          liveContentStatus: 'content-complete',
+          liveRelationIssues: [],
+        },
+      }),
+      buildCard('card-legacy-unavailable', 'block-legacy-unavailable', 'doc-1', now - 1_000, 'legacy unavailable', {
+        type: 'descriptor',
+        meta: {
+          relationAuthority: 'live-backlink',
+          liveRelationStatus: 'legacy-relation-unavailable',
+          liveContentStatus: 'content-complete',
+          liveRelationIssues: [],
+        },
+      }),
+      buildCard('card-blocking', 'block-blocking', 'doc-1', now - 1_000, 'blocking', {
+        type: 'descriptor',
+        meta: {
+          relationAuthority: 'live-backlink',
+          liveRelationKey: 'source:concept:descriptor-forward',
+          liveRelationStatus: 'active-live',
+          liveContentStatus: 'content-complete',
+          liveRelationIssues: [{ code: 'invalid-source-grammar', severity: 'blocking' }],
+        },
+      }),
       buildCard('card-legacy', 'block-legacy', 'doc-1', now - 1_000, 'legacy', {
         type: 'descriptor',
         meta: {
@@ -209,6 +238,18 @@ describe('BrowserDeckQueryKernel scopeDocIds', () => {
     const normal = await kernel.buildSnapshot({ preset: 'all' });
 
     expect(normal.rows.map((row) => row.id)).toEqual(['card-active', 'card-legacy']);
+
+    const abnormal = await kernel.buildSnapshot({ preset: 'cdf-abnormal' });
+    expect(abnormal.rows.map((row) => row.id)).toEqual([
+      'card-incomplete',
+      'card-orphaned',
+      'card-duplicate',
+      'card-legacy-unavailable',
+      'card-blocking',
+    ]);
+
+    const contentIncomplete = await kernel.buildSnapshot({ preset: 'cdf-content-incomplete' });
+    expect(contentIncomplete.rows.map((row) => row.id)).toEqual(['card-incomplete']);
   });
 
   it('hydrates riff-managed cards from riffCardId content when the local block payload is blank', async () => {

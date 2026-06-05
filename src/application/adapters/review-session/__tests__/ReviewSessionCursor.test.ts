@@ -40,6 +40,32 @@ describe('ReviewSessionCursor', () => {
     expect(cursor.remainingFromCache()).toBe(0);
   });
 
+  it('spreads appended same-source cards without displacing the already prepared next card', () => {
+    const cursor = new ReviewSessionCursor(QueueType.RetrievalPractice);
+    cursor.load([
+      card('current', { meta: { relationAuthority: 'live-backlink', liveRelationKey: 'source-a:concept:definition-forward', sourceBlockId: 'source-a' } }),
+      card('prepared-next', { meta: { relationAuthority: 'live-backlink', liveRelationKey: 'source-a:concept:definition-reverse', sourceBlockId: 'source-a' } }),
+    ]);
+
+    expect(cursor.nextCached()?.card.id).toBe('current');
+
+    const appended = cursor.appendCardsToTail([
+      card('inserted-same', { meta: { relationAuthority: 'live-backlink', liveRelationKey: 'source-a:concept:descriptor-forward', sourceBlockId: 'source-a' } }),
+      card('inserted-other', { meta: { relationAuthority: 'live-backlink', liveRelationKey: 'source-b:concept:definition-forward', sourceBlockId: 'source-b' } }),
+    ]);
+
+    expect(appended).toBe(2);
+    expect(cursor.cached().map((item) => item.id)).toEqual([
+      'current',
+      'prepared-next',
+      'inserted-other',
+      'inserted-same',
+    ]);
+    expect(cursor.nextCached()?.card.id).toBe('prepared-next');
+    expect(cursor.nextCached()?.card.id).toBe('inserted-other');
+    expect(cursor.nextCached()?.card.id).toBe('inserted-same');
+  });
+
   it('replays forward buffer before cached cards', () => {
     const cursor = new ReviewSessionCursor(QueueType.RetrievalPractice);
     cursor.load([card('a')]);

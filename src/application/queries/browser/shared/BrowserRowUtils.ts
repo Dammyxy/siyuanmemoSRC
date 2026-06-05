@@ -9,6 +9,7 @@ import {
   parseQuery,
   type SortValueType,
 } from '@/types/browser';
+import { applyBrowserCdfDiagnosticVisibility } from './CdfBrowserDiagnostics';
 
 type CardTypeFilterValue =
   | 'all'
@@ -464,6 +465,7 @@ export function applyQueueFilters<TRow extends QueueFilterRowLike>(
   querySecondaryField: QuerySecondaryField = 'headline',
 ): TRow[] {
   let result = cards;
+  result = applyBrowserCdfDiagnosticVisibility(result, options.preset);
   result = applyDocFilter(result, options.docId, options.scopeDocIds);
   result = applyLegacyPresetFilter(result, options.preset);
   result = applySimpleQueryFilter(result, options.queryText, { secondaryField: querySecondaryField });

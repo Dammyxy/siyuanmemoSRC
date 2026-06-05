@@ -43,6 +43,40 @@
           @keydown.ctrl.enter.prevent="confirmIfEditable"
           @keydown.meta.enter.prevent="confirmIfEditable"
         ></textarea>
+        <span
+          v-if="entry.saveError"
+          class="review-editable-targets-panel__error"
+          role="alert"
+        >
+          {{ entry.saveError }}
+        </span>
+        <div
+          v-if="entry.conflict"
+          class="review-editable-targets-panel__conflict"
+          data-testid="review-editable-target-conflict"
+        >
+          <div class="review-editable-targets-panel__conflict-message">
+            {{ entry.conflict.message }}
+          </div>
+          <div class="review-editable-targets-panel__conflict-actions">
+            <button
+              class="b3-button b3-button--outline"
+              type="button"
+              :disabled="readonly"
+              @click="emit('resolve-conflict', entry.target.id, 'source-latest')"
+            >
+              {{ sourceLatestConflictLabel }}
+            </button>
+            <button
+              class="b3-button b3-button--text"
+              type="button"
+              :disabled="readonly"
+              @click="emit('resolve-conflict', entry.target.id, 'draft-overwrite')"
+            >
+              {{ draftOverwriteConflictLabel }}
+            </button>
+          </div>
+        </div>
       </label>
     </div>
 
@@ -66,6 +100,8 @@ const props = withDefaults(defineProps<{
   cancelLabel?: string;
   confirmLabel?: string;
   dirtyLabel?: string;
+  sourceLatestConflictLabel?: string;
+  draftOverwriteConflictLabel?: string;
 }>(), {
   readonly: false,
   confirmDisabled: false,
@@ -74,10 +110,13 @@ const props = withDefaults(defineProps<{
   cancelLabel: '取消',
   confirmLabel: '保存',
   dirtyLabel: '已修改',
+  sourceLatestConflictLabel: '使用源文档最新',
+  draftOverwriteConflictLabel: '保留我的草稿',
 });
 
 const emit = defineEmits<{
   (e: 'update-target', targetId: string, value: string): void;
+  (e: 'resolve-conflict', targetId: string, resolution: 'source-latest' | 'draft-overwrite'): void;
   (e: 'confirm'): void;
   (e: 'close'): void;
 }>();
@@ -159,6 +198,34 @@ function confirmIfEditable(): void {
 .review-editable-targets-panel__dirty {
   color: var(--b3-theme-primary);
   font-size: 11px;
+}
+
+.review-editable-targets-panel__error {
+  color: var(--b3-theme-error);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.review-editable-targets-panel__conflict {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--b3-theme-error) 36%, var(--b3-border-color));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--b3-theme-error) 6%, var(--b3-theme-background));
+}
+
+.review-editable-targets-panel__conflict-message {
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.review-editable-targets-panel__conflict-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .review-editable-targets-panel__textarea {

@@ -32,6 +32,7 @@ function buildSnapshotRow(id: string, overrides: Partial<QueueSnapshotRow> = {})
     queueIndex: overrides.queueIndex,
     tags: overrides.tags ?? [],
     blockType: overrides.blockType ?? 'paragraph',
+    meta: overrides.meta,
   };
 }
 
@@ -155,6 +156,71 @@ describe('QueueBrowserQueryKernel', () => {
     expect(queue.getCards).not.toHaveBeenCalled();
   });
 
+  it('filters projection-backed queue rows through CDF diagnostic visibility', async () => {
+    const snapshotRows = [
+      buildSnapshotRow('row-active', {
+        fsrsCardId: 'card-active',
+        blockId: 'block-active',
+        meta: {
+          relationAuthority: 'live-backlink',
+          liveRelationKey: 'source:concept:descriptor-forward',
+          liveRelationStatus: 'active-live',
+          liveContentStatus: 'content-complete',
+          liveRelationIssues: [],
+        },
+      }),
+      buildSnapshotRow('row-incomplete', {
+        fsrsCardId: 'card-incomplete',
+        blockId: 'block-incomplete',
+        meta: {
+          relationAuthority: 'live-backlink',
+          liveRelationKey: 'source:concept:descriptor-reverse',
+          liveRelationStatus: 'active-live',
+          liveContentStatus: 'content-incomplete',
+          liveRelationIssues: [],
+        },
+      }),
+      buildSnapshotRow('row-orphaned', {
+        fsrsCardId: 'card-orphaned',
+        blockId: 'block-orphaned',
+        meta: {
+          relationAuthority: 'live-backlink',
+          liveRelationKey: 'source:concept:definition-forward',
+          liveRelationStatus: 'orphaned-by-live-relation',
+          liveContentStatus: 'content-complete',
+          liveRelationIssues: [],
+        },
+      }),
+    ];
+    const queue = {
+      getProjectionReadMode: vi.fn(() => 'backend-projection'),
+      getSnapshotRows: vi.fn(async () => snapshotRows),
+      getCards: vi.fn(async () => []),
+      getCardsBySnapshotIds: vi.fn(async () => []),
+    };
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      getQueueProjectionRolloutDiagnostics: vi.fn(() => [{
+        queueType: 'retrieval-practice',
+        projectionBacked: true,
+        state: 'backend-projection',
+        readPath: 'backend-projection',
+        reason: 'rollout-enabled',
+        nextCoverageTask: null,
+      }]),
+    } as never;
+    const kernel = new QueueBrowserQueryKernel(manager);
+
+    const normal = await kernel.buildSnapshot({ queueId: 'retrieval', preset: 'all' });
+    const abnormal = await kernel.buildSnapshot({ queueId: 'retrieval', preset: 'cdf-abnormal' });
+    const incomplete = await kernel.buildSnapshot({ queueId: 'retrieval', preset: 'cdf-content-incomplete' });
+
+    expect(normal.rows.map((row) => row.id)).toEqual(['card-active']);
+    expect(abnormal.rows.map((row) => row.id)).toEqual(['card-incomplete', 'card-orphaned']);
+    expect(incomplete.rows.map((row) => row.id)).toEqual(['card-incomplete']);
+    expect(queue.getCards).not.toHaveBeenCalled();
+  });
+
   it('fails closed when projection-backed row hydration cannot return every requested row', async () => {
     const queue = {
       getSnapshotRows: vi.fn(async () => [
@@ -225,6 +291,53 @@ describe('QueueBrowserQueryKernel', () => {
     });
     expect(queue.getCards).toHaveBeenCalledTimes(1);
     expect(queue.getSnapshotRows).not.toHaveBeenCalled();
+  });
+
+  it('filters explicit local queue rows through CDF diagnostic visibility', async () => {
+    const localCards = [
+      buildCard('card-active', {
+        meta: {
+          content: 'active',
+          rootId: 'doc-a',
+          deckId: 'deck-a',
+          relationAuthority: 'live-backlink',
+          liveRelationKey: 'source:concept:descriptor-forward',
+          liveRelationStatus: 'active-live',
+          liveContentStatus: 'content-complete',
+          liveRelationIssues: [],
+        },
+      }),
+      buildCard('card-duplicate', {
+        meta: {
+          content: 'duplicate',
+          rootId: 'doc-a',
+          deckId: 'deck-a',
+          relationAuthority: 'live-backlink',
+          liveRelationKey: 'source:concept:descriptor-forward',
+          liveRelationStatus: 'duplicate-live-relation',
+          liveContentStatus: 'content-incomplete',
+          liveRelationIssues: [],
+        },
+      }),
+    ];
+    const queue = {
+      getProjectionReadMode: vi.fn(() => 'local-queue'),
+      getSnapshotRows: vi.fn(async () => []),
+      getCards: vi.fn(async () => localCards),
+      getCardsBySnapshotIds: vi.fn(async () => []),
+    };
+    const manager = {
+      getQueue: vi.fn(() => queue),
+    } as never;
+    const kernel = new QueueBrowserQueryKernel(manager);
+
+    const normal = await kernel.buildSnapshot({ queueId: 'final-drill', preset: 'all' });
+    const duplicate = await kernel.buildSnapshot({ queueId: 'final-drill', preset: 'cdf-duplicate' });
+    const incomplete = await kernel.buildSnapshot({ queueId: 'final-drill', preset: 'cdf-content-incomplete' });
+
+    expect(normal.rows.map((row) => row.id)).toEqual(['card-active']);
+    expect(duplicate.rows.map((row) => row.id)).toEqual(['card-duplicate']);
+    expect(incomplete.rows.map((row) => row.id)).toEqual(['card-duplicate']);
   });
 
   it('fails closed instead of using local queue rows when no explicit local policy exists', async () => {

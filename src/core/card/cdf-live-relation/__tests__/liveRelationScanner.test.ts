@@ -203,6 +203,42 @@ describe('CDF live relation scanner', () => {
     ]);
   });
 
+  it('ignores blank group children while keeping explicit blank sources content-incomplete', () => {
+    const root = node('root', 'root', [
+      node('definition-group', `((${conceptA})) Chapter :::`, [
+        node('new-blank-definition-child', '   {: id="new-blank-definition-child"}'),
+        node('explicit-empty-definition', `((${conceptA})) :>   {: id="explicit-empty-definition"}`),
+      ]),
+      node('boundary-a', `((${conceptA}))`, [
+        node('descriptor-group', 'Traits ;;;', [
+          node('new-blank-descriptor-child', '   {: id="new-blank-descriptor-child"}'),
+          node('explicit-empty-descriptor', 'cue ;;   {: id="explicit-empty-descriptor"}'),
+        ]),
+      ]),
+    ]);
+
+    const result = deriveCdfLiveRelations(root);
+
+    expect(result.relations.map(relation => ({
+      sourceBlockId: relation.sourceBlockId,
+      contentStatus: relation.contentStatus,
+      content: relation.content,
+    }))).toEqual([
+      {
+        sourceBlockId: 'explicit-empty-definition',
+        contentStatus: 'content-incomplete',
+        content: { definition: '' },
+      },
+      {
+        sourceBlockId: 'explicit-empty-descriptor',
+        contentStatus: 'content-incomplete',
+        content: { cue: 'cue', answer: '' },
+      },
+    ]);
+    expect(result.issues.map(issue => issue.sourceBlockId)).not.toContain('new-blank-definition-child');
+    expect(result.issues.map(issue => issue.sourceBlockId)).not.toContain('new-blank-descriptor-child');
+  });
+
   it('records missing concept ref instead of falling back to source document context', () => {
     const result = deriveCdfLiveRelations(node('descriptor-without-boundary', 'cue ;; answer'));
 

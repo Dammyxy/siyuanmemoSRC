@@ -15,6 +15,7 @@ import {
 import type {
   AdapterContext,
   IAdapter,
+  ReviewAdvanceWithoutFeedbackOptions,
   RefreshCurrentItemOptions,
   ReviewAdvanceReason,
   ReviewUIState,
@@ -63,6 +64,7 @@ export type ReviewSessionUpdateReason =
   | 'reveal'
   | 'grade'
   | 'skip'
+  | 'no-score-removal'
   | 'custom'
   | 'back'
   | 'reload'
@@ -103,6 +105,7 @@ export interface ReviewSessionController<TItem extends QueueItem = QueueItem> {
   reveal: () => void;
   grade: (rating: number) => Promise<void>;
   skip: () => Promise<void>;
+  advanceWithoutFeedback: (options?: ReviewAdvanceWithoutFeedbackOptions) => Promise<void>;
   back: () => Promise<void>;
   executeCommand: (cmdId: string) => Promise<void>;
   reload: () => Promise<void>;
@@ -294,6 +297,10 @@ function ensureSessionState(context: AdapterContext, initialTotal?: number): Non
   session.correctCount = Math.max(0, Number(session.correctCount) || 0);
   session.baselineVersion = Math.max(0, Number(session.baselineVersion) || 0);
   session.reviewHistory = Array.isArray(session.reviewHistory) ? session.reviewHistory : [];
+  session.blockedSkippedCount = Math.max(0, Number(session.blockedSkippedCount) || 0);
+  session.blockedSkippedCards = Array.isArray(session.blockedSkippedCards) ? session.blockedSkippedCards : [];
+  session.midSessionInsertedCount = Math.max(0, Number(session.midSessionInsertedCount) || 0);
+  session.midSessionInsertedCards = Array.isArray(session.midSessionInsertedCards) ? session.midSessionInsertedCards : [];
   context.session = session;
   return session;
 }
@@ -303,6 +310,30 @@ function pushReviewHistory(context: AdapterContext, entry: SessionHistoryEntry):
   session.reviewHistory = [...(session.reviewHistory || []), entry];
   session.answeredCount = Math.max(0, (session.answeredCount || 0) + entry.answeredDelta);
   session.correctCount = Math.max(0, (session.correctCount || 0) + entry.correctDelta);
+}
+
+function pushNoScoreRemovalDiagnostic(
+  context: AdapterContext,
+  options?: ReviewAdvanceWithoutFeedbackOptions,
+): void {
+  const diagnostic = options?.diagnostic;
+  if (!diagnostic) {
+    return;
+  }
+
+  const session = ensureSessionState(context);
+  const nextDiagnostic = {
+    ...diagnostic,
+    occurredAt: Number.isFinite(diagnostic.occurredAt) ? diagnostic.occurredAt : Date.now(),
+  };
+  session.blockedSkippedCards = [
+    ...(Array.isArray(session.blockedSkippedCards) ? session.blockedSkippedCards : []),
+    nextDiagnostic,
+  ];
+  session.blockedSkippedCount = Math.max(0, Number(session.blockedSkippedCount) || 0) + 1;
+  if (diagnostic.kind === 'blocked-cdf') {
+    session.initialTotal = Math.max(0, (Number(session.initialTotal) || 0) - 1);
+  }
 }
 
 function rollbackReviewHistory(context: AdapterContext): void {
@@ -596,6 +627,10 @@ export function createReviewSessionController<TItem extends QueueItem>(
           correctCount: Math.max(0, Number(options?.initialSessionState?.correctCount) || 0),
           baselineVersion: 0,
           reviewHistory: [],
+          blockedSkippedCount: 0,
+          blockedSkippedCards: [],
+          midSessionInsertedCount: 0,
+          midSessionInsertedCards: [],
         };
 
         if (options?.initialCurrentItem) {
@@ -839,6 +874,28 @@ export function createReviewSessionController<TItem extends QueueItem>(
     }
   });
 
+  const advanceWithoutFeedback = async (options?: ReviewAdvanceWithoutFeedbackOptions): Promise<void> => runSerialized(async () => {
+    const previousItem = currentItem.value;
+    const previousShowAnswer = context.value.showAnswer;
+    try {
+      markAdvancePending('no-score-removal');
+      currentItem.value = await queue.next();
+      pushNoScoreRemovalDiagnostic(context.value, options);
+      context.value.showAnswer = false;
+      await updateState('no-score-removal');
+    } catch (error) {
+      currentItem.value = previousItem;
+      context.value.showAnswer = previousShowAnswer;
+      if (isQueueItemUnavailableError(error)) {
+        await advancePastUnavailableItem('no-score-removal', error);
+        return;
+      }
+
+      logger.error('Failed to advance after no-score removal:', error);
+      await updateState('no-score-removal', { skipPrepare: true });
+    }
+  });
+
   const executeCommand = async (cmdId: string): Promise<void> => runSerialized(async () => {
     const previousItem = currentItem.value;
     const previousShowAnswer = context.value.showAnswer;
@@ -1077,6 +1134,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
     reveal,
     grade,
     skip,
+    advanceWithoutFeedback,
     back,
     executeCommand,
     reload,

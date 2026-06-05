@@ -19,6 +19,7 @@ import {
 import { matchesParsedQuery } from '../utils/cardFilters';
 import { normalizeSortModel } from '../utils/sortModel';
 import { resolveBrowserCardActionId } from '../utils/browserCardIdentity';
+import { applyBrowserCdfDiagnosticVisibility } from '@/application/queries/browser/shared/CdfBrowserDiagnostics';
 
 const logger = createLogger('DataSourceUtils');
 
@@ -1078,6 +1079,7 @@ export function applyQueueFilters<TRow extends QueueFilterRowLike>(
   querySecondaryField: QuerySecondaryField = 'headline'
 ): TRow[] {
   let result = cards;
+  result = applyBrowserCdfDiagnosticVisibility(result, options.preset);
   result = applyDocFilter(result, options.docId, options.scopeDocIds);
   result = applyLegacyPresetFilter(result, options.preset);
   result = applySimpleQueryFilter(result, options.queryText, { secondaryField: querySecondaryField });

@@ -29,6 +29,11 @@
         <option value="overdue">{{ t('overdue', 'Overdue') }}</option>
         <option value="leech">{{ t('leech', 'Leech') }}</option>
         <option value="new">{{ t('new', 'New') }}</option>
+        <option value="cdf-abnormal">{{ t('filterPresetCdfAbnormal', 'CDF Abnormal') }}</option>
+        <option value="cdf-orphaned">{{ t('filterPresetCdfOrphaned', 'CDF Orphaned') }}</option>
+        <option value="cdf-duplicate">{{ t('filterPresetCdfDuplicate', 'CDF Duplicate') }}</option>
+        <option value="cdf-legacy-unavailable">{{ t('filterPresetCdfLegacyUnavailable', 'CDF Legacy Unavailable') }}</option>
+        <option value="cdf-content-incomplete">{{ t('filterPresetCdfContentIncomplete', 'CDF Content Incomplete') }}</option>
       </select>
       <select :value="currentCardType" class="b3-select" @change="$emit('update:currentCardType', ($event.target as HTMLSelectElement).value)">
         <option
@@ -465,6 +470,11 @@ function resolvePresetLabel(preset: string): string {
     leech: t('leech', 'Leech'),
     new: t('new', 'New'),
     suspended: t('filterPresetSuspended', 'Suspended'),
+    'cdf-abnormal': t('filterPresetCdfAbnormal', 'CDF Abnormal'),
+    'cdf-orphaned': t('filterPresetCdfOrphaned', 'CDF Orphaned'),
+    'cdf-duplicate': t('filterPresetCdfDuplicate', 'CDF Duplicate'),
+    'cdf-legacy-unavailable': t('filterPresetCdfLegacyUnavailable', 'CDF Legacy Unavailable'),
+    'cdf-content-incomplete': t('filterPresetCdfContentIncomplete', 'CDF Content Incomplete'),
   };
   return presetLabels[preset] || preset;
 }

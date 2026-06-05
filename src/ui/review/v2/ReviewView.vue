@@ -89,8 +89,67 @@
           </div>
         </div>
 
+        <div
+          v-if="reviewCdfInterruptionPanel && !reviewInlineCardEditorOpen"
+          class="fsrs-review-v2__cdf-interruption"
+          role="alert"
+        >
+          <div class="fsrs-review-v2__cdf-interruption-main">
+            <div class="fsrs-review-v2__cdf-interruption-kicker">
+              {{ t('reviewCdfBlockingKicker', 'CDF') }}
+            </div>
+            <div class="fsrs-review-v2__cdf-interruption-title">
+              {{ reviewCdfInterruptionPanel.title }}
+            </div>
+            <div class="fsrs-review-v2__cdf-interruption-reason">
+              {{ reviewCdfInterruptionPanel.reasonLabel }}
+            </div>
+            <div class="fsrs-review-v2__cdf-interruption-meta">
+              <span v-if="reviewCdfInterruptionPanel.sourceBlockId">
+                {{ t('reviewCdfBlockingSourceLabel', 'Source') }} {{ reviewCdfInterruptionPanel.sourceBlockId }}
+              </span>
+              <span v-if="reviewCdfInterruptionPanel.cardId">
+                {{ t('reviewCdfBlockingCardLabel', 'Card') }} {{ reviewCdfInterruptionPanel.cardId }}
+              </span>
+            </div>
+          </div>
+          <div class="fsrs-review-v2__cdf-interruption-actions">
+            <button
+              type="button"
+              class="b3-button b3-button--outline"
+              :disabled="!reviewCdfInterruptionPanel.locateBlockId"
+              @click="locateReviewCdfBlockingSource"
+            >
+              {{ t('reviewCdfBlockingLocate', '定位') }}
+            </button>
+            <button
+              type="button"
+              class="b3-button b3-button--outline"
+              :disabled="!reviewCdfInterruptionPanel.canEdit"
+              @click="openReviewCdfBlockingEditor"
+            >
+              {{ t('reviewCdfBlockingEdit', '编辑') }}
+            </button>
+            <button
+              type="button"
+              class="b3-button b3-button--outline"
+              @click="openReviewCdfBlockingBrowser"
+            >
+              {{ t('reviewCdfBlockingOpenAbnormal', '异常列表') }}
+            </button>
+            <button
+              type="button"
+              class="b3-button b3-button--text"
+              data-review-cdf-blocking-next
+              @click="advanceReviewCdfBlockingCard"
+            >
+              {{ t('nextCard', '下一张') }}
+            </button>
+          </div>
+        </div>
+
         <ReviewContent
-          v-show="!reviewInlineCardEditorOpen"
+          v-show="!reviewInlineCardEditorOpen && !reviewCdfInterruptionPanel"
           ref="contentRef"
           :app="app"
           :plugin="props.plugin"
@@ -127,7 +186,10 @@
           :cancel-label="t('cancel', '取消')"
           :save-label="t('save', '保存')"
           :close-label="t('cancel', '取消')"
+          :source-latest-conflict-label="t('reviewStructuredConflictUseSourceLatest', '使用源文档最新')"
+          :draft-overwrite-conflict-label="t('reviewStructuredConflictKeepDraft', '保留我的草稿')"
           @update-source-target="updateCurrentContentEditorTarget"
+          @resolve-source-conflict="resolveCurrentContentEditorConflict"
           @confirm-source="confirmInlineCardEditorSource"
           @close="closeInlineCardEditor"
           @scheduled="handleInlineCardEditorScheduled"
@@ -177,6 +239,40 @@
             {{ t('exitFocus', '退出') }}
           </button>
         </div>
+
+        <details
+          v-if="showReviewBlockedSkippedSummary"
+          class="fsrs-review-v2__blocked-summary"
+        >
+          <summary>
+            {{ t('reviewCdfBlockedSummaryTitle', '本轮已移出 {count} 张阻断卡').replace('{count}', String(reviewBlockedSkippedCards.length)) }}
+          </summary>
+          <ul class="fsrs-review-v2__blocked-summary-list">
+            <li
+              v-for="entry in reviewBlockedSkippedCards"
+              :key="`${entry.cardId || entry.blockId || entry.reasonCode}:${entry.occurredAt || 0}`"
+              class="fsrs-review-v2__blocked-summary-item"
+            >
+              <span class="fsrs-review-v2__blocked-summary-reason">{{ entry.reasonLabel }}</span>
+              <span class="fsrs-review-v2__blocked-summary-id">{{ entry.cardId || entry.blockId || entry.sourceBlockId }}</span>
+              <button
+                type="button"
+                class="b3-button b3-button--outline"
+                :disabled="!(entry.sourceBlockId || entry.blockId)"
+                @click="locateReviewBlockedSkippedEntry(entry)"
+              >
+                {{ t('reviewCdfBlockingLocate', '定位') }}
+              </button>
+              <button
+                type="button"
+                class="b3-button b3-button--outline"
+                @click="openReviewBlockedSkippedEntryInBrowser(entry)"
+              >
+                {{ t('reviewCdfBlockingOpenAbnormal', '异常列表') }}
+              </button>
+            </li>
+          </ul>
+        </details>
 
         <div v-if="state.meta.resumePrompt" class="fsrs-review-v2-resume">
           <div class="fsrs-review-v2-resume__panel b3-card">
@@ -282,6 +378,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
+import ReviewCdfRelationPreviewDialog from './components/ReviewCdfRelationPreviewDialog.vue';
 import ReviewInlineCardEditor from './components/ReviewInlineCardEditor.vue';
 import NeuralRoamJourneyHeader from './NeuralRoamJourneyHeader.vue';
 import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
@@ -305,7 +402,9 @@ import {
   type ReviewEditableTarget,
   type ReviewHeaderVariant,
   type ReviewHeaderRouteControl,
+  type ReviewMidSessionInsertedOrigin,
   type ReviewNeuralRoamJourneyProgress,
+  type ReviewNoScoreRemovalDiagnostic,
   type ReviewNativeSplitGuardState,
   type ReviewUIState,
   type ReviewViewTabBridge,
@@ -322,6 +421,7 @@ import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
 import type { IBrowserApplicationService } from '@/application/interfaces/IBrowserApplicationService';
+import type { BrowserOpenState } from '@/types/browser';
 import {
   QueueType,
   type InitialReviewSessionState,
@@ -480,10 +580,36 @@ import {
   resolveReviewArenaScenario,
 } from './reviewArenaCommands';
 import { createReviewCardActionRuntime, type ReviewCardPeerInfo } from './reviewCardActionCommands';
-import { createReviewCurrentContentEditorRuntime } from './reviewCurrentContentEditorRuntime';
+import {
+  createReviewCurrentContentEditorRuntime,
+  type ReviewCurrentContentEditorRelationPreview,
+  type ReviewEditableTargetConflictResolution,
+  type ReviewCurrentContentEditorPendingWrite,
+  type ReviewCurrentContentEditorValidationResult,
+} from './reviewCurrentContentEditorRuntime';
 import {
   buildReviewStructuredFieldModelFromExplicitSources,
+  createReviewStructuredFieldOriginHash,
+  extractReviewStructuredGrammarFieldValue,
+  hasReviewStructuredDescriptorGroupLeafShape,
+  parseReviewStructuredFieldTargetId,
+  type ReviewStructuredCardFamily,
+  type ReviewStructuredField,
+  type ReviewStructuredFieldRole,
 } from './reviewStructuredFieldModel';
+import {
+  type CdfReconciliationAction,
+  extractSafeCardSourceGrammarFields,
+  hasCdfLiveRelationMetadata,
+  readCdfLiveRelationMetadata,
+  replaceDefinitionInCardSourceGrammar,
+  replaceDescriptorInCardSourceGrammar,
+  replaceItemInCardSourceGrammar,
+} from '@/core/card/cdf-live-relation';
+import type {
+  CdfLiveRelationWriteRepairOptions,
+  CdfLiveRelationWriteRepairResult,
+} from '@/application/services/CdfLiveRelationWriteRepairService';
 import { createReviewFilterRuntime, type ReviewFilterCommandClient, type ReviewFilterGroupQueueLike } from './reviewFilterCommands';
 import { createReviewDataObserverRuntime } from './reviewDataObserverRuntime';
 import { createReviewNativeSplitRuntime } from './reviewNativeSplitRuntime';
@@ -496,6 +622,7 @@ type ReviewPluginContextLike = {
   getDialogManager?: () =>
     | (ReviewOpenAsDialogManager & {
         openBrowserDialog?: (options?: {
+          initialOpenState?: BrowserOpenState | null;
           initialQueueId?: string;
           initialNeuralSubview?: 'concept-cards' | 'engine-history' | 'roam-history' | 'worldline-anchors';
         }) => void;
@@ -693,6 +820,45 @@ type WindowWithReviewPlugin = Window & {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
+
+type CdfRelationPreviewSummary = {
+  create: number;
+  orphan: number;
+  duplicate: number;
+  restore: number;
+  legacyUnavailable: number;
+};
+
+type CdfRelationPreviewDialogProps = {
+  summary: Array<{ key: string; label: string; count: number }>;
+  currentImpact: string;
+  sessionImpact: string;
+  details: Array<{ kind: string; text: string }>;
+  currentImpactLabel: string;
+  sessionImpactLabel: string;
+  detailsLabel: string;
+  noDetailsLabel: string;
+  confirmLabel: string;
+  cancelLabel: string;
+};
+
+type CdfRelationPreviewRaw = {
+  kind: 'cdf-live-relation-preview';
+  dryRun: CdfLiveRelationWriteRepairResult;
+  options: CdfLiveRelationWriteRepairOptions;
+  dialogProps: CdfRelationPreviewDialogProps;
+};
+
+type ReviewCdfInterruptionPanel = {
+  cardId: string;
+  blockId: string;
+  sourceBlockId: string;
+  locateBlockId: string;
+  reasonCode: string;
+  reasonLabel: string;
+  title: string;
+  canEdit: boolean;
+};
 
 function getPluginContext(plugin: unknown): ReviewPluginContextLike | undefined {
   return (plugin as ReviewPluginLike | undefined)?.getContext?.();
@@ -892,12 +1058,20 @@ const reviewArenaRuntime = createReviewArenaRuntime({
   resolveSchedulingContext: resolveCurrentReviewSchedulingContext,
 });
 const reviewArenaHint = reviewArenaRuntime.hint;
+const reviewStructuredTouchedFieldIdsBySourceTarget = new Map<string, Set<string>>();
+const reviewStructuredConflictResolutionsBySourceTarget = new Map<string, Map<string, {
+  resolution: ReviewEditableTargetConflictResolution;
+  latestSource?: string;
+}>>();
 const reviewTextEditorRuntime = createReviewCurrentContentEditorRuntime({
   t,
   showMessage,
   logger,
   getReviewService,
   resolveEditableTargets: () => resolveCurrentEditableTargets(),
+  validatePendingWrites: validateCurrentContentEditorPendingWrites,
+  confirmRelationPreview: confirmCurrentContentEditorRelationPreview,
+  afterSuccessfulWrites: reconcileCurrentContentEditorRelationWrites,
   suppressSourceBlockRefresh: (blockId) => reviewSourceRefreshRuntime.suppressBlock(blockId),
   refreshVisibleContent: (reason) => contentRef.value?.refreshVisibleContent?.(reason),
 });
@@ -1161,6 +1335,10 @@ function getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null {
   return contextFromProps?.getUnifiedDataSourceManager?.() || contextFromWindow?.getUnifiedDataSourceManager?.() || null;
 }
 
+function getReviewDataManager(): IUnifiedDataSourceManagerFacade | null {
+  return reviewDataObserverRuntime.getSubscribedManager() || getUnifiedDataSourceManager();
+}
+
 function getReviewFilterCommandClient(): ReviewFilterCommandClient | null {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
@@ -1422,6 +1600,7 @@ function isReviewSessionControllerLike(value: unknown): value is ReviewSessionCo
     && typeof value.reveal === 'function'
     && typeof value.grade === 'function'
     && typeof value.skip === 'function'
+    && typeof value.advanceWithoutFeedback === 'function'
     && typeof value.back === 'function'
     && typeof value.executeCommand === 'function'
     && typeof value.reload === 'function'
@@ -1691,6 +1870,7 @@ const resolvedReviewSurfaceTitle = computed(() => (
 ));
 const reviewDataObserverRuntime = createReviewDataObserverRuntime({
   logger,
+  notifyMidSessionInserted: notifyReviewMidSessionInserted,
   getManager: getUnifiedDataSourceManager,
   getFilterGroupQueue,
   getFilterCommandClient: getReviewFilterCommandClient,
@@ -1712,6 +1892,27 @@ const reviewDataObserverRuntime = createReviewDataObserverRuntime({
   advanceCurrentReviewCardByReference,
   removeCardIdsFromActiveQueue,
 });
+
+function notifyReviewMidSessionInserted(input: {
+  count: number;
+  origin: ReviewMidSessionInsertedOrigin;
+  cards: FSRSCard[];
+}): void {
+  if (input.count <= 0) {
+    return;
+  }
+  const messageKey = input.origin === 'review-editor-save'
+    ? 'reviewCdfEditorInsertedDueCardsToast'
+    : 'reviewCdfExternalInsertedDueCardsToast';
+  const fallback = input.origin === 'review-editor-save'
+    ? '已将 {count} 张编辑产生的到期 CDF 卡加入本轮尾部'
+    : '已将 {count} 张修复后的到期 CDF 卡加入本轮尾部';
+  showMessage(
+    t(messageKey, fallback).replace('{count}', String(input.count)),
+    3000,
+    'info',
+  );
+}
 
 const REVIEW_AI_SIDECAR_MIN_VIEWPORT = 1040;
 const SEMANTIC_ACTIVATION_USER_ENTRY_ENABLED = false;
@@ -1797,6 +1998,69 @@ const displayedReviewContent = computed<ReviewUIState['content']>(() => {
     type: 'protyle',
     data: temporary.blockId,
     id: temporary.blockId,
+  };
+});
+
+function resolveReviewCdfBlockingReason(card: FSRSCard | null | undefined): { code: string; label: string } | null {
+  if (!hasCdfLiveRelationMetadata(card)) {
+    return null;
+  }
+
+  const liveMeta = readCdfLiveRelationMetadata(card);
+  const blockingIssue = (liveMeta.liveRelationIssues || []).find(issue => issue.severity === 'blocking');
+  if (blockingIssue) {
+    return {
+      code: blockingIssue.code,
+      label: t(`cdfIssue_${blockingIssue.code}`, blockingIssue.detail || blockingIssue.code),
+    };
+  }
+
+  if (liveMeta.liveRelationStatus && liveMeta.liveRelationStatus !== 'active-live') {
+    const labels: Record<string, string> = {
+      'orphaned-by-live-relation': t('reviewCdfBlockingReasonOrphaned', 'Live relation no longer exists'),
+      'duplicate-live-relation': t('reviewCdfBlockingReasonDuplicate', 'Duplicate live relation'),
+      'legacy-relation-unavailable': t('reviewCdfBlockingReasonLegacyUnavailable', 'Legacy relation cannot be derived from live blocks'),
+    };
+    return {
+      code: liveMeta.liveRelationStatus,
+      label: labels[liveMeta.liveRelationStatus] || liveMeta.liveRelationStatus,
+    };
+  }
+
+  if (liveMeta.liveContentStatus === 'content-incomplete') {
+    return {
+      code: 'content-incomplete',
+      label: t('reviewCdfBlockingReasonContentIncomplete', 'Content incomplete'),
+    };
+  }
+
+  return null;
+}
+
+const reviewCdfInterruptionPanel = computed<ReviewCdfInterruptionPanel | null>(() => {
+  if (reviewSemanticTemporaryView.value) {
+    return null;
+  }
+  const card = state.value.content.card as FSRSCard | null | undefined;
+  const reason = resolveReviewCdfBlockingReason(card);
+  if (!card || !reason) {
+    return null;
+  }
+
+  const liveMeta = readCdfLiveRelationMetadata(card);
+  const cardId = String(card.id || resolveCurrentReviewCardId() || '').trim();
+  const blockId = String(card.blockId || resolveCurrentReviewBlockId() || '').trim();
+  const sourceBlockId = String(liveMeta.sourceBlockId || resolveCurrentReviewSourceBlockId() || '').trim();
+
+  return {
+    cardId,
+    blockId,
+    sourceBlockId,
+    locateBlockId: sourceBlockId || blockId,
+    reasonCode: reason.code,
+    reasonLabel: reason.label,
+    title: t('reviewCdfBlockingTitle', 'This CDF card needs repair before review'),
+    canEdit: canOpenInlineCardEditor(),
   };
 });
 
@@ -1945,7 +2209,13 @@ const neuralRoamJourneyProgress = computed<ReviewNeuralRoamJourneyProgress | nul
 const displayedReviewActions = computed<ReviewUIState['actions']>(() => {
   const temporary = reviewSemanticTemporaryView.value;
   if (!temporary?.uiState) {
-    return state.value.actions;
+    return reviewCdfInterruptionPanel.value
+      ? {
+          ...state.value.actions,
+          showAnswer: false,
+          grades: [],
+        }
+      : state.value.actions;
   }
   return {
     ...temporary.uiState.actions,
@@ -1972,10 +2242,20 @@ const isEmptyReviewContent = computed(() => state.value.content.type === 'empty'
 
 const showReviewActions = computed(() => (
   !isEmptyReviewContent.value
+  && !reviewCdfInterruptionPanel.value
   && (
     !reviewSemanticTemporaryView.value
     || (reviewSemanticTemporaryView.value.card !== null && reviewSemanticTemporaryView.value.uiState !== null)
   )
+));
+
+const reviewBlockedSkippedCards = computed<ReviewNoScoreRemovalDiagnostic[]>(() => (
+  hook.context.value.session?.blockedSkippedCards || []
+));
+
+const showReviewBlockedSkippedSummary = computed(() => (
+  showCompletedEmptyStateExit.value
+  && reviewBlockedSkippedCards.value.length > 0
 ));
 
 const showCompletedEmptyStateExit = computed(() => (
@@ -2221,7 +2501,7 @@ async function advanceDismissedCurrentCard(payload: DismissedReviewCardPayload):
 }
 
 async function refreshCurrentReviewCard(): Promise<void> {
-  const manager = reviewDataObserverRuntime.getSubscribedManager();
+  const manager = getReviewDataManager();
   const currentReference = getCurrentReviewCardReference();
   const { cardId } = currentReference;
   if (!manager || !cardId) {
@@ -2249,7 +2529,7 @@ async function refreshReviewCardById(cardId: string): Promise<boolean> {
     return false;
   }
 
-  const manager = reviewDataObserverRuntime.getSubscribedManager() || getUnifiedDataSourceManager();
+  const manager = getReviewDataManager();
   if (!manager) {
     return false;
   }
@@ -2507,6 +2787,17 @@ function handleReviewKeyAction(
   event.preventDefault();
   event.stopPropagation();
 
+  if (reviewCdfInterruptionPanel.value) {
+    if (action.type === 'skip') {
+      void advanceReviewCdfBlockingCard();
+      return;
+    }
+    if (action.type === 'back') {
+      void hook.back();
+    }
+    return;
+  }
+
   if (action.type === 'reveal') {
     logger.debug('[SiYuanMemo][ReviewView] Revealing answer...');
     hook.reveal();
@@ -2628,8 +2919,105 @@ function handleKeyDown(e: KeyboardEvent) {
   handleReviewKeyAction('keydown', key, e);
 }
 
+async function locateReviewCdfBlockingSource(): Promise<void> {
+  const panel = reviewCdfInterruptionPanel.value;
+  if (!panel?.locateBlockId || !props.app) {
+    showMessage(t('reviewLocateNoCurrentCard', '当前没有可定位的复习卡片'), 3000, 'info');
+    return;
+  }
+
+  try {
+    await openReviewBlockAtSource({
+      app: props.app,
+      blockId: panel.locateBlockId,
+    });
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to locate blocking CDF source:', {
+      blockId: panel.locateBlockId,
+      error,
+    });
+    showMessage(t('reviewLocateSourceFailed', '定位当前复习卡原块失败'), 3000, 'error');
+  }
+}
+
+function openReviewCdfBlockingEditor(): void {
+  if (!reviewCdfInterruptionPanel.value?.canEdit) {
+    showMessage(t('currentContentNotEditable', '当前内容暂不支持编辑'), 3000, 'info');
+    return;
+  }
+  void openInlineCardEditor();
+}
+
+function openCdfAbnormalBrowser(queryText: string): void {
+  const dialogManager = getDialogManager();
+  if (!dialogManager || typeof dialogManager.openBrowserDialog !== 'function') {
+    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+    return;
+  }
+  dialogManager.openBrowserDialog({
+    initialOpenState: {
+      preset: 'cdf-abnormal',
+      queryText,
+    },
+  });
+}
+
+function openReviewCdfBlockingBrowser(): void {
+  const panel = reviewCdfInterruptionPanel.value;
+  openCdfAbnormalBrowser(panel?.sourceBlockId || panel?.cardId || panel?.blockId || '');
+}
+
+function buildReviewCdfBlockingDiagnostic(panel: ReviewCdfInterruptionPanel): ReviewNoScoreRemovalDiagnostic {
+  return {
+    kind: 'blocked-cdf',
+    cardId: panel.cardId,
+    blockId: panel.blockId,
+    sourceBlockId: panel.sourceBlockId,
+    reasonCode: panel.reasonCode,
+    reasonLabel: panel.reasonLabel,
+  };
+}
+
+async function advanceReviewCdfBlockingCard(): Promise<void> {
+  const panel = reviewCdfInterruptionPanel.value;
+  if (!panel) {
+    return;
+  }
+
+  await removeCardIdsFromActiveQueue([panel.cardId || panel.blockId]);
+  await hook.advanceWithoutFeedback({
+    diagnostic: buildReviewCdfBlockingDiagnostic(panel),
+  });
+}
+
+async function locateReviewBlockedSkippedEntry(entry: ReviewNoScoreRemovalDiagnostic): Promise<void> {
+  const blockId = String(entry.sourceBlockId || entry.blockId || '').trim();
+  if (!blockId || !props.app) {
+    return;
+  }
+
+  try {
+    await openReviewBlockAtSource({
+      app: props.app,
+      blockId,
+    });
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to locate skipped CDF entry:', {
+      blockId,
+      error,
+    });
+  }
+}
+
+function openReviewBlockedSkippedEntryInBrowser(entry: ReviewNoScoreRemovalDiagnostic): void {
+  openCdfAbnormalBrowser(entry.sourceBlockId || entry.cardId || entry.blockId || '');
+}
+
 function handleReveal(): void {
   if (reviewInlineCardEditorOpen.value) {
+    return;
+  }
+  if (reviewCdfInterruptionPanel.value) {
     return;
   }
   if (reviewSemanticTemporaryRuntime.revealTemporaryView()) {
@@ -2642,6 +3030,9 @@ function handleReveal(): void {
 
 function handleGrade(rating: number): void {
   if (reviewInlineCardEditorOpen.value) {
+    return;
+  }
+  if (reviewCdfInterruptionPanel.value) {
     return;
   }
   if (reviewSemanticTemporaryView.value?.card) {
@@ -2659,6 +3050,10 @@ function handleGrade(rating: number): void {
 
 function handleSkip(): void {
   if (reviewInlineCardEditorOpen.value) {
+    return;
+  }
+  if (reviewCdfInterruptionPanel.value) {
+    void advanceReviewCdfBlockingCard();
     return;
   }
   if (reviewSemanticTemporaryView.value) {
@@ -3053,7 +3448,1113 @@ function shouldExposeHeaderEditButton(): boolean {
 const closeCurrentContentEditor = reviewTextEditorRuntime.close;
 const openCurrentContentEditor = reviewTextEditorRuntime.openEditor;
 const confirmCurrentContentEditor = reviewTextEditorRuntime.confirm;
-const updateCurrentContentEditorTarget = reviewTextEditorRuntime.updateTargetValue;
+
+function isStructuredEditableFamily(family: ReviewStructuredCardFamily): family is Exclude<ReviewStructuredCardFamily, 'source'> {
+  return family === 'item' || family === 'definition' || family === 'descriptor';
+}
+
+function getReviewStructuredExternalConflictMessage(field?: ReviewStructuredField): string {
+  const fieldLabel = field?.label || t('reviewStructuredFieldGenericLabel', '字段');
+  return t('reviewStructuredFieldExternalConflict', '源文档中的「{field}」已被外部修改，请先处理冲突')
+    .replace('{field}', fieldLabel);
+}
+
+function getReviewStructuredFieldHash(field: ReviewStructuredField, value: string): string {
+  return createReviewStructuredFieldOriginHash({
+    role: field.role,
+    value,
+    blockId: field.origin.blockId,
+    originKind: field.origin.kind,
+  });
+}
+
+function readStructuredGrammarFieldValues(input: {
+  source: string;
+  family: Exclude<ReviewStructuredCardFamily, 'source'>;
+  descriptorGroupLeaf: boolean;
+}): Partial<Record<ReviewStructuredFieldRole, string>> | null {
+  const extracted = extractSafeCardSourceGrammarFields({
+    source: input.source,
+    family: input.family,
+    descriptorGroupLeaf: input.descriptorGroupLeaf,
+  });
+  if (!extracted.ok) {
+    return null;
+  }
+
+  const result: Partial<Record<ReviewStructuredFieldRole, string>> = {};
+  for (const field of extracted.fields) {
+    result[field.role] = field.value;
+  }
+  return result;
+}
+
+function rewriteStructuredGrammarSource(input: {
+  source: string;
+  family: Exclude<ReviewStructuredCardFamily, 'source'>;
+  values: Partial<Record<ReviewStructuredFieldRole, string>>;
+  descriptorGroupLeaf: boolean;
+}): string | null {
+  if (input.family === 'definition') {
+    const rewritten = replaceDefinitionInCardSourceGrammar({
+      source: input.source,
+      definition: input.values.definition ?? '',
+    });
+    return rewritten.ok ? rewritten.source : null;
+  }
+  if (input.family === 'descriptor') {
+    const rewritten = replaceDescriptorInCardSourceGrammar({
+      source: input.source,
+      cue: input.values.cue,
+      answer: input.values.answer ?? '',
+      descriptorGroupLeaf: input.descriptorGroupLeaf,
+    });
+    return rewritten.ok ? rewritten.source : null;
+  }
+
+  const rewritten = replaceItemInCardSourceGrammar({
+    source: input.source,
+    question: input.values.question ?? '',
+    answer: input.values.answer ?? '',
+  });
+  return rewritten.ok ? rewritten.source : null;
+}
+
+function rewriteStructuredGrammarFieldValue(input: {
+  source: string;
+  family: Exclude<ReviewStructuredCardFamily, 'source'>;
+  field: ReviewStructuredField;
+  value: string;
+  descriptorGroupLeaf: boolean;
+}): string | null {
+  const values = readStructuredGrammarFieldValues({
+    source: input.source,
+    family: input.family,
+    descriptorGroupLeaf: input.descriptorGroupLeaf,
+  });
+  if (!values) {
+    return null;
+  }
+
+  values[input.field.role] = input.value;
+  return rewriteStructuredGrammarSource({
+    source: input.source,
+    family: input.family,
+    values,
+    descriptorGroupLeaf: input.descriptorGroupLeaf,
+  });
+}
+
+function getCurrentStructuredDescriptorGroupLeaf(): boolean {
+  const model = reviewInlineCardEditorStructuredModel.value;
+  return model.mode === 'structured'
+    && model.family === 'descriptor'
+    && hasReviewStructuredDescriptorGroupLeafShape(state.value.content.card as FSRSCard | null | undefined);
+}
+
+function getStructuredConflictResolution(
+  sourceTargetId: string,
+  fieldId: string,
+  latestSource: string,
+): ReviewEditableTargetConflictResolution | null {
+  const resolution = reviewStructuredConflictResolutionsBySourceTarget.get(sourceTargetId)?.get(fieldId);
+  if (!resolution || resolution.latestSource !== latestSource) {
+    return null;
+  }
+  return resolution.resolution;
+}
+
+function setStructuredConflictResolution(
+  sourceTargetId: string,
+  fieldId: string,
+  resolution: ReviewEditableTargetConflictResolution,
+  latestSource?: string,
+): void {
+  let fieldResolutions = reviewStructuredConflictResolutionsBySourceTarget.get(sourceTargetId);
+  if (!fieldResolutions) {
+    fieldResolutions = new Map();
+    reviewStructuredConflictResolutionsBySourceTarget.set(sourceTargetId, fieldResolutions);
+  }
+  fieldResolutions.set(fieldId, {
+    resolution,
+    latestSource,
+  });
+}
+
+function clearStructuredConflictResolution(sourceTargetId: string, fieldId?: string): void {
+  const fieldResolutions = reviewStructuredConflictResolutionsBySourceTarget.get(sourceTargetId);
+  if (!fieldResolutions) {
+    return;
+  }
+  if (fieldId) {
+    fieldResolutions.delete(fieldId);
+  } else {
+    fieldResolutions.clear();
+  }
+  if (fieldResolutions.size === 0) {
+    reviewStructuredConflictResolutionsBySourceTarget.delete(sourceTargetId);
+  }
+}
+
+function getTouchedStructuredGrammarFieldsForWrite(
+  write: ReviewCurrentContentEditorPendingWrite,
+): {
+  family: Exclude<ReviewStructuredCardFamily, 'source'>;
+  fields: ReviewStructuredField[];
+  descriptorGroupLeaf: boolean;
+} | null {
+  const model = reviewInlineCardEditorStructuredModel.value;
+  if (model.mode !== 'structured' || !isStructuredEditableFamily(model.family)) {
+    return null;
+  }
+
+  const touchedFieldIds = reviewStructuredTouchedFieldIdsBySourceTarget.get(write.targetId);
+  if (!touchedFieldIds || touchedFieldIds.size === 0) {
+    return null;
+  }
+
+  const fields = model.fields.filter(field => (
+    field.origin.kind === 'grammar'
+    && field.origin.blockId === write.blockId
+    && touchedFieldIds.has(field.id)
+  ));
+  if (fields.length === 0) {
+    return null;
+  }
+
+  return {
+    family: model.family,
+    fields,
+    descriptorGroupLeaf: model.family === 'descriptor'
+      && hasReviewStructuredDescriptorGroupLeafShape(state.value.content.card as FSRSCard | null | undefined),
+  };
+}
+
+async function validateCurrentContentEditorPendingWrites(
+  pendingWrites: ReviewCurrentContentEditorPendingWrite[],
+): Promise<ReviewCurrentContentEditorValidationResult> {
+  const reviewService = getReviewService();
+  if (!reviewService) {
+    return {};
+  }
+
+  const result: ReviewCurrentContentEditorValidationResult = {
+    conflicts: [],
+    updates: [],
+  };
+
+  for (const write of pendingWrites) {
+    const latestSource = String(await reviewService.getEditableBlockMarkdown(write.blockId) ?? '');
+    if (latestSource === write.originalValue) {
+      continue;
+    }
+
+    const touchedGrammar = getTouchedStructuredGrammarFieldsForWrite(write);
+    if (!touchedGrammar) {
+      if (getStructuredConflictResolution(write.targetId, 'source', latestSource)) {
+        continue;
+      }
+      result.conflicts?.push({
+        targetId: write.targetId,
+        message: getReviewStructuredExternalConflictMessage(),
+        sourceLatestValue: latestSource,
+        draftValue: write.value,
+        latestSource,
+      });
+      continue;
+    }
+
+    const latestValues = readStructuredGrammarFieldValues({
+      source: latestSource,
+      family: touchedGrammar.family,
+      descriptorGroupLeaf: touchedGrammar.descriptorGroupLeaf,
+    });
+    const localValues = readStructuredGrammarFieldValues({
+      source: write.value,
+      family: touchedGrammar.family,
+      descriptorGroupLeaf: touchedGrammar.descriptorGroupLeaf,
+    });
+    if (!latestValues || !localValues) {
+      result.conflicts?.push({
+        targetId: write.targetId,
+        fieldId: touchedGrammar.fields[0]?.id,
+        message: getReviewStructuredExternalConflictMessage(touchedGrammar.fields[0]),
+      });
+      continue;
+    }
+
+    const conflicts = touchedGrammar.fields.filter((field) => {
+      const originalFieldValue = extractReviewStructuredGrammarFieldValue({
+        field,
+        family: touchedGrammar.family,
+        source: write.originalValue,
+        descriptorGroupLeaf: touchedGrammar.descriptorGroupLeaf,
+      });
+      if (originalFieldValue === null) {
+        return true;
+      }
+      const externallyChanged = getReviewStructuredFieldHash(field, originalFieldValue)
+        !== getReviewStructuredFieldHash(field, latestValues[field.role] ?? '');
+      if (!externallyChanged) {
+        return false;
+      }
+      return !getStructuredConflictResolution(write.targetId, field.id, latestSource);
+    });
+    if (conflicts.length > 0) {
+      for (const field of conflicts) {
+        result.conflicts?.push({
+          targetId: write.targetId,
+          fieldId: field.id,
+          message: getReviewStructuredExternalConflictMessage(field),
+          sourceLatestValue: latestValues[field.role] ?? '',
+          draftValue: localValues[field.role] ?? '',
+          latestSource,
+        });
+      }
+      continue;
+    }
+
+    const mergedValues = { ...latestValues };
+    for (const field of touchedGrammar.fields) {
+      mergedValues[field.role] = localValues[field.role] ?? '';
+    }
+    const mergedSource = rewriteStructuredGrammarSource({
+      source: latestSource,
+      family: touchedGrammar.family,
+      values: mergedValues,
+      descriptorGroupLeaf: touchedGrammar.descriptorGroupLeaf,
+    });
+    if (mergedSource === null) {
+      result.conflicts?.push({
+        targetId: write.targetId,
+        fieldId: touchedGrammar.fields[0]?.id,
+        message: getReviewStructuredExternalConflictMessage(touchedGrammar.fields[0]),
+      });
+      continue;
+    }
+
+    if (mergedSource !== write.value) {
+      result.updates?.push({
+        targetId: write.targetId,
+        value: mergedSource,
+      });
+    }
+  }
+
+  if ((result.conflicts || []).length === 0) {
+    result.relationPreview = await buildCurrentContentEditorRelationPreview(pendingWrites, result);
+  }
+
+  return result;
+}
+
+function readReviewRecordString(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function readReviewCardMeta(card: FSRSCard | null | undefined): Record<string, unknown> {
+  return isRecord(card?.meta) ? card.meta as Record<string, unknown> : {};
+}
+
+function readReviewFieldMapping(meta: Record<string, unknown>): Record<string, string> {
+  if (!isRecord(meta.fieldMapping)) {
+    return {};
+  }
+  const mapping: Record<string, string> = {};
+  for (const [key, value] of Object.entries(meta.fieldMapping)) {
+    const normalized = typeof value === 'string' ? value.trim() : '';
+    if (normalized) {
+      mapping[key] = normalized;
+    }
+  }
+  return mapping;
+}
+
+function isCurrentReviewCdfLiveRelationCard(): boolean {
+  const card = state.value.content.card as FSRSCard | null | undefined;
+  const meta = readReviewCardMeta(card);
+  return Boolean(
+    readReviewRecordString(meta, 'liveRelationKey')
+    || readReviewRecordString(meta, 'relationAuthority') === 'live-backlink'
+    || readReviewRecordString(meta, 'relationKind').includes('definition')
+    || readReviewRecordString(meta, 'relationKind').includes('descriptor'),
+  );
+}
+
+function resolveCurrentCdfLiveSourceBlockId(pendingWrites: ReviewCurrentContentEditorPendingWrite[]): string {
+  const card = state.value.content.card as FSRSCard | null | undefined;
+  const meta = readReviewCardMeta(card);
+  const mapping = readReviewFieldMapping(meta);
+  return readReviewRecordString(meta, 'sourceBlockId')
+    || mapping.definition
+    || mapping.descriptor
+    || resolveCurrentReviewSourceBlockId()
+    || pendingWrites[0]?.blockId
+    || '';
+}
+
+function buildDraftMarkdownByBlockId(
+  pendingWrites: ReviewCurrentContentEditorPendingWrite[],
+  updates: ReviewCurrentContentEditorValidationResult['updates'] = [],
+): Record<string, string> {
+  const valueByTargetId = new Map(pendingWrites.map(write => [write.targetId, write.value]));
+  for (const update of updates || []) {
+    valueByTargetId.set(update.targetId, update.value);
+  }
+
+  const draftMarkdownByBlockId: Record<string, string> = {};
+  for (const write of pendingWrites) {
+    draftMarkdownByBlockId[write.blockId] = valueByTargetId.get(write.targetId) ?? write.value;
+  }
+  return draftMarkdownByBlockId;
+}
+
+function buildCurrentCdfWriteRepairOptions(
+  pendingWrites: ReviewCurrentContentEditorPendingWrite[],
+  updates?: ReviewCurrentContentEditorValidationResult['updates'],
+  persist = false,
+): CdfLiveRelationWriteRepairOptions | null {
+  if (!isCurrentReviewCdfLiveRelationCard()) {
+    return null;
+  }
+
+  const sourceBlockId = resolveCurrentCdfLiveSourceBlockId(pendingWrites);
+  if (!sourceBlockId) {
+    return null;
+  }
+
+  const changedBlockIds = Array.from(new Set(pendingWrites.map(write => write.blockId).filter(Boolean)));
+  return {
+    sourceBlockId,
+    changedBlockId: changedBlockIds.length === 1 ? changedBlockIds[0] : sourceBlockId,
+    reconciliationScope: 'block-edit',
+    persist,
+    ...(persist ? {} : { draftMarkdownByBlockId: buildDraftMarkdownByBlockId(pendingWrites, updates) }),
+  };
+}
+
+function summarizeCdfRelationPreviewActions(actions: CdfReconciliationAction[]): CdfRelationPreviewSummary {
+  return actions.reduce((summary, action) => {
+    if (action.kind === 'create-card') {
+      summary.create += 1;
+      return summary;
+    }
+    if (action.reason === 'orphaned' || action.status === 'orphaned-by-live-relation') {
+      summary.orphan += 1;
+      return summary;
+    }
+    if (action.reason === 'duplicate' || action.status === 'duplicate-live-relation') {
+      summary.duplicate += 1;
+      return summary;
+    }
+    if (action.reason === 'reactivated') {
+      summary.restore += 1;
+      return summary;
+    }
+    if (action.reason === 'legacy-unavailable' || action.status === 'legacy-relation-unavailable') {
+      summary.legacyUnavailable += 1;
+    }
+    return summary;
+  }, {
+    create: 0,
+    orphan: 0,
+    duplicate: 0,
+    restore: 0,
+    legacyUnavailable: 0,
+  });
+}
+
+function hasPreviewableCdfRelationChange(actions: CdfReconciliationAction[]): boolean {
+  const summary = summarizeCdfRelationPreviewActions(actions);
+  return summary.create > 0
+    || summary.orphan > 0
+    || summary.duplicate > 0
+    || summary.restore > 0
+    || summary.legacyUnavailable > 0;
+}
+
+function formatReviewCountLabel(label: string, count: number): string {
+  return label.replace('{count}', String(count));
+}
+
+function buildCdfRelationPreviewSummaryItems(summary: CdfRelationPreviewSummary): CdfRelationPreviewDialogProps['summary'] {
+  return [
+    {
+      key: 'create',
+      label: t('reviewCdfRelationPreviewCategoryCreate', '新建关系'),
+      count: summary.create,
+    },
+    {
+      key: 'orphan',
+      label: t('reviewCdfRelationPreviewCategoryOrphan', '暂停孤儿'),
+      count: summary.orphan,
+    },
+    {
+      key: 'duplicate',
+      label: t('reviewCdfRelationPreviewCategoryDuplicate', '暂停重复'),
+      count: summary.duplicate,
+    },
+    {
+      key: 'restore',
+      label: t('reviewCdfRelationPreviewCategoryRestore', '恢复关系'),
+      count: summary.restore,
+    },
+    {
+      key: 'legacy-unavailable',
+      label: t('reviewCdfRelationPreviewCategoryLegacy', '旧关系不可用'),
+      count: summary.legacyUnavailable,
+    },
+  ];
+}
+
+function buildCdfRelationPreviewCountLines(summary: CdfRelationPreviewSummary): string[] {
+  return [
+    [t('reviewCdfRelationPreviewCreateCount', '新建 {count} 张'), summary.create],
+    [t('reviewCdfRelationPreviewOrphanCount', '暂停孤儿 {count} 张'), summary.orphan],
+    [t('reviewCdfRelationPreviewDuplicateCount', '暂停重复 {count} 张'), summary.duplicate],
+    [t('reviewCdfRelationPreviewRestoreCount', '恢复 {count} 张'), summary.restore],
+    [t('reviewCdfRelationPreviewLegacyCount', '旧关系不可用 {count} 张'), summary.legacyUnavailable],
+  ]
+    .filter(([, count]) => Number(count) > 0)
+    .map(([label, count]) => formatReviewCountLabel(String(label), Number(count)));
+}
+
+function resolveCdfRelationPreviewCurrentImpact(dryRun: CdfLiveRelationWriteRepairResult): string {
+  const currentCardId = resolveCurrentReviewCardId();
+  const currentAction = dryRun.actions.find(action => (
+    action.kind === 'update-card-meta'
+    && action.cardId === currentCardId
+  ));
+  if (currentAction?.kind !== 'update-card-meta') {
+    return t('reviewCdfRelationPreviewCurrentUnchanged', '当前卡保存后保持在本轮复习中');
+  }
+  return currentAction.status === 'active-live'
+    ? t('reviewCdfRelationPreviewCurrentRerender', '当前卡保存后将重新渲染')
+    : t('reviewCdfRelationPreviewCurrentExit', '当前卡保存后将移出本轮复习且不评分');
+}
+
+function resolveCdfRelationPreviewSessionImpact(summary: CdfRelationPreviewSummary): string {
+  return summary.create > 0 || summary.restore > 0
+    ? t('reviewCdfRelationPreviewSessionMayAppend', '新建或恢复的到期卡后续会按会话规则追加到队尾')
+    : t('reviewCdfRelationPreviewSessionNoAppend', '本次不会追加新关系卡到队尾');
+}
+
+function buildCdfRelationPreviewDetailItems(actions: CdfReconciliationAction[]): CdfRelationPreviewDialogProps['details'] {
+  return actions.map((action) => {
+    if (action.kind === 'create-card') {
+      return {
+        kind: t('reviewCdfRelationPreviewDetailCreate', '新建'),
+        text: [
+          action.relation.sourceBlockId,
+          action.relation.conceptBlockId,
+          action.relation.relationKind,
+        ].filter(Boolean).join(' / '),
+      };
+    }
+    const kindByReason: Record<string, string> = {
+      orphaned: t('reviewCdfRelationPreviewDetailOrphan', '暂停孤儿'),
+      duplicate: t('reviewCdfRelationPreviewDetailDuplicate', '暂停重复'),
+      reactivated: t('reviewCdfRelationPreviewDetailRestore', '恢复'),
+      'legacy-unavailable': t('reviewCdfRelationPreviewDetailLegacy', '旧关系不可用'),
+      'legacy-migrated': t('reviewCdfRelationPreviewDetailMigrated', '旧关系迁移'),
+      'active-live': t('reviewCdfRelationPreviewDetailActive', '保持活跃'),
+    };
+    const relationLabel = action.relation
+      ? [action.relation.sourceBlockId, action.relation.conceptBlockId, action.relation.relationKind].filter(Boolean).join(' / ')
+      : action.status;
+    return {
+      kind: kindByReason[action.reason] || action.reason,
+      text: [action.cardId, relationLabel].filter(Boolean).join(' / '),
+    };
+  });
+}
+
+function buildCdfRelationPreviewDialogProps(dryRun: CdfLiveRelationWriteRepairResult): CdfRelationPreviewDialogProps {
+  const summary = summarizeCdfRelationPreviewActions(dryRun.actions);
+  return {
+    summary: buildCdfRelationPreviewSummaryItems(summary),
+    currentImpact: resolveCdfRelationPreviewCurrentImpact(dryRun),
+    sessionImpact: resolveCdfRelationPreviewSessionImpact(summary),
+    details: buildCdfRelationPreviewDetailItems(dryRun.actions),
+    currentImpactLabel: t('reviewCdfRelationPreviewCurrentImpactLabel', '当前卡'),
+    sessionImpactLabel: t('reviewCdfRelationPreviewSessionImpactLabel', '本轮复习'),
+    detailsLabel: t('reviewCdfRelationPreviewDetailsLabel', '展开详情'),
+    noDetailsLabel: t('reviewCdfRelationPreviewNoDetails', '无详细变化'),
+    confirmLabel: t('save', '保存'),
+    cancelLabel: t('cancel', '取消'),
+  };
+}
+
+function buildCdfRelationPreviewMessage(dryRun: CdfLiveRelationWriteRepairResult): string {
+  const summary = summarizeCdfRelationPreviewActions(dryRun.actions);
+  const countParts = buildCdfRelationPreviewCountLines(summary);
+
+  return [
+    countParts.join('；') || t('reviewCdfRelationPreviewNoRelationChange', '未发现关系集合变化'),
+    resolveCdfRelationPreviewCurrentImpact(dryRun),
+    resolveCdfRelationPreviewSessionImpact(summary),
+  ].filter(Boolean).join('\n');
+}
+
+type CdfRelationUpdateAction = Extract<CdfReconciliationAction, { kind: 'update-card-meta' }>;
+
+function findCdfRelationUpdateActionForCard(
+  actions: CdfReconciliationAction[],
+  cardId: string,
+): CdfRelationUpdateAction | null {
+  return actions.find((action): action is CdfRelationUpdateAction => (
+    action.kind === 'update-card-meta'
+    && action.cardId === cardId
+  )) || null;
+}
+
+function resolveCdfWriteRepairCardMetaForCurrent(
+  result: CdfLiveRelationWriteRepairResult,
+  cardId: string,
+  currentCard: FSRSCard | null | undefined,
+): Record<string, unknown> | null {
+  const action = findCdfRelationUpdateActionForCard(result.actions, cardId);
+  if (action) {
+    return action.meta;
+  }
+
+  const updatedCard = result.updatedCards.find((card) => String(card.id || '').trim() === cardId);
+  if (updatedCard) {
+    return readReviewCardMeta(updatedCard);
+  }
+
+  if (String(currentCard?.id || '').trim() === cardId) {
+    return readReviewCardMeta(currentCard);
+  }
+
+  return null;
+}
+
+function isCdfMetaReviewEligible(meta: Record<string, unknown> | null | undefined): boolean {
+  if (!meta) {
+    return false;
+  }
+  const liveMeta = readCdfLiveRelationMetadata(meta);
+  const hasBlockingIssue = (liveMeta.liveRelationIssues || []).some(issue => issue.severity === 'blocking');
+  return liveMeta.liveRelationStatus === 'active-live'
+    && liveMeta.liveContentStatus === 'content-complete'
+    && !hasBlockingIssue;
+}
+
+async function appendDueCdfCardsFromCurrentEditorSave(
+  result: CdfLiveRelationWriteRepairResult,
+): Promise<void> {
+  const cardsToConsider = [
+    ...result.createdCards,
+    ...result.updatedCards.filter((card) => {
+      const updateAction = findCdfRelationUpdateActionForCard(result.actions, String(card.id || '').trim());
+      return updateAction?.reason === 'reactivated';
+    }),
+  ];
+  if (cardsToConsider.length === 0) {
+    return;
+  }
+  await reviewDataObserverRuntime.appendDueCdfCardsToActiveSessionTail(
+    cardsToConsider,
+    'review-editor-save',
+  );
+}
+
+function resolveCurrentCdfSourceBlockIdFromLiveMetadata(card?: FSRSCard | null): string {
+  return readCdfLiveRelationMetadata(card).sourceBlockId || '';
+}
+
+function isSameSourceActiveLiveCdfCard(card: FSRSCard, sourceBlockId: string): boolean {
+  const normalizedSourceBlockId = String(sourceBlockId || '').trim();
+  if (!normalizedSourceBlockId) {
+    return false;
+  }
+  const liveMeta = readCdfLiveRelationMetadata(card);
+  return liveMeta.sourceBlockId === normalizedSourceBlockId
+    && liveMeta.liveRelationStatus === 'active-live';
+}
+
+async function resolveSameSourceActiveLiveCdfCards(sourceBlockId: string): Promise<FSRSCard[]> {
+  const manager = getReviewDataManager();
+  if (!manager) {
+    return [];
+  }
+
+  try {
+    const cards = await manager.getCards();
+    const byCardId = new Map<string, FSRSCard>();
+    for (const card of cards) {
+      const cardId = String(card?.id || '').trim();
+      if (!cardId || !isSameSourceActiveLiveCdfCard(card, sourceBlockId)) {
+        continue;
+      }
+      byCardId.set(cardId, card);
+    }
+    return Array.from(byCardId.values());
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to resolve same-source CDF cards for reset:', {
+      sourceBlockId,
+      error,
+    });
+    return [];
+  }
+}
+
+async function handleResetCurrentProgress(): Promise<void> {
+  const cardEditorService = getCardEditorService();
+  const reference = resolveCurrentReviewCardActionReference();
+  if (!reference) {
+    return;
+  }
+  if (!cardEditorService || typeof cardEditorService.resetProgress !== 'function') {
+    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+    return;
+  }
+
+  const confirmed = await confirmDialog({
+    title: t('resetConfirmTitle', '确认重置进度'),
+    content: t('resetConfirmContent', '这会清空本卡的复习历史，且不能撤销。是否继续？'),
+    confirmText: t('reset', '重置'),
+    cancelText: t('cancel', '取消'),
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const snapshot = await cardEditorService.resetProgress(reference.cardId);
+    await hook.refreshCurrentItem(snapshot.card, buildExpectedRefreshOptions(reference));
+    showMessage(t('resetDone', '已重置卡片'), 3000, 'info');
+  } catch (error) {
+    logger.error('[SiYuanMemo][ReviewView] Failed to reset current card progress:', error);
+    showMessage(t('resetFailed', '重置失败'), 5000, 'error');
+  }
+}
+
+async function handleResetSameSourceProgress(): Promise<void> {
+  const cardEditorService = getCardEditorService();
+  const reference = resolveCurrentReviewCardActionReference();
+  if (!reference) {
+    return;
+  }
+  if (!cardEditorService || typeof cardEditorService.resetProgress !== 'function') {
+    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+    return;
+  }
+
+  const sourceBlockId = resolveCurrentCdfSourceBlockIdFromLiveMetadata(state.value.content.card as FSRSCard | null | undefined);
+  if (!sourceBlockId) {
+    showMessage(t('reviewResetSameSourceNoSource', '当前卡片没有 CDF 同源标识'), 3000, 'info');
+    return;
+  }
+
+  const targetCards = await resolveSameSourceActiveLiveCdfCards(sourceBlockId);
+  if (targetCards.length === 0) {
+    showMessage(t('reviewResetSameSourceNoTargets', '没有可重置的同源活跃关系卡'), 3000, 'info');
+    return;
+  }
+
+  const confirmed = await confirmDialog({
+    title: t('reviewResetSameSourceConfirmTitle', '重置同源活跃关系卡'),
+    content: t(
+      'reviewResetSameSourceConfirmContent',
+      '将重置同一 sourceBlockId 下 {count} 张 active-live 关系卡的学习进度。此操作不可撤销。是否继续？',
+    ).replace('{count}', String(targetCards.length)),
+    confirmText: t('reset', '重置'),
+    cancelText: t('cancel', '取消'),
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  const resetCardIds = targetCards.map((card) => String(card.id || '').trim()).filter(Boolean);
+  const succeededCardIds: string[] = [];
+  const failedCardIds: string[] = [];
+  let currentSnapshotCard: FSRSCard | null = null;
+
+  for (const cardId of resetCardIds) {
+    try {
+      const snapshot = await cardEditorService.resetProgress(cardId);
+      succeededCardIds.push(cardId);
+      if (cardId === reference.cardId) {
+        currentSnapshotCard = snapshot.card;
+      }
+    } catch (error) {
+      failedCardIds.push(cardId);
+      logger.warn('[SiYuanMemo][ReviewView] Failed to reset same-source CDF card progress:', {
+        cardId,
+        error,
+      });
+    }
+  }
+
+  if (currentSnapshotCard) {
+    await hook.refreshCurrentItem(currentSnapshotCard, buildExpectedRefreshOptions(reference));
+  }
+
+  if (failedCardIds.length > 0) {
+    showMessage(
+      t('reviewResetSameSourcePartial', '已重置 {done} 张同源活跃关系卡，另有 {failed} 张失败')
+        .replace('{done}', String(succeededCardIds.length))
+        .replace('{failed}', String(failedCardIds.length)),
+      5000,
+      'error',
+    );
+    return;
+  }
+
+  showMessage(
+    t('reviewResetSameSourceDone', '已重置 {count} 张同源活跃关系卡')
+      .replace('{count}', String(succeededCardIds.length)),
+    3000,
+    'info',
+  );
+}
+
+async function applyCurrentReviewSessionImpactFromCdfWriteRepair(
+  result: CdfLiveRelationWriteRepairResult,
+): Promise<void> {
+  await appendDueCdfCardsFromCurrentEditorSave(result);
+
+  const currentReference = getCurrentReviewCardReference();
+  const currentCardId = currentReference.cardId;
+  if (!currentCardId) {
+    return;
+  }
+
+  const currentCard = state.value.content.card as FSRSCard | null | undefined;
+  const currentMeta = resolveCdfWriteRepairCardMetaForCurrent(result, currentCardId, currentCard);
+  if (isCdfMetaReviewEligible(currentMeta)) {
+    await refreshCurrentReviewCard();
+    return;
+  }
+
+  await removeCardIdsFromActiveQueue([currentCardId || currentReference.blockId]);
+  const latestReference = getCurrentReviewCardReference();
+  if (
+    latestReference.cardId === currentReference.cardId
+    || (currentReference.blockId && latestReference.blockId === currentReference.blockId)
+  ) {
+    await hook.advanceWithoutFeedback();
+  }
+}
+
+async function buildCurrentContentEditorRelationPreview(
+  pendingWrites: ReviewCurrentContentEditorPendingWrite[],
+  validation: ReviewCurrentContentEditorValidationResult,
+): Promise<ReviewCurrentContentEditorRelationPreview | null> {
+  const reviewService = getReviewService();
+  if (!reviewService?.reconcileCdfLiveRelationsInWriteRepairFlow) {
+    return null;
+  }
+
+  const options = buildCurrentCdfWriteRepairOptions(pendingWrites, validation.updates, false);
+  if (!options) {
+    return null;
+  }
+
+  const dryRun = await reviewService.reconcileCdfLiveRelationsInWriteRepairFlow(options);
+  if (!hasPreviewableCdfRelationChange(dryRun.actions)) {
+    return null;
+  }
+
+  return {
+    title: t('reviewCdfRelationPreviewTitle', '保存前预览关系变化'),
+    message: buildCdfRelationPreviewMessage(dryRun),
+    confirmText: t('save', '保存'),
+    cancelText: t('cancel', '取消'),
+    raw: {
+      kind: 'cdf-live-relation-preview',
+      dryRun,
+      options,
+      dialogProps: buildCdfRelationPreviewDialogProps(dryRun),
+    } satisfies CdfRelationPreviewRaw,
+  };
+}
+
+async function confirmCurrentContentEditorRelationPreview(
+  preview: ReviewCurrentContentEditorRelationPreview,
+): Promise<boolean> {
+  const raw = preview.raw;
+  if (isRecord(raw) && raw.kind === 'cdf-live-relation-preview') {
+    const dialogProps = (raw as CdfRelationPreviewRaw).dialogProps;
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      let instance: ReturnType<typeof createVueDialog> | null = null;
+      const settle = (value: boolean) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        instance?.destroy();
+        resolve(value);
+      };
+      instance = createVueDialog({
+        title: preview.title,
+        component: ReviewCdfRelationPreviewDialog,
+        props: dialogProps as unknown as Record<string, unknown>,
+        events: {
+          confirm: () => settle(true),
+          cancel: () => settle(false),
+        },
+        width: '520px',
+        height: '420px',
+        responsive: true,
+        visualVariant: 'form',
+        containerClass: 'siyuanmemo-review-cdf-relation-preview-dialog',
+        onClose: () => {
+          if (!settled) {
+            settled = true;
+            resolve(false);
+          }
+        },
+      });
+    });
+  }
+
+  return confirmDialog({
+    title: preview.title,
+    content: preview.message,
+    confirmText: preview.confirmText || t('save', '保存'),
+    cancelText: preview.cancelText || t('cancel', '取消'),
+    visualVariant: 'form',
+  });
+}
+
+async function reconcileCurrentContentEditorRelationWrites(
+  pendingWrites: ReviewCurrentContentEditorPendingWrite[],
+  validation: ReviewCurrentContentEditorValidationResult,
+): Promise<void> {
+  const reviewService = getReviewService();
+  if (!reviewService?.reconcileCdfLiveRelationsInWriteRepairFlow) {
+    return;
+  }
+
+  const options = buildCurrentCdfWriteRepairOptions(pendingWrites, validation.updates, true);
+  if (!options) {
+    return;
+  }
+
+  const result = await reviewService.reconcileCdfLiveRelationsInWriteRepairFlow(options);
+  await applyCurrentReviewSessionImpactFromCdfWriteRepair(result);
+}
+
+function resolveStructuredGrammarFieldForTarget(targetId: string): {
+  entry: (typeof reviewTextEditorEntries.value)[number];
+  field: ReviewStructuredField;
+} | null {
+  const parsedTarget = parseReviewStructuredFieldTargetId(targetId);
+  const sourceTargetId = parsedTarget?.sourceTargetId || targetId;
+  const entry = reviewTextEditorEntries.value.find(item => item.target.id === sourceTargetId);
+  const model = reviewInlineCardEditorStructuredModel.value;
+  if (!entry || model.mode !== 'structured') {
+    return null;
+  }
+
+  const matchingFields = model.fields.filter(field => (
+    field.origin.kind === 'grammar'
+    && field.origin.blockId === entry.target.blockId
+  ));
+  if (parsedTarget) {
+    const field = matchingFields.find(candidate => candidate.id === parsedTarget.fieldId);
+    return field ? { entry, field } : null;
+  }
+
+  const field = matchingFields[0];
+  if (matchingFields.length !== 1 || !field) {
+    return null;
+  }
+
+  return { entry, field };
+}
+
+function markStructuredGrammarFieldTouched(
+  grammarField: { entry: (typeof reviewTextEditorEntries.value)[number]; field: ReviewStructuredField },
+): void {
+  let touchedFieldIds = reviewStructuredTouchedFieldIdsBySourceTarget.get(grammarField.entry.target.id);
+  if (!touchedFieldIds) {
+    touchedFieldIds = new Set<string>();
+    reviewStructuredTouchedFieldIdsBySourceTarget.set(grammarField.entry.target.id, touchedFieldIds);
+  }
+  touchedFieldIds.add(grammarField.field.id);
+}
+
+function resolveCurrentContentEditorConflict(
+  targetId: string,
+  resolution: ReviewEditableTargetConflictResolution,
+): void {
+  const grammarField = resolveStructuredGrammarFieldForTarget(targetId);
+  if (grammarField) {
+    resolveStructuredGrammarFieldConflict(grammarField, resolution);
+    return;
+  }
+
+  const entry = reviewTextEditorEntries.value.find(item => item.target.id === targetId);
+  const conflict = entry?.conflict;
+  if (!entry || !conflict) {
+    return;
+  }
+
+  if (resolution === 'source-latest' && (conflict.latestSource || conflict.sourceLatestValue !== undefined)) {
+    reviewTextEditorRuntime.replaceTargetDraft(
+      entry.target.id,
+      conflict.latestSource ?? conflict.sourceLatestValue ?? entry.value,
+      conflict.latestSource,
+    );
+  }
+  setStructuredConflictResolution(entry.target.id, conflict.fieldId || 'source', resolution, conflict.latestSource);
+  reviewTextEditorRuntime.clearTargetConflict(entry.target.id);
+}
+
+function resolveStructuredGrammarFieldConflict(
+  grammarField: { entry: (typeof reviewTextEditorEntries.value)[number]; field: ReviewStructuredField },
+  resolution: ReviewEditableTargetConflictResolution,
+): void {
+  const model = reviewInlineCardEditorStructuredModel.value;
+  if (model.mode !== 'structured' || !isStructuredEditableFamily(model.family)) {
+    return;
+  }
+
+  const conflict = grammarField.entry.fieldConflicts?.[grammarField.field.id];
+  if (!conflict) {
+    return;
+  }
+
+  if (resolution === 'source-latest' && conflict.sourceLatestValue !== undefined) {
+    const rewritten = rewriteStructuredGrammarFieldValue({
+      source: grammarField.entry.value,
+      family: model.family,
+      field: grammarField.field,
+      value: conflict.sourceLatestValue,
+      descriptorGroupLeaf: getCurrentStructuredDescriptorGroupLeaf(),
+    });
+    if (rewritten === null) {
+      showMessage(t('reviewStructuredConflictSourceLatestUnavailable', '当前字段无法安全套用源文档最新内容'), 3000, 'warning');
+      return;
+    }
+    grammarField.entry.value = rewritten;
+  }
+
+  setStructuredConflictResolution(
+    grammarField.entry.target.id,
+    grammarField.field.id,
+    resolution,
+    conflict.latestSource,
+  );
+  reviewTextEditorRuntime.clearTargetConflict(grammarField.entry.target.id, grammarField.field.id);
+}
+
+function rewriteDefinitionGrammarField(
+  grammarField: { entry: (typeof reviewTextEditorEntries.value)[number]; field: ReviewStructuredField },
+  nextValue: string,
+): boolean {
+  const model = reviewInlineCardEditorStructuredModel.value;
+  if (model.mode !== 'structured' || model.family !== 'definition' || grammarField.field.role !== 'definition') {
+    return false;
+  }
+
+  const rewritten = replaceDefinitionInCardSourceGrammar({
+    source: grammarField.entry.value,
+    definition: nextValue,
+  });
+  if (!rewritten.ok) {
+    showMessage(t('reviewDefinitionFieldWriteUnavailable', '当前定义源码无法安全改写'), 3000, 'warning');
+    return true;
+  }
+
+  reviewTextEditorRuntime.updateTargetValue(grammarField.entry.target.id, rewritten.source);
+  return true;
+}
+
+function rewriteDescriptorGrammarField(
+  grammarField: { entry: (typeof reviewTextEditorEntries.value)[number]; field: ReviewStructuredField },
+  nextValue: string,
+): boolean {
+  const model = reviewInlineCardEditorStructuredModel.value;
+  if (
+    model.mode !== 'structured'
+    || model.family !== 'descriptor'
+    || (grammarField.field.role !== 'cue' && grammarField.field.role !== 'answer')
+  ) {
+    return false;
+  }
+
+  const fields = model.fields.filter(field => (
+    field.origin.kind === 'grammar'
+    && field.origin.blockId === grammarField.entry.target.blockId
+  ));
+  const cueField = fields.find(field => field.role === 'cue');
+  const answerField = fields.find(field => field.role === 'answer');
+  const rewritten = replaceDescriptorInCardSourceGrammar({
+    source: grammarField.entry.value,
+    cue: grammarField.field.role === 'cue' ? nextValue : cueField?.value ?? '',
+    answer: grammarField.field.role === 'answer' ? nextValue : answerField?.value ?? '',
+    descriptorGroupLeaf: hasReviewStructuredDescriptorGroupLeafShape(state.value.content.card as FSRSCard | null | undefined),
+  });
+  if (!rewritten.ok) {
+    showMessage(t('reviewDescriptorFieldWriteUnavailable', '当前描述符源码无法安全改写'), 3000, 'warning');
+    return true;
+  }
+
+  reviewTextEditorRuntime.updateTargetValue(grammarField.entry.target.id, rewritten.source);
+  return true;
+}
+
+function rewriteItemGrammarField(
+  grammarField: { entry: (typeof reviewTextEditorEntries.value)[number]; field: ReviewStructuredField },
+  nextValue: string,
+): boolean {
+  const model = reviewInlineCardEditorStructuredModel.value;
+  if (
+    model.mode !== 'structured'
+    || model.family !== 'item'
+    || (grammarField.field.role !== 'question' && grammarField.field.role !== 'answer')
+  ) {
+    return false;
+  }
+
+  const fields = model.fields.filter(field => (
+    field.origin.kind === 'grammar'
+    && field.origin.blockId === grammarField.entry.target.blockId
+  ));
+  const questionField = fields.find(field => field.role === 'question');
+  const answerField = fields.find(field => field.role === 'answer');
+  const rewritten = replaceItemInCardSourceGrammar({
+    source: grammarField.entry.value,
+    question: grammarField.field.role === 'question' ? nextValue : questionField?.value ?? '',
+    answer: grammarField.field.role === 'answer' ? nextValue : answerField?.value ?? '',
+  });
+  if (!rewritten.ok) {
+    showMessage(t('reviewItemFieldWriteUnavailable', '当前问答源码无法安全改写'), 3000, 'warning');
+    return true;
+  }
+
+  reviewTextEditorRuntime.updateTargetValue(grammarField.entry.target.id, rewritten.source);
+  return true;
+}
+
+function updateCurrentContentEditorTarget(targetId: string, nextValue: string): void {
+  const grammarField = resolveStructuredGrammarFieldForTarget(targetId);
+  if (!grammarField) {
+    clearStructuredConflictResolution(targetId);
+    reviewTextEditorRuntime.updateTargetValue(targetId, nextValue);
+    return;
+  }
+  clearStructuredConflictResolution(grammarField.entry.target.id, grammarField.field.id);
+  markStructuredGrammarFieldTouched(grammarField);
+  if (rewriteDefinitionGrammarField(grammarField, nextValue)) {
+    return;
+  }
+  if (rewriteDescriptorGrammarField(grammarField, nextValue)) {
+    return;
+  }
+  if (rewriteItemGrammarField(grammarField, nextValue)) {
+    return;
+  }
+
+  reviewTextEditorRuntime.updateTargetValue(targetId, nextValue);
+}
 
 function canOpenInlineCardEditor(): boolean {
   return resolveCurrentEditableTargets().length > 0
@@ -3065,6 +4566,8 @@ async function openInlineCardEditor(): Promise<void> {
     return;
   }
 
+  reviewStructuredTouchedFieldIdsBySourceTarget.clear();
+  reviewStructuredConflictResolutionsBySourceTarget.clear();
   const editableTargets = resolveCurrentEditableTargets();
   if (editableTargets.length === 0 && !reviewInlineCardEditorCard.value) {
     showMessage(t('currentContentNotEditable', '当前内容暂不支持编辑'), 3000, 'info');
@@ -3081,6 +4584,8 @@ async function openInlineCardEditor(): Promise<void> {
 }
 
 function closeInlineCardEditor(): void {
+  reviewStructuredTouchedFieldIdsBySourceTarget.clear();
+  reviewStructuredConflictResolutionsBySourceTarget.clear();
   closeCurrentContentEditor();
   reviewInlineCardEditorOpen.value = false;
 }
@@ -3088,6 +4593,8 @@ function closeInlineCardEditor(): void {
 async function confirmInlineCardEditorSource(): Promise<void> {
   const saved = await confirmCurrentContentEditor();
   if (saved) {
+    reviewStructuredTouchedFieldIdsBySourceTarget.clear();
+    reviewStructuredConflictResolutionsBySourceTarget.clear();
     reviewInlineCardEditorOpen.value = false;
   }
 }
@@ -3119,7 +4626,10 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
     ? t('editCurrentContent', '编辑当前内容')
     : editableTargets[0]?.title ?? null;
   const hasReviewCard = hasCurrentReviewCard();
-  const hasCardEditorService = Boolean(getCardEditorService());
+  const cardEditorService = getCardEditorService();
+  const hasCardEditorService = Boolean(cardEditorService);
+  const hasResetProgressService = typeof cardEditorService?.resetProgress === 'function';
+  const currentCdfSourceBlockId = resolveCurrentCdfSourceBlockIdFromLiveMetadata(currentCard);
 
   return buildReviewMoreMenuItems({
     t,
@@ -3135,6 +4645,8 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
     currentPriority: resolveCurrentReviewCardPriority(),
     currentDismissed: resolveCurrentReviewCardDismissed(),
     canEditCurrentPriority: hasReviewCard && hasCardEditorService,
+    canResetCurrentProgress: hasReviewCard && hasResetProgressService,
+    canResetSameSourceProgress: hasReviewCard && hasResetProgressService && Boolean(currentCdfSourceBlockId),
     canSuspendCurrentCard: hasReviewCard && hasCardEditorService,
     canDeleteCurrentCard: hasReviewCard && Boolean(getCardService()),
     peerCount: peerInfo?.peerCards.length ?? 0,
@@ -3147,6 +4659,8 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
       editCurrentContent: () => void openInlineCardEditor(),
       toggleFullscreen: toggleReviewFullscreen,
       editPriority: () => void handleEditCurrentCardPriority(),
+      resetCurrentProgress: () => void handleResetCurrentProgress(),
+      resetSameSourceProgress: () => void handleResetSameSourceProgress(),
       toggleDismissed: () => void handleDismissCurrentCard(),
       dismissPeers: () => void handleDismissPeerCards(),
       deleteCurrent: () => void handleDeleteCurrentCard(),
@@ -4084,6 +5598,110 @@ watch(
   gap: 6px;
 }
 
+.fsrs-review-v2__cdf-interruption {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 16px 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--b3-theme-error) 30%, var(--b3-border-color) 70%);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--b3-theme-error-light) 18%, var(--b3-theme-background) 82%);
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.fsrs-review-v2__cdf-interruption-main {
+  min-width: 0;
+}
+
+.fsrs-review-v2__cdf-interruption-kicker {
+  color: var(--b3-theme-error);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.fsrs-review-v2__cdf-interruption-title {
+  margin-top: 2px;
+  font-weight: 600;
+}
+
+.fsrs-review-v2__cdf-interruption-reason,
+.fsrs-review-v2__cdf-interruption-meta {
+  overflow-wrap: anywhere;
+}
+
+.fsrs-review-v2__cdf-interruption-reason {
+  margin-top: 2px;
+}
+
+.fsrs-review-v2__cdf-interruption-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 11px;
+}
+
+.fsrs-review-v2__cdf-interruption-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.fsrs-review-v2__blocked-summary {
+  margin: 0 16px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
+  background: var(--b3-theme-surface);
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.fsrs-review-v2__blocked-summary > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.fsrs-review-v2__blocked-summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fsrs-review-v2__blocked-summary-item {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(96px, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 0;
+  border-top: 1px solid color-mix(in srgb, var(--b3-border-color) 72%, transparent 28%);
+}
+
+.fsrs-review-v2__blocked-summary-reason,
+.fsrs-review-v2__blocked-summary-id {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fsrs-review-v2__blocked-summary-id {
+  color: var(--b3-theme-on-surface-light);
+  font-size: 11px;
+}
+
 .fsrs-review-v2--mobile .fsrs-review-v2__writer-recovery {
   flex-direction: column;
 }
@@ -4093,10 +5711,32 @@ watch(
   flex-wrap: wrap;
 }
 
+.fsrs-review-v2--mobile .fsrs-review-v2__cdf-interruption {
+  flex-direction: column;
+}
+
+.fsrs-review-v2--mobile .fsrs-review-v2__cdf-interruption-actions {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.fsrs-review-v2--mobile .fsrs-review-v2__blocked-summary-item {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.fsrs-review-v2--mobile .fsrs-review-v2__blocked-summary-id {
+  grid-column: 1 / -1;
+}
+
 .fsrs-review-v2--mobile .fsrs-review-v2__arena-hint,
 .fsrs-review-v2--mobile .fsrs-review-v2__temporary-view,
-.fsrs-review-v2--mobile .fsrs-review-v2__writer-recovery {
+.fsrs-review-v2--mobile .fsrs-review-v2__writer-recovery,
+.fsrs-review-v2--mobile .fsrs-review-v2__cdf-interruption {
   margin: 6px 8px 0;
+}
+
+.fsrs-review-v2--mobile .fsrs-review-v2__blocked-summary {
+  margin: 0 8px 10px;
 }
 
 .fsrs-review-v2__workspace--with-side-area .fsrs-review-v2__content-wrapper {

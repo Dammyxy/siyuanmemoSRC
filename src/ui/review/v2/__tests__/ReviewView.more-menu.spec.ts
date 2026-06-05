@@ -113,6 +113,29 @@ function buildCard(id: string, blockId = 'block-1') {
   };
 }
 
+type TestReviewCard = ReturnType<typeof buildCard>;
+
+function buildCdfLiveCard(
+  id: string,
+  sourceBlockId: string,
+  status = 'active-live',
+  blockId = sourceBlockId,
+): TestReviewCard {
+  return {
+    ...buildCard(id, blockId),
+    type: 'definition',
+    meta: {
+      relationAuthority: 'live-backlink',
+      liveRelationKey: `${sourceBlockId}:concept-1:definition-forward`,
+      sourceBlockId,
+      conceptBlockId: 'concept-1',
+      relationKind: 'definition-forward',
+      liveRelationStatus: status,
+      liveContentStatus: 'content-complete',
+    },
+  };
+}
+
 function buildEditableTarget(
   id: string,
   blockId: string,
@@ -236,6 +259,10 @@ const ReviewContentStub = defineComponent({
       type: Object,
       required: true,
     },
+    showAnswer: {
+      type: Boolean,
+      default: false,
+    },
     renderEpoch: {
       type: Number,
       default: 0,
@@ -252,6 +279,7 @@ const ReviewContentStub = defineComponent({
       {
         class: 'fsrs-review-v2-content review-content-card-id',
         'data-render-epoch': String((props as { renderEpoch?: number }).renderEpoch ?? 0),
+        'data-show-answer': String((props as { showAnswer?: boolean }).showAnswer === true),
       },
       String((props.content as { card?: { id?: string } }).card?.id || ''),
     );
@@ -300,6 +328,12 @@ function createPluginContext(overrides?: {
     setDismissedMany: ReturnType<typeof vi.fn>;
     resetProgress?: ReturnType<typeof vi.fn>;
   };
+  unifiedManager?: {
+    getCards: ReturnType<typeof vi.fn>;
+    getCard: ReturnType<typeof vi.fn>;
+    registerObserver?: ReturnType<typeof vi.fn>;
+    unregisterObserver?: ReturnType<typeof vi.fn>;
+  };
   registry?: {
     hasReviewSession?: ReturnType<typeof vi.fn>;
     getReviewSession?: ReturnType<typeof vi.fn>;
@@ -314,17 +348,21 @@ function createPluginContext(overrides?: {
     focusReviewAICompanionTab?: ReturnType<typeof vi.fn>;
     hasReviewAICompanionTab?: ReturnType<typeof vi.fn>;
   };
+  dialogManager?: {
+    openBrowserDialog?: ReturnType<typeof vi.fn>;
+  };
   reviewService?: {
     getEditableBlockMarkdown: ReturnType<typeof vi.fn>;
     getBlockKramdown: ReturnType<typeof vi.fn>;
     updateBlockMarkdown: ReturnType<typeof vi.fn>;
+    reconcileCdfLiveRelationsInWriteRepairFlow?: ReturnType<typeof vi.fn>;
     getSiyuanApi: () => {
       BUILTIN_DECK_ID: string;
     };
   };
 }) {
   return {
-    getUnifiedDataSourceManager: () => null,
+    getUnifiedDataSourceManager: () => overrides?.unifiedManager ?? null,
     getStorage: () => ({
       getSettings: () => ({
         progressiveReading: {
@@ -346,6 +384,7 @@ function createPluginContext(overrides?: {
     }),
     getCardService: () => overrides?.cardService,
     getCardEditorService: () => overrides?.cardEditorService,
+    getDialogManager: () => overrides?.dialogManager,
     getReviewAIWorkbenchRegistry: () => overrides?.registry,
     getTabManager: () => overrides?.tabManager,
     readDomainSyncDiagnostics: vi.fn(async () => ({
@@ -385,6 +424,12 @@ function mountReviewView(options?: {
     setDismissedMany: ReturnType<typeof vi.fn>;
     resetProgress?: ReturnType<typeof vi.fn>;
   };
+  unifiedManager?: {
+    getCards: ReturnType<typeof vi.fn>;
+    getCard: ReturnType<typeof vi.fn>;
+    registerObserver?: ReturnType<typeof vi.fn>;
+    unregisterObserver?: ReturnType<typeof vi.fn>;
+  };
   registry?: {
     hasReviewSession?: ReturnType<typeof vi.fn>;
     getReviewSession?: ReturnType<typeof vi.fn>;
@@ -399,10 +444,14 @@ function mountReviewView(options?: {
     focusReviewAICompanionTab?: ReturnType<typeof vi.fn>;
     hasReviewAICompanionTab?: ReturnType<typeof vi.fn>;
   };
+  dialogManager?: {
+    openBrowserDialog?: ReturnType<typeof vi.fn>;
+  };
   reviewService?: {
     getEditableBlockMarkdown: ReturnType<typeof vi.fn>;
     getBlockKramdown: ReturnType<typeof vi.fn>;
     updateBlockMarkdown: ReturnType<typeof vi.fn>;
+    reconcileCdfLiveRelationsInWriteRepairFlow?: ReturnType<typeof vi.fn>;
     getSiyuanApi: () => {
       BUILTIN_DECK_ID: string;
     };
@@ -413,6 +462,15 @@ function mountReviewView(options?: {
   const cards = options?.cards ?? [buildCard('card-1'), buildCard('card-2', 'block-2')];
   const queue = createQueue(cards, options?.queueType);
   const adapter = createAdapter();
+  const unifiedManager = {
+    getCards: vi.fn(async () => cards),
+    getCard: vi.fn(async (cardId: string) => (
+      cards.find((card) => card.id === cardId) ?? buildCard(cardId)
+    )),
+    registerObserver: vi.fn(),
+    unregisterObserver: vi.fn(),
+    ...options?.unifiedManager,
+  };
 
   const cardService = options?.cardService ?? {
     getCardsByBlockId: vi.fn(() => options?.peerCards ?? [cards[0], buildCard('peer-1'), buildCard('peer-2')]),
@@ -489,6 +547,9 @@ function mountReviewView(options?: {
     hasReviewAICompanionTab: vi.fn(() => false),
     ...options?.tabManager,
   };
+  const dialogManager = options?.dialogManager ?? {
+    openBrowserDialog: vi.fn(),
+  };
 
   let attachTo: HTMLElement | undefined;
   if (options?.attachInDialog) {
@@ -511,9 +572,11 @@ function mountReviewView(options?: {
         getContext: () => createPluginContext({
           cardService,
           cardEditorService,
+          unifiedManager,
           registry,
           reviewService: options?.reviewService,
           tabManager,
+          dialogManager,
         }),
       },
     },
@@ -534,8 +597,10 @@ function mountReviewView(options?: {
     queue,
     cardService,
     cardEditorService,
+    unifiedManager,
     registry,
     tabManager,
+    dialogManager,
   };
 }
 
@@ -651,6 +716,180 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
+  it('resets current card progress from the more menu without scoring or advancing', async () => {
+    const { wrapper, queue, cardEditorService } = mountReviewView();
+    await flushPromises();
+    const initialNextCalls = queue.next.mock.calls.length;
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+
+    const resetItem = getLatestMenuItems().find((item) => item.id === 'reset-current-progress');
+    expect(resetItem?.disabled).toBe(false);
+    await resetItem?.click?.();
+    await flushPromises();
+
+    expect(reviewViewDialogMocks.confirmDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: '确认重置进度',
+      content: '这会清空本卡的复习历史，且不能撤销。是否继续？',
+    }));
+    expect(cardEditorService.resetProgress).toHaveBeenCalledWith('card-1');
+    expect(queue.next).toHaveBeenCalledTimes(initialNextCalls);
+    expect(queue.onFeedback).not.toHaveBeenCalled();
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-1');
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenCalledWith('已重置卡片', 3000, 'info');
+
+    wrapper.unmount();
+  });
+
+  it('does not reset current card progress when confirmation is cancelled', async () => {
+    const { wrapper, cardEditorService } = mountReviewView();
+    await flushPromises();
+
+    reviewViewDialogMocks.confirmDialogMock.mockResolvedValueOnce(false);
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+
+    const resetItem = getLatestMenuItems().find((item) => item.id === 'reset-current-progress');
+    await resetItem?.click?.();
+    await flushPromises();
+
+    expect(cardEditorService.resetProgress).not.toHaveBeenCalled();
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-1');
+
+    wrapper.unmount();
+  });
+
+  it('resets only same-source active-live CDF relation cards from the more menu', async () => {
+    const currentCard = buildCdfLiveCard('card-1', 'source-1');
+    const peerActive = buildCdfLiveCard('card-peer-active', 'source-1', 'active-live', 'peer-block');
+    const orphaned = buildCdfLiveCard('card-orphaned', 'source-1', 'orphaned-by-live-relation', 'orphan-block');
+    const duplicate = buildCdfLiveCard('card-duplicate', 'source-1', 'duplicate-live-relation', 'duplicate-block');
+    const legacyUnavailable = buildCdfLiveCard('card-legacy', 'source-1', 'legacy-relation-unavailable', 'legacy-block');
+    const otherSourceActive = buildCdfLiveCard('card-other-source', 'source-2', 'active-live', 'other-block');
+    const sameSourceCards = [
+      currentCard,
+      peerActive,
+      orphaned,
+      duplicate,
+      legacyUnavailable,
+      otherSourceActive,
+      buildCard('ordinary-card', 'source-1'),
+    ];
+    const unifiedManager = {
+      getCards: vi.fn(async () => sameSourceCards),
+      getCard: vi.fn(async (cardId: string) => (
+        sameSourceCards.find((card) => card.id === cardId) ?? buildCard(cardId)
+      )),
+    };
+    const cardEditorService = {
+      updatePriority: vi.fn(async () => ({
+        card: currentCard,
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      setDismissed: vi.fn(async () => ({
+        card: currentCard,
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      setDismissedMany: vi.fn(async () => ({
+        updatedCardIds: [],
+        failedCardIds: [],
+      })),
+      resetProgress: vi.fn(async (cardId: string) => ({
+        card: sameSourceCards.find((card) => card.id === cardId) ?? buildCard(cardId),
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+    };
+    const { wrapper, queue } = mountReviewView({
+      cards: [currentCard, buildCard('card-2', 'block-2')],
+      cardEditorService,
+      unifiedManager,
+    });
+    await flushPromises();
+    const initialNextCalls = queue.next.mock.calls.length;
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+
+    const resetSameSourceItem = getLatestMenuItems().find((item) => item.id === 'reset-same-source-progress');
+    expect(resetSameSourceItem?.disabled).toBe(false);
+    await resetSameSourceItem?.click?.();
+    await flushPromises();
+
+    expect(unifiedManager.getCards).toHaveBeenCalledTimes(1);
+    expect(reviewViewDialogMocks.confirmDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: '重置同源活跃关系卡',
+      content: expect.stringContaining('2 张 active-live 关系卡'),
+    }));
+    expect(cardEditorService.resetProgress.mock.calls.map(([cardId]) => cardId)).toEqual([
+      'card-1',
+      'card-peer-active',
+    ]);
+    expect(cardEditorService.resetProgress).not.toHaveBeenCalledWith('card-orphaned');
+    expect(cardEditorService.resetProgress).not.toHaveBeenCalledWith('card-duplicate');
+    expect(cardEditorService.resetProgress).not.toHaveBeenCalledWith('card-legacy');
+    expect(cardEditorService.resetProgress).not.toHaveBeenCalledWith('card-other-source');
+    expect(queue.next).toHaveBeenCalledTimes(initialNextCalls);
+    expect(queue.onFeedback).not.toHaveBeenCalled();
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-1');
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenCalledWith(
+      '已重置 2 张同源活跃关系卡',
+      3000,
+      'info',
+    );
+
+    wrapper.unmount();
+  });
+
+  it('does not reset same-source CDF progress when confirmation is cancelled', async () => {
+    const currentCard = buildCdfLiveCard('card-1', 'source-1');
+    const peerActive = buildCdfLiveCard('card-peer-active', 'source-1', 'active-live', 'peer-block');
+    const unifiedManager = {
+      getCards: vi.fn(async () => [currentCard, peerActive]),
+      getCard: vi.fn(async (cardId: string) => (
+        [currentCard, peerActive].find((card) => card.id === cardId) ?? buildCard(cardId)
+      )),
+    };
+    const cardEditorService = {
+      updatePriority: vi.fn(async () => ({
+        card: currentCard,
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      setDismissed: vi.fn(async () => ({
+        card: currentCard,
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      setDismissedMany: vi.fn(async () => ({
+        updatedCardIds: [],
+        failedCardIds: [],
+      })),
+      resetProgress: vi.fn(async () => ({
+        card: currentCard,
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [currentCard, buildCard('card-2', 'block-2')],
+      cardEditorService,
+      unifiedManager,
+    });
+    await flushPromises();
+
+    reviewViewDialogMocks.confirmDialogMock.mockResolvedValueOnce(false);
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+
+    const resetSameSourceItem = getLatestMenuItems().find((item) => item.id === 'reset-same-source-progress');
+    await resetSameSourceItem?.click?.();
+    await flushPromises();
+
+    expect(unifiedManager.getCards).toHaveBeenCalledTimes(1);
+    expect(cardEditorService.resetProgress).not.toHaveBeenCalled();
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-1');
+
+    wrapper.unmount();
+  });
+
   it('shows edit-current-content for editable renderers and saves without advancing the session', async () => {
     reviewContentEditableTargets = [
       buildEditableTarget('main-protyle:current-content:block-1', 'block-1', '编辑当前内容'),
@@ -746,6 +985,8 @@ describe('ReviewView more menu', () => {
       updateBlockMarkdown: vi.fn(async () => undefined),
       getSiyuanApi: () => ({
         BUILTIN_DECK_ID: 'deck-1',
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
       }),
     };
     const { wrapper } = mountReviewView({
@@ -776,6 +1017,921 @@ describe('ReviewView more menu', () => {
     await flushPromises();
 
     expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith('answer-block', 'Updated answer');
+
+    wrapper.unmount();
+  });
+
+  it('opens forward Item grammar as question and answer fields and preserves source grammar on save', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:item-block', 'item-block', '编辑问答'),
+    ];
+    const itemSource = 'What does TCP provide? >> Reliable ordered byte streams.';
+    const itemCard = {
+      ...buildCard('card-1', 'item-block'),
+      type: 'item',
+      meta: {
+        templateID: 'builtin-quick-card',
+      },
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => itemSource),
+      getBlockKramdown: vi.fn(async () => itemSource),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [itemCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    const fieldTitles = wrapper.findAll('.review-editable-targets-panel__target-title')
+      .map(title => title.text());
+    expect(fieldTitles).toEqual(['Question', 'Answer']);
+    const textareas = wrapper.findAll('textarea.review-editable-targets-panel__textarea');
+    expect((textareas[0].element as HTMLTextAreaElement).value).toBe('What does TCP provide?');
+    expect((textareas[1].element as HTMLTextAreaElement).value).toBe('Reliable ordered byte streams.');
+
+    await textareas[1].setValue('Reliable, ordered byte streams.');
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith(
+      'item-block',
+      'What does TCP provide? >> Reliable, ordered byte streams.',
+    );
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalledWith(
+      'item-block',
+      'Reliable, ordered byte streams.',
+    );
+
+    wrapper.unmount();
+  });
+
+  it('preserves untouched external grammar fields when saving a dirty Item field', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:item-block', 'item-block', '编辑问答'),
+    ];
+    const itemSource = 'Original question >> Original answer.';
+    const latestSource = 'Externally revised question >> Original answer.';
+    let readCount = 0;
+    const itemCard = {
+      ...buildCard('card-1', 'item-block'),
+      type: 'item',
+      meta: {
+        templateID: 'builtin-quick-card',
+      },
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => {
+        readCount += 1;
+        return readCount === 1 ? itemSource : latestSource;
+      }),
+      getBlockKramdown: vi.fn(async () => itemSource),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [itemCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    const textareas = wrapper.findAll('textarea.review-editable-targets-panel__textarea');
+    await textareas[1].setValue('Local answer draft.');
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith(
+      'item-block',
+      'Externally revised question >> Local answer draft.',
+    );
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalledWith(
+      'item-block',
+      'Original question >> Local answer draft.',
+    );
+
+    wrapper.unmount();
+  });
+
+  it('keeps the editor open when a dirty Item field changed externally', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:item-block', 'item-block', '编辑问答'),
+    ];
+    const itemSource = 'Question >> Original answer.';
+    const latestSource = 'Question >> External answer.';
+    let readCount = 0;
+    const itemCard = {
+      ...buildCard('card-1', 'item-block'),
+      type: 'item',
+      meta: {
+        templateID: 'builtin-quick-card',
+      },
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => {
+        readCount += 1;
+        return readCount === 1 ? itemSource : latestSource;
+      }),
+      getBlockKramdown: vi.fn(async () => itemSource),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [itemCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    const textareas = wrapper.findAll('textarea.review-editable-targets-panel__textarea');
+    await textareas[1].setValue('Local answer draft.');
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(true);
+    expect(wrapper.get('[role="alert"]').text()).toContain('Answer');
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenLastCalledWith(
+      '保存当前内容失败：源文档中的「Answer」已被外部修改，请先处理冲突',
+      5000,
+      'error',
+    );
+
+    wrapper.unmount();
+  });
+
+  it('uses source latest for a dirty Item field conflict and updates the field draft', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:item-block', 'item-block', '编辑问答'),
+    ];
+    const itemSource = 'Question >> Original answer.';
+    const latestSource = 'Question >> External answer.';
+    let readCount = 0;
+    const itemCard = {
+      ...buildCard('card-1', 'item-block'),
+      type: 'item',
+      meta: {
+        templateID: 'builtin-quick-card',
+      },
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => {
+        readCount += 1;
+        return readCount === 1 ? itemSource : latestSource;
+      }),
+      getBlockKramdown: vi.fn(async () => itemSource),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [itemCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    let textareas = wrapper.findAll('textarea.review-editable-targets-panel__textarea');
+    await textareas[1].setValue('Local answer draft.');
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="review-editable-target-conflict"]').text()).toContain('Answer');
+    const useSourceLatestButton = wrapper.findAll('button').find((button) => button.text() === '使用源文档最新');
+    expect(useSourceLatestButton).toBeTruthy();
+    await useSourceLatestButton!.trigger('click');
+    await flushPromises();
+
+    textareas = wrapper.findAll('textarea.review-editable-targets-panel__textarea');
+    expect((textareas[1].element as HTMLTextAreaElement).value).toBe('External answer.');
+    expect(wrapper.find('[data-testid="review-editable-target-conflict"]').exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it('keeps a dirty Item field draft after conflict choice and saves it into the source-latest grammar', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:item-block', 'item-block', '编辑问答'),
+    ];
+    const itemSource = 'Original question >> Original answer.';
+    const latestSource = 'Externally revised question >> External answer.';
+    let readCount = 0;
+    const itemCard = {
+      ...buildCard('card-1', 'item-block'),
+      type: 'item',
+      meta: {
+        templateID: 'builtin-quick-card',
+      },
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => {
+        readCount += 1;
+        return readCount === 1 ? itemSource : latestSource;
+      }),
+      getBlockKramdown: vi.fn(async () => itemSource),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [itemCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    const textareas = wrapper.findAll('textarea.review-editable-targets-panel__textarea');
+    await textareas[1].setValue('Local answer draft.');
+    await flushPromises();
+
+    let saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    const keepDraftButton = wrapper.findAll('button').find((button) => button.text() === '保留我的草稿');
+    expect(keepDraftButton).toBeTruthy();
+    await keepDraftButton!.trigger('click');
+    await flushPromises();
+
+    saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith(
+      'item-block',
+      'Externally revised question >> Local answer draft.',
+    );
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalledWith(
+      'item-block',
+      'Original question >> Local answer draft.',
+    );
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it('opens reverse Item grammar in logical question-answer order and preserves << source format', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:item-block', 'item-block', '编辑问答'),
+    ];
+    const itemSource = 'Reliable ordered byte streams. << What does TCP provide?';
+    const itemCard = {
+      ...buildCard('card-1', 'item-block'),
+      type: 'item',
+      meta: {
+        templateID: 'builtin-quick-card',
+        typeMarker: 'reverse',
+      },
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => itemSource),
+      getBlockKramdown: vi.fn(async () => itemSource),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [itemCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="review-structured-direction"]').text()).toBe('反向');
+    const fieldTitles = wrapper.findAll('.review-editable-targets-panel__target-title')
+      .map(title => title.text());
+    expect(fieldTitles).toEqual(['Question', 'Answer']);
+    const textareas = wrapper.findAll('textarea.review-editable-targets-panel__textarea');
+    expect((textareas[0].element as HTMLTextAreaElement).value).toBe('What does TCP provide?');
+    expect((textareas[1].element as HTMLTextAreaElement).value).toBe('Reliable ordered byte streams.');
+
+    await textareas[0].setValue('Which service does TCP provide?');
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith(
+      'item-block',
+      'Reliable ordered byte streams. << Which service does TCP provide?',
+    );
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalledWith(
+      'item-block',
+      'Which service does TCP provide?',
+    );
+
+    wrapper.unmount();
+  });
+
+  it('opens both-direction Item grammar and preserves <> source format on save', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:item-block', 'item-block', '编辑问答'),
+    ];
+    const itemSource = 'Question <> Answer';
+    const itemCard = {
+      ...buildCard('card-1', 'item-block'),
+      type: 'item',
+      meta: {
+        templateID: 'builtin-bidirectional',
+        typeMarker: 'both',
+      },
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => itemSource),
+      getBlockKramdown: vi.fn(async () => itemSource),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [itemCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="review-structured-direction"]').text()).toBe('双向');
+    const textareas = wrapper.findAll('textarea.review-editable-targets-panel__textarea');
+    expect((textareas[0].element as HTMLTextAreaElement).value).toBe('Question');
+    expect((textareas[1].element as HTMLTextAreaElement).value).toBe('Answer');
+
+    await textareas[0].setValue('Updated question');
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith(
+      'item-block',
+      'Updated question <> Answer',
+    );
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalledWith(
+      'item-block',
+      'Updated question',
+    );
+
+    wrapper.unmount();
+  });
+
+  it('opens invalid Item grammar in source mode and restores structured fields after a valid edit', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:item-block', 'item-block', '编辑问答'),
+    ];
+    const invalidSource = 'Question >> Answer >> Extra';
+    const itemCard = {
+      ...buildCard('card-1', 'item-block'),
+      type: 'item',
+      meta: {
+        templateID: 'builtin-quick-card',
+        liveRelationIssues: [{
+          code: 'invalid-source-grammar',
+          severity: 'blocking',
+        }],
+      },
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => invalidSource),
+      getBlockKramdown: vi.fn(async () => invalidSource),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [itemCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="review-structured-field-warning"]').text())
+      .toContain('源码语法无效');
+    let fieldTitles = wrapper.findAll('.review-editable-targets-panel__target-title')
+      .map(title => title.text());
+    expect(fieldTitles).toEqual(['编辑问答']);
+
+    const sourceTextarea = wrapper.get('textarea.review-editable-targets-panel__textarea');
+    expect((sourceTextarea.element as HTMLTextAreaElement).value).toBe(invalidSource);
+    await sourceTextarea.setValue('Question >> Answer');
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="review-structured-field-warning"]').exists()).toBe(false);
+    fieldTitles = wrapper.findAll('.review-editable-targets-panel__target-title')
+      .map(title => title.text());
+    expect(fieldTitles).toEqual(['Question', 'Answer']);
+    const textareas = wrapper.findAll('textarea.review-editable-targets-panel__textarea');
+    expect((textareas[0].element as HTMLTextAreaElement).value).toBe('Question');
+    expect((textareas[1].element as HTMLTextAreaElement).value).toBe('Answer');
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith(
+      'item-block',
+      'Question >> Answer',
+    );
+
+    wrapper.unmount();
+  });
+
+  it('previews CDF relation changes and cancels without writing source content', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('definition:definition:definition-block', 'definition-block', '编辑定义', 'definition'),
+    ];
+    const originalSource = '((20240101010101-aaaaaaa "A")) :> old >> invalid';
+    const draftSource = '((20240101010101-bbbbbbb "B")) :> new definition';
+    const cdfCard = {
+      ...buildCard('card-1', 'definition-block'),
+      type: 'concept',
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'definition-block:20240101010101-aaaaaaa:definition-forward',
+        sourceBlockId: 'definition-block',
+        conceptBlockId: '20240101010101-aaaaaaa',
+        relationKind: 'definition-forward',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        liveRelationIssues: [{
+          code: 'invalid-source-grammar',
+          severity: 'blocking',
+        }],
+        fieldMapping: {
+          concept: '20240101010101-aaaaaaa',
+          definition: 'definition-block',
+        },
+      },
+    };
+    const dryRun = {
+      attempted: true,
+      actions: [
+        {
+          kind: 'create-card',
+          relation: {
+            conceptBlockId: '20240101010101-bbbbbbb',
+            relationKind: 'definition-forward',
+            relationKey: 'definition-block:20240101010101-bbbbbbb:definition-forward',
+            sourceBlockId: 'definition-block',
+          },
+          reason: 'missing-live-relation',
+        },
+        {
+          kind: 'update-card-meta',
+          cardId: 'card-1',
+          status: 'orphaned-by-live-relation',
+          relation: null,
+          meta: {},
+          reason: 'orphaned',
+        },
+      ],
+      createdCards: [],
+      updatedCards: [],
+      derivedRelationCount: 1,
+      reason: 'reconciled',
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => originalSource),
+      getBlockKramdown: vi.fn(async () => originalSource),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => dryRun),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    reviewViewDialogMocks.createVueDialogMock.mockImplementationOnce((options) => {
+      queueMicrotask(() => options.events?.cancel?.());
+      return {
+        dialog: {} as never,
+        destroy: vi.fn(),
+      };
+    });
+    const { wrapper } = mountReviewView({
+      cards: [cdfCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    const textarea = wrapper.get('textarea.review-editable-targets-panel__textarea');
+    expect((textarea.element as HTMLTextAreaElement).value).toBe(originalSource);
+    await textarea.setValue(draftSource);
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).toHaveBeenCalledTimes(1);
+    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).toHaveBeenCalledWith(expect.objectContaining({
+      sourceBlockId: 'definition-block',
+      changedBlockId: 'definition-block',
+      reconciliationScope: 'block-edit',
+      persist: false,
+      draftMarkdownByBlockId: {
+        'definition-block': draftSource,
+      },
+    }));
+    expect(reviewViewDialogMocks.confirmDialogMock).not.toHaveBeenCalled();
+    expect(reviewViewDialogMocks.createVueDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: '保存前预览关系变化',
+      props: expect.objectContaining({
+        currentImpact: '当前卡保存后将移出本轮复习且不评分',
+        sessionImpact: '新建或恢复的到期卡后续会按会话规则追加到队尾',
+        summary: expect.arrayContaining([
+          expect.objectContaining({ key: 'create', count: 1 }),
+          expect.objectContaining({ key: 'orphan', count: 1 }),
+        ]),
+        details: expect.arrayContaining([
+          expect.objectContaining({ kind: '新建', text: expect.stringContaining('20240101010101-bbbbbbb') }),
+          expect.objectContaining({ kind: '暂停孤儿', text: expect.stringContaining('card-1') }),
+        ]),
+      }),
+    }));
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(true);
+
+    wrapper.unmount();
+  });
+
+  it('confirms CDF relation preview before writing source content and executing reconciliation', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('definition:definition:definition-block', 'definition-block', '编辑定义', 'definition'),
+    ];
+    const originalSource = '((20240101010101-aaaaaaa "A")) :> old >> invalid';
+    const draftSource = '((20240101010101-bbbbbbb "B")) :> new definition';
+    const cdfCard = {
+      ...buildCard('card-1', 'definition-block'),
+      type: 'concept',
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'definition-block:20240101010101-aaaaaaa:definition-forward',
+        sourceBlockId: 'definition-block',
+        conceptBlockId: '20240101010101-aaaaaaa',
+        relationKind: 'definition-forward',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        liveRelationIssues: [{
+          code: 'invalid-source-grammar',
+          severity: 'blocking',
+        }],
+        fieldMapping: {
+          concept: '20240101010101-aaaaaaa',
+          definition: 'definition-block',
+        },
+      },
+    };
+    const dryRun = {
+      attempted: true,
+      actions: [{
+        kind: 'create-card',
+        relation: {
+          conceptBlockId: '20240101010101-bbbbbbb',
+          relationKind: 'definition-forward',
+          relationKey: 'definition-block:20240101010101-bbbbbbb:definition-forward',
+          sourceBlockId: 'definition-block',
+        },
+        reason: 'missing-live-relation',
+      }],
+      createdCards: [],
+      updatedCards: [],
+      derivedRelationCount: 1,
+      reason: 'reconciled',
+    };
+    const executed = {
+      ...dryRun,
+      actions: [],
+      reason: 'unchanged',
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => originalSource),
+      getBlockKramdown: vi.fn(async () => originalSource),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async (options: { persist?: boolean }) => (
+        options.persist === false ? dryRun : executed
+      )),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    reviewViewDialogMocks.createVueDialogMock.mockImplementationOnce((options) => {
+      queueMicrotask(() => options.events?.confirm?.());
+      return {
+        dialog: {} as never,
+        destroy: vi.fn(),
+      };
+    });
+    const { wrapper } = mountReviewView({
+      cards: [cdfCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    const textarea = wrapper.get('textarea.review-editable-targets-panel__textarea');
+    await textarea.setValue(draftSource);
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(reviewViewDialogMocks.confirmDialogMock).not.toHaveBeenCalled();
+    expect(reviewViewDialogMocks.createVueDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: '保存前预览关系变化',
+      props: expect.objectContaining({
+        summary: expect.arrayContaining([
+          expect.objectContaining({ key: 'create', count: 1 }),
+        ]),
+        details: expect.arrayContaining([
+          expect.objectContaining({ kind: '新建', text: expect.stringContaining('definition-forward') }),
+        ]),
+        currentImpact: '当前卡保存后保持在本轮复习中',
+      }),
+    }));
+    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).toHaveBeenCalledTimes(2);
+    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      persist: false,
+      draftMarkdownByBlockId: {
+        'definition-block': draftSource,
+      },
+    }));
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith('definition-block', draftSource);
+    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      sourceBlockId: 'definition-block',
+      changedBlockId: 'definition-block',
+      reconciliationScope: 'block-edit',
+      persist: true,
+    }));
+    expect(reviewService.reconcileCdfLiveRelationsInWriteRepairFlow.mock.calls[1]?.[0])
+      .not.toHaveProperty('draftMarkdownByBlockId');
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it('preserves reveal state when CDF editor save leaves the current card active', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('definition:definition:definition-block', 'definition-block', '编辑定义', 'definition'),
+    ];
+    const originalSource = '((20240101010101-aaaaaaa "A")) :> old definition';
+    const updatedSource = '((20240101010101-aaaaaaa "A")) :> updated definition';
+    const cdfCard = {
+      ...buildCard('card-1', 'definition-block'),
+      type: 'concept',
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'definition-block:20240101010101-aaaaaaa:definition-forward',
+        sourceBlockId: 'definition-block',
+        conceptBlockId: '20240101010101-aaaaaaa',
+        relationKind: 'definition-forward',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        fieldMapping: {
+          concept: '20240101010101-aaaaaaa',
+          definition: 'definition-block',
+        },
+      },
+    };
+    const updatedCard = {
+      ...cdfCard,
+      updatedAt: cdfCard.updatedAt + 1,
+      meta: {
+        ...cdfCard.meta,
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+      },
+    };
+    const activeResult = {
+      attempted: true,
+      actions: [{
+        kind: 'update-card-meta',
+        cardId: 'card-1',
+        status: 'active-live',
+        relation: {
+          conceptBlockId: '20240101010101-aaaaaaa',
+          relationKind: 'definition-forward',
+          relationKey: 'definition-block:20240101010101-aaaaaaa:definition-forward',
+          sourceBlockId: 'definition-block',
+          contentStatus: 'content-complete',
+        },
+        meta: updatedCard.meta,
+        reason: 'active-live',
+      }],
+      createdCards: [],
+      updatedCards: [updatedCard],
+      derivedRelationCount: 1,
+      reason: 'reconciled',
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => originalSource),
+      getBlockKramdown: vi.fn(async () => originalSource),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => activeResult),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper, queue } = mountReviewView({
+      cards: [cdfCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewActionsStub).vm.$emit('reveal');
+    await flushPromises();
+    expect(wrapper.get('.review-content-card-id').attributes('data-show-answer')).toBe('true');
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    const textarea = wrapper.get('textarea.review-editable-targets-panel__textarea');
+    await textarea.setValue('updated definition');
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(reviewViewDialogMocks.createVueDialogMock).not.toHaveBeenCalledWith(expect.objectContaining({
+      title: '保存前预览关系变化',
+    }));
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith('definition-block', updatedSource);
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-1');
+    expect(wrapper.get('.review-content-card-id').attributes('data-show-answer')).toBe('true');
+    expect(queue.removeCard).not.toHaveBeenCalled();
+    expect(queue.onFeedback).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it('removes current CDF card without scoring when editor save makes content incomplete', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('definition:definition:definition-block', 'definition-block', '编辑定义', 'definition'),
+    ];
+    const originalSource = '((20240101010101-aaaaaaa "A")) :> old definition';
+    const cdfCard = {
+      ...buildCard('card-1', 'definition-block'),
+      type: 'concept',
+      meta: {
+        relationAuthority: 'live-backlink',
+        liveRelationKey: 'definition-block:20240101010101-aaaaaaa:definition-forward',
+        sourceBlockId: 'definition-block',
+        conceptBlockId: '20240101010101-aaaaaaa',
+        relationKind: 'definition-forward',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        fieldMapping: {
+          concept: '20240101010101-aaaaaaa',
+          definition: 'definition-block',
+        },
+      },
+    };
+    const incompleteMeta = {
+      ...cdfCard.meta,
+      liveRelationStatus: 'active-live',
+      liveContentStatus: 'content-incomplete',
+    };
+    const incompleteResult = {
+      attempted: true,
+      actions: [{
+        kind: 'update-card-meta',
+        cardId: 'card-1',
+        status: 'active-live',
+        relation: {
+          conceptBlockId: '20240101010101-aaaaaaa',
+          relationKind: 'definition-forward',
+          relationKey: 'definition-block:20240101010101-aaaaaaa:definition-forward',
+          sourceBlockId: 'definition-block',
+          contentStatus: 'content-incomplete',
+        },
+        meta: incompleteMeta,
+        reason: 'active-live',
+      }],
+      createdCards: [],
+      updatedCards: [{
+        ...cdfCard,
+        meta: incompleteMeta,
+      }],
+      derivedRelationCount: 1,
+      reason: 'reconciled',
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => originalSource),
+      getBlockKramdown: vi.fn(async () => originalSource),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      reconcileCdfLiveRelationsInWriteRepairFlow: vi.fn(async () => incompleteResult),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper, queue } = mountReviewView({
+      cards: [cdfCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    const textarea = wrapper.get('textarea.review-editable-targets-panel__textarea');
+    await textarea.setValue('');
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(queue.removeCard).toHaveBeenCalledWith('card-1');
+    expect(queue.onFeedback).not.toHaveBeenCalled();
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-2');
 
     wrapper.unmount();
   });
@@ -899,6 +2055,201 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
+  it('opens definition grammar as an editable definition field and preserves source grammar on save', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('definition:definition:definition-block', 'definition-block', '编辑定义', 'definition'),
+    ];
+    const definitionSource = '((20240101010101-abcdefg "TCP")) :< Reliable transport protocol.';
+    const definitionCard = {
+      ...buildCard('card-1', 'definition-block'),
+      type: 'concept',
+      meta: {
+        relationAuthority: 'live-backlink',
+        sourceBlockId: 'definition-block',
+        conceptBlockId: '20240101010101-abcdefg',
+        relationKind: 'definition-reverse',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        conceptSnapshot: {
+          conceptBlockId: '20240101010101-abcdefg',
+          displayText: 'TCP',
+          order: 0,
+        },
+      },
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => definitionSource),
+      getBlockKramdown: vi.fn(async () => definitionSource),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [definitionCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="review-structured-field-context"]').exists()).toBe(true);
+    expect(wrapper.get('[data-testid="review-structured-relation-chip"]').text()).toBe('TCP');
+    expect(wrapper.get('[data-testid="review-structured-direction"]').text()).toBe('反向');
+    expect(wrapper.get('.review-editable-targets-panel__target-title').text()).toBe('Definition');
+    const textarea = wrapper.get('textarea.review-editable-targets-panel__textarea');
+    expect((textarea.element as HTMLTextAreaElement).value).toBe('Reliable transport protocol.');
+
+    await textarea.setValue('Connection-oriented transport.');
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith(
+      'definition-block',
+      '((20240101010101-abcdefg "TCP")) :< Connection-oriented transport.',
+    );
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalledWith(
+      'definition-block',
+      'Connection-oriented transport.',
+    );
+
+    wrapper.unmount();
+  });
+
+  it('opens descriptor grammar as cue and answer fields and preserves source grammar on save', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('descriptor:descriptor:descriptor-block', 'descriptor-block', '编辑描述符', 'descriptor'),
+    ];
+    const descriptorSource = 'Kernel role ;<> Controls hardware access';
+    const descriptorCard = {
+      ...buildCard('card-1', 'descriptor-block'),
+      type: 'descriptor',
+      meta: {
+        relationAuthority: 'live-backlink',
+        sourceBlockId: 'descriptor-block',
+        conceptBlockId: 'concept-doc',
+        relationKind: 'descriptor-forward',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        conceptSnapshot: {
+          conceptBlockId: 'concept-doc',
+          displayText: 'Operating System',
+          order: 0,
+        },
+      },
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => descriptorSource),
+      getBlockKramdown: vi.fn(async () => descriptorSource),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [descriptorCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    const fieldTitles = wrapper.findAll('.review-editable-targets-panel__target-title')
+      .map(title => title.text());
+    expect(fieldTitles).toEqual(['Cue', 'Answer']);
+    const textareas = wrapper.findAll('textarea.review-editable-targets-panel__textarea');
+    expect((textareas[0].element as HTMLTextAreaElement).value).toBe('Kernel role');
+    expect((textareas[1].element as HTMLTextAreaElement).value).toBe('Controls hardware access');
+
+    await textareas[1].setValue('Coordinates hardware access');
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith(
+      'descriptor-block',
+      'Kernel role ;<> Coordinates hardware access',
+    );
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalledWith(
+      'descriptor-block',
+      'Coordinates hardware access',
+    );
+
+    wrapper.unmount();
+  });
+
+  it('opens grouped plain descriptor leaf as answer-only and preserves source attributes on save', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('descriptor:descriptor:descriptor-leaf', 'descriptor-leaf', '编辑描述符', 'descriptor'),
+    ];
+    const descriptorSource = 'Answer only  {: id="leaf-1"}';
+    const descriptorCard = {
+      ...buildCard('card-1', 'descriptor-leaf'),
+      type: 'descriptor',
+      meta: {
+        relationAuthority: 'live-backlink',
+        sourceBlockId: 'descriptor-leaf',
+        conceptBlockId: 'concept-doc',
+        relationKind: 'descriptor-forward',
+        liveRelationStatus: 'active-live',
+        liveContentStatus: 'content-complete',
+        contentShape: 'descriptor-group-plain',
+        conceptSnapshot: {
+          conceptBlockId: 'concept-doc',
+          displayText: 'Operating System',
+          order: 0,
+        },
+      },
+    };
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => descriptorSource),
+      getBlockKramdown: vi.fn(async () => descriptorSource),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper } = mountReviewView({
+      cards: [descriptorCard, buildCard('card-2', 'block-2')],
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    expect(wrapper.get('.review-editable-targets-panel__target-title').text()).toBe('Answer');
+    const textarea = wrapper.get('textarea.review-editable-targets-panel__textarea');
+    expect((textarea.element as HTMLTextAreaElement).value).toBe('Answer only');
+
+    await textarea.setValue('Updated answer');
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith(
+      'descriptor-leaf',
+      'Updated answer  {: id="leaf-1"}',
+    );
+
+    wrapper.unmount();
+  });
+
   it('applies card type changes through the inline metadata editor and syncs the render family', async () => {
     const conceptCard = {
       ...buildCard('card-1'),
@@ -964,6 +2315,86 @@ describe('ReviewView more menu', () => {
     expect(updateCardType).toHaveBeenCalledWith('card-1', CardType.Concept);
     expect((wrapper.get('[data-field="render"] select').element as HTMLSelectElement).value).toBe('concept');
     expect(wrapper.get('[data-field="render"]').text()).toContain('当前为推荐渲染');
+
+    wrapper.unmount();
+  });
+
+  it('keeps card attribute mutations outside the dirty content draft save path', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:block-1', 'block-1', '编辑当前内容'),
+    ];
+    const reviewService = {
+      getEditableBlockMarkdown: vi.fn(async () => 'Original body'),
+      getBlockKramdown: vi.fn(async () => 'Original body'),
+      updateBlockMarkdown: vi.fn(async () => undefined),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      }),
+    };
+    const updateCardType = vi.fn(async (_cardId: string, targetType: CardType) => ({
+      card: {
+        ...buildCard('card-1'),
+        type: targetType,
+      },
+      status: 'applied',
+      blockInfo: { createdAt: null, updatedAt: null },
+    }));
+    const cardEditorService = {
+      loadSnapshot: vi.fn(async () => ({
+        card: buildCard('card-1'),
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      updateCardType,
+      updateRender: vi.fn(async () => ({
+        card: buildCard('card-1'),
+        status: 'unchanged',
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      updatePriority: vi.fn(async (_cardId: string, priority: number) => ({
+        card: { ...buildCard('card-1'), priority },
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      scheduleCard: vi.fn(async () => ({
+        card: buildCard('card-1'),
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      setDismissed: vi.fn(async () => ({
+        card: buildCard('card-1'),
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      setDismissedMany: vi.fn(async () => ({
+        updatedCardIds: ['card-1'],
+        failedCardIds: [],
+      })),
+      resetProgress: vi.fn(async () => ({
+        card: buildCard('card-1'),
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+    };
+    const { wrapper } = mountReviewView({
+      cardEditorService,
+      reviewService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+
+    const textarea = wrapper.get('textarea.review-editable-targets-panel__textarea');
+    await textarea.setValue('Dirty content draft');
+    await flushPromises();
+
+    await wrapper.findAll('[data-field="cardType"] .srs-type-option')[2].trigger('click');
+    await flushPromises();
+
+    expect(updateCardType).toHaveBeenCalledWith('card-1', CardType.Concept);
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalled();
+    expect((wrapper.get('textarea.review-editable-targets-panel__textarea').element as HTMLTextAreaElement).value)
+      .toBe('Dirty content draft');
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(true);
 
     wrapper.unmount();
   });
@@ -1332,6 +2763,81 @@ describe('ReviewView more menu', () => {
       app: {},
       blockId: 'source-block-1',
     });
+
+    wrapper.unmount();
+  });
+
+  it('shows a CDF blocking interruption panel and advances without review feedback', async () => {
+    reviewContentEditableTargets = [
+      buildEditableTarget('main-protyle:current-content:source-block-1', 'source-block-1', 'Source'),
+    ];
+    const blockedCard = {
+      ...buildCdfLiveCard('blocked-cdf-card', 'source-block-1'),
+      meta: {
+        ...buildCdfLiveCard('blocked-cdf-card', 'source-block-1').meta,
+        liveContentStatus: 'content-incomplete',
+      },
+    };
+    const nextCard = buildCard('card-2', 'block-2');
+    const dialogManager = {
+      openBrowserDialog: vi.fn(),
+    };
+    const { wrapper, queue } = mountReviewView({
+      cards: [blockedCard, nextCard],
+      dialogManager,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    expect(wrapper.get('.fsrs-review-v2__cdf-interruption').text()).toContain('Content incomplete');
+    expect(wrapper.findComponent(ReviewActionsStub).exists()).toBe(false);
+
+    await wrapper.get('.fsrs-review-v2__cdf-interruption-actions .b3-button--outline').trigger('click');
+    await flushPromises();
+    expect(openReviewBlockAtSource).toHaveBeenCalledWith({
+      app: {},
+      blockId: 'source-block-1',
+    });
+
+    const actionButtons = wrapper.findAll('.fsrs-review-v2__cdf-interruption-actions button');
+    await actionButtons[2].trigger('click');
+    expect(dialogManager.openBrowserDialog).toHaveBeenCalledWith({
+      initialOpenState: {
+        preset: 'cdf-abnormal',
+        queryText: 'source-block-1',
+      },
+    });
+
+    await wrapper.get('[data-review-cdf-blocking-next]').trigger('click');
+    await flushPromises();
+
+    expect(queue.removeCard).toHaveBeenCalledWith('blocked-cdf-card');
+    expect(queue.onFeedback).not.toHaveBeenCalled();
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-2');
+
+    wrapper.unmount();
+  });
+
+  it('does not interrupt Review for warning-only CDF issues', async () => {
+    const warningCard = {
+      ...buildCdfLiveCard('warning-cdf-card', 'source-block-1'),
+      meta: {
+        ...buildCdfLiveCard('warning-cdf-card', 'source-block-1').meta,
+        liveRelationIssues: [
+          {
+            code: 'duplicate-ref',
+            severity: 'warning',
+          },
+        ],
+      },
+    };
+    const { wrapper } = mountReviewView({
+      cards: [warningCard, buildCard('card-2', 'block-2')],
+    });
+    await flushPromises();
+
+    expect(wrapper.find('.fsrs-review-v2__cdf-interruption').exists()).toBe(false);
+    expect(wrapper.findComponent(ReviewActionsStub).exists()).toBe(true);
 
     wrapper.unmount();
   });

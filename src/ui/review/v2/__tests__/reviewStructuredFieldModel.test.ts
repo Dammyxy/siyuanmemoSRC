@@ -402,7 +402,7 @@ describe('reviewStructuredFieldModel', () => {
     }));
   });
 
-  it('extracts descriptor source identity from explicit mapping without parsing cue and answer', () => {
+  it('keeps descriptor source identity from explicit mapping when grammar cannot split fields safely', () => {
     const card = createCard({
       type: 'descriptor',
       meta: {
@@ -430,7 +430,7 @@ describe('reviewStructuredFieldModel', () => {
           role: 'descriptor',
           rendererKind: 'descriptor',
           title: 'Descriptor',
-          value: 'Kernel role ;; Controls hardware access',
+          value: 'Descriptor prose without a Card Source Grammar operator',
         },
       ],
     });
@@ -442,7 +442,7 @@ describe('reviewStructuredFieldModel', () => {
         id: 'descriptor-source',
         role: 'source',
         label: 'Descriptor',
-        value: 'Kernel role ;; Controls hardware access',
+        value: 'Descriptor prose without a Card Source Grammar operator',
         origin: expect.objectContaining({
           kind: 'field-mapping',
           blockId: 'descriptor-block',
@@ -453,6 +453,349 @@ describe('reviewStructuredFieldModel', () => {
       kind: 'reverse',
       readonly: true,
     }));
+  });
+
+  it('extracts item question and answer from safe Card Source Grammar', () => {
+    const card = createCard({
+      type: 'item',
+      meta: {
+        templateID: 'builtin-quick-card',
+      },
+    });
+
+    const model = buildReviewStructuredFieldModelFromExplicitSources({
+      card,
+      sources: [
+        {
+          id: 'source-target',
+          blockId: 'source-block',
+          role: 'current-content',
+          rendererKind: 'main-protyle',
+          title: 'Source',
+          value: 'What does TCP provide? >> Reliable ordered byte streams.',
+        },
+      ],
+    });
+
+    expect(model.mode).toBe('structured');
+    expect(model.family).toBe('item');
+    expect(model.fields.map(field => [field.role, field.value, field.origin.kind])).toEqual([
+      ['question', 'What does TCP provide?', 'grammar'],
+      ['answer', 'Reliable ordered byte streams.', 'grammar'],
+    ]);
+  });
+
+  it('keeps reverse Item grammar as logical question and answer fields', () => {
+    const card = createCard({
+      type: 'item',
+      meta: {
+        templateID: 'builtin-quick-card',
+        typeMarker: 'reverse',
+      },
+    });
+
+    const model = buildReviewStructuredFieldModelFromExplicitSources({
+      card,
+      sources: [
+        {
+          id: 'source-target',
+          blockId: 'source-block',
+          role: 'current-content',
+          rendererKind: 'main-protyle',
+          title: 'Source',
+          value: 'Paris << What is the capital of France?',
+        },
+      ],
+    });
+
+    expect(model.mode).toBe('structured');
+    expect(model.fields.map(field => [field.role, field.value, field.origin.kind])).toEqual([
+      ['question', 'What is the capital of France?', 'grammar'],
+      ['answer', 'Paris', 'grammar'],
+    ]);
+    expect(model.direction).toEqual(expect.objectContaining({
+      kind: 'reverse',
+      readonly: true,
+    }));
+  });
+
+  it('extracts definition content from safe CDF definition grammar', () => {
+    const card = createCard({
+      type: 'concept',
+      meta: {
+        relationAuthority: 'live-backlink',
+        sourceBlockId: 'definition-block',
+        conceptBlockId: '20240101010101-abcdefg',
+        relationKind: 'definition-reverse',
+        conceptSnapshot: {
+          conceptBlockId: '20240101010101-abcdefg',
+          displayText: 'TCP',
+        },
+      },
+    });
+
+    const model = buildReviewStructuredFieldModelFromExplicitSources({
+      card,
+      sources: [
+        {
+          id: 'definition-target',
+          blockId: 'definition-block',
+          role: 'definition',
+          rendererKind: 'concept-definition',
+          title: 'Definition',
+          value: '((20240101010101-abcdefg "TCP")) :< Reliable transport protocol.',
+        },
+      ],
+    });
+
+    expect(model.mode).toBe('structured');
+    expect(model.family).toBe('definition');
+    expect(model.fields.map(field => [field.role, field.value, field.origin.kind])).toEqual([
+      ['definition', 'Reliable transport protocol.', 'grammar'],
+    ]);
+    expect(model.relationChips).toEqual([
+      expect.objectContaining({
+        blockId: '20240101010101-abcdefg',
+        label: 'TCP',
+        readonly: true,
+      }),
+    ]);
+    expect(model.direction).toEqual(expect.objectContaining({
+      kind: 'reverse',
+      readonly: true,
+    }));
+  });
+
+  it('extracts descriptor cue and answer from safe CDF descriptor grammar', () => {
+    const card = createCard({
+      type: 'descriptor',
+      meta: {
+        relationAuthority: 'live-backlink',
+        sourceBlockId: 'descriptor-block',
+        conceptBlockId: 'concept-doc',
+        relationKind: 'descriptor-forward',
+        conceptSnapshot: {
+          conceptBlockId: 'concept-doc',
+          displayText: 'Operating System',
+        },
+      },
+    });
+
+    const model = buildReviewStructuredFieldModelFromExplicitSources({
+      card,
+      sources: [
+        {
+          id: 'descriptor-target',
+          blockId: 'descriptor-block',
+          role: 'descriptor',
+          rendererKind: 'descriptor',
+          title: 'Descriptor',
+          value: 'Kernel role ;; Controls hardware access',
+        },
+      ],
+    });
+
+    expect(model.mode).toBe('structured');
+    expect(model.family).toBe('descriptor');
+    expect(model.fields.map(field => [field.role, field.value, field.origin.kind])).toEqual([
+      ['cue', 'Kernel role', 'grammar'],
+      ['answer', 'Controls hardware access', 'grammar'],
+    ]);
+  });
+
+  it('extracts descriptor group arrow leaves as cue and answer fields', () => {
+    const card = createCard({
+      type: 'descriptor',
+      meta: {
+        relationAuthority: 'live-backlink',
+        sourceBlockId: 'descriptor-leaf',
+        conceptBlockId: 'concept-doc',
+        relationKind: 'descriptor-forward',
+        contentShape: 'descriptor-group-arrow',
+      },
+    });
+
+    const model = buildReviewStructuredFieldModelFromExplicitSources({
+      card,
+      sources: [
+        {
+          id: 'descriptor-target',
+          blockId: 'descriptor-leaf',
+          role: 'descriptor',
+          rendererKind: 'descriptor',
+          title: 'Descriptor leaf',
+          value: 'Cue -> Answer',
+        },
+      ],
+    });
+
+    expect(model.mode).toBe('structured');
+    expect(model.family).toBe('descriptor');
+    expect(model.fields.map(field => [field.role, field.value, field.origin.kind, field.required])).toEqual([
+      ['cue', 'Cue', 'grammar', true],
+      ['answer', 'Answer', 'grammar', true],
+    ]);
+  });
+
+  it('extracts descriptor group plain leaves as answer-only fields', () => {
+    const card = createCard({
+      type: 'descriptor',
+      meta: {
+        relationAuthority: 'live-backlink',
+        sourceBlockId: 'descriptor-leaf',
+        conceptBlockId: 'concept-doc',
+        relationKind: 'descriptor-forward',
+        liveContentShape: 'descriptor-group-plain',
+      },
+    });
+
+    const model = buildReviewStructuredFieldModelFromExplicitSources({
+      card,
+      sources: [
+        {
+          id: 'descriptor-target',
+          blockId: 'descriptor-leaf',
+          role: 'descriptor',
+          rendererKind: 'descriptor',
+          title: 'Descriptor leaf',
+          value: 'Answer only',
+        },
+      ],
+    });
+
+    expect(model.mode).toBe('structured');
+    expect(model.family).toBe('descriptor');
+    expect(model.fields.map(field => [field.role, field.value, field.origin.kind, field.required])).toEqual([
+      ['answer', 'Answer only', 'grammar', true],
+    ]);
+  });
+
+  it('falls back to source when grammar has multiple main operators', () => {
+    const card = createCard();
+
+    const model = buildReviewStructuredFieldModelFromExplicitSources({
+      card,
+      sources: [
+        {
+          id: 'source-target',
+          blockId: 'source-block',
+          role: 'current-content',
+          rendererKind: 'main-protyle',
+          title: 'Source',
+          value: 'Alpha >> Beta ;; Gamma',
+        },
+      ],
+    });
+
+    expect(model.mode).toBe('source-fallback');
+    expect(model.fallbackReason).toBe('invalid-source-grammar');
+    expect(model.fields[0]).toEqual(expect.objectContaining({
+      role: 'source',
+      value: 'Alpha >> Beta ;; Gamma',
+      origin: expect.objectContaining({
+        kind: 'source-fallback',
+        blockId: 'source-block',
+      }),
+    }));
+  });
+
+  it('falls back to source for group operators and operator-like text inside code', () => {
+    const groupModel = buildReviewStructuredFieldModelFromExplicitSources({
+      card: createCard(),
+      sources: [
+        {
+          id: 'group-target',
+          blockId: 'source-block',
+          role: 'current-content',
+          rendererKind: 'main-protyle',
+          title: 'Source',
+          value: 'Checklist >>>',
+        },
+      ],
+    });
+    const codeModel = buildReviewStructuredFieldModelFromExplicitSources({
+      card: createCard(),
+      sources: [
+        {
+          id: 'code-target',
+          blockId: 'source-block',
+          role: 'current-content',
+          rendererKind: 'main-protyle',
+          title: 'Source',
+          value: '`Question >> Answer`',
+        },
+      ],
+    });
+
+    expect(groupModel.mode).toBe('source-fallback');
+    expect(groupModel.fallbackReason).toBe('unsafe-field-identity');
+    expect(codeModel.mode).toBe('source-fallback');
+    expect(codeModel.fallbackReason).toBe('unsafe-field-identity');
+  });
+
+  it('uses source fallback when the current source still has invalid grammar', () => {
+    const card = createCard({
+      meta: {
+        liveRelationIssues: [{
+          code: 'invalid-source-grammar',
+          severity: 'blocking',
+        }],
+      },
+    });
+
+    const model = buildReviewStructuredFieldModelFromExplicitSources({
+      card,
+      sources: [
+        {
+          id: 'source-target',
+          blockId: 'source-block',
+          role: 'current-content',
+          rendererKind: 'main-protyle',
+          title: 'Source',
+          value: 'Question >> Answer >> Extra',
+        },
+      ],
+    });
+
+    expect(model.mode).toBe('source-fallback');
+    expect(model.family).toBe('source');
+    expect(model.fallbackReason).toBe('invalid-source-grammar');
+    expect(model.fields.map(field => [field.role, field.value, field.origin.kind])).toEqual([
+      ['source', 'Question >> Answer >> Extra', 'source-fallback'],
+    ]);
+  });
+
+  it('restores structured fields when a stale invalid grammar issue has a valid current source', () => {
+    const card = createCard({
+      meta: {
+        liveRelationIssues: [{
+          code: 'invalid-source-grammar',
+          severity: 'blocking',
+        }],
+      },
+    });
+
+    const model = buildReviewStructuredFieldModelFromExplicitSources({
+      card,
+      sources: [
+        {
+          id: 'source-target',
+          blockId: 'source-block',
+          role: 'current-content',
+          rendererKind: 'main-protyle',
+          title: 'Source',
+          value: 'Question >> Answer',
+        },
+      ],
+    });
+
+    expect(model.mode).toBe('structured');
+    expect(model.family).toBe('item');
+    expect(model.fallbackReason).toBeNull();
+    expect(model.fields.map(field => [field.role, field.value, field.origin.kind])).toEqual([
+      ['question', 'Question', 'grammar'],
+      ['answer', 'Answer', 'grammar'],
+    ]);
   });
 
   it('keeps unsafe or missing explicit field identity in source fallback mode', () => {
@@ -491,5 +834,27 @@ describe('reviewStructuredFieldModel', () => {
         }),
       }),
     ]);
+  });
+
+  it('keeps metadata-only cards structured with no content fields when no source target exists', () => {
+    const model = buildReviewStructuredFieldModelFromExplicitSources({
+      card: createCard({
+        type: 'item',
+        meta: {
+          templateID: 'builtin-quick-card',
+          typeMarker: 'both',
+        },
+      }),
+      sources: [],
+    });
+
+    expect(model.mode).toBe('structured');
+    expect(model.family).toBe('item');
+    expect(model.fields).toEqual([]);
+    expect(model.direction).toEqual(expect.objectContaining({
+      kind: 'both',
+      readonly: true,
+    }));
+    expect(model.fallbackReason).toBeNull();
   });
 });

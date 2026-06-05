@@ -59,6 +59,7 @@ import {
 import type { NeuralRoamEntryActionService } from '@/application/services/NeuralRoamEntryActionService';
 import { toBrowserReadModelActionTarget } from '@/application/queries/browser/browser-read-model';
 import { BrowserReadModelStateError } from '../utils/browserReadModelStateError';
+import { applyBrowserCdfDiagnosticVisibility } from '@/application/queries/browser/shared/CdfBrowserDiagnostics';
 
 const logger = createLogger('DeckDataSource');
 
@@ -449,6 +450,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     let rows = allCards.map((card) => this.convertToBrowserCard(card as DeckCardRecord));
     rows = await this.reconcileBrowserRows(rows);
 
+    rows = applyBrowserCdfDiagnosticVisibility(rows, this.options.preset);
     rows = applyLegacyPresetFilter(rows, this.options.preset);
     rows = applyCardTypeFilter(rows, this.options.cardType);
     rows = applySimpleQueryFilter(rows, this.options.queryText, { secondaryField: 'fullContent' });

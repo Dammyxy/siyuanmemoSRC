@@ -311,7 +311,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 return await this.nextFromNeuralRoamAdvance();
             }
 
-            if (this.srsV2SessionQueueRuntime) {
+            if (this.srsV2SessionQueueRuntime && !this.learnAheadSession) {
                 if (this.pendingSrsV2NextCard !== undefined) {
                     const pending = this.pendingSrsV2NextCard;
                     this.pendingSrsV2NextCard = undefined;
@@ -402,7 +402,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 return;
             }
 
-            if (this.srsV2SessionQueueRuntime && (feedback.action === 'rate' || feedback.action === 'skip')) {
+            if (this.srsV2SessionQueueRuntime && !this.learnAheadSession && (feedback.action === 'rate' || feedback.action === 'skip')) {
                 activeTransaction = await this.measureReviewFeedbackStep(
                     'transaction-capture',
                     activeItem,

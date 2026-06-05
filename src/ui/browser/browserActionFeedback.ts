@@ -60,6 +60,13 @@ const ACTION_LABELS: Record<string, { fallback: string; key: string }> = {
   [PRIORITY_INCREASE_ACTION_ID]: { key: 'priorityPlus10', fallback: 'Priority +10' },
   [PRIORITY_DECREASE_ACTION_ID]: { key: 'priorityMinus10', fallback: 'Priority -10' },
   'auto-sort': { key: 'autoSortQueue', fallback: 'Auto Sort' },
+  'cdf-rescan-source': { key: 'cdfRescanSource', fallback: 'Rescan source' },
+  'cdf-keep-paused': { key: 'cdfKeepPaused', fallback: 'Keep paused' },
+  'cdf-view-canonical': { key: 'cdfViewCanonical', fallback: 'View canonical' },
+  'cdf-keep-duplicate-paused': { key: 'cdfKeepDuplicatePaused', fallback: 'Keep duplicate paused' },
+  'cdf-attempt-live-migrate': { key: 'cdfAttemptLiveMigrate', fallback: 'Attempt live migrate' },
+  'cdf-mark-retained': { key: 'cdfMarkRetained', fallback: 'Mark retained' },
+  'cdf-open-structured-editor': { key: 'cdfOpenStructuredEditor', fallback: 'Open structured editor' },
 };
 
 const ACTIONS_REQUIRING_RELOAD = new Set([

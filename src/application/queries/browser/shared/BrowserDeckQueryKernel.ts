@@ -3,10 +3,6 @@ import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardScheduleService, CardState } from '@/core/card/domain/services/CardScheduleService';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
-import {
-  hasCdfLiveRelationMetadata,
-  isCdfLiveRelationQueueEligible,
-} from '@/core/card/cdf-live-relation';
 import { batchDetectCardType } from '@/core/card-builder/detectCardType';
 import type { BrowserCardStoragePort } from '@/core/storage/ports';
 import type { FSRSCard } from '@/types';
@@ -37,6 +33,7 @@ import type {
   BrowserDeckSnapshotResult,
 } from '../browser-deck-query';
 import { countMissingBlockCards, markMissingBlockRows } from './MissingBlockMarker';
+import { applyBrowserCdfDiagnosticVisibility } from './CdfBrowserDiagnostics';
 
 const logger = createLogger('BrowserDeckQueryKernel');
 
@@ -110,7 +107,7 @@ export class BrowserDeckQueryKernel {
     if (candidateResolution.path !== 'sql-candidate-query') {
       rows = await markMissingBlockRows(rows, this.siyuanApi);
     }
-    rows = this.applyCdfLiveRelationNormalEligibilityFilter(rows);
+    rows = applyBrowserCdfDiagnosticVisibility(rows, query.preset);
     rows = applyDocFilter(rows, query.docId, query.scopeDocIds);
     rows = this.applyPresetFilter(rows, query.preset);
     rows = this.applyExplicitStateFilter(rows, query.states);
@@ -378,15 +375,6 @@ export class BrowserDeckQueryKernel {
         default:
           return true;
       }
-    });
-  }
-
-  private applyCdfLiveRelationNormalEligibilityFilter(rows: BrowserDeckSnapshotRow[]): BrowserDeckSnapshotRow[] {
-    return rows.filter((row) => {
-      if (!hasCdfLiveRelationMetadata({ meta: row.meta })) {
-        return true;
-      }
-      return isCdfLiveRelationQueueEligible({ meta: row.meta });
     });
   }
 

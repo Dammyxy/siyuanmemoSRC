@@ -75,6 +75,11 @@ describe('queue card projection payload seam', () => {
       aFactor: 2.1,
       queueIndex: 7,
       blockType: 'paragraph',
+      meta: expect.objectContaining({
+        content: '<p>Queue source</p>',
+        deckId: 'deck-1',
+        rootId: 'root-1',
+      }),
     });
     const { note: _note, ...projectionSnapshotFields } = projection;
     expect(snapshot).toEqual(expect.objectContaining(projectionSnapshotFields));

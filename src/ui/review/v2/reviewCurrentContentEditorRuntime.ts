@@ -14,6 +14,56 @@ export interface ReviewEditableTargetEditorEntry {
   target: ReviewEditableTarget;
   value: string;
   originalValue: string;
+  saveError?: string;
+  conflict?: ReviewEditableTargetConflictState;
+  fieldErrors?: Record<string, string>;
+  fieldConflicts?: Record<string, ReviewEditableTargetConflictState>;
+}
+
+export type ReviewEditableTargetConflictResolution = 'source-latest' | 'draft-overwrite';
+
+export interface ReviewEditableTargetConflictState {
+  message: string;
+  sourceLatestValue?: string;
+  draftValue?: string;
+  latestSource?: string;
+  fieldId?: string;
+}
+
+export interface ReviewCurrentContentEditorPendingWrite {
+  entry: ReviewEditableTargetEditorEntry;
+  targetId: string;
+  blockId: string;
+  value: string;
+  originalValue: string;
+}
+
+export interface ReviewCurrentContentEditorWriteConflict {
+  targetId: string;
+  message: string;
+  fieldId?: string;
+  sourceLatestValue?: string;
+  draftValue?: string;
+  latestSource?: string;
+}
+
+export interface ReviewCurrentContentEditorWriteUpdate {
+  targetId: string;
+  value: string;
+}
+
+export interface ReviewCurrentContentEditorRelationPreview {
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  raw?: unknown;
+}
+
+export interface ReviewCurrentContentEditorValidationResult {
+  conflicts?: ReviewCurrentContentEditorWriteConflict[];
+  updates?: ReviewCurrentContentEditorWriteUpdate[];
+  relationPreview?: ReviewCurrentContentEditorRelationPreview | null;
 }
 
 export type ReviewCurrentContentEditorRuntimeOptions = {
@@ -22,6 +72,17 @@ export type ReviewCurrentContentEditorRuntimeOptions = {
   logger?: ReviewTextEditorLogger;
   getReviewService: () => ReviewApplicationService | null;
   resolveEditableTargets: () => ReviewEditableTarget[];
+  validatePendingWrites?: (
+    pendingWrites: ReviewCurrentContentEditorPendingWrite[],
+  ) => Promise<ReviewCurrentContentEditorValidationResult | void> | ReviewCurrentContentEditorValidationResult | void;
+  confirmRelationPreview?: (
+    preview: ReviewCurrentContentEditorRelationPreview,
+    pendingWrites: ReviewCurrentContentEditorPendingWrite[],
+  ) => Promise<boolean> | boolean;
+  afterSuccessfulWrites?: (
+    pendingWrites: ReviewCurrentContentEditorPendingWrite[],
+    validation: ReviewCurrentContentEditorValidationResult,
+  ) => Promise<void> | void;
   suppressSourceBlockRefresh: (blockId: string) => void;
   refreshVisibleContent: (reason: string) => Promise<boolean | undefined> | boolean | undefined;
 };
@@ -80,6 +141,52 @@ export function createReviewCurrentContentEditorRuntime(
       return;
     }
     entry.value = nextValue;
+    entry.saveError = undefined;
+    entry.conflict = undefined;
+    entry.fieldErrors = undefined;
+    entry.fieldConflicts = undefined;
+  }
+
+  function replaceTargetDraft(targetId: string, nextValue: string, nextOriginalValue?: string): void {
+    const entry = entries.value.find(item => item.target.id === targetId);
+    if (!entry) {
+      return;
+    }
+    entry.value = nextValue;
+    if (nextOriginalValue !== undefined) {
+      entry.originalValue = nextOriginalValue;
+    }
+    entry.saveError = undefined;
+    entry.conflict = undefined;
+    entry.fieldErrors = undefined;
+    entry.fieldConflicts = undefined;
+  }
+
+  function clearTargetConflict(targetId: string, fieldId?: string): void {
+    const entry = entries.value.find(item => item.target.id === targetId);
+    if (!entry) {
+      return;
+    }
+    if (fieldId && entry.fieldErrors) {
+      delete entry.fieldErrors[fieldId];
+      if (Object.keys(entry.fieldErrors).length === 0) {
+        entry.fieldErrors = undefined;
+      }
+    }
+    if (fieldId && entry.fieldConflicts) {
+      delete entry.fieldConflicts[fieldId];
+      if (Object.keys(entry.fieldConflicts).length === 0) {
+        entry.fieldConflicts = undefined;
+      }
+    }
+    if (!fieldId) {
+      entry.saveError = undefined;
+      entry.conflict = undefined;
+    }
+  }
+
+  function formatErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
   }
 
   async function openEditor(): Promise<boolean> {
@@ -140,8 +247,14 @@ export function createReviewCurrentContentEditorRuntime(
   }
 
   async function confirm(): Promise<boolean> {
-    const pendingEntries = dirtyEntries.value;
-    if (confirmDisabled.value || pendingEntries.length === 0) {
+    const pendingWrites: ReviewCurrentContentEditorPendingWrite[] = dirtyEntries.value.map(entry => ({
+      entry,
+      targetId: entry.target.id,
+      blockId: entry.target.blockId,
+      value: entry.value,
+      originalValue: entry.originalValue,
+    }));
+    if (confirmDisabled.value || pendingWrites.length === 0) {
       return false;
     }
 
@@ -155,13 +268,118 @@ export function createReviewCurrentContentEditorRuntime(
     saving.value = true;
 
     try {
-      for (const entry of pendingEntries) {
-        await reviewService.updateBlockMarkdown(entry.target.blockId, entry.value);
+      for (const write of pendingWrites) {
+        write.entry.saveError = undefined;
+        write.entry.conflict = undefined;
+        write.entry.fieldErrors = undefined;
+        write.entry.fieldConflicts = undefined;
+      }
+
+      const validation = await options.validatePendingWrites?.(pendingWrites) || {};
+      if (currentSeq !== seq) {
+        return false;
+      }
+      const conflicts = validation.conflicts || [];
+      if (conflicts.length > 0) {
+        for (const conflict of conflicts) {
+          const write = pendingWrites.find(item => item.targetId === conflict.targetId);
+          if (write) {
+            const conflictState: ReviewEditableTargetConflictState = {
+              message: conflict.message,
+              sourceLatestValue: conflict.sourceLatestValue,
+              draftValue: conflict.draftValue,
+              latestSource: conflict.latestSource,
+              fieldId: conflict.fieldId,
+            };
+            if (conflict.fieldId) {
+              write.entry.fieldErrors = {
+                ...(write.entry.fieldErrors || {}),
+                [conflict.fieldId]: conflict.message,
+              };
+              write.entry.fieldConflicts = {
+                ...(write.entry.fieldConflicts || {}),
+                [conflict.fieldId]: conflictState,
+              };
+            } else {
+              write.entry.saveError = conflict.message;
+              write.entry.conflict = conflictState;
+            }
+          }
+        }
+        const message = conflicts[0].message;
+        options.showMessage(
+          options.t('saveCurrentContentFailed', '保存当前内容失败：{message}')
+            .replace('{message}', message),
+          5000,
+          'error',
+        );
+        return false;
+      }
+
+      for (const update of validation.updates || []) {
+        const write = pendingWrites.find(item => item.targetId === update.targetId);
+        if (!write) {
+          continue;
+        }
+        write.value = update.value;
+        write.entry.value = update.value;
+      }
+
+      const relationPreview = validation.relationPreview || null;
+      if (relationPreview) {
+        const confirmed = await options.confirmRelationPreview?.(relationPreview, pendingWrites);
         if (currentSeq !== seq) {
           return false;
         }
-        entry.originalValue = entry.value;
-        options.suppressSourceBlockRefresh(entry.target.blockId);
+        if (confirmed !== true) {
+          return false;
+        }
+      }
+
+      const results = await Promise.allSettled(pendingWrites.map(async write => (
+        reviewService.updateBlockMarkdown(write.blockId, write.value)
+      )));
+      if (currentSeq !== seq) {
+        return false;
+      }
+
+      const failedWrites = results.flatMap((result, index) => {
+        if (result.status === 'fulfilled') {
+          options.suppressSourceBlockRefresh(pendingWrites[index].blockId);
+          return [];
+        }
+
+        const message = formatErrorMessage(result.reason);
+        pendingWrites[index].entry.saveError = message;
+        pendingWrites[index].entry.conflict = undefined;
+        pendingWrites[index].entry.fieldErrors = undefined;
+        pendingWrites[index].entry.fieldConflicts = undefined;
+        return [{ write: pendingWrites[index], message }];
+      });
+
+      if (failedWrites.length > 0) {
+        const error = new Error(failedWrites[0].message);
+        options.logger?.error?.('[SiYuanMemo][ReviewView] Failed to save editable review content:', error);
+        options.showMessage(
+          options.t('saveCurrentContentFailed', '保存当前内容失败：{message}')
+            .replace('{message}', error.message),
+          5000,
+          'error',
+        );
+        return false;
+      }
+
+      for (const write of pendingWrites) {
+        write.entry.originalValue = write.value;
+        write.entry.saveError = undefined;
+        write.entry.conflict = undefined;
+        write.entry.fieldErrors = undefined;
+        write.entry.fieldConflicts = undefined;
+      }
+
+      await options.afterSuccessfulWrites?.(pendingWrites, validation);
+      if (currentSeq !== seq) {
+        return false;
       }
 
       await options.refreshVisibleContent('manual-edit-save');
@@ -203,6 +421,8 @@ export function createReviewCurrentContentEditorRuntime(
     hint,
     close,
     updateTargetValue,
+    replaceTargetDraft,
+    clearTargetConflict,
     openEditor,
     confirm,
   };

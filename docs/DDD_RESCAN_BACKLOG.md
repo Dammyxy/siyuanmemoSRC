@@ -1,8 +1,128 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-05 (Round 551)
+Last update: 2026-06-05 (Round 561)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-05 - Review CDF blocking and session insertion
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` tasks 8.1-8.15 by closing Review CDF blocking, no-score removal, due-card insertion, same-source spreading, and Review session coverage.
+- Touched slice: Review session and queue advancement path: `ReviewView.vue`, `reviewSessionController.ts`, `useReviewSession.ts`, `types.ts`, `reviewDataObserverRuntime.ts`, `ReviewSessionCursor.ts`, `UnifiedQueueStrategy.ts`, Review i18n keys, focused Review/Queue tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Blocking CDF cards now use an explicit Review interruption panel with locate/edit/abnormal/next actions and hidden rating controls. Next advances through `advanceWithoutFeedback()` with session-only diagnostics, denominator decrement, no queue feedback, no FSRS update, and no review history. Review save and external repair insertion share a due/active/content-complete/live-CDF eligibility gate; generic doc-scope `card-created` insertion excludes live CDF cards. Tail insertion now protects the current/prepared cards and applies soft same-source spreading by `sourceBlockId`. Learn-ahead sessions now stand down the SRS v2 runtime branch so visible exhausted-session learn-ahead cards are not swallowed by an empty runtime.
+- Debt deferred: Manual end-to-end smoke for active CDF card, blocking card, content-incomplete edit, relation-change preview, Browser repair insertion, and bulk repair toast still needs a live SiYuan Review surface.
+- Why deferred: The current agent run has deterministic unit/component/build coverage but no confirmed interactive SiYuan plugin session to exercise the manual UI flow.
+- Next safe step: Run the 10.8 manual smoke in a live SiYuan workspace, then archive the OpenSpec change if no regressions appear.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/ui/review/v2/__tests__/useReviewSession.spec.ts src/ui/review/v2/__tests__/reviewDataObserverRuntime.test.ts src/application/adapters/review-session/__tests__/ReviewSessionCursor.test.ts src/application/adapters/__tests__/UnifiedQueueStrategy.scope-append.spec.ts src/ui/review/v2/__tests__/ReviewView.doc-scope-card-created.spec.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
+
+### 2026-06-05 - Browser CDF repair result summary
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` task 7.12 by adding Browser repair result summary/details without first-version repair undo/history.
+- Touched slice: Browser CDF repair presentation path: `browserCdfRepairResultPresentation.ts`, `CdfRepairResultDialog.vue`, Browser dialog exports, Browser i18n keys, focused Browser result presentation/component tests, and the OpenSpec task ledger.
+- Debt fixed now: Repair dry-run/execute results now have a Browser-specific view model that separates summary counts, expandable detail groups, preview-only candidates, persisted mutation counts, and the close-only action surface. The dialog renders compact expandable details without exposing undo/history controls, keeping first-version repair history intentionally absent instead of implied by UI chrome.
+- Debt deferred: Browser menu command execution for state-specific repair actions, full repair launch/confirm controls, and Review session insertion from Browser/repair remain open in 7.13 and 8.x.
+- Why deferred: Task 7.12 is a result surface contract. Wiring concrete repair commands into Browser actions changes execution flow and belongs with the broader Browser/repair test slice.
+- Next safe step: Complete task 7.13 by running and, if needed, extending Browser/repair tests for filters, state actions, repair dry-run/execute, toggles, preview-only candidates, and no placeholder persistence.
+- Validation: `pnpm exec vitest run src/ui/browser/__tests__/browserCdfRepairResultPresentation.test.ts src/ui/browser/__tests__/CdfRepairResultDialog.spec.ts`.
+
+### 2026-06-05 - Single-source CDF repair toggles
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` tasks 7.9-7.11 by adding single-source CDF repair preview/execute, category toggles, and non-remembered toggle defaults.
+- Touched slice: Browser CDF repair application path: `CdfLiveRelationWriteRepairService.ts`, `BrowserApplicationService.ts`, `IBrowserApplicationService.ts`, focused CDF repair service tests, Browser application facade tests, `ARCHITECTURE.md`, and the OpenSpec task ledger.
+- Debt fixed now: Single-source repair now has Browser preview/execute facade methods into `CdfLiveRelationWriteRepairService`. The service scopes a repair to one source block, scans Definition source blocks directly, preserves Descriptor concept-boundary context, previews without persistence, and executes through the same Xiuyuan + `FSRSCard` persistence path. Execution supports per-call category toggles for create missing, pause orphan, pause duplicate, and restore active, while defaults are normalized fresh for every repair session and never stored on the service.
+- Debt deferred: Repair result UI with expandable details, explicit no-undo/history surface, broader Browser/repair coverage task 7.13, Browser command/menu execution surface, and Review session insertion remain open.
+- Why deferred: Tasks 7.9-7.11 close the application repair contract. Result rendering, Browser menu command wiring, and Review insertion require UI/session owner changes and should stay in later 7.x/8.x slices.
+- Next safe step: Implement task 7.12 by rendering repair result summary/details without adding first-version undo/history, then expand Browser/repair coverage under 7.13.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/CdfLiveRelationWriteRepairService.test.ts -t "single-source"`.
+
+### 2026-06-05 - Full CDF repair execution guards
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` tasks 7.6-7.8 by adding full repair execution with existing-card reconciliation by default, a create-new-candidates toggle, and derive-failed no-card preview-only protection.
+- Touched slice: Browser CDF repair application path: `CdfLiveRelationWriteRepairService.ts`, `BrowserApplicationService.ts`, `IBrowserApplicationService.ts`, focused CDF repair service tests, Browser application facade tests, `ARCHITECTURE.md`, and the OpenSpec task ledger.
+- Debt fixed now: Full repair execution now reuses the application-level candidate scan and exposes `executeFullCdfLiveRelationRepair()` through Browser. Default execution persists only candidates that include `existing-card`, runs those with `allowCreateMissing=false`, and leaves pure new candidates in a separate preview-only result. `createNewCandidates=true` creates only candidates that successfully derive live relations, while derive-failed no-card candidates remain preview-only and never call card creation or metadata update paths. Execution summaries now split persisted mutations from preview-only candidates.
+- Debt deferred: Single-source repair dry-run/execute, single-source category toggles, toggle session reset behavior, UI result summary/expandable details, Browser command surface execution, and Review session insertion remain for later 7.x/8.x slices.
+- Why deferred: Tasks 7.6-7.8 close application execution semantics only. Single-source category toggles and Review insertion need narrower scope contracts and UI/session ownership, so folding them into full repair execution would widen behavior without the matching surface.
+- Next safe step: Implement task 7.9 by adding single-source repair dry-run and execute path, then layer task 7.10 category toggles.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/CdfLiveRelationWriteRepairService.test.ts src/application/services/__tests__/BrowserApplicationService.read-model.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts` (3 files / 47 tests passed); `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check` (passed with LF/CRLF warnings only); `pnpm build` (passed; existing i18n hardcoded-string hints and Sass legacy API warnings remain).
+
+### 2026-06-05 - Full CDF repair dry-run preview
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` task 7.5 by adding full CDF repair dry-run preview with workspace default scan and Browser/document/notebook/workspace scope narrowing.
+- Touched slice: Browser CDF repair application path: `CdfLiveRelationWriteRepairService.ts`, `BrowserApplicationService.ts`, `IBrowserApplicationService.ts`, focused CDF repair service tests, and Browser application facade tests.
+- Debt fixed now: Full CDF repair preview now has an application-level SQL candidate scanner that defaults to workspace/all-CDF-candidate scan, narrows by document, notebook, or Browser scope, includes existing live-backlink card sources in the candidate query, and returns a dry-run summary through `previewFullCdfLiveRelationRepair()`. Preview reconciliation runs with `persist: false`, so missing-card creates and metadata repairs are reported without card creation, card updates, or placeholder persistence. Browser wiring now fails explicitly when the repair preview service is unavailable instead of hiding the missing dependency.
+- Debt deferred: Full repair execution, create-new-candidates execution toggle, derive-failed no-card execution guard, single-source repair dry-run/execute, category toggles, repair result summary UI, Browser action command execution, and Review session insertion remain for later 7.x/8.x slices.
+- Why deferred: Task 7.5 is preview-only. Executing repairs and inserting restored cards into Review sessions need category/session contracts and user confirmation surfaces; adding them here would either fake UI behavior or widen beyond the dry-run owner boundary.
+- Next safe step: Implement task 7.6 by adding full repair execution for existing-card reconciliation by default, then layer create-new-candidates and derive-failed no-card guards in 7.7-7.8.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/CdfLiveRelationWriteRepairService.test.ts src/application/services/__tests__/BrowserApplicationService.read-model.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
+
+### 2026-06-05 - Browser CDF diagnostics filters and state actions
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` tasks 7.1-7.4 by exposing Browser abnormal/paused CDF filters, hiding abnormal/content-incomplete CDF rows from normal Browser lists, showing relation abnormal status before content status, and adding state-specific abnormal menu actions.
+- Touched slice: Browser CDF diagnostics path: `GetBrowserCardsQuery.ts`, `CdfBrowserDiagnostics.ts`, Browser queue row projection, `BrowserToolbar.vue`, `columnDefs.ts`, `browserActionMenuRuntime.ts`, Browser action feedback/i18n, and focused Browser/query tests.
+- Debt fixed now: Browser normal visibility now uses the application/query CDF diagnostic contract instead of treating all stored CDF rows as normal. Abnormal/paused filters expose orphan, duplicate, legacy-unavailable, and content-incomplete states. Table badges now keep relation abnormal status primary and content-incomplete as a secondary badge. Right-click menu entries are resolved from card diagnostic state so orphan, duplicate, legacy-unavailable, and content-incomplete cards no longer share one ambiguous repair action.
+- Debt deferred: Full repair dry-run/execute, single-source repair, real structured editor launch from Browser, repair result summary, Review blocking/session insertion tasks, and executable state-specific repair commands remain for later 7.x/8.x slices.
+- Why deferred: This slice closed Browser discovery and state-specific affordances only. Running repair or launching Review editor from Browser needs application repair/session contracts and should not be faked behind menu labels.
+- Next safe step: Implement task 7.5 by adding full CDF repair dry-run with workspace/all-CDF-candidate default scan and Browser/document/notebook/workspace scope narrowing.
+- Validation: `pnpm exec vitest run src/ui/browser/config/__tests__/columnDefs.suspended-badge.test.ts src/ui/browser/__tests__/BrowserToolbar.spec.ts src/ui/browser/__tests__/browserActionMenuRuntime.test.ts`; `pnpm exec vitest run src/application/queries/browser/shared/__tests__/CdfBrowserDiagnostics.test.ts src/application/queries/browser/__tests__/BrowserDeckQueryKernel.scope-doc-ids.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts src/core/queue/domain/__tests__/queueCardProjection.seam.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
+
+### 2026-06-05 - Review conflict choices and invalid grammar recovery
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` tasks 6.4-6.7 by adding per-field conflict choices, preserving untouched external changes, preventing automatic Markdown merge, and recovering structured fields after invalid grammar is fixed.
+- Touched slice: Review UI structured editor save/conflict path: `reviewCurrentContentEditorRuntime.ts`, `ReviewView.vue`, `ReviewInlineCardEditor.vue`, `ReviewEditableTargetsPanel.vue`, `reviewStructuredFieldModel.ts`, Review i18n keys, and focused Review editor tests.
+- Debt fixed now: Dirty same-field conflicts now render explicit source-latest and draft-overwrite choices per field. Source-latest applies the external latest field value without keeping a false dirty draft, while draft-overwrite records a scoped user decision so the next save writes the draft into the latest source shape. Untouched external grammar fields continue to refresh into outgoing writes without becoming conflicts, and conflicted fields do not attempt an automatic Markdown merge. Invalid Card Source Grammar now opens as a source field with a visible warning, and once the current source is valid, stale `invalid-source-grammar` metadata no longer prevents the structured field model from reparsing back into Question/Answer, Definition, or Descriptor fields.
+- Debt deferred: Relation-change dry-run preview, preview confirm/cancel reconciliation, preview category/session impact UI, current Review exit/preserve-reveal behavior, manual reset/current same-source reset actions, and final editor save/reset coverage remain in later 6.x tasks.
+- Why deferred: This slice closes field-level conflict resolution and invalid grammar recovery only. Relation-set preview and Review session outcomes need application reconciliation/session contracts and should not be hidden inside field preflight.
+- Next safe step: Implement task 6.8 by adding a relation-change dry-run preview contract for structured editor saves before writing blocks that create, orphan, duplicate, or restore CDF live relations.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/reviewStructuredFieldModel.test.ts src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/ui/review/v2/__tests__/ReviewEditableTargetsPanel.spec.ts src/ui/review/v2/__tests__/reviewCurrentContentEditorRuntime.test.ts`.
+
+### 2026-06-05 - Review draft save and field conflict preflight
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` tasks 6.1-6.3 by saving dirty content fields as one draft batch, preserving card attribute mutation paths, and detecting external source changes at field granularity.
+- Touched slice: Review UI structured editor save path: `reviewCurrentContentEditorRuntime.ts`, `ReviewView.vue`, `ReviewInlineCardEditor.vue`, `ReviewEditableTargetsPanel.vue`, Review i18n keys, and focused Review editor tests.
+- Debt fixed now: Dirty content saves now run as one explicit draft batch and keep the editor open with field-level errors if any write or preflight conflict fails. Card attribute edits continue through the existing `SrsEditorDialog` immediate/confirmation path and no longer trigger content draft writes. Grammar-projected Item/Definition/Descriptor fields now record touched field ids, re-read the latest source before save, detect same dirty field external changes by original field hash, and merge untouched latest grammar fields into the outgoing source so local saves do not silently overwrite unrelated external edits in the same block.
+- Debt deferred: Conflict choice UI/state, source-latest vs draft-overwrite resolution, automatic untouched-field visual refresh while the editor stays open, invalid grammar recovery, relation-change preview/confirm/cancel, current Review session effects, and reset same-source actions remain in later 6.x tasks.
+- Why deferred: Tasks 6.1-6.3 establish draft batching, path separation, and field-level conflict detection only. User choice controls and reconciliation/session outcomes require additional UI state and relation dry-run contracts, so they remain bounded to 6.4+.
+- Next safe step: Implement task 6.4 by rendering conflicted fields with source-latest/draft-overwrite choices and feeding those choices into the existing save preflight.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/reviewCurrentContentEditorRuntime.test.ts src/ui/review/v2/__tests__/ReviewEditableTargetsPanel.spec.ts src/ui/review/v2/__tests__/reviewStructuredFieldModel.test.ts src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/core/card/cdf-live-relation/__tests__/sourceGrammar.test.ts src/core/card/cdf-live-relation/__tests__/liveRelationScanner.test.ts`; `git diff --check`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`.
+
+### 2026-06-05 - Review Item grammar editor and field coverage
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` tasks 5.7-5.11 by completing Item question/answer editing, reverse/both source-order display, multiline field behavior, blank child handling, and field model coverage.
+- Touched slice: Review UI structured editor and CDF source grammar/scanner path: `ReviewView.vue`, `ReviewInlineCardEditor.vue`, `ReviewEditableTargetsPanel.vue` test coverage, `reviewStructuredFieldModel.ts`, `sourceGrammar.ts`, `liveRelationScanner.ts`, and focused Review/parser/scanner tests.
+- Debt fixed now: Item Card Source Grammar now projects safe `>>`, `<<`, and `<>` sources into Question/Answer fields, including reverse/both cards in logical source question/answer order with read-only direction. Saves rewrite the full source block through an Item grammar writer that preserves operator choice, spacing, and trailing attrs, avoiding the previous same-block hazard where a bare answer/question could overwrite relation source Markdown. Multiline fields now have explicit coverage that plain Enter stays in the textarea while Ctrl/Cmd+Enter saves. Blank group children are ignored as new empty children, while explicit blank required source/content still derives `content-incomplete`. Field model tests now cover supported card families and fallback modes, including descriptor group arrow/plain leaves and blocking invalid grammar fallback.
+- Debt deferred: Draft save transactions, external change detection, conflict UI, invalid grammar recovery after save, relation-change preview, Review exit on content-incomplete/orphan/duplicate, and reset same-source actions remain in phase 6 tasks.
+- Why deferred: Tasks 5.7-5.11 close field identity, projection, source rewriting, and model coverage only. Draft save/conflict/preview/session effects require broader save orchestration and current-session semantics, so they belong to the dedicated 6.x slice.
+- Next safe step: Start task 6.1 by introducing draft-based content save that can persist dirty fields together without changing existing card attribute immediate/confirmation paths.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/reviewStructuredFieldModel.test.ts src/core/card/cdf-live-relation/__tests__/liveRelationScanner.test.ts src/core/card/cdf-live-relation/__tests__/sourceGrammar.test.ts src/ui/review/v2/__tests__/ReviewEditableTargetsPanel.spec.ts src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check`.
+
+### 2026-06-05 - Review Descriptor grammar editor
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` task 5.6 by showing Descriptor Card Source Grammar as cue/answer fields, including pure `;;;` answer-only leaves, with format-preserving writes.
+- Touched slice: Review UI structured editor and CDF source grammar writer: `ReviewView.vue`, `ReviewInlineCardEditor.vue`, `reviewStructuredFieldModel.ts`, `sourceGrammar.ts`, Review i18n keys, and focused Review/parser tests.
+- Debt fixed now: Descriptor grammar sources now project same-block fields as virtual editor entries, so explicit `;;`/`;<`/`;<>` descriptors display editable Cue and Answer fields and `;;;` plain leaves display Answer only. Edits rewrite the original source block through a descriptor grammar writer that preserves operator choice, arrow/plain leaf style, spacing, and trailing block attrs, avoiding the previous risk of saving a bare cue or answer as the entire source block.
+- Debt deferred: Item question/answer format-preserving writes, reverse/both Item source-order display checks, complete draft save/conflict handling, relation-change preview, reset actions, and content-incomplete Review exit remain in later OpenSpec tasks.
+- Why deferred: Task 5.6 is Descriptor-only. Item semantics have different operator direction rules and need a separate writer/test slice; conflict/preview/session effects remain task 6.x.
+- Next safe step: Implement task 5.7 Item editor with safe question/answer split and source fallback.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/reviewStructuredFieldModel.test.ts src/ui/review/v2/__tests__/reviewCurrentContentEditorRuntime.test.ts src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/core/card/cdf-live-relation/__tests__/sourceGrammar.test.ts`.
+
+### 2026-06-05 - Review Definition grammar editor
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` task 5.5 by showing Definition Card Source Grammar as an editable definition field while keeping concept and direction read-only.
+- Touched slice: Review UI structured editor and CDF source grammar writer: `ReviewView.vue`, `ReviewInlineCardEditor.vue`, `reviewStructuredFieldModel.ts`, `sourceGrammar.ts`, and focused Review/parser tests.
+- Debt fixed now: Definition grammar sources now display only the editable definition text in the Review structured editor, while save rewrites the full source block through a narrow grammar writer that preserves concept refs, original operator, spacing, and trailing block attrs. This removes the previous same-block grammar hazard where editing `Definition` could be written as the whole block and erase relation authority text.
+- Debt deferred: Item question/answer editor writes, complete draft save/conflict handling, relation-change preview, reset actions, and content-incomplete Review exit remain in later OpenSpec tasks.
+- Why deferred: Task 5.5 is Definition-only. Descriptor and Item each need separate same-block multi-field display/write semantics, and the broader save/conflict/preview flow belongs to task 6.x.
+- Next safe step: Implement task 5.7 Item editor after the Descriptor grammar writer is in place.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/reviewStructuredFieldModel.test.ts src/ui/review/v2/__tests__/reviewCurrentContentEditorRuntime.test.ts src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/core/card/cdf-live-relation/__tests__/sourceGrammar.test.ts`.
+
+### 2026-06-05 - Review grammar field extraction
+
+- Task: Continue `cdf-live-relation-authority-and-review-editor` task 5.4 by extracting Review structured editor fields from safe Card Source Grammar and falling back to source mode when grammar identity is unsafe.
+- Touched slice: Review UI structured editor model and CDF source grammar parser: `reviewStructuredFieldModel.ts`, `sourceGrammar.ts`, `liveRelationScanner.ts`, and focused model/parser/scanner tests.
+- Debt fixed now: Card Source Grammar now exposes one shared safe field extractor for Item `>>/<</<>`, Definition `::/:>/:<`, explicit Descriptor `;;/;</;<>`, and proven `;;;` descriptor leaves, while preserving invalid or ambiguous sources as explicit source fallback reasons. Review structured model now uses that extractor instead of duplicating parser rules or guessing field boundaries, and live scanner reuses the shared `;;;` leaf split helper.
+- Debt deferred: Same-block multi-field UI rendering/editing, Descriptor/Item format-preserving writes, full source draft save, conflict handling, relation-change preview, reset actions, and content-incomplete editor transitions remain in later OpenSpec tasks.
+- Why deferred: Task 5.4 only closes safe field identity extraction. Writing grammar fields back into a single source block can change content status and relation sets, so it must wait for the dedicated editor/save/preview tasks.
+- Next safe step: Implement task 5.6 Descriptor editor behavior after the Definition grammar writer is in place.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/reviewStructuredFieldModel.test.ts`; `pnpm exec vitest run src/core/card/cdf-live-relation/__tests__/sourceGrammar.test.ts`; `pnpm exec vitest run src/core/card/cdf-live-relation/__tests__/liveRelationScanner.test.ts`.
 
 ### 2026-06-05 - Review explicit field extraction
 

@@ -15,6 +15,7 @@
 import type { CardState } from '@/core/card/domain/services/CardScheduleService';
 import type { SortField, SortOrder } from '@/core/card/domain/services/CardSortService';
 import type { BrowserCard } from '@/types/browser';
+import type { BrowserCdfDiagnosticPreset } from './shared/CdfBrowserDiagnostics';
 export type { BrowserCard } from '@/types/browser';
 
 /**
@@ -29,7 +30,8 @@ export type PresetFilter =
   | 'learning'   // 学习中
   | 'current-doc' // 当前文档
   | 'review'     // 复习中
-  | 'suspended'; // 已暂停
+  | 'suspended'  // 已暂停
+  | BrowserCdfDiagnosticPreset; // CDF 异常诊断
 
 /**
  * 获取浏览器卡片查询对象

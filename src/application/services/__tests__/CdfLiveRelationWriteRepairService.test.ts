@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  CdfLiveRelationSqlCandidateSourceScanner,
   CdfLiveRelationWriteRepairService,
   type CdfLiveRelationWriteRepairManagerPort,
 } from '../CdfLiveRelationWriteRepairService';
@@ -9,6 +10,7 @@ import type { CdfLiveBlockNode, CdfLiveRelationCandidate } from '@/core/card/cdf
 const SOURCE_ID = '20260101000001-bbbbbbb';
 const CONCEPT_A_ID = '20260101000000-aaaaaaa';
 const CONCEPT_B_ID = '20260101000000-ccccccc';
+const CONCEPT_DUPLICATE_ID = '20260101000000-ddddddd';
 const NOW = 1_700_000_000_123;
 
 function sourceNode(markdown: string): CdfLiveBlockNode {
@@ -109,6 +111,717 @@ function createManager(
 }
 
 describe('CdfLiveRelationWriteRepairService', () => {
+  it('previews full repair as a workspace dry-run without persisting candidate creates or metadata repairs', async () => {
+    const legacySourceId = 'legacy-source';
+    const existingLegacyRelation = relationCard({
+      id: 'legacy-relation-card',
+      sourceBlockId: legacySourceId,
+      conceptBlockId: CONCEPT_A_ID,
+      relationKind: 'definition-forward',
+    });
+    const manager = createManager([existingLegacyRelation], {
+      cardsByBlockId: {
+        [legacySourceId]: [existingLegacyRelation],
+      },
+    });
+    const creator = {
+      createCards: vi.fn(async () => undefined),
+    };
+    const candidateScanner = {
+      listCandidateSources: vi.fn(async () => [
+        {
+          sourceBlockId: SOURCE_ID,
+          rootId: 'doc-root',
+          notebookId: 'notebook-a',
+          candidateReasons: ['operator' as const],
+        },
+        {
+          sourceBlockId: legacySourceId,
+          rootId: 'legacy-doc-root',
+          notebookId: 'notebook-a',
+          candidateReasons: ['existing-card' as const],
+        },
+      ]),
+    };
+    const sourceLoader = {
+      loadSourceTree: vi.fn(async (sourceBlockId: string) => {
+        if (sourceBlockId === 'doc-root') {
+          return node('doc-root', 'Document', [
+            sourceNode(`((${CONCEPT_A_ID} "Concept A")) :> definition body`),
+          ]);
+        }
+        if (sourceBlockId === 'legacy-doc-root') {
+          return node('legacy-doc-root', 'Document', [
+            node(legacySourceId, 'plain text after relation removed'),
+          ]);
+        }
+        return null;
+      }),
+    };
+    const service = new CdfLiveRelationWriteRepairService({
+      manager,
+      cardCreator: creator,
+      sourceLoader,
+      candidateScanner,
+      now: () => NOW,
+      idFactory: (relation: CdfLiveRelationCandidate) => `card-${relation.sourceBlockId}-${relation.conceptBlockId}-${relation.relationKind}`,
+      xiuyuanIdFactory: (relation: CdfLiveRelationCandidate) => `xiuyuan-${relation.sourceBlockId}-${relation.conceptBlockId}-${relation.relationKind}`,
+    });
+
+    const preview = await service.previewFullRepairDryRun();
+
+    expect(preview.attempted).toBe(true);
+    expect(preview.scope).toEqual({ kind: 'workspace' });
+    expect(preview.reason).toBe('previewed');
+    expect(preview.summary).toEqual(expect.objectContaining({
+      candidateSourceCount: 2,
+      scannedRootCount: 2,
+      derivedRelationCount: 1,
+      createCardCount: 1,
+      orphanCount: 1,
+      persistedMutationCount: 0,
+    }));
+    expect(preview.sourcePreviews).toHaveLength(2);
+    expect(preview.sourcePreviews[0]).toEqual(expect.objectContaining({
+      scanRootId: 'doc-root',
+      candidateSourceIds: [SOURCE_ID],
+      result: expect.objectContaining({
+        createdCards: [
+          expect.objectContaining({
+            id: `card-${SOURCE_ID}-${CONCEPT_A_ID}-definition-forward`,
+            meta: expect.objectContaining({
+              liveRelationStatus: 'active-live',
+              liveContentStatus: 'content-complete',
+            }),
+          }),
+        ],
+      }),
+    }));
+    expect(preview.sourcePreviews[1]).toEqual(expect.objectContaining({
+      scanRootId: 'legacy-doc-root',
+      candidateSourceIds: [legacySourceId],
+      result: expect.objectContaining({
+        updatedCards: [
+          expect.objectContaining({
+            id: 'legacy-relation-card',
+            meta: expect.objectContaining({
+              liveRelationStatus: 'orphaned-by-live-relation',
+            }),
+          }),
+        ],
+      }),
+    }));
+    expect(candidateScanner.listCandidateSources).toHaveBeenCalledWith({
+      scope: { kind: 'workspace' },
+      existingSourceBlockIds: [legacySourceId],
+      limit: undefined,
+    });
+    expect(sourceLoader.loadSourceTree).toHaveBeenCalledWith('doc-root', {
+      reconciliationScope: 'source',
+      changedBlockId: undefined,
+    });
+    expect(sourceLoader.loadSourceTree).toHaveBeenCalledWith('legacy-doc-root', {
+      reconciliationScope: 'source',
+      changedBlockId: undefined,
+    });
+    expect(creator.createCards).not.toHaveBeenCalled();
+    expect(manager.updateCard).not.toHaveBeenCalled();
+    expect(manager.onCardCreated).not.toHaveBeenCalled();
+  });
+
+  it('passes Browser scope narrowing to full repair candidate scanning', async () => {
+    const manager = createManager();
+    const creator = {
+      createCards: vi.fn(async () => undefined),
+    };
+    const candidateScanner = {
+      listCandidateSources: vi.fn(async () => []),
+    };
+    const service = new CdfLiveRelationWriteRepairService({
+      manager,
+      cardCreator: creator,
+      sourceLoader: {
+        loadSourceTree: vi.fn(async () => null),
+      },
+      candidateScanner,
+      now: () => NOW,
+    });
+
+    const preview = await service.previewFullRepairDryRun({
+      scope: {
+        kind: 'browser',
+        docId: 'doc-a',
+        scopeDocIds: ['doc-b', 'doc-c'],
+        notebookId: 'notebook-a',
+      },
+    });
+
+    expect(preview.reason).toBe('no-candidates');
+    expect(candidateScanner.listCandidateSources).toHaveBeenCalledWith({
+      scope: {
+        kind: 'browser',
+        docId: 'doc-a',
+        scopeDocIds: ['doc-b', 'doc-c'],
+        notebookId: 'notebook-a',
+      },
+      existingSourceBlockIds: [],
+      limit: undefined,
+    });
+  });
+
+  it('executes full repair by reconciling existing-card candidates and leaving new candidates preview-only by default', async () => {
+    const legacySourceId = 'legacy-source';
+    const existingLegacyRelation = relationCard({
+      id: 'legacy-relation-card',
+      sourceBlockId: legacySourceId,
+      conceptBlockId: CONCEPT_A_ID,
+      relationKind: 'definition-forward',
+    });
+    const manager = createManager([existingLegacyRelation], {
+      cardsByBlockId: {
+        [legacySourceId]: [existingLegacyRelation],
+      },
+    });
+    const creator = {
+      createCards: vi.fn(async () => undefined),
+    };
+    const candidateScanner = {
+      listCandidateSources: vi.fn(async () => [
+        {
+          sourceBlockId: SOURCE_ID,
+          rootId: 'doc-root',
+          candidateReasons: ['operator' as const],
+        },
+        {
+          sourceBlockId: legacySourceId,
+          rootId: 'legacy-doc-root',
+          candidateReasons: ['existing-card' as const],
+        },
+      ]),
+    };
+    const sourceLoader = {
+      loadSourceTree: vi.fn(async (sourceBlockId: string) => {
+        if (sourceBlockId === 'doc-root') {
+          return node('doc-root', 'Document', [
+            sourceNode(`((${CONCEPT_A_ID} "Concept A")) :> definition body`),
+          ]);
+        }
+        if (sourceBlockId === 'legacy-doc-root') {
+          return node('legacy-doc-root', 'Document', [
+            node(legacySourceId, 'plain text after relation removed'),
+          ]);
+        }
+        return null;
+      }),
+    };
+    const service = new CdfLiveRelationWriteRepairService({
+      manager,
+      cardCreator: creator,
+      sourceLoader,
+      candidateScanner,
+      now: () => NOW,
+      idFactory: (relation: CdfLiveRelationCandidate) => `card-${relation.sourceBlockId}-${relation.conceptBlockId}-${relation.relationKind}`,
+      xiuyuanIdFactory: (relation: CdfLiveRelationCandidate) => `xiuyuan-${relation.sourceBlockId}-${relation.conceptBlockId}-${relation.relationKind}`,
+    });
+
+    const result = await service.executeFullRepair();
+
+    expect(result.reason).toBe('executed');
+    expect(result.createNewCandidates).toBe(false);
+    expect(result.sourcePreviews).toEqual([
+      expect.objectContaining({
+        scanRootId: 'legacy-doc-root',
+        candidateSourceIds: [legacySourceId],
+        persisted: true,
+        previewOnly: false,
+        result: expect.objectContaining({
+          updatedCards: [
+            expect.objectContaining({
+              id: 'legacy-relation-card',
+              meta: expect.objectContaining({
+                liveRelationStatus: 'orphaned-by-live-relation',
+              }),
+            }),
+          ],
+        }),
+      }),
+    ]);
+    expect(result.previewOnlySourcePreviews).toEqual([
+      expect.objectContaining({
+        scanRootId: 'doc-root',
+        candidateSourceIds: [SOURCE_ID],
+        persisted: false,
+        previewOnly: true,
+        result: expect.objectContaining({
+          createdCards: [
+            expect.objectContaining({
+              id: `card-${SOURCE_ID}-${CONCEPT_A_ID}-definition-forward`,
+            }),
+          ],
+        }),
+      }),
+    ]);
+    expect(result.summary).toEqual(expect.objectContaining({
+      candidateSourceCount: 1,
+      scannedRootCount: 1,
+      createCardCount: 0,
+      orphanCount: 1,
+      persistedMutationCount: 1,
+    }));
+    expect(result.previewOnlySummary).toEqual(expect.objectContaining({
+      candidateSourceCount: 1,
+      scannedRootCount: 1,
+      createCardCount: 1,
+      persistedMutationCount: 0,
+    }));
+    expect(creator.createCards).not.toHaveBeenCalled();
+    expect(manager.updateCard).toHaveBeenCalledTimes(1);
+    expect(manager.updateCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'legacy-relation-card',
+        meta: expect.objectContaining({
+          liveRelationStatus: 'orphaned-by-live-relation',
+        }),
+      }),
+      { suppressDueIndexSort: true },
+    );
+  });
+
+  it('executes full repair with createNewCandidates enabled for derived no-card candidates', async () => {
+    const manager = createManager();
+    const creator = {
+      createCards: vi.fn(async () => undefined),
+    };
+    const candidateScanner = {
+      listCandidateSources: vi.fn(async () => [
+        {
+          sourceBlockId: SOURCE_ID,
+          rootId: 'doc-root',
+          candidateReasons: ['operator' as const],
+        },
+      ]),
+    };
+    const sourceLoader = {
+      loadSourceTree: vi.fn(async () => node('doc-root', 'Document', [
+        sourceNode(`((${CONCEPT_A_ID} "Concept A")) :> definition body`),
+      ])),
+    };
+    const service = new CdfLiveRelationWriteRepairService({
+      manager,
+      cardCreator: creator,
+      sourceLoader,
+      candidateScanner,
+      now: () => NOW,
+      idFactory: (relation: CdfLiveRelationCandidate) => `card-${relation.sourceBlockId}-${relation.conceptBlockId}-${relation.relationKind}`,
+      xiuyuanIdFactory: (relation: CdfLiveRelationCandidate) => `xiuyuan-${relation.sourceBlockId}-${relation.conceptBlockId}-${relation.relationKind}`,
+    });
+
+    const result = await service.executeFullRepair({ createNewCandidates: true });
+
+    expect(result.createNewCandidates).toBe(true);
+    expect(result.sourcePreviews).toEqual([
+      expect.objectContaining({
+        scanRootId: 'doc-root',
+        candidateSourceIds: [SOURCE_ID],
+        persisted: true,
+        previewOnly: false,
+        result: expect.objectContaining({
+          createdCards: [
+            expect.objectContaining({
+              id: `card-${SOURCE_ID}-${CONCEPT_A_ID}-definition-forward`,
+              meta: expect.objectContaining({
+                liveRelationStatus: 'active-live',
+                liveContentStatus: 'content-complete',
+              }),
+            }),
+          ],
+        }),
+      }),
+    ]);
+    expect(result.previewOnlySourcePreviews).toHaveLength(0);
+    expect(result.summary).toEqual(expect.objectContaining({
+      candidateSourceCount: 1,
+      scannedRootCount: 1,
+      createCardCount: 1,
+      persistedMutationCount: 1,
+    }));
+    expect(creator.createCards).toHaveBeenCalled();
+    expect(manager.onCardCreated).toHaveBeenCalled();
+    expect(manager.updateCard).not.toHaveBeenCalled();
+  });
+
+  it('keeps derive-failed no-card candidates preview-only during full repair execution', async () => {
+    const manager = createManager();
+    const creator = {
+      createCards: vi.fn(async () => undefined),
+    };
+    const candidateScanner = {
+      listCandidateSources: vi.fn(async () => [
+        {
+          sourceBlockId: SOURCE_ID,
+          rootId: 'doc-root',
+          candidateReasons: ['operator' as const],
+        },
+      ]),
+    };
+    const sourceLoader = {
+      loadSourceTree: vi.fn(async () => node('doc-root', 'Document', [
+        sourceNode('plain text after invalid CDF candidate'),
+      ])),
+    };
+    const service = new CdfLiveRelationWriteRepairService({
+      manager,
+      cardCreator: creator,
+      sourceLoader,
+      candidateScanner,
+      now: () => NOW,
+    });
+
+    const result = await service.executeFullRepair({ createNewCandidates: true });
+
+    expect(result.sourcePreviews).toHaveLength(0);
+    expect(result.previewOnlySourcePreviews).toEqual([
+      expect.objectContaining({
+        scanRootId: 'doc-root',
+        candidateSourceIds: [SOURCE_ID],
+        persisted: false,
+        previewOnly: true,
+        result: expect.objectContaining({
+          createdCards: [],
+          updatedCards: [],
+          actions: [],
+          derivedRelationCount: 0,
+        }),
+      }),
+    ]);
+    expect(result.previewOnlySummary).toEqual(expect.objectContaining({
+      candidateSourceCount: 1,
+      deriveFailedNoCardCandidateCount: 1,
+      persistedMutationCount: 0,
+    }));
+    expect(creator.createCards).not.toHaveBeenCalled();
+    expect(manager.updateCard).not.toHaveBeenCalled();
+    expect(manager.onCardCreated).not.toHaveBeenCalled();
+  });
+
+  it('scans SQL CDF candidate sources with document, notebook, and existing-card scope narrowing', async () => {
+    const statements: string[] = [];
+    const sql = vi.fn(async (statement: string) => {
+      statements.push(statement);
+      return [
+        {
+          id: SOURCE_ID,
+          root_id: 'doc-a',
+          box: 'notebook-a',
+          type: 'p',
+          markdown: `((${CONCEPT_A_ID} "Concept A")) :> definition body`,
+          content: '',
+        },
+        {
+          id: 'boundary-a',
+          root_id: 'doc-a',
+          box: 'notebook-a',
+          type: 'i',
+          markdown: `((${CONCEPT_A_ID} "Concept A"))`,
+          content: '',
+        },
+        {
+          id: 'existing-source',
+          root_id: 'doc-a',
+          box: 'notebook-a',
+          type: 'p',
+          markdown: 'plain existing card source',
+          content: '',
+        },
+      ];
+    });
+    const scanner = new CdfLiveRelationSqlCandidateSourceScanner({ sql });
+
+    const documentCandidates = await scanner.listCandidateSources({
+      scope: { kind: 'document', docId: 'doc-a' },
+      existingSourceBlockIds: ['existing-source'],
+    });
+    await scanner.listCandidateSources({
+      scope: { kind: 'notebook', notebookId: 'notebook-a' },
+      existingSourceBlockIds: [],
+    });
+
+    expect(statements[0]).toContain("root_id = 'doc-a'");
+    expect(statements[0]).toContain("id = 'doc-a'");
+    expect(statements[0]).toContain("id IN ('existing-source')");
+    expect(statements[1]).toContain("box = 'notebook-a'");
+    expect(documentCandidates).toEqual([
+      expect.objectContaining({
+        sourceBlockId: SOURCE_ID,
+        rootId: 'doc-a',
+        notebookId: 'notebook-a',
+        candidateReasons: ['operator'],
+      }),
+      expect.objectContaining({
+        sourceBlockId: 'boundary-a',
+        candidateReasons: ['concept-boundary'],
+      }),
+      expect.objectContaining({
+        sourceBlockId: 'existing-source',
+        candidateReasons: ['existing-card'],
+      }),
+    ]);
+  });
+
+  it('previews single-source repair without persisting same-source missing cards or metadata repairs', async () => {
+    const existingRelationCard = relationCard({
+      id: 'existing-relation',
+      conceptBlockId: CONCEPT_B_ID,
+      relationKind: 'definition-forward',
+    });
+    const manager = createManager([], {
+      cardsByBlockId: {
+        [SOURCE_ID]: [existingRelationCard],
+      },
+    });
+    const creator = {
+      createCards: vi.fn(async () => undefined),
+    };
+    const service = new CdfLiveRelationWriteRepairService({
+      manager,
+      cardCreator: creator,
+      now: () => NOW,
+      idFactory: (relation: CdfLiveRelationCandidate) => `card-${relation.conceptBlockId}-${relation.relationKind}`,
+      xiuyuanIdFactory: (relation: CdfLiveRelationCandidate) => `xiuyuan-${relation.conceptBlockId}-${relation.relationKind}`,
+    });
+
+    const preview = await service.previewSingleSourceRepairDryRun({
+      sourceBlockId: SOURCE_ID,
+      sourceTree: node('doc-root', 'Document', [
+        sourceNode(`((${CONCEPT_A_ID} "Concept A")) :> definition body`),
+        node('sibling-source', `((${CONCEPT_B_ID} "Concept B")) :> sibling definition`),
+      ]),
+    });
+
+    expect(preview.attempted).toBe(true);
+    expect(preview.sourceBlockId).toBe(SOURCE_ID);
+    expect(preview.persisted).toBe(false);
+    expect(preview.result).toEqual(expect.objectContaining({
+      reason: 'reconciled',
+      derivedRelationCount: 1,
+      createdCards: [
+        expect.objectContaining({
+          id: `card-${CONCEPT_A_ID}-definition-forward`,
+          meta: expect.objectContaining({
+            liveRelationKey: `${SOURCE_ID}:${CONCEPT_A_ID}:definition-forward`,
+          }),
+        }),
+      ],
+      updatedCards: [
+        expect.objectContaining({
+          id: 'existing-relation',
+          meta: expect.objectContaining({
+            liveRelationStatus: 'orphaned-by-live-relation',
+          }),
+        }),
+      ],
+    }));
+    expect(preview.summary).toEqual(expect.objectContaining({
+      derivedRelationCount: 1,
+      createCardCount: 1,
+      orphanCount: 1,
+      persistedMutationCount: 0,
+    }));
+    expect(String(preview.result.createdCards[0]?.meta?.liveRelationKey || '')).not.toContain('sibling-source');
+    expect(creator.createCards).not.toHaveBeenCalled();
+    expect(manager.updateCard).not.toHaveBeenCalled();
+    expect(manager.onCardCreated).not.toHaveBeenCalled();
+  });
+
+  it('executes single-source repair and creates missing same-source relations by default', async () => {
+    const manager = createManager();
+    const creator = {
+      createCards: vi.fn(async () => undefined),
+    };
+    const service = new CdfLiveRelationWriteRepairService({
+      manager,
+      cardCreator: creator,
+      now: () => NOW,
+      idFactory: (relation: CdfLiveRelationCandidate) => `card-${relation.conceptBlockId}-${relation.relationKind}`,
+      xiuyuanIdFactory: (relation: CdfLiveRelationCandidate) => `xiuyuan-${relation.conceptBlockId}-${relation.relationKind}`,
+    });
+
+    const result = await service.executeSingleSourceRepair({
+      sourceBlockId: SOURCE_ID,
+      sourceTree: sourceNode(`((${CONCEPT_A_ID} "Concept A")) :> definition body`),
+    });
+
+    expect(result.attempted).toBe(true);
+    expect(result.sourceBlockId).toBe(SOURCE_ID);
+    expect(result.persisted).toBe(true);
+    expect(result.result.createdCards).toEqual([
+      expect.objectContaining({
+        id: `card-${CONCEPT_A_ID}-definition-forward`,
+        meta: expect.objectContaining({
+          liveRelationStatus: 'active-live',
+          liveContentStatus: 'content-complete',
+        }),
+      }),
+    ]);
+    expect(result.summary).toEqual(expect.objectContaining({
+      createCardCount: 1,
+      persistedMutationCount: 1,
+    }));
+    expect(creator.createCards).toHaveBeenCalled();
+    expect(manager.onCardCreated).toHaveBeenCalled();
+    expect(manager.updateCard).not.toHaveBeenCalled();
+  });
+
+  it('applies single-source repair category toggles during execution', async () => {
+    const orphanRelationCard = relationCard({
+      id: 'orphan-relation',
+      conceptBlockId: '20260101000000-orphan',
+      relationKind: 'definition-forward',
+    });
+    const reactivatedRelationCard = relationCard({
+      id: 'reactivated-relation',
+      conceptBlockId: CONCEPT_B_ID,
+      relationKind: 'definition-forward',
+      status: 'orphaned-by-live-relation',
+    });
+    const canonicalDuplicateCard = relationCard({
+      id: 'canonical-duplicate',
+      conceptBlockId: CONCEPT_DUPLICATE_ID,
+      relationKind: 'definition-forward',
+      reps: 9,
+    });
+    const nonCanonicalDuplicateCard = relationCard({
+      id: 'noncanonical-duplicate',
+      conceptBlockId: CONCEPT_DUPLICATE_ID,
+      relationKind: 'definition-forward',
+      reps: 1,
+    });
+    const manager = createManager([], {
+      cardsByBlockId: {
+        [SOURCE_ID]: [
+          orphanRelationCard,
+          reactivatedRelationCard,
+          canonicalDuplicateCard,
+          nonCanonicalDuplicateCard,
+        ],
+      },
+    });
+    const creator = {
+      createCards: vi.fn(async () => undefined),
+    };
+    const service = new CdfLiveRelationWriteRepairService({
+      manager,
+      cardCreator: creator,
+      now: () => NOW,
+      idFactory: (relation: CdfLiveRelationCandidate) => `card-${relation.conceptBlockId}-${relation.relationKind}`,
+      xiuyuanIdFactory: (relation: CdfLiveRelationCandidate) => `xiuyuan-${relation.conceptBlockId}-${relation.relationKind}`,
+    });
+
+    const result = await service.executeSingleSourceRepair({
+      sourceBlockId: SOURCE_ID,
+      sourceTree: sourceNode([
+        `((${CONCEPT_A_ID} "Concept A"))`,
+        `((${CONCEPT_B_ID} "Concept B"))`,
+        `((${CONCEPT_DUPLICATE_ID} "Duplicate"))`,
+        ':> definition body',
+      ].join(' ')),
+      categoryToggles: {
+        createMissing: false,
+        pauseOrphan: true,
+        pauseDuplicate: false,
+        restoreActive: true,
+      },
+    });
+
+    expect(result.categoryToggles).toEqual({
+      createMissing: false,
+      pauseOrphan: true,
+      pauseDuplicate: false,
+      restoreActive: true,
+    });
+    expect(result.result.createdCards).toHaveLength(0);
+    expect(result.result.updatedCards.map((card) => card.id).sort()).toEqual([
+      'canonical-duplicate',
+      'orphan-relation',
+      'reactivated-relation',
+    ]);
+    expect(result.summary).toEqual(expect.objectContaining({
+      createCardCount: 0,
+      orphanCount: 1,
+      duplicateCount: 0,
+      reactivatedCount: 1,
+      persistedMutationCount: 3,
+    }));
+    expect(creator.createCards).not.toHaveBeenCalled();
+    expect(manager.updateCard).toHaveBeenCalledTimes(3);
+    expect(manager.updateCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'orphan-relation',
+        meta: expect.objectContaining({
+          liveRelationStatus: 'orphaned-by-live-relation',
+        }),
+      }),
+      { suppressDueIndexSort: true },
+    );
+    expect(manager.updateCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'canonical-duplicate',
+        meta: expect.objectContaining({
+          liveRelationStatus: 'active-live',
+        }),
+      }),
+      { suppressDueIndexSort: true },
+    );
+    expect(manager.updateCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'reactivated-relation',
+        meta: expect.objectContaining({
+          liveRelationStatus: 'active-live',
+        }),
+      }),
+      { suppressDueIndexSort: true },
+    );
+    expect(manager.updateCard).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'noncanonical-duplicate',
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('does not remember single-source repair toggles between execution sessions', async () => {
+    const manager = createManager();
+    const creator = {
+      createCards: vi.fn(async () => undefined),
+    };
+    const service = new CdfLiveRelationWriteRepairService({
+      manager,
+      cardCreator: creator,
+      now: () => NOW,
+      idFactory: (relation: CdfLiveRelationCandidate) => `card-${relation.conceptBlockId}-${relation.relationKind}`,
+      xiuyuanIdFactory: (relation: CdfLiveRelationCandidate) => `xiuyuan-${relation.conceptBlockId}-${relation.relationKind}`,
+    });
+    const sourceTree = sourceNode(`((${CONCEPT_A_ID} "Concept A")) :> definition body`);
+
+    const disabledRun = await service.executeSingleSourceRepair({
+      sourceBlockId: SOURCE_ID,
+      sourceTree,
+      categoryToggles: {
+        createMissing: false,
+      },
+    });
+    const defaultRun = await service.executeSingleSourceRepair({
+      sourceBlockId: SOURCE_ID,
+      sourceTree,
+    });
+
+    expect(disabledRun.categoryToggles.createMissing).toBe(false);
+    expect(disabledRun.result.createdCards).toHaveLength(0);
+    expect(defaultRun.categoryToggles.createMissing).toBe(true);
+    expect(defaultRun.result.createdCards).toHaveLength(1);
+    expect(creator.createCards).toHaveBeenCalled();
+  });
+
   it('creates missing live relation cards in explicit write/repair flows with new FSRS state', async () => {
     const manager = createManager();
     const creator = {
@@ -263,6 +976,61 @@ describe('CdfLiveRelationWriteRepairService', () => {
       { suppressDueIndexSort: true },
     );
     expect(manager.onCardCreated).toHaveBeenCalledTimes(4);
+  });
+
+  it('uses draft source markdown for dry-run previews without persisting cards or metadata', async () => {
+    const existingRelationCard = relationCard({
+      id: 'existing-relation',
+      conceptBlockId: CONCEPT_A_ID,
+      relationKind: 'definition-forward',
+    });
+    const manager = createManager([], {
+      cardsByBlockId: {
+        [SOURCE_ID]: [existingRelationCard],
+      },
+    });
+    const creator = {
+      createCards: vi.fn(async () => undefined),
+    };
+    const service = new CdfLiveRelationWriteRepairService({
+      manager,
+      cardCreator: creator,
+      now: () => NOW,
+      idFactory: (relation: CdfLiveRelationCandidate) => `card-${relation.conceptBlockId}-${relation.relationKind}`,
+      xiuyuanIdFactory: (relation: CdfLiveRelationCandidate) => `xiuyuan-${relation.conceptBlockId}-${relation.relationKind}`,
+    });
+
+    const result = await service.reconcileWriteOrRepair({
+      sourceTree: sourceNode(`((${CONCEPT_A_ID} "Concept A")) :> old definition`),
+      draftMarkdownByBlockId: {
+        [SOURCE_ID]: `((${CONCEPT_B_ID} "Concept B")) :> draft definition`,
+      },
+      persist: false,
+    });
+
+    expect(result.reason).toBe('reconciled');
+    expect(result.createdCards).toEqual([
+      expect.objectContaining({
+        id: `card-${CONCEPT_B_ID}-definition-forward`,
+        meta: expect.objectContaining({
+          liveRelationKey: `${SOURCE_ID}:${CONCEPT_B_ID}:definition-forward`,
+          sourceSnapshot: expect.objectContaining({
+            markdown: `((${CONCEPT_B_ID} "Concept B")) :> draft definition`,
+          }),
+        }),
+      }),
+    ]);
+    expect(result.updatedCards).toEqual([
+      expect.objectContaining({
+        id: 'existing-relation',
+        meta: expect.objectContaining({
+          liveRelationStatus: 'orphaned-by-live-relation',
+        }),
+      }),
+    ]);
+    expect(creator.createCards).not.toHaveBeenCalled();
+    expect(manager.updateCard).not.toHaveBeenCalled();
+    expect(manager.onCardCreated).not.toHaveBeenCalled();
   });
 
   it('keeps concept document block as relation identity instead of concept simple card id', async () => {

@@ -56,7 +56,7 @@ export type ReviewHeaderVariant =
 
 export type ReviewHeaderCounterBadgeKind = 'ratio' | 'value';
 
-export type ReviewAdvanceReason = 'grade' | 'skip' | 'custom' | 'back' | 'load-by-block';
+export type ReviewAdvanceReason = 'grade' | 'skip' | 'custom' | 'back' | 'load-by-block' | 'no-score-removal';
 
 export type PreparedReviewRendererKind =
   | 'descriptor'
@@ -256,6 +256,35 @@ export interface ReviewSessionHistoryEntry {
   correctDelta: number;
 }
 
+export type ReviewNoScoreRemovalDiagnosticKind = 'blocked-cdf';
+
+export interface ReviewNoScoreRemovalDiagnostic {
+  kind: ReviewNoScoreRemovalDiagnosticKind;
+  cardId?: string;
+  blockId?: string;
+  sourceBlockId?: string;
+  reasonCode: string;
+  reasonLabel: string;
+  occurredAt?: number;
+}
+
+export interface ReviewAdvanceWithoutFeedbackOptions {
+  diagnostic?: ReviewNoScoreRemovalDiagnostic;
+}
+
+export type ReviewMidSessionInsertedOrigin =
+  | 'review-editor-save'
+  | 'external-cdf-repair'
+  | 'doc-scope-card-created';
+
+export interface ReviewMidSessionInsertedDiagnostic {
+  origin: ReviewMidSessionInsertedOrigin;
+  cardId?: string;
+  blockId?: string;
+  sourceBlockId?: string;
+  insertedAt?: number;
+}
+
 export interface AdapterSessionState {
   startTime: number;
   resumed?: boolean;
@@ -264,6 +293,10 @@ export interface AdapterSessionState {
   correctCount?: number;
   baselineVersion?: number;
   reviewHistory?: ReviewSessionHistoryEntry[];
+  blockedSkippedCount?: number;
+  blockedSkippedCards?: ReviewNoScoreRemovalDiagnostic[];
+  midSessionInsertedCount?: number;
+  midSessionInsertedCards?: ReviewMidSessionInsertedDiagnostic[];
 }
 
 export interface AdapterContext {
@@ -299,6 +332,7 @@ export interface ReviewSessionHook {
   reveal: () => void;
   grade: (rating: number) => Promise<void>;
   skip: () => Promise<void>;
+  advanceWithoutFeedback: (options?: ReviewAdvanceWithoutFeedbackOptions) => Promise<void>;
   back: () => Promise<void>;
   executeCommand: (cmdId: string) => Promise<void>;
   reload: () => Promise<void>;

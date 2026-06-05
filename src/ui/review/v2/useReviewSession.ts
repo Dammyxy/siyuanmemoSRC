@@ -40,6 +40,7 @@ export function useReviewSession<TItem extends QueueItem>(
     reveal: controller.reveal,
     grade: controller.grade,
     skip: controller.skip,
+    advanceWithoutFeedback: controller.advanceWithoutFeedback,
     back: controller.back,
     executeCommand: controller.executeCommand,
     reload: controller.reload,

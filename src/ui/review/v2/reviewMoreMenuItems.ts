@@ -17,6 +17,8 @@ type ReviewMoreMenuActions = {
   editSrs: () => void;
   editCurrentContent: () => void;
   toggleFullscreen: () => void;
+  resetCurrentProgress: () => void;
+  resetSameSourceProgress: () => void;
   editPriority: () => void;
   toggleDismissed: () => void;
   dismissPeers: () => void;
@@ -36,6 +38,8 @@ export type BuildReviewMoreMenuItemsInput = {
   currentPriority: number | null;
   currentDismissed: boolean;
   canEditCurrentPriority: boolean;
+  canResetCurrentProgress: boolean;
+  canResetSameSourceProgress: boolean;
   canSuspendCurrentCard: boolean;
   canDeleteCurrentCard: boolean;
   peerCount: number;
@@ -131,6 +135,22 @@ export function buildReviewMoreMenuItems(input: BuildReviewMoreMenuItemsInput): 
     label: buildReviewPriorityMenuLabel(input.t, input.currentPriority),
     disabled: !input.canEditCurrentPriority,
     click: input.actions.editPriority,
+  });
+
+  items.push({
+    id: 'reset-current-progress',
+    icon: 'iconRefresh',
+    label: input.t('reviewResetCurrentProgress', '重置当前卡学习进度'),
+    disabled: !input.canResetCurrentProgress,
+    click: input.actions.resetCurrentProgress,
+  });
+
+  items.push({
+    id: 'reset-same-source-progress',
+    icon: 'iconRefresh',
+    label: input.t('reviewResetSameSourceProgress', '重置同源活跃关系卡学习进度'),
+    disabled: !input.canResetSameSourceProgress,
+    click: input.actions.resetSameSourceProgress,
   });
 
   items.push({
