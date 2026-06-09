@@ -54,25 +54,6 @@ type BrowserAttrKeys = {
     aFactor: string;
 };
 
-type SqlRow = Record<string, unknown>;
-type BlockInfoSqlRow = {
-    id: string;
-    root_id?: string;
-    ial?: string;
-    type?: string;
-    content?: string;
-};
-type BlockAttrSqlRow = {
-    block_id: string;
-    name: string;
-    value: string;
-};
-type DocTreeSqlRow = {
-    id: string;
-    content?: string;
-    hpath?: string;
-};
-
 type BrowserPluginContext = {
     getBrowserService?: () => {
         getSiyuanApi?: () => BrowserSiyuanPort;
@@ -172,14 +153,6 @@ function getAttrKeys(siyuanApi: BrowserSiyuanPort): BrowserAttrKeys {
     };
     cachedAttrKeys = { signature, keys };
     return keys;
-}
-
-export async function runBrowserSql<T extends SqlRow = SqlRow>(
-    stmt: string,
-    api: BrowserSiyuanPort,
-): Promise<T[]> {
-    const rows = await api.sql(stmt);
-    return Array.isArray(rows) ? (rows as T[]) : [];
 }
 
 export async function pushBrowserMsg(
@@ -619,22 +592,14 @@ async function fetchBlockInfoBatched(
     
     for (let i = 0; i < blockIds.length; i += BATCH_SIZE) {
         const batchIds = blockIds.slice(i, i + BATCH_SIZE);
-        const inClause = batchIds.map(id => `'${escapeSQL(id)}'`).join(',');
-
         const [blocksResult, attrsResult] = await Promise.all([
-            // 🆕 添加 type 和 content 字段，用于识别文档块并获取标题
-            runBrowserSql<BlockInfoSqlRow>(`SELECT id, root_id, ial, type, content FROM blocks WHERE id IN (${inClause})`, siyuanApi),
-            runBrowserSql<BlockAttrSqlRow>(`
-                SELECT block_id, name, value
-                FROM attributes
-                WHERE block_id IN (${inClause})
-                AND name IN (
-                    '${attrKeys.cardId}',
-                    '${attrKeys.priority}',
-                    '${attrKeys.cardType}',
-                    '${attrKeys.aFactor}'
-                )
-            `, siyuanApi)
+            siyuanApi.getBlockInfoRowsByIds(batchIds),
+            siyuanApi.getBlockAttributeRowsByIds(batchIds, [
+                attrKeys.cardId,
+                attrKeys.priority,
+                attrKeys.cardType,
+                attrKeys.aFactor,
+            ]),
         ]);
 
         for (const row of blocksResult) {
@@ -667,10 +632,6 @@ async function fetchBlockInfoBatched(
     }
 
     return { attrsMap, rootIdMap, tagsMap, contentMap };
-}
-
-function escapeSQL(str: string): string {
-    return String(str || '').replace(/'/g, "''");
 }
 
 // ============================================================================
@@ -903,13 +864,7 @@ export async function getDocTree(
     if (ids.length === 0) return [];
     
     try {
-        const sqlQuery = `
-            SELECT id, content, hpath
-            FROM blocks
-            WHERE id IN (${ids.map(id => `'${escapeSQL(id)}'`).join(',')})
-        `;
-        
-        const rows = await runBrowserSql<DocTreeSqlRow>(sqlQuery, siyuanApi);
+        const rows = await siyuanApi.getDocTreeRowsByIds(ids);
         const foundIds = new Set(rows.map((row) => row.id));
         const result = rows.map((row) => {
             const title = (row.content || '').trim() || String(row.hpath || '').split('/').pop() || row.id;
@@ -941,103 +896,6 @@ export async function loadQueueCards(
         manager: unifiedDataSourceManager,
         siyuanApi,
     });
-
-    const ids = Array.from(new Set((blockIds || []).filter(Boolean)));
-    if (ids.length === 0) return [];
-    const attrKeys = getAttrKeys(siyuanApi);
-
-    try {
-        // 从缓存或统一数据源获取卡片
-        const cachedCards = cardCache.get();
-        if (cachedCards) {
-            const cachedByBlockId = cardCache.getByBlockIds(ids);
-            if (cachedByBlockId.size === ids.length) {
-                let cards = ids
-                    .map(id => cachedByBlockId.get(id))
-                    .filter(Boolean) as BrowserCard[];
-                
-                if (queryText) {
-                    const parsed = parseQuery(queryText);
-                    cards = applyParsedQuery(cards, parsed);
-                }
-                
-                const byBlockId = new Map(cards.map((c) => [c.blockId, c]));
-                return ids.map((id) => byBlockId.get(id)).filter(Boolean) as BrowserCard[];
-            }
-        }
-
-        // 默认：从统一数据源加载
-        const router = unifiedDataSourceManager.getRouter();
-        const allCards = await router.getCards();
-        const cardMap = new Map(allCards.map(c => [c.blockId, c]));
-        
-        const { attrsMap, rootIdMap, tagsMap, contentMap } = await fetchBlockInfoBatched(ids, siyuanApi);
-        
-        // 🆕 优化：合并多次遍历为一次，减少中间数组创建
-        const parsed = parseQuery(queryText || '');
-        const cards: BrowserCard[] = [];
-        
-        for (const id of ids) {
-            const card = cardMap.get(id);
-            
-            // 🆕 如果块没有对应的 FSRS 卡片，创建虚拟卡片
-            if (!card) {
-                logger.info(`[SiYuanMemo][loadQueueCards] Block ${id} has no FSRS card, creating virtual card`);
-                
-                const customAttrs = attrsMap.get(id) || {};
-                const parsedPriority = Number(customAttrs[attrKeys.priority]);
-                const dbContent = contentMap.get(id) || '';
-                const rootId = rootIdMap.get(id) || '';
-                const tags = tagsMap.get(id) || [];
-                
-                const source = buildSourceContentProjection({
-                    blockId: id,
-                    rootId,
-                    fullContent: dbContent,
-                    tags,
-                });
-                const virtualCard = buildVirtualBrowserCardFromSource({
-                    blockId: id,
-                    source,
-                    priority: Number.isFinite(parsedPriority) ? parsedPriority : 50,
-                    cardType: toBrowserCardType(customAttrs[attrKeys.cardType]) || 'concept',
-                });
-                
-                // 🔧 只在有查询文本时才应用筛选
-                if (!queryText || matchesParsedQuery(virtualCard, parsed)) {
-                    cards.push(virtualCard);
-                }
-                continue;
-            }
-            
-            const customAttrs = attrsMap.get(card.blockId) || {};
-            const browserCard = transformFSRSCard(card, customAttrs, attrKeys);
-            browserCard.rootId = rootIdMap.get(card.blockId) || browserCard.rootId || '';
-            browserCard.tags = tagsMap.get(card.blockId) || [];
-            
-            // 🔧 修复：对于文档块卡片，优先使用数据库的 content（文档标题）
-            // 检查当前内容是否为空或只有空白字符（包括零宽字符）
-            const currentContent = (browserCard.fullContent || '').replace(/[\s\u200B]/g, '');
-            const dbContent = contentMap.get(card.blockId);
-            
-            // 如果当前内容为空但数据库有内容，使用数据库内容（文档块的 content 就是标题）
-            if (!currentContent && dbContent) {
-                browserCard.fullContent = dbContent;
-                browserCard.content = truncateContent(dbContent, 100);
-            }
-            
-            // 🔧 修复：只在有查询文本时才应用筛选，否则返回所有卡片
-            // 这样神经漫游队列的浏览器可以显示所有队列中的卡片
-            if (!queryText || matchesParsedQuery(browserCard, parsed)) {
-                cards.push(browserCard);
-            }
-        }
-        
-        return cards;
-    } catch (err) {
-        logger.error('[SiYuanMemo][CardBrowser] loadQueueCards error:', err);
-        return [];
-    }
 }
 
 /**

@@ -8,9 +8,20 @@ export interface BrowserPreviewDocInfo {
   path?: unknown;
 }
 
+export interface BrowserPreviewDocumentBreadcrumbRow extends Record<string, unknown> {
+  id?: unknown;
+  content?: unknown;
+  hpath?: unknown;
+  path?: unknown;
+  type?: unknown;
+}
+
 export interface BrowserPreviewSiyuanPort {
   getBlockBreadcrumb(blockId: string): Promise<Record<string, unknown>[]>;
   getDocInfo(docId: string): Promise<BrowserPreviewDocInfo | null>;
+  getDocumentBreadcrumbRowsByPaths(
+    box: string,
+    ancestorPaths: string[],
+  ): Promise<BrowserPreviewDocumentBreadcrumbRow[]>;
   listNotebooks(): Promise<BrowserPreviewNotebookSummary[]>;
-  sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]>;
 }

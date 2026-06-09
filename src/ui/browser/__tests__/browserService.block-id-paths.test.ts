@@ -29,6 +29,7 @@ function makeFsrsCard(id: string, blockId: string) {
 }
 
 function createSiyuanApi() {
+  const blockInfoRows = [{ id: 'block-a', root_id: 'doc-a', ial: '', type: 'p', content: 'Alpha block' }];
   return {
     ATTR_CARD_ID: 'custom-riff-card-id',
     ATTR_PRIORITY: 'custom-riff-priority',
@@ -37,10 +38,15 @@ function createSiyuanApi() {
     ATTR_A_FACTOR: 'custom-riff-a-factor',
     sql: vi.fn(async (stmt: string) => {
       if (stmt.includes('FROM blocks')) {
-        return [{ id: 'block-a', root_id: 'doc-a', ial: '', type: 'p', content: 'Alpha block' }];
+        return blockInfoRows;
       }
       return [];
     }),
+    getBlockAttrs: vi.fn(async () => ({})),
+    getBlockInfoRowsByIds: vi.fn(async () => blockInfoRows),
+    getBlockAttributeRowsByIds: vi.fn(async () => []),
+    getDocTreeRowsByIds: vi.fn(async () => []),
+    getBlockMeta: vi.fn(async () => null),
     pushMsg: vi.fn(),
     pushErrMsg: vi.fn(),
     setBlockAttrs: vi.fn(),

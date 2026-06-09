@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-10 (Round 565)
+Last update: 2026-06-10 (Round 566)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-10 - Browser UI SQL seam cleanup
+
+- Task: Start global architecture debt cleanup from the Browser Read Model candidate by removing hidden UI-owned SQL reads in the active Browser surface.
+- Touched slice: Browser preview breadcrumb, Browser hierarchy doc-title hydration, block-id queue card hydration, Flashcard metadata menu, and the `BrowserSiyuanPort` / `BrowserPreviewSiyuanPort` adapter seam.
+- Debt fixed now: UI Browser code no longer builds raw SQL for preview parent-document breadcrumbs, hierarchy doc tree titles, block metadata/attrs batch hydration, or flashcard metadata. Those reads now go through named Browser SiYuan port methods implemented by `BrowserSiyuanAdapter`, so SQL construction is concentrated behind the infrastructure adapter seam. Removed the unreachable legacy implementation after `loadQueueCards()` returned through the active `buildBrowserCardsByBlockIds()` path, reducing stale fallback drift.
+- Debt deferred: The wider Browser Read Model still exposes raw SQL intentionally for advanced SQL query mode and application/query read kernels; Worker-side DB family modules and the broad `UnifiedQueueStrategy` / `UnifiedDataSourceManager` interfaces remain separate global debt candidates.
+- Why deferred: This slice was the smallest safe Browser-local cleanup that preserves active behavior and passes No-UI-SQL. Moving all application Browser SQL behind narrower read Modules is larger and should be designed around Browser Read Model ownership rather than bundled with UI cleanup.
+- Next safe step: Deepen the Browser Read Model around deck/query kernel SQL ownership, then tackle queue-facing interfaces or Worker DB method-family Modules as separate tracer bullets.
+- Validation: `pnpm exec vitest run src/ui/browser/__tests__/browserService.block-id-paths.test.ts src/ui/browser/utils/__tests__/previewBreadcrumbData.test.ts src/ui/browser/__tests__/BrowserPreview.spec.ts src/application/factories/__tests__/createReviewBrowserServiceBundle.test.ts`; `pnpm run check:boundaries`; `pnpm build`; filtered `pnpm exec tsc --noEmit --pretty false` for touched Browser files reported no new errors, while full project typecheck still has existing unrelated type debt.
 
 ### 2026-06-10 - Queue projection exact source hydration
 

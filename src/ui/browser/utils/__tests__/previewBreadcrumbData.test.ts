@@ -63,10 +63,10 @@ function createFetchBackedPreviewSiyuanApi(): BrowserPreviewSiyuanPort {
       const payload = await response.json();
       return payload.data?.notebooks ?? [];
     },
-    async sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
+    async getDocumentBreadcrumbRowsByPaths(box: string, ancestorPaths: string[]) {
       const response = await fetch('/api/query/sql', {
         method: 'POST',
-        body: JSON.stringify({ stmt }),
+        body: JSON.stringify({ box, ancestorPaths }),
       });
       const payload = await response.json();
       return payload.data ?? [];

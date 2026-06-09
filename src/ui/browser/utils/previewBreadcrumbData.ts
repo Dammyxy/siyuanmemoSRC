@@ -5,7 +5,6 @@ import {
 } from '@/core/card/common/application/breadcrumbNormalization';
 import type { BrowserPreviewSiyuanPort } from '@/application/ports/BrowserPreviewSiyuanPort';
 import { isIgnorableMissingBlockError } from '@/application/usecases/card/shared/SiyuanBlockErrorClassifier';
-import { escapeSQL } from '@/utils/sqlOptimizer';
 import { createLogger } from '@/utils/logger';
 import type { BrowserCard } from '../types';
 import { buildBrowserCardDisplayProjection } from './browserCardDisplayProjection';
@@ -148,13 +147,7 @@ async function loadDocumentParentTrail(
     return [];
   }
 
-  const rows = await siyuanApi.sql<DocumentBreadcrumbRow>(`
-    SELECT id, content, hpath, path, type
-    FROM blocks
-    WHERE box = '${escapeSQL(box)}'
-      AND type = 'd'
-      AND path IN (${ancestorPaths.map(item => `'${escapeSQL(item)}'`).join(',')})
-  `);
+  const rows = await siyuanApi.getDocumentBreadcrumbRowsByPaths(box, ancestorPaths);
 
   const rowByPath = new Map<string, BreadcrumbItem>();
   for (const row of rows) {
