@@ -568,6 +568,7 @@ export class ApplicationContext {
       createBrowserAdvancedSqlQuerySource: () => new BrowserAdvancedSqlQuerySourceSiyuanAdapter(new QuerySiyuanAdapter()),
       createManagerSiyuanPort: () => new ManagerSiyuanAdapter(),
       createBrowserSiyuanPort: () => new BrowserSiyuanAdapter(),
+      createBrowserQuerySiyuanPort: () => new QuerySiyuanAdapter(),
       createReviewSiyuanPort: () => new ReviewSiyuanAdapter(),
       openNeuralRoamDialog: async (options) => {
         await this.getDialogManager().openNeuralRoamDialog(options);
@@ -1462,7 +1463,7 @@ export class ApplicationContext {
       executeWriterRelayCommand,
       notifyKernelTransactionIngested: () => contextRef?.kernelTransactionActionPump?.notifyActivity('relay-ingest'),
       kernelSidecarClient: new KernelSidecarClient(new SiyuanKernelCompanionAdapter()),
-      createBlockExistenceSiyuanPort: () => new BrowserSiyuanAdapter(),
+      createBlockExistenceSiyuanPort: () => new QuerySiyuanAdapter(),
       createNeuralRoamGraphQuery: (deps) => new SiyuanNeuralRoamGraphQueryAdapter(deps),
       createAiNetworkProxy: (kernelSidecarClient) => new KernelAINetworkProxyAdapter(kernelSidecarClient),
       resolveKernelWriterLeaseInstanceId: () => ApplicationContext.resolveKernelWriterLeaseInstanceId(),

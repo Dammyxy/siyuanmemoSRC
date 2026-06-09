@@ -43,7 +43,6 @@ export interface BrowserSiyuanPort {
   readonly ATTR_A_FACTOR: string;
   readonly BUILTIN_DECK_ID?: string;
 
-  sql(stmt: string): Promise<unknown[]>;
   getBlockAttrs(blockId: string): Promise<Record<string, string>>;
   getBlockInfoRowsByIds(blockIds: string[]): Promise<BrowserBlockInfoRow[]>;
   getBlockAttributeRowsByIds(

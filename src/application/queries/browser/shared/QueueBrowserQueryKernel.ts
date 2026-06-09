@@ -1,5 +1,5 @@
 import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
-import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
+import type { BrowserQuerySiyuanPort } from '@/application/ports/BrowserQuerySiyuanPort';
 import type {
   IReviewQueue,
   IUnifiedDataSourceManagerFacade,
@@ -101,7 +101,7 @@ function createQueueProjectionBrowserReadError(
 export class QueueBrowserQueryKernel {
   constructor(
     private readonly manager: IUnifiedDataSourceManagerFacade,
-    private readonly siyuanApi: Pick<QuerySiyuanPort, 'sql'> | null = null,
+    private readonly siyuanApi: Pick<BrowserQuerySiyuanPort, 'sql'> | null = null,
     private readonly sourceExistencePort: BrowserDeckReadPort | null = null,
   ) {}
 

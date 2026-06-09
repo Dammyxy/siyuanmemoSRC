@@ -1,4 +1,4 @@
-import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
+import type { BrowserQuerySiyuanPort } from '@/application/ports/BrowserQuerySiyuanPort';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 
@@ -15,7 +15,7 @@ type BlockIdRow = Record<string, unknown> & {
   id?: unknown;
 };
 
-type QuerySqlPort = Pick<QuerySiyuanPort, 'sql'>;
+type QuerySqlPort = Pick<BrowserQuerySiyuanPort, 'sql'>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;

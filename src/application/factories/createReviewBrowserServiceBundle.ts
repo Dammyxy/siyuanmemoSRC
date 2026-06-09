@@ -14,6 +14,7 @@ import type { ArenaKernelService } from '@/application/services/ArenaKernelServi
 import type { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
 import type { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
 import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type { BrowserQuerySiyuanPort } from '@/application/ports/BrowserQuerySiyuanPort';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
@@ -45,6 +46,7 @@ export interface CreateReviewBrowserServiceBundleDeps {
   createBrowserAdvancedSqlQuerySource: () => BrowserAdvancedSqlQuerySourcePort;
   createManagerSiyuanPort: () => ManagerSiyuanPort;
   createBrowserSiyuanPort: () => BrowserSiyuanPort;
+  createBrowserQuerySiyuanPort: () => BrowserQuerySiyuanPort;
   createReviewSiyuanPort: () => ReviewSiyuanPort;
   openNeuralRoamDialog: (options?: NeuralRoamOpenOptions) => Promise<void>;
 }
@@ -92,21 +94,26 @@ export function createReviewBrowserServiceBundle(
         },
       });
     },
-    createBrowserApplicationService: () => new BrowserApplicationService(
-      deps.getUnifiedStorage(),
-      new CardScheduleService(),
-      new CardFilterService(),
-      new CardSortService(),
-      deps.getUnifiedDataSourceManager(),
-      deps.createBrowserSiyuanPort(),
-      null,
-      deps.getBrowserDeckReadPort(),
-      deps.getSrsBackendClient(),
-      deps.getFrontendInstanceRuntime(),
-      deps.getFollowerCommandClient(),
-      deps.createBrowserAdvancedSqlQuerySource(),
-      createCdfLiveRelationCardCreatorFromUnifiedStorage(deps.getUnifiedStorage()),
-    ),
+    createBrowserApplicationService: () => {
+      const browserSiyuanApi = deps.createBrowserSiyuanPort();
+      const browserQuerySiyuanApi = deps.createBrowserQuerySiyuanPort();
+      return new BrowserApplicationService(
+        deps.getUnifiedStorage(),
+        new CardScheduleService(),
+        new CardFilterService(),
+        new CardSortService(),
+        deps.getUnifiedDataSourceManager(),
+        browserSiyuanApi,
+        browserQuerySiyuanApi,
+        null,
+        deps.getBrowserDeckReadPort(),
+        deps.getSrsBackendClient(),
+        deps.getFrontendInstanceRuntime(),
+        deps.getFollowerCommandClient(),
+        deps.createBrowserAdvancedSqlQuerySource(),
+        createCdfLiveRelationCardCreatorFromUnifiedStorage(deps.getUnifiedStorage()),
+      );
+    },
     createReviewApplicationService: () => new ReviewApplicationService(
       deps.getUnifiedDataSourceManager(),
       deps.getScheduler(),

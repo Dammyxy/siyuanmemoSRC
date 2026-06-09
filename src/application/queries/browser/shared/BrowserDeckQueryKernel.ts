@@ -1,5 +1,5 @@
 import type { SortModel } from '@/application/interfaces/ICardDataSource';
-import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
+import type { BrowserQuerySiyuanPort } from '@/application/ports/BrowserQuerySiyuanPort';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardScheduleService, CardState } from '@/core/card/domain/services/CardScheduleService';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
@@ -83,7 +83,7 @@ export class BrowserDeckQueryKernel {
     private readonly storageManager: BrowserCardStoragePort,
     private readonly cardScheduleService: CardScheduleService,
     private readonly cardFilterService: CardFilterService,
-    private readonly siyuanApi: QuerySiyuanPort,
+    private readonly siyuanApi: BrowserQuerySiyuanPort,
   ) {}
 
   async buildSnapshot(query: BrowserDeckSnapshotQuery = {}): Promise<BrowserDeckSnapshotResult> {

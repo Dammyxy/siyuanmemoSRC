@@ -56,7 +56,6 @@ describe('createReviewBrowserServiceBundle', () => {
       ATTR_CARD_TYPE: 'custom-riff-card-type',
       ATTR_A_FACTOR: 'custom-riff-a-factor',
       BUILTIN_DECK_ID: 'builtin',
-      sql: vi.fn(async () => []),
       getBlockAttrs: vi.fn(async () => ({})),
       getBlockInfoRowsByIds: vi.fn(async () => []),
       getBlockAttributeRowsByIds: vi.fn(async () => []),
@@ -65,6 +64,12 @@ describe('createReviewBrowserServiceBundle', () => {
       setBlockAttrs: vi.fn(async () => undefined),
       pushMsg: vi.fn(async () => undefined),
       pushErrMsg: vi.fn(async () => undefined),
+    };
+    const browserQuerySiyuanApi = {
+      ATTR_PRIORITY: 'custom-riff-priority',
+      ATTR_SUSPENDED: 'custom-riff-suspended',
+      ATTR_CARD_TYPE: 'custom-riff-card-type',
+      sql: vi.fn(async () => []),
     };
     const bundle = createReviewBrowserServiceBundle({
       getStorage: () => ({ getCardByBlockId: vi.fn() } as never),
@@ -83,12 +88,14 @@ describe('createReviewBrowserServiceBundle', () => {
       createBrowserAdvancedSqlQuerySource: () => ({ matchedIds: vi.fn(async () => []) }),
       createManagerSiyuanPort: () => managerSiyuanApi,
       createBrowserSiyuanPort: () => browserSiyuanApi,
+      createBrowserQuerySiyuanPort: () => browserQuerySiyuanApi,
       createReviewSiyuanPort: () => reviewSiyuanApi,
       openNeuralRoamDialog: vi.fn(async () => undefined),
     });
 
     expect(source).toContain('ReviewBrowserServiceBundle');
     expect(source).not.toContain('ApplicationContext');
+    expect(source).not.toContain('as unknown as QuerySiyuanPort');
     expect(bundle.createNeuralRoamEntryActionService()).toBeInstanceOf(NeuralRoamEntryActionService);
     expect(bundle.createBrowserApplicationService()).toBeInstanceOf(BrowserApplicationService);
     expect(bundle.createReviewApplicationService()).toBeInstanceOf(ReviewApplicationService);

@@ -18,7 +18,7 @@ import {
   type BrowserQueueId,
 } from '@/types/browser-queue-identity';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
-import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
+import type { BrowserQuerySiyuanPort } from '@/application/ports/BrowserQuerySiyuanPort';
 import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
 import type { BrowserAdvancedSqlQuerySourcePort } from '@/application/ports/BrowserAdvancedSqlQuerySourcePort';
 import type { FSRSCard } from '@/types/card';
@@ -87,12 +87,10 @@ import {
   CdfLiveRelationRefreshService,
   CdfLiveRelationSqlSourceLoader,
   type CdfLiveRelationRefreshResult,
-  type CdfLiveRelationSqlPort,
 } from './CdfLiveRelationRefreshService';
 import {
   CdfLiveRelationSqlCandidateSourceScanner,
   CdfLiveRelationWriteRepairService,
-  type CdfLiveRelationCandidateSqlPort,
   type CdfLiveRelationCardCreatorPort,
   type CdfLiveRelationFullRepairDryRunOptions,
   type CdfLiveRelationFullRepairDryRunResult,
@@ -102,6 +100,7 @@ import {
   type CdfLiveRelationSingleSourceRepairResult,
   type CdfLiveRelationWriteRepairOptions,
   type CdfLiveRelationWriteRepairResult,
+  type CdfLiveRelationWriteRepairSourceLoader,
 } from './CdfLiveRelationWriteRepairService';
 
 const EMPTY_QUEUE_COUNTS: Record<string, number> = Object.fromEntries(
@@ -188,6 +187,23 @@ function createBrowserRowProjectionSignature(row: BrowserCard): string {
   })) || '';
 }
 
+function createCdfWriteRepairSourceLoader(
+  source: BrowserQuerySiyuanPort,
+): CdfLiveRelationWriteRepairSourceLoader {
+  const loader = new CdfLiveRelationSqlSourceLoader(source);
+  return {
+    loadSourceTree: (sourceBlockId, options) => loader.loadSourceTree(
+      sourceBlockId,
+      options
+        ? {
+            reconciliationScope: options.reconciliationScope === 'block-edit' ? 'block-edit' : 'source',
+            changedBlockId: options.changedBlockId,
+          }
+        : undefined,
+    ),
+  };
+}
+
 export class BrowserApplicationService implements IBrowserApplicationService {
   private readonly getBrowserCardsQueryHandler: GetBrowserCardsQueryHandler;
   private readonly browserDeckQueryKernel: BrowserDeckQueryKernel;
@@ -219,8 +235,9 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     cardScheduleService: CardScheduleService,
     cardFilterService: CardFilterService,
     cardSortService: CardSortService,
-    unifiedDataSourceManager?: IUnifiedDataSourceManagerFacade | null,
+    unifiedDataSourceManager: IUnifiedDataSourceManagerFacade | null,
     siyuanApi: BrowserSiyuanPort,
+    querySiyuanApi: BrowserQuerySiyuanPort,
     private readonly dataSourceFactory?: BrowserDataSourceFactory | null,
     private readonly browserDeckReadPort?: BrowserDeckReadPort | null,
     private readonly srsBackendClient?: SrsBackendClient | null,
@@ -233,12 +250,12 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       storageManager,
       cardScheduleService,
       cardFilterService,
-      siyuanApi as unknown as QuerySiyuanPort,
+      querySiyuanApi,
     );
     this.queueBrowserQueryKernel = unifiedDataSourceManager
       ? new QueueBrowserQueryKernel(
         unifiedDataSourceManager,
-        siyuanApi as unknown as QuerySiyuanPort,
+        querySiyuanApi,
         browserDeckReadPort,
       )
       : null;
@@ -248,7 +265,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       cardScheduleService,
       cardFilterService,
       cardSortService,
-      siyuanApi as unknown as QuerySiyuanPort,
+      querySiyuanApi,
     );
 
     this.unifiedDataSourceManager = unifiedDataSourceManager ?? null;
@@ -256,15 +273,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     this.cdfLiveRelationRefresh = unifiedDataSourceManager
       ? new CdfLiveRelationRefreshService({
         manager: unifiedDataSourceManager,
-        source: siyuanApi as unknown as CdfLiveRelationSqlPort,
+        source: querySiyuanApi,
       })
       : null;
     this.cdfLiveRelationWriteRepair = unifiedDataSourceManager && cdfLiveRelationCardCreator
       ? new CdfLiveRelationWriteRepairService({
         manager: unifiedDataSourceManager,
         cardCreator: cdfLiveRelationCardCreator,
-        sourceLoader: new CdfLiveRelationSqlSourceLoader(siyuanApi as unknown as CdfLiveRelationSqlPort),
-        candidateScanner: new CdfLiveRelationSqlCandidateSourceScanner(siyuanApi as unknown as CdfLiveRelationCandidateSqlPort),
+        sourceLoader: createCdfWriteRepairSourceLoader(querySiyuanApi),
+        candidateScanner: new CdfLiveRelationSqlCandidateSourceScanner(querySiyuanApi),
       })
       : null;
     this.browserCardUniverseReadModule = new BrowserCardUniverseReadModule({

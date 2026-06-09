@@ -1,5 +1,5 @@
 import type { BrowserDeckReadPort, SourceExistenceRefreshCandidate } from '@/application/ports/BrowserDeckReadPort';
-import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
+import type { BrowserQuerySiyuanPort } from '@/application/ports/BrowserQuerySiyuanPort';
 import { createLogger } from '@/utils/logger';
 import {
   incrementRuntimePerformanceCounter,
@@ -57,7 +57,7 @@ function hasSourceExistencePort(
 }
 
 async function loadExistingBlockIds(
-  siyuanApi: Pick<QuerySiyuanPort, 'sql'>,
+  siyuanApi: Pick<BrowserQuerySiyuanPort, 'sql'>,
   blockIds: string[],
 ): Promise<Set<string>> {
   const existing = new Set<string>();
@@ -113,7 +113,7 @@ function buildUpdates(
 
 export async function refreshSourceExistenceForBlockIds(
   port: BrowserDeckReadPort | null | undefined,
-  siyuanApi: Pick<QuerySiyuanPort, 'sql'> | null | undefined,
+  siyuanApi: Pick<BrowserQuerySiyuanPort, 'sql'> | null | undefined,
   blockIds: unknown[],
   options: { limit?: number; staleBefore?: number; includeKnownMissing?: boolean; force?: boolean } = {},
 ): Promise<SourceExistenceRefreshResult> {
@@ -164,7 +164,7 @@ export async function refreshSourceExistenceForBlockIds(
 
 export async function refreshSourceExistenceSweep(
   port: BrowserDeckReadPort | null | undefined,
-  siyuanApi: Pick<QuerySiyuanPort, 'sql'> | null | undefined,
+  siyuanApi: Pick<BrowserQuerySiyuanPort, 'sql'> | null | undefined,
   options: { limit?: number; staleBefore?: number } = {},
 ): Promise<SourceExistenceRefreshResult> {
   if (!hasSourceExistencePort(port) || !siyuanApi) {
@@ -226,7 +226,7 @@ export function markRowsFromSourceExistenceCache<TRow extends SourceMarkableRow>
 
 export function scheduleSourceExistenceRefresh(
   port: BrowserDeckReadPort | null | undefined,
-  siyuanApi: Pick<QuerySiyuanPort, 'sql'> | null | undefined,
+  siyuanApi: Pick<BrowserQuerySiyuanPort, 'sql'> | null | undefined,
   blockIds: unknown[],
 ): void {
   void refreshSourceExistenceForBlockIds(port, siyuanApi, blockIds, { force: true })

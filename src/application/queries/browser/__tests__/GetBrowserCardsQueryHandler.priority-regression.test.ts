@@ -4,7 +4,7 @@ import { CardFilterService } from '@/core/card/domain/services/CardFilterService
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
-import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
+import type { BrowserQuerySiyuanPort } from '@/application/ports/BrowserQuerySiyuanPort';
 import { ALL_CARD_QUERY_STATES } from '@/types/card-query';
 
 function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
@@ -72,13 +72,12 @@ function createQueryCardsMock(cards: FSRSCard[]) {
   });
 }
 
-function createSiyuanApi(sql: (stmt: string) => Promise<unknown[]>): QuerySiyuanPort {
+function createSiyuanApi(sql: (stmt: string) => Promise<unknown[]>): BrowserQuerySiyuanPort {
   return {
     ATTR_PRIORITY: 'custom-fsrs-priority',
     ATTR_SUSPENDED: 'custom-fsrs-suspended',
     ATTR_CARD_TYPE: 'custom-fsrs-card-type',
-    sql: sql as QuerySiyuanPort['sql'],
-    batchSetRiffCardsDueTime: async () => undefined,
+    sql: sql as BrowserQuerySiyuanPort['sql'],
   };
 }
 
@@ -396,7 +395,7 @@ describe('GetBrowserCardsQueryHandler priority regression', () => {
       query: { searchText: 'priority regression' },
       failingSqlNeedle: "WHERE content LIKE '%priority regression%'",
     },
-  ])('falls back to getAllCards() when $name SQL candidate loading fails', async ({ query, failingSqlNeedle }) => {
+  ])('uses structured queryCards when $name SQL candidate loading fails', async ({ query, failingSqlNeedle }) => {
     const card = buildCard({
       id: 'card-fallback',
       blockId: 'block-fallback',
@@ -442,7 +441,7 @@ describe('GetBrowserCardsQueryHandler priority regression', () => {
     });
 
     expect(result.cards).toHaveLength(1);
-    expect(getAllCards).toHaveBeenCalledOnce();
+    expect(getAllCards).not.toHaveBeenCalled();
     expect(queryCards).toHaveBeenCalledWith({ states: ALL_CARD_QUERY_STATES });
   });
 });

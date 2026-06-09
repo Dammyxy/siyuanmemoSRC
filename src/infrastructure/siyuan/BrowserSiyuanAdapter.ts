@@ -30,7 +30,7 @@ export class BrowserSiyuanAdapter implements BrowserSiyuanPort, BrowserPreviewSi
   readonly ATTR_A_FACTOR = ATTR_A_FACTOR;
   readonly BUILTIN_DECK_ID = BUILTIN_DECK_ID;
 
-  async sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
+  private async sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
     return sql<TRow>(stmt);
   }
 

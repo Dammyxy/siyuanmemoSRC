@@ -176,6 +176,7 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardSortService(),
       null,
       siyuanApi as never,
+      siyuanApi as never,
       null,
       null,
       backendClient as SrsBackendClient,
@@ -250,6 +251,7 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardFilterService(),
       new CardSortService(),
       null,
+      siyuanApi as never,
       siyuanApi as never,
       null,
       readPort,
@@ -391,6 +393,7 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardSortService(),
       null,
       siyuanApi as never,
+      siyuanApi as never,
       null,
       readPort,
       backendClient as SrsBackendClient,
@@ -463,6 +466,17 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardFilterService(),
       new CardSortService(),
       null,
+      {
+        ATTR_CARD_ID: 'custom-fsrs-card-id',
+        ATTR_PRIORITY: 'custom-fsrs-priority',
+        ATTR_SUSPENDED: 'custom-fsrs-suspended',
+        ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+        ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+        sql: vi.fn(async () => []),
+        setBlockAttrs: vi.fn(),
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      } as never,
       {
         ATTR_CARD_ID: 'custom-fsrs-card-id',
         ATTR_PRIORITY: 'custom-fsrs-priority',
@@ -563,6 +577,9 @@ describe('BrowserApplicationService deck query kernel', () => {
       {
         sql: vi.fn(async () => [{ id: 'block-aggregate-clone-safe' }]),
       } as never,
+      {
+        sql: vi.fn(async () => [{ id: 'block-aggregate-clone-safe' }]),
+      } as never,
       null,
       null,
       backendClient as SrsBackendClient,
@@ -651,6 +668,12 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardFilterService(),
       new CardSortService(),
       null,
+      {
+        sql: vi.fn(async () => [
+          { id: 'block-page-diagnostics' },
+          { id: 'block-aggregate-diagnostics' },
+        ]),
+      } as never,
       {
         sql: vi.fn(async () => [
           { id: 'block-page-diagnostics' },
@@ -765,6 +788,9 @@ describe('BrowserApplicationService deck query kernel', () => {
       {
         sql: vi.fn(async () => [{ id: 'block-aggregate-concurrent-1' }, { id: 'block-aggregate-concurrent-2' }]),
       } as never,
+      {
+        sql: vi.fn(async () => [{ id: 'block-aggregate-concurrent-1' }, { id: 'block-aggregate-concurrent-2' }]),
+      } as never,
       null,
       null,
       backendClient as SrsBackendClient,
@@ -863,6 +889,9 @@ describe('BrowserApplicationService deck query kernel', () => {
       {
         sql: vi.fn(async () => [{ id: 'block-aggregate-force-refresh' }]),
       } as never,
+      {
+        sql: vi.fn(async () => [{ id: 'block-aggregate-force-refresh' }]),
+      } as never,
       null,
       null,
       backendClient as SrsBackendClient,
@@ -958,6 +987,7 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardSortService(),
       null,
       siyuanApi as never,
+      siyuanApi as never,
       null,
       readPort,
       backendClient as SrsBackendClient,
@@ -1025,6 +1055,7 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardSortService(),
       null,
       siyuanApi as never,
+      siyuanApi as never,
       null,
       null,
       backendClient as SrsBackendClient,
@@ -1079,6 +1110,9 @@ describe('BrowserApplicationService deck query kernel', () => {
       {
         sql: vi.fn(async () => [{ id: 'block-worker-deferred-refresh' }]),
       } as never,
+      {
+        sql: vi.fn(async () => [{ id: 'block-worker-deferred-refresh' }]),
+      } as never,
       null,
       null,
       backendClient as SrsBackendClient,
@@ -1125,6 +1159,9 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardFilterService(),
       new CardSortService(),
       null,
+      {
+        sql: vi.fn(async () => [{ id: 'block-worker-visible-patch' }]),
+      } as never,
       {
         sql: vi.fn(async () => [{ id: 'block-worker-visible-patch' }]),
       } as never,
@@ -1189,6 +1226,9 @@ describe('BrowserApplicationService deck query kernel', () => {
       {
         sql: vi.fn(async () => [{ id: 'block-worker-row-cache' }]),
       } as never,
+      {
+        sql: vi.fn(async () => [{ id: 'block-worker-row-cache' }]),
+      } as never,
       null,
       null,
       backendClient as SrsBackendClient,
@@ -1240,6 +1280,9 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardFilterService(),
       new CardSortService(),
       null,
+      {
+        sql: vi.fn(async () => [{ id: 'block-worker-row-cache-missing' }]),
+      } as never,
       {
         sql: vi.fn(async () => [{ id: 'block-worker-row-cache-missing' }]),
       } as never,
@@ -1303,6 +1346,9 @@ describe('BrowserApplicationService deck query kernel', () => {
       {
         sql: vi.fn(async () => [{ id: 'block-worker-coalesce-1' }, { id: 'block-worker-coalesce-2' }]),
       } as never,
+      {
+        sql: vi.fn(async () => [{ id: 'block-worker-coalesce-1' }, { id: 'block-worker-coalesce-2' }]),
+      } as never,
       null,
       null,
       backendClient as SrsBackendClient,
@@ -1355,6 +1401,9 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardFilterService(),
       new CardSortService(),
       null,
+      {
+        sql: vi.fn(async () => [{ id: 'block-worker-rows-by-ids-no-refresh' }]),
+      } as never,
       {
         sql: vi.fn(async () => [{ id: 'block-worker-rows-by-ids-no-refresh' }]),
       } as never,
@@ -1421,6 +1470,7 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardFilterService(),
       new CardSortService(),
       null,
+      {} as never,
       {} as never,
       null,
       null,
@@ -1559,6 +1609,7 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardSortService(),
       null,
       siyuanApi as never,
+      siyuanApi as never,
       null,
       readPort,
       backendClient as SrsBackendClient,
@@ -1599,6 +1650,7 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardFilterService(),
       new CardSortService(),
       null,
+      {} as never,
       {} as never,
       null,
       null,
@@ -1647,6 +1699,7 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardFilterService(),
       new CardSortService(),
       null,
+      {} as never,
       {} as never,
       null,
       null,

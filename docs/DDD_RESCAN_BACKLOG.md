@@ -1,17 +1,27 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-10 (Round 566)
+Last update: 2026-06-10 (Round 567)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-10 - Browser Query port split
+
+- Task: Continue global architecture debt cleanup by separating the Browser UI Siyuan seam from the Browser read-query SQL seam.
+- Touched slice: Browser Read Model and Siyuan integration wiring: `BrowserApplicationService`, `BrowserSiyuanPort`, `BrowserQuerySiyuanPort`, Browser deck/queue query kernels, source-existence/missing-block helpers, `createReviewBrowserServiceBundle`, `ApplicationContext`, backend block-existence factory wiring, and focused Browser service/query tests.
+- Debt fixed now: `BrowserSiyuanPort` no longer exposes raw `sql()` to Browser UI/data-source callers. `BrowserApplicationService` no longer casts the UI-facing Browser port to `QuerySiyuanPort` or CDF SQL ports; deck reads, queue source-existence checks, and Browser CDF read/repair SQL now receive an explicit `BrowserQuerySiyuanPort` from the composition root. Backend block-existence wiring now uses `QuerySiyuanAdapter` instead of borrowing `BrowserSiyuanAdapter` for `sql`. Browser query tests now assert the SQL-candidate failure path stays on structured `queryCards` rather than widening to `getAllCards()`.
+- Debt deferred: Browser deck/query kernels still build Siyuan SQL internally, and advanced SQL query mode remains an explicit Browser feature. Wider application SQL ports, Worker DB method-family Modules, and broad queue manager interfaces remain separate global debt candidates.
+- Why deferred: This slice safely deepens the port seam without changing Browser read behavior. Moving every Browser deck SQL statement behind a deeper read Module or Worker-owned read path is a larger ownership change that needs its own tracer bullet and regression set.
+- Next safe step: Extract a narrow Browser block-read/query-source Module behind `BrowserDeckQueryKernel` so doc/search/content/root-id SQL construction stops living inside the deck query kernel itself.
+- Validation: `pnpm exec vitest run src/application/factories/__tests__/createReviewBrowserServiceBundle.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts src/application/services/__tests__/BrowserApplicationService.read-model.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts`; `pnpm exec vitest run src/application/queries/browser/__tests__/GetBrowserCardsQueryHandler.priority-regression.test.ts src/ui/browser/__tests__/browserService.block-id-paths.test.ts src/ui/browser/utils/__tests__/previewBreadcrumbData.test.ts src/ui/browser/__tests__/BrowserPreview.spec.ts src/application/factories/__tests__/createReviewBrowserServiceBundle.test.ts`; `pnpm run check:boundaries`; `pnpm build`; `git diff --check`.
 
 ### 2026-06-10 - Browser UI SQL seam cleanup
 
 - Task: Start global architecture debt cleanup from the Browser Read Model candidate by removing hidden UI-owned SQL reads in the active Browser surface.
 - Touched slice: Browser preview breadcrumb, Browser hierarchy doc-title hydration, block-id queue card hydration, Flashcard metadata menu, and the `BrowserSiyuanPort` / `BrowserPreviewSiyuanPort` adapter seam.
 - Debt fixed now: UI Browser code no longer builds raw SQL for preview parent-document breadcrumbs, hierarchy doc tree titles, block metadata/attrs batch hydration, or flashcard metadata. Those reads now go through named Browser SiYuan port methods implemented by `BrowserSiyuanAdapter`, so SQL construction is concentrated behind the infrastructure adapter seam. Removed the unreachable legacy implementation after `loadQueueCards()` returned through the active `buildBrowserCardsByBlockIds()` path, reducing stale fallback drift.
-- Debt deferred: The wider Browser Read Model still exposes raw SQL intentionally for advanced SQL query mode and application/query read kernels; Worker-side DB family modules and the broad `UnifiedQueueStrategy` / `UnifiedDataSourceManager` interfaces remain separate global debt candidates.
+- Debt deferred: The wider Browser Read Model still keeps SQL construction in application/query read kernels, though the UI-facing Browser port was later split from the query SQL seam in the Browser Query port split; Worker-side DB family modules and the broad `UnifiedQueueStrategy` / `UnifiedDataSourceManager` interfaces remain separate global debt candidates.
 - Why deferred: This slice was the smallest safe Browser-local cleanup that preserves active behavior and passes No-UI-SQL. Moving all application Browser SQL behind narrower read Modules is larger and should be designed around Browser Read Model ownership rather than bundled with UI cleanup.
-- Next safe step: Deepen the Browser Read Model around deck/query kernel SQL ownership, then tackle queue-facing interfaces or Worker DB method-family Modules as separate tracer bullets.
+- Next safe step: Continue from the later Browser Query port split by extracting deck/query SQL construction behind a narrower Browser block-read/query-source Module, then tackle queue-facing interfaces or Worker DB method-family Modules as separate tracer bullets.
 - Validation: `pnpm exec vitest run src/ui/browser/__tests__/browserService.block-id-paths.test.ts src/ui/browser/utils/__tests__/previewBreadcrumbData.test.ts src/ui/browser/__tests__/BrowserPreview.spec.ts src/application/factories/__tests__/createReviewBrowserServiceBundle.test.ts`; `pnpm run check:boundaries`; `pnpm build`; filtered `pnpm exec tsc --noEmit --pretty false` for touched Browser files reported no new errors, while full project typecheck still has existing unrelated type debt.
 
 ### 2026-06-10 - Queue projection exact source hydration

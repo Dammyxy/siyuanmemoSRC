@@ -1,4 +1,4 @@
-import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
+import type { BrowserQuerySiyuanPort } from '@/application/ports/BrowserQuerySiyuanPort';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
@@ -19,7 +19,7 @@ export class GetBrowserCardsQueryHandler {
     cardScheduleService: CardScheduleService,
     cardFilterService: CardFilterService,
     private readonly cardSortService: CardSortService,
-    siyuanApi: QuerySiyuanPort,
+    siyuanApi: BrowserQuerySiyuanPort,
   ) {
     void this.cardSortService;
     this.browserDeckQueryKernel = new BrowserDeckQueryKernel(

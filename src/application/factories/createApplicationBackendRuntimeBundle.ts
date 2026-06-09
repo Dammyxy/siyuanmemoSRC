@@ -20,7 +20,7 @@ import { FileService } from '@/infrastructure/services/FileService';
 import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKernelCompanionAdapter';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import { resolveTruthDeviceIdentity } from '@/application/factories/truthDeviceIdentity';
-import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
+import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import type { AINetworkProxyPort } from '@/application/ports/AINetworkProxyPort';
 import type { NeuralRoamNodeTypeResolverPort } from '@/core/queue/domain/ports';
 import type { NeuralRoamCardFacts } from '@/core/queue/neural/NeuralRoamCardFacts';
@@ -86,7 +86,7 @@ export interface CreateApplicationBackendRuntimeBundleOptions {
   ) => Promise<unknown>;
   notifyKernelTransactionIngested?: () => void;
   kernelSidecarClient?: KernelSidecarClient;
-  createBlockExistenceSiyuanPort: () => Pick<BrowserSiyuanPort, 'sql'>;
+  createBlockExistenceSiyuanPort: () => Pick<QuerySiyuanPort, 'sql'>;
   createNeuralRoamGraphQuery: (deps: NeuralRoamGraphQueryFactoryDeps) => NeuralRoamGraphQueryHost;
   createAiNetworkProxy: (kernelSidecarClient: KernelSidecarClient) => Pick<AINetworkProxyPort, 'execute'>;
   resolveKernelWriterLeaseInstanceId?: () => string | undefined;
@@ -329,7 +329,7 @@ function createWorkerPersistenceBridge(fileService: FileService): SqlitePersiste
 }
 
 async function resolveExistingBlockIdsViaSiyuan(
-  siyuanApi: Pick<BrowserSiyuanPort, 'sql'>,
+  siyuanApi: Pick<QuerySiyuanPort, 'sql'>,
   blockIds: string[],
 ): Promise<string[]> {
   const normalized = Array.from(new Set(

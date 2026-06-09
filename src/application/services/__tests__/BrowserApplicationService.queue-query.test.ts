@@ -103,6 +103,17 @@ describe('BrowserApplicationService queue query path', () => {
         pushMsg: vi.fn(),
         pushErrMsg: vi.fn(),
       } as never,
+      {
+        ATTR_CARD_ID: 'custom-fsrs-card-id',
+        ATTR_PRIORITY: 'custom-fsrs-priority',
+        ATTR_SUSPENDED: 'custom-fsrs-suspended',
+        ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+        ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+        sql: vi.fn(async () => []),
+        setBlockAttrs: vi.fn(),
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      } as never,
     );
 
     await expect(service.ensureQueueReadModelReady({
@@ -155,6 +166,17 @@ describe('BrowserApplicationService queue query path', () => {
       new CardFilterService(),
       new CardSortService(),
       manager,
+      {
+        ATTR_CARD_ID: 'custom-fsrs-card-id',
+        ATTR_PRIORITY: 'custom-fsrs-priority',
+        ATTR_SUSPENDED: 'custom-fsrs-suspended',
+        ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+        ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+        sql: vi.fn(async () => []),
+        setBlockAttrs: vi.fn(),
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      } as never,
       {
         ATTR_CARD_ID: 'custom-fsrs-card-id',
         ATTR_PRIORITY: 'custom-fsrs-priority',
@@ -248,6 +270,20 @@ describe('BrowserApplicationService queue query path', () => {
         pushMsg: vi.fn(),
         pushErrMsg: vi.fn(),
       } as never,
+      {
+        ATTR_CARD_ID: 'custom-fsrs-card-id',
+        ATTR_PRIORITY: 'custom-fsrs-priority',
+        ATTR_SUSPENDED: 'custom-fsrs-suspended',
+        ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+        ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+        sql: vi.fn(async () => [
+          { id: 'block-card-a' },
+          { id: 'block-card-b' },
+        ]),
+        setBlockAttrs: vi.fn(),
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      } as never,
     );
 
     const snapshot = await service.getQueueQuerySnapshot({
@@ -316,6 +352,17 @@ describe('BrowserApplicationService queue query path', () => {
       new CardFilterService(),
       new CardSortService(),
       manager,
+      {
+        ATTR_CARD_ID: 'custom-fsrs-card-id',
+        ATTR_PRIORITY: 'custom-fsrs-priority',
+        ATTR_SUSPENDED: 'custom-fsrs-suspended',
+        ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+        ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+        sql: vi.fn(async () => []),
+        setBlockAttrs: vi.fn(),
+        pushMsg: vi.fn(),
+        pushErrMsg: vi.fn(),
+      } as never,
       {
         ATTR_CARD_ID: 'custom-fsrs-card-id',
         ATTR_PRIORITY: 'custom-fsrs-priority',
@@ -420,6 +467,7 @@ describe('BrowserApplicationService queue query path', () => {
       new CardFilterService(),
       new CardSortService(),
       manager,
+      siyuanApi,
       siyuanApi,
       dataSourceFactory as never,
     );
