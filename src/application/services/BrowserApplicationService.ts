@@ -24,6 +24,7 @@ import type { BrowserAdvancedSqlQuerySourcePort } from '@/application/ports/Brow
 import type { FSRSCard } from '@/types/card';
 import { GetBrowserCardsQueryHandler } from '../queries/browser/GetBrowserCardsQueryHandler';
 import { BrowserDeckQueryKernel } from '../queries/browser/shared/BrowserDeckQueryKernel';
+import { BrowserDeckBlockQuerySource } from '../queries/browser/shared/BrowserDeckBlockQuerySource';
 import { QueueBrowserQueryKernel, type QueueProjectionBrowserReadModelError } from '../queries/browser/shared/QueueBrowserQueryKernel';
 import {
   SOURCE_EXISTENCE_BATCH_SIZE,
@@ -250,7 +251,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       storageManager,
       cardScheduleService,
       cardFilterService,
-      querySiyuanApi,
+      new BrowserDeckBlockQuerySource(querySiyuanApi),
     );
     this.queueBrowserQueryKernel = unifiedDataSourceManager
       ? new QueueBrowserQueryKernel(

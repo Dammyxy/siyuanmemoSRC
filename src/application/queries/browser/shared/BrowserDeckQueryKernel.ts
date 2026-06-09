@@ -1,5 +1,4 @@
 import type { SortModel } from '@/application/interfaces/ICardDataSource';
-import type { BrowserQuerySiyuanPort } from '@/application/ports/BrowserQuerySiyuanPort';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardScheduleService, CardState } from '@/core/card/domain/services/CardScheduleService';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
@@ -26,37 +25,16 @@ import {
   isMissingBlockCard,
   sortBrowserRows,
 } from './BrowserRowUtils';
+import { BrowserDeckBlockQuerySource } from './BrowserDeckBlockQuerySource';
 import type { BrowserStats, PresetFilter } from '../GetBrowserCardsQuery';
 import type {
   BrowserDeckLiteRow,
   BrowserDeckSnapshotQuery,
   BrowserDeckSnapshotResult,
 } from '../browser-deck-query';
-import { countMissingBlockCards, markMissingBlockRows } from './MissingBlockMarker';
 import { applyBrowserCdfDiagnosticVisibility } from './CdfBrowserDiagnostics';
 
 const logger = createLogger('BrowserDeckQueryKernel');
-
-interface RootIdRow extends Record<string, unknown> {
-  id: string;
-  root_id: string | null;
-}
-
-interface ContentRow extends Record<string, unknown> {
-  id: string;
-  content: string | null;
-}
-
-interface BlockInfoRow extends Record<string, unknown> {
-  id: string;
-  root_id: string | null;
-  content: string | null;
-  attrs: string | null;
-}
-
-interface BlockIdRow extends Record<string, unknown> {
-  id: string;
-}
 
 interface ResolvedCandidateCards {
   cards: FSRSCard[];
@@ -83,7 +61,7 @@ export class BrowserDeckQueryKernel {
     private readonly storageManager: BrowserCardStoragePort,
     private readonly cardScheduleService: CardScheduleService,
     private readonly cardFilterService: CardFilterService,
-    private readonly siyuanApi: BrowserQuerySiyuanPort,
+    private readonly blockQuerySource: BrowserDeckBlockQuerySource,
   ) {}
 
   async buildSnapshot(query: BrowserDeckSnapshotQuery = {}): Promise<BrowserDeckSnapshotResult> {
@@ -97,15 +75,15 @@ export class BrowserDeckQueryKernel {
 
     const candidateCards = candidateResolution.cards;
     if (this.shouldHydrateContentForQuery(query)) {
-      await this.fillContentForSearch(candidateCards);
+      await this.blockQuerySource.hydrateContentForSearch(candidateCards);
     }
     if (query.docId || query.scopeDocIds?.length) {
-      await this.fillRootIds(candidateCards.filter((card) => !this.readMetaString(card, 'rootId')));
+      await this.blockQuerySource.hydrateMissingRootIds(candidateCards.filter((card) => !this.readMetaString(card, 'rootId')));
     }
 
     let rows = await this.buildSnapshotRows(candidateCards);
     if (candidateResolution.path !== 'sql-candidate-query') {
-      rows = await markMissingBlockRows(rows, this.siyuanApi);
+      rows = await this.blockQuerySource.markMissingBlockRows(rows);
     }
     rows = applyBrowserCdfDiagnosticVisibility(rows, query.preset);
     rows = applyDocFilter(rows, query.docId, query.scopeDocIds);
@@ -137,7 +115,7 @@ export class BrowserDeckQueryKernel {
 
   async getStats(): Promise<BrowserStats> {
     const allCards = await this.loadAllCards();
-    const lostCards = await countMissingBlockCards(allCards, this.siyuanApi);
+    const lostCards = await this.blockQuerySource.countMissingBlockCards(allCards);
     return this.calculateStats(allCards, lostCards);
   }
 
@@ -158,9 +136,8 @@ export class BrowserDeckQueryKernel {
       return [];
     }
 
-    const browserCards = await markMissingBlockRows(
+    const browserCards = await this.blockQuerySource.markMissingBlockRows(
       await this.transformToBrowserCards(cards),
-      this.siyuanApi,
     );
     const rowById = new Map<string, BrowserCard>();
     for (const row of browserCards) {
@@ -180,7 +157,7 @@ export class BrowserDeckQueryKernel {
     if (options.markMissing === false) {
       return browserCards;
     }
-    return markMissingBlockRows(browserCards, this.siyuanApi);
+    return this.blockQuerySource.markMissingBlockRows(browserCards);
   }
 
   transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>): BrowserCard {
@@ -208,7 +185,7 @@ export class BrowserDeckQueryKernel {
     const rootId = (card.meta?.rootId as string) || '';
 
     const cardType = card.type as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined;
-    const finalCardType = cardType || customAttrs[this.siyuanApi.ATTR_CARD_TYPE];
+      const finalCardType = cardType || customAttrs[this.blockQuerySource.ATTR_CARD_TYPE];
 
     return {
       id: card.id,
@@ -479,16 +456,16 @@ export class BrowserDeckQueryKernel {
       const sqlCandidateSets: string[][] = [];
 
       if (query.scopeDocIds?.length) {
-        sqlCandidateSets.push(await this.loadBlockIdsByDocIds(query.scopeDocIds));
+        sqlCandidateSets.push(await this.blockQuerySource.loadBlockIdsByDocIds(query.scopeDocIds));
       }
 
       if (query.docId) {
-        sqlCandidateSets.push(await this.loadBlockIdsByDocId(query.docId));
+        sqlCandidateSets.push(await this.blockQuerySource.loadBlockIdsByDocId(query.docId));
       }
 
       const simpleSearchText = this.resolveSimpleSearchText(query.searchText);
       if (simpleSearchText) {
-        sqlCandidateSets.push(await this.loadBlockIdsBySearchText(simpleSearchText));
+        sqlCandidateSets.push(await this.blockQuerySource.loadBlockIdsBySearchText(simpleSearchText));
       }
 
       if (sqlCandidateSets.length > 0) {
@@ -628,13 +605,6 @@ export class BrowserDeckQueryKernel {
     return typeof value === 'object' && value !== null;
   }
 
-  private ensureMetaObject(card: FSRSCard): Record<string, unknown> {
-    if (!this.isRecord(card.meta)) {
-      card.meta = {};
-    }
-    return card.meta as Record<string, unknown>;
-  }
-
   private readMetaString(card: FSRSCard, key: string): string | undefined {
     if (!this.isRecord(card.meta)) {
       return undefined;
@@ -643,59 +613,15 @@ export class BrowserDeckQueryKernel {
     return typeof value === 'string' && value.trim() ? value : undefined;
   }
 
-  private async loadBlockIdsByDocId(docId: string): Promise<string[]> {
-    const normalizedDocId = this.escapeSqlString(docId.trim());
-    if (!normalizedDocId) {
-      return [];
-    }
-
-    const query = `
-      SELECT id
-      FROM blocks
-      WHERE root_id = '${normalizedDocId}'
-    `;
-
-    const rows = await this.siyuanApi.sql<BlockIdRow>(query);
-    return this.normalizeBlockIds(rows.map((row) => row.id));
-  }
-
-  private async loadBlockIdsByDocIds(docIds: string[]): Promise<string[]> {
-    const normalizedDocIds = this.normalizeBlockIds(docIds);
-    if (normalizedDocIds.length === 0) {
-      return [];
-    }
-
-    const quotedDocIds = this.toSqlQuotedValues(normalizedDocIds);
-    const query = `
-      SELECT id
-      FROM blocks
-      WHERE root_id IN (${quotedDocIds})
-    `;
-
-    const rows = await this.siyuanApi.sql<BlockIdRow>(query);
-    return this.normalizeBlockIds(rows.map((row) => row.id));
-  }
-
-  private async loadBlockIdsBySearchText(searchText: string): Promise<string[]> {
-    const keyword = this.escapeSqlString(searchText.trim());
-    if (!keyword) {
-      return [];
-    }
-
-    const query = `
-      SELECT id
-      FROM blocks
-      WHERE content LIKE '%${keyword}%'
-         OR id LIKE '%${keyword}%'
-    `;
-
-    const rows = await this.siyuanApi.sql<BlockIdRow>(query);
-    return this.normalizeBlockIds(rows.map((row) => row.id));
-  }
-
   private intersectBlockIdCandidateSets(candidateSets: string[][]): string[] {
+    const normalizeBlockIds = (blockIds: string[]) => Array.from(new Set(
+      blockIds
+        .map((blockId) => String(blockId || '').trim())
+        .filter(Boolean),
+    ));
+
     const normalizedSets = candidateSets
-      .map((candidateSet) => this.normalizeBlockIds(candidateSet))
+      .map(normalizeBlockIds)
       .sort((left, right) => left.length - right.length);
 
     if (normalizedSets.length === 0) {
@@ -714,109 +640,6 @@ export class BrowserDeckQueryKernel {
     return [...intersection];
   }
 
-  private normalizeBlockIds(blockIds: string[]): string[] {
-    return [...new Set(
-      blockIds
-        .map((blockId) => String(blockId || '').trim())
-        .filter(Boolean)
-    )];
-  }
-
-  private escapeSqlString(value: string): string {
-    return value.replace(/'/g, "''");
-  }
-
-  private toSqlQuotedValues(values: string[]): string {
-    return values
-      .map((value) => `'${this.escapeSqlString(value)}'`)
-      .join(',');
-  }
-
-  private async fillRootIds(cards: FSRSCard[]): Promise<void> {
-    if (cards.length === 0) {
-      return;
-    }
-
-    const blockIds = cards.map((card) => card.blockId);
-
-    try {
-      const BATCH_SIZE = 500;
-      for (let i = 0; i < blockIds.length; i += BATCH_SIZE) {
-        const batchIds = blockIds.slice(i, i + BATCH_SIZE);
-        const idsStr = this.toSqlQuotedValues(batchIds);
-
-        const query = `
-          SELECT id, root_id
-          FROM blocks
-          WHERE id IN (${idsStr})
-        `;
-
-        const result = await this.siyuanApi.sql<RootIdRow>(query);
-        const rootIdMap = new Map<string, string>();
-        for (const row of result) {
-          rootIdMap.set(row.id, row.root_id || '');
-        }
-
-        for (const card of cards) {
-          const rootId = rootIdMap.get(card.blockId);
-          if (rootId) {
-            const meta = this.ensureMetaObject(card);
-            meta.rootId = rootId;
-          }
-        }
-      }
-    } catch (error) {
-      logger.error('Failed to fill rootIds:', error);
-    }
-  }
-
-  private async fillContentForSearch(cards: FSRSCard[]): Promise<void> {
-    if (cards.length === 0) {
-      return;
-    }
-
-    const cardsNeedingContent = cards.filter((card) => {
-      const content = resolveBrowserCardFullContent({ meta: card.meta });
-      return !content;
-    });
-
-    if (cardsNeedingContent.length === 0) {
-      return;
-    }
-
-    const blockIds = cardsNeedingContent.map((card) => card.blockId);
-
-    try {
-      const BATCH_SIZE = 500;
-      for (let i = 0; i < blockIds.length; i += BATCH_SIZE) {
-        const batchIds = blockIds.slice(i, i + BATCH_SIZE);
-        const idsStr = this.toSqlQuotedValues(batchIds);
-
-        const query = `
-          SELECT id, content
-          FROM blocks
-          WHERE id IN (${idsStr})
-        `;
-
-        const result = await this.siyuanApi.sql<ContentRow>(query);
-        const contentMap = new Map<string, string>();
-        for (const row of result) {
-          contentMap.set(row.id, row.content || '');
-        }
-
-        for (const card of cardsNeedingContent) {
-          const content = contentMap.get(card.blockId);
-          if (content) {
-            const meta = this.ensureMetaObject(card);
-            meta.content = content;
-          }
-        }
-      }
-    } catch (error) {
-      logger.error('Failed to fill content:', error);
-    }
-  }
-
   private async transformToBrowserCards(cards: FSRSCard[]): Promise<BrowserCard[]> {
     if (cards.length === 0) {
       return [];
@@ -828,7 +651,7 @@ export class BrowserDeckQueryKernel {
         String(card.riffCardId || '').trim(),
       ].filter(Boolean)),
     ));
-    const { attrsMap, rootIdMap, tagsMap, contentMap } = await this.fetchBlockInfoBatched(blockIds);
+    const { attrsMap, rootIdMap, tagsMap, contentMap } = await this.blockQuerySource.loadBlockInfoByIds(blockIds);
 
     return cards.map((card) => {
       const sourceIds = [
@@ -858,81 +681,6 @@ export class BrowserDeckQueryKernel {
 
       return browserCard;
     });
-  }
-
-  private async fetchBlockInfoBatched(
-    blockIds: string[]
-  ): Promise<{
-    attrsMap: Map<string, Record<string, string>>;
-    rootIdMap: Map<string, string>;
-    tagsMap: Map<string, string[]>;
-    contentMap: Map<string, string>;
-  }> {
-    if (blockIds.length === 0) {
-      return {
-        attrsMap: new Map(),
-        rootIdMap: new Map(),
-        tagsMap: new Map(),
-        contentMap: new Map(),
-      };
-    }
-
-    const attrsMap = new Map<string, Record<string, string>>();
-    const rootIdMap = new Map<string, string>();
-    const tagsMap = new Map<string, string[]>();
-    const contentMap = new Map<string, string>();
-
-    try {
-      const BATCH_SIZE = 500;
-      for (let i = 0; i < blockIds.length; i += BATCH_SIZE) {
-        const batchIds = blockIds.slice(i, i + BATCH_SIZE);
-        const idsStr = this.toSqlQuotedValues(batchIds);
-
-        const query = `
-          SELECT
-            b.id,
-            b.root_id,
-            b.content,
-            GROUP_CONCAT(a.name || '=' || a.value, '|||') as attrs
-          FROM blocks b
-          LEFT JOIN attributes a ON b.id = a.block_id
-          WHERE b.id IN (${idsStr})
-          GROUP BY b.id
-        `;
-
-        const result = await this.siyuanApi.sql<BlockInfoRow>(query);
-
-        for (const row of result) {
-          const blockId = row.id;
-          rootIdMap.set(blockId, row.root_id || '');
-          contentMap.set(blockId, row.content || '');
-
-          const attrs: Record<string, string> = {};
-          if (row.attrs) {
-            const attrPairs = row.attrs.split('|||');
-            for (const pair of attrPairs) {
-              const [name, value] = pair.split('=');
-              if (name && value !== undefined) {
-                attrs[name] = value;
-              }
-            }
-          }
-          attrsMap.set(blockId, attrs);
-
-          const tags: string[] = [];
-          const tagRegex = /#([^\s#]+)/g;
-          let match: RegExpExecArray | null;
-          while ((match = tagRegex.exec(row.content || '')) !== null) {
-            tags.push(match[1]);
-          }
-          tagsMap.set(blockId, tags);
-        }
-      }
-    } catch (error) {
-      logger.error('Failed to fetch block info:', error);
-    }
-
-    return { attrsMap, rootIdMap, tagsMap, contentMap };
   }
 
   private shouldHydrateContentForQuery(query: BrowserDeckSnapshotQuery): boolean {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { CardState } from '@/core/card/domain/services/CardScheduleService';
 import type { FSRSCard } from '@/types/card';
 import { BrowserDeckQueryKernel } from '../shared/BrowserDeckQueryKernel';
+import { BrowserDeckBlockQuerySource } from '../shared/BrowserDeckBlockQuerySource';
 
 function buildCard(
   id: string,
@@ -77,7 +78,7 @@ describe('BrowserDeckQueryKernel scopeDocIds', () => {
       storageManager as never,
       {} as never,
       {} as never,
-      siyuanApi as never,
+      new BrowserDeckBlockQuerySource(siyuanApi as never),
     );
 
     const result = await kernel.buildSnapshot({
@@ -126,7 +127,7 @@ describe('BrowserDeckQueryKernel scopeDocIds', () => {
       storageManager as never,
       {} as never,
       {} as never,
-      siyuanApi as never,
+      new BrowserDeckBlockQuerySource(siyuanApi as never),
     );
 
     const normal = await kernel.buildSnapshot({ preset: 'all' });
@@ -232,7 +233,7 @@ describe('BrowserDeckQueryKernel scopeDocIds', () => {
       storageManager as never,
       {} as never,
       {} as never,
-      siyuanApi as never,
+      new BrowserDeckBlockQuerySource(siyuanApi as never),
     );
 
     const normal = await kernel.buildSnapshot({ preset: 'all' });
@@ -277,7 +278,7 @@ describe('BrowserDeckQueryKernel scopeDocIds', () => {
       storageManager as never,
       {} as never,
       {} as never,
-      siyuanApi as never,
+      new BrowserDeckBlockQuerySource(siyuanApi as never),
     );
 
     const rows = await kernel.getBrowserCardsFromCards([card], { markMissing: false });

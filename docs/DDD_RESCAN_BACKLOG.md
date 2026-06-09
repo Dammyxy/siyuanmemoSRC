@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-10 (Round 567)
+Last update: 2026-06-10 (Round 568)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-10 - Browser deck block query source extraction
+
+- Task: Continue global Browser architecture cleanup by extracting Browser deck block SQL, hydration, and missing-block counting out of `BrowserDeckQueryKernel` into a narrower deck block query source.
+- Touched slice: Browser deck query orchestration and source-read seam: `BrowserDeckQueryKernel`, new `BrowserDeckBlockQuerySource`, `GetBrowserCardsQueryHandler`, `BrowserApplicationService`, and the Browser deck scope-doc regression test.
+- Debt fixed now: `BrowserDeckQueryKernel` no longer owns the raw block SQL for doc-id, scope-doc, and search-text candidate loading, block-info batching, root/content hydration, or missing-block counting. Those responsibilities now sit behind `BrowserDeckBlockQuerySource`, which also carries the Browser deck card-type attr constant and keeps the kernel on orchestration/row-shaping only.
+- Debt deferred: Queue-browser still has its own projection/read fallback path and shared missing-block helpers; `BrowserDeckBlockQuerySource` still bundles both SQL reads and hydration/missing-mark helpers, so a broader read-source consolidation remains separate debt.
+- Why deferred: This slice deepens the Browser deck seam without widening into queue projection ownership or a repo-wide block-read abstraction.
+- Next safe step: Decide whether queue-browser and deck-browser should stay on distinct read helpers or converge on a smaller shared block-read source.
+- Validation: `pnpm exec vitest run src/application/queries/browser/__tests__/BrowserDeckQueryKernel.scope-doc-ids.test.ts src/application/queries/browser/__tests__/GetBrowserCardsQueryHandler.priority-regression.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts src/application/services/__tests__/BrowserApplicationService.read-model.test.ts`; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
 
 ### 2026-06-10 - Browser Query port split
 

@@ -10,6 +10,7 @@ import type {
   GetBrowserCardsQueryResult,
 } from './GetBrowserCardsQuery';
 import { BrowserDeckQueryKernel } from './shared/BrowserDeckQueryKernel';
+import { BrowserDeckBlockQuerySource } from './shared/BrowserDeckBlockQuerySource';
 
 export class GetBrowserCardsQueryHandler {
   private readonly browserDeckQueryKernel: BrowserDeckQueryKernel;
@@ -26,7 +27,7 @@ export class GetBrowserCardsQueryHandler {
       storageManager,
       cardScheduleService,
       cardFilterService,
-      siyuanApi,
+      new BrowserDeckBlockQuerySource(siyuanApi),
     );
   }
 
