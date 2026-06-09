@@ -169,12 +169,7 @@
           :open="reviewInlineCardEditorOpen"
           :title="reviewInlineCardEditorTitle"
           :hint="reviewInlineCardEditorHint"
-          :card="reviewInlineCardEditorCard"
-          :deck-id="reviewInlineCardEditorDeckId"
           :i18n="i18n"
-          :plugin="props.plugin as never"
-          :review-service="reviewInlineCardEditorReviewService"
-          :scheduling-context="reviewInlineCardEditorSchedulingContext"
           :source-open="reviewTextEditorOpen"
           :source-title="reviewTextEditorTitle"
           :source-entries="reviewTextEditorEntries"
@@ -192,8 +187,6 @@
           @resolve-source-conflict="resolveCurrentContentEditorConflict"
           @confirm-source="confirmInlineCardEditorSource"
           @close="closeInlineCardEditor"
-          @scheduled="handleInlineCardEditorScheduled"
-          @dismissed="handleInlineCardEditorDismissed"
         />
 
         <div v-if="reviewSemanticTemporaryView" class="fsrs-review-v2__temporary-view" role="status">
@@ -2271,23 +2264,8 @@ const showLearnAheadAction = computed(() => (
 
 const reviewInlineCardEditorTitle = computed(() => t('editCurrentCard', '编辑当前卡片'));
 const reviewInlineCardEditorHint = computed(() => (
-  reviewTextEditorOpen.value
-    ? t('inlineCardEditorHint', '源码修改需要保存；卡片属性沿用现有 SRS 编辑器的即时或确认式保存。')
-    : t('inlineCardEditorMetadataOnlyHint', '当前卡片可编辑 SRS 属性；没有可编辑源码目标。')
+  t('inlineCardEditorHint', '源码修改需要保存；关系与方向在当前版本只读。')
 ));
-const reviewInlineCardEditorDeckId = computed(() => getReviewService()?.getSiyuanApi?.()?.BUILTIN_DECK_ID);
-const reviewInlineCardEditorCard = computed(() => {
-  const cardId = resolveCurrentReviewCardId();
-  const blockId = resolveCurrentReviewBlockId();
-  if (!cardId && !blockId) {
-    return null;
-  }
-  return {
-    id: cardId || undefined,
-    blockId: blockId || undefined,
-    deckId: reviewInlineCardEditorDeckId.value,
-  };
-});
 const reviewInlineCardEditorStructuredModel = computed(() => {
   const card = state.value.content.card as FSRSCard | null | undefined;
   return buildReviewStructuredFieldModelFromExplicitSources({
@@ -2302,10 +2280,6 @@ const reviewInlineCardEditorStructuredModel = computed(() => {
     })),
   });
 });
-const reviewInlineCardEditorReviewService = computed(() => getReviewService());
-const reviewInlineCardEditorSchedulingContext = computed(() => resolveCurrentReviewSchedulingContext(
-  state.value.content.card as FSRSCard | null | undefined,
-));
 
 function getReviewActionErrorMessage(payload: ReviewSessionActionError<ActiveReviewItem>): string {
   const base = payload.reason === 'skip'
@@ -4557,29 +4531,27 @@ function updateCurrentContentEditorTarget(targetId: string, nextValue: string): 
 }
 
 function canOpenInlineCardEditor(): boolean {
-  return resolveCurrentEditableTargets().length > 0
-    || Boolean((resolveCurrentReviewCardId() || resolveCurrentReviewBlockId()) && getCardEditorService());
+  return resolveCurrentEditableTargets().length > 0;
 }
 
 async function openInlineCardEditor(): Promise<void> {
   if (reviewInlineCardEditorOpen.value) {
+    closeInlineCardEditor();
     return;
   }
 
   reviewStructuredTouchedFieldIdsBySourceTarget.clear();
   reviewStructuredConflictResolutionsBySourceTarget.clear();
   const editableTargets = resolveCurrentEditableTargets();
-  if (editableTargets.length === 0 && !reviewInlineCardEditorCard.value) {
+  if (editableTargets.length === 0) {
     showMessage(t('currentContentNotEditable', '当前内容暂不支持编辑'), 3000, 'info');
     return;
   }
 
   reviewInlineCardEditorOpen.value = true;
-  if (editableTargets.length > 0) {
-    const opened = await openCurrentContentEditor();
-    if (!opened && !reviewInlineCardEditorCard.value) {
-      reviewInlineCardEditorOpen.value = false;
-    }
+  const opened = await openCurrentContentEditor();
+  if (!opened) {
+    reviewInlineCardEditorOpen.value = false;
   }
 }
 
@@ -4597,24 +4569,6 @@ async function confirmInlineCardEditorSource(): Promise<void> {
     reviewStructuredConflictResolutionsBySourceTarget.clear();
     reviewInlineCardEditorOpen.value = false;
   }
-}
-
-async function handleInlineCardEditorScheduled(payload: unknown): Promise<void> {
-  const scheduledPayload = isRecord(payload) ? payload as ScheduledReviewCardPayload : {};
-  await advanceScheduledCurrentCard({
-    cardId: typeof scheduledPayload.cardId === 'string' ? scheduledPayload.cardId : resolveCurrentReviewCardId(),
-    blockId: typeof scheduledPayload.blockId === 'string' ? scheduledPayload.blockId : resolveCurrentReviewBlockId(),
-    dueTimestamp: typeof scheduledPayload.dueTimestamp === 'number' ? scheduledPayload.dueTimestamp : undefined,
-  });
-}
-
-async function handleInlineCardEditorDismissed(payload: unknown): Promise<void> {
-  const dismissedPayload = isRecord(payload) ? payload as DismissedReviewCardPayload : {};
-  await advanceDismissedCurrentCard({
-    cardId: typeof dismissedPayload.cardId === 'string' ? dismissedPayload.cardId : resolveCurrentReviewCardId(),
-    blockId: typeof dismissedPayload.blockId === 'string' ? dismissedPayload.blockId : resolveCurrentReviewBlockId(),
-    dismissed: dismissedPayload.dismissed === true,
-  });
 }
 
 function buildMoreMenuItems(): ReviewMenuItem[] {

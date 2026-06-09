@@ -244,14 +244,17 @@ export class SqlQueueProjectionRepository implements QueueProjectionRepositoryPo
       clauses.push('source_generation = ?');
       params.push(query.generation);
     }
-    params.push(normalizeLimit(query.limit, 500), normalizeOffset(query.offset));
+    const hasExplicitWindow = typeof query.limit === 'number' || typeof query.offset === 'number';
+    const windowClause = hasExplicitWindow ? ' LIMIT ? OFFSET ?' : '';
+    if (hasExplicitWindow) {
+      params.push(normalizeLimit(query.limit, 500), normalizeOffset(query.offset));
+    }
     const rows = this.database.getAll<QueueProjectionRowRecord>(
       `SELECT queue_type, row_id, card_id, block_id, deck_id, membership_reason, due_at, due_bucket,
               priority_score, sort_key, queue_index_hint, policy_hash, source_generation, payload_json, updated_at
        FROM queue_projection_rows
        WHERE ${clauses.join(' AND ')}
-       ORDER BY sort_key ASC, COALESCE(queue_index_hint, 2147483647) ASC, row_id ASC
-       LIMIT ? OFFSET ?`,
+       ORDER BY sort_key ASC, COALESCE(queue_index_hint, 2147483647) ASC, row_id ASC${windowClause}`,
       params,
     );
     return rows.map(rowToProjection);
@@ -326,6 +329,7 @@ export class SqlQueueProjectionRepository implements QueueProjectionRepositoryPo
   }
 
   replaceQueueProjection(input: QueueProjectionReplaceInput): void {
+    this.assertUniqueProjectionRows(input.queueType, input.policyHash, input.rows);
     this.database.run('DELETE FROM queue_projection_rows WHERE queue_type = ? AND policy_hash = ?', [
       input.queueType,
       input.policyHash,
@@ -338,6 +342,7 @@ export class SqlQueueProjectionRepository implements QueueProjectionRepositoryPo
         sourceGeneration: input.generation,
       });
     }
+    this.assertProjectionRowsWritten(input);
     this.upsertCounters(input.counters);
     this.upsertGeneration({
       queueType: input.queueType,
@@ -351,6 +356,7 @@ export class SqlQueueProjectionRepository implements QueueProjectionRepositoryPo
   }
 
   applyQueueProjectionDelta(delta: QueueProjectionDelta): void {
+    this.assertUniqueProjectionRows(delta.queueType, delta.policyHash, delta.upsertRows || []);
     for (const rowId of delta.removeRowIds || []) {
       this.database.run(
         'DELETE FROM queue_projection_rows WHERE queue_type = ? AND row_id = ? AND policy_hash = ?',
@@ -548,6 +554,40 @@ export class SqlQueueProjectionRepository implements QueueProjectionRepositoryPo
         row.updatedAt,
       ],
     );
+  }
+
+  private assertUniqueProjectionRows(queueType: QueueType, policyHash: string, rows: QueueProjectionRow[]): void {
+    const seen = new Map<string, string>();
+    for (const row of rows) {
+      const rowId = String(row.rowId || '').trim();
+      if (!rowId) {
+        throw new Error(`QUEUE_PROJECTION_INVALID_ROW: ${queueType} projection row missing rowId for policy ${policyHash}`);
+      }
+      const existingCardId = seen.get(rowId);
+      if (existingCardId) {
+        throw new Error(
+          `QUEUE_PROJECTION_IDENTITY_COLLISION: ${queueType} policy ${policyHash} rowId ${rowId} `
+          + `is shared by cards ${existingCardId} and ${String(row.cardId || '').trim()}`,
+        );
+      }
+      seen.set(rowId, String(row.cardId || '').trim());
+    }
+  }
+
+  private assertProjectionRowsWritten(input: QueueProjectionReplaceInput): void {
+    const row = this.database.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM queue_projection_rows
+       WHERE queue_type = ? AND policy_hash = ? AND source_generation = ?`,
+      [input.queueType, input.policyHash, input.generation],
+    );
+    const written = Number(row?.count) || 0;
+    if (written !== input.rows.length) {
+      throw new Error(
+        `QUEUE_PROJECTION_WRITE_INCOMPLETE: ${input.queueType} policy ${input.policyHash} `
+        + `generation ${input.generation} wrote ${written} rows for ${input.rows.length} inputs`,
+      );
+    }
   }
 
   private upsertCounters(counters: QueueProjectionCounters): void {

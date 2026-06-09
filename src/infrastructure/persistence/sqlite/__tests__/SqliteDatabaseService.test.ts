@@ -144,6 +144,13 @@ function readSqliteDeltaEntries(fileService: MemorySqliteFileService): TestSqlit
   });
 }
 
+function readPrimaryKeyColumns(database: SqliteDatabaseService, tableName: string): string[] {
+  return database.getAll<{ name: string; pk: number }>(`PRAGMA table_info(${tableName})`)
+    .filter((column) => Number(column.pk) > 0)
+    .sort((left, right) => Number(left.pk) - Number(right.pk))
+    .map((column) => column.name);
+}
+
 describe('SqliteDatabaseService', () => {
   afterEach(() => {
     setRuntimePerformanceDiagnosticsEnabled(false, { reset: true });
@@ -507,6 +514,87 @@ describe('SqliteDatabaseService', () => {
       'idx_domain_sync_repair_plans_status',
       'idx_domain_sync_sanity_snapshots_status',
     ]));
+  });
+
+  it('creates queue projection rows with policy hash in the durable primary key', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+
+    expect(readPrimaryKeyColumns(database, 'queue_projection_rows')).toEqual([
+      'queue_type',
+      'policy_hash',
+      'row_id',
+    ]);
+  });
+
+  it('migrates legacy queue projection row primary keys without dropping existing rows', async () => {
+    const fileService = new MemorySqliteFileService();
+    const legacy = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      applySchemaOnInit: false,
+    });
+    await legacy.init();
+    await legacy.runTransaction('seed-legacy-queue-projection-rows-pk', () => {
+      legacy.run(
+        `CREATE TABLE queue_projection_rows (
+          queue_type TEXT NOT NULL,
+          row_id TEXT NOT NULL,
+          card_id TEXT NOT NULL,
+          block_id TEXT,
+          deck_id TEXT,
+          membership_reason TEXT NOT NULL,
+          due_at INTEGER,
+          due_bucket TEXT NOT NULL,
+          priority_score REAL NOT NULL,
+          sort_key TEXT NOT NULL,
+          queue_index_hint INTEGER,
+          policy_hash TEXT NOT NULL,
+          source_generation INTEGER NOT NULL,
+          payload_json TEXT NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY(queue_type, row_id)
+        )`,
+      );
+      legacy.run(
+        `INSERT INTO queue_projection_rows
+          (queue_type, row_id, card_id, block_id, deck_id, membership_reason, due_at, due_bucket,
+           priority_score, sort_key, queue_index_hint, policy_hash, source_generation, payload_json, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'incremental-learning',
+          '20260415034044-66oa2em',
+          'card-20260415034039-4gpdpyo',
+          'block-shared',
+          null,
+          'materialized-strategy',
+          1_700_000_000_000,
+          'due',
+          20,
+          '0001',
+          1,
+          'policy-legacy',
+          7,
+          '{}',
+          1_700_000_000_000,
+        ],
+      );
+    });
+    await legacy.persist('seed-legacy-queue-projection-rows-pk');
+
+    const migrated = new SqliteDatabaseService(fileService);
+    await migrated.init();
+
+    expect(readPrimaryKeyColumns(migrated, 'queue_projection_rows')).toEqual([
+      'queue_type',
+      'policy_hash',
+      'row_id',
+    ]);
+    expect(migrated.getOne<{ card_id: string }>(
+      'SELECT card_id FROM queue_projection_rows WHERE queue_type = ? AND policy_hash = ? AND row_id = ?',
+      ['incremental-learning', 'policy-legacy', '20260415034044-66oa2em'],
+    )).toEqual({ card_id: 'card-20260415034039-4gpdpyo' });
+    expect(migrated.getOne<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'queue_projection_rows__legacy_policy_pk'",
+    )).toBeNull();
   });
 
   it('adds review event idempotency column and index to an existing legacy database', async () => {

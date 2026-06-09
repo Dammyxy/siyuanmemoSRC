@@ -43,7 +43,7 @@ export function isProjectionWorkerQueueType(queueType: string): queueType is Pro
 }
 
 export type WorkerQueueProjectionRuntimeDeps = {
-  repository: Pick<SqlUnifiedStorageRepository, 'getCardsByIds'>;
+  repository: Pick<SqlUnifiedStorageRepository, 'getCardsByExactIds'>;
   queueProjection: Pick<
     SqlQueueProjectionRepository,
     'readGeneration' | 'readLastReadyGeneration' | 'readCounters' | 'readRows' | 'replaceQueueProjection'
@@ -99,7 +99,7 @@ export class WorkerQueueProjectionRuntime {
       limit: request.limit,
       offset: request.offset,
     });
-    const cards = this.deps.repository.getCardsByIds(rows.map((row) => row.cardId));
+    const cards = this.deps.repository.getCardsByExactIds(rows.map((row) => row.cardId));
     const hydrated = buildProjectionSnapshotRows(rows, cards);
     const countersMissingRows = buildCountersMissingRowsFreshnessEvidence({
       counters,
@@ -206,7 +206,7 @@ export class WorkerQueueProjectionRuntime {
     const orderedRows = ids
       .map((id) => rowByIdentity.get(id))
       .filter((row): row is QueueProjectionRow => Boolean(row));
-    const cards = this.deps.repository.getCardsByIds(orderedRows.map((row) => row.cardId));
+    const cards = this.deps.repository.getCardsByExactIds(orderedRows.map((row) => row.cardId));
     const activeCardIds = new Set(cards.map((card) => String(card.id || '').trim()).filter(Boolean));
     const activeRows = orderedRows.filter((row) => activeCardIds.has(String(row.cardId || '').trim()));
     const activeCards = cards.filter((card) => activeCardIds.has(String(card.id || '').trim()));

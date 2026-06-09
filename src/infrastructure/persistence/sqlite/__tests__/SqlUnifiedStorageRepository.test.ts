@@ -1062,6 +1062,39 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     ]);
   });
 
+  it('prefers exact card ids over block-id aliases for colliding projection identities', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+    const repository = new SqlUnifiedStorageRepository(database);
+    const exactCardId = '20260420154247-90cjg7w';
+    const exactCard = createDTO({
+      id: exactCardId,
+      blockId: exactCardId,
+      type: CardType.Topic,
+      schedulerType: 'a-factor-v2',
+      aFactor: 2.6,
+      priority: 30,
+      xiuyuanID: 'xy-exact-card',
+      meta: { content: 'exact topic' },
+    }) as unknown as FSRSCard;
+    const blockAliasCard = createDTO({
+      id: `card-${exactCardId}`,
+      blockId: exactCardId,
+      type: CardType.Topic,
+      schedulerType: 'a-factor-v2',
+      aFactor: 3.1,
+      priority: 5,
+      xiuyuanID: 'xy-block-alias-card',
+      meta: { content: 'block alias topic' },
+    }) as unknown as FSRSCard;
+
+    repository.upsertCards([exactCard, blockAliasCard]);
+
+    expect(ids(repository.getCardsByIds([exactCardId]))).toEqual([exactCardId]);
+    expect(ids(repository.getCardsByExactIds([exactCardId]))).toEqual([exactCardId]);
+    expect(ids(repository.getCardsByExactIds(['missing-card-id']))).toEqual([]);
+  });
+
   it('preserves source cache on same-block upsert and resets it when block id changes', async () => {
     const { repository } = await seedRepositories();
     await repository.updateSourceExistence([

@@ -4,6 +4,7 @@ import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { QueueType } from '@/types/unified-data-source';
 import {
   buildQueueProjectionAffectedSet,
+  buildOrderedQueueProjectionRows,
   buildQueueProjectionRows,
   buildQueueProjectionSourceCardFingerprint,
   isBroadQueueProjectionInvalidationReason,
@@ -241,6 +242,43 @@ describe('QueueProjectionBuilder', () => {
       topic: 2,
       concept: 1,
     });
+  });
+
+  it('uses FSRS card ids as durable projection row ids when cards share one Riff identity', () => {
+    const riffCardId = '20260415034044-66oa2em';
+    const localCard = card('20260415034039-4gpdpyo', {
+      riffCardId,
+      priority: 10,
+    });
+    const prefixedCard = card('card-20260415034039-4gpdpyo', {
+      riffCardId,
+      priority: 20,
+    });
+
+    const projection = buildOrderedQueueProjectionRows({
+      queueType: QueueType.IncrementalLearning,
+      cards: [localCard, prefixedCard],
+      now: NOW,
+      policyHash: 'policy-shared-riff',
+      sourceGeneration: 8,
+      updatedAt: NOW + 1_000,
+      membershipReason: 'materialized-strategy',
+    });
+
+    expect(projection.rows.map((entry) => entry.cardId)).toEqual([
+      localCard.id,
+      prefixedCard.id,
+    ]);
+    expect(projection.rows.map((entry) => entry.rowId)).toEqual([
+      localCard.id,
+      prefixedCard.id,
+    ]);
+    expect(projection.rows.map((entry) => entry.payload.rowId)).toEqual([
+      localCard.id,
+      prefixedCard.id,
+    ]);
+    expect(new Set(projection.rows.map((entry) => entry.rowId)).size).toBe(2);
+    expect(projection.counters.total).toBe(2);
   });
 
   it('changes source-card fingerprint when scheduler-relevant card state or priority changes', () => {

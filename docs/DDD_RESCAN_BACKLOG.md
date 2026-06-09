@@ -1,8 +1,49 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-05 (Round 561)
+Last update: 2026-06-10 (Round 565)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-10 - Queue projection exact source hydration
+
+- Task: Fix SRS Browser `incremental-learning` warmup still looping on `projection_stale` after durable row-id repair.
+- Touched slice: Browser/Queue projection worker source hydration path: `WorkerQueueProjectionRuntime.ts`, `SqlUnifiedStorageRepository.ts`, and focused worker/repository regression tests.
+- Debt fixed now: Worker projection freshness checks now hydrate source truth by exact FSRS card id instead of reusing the broader Browser helper that accepts either card id or block id. The shared SQL helper also prefers exact card ids over block-id aliases, so a card whose id equals another card's block id cannot overwrite projection source hydration.
+- Cleanup decision: Keep the earlier full-snapshot-window and durable-identity changes as bounded queue projection hardening. They cover separate incomplete-cache/collision paths, but this exact source hydration entry is the `projection_stale` root-cause fix.
+- Debt deferred: Live SiYuan SRS Browser smoke against the user's current workspace database remains manual.
+- Why deferred: The live log and DB showed real colliding identities, and deterministic SQLite regressions now reproduce that shape, but this run still cannot interactively reload the user's live SRS Browser surface.
+- Next safe step: Reload the rebuilt plugin, open SRS Browser, and confirm `incremental-learning` warms from `refreshing/projection_stale` to `ready` after materialization.
+- Validation: `pnpm exec vitest run worker/queue-projection/__tests__/WorkerQueueProjectionRuntime.test.ts --reporter=dot`; `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts --reporter=dot`; `pnpm exec vitest run src/application/services/queue-projection/__tests__/QueueProjectionBuilder.test.ts src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlQueueProjectionRepository.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts worker/queue-projection/__tests__/WorkerQueueProjectionRuntime.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts --reporter=dot`; `pnpm run check:boundaries`; `pnpm build`; `git diff --check`.
+
+### 2026-06-10 - Queue projection durable identity hardening
+
+- Task: Harden SRS Browser queue projection identity after `incremental-learning` warmup showed incomplete derived-cache rows when local FSRS cards share one Riff card id.
+- Touched slice: Browser/Queue projection materialization and worker SQL snapshot path: `QueueProjectionBuilder.ts`, `SqlQueueProjectionRepository.ts`, SQLite projection schema/migration/delta metadata, and focused builder/repository/database/worker/browser query tests.
+- Debt fixed now: Queue projection row identity no longer reuses `MemoryItemSnapshot.id` / Riff display identity as the durable row key; materialized rows default to FSRS `card.id`, while snapshot/display hydration can still expose row identity to Browser. `queue_projection_rows` now keys rows by `(queue_type, policy_hash, row_id)` and migrates old tables on startup, preserving existing derived rows and skinny projection metadata. Repository replace/delta writes reject duplicate row ids in one policy and verify written row count before counters/generation can mark an incomplete projection ready. This closed a real corruption path, but later investigation found `projection_stale` itself also required exact source-card hydration in the worker.
+- Debt deferred: Live SiYuan SRS Browser smoke against the user's current workspace database remains manual.
+- Why deferred: Deterministic regression now covers the real shared-Riff-id data shape in builder + real SQLite repository + worker snapshot, but this run cannot interactively reload the user's live SiYuan surface.
+- Next safe step: Reload the rebuilt plugin, open SRS Browser, and confirm `incremental-learning` warms from `refreshing/missing_derived_cache` to `ready` with the expected count after projection materialization.
+- Validation: `pnpm exec vitest run src/application/services/queue-projection/__tests__/QueueProjectionBuilder.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlQueueProjectionRepository.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts worker/queue-projection/__tests__/WorkerQueueProjectionRuntime.test.ts --reporter=dot`; `pnpm exec vitest run src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts --reporter=dot`; `pnpm run check:boundaries`; `pnpm build`; `git diff --check`.
+
+### 2026-06-10 - Queue projection full snapshot window hardening
+
+- Task: Fix SRS Browser incremental-learning queue warmup staying on `missing_derived_cache` when a ready queue projection has more rows than the repository default read window.
+- Touched slice: Browser/Queue read model path: `SqlQueueProjectionRepository.ts`, worker queue projection snapshot runtime coverage in `WorkerQueueProjectionRuntime.test.ts`, and the active chain from SRS Browser warmup through `BrowserApplicationService.ensureQueueReadModelReady()` into backend queue projection snapshots.
+- Debt fixed now: Queue projection snapshot reads without an explicit caller window no longer apply the repository's fallback `LIMIT 500`, so large incremental-learning projections are read as complete snapshots instead of false missing derived-cache projections. Explicit `limit`/`offset` reads remain paged. Added a 501-row worker/SQLite regression that reproduces the previous false-refreshing state and now proves the snapshot returns ready. This is retained as a separate incomplete-cache hardening fix, not the later `projection_stale` root cause.
+- Debt deferred: Live SiYuan SRS Browser smoke against the user's current workspace database remains manual.
+- Why deferred: This agent run has deterministic worker/SQLite, Browser read-model, boundary, and build coverage but no interactive access to the current live SRS Browser surface.
+- Next safe step: Reload the rebuilt plugin in the live workspace, open SRS Browser, and verify `incremental-learning` warmup reaches `ready` with the expected count.
+- Validation: `pnpm exec vitest run worker/queue-projection/__tests__/WorkerQueueProjectionRuntime.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlQueueProjectionRepository.test.ts src/application/services/queue-projection/__tests__/QueueProjectionRuntime.test.ts src/application/services/__tests__/BrowserApplicationService.read-model.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts --reporter=dot`; `pnpm run check:boundaries`; `git diff --check -- src/infrastructure/persistence/sqlite/SqlQueueProjectionRepository.ts worker/queue-projection/__tests__/WorkerQueueProjectionRuntime.test.ts docs/DDD_RESCAN_BACKLOG.md`; `pnpm build`.
+
+### 2026-06-09 - Review inline editor SRS panel removal
+
+- Task: Follow-up UX fix for `cdf-live-relation-authority-and-review-editor`: keep the structured Review edit mode focused on content fields, remove the duplicated `编辑 SRS 数据` panel from inline edit mode, and make the Review header edit button toggle edit mode off on repeat click.
+- Touched slice: Review UI content editing path: `ReviewView.vue`, `ReviewInlineCardEditor.vue`, Review i18n keys, and `ReviewView.more-menu.spec.ts`.
+- Debt fixed now: The inline structured editor no longer imports or renders `SrsEditorDialog`, no longer accepts SRS metadata props/events, and no longer exposes a metadata-only edit mode when no content source target exists. Top-right `edit-current-content` now closes the inline editor on second activation instead of leaving a dirty content draft trapped in edit mode. SRS data editing remains on the existing More-menu `编辑 SRS 数据` path, outside the content draft transaction.
+- Debt deferred: Full manual Review smoke for active CDF card, blocking card, content-incomplete edit, relation-change preview, Browser repair insertion, and external bulk repair toast remains open as OpenSpec task 10.8.
+- Why deferred: This task fixes a focused UI regression with deterministic component coverage; the broader 10.8 checklist still requires an interactive SiYuan workspace pass.
+- Next safe step: Run task 10.8 live smoke after loading the rebuilt plugin in SiYuan, then archive the OpenSpec change if the smoke passes.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-06-05 - Review CDF blocking and session insertion
 

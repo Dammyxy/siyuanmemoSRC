@@ -663,6 +663,30 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     }).slice(0, Math.max(1, Math.floor(Number(limit) || 100)));
   }
 
+  getCardsByExactIds(ids: string[]): FSRSCard[] {
+    const orderedIds = normalizeStringArray(ids);
+    if (orderedIds.length === 0) {
+      return [];
+    }
+
+    const uniqueIds = Array.from(new Set(orderedIds));
+    const placeholders = uniqueIds.map(() => '?').join(', ');
+    const rows = this.database.getAll<{ payload_json: string; dto_json: string | null }>(
+      `SELECT payload_json, dto_json FROM cards
+       WHERE id IN (${placeholders})
+         AND ${ACTIVE_CARD_NOT_TOMBSTONED_SQL}
+         AND ${ACTIVE_SOURCE_STATUS_SQL}`,
+      uniqueIds,
+    );
+    const exactById = new Map<string, FSRSCard>();
+    for (const card of this.parseCardRows(rows)) {
+      exactById.set(normalizeString(card.id), card);
+    }
+    return orderedIds
+      .map((id) => exactById.get(id))
+      .filter((card): card is FSRSCard => Boolean(card));
+  }
+
   getCardsByIds(ids: string[]): FSRSCard[] {
     const orderedIds = normalizeStringArray(ids);
     if (orderedIds.length === 0) {
@@ -678,13 +702,14 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
          AND ${ACTIVE_SOURCE_STATUS_SQL}`,
       [...uniqueIds, ...uniqueIds],
     );
-    const cardById = new Map<string, FSRSCard>();
+    const exactById = new Map<string, FSRSCard>();
+    const byBlockId = new Map<string, FSRSCard>();
     for (const card of this.parseCardRows(rows)) {
-      cardById.set(normalizeString(card.id), card);
-      cardById.set(normalizeString(card.blockId), card);
+      exactById.set(normalizeString(card.id), card);
+      byBlockId.set(normalizeString(card.blockId), card);
     }
     return orderedIds
-      .map((id) => cardById.get(id))
+      .map((id) => exactById.get(id) ?? byBlockId.get(id))
       .filter((card): card is FSRSCard => Boolean(card));
   }
 

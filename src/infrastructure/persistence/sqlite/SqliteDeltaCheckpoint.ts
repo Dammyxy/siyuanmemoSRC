@@ -481,9 +481,9 @@ export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
     toColumn('truth_generation_id', 'TEXT', false),
     toColumn('truth_schema_version', 'INTEGER', false),
   ], [], { durability: 'derived-cache' }),
-  tableMetadata('queue_projection_rows', ['queue_type', 'row_id'], [
+  tableMetadata('queue_projection_rows', ['queue_type', 'policy_hash', 'row_id'], [
     toColumn('queue_type', 'TEXT', true, 1),
-    toColumn('row_id', 'TEXT', true, 2),
+    toColumn('row_id', 'TEXT', true, 3),
     toColumn('card_id', 'TEXT', true),
     toColumn('block_id', 'TEXT', false),
     toColumn('deck_id', 'TEXT', false),
@@ -493,7 +493,7 @@ export const SQLITE_DELTA_TABLE_REGISTRY: SqliteDeltaTableMetadata[] = [
     toColumn('priority_score', 'REAL', true),
     toColumn('sort_key', 'TEXT', true),
     toColumn('queue_index_hint', 'INTEGER', false),
-    toColumn('policy_hash', 'TEXT', true),
+    toColumn('policy_hash', 'TEXT', true, 2),
     toColumn('source_generation', 'INTEGER', true),
     toColumn('payload_json', 'TEXT', true),
     toColumn('updated_at', 'INTEGER', true),

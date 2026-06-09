@@ -7,11 +7,13 @@ import { recordRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnost
 import {
   CARD_PROJECTION_COLUMNS,
   CARD_PROJECTION_INDEX_STATEMENTS,
+  QUEUE_PROJECTION_ROWS_INDEX_STATEMENTS,
   SQL_SCHEMA_STATEMENTS,
   SQLITE_DB_FILE,
   SQLITE_SCHEMA_VERSION,
   SQLITE_SKINNY_PROJECTION_COLUMNS,
   SQLITE_SKINNY_PROJECTION_INDEX_STATEMENTS,
+  queueProjectionRowsTableStatement,
 } from './schema';
 import {
   SqliteDeltaCheckpointLayer,
@@ -631,6 +633,10 @@ export class SqliteDatabaseService {
     this.ensureReviewEventCommitIdempotencyColumn(db);
     this.ensureNeuralRoamRouteHistoryLineageColumns(db);
     this.ensureSkinnyProjectionColumns();
+    this.ensureQueueProjectionRowsPolicyPrimaryKey();
+    for (const statement of QUEUE_PROJECTION_ROWS_INDEX_STATEMENTS) {
+      this.runSchemaStatement(statement);
+    }
     for (const statement of CARD_PROJECTION_INDEX_STATEMENTS) {
       this.runSchemaStatement(statement);
     }
@@ -739,6 +745,33 @@ export class SqliteDatabaseService {
         }
       }
     }
+  }
+
+  private ensureQueueProjectionRowsPolicyPrimaryKey(): void {
+    const columns = this.getAll<{ name: string; pk: number }>('PRAGMA table_info(queue_projection_rows)');
+    const primaryKey = columns
+      .filter((column) => Number(column.pk) > 0)
+      .sort((left, right) => Number(left.pk) - Number(right.pk))
+      .map((column) => String(column.name));
+    if (primaryKey.join('|') === 'queue_type|policy_hash|row_id') {
+      return;
+    }
+
+    const legacyTable = 'queue_projection_rows__legacy_policy_pk';
+    this.runSchemaMutation(`DROP TABLE IF EXISTS ${legacyTable}`);
+    this.runSchemaMutation(`ALTER TABLE queue_projection_rows RENAME TO ${legacyTable}`);
+    this.runSchemaMutation(queueProjectionRowsTableStatement());
+    this.runSchemaMutation(
+      `INSERT OR REPLACE INTO queue_projection_rows
+        (queue_type, row_id, card_id, block_id, deck_id, membership_reason, due_at, due_bucket,
+         priority_score, sort_key, queue_index_hint, policy_hash, source_generation, payload_json, updated_at,
+         truth_refs_json, source_hash, truth_schema_version)
+       SELECT queue_type, row_id, card_id, block_id, deck_id, membership_reason, due_at, due_bucket,
+              priority_score, sort_key, queue_index_hint, policy_hash, source_generation, payload_json, updated_at,
+              truth_refs_json, source_hash, truth_schema_version
+       FROM ${legacyTable}`,
+    );
+    this.runSchemaMutation(`DROP TABLE ${legacyTable}`);
   }
 
   private seedAlgorithmRegistry(): void {

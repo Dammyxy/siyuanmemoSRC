@@ -94,31 +94,6 @@
           {{ contentPlaceholder }}
         </div>
       </section>
-
-      <details
-        v-if="card"
-        class="review-inline-card-editor__secondary"
-        data-testid="review-inline-card-secondary"
-      >
-        <summary class="review-inline-card-editor__secondary-summary">
-          {{ secondaryTitle }}
-        </summary>
-        <section
-          class="review-inline-card-editor__metadata"
-          data-testid="review-inline-card-metadata"
-        >
-          <SrsEditorDialog
-            :card="card"
-            :deck-id="deckId"
-            :i18n="i18n"
-            :plugin="plugin"
-            :review-service="reviewService"
-            :scheduling-context="schedulingContext"
-            @scheduled="(payload) => emit('scheduled', payload)"
-            @dismissed="(payload) => emit('dismissed', payload)"
-          />
-        </section>
-      </details>
     </div>
   </section>
 </template>
@@ -126,10 +101,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import ReviewEditableTargetsPanel from './ReviewEditableTargetsPanel.vue';
-import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
-import type FSRSPlugin from '@/index';
-import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
-import type { QueueReviewSchedulingContext } from '@/types/unified-data-source';
 import type {
   ReviewEditableTargetConflictResolution,
   ReviewEditableTargetEditorEntry,
@@ -148,12 +119,7 @@ const props = defineProps<{
   open: boolean;
   title: string;
   hint: string;
-  card: { id?: string; blockId?: string; deckId?: string } | null;
-  deckId?: string;
   i18n?: Record<string, string>;
-  plugin?: FSRSPlugin;
-  reviewService?: ReviewApplicationService | null;
-  schedulingContext?: QueueReviewSchedulingContext | null;
   sourceOpen: boolean;
   sourceTitle: string;
   sourceEntries: ReviewEditableTargetEditorEntry[];
@@ -174,8 +140,6 @@ const emit = defineEmits<{
   (e: 'resolve-source-conflict', targetId: string, resolution: ReviewEditableTargetConflictResolution): void;
   (e: 'confirm-source'): void;
   (e: 'close'): void;
-  (e: 'scheduled', payload: unknown): void;
-  (e: 'dismissed', payload: unknown): void;
 }>();
 
 function t(key: string, fallback: string): string {
@@ -185,7 +149,6 @@ function t(key: string, fallback: string): string {
 
 const contentTitle = computed(() => t('reviewStructuredContentTitle', '内容'));
 const contentPlaceholder = computed(() => t('reviewStructuredContentNoFields', '当前卡片没有可编辑内容字段'));
-const secondaryTitle = computed(() => t('reviewCardAttributeSection', '卡片属性'));
 const relationChips = computed(() => props.structuredModel?.relationChips || []);
 const sourceFallbackWarning = computed(() => {
   if (props.structuredModel?.fallbackReason === 'invalid-source-grammar') {
@@ -353,8 +316,7 @@ const directionLabel = computed(() => resolveDirectionLabel(directionKind.value)
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
-.review-inline-card-editor__content-header,
-.review-inline-card-editor__secondary-summary {
+.review-inline-card-editor__content-header {
   min-height: 28px;
   color: var(--b3-theme-on-background);
   font-size: 13px;
@@ -455,52 +417,6 @@ const directionLabel = computed(() => resolveDirectionLabel(directionKind.value)
 
 .review-inline-card-editor__content--with-context .review-inline-card-editor__content-placeholder {
   grid-row: 3;
-}
-
-.review-inline-card-editor__secondary {
-  min-width: 0;
-  border-top: 1px solid var(--b3-border-color);
-}
-
-.review-inline-card-editor__secondary-summary {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  list-style: none;
-}
-
-.review-inline-card-editor__secondary-summary::-webkit-details-marker {
-  display: none;
-}
-
-.review-inline-card-editor__secondary-summary::before {
-  content: '';
-  width: 0;
-  height: 0;
-  margin-right: 8px;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  border-left: 5px solid var(--b3-theme-on-surface-light);
-  transition: transform 120ms ease;
-}
-
-.review-inline-card-editor__secondary[open] .review-inline-card-editor__secondary-summary::before {
-  transform: rotate(90deg);
-}
-
-.review-inline-card-editor__metadata {
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  border: 1px solid var(--b3-border-color);
-  border-radius: 6px;
-  background: var(--b3-theme-surface);
-}
-
-.review-inline-card-editor__metadata :deep(.srs-editor) {
-  max-height: min(520px, 56vh);
-  padding: 10px;
-  background: var(--b3-theme-background);
 }
 
 @media (max-width: 760px) {

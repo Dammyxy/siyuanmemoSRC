@@ -13,7 +13,6 @@ import {
   REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT,
 } from '@/application/handlers/ReviewCommandRequestEvents';
 import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
-import { CardType } from '@/types/card';
 
 let reviewContentEditableTargets: ReviewEditableTarget[] = [];
 const reviewContentRefreshVisibleContent = vi.fn(async () => true);
@@ -932,10 +931,8 @@ describe('ReviewView more menu', () => {
     expect(wrapper.get('[data-toolbar-action="edit-current-content"]').attributes('aria-pressed')).toBe('true');
     expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="review-structured-content-editor"]').exists()).toBe(true);
-    expect(wrapper.find('[data-testid="review-inline-card-secondary"]').exists()).toBe(true);
-    expect(wrapper.find('[data-testid="review-inline-card-secondary"]').element.tagName.toLowerCase()).toBe('details');
-    expect(wrapper.find('[data-testid="review-inline-card-secondary"]').attributes('open')).toBeUndefined();
-    expect(wrapper.find('[data-testid="review-inline-card-metadata"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="review-inline-card-secondary"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="review-inline-card-metadata"]').exists()).toBe(false);
     expect(wrapper.get('[data-testid="review-structured-content-editor"]').find('[data-field="cardType"]').exists()).toBe(false);
     expect(wrapper.get('.fsrs-review-v2-content').attributes('style')).toContain('display: none');
 
@@ -946,7 +943,14 @@ describe('ReviewView more menu', () => {
     header.vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
     await flushPromises();
     expect(reviewService.getEditableBlockMarkdown).toHaveBeenCalledTimes(1);
-    expect((wrapper.get('textarea.review-editable-targets-panel__textarea').element as HTMLTextAreaElement).value).toBe('Updated body');
+    expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(false);
+    expect(wrapper.get('.fsrs-review-v2-content').attributes('style') || '').not.toContain('display: none');
+
+    header.vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
+    await flushPromises();
+    await wrapper.get('textarea.review-editable-targets-panel__textarea').setValue('Updated body');
+    await flushPromises();
 
     const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
     expect(saveButton).toBeTruthy();
@@ -1979,9 +1983,11 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
-  it('opens metadata-only inline card editor when source targets are unavailable', async () => {
+  it('keeps source editing entry hidden when source targets are unavailable', async () => {
     const { wrapper, cardEditorService } = mountReviewView({ attachInDialog: true });
     await flushPromises();
+
+    expect(wrapper.find('[data-toolbar-action="edit-current-content"]').exists()).toBe(false);
 
     document.body.focus();
     wrapper.element.dispatchEvent(new KeyboardEvent('keydown', {
@@ -1991,16 +1997,10 @@ describe('ReviewView more menu', () => {
     }));
     await flushPromises();
 
-    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(true);
-    expect(wrapper.find('[data-testid="review-structured-content-editor"]').exists()).toBe(true);
-    expect(wrapper.find('[data-testid="review-editable-targets-panel"]').exists()).toBe(false);
-    expect(wrapper.find('[data-testid="review-structured-content-placeholder"]').exists()).toBe(true);
-    expect(wrapper.find('[data-testid="review-inline-card-secondary"]').exists()).toBe(true);
-    expect(wrapper.find('[data-testid="review-inline-card-metadata"]').exists()).toBe(true);
-    expect(wrapper.get('[data-testid="review-structured-content-editor"]').find('[data-field="cardType"]').exists()).toBe(false);
-    expect(wrapper.get('.fsrs-review-v2-content').attributes('style')).toContain('display: none');
-    expect(cardEditorService.loadSnapshot).toHaveBeenCalledWith('block-1', 'card-1');
-    expect(reviewViewMoreMenuMocks.showMessage).not.toHaveBeenCalledWith('当前内容暂不支持编辑', 3000, 'info');
+    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="review-structured-content-editor"]').exists()).toBe(false);
+    expect(cardEditorService.loadSnapshot).not.toHaveBeenCalled();
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenCalledWith('当前内容暂不支持编辑', 3000, 'info');
 
     wrapper.unmount();
   });
@@ -2250,76 +2250,7 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
-  it('applies card type changes through the inline metadata editor and syncs the render family', async () => {
-    const conceptCard = {
-      ...buildCard('card-1'),
-      type: CardType.Concept,
-      cardTypeMarker: 'concept',
-      meta: {
-        renderProfile: 'concept',
-        typeMarker: 'C',
-        templateID: 'builtin-concept-simple',
-        cardTypeMarker: 'concept',
-      },
-    };
-    const updateCardType = vi.fn(async (_cardId: string, targetType: CardType) => ({
-      card: {
-        ...conceptCard,
-        type: targetType,
-      },
-      status: 'applied',
-      blockInfo: { createdAt: null, updatedAt: null },
-    }));
-    const cardEditorService = {
-      loadSnapshot: vi.fn(async () => ({
-        card: buildCard('card-1'),
-        blockInfo: { createdAt: null, updatedAt: null },
-      })),
-      updateCardType,
-      updateRender: vi.fn(async () => ({
-        card: conceptCard,
-        status: 'unchanged',
-        blockInfo: { createdAt: null, updatedAt: null },
-      })),
-      updatePriority: vi.fn(async (_cardId: string, priority: number) => ({
-        card: { ...conceptCard, priority },
-        blockInfo: { createdAt: null, updatedAt: null },
-      })),
-      scheduleCard: vi.fn(async () => ({
-        card: conceptCard,
-        blockInfo: { createdAt: null, updatedAt: null },
-      })),
-      setDismissed: vi.fn(async () => ({
-        card: conceptCard,
-        blockInfo: { createdAt: null, updatedAt: null },
-      })),
-      setDismissedMany: vi.fn(async () => ({
-        updatedCardIds: ['card-1'],
-        failedCardIds: [],
-      })),
-      resetProgress: vi.fn(async () => ({
-        card: conceptCard,
-        blockInfo: { createdAt: null, updatedAt: null },
-      })),
-    };
-    const { wrapper } = mountReviewView({ cardEditorService, attachInDialog: true });
-    await flushPromises();
-
-    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-current-content', createToolbarEvent());
-    await flushPromises();
-
-    expect(wrapper.find('[data-testid="review-inline-card-editor"]').exists()).toBe(true);
-    await wrapper.findAll('[data-field="cardType"] .srs-type-option')[2].trigger('click');
-    await flushPromises();
-
-    expect(updateCardType).toHaveBeenCalledWith('card-1', CardType.Concept);
-    expect((wrapper.get('[data-field="render"] select').element as HTMLSelectElement).value).toBe('concept');
-    expect(wrapper.get('[data-field="render"]').text()).toContain('当前为推荐渲染');
-
-    wrapper.unmount();
-  });
-
-  it('keeps card attribute mutations outside the dirty content draft save path', async () => {
+  it('keeps SRS data editing outside the dirty content draft save path', async () => {
     reviewContentEditableTargets = [
       buildEditableTarget('main-protyle:current-content:block-1', 'block-1', '编辑当前内容'),
     ];
@@ -2333,20 +2264,16 @@ describe('ReviewView more menu', () => {
         pushErrMsg: vi.fn(),
       }),
     };
-    const updateCardType = vi.fn(async (_cardId: string, targetType: CardType) => ({
-      card: {
-        ...buildCard('card-1'),
-        type: targetType,
-      },
-      status: 'applied',
-      blockInfo: { createdAt: null, updatedAt: null },
-    }));
     const cardEditorService = {
       loadSnapshot: vi.fn(async () => ({
         card: buildCard('card-1'),
         blockInfo: { createdAt: null, updatedAt: null },
       })),
-      updateCardType,
+      updateCardType: vi.fn(async () => ({
+        card: buildCard('card-1'),
+        status: 'applied',
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
       updateRender: vi.fn(async () => ({
         card: buildCard('card-1'),
         status: 'unchanged',
@@ -2387,10 +2314,12 @@ describe('ReviewView more menu', () => {
     await textarea.setValue('Dirty content draft');
     await flushPromises();
 
-    await wrapper.findAll('[data-field="cardType"] .srs-type-option')[2].trigger('click');
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+    await getLatestMenuItems().find((item) => item.id === 'edit-srs')?.click?.();
     await flushPromises();
 
-    expect(updateCardType).toHaveBeenCalledWith('card-1', CardType.Concept);
+    expect(reviewViewDialogMocks.createVueDialogMock).toHaveBeenCalledTimes(1);
     expect(reviewService.updateBlockMarkdown).not.toHaveBeenCalled();
     expect((wrapper.get('textarea.review-editable-targets-panel__textarea').element as HTMLTextAreaElement).value)
       .toBe('Dirty content draft');

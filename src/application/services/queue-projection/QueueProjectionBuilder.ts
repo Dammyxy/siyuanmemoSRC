@@ -842,7 +842,7 @@ function buildProjectionRow(
 
   return {
     queueType: input.queueType,
-    rowId: snapshot.id,
+    rowId: resolveDurableProjectionRowId(card, snapshot.id),
     cardId: snapshot.fsrsCardId,
     blockId: snapshot.blockId || null,
     deckId: snapshot.deckId || null,
@@ -860,7 +860,7 @@ function buildProjectionRow(
       due: Number.isFinite(Number(card.due)) ? Number(card.due) : null,
       priority: normalizePriority(card.priority),
       sourceCardFingerprint: buildQueueProjectionSourceCardFingerprint(card),
-      rowId: snapshot.id,
+      rowId: resolveDurableProjectionRowId(card, snapshot.id),
       manualOutstanding: membershipReason === 'manual-outstanding',
       frontierCandidate,
       rotationCard: input.queueType === QueueType.IncrementalLearning && !formalMemoryCard,
@@ -887,7 +887,7 @@ function buildProjectionRowFromOrderedCard(input: {
   const snapshot = buildQueueSnapshotRow(input.card, { queueIndex });
   return {
     queueType: input.queueType,
-    rowId: input.rowId ?? snapshot.id,
+    rowId: input.rowId ?? resolveDurableProjectionRowId(input.card, snapshot.id),
     cardId: snapshot.fsrsCardId,
     blockId: snapshot.blockId || null,
     deckId: snapshot.deckId || null,
@@ -900,7 +900,7 @@ function buildProjectionRowFromOrderedCard(input: {
     policyHash: input.policyHash,
     sourceGeneration: input.sourceGeneration,
     payload: {
-      rowId: input.rowId ?? snapshot.id,
+      rowId: input.rowId ?? resolveDurableProjectionRowId(input.card, snapshot.id),
       state: input.card.state,
       due: Number.isFinite(Number(input.card.due)) ? Number(input.card.due) : null,
       priority: normalizePriority(input.card.priority),
@@ -909,6 +909,10 @@ function buildProjectionRowFromOrderedCard(input: {
     },
     updatedAt: input.updatedAt,
   };
+}
+
+function resolveDurableProjectionRowId(card: Pick<FSRSCard, 'id'>, fallback: string): string {
+  return String(card.id || '').trim() || fallback;
 }
 
 function resolveOrderedDueBucket(

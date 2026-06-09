@@ -136,6 +136,42 @@ export const SQLITE_SKINNY_PROJECTION_INDEX_STATEMENTS = [
     ON diagnostics_indexes(projection_generation, recorded_at DESC)`,
 ];
 
+export function queueProjectionRowsTableStatement(tableName = 'queue_projection_rows'): string {
+  if (!/^[a-z_][a-z0-9_]*$/i.test(tableName)) {
+    throw new Error(`Invalid SQLite table name: ${tableName}`);
+  }
+  return `CREATE TABLE IF NOT EXISTS ${tableName} (
+    queue_type TEXT NOT NULL,
+    row_id TEXT NOT NULL,
+    card_id TEXT NOT NULL,
+    block_id TEXT,
+    deck_id TEXT,
+    membership_reason TEXT NOT NULL,
+    due_at INTEGER,
+    due_bucket TEXT NOT NULL,
+    priority_score REAL NOT NULL,
+    sort_key TEXT NOT NULL,
+    queue_index_hint INTEGER,
+    policy_hash TEXT NOT NULL,
+    source_generation INTEGER NOT NULL,
+    payload_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    truth_refs_json TEXT,
+    source_hash TEXT,
+    truth_schema_version INTEGER,
+    PRIMARY KEY(queue_type, policy_hash, row_id)
+  )`;
+}
+
+export const QUEUE_PROJECTION_ROWS_INDEX_STATEMENTS = [
+  `CREATE INDEX IF NOT EXISTS idx_queue_projection_rows_order
+    ON queue_projection_rows(queue_type, policy_hash, source_generation, sort_key, queue_index_hint, row_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_queue_projection_rows_card
+    ON queue_projection_rows(queue_type, card_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_queue_projection_rows_block
+    ON queue_projection_rows(queue_type, block_id)`,
+];
+
 export const SQL_SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_migrations (
     id TEXT PRIMARY KEY,
@@ -284,30 +320,8 @@ export const SQL_SCHEMA_STATEMENTS = [
     updated_at INTEGER NOT NULL,
     metadata_json TEXT NOT NULL
   )`,
-  `CREATE TABLE IF NOT EXISTS queue_projection_rows (
-    queue_type TEXT NOT NULL,
-    row_id TEXT NOT NULL,
-    card_id TEXT NOT NULL,
-    block_id TEXT,
-    deck_id TEXT,
-    membership_reason TEXT NOT NULL,
-    due_at INTEGER,
-    due_bucket TEXT NOT NULL,
-    priority_score REAL NOT NULL,
-    sort_key TEXT NOT NULL,
-    queue_index_hint INTEGER,
-    policy_hash TEXT NOT NULL,
-    source_generation INTEGER NOT NULL,
-    payload_json TEXT NOT NULL,
-    updated_at INTEGER NOT NULL,
-    PRIMARY KEY(queue_type, row_id)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_queue_projection_rows_order
-    ON queue_projection_rows(queue_type, policy_hash, source_generation, sort_key, queue_index_hint, row_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_queue_projection_rows_card
-    ON queue_projection_rows(queue_type, card_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_queue_projection_rows_block
-    ON queue_projection_rows(queue_type, block_id)`,
+  queueProjectionRowsTableStatement(),
+  ...QUEUE_PROJECTION_ROWS_INDEX_STATEMENTS,
   `CREATE TABLE IF NOT EXISTS queue_projection_counters (
     queue_type TEXT NOT NULL,
     policy_hash TEXT NOT NULL,

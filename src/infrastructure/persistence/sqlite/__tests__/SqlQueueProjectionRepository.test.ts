@@ -131,6 +131,96 @@ describe('SqlQueueProjectionRepository', () => {
     ]);
   });
 
+  it('keeps projection row ids isolated by policy hash', async () => {
+    const repository = await createRepository();
+
+    repository.replaceQueueProjection({
+      queueType: QueueType.IncrementalLearning,
+      policyHash: 'policy-a',
+      generation: 1,
+      rows: [
+        row({
+          queueType: QueueType.IncrementalLearning,
+          rowId: 'shared-row',
+          cardId: 'card-policy-a',
+          policyHash: 'policy-a',
+          sourceGeneration: 1,
+        }),
+      ],
+      counters: counters({
+        queueType: QueueType.IncrementalLearning,
+        policyHash: 'policy-a',
+        generation: 1,
+        total: 1,
+        remaining: 1,
+        due: 1,
+      }),
+    });
+    repository.replaceQueueProjection({
+      queueType: QueueType.IncrementalLearning,
+      policyHash: 'policy-b',
+      generation: 2,
+      rows: [
+        row({
+          queueType: QueueType.IncrementalLearning,
+          rowId: 'shared-row',
+          cardId: 'card-policy-b',
+          policyHash: 'policy-b',
+          sourceGeneration: 2,
+        }),
+      ],
+      counters: counters({
+        queueType: QueueType.IncrementalLearning,
+        policyHash: 'policy-b',
+        generation: 2,
+        total: 1,
+        remaining: 1,
+        due: 1,
+      }),
+    });
+
+    expect(repository.readRows({
+      queueType: QueueType.IncrementalLearning,
+      policyHash: 'policy-a',
+    }).map((entry) => entry.cardId)).toEqual(['card-policy-a']);
+    expect(repository.readRows({
+      queueType: QueueType.IncrementalLearning,
+      policyHash: 'policy-b',
+    }).map((entry) => entry.cardId)).toEqual(['card-policy-b']);
+    expect(repository.readRows({ queueType: QueueType.IncrementalLearning })).toHaveLength(2);
+  });
+
+  it('rejects duplicate projection row ids before counters can claim missing rows', async () => {
+    const repository = await createRepository();
+
+    expect(() => repository.replaceQueueProjection({
+      queueType: QueueType.IncrementalLearning,
+      policyHash: 'policy-collision',
+      generation: 3,
+      rows: [
+        row({
+          queueType: QueueType.IncrementalLearning,
+          rowId: 'shared-riff-id',
+          cardId: 'card-local',
+          policyHash: 'policy-collision',
+          sourceGeneration: 3,
+        }),
+        row({
+          queueType: QueueType.IncrementalLearning,
+          rowId: 'shared-riff-id',
+          cardId: 'card-prefixed',
+          policyHash: 'policy-collision',
+          sourceGeneration: 3,
+        }),
+      ],
+      counters: counters({
+        queueType: QueueType.IncrementalLearning,
+        policyHash: 'policy-collision',
+        generation: 3,
+      }),
+    })).toThrow(/QUEUE_PROJECTION_IDENTITY_COLLISION/);
+  });
+
   it.each([
     QueueType.FilterGroup,
     QueueType.FinalDrill,
