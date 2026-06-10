@@ -21,6 +21,7 @@ import {
   type InitialReviewSessionState,
   type ReviewTabTransferState,
   type IReviewQueue,
+  type QueueCounterSnapshot,
 } from '@/types/unified-data-source';
 import type { ReviewQueueSessionSnapshot, ReviewTabRuntimeState } from '@/types/review-tab';
 import type { ISchedulerRouter } from '@/application/interfaces/ISchedulerRouter';
@@ -356,6 +357,134 @@ function cloneSerializableValue<T>(value: T): T | null {
   }
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+type QueueCounterBucketDto = {
+  all: number;
+  item: number;
+  descriptor: number;
+  topic: number;
+  concept: number;
+};
+
+function isValidQueueCounterBuckets(value: unknown): value is QueueCounterBucketDto {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return isFiniteNumber(value.all)
+    && isFiniteNumber(value.item)
+    && isFiniteNumber(value.descriptor)
+    && isFiniteNumber(value.topic)
+    && isFiniteNumber(value.concept);
+}
+
+function normalizeQueueCounterTotal(value: unknown): number | null | undefined {
+  if (value === null) {
+    return null;
+  }
+  return isFiniteNumber(value) ? value : undefined;
+}
+
+function normalizeQueueCounterSnapshot(value: unknown): QueueCounterSnapshot | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const total = normalizeQueueCounterTotal(value.total);
+  if (!isFiniteNumber(value.version)
+    || !isFiniteNumber(value.remaining)
+    || !isFiniteNumber(value.due)
+    || total === undefined
+    || !isValidQueueCounterBuckets(value.buckets)
+    || (value.source !== 'hot' && value.source !== 'reconciled')
+  ) {
+    return null;
+  }
+
+  const snapshot: QueueCounterSnapshot = {
+    version: value.version,
+    remaining: value.remaining,
+    due: value.due,
+    total,
+    buckets: {
+      all: value.buckets.all,
+      item: value.buckets.item,
+      descriptor: value.buckets.descriptor,
+      topic: value.buckets.topic,
+      concept: value.buckets.concept,
+    },
+    source: value.source,
+  };
+
+  if (isFiniteNumber(value.currentLearningDue)) {
+    snapshot.currentLearningDue = value.currentLearningDue;
+  }
+  if (isFiniteNumber(value.todayReviewDue)) {
+    snapshot.todayReviewDue = value.todayReviewDue;
+  }
+  if (isFiniteNumber(value.allowedNew)) {
+    snapshot.allowedNew = value.allowedNew;
+  }
+  if (isFiniteNumber(value.learnAheadAvailable)) {
+    snapshot.learnAheadAvailable = value.learnAheadAvailable;
+  }
+  if (isFiniteNumber(value.scheduledTotal)) {
+    snapshot.scheduledTotal = value.scheduledTotal;
+  }
+
+  return snapshot;
+}
+
+function isCardStateValue(value: unknown): boolean {
+  return value === 0 || value === 1 || value === 2 || value === 3 || value === 4;
+}
+
+function normalizeReviewSnapshotCard(value: unknown): FSRSCard | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (typeof value.id !== 'string' || !value.id.trim()
+    || typeof value.xiuyuanID !== 'string'
+    || typeof value.blockId !== 'string' || !value.blockId.trim()
+    || !isFiniteNumber(value.due)
+    || !isFiniteNumber(value.stability)
+    || !isFiniteNumber(value.difficulty)
+    || !isFiniteNumber(value.reps)
+    || !isFiniteNumber(value.lapses)
+    || !isCardStateValue(value.state)
+    || !isFiniteNumber(value.lastReview)
+    || !isFiniteNumber(value.elapsedDays)
+    || !isFiniteNumber(value.scheduledDays)
+    || !isFiniteNumber(value.priority)
+    || typeof value.type !== 'string'
+    || !Array.isArray(value.tags)
+    || !isFiniteNumber(value.leechCount)
+    || typeof value.isLeech !== 'boolean'
+    || typeof value.skipped !== 'boolean'
+    || !isFiniteNumber(value.createdAt)
+    || !isFiniteNumber(value.updatedAt)
+  ) {
+    return null;
+  }
+
+  const cloned = cloneSerializableValue(value);
+  return isRecord(cloned) ? cloned as unknown as FSRSCard : null;
+}
+
+function normalizeReviewSnapshotCards(value: unknown): FSRSCard[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => normalizeReviewSnapshotCard(item))
+    .filter((card): card is FSRSCard => card !== null);
+}
+
 function normalizeReviewQueueSessionSnapshot(value: unknown): ReviewQueueSessionSnapshot | null {
   if (!isRecord(value) || Number(value.version) !== 1) {
     return null;
@@ -366,27 +495,21 @@ function normalizeReviewQueueSessionSnapshot(value: unknown): ReviewQueueSession
     return null;
   }
 
-  const cachedCards = Array.isArray(value.cachedCards)
-    ? cloneSerializableValue(value.cachedCards)
-    : [];
+  const cachedCards = normalizeReviewSnapshotCards(value.cachedCards);
   const currentItem = value.currentItem == null
     ? null
-    : cloneSerializableValue(value.currentItem);
-  const forwardBuffer = Array.isArray(value.forwardBuffer)
-    ? cloneSerializableValue(value.forwardBuffer)
-    : [];
-  const lastCounterSnapshot = isRecord(value.lastCounterSnapshot)
-    ? cloneSerializableValue(value.lastCounterSnapshot)
-    : null;
+    : normalizeReviewSnapshotCard(value.currentItem);
+  const forwardBuffer = normalizeReviewSnapshotCards(value.forwardBuffer);
+  const lastCounterSnapshot = normalizeQueueCounterSnapshot(value.lastCounterSnapshot);
 
   return {
     version: 1,
     queueType,
     cacheValid: value.cacheValid === true,
     currentIndex: Math.max(0, Number(value.currentIndex) || 0),
-    cachedCards: Array.isArray(cachedCards) ? cachedCards : [],
-    currentItem: isRecord(currentItem) ? currentItem : null,
-    forwardBuffer: Array.isArray(forwardBuffer) ? forwardBuffer : [],
+    cachedCards,
+    currentItem,
+    forwardBuffer,
     pendingRotateCardId: typeof value.pendingRotateCardId === 'string'
       ? value.pendingRotateCardId
       : null,
@@ -403,7 +526,7 @@ function normalizeReviewQueueSessionSnapshot(value: unknown): ReviewQueueSession
       : null,
     sessionExcludedCardIds: normalizeStringArray(value.sessionExcludedCardIds) ?? [],
     sessionExcludedLogicalKeys: normalizeStringArray(value.sessionExcludedLogicalKeys) ?? [],
-    lastCounterSnapshot: isRecord(lastCounterSnapshot) ? lastCounterSnapshot : null,
+    lastCounterSnapshot,
   };
 }
 
