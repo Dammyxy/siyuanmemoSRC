@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-10 (Round 580)
+Last update: 2026-06-10 (Round 581)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-10 - Review journal projection reconciler extraction
+
+- Task: Implement OpenSpec change `extract-review-journal-projection-reconciler` to extract Review restart queue projection reconciliation from the broad SQL worker database service.
+- Touched slice: Review worker restart/reconciliation path: `worker/db/SqliteDatabaseService.ts`, `worker/review/ReviewJournalProjectionReconciler.ts`, focused reconciler tests, targeted backend Review restart adapter tests, `ARCHITECTURE.md`, and the OpenSpec task ledger.
+- Debt fixed now: Review journal projection entry normalization, durable `review_events` evidence matching, SRS queue-type filtering, staleness detection, and projection replacement now live behind one Review module interface instead of inline in `SqliteDatabaseService`. The SQL worker remains startup/transaction authority and delegates dependencies explicitly.
+- Debt deferred: Broader Review truth compaction, Review storage policy cleanup, native SQLite/WAL ownership, and non-SRS projection maintenance remain separate slices.
+- Why deferred: This change is an architecture extraction for the already-repaired restart durability path; expanding into storage/truth ownership would mix a low-risk module deepening with higher-risk persistence redesign.
+- Next safe step: Pick one follow-up debt slice: either narrow Review truth/storage policy cleanup or another bounded worker extraction with focused tests.
+- Validation: Focused `ReviewJournalProjectionReconciler.test.ts`, targeted `BackendReviewSyncRpcAdapter.test.ts` restart/journal projection scenarios, `pnpm run check:boundaries`, `git diff --check`, `pnpm build`, and OpenSpec strict validation.
 
 ### 2026-06-10 - Review storage restart durability closure
 

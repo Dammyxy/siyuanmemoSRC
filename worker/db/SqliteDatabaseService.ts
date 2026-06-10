@@ -6,11 +6,9 @@ import { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite
 import { SqlQueueProjectionRepository } from '@/infrastructure/persistence/sqlite/SqlQueueProjectionRepository';
 import { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite/SqlQueueStateRepository';
 import { SqlSemanticActivationRepository } from '@/infrastructure/persistence/sqlite/SqlSemanticActivationRepository';
-import { buildQueueProjectionRows } from '@/application/services/queue-projection/QueueProjectionBuilder';
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
-import { DEFAULT_SETTINGS } from '@/types/settings';
 import {
   mapReviewLogV2ToReviewEventFact,
   summarizeReviewEventFact,
@@ -122,6 +120,7 @@ import type { DoOperation } from '@/core/infrastructure/websocket/transaction-ty
 import { AutoCardDecisionService } from './AutoCardDecisionService';
 import { SemanticSessionReadModelBuilder } from '../semantic/SemanticSessionReadModelBuilder';
 import { WorkerReviewFeedbackRuntime } from '../review/WorkerReviewFeedbackRuntime';
+import { ReviewJournalProjectionReconciler } from '../review/ReviewJournalProjectionReconciler';
 import { DomainSyncLedger } from '../domain-sync/DomainSyncLedger';
 import { recordBackendWorkerInnerStep, recordReviewFeedbackInnerStep } from '../bootstrap/ReviewFeedbackTimingScope';
 import {
@@ -223,19 +222,6 @@ type ReviewFeedbackJournalEntry = {
   projectionFailedAt: number | null;
   truthCandidate?: MessagePackReviewEventTruthRecord | null;
   lastError: string | null;
-};
-
-type ReviewFeedbackJournalProjectionQueueType =
-  | QueueType.RetrievalPractice
-  | QueueType.IncrementalLearning;
-
-type ReviewFeedbackJournalProjectionReconciliation = {
-  queueType: ReviewFeedbackJournalProjectionQueueType;
-  policyHash: string;
-  generation: number;
-  reviewedAt: number;
-  cardIds: string[];
-  blockIds: string[];
 };
 
 type WorkerSyncConflictMergeRequest = BackendSyncConflictMergeRequest & {
@@ -2453,228 +2439,27 @@ export class WorkerSqliteDatabaseService {
     if (!this.reviewFeedbackJournalStore || !this.queueProjection || !this.repository) {
       return;
     }
-    const entries = await this.readReviewFeedbackJournalProjectionEntries();
-    if (entries.length === 0) {
-      return;
-    }
-
-    const groups = new Map<string, ReviewFeedbackJournalProjectionReconciliation>();
-    for (const entry of entries) {
-      const reconciliation = this.buildReviewFeedbackJournalProjectionReconciliation(entry);
-      if (!reconciliation) {
-        continue;
-      }
-      const key = `${reconciliation.queueType}:${reconciliation.policyHash}`;
-      const existing = groups.get(key);
-      if (!existing) {
-        groups.set(key, reconciliation);
-        continue;
-      }
-      existing.generation = Math.max(existing.generation, reconciliation.generation);
-      existing.reviewedAt = Math.max(existing.reviewedAt, reconciliation.reviewedAt);
-      existing.cardIds = uniqueStrings([...existing.cardIds, ...reconciliation.cardIds]);
-      existing.blockIds = uniqueStrings([...existing.blockIds, ...reconciliation.blockIds]);
-    }
-
-    for (const reconciliation of groups.values()) {
-      if (!this.needsReviewFeedbackJournalProjectionReconciliation(reconciliation)) {
-        continue;
-      }
-      await this.runtime.runTransaction('reviewFeedback.journal-projection-reconcile', () => {
-        this.replaceReviewFeedbackJournalProjection(reconciliation);
-      }, { persist: false });
-    }
-  }
-
-  private async readReviewFeedbackJournalProjectionEntries(): Promise<ReviewFeedbackJournalEntry[]> {
-    if (!this.reviewFeedbackJournalStore) {
-      return [];
-    }
-    const entries: ReviewFeedbackJournalEntry[] = [];
-    for (const status of ['projection-applied', 'truth-flushed'] satisfies ReviewFeedbackJournalEntryStatus[]) {
-      entries.push(...this.normalizeReviewFeedbackJournalEntries(
-        await this.reviewFeedbackJournalStore.listEntriesByStatus(status, REVIEW_FEEDBACK_JOURNAL_REPLAY_BATCH_LIMIT),
-      ));
-    }
-    return entries
-      .sort((a, b) => a.recordedAt - b.recordedAt)
-      .slice(0, REVIEW_FEEDBACK_JOURNAL_REPLAY_BATCH_LIMIT);
-  }
-
-  private buildReviewFeedbackJournalProjectionReconciliation(
-    entry: ReviewFeedbackJournalEntry,
-  ): ReviewFeedbackJournalProjectionReconciliation | null {
-    const queueType = this.resolveReviewFeedbackJournalProjectionQueueType(entry.request.queueType);
-    if (!queueType) {
-      return null;
-    }
-    const idempotencyKey = normalizeString(entry.idempotencyKey)
-      || normalizeString(entry.request.idempotencyKey);
-    if (!idempotencyKey) {
-      return null;
-    }
-    const event = this.runtime.getOne<{
-      card_id: string | null;
-      rating: number | null;
-      reviewed_at: number | null;
-      payload_json: string | null;
-    }>(
-      `SELECT card_id, rating, reviewed_at, payload_json
-         FROM review_events
-        WHERE commit_idempotency_key = ?
-        ORDER BY reviewed_at ASC, id ASC
-        LIMIT 1`,
-      [idempotencyKey],
-    );
-    if (!event || !this.reviewFeedbackJournalMatchesDurableEvent(entry, event)) {
-      return null;
-    }
-
-    const requestedGeneration = Math.max(0, Math.floor(Number(entry.request.projectionGeneration || 0)));
-    const generation = Math.max(
-      requestedGeneration + 1,
-      1,
-    );
-    const reviewedAt = Math.max(
-      1,
-      Math.floor(Number(event.reviewed_at ?? entry.request.reviewedAt ?? entry.appliedAt ?? Date.now()) || Date.now()),
-    );
-    const policyHash = normalizeString(entry.request.projectionPolicyHash)
-      || this.queueProjection?.readGeneration(queueType)?.policyHash
-      || '';
-    if (!policyHash) {
-      return null;
-    }
-    const cardId = normalizeString(entry.cardId) || normalizeString(entry.request.cardId);
-    const payload = parseSqlJsonRecord(event.payload_json);
-    const blockId = readRecordString(payload, ['blockId', 'sourceBlockId']);
-    return {
-      queueType,
-      policyHash,
-      generation,
-      reviewedAt,
-      cardIds: cardId ? [cardId] : [],
-      blockIds: blockId ? [blockId] : [],
-    };
-  }
-
-  private reviewFeedbackJournalMatchesDurableEvent(
-    entry: ReviewFeedbackJournalEntry,
-    event: { card_id: string | null; rating: number | null; reviewed_at: number | null; payload_json: string | null },
-  ): boolean {
-    const request = entry.request;
-    const payload = parseSqlJsonRecord(event.payload_json);
-    const requestCardId = normalizeString(request.cardId) || normalizeString(entry.cardId);
-    const eventCardId = normalizeString(event.card_id) || readRecordString(payload, ['cardId']);
-    if (!requestCardId || requestCardId !== eventCardId) {
-      return false;
-    }
-    const requestRating = Math.floor(Number(request.rating));
-    const eventRating = Math.floor(Number(event.rating ?? payload.rating));
-    if (!Number.isFinite(requestRating) || requestRating !== eventRating) {
-      return false;
-    }
-    const requestReviewedAt = Math.floor(Number(request.reviewedAt ?? entry.appliedAt));
-    const eventReviewedAt = Math.floor(Number(event.reviewed_at ?? payload.reviewedAt));
-    if (!Number.isFinite(requestReviewedAt) || requestReviewedAt !== eventReviewedAt) {
-      return false;
-    }
-    const payloadQueueType = normalizeString(payload.queueType);
-    return !payloadQueueType || payloadQueueType === normalizeString(request.queueType);
-  }
-
-  private resolveReviewFeedbackJournalProjectionQueueType(
-    value: unknown,
-  ): ReviewFeedbackJournalProjectionQueueType | null {
-    const queueType = normalizeString(value);
-    if (queueType === QueueType.RetrievalPractice || queueType === QueueType.IncrementalLearning) {
-      return queueType;
-    }
-    return null;
-  }
-
-  private needsReviewFeedbackJournalProjectionReconciliation(
-    reconciliation: ReviewFeedbackJournalProjectionReconciliation,
-  ): boolean {
-    if (!this.queueProjection) {
-      return false;
-    }
-    const current = this.queueProjection.readGeneration(reconciliation.queueType);
-    if (!current || current.status !== 'ready' || current.generation < reconciliation.generation) {
-      return true;
-    }
-    if (current.generation > reconciliation.generation) {
-      return false;
-    }
-    const counters = this.queueProjection.readCounters(reconciliation.queueType, reconciliation.policyHash);
-    if (!counters) {
-      return true;
-    }
-    const rows = this.queueProjection.readRows({
-      queueType: reconciliation.queueType,
-      policyHash: reconciliation.policyHash,
-      generation: current.generation,
+    const reconciler = new ReviewJournalProjectionReconciler({
+      journalStore: this.reviewFeedbackJournalStore,
+      queueProjection: this.queueProjection,
+      repository: this.repository,
+      getDurableReviewEventByIdempotencyKey: (idempotencyKey) => this.runtime.getOne<{
+        card_id: string | null;
+        rating: number | null;
+        reviewed_at: number | null;
+        payload_json: string | null;
+      }>(
+        `SELECT card_id, rating, reviewed_at, payload_json
+           FROM review_events
+          WHERE commit_idempotency_key = ?
+          ORDER BY reviewed_at ASC, id ASC
+          LIMIT 1`,
+        [idempotencyKey],
+      ),
+      runTransaction: (label, task, options) => this.runtime.runTransaction(label, task, options),
+      replayBatchLimit: REVIEW_FEEDBACK_JOURNAL_REPLAY_BATCH_LIMIT,
     });
-    const expectedTotal = Math.max(0, Math.floor(Number(counters.total ?? counters.remaining ?? 0)));
-    if (expectedTotal > rows.length) {
-      return true;
-    }
-    const reconciledCardIds = new Set(reconciliation.cardIds);
-    return rows.some((row) => reconciledCardIds.has(String(row.cardId || '').trim()));
-  }
-
-  private replaceReviewFeedbackJournalProjection(
-    reconciliation: ReviewFeedbackJournalProjectionReconciliation,
-  ): void {
-    if (!this.queueProjection || !this.repository) {
-      return;
-    }
-    const dayEnd = getReviewFeedbackJournalProjectionDayEnd(reconciliation.reviewedAt);
-    const cardTypes = reconciliation.queueType === QueueType.RetrievalPractice
-      ? [CardType.Item, CardType.Descriptor]
-      : [
-        CardType.Item,
-        CardType.Descriptor,
-        CardType.Topic,
-        CardType.Concept,
-        CardType.Incremental,
-        CardType.Webpage,
-      ];
-    const baseCards = this.repository.queryCards({
-      cardTypes,
-      dueDate: { lte: dayEnd },
-      includeSuspended: false,
-      sourceStatus: 'active',
-    } satisfies StructuredCardQuery);
-    const buildResult = buildQueueProjectionRows({
-      queueType: reconciliation.queueType,
-      baseCards,
-      now: reconciliation.reviewedAt,
-      dayEnd,
-      newCardsPerDay: DEFAULT_SETTINGS.newCardsPerDay,
-      reviewsPerDay: DEFAULT_SETTINGS.reviewsPerDay,
-      priorityRandomness: DEFAULT_SETTINGS.priorityRandomness,
-      learnAheadWindowEnd: reconciliation.reviewedAt
-        + DEFAULT_SETTINGS.scheduler.srsV2.learnAhead.windowMinutes * 60 * 1000,
-      learnAheadMaxCards: DEFAULT_SETTINGS.scheduler.srsV2.learnAhead.maxCards,
-      stableSalt: `${reconciliation.queueType}:${reconciliation.policyHash}`,
-      policyHash: reconciliation.policyHash,
-      sourceGeneration: reconciliation.generation,
-      updatedAt: reconciliation.reviewedAt,
-    });
-    this.queueProjection.replaceQueueProjection({
-      queueType: reconciliation.queueType,
-      policyHash: reconciliation.policyHash,
-      generation: reconciliation.generation,
-      rows: buildResult.rows,
-      counters: buildResult.counters,
-      metadata: {
-        reason: 'review-feedback-journal-reconciliation',
-        source: 'review-feedback-journal',
-        reconciledCardIds: reconciliation.cardIds,
-        reconciledBlockIds: reconciliation.blockIds,
-      },
-    });
+    await reconciler.reconcile();
   }
 
   private async readReviewFeedbackJournalStats(): Promise<ReviewFeedbackJournalStoreStats> {
@@ -7736,18 +7521,6 @@ function uniqueStrings(values: Iterable<unknown>): string[] {
     result.push(normalized);
   }
   return result;
-}
-
-function getReviewFeedbackJournalProjectionDayEnd(timestamp: number): number {
-  const dayStartHour = Math.max(0, Math.min(23, Math.floor(Number(DEFAULT_SETTINGS.fsrs.dayStartHour) || 0)));
-  const now = new Date(timestamp);
-  const start = new Date(now);
-  if (now.getHours() < dayStartHour) {
-    start.setDate(start.getDate() - 1);
-  }
-  start.setHours(dayStartHour, 0, 0, 0);
-  start.setDate(start.getDate() + 1);
-  return start.getTime();
 }
 
 function containsNativeRiffMarker(value: unknown): boolean {
