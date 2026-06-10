@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-10 (Round 581)
+Last update: 2026-06-10 (Round 582)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-10 - Review truth storage policy cleanup
+
+- Task: Implement OpenSpec change `review-truth-storage-policy-cleanup` to harden Review truth flush/backfill storage-policy behavior without changing public RPC contracts or Review button success semantics.
+- Touched slice: Review truth maintenance path: `worker/truth/ReviewFeedbackTruthFlushRuntime.ts`, `worker/truth/ReviewSqlTruthBackfillRuntime.ts`, focused truth runtime tests, targeted backend Review RPC adapter tests, and this backlog.
+- Debt fixed now: Review truth flush/backfill failure results now preserve already-durable MessagePack truth segment diagnostics after downstream journal status or SQL projection-ref patch failures. Runtime tests now prove flush only advances journal state after durable truth/duplicate evidence, duplicate journal diagnostics are persisted, SQL backfill invalid rows fail repair-required without append/patch, duplicate SQL evidence stays sync-visible without duplicate truth append, and adapter diagnostics keep pending SQL count/check time plus latest error explicit.
+- Debt deferred: Duplicate SQL rows that already have matching truth evidence are still reported sync-visible but are not retro-patched with existing truth refs; broader Review truth compaction, native SQLite/WAL ownership, storage slimming deletion, and cross-device convergence remain separate storage roadmap slices.
+- Why deferred: This slice only fixes test-proven diagnostics drift and storage-policy coverage. Retro-patching duplicate SQL refs needs a separate replay-to-ref mapping policy because current truth replay records do not expose stable segment/record index refs.
+- Next safe step: If continuing Review storage debt, open a narrow duplicate-SQL-ref reconciliation change that first designs how replayed truth evidence maps back to SQL `msgpack_ref/truth_hash` without adding fallback reads or mutating cards/scheduler/queue state.
+- Validation: Focused `ReviewFeedbackTruthFlushRuntime.test.ts` and `ReviewSqlTruthBackfillRuntime.test.ts`; targeted `BackendReviewSyncAutoCardRpcAdapter.test.ts` and `BackendReviewSyncRpcAdapter.test.ts` truth/backfill patterns; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`; OpenSpec strict validation.
 
 ### 2026-06-10 - Review journal projection reconciler extraction
 

@@ -25,6 +25,29 @@ import {
   type BackendSyncRpcDatabase,
   type BackendSyncRpcHandlerContext,
 } from '../rpc/BackendSyncRpcAdapter';
+import type { MessagePackTruthSegmentFileStore } from '../../truth/MessagePackTruthSegmentStore';
+
+class MemoryTruthSegmentFileStore implements MessagePackTruthSegmentFileStore {
+  readonly jsonFiles = new Map<string, unknown>();
+  readonly binaryFiles = new Map<string, Uint8Array>();
+
+  async readJSON<T>(fileName: string): Promise<T | null> {
+    return (this.jsonFiles.get(fileName) as T | undefined) ?? null;
+  }
+
+  async writeJSON(fileName: string, data: unknown): Promise<void> {
+    this.jsonFiles.set(fileName, structuredClone(data));
+  }
+
+  async readBinary(fileName: string): Promise<Uint8Array | null> {
+    const bytes = this.binaryFiles.get(fileName);
+    return bytes ? new Uint8Array(bytes) : null;
+  }
+
+  async writeBinary(fileName: string, bytes: Uint8Array): Promise<void> {
+    this.binaryFiles.set(fileName, new Uint8Array(bytes));
+  }
+}
 
 describe('Backend Review/Sync/AutoCard RPC adapters', () => {
   it('registers migrated Review, Sync, domain-sync, and AutoCard methods outside the kernel switch owner', () => {
@@ -129,6 +152,120 @@ describe('Backend Review/Sync/AutoCard RPC adapters', () => {
         code: 'BACKEND_UNAVAILABLE',
         message: 'BACKEND_UNAVAILABLE: review.truth.flush requires Review feedback journal store',
       },
+    });
+  });
+
+  it('keeps review truth backfill fail-closed when truth storage is absent', async () => {
+    const dispatcher = new BackendRpcDispatcher(
+      createBackendRpcHandlerRegistry(BACKEND_REVIEW_RPC_HANDLER_REGISTRATIONS),
+    );
+    const context: BackendReviewRpcHandlerContext = {
+      review: new BackendReviewRpcRuntime({ database: createReviewDatabase() }),
+    };
+
+    await expect(dispatch(dispatcher, context, 'review.truth.backfill', {
+      deviceId: 'device-a',
+      generationId: 'review-events-v1',
+    })).resolves.toEqual({
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 'review.truth.backfill',
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'BACKEND_UNAVAILABLE: review.truth.backfill requires truth segment file store',
+      },
+    });
+  });
+
+  it('keeps review truth backfill identity preconditions explicit', async () => {
+    const dispatcher = new BackendRpcDispatcher(
+      createBackendRpcHandlerRegistry(BACKEND_REVIEW_RPC_HANDLER_REGISTRATIONS),
+    );
+    const context: BackendReviewRpcHandlerContext = {
+      review: new BackendReviewRpcRuntime({
+        database: createReviewDatabase(),
+        truthFileStore: new MemoryTruthSegmentFileStore(),
+      }),
+    };
+
+    await expect(dispatch(dispatcher, context, 'review.truth.backfill', {
+      deviceId: '',
+      generationId: 'review-events-v1',
+    })).resolves.toMatchObject({
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 'review.truth.backfill',
+      error: {
+        code: 'TRUTH_DEVICE_ID_UNAVAILABLE',
+        message: 'review.truth.backfill requires truth-wide persistent local device id',
+      },
+    });
+    await expect(dispatch(dispatcher, context, 'review.truth.backfill', {
+      deviceId: 'device-a',
+      generationId: '',
+    })).resolves.toMatchObject({
+      jsonrpc: BACKEND_RPC_VERSION,
+      id: 'review.truth.backfill',
+      error: {
+        code: 'INVALID_REQUEST',
+        message: 'review.truth.backfill requires generationId',
+      },
+    });
+  });
+
+  it('keeps review truth backfill diagnostics explicit after repair-required result', async () => {
+    const database = createReviewDatabase();
+    vi.mocked(database.listReviewEventsForTruthBackfill).mockResolvedValue([{
+      id: 'event-repair-required',
+      cardId: '',
+      attemptId: null,
+      rating: 3,
+      reviewedAt: 1_700_000_000_100,
+      eventType: 'review-v2',
+      commitIdempotencyKey: 'review:key-repair-required',
+      payloadJson: '{}',
+      msgpackRef: null,
+      truthHash: null,
+      truthSchemaVersion: null,
+      projectionGeneration: null,
+    }]);
+    vi.mocked(database.countReviewEventsPendingTruthBackfill).mockResolvedValue(1);
+    const dispatcher = new BackendRpcDispatcher(
+      createBackendRpcHandlerRegistry(BACKEND_REVIEW_RPC_HANDLER_REGISTRATIONS),
+    );
+    const context: BackendReviewRpcHandlerContext = {
+      review: new BackendReviewRpcRuntime({
+        database,
+        truthFileStore: new MemoryTruthSegmentFileStore(),
+      }),
+    };
+
+    await expect(dispatch(dispatcher, context, 'review.truth.backfill', {
+      deviceId: 'device-a',
+      generationId: 'review-events-v1',
+    })).resolves.toMatchObject({
+      result: {
+        ok: false,
+        sqlRowsRead: 1,
+        repairRequiredEventIds: ['event-repair-required'],
+        syncVisible: false,
+        error: expect.stringContaining('repair-required'),
+      },
+    });
+
+    await expect(context.review.getReviewTruthBackfillDiagnostics()).resolves.toMatchObject({
+      family: 'review-events',
+      source: 'review_events',
+      storage: 'truth-segments',
+      pendingSqlRows: 1,
+      pendingSqlRowsCheckedAt: expect.any(Number),
+      syncVisible: false,
+      last: {
+        ok: false,
+        sqlRowsRead: 1,
+        repairRequiredEventIds: ['event-repair-required'],
+        syncVisible: false,
+        error: expect.stringContaining('repair-required'),
+      },
+      lastError: expect.stringContaining('repair-required'),
     });
   });
 

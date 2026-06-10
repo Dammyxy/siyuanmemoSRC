@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createInMemoryReviewFeedbackJournalStore } from '../../db/ReviewFeedbackJournalStore';
 import {
   createMessagePackTruthSegmentStore,
@@ -127,6 +127,18 @@ describe('ReviewFeedbackTruthFlushRuntime', () => {
         'truth-flushed': 2,
       },
     });
+    await expect(journalStore.listEntriesByStatus('truth-flushed', 10)).resolves.toMatchObject([
+      {
+        id: 'journal-entry-1',
+        truthFlushDuplicate: false,
+        truthSegmentPaths: result.segmentPaths,
+      },
+      {
+        id: 'journal-entry-2',
+        truthFlushDuplicate: false,
+        truthSegmentPaths: result.segmentPaths,
+      },
+    ]);
     const replay = await truthStore.replayRecords();
     expect(replay.records).toMatchObject([
       {
@@ -204,6 +216,45 @@ describe('ReviewFeedbackTruthFlushRuntime', () => {
     });
   });
 
+  it('reports durable truth writes when journal status update fails after segment persistence', async () => {
+    const { journalStore, runtime, truthStore } = createRuntime();
+    await journalStore.appendEntry(reviewJournalEntry({
+      id: 'journal-entry-status-fail',
+      idempotencyKey: 'review:key-status-fail',
+      cardId: 'card-status-fail',
+      rating: 2,
+      reviewedAt: 1_700_000_000_100,
+      recordedAt: 1_700_000_000_001,
+    }));
+    vi.spyOn(journalStore, 'updateEntryStatus').mockRejectedValueOnce(
+      new Error('mock journal status update failed'),
+    );
+
+    const result = await runtime.flushProjectionApplied();
+
+    expect(result).toMatchObject({
+      ok: false,
+      journalQueued: 1,
+      recordsWritten: 1,
+      segmentWritten: true,
+      manifestUpdated: true,
+      projectionRefreshScheduled: false,
+      error: expect.stringContaining('mock journal status update failed'),
+    });
+    expect(result.segmentPaths.length).toBe(1);
+    const replay = await truthStore.replayRecords();
+    expect(replay.records).toMatchObject([
+      {
+        journalEntryId: 'journal-entry-status-fail',
+        idempotencyKey: 'review:key-status-fail',
+        cardId: 'card-status-fail',
+      },
+    ]);
+    await expect(journalStore.listEntriesByStatus('projection-applied', 10)).resolves.toMatchObject([
+      { id: 'journal-entry-status-fail', status: 'projection-applied' },
+    ]);
+  });
+
   it('marks duplicate idempotency entries flushed without writing another segment', async () => {
     const { fileStore, journalStore, runtime, truthStore } = createRuntime();
     await truthStore.appendRecords([{
@@ -245,5 +296,12 @@ describe('ReviewFeedbackTruthFlushRuntime', () => {
         'truth-flushed': 1,
       },
     });
+    await expect(journalStore.listEntriesByStatus('truth-flushed', 10)).resolves.toMatchObject([
+      {
+        id: 'journal-entry-dupe',
+        truthFlushDuplicate: true,
+        truthSegmentPaths: [],
+      },
+    ]);
   });
 });

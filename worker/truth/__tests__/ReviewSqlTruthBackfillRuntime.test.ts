@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createMessagePackTruthSegmentStore,
   type MessagePackTruthSegmentFileStore,
 } from '../MessagePackTruthSegmentStore';
 import {
   ReviewSqlTruthBackfillRuntime,
+  type ReviewSqlTruthBackfillRuntimeOptions,
   type ReviewSqlTruthBackfillProjectionPatch,
   type ReviewSqlTruthBackfillRow,
 } from '../ReviewSqlTruthBackfillRuntime';
@@ -54,7 +55,10 @@ function reviewSqlRow(overrides: Partial<ReviewSqlTruthBackfillRow> = {}): Revie
   };
 }
 
-function createRuntime(rows: ReviewSqlTruthBackfillRow[]) {
+function createRuntime(
+  rows: ReviewSqlTruthBackfillRow[],
+  overrides: Partial<Pick<ReviewSqlTruthBackfillRuntimeOptions, 'patchRows'>> = {},
+) {
   const fileStore = new MemoryTruthSegmentFileStore();
   const truthStore = createMessagePackTruthSegmentStore({
     fileStore,
@@ -72,9 +76,9 @@ function createRuntime(rows: ReviewSqlTruthBackfillRow[]) {
     generationId: 'projection-gen-1',
     schemaVersion: 1,
     listRows: () => rows,
-    patchRows: async (nextPatches) => {
+    patchRows: overrides.patchRows ?? (async (nextPatches) => {
       patches.push(...nextPatches);
-    },
+    }),
     sourceId: 'local-sql-fixture',
     limit: 16,
     now: () => 1_700_000_001_000,
@@ -175,5 +179,93 @@ describe('ReviewSqlTruthBackfillRuntime', () => {
     });
     expect(fileStore.binaryFiles.size).toBe(0);
     expect(patches).toEqual([]);
+  });
+
+  it('reports duplicate SQL evidence as sync-visible without appending a duplicate truth record', async () => {
+    const { fileStore, runtime, scheduledProjectionRefreshes, truthStore } = createRuntime([
+      reviewSqlRow({
+        id: 'event-duplicate-only',
+        cardId: 'card-duplicate-only',
+        commitIdempotencyKey: 'review:key-duplicate-only',
+      }),
+    ]);
+    await truthStore.appendRecords([{
+      family: 'review-events',
+      schemaVersion: 1,
+      type: 'review.feedback.v1',
+      eventId: 'event-already-truth',
+      idempotencyKey: 'review:key-duplicate-only',
+      logicalTime: 1_700_000_000_000,
+      recordedAt: 1_700_000_000_000,
+      source: { cardId: 'card-duplicate-only' },
+      review: { action: 'rating', rating: 3, reviewedAt: 1_700_000_000_000 },
+      memory: { projectionGeneration: null },
+    }]);
+    const binaryWriteCountBefore = fileStore.binaryFiles.size;
+
+    const result = await runtime.backfill();
+
+    expect(result).toMatchObject({
+      ok: true,
+      sqlRowsRead: 1,
+      recordsWritten: 0,
+      segmentWritten: false,
+      manifestUpdated: false,
+      projectionRefreshScheduled: false,
+      idempotencyDuplicateSkipped: 1,
+      backfilledEventIds: [],
+      duplicateEventIds: ['event-duplicate-only'],
+      repairRequiredEventIds: [],
+      syncVisible: true,
+      error: null,
+    });
+    expect(fileStore.binaryFiles.size).toBe(binaryWriteCountBefore);
+    expect(scheduledProjectionRefreshes).toEqual([]);
+    const replay = await truthStore.replayRecords({ dedupeByIdempotencyKey: true });
+    expect(replay.records.map((record) => record.idempotencyKey)).toEqual([
+      'review:key-duplicate-only',
+    ]);
+  });
+
+  it('reports durable truth writes when SQL projection ref patching fails after segment persistence', async () => {
+    const patchRows = vi.fn(async () => {
+      throw new Error('mock SQL projection ref patch failed');
+    });
+    const { runtime, scheduledProjectionRefreshes, truthStore } = createRuntime([
+      reviewSqlRow({
+        id: 'event-patch-fail',
+        cardId: 'card-patch-fail',
+        commitIdempotencyKey: 'review:key-patch-fail',
+      }),
+    ], { patchRows });
+
+    const result = await runtime.backfill();
+
+    expect(result).toMatchObject({
+      ok: false,
+      source: 'review_events',
+      sqlRowsRead: 1,
+      recordsWritten: 1,
+      segmentWritten: true,
+      manifestUpdated: true,
+      projectionRefreshScheduled: true,
+      idempotencyDuplicateSkipped: 0,
+      backfilledEventIds: ['event-patch-fail'],
+      duplicateEventIds: [],
+      repairRequiredEventIds: [],
+      syncVisible: true,
+      error: expect.stringContaining('mock SQL projection ref patch failed'),
+    });
+    expect(result.segmentPaths.length).toBe(1);
+    expect(scheduledProjectionRefreshes).toEqual([result.segmentPaths]);
+    expect(patchRows).toHaveBeenCalledTimes(1);
+    const replay = await truthStore.replayRecords();
+    expect(replay.records).toMatchObject([
+      {
+        eventId: 'event-patch-fail',
+        idempotencyKey: 'review:key-patch-fail',
+        cardId: 'card-patch-fail',
+      },
+    ]);
   });
 });

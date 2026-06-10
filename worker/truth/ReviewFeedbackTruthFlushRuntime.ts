@@ -258,6 +258,12 @@ export class ReviewFeedbackTruthFlushRuntime {
       return this.lastResult;
     }
 
+    let recordsWritten = 0;
+    let segmentPaths: string[] = [];
+    let idempotencyDuplicateSkipped = 0;
+    let flushedEntryIds: string[] = [];
+    let projectionRefreshScheduled = false;
+
     try {
       const replay = await this.truthStore.replayRecords({ dedupeByIdempotencyKey: true });
       const existingIdempotencyKeys = new Set(
@@ -278,30 +284,35 @@ export class ReviewFeedbackTruthFlushRuntime {
       const appendResult = records.length > 0
         ? await this.truthStore.appendRecords(records)
         : { segments: [] as MessagePackTruthSegmentManifestEntry[] };
+      recordsWritten = records.length;
+      segmentPaths = appendResult.segments.map((segment) => segment.path);
+      idempotencyDuplicateSkipped = duplicateEntries.length;
       for (const entry of [...entriesToFlush, ...duplicateEntries]) {
         await this.journalStore.updateEntryStatus(entry.id, 'truth-flushed', {
           truthFlushedAt: at,
           truthFlushDuplicate: duplicateEntries.includes(entry),
           truthSegmentPaths: duplicateEntries.includes(entry)
             ? []
-            : appendResult.segments.map((segment) => segment.path),
+            : segmentPaths,
           lastError: null,
         });
+        flushedEntryIds.push(entry.id);
       }
       if (appendResult.segments.length > 0) {
         await this.scheduleProjectionRefresh?.(appendResult.segments);
+        projectionRefreshScheduled = true;
       }
       this.lastResult = {
         ok: true,
         at,
         journalQueued: projectionApplied.length,
-        recordsWritten: records.length,
-        segmentWritten: appendResult.segments.length > 0,
-        manifestUpdated: appendResult.segments.length > 0,
-        projectionRefreshScheduled: appendResult.segments.length > 0,
-        idempotencyDuplicateSkipped: duplicateEntries.length,
-        flushedEntryIds: [...entriesToFlush, ...duplicateEntries].map((entry) => entry.id),
-        segmentPaths: appendResult.segments.map((segment) => segment.path),
+        recordsWritten,
+        segmentWritten: segmentPaths.length > 0,
+        manifestUpdated: segmentPaths.length > 0,
+        projectionRefreshScheduled,
+        idempotencyDuplicateSkipped,
+        flushedEntryIds,
+        segmentPaths,
         error: null,
       };
       return this.lastResult;
@@ -310,6 +321,13 @@ export class ReviewFeedbackTruthFlushRuntime {
         ...emptyResult(at),
         ok: false,
         journalQueued: projectionApplied.length,
+        recordsWritten,
+        segmentWritten: segmentPaths.length > 0,
+        manifestUpdated: segmentPaths.length > 0,
+        projectionRefreshScheduled,
+        idempotencyDuplicateSkipped,
+        flushedEntryIds,
+        segmentPaths,
         error: errorMessage(error),
       };
       return this.lastResult;

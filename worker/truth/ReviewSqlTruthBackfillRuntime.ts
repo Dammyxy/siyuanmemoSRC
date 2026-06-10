@@ -280,6 +280,13 @@ export class ReviewSqlTruthBackfillRuntime {
   async backfill(): Promise<ReviewSqlTruthBackfillResult> {
     const at = this.now();
     let rows: ReviewSqlTruthBackfillRow[] = [];
+    let recordsWritten = 0;
+    let segmentPaths: string[] = [];
+    let projectionRefreshScheduled = false;
+    let idempotencyDuplicateSkipped = 0;
+    let backfilledEventIds: string[] = [];
+    let duplicateEventIds: string[] = [];
+    let syncVisible = false;
     try {
       rows = (await this.listRows(this.limit)).slice(0, this.limit);
       if (rows.length === 0) {
@@ -316,6 +323,9 @@ export class ReviewSqlTruthBackfillRuntime {
         }
         rowsToWrite.push(candidate);
       }
+      idempotencyDuplicateSkipped = duplicateRows.length;
+      backfilledEventIds = rowsToWrite.map((row) => row.eventId);
+      duplicateEventIds = duplicateRows.map((row) => row.eventId);
 
       const records = rowsToWrite.map((row) => toReviewEventTruthRecord(row, {
         at,
@@ -325,9 +335,12 @@ export class ReviewSqlTruthBackfillRuntime {
       const appendResult = records.length > 0
         ? await this.truthStore.appendRecords(records)
         : { segments: [] as MessagePackTruthSegmentManifestEntry[] };
-      const segmentPaths = appendResult.segments.map((segment) => segment.path);
+      recordsWritten = records.length;
+      segmentPaths = appendResult.segments.map((segment) => segment.path);
+      syncVisible = appendResult.segments.length > 0 || duplicateRows.length > 0;
       if (appendResult.segments.length > 0) {
         await this.scheduleProjectionRefresh?.(appendResult.segments);
+        projectionRefreshScheduled = true;
       }
 
       if (records.length > 0) {
@@ -358,16 +371,16 @@ export class ReviewSqlTruthBackfillRuntime {
         at,
         source: 'review_events',
         sqlRowsRead: rows.length,
-        recordsWritten: records.length,
-        segmentWritten: appendResult.segments.length > 0,
-        manifestUpdated: appendResult.segments.length > 0,
-        projectionRefreshScheduled: appendResult.segments.length > 0,
-        idempotencyDuplicateSkipped: duplicateRows.length,
-        backfilledEventIds: rowsToWrite.map((row) => row.eventId),
-        duplicateEventIds: duplicateRows.map((row) => row.eventId),
+        recordsWritten,
+        segmentWritten: segmentPaths.length > 0,
+        manifestUpdated: segmentPaths.length > 0,
+        projectionRefreshScheduled,
+        idempotencyDuplicateSkipped,
+        backfilledEventIds,
+        duplicateEventIds,
         repairRequiredEventIds: [],
         segmentPaths,
-        syncVisible: appendResult.segments.length > 0 || duplicateRows.length > 0,
+        syncVisible,
         error: null,
       };
       return this.lastResult;
@@ -376,6 +389,15 @@ export class ReviewSqlTruthBackfillRuntime {
         ...emptyResult(at),
         ok: false,
         sqlRowsRead: rows.length,
+        recordsWritten,
+        segmentWritten: segmentPaths.length > 0,
+        manifestUpdated: segmentPaths.length > 0,
+        projectionRefreshScheduled,
+        idempotencyDuplicateSkipped,
+        backfilledEventIds,
+        duplicateEventIds,
+        segmentPaths,
+        syncVisible,
         error: errorMessage(error),
       };
       return this.lastResult;
