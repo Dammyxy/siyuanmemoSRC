@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-10 (Round 568)
+Last update: 2026-06-10 (Round 569)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-10 - Browser block existence query source
+
+- Task: Continue global Browser architecture cleanup by consolidating duplicated block-existence SQL used by missing-block marking and source-existence refresh.
+- Touched slice: Browser shared read helpers: new `BrowserBlockExistenceQuerySource`, `MissingBlockMarker`, `SourceExistenceCache`, and focused Browser shared/service tests.
+- Debt fixed now: `MissingBlockMarker` and `SourceExistenceCache` no longer each own block-id normalization, SQL string escaping, `SELECT id FROM blocks WHERE id IN (...)` construction, batching, and result normalization. Block-existence reads now sit behind one Browser shared query source while `SourceExistenceCache` keeps its source-existence performance instrumentation at the call site.
+- Debt deferred: `BrowserDeckBlockQuerySource` still has its own broader deck block SQL quoting/hydration helper because it reads doc/search/block-info data, not only block-existence status.
+- Why deferred: Folding deck hydration SQL into the existence helper would widen this narrow cleanup and blur two different read concepts.
+- Next safe step: If Browser deck SQL duplication keeps showing up, split a separate general Browser SQL id-list helper or deepen `BrowserDeckBlockQuerySource` in its own slice.
+- Validation: `pnpm exec vitest run src/application/queries/browser/shared/__tests__/BrowserBlockExistenceQuerySource.test.ts src/application/queries/browser/shared/__tests__/MissingBlockMarker.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts`; `pnpm exec vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts src/application/services/__tests__/BrowserApplicationService.read-model.test.ts`; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
 
 ### 2026-06-10 - Browser deck block query source extraction
 

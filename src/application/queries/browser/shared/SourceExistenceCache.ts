@@ -5,11 +5,17 @@ import {
   incrementRuntimePerformanceCounter,
   measureRuntimePerformance,
 } from '@/utils/runtimePerformanceDiagnostics';
+import {
+  BROWSER_BLOCK_EXISTENCE_BATCH_SIZE,
+  BrowserBlockExistenceQuerySource,
+  normalizeBrowserBlockId,
+  normalizeBrowserBlockIds,
+} from './BrowserBlockExistenceQuerySource';
 import { markKnownMissingBlockRows } from './MissingBlockMarker';
 
 const logger = createLogger('SourceExistenceCache');
 
-export const SOURCE_EXISTENCE_BATCH_SIZE = 500;
+export const SOURCE_EXISTENCE_BATCH_SIZE = BROWSER_BLOCK_EXISTENCE_BATCH_SIZE;
 export const SOURCE_EXISTENCE_BACKGROUND_LIMIT = 1000;
 export const SOURCE_EXISTENCE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -19,29 +25,9 @@ type SourceMarkableRow = {
   meta?: unknown;
 };
 
-interface BlockIdRow extends Record<string, unknown> {
-  id?: unknown;
-}
-
 export interface SourceExistenceRefreshResult {
   changed: boolean;
   changedToMissing: boolean;
-}
-
-function normalizeBlockId(value: unknown): string {
-  return String(value || '').trim();
-}
-
-function normalizeBlockIds(values: unknown[] | undefined): string[] {
-  return Array.from(new Set((values || []).map(normalizeBlockId).filter(Boolean)));
-}
-
-function escapeSqlString(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
-function toSqlQuotedValues(values: string[]): string {
-  return values.map((value) => `'${escapeSqlString(value)}'`).join(',');
 }
 
 function hasSourceExistencePort(
@@ -56,31 +42,6 @@ function hasSourceExistencePort(
   );
 }
 
-async function loadExistingBlockIds(
-  siyuanApi: Pick<BrowserQuerySiyuanPort, 'sql'>,
-  blockIds: string[],
-): Promise<Set<string>> {
-  const existing = new Set<string>();
-  for (let index = 0; index < blockIds.length; index += SOURCE_EXISTENCE_BATCH_SIZE) {
-    const batchIds = blockIds.slice(index, index + SOURCE_EXISTENCE_BATCH_SIZE);
-    const rows = await measureRuntimePerformance('source-existence', 'siyuan-sql.load-existing-block-ids', () => siyuanApi.sql<BlockIdRow>(`
-      SELECT id
-      FROM blocks
-      WHERE id IN (${toSqlQuotedValues(batchIds)})
-    `), {
-      batchSize: batchIds.length,
-      offset: index,
-    });
-    for (const row of rows) {
-      const id = normalizeBlockId(row.id);
-      if (id) {
-        existing.add(id);
-      }
-    }
-  }
-  return existing;
-}
-
 function buildUpdates(
   candidates: SourceExistenceRefreshCandidate[],
   existingBlockIds: Set<string>,
@@ -90,7 +51,7 @@ function buildUpdates(
   let changed = false;
 
   for (const candidate of candidates) {
-    const blockId = normalizeBlockId(candidate.blockId);
+    const blockId = normalizeBrowserBlockId(candidate.blockId);
     if (!blockId) {
       continue;
     }
@@ -121,7 +82,7 @@ export async function refreshSourceExistenceForBlockIds(
     return { changed: false, changedToMissing: false };
   }
 
-  const normalizedBlockIds = normalizeBlockIds(blockIds);
+  const normalizedBlockIds = normalizeBrowserBlockIds(blockIds);
   if (normalizedBlockIds.length === 0) {
     return { changed: false, changedToMissing: false };
   }
@@ -142,8 +103,21 @@ export async function refreshSourceExistenceForBlockIds(
       return { changed: false, changedToMissing: false };
     }
 
-    const existingBlockIds = await loadExistingBlockIds(
-      siyuanApi,
+    const blockExistenceSource = new BrowserBlockExistenceQuerySource(siyuanApi, {
+      batchSize: SOURCE_EXISTENCE_BATCH_SIZE,
+      instrumentation: {
+        loadExistingBlockIds: (_stmt, batch, loadRows) => measureRuntimePerformance(
+          'source-existence',
+          'siyuan-sql.load-existing-block-ids',
+          loadRows,
+          {
+            batchSize: batch.batchIds.length,
+            offset: batch.offset,
+          },
+        ),
+      },
+    });
+    const existingBlockIds = await blockExistenceSource.loadExistingBlockIds(
       candidates.map((candidate) => candidate.blockId),
     );
     const result = buildUpdates(candidates, existingBlockIds);
@@ -210,7 +184,7 @@ export function markRowsFromSourceExistenceCache<TRow extends SourceMarkableRow>
   }
 
   try {
-    const statusByBlockId = port.getSourceExistenceByBlockIds(rows.map((row) => normalizeBlockId(row.blockId)));
+    const statusByBlockId = port.getSourceExistenceByBlockIds(rows.map((row) => normalizeBrowserBlockId(row.blockId)));
     const missingBlockIds: string[] = [];
     for (const [blockId, exists] of statusByBlockId.entries()) {
       if (exists === false) {
