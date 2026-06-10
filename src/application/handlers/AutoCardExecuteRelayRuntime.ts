@@ -1,5 +1,5 @@
 import type { BackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
 import {
   type BackendAutoCardExecuteEnvelope,
   type BackendAutoCardExecuteRequest,
@@ -22,8 +22,10 @@ export interface AutoCardExecuteFrontendRelayRuntime {
   ensureWritable?: () => Promise<void>;
 }
 
+export type AutoCardExecuteBackendClient = Pick<BackendIntegrationClientFacet, 'executeAutoCard'>;
+
 export interface AutoCardExecuteRelayRuntimeDependencies {
-  getBackendClient: () => SrsBackendClient | null;
+  getBackendClient: () => AutoCardExecuteBackendClient | null;
   getRuntimePolicy: () => Pick<BackendMigrationRuntimePolicy, 'capabilities'> | null;
   getRelayRuntimeState: () => BackendRelayRuntimeState;
   getFrontendRelayRuntime: () => AutoCardExecuteFrontendRelayRuntime | null;
@@ -160,7 +162,7 @@ export class AutoCardExecuteRelayRuntime {
   }
 
   private async executeViaBackend(
-    backendClient: SrsBackendClient,
+    backendClient: AutoCardExecuteBackendClient,
     request: BackendAutoCardExecuteRequest,
     envelope: AutoCardExecutionEnvelope,
   ): Promise<AutoCardExecutionResult> {

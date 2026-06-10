@@ -16,6 +16,7 @@ describe('createAutoCardKernelXiuyuanServiceBundle', () => {
       getUnifiedStorage: () => ({ getXiuyuans: vi.fn(() => []), getAllCards: vi.fn(() => []) } as never),
       getUnifiedDataSourceManager: () => ({ getQueue: vi.fn() } as never),
       getSqlXiuyuanReadRepository: () => null,
+      getSrsBackendClient: () => null,
       getCardTypeDetectionService: () => ({} as never),
       getEventBus: () => ({ publish: vi.fn(), subscribe: vi.fn() } as never),
       getRiffBlacklistService: () => ({} as never),

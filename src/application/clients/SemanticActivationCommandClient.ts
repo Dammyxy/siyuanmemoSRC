@@ -2,19 +2,21 @@ import type {
   BackendSemanticCommandRequest,
   BackendSemanticCommandResult,
 } from '../../../packages/contracts/src/backend-rpc';
+import type { BackendSemanticClientFacet } from '@/application/clients/backend';
 import type { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
 import type { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+
+export type SemanticActivationCommandBackendClient = Pick<BackendSemanticClientFacet, 'semanticCommand'>;
 
 interface SemanticActivationCommandClientDeps {
-  backendClient: Pick<SrsBackendClient, 'semanticCommand'>;
+  backendClient: SemanticActivationCommandBackendClient;
   frontendRuntime?: Pick<FrontendInstanceRuntime, 'getMode' | 'getInstanceId' | 'ensureWritable'> | null;
   followerCommandClient?: Pick<FollowerCommandClient, 'submitAndWait'> | null;
   writerRelayRequiredForMutations?: boolean;
 }
 
 export class SemanticActivationCommandClient {
-  private readonly backendClient: Pick<SrsBackendClient, 'semanticCommand'>;
+  private readonly backendClient: SemanticActivationCommandBackendClient;
   private readonly frontendRuntime: Pick<FrontendInstanceRuntime, 'getMode' | 'getInstanceId' | 'ensureWritable'> | null;
   private readonly followerCommandClient: Pick<FollowerCommandClient, 'submitAndWait'> | null;
   private readonly writerRelayRequiredForMutations: boolean;

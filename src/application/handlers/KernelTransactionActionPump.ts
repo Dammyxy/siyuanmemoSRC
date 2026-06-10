@@ -1,4 +1,4 @@
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
 import { createLogger } from '@/utils/logger';
 import {
   incrementRuntimePerformanceCounter,
@@ -110,7 +110,7 @@ export class KernelTransactionActionPump {
   private nextAutoCardAt = 0;
 
   constructor(
-    private readonly srsBackendClient: Pick<SrsBackendClient, 'dequeueKernelTransactions' | 'requeueKernelTransactions'>,
+    private readonly srsBackendClient: Pick<BackendIntegrationClientFacet, 'dequeueKernelTransactions' | 'requeueKernelTransactions'>,
     private readonly runtime: FrontendRuntimeLike | null,
     private readonly followerCommandClient: FollowerCommandClientLike | null,
     private readonly getHybridSyncService: () => HybridSyncServiceLike | undefined,

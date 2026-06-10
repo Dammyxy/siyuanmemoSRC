@@ -4,19 +4,21 @@ import type {
   PrivateApiReadRequest,
   PrivateApiReadResult,
 } from '../../../packages/contracts/src/backend-rpc';
+import type { BackendPrivateApiClientFacet } from '@/application/clients/backend';
 import type { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
 import type { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+
+export type PrivateApiBackendClient = Pick<BackendPrivateApiClientFacet, 'privateRead' | 'privateCommand'>;
 
 interface PrivateApiClientDeps {
-  backendClient: Pick<SrsBackendClient, 'privateRead' | 'privateCommand'>;
+  backendClient: PrivateApiBackendClient;
   frontendRuntime?: Pick<FrontendInstanceRuntime, 'getMode' | 'getInstanceId' | 'ensureWritable'> | null;
   followerCommandClient?: Pick<FollowerCommandClient, 'submitAndWait'> | null;
   writerRelayRequiredForMutations?: boolean;
 }
 
 export class PrivateApiClient {
-  private readonly backendClient: Pick<SrsBackendClient, 'privateRead' | 'privateCommand'>;
+  private readonly backendClient: PrivateApiBackendClient;
   private readonly frontendRuntime: Pick<FrontendInstanceRuntime, 'getMode' | 'getInstanceId' | 'ensureWritable'> | null;
   private readonly followerCommandClient: Pick<FollowerCommandClient, 'submitAndWait'> | null;
   private readonly writerRelayRequiredForMutations: boolean;

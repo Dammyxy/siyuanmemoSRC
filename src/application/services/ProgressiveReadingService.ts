@@ -1,7 +1,7 @@
 import type { ProgressiveExcerptSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
 import type { ProgressiveBlockRow, ProgressiveDocInfo, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
 import type {
   BackendProgressiveCommandExecuteRequest,
   BackendProgressiveCommandExecuteResult,
@@ -213,6 +213,8 @@ type ProgressiveCommandFollowerClient = {
   }) => Promise<TResult>;
 };
 
+type ProgressiveBackendCommandClient = Pick<BackendIntegrationClientFacet, 'executeProgressiveCommand'>;
+
 export interface ProgressiveSplitResult {
   sessionId: string;
   pieceDocIds: string[];
@@ -411,7 +413,7 @@ export class ProgressiveReadingService {
     private readonly excerptRecordService: ExcerptRecordService,
     private readonly docTreeScopeRefresher?: ProgressiveDocTreeScopeRefresher,
     private readonly ownershipBoundaryClient?: ProgressiveOwnershipBoundaryClient,
-    private readonly backendClient?: Pick<SrsBackendClient, 'executeProgressiveCommand'>,
+    private readonly backendClient?: ProgressiveBackendCommandClient,
     private readonly commandRelayRuntime?: ProgressiveCommandRelayRuntime | null,
     private readonly followerCommandClient?: ProgressiveCommandFollowerClient | null,
   ) {}

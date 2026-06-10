@@ -66,7 +66,9 @@ import { XiuyuanNativeRiffRemoveRuntime } from './XiuyuanNativeRiffRemoveRuntime
 import { XiuyuanRiffBlacklistRuntime } from './XiuyuanRiffBlacklistRuntime';
 import { XiuyuanRiffInputRuntime } from './XiuyuanRiffInputRuntime';
 import { XiuyuanSyncApplyRuntime } from './XiuyuanSyncApplyRuntime';
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
+
+export type XiuyuanSyncBackendClient = Pick<BackendIntegrationClientFacet, 'executeXiuyuanSync'>;
 
 // ==================== Xiuyuan 同步服务 ====================
 const logger = createLogger('XiuyuanSyncService');
@@ -164,7 +166,7 @@ export class XiuyuanSyncService {
     private readonly riffBlacklistRuntime: XiuyuanRiffBlacklistRuntime<RiffBlock>;
     private readonly nativeRiffRemoveRuntime: XiuyuanNativeRiffRemoveRuntime<Xiuyuan>;
     private readonly syncApplyRuntime: XiuyuanSyncApplyRuntime;
-    private readonly srsBackendClient?: Pick<SrsBackendClient, 'executeXiuyuanSync'>;
+    private readonly srsBackendClient?: XiuyuanSyncBackendClient;
     
     // 默认重试配置
     private readonly DEFAULT_RETRY_CONFIG = {
@@ -181,7 +183,7 @@ export class XiuyuanSyncService {
         cardTypeDetectionService: CardTypeDetectionService,
         deletionTracker: IDeletionTracker,
         siyuanApi: XiuyuanSyncSiyuanPort,
-        srsBackendClient?: Pick<SrsBackendClient, 'executeXiuyuanSync'>
+        srsBackendClient?: XiuyuanSyncBackendClient
     ) {
         this.config = {
             ...config,

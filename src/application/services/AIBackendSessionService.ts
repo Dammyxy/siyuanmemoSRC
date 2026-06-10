@@ -14,22 +14,24 @@ import type {
   BackendAiStreamStartRequest,
 } from '../../../packages/contracts/src/backend-rpc';
 import type { KernelAiStreamEvent } from '../../../packages/contracts/src/kernel-rpc';
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type { BackendAiJobClientFacet } from '@/application/clients/backend';
 import type { AINetworkProxyPort, AINetworkProxyRequest, AINetworkProxyResponse } from '@/application/ports/AINetworkProxyPort';
 
+export type AIBackendSessionBackendClient = Pick<
+  BackendAiJobClientFacet,
+  | 'createAiSession'
+  | 'getAiSession'
+  | 'updateAiSession'
+  | 'cancelAiSession'
+  | 'startAiStream'
+  | 'cancelAiStream'
+  | 'getAiJob'
+  | 'cancelAiJob'
+  | 'executeAiPrompt'
+>;
+
 interface AIBackendSessionServiceDeps {
-  backendClient: Pick<
-    SrsBackendClient,
-    | 'createAiSession'
-    | 'getAiSession'
-    | 'updateAiSession'
-    | 'cancelAiSession'
-    | 'startAiStream'
-    | 'cancelAiStream'
-    | 'getAiJob'
-    | 'cancelAiJob'
-    | 'executeAiPrompt'
-  >;
+  backendClient: AIBackendSessionBackendClient;
   networkProxy?: AINetworkProxyPort | null;
   resolveSecret?: (name: string) => string | null | undefined;
 }

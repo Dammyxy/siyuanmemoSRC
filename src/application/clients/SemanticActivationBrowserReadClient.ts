@@ -4,10 +4,15 @@ import type {
   BackendSemanticSidebarReadRequest,
   BackendSemanticSidebarReadResult,
 } from '../../../packages/contracts/src/backend-rpc';
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type { BackendSemanticClientFacet } from '@/application/clients/backend';
+
+export type SemanticActivationReadBackendClient = Pick<
+  BackendSemanticClientFacet,
+  'semanticBrowserRead' | 'semanticSidebarRead'
+>;
 
 interface SemanticActivationBrowserReadClientDeps {
-  backendClient: Pick<SrsBackendClient, 'semanticBrowserRead' | 'semanticSidebarRead'>;
+  backendClient: SemanticActivationReadBackendClient;
 }
 
 export class SemanticActivationBrowserReadClient {

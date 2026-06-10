@@ -1,5 +1,5 @@
 import type { BackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
 import type { CreationDecision } from '@/core/card/post-creation/contracts';
 import type { BackendAutoCardDecisionProjection, BackendAutoCardDecisionResolveResult, BackendUnavailableClass } from '../../../packages/contracts/src/backend-rpc';
 import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics';
@@ -55,6 +55,8 @@ export type BackendRelayRuntimeState =
   | { mode: 'follower'; instanceId: string }
   | { mode: 'unknown'; rawMode: string | null };
 
+export type AutoCardDecisionBackendClient = Pick<BackendIntegrationClientFacet, 'resolveAutoCardDecision'>;
+
 export interface AutoCardDecisionRelayRuntimeInput {
   blockId: string;
   content: string;
@@ -76,7 +78,7 @@ export interface AutoCardDecisionFollowerCommandClient {
 }
 
 export interface AutoCardDecisionRelayRuntimeDependencies {
-  getBackendClient: () => SrsBackendClient | null;
+  getBackendClient: () => AutoCardDecisionBackendClient | null;
   getRuntimePolicy: () => Pick<BackendMigrationRuntimePolicy, 'capabilities'> | null;
   getRelayRuntimeState: () => BackendRelayRuntimeState;
   getFollowerCommandClient: () => AutoCardDecisionFollowerCommandClient | null;
@@ -201,7 +203,7 @@ export class AutoCardDecisionRelayRuntime {
   }
 
   private async resolveViaBackend(
-    backendClient: SrsBackendClient,
+    backendClient: AutoCardDecisionBackendClient,
     request: ReturnType<AutoCardDecisionRelayRuntime['buildRequest']>,
   ): Promise<BackendAutoCardDecisionResolveResult> {
     return normalizeBackendDecisionResolveResult(

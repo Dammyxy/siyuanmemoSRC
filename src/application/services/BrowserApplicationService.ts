@@ -32,7 +32,7 @@ import {
   SOURCE_EXISTENCE_TTL_MS,
 } from '../queries/browser/shared/SourceExistenceCache';
 import { applyKnownSourceExistenceToRows } from '../queries/browser/shared/MissingBlockMarker';
-import type { SrsBackendClient } from '../clients/SrsBackendClient';
+import type { BackendBrowserClientFacet } from '@/application/clients/backend';
 import type { FrontendInstanceRuntime } from '../clients/FrontendInstanceRuntime';
 import type { FollowerCommandClient } from '../clients/FollowerCommandClient';
 import { resolveBrowserCardStableId, type BrowserCard } from '@/types/browser';
@@ -111,6 +111,21 @@ const EMPTY_QUEUE_COUNTS: Record<string, number> = Object.fromEntries(
 const logger = createLogger('BrowserApplicationService');
 const SOURCE_EXISTENCE_PAGE_REFRESH_DELAY_MS = 250;
 const SOURCE_EXISTENCE_STATUS_CACHE_MAX_SIZE = 4096;
+
+type BrowserApplicationBackendClient = Pick<
+  BackendBrowserClientFacet,
+  | 'browserAggregatePage'
+  | 'browserAggregateSnapshot'
+  | 'browserCountCards'
+  | 'browserDeckDocumentCounts'
+  | 'browserDeckMatchedIds'
+  | 'browserDeckPage'
+  | 'browserDeckRowsByIds'
+  | 'browserSourceExistenceApplySweepHost'
+  | 'browserSourceExistenceByBlockIds'
+  | 'browserSourceExistenceRefreshCandidates'
+  | 'browserStats'
+>;
 
 type FilterGroupSessionSnapshotProvider = {
   serializeSessionSnapshot(): FilterGroupQueueSessionSnapshot;
@@ -241,7 +256,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     querySiyuanApi: BrowserQuerySiyuanPort,
     private readonly dataSourceFactory?: BrowserDataSourceFactory | null,
     private readonly browserDeckReadPort?: BrowserDeckReadPort | null,
-    private readonly srsBackendClient?: SrsBackendClient | null,
+    private readonly srsBackendClient?: BrowserApplicationBackendClient | null,
     private readonly frontendInstanceRuntime?: FrontendInstanceRuntime | null,
     private readonly followerCommandClient?: FollowerCommandClient | null,
     private readonly browserAdvancedSqlQuerySource?: BrowserAdvancedSqlQuerySourcePort | null,

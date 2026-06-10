@@ -1,6 +1,6 @@
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
 import type {
   BackendTopicDerivedCommandExecuteRequest,
   BackendTopicDerivedCommandExecuteResult,
@@ -73,6 +73,8 @@ type TopicDerivedCommandFollowerClient = {
   }) => Promise<TResult>;
 };
 
+type TopicDerivedBackendCommandClient = Pick<BackendIntegrationClientFacet, 'executeTopicDerivedCommand'>;
+
 type DerivedCandidate = {
   creationRuleId: string;
   answerFingerprint: string;
@@ -130,7 +132,7 @@ export class TopicDerivedItemService {
     private readonly nativeRiffApi: ProgressiveNativeRiffPort,
     private readonly settingsProvider: TopicDerivationSettingsProvider,
     private readonly ownershipBoundaryClient?: TopicDerivedOwnershipBoundaryClient,
-    private readonly backendClient?: Pick<SrsBackendClient, 'executeTopicDerivedCommand'>,
+    private readonly backendClient?: TopicDerivedBackendCommandClient,
     private readonly commandRelayRuntime?: TopicDerivedCommandRelayRuntime | null,
     private readonly followerCommandClient?: TopicDerivedCommandFollowerClient | null,
   ) {}

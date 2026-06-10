@@ -1,4 +1,4 @@
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
 import { createLogger } from '@/utils/logger';
 import type { ITransactionHandler, Transaction } from '@/core/infrastructure/websocket/TransactionWebSocketService';
 import {
@@ -74,7 +74,7 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
   private flushInFlight = false;
 
   constructor(
-    private readonly srsBackendClient: Pick<SrsBackendClient, 'ingestKernelTransactions'>,
+    private readonly srsBackendClient: Pick<BackendIntegrationClientFacet, 'ingestKernelTransactions'>,
     private readonly runtime: FrontendRuntimeLike | null,
     private readonly followerCommandClient: FollowerCommandClientLike | null,
     options: KernelTransactionIngestHandlerOptions = {},

@@ -1,4 +1,4 @@
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type { BackendBrowserClientFacet } from '@/application/clients/backend';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type {
   BrowserDeckLiteRow,
@@ -18,8 +18,20 @@ import type { BrowserCard } from '@/types/browser';
 import { resolveBrowserCardStableId } from '@/types/browser';
 import { measureRuntimePerformance } from '@/utils/runtimePerformanceDiagnostics';
 
+export type BrowserCardUniverseBackendClient = Pick<
+  BackendBrowserClientFacet,
+  | 'browserAggregatePage'
+  | 'browserAggregateSnapshot'
+  | 'browserCountCards'
+  | 'browserDeckDocumentCounts'
+  | 'browserDeckMatchedIds'
+  | 'browserDeckPage'
+  | 'browserDeckRowsByIds'
+  | 'browserStats'
+>;
+
 export type BrowserCardUniverseReadModuleDeps = {
-  backendClient?: SrsBackendClient | null;
+  backendClient?: BrowserCardUniverseBackendClient | null;
   browserDeckQueryKernel: BrowserDeckQueryKernel;
   scheduleSourceExistenceRefreshForCards: (
     cards: Array<{ blockId?: unknown }>,
@@ -269,7 +281,7 @@ export class BrowserCardUniverseReadModule {
     }
   }
 
-  private requireBackend(operation: string): SrsBackendClient {
+  private requireBackend(operation: string): BrowserCardUniverseBackendClient {
     if (!this.deps.backendClient) {
       throw toBrowserCardUniverseUnavailable(operation);
     }

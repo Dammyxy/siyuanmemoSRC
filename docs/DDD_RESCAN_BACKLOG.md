@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-10 (Round 577)
+Last update: 2026-06-10 (Round 578)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-10 - Backend RPC bounded caller client facets
+
+- Task: Continue `modularize-backend-rpc-method-families` tasks 4.4 and 4.5 by narrowing bounded-context backend client callers to family facets and documenting legitimate broad facade holdouts.
+- Touched slice: Backend RPC application caller seam: Browser, AI/Job, Semantic, Private API, Xiuyuan, Progressive, Topic-derived, Kernel Transaction, AutoCard decision/execute callers, `ARCHITECTURE.md`, and OpenSpec tasks.
+- Debt fixed now: Single-family callers no longer depend on the broad `SrsBackendClient` type when they only need one backend RPC family. Browser reads depend on Browser facet picks; AI session/tool execution depends on AI/Job facet picks; Semantic and Private API clients depend on their own facets; Xiuyuan, Progressive, Topic-derived, Kernel Transaction, and AutoCard relay runtimes depend on integration facet picks.
+- Debt deferred: Full `SrsBackendClient` injection remains in composition roots and cross-family orchestrators; `ReviewApplicationService` keeps a Review facade Pick; Review/truth/domain-sync runtime migration and the remaining `BackendKernel.test.ts` split remain open.
+- Why deferred: `ApplicationContext` and `createApplicationBackendRuntimeBundle` own backend runtime lifecycle; `writerRelayCommandDispatcher` must dispatch many relay methods across families; `createReviewBrowserServiceBundle` wires Browser and Review services together; Review/truth/domain-sync is intentionally behind durability/storage isolation.
+- Next safe step: Split the remaining low-risk backend family tests out of `worker/__tests__/BackendKernel.test.ts` starting at task 5.2, while keeping Review/truth/domain-sync split for task 5.9 after its adapter migration.
+- Validation: `openspec validate modularize-backend-rpc-method-families --strict`; focused Browser, Private API, Semantic, Progressive, Topic-derived, AutoCard, AI, Kernel Transaction, and Xiuyuan Vitest suites; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
 
 ### 2026-06-10 - Backend RPC client facets and facade delegation
 

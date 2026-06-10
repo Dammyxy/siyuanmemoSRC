@@ -11,7 +11,6 @@ import {
     createUnavailableHostBlockQueryPort,
     type HostBlockQueryPort,
 } from '@/application/ports/HostBlockQueryPort';
-import type { SrsBackendClient } from '../clients/SrsBackendClient';
 import type { BackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
 import { createLogger } from '@/utils/logger';
 import {
@@ -51,12 +50,16 @@ import {
 } from './AutoCardExecutionRuntime';
 import {
     AutoCardDecisionRelayRuntime,
+    type AutoCardDecisionBackendClient,
     type AutoCardDecisionCoreResult,
     type AutoCardDecisionRuleScope,
     type BackendRelayRuntimeState,
     type QuickCardSettings,
 } from './AutoCardDecisionRelayRuntime';
-import { AutoCardExecuteRelayRuntime } from './AutoCardExecuteRelayRuntime';
+import {
+    AutoCardExecuteRelayRuntime,
+    type AutoCardExecuteBackendClient,
+} from './AutoCardExecuteRelayRuntime';
 import {
     AutoCardPlannerExecutionRuntime,
     hasXiuyuanBinding as hasPlannerXiuyuanBinding,
@@ -126,7 +129,7 @@ type AutoCardContextLike = {
     getXiuyuanApplicationService?: () => Promise<XiuyuanApplicationServiceLike>;
     getCardTypeDetectionService?: () => CardTypeDetectionServiceLike;
     getTopicDerivedItemService?: () => TopicDerivedItemServiceLike;
-    getSrsBackendClient?: () => SrsBackendClient | null;
+    getSrsBackendClient?: () => AutoCardBackendClient | null;
     getFrontendInstanceRuntime?: () => {
         getMode: () => string;
         getInstanceId: () => string;
@@ -142,6 +145,8 @@ type AutoCardContextLike = {
     } | null;
     getBackendMigrationRuntimePolicy?: () => Pick<BackendMigrationRuntimePolicy, 'capabilities'> | null;
 };
+
+type AutoCardBackendClient = AutoCardDecisionBackendClient & AutoCardExecuteBackendClient;
 
 type TopicDerivedItemServiceLike = {
     createFromTopicSource: (input: {
@@ -507,7 +512,7 @@ export class AutoCardHandler implements ITransactionHandler {
         throw new Error('[AutoCard] TopicDerivedItemService is unavailable');
     }
 
-    private getSrsBackendClientOptional(): SrsBackendClient | null {
+    private getSrsBackendClientOptional(): AutoCardBackendClient | null {
         const context = this.getContext();
         if (!context?.getSrsBackendClient) {
             return null;

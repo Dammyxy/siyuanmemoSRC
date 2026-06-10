@@ -1,17 +1,20 @@
-import { AIBackendSessionService } from '@/application/services/AIBackendSessionService';
+import {
+  AIBackendSessionService,
+  type AIBackendSessionBackendClient,
+} from '@/application/services/AIBackendSessionService';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import { AIWorkbenchSessionStoreService } from '@/application/services/AIWorkbenchSessionStoreService';
 import { ArenaKernelService } from '@/application/services/ArenaKernelService';
 import { ArenaStoreService } from '@/application/services/ArenaStoreService';
 import type { CardContentQueryService } from '@/application/queries/CardContentQueryService';
 import type { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 import type { SettingsService } from '@/application/services/SettingsService';
 import type { ReviewLogService } from '@/application/services/ReviewLogService';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import type { SelectionExcerptService } from '@/application/services/SelectionExcerptService';
 import type { SelectionTopicContinuationService } from '@/application/services/SelectionTopicContinuationService';
 import { ReviewAIWorkbenchRegistry } from '@/application/services/ReviewAIWorkbenchRegistry';
+import type { AIChatToolJobClient } from '@/application/services/AIChatToolExecutorService';
 import { ReviewLogLearningCurveEvidenceReader } from '@/application/services/SrsTransparencyEvidenceReader';
 import type { BackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
 import { AISiyuanAdapter } from '@/infrastructure/siyuan/AISiyuanAdapter';
@@ -35,7 +38,7 @@ export interface CreateAIServiceBundleDeps {
   getArenaKernelService: () => ArenaKernelService;
   getReviewAIWorkbenchRegistry: () => ReviewAIWorkbenchRegistry;
   getBackendMigrationRuntimePolicy: () => BackendMigrationRuntimePolicy;
-  getSrsBackendClient: () => SrsBackendClient | null;
+  getSrsBackendClient: () => (AIBackendSessionBackendClient & AIChatToolJobClient) | null;
   getKernelSidecarClient: () => KernelSidecarClient;
 }
 

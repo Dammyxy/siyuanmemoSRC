@@ -1,7 +1,7 @@
 import { reactive } from 'vue';
 import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import type { CardContentQueryService } from '@/application/queries/CardContentQueryService';
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type { AIChatToolJobClient } from '@/application/services/AIChatToolExecutorService';
 import type { AISiyuanBlockRow, AISiyuanPort } from '@/application/ports/AISiyuanPort';
 import type { LLMPort } from '@/application/ports/LLMPort';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
@@ -201,7 +201,7 @@ export type AIWorkbenchServiceDeps = {
     | 'getJob'
     | 'proxyNetwork'
   >;
-  aiToolJobClient?: Pick<SrsBackendClient, 'executeAiToolJob' | 'submitAiToolJobApproval'> | null;
+  aiToolJobClient?: AIChatToolJobClient | null;
   backendRuntimeEnabled?: boolean;
 };
 

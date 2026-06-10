@@ -2,7 +2,7 @@ import type SiyuanMemoPlugin from '@/index';
 import type { Plugin } from 'siyuan';
 import type { AutoCardHandler } from '@/application/handlers/AutoCardHandler';
 import { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
-import { XiuyuanSyncService } from '@/application/services/XiuyuanSyncService';
+import { XiuyuanSyncService, type XiuyuanSyncBackendClient } from '@/application/services/XiuyuanSyncService';
 import type { HybridSyncConfig } from '@/application/services/XiuyuanSyncService.types';
 import type { RiffBlacklistService } from '@/application/services/RiffBlacklistService';
 import { HostBlockQuerySiyuanAdapter } from '@/infrastructure/siyuan/HostBlockQuerySiyuanAdapter';
@@ -19,14 +19,13 @@ import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { SqlXiuyuanReadRepository } from '@/infrastructure/persistence/sqlite';
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 
 export interface CreateAutoCardKernelXiuyuanServiceBundleDeps {
   plugin: Plugin;
   getUnifiedStorage: () => UnifiedStorageManager;
   getUnifiedDataSourceManager: () => UnifiedDataSourceManager;
   getSqlXiuyuanReadRepository: () => SqlXiuyuanReadRepository | null;
-  getSrsBackendClient: () => SrsBackendClient | null;
+  getSrsBackendClient: () => XiuyuanSyncBackendClient | null;
   getCardTypeDetectionService: () => CardTypeDetectionService;
   getEventBus: () => EventBus;
   getRiffBlacklistService: () => RiffBlacklistService;

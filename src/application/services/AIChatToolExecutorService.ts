@@ -1,6 +1,6 @@
 import type { AISiyuanBlockRow, AISiyuanMutationResult, AISiyuanPort } from '@/application/ports/AISiyuanPort';
 import type { LLMUsage } from '@/application/ports/LLMPort';
-import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
+import type { BackendAiJobClientFacet } from '@/application/clients/backend';
 import type { AIFlashcardToolService } from '@/application/services/AIFlashcardToolService';
 import type { AIChatToolRegistry } from '@/application/services/AIChatToolRegistry';
 import type { AIChatVarStoreService } from '@/application/services/AIChatVarStoreService';
@@ -38,7 +38,7 @@ export interface AIChatToolExecutionInput {
   approvals?: AIChatToolApprovalCallbacks;
 }
 
-type AIChatToolJobClient = Pick<SrsBackendClient, 'executeAiToolJob' | 'submitAiToolJobApproval'>;
+export type AIChatToolJobClient = Pick<BackendAiJobClientFacet, 'executeAiToolJob' | 'submitAiToolJobApproval'>;
 
 function normalizeString(value: unknown): string {
   return String(value ?? '').trim();
