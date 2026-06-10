@@ -1,4 +1,5 @@
 import { BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/ai';
+import { BACKEND_AUTOCARD_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/autocard';
 import { BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/browser';
 import { BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/core';
 import { BACKEND_GRAPH_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/graph';
@@ -193,8 +194,8 @@ export const BACKEND_RPC_METHOD_FAMILY_CATALOG = [
   BACKEND_KERNEL_TRANSACTION_RPC_METHOD_CONTRACT_BY_METHOD['kernel.transaction.ingest'],
   BACKEND_KERNEL_TRANSACTION_RPC_METHOD_CONTRACT_BY_METHOD['kernel.transaction.dequeue'],
   BACKEND_KERNEL_TRANSACTION_RPC_METHOD_CONTRACT_BY_METHOD['kernel.transaction.requeue'],
-  { method: 'autocard.decision.resolve', family: 'autocard', clientExposure: 'facade' },
-  { method: 'autocard.execute', family: 'autocard', clientExposure: 'facade' },
+  BACKEND_AUTOCARD_RPC_METHOD_CONTRACT_BY_METHOD['autocard.decision.resolve'],
+  BACKEND_AUTOCARD_RPC_METHOD_CONTRACT_BY_METHOD['autocard.execute'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.feedback'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.truth.flush'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.truth.backfill'],

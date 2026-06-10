@@ -6,6 +6,7 @@ import {
   type BackendRpcMethod,
 } from '../../../packages/contracts/src/backend-rpc';
 import { BACKEND_AI_JOB_HOTSPOT_RPC_HANDLER_REGISTRATIONS, type BackendAiJobHotspotRpcHandlerContext } from './BackendAiJobHotspotRpcAdapter';
+import { BACKEND_AUTOCARD_RPC_HANDLER_REGISTRATIONS, type BackendAutoCardRpcHandlerContext } from './BackendAutoCardRpcAdapter';
 import { BACKEND_BROWSER_RPC_HANDLER_REGISTRATIONS, type BackendBrowserRpcHandlerContext } from './BackendBrowserRpcAdapter';
 import { BACKEND_CORE_RPC_HANDLER_REGISTRATIONS, type BackendCoreRpcHandlerContext } from './BackendCoreRpcAdapter';
 import { BACKEND_GRAPH_RPC_HANDLER_REGISTRATIONS, type BackendGraphRpcHandlerContext } from './BackendGraphRpcAdapter';
@@ -15,30 +16,29 @@ import { BACKEND_P6_OWNERSHIP_RPC_HANDLER_REGISTRATIONS, type BackendP6Ownership
 import { BACKEND_PRIVATE_API_RPC_HANDLER_REGISTRATIONS, type BackendPrivateApiRpcHandlerContext } from './BackendPrivateApiRpcAdapter';
 import { BACKEND_PROGRESSIVE_RPC_HANDLER_REGISTRATIONS, type BackendProgressiveRpcHandlerContext } from './BackendProgressiveRpcAdapter';
 import { BACKEND_QUEUE_PROJECTION_RPC_HANDLER_REGISTRATIONS, type BackendQueueProjectionRpcHandlerContext } from './BackendQueueProjectionRpcAdapter';
-import type { BackendRpcHandlerContext } from './BackendRpcHandlerContext';
+import { BACKEND_REVIEW_RPC_HANDLER_REGISTRATIONS, type BackendReviewRpcHandlerContext } from './BackendReviewRpcAdapter';
 import { BACKEND_SEMANTIC_RPC_HANDLER_REGISTRATIONS, type BackendSemanticRpcHandlerContext } from './BackendSemanticRpcAdapter';
+import { BACKEND_SYNC_RPC_HANDLER_REGISTRATIONS, type BackendSyncRpcHandlerContext } from './BackendSyncRpcAdapter';
 import { BACKEND_TOPIC_DERIVED_RPC_HANDLER_REGISTRATIONS, type BackendTopicDerivedRpcHandlerContext } from './BackendTopicDerivedRpcAdapter';
 import { BACKEND_XIUYUAN_RPC_HANDLER_REGISTRATIONS, type BackendXiuyuanRpcHandlerContext } from './BackendXiuyuanRpcAdapter';
 
-export interface LegacyBackendKernelHandlerContext extends BackendRpcHandlerContext {
-  handleLegacyBackendKernelMethod(method: BackendRpcMethod, params: unknown): Promise<unknown> | unknown;
-}
-
 export interface BackendKernelRpcHandlerContext
   extends BackendAiJobHotspotRpcHandlerContext,
+    BackendAutoCardRpcHandlerContext,
     BackendCoreRpcHandlerContext,
     BackendBrowserRpcHandlerContext,
     BackendKernelTransactionRpcHandlerContext,
     BackendNeuralRoamRpcHandlerContext,
     BackendQueueProjectionRpcHandlerContext,
+    BackendReviewRpcHandlerContext,
+    BackendSyncRpcHandlerContext,
     BackendGraphRpcHandlerContext,
     BackendPrivateApiRpcHandlerContext,
     BackendSemanticRpcHandlerContext,
     BackendP6OwnershipRpcHandlerContext,
     BackendXiuyuanRpcHandlerContext,
     BackendProgressiveRpcHandlerContext,
-    BackendTopicDerivedRpcHandlerContext,
-    LegacyBackendKernelHandlerContext {}
+    BackendTopicDerivedRpcHandlerContext {}
 
 export interface BackendRpcHandlerRegistration<TContext = unknown, TParams = unknown, TResult = unknown>
   extends BackendRpcHandlerAdapter<TParams, TResult, TContext> {
@@ -58,35 +58,15 @@ export interface BackendRpcHandlerRegistry<TContext = unknown> {
   readonly handlersByMethod: ReadonlyMap<BackendRpcMethod, BackendRpcHandlerRegistration<TContext>>;
 }
 
-export const LEGACY_BACKEND_KERNEL_RPC_METHODS = [
-  'sync.conflict.merge',
-  'sync.conflict.summarize',
-  'sync.conflict.reload',
-  'domainSync.status',
-  'domainSync.repair.preview',
-  'domainSync.repair.apply',
-  'domainSync.conflictSources.cleanupCandidates',
-  'domainSync.conflictSources.cleanup',
-  'sync.reviewDivergence.audit',
-  'autocard.decision.resolve',
-  'autocard.execute',
-  'review.feedback',
-  'review.truth.flush',
-  'review.truth.backfill',
-  'review.riffFeedback.execute',
-  'review.sourceRefresh.execute',
-] as const satisfies readonly BackendRpcMethod[];
-
-export const LEGACY_BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS = Object.freeze(
-  LEGACY_BACKEND_KERNEL_RPC_METHODS.map(createLegacyBackendKernelHandlerRegistration),
-);
-
 export const BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS = Object.freeze([
   ...BACKEND_CORE_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_SYNC_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_BROWSER_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_QUEUE_PROJECTION_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_NEURAL_ROAM_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_KERNEL_TRANSACTION_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_AUTOCARD_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_REVIEW_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_AI_JOB_HOTSPOT_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_GRAPH_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_PRIVATE_API_RPC_HANDLER_REGISTRATIONS,
@@ -95,7 +75,6 @@ export const BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS = Object.freeze([
   ...BACKEND_XIUYUAN_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_PROGRESSIVE_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_TOPIC_DERIVED_RPC_HANDLER_REGISTRATIONS,
-  ...LEGACY_BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS,
 ]) as readonly BackendRpcHandlerRegistration<BackendKernelRpcHandlerContext>[];
 
 export function createBackendRpcHandlerRegistry<TContext>(
@@ -170,15 +149,4 @@ export function findDuplicateBackendRpcHandlerMethods(
       method,
       owners,
     }));
-}
-
-function createLegacyBackendKernelHandlerRegistration(
-  method: BackendRpcMethod,
-): BackendRpcHandlerRegistration<BackendKernelRpcHandlerContext> {
-  return {
-    method,
-    family: BACKEND_RPC_METHOD_CONTRACT_BY_METHOD[method].family,
-    owner: 'BackendKernel.handle-switch',
-    handle: (params, context) => context.handleLegacyBackendKernelMethod(method, params),
-  };
 }

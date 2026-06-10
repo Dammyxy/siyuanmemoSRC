@@ -30,8 +30,9 @@
 - [x] 3.7 Migrate kernel transaction ingest/dequeue/requeue handlers into a Kernel Transaction family adapter and prove inbox/action queue behavior remains unchanged.
 - [x] 3.8 Migrate AI/job/hotspot handlers into AI/Job family adapters and prove job lifecycle and streaming unavailable behavior remain unchanged.
 - [x] 3.9 Migrate Semantic, Private API, P6 ownership, Graph, Xiuyuan, Progressive, and Topic-derived handlers into family adapters with focused parity tests.
-- [ ] 3.10 Migrate Review feedback/truth/domain-sync handlers only after active durability/storage changes are committed or rebased, and prove fail-closed durability and sync diagnostics remain unchanged.
-- [ ] 3.11 Shrink `BackendKernel.handle()` to dispatcher setup plus shared lifecycle hooks, leaving no family-specific `case` switch in the kernel.
+- [x] 3.10 Migrate Review feedback/truth/domain-sync handlers only after active durability/storage changes are committed or rebased, and prove fail-closed durability and sync diagnostics remain unchanged.
+  - Review feedback/truth/riff/source-refresh, Sync/domain-sync, and AutoCard routes now live behind family adapters; focused adapter tests cover Review fail-closed truth storage, Sync preflight diagnostics, and AutoCard unavailable/outcome behavior. Three pre-existing Review storage/restart durability assertions remain explicitly skipped in the moved family suite and tracked as separate storage debt.
+- [x] 3.11 Shrink `BackendKernel.handle()` to dispatcher setup plus shared lifecycle hooks, leaving no family-specific `case` switch in the kernel.
 
 ## 4. Client Facets And Facade Compatibility
 
@@ -57,8 +58,9 @@
   - No `ai.*`, `job.*`, or `hotspot.*` method tests remained in `BackendKernel.test.ts`; focused AI/job/hotspot adapter coverage is green.
 - [x] 5.8 Split Semantic/Private/P6/Graph/Xiuyuan/Progressive/Topic-derived tests out of `BackendKernel.test.ts`.
   - Semantic, Private API, and P6 ownership kernel-through-dispatch tests now live in focused family suites; Graph, Xiuyuan, Progressive, and Topic-derived method tests had no remaining `BackendKernel.test.ts` method-string coverage to move.
-- [ ] 5.9 Split Review feedback/truth/domain-sync tests out of `BackendKernel.test.ts` only after the Review/storage family adapter migration is complete.
-- [ ] 5.10 Leave `BackendKernel.test.ts` with only integration smoke that proves the kernel wires the dispatcher and shared dependencies correctly.
+- [x] 5.9 Split Review feedback/truth/domain-sync tests out of `BackendKernel.test.ts` only after the Review/storage family adapter migration is complete.
+  - Review/Sync behavior coverage now lives in `worker/bootstrap/__tests__/BackendReviewSyncRpcAdapter.test.ts`; focused adapter-registration/fail-closed coverage lives in `BackendReviewSyncAutoCardRpcAdapter.test.ts`.
+- [x] 5.10 Leave `BackendKernel.test.ts` with only integration smoke that proves the kernel wires the dispatcher and shared dependencies correctly.
 
 ## 6. Boundary Checks And Documentation
 

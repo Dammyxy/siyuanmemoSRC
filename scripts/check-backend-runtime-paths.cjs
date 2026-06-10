@@ -148,9 +148,19 @@ const runtimePaths = [
         reason: 'review feedback must stay in the shared backend contract',
       },
       {
+        file: 'worker/bootstrap/rpc/BackendRpcRegistry.ts',
+        tokens: ['BACKEND_REVIEW_RPC_HANDLER_REGISTRATIONS'],
+        reason: 'backend RPC registry must include the review adapter registrations',
+      },
+      {
+        file: 'worker/bootstrap/rpc/BackendReviewRpcAdapter.ts',
+        tokens: ['review.feedback', 'context.review.handleReviewFeedback'],
+        reason: 'review adapter must dispatch review feedback to the review runtime',
+      },
+      {
         file: 'worker/bootstrap/BackendKernel.ts',
-        tokens: ['case \'review.feedback\'', 'handleReviewFeedback'],
-        reason: 'backend kernel must dispatch review feedback',
+        tokens: ['reviewRuntime', 'review: this.reviewRuntime'],
+        reason: 'backend kernel must wire review runtime into the RPC handler context',
       },
       {
         file: 'worker/db/SqliteDatabaseService.ts',
@@ -189,9 +199,19 @@ const runtimePaths = [
         reason: 'AutoCard decision and execute RPCs must stay in the shared backend contract',
       },
       {
+        file: 'worker/bootstrap/rpc/BackendRpcRegistry.ts',
+        tokens: ['BACKEND_AUTOCARD_RPC_HANDLER_REGISTRATIONS'],
+        reason: 'backend RPC registry must include AutoCard adapter registrations',
+      },
+      {
+        file: 'worker/bootstrap/rpc/BackendAutoCardRpcAdapter.ts',
+        tokens: ['autocard.decision.resolve', 'autocard.execute', 'context.autoCard'],
+        reason: 'AutoCard adapter must dispatch decision and execute RPCs to the AutoCard runtime',
+      },
+      {
         file: 'worker/bootstrap/BackendKernel.ts',
-        tokens: ['case \'autocard.decision.resolve\'', 'case \'autocard.execute\''],
-        reason: 'backend kernel must dispatch AutoCard decision and execute',
+        tokens: ['autoCard: {', 'database: this.deps.database', 'executeAutoCard: this.deps.executeAutoCard'],
+        reason: 'backend kernel must wire AutoCard runtime into the RPC handler context',
       },
       {
         file: 'worker/db/SqliteDatabaseService.ts',
@@ -313,9 +333,19 @@ const runtimePaths = [
         reason: 'sync conflict merge must stay in the shared backend contract',
       },
       {
+        file: 'worker/bootstrap/rpc/BackendRpcRegistry.ts',
+        tokens: ['BACKEND_SYNC_RPC_HANDLER_REGISTRATIONS'],
+        reason: 'backend RPC registry must include the sync adapter registrations',
+      },
+      {
+        file: 'worker/bootstrap/rpc/BackendSyncRpcAdapter.ts',
+        tokens: ['sync.conflict.merge', 'context.sync.database.mergeSyncConflictDatabases'],
+        reason: 'sync adapter must dispatch sync conflict merge to the database owner',
+      },
+      {
         file: 'worker/bootstrap/BackendKernel.ts',
-        tokens: ['case \'sync.conflict.merge\'', 'handleSyncConflictMerge'],
-        reason: 'backend kernel must dispatch sync conflict merge to the database owner',
+        tokens: ['sync: {', 'database: this.deps.database'],
+        reason: 'backend kernel must wire sync runtime into the RPC handler context',
       },
       {
         file: 'worker/db/SqliteDatabaseService.ts',

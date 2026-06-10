@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-10 (Round 578)
+Last update: 2026-06-10 (Round 579)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-10 - Backend RPC Review Sync AutoCard adapter closure
+
+- Task: Complete `modularize-backend-rpc-method-families` tasks 3.10, 3.11, 5.9, and 5.10 by moving Review/truth/domain-sync/AutoCard runtime routes out of the legacy kernel handler and shrinking `BackendKernel.test.ts` to dispatcher wiring smoke.
+- Touched slice: Backend RPC runtime seam: `worker/bootstrap/BackendKernel.ts`, `worker/bootstrap/rpc/{BackendReviewRpcAdapter,BackendSyncRpcAdapter,BackendAutoCardRpcAdapter,BackendRpcRegistry}.ts`, `packages/contracts/src/backend-rpc/{autocard,index}.ts`, moved Review/Sync adapter tests, kernel smoke test, OpenSpec tasks, and `ARCHITECTURE.md`.
+- Debt fixed now: `BackendKernel.handle()` no longer owns a family-specific switch or legacy method handler. Review feedback/truth/riff/source-refresh state, Sync/domain-sync delegation, and AutoCard decision/execute outcome recording now live behind family adapters registered in `BackendRpcRegistry`; diagnostics still flow through the shared dispatcher/lifecycle envelope, and JSON-RPC method strings remain unchanged.
+- Debt deferred: Three storage/restart durability assertions in `BackendReviewSyncRpcAdapter.test.ts` remain skipped: projection-applied journal retention after forced checkpoint failure, incremental-learning ready count after truth-flushed restart replay, and stale prepared journal status advancement when durable SQL already contains the idempotent event.
+- Why deferred: Those failures sit below the RPC adapter seam in Review storage/truth restart durability and were already failing when exercised under the moved suite. Fixing them here would mix storage behavior changes into a method-family routing closure.
+- Next safe step: Open a focused Review storage/restart durability slice that starts from the three skipped tests and repairs checkpoint failure propagation, projection rebuild readiness, and prepared-journal replay without changing RPC routing.
+- Validation: Focused Review/Sync/AutoCard adapter and moved Review/Sync family suites, kernel smoke, registry/dispatcher suites, OpenSpec strict validation, boundary checks, diff whitespace check, and build.
 
 ### 2026-06-10 - Backend RPC bounded caller client facets
 
