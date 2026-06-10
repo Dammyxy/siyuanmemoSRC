@@ -1,81 +1,231 @@
+import { BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/browser';
+import { BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/core';
+import { BACKEND_QUEUE_PROJECTION_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/queue-projection';
+export * from './backend-rpc/index';
+
 export const BACKEND_RPC_VERSION = '2.0';
 
-export type BackendRpcMethod =
-  | 'system.health'
-  | 'db.load'
-  | 'db.persist'
-  | 'sync.conflict.merge'
-  | 'sync.reviewDivergence.audit'
-  | 'sync.conflict.summarize'
-  | 'sync.conflict.reload'
-  | 'diagnostics.status'
-  | 'domainSync.status'
-  | 'domainSync.repair.preview'
-  | 'domainSync.repair.apply'
-  | 'domainSync.conflictSources.cleanupCandidates'
-  | 'domainSync.conflictSources.cleanup'
-  | 'browser.deck.page'
-  | 'browser.deck.matchedIds'
-  | 'browser.deck.rowsByIds'
-  | 'browser.deck.documentCounts'
-  | 'browser.stats'
-  | 'browser.count'
-  | 'browser.sourceExistence.refreshCandidates'
-  | 'browser.sourceExistence.update'
-  | 'browser.sourceExistence.byBlockIds'
-  | 'browser.sourceExistence.summary'
-  | 'browser.sourceExistence.applySweep'
-  | 'browser.sourceExistence.applySweepHost'
-  | 'storage.projection.rebuild'
-  | 'queue.projection.snapshot'
-  | 'queue.projection.rowsByIds'
-  | 'queue.projection.replace'
-  | 'neural-roam.advance'
-  | 'neural-roam.viewState'
-  | 'neural-roam.command'
-  | 'kernel.transaction.ingest'
-  | 'kernel.transaction.dequeue'
-  | 'kernel.transaction.requeue'
-  | 'autocard.decision.resolve'
-  | 'autocard.execute'
-  | 'review.feedback'
-  | 'review.truth.flush'
-  | 'review.truth.backfill'
-  | 'ai.session.create'
-  | 'ai.session.get'
-  | 'ai.session.update'
-  | 'ai.session.cancel'
-  | 'ai.prompt.execute'
-  | 'ai.tool.job.execute'
-  | 'ai.tool.job.approval'
-  | 'ai.stream.start'
-  | 'ai.stream.cancel'
-  | 'job.get'
-  | 'job.cancel'
-  | 'private.health'
-  | 'private.diagnostics.status'
-  | 'private.audit.query'
-  | 'private.read.cards'
-  | 'private.read.queues'
-  | 'private.read.sessions'
-  | 'private.command.execute'
-  | 'semantic.command.execute'
-  | 'semantic.session.read'
-  | 'semantic.sidebar.read'
-  | 'semantic.browser.read'
-  | 'hotspot.command.submit'
-  | 'hotspot.job.get'
-  | 'xiuyuan.sync.execute'
-  | 'progressive.command.execute'
-  | 'topic-derived.command.execute'
-  | 'review.riffFeedback.execute'
-  | 'review.sourceRefresh.execute'
-  | 'browser.aggregate.snapshot'
-  | 'browser.aggregate.page'
-  | 'browser.aggregate.focus'
-  | 'graph.query'
-  | 'p6.ownership.query'
-  | 'p6.ownership.command';
+export const BACKEND_RPC_METHODS = [
+  'system.health',
+  'db.load',
+  'db.persist',
+  'sync.conflict.merge',
+  'sync.reviewDivergence.audit',
+  'sync.conflict.summarize',
+  'sync.conflict.reload',
+  'diagnostics.status',
+  'domainSync.status',
+  'domainSync.repair.preview',
+  'domainSync.repair.apply',
+  'domainSync.conflictSources.cleanupCandidates',
+  'domainSync.conflictSources.cleanup',
+  'browser.deck.page',
+  'browser.deck.matchedIds',
+  'browser.deck.rowsByIds',
+  'browser.deck.documentCounts',
+  'browser.stats',
+  'browser.count',
+  'browser.sourceExistence.refreshCandidates',
+  'browser.sourceExistence.update',
+  'browser.sourceExistence.byBlockIds',
+  'browser.sourceExistence.summary',
+  'browser.sourceExistence.applySweep',
+  'browser.sourceExistence.applySweepHost',
+  'storage.projection.rebuild',
+  'queue.projection.snapshot',
+  'queue.projection.rowsByIds',
+  'queue.projection.replace',
+  'neural-roam.advance',
+  'neural-roam.viewState',
+  'neural-roam.command',
+  'kernel.transaction.ingest',
+  'kernel.transaction.dequeue',
+  'kernel.transaction.requeue',
+  'autocard.decision.resolve',
+  'autocard.execute',
+  'review.feedback',
+  'review.truth.flush',
+  'review.truth.backfill',
+  'ai.session.create',
+  'ai.session.get',
+  'ai.session.update',
+  'ai.session.cancel',
+  'ai.prompt.execute',
+  'ai.tool.job.execute',
+  'ai.tool.job.approval',
+  'ai.stream.start',
+  'ai.stream.cancel',
+  'job.get',
+  'job.cancel',
+  'private.health',
+  'private.diagnostics.status',
+  'private.audit.query',
+  'private.read.cards',
+  'private.read.queues',
+  'private.read.sessions',
+  'private.command.execute',
+  'semantic.command.execute',
+  'semantic.session.read',
+  'semantic.sidebar.read',
+  'semantic.browser.read',
+  'hotspot.command.submit',
+  'hotspot.job.get',
+  'xiuyuan.sync.execute',
+  'progressive.command.execute',
+  'topic-derived.command.execute',
+  'review.riffFeedback.execute',
+  'review.sourceRefresh.execute',
+  'browser.aggregate.snapshot',
+  'browser.aggregate.page',
+  'browser.aggregate.focus',
+  'graph.query',
+  'p6.ownership.query',
+  'p6.ownership.command',
+] as const;
+
+export type BackendRpcMethod = typeof BACKEND_RPC_METHODS[number];
+
+export const BACKEND_RPC_FAMILIES = [
+  'core',
+  'sync',
+  'domain-sync',
+  'browser',
+  'queue-projection',
+  'neural-roam',
+  'kernel-transaction',
+  'autocard',
+  'review',
+  'ai',
+  'job',
+  'private-api',
+  'semantic',
+  'hotspot',
+  'xiuyuan',
+  'progressive',
+  'topic-derived',
+  'graph',
+  'p6-ownership',
+] as const;
+
+export type BackendRpcFamily = typeof BACKEND_RPC_FAMILIES[number];
+
+export const BACKEND_RPC_CLIENT_EXPOSURES = [
+  'facade',
+  'facet',
+  'internal',
+  'none',
+] as const;
+
+export type BackendRpcClientExposure = typeof BACKEND_RPC_CLIENT_EXPOSURES[number];
+
+export type BackendRpcMethodContract<
+  TMethod extends BackendRpcMethod = BackendRpcMethod,
+  TParams = unknown,
+  TResult = unknown,
+> = {
+  readonly method: TMethod;
+  readonly family: BackendRpcFamily;
+  readonly clientExposure: BackendRpcClientExposure;
+  readonly __params?: TParams;
+  readonly __result?: TResult;
+};
+
+export interface BackendRpcHandlerAdapter<TParams = unknown, TResult = unknown, TContext = unknown> {
+  readonly method: BackendRpcMethod;
+  readonly family: BackendRpcFamily;
+  handle(params: TParams | undefined, context: TContext): Promise<TResult> | TResult;
+}
+
+export interface BackendRpcClientMethodCatalogEntry<TMethod extends BackendRpcMethod = BackendRpcMethod> {
+  readonly clientMethod: string;
+  readonly rpcMethod: TMethod;
+  readonly family: BackendRpcFamily;
+  readonly exposure: Extract<BackendRpcClientExposure, 'facade' | 'facet'>;
+}
+
+export const BACKEND_RPC_METHOD_FAMILY_CATALOG = [
+  BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['system.health'],
+  BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['db.load'],
+  BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['db.persist'],
+  { method: 'sync.conflict.merge', family: 'sync', clientExposure: 'facade' },
+  { method: 'sync.reviewDivergence.audit', family: 'sync', clientExposure: 'facade' },
+  { method: 'sync.conflict.summarize', family: 'sync', clientExposure: 'facade' },
+  { method: 'sync.conflict.reload', family: 'sync', clientExposure: 'facade' },
+  BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['diagnostics.status'],
+  { method: 'domainSync.status', family: 'domain-sync', clientExposure: 'facade' },
+  { method: 'domainSync.repair.preview', family: 'domain-sync', clientExposure: 'facade' },
+  { method: 'domainSync.repair.apply', family: 'domain-sync', clientExposure: 'facade' },
+  { method: 'domainSync.conflictSources.cleanupCandidates', family: 'domain-sync', clientExposure: 'facade' },
+  { method: 'domainSync.conflictSources.cleanup', family: 'domain-sync', clientExposure: 'facade' },
+  BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.deck.page'],
+  BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.deck.matchedIds'],
+  BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.deck.rowsByIds'],
+  BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.deck.documentCounts'],
+  BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.stats'],
+  BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.count'],
+  BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.sourceExistence.refreshCandidates'],
+  BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.sourceExistence.update'],
+  BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.sourceExistence.byBlockIds'],
+  BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.sourceExistence.summary'],
+  BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.sourceExistence.applySweep'],
+  BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.sourceExistence.applySweepHost'],
+  BACKEND_QUEUE_PROJECTION_RPC_METHOD_CONTRACT_BY_METHOD['storage.projection.rebuild'],
+  BACKEND_QUEUE_PROJECTION_RPC_METHOD_CONTRACT_BY_METHOD['queue.projection.snapshot'],
+  BACKEND_QUEUE_PROJECTION_RPC_METHOD_CONTRACT_BY_METHOD['queue.projection.rowsByIds'],
+  BACKEND_QUEUE_PROJECTION_RPC_METHOD_CONTRACT_BY_METHOD['queue.projection.replace'],
+  { method: 'neural-roam.advance', family: 'neural-roam', clientExposure: 'facade' },
+  { method: 'neural-roam.viewState', family: 'neural-roam', clientExposure: 'facade' },
+  { method: 'neural-roam.command', family: 'neural-roam', clientExposure: 'facade' },
+  { method: 'kernel.transaction.ingest', family: 'kernel-transaction', clientExposure: 'facade' },
+  { method: 'kernel.transaction.dequeue', family: 'kernel-transaction', clientExposure: 'facade' },
+  { method: 'kernel.transaction.requeue', family: 'kernel-transaction', clientExposure: 'facade' },
+  { method: 'autocard.decision.resolve', family: 'autocard', clientExposure: 'facade' },
+  { method: 'autocard.execute', family: 'autocard', clientExposure: 'facade' },
+  { method: 'review.feedback', family: 'review', clientExposure: 'facade' },
+  { method: 'review.truth.flush', family: 'review', clientExposure: 'facade' },
+  { method: 'review.truth.backfill', family: 'review', clientExposure: 'facade' },
+  { method: 'ai.session.create', family: 'ai', clientExposure: 'facade' },
+  { method: 'ai.session.get', family: 'ai', clientExposure: 'facade' },
+  { method: 'ai.session.update', family: 'ai', clientExposure: 'facade' },
+  { method: 'ai.session.cancel', family: 'ai', clientExposure: 'facade' },
+  { method: 'ai.prompt.execute', family: 'ai', clientExposure: 'facade' },
+  { method: 'ai.tool.job.execute', family: 'ai', clientExposure: 'facade' },
+  { method: 'ai.tool.job.approval', family: 'ai', clientExposure: 'facade' },
+  { method: 'ai.stream.start', family: 'ai', clientExposure: 'facade' },
+  { method: 'ai.stream.cancel', family: 'ai', clientExposure: 'facade' },
+  { method: 'job.get', family: 'job', clientExposure: 'facade' },
+  { method: 'job.cancel', family: 'job', clientExposure: 'facade' },
+  BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['private.health'],
+  BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['private.diagnostics.status'],
+  { method: 'private.audit.query', family: 'private-api', clientExposure: 'facade' },
+  { method: 'private.read.cards', family: 'private-api', clientExposure: 'facade' },
+  { method: 'private.read.queues', family: 'private-api', clientExposure: 'facade' },
+  { method: 'private.read.sessions', family: 'private-api', clientExposure: 'facade' },
+  { method: 'private.command.execute', family: 'private-api', clientExposure: 'facade' },
+  { method: 'semantic.command.execute', family: 'semantic', clientExposure: 'facade' },
+  { method: 'semantic.session.read', family: 'semantic', clientExposure: 'facade' },
+  { method: 'semantic.sidebar.read', family: 'semantic', clientExposure: 'facade' },
+  { method: 'semantic.browser.read', family: 'semantic', clientExposure: 'facade' },
+  { method: 'hotspot.command.submit', family: 'hotspot', clientExposure: 'facade' },
+  { method: 'hotspot.job.get', family: 'hotspot', clientExposure: 'facade' },
+  { method: 'xiuyuan.sync.execute', family: 'xiuyuan', clientExposure: 'facade' },
+  { method: 'progressive.command.execute', family: 'progressive', clientExposure: 'facade' },
+  { method: 'topic-derived.command.execute', family: 'topic-derived', clientExposure: 'facade' },
+  { method: 'review.riffFeedback.execute', family: 'review', clientExposure: 'facade' },
+  { method: 'review.sourceRefresh.execute', family: 'review', clientExposure: 'facade' },
+  BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.aggregate.snapshot'],
+  BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.aggregate.page'],
+  BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD['browser.aggregate.focus'],
+  { method: 'graph.query', family: 'graph', clientExposure: 'facade' },
+  { method: 'p6.ownership.query', family: 'p6-ownership', clientExposure: 'facade' },
+  { method: 'p6.ownership.command', family: 'p6-ownership', clientExposure: 'facade' },
+] as const satisfies readonly BackendRpcMethodContract[];
+
+export const BACKEND_RPC_METHOD_CONTRACT_BY_METHOD = Object.freeze(
+  Object.fromEntries(
+    BACKEND_RPC_METHOD_FAMILY_CATALOG.map((entry) => [entry.method, entry]),
+  ),
+) as Readonly<Record<BackendRpcMethod, BackendRpcMethodContract>>;
 
 export type BackendRpcId = number | string;
 

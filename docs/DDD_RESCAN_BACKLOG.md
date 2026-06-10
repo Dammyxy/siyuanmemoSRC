@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-10 (Round 569)
+Last update: 2026-06-10 (Round 570)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-10 - Backend RPC method-family registry foundation
+
+- Task: Start `modularize-backend-rpc-method-families` by adding backend RPC family contracts, registry verification, client catalog verification, and low-risk core/Browser/Queue Projection contract family files.
+- Touched slice: Backend RPC contract/registry/client seam: `packages/contracts/src/backend-rpc.ts`, `packages/contracts/src/backend-rpc/{core,browser,queue-projection,index}.ts`, `worker/bootstrap/rpc/BackendRpcRegistry.ts`, `src/application/clients/backendRpcClientCatalog.ts`, focused contract/registry/client tests, OpenSpec tasks, and `ARCHITECTURE.md`.
+- Debt fixed now: `BackendRpcMethod` now derives from a runtime method catalog instead of a union-only authoring path; method-family metadata is explicit and verified; current `BackendKernel.handle()` switch has a registry completeness/duplicate-method gate; current `SrsBackendClient` facade methods have a catalog proving each client-exposed method maps to a registered backend RPC method. Core/system/db/diagnostics/private health, Browser, and Queue Projection/storage rebuild contract metadata now live in family modules while the root contract remains a compatibility facade.
+- Debt deferred: Runtime dispatcher migration, family handler adapters, client facets, and Review/truth/domain-sync contract migration remain open.
+- Why deferred: The next task (`2.5`) touches Review feedback/truth/domain-sync contracts, which the active OpenSpec design and task request explicitly defer until durability/storage changes are settled; jumping past it into later families would violate task order and make migration state harder to reason about.
+- Next safe step: Resume at task `2.5` only when Review/storage durability work is committed or intentionally isolated; otherwise start dispatcher work from `3.1` only after the remaining contract-family ordering is explicitly updated in OpenSpec.
+- Validation: `openspec validate modularize-backend-rpc-method-families --strict`; `pnpm exec vitest run packages/contracts/src/__tests__/backend-rpc-method-family-catalog.test.ts worker/bootstrap/__tests__/BackendRpcRegistry.test.ts src/application/clients/__tests__/backendRpcClientCatalog.test.ts --reporter=dot`; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
 
 ### 2026-06-10 - Browser block existence query source
 

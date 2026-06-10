@@ -1,18 +1,18 @@
 ## 1. Preflight And Registry Foundation
 
-- [ ] 1.1 Ensure current production-code debt cleanup diff is committed, stashed, or intentionally isolated before applying this change.
-- [ ] 1.2 Read ADR-001, ADR-002, ADR-003, ADR-004, ADR-005, `CONTEXT.md`, `ARCHITECTURE.md` backend sections, and the latest `docs/DDD_RESCAN_BACKLOG.md` entries before editing runtime code.
-- [ ] 1.3 Add backend RPC family names and registry contracts for method, family, params/result typing, handler adapter, and client exposure metadata.
-- [ ] 1.4 Add a registry completeness test proving every exported `BackendRpcMethod` has exactly one registered handler entry.
-- [ ] 1.5 Add a duplicate-method registry test proving two family modules cannot register the same method.
-- [ ] 1.6 Add a client-catalog verification test proving every client-exposed method maps to a registered backend RPC method.
+- [x] 1.1 Ensure current production-code debt cleanup diff is committed, stashed, or intentionally isolated before applying this change.
+- [x] 1.2 Read ADR-001, ADR-002, ADR-003, ADR-004, ADR-005, `CONTEXT.md`, `ARCHITECTURE.md` backend sections, and the latest `docs/DDD_RESCAN_BACKLOG.md` entries before editing runtime code.
+- [x] 1.3 Add backend RPC family names and registry contracts for method, family, params/result typing, handler adapter, and client exposure metadata.
+- [x] 1.4 Add a registry completeness test proving every exported `BackendRpcMethod` has exactly one registered handler entry.
+- [x] 1.5 Add a duplicate-method registry test proving two family modules cannot register the same method.
+- [x] 1.6 Add a client-catalog verification test proving every client-exposed method maps to a registered backend RPC method.
 
 ## 2. Contract Family Modules
 
-- [ ] 2.1 Create `packages/contracts/src/backend-rpc/` with a root family index and keep `packages/contracts/src/backend-rpc.ts` as a compatibility re-export facade.
-- [ ] 2.2 Move core/system/db/diagnostics/private health method contracts into a core family contract file without changing method strings.
-- [ ] 2.3 Move Browser deck/source-existence/aggregate method contracts into a Browser family contract file without changing request/result shapes.
-- [ ] 2.4 Move Queue Projection and storage projection rebuild contracts into a Queue Projection family contract file.
+- [x] 2.1 Create `packages/contracts/src/backend-rpc/` with a root family index and keep `packages/contracts/src/backend-rpc.ts` as a compatibility re-export facade.
+- [x] 2.2 Move core/system/db/diagnostics/private health method contracts into a core family contract file without changing method strings.
+- [x] 2.3 Move Browser deck/source-existence/aggregate method contracts into a Browser family contract file without changing request/result shapes.
+- [x] 2.4 Move Queue Projection and storage projection rebuild contracts into a Queue Projection family contract file.
 - [ ] 2.5 Move Review feedback, Review truth flush/backfill, Review riff feedback/source refresh, sync/domain-sync contracts into Review/Sync family contract files.
 - [ ] 2.6 Move NeuralRoam contracts into a NeuralRoam family contract file.
 - [ ] 2.7 Move AI session/prompt/tool/stream/job/hotspot contracts into AI/Job family contract files.
