@@ -45,13 +45,18 @@
 ## 5. Test Split And Parity Coverage
 
 - [x] 5.1 Add `BackendRpcDispatcher.test.ts` for invalid request, unknown method, handler success, handler error, duplicate registry, and diagnostics timing behavior.
-- [ ] 5.2 Split core/db/diagnostics tests out of `worker/__tests__/BackendKernel.test.ts`.
-- [ ] 5.3 Split Browser and source-existence backend tests out of `BackendKernel.test.ts`.
-- [ ] 5.4 Split Queue Projection backend tests out of `BackendKernel.test.ts`.
-- [ ] 5.5 Split NeuralRoam backend tests out of `BackendKernel.test.ts`.
-- [ ] 5.6 Split kernel transaction ingest/action queue tests out of `BackendKernel.test.ts`.
-- [ ] 5.7 Split AI/job/hotspot tests out of `BackendKernel.test.ts`.
-- [ ] 5.8 Split Semantic/Private/P6/Graph/Xiuyuan/Progressive/Topic-derived tests out of `BackendKernel.test.ts`.
+- [x] 5.2 Split core/db/diagnostics tests out of `worker/__tests__/BackendKernel.test.ts`.
+- [x] 5.3 Split Browser and source-existence backend tests out of `BackendKernel.test.ts`.
+- [x] 5.4 Split Queue Projection backend tests out of `BackendKernel.test.ts`.
+  - Deferred under 3.10/5.9: `storage.projection.rebuild` and Review queue-impact tests that exercise Review truth/journal/durability behavior.
+- [x] 5.5 Split NeuralRoam backend tests out of `BackendKernel.test.ts`.
+  - Deferred under 5.8/5.9: NeuralRoam tests that exercise Review feedback commits or Semantic projection boosts.
+- [x] 5.6 Split kernel transaction ingest/action queue tests out of `BackendKernel.test.ts`.
+  - Deferred under 5.9: Review fast-path and review/queue parity diagnostics that include `kernel.transaction.dequeue`.
+- [x] 5.7 Split AI/job/hotspot tests out of `BackendKernel.test.ts`.
+  - No `ai.*`, `job.*`, or `hotspot.*` method tests remained in `BackendKernel.test.ts`; focused AI/job/hotspot adapter coverage is green.
+- [x] 5.8 Split Semantic/Private/P6/Graph/Xiuyuan/Progressive/Topic-derived tests out of `BackendKernel.test.ts`.
+  - Semantic, Private API, and P6 ownership kernel-through-dispatch tests now live in focused family suites; Graph, Xiuyuan, Progressive, and Topic-derived method tests had no remaining `BackendKernel.test.ts` method-string coverage to move.
 - [ ] 5.9 Split Review feedback/truth/domain-sync tests out of `BackendKernel.test.ts` only after the Review/storage family adapter migration is complete.
 - [ ] 5.10 Leave `BackendKernel.test.ts` with only integration smoke that proves the kernel wires the dispatcher and shared dependencies correctly.
 

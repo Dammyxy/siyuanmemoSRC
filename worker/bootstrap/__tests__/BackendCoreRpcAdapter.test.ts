@@ -3,12 +3,17 @@ import {
   BACKEND_RPC_VERSION,
   type BackendDiagnosticsStatusResult,
 } from '../../../packages/contracts/src/backend-rpc';
+import { BackendKernel } from '../BackendKernel';
 import {
   BACKEND_CORE_RPC_HANDLER_REGISTRATIONS,
   type BackendCoreRpcHandlerContext,
 } from '../rpc/BackendCoreRpcAdapter';
 import { BackendRpcDispatcher } from '../rpc/BackendRpcDispatcher';
 import { createBackendRpcHandlerRegistry } from '../rpc/BackendRpcRegistry';
+import { WorkerSqliteDatabaseService } from '../../db/SqliteDatabaseService';
+import { createInMemorySqlitePersistenceBridge } from '../../db/SqlitePersistenceBridge';
+
+const SQLITE_DELTA_V2_MANIFEST = 'sqlite-delta/v2/sqlite-delta-log.v2.manifest.json';
 
 describe('BackendCoreRpcAdapter', () => {
   it('serves system/db/diagnostics/private health methods through the core family adapter', async () => {
@@ -69,6 +74,106 @@ describe('BackendCoreRpcAdapter', () => {
         auditEvents: 3,
       },
     });
+  });
+
+  it('returns explicit unavailable when core db methods lack a persistence bridge', async () => {
+    const kernel = BackendKernel.createWithoutBridge();
+
+    const loadResponse = await kernel.handle({
+      id: 1,
+      jsonrpc: '2.0',
+      method: 'db.load',
+      params: [],
+    });
+
+    expect(loadResponse).toEqual({
+      id: 1,
+      jsonrpc: '2.0',
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'SrsBackendWorker persistence bridge is unavailable',
+      },
+    });
+  });
+
+  it('loads, persists, and reports sqlite diagnostics through core family methods', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+
+    const loadResponse = await kernel.handle({
+      id: 'load',
+      jsonrpc: '2.0',
+      method: 'db.load',
+      params: [],
+    });
+    expect(loadResponse).toEqual({
+      id: 'load',
+      jsonrpc: '2.0',
+      result: {
+        ok: true,
+        initialized: true,
+        dbFile: 'siyuanmemo.db',
+      },
+    });
+
+    const persistResponse = await kernel.handle({
+      id: 'persist',
+      jsonrpc: '2.0',
+      method: 'db.persist',
+      params: [],
+    });
+    expect(persistResponse).toEqual({
+      id: 'persist',
+      jsonrpc: '2.0',
+      result: {
+        ok: true,
+        persisted: true,
+        dbFile: 'siyuanmemo.db',
+      },
+    });
+
+    const statusResponse = await kernel.handle({
+      id: 'status',
+      jsonrpc: '2.0',
+      method: 'diagnostics.status',
+      params: [],
+    });
+    expect('result' in statusResponse).toBe(true);
+    if ('result' in statusResponse) {
+      expect(statusResponse.result).toMatchObject({
+        runtime: 'srs-backend-worker',
+        initialized: true,
+        dbFile: 'siyuanmemo.db',
+        ingest: {
+          queueLength: 0,
+          queuedTransactions: 0,
+          maxQueueLength: 256,
+          actionQueueLength: 0,
+          actionEnqueuedTotal: 0,
+          actionDequeuedTotal: 0,
+          actionRequeuedTotal: 0,
+          actionRejectedTotal: 0,
+          removeActionQueuedTotal: 0,
+          upsertActionQueuedTotal: 0,
+          autoCardActionQueuedTotal: 0,
+          maxActionQueueLength: 4096,
+        },
+        storage: {
+          sqliteDelta: {
+            fileName: SQLITE_DELTA_V2_MANIFEST,
+            pendingCount: 0,
+            lastCheckpoint: {
+              ok: true,
+              cause: 'worker.persist',
+              initiator: 'db.persist',
+              projectionGeneration: null,
+              hotPath: false,
+            },
+          },
+        },
+      });
+    }
   });
 });
 

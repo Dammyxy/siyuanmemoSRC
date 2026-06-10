@@ -7,6 +7,9 @@ import {
 } from '../rpc/BackendP6OwnershipRpcAdapter';
 import { BackendRpcDispatcher } from '../rpc/BackendRpcDispatcher';
 import { createBackendRpcHandlerRegistry } from '../rpc/BackendRpcRegistry';
+import { BackendKernel } from '../BackendKernel';
+import { createInMemorySqlitePersistenceBridge } from '../../db/SqlitePersistenceBridge';
+import { WorkerSqliteDatabaseService } from '../../db/SqliteDatabaseService';
 
 describe('BackendP6OwnershipRpcAdapter', () => {
   it('answers P6 ownership query and command through the ownership runtime', async () => {
@@ -70,6 +73,60 @@ describe('BackendP6OwnershipRpcAdapter', () => {
         message: 'p6.ownership.query unsupported operation: execute-side-effect',
       },
     });
+  });
+
+  it('answers P6 ownership query and command contracts instead of METHOD_NOT_FOUND', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({ database });
+
+    const query = await kernel.handle({
+      id: 'p6-query',
+      jsonrpc: '2.0',
+      method: 'p6.ownership.query',
+      params: [{
+        requestId: 'p6-query-1',
+        surface: 'dialog-manager',
+        operation: 'read-block-meta',
+        payload: { blockId: 'block-1' },
+      }],
+    });
+    const command = await kernel.handle({
+      id: 'p6-command',
+      jsonrpc: '2.0',
+      method: 'p6.ownership.command',
+      params: [{
+        requestId: 'p6-command-1',
+        surface: 'autocard-scanner',
+        operation: 'execute-side-effect',
+        idempotencyKey: 'p6-command-key',
+        payload: { blockId: 'block-1' },
+      }],
+    });
+
+    expect('result' in query).toBe(true);
+    if ('result' in query) {
+      expect(query.result).toMatchObject({
+        ok: true,
+        surface: 'dialog-manager',
+        operation: 'read-block-meta',
+        owner: 'compatibility-read',
+        status: 'completed',
+        unavailableClass: null,
+      });
+      expect(query.result.diagnosticEventId).toContain('p6-ownership:dialog-manager:read-block-meta');
+    }
+    expect('result' in command).toBe(true);
+    if ('result' in command) {
+      expect(command.result).toMatchObject({
+        ok: true,
+        surface: 'autocard-scanner',
+        operation: 'execute-side-effect',
+        owner: 'writer-relay',
+        status: 'completed',
+        unavailableClass: null,
+      });
+      expect(command.result.diagnosticEventId).toContain('p6-ownership:autocard-scanner:execute-side-effect');
+    }
   });
 });
 

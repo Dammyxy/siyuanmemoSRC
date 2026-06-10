@@ -4,6 +4,12 @@ import {
   type BackendBrowserAggregateIdentity,
   type BackendBrowserDocumentCountsResult,
 } from '../../../packages/contracts/src/backend-rpc';
+import { CardState, CardType, type FSRSCard } from '@/types/card';
+import { BackendKernel } from '../BackendKernel';
+import {
+  beginBackendWorkerTiming,
+  endBackendWorkerRequest,
+} from '../ReviewFeedbackTimingScope';
 import {
   BACKEND_BROWSER_RPC_HANDLER_REGISTRATIONS,
   type BackendBrowserAggregateReader,
@@ -12,6 +18,8 @@ import {
 } from '../rpc/BackendBrowserRpcAdapter';
 import { BackendRpcDispatcher } from '../rpc/BackendRpcDispatcher';
 import { createBackendRpcHandlerRegistry } from '../rpc/BackendRpcRegistry';
+import { WorkerSqliteDatabaseService } from '../../db/SqliteDatabaseService';
+import { createInMemorySqlitePersistenceBridge } from '../../db/SqlitePersistenceBridge';
 
 describe('BackendBrowserRpcAdapter', () => {
   it('serves deck, stats, and source-existence methods through the browser family adapter', async () => {
@@ -89,6 +97,319 @@ describe('BackendBrowserRpcAdapter', () => {
     })).resolves.toMatchObject({
       result: { checked: 1, updated: 1, changed: true, changedToMissing: false, changedBlockIds: ['block-1'] },
     });
+  });
+
+  it('serves browser repository methods through the kernel dispatcher', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+
+    const deckPageResponse = await kernel.handle({
+      id: 'deck-page',
+      jsonrpc: '2.0',
+      method: 'browser.deck.page',
+      params: [{ query: { preset: 'all' }, page: { startRow: 0, endRow: 10 } }],
+    });
+    expect(deckPageResponse).toEqual({
+      id: 'deck-page',
+      jsonrpc: '2.0',
+      result: {
+        total: 0,
+        cards: [],
+        generation: null,
+      },
+    });
+
+    const matchedIdsResponse = await kernel.handle({
+      id: 'deck-ids',
+      jsonrpc: '2.0',
+      method: 'browser.deck.matchedIds',
+      params: [{ query: { preset: 'review' } }],
+    });
+    expect(matchedIdsResponse).toEqual({
+      id: 'deck-ids',
+      jsonrpc: '2.0',
+      result: { ids: [] },
+    });
+
+    const rowsByIdsResponse = await kernel.handle({
+      id: 'deck-rows',
+      jsonrpc: '2.0',
+      method: 'browser.deck.rowsByIds',
+      params: [{ ids: ['card-1'] }],
+    });
+    expect(rowsByIdsResponse).toEqual({
+      id: 'deck-rows',
+      jsonrpc: '2.0',
+      result: { cards: [] },
+    });
+
+    const statsResponse = await kernel.handle({
+      id: 'stats',
+      jsonrpc: '2.0',
+      method: 'browser.stats',
+      params: [],
+    });
+    expect(statsResponse).toEqual({
+      id: 'stats',
+      jsonrpc: '2.0',
+      result: {
+        totalCards: 0,
+        dueCards: 0,
+        newCards: 0,
+        learningCards: 0,
+        reviewCards: 0,
+        suspendedCards: 0,
+        lostCards: 0,
+      },
+    });
+
+    const sourceSummaryResponse = await kernel.handle({
+      id: 'source-summary',
+      jsonrpc: '2.0',
+      method: 'browser.sourceExistence.summary',
+      params: [],
+    });
+    expect(sourceSummaryResponse).toEqual({
+      id: 'source-summary',
+      jsonrpc: '2.0',
+      result: {
+        unknown: 0,
+        stale: 0,
+        missing: 0,
+      },
+    });
+
+    const sourceSweepResponse = await kernel.handle({
+      id: 'source-sweep',
+      jsonrpc: '2.0',
+      method: 'browser.sourceExistence.applySweep',
+      params: [{ request: { blockIds: ['block-1'] }, existingBlockIds: ['block-1'] }],
+    });
+    expect(sourceSweepResponse).toEqual({
+      id: 'source-sweep',
+      jsonrpc: '2.0',
+      result: {
+        checked: 0,
+        updated: 0,
+        changed: false,
+        changedToMissing: false,
+        changedBlockIds: [],
+      },
+    });
+
+    const sourceSweepHostResponse = await kernel.handle({
+      id: 'source-sweep-host',
+      jsonrpc: '2.0',
+      method: 'browser.sourceExistence.applySweepHost',
+      params: [{ request: { blockIds: ['block-1'] } }],
+    });
+    expect(sourceSweepHostResponse).toEqual({
+      id: 'source-sweep-host',
+      jsonrpc: '2.0',
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'SrsBackendWorker host source-existence resolver is unavailable',
+      },
+    });
+  });
+
+  it('records diagnostic inner steps for browser deck page reads', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([
+      buildCard({
+        id: 'diagnostic-browser-card',
+        blockId: 'diagnostic-browser-block',
+        due: 1_700_000_100_000,
+        meta: { content: 'diagnostic Browser card', rootId: 'doc-diagnostic', deckId: 'deck-diagnostic' },
+      }),
+    ]);
+    const kernel = new BackendKernel({ database });
+    const timing = beginBackendWorkerTiming('browser.deck.page');
+
+    try {
+      const response = await kernel.handle({
+        id: 'browser-diagnostic-page',
+        jsonrpc: '2.0',
+        method: 'browser.deck.page',
+        params: [{ query: { preset: 'all' }, page: { startRow: 0, endRow: 10 } }],
+      });
+
+      expect('result' in response).toBe(true);
+      if ('result' in response) {
+        expect(response.result.total).toBe(1);
+      }
+      expect(timing.innerSteps.map((step) => `${step.layer}:${step.step}`)).toEqual(expect.arrayContaining([
+        'kernel:pre-request-merge',
+        'database:queryDeckPage.init',
+        'database:queryDeckPage.count',
+        'database:queryDeckPage.select',
+        'database:queryDeckPage.total',
+      ]));
+      expect(timing.innerSteps.find((step) => step.step === 'queryDeckPage.select')?.extra).toMatchObject({
+        startRow: 0,
+        limit: 1,
+        total: 1,
+      });
+      expect(timing.innerSteps.find((step) => step.step === 'queryDeckPage.parse')).toBeUndefined();
+      expect(timing.innerSteps.find((step) => step.step === 'pre-request-merge')?.extra).toMatchObject({
+        mainDbReadSkipped: true,
+        mainDbReadSkipReason: 'read-only-preflight-main-db-disabled',
+        nonEmptyConflictSourceCount: 0,
+      });
+    } finally {
+      endBackendWorkerRequest(timing);
+    }
+  });
+
+  it('does not merge or persist stale main DB bytes during browser deck read preflight', async () => {
+    const cardId = 'card-browser-read-external-main-db';
+    const blockId = 'block-browser-read-external-main-db';
+    const staleBridge = createInMemorySqlitePersistenceBridge();
+    const staleDatabase = new WorkerSqliteDatabaseService(staleBridge);
+    await staleDatabase.upsertCards([buildCard({
+      id: cardId,
+      blockId,
+      due: 1_779_188_006_000,
+      updatedAt: 1_779_188_006_000,
+    })]);
+    await staleDatabase.persist();
+    const stalePersistedBytes = await staleBridge.readBinary('siyuanmemo.db');
+    expect(stalePersistedBytes).toBeTruthy();
+
+    const emptyBridge = createInMemorySqlitePersistenceBridge();
+    const emptyDatabase = new WorkerSqliteDatabaseService(emptyBridge);
+    await emptyDatabase.load();
+    await emptyDatabase.persist();
+    const emptyPersistedBytes = await emptyBridge.readBinary('siyuanmemo.db');
+    expect(emptyPersistedBytes).toBeTruthy();
+
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    await persistenceBridge.writeBinary('siyuanmemo.db', emptyPersistedBytes!);
+    const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
+    const writeBinary = vi.fn(persistenceBridge.writeBinary.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readBinary,
+      writeBinary,
+      readSyncConflictDatabaseSources: vi.fn(async () => []),
+    });
+    await database.load();
+    await expect(database.getCard(cardId)).resolves.toBeUndefined();
+    await persistenceBridge.writeBinary('siyuanmemo.db', stalePersistedBytes!);
+    const mainDbReadsBeforeBrowser = readBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+    const mainDbWritesBeforeBrowser = writeBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const page = await kernel.handle({
+      id: 'browser-deck-read-does-not-self-merge-main-db',
+      jsonrpc: '2.0',
+      method: 'browser.deck.page',
+      params: [{ query: { preset: 'all' }, page: { startRow: 0, endRow: 20 } }],
+    });
+
+    expect('result' in page).toBe(true);
+    expect(page).toMatchObject({
+      result: {
+        total: 0,
+        cards: [],
+      },
+    });
+    expect(await database.getCard(cardId)).toBeUndefined();
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_processed_sources WHERE source_id = ?',
+      ['siyuan-sync:siyuanmemo.db'],
+    )?.count).toBe(0);
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsBeforeBrowser);
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbWritesBeforeBrowser);
+  });
+
+  it('does not merge or persist stale main DB bytes during unchanged source-existence sweep', async () => {
+    const cardId = 'card-browser-source-existence-noop';
+    const blockId = 'block-browser-source-existence-noop';
+    const staleBridge = createInMemorySqlitePersistenceBridge();
+    const staleDatabase = new WorkerSqliteDatabaseService(staleBridge);
+    await staleDatabase.upsertCards([buildCard({
+      id: 'card-browser-source-existence-stale-main',
+      blockId: 'block-browser-source-existence-stale-main',
+      due: 1_779_188_016_000,
+      updatedAt: 1_779_188_016_000,
+    })]);
+    await staleDatabase.persist();
+    const stalePersistedBytes = await staleBridge.readBinary('siyuanmemo.db');
+    expect(stalePersistedBytes).toBeTruthy();
+
+    const currentBridge = createInMemorySqlitePersistenceBridge();
+    const currentDatabase = new WorkerSqliteDatabaseService(currentBridge);
+    await currentDatabase.upsertCards([buildCard({
+      id: cardId,
+      blockId,
+      due: 1_779_188_015_000,
+      updatedAt: 1_779_188_015_000,
+    })]);
+    await currentDatabase.updateSourceExistence([
+      { cardId, blockId, exists: true },
+    ], 1_779_188_015_100);
+    await currentDatabase.persist();
+    const currentPersistedBytes = await currentBridge.readBinary('siyuanmemo.db');
+    expect(currentPersistedBytes).toBeTruthy();
+
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    await persistenceBridge.writeBinary('siyuanmemo.db', currentPersistedBytes!);
+    const readBinary = vi.fn(persistenceBridge.readBinary.bind(persistenceBridge));
+    const writeBinary = vi.fn(persistenceBridge.writeBinary.bind(persistenceBridge));
+    const database = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      readBinary,
+      writeBinary,
+      readSyncConflictDatabaseSources: vi.fn(async () => []),
+    });
+    await database.load();
+    await persistenceBridge.writeBinary('siyuanmemo.db', stalePersistedBytes!);
+    const mainDbReadsBeforeSweep = readBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+    const mainDbWritesBeforeSweep = writeBinary.mock.calls
+      .filter(([path]) => path === 'siyuanmemo.db')
+      .length;
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const sweep = await kernel.handle({
+      id: 'browser-source-existence-noop-does-not-self-merge-main-db',
+      jsonrpc: '2.0',
+      method: 'browser.sourceExistence.applySweepHost',
+      params: [{ request: { blockIds: [blockId], force: true }, checkedAt: 1_779_188_015_200 }],
+    });
+
+    expect(sweep).toEqual({
+      id: 'browser-source-existence-noop-does-not-self-merge-main-db',
+      jsonrpc: '2.0',
+      result: {
+        checked: 1,
+        updated: 0,
+        changed: false,
+        changedToMissing: false,
+        changedBlockIds: [],
+      },
+    });
+    expect(await database.getCard('card-browser-source-existence-stale-main')).toBeUndefined();
+    expect(database.getOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM domain_sync_processed_sources WHERE source_id = ?',
+      ['siyuan-sync:siyuanmemo.db'],
+    )?.count).toBe(0);
+    expect(readBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbReadsBeforeSweep);
+    expect(writeBinary.mock.calls.filter(([path]) => path === 'siyuanmemo.db')).toHaveLength(mainDbWritesBeforeSweep);
   });
 
   it('uses the host source-existence resolver explicitly and preserves unavailable errors', async () => {
@@ -189,6 +510,34 @@ function dispatchBrowser(
     method,
     params: params === undefined ? undefined : [params],
   }, context);
+}
+
+function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
+  const now = 1_700_000_000_000;
+  return {
+    id: overrides.id ?? 'card-1',
+    xiuyuanID: overrides.xiuyuanID ?? 'xiuyuan-1',
+    blockId: overrides.blockId ?? 'block-1',
+    due: overrides.due ?? now + 86_400_000,
+    stability: overrides.stability ?? 4,
+    difficulty: overrides.difficulty ?? 5,
+    reps: overrides.reps ?? 3,
+    lapses: overrides.lapses ?? 1,
+    state: overrides.state ?? CardState.Review,
+    lastReview: overrides.lastReview ?? now,
+    elapsedDays: overrides.elapsedDays ?? 0,
+    scheduledDays: overrides.scheduledDays ?? 7,
+    priority: overrides.priority ?? 19,
+    type: overrides.type ?? CardType.Item,
+    tags: overrides.tags ?? [],
+    neuralRoamSeed: overrides.neuralRoamSeed ?? false,
+    leechCount: overrides.leechCount ?? 0,
+    isLeech: overrides.isLeech ?? false,
+    skipped: overrides.skipped ?? false,
+    createdAt: overrides.createdAt ?? now,
+    updatedAt: overrides.updatedAt ?? now,
+    meta: overrides.meta ?? {},
+  };
 }
 
 function createBrowserContext(overrides: Partial<BackendBrowserRpcHandlerContext['browser']> = {}): BackendBrowserRpcHandlerContext {
