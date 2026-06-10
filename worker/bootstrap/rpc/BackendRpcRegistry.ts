@@ -5,10 +5,40 @@ import {
   type BackendRpcHandlerAdapter,
   type BackendRpcMethod,
 } from '../../../packages/contracts/src/backend-rpc';
+import { BACKEND_AI_JOB_HOTSPOT_RPC_HANDLER_REGISTRATIONS, type BackendAiJobHotspotRpcHandlerContext } from './BackendAiJobHotspotRpcAdapter';
+import { BACKEND_BROWSER_RPC_HANDLER_REGISTRATIONS, type BackendBrowserRpcHandlerContext } from './BackendBrowserRpcAdapter';
+import { BACKEND_CORE_RPC_HANDLER_REGISTRATIONS, type BackendCoreRpcHandlerContext } from './BackendCoreRpcAdapter';
+import { BACKEND_GRAPH_RPC_HANDLER_REGISTRATIONS, type BackendGraphRpcHandlerContext } from './BackendGraphRpcAdapter';
+import { BACKEND_KERNEL_TRANSACTION_RPC_HANDLER_REGISTRATIONS, type BackendKernelTransactionRpcHandlerContext } from './BackendKernelTransactionRpcAdapter';
+import { BACKEND_NEURAL_ROAM_RPC_HANDLER_REGISTRATIONS, type BackendNeuralRoamRpcHandlerContext } from './BackendNeuralRoamRpcAdapter';
+import { BACKEND_P6_OWNERSHIP_RPC_HANDLER_REGISTRATIONS, type BackendP6OwnershipRpcHandlerContext } from './BackendP6OwnershipRpcAdapter';
+import { BACKEND_PRIVATE_API_RPC_HANDLER_REGISTRATIONS, type BackendPrivateApiRpcHandlerContext } from './BackendPrivateApiRpcAdapter';
+import { BACKEND_PROGRESSIVE_RPC_HANDLER_REGISTRATIONS, type BackendProgressiveRpcHandlerContext } from './BackendProgressiveRpcAdapter';
+import { BACKEND_QUEUE_PROJECTION_RPC_HANDLER_REGISTRATIONS, type BackendQueueProjectionRpcHandlerContext } from './BackendQueueProjectionRpcAdapter';
+import type { BackendRpcHandlerContext } from './BackendRpcHandlerContext';
+import { BACKEND_SEMANTIC_RPC_HANDLER_REGISTRATIONS, type BackendSemanticRpcHandlerContext } from './BackendSemanticRpcAdapter';
+import { BACKEND_TOPIC_DERIVED_RPC_HANDLER_REGISTRATIONS, type BackendTopicDerivedRpcHandlerContext } from './BackendTopicDerivedRpcAdapter';
+import { BACKEND_XIUYUAN_RPC_HANDLER_REGISTRATIONS, type BackendXiuyuanRpcHandlerContext } from './BackendXiuyuanRpcAdapter';
 
-export interface LegacyBackendKernelHandlerContext {
+export interface LegacyBackendKernelHandlerContext extends BackendRpcHandlerContext {
   handleLegacyBackendKernelMethod(method: BackendRpcMethod, params: unknown): Promise<unknown> | unknown;
 }
+
+export interface BackendKernelRpcHandlerContext
+  extends BackendAiJobHotspotRpcHandlerContext,
+    BackendCoreRpcHandlerContext,
+    BackendBrowserRpcHandlerContext,
+    BackendKernelTransactionRpcHandlerContext,
+    BackendNeuralRoamRpcHandlerContext,
+    BackendQueueProjectionRpcHandlerContext,
+    BackendGraphRpcHandlerContext,
+    BackendPrivateApiRpcHandlerContext,
+    BackendSemanticRpcHandlerContext,
+    BackendP6OwnershipRpcHandlerContext,
+    BackendXiuyuanRpcHandlerContext,
+    BackendProgressiveRpcHandlerContext,
+    BackendTopicDerivedRpcHandlerContext,
+    LegacyBackendKernelHandlerContext {}
 
 export interface BackendRpcHandlerRegistration<TContext = unknown, TParams = unknown, TResult = unknown>
   extends BackendRpcHandlerAdapter<TParams, TResult, TContext> {
@@ -29,86 +59,44 @@ export interface BackendRpcHandlerRegistry<TContext = unknown> {
 }
 
 export const LEGACY_BACKEND_KERNEL_RPC_METHODS = [
-  'system.health',
-  'db.load',
-  'db.persist',
   'sync.conflict.merge',
   'sync.conflict.summarize',
   'sync.conflict.reload',
-  'diagnostics.status',
   'domainSync.status',
   'domainSync.repair.preview',
   'domainSync.repair.apply',
   'domainSync.conflictSources.cleanupCandidates',
   'domainSync.conflictSources.cleanup',
   'sync.reviewDivergence.audit',
-  'browser.deck.page',
-  'browser.deck.matchedIds',
-  'browser.deck.rowsByIds',
-  'browser.deck.documentCounts',
-  'browser.count',
-  'browser.stats',
-  'browser.sourceExistence.refreshCandidates',
-  'browser.sourceExistence.update',
-  'browser.sourceExistence.byBlockIds',
-  'browser.sourceExistence.summary',
-  'browser.sourceExistence.applySweepHost',
-  'storage.projection.rebuild',
-  'queue.projection.snapshot',
-  'queue.projection.rowsByIds',
-  'queue.projection.replace',
-  'neural-roam.advance',
-  'neural-roam.viewState',
-  'neural-roam.command',
-  'kernel.transaction.ingest',
-  'kernel.transaction.dequeue',
-  'kernel.transaction.requeue',
   'autocard.decision.resolve',
   'autocard.execute',
   'review.feedback',
   'review.truth.flush',
   'review.truth.backfill',
-  'ai.session.create',
-  'ai.session.get',
-  'ai.session.update',
-  'ai.session.cancel',
-  'ai.prompt.execute',
-  'ai.tool.job.execute',
-  'ai.tool.job.approval',
-  'ai.stream.start',
-  'ai.stream.cancel',
-  'job.get',
-  'job.cancel',
-  'hotspot.command.submit',
-  'hotspot.job.get',
-  'xiuyuan.sync.execute',
-  'progressive.command.execute',
-  'topic-derived.command.execute',
   'review.riffFeedback.execute',
   'review.sourceRefresh.execute',
-  'browser.aggregate.snapshot',
-  'browser.aggregate.page',
-  'browser.aggregate.focus',
-  'graph.query',
-  'private.health',
-  'private.diagnostics.status',
-  'private.audit.query',
-  'private.read.cards',
-  'private.read.queues',
-  'private.read.sessions',
-  'private.command.execute',
-  'semantic.command.execute',
-  'semantic.session.read',
-  'semantic.sidebar.read',
-  'semantic.browser.read',
-  'p6.ownership.query',
-  'p6.ownership.command',
-  'browser.sourceExistence.applySweep',
 ] as const satisfies readonly BackendRpcMethod[];
 
 export const LEGACY_BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS = Object.freeze(
   LEGACY_BACKEND_KERNEL_RPC_METHODS.map(createLegacyBackendKernelHandlerRegistration),
 );
+
+export const BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS = Object.freeze([
+  ...BACKEND_CORE_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_BROWSER_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_QUEUE_PROJECTION_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_NEURAL_ROAM_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_KERNEL_TRANSACTION_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_AI_JOB_HOTSPOT_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_GRAPH_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_PRIVATE_API_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_SEMANTIC_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_P6_OWNERSHIP_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_XIUYUAN_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_PROGRESSIVE_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_TOPIC_DERIVED_RPC_HANDLER_REGISTRATIONS,
+  ...LEGACY_BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS,
+]) as readonly BackendRpcHandlerRegistration<BackendKernelRpcHandlerContext>[];
 
 export function createBackendRpcHandlerRegistry<TContext>(
   entries: readonly BackendRpcHandlerRegistration<TContext>[],
@@ -186,7 +174,7 @@ export function findDuplicateBackendRpcHandlerMethods(
 
 function createLegacyBackendKernelHandlerRegistration(
   method: BackendRpcMethod,
-): BackendRpcHandlerRegistration<LegacyBackendKernelHandlerContext> {
+): BackendRpcHandlerRegistration<BackendKernelRpcHandlerContext> {
   return {
     method,
     family: BACKEND_RPC_METHOD_CONTRACT_BY_METHOD[method].family,

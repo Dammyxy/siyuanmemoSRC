@@ -6,6 +6,11 @@ import {
   BACKEND_RPC_METHOD_FAMILY_CATALOG,
 } from '../backend-rpc';
 import {
+  BACKEND_AI_RPC_METHODS,
+  BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD,
+  type BackendAiRpcMethod,
+} from '../backend-rpc/ai';
+import {
   BACKEND_BROWSER_RPC_METHODS,
   BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD,
   type BackendBrowserDeckMatchedIdsResult,
@@ -18,9 +23,76 @@ import {
   type BackendPrivateHealthResult,
 } from '../backend-rpc/core';
 import {
+  BACKEND_GRAPH_RPC_METHODS,
+  BACKEND_GRAPH_RPC_METHOD_CONTRACT_BY_METHOD,
+  type BackendGraphRpcMethod,
+} from '../backend-rpc/graph';
+import {
+  BACKEND_HOTSPOT_RPC_METHODS,
+  BACKEND_HOTSPOT_RPC_METHOD_CONTRACT_BY_METHOD,
+  type BackendHotspotRpcMethod,
+} from '../backend-rpc/hotspot';
+import {
+  BACKEND_JOB_RPC_METHODS,
+  BACKEND_JOB_RPC_METHOD_CONTRACT_BY_METHOD,
+  type BackendJobRpcMethod,
+} from '../backend-rpc/job';
+import {
+  BACKEND_KERNEL_TRANSACTION_RPC_METHODS,
+  BACKEND_KERNEL_TRANSACTION_RPC_METHOD_CONTRACT_BY_METHOD,
+  type BackendKernelTransactionRpcMethod,
+} from '../backend-rpc/kernel-transaction';
+import {
+  BACKEND_NEURAL_ROAM_RPC_METHODS,
+  BACKEND_NEURAL_ROAM_RPC_METHOD_CONTRACT_BY_METHOD,
+  type BackendNeuralRoamRpcMethod,
+} from '../backend-rpc/neural-roam';
+import {
+  BACKEND_P6_OWNERSHIP_RPC_METHODS,
+  BACKEND_P6_OWNERSHIP_RPC_METHOD_CONTRACT_BY_METHOD,
+  type BackendP6OwnershipRpcMethod,
+} from '../backend-rpc/p6-ownership';
+import {
+  BACKEND_PRIVATE_API_RPC_METHODS,
+  BACKEND_PRIVATE_API_RPC_METHOD_CONTRACT_BY_METHOD,
+  type BackendPrivateApiRpcMethod,
+  type PrivateApiAuditQueryResult,
+  type PrivateApiCardsReadRequest,
+} from '../backend-rpc/private-api';
+import {
+  BACKEND_PROGRESSIVE_RPC_METHODS,
+  BACKEND_PROGRESSIVE_RPC_METHOD_CONTRACT_BY_METHOD,
+  type BackendProgressiveRpcMethod,
+} from '../backend-rpc/progressive';
+import {
   BACKEND_QUEUE_PROJECTION_RPC_METHODS,
   BACKEND_QUEUE_PROJECTION_RPC_METHOD_CONTRACT_BY_METHOD,
 } from '../backend-rpc/queue-projection';
+import {
+  BACKEND_REVIEW_RPC_METHODS,
+  BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD,
+  type BackendReviewRpcMethod,
+} from '../backend-rpc/review';
+import {
+  BACKEND_SEMANTIC_RPC_METHODS,
+  BACKEND_SEMANTIC_RPC_METHOD_CONTRACT_BY_METHOD,
+  type BackendSemanticRpcMethod,
+} from '../backend-rpc/semantic';
+import {
+  BACKEND_SYNC_RPC_METHODS,
+  BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD,
+  type BackendSyncRpcMethod,
+} from '../backend-rpc/sync';
+import {
+  BACKEND_TOPIC_DERIVED_RPC_METHODS,
+  BACKEND_TOPIC_DERIVED_RPC_METHOD_CONTRACT_BY_METHOD,
+  type BackendTopicDerivedRpcMethod,
+} from '../backend-rpc/topic-derived';
+import {
+  BACKEND_XIUYUAN_RPC_METHODS,
+  BACKEND_XIUYUAN_RPC_METHOD_CONTRACT_BY_METHOD,
+  type BackendXiuyuanRpcMethod,
+} from '../backend-rpc/xiuyuan';
 
 describe('backend RPC method-family contract catalog', () => {
   it('declares every backend RPC method exactly once without changing method strings', () => {
@@ -138,6 +210,225 @@ describe('backend RPC method-family contract catalog', () => {
     });
     expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['queue.projection.snapshot']).toBe(
       BACKEND_QUEUE_PROJECTION_RPC_METHOD_CONTRACT_BY_METHOD['queue.projection.snapshot'],
+    );
+  });
+
+  it('exports Review feedback/truth/riff/source-refresh contracts from the Review family module', () => {
+    expect(BACKEND_REVIEW_RPC_METHODS).toEqual([
+      'review.feedback',
+      'review.truth.flush',
+      'review.truth.backfill',
+      'review.riffFeedback.execute',
+      'review.sourceRefresh.execute',
+    ] satisfies BackendReviewRpcMethod[]);
+    expect(BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.feedback']).toMatchObject({
+      method: 'review.feedback',
+      family: 'review',
+    });
+    expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['review.truth.flush']).toBe(
+      BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.truth.flush'],
+    );
+    expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['review.sourceRefresh.execute']).toBe(
+      BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.sourceRefresh.execute'],
+    );
+  });
+
+  it('exports sync conflict and domain-sync contracts from the Sync family module', () => {
+    expect(BACKEND_SYNC_RPC_METHODS).toEqual([
+      'sync.conflict.merge',
+      'sync.reviewDivergence.audit',
+      'sync.conflict.summarize',
+      'sync.conflict.reload',
+      'domainSync.status',
+      'domainSync.repair.preview',
+      'domainSync.repair.apply',
+      'domainSync.conflictSources.cleanupCandidates',
+      'domainSync.conflictSources.cleanup',
+    ] satisfies BackendSyncRpcMethod[]);
+    expect(BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['sync.conflict.merge']).toMatchObject({
+      method: 'sync.conflict.merge',
+      family: 'sync',
+    });
+    expect(BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['domainSync.status']).toMatchObject({
+      method: 'domainSync.status',
+      family: 'domain-sync',
+    });
+    expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['domainSync.conflictSources.cleanup']).toBe(
+      BACKEND_SYNC_RPC_METHOD_CONTRACT_BY_METHOD['domainSync.conflictSources.cleanup'],
+    );
+  });
+
+  it('exports NeuralRoam advance, view-state, and command contracts from the NeuralRoam family module', () => {
+    expect(BACKEND_NEURAL_ROAM_RPC_METHODS).toEqual([
+      'neural-roam.advance',
+      'neural-roam.viewState',
+      'neural-roam.command',
+    ] satisfies BackendNeuralRoamRpcMethod[]);
+    expect(BACKEND_NEURAL_ROAM_RPC_METHOD_CONTRACT_BY_METHOD['neural-roam.advance']).toMatchObject({
+      method: 'neural-roam.advance',
+      family: 'neural-roam',
+    });
+    expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['neural-roam.command']).toBe(
+      BACKEND_NEURAL_ROAM_RPC_METHOD_CONTRACT_BY_METHOD['neural-roam.command'],
+    );
+  });
+
+  it('exports kernel transaction ingest/dequeue/requeue contracts from the Kernel Transaction family module', () => {
+    expect(BACKEND_KERNEL_TRANSACTION_RPC_METHODS).toEqual([
+      'kernel.transaction.ingest',
+      'kernel.transaction.dequeue',
+      'kernel.transaction.requeue',
+    ] satisfies BackendKernelTransactionRpcMethod[]);
+    expect(BACKEND_KERNEL_TRANSACTION_RPC_METHOD_CONTRACT_BY_METHOD['kernel.transaction.ingest']).toMatchObject({
+      method: 'kernel.transaction.ingest',
+      family: 'kernel-transaction',
+    });
+    expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['kernel.transaction.requeue']).toBe(
+      BACKEND_KERNEL_TRANSACTION_RPC_METHOD_CONTRACT_BY_METHOD['kernel.transaction.requeue'],
+    );
+  });
+
+  it('exports AI session, prompt, tool-job, and stream contracts from the AI family module', () => {
+    expect(BACKEND_AI_RPC_METHODS).toEqual([
+      'ai.session.create',
+      'ai.session.get',
+      'ai.session.update',
+      'ai.session.cancel',
+      'ai.prompt.execute',
+      'ai.tool.job.execute',
+      'ai.tool.job.approval',
+      'ai.stream.start',
+      'ai.stream.cancel',
+    ] satisfies BackendAiRpcMethod[]);
+    expect(BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD['ai.session.create']).toMatchObject({
+      method: 'ai.session.create',
+      family: 'ai',
+    });
+    expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['ai.tool.job.approval']).toBe(
+      BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD['ai.tool.job.approval'],
+    );
+  });
+
+  it('exports backend job contracts from the Job family module', () => {
+    expect(BACKEND_JOB_RPC_METHODS).toEqual([
+      'job.get',
+      'job.cancel',
+    ] satisfies BackendJobRpcMethod[]);
+    expect(BACKEND_JOB_RPC_METHOD_CONTRACT_BY_METHOD['job.get']).toMatchObject({
+      method: 'job.get',
+      family: 'job',
+    });
+    expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['job.cancel']).toBe(
+      BACKEND_JOB_RPC_METHOD_CONTRACT_BY_METHOD['job.cancel'],
+    );
+  });
+
+  it('exports hotspot command and job contracts from the Hotspot family module', () => {
+    expect(BACKEND_HOTSPOT_RPC_METHODS).toEqual([
+      'hotspot.command.submit',
+      'hotspot.job.get',
+    ] satisfies BackendHotspotRpcMethod[]);
+    expect(BACKEND_HOTSPOT_RPC_METHOD_CONTRACT_BY_METHOD['hotspot.command.submit']).toMatchObject({
+      method: 'hotspot.command.submit',
+      family: 'hotspot',
+    });
+    expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['hotspot.job.get']).toBe(
+      BACKEND_HOTSPOT_RPC_METHOD_CONTRACT_BY_METHOD['hotspot.job.get'],
+    );
+  });
+
+  it('exports Private API audit/read/command contracts from the Private API family module', () => {
+    expect(BACKEND_PRIVATE_API_RPC_METHODS).toEqual([
+      'private.audit.query',
+      'private.read.cards',
+      'private.read.queues',
+      'private.read.sessions',
+      'private.command.execute',
+    ] satisfies BackendPrivateApiRpcMethod[]);
+    expect(BACKEND_PRIVATE_API_RPC_METHOD_CONTRACT_BY_METHOD['private.audit.query']).toMatchObject({
+      method: 'private.audit.query',
+      family: 'private-api',
+    });
+    expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['private.read.sessions']).toBe(
+      BACKEND_PRIVATE_API_RPC_METHOD_CONTRACT_BY_METHOD['private.read.sessions'],
+    );
+
+    const auditResult = {
+      ok: true,
+      data: [{ requestId: 'private-a' }],
+      diagnosticEventId: 'private-audit:1',
+      auditStatus: 'recorded',
+    } satisfies PrivateApiAuditQueryResult;
+    const readRequest = {
+      requestId: 'private-read-a',
+      method: 'private.read.cards',
+      callerIntent: 'test',
+    } satisfies PrivateApiCardsReadRequest;
+
+    expect(JSON.parse(JSON.stringify({ auditResult, readRequest }))).toMatchObject({
+      auditResult: { auditStatus: 'recorded' },
+      readRequest: { method: 'private.read.cards' },
+    });
+  });
+
+  it('exports Semantic command and read contracts from the Semantic family module', () => {
+    expect(BACKEND_SEMANTIC_RPC_METHODS).toEqual([
+      'semantic.command.execute',
+      'semantic.session.read',
+      'semantic.sidebar.read',
+      'semantic.browser.read',
+    ] satisfies BackendSemanticRpcMethod[]);
+    expect(BACKEND_SEMANTIC_RPC_METHOD_CONTRACT_BY_METHOD['semantic.command.execute']).toMatchObject({
+      method: 'semantic.command.execute',
+      family: 'semantic',
+    });
+    expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['semantic.browser.read']).toBe(
+      BACKEND_SEMANTIC_RPC_METHOD_CONTRACT_BY_METHOD['semantic.browser.read'],
+    );
+  });
+
+  it('exports Xiuyuan, Progressive, and Topic-derived command contracts from their family modules', () => {
+    expect(BACKEND_XIUYUAN_RPC_METHODS).toEqual([
+      'xiuyuan.sync.execute',
+    ] satisfies BackendXiuyuanRpcMethod[]);
+    expect(BACKEND_PROGRESSIVE_RPC_METHODS).toEqual([
+      'progressive.command.execute',
+    ] satisfies BackendProgressiveRpcMethod[]);
+    expect(BACKEND_TOPIC_DERIVED_RPC_METHODS).toEqual([
+      'topic-derived.command.execute',
+    ] satisfies BackendTopicDerivedRpcMethod[]);
+
+    expect(BACKEND_XIUYUAN_RPC_METHOD_CONTRACT_BY_METHOD['xiuyuan.sync.execute']).toMatchObject({
+      method: 'xiuyuan.sync.execute',
+      family: 'xiuyuan',
+    });
+    expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['progressive.command.execute']).toBe(
+      BACKEND_PROGRESSIVE_RPC_METHOD_CONTRACT_BY_METHOD['progressive.command.execute'],
+    );
+    expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['topic-derived.command.execute']).toBe(
+      BACKEND_TOPIC_DERIVED_RPC_METHOD_CONTRACT_BY_METHOD['topic-derived.command.execute'],
+    );
+  });
+
+  it('exports Graph and P6 ownership contracts from their family modules', () => {
+    expect(BACKEND_GRAPH_RPC_METHODS).toEqual([
+      'graph.query',
+    ] satisfies BackendGraphRpcMethod[]);
+    expect(BACKEND_P6_OWNERSHIP_RPC_METHODS).toEqual([
+      'p6.ownership.query',
+      'p6.ownership.command',
+    ] satisfies BackendP6OwnershipRpcMethod[]);
+
+    expect(BACKEND_GRAPH_RPC_METHOD_CONTRACT_BY_METHOD['graph.query']).toMatchObject({
+      method: 'graph.query',
+      family: 'graph',
+    });
+    expect(BACKEND_P6_OWNERSHIP_RPC_METHOD_CONTRACT_BY_METHOD['p6.ownership.command']).toMatchObject({
+      method: 'p6.ownership.command',
+      family: 'p6-ownership',
+    });
+    expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['p6.ownership.query']).toBe(
+      BACKEND_P6_OWNERSHIP_RPC_METHOD_CONTRACT_BY_METHOD['p6.ownership.query'],
     );
   });
 });

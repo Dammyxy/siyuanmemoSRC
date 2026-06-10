@@ -1,8 +1,58 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-10 (Round 570)
+Last update: 2026-06-10 (Round 575)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-10 - Backend RPC runtime adapter migration
+
+- Task: Continue `modularize-backend-rpc-method-families` tasks 3.1-3.9 and 6.1-6.3 by moving migrated backend RPC families behind dispatcher/registry-owned runtime adapters.
+- Touched slice: Backend RPC runtime seam: `worker/bootstrap/BackendKernel.ts`, `worker/bootstrap/rpc/{BackendRpcDispatcher,BackendRpcHandlerContext,BackendRpcRegistry,*RpcAdapter}.ts`, focused worker adapter tests, `scripts/check-backend-runtime-paths.cjs`, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: `BackendKernel.handle()` now delegates to `BackendRpcDispatcher`, with shared request validation, method lookup, diagnostics timing, success/error envelope, and `METHOD_NOT_FOUND` behavior owned once. Core/system/db/diagnostics, Browser, Queue Projection, NeuralRoam, Kernel Transaction, AI/Job/Hotspot, Graph, Semantic, Private API, P6 ownership, Xiuyuan, Progressive, and Topic-derived handlers moved out of the kernel switch into family adapters with focused parity coverage. Private API audit/idempotency state, Xiuyuan/Progressive/Topic-derived idempotency state, and P6 ownership constants now live with their family runtime instead of in the global kernel.
+- Debt deferred: Review feedback/truth/domain-sync/autocard handlers remain in the legacy kernel handler; `SrsBackendClient` facets and the full `BackendKernel.test.ts` split remain open.
+- Why deferred: Review/truth/domain-sync overlaps active durability/storage ownership and was explicitly deferred by the OpenSpec task. Client facets and full legacy test shrink are separate tasks after runtime dispatch is stable.
+- Next safe step: Migrate Review/truth/domain-sync only after durability/storage changes are committed or isolated, then extract client facets and shrink `BackendKernel.test.ts` to dispatcher wiring smoke.
+- Validation: `openspec validate modularize-backend-rpc-method-families --strict`; focused registry/dispatcher/family adapter/client catalog Vitest suites; affected existing backend parity suites for private, semantic, P6 ownership, graph, hotspot, and Xiuyuan; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
+
+### 2026-06-10 - Backend RPC Semantic Private Integration contract families
+
+- Task: Continue `modularize-backend-rpc-method-families` tasks 2.8-2.9 by moving Semantic, Private API, P6 ownership, Graph, Xiuyuan, Progressive, and Topic-derived contracts into family modules and verifying compatibility facade imports.
+- Touched slice: Backend RPC contract family seam: `packages/contracts/src/backend-rpc.ts`, `packages/contracts/src/backend-rpc/{semantic,private-api,p6-ownership,graph,xiuyuan,progressive,topic-derived,index}.ts`, focused contract catalog test, OpenSpec tasks, and `ARCHITECTURE.md`.
+- Debt fixed now: `semantic.*`, `private.audit.query`, `private.read.*`, `private.command.execute`, `p6.ownership.*`, `graph.query`, `xiuyuan.sync.execute`, `progressive.command.execute`, and `topic-derived.command.execute` no longer live as inline ad hoc entries in the root backend RPC catalog. They now have family method lists, typed contract maps, root facade re-exports, and focused catalog coverage while preserving every JSON-RPC method string.
+- Debt deferred: Runtime handler adapters, dispatcher takeover, and client facet extraction for these families remain open.
+- Why deferred: This slice is contract-only; moving `BackendKernel.handle()` routes belongs to dispatcher/family adapter tasks after the shared dispatcher context exists.
+- Next safe step: Start task `3.1` by adding the shared `BackendRpcDispatcher` Module around the existing registry without changing family handler behavior.
+- Validation: `openspec validate modularize-backend-rpc-method-families --strict`; `pnpm exec vitest run packages/contracts/src/__tests__/backend-rpc-method-family-catalog.test.ts worker/bootstrap/__tests__/BackendRpcRegistry.test.ts src/application/clients/__tests__/backendRpcClientCatalog.test.ts --reporter=dot`; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
+
+### 2026-06-10 - Backend RPC AI Job Hotspot contract families
+
+- Task: Continue `modularize-backend-rpc-method-families` task 2.7 by moving AI session/prompt/tool/stream, backend job, and hotspot contracts into family modules.
+- Touched slice: Backend RPC contract family seam: `packages/contracts/src/backend-rpc.ts`, `packages/contracts/src/backend-rpc/{ai,job,hotspot,index}.ts`, focused contract catalog test, OpenSpec tasks, and `ARCHITECTURE.md`.
+- Debt fixed now: `ai.session.*`, `ai.prompt.execute`, `ai.tool.job.*`, `ai.stream.*`, `job.*`, and `hotspot.*` no longer live as inline ad hoc entries in the root backend RPC catalog. They now have family method lists, typed contract maps, root facade re-exports, and focused catalog coverage while preserving every JSON-RPC method string.
+- Debt deferred: AI/Job/Hotspot runtime handler adapters, dispatcher takeover, and client facet extraction remain open.
+- Why deferred: This slice is contract-only; moving `BackendKernel.handle()` routes belongs to dispatcher/family adapter tasks after the shared dispatcher context exists.
+- Next safe step: Continue task `2.8` with Semantic, Private API, P6 ownership, Graph, Xiuyuan, Progressive, and Topic-derived contract families.
+- Validation: `openspec validate modularize-backend-rpc-method-families --strict`; `pnpm exec vitest run packages/contracts/src/__tests__/backend-rpc-method-family-catalog.test.ts worker/bootstrap/__tests__/BackendRpcRegistry.test.ts src/application/clients/__tests__/backendRpcClientCatalog.test.ts --reporter=dot`; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
+
+### 2026-06-10 - Backend RPC NeuralRoam contract family
+
+- Task: Continue `modularize-backend-rpc-method-families` task 2.6 by moving NeuralRoam backend RPC contract metadata into a family module.
+- Touched slice: Backend RPC contract family seam: `packages/contracts/src/backend-rpc.ts`, `packages/contracts/src/backend-rpc/{neural-roam,index}.ts`, focused contract catalog test, OpenSpec tasks, and `ARCHITECTURE.md`.
+- Debt fixed now: `neural-roam.advance`, `neural-roam.viewState`, and `neural-roam.command` no longer live as inline ad hoc entries in the root backend RPC catalog. They now have a family method list, typed contract map, root facade re-export, and focused catalog coverage while preserving every JSON-RPC method string.
+- Debt deferred: NeuralRoam runtime handler adapter migration and dispatcher takeover remain open.
+- Why deferred: This slice is contract-only; moving `BackendKernel.handle()` NeuralRoam routes belongs to task `3.6` after dispatcher/context foundation tasks `3.1` and `3.2`.
+- Next safe step: Continue task `2.7` with AI/Job/Hotspot contract families.
+- Validation: `openspec validate modularize-backend-rpc-method-families --strict`; `pnpm exec vitest run packages/contracts/src/__tests__/backend-rpc-method-family-catalog.test.ts worker/bootstrap/__tests__/BackendRpcRegistry.test.ts src/application/clients/__tests__/backendRpcClientCatalog.test.ts --reporter=dot`; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
+
+### 2026-06-10 - Backend RPC Review and Sync contract families
+
+- Task: Continue `modularize-backend-rpc-method-families` task 2.5 by moving Review feedback/truth/riff/source-refresh and sync/domain-sync contract metadata into family modules.
+- Touched slice: Backend RPC contract family seam: `packages/contracts/src/backend-rpc.ts`, `packages/contracts/src/backend-rpc/{review,sync,index}.ts`, focused contract catalog test, OpenSpec tasks, and `ARCHITECTURE.md`.
+- Debt fixed now: Review and Sync method ownership no longer lives as inline ad hoc entries in the root backend RPC catalog. `review.feedback`, `review.truth.flush`, `review.truth.backfill`, `review.riffFeedback.execute`, `review.sourceRefresh.execute`, `sync.conflict.*`, `sync.reviewDivergence.audit`, and `domainSync.*` now have family method lists, typed contract maps, root facade re-exports, and focused catalog coverage while preserving every JSON-RPC method string.
+- Debt deferred: Runtime handler adapters, dispatcher takeover, client facets, and Review/storage durability behavior migration remain open.
+- Why deferred: This slice is contract-only by design; moving `BackendKernel.handle()` Review/domain-sync routes would touch the active Review durability/storage owner and belongs to later tasks after the dispatcher foundation and Review/storage changes are isolated.
+- Next safe step: Continue task `2.6` with NeuralRoam contracts, keeping runtime handler migration for later dispatcher tasks.
+- Validation: `pnpm exec vitest run packages/contracts/src/__tests__/backend-rpc-method-family-catalog.test.ts --reporter=dot`.
 
 ### 2026-06-10 - Backend RPC method-family registry foundation
 

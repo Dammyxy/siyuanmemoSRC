@@ -3,13 +3,13 @@ import {
   BACKEND_RPC_METHODS,
   BACKEND_RPC_METHOD_CONTRACT_BY_METHOD,
 } from '../../../../packages/contracts/src/backend-rpc';
-import { LEGACY_BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS } from '../../../../worker/bootstrap/rpc/BackendRpcRegistry';
+import { BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS } from '../../../../worker/bootstrap/rpc/BackendRpcRegistry';
 import { SRS_BACKEND_CLIENT_METHOD_CATALOG } from '../backendRpcClientCatalog';
 
 describe('SrsBackendClient method catalog', () => {
   it('maps every client-exposed backend RPC method to a registered worker handler', () => {
     const registeredMethods = new Set(
-      LEGACY_BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS.map((entry) => entry.method),
+      BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS.map((entry) => entry.method),
     );
     const exposedMethods = new Set(SRS_BACKEND_CLIENT_METHOD_CATALOG.map((entry) => entry.rpcMethod));
 

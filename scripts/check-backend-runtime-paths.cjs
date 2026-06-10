@@ -37,9 +37,14 @@ const runtimePaths = [
         reason: 'queue projection RPC methods must stay in the shared backend contract',
       },
       {
-        file: 'worker/bootstrap/BackendKernel.ts',
-        tokens: ['case \'queue.projection.snapshot\'', 'case \'queue.projection.rowsByIds\'', 'case \'queue.projection.replace\''],
-        reason: 'backend kernel must dispatch every queue projection RPC method',
+        file: 'worker/bootstrap/rpc/BackendRpcRegistry.ts',
+        tokens: ['BACKEND_QUEUE_PROJECTION_RPC_HANDLER_REGISTRATIONS'],
+        reason: 'backend RPC registry must include the queue projection adapter registrations',
+      },
+      {
+        file: 'worker/bootstrap/rpc/BackendQueueProjectionRpcAdapter.ts',
+        tokens: ['queue.projection.snapshot', 'queue.projection.rowsByIds', 'queue.projection.replace', 'context.queueProjection.database'],
+        reason: 'queue projection adapter must dispatch every queue projection RPC method to the worker runtime',
       },
       {
         file: 'worker/db/SqliteDatabaseService.ts',
@@ -84,8 +89,13 @@ const runtimePaths = [
       },
       {
         file: 'worker/bootstrap/BackendKernel.ts',
-        tokens: ['WorkerNeuralRoamAdvanceService', 'case \'neural-roam.advance\'', 'this.neuralRoamRuntime.advance'],
-        reason: 'backend kernel must dispatch neural-roam.advance to the worker runtime',
+        tokens: ['WorkerNeuralRoamAdvanceService', 'neuralRoam: this.neuralRoamRuntime'],
+        reason: 'backend kernel must wire neural roam runtime into the RPC handler context',
+      },
+      {
+        file: 'worker/bootstrap/rpc/BackendNeuralRoamRpcAdapter.ts',
+        tokens: ['neural-roam.advance', 'context.neuralRoam.advance'],
+        reason: 'neural roam adapter must dispatch neural-roam.advance to the worker runtime',
       },
       {
         file: 'worker/bootstrap/WorkerNeuralRoamAdvanceService.ts',
@@ -210,9 +220,14 @@ const runtimePaths = [
         reason: 'private API read/mutation RPCs must stay in the shared backend contract',
       },
       {
-        file: 'worker/bootstrap/BackendKernel.ts',
-        tokens: ['case \'private.command.execute\'', 'handlePrivateRead', 'handlePrivateCommand'],
-        reason: 'backend kernel must dispatch private reads and commands',
+        file: 'worker/bootstrap/rpc/BackendRpcRegistry.ts',
+        tokens: ['BACKEND_PRIVATE_API_RPC_HANDLER_REGISTRATIONS'],
+        reason: 'backend RPC registry must include private API adapter registrations',
+      },
+      {
+        file: 'worker/bootstrap/rpc/BackendPrivateApiRpcAdapter.ts',
+        tokens: ['BackendPrivateApiRuntime', 'private.read.cards', 'private.command.execute'],
+        reason: 'private API adapter must dispatch private reads and commands',
       },
       {
         file: 'src/application/clients/SrsBackendClient.ts',
@@ -272,9 +287,9 @@ const runtimePaths = [
         reason: 'source-existence sweep RPCs must stay in the shared backend contract',
       },
       {
-        file: 'worker/bootstrap/BackendKernel.ts',
-        tokens: ['case \'browser.sourceExistence.applySweepHost\'', 'case \'browser.sourceExistence.applySweep\'', 'handleSourceExistenceApplySweepHost'],
-        reason: 'backend kernel must dispatch source-existence sweep commands',
+        file: 'worker/bootstrap/rpc/BackendBrowserRpcAdapter.ts',
+        tokens: ['browser.sourceExistence.applySweepHost', 'browser.sourceExistence.applySweep', 'applyBrowserSourceExistenceSweepHostWithChanges'],
+        reason: 'browser adapter must dispatch source-existence sweep commands',
       },
       {
         file: 'worker/db/SqliteDatabaseService.ts',
@@ -330,8 +345,13 @@ const runtimePaths = [
       },
       {
         file: 'worker/bootstrap/BackendKernel.ts',
-        tokens: ['BackendJobRuntime', 'case \'ai.session.create\'', 'case \'ai.prompt.execute\'', 'case \'job.cancel\''],
-        reason: 'backend kernel must dispatch AI session, prompt, stream, and job methods',
+        tokens: ['BackendJobRuntime', 'ai: {', 'createSession: (request) => this.aiRuntime.createSession(request)', 'cancelJob: (request) => this.aiRuntime.cancelJob(request)'],
+        reason: 'backend kernel must wire AI job runtime into the RPC handler context',
+      },
+      {
+        file: 'worker/bootstrap/rpc/BackendAiJobHotspotRpcAdapter.ts',
+        tokens: ['ai.session.create', 'ai.prompt.execute', 'job.cancel', 'context.ai.createSession'],
+        reason: 'AI/job adapter must dispatch AI session, prompt, stream, and job methods',
       },
       {
         file: 'worker/bootstrap/BackendJobRuntime.ts',
