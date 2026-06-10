@@ -89,8 +89,17 @@ interface ReviewAICompanionTabData {
 }
 
 export type TabRuntimeContext = Custom & {
+  id?: string;
   vueApp?: VueApp<Element>;
 };
+
+type TabRuntimeCallback<T> = (runtime: TabRuntimeContext) => T;
+
+function withTabRuntimeContext<T>(callback: TabRuntimeCallback<T>): (this: Custom) => T {
+  return function runWithTabRuntimeContext(this: Custom): T {
+    return callback(this);
+  };
+}
 
 interface ReviewTabRuntimeHandle {
   customId: string;
@@ -537,36 +546,30 @@ export class TabManager {
     const self = this;
     this.plugin.addTab({
       type: this.TAB_TYPE,
-      init() {
-        return self.initBrowserTab(this as unknown as TabRuntimeContext);
-      },
-      destroy() {
-        self.destroyBrowserTab(this as unknown as TabRuntimeContext);
-      },
+      init: withTabRuntimeContext((runtime) => self.initBrowserTab(runtime)),
+      destroy: withTabRuntimeContext((runtime) => {
+        self.destroyBrowserTab(runtime);
+      }),
     });
     this.plugin.addTab({
       type: this.REVIEW_TAB_TYPE,
-      init() {
-        return self.initReviewTab(this as unknown as TabRuntimeContext);
-      },
-      destroy() {
-        self.destroyReviewTab(this as unknown as TabRuntimeContext);
-      },
-      resize() {
-        self.refreshReviewTab(this as unknown as TabRuntimeContext);
-      },
-      update() {
-        self.refreshReviewTab(this as unknown as TabRuntimeContext);
-      },
+      init: withTabRuntimeContext((runtime) => self.initReviewTab(runtime)),
+      destroy: withTabRuntimeContext((runtime) => {
+        self.destroyReviewTab(runtime);
+      }),
+      resize: withTabRuntimeContext((runtime) => {
+        self.refreshReviewTab(runtime);
+      }),
+      update: withTabRuntimeContext((runtime) => {
+        self.refreshReviewTab(runtime);
+      }),
     });
     this.plugin.addTab({
       type: this.REVIEW_AI_TAB_TYPE,
-      init() {
-        return self.initReviewAICompanionTab(this as unknown as TabRuntimeContext);
-      },
-      destroy() {
-        self.destroyReviewAICompanionTab(this as unknown as TabRuntimeContext);
-      },
+      init: withTabRuntimeContext((runtime) => self.initReviewAICompanionTab(runtime)),
+      destroy: withTabRuntimeContext((runtime) => {
+        self.destroyReviewAICompanionTab(runtime);
+      }),
     });
   }
 
@@ -1660,16 +1663,6 @@ export class TabManager {
       default:
         return QueueType.RetrievalPractice;
     }
-  }
-
-  private buildReviewQueue(queueType: QueueType): UnifiedQueueStrategy {
-    return new UnifiedQueueStrategy(
-      queueType,
-      this.context.getUnifiedDataSourceManager(),
-      this.context.getEventBus(),
-      this.context.getSchedulerRouter() as unknown as ISchedulerRouter,
-      this.createCdfLiveRelationReviewOpenRefresher()
-    );
   }
 
   private buildReviewQueueFromTabData(data: ReviewTabData): UnifiedQueueStrategy {

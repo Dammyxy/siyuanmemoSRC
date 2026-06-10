@@ -1,17 +1,42 @@
 import { Menu, showMessage } from 'siyuan';
-import type FSRSPlugin from '@/index';
 
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('TopBarManager');
 
+export type TopBarRuntimePlugin = {
+    addIcons: (icons: string) => void;
+    addTopBar: (options: {
+        icon: string;
+        title: string;
+        position: 'right' | 'left';
+        callback: () => void;
+    }) => HTMLElement;
+    getContext: () => {
+        getDialogManager: () => {
+            openReviewDialog: () => void;
+            openFinalDrillDialog: () => void;
+            openNeuralRoamDialog: () => void;
+            openFilterGroupPracticeDialog: () => void;
+        };
+        getCardService: () => {
+            getDueCount: () => Promise<number> | number;
+            getTotalCount: () => Promise<number> | number;
+        };
+    };
+    i18n?: Record<string, string | undefined>;
+    readonly isInitialized: boolean;
+    openSRSBrowser: () => void;
+    openSettings: () => void;
+};
+
 export class TopBarManager {
-    private plugin: FSRSPlugin;
+    private plugin: TopBarRuntimePlugin;
     private element: HTMLElement | null = null;
     private contextMenuHandler: ((ev: MouseEvent) => void) | null = null;
     private didWarnMount = false;
 
-    constructor(plugin: FSRSPlugin) {
+    constructor(plugin: TopBarRuntimePlugin) {
         this.plugin = plugin;
     }
 
@@ -27,8 +52,6 @@ export class TopBarManager {
             title: this.plugin.i18n?.topbarTitle || '间隔重复系统 (左键SRS浏览器/右键菜单)',
             position: 'right',
             callback: () => {
-                // @ts-ignore - accessing private or checking init status via public method if available,
-                // but here relying on plugin.isInitialized which is public in current implementation
                 if (!this.plugin.isInitialized) {
                     showMessage(this.plugin.i18n?.loading || '插件初始化中，请稍后...');
                     return;

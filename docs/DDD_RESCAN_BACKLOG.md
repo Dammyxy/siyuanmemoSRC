@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-10 (Round 582)
+Last update: 2026-06-10 (Round 583)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-10 - Tab runtime type bridge cleanup
+
+- Task: Implement OpenSpec change `tighten-tab-runtime-type-bridges` to retire a narrow production type-debt slice around SiYuan custom-tab callbacks and the topbar initialization gate.
+- Touched slice: Tab/custom topbar runtime typing: `src/application/managers/TabManager.ts`, `src/ui/menu/TopBar.ts`, focused runtime-bridge/topbar tests, and this backlog.
+- Debt fixed now: Browser, Review, and Review AI custom-tab lifecycle callbacks now enter through one `withTabRuntimeContext()` helper instead of repeating `this as unknown as TabRuntimeContext` casts in every registered callback. `TopBarManager` now declares the initialization flag it consumes and no longer uses production `@ts-ignore` before opening Browser. The typed runtime slice also removed an unused `TabManager.buildReviewQueue()` dead branch after confirming the active path uses `buildReviewQueueFromTabData()`.
+- Debt deferred: Broader type debt remains in `ApplicationContext`, Browser filter/sort helpers, Review adapter DTO projection, `TabManager` review queue snapshot DTO narrowing, and repo-wide `strict: false` / `skipLibCheck: true`.
+- Why deferred: This slice was intentionally limited to one low-risk runtime bridge and one suppression. Expanding into composition-root or Browser/Review projection casts would mix unrelated seams and make validation less focused.
+- Next safe step: Continue type-debt cleanup with one separate narrow change, preferably Browser filter/sort helper types or a composition-root interface audit, before considering any repo-wide `strict` tightening.
+- Validation: Focused `TabManager.runtime-bridge.spec.ts` and `TopBar.runtime-typing.spec.ts`; targeted grep for removed callback double casts and topbar suppression; filtered `tsc --noEmit` shows no new test/TopBar errors and only the pre-existing `TabManager` review queue snapshot DTO narrowing remains; full validation listed in the OpenSpec task ledger.
 
 ### 2026-06-10 - Review truth storage policy cleanup
 
