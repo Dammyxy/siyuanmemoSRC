@@ -1,17 +1,37 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-10 (Round 575)
+Last update: 2026-06-10 (Round 577)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-10 - Backend RPC client facets and facade delegation
+
+- Task: Continue `modularize-backend-rpc-method-families` tasks 4.2, 4.3, and 4.6 by adding family backend client facets, delegating `SrsBackendClient`, and keeping focused client facet tests.
+- Touched slice: Backend RPC application client seam: `src/application/clients/backend/*RpcClient.ts`, `src/application/clients/backend/BackendRpcCaller.ts`, `src/application/clients/SrsBackendClient.ts`, focused client tests, `ARCHITECTURE.md`, and OpenSpec tasks.
+- Debt fixed now: Family method strings, params wrapping shape, result projection, and backend unavailable propagation no longer live only inside the broad `SrsBackendClient` facade. Core, Browser, Queue Projection, Review, NeuralRoam, AI/Job, Semantic, Private API, and integration facets compose one shared `BackendRpcCaller`; `SrsBackendClient` delegates to them while retaining Review truth flush/backfill timers, Review durability assertion, and facade-only NeuralRoam/AI/AutoCard result validation.
+- Debt deferred: Bounded-context caller migration to narrower client Interfaces, broad facade injection audit/documentation, Review/truth/domain-sync runtime adapter migration, and the remaining `BackendKernel.test.ts` split stay open.
+- Why deferred: Caller migration crosses application composition and multiple bounded contexts; Review/truth/domain-sync runtime migration still overlaps durability/storage ownership and was explicitly deferred.
+- Next safe step: Start task 4.4 with low-risk callers that use only one family facet, while leaving Review/truth/domain-sync runtime adapter work until durability/storage changes are isolated.
+- Validation: `openspec validate modularize-backend-rpc-method-families --strict`; `pnpm exec vitest run src/application/clients/__tests__/BackendRpcCaller.test.ts src/application/clients/__tests__/BackendRpcClientFacets.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/clients/__tests__/backendRpcClientCatalog.test.ts --reporter=dot`; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
+
+### 2026-06-10 - Backend RPC shared client caller
+
+- Task: Continue `modularize-backend-rpc-method-families` task 4.1 by extracting shared backend RPC request/envelope logic from `SrsBackendClient`.
+- Touched slice: Backend RPC application client seam: `src/application/clients/backend/BackendRpcCaller.ts`, `src/application/clients/SrsBackendClient.ts`, focused client tests, `ARCHITECTURE.md`, and OpenSpec tasks.
+- Debt fixed now: Request id sequencing, JSON-RPC version, params wrapping, backend error propagation, and result unwrapping no longer live inside the broad `SrsBackendClient` facade. They are owned by `BackendRpcCaller`, giving later family facets one shared caller instead of duplicated envelope logic.
+- Debt deferred: Bounded-context caller migration and broad facade injection audit remained open after this foundation slice.
+- Why deferred: This slice is the low-risk foundation for facets and intentionally preserves every public `SrsBackendClient` method and Review truth flush scheduling side effect.
+- Next safe step: Add low-risk core/Browser/Queue Projection/Semantic/Private client facets that compose `BackendRpcCaller`, then delegate matching `SrsBackendClient` methods without changing method strings or result shapes. Completed in the later "Backend RPC client facets and facade delegation" slice.
+- Validation: `pnpm exec vitest run src/application/clients/__tests__/BackendRpcCaller.test.ts --reporter=dot`; `pnpm exec vitest run src/application/clients/__tests__/SrsBackendClient.test.ts src/application/clients/__tests__/backendRpcClientCatalog.test.ts --reporter=dot`.
 
 ### 2026-06-10 - Backend RPC runtime adapter migration
 
 - Task: Continue `modularize-backend-rpc-method-families` tasks 3.1-3.9 and 6.1-6.3 by moving migrated backend RPC families behind dispatcher/registry-owned runtime adapters.
 - Touched slice: Backend RPC runtime seam: `worker/bootstrap/BackendKernel.ts`, `worker/bootstrap/rpc/{BackendRpcDispatcher,BackendRpcHandlerContext,BackendRpcRegistry,*RpcAdapter}.ts`, focused worker adapter tests, `scripts/check-backend-runtime-paths.cjs`, `ARCHITECTURE.md`, and this backlog.
 - Debt fixed now: `BackendKernel.handle()` now delegates to `BackendRpcDispatcher`, with shared request validation, method lookup, diagnostics timing, success/error envelope, and `METHOD_NOT_FOUND` behavior owned once. Core/system/db/diagnostics, Browser, Queue Projection, NeuralRoam, Kernel Transaction, AI/Job/Hotspot, Graph, Semantic, Private API, P6 ownership, Xiuyuan, Progressive, and Topic-derived handlers moved out of the kernel switch into family adapters with focused parity coverage. Private API audit/idempotency state, Xiuyuan/Progressive/Topic-derived idempotency state, and P6 ownership constants now live with their family runtime instead of in the global kernel.
-- Debt deferred: Review feedback/truth/domain-sync/autocard handlers remain in the legacy kernel handler; `SrsBackendClient` facets and the full `BackendKernel.test.ts` split remain open.
-- Why deferred: Review/truth/domain-sync overlaps active durability/storage ownership and was explicitly deferred by the OpenSpec task. Client facets and full legacy test shrink are separate tasks after runtime dispatch is stable.
-- Next safe step: Migrate Review/truth/domain-sync only after durability/storage changes are committed or isolated, then extract client facets and shrink `BackendKernel.test.ts` to dispatcher wiring smoke.
+- Debt deferred: Review feedback/truth/domain-sync/autocard handlers remain in the legacy kernel handler; bounded-context caller migration and the full `BackendKernel.test.ts` split remain open.
+- Why deferred: Review/truth/domain-sync overlaps active durability/storage ownership and was explicitly deferred by the OpenSpec task. Client facade delegation landed later; caller migration and full legacy test shrink are separate tasks after runtime/client seams are stable.
+- Next safe step: Migrate Review/truth/domain-sync only after durability/storage changes are committed or isolated, migrate low-risk bounded-context callers to family client Interfaces, then shrink `BackendKernel.test.ts` to dispatcher wiring smoke.
 - Validation: `openspec validate modularize-backend-rpc-method-families --strict`; focused registry/dispatcher/family adapter/client catalog Vitest suites; affected existing backend parity suites for private, semantic, P6 ownership, graph, hotspot, and Xiuyuan; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
 
 ### 2026-06-10 - Backend RPC Semantic Private Integration contract families

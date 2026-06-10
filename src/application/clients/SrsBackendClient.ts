@@ -41,6 +41,7 @@ import type {
   BackendNeuralRoamAdvanceResult,
   BackendNeuralRoamCommandRequest,
   BackendNeuralRoamCommandResult,
+  BackendNeuralRoamViewState,
   BackendNeuralRoamViewStateRequest,
   BackendNeuralRoamViewStateResult,
   BackendQueueProjectionRowsByIdsRequest,
@@ -90,6 +91,8 @@ import type {
   P6OwnershipResult,
   PrivateApiMutationRequest,
   PrivateApiMutationResult,
+  PrivateApiAuditQueryRequest,
+  PrivateApiAuditQueryResult,
   PrivateApiReadRequest,
   PrivateApiReadResult,
   BackendSourceExistenceRefreshCandidate,
@@ -99,6 +102,8 @@ import type {
   BackendDiagnosticsStatusResult,
   BackendReviewTruthDeviceDiagnostics,
   BackendHealthResult,
+  BackendPrivateDiagnosticsStatusResult,
+  BackendPrivateHealthResult,
   BackendGraphQueryRequest,
   BackendGraphQueryResult,
   BackendHotspotCommandSubmitRequest,
@@ -111,15 +116,24 @@ import type {
   BackendTopicDerivedCommandExecuteResult,
   BackendXiuyuanSyncExecuteRequest,
   BackendXiuyuanSyncExecuteResult,
-  BackendRpcRequest,
-  BackendRpcResponse,
-  BackendRpcSuccess,
 } from '../../../packages/contracts/src/backend-rpc';
-import { BACKEND_RPC_VERSION } from '../../../packages/contracts/src/backend-rpc';
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
+import {
+  BackendAiJobRpcClient,
+  BackendBrowserRpcClient,
+  BackendCoreRpcClient,
+  BackendIntegrationRpcClient,
+  BackendNeuralRoamRpcClient,
+  BackendPrivateApiRpcClient,
+  BackendQueueProjectionRpcClient,
+  BackendReviewRpcClient,
+  BackendRpcCaller,
+  BackendSemanticRpcClient,
+  type SrsBackendTransport,
+} from './backend';
 import { assertCommittedReviewFeedbackDurability } from './reviewFeedbackDurability';
 
 const logger = createLogger('SrsBackendClient');
@@ -131,9 +145,7 @@ const REVIEW_TRUTH_FLUSH_UNLOAD_WAIT_MS = 1000;
 const REVIEW_TRUTH_BACKFILL_DEFAULT_BATCH_LIMIT = 64;
 const REVIEW_TRUTH_BACKFILL_MAX_STARTUP_BATCHES = 16;
 
-export interface SrsBackendTransport {
-  request(request: BackendRpcRequest): Promise<BackendRpcResponse>;
-}
+export type { SrsBackendTransport } from './backend/BackendRpcCaller';
 
 export interface SrsBackendReviewTruthFlushSchedulerOptions {
   deviceId: string;
@@ -153,7 +165,15 @@ export interface SrsBackendClientOptions {
 }
 
 export class SrsBackendClient {
-  private requestId = 0;
+  private readonly coreClient: BackendCoreRpcClient;
+  private readonly browserClient: BackendBrowserRpcClient;
+  private readonly queueProjectionClient: BackendQueueProjectionRpcClient;
+  private readonly reviewClient: BackendReviewRpcClient;
+  private readonly neuralRoamClient: BackendNeuralRoamRpcClient;
+  private readonly aiJobClient: BackendAiJobRpcClient;
+  private readonly semanticClient: BackendSemanticRpcClient;
+  private readonly privateApiClient: BackendPrivateApiRpcClient;
+  private readonly integrationClient: BackendIntegrationRpcClient;
   private readonly reviewTruthFlushOptions: SrsBackendReviewTruthFlushSchedulerOptions | null;
   private readonly reviewTruthDeviceDiagnostics: BackendReviewTruthDeviceDiagnostics | null;
   private reviewTruthFlushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -164,27 +184,37 @@ export class SrsBackendClient {
   private reviewTruthBackfillPendingRows = 0;
 
   constructor(
-    private readonly transport: SrsBackendTransport,
+    transport: SrsBackendTransport,
     options: SrsBackendClientOptions = {},
   ) {
+    const rpcCaller = new BackendRpcCaller(transport);
+    this.coreClient = new BackendCoreRpcClient(rpcCaller);
+    this.browserClient = new BackendBrowserRpcClient(rpcCaller);
+    this.queueProjectionClient = new BackendQueueProjectionRpcClient(rpcCaller);
+    this.reviewClient = new BackendReviewRpcClient(rpcCaller);
+    this.neuralRoamClient = new BackendNeuralRoamRpcClient(rpcCaller);
+    this.aiJobClient = new BackendAiJobRpcClient(rpcCaller);
+    this.semanticClient = new BackendSemanticRpcClient(rpcCaller);
+    this.privateApiClient = new BackendPrivateApiRpcClient(rpcCaller);
+    this.integrationClient = new BackendIntegrationRpcClient(rpcCaller);
     this.reviewTruthFlushOptions = options.reviewTruthFlush ?? null;
     this.reviewTruthDeviceDiagnostics = options.reviewTruthDevice ?? null;
   }
 
   async systemHealth(): Promise<BackendHealthResult> {
-    return this.call<BackendHealthResult>('system.health');
+    return this.coreClient.systemHealth();
   }
 
   async loadDatabase(): Promise<{ ok: true; initialized: true; dbFile: string }> {
-    return this.call('db.load');
+    return this.coreClient.loadDatabase();
   }
 
   async persistDatabase(): Promise<{ ok: true; persisted: true; dbFile: string }> {
-    return this.call('db.persist');
+    return this.coreClient.persistDatabase();
   }
 
   async diagnosticsStatus(): Promise<BackendDiagnosticsStatusResult> {
-    const status = await this.call<BackendDiagnosticsStatusResult>('diagnostics.status');
+    const status = await this.coreClient.diagnosticsStatus();
     if (!this.reviewTruthDeviceDiagnostics) {
       return status;
     }
@@ -236,89 +266,74 @@ export class SrsBackendClient {
   }
 
   async domainSyncStatus(request: BackendDomainSyncStatusRequest = {}): Promise<BackendDomainSyncStatusResult> {
-    return this.call<BackendDomainSyncStatusResult>('domainSync.status', request);
+    return this.integrationClient.domainSyncStatus(request);
   }
 
   async domainSyncRepairPreview(
     request: BackendDomainSyncRepairPreviewRequest = {},
   ): Promise<BackendDomainSyncRepairPreviewResult> {
-    return this.call<BackendDomainSyncRepairPreviewResult>('domainSync.repair.preview', request);
+    return this.integrationClient.domainSyncRepairPreview(request);
   }
 
   async domainSyncRepairApply(
     request: BackendDomainSyncRepairApplyRequest,
   ): Promise<BackendDomainSyncRepairApplyResult> {
-    return this.call<BackendDomainSyncRepairApplyResult>('domainSync.repair.apply', request);
+    return this.integrationClient.domainSyncRepairApply(request);
   }
 
   async domainSyncConflictSourcesCleanup(
     request: BackendDomainSyncConflictSourceCleanupRequest,
   ): Promise<BackendDomainSyncConflictSourceCleanupResult> {
-    return this.call<BackendDomainSyncConflictSourceCleanupResult>('domainSync.conflictSources.cleanup', request);
+    return this.integrationClient.domainSyncConflictSourcesCleanup(request);
   }
 
   async domainSyncConflictSourceCleanupCandidates(): Promise<BackendDomainSyncConflictSourceCleanupCandidatesResult> {
-    return this.call<BackendDomainSyncConflictSourceCleanupCandidatesResult>('domainSync.conflictSources.cleanupCandidates');
+    return this.integrationClient.domainSyncConflictSourceCleanupCandidates();
   }
 
   async browserDeckPage(
     query: BackendBrowserDeckSnapshotQuery,
     page: BackendBrowserDeckPageRequest,
   ): Promise<BackendBrowserDeckPageResult> {
-    return this.call('browser.deck.page', { query, page });
+    return this.browserClient.browserDeckPage(query, page);
   }
 
   async browserDeckMatchedIds(query: BackendBrowserDeckSnapshotQuery): Promise<string[]> {
-    const result = await this.call<{ ids: string[] }>('browser.deck.matchedIds', { query });
-    return result.ids || [];
+    return this.browserClient.browserDeckMatchedIds(query);
   }
 
   async browserDeckRowsByIds(ids: string[]): Promise<FSRSCard[]> {
-    const result = await this.call<{ cards: FSRSCard[] }>('browser.deck.rowsByIds', { ids });
-    return result.cards || [];
+    return this.browserClient.browserDeckRowsByIds(ids);
   }
 
   async browserDeckDocumentCounts(scope: BackendBrowserDocumentCountsScope): Promise<BackendBrowserDocumentCountsResult> {
-    return this.call<BackendBrowserDocumentCountsResult>('browser.deck.documentCounts', { scope });
+    return this.browserClient.browserDeckDocumentCounts(scope);
   }
 
   async browserStats(now?: number): Promise<BrowserStats> {
-    return this.call<BrowserStats>('browser.stats', { now });
+    return this.browserClient.browserStats(now);
   }
 
   async browserCountCards(query?: StructuredCardQuery): Promise<number> {
-    const result = await this.call<{ count: number }>('browser.count', { query });
-    return Number(result.count || 0);
+    return this.browserClient.browserCountCards(query);
   }
 
   async browserSourceExistenceRefreshCandidates(
     request: BackendSourceExistenceRefreshRequest,
   ): Promise<BackendSourceExistenceRefreshCandidate[]> {
-    const result = await this.call<{ candidates: BackendSourceExistenceRefreshCandidate[] }>(
-      'browser.sourceExistence.refreshCandidates',
-      { request },
-    );
-    return result.candidates || [];
+    return this.browserClient.browserSourceExistenceRefreshCandidates(request);
   }
 
   async browserSourceExistenceUpdate(updates: BackendSourceExistenceUpdate[], checkedAt = Date.now()): Promise<number> {
-    const result = await this.call<{ updated: number }>(
-      'browser.sourceExistence.update',
-      { updates, checkedAt },
-    );
-    return Number(result.updated || 0);
+    return this.browserClient.browserSourceExistenceUpdate(updates, checkedAt);
   }
 
   async browserSourceExistenceByBlockIds(blockIds: string[]): Promise<Map<string, boolean | null>> {
-    const result = await this.call<{ statusByBlockId: Array<{ blockId: string; exists: boolean | null }> }>(
-      'browser.sourceExistence.byBlockIds',
-      { blockIds },
-    );
-    return new Map((result.statusByBlockId || []).map((row) => [row.blockId, row.exists] as const));
+    return this.browserClient.browserSourceExistenceByBlockIds(blockIds);
   }
 
   async browserSourceExistenceSummary(staleBefore?: number): Promise<BackendSourceExistenceSummary> {
-    return this.call<BackendSourceExistenceSummary>('browser.sourceExistence.summary', { staleBefore });
+    return this.browserClient.browserSourceExistenceSummary(staleBefore);
   }
 
   async browserSourceExistenceApplySweep(
@@ -326,26 +341,19 @@ export class SrsBackendClient {
     existingBlockIds: string[],
     checkedAt = Date.now(),
   ): Promise<BackendSourceExistenceSweepApplyResult> {
-    return this.call<BackendSourceExistenceSweepApplyResult>('browser.sourceExistence.applySweep', {
-      request,
-      existingBlockIds,
-      checkedAt,
-    });
+    return this.browserClient.browserSourceExistenceApplySweep(request, existingBlockIds, checkedAt);
   }
 
   async browserSourceExistenceApplySweepHost(
     request: BackendSourceExistenceRefreshRequest,
     checkedAt = Date.now(),
   ): Promise<BackendSourceExistenceSweepApplyResult> {
-    return this.call<BackendSourceExistenceSweepApplyResult>('browser.sourceExistence.applySweepHost', {
-      request,
-      checkedAt,
-    });
+    return this.browserClient.browserSourceExistenceApplySweepHost(request, checkedAt);
   }
 
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
     const result = await this.measureReviewFeedbackClientStep('rpc-call', request, () => (
-      this.call<BackendReviewFeedbackResult>('review.feedback', request)
+      this.reviewClient.reviewFeedback(request)
     ));
     assertCommittedReviewFeedbackDurability(result, {
       source: 'SrsBackendClient',
@@ -358,213 +366,213 @@ export class SrsBackendClient {
   async reviewTruthFlush(
     request: BackendReviewFeedbackTruthFlushRequest,
   ): Promise<BackendReviewFeedbackTruthFlushResult> {
-    return this.call<BackendReviewFeedbackTruthFlushResult>('review.truth.flush', request);
+    return this.reviewClient.reviewTruthFlush(request);
   }
 
   async reviewTruthBackfill(
     request: BackendReviewTruthBackfillRequest,
   ): Promise<BackendReviewTruthBackfillResult> {
-    return this.call<BackendReviewTruthBackfillResult>('review.truth.backfill', request);
+    return this.reviewClient.reviewTruthBackfill(request);
   }
 
   async mergeSyncConflicts(
     request: BackendSyncConflictMergeRequest,
   ): Promise<BackendSyncConflictMergeResult> {
-    return this.call<BackendSyncConflictMergeResult>('sync.conflict.merge', request);
+    return this.integrationClient.mergeSyncConflicts(request);
   }
 
   async auditReviewSyncDivergence(
     request: BackendReviewSyncDivergenceAuditRequest = {},
   ): Promise<BackendReviewSyncDivergenceAuditResult> {
-    return this.call<BackendReviewSyncDivergenceAuditResult>('sync.reviewDivergence.audit', request);
+    return this.integrationClient.auditReviewSyncDivergence(request);
   }
 
   async summarizeSyncConflicts(
     request: BackendSyncConflictSummarizeRequest,
   ): Promise<BackendSyncConflictSummarizeResult> {
-    return this.call<BackendSyncConflictSummarizeResult>('sync.conflict.summarize', request);
+    return this.integrationClient.summarizeSyncConflicts(request);
   }
 
   async reloadSyncConflictDatabase(): Promise<BackendSyncConflictReloadResult> {
-    return this.call<BackendSyncConflictReloadResult>('sync.conflict.reload');
+    return this.integrationClient.reloadSyncConflictDatabase();
   }
 
   async queueProjectionSnapshot(
     request: BackendQueueProjectionSnapshotRequest,
   ): Promise<BackendQueueProjectionSnapshotResult> {
-    return this.call<BackendQueueProjectionSnapshotResult>('queue.projection.snapshot', request);
+    return this.queueProjectionClient.queueProjectionSnapshot(request);
   }
 
   async queueProjectionRowsByIds(
     request: BackendQueueProjectionRowsByIdsRequest,
   ): Promise<BackendQueueProjectionRowsByIdsResult> {
-    return this.call<BackendQueueProjectionRowsByIdsResult>('queue.projection.rowsByIds', request);
+    return this.queueProjectionClient.queueProjectionRowsByIds(request);
   }
 
   async queueProjectionReplace(
     request: BackendQueueProjectionReplaceRequest,
   ): Promise<BackendQueueProjectionReplaceResult> {
-    return this.call<BackendQueueProjectionReplaceResult>('queue.projection.replace', request);
+    return this.queueProjectionClient.queueProjectionReplace(request);
   }
 
   async storageProjectionRebuild(
     request: BackendStorageProjectionRebuildRequest,
   ): Promise<BackendStorageProjectionRebuildResult> {
-    return this.call<BackendStorageProjectionRebuildResult>('storage.projection.rebuild', request);
+    return this.queueProjectionClient.storageProjectionRebuild(request);
   }
 
   async neuralRoamAdvance(
     request: BackendNeuralRoamAdvanceRequest,
   ): Promise<BackendNeuralRoamAdvanceResult> {
-    const result = await this.call<BackendNeuralRoamAdvanceResult>('neural-roam.advance', request);
+    const result = await this.neuralRoamClient.neuralRoamAdvance(request);
     return this.validateNeuralRoamAdvanceResult(result);
   }
 
   async neuralRoamViewState(
     request: BackendNeuralRoamViewStateRequest,
   ): Promise<BackendNeuralRoamViewStateResult> {
-    const result = await this.call<BackendNeuralRoamViewStateResult>('neural-roam.viewState', request);
+    const result = await this.neuralRoamClient.neuralRoamViewState(request);
     return this.validateNeuralRoamViewStateResult(result);
   }
 
   async neuralRoamCommand(
     request: BackendNeuralRoamCommandRequest,
   ): Promise<BackendNeuralRoamCommandResult> {
-    const result = await this.call<BackendNeuralRoamCommandResult>('neural-roam.command', request);
+    const result = await this.neuralRoamClient.neuralRoamCommand(request);
     return this.validateNeuralRoamCommandResult(result);
   }
 
   async createAiSession(request: BackendAiSessionCreateRequest): Promise<BackendAiSessionResult> {
-    return this.call<BackendAiSessionResult>('ai.session.create', request);
+    return this.aiJobClient.createAiSession(request);
   }
 
   async getAiSession(request: BackendAiSessionGetRequest): Promise<BackendAiSessionResult> {
-    return this.call<BackendAiSessionResult>('ai.session.get', request);
+    return this.aiJobClient.getAiSession(request);
   }
 
   async updateAiSession(request: BackendAiSessionUpdateRequest): Promise<BackendAiSessionResult> {
-    return this.call<BackendAiSessionResult>('ai.session.update', request);
+    return this.aiJobClient.updateAiSession(request);
   }
 
   async cancelAiSession(request: BackendAiSessionCancelRequest): Promise<BackendAiSessionResult> {
-    return this.call<BackendAiSessionResult>('ai.session.cancel', request);
+    return this.aiJobClient.cancelAiSession(request);
   }
 
   async executeAiPrompt(request: BackendAiPromptExecuteRequest): Promise<BackendAiPromptExecuteResult> {
-    const result = await this.call<BackendAiPromptExecuteResult>('ai.prompt.execute', request);
+    const result = await this.aiJobClient.executeAiPrompt(request);
     return this.validateAiPromptExecuteResult(result, 'ai.prompt.execute');
   }
 
   async executeAiToolJob(request: BackendAiToolJobExecuteRequest): Promise<BackendAiToolJobResult> {
-    return this.call<BackendAiToolJobResult>('ai.tool.job.execute', request);
+    return this.aiJobClient.executeAiToolJob(request);
   }
 
   async submitAiToolJobApproval(request: BackendAiToolJobApprovalRequest): Promise<BackendAiToolJobResult> {
-    return this.call<BackendAiToolJobResult>('ai.tool.job.approval', request);
+    return this.aiJobClient.submitAiToolJobApproval(request);
   }
 
   async startAiStream(request: BackendAiStreamStartRequest): Promise<BackendAiStreamResult> {
-    const result = await this.call<BackendAiStreamResult>('ai.stream.start', request);
+    const result = await this.aiJobClient.startAiStream(request);
     return this.validateAiStreamResult(result, 'ai.stream.start');
   }
 
   async cancelAiStream(request: BackendAiStreamCancelRequest): Promise<BackendAiStreamResult> {
-    const result = await this.call<BackendAiStreamResult>('ai.stream.cancel', request);
+    const result = await this.aiJobClient.cancelAiStream(request);
     return this.validateAiStreamResult(result, 'ai.stream.cancel');
   }
 
   async getAiJob(request: BackendAiJobGetRequest): Promise<BackendAiJobResult> {
-    const result = await this.call<BackendAiJobResult>('job.get', request);
+    const result = await this.aiJobClient.getAiJob(request);
     return this.validateAiJobResult(result, 'job.get');
   }
 
   async cancelAiJob(request: BackendAiJobCancelRequest): Promise<BackendAiJobResult> {
-    const result = await this.call<BackendAiJobResult>('job.cancel', request);
+    const result = await this.aiJobClient.cancelAiJob(request);
     return this.validateAiJobResult(result, 'job.cancel');
   }
 
-  async privateHealth(): Promise<{ ok: true; runtime: 'srs-backend-worker'; feature: 'private-api' }> {
-    return this.call('private.health');
+  async privateHealth(): Promise<BackendPrivateHealthResult> {
+    return this.coreClient.privateHealth();
   }
 
-  async privateDiagnosticsStatus(): Promise<unknown> {
-    return this.call('private.diagnostics.status');
+  async privateDiagnosticsStatus(): Promise<BackendPrivateDiagnosticsStatusResult> {
+    return this.coreClient.privateDiagnosticsStatus();
   }
 
-  async privateAuditQuery(request: { requestId: string; method: 'private.audit.query'; callerIntent: string; limit?: number }): Promise<unknown> {
-    return this.call('private.audit.query', request);
+  async privateAuditQuery(request: PrivateApiAuditQueryRequest): Promise<PrivateApiAuditQueryResult> {
+    return this.privateApiClient.privateAuditQuery(request);
   }
 
   async privateRead(request: PrivateApiReadRequest): Promise<PrivateApiReadResult> {
-    return this.call<PrivateApiReadResult>(request.method, request);
+    return this.privateApiClient.privateRead(request);
   }
 
   async privateCommand(request: PrivateApiMutationRequest): Promise<PrivateApiMutationResult> {
-    return this.call<PrivateApiMutationResult>(request.method, request);
+    return this.privateApiClient.privateCommand(request);
   }
 
   async submitHotspotCommand<TResult = unknown>(
     request: BackendHotspotCommandSubmitRequest,
   ): Promise<BackendHotspotCommandSubmitResult<TResult>> {
-    return this.call<BackendHotspotCommandSubmitResult<TResult>>('hotspot.command.submit', request);
+    return this.integrationClient.submitHotspotCommand<TResult>(request);
   }
 
   async getHotspotJob<TResult = unknown>(
     request: BackendHotspotJobGetRequest,
   ): Promise<BackendHotspotJobGetResult<TResult>> {
-    return this.call<BackendHotspotJobGetResult<TResult>>('hotspot.job.get', request);
+    return this.integrationClient.getHotspotJob<TResult>(request);
   }
 
   async executeXiuyuanSync(
     request: BackendXiuyuanSyncExecuteRequest,
   ): Promise<BackendXiuyuanSyncExecuteResult> {
-    return this.call<BackendXiuyuanSyncExecuteResult>('xiuyuan.sync.execute', request);
+    return this.integrationClient.executeXiuyuanSync(request);
   }
 
   async executeProgressiveCommand<TResult = unknown>(
     request: BackendProgressiveCommandExecuteRequest,
   ): Promise<BackendProgressiveCommandExecuteResult<TResult>> {
-    return this.call<BackendProgressiveCommandExecuteResult<TResult>>('progressive.command.execute', request);
+    return this.integrationClient.executeProgressiveCommand<TResult>(request);
   }
 
   async executeTopicDerivedCommand<TResult = unknown>(
     request: BackendTopicDerivedCommandExecuteRequest,
   ): Promise<BackendTopicDerivedCommandExecuteResult<TResult>> {
-    return this.call<BackendTopicDerivedCommandExecuteResult<TResult>>('topic-derived.command.execute', request);
+    return this.integrationClient.executeTopicDerivedCommand<TResult>(request);
   }
 
   async executeReviewRiffFeedback(
     request: BackendReviewRiffFeedbackExecuteRequest,
   ): Promise<BackendReviewRiffFeedbackExecuteResult> {
-    return this.call<BackendReviewRiffFeedbackExecuteResult>('review.riffFeedback.execute', request);
+    return this.reviewClient.executeReviewRiffFeedback(request);
   }
 
   async executeReviewSourceRefresh(
     request: BackendReviewSourceRefreshExecuteRequest,
   ): Promise<BackendReviewSourceRefreshExecuteResult> {
-    return this.call<BackendReviewSourceRefreshExecuteResult>('review.sourceRefresh.execute', request);
+    return this.reviewClient.executeReviewSourceRefresh(request);
   }
 
   async browserAggregateSnapshot(
     request: BackendBrowserAggregateSnapshotRequest,
   ): Promise<BackendBrowserAggregateSnapshotResult> {
-    return this.call<BackendBrowserAggregateSnapshotResult>('browser.aggregate.snapshot', request);
+    return this.browserClient.browserAggregateSnapshot(request);
   }
 
   async browserAggregatePage<TRow = unknown>(
     request: BackendBrowserAggregatePageRequest,
   ): Promise<BackendBrowserAggregatePageResult<TRow>> {
-    return this.call<BackendBrowserAggregatePageResult<TRow>>('browser.aggregate.page', request);
+    return this.browserClient.browserAggregatePage<TRow>(request);
   }
 
   async browserAggregateFocus<TRow = unknown>(
     request: BackendBrowserAggregateFocusRequest,
   ): Promise<BackendBrowserAggregateFocusResult<TRow>> {
-    return this.call<BackendBrowserAggregateFocusResult<TRow>>('browser.aggregate.focus', request);
+    return this.browserClient.browserAggregateFocus<TRow>(request);
   }
 
   async graphQuery(request: BackendGraphQueryRequest): Promise<BackendGraphQueryResult> {
-    return this.call<BackendGraphQueryResult>('graph.query', request);
+    return this.integrationClient.graphQuery(request);
   }
 
   requestReviewTruthFlush(reason: 'review-exit' | 'queue-complete' | 'manual' = 'manual'): boolean {
@@ -604,72 +612,58 @@ export class SrsBackendClient {
   }
 
   async semanticCommand(request: BackendSemanticCommandRequest): Promise<BackendSemanticCommandResult> {
-    return this.call<BackendSemanticCommandResult>(request.method, request);
+    return this.semanticClient.semanticCommand(request);
   }
 
   async semanticSessionRead(request: BackendSemanticSessionReadRequest): Promise<BackendSemanticSessionReadResult> {
-    return this.call<BackendSemanticSessionReadResult>(request.method, request);
+    return this.semanticClient.semanticSessionRead(request);
   }
 
   async semanticSidebarRead(request: BackendSemanticSidebarReadRequest): Promise<BackendSemanticSidebarReadResult> {
-    return this.call<BackendSemanticSidebarReadResult>(request.method, request);
+    return this.semanticClient.semanticSidebarRead(request);
   }
 
   async semanticBrowserRead(request: BackendSemanticBrowserReadRequest): Promise<BackendSemanticBrowserReadResult> {
-    return this.call<BackendSemanticBrowserReadResult>(request.method, request);
+    return this.semanticClient.semanticBrowserRead(request);
   }
 
   async p6OwnershipQuery(request: P6OwnershipQueryRequest): Promise<P6OwnershipResult> {
-    return this.call<P6OwnershipResult>('p6.ownership.query', request);
+    return this.integrationClient.p6OwnershipQuery(request);
   }
 
   async p6OwnershipCommand(request: P6OwnershipCommandRequest): Promise<P6OwnershipResult> {
-    return this.call<P6OwnershipResult>('p6.ownership.command', request);
+    return this.integrationClient.p6OwnershipCommand(request);
   }
 
   async ingestKernelTransactions(
     request: BackendKernelTransactionIngestRequest,
   ): Promise<BackendKernelTransactionIngestResult> {
-    return this.call<BackendKernelTransactionIngestResult>('kernel.transaction.ingest', request);
+    return this.integrationClient.ingestKernelTransactions(request);
   }
 
   async dequeueKernelTransactions(
     request: BackendKernelTransactionDequeueRequest = {},
   ): Promise<BackendKernelTransactionDequeueResult> {
-    return this.call<BackendKernelTransactionDequeueResult>('kernel.transaction.dequeue', request);
+    return this.integrationClient.dequeueKernelTransactions(request);
   }
 
   async requeueKernelTransactions(
     request: BackendKernelTransactionRequeueRequest = {},
   ): Promise<BackendKernelTransactionRequeueResult> {
-    return this.call<BackendKernelTransactionRequeueResult>('kernel.transaction.requeue', request);
+    return this.integrationClient.requeueKernelTransactions(request);
   }
 
   async resolveAutoCardDecision(
     request: BackendAutoCardDecisionResolveRequest,
   ): Promise<BackendAutoCardDecisionResolveResult> {
-    const result = await this.call<BackendAutoCardDecisionResolveResult>('autocard.decision.resolve', request);
+    const result = await this.integrationClient.resolveAutoCardDecision(request);
     return this.validateAutoCardDecisionResolveResult(result);
   }
 
   async executeAutoCard(
     request: BackendAutoCardExecuteRequest,
   ): Promise<BackendAutoCardExecuteResult> {
-    return this.call<BackendAutoCardExecuteResult>('autocard.execute', request);
-  }
-
-  private async call<TResult>(method: BackendRpcRequest['method'], params?: unknown): Promise<TResult> {
-    const request: BackendRpcRequest = {
-      jsonrpc: BACKEND_RPC_VERSION,
-      id: ++this.requestId,
-      method,
-      params: params == null ? [] : [params],
-    };
-    const response = await this.transport.request(request);
-    if ('error' in response) {
-      throw new Error(`${response.error.code}: ${response.error.message}`);
-    }
-    return (response as BackendRpcSuccess<TResult>).result;
+    return this.integrationClient.executeAutoCard(request);
   }
 
   private scheduleReviewTruthFlushAfterFeedback(result: BackendReviewFeedbackResult): void {

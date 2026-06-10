@@ -35,12 +35,12 @@
 
 ## 4. Client Facets And Facade Compatibility
 
-- [ ] 4.1 Extract shared RPC call/envelope logic from `SrsBackendClient` so family facets do not duplicate request ID, error propagation, or response validation logic.
-- [ ] 4.2 Add core, Browser, Queue Projection, Review, NeuralRoam, AI/Job, Semantic, Private API, and integration-family client facets.
-- [ ] 4.3 Make `SrsBackendClient` delegate existing methods to facets while preserving all current public method names and scheduling side effects such as Review truth flush timers.
+- [x] 4.1 Extract shared RPC call/envelope logic from `SrsBackendClient` so family facets do not duplicate request ID, error propagation, or response validation logic.
+- [x] 4.2 Add core, Browser, Queue Projection, Review, NeuralRoam, AI/Job, Semantic, Private API, and integration-family client facets.
+- [x] 4.3 Make `SrsBackendClient` delegate existing methods to facets while preserving all current public method names and scheduling side effects such as Review truth flush timers.
 - [ ] 4.4 Migrate bounded-context callers to narrower client Interfaces where the call site already consumes one method family only.
 - [ ] 4.5 Keep broad `SrsBackendClient` injection where a composition root or orchestrator truly needs multiple families, and document why.
-- [ ] 4.6 Add client facet tests for method string, params shape, result propagation, and explicit backend unavailable errors.
+- [x] 4.6 Add client facet tests for method string, params shape, result propagation, and explicit backend unavailable errors.
 
 ## 5. Test Split And Parity Coverage
 
