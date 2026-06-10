@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-10 (Round 579)
+Last update: 2026-06-10 (Round 580)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-10 - Review storage restart durability closure
+
+- Task: Complete `stabilize-review-storage-restart-durability` by unskipping and fixing the remaining Review storage/restart durability scenarios left after backend RPC family modularization.
+- Touched slice: Review worker storage/restart path: `worker/db/SqliteDatabaseService.ts`, `worker/bootstrap/__tests__/BackendReviewSyncRpcAdapter.test.ts`, `ARCHITECTURE.md`, and the focused OpenSpec change.
+- Debt fixed now: Explicit checkpoint failure no longer clears `projection-applied` Review feedback journal entries; startup now replays SQL checkpoint/delta state, replays `prepared` Review journal entries, then reconciles journal-backed Review projection state before queue readiness reads; stale `prepared` journal entries advance through durable `review_events` idempotency evidence without duplicating events; journal projection reconciliation failure returns explicit `BACKEND_UNAVAILABLE` instead of stale local queue counts.
+- Debt deferred: Broader Review truth compaction, native SQLite/WAL ownership, old truth/delta migration policy, and non-SRS projection maintenance remain outside this narrow restart durability slice.
+- Why deferred: This change only closes the three skipped acceptance tests and one fail-closed regression below the RPC adapter seam; expanding into truth/storage family redesign would mix a targeted durability repair with the longer storage roadmap.
+- Next safe step: After this change is committed, resume architecture debt on a fresh narrow slice, preferably one bounded-context extraction or one storage-policy cleanup at a time.
+- Validation: Focused `BackendReviewSyncRpcAdapter.test.ts`, hidden fallback review, boundary checks, whitespace check, build, and OpenSpec strict validation.
 
 ### 2026-06-10 - Backend RPC Review Sync AutoCard adapter closure
 

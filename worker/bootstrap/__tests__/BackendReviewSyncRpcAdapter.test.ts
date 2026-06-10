@@ -6987,7 +6987,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
 
   // Debt: this storage durability scenario currently fails below the RPC adapter seam.
   // Keep it visible here, but do not mix the storage fix into the family-routing migration.
-  it.skip('keeps projection-applied review feedback journal entries after explicit checkpoint for async truth flush', async () => {
+  it('keeps projection-applied review feedback journal entries after explicit checkpoint for async truth flush', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     let failMainDbWrite = false;
     const database = new WorkerSqliteDatabaseService({
@@ -7022,6 +7022,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
     expect('result' in response).toBe(true);
 
     failMainDbWrite = true;
+    await database.upsertCards([buildCard({ id: 'card-review-checkpoint-force-dirty', due: reviewedAt - 5_000 })]);
     await expect(database.persist()).rejects.toThrow(/forced main DB upload failure/);
     await expect(database.getReviewFeedbackJournalDiagnostics()).resolves.toMatchObject({
       storage: 'non-siyuan',
@@ -7954,7 +7955,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
 
   // Debt: restart replay currently reports a missing derived cache below the RPC adapter seam.
   // Keep it visible here, but do not mix the storage fix into the family-routing migration.
-  it.skip('keeps a reviewed incremental-learning card out of ready count after truth-flushed restart replay', async () => {
+  it('keeps a reviewed incremental-learning card out of ready count after truth-flushed restart replay', async () => {
     const reviewedAt = 1_779_188_200_000;
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -8218,7 +8219,7 @@ describe('BackendReviewSyncRpcAdapter', () => {
 
   // Debt: prepared-journal restart recovery currently leaves projection readiness below the RPC adapter seam.
   // Keep it visible here, but do not mix the storage fix into the family-routing migration.
-  it.skip('advances stale prepared review journal status when durable SQL already has the idempotent review event', async () => {
+  it('advances stale prepared review journal status when durable SQL already has the idempotent review event', async () => {
     const reviewedAt = 1_779_188_360_000;
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const seedDatabase = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -8298,6 +8299,79 @@ describe('BackendReviewSyncRpcAdapter', () => {
         status: 'projection-applied',
         appliedAt: reviewedAt,
       }]);
+  });
+
+  it('fails closed when review journal projection reconciliation is unavailable on restart', async () => {
+    const reviewedAt = 1_779_188_370_000;
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const card = buildCard({
+      id: 'card-journal-reconcile-unavailable',
+      blockId: 'block-journal-reconcile-unavailable',
+      due: reviewedAt - 10_000,
+      lastReview: reviewedAt - 86_400_000,
+      reps: 4,
+    });
+    await database.upsertCards([card]);
+    await seedQueueProjection(database, {
+      queueType: 'incremental-learning',
+      generation: 1,
+      rows: [card],
+      updatedAt: reviewedAt,
+    });
+    await database.persist();
+    const kernel = new BackendKernel({ database });
+
+    await expect(kernel.handle({
+      id: 'journal-reconcile-unavailable-feedback',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: card.id,
+        rating: 4,
+        queueType: 'incremental-learning',
+        projectionGeneration: 1,
+        projectionPolicyHash: 'policy-a',
+        reviewedAt,
+        idempotencyKey: 'journal-reconcile-unavailable',
+      }],
+    })).resolves.toEqual(expect.objectContaining({
+      result: expect.objectContaining({ committed: true }),
+    }));
+    database.dispose();
+
+    const failingJournalStore = {
+      ...persistenceBridge.reviewFeedbackJournalStore,
+      async listEntriesByStatus(status: Parameters<typeof persistenceBridge.reviewFeedbackJournalStore.listEntriesByStatus>[0], limit: number) {
+        if (status === 'projection-applied' || status === 'truth-flushed') {
+          throw new Error('BACKEND_UNAVAILABLE: review journal projection reconciliation unavailable');
+        }
+        return persistenceBridge.reviewFeedbackJournalStore.listEntriesByStatus(status, limit);
+      },
+    };
+    const restartedDatabase = new WorkerSqliteDatabaseService({
+      ...persistenceBridge,
+      reviewFeedbackJournalStore: failingJournalStore,
+    });
+    const restartedKernel = new BackendKernel({ database: restartedDatabase });
+
+    const snapshot = await restartedKernel.handle({
+      id: 'journal-reconcile-unavailable-snapshot',
+      jsonrpc: '2.0',
+      method: 'queue.projection.snapshot',
+      params: [{
+        queueType: 'incremental-learning',
+        policyHash: 'policy-a',
+        generation: 2,
+      }],
+    });
+
+    expect(snapshot).toEqual(expect.objectContaining({
+      error: expect.objectContaining({
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'BACKEND_UNAVAILABLE: review journal projection reconciliation unavailable',
+      }),
+    }));
   });
 
   it('rolls back review feedback card and log writes when projection impact persistence fails', async () => {
