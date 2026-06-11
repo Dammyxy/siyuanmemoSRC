@@ -1,17 +1,27 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-11 (Round 584)
+Last update: 2026-06-11 (Round 585)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-11 - Browser filter helper type facade
+
+- Task: Implement OpenSpec change `tighten-browser-filter-sort-helper-types` to retire the narrow Browser UI `cardFilters` parsed-query matcher duplication.
+- Touched slice: Browser UI helper typing: `src/ui/browser/utils/cardFilters.ts`, focused `cardFilters.facade.test.ts`, OpenSpec task ledger, and this backlog.
+- Debt fixed now: `cardFilters.ts` no longer owns a duplicate `NumberCondition`, `CardTypeFilter`, numeric condition checker, or parsed-query card matcher. Existing UI imports now delegate `checkNumberCondition()` and `matchesParsedQuery()` to the typed Browser helper contract in `src/types/browser.ts`, while SQL detection, preset filtering, and card-type filtering behavior stay covered by focused facade tests.
+- Debt deferred: Browser datasource/query row helpers still keep their own generic row card-type filtering and secondary-field simple-query behavior; broader type debt remains in `ApplicationContext`, Review adapter DTO projection, and repo-wide `strict: false` / `skipLibCheck: true`.
+- Why deferred: This slice only removes the duplicate UI helper matcher behind existing imports. Datasource/query row filters span queue snapshot rows, Browser deck rows, and secondary headline/full-content behavior, so they need a separate Browser read-model cleanup with parity tests.
+- Next safe step: If continuing Browser helper debt, open a narrow datasource/query row filter convergence change around `BrowserRowUtils` and `DataSourceUtils`, proving queue snapshot/deck row parity before deleting generic row logic.
+- Validation: Focused `pnpm exec vitest run src/ui/browser/utils/__tests__/cardFilters.facade.test.ts --reporter=dot`; filtered `tsc --noEmit` has no `cardFilters.ts` or new facade test matches; `openspec validate tighten-browser-filter-sort-helper-types --strict`; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
 
 ### 2026-06-11 - Review queue snapshot DTO typing
 
 - Task: Implement OpenSpec change `tighten-review-queue-snapshot-dto-types` to retire the narrow `TabManager` Review queue snapshot DTO type-debt slice left after tab runtime bridge cleanup.
 - Touched slice: Review tab restore seam: `src/application/managers/TabManager.ts`, focused `TabManager.review-snapshot-dto.spec.ts`, OpenSpec task ledger, and this backlog.
 - Debt fixed now: Review tab queue snapshots from serialized custom-tab runtime data now narrow card DTOs and queue counter snapshots before entering `UnifiedQueueStrategy.restoreSessionSnapshot()`. Valid cached/current/forward cards and valid counter snapshots are preserved, while malformed card entries and malformed counter snapshots are rejected at the external tab-data seam instead of passing broad records into the queue contract.
-- Debt deferred: Broader type debt remains in `ApplicationContext`, Browser filter/sort helpers, Review adapter DTO projection, and repo-wide `strict: false` / `skipLibCheck: true`.
+- Debt deferred: Broader type debt remains in `ApplicationContext`, Browser datasource/query row helpers, Review adapter DTO projection, and repo-wide `strict: false` / `skipLibCheck: true`. The Browser UI `cardFilters` parsed-query helper debt was retired by the 2026-06-11 follow-up above.
 - Why deferred: This slice only owns Review custom-tab queue snapshot normalization. Expanding into composition-root typing, Browser helper DTOs, Review adapter projections, or compiler-wide strictness would cross separate seams and blur validation.
-- Next safe step: Continue type-debt cleanup with Browser filter/sort helper types or a composition-root interface audit as separate narrow OpenSpec changes.
+- Next safe step: Continue type-debt cleanup with Browser datasource/query row helper types or a composition-root interface audit as separate narrow OpenSpec changes.
 - Validation: Focused `pnpm exec vitest run src/application/managers/__tests__/TabManager.review-snapshot-dto.spec.ts --reporter=dot`; filtered `tsc --noEmit` has no `TabManager.ts` or new snapshot test matches; `openspec validate tighten-review-queue-snapshot-dto-types --strict`; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
 
 ### 2026-06-10 - Tab runtime type bridge cleanup
@@ -19,9 +29,9 @@ Last update: 2026-06-11 (Round 584)
 - Task: Implement OpenSpec change `tighten-tab-runtime-type-bridges` to retire a narrow production type-debt slice around SiYuan custom-tab callbacks and the topbar initialization gate.
 - Touched slice: Tab/custom topbar runtime typing: `src/application/managers/TabManager.ts`, `src/ui/menu/TopBar.ts`, focused runtime-bridge/topbar tests, and this backlog.
 - Debt fixed now: Browser, Review, and Review AI custom-tab lifecycle callbacks now enter through one `withTabRuntimeContext()` helper instead of repeating `this as unknown as TabRuntimeContext` casts in every registered callback. `TopBarManager` now declares the initialization flag it consumes and no longer uses production `@ts-ignore` before opening Browser. The typed runtime slice also removed an unused `TabManager.buildReviewQueue()` dead branch after confirming the active path uses `buildReviewQueueFromTabData()`.
-- Debt deferred: Broader type debt remains in `ApplicationContext`, Browser filter/sort helpers, Review adapter DTO projection, and repo-wide `strict: false` / `skipLibCheck: true`. The `TabManager` review queue snapshot DTO narrowing listed in the original cleanup was retired by the 2026-06-11 follow-up above.
+- Debt deferred: Broader type debt remains in `ApplicationContext`, Browser datasource/query row helpers, Review adapter DTO projection, and repo-wide `strict: false` / `skipLibCheck: true`. The `TabManager` review queue snapshot DTO narrowing listed in the original cleanup was retired by the 2026-06-11 follow-up above, and the Browser UI `cardFilters` parsed-query helper debt was retired by the later 2026-06-11 follow-up.
 - Why deferred: This slice was intentionally limited to one low-risk runtime bridge and one suppression. Expanding into composition-root or Browser/Review projection casts would mix unrelated seams and make validation less focused.
-- Next safe step: Continue type-debt cleanup with one separate narrow change, preferably Browser filter/sort helper types or a composition-root interface audit, before considering any repo-wide `strict` tightening.
+- Next safe step: Continue type-debt cleanup with one separate narrow change, preferably Browser datasource/query row helper types or a composition-root interface audit, before considering any repo-wide `strict` tightening.
 - Validation: Focused `TabManager.runtime-bridge.spec.ts` and `TopBar.runtime-typing.spec.ts`; targeted grep for removed callback double casts and topbar suppression; filtered `tsc --noEmit` showed no new test/TopBar errors, with Review snapshot DTO debt intentionally left for the follow-up above; full validation listed in the OpenSpec task ledger.
 
 ### 2026-06-10 - Review truth storage policy cleanup
@@ -7995,7 +8005,7 @@ Do not add an entry for skill-only or docs-only work.
 | P3 | `CardRepository.save()` remains a thin storage wrapper rather than a first-class logical-key CRUD boundary | `src/infrastructure/persistence/CardRepository.ts` and any future direct card write paths | Only promote it when direct CardRepository write paths become common or need explicit logical-key CRUD semantics |
 | P1 | Mojibake/encoding debt in long-lived docs and some comments | `ARCHITECTURE.md`, selected large Vue/TS files with historical garbled comments | Run dedicated UTF-8 restoration pass (content-preserving) |
 | P3 | Big-file line-count campaign is closed; target active files are now below 3000, with residual orchestration debt limited to concrete product seams rather than file-size blockers | `src/application/services/AIWorkbenchService.ts`, `src/ui/ai/AiWorkbenchPane.vue`, `src/ui/browser/SRSBrowser.vue`, `src/ui/review/v2/ReviewView.vue`, `src/ui/settings/SettingsPanel.vue`, plus extracted Review / AI / Browser / Settings helpers listed above | Reopen only when a single bounded-context behavior seam needs work: Browser helper dedupe, Review snapshot/lifecycle, Settings componentization, AI multi-window/multimodal, or product i18n/test-noise cleanup |
-| P2 | Browser filter/query helper logic still has local duplication after contract migration | `src/types/browser.ts`, `src/ui/browser/utils/cardFilters.ts`, browser datasource helpers | Deduplicate around shared parser/matcher only after current Browser tests cover the migrated behavior |
+| P2 | Browser datasource/query row helper logic still has local duplication after UI `cardFilters` facade cleanup | `src/application/queries/browser/shared/BrowserRowUtils.ts`, `src/ui/browser/datasource/DataSourceUtils.ts`, browser datasource helpers | Deduplicate generic row filters around shared parser/matcher only after deck/query snapshot parity tests cover the migrated behavior |
 | P2 | Repeated local i18n helper patterns (`t(key, fallback)`) | UI components in browser/review | Optional dedupe via shared translator utility (low risk, non-functional) |
 | P2 | AI tool/group descriptor copy is still hard-coded inside runtime registry rather than routed through i18n-backed metadata | `src/application/services/AIChatToolRegistry.ts`, AI settings/pane tool surfaces | Extract descriptor copy into a localized source of truth once the AI tool surface stabilizes |
 | P3 | AI pane tests still inherit localhost asset fetch noise from shared markdown rendering setup | `src/ui/ai/__tests__/*`, shared markdown/test harness setup | Add a shared happy-dom asset shim or markdown renderer test mode to silence unrelated network noise |

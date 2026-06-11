@@ -4,114 +4,9 @@
  * 提供卡片筛选相关的纯函数
  */
 
-import type { BrowserCard, CardState, ParsedBrowserQuery } from '@/types/browser';
-
-/**
- * 数值条件接口
- */
-export interface NumberCondition {
-  operator: '<' | '>' | '<=' | '>=' | '=' | '!=';
-  value: number;
-}
-
-/**
- * 检查数值是否满足条件
- * 
- * @param actualValue - 实际值
- * @param conditions - 条件数组
- * @returns 是否满足所有条件
- */
-export function checkNumberCondition(actualValue: number, conditions: NumberCondition[]): boolean {
-  if (!conditions || conditions.length === 0) return true;
-
-  return conditions.every((cond) => {
-    switch (cond.operator) {
-      case '<': return actualValue < cond.value;
-      case '>': return actualValue > cond.value;
-      case '<=': return actualValue <= cond.value;
-      case '>=': return actualValue >= cond.value;
-      case '=': return actualValue === cond.value;
-      case '!=': return actualValue !== cond.value;
-      default: return true;
-    }
-  });
-}
-
-/**
- * 检查卡片是否匹配查询条件
- * 
- * @param card - 卡片数据
- * @param parsed - 解析后的查询条件
- * @returns 是否匹配
- */
-export function matchesParsedQuery(card: BrowserCard, parsed: ParsedBrowserQuery): boolean {
-  // Deck 筛选
-  if (parsed.decks.length && !parsed.decks.includes(card.deckId)) {
-    return false;
-  }
-
-  // 状态筛选
-  if (parsed.states.length && !parsed.states.includes(card.state as CardState)) {
-    return false;
-  }
-
-  // 文档筛选
-  if (parsed.docs.length && (!card.rootId || !parsed.docs.includes(card.rootId))) {
-    return false;
-  }
-
-  // 标签筛选
-  if (parsed.tags.length) {
-    const tags = card.tags || [];
-    for (const t of parsed.tags) {
-      if (!tags.includes(t)) {
-        return false;
-      }
-    }
-  }
-
-  // 文本搜索
-  if (parsed.text) {
-    const q = parsed.text.toLowerCase();
-    const hay = (card.fullContent || card.content || '').toLowerCase();
-    if (!hay.includes(q)) {
-      return false;
-    }
-  }
-
-  // FSRS 参数数值比较筛选
-  const conds = parsed.conditions || {};
-  
-  if (conds.priority && !checkNumberCondition(card.priority ?? 50, conds.priority)) {
-    return false;
-  }
-  
-  if (conds.interval && !checkNumberCondition(card.interval ?? 0, conds.interval)) {
-    return false;
-  }
-  
-  if (conds.reps && !checkNumberCondition(card.reps ?? 0, conds.reps)) {
-    return false;
-  }
-  
-  if (conds.lapses && !checkNumberCondition(card.lapses ?? 0, conds.lapses)) {
-    return false;
-  }
-  
-  if (conds.difficulty && card.difficulty !== undefined && !checkNumberCondition(card.difficulty, conds.difficulty)) {
-    return false;
-  }
-  
-  if (conds.retrievability && card.retrievability !== undefined && !checkNumberCondition(card.retrievability, conds.retrievability)) {
-    return false;
-  }
-  
-  if (conds.stability && card.stability !== undefined && !checkNumberCondition(card.stability, conds.stability)) {
-    return false;
-  }
-
-  return true;
-}
+import type { BrowserCard, CardTypeFilter } from '@/types/browser';
+export type { NumberCondition } from '@/types/browser';
+export { checkNumberCondition, matchesParsedQuery } from '@/types/browser';
 
 /**
  * 提取 SQL 语句（如果输入是 SQL 模式）
@@ -179,11 +74,6 @@ export function applyPresetFilter(cards: BrowserCard[], preset: PresetType): Bro
       return cards;
   }
 }
-
-/**
- * 卡片类型筛选
- */
-export type CardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only' | 'missing-block-only';
 
 /**
  * 应用卡片类型筛选
