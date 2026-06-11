@@ -1,17 +1,27 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-11 (Round 585)
+Last update: 2026-06-12 (Round 586)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-12 - Browser datasource row helper convergence
+
+- Task: Implement OpenSpec change `converge-browser-datasource-query-row-filters` to retire the remaining Browser datasource/query row helper type duplication after the `cardFilters` facade cleanup.
+- Touched slice: Browser datasource/query row helper typing: `src/application/queries/browser/shared/BrowserRowUtils.ts`, `src/ui/browser/datasource/DataSourceUtils.ts`, focused datasource/query parity tests, Retrieval datasource query-session fixture, OpenSpec task ledger, and this backlog.
+- Debt fixed now: `DataSourceUtils` no longer owns duplicate row-like types, sort normalization, missing-block detection, preset filtering, card-type filtering, simple-query fallback, or queue snapshot filter implementations. Existing datasource imports now stay stable through a facade that re-exports the typed shared `BrowserRowUtils` helpers, while queue snapshot filters, headline/full-content secondary query behavior, and row sorting parity are covered by focused tests.
+- Debt deferred: Broader type debt remains in `ApplicationContext`, Review adapter DTO projection, and repo-wide `strict: false` / `skipLibCheck: true`. Browser query datasource classes still have separate active-path behavior tests, but their shared row helper implementation debt is closed.
+- Why deferred: This slice only converges Browser row filtering/sorting helpers behind existing imports. Composition-root typing, Review projection DTOs, and compiler-wide strictness cross different seams and need separate OpenSpec changes.
+- Next safe step: Continue type-debt cleanup with a composition-root interface audit or a narrow Review adapter DTO projection cleanup, rather than turning on repo-wide strictness first.
+- Validation: Focused datasource parity and datasource helper suites; targeted `QueueBrowserQueryKernel` and `BrowserApplicationService.queue-query` suites; `openspec validate converge-browser-datasource-query-row-filters --strict`; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
 
 ### 2026-06-11 - Browser filter helper type facade
 
 - Task: Implement OpenSpec change `tighten-browser-filter-sort-helper-types` to retire the narrow Browser UI `cardFilters` parsed-query matcher duplication.
 - Touched slice: Browser UI helper typing: `src/ui/browser/utils/cardFilters.ts`, focused `cardFilters.facade.test.ts`, OpenSpec task ledger, and this backlog.
 - Debt fixed now: `cardFilters.ts` no longer owns a duplicate `NumberCondition`, `CardTypeFilter`, numeric condition checker, or parsed-query card matcher. Existing UI imports now delegate `checkNumberCondition()` and `matchesParsedQuery()` to the typed Browser helper contract in `src/types/browser.ts`, while SQL detection, preset filtering, and card-type filtering behavior stay covered by focused facade tests.
-- Debt deferred: Browser datasource/query row helpers still keep their own generic row card-type filtering and secondary-field simple-query behavior; broader type debt remains in `ApplicationContext`, Review adapter DTO projection, and repo-wide `strict: false` / `skipLibCheck: true`.
-- Why deferred: This slice only removes the duplicate UI helper matcher behind existing imports. Datasource/query row filters span queue snapshot rows, Browser deck rows, and secondary headline/full-content behavior, so they need a separate Browser read-model cleanup with parity tests.
-- Next safe step: If continuing Browser helper debt, open a narrow datasource/query row filter convergence change around `BrowserRowUtils` and `DataSourceUtils`, proving queue snapshot/deck row parity before deleting generic row logic.
+- Debt deferred: Broader type debt remains in `ApplicationContext`, Review adapter DTO projection, and repo-wide `strict: false` / `skipLibCheck: true`. The Browser datasource/query row helper debt was retired by the 2026-06-12 follow-up above.
+- Why deferred: This slice only removes the duplicate UI helper matcher behind existing imports. Datasource/query row filters were split into a separate Browser read-model cleanup because they span queue snapshot rows, Browser deck rows, and secondary headline/full-content behavior.
+- Next safe step: Continue type-debt cleanup with a composition-root interface audit or narrow Review adapter DTO projection cleanup.
 - Validation: Focused `pnpm exec vitest run src/ui/browser/utils/__tests__/cardFilters.facade.test.ts --reporter=dot`; filtered `tsc --noEmit` has no `cardFilters.ts` or new facade test matches; `openspec validate tighten-browser-filter-sort-helper-types --strict`; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
 
 ### 2026-06-11 - Review queue snapshot DTO typing

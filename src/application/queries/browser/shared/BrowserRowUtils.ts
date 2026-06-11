@@ -11,7 +11,7 @@ import {
 } from '@/types/browser';
 import { applyBrowserCdfDiagnosticVisibility } from './CdfBrowserDiagnostics';
 
-type CardTypeFilterValue =
+export type CardTypeFilterValue =
   | 'all'
   | 'topic-only'
   | 'item-only'
@@ -22,7 +22,7 @@ type CardTypeFilterValue =
 export type QuerySecondaryField = 'headline' | 'fullContent';
 
 type BrowserCardWithHeadline = BrowserCard & { headline?: string };
-type QueueFilterRowLike = {
+export type QueueFilterRowLike = {
   id?: string;
   blockId?: string;
   rootId?: string;
@@ -46,7 +46,7 @@ type QueueFilterRowLike = {
   headline?: string;
 };
 
-type BrowserSortRowLike = {
+export type BrowserSortRowLike = {
   id?: unknown;
   blockId?: unknown;
 } & Record<string, unknown>;
