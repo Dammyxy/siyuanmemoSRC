@@ -177,12 +177,14 @@ describe('XiuyuanSyncService quick render hint', () => {
 
     await service.incrementalSync();
 
-    const meta = existingXiuyuan.getMeta() as Record<string, unknown>;
-    expect(meta.forceQuickRender).toBe(true);
-    expect(meta.quickDetectReason).toBe('cloze-latex-numbered');
     expect(xiuyuanRepository.save).not.toHaveBeenCalled();
     expect(xiuyuanRepository.applySyncChangeSet).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0].metadataUpdates).toHaveLength(1);
+    const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
+    expect(changeSet?.metadataUpdates).toHaveLength(1);
+    const plannedMeta = changeSet?.metadataUpdates[0]?.xiuyuanEntity.getMeta() as Record<string, unknown>;
+    expect(plannedMeta.forceQuickRender).toBe(true);
+    expect(plannedMeta.quickDetectReason).toBe('cloze-latex-numbered');
+    expect(existingXiuyuan.getMeta().forceQuickRender).toBeUndefined();
   });
 
   it('clears quick render hint when existing Xiuyuan no longer matches item + numbered latex cloze', async () => {
@@ -210,12 +212,14 @@ describe('XiuyuanSyncService quick render hint', () => {
 
     await service.incrementalSync();
 
-    const meta = existingXiuyuan.getMeta() as Record<string, unknown>;
-    expect(meta.forceQuickRender).toBeUndefined();
-    expect(meta.quickDetectReason).toBeUndefined();
     expect(xiuyuanRepository.save).not.toHaveBeenCalled();
     expect(xiuyuanRepository.applySyncChangeSet).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0].metadataUpdates).toHaveLength(1);
+    const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
+    expect(changeSet?.metadataUpdates).toHaveLength(1);
+    const plannedMeta = changeSet?.metadataUpdates[0]?.xiuyuanEntity.getMeta() as Record<string, unknown>;
+    expect(plannedMeta.forceQuickRender).toBeUndefined();
+    expect(plannedMeta.quickDetectReason).toBeUndefined();
+    expect(existingXiuyuan.getMeta().forceQuickRender).toBe(true);
   });
 
   it('clears quick render hint for progressive derived items even if the content still looks quick-like', async () => {
@@ -251,11 +255,13 @@ describe('XiuyuanSyncService quick render hint', () => {
 
     await service.incrementalSync();
 
-    const meta = existingXiuyuan.getMeta() as Record<string, unknown>;
-    expect(meta.forceQuickRender).toBeUndefined();
-    expect(meta.quickDetectReason).toBeUndefined();
     expect(xiuyuanRepository.applySyncChangeSet).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0].metadataUpdates).toHaveLength(1);
+    const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
+    expect(changeSet?.metadataUpdates).toHaveLength(1);
+    const plannedMeta = changeSet?.metadataUpdates[0]?.xiuyuanEntity.getMeta() as Record<string, unknown>;
+    expect(plannedMeta.forceQuickRender).toBeUndefined();
+    expect(plannedMeta.quickDetectReason).toBeUndefined();
+    expect(existingXiuyuan.getMeta().forceQuickRender).toBe(true);
   });
 
   it('keeps native superblock riff cards on standard renderer metadata', async () => {

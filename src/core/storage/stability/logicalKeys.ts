@@ -1,5 +1,12 @@
 import type { IXiuyuan } from '@/core/xiuyuan/types';
 import {
+  chooseCanonicalXiuyuan,
+  compareXiuyuanAuthority,
+  inferXiuyuanOwnership,
+  normalizeXiuyuanOwnership,
+  type XiuyuanOwnership,
+} from '@/core/xiuyuan/domain/services/XiuyuanOwnershipPolicy';
+import {
   isAuthorizedSchedulingWriteSource,
   type SchedulingWriteSource,
 } from '@/core/scheduler/schedulingStateCleanliness';
@@ -8,7 +15,13 @@ import type { FSRSCard } from '@/types/card';
 
 export type LogicalXiuyuanKey = string;
 export type LogicalCardKey = string;
-export type XiuyuanOwnership = 'local-owned' | 'riff-managed';
+export type { XiuyuanOwnership };
+export {
+  chooseCanonicalXiuyuan,
+  compareXiuyuanAuthority,
+  inferXiuyuanOwnership,
+  normalizeXiuyuanOwnership,
+};
 
 export interface MergeOutcome<T> {
   value: T;
@@ -48,10 +61,6 @@ function readFiniteNumber(value: unknown): number | null {
     }
   }
   return null;
-}
-
-function isXiuyuanOwnership(value: unknown): value is XiuyuanOwnership {
-  return value === 'local-owned' || value === 'riff-managed';
 }
 
 function isDescriptorTemplate(templateId: string): boolean {
@@ -190,69 +199,6 @@ export function buildLogicalCardKey(
 
 export function isManagedRiffXiuyuanRecord(xiuyuan: Pick<IXiuyuan, 'templateID' | 'meta'>): boolean {
   return inferXiuyuanOwnership(xiuyuan) === 'riff-managed';
-}
-
-export function inferXiuyuanOwnership(xiuyuan: Pick<IXiuyuan, 'templateID' | 'meta'>): XiuyuanOwnership {
-  if (isObjectRecord(xiuyuan.meta) && isXiuyuanOwnership(xiuyuan.meta.ownership)) {
-    return xiuyuan.meta.ownership;
-  }
-
-  if (String(xiuyuan.templateID || '').trim() === 'builtin-riff-sync') {
-    return 'riff-managed';
-  }
-
-  return isObjectRecord(xiuyuan.meta) && xiuyuan.meta.source === 'riff-sync'
-    ? 'riff-managed'
-    : 'local-owned';
-}
-
-export function normalizeXiuyuanOwnership<T extends Pick<IXiuyuan, 'templateID' | 'meta'>>(xiuyuan: T): T {
-  const ownership = inferXiuyuanOwnership(xiuyuan);
-  const currentMeta = isObjectRecord(xiuyuan.meta) ? xiuyuan.meta : undefined;
-  if (currentMeta?.ownership === ownership) {
-    return xiuyuan;
-  }
-
-  return {
-    ...xiuyuan,
-    meta: {
-      ...(currentMeta || {}),
-      ownership,
-    },
-  } as T;
-}
-
-export function compareXiuyuanAuthority(left: XiuyuanLike, right: XiuyuanLike): number {
-  const leftOwnership = inferXiuyuanOwnership(left);
-  const rightOwnership = inferXiuyuanOwnership(right);
-  if (leftOwnership !== rightOwnership) {
-    return leftOwnership === 'local-owned' ? -1 : 1;
-  }
-
-  const leftUpdatedAt = readFiniteNumber(left.updatedAt) ?? 0;
-  const rightUpdatedAt = readFiniteNumber(right.updatedAt) ?? 0;
-  if (leftUpdatedAt !== rightUpdatedAt) {
-    return rightUpdatedAt - leftUpdatedAt;
-  }
-
-  const leftCreatedAt = readFiniteNumber(left.createdAt) ?? 0;
-  const rightCreatedAt = readFiniteNumber(right.createdAt) ?? 0;
-  if (leftCreatedAt !== rightCreatedAt) {
-    return rightCreatedAt - leftCreatedAt;
-  }
-
-  return String(left.id || '').localeCompare(String(right.id || ''));
-}
-
-export function chooseCanonicalXiuyuan<T extends XiuyuanLike>(candidates: T[]): T {
-  const [firstCandidate, ...restCandidates] = candidates;
-  if (!firstCandidate) {
-    throw new Error('chooseCanonicalXiuyuan requires at least one candidate');
-  }
-
-  return restCandidates.reduce((best, current) => {
-    return compareXiuyuanAuthority(best, current) <= 0 ? best : current;
-  }, firstCandidate);
 }
 
 export function mergeXiuyuanSnapshots(

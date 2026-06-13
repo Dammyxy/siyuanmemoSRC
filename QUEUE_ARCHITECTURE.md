@@ -1,6 +1,6 @@
 # 活跃队列运行规范
 
-最后更新：2026-05-13
+最后更新：2026-06-14
 
 本文是当前活跃队列语义的专题事实源，只覆盖运行时已注册的 6 个主队列：
 
@@ -95,6 +95,6 @@
 
 ## 当前相关稳定性债务
 
-- `P1`：`XiuyuanSyncService` 仍应改成“先构建 `SyncChangeSet`，再单一提交”的两阶段同步。
-- `P2`：`chooseCanonicalXiuyuan()` 仍应引入显式 ownership 语义，固定为 `local-owned > riff-managed > updatedAt > createdAt > id`。
+- `P1`：Native Riff hard-delete 和多设备并发仍可能在本地 hide/tombstone 语义定稿前制造真实文档冲突。
+- `P2`：两阶段 Xiuyuan/Riff sync 已收口到 `SyncChangeSet` planner + 单一 commit seam；剩余风险集中在 browser-open/manual lifecycle 覆盖、重复增量/full sync 回归矩阵和 duplicate logical-face merge cleanup。
 - `P3`：`CardRepository.save()` 目前不是本轮稳定性主抓手，先维持薄包装边界。

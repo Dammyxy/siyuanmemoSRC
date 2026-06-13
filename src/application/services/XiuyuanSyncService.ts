@@ -60,12 +60,14 @@ import {
 } from '@/core/card/post-creation/QuickCardPostCreationPlanner';
 import type { RiffSyncState } from '@/core/storage/UnifiedStorageManager';
 import {
+    chooseCanonicalXiuyuan,
     inferXiuyuanOwnership,
-} from '@/core/storage/stability/logicalKeys';
+} from '@/core/xiuyuan/domain/services/XiuyuanOwnershipPolicy';
 import { XiuyuanNativeRiffRemoveRuntime } from './XiuyuanNativeRiffRemoveRuntime';
 import { XiuyuanRiffBlacklistRuntime } from './XiuyuanRiffBlacklistRuntime';
 import { XiuyuanRiffInputRuntime } from './XiuyuanRiffInputRuntime';
 import { XiuyuanSyncApplyRuntime } from './XiuyuanSyncApplyRuntime';
+import { XiuyuanSyncChangeSetPlanner } from './XiuyuanSyncChangeSetPlanner';
 import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
 
 export type XiuyuanSyncBackendClient = Pick<BackendIntegrationClientFacet, 'executeXiuyuanSync'>;
@@ -89,10 +91,6 @@ type PreparedRiffBlocks = {
     blocks: RiffBlock[];
     skippedCount: number;
 };
-type LocalOwnedSkipSummary = {
-    count: number;
-    sampleBlockIds: string[];
-};
 type RiffInputStage = 'legacy-card-type-migration' | 'incremental' | 'full';
 
 type RiffSyncMetaSource = 'riff-sync';
@@ -113,7 +111,6 @@ type RiffSyncStateStore = {
 };
 
 const INCREMENTAL_SYNC_OVERLAP_MS = 5_000;
-const LOCAL_OWNED_SKIP_SAMPLE_LIMIT = 5;
 
 class XiuyuanSyncBridgeEvent<TPayload extends object> extends DomainEvent {
     constructor(
@@ -166,6 +163,7 @@ export class XiuyuanSyncService {
     private readonly riffBlacklistRuntime: XiuyuanRiffBlacklistRuntime<RiffBlock>;
     private readonly nativeRiffRemoveRuntime: XiuyuanNativeRiffRemoveRuntime<Xiuyuan>;
     private readonly syncApplyRuntime: XiuyuanSyncApplyRuntime;
+    private readonly changeSetPlanner: XiuyuanSyncChangeSetPlanner;
     private readonly srsBackendClient?: XiuyuanSyncBackendClient;
     
     // 默认重试配置
@@ -210,6 +208,15 @@ export class XiuyuanSyncService {
         });
         this.syncApplyRuntime = new XiuyuanSyncApplyRuntime({
             applySyncChangeSet: (changeSet) => this.xiuyuanRepository.applySyncChangeSet(changeSet),
+        });
+        this.changeSetPlanner = new XiuyuanSyncChangeSetPlanner({
+            isManagedRiffXiuyuan: (xiuyuan) => this.isManagedRiffXiuyuan(xiuyuan),
+            isRecentlyDeleted: (blockId) => this.deletionTracker.isRecentlyDeleted(blockId),
+            findExistingXiuyuanForBlock: (blockId) => this.findExistingXiuyuanForBlock(blockId),
+            cloneXiuyuanForSyncPlanning: (xiuyuan) => this.cloneXiuyuanForSyncPlanning(xiuyuan),
+            planManagedXiuyuanMetadataUpdate: (xiuyuan, riffCard) => this.planManagedXiuyuanMetadataUpdate(xiuyuan, riffCard),
+            convertRiffCardToXiuyuan: (riffCard) => this.convertRiffCardToFSRSCard(riffCard),
+            syncXiuyuanOwnershipMeta: (xiuyuan, ownership) => this.syncXiuyuanOwnershipMeta(xiuyuan, ownership),
         });
         this.srsBackendClient = srsBackendClient;
     }
@@ -313,36 +320,6 @@ export class XiuyuanSyncService {
             && changeSet.stats.skippedCount === 0;
     }
 
-    private createLocalOwnedSkipSummary(): LocalOwnedSkipSummary {
-        return {
-            count: 0,
-            sampleBlockIds: [],
-        };
-    }
-
-    private recordLocalOwnedSkip(summary: LocalOwnedSkipSummary, stage: RiffInputStage, blockId: string): void {
-        summary.count++;
-        const shouldRecordSample = summary.sampleBlockIds.length < LOCAL_OWNED_SKIP_SAMPLE_LIMIT;
-        if (shouldRecordSample) {
-            summary.sampleBlockIds.push(blockId);
-            logger.debug('[XiuyuanSyncService] Skipping Riff card because local-owned Xiuyuan already exists', {
-                stage,
-                blockId,
-            });
-        }
-    }
-
-    private logLocalOwnedSkipSummary(stage: RiffInputStage, summary: LocalOwnedSkipSummary): void {
-        if (summary.count === 0) {
-            return;
-        }
-        logger.info('[XiuyuanSyncService] Skipped Riff cards because local-owned Xiuyuan already exists', {
-            stage,
-            skippedCount: summary.count,
-            sampleBlockIds: summary.sampleBlockIds,
-        });
-    }
-    
     /**
      * 发布同步事件（通过 EventBus）
      * 
@@ -434,6 +411,36 @@ export class XiuyuanSyncService {
         });
     }
 
+    private chooseCanonicalExistingXiuyuan(candidates: Xiuyuan[]): Xiuyuan {
+        return chooseCanonicalXiuyuan(candidates.map((xiuyuan) => ({
+            xiuyuan,
+            id: xiuyuan.getId().getValue(),
+            templateID: xiuyuan.getTemplateID().getValue(),
+            meta: xiuyuan.getMeta(),
+            createdAt: xiuyuan.getCreatedAt(),
+            updatedAt: xiuyuan.getUpdatedAt(),
+        }))).xiuyuan;
+    }
+
+    private cloneXiuyuanForSyncPlanning(xiuyuan: Xiuyuan): Xiuyuan {
+        const cloned = Xiuyuan.reconstitute({
+            id: xiuyuan.getId(),
+            blockIDs: xiuyuan.getBlockIDs(),
+            templateID: xiuyuan.getTemplateID(),
+            faces: xiuyuan.getFaces(),
+            priority: xiuyuan.getPriority(),
+            cards: new Map(xiuyuan.getCards().map((card) => [card.getId(), card])),
+            meta: xiuyuan.getMeta(),
+            createdAt: xiuyuan.getCreatedAt(),
+            updatedAt: xiuyuan.getUpdatedAt(),
+        });
+
+        if (!cloned.ok) {
+            throw cloned.error;
+        }
+        return cloned.value;
+    }
+
     private syncXiuyuanOwnershipMeta(xiuyuan: Xiuyuan, ownership: XiuyuanOwnership): boolean {
         const currentMeta = xiuyuan.getMeta();
         if (currentMeta.ownership === ownership) {
@@ -451,24 +458,6 @@ export class XiuyuanSyncService {
         return true;
     }
 
-    private createEmptyChangeSet(syncType: SyncType): SyncChangeSet {
-        return {
-            syncType,
-            creates: [],
-            metadataUpdates: [],
-            deletes: [],
-            blacklistCleanup: [],
-            postDetectTargets: [],
-            stats: {
-                addedCount: 0,
-                updatedCount: 0,
-                deletedCount: 0,
-                skippedCount: 0,
-                blacklistCleanedCount: 0,
-            },
-        };
-    }
-    
     /**
      * 启动同步服务
      * 
@@ -522,13 +511,8 @@ export class XiuyuanSyncService {
         }
 
         const existingByBlock = existingByBlockResult.value;
-        const localOwnedExistingXiuyuan = existingByBlock.find((candidate) => !this.isManagedRiffXiuyuan(candidate));
-        if (localOwnedExistingXiuyuan) {
-            return localOwnedExistingXiuyuan;
-        }
-        const managedExistingXiuyuan = existingByBlock.find((candidate) => this.isManagedRiffXiuyuan(candidate));
-        if (managedExistingXiuyuan) {
-            return managedExistingXiuyuan;
+        if (existingByBlock.length > 0) {
+            return this.chooseCanonicalExistingXiuyuan(existingByBlock);
         }
 
         const deterministicXiuyuanIdResult = XiuyuanId.create(`xy_${blockId}`);
@@ -1049,7 +1033,7 @@ export class XiuyuanSyncService {
         onProgress: ProgressCallback | undefined,
         startTime: number
     ): Promise<SyncChangeSet> {
-        const changeSet = this.createEmptyChangeSet('incremental');
+        const changeSet = this.changeSetPlanner.createEmptyChangeSet('incremental');
 
         this.reportProgress(onProgress, 'incremental', 'fetching', 1, 7, '正在获取 Riff 新卡片...');
         const since = this.getIncrementalSinceFromCheckpoint();
@@ -1068,53 +1052,11 @@ export class XiuyuanSyncService {
         changeSet.stats.skippedCount += blacklistResult.skippedCount;
 
         this.reportProgress(onProgress, 'incremental', 'adding', 3, 7, '正在规划新增/更新...');
-        const seenBlockIds = new Set<string>();
-        const localOwnedSkips = this.createLocalOwnedSkipSummary();
-        for (const riffCard of filteredCards) {
-            if (seenBlockIds.has(riffCard.id)) {
-                changeSet.stats.skippedCount++;
-                continue;
-            }
-            seenBlockIds.add(riffCard.id);
-
-            if (this.deletionTracker.isRecentlyDeleted(riffCard.id)) {
-                logger.info(`Skipping recently deleted card: ${riffCard.id}`);
-                changeSet.stats.skippedCount++;
-                continue;
-            }
-
-            const existingXiuyuan = await this.findExistingXiuyuanForBlock(riffCard.id);
-
-            if (existingXiuyuan && !this.isManagedRiffXiuyuan(existingXiuyuan)) {
-                this.recordLocalOwnedSkip(localOwnedSkips, 'incremental', riffCard.id);
-                changeSet.stats.skippedCount++;
-                continue;
-            }
-
-            if (existingXiuyuan) {
-                const needsUpdate = await this.planManagedXiuyuanMetadataUpdate(existingXiuyuan, riffCard);
-                if (needsUpdate) {
-                    changeSet.metadataUpdates.push({
-                        blockId: riffCard.id,
-                        xiuyuanEntity: existingXiuyuan,
-                    });
-                    changeSet.stats.updatedCount++;
-                } else {
-                    changeSet.stats.skippedCount++;
-                }
-                continue;
-            }
-
-            const { xiuyuanEntity } = await this.convertRiffCardToFSRSCard(riffCard);
-            this.syncXiuyuanOwnershipMeta(xiuyuanEntity, 'riff-managed');
-            changeSet.creates.push({
-                blockId: riffCard.id,
-                xiuyuanEntity,
-            });
-            changeSet.postDetectTargets.push(riffCard);
-            changeSet.stats.addedCount++;
-        }
-        this.logLocalOwnedSkipSummary('incremental', localOwnedSkips);
+        await this.changeSetPlanner.planRiffUpserts({
+            changeSet,
+            riffCards: filteredCards,
+            stage: 'incremental',
+        });
 
         logger.info('Incremental reconcile only handles native riff upsert/metadata sync; native riff removals use direct delete routing and full sync remains the deletion fallback');
         changeSet.checkpointAdvance = {
@@ -1129,7 +1071,7 @@ export class XiuyuanSyncService {
         onProgress: ProgressCallback | undefined,
         startTime: number
     ): Promise<SyncChangeSet> {
-        const changeSet = this.createEmptyChangeSet('full');
+        const changeSet = this.changeSetPlanner.createEmptyChangeSet('full');
 
         this.reportProgress(onProgress, 'full', 'fetching', 1, 7, '正在获取所有 Riff 卡片...');
         const riffCards = await this.siyuanApi.getRiffCards(this.config.deckId, {
@@ -1150,74 +1092,21 @@ export class XiuyuanSyncService {
         }
 
         this.reportProgress(onProgress, 'full', 'adding', 3, 7, '正在规划新增/更新...');
-        const seenBlockIds = new Set<string>();
-        const localOwnedSkips = this.createLocalOwnedSkipSummary();
-        for (const riffCard of preparedRiffCards.blocks) {
-            if (seenBlockIds.has(riffCard.id)) {
-                changeSet.stats.skippedCount++;
-                continue;
-            }
-            seenBlockIds.add(riffCard.id);
-
-            if (this.deletionTracker.isRecentlyDeleted(riffCard.id)) {
-                logger.info(`Skipping recently deleted card during full sync: ${riffCard.id}`);
-                changeSet.stats.skippedCount++;
-                continue;
-            }
-
-            const existingXiuyuan = await this.findExistingXiuyuanForBlock(riffCard.id);
-
-            if (existingXiuyuan && !this.isManagedRiffXiuyuan(existingXiuyuan)) {
-                this.recordLocalOwnedSkip(localOwnedSkips, 'full', riffCard.id);
-                changeSet.stats.skippedCount++;
-                continue;
-            }
-
-            if (existingXiuyuan) {
-                const needsUpdate = await this.planManagedXiuyuanMetadataUpdate(existingXiuyuan, riffCard);
-                if (needsUpdate) {
-                    changeSet.metadataUpdates.push({
-                        blockId: riffCard.id,
-                        xiuyuanEntity: existingXiuyuan,
-                    });
-                    changeSet.stats.updatedCount++;
-                } else {
-                    changeSet.stats.skippedCount++;
-                }
-                continue;
-            }
-
-            const { xiuyuanEntity } = await this.convertRiffCardToFSRSCard(riffCard);
-            this.syncXiuyuanOwnershipMeta(xiuyuanEntity, 'riff-managed');
-            changeSet.creates.push({
-                blockId: riffCard.id,
-                xiuyuanEntity,
-            });
-            changeSet.postDetectTargets.push(riffCard);
-            changeSet.stats.addedCount++;
-        }
-        this.logLocalOwnedSkipSummary('full', localOwnedSkips);
+        await this.changeSetPlanner.planRiffUpserts({
+            changeSet,
+            riffCards: preparedRiffCards.blocks,
+            stage: 'full',
+        });
 
         this.reportProgress(onProgress, 'full', 'deleting', 4, 7, '正在规划删除同步...');
         if (hadMalformedRiffInput) {
             logger.warn('[XiuyuanSyncService] Full sync saw malformed Riff input; destructive delete and blacklist cleanup are disabled for this round');
         } else {
-            for (const xiuyuan of allXiuyuansResult.value) {
-                if (!this.isManagedRiffXiuyuan(xiuyuan)) {
-                    continue;
-                }
-
-                const blockId = xiuyuan.getRepresentativeBlockId();
-                if (!blockId || riffBlockIds.has(blockId)) {
-                    continue;
-                }
-
-                changeSet.deletes.push({
-                    blockId,
-                    xiuyuanEntity: xiuyuan,
-                });
-            }
-            changeSet.stats.deletedCount = changeSet.deletes.length;
+            this.changeSetPlanner.planManagedFullDeletes({
+                changeSet,
+                allXiuyuans: allXiuyuansResult.value,
+                riffBlockIds,
+            });
 
             if (this.config.fullSync.cleanupBlacklist) {
                 this.reportProgress(onProgress, 'full', 'cleanup', 5, 7, '正在规划黑名单清理...');
@@ -1234,7 +1123,7 @@ export class XiuyuanSyncService {
     }
 
     private async buildNativeRiffRemoveChangeSet(blockIds: string[]): Promise<SyncChangeSet> {
-        const changeSet = this.createEmptyChangeSet('delete');
+        const changeSet = this.changeSetPlanner.createEmptyChangeSet('delete');
         const removalPlan = await this.nativeRiffRemoveRuntime.planRemovals(blockIds);
         changeSet.deletes.push(...removalPlan.deletes);
         changeSet.stats.skippedCount += removalPlan.skippedCount;

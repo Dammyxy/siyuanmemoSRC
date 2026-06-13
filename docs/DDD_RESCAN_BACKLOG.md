@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-14 (Round 589)
+Last update: 2026-06-14 (Round 590)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-14 - Xiuyuan sync ChangeSet planner hardening
+
+- Task: Implement OpenSpec change `harden-xiuyuan-sync-changeset-commit` to make Xiuyuan/Riff sync planning explicit before local storage mutation.
+- Touched slice: Xiuyuan / Riff sync path in `src/application/services/{XiuyuanSyncService.ts,XiuyuanSyncChangeSetPlanner.ts,XiuyuanSyncApplyRuntime.ts}`, Xiuyuan ownership policy in `src/core/xiuyuan/domain/services/XiuyuanOwnershipPolicy.ts`, storage ownership barrel `src/core/storage/stability/logicalKeys.ts`, focused sync/storage/worker tests, `ARCHITECTURE.md`, `QUEUE_ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Extracted Riff upsert/full-delete planning from the broad sync service into `XiuyuanSyncChangeSetPlanner`; moved canonical ownership selection to a Xiuyuan domain policy with direct tests for `local-owned > riff-managed > updatedAt > createdAt > id`; routed app-side full/incremental/native-remove sync through the existing single `applySyncChangeSet()` commit seam; and changed metadata update planning to mutate a cloned Xiuyuan entity so planning failures do not alter local storage objects before commit.
+- Debt deferred: Browser-open/manual sync lifecycle coverage, repeated incremental/full sync matrix, duplicate logical-face merge cleanup, native Riff hard-delete vs local hide/tombstone semantics, and `CardRepository.save()` logical-key CRUD promotion remain outside this bounded Xiuyuan sync slice.
+- Why deferred: This change only owns Xiuyuan/Riff sync planning and commit locality. Lifecycle trigger matrices, native deletion product semantics, and generic card CRUD boundaries cross different runtime seams and need their own acceptance tests.
+- Next safe step: Add browser-open/manual sync lifecycle tests around checkpoint retry and repeated native Riff transaction bursts, then decide separately whether native hard-delete should split from local tombstone/hide behavior.
+- Validation: Focused Xiuyuan sync/storage/worker planner tests passed; final OpenSpec, boundary, fallback, whitespace, and build checks are tracked by this change's task ledger.
 
 ### 2026-06-14 - Browser queue view lifecycle deepening
 
@@ -8041,7 +8051,7 @@ Do not add an entry for skill-only or docs-only work.
 | Priority | Issue | Typical Locations | Suggested Action |
 |---|---|---|---|
 | P1 | Native Riff hard-delete and multi-device concurrency can still create real document conflicts beyond the in-process writer queue | review/browser delete entrypoints, card delete flows, Riff sync delete paths | Split local hide/tombstone semantics from destructive native Riff deletion, then decide whether a cross-window/device lock or tombstone reconciliation model is required |
-| P2 | New two-phase Riff sync still needs broader lifecycle coverage beyond the core apply/ownership tests | `XiuyuanSyncService`, browser/manual sync entrypoints | Add browser-open/manual sync tests for checkpoint retry, repeated incremental/full sync, local-owned vs riff-managed same-block reconciliation, and duplicate logical-face merge cleanup |
+| P2 | Two-phase Riff sync has a planner/commit seam, but broader lifecycle coverage still needs expansion beyond the focused apply/ownership tests | `XiuyuanSyncService`, browser/manual sync entrypoints | Add browser-open/manual sync tests for checkpoint retry, repeated incremental/full sync, native transaction bursts, and duplicate logical-face merge cleanup |
 | P3 | `CardRepository.save()` remains a thin storage wrapper rather than a first-class logical-key CRUD boundary | `src/infrastructure/persistence/CardRepository.ts` and any future direct card write paths | Only promote it when direct CardRepository write paths become common or need explicit logical-key CRUD semantics |
 | P1 | Mojibake/encoding debt in long-lived docs and some comments | `ARCHITECTURE.md`, selected large Vue/TS files with historical garbled comments | Run dedicated UTF-8 restoration pass (content-preserving) |
 | P3 | Big-file line-count campaign is closed; target active files are now below 3000, with residual orchestration debt limited to concrete product seams rather than file-size blockers | `src/application/services/AIWorkbenchService.ts`, `src/ui/ai/AiWorkbenchPane.vue`, `src/ui/browser/SRSBrowser.vue`, `src/ui/review/v2/ReviewView.vue`, `src/ui/settings/SettingsPanel.vue`, plus extracted Review / AI / Browser / Settings helpers listed above | Reopen only when a single bounded-context behavior seam needs work: Browser helper dedupe, Review snapshot/lifecycle, Settings componentization, AI multi-window/multimodal, or product i18n/test-noise cleanup |
