@@ -1,5 +1,6 @@
 import { ManualCardCollectionQueue } from './ManualCardCollectionQueue';
-import { QueueReviewResult, QueueType } from '@/types/unified-data-source';
+import { QueueType } from '@/types/unified-data-source/queue-core';
+import type { QueueReviewResult } from '@/types/unified-data-source/queue-core';
 import type { FSRSCard } from '@/types/card';
 import type { QueueItem } from '@/core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';

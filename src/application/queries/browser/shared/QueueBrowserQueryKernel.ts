@@ -2,11 +2,15 @@ import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPor
 import type { BrowserQuerySiyuanPort } from '@/application/ports/BrowserQuerySiyuanPort';
 import type {
   IReviewQueue,
+  QueueType,
+} from '@/types/unified-data-source/queue-core';
+import type {
   IUnifiedDataSourceManagerFacade,
+} from '@/types/unified-data-source/manager-facade';
+import type {
   QueueProjectionSnapshot,
   QueueProjectionRolloutDiagnostic,
-  QueueType,
-} from '@/types/unified-data-source';
+} from '@/types/unified-data-source/queue-projection';
 import type { QueueSnapshotRow } from '@/types/queue-browser';
 import type { FSRSCard } from '@/types/card';
 import {

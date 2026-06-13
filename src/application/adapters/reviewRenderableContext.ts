@@ -67,6 +67,13 @@ export interface ReviewRenderableCommand {
   payload: Record<string, unknown>;
 }
 
+export interface ReviewProgressiveRenderableMetadata {
+  sourceLineage: ProgressiveSourceLineage | null;
+  disclosureState: ProgressiveDisclosureState | null;
+  payloadIdentity: ProgressiveContentPayloadIdentity | null;
+  sourceAvailability: ProgressiveSourceAvailability | null;
+}
+
 export function buildReviewRenderableContext(input: {
   card: FSRSCard | null;
   queueType: string;
@@ -140,6 +147,216 @@ export function buildReviewRenderableContext(input: {
     },
     sourcePayloadIdentity: progressive?.payloadIdentity ?? null,
   };
+}
+
+export function normalizeReviewProgressiveRenderMetadata(card: FSRSCard): ReviewProgressiveRenderableMetadata {
+  const meta = isRecord(card.meta) ? card.meta : {};
+  const progressive = isRecord(meta.progressive) ? meta.progressive : {};
+  return {
+    sourceLineage: readProgressiveSourceLineage(progressive.sourceLineage)
+      ?? buildLegacyProgressiveSourceLineage(card, progressive),
+    disclosureState: readProgressiveDisclosureState(progressive.disclosureState),
+    payloadIdentity: readProgressivePayloadIdentity(progressive.payloadIdentity),
+    sourceAvailability: readProgressiveSourceAvailability(progressive.sourceAvailability),
+  };
+}
+
+function readProgressiveSourceLineage(value: unknown): ProgressiveSourceLineage | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const optionalParentTopicCardId = readOptionalString(value.parentTopicCardId);
+  const optionalParentExcerptId = readOptionalString(value.parentExcerptId);
+  const optionalSessionId = readOptionalString(value.sessionId);
+  const optionalMode = value.mode === 'linear' || value.mode === 'nonlinear' ? value.mode : undefined;
+  if (
+    value.version !== 1
+    || !isProgressiveContentAuthority(value.authority)
+    || !isProgressiveRootKind(value.rootKind)
+    || !isProgressiveLogicalParentType(value.logicalParentType)
+    || !isNonEmptyString(value.sourceDocId)
+    || !isNonEmptyString(value.rootDocId)
+    || !isNonEmptyString(value.sourceBlockId)
+    || !isStringArray(value.sourceBlockIds)
+    || !isNonEmptyString(value.logicalParentId)
+  ) {
+    return null;
+  }
+  return {
+    version: 1,
+    authority: value.authority,
+    sourceDocId: value.sourceDocId,
+    rootDocId: value.rootDocId,
+    rootKind: value.rootKind,
+    sourceBlockId: value.sourceBlockId,
+    sourceBlockIds: value.sourceBlockIds,
+    logicalParentId: value.logicalParentId,
+    logicalParentType: value.logicalParentType,
+    ...(optionalParentTopicCardId ? { parentTopicCardId: optionalParentTopicCardId } : {}),
+    ...(optionalParentExcerptId ? { parentExcerptId: optionalParentExcerptId } : {}),
+    ...(optionalSessionId ? { sessionId: optionalSessionId } : {}),
+    ...(optionalMode ? { mode: optionalMode } : {}),
+  };
+}
+
+function readProgressiveDisclosureState(value: unknown): ProgressiveDisclosureState | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  if (
+    value.version !== 1
+    || !isProgressiveDisclosureStatus(value.state)
+    || value.formalSchedulerMutation !== false
+  ) {
+    return null;
+  }
+  return {
+    version: 1,
+    state: value.state,
+    formalSchedulerMutation: false,
+  };
+}
+
+function readProgressivePayloadIdentity(value: unknown): ProgressiveContentPayloadIdentity | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  if (
+    value.version !== 1
+    || value.algorithm !== 'fnv1a32'
+    || !isNonEmptyString(value.hash)
+    || !isStringArray(value.sourceBlockIds)
+    || !isNonNegativeFiniteNumber(value.textLength)
+    || !isNonNegativeFiniteNumber(value.domLength)
+  ) {
+    return null;
+  }
+  return {
+    version: 1,
+    algorithm: 'fnv1a32',
+    hash: value.hash,
+    sourceBlockIds: value.sourceBlockIds,
+    textLength: value.textLength,
+    domLength: value.domLength,
+  };
+}
+
+function readProgressiveSourceAvailability(value: unknown): ProgressiveSourceAvailability | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const currentPayloadHash = readOptionalString(value.currentPayloadHash);
+  if (
+    !isProgressiveSourceAvailabilityStatus(value.status)
+    || !isNonEmptyString(value.expectedPayloadHash)
+    || !isStringArray(value.missingBlockIds)
+    || !isStringArray(value.detachedBlockIds)
+    || !isStringArray(value.diagnostics)
+  ) {
+    return null;
+  }
+  return {
+    status: value.status,
+    expectedPayloadHash: value.expectedPayloadHash,
+    ...(currentPayloadHash ? { currentPayloadHash } : {}),
+    missingBlockIds: value.missingBlockIds,
+    detachedBlockIds: value.detachedBlockIds,
+    diagnostics: value.diagnostics,
+  };
+}
+
+function buildLegacyProgressiveSourceLineage(
+  card: FSRSCard,
+  progressive: Record<string, unknown>,
+): ProgressiveSourceLineage | null {
+  const sourceBlockId = normalizeBlockId(progressive.sourceBlockId) || normalizeBlockId(card.extractedFrom);
+  const sourceDocId = normalizeBlockId(progressive.sourceDocId);
+  if (!sourceBlockId && !sourceDocId) {
+    return null;
+  }
+  const sourceBlockIds = Array.isArray(progressive.sourceBlockIds)
+    ? progressive.sourceBlockIds.map(normalizeBlockId).filter(Boolean)
+    : sourceBlockId
+      ? [sourceBlockId]
+      : [];
+  const parentTopicCardId = normalizeBlockId(progressive.parentTopicCardId);
+  const parentExcerptId = normalizeBlockId(progressive.parentExcerptId);
+  const sessionId = normalizeBlockId(progressive.sessionId);
+  return {
+    version: 1,
+    authority: 'siyuan-block',
+    sourceDocId: sourceDocId || normalizeBlockId(card.blockId),
+    rootDocId: sourceDocId || normalizeBlockId(card.blockId),
+    rootKind: progressive.kind === 'piece'
+      ? 'piece'
+      : progressive.kind === 'excerpt'
+        ? 'excerpt-doc'
+        : 'ordinary-doc',
+    sourceBlockId: sourceBlockId || normalizeBlockId(card.blockId),
+    sourceBlockIds,
+    logicalParentId: parentExcerptId || parentTopicCardId || sourceDocId || normalizeBlockId(card.blockId),
+    logicalParentType: parentExcerptId ? 'excerpt' : parentTopicCardId ? 'topic' : 'root-doc',
+    ...(parentTopicCardId ? { parentTopicCardId } : {}),
+    ...(parentExcerptId ? { parentExcerptId } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    ...(progressive.mode === 'linear' || progressive.mode === 'nonlinear' ? { mode: progressive.mode } : {}),
+  };
+}
+
+function normalizeBlockId(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function readOptionalString(value: unknown): string | null {
+  const normalized = normalizeBlockId(value);
+  return normalized || null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(isNonEmptyString);
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function isProgressiveContentAuthority(value: unknown): value is ProgressiveSourceLineage['authority'] {
+  return value === 'siyuan-block' || value === 'xiuyuan-aggregate';
+}
+
+function isProgressiveRootKind(value: unknown): value is ProgressiveSourceLineage['rootKind'] {
+  return value === 'ordinary-doc'
+    || value === 'piece'
+    || value === 'excerpt-doc'
+    || value === 'excerpt-block'
+    || value === 'topic-doc';
+}
+
+function isProgressiveLogicalParentType(value: unknown): value is ProgressiveSourceLineage['logicalParentType'] {
+  return value === 'root-doc' || value === 'topic' || value === 'excerpt';
+}
+
+function isProgressiveDisclosureStatus(value: unknown): value is ProgressiveDisclosureState['state'] {
+  return value === 'created'
+    || value === 'pending'
+    || value === 'active'
+    || value === 'completed'
+    || value === 'deferred';
+}
+
+function isProgressiveSourceAvailabilityStatus(value: unknown): value is ProgressiveSourceAvailability['status'] {
+  return value === 'current'
+    || value === 'stale'
+    || value === 'missing'
+    || value === 'detached';
 }
 
 function buildAllowedActions(input: {

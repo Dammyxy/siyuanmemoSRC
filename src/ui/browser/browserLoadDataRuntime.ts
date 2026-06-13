@@ -13,17 +13,18 @@ import type { PresetFilter } from '@/application/queries/browser/GetBrowserCards
 import { resolveBrowserHierarchySnapshotMode } from './hierarchySnapshotPlan';
 import {
   createDeckDataSource,
+  createQueueDataSource,
   createQueryDataSource,
 } from './utils/dataSourceFactory';
 import {
-  createBrowserQueueViewModule,
-  planQueueProjectionLiveIdentityForBrowserQueueView,
-} from './BrowserQueueViewModule';
-import { measureRuntimePerformance, startRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnostics';
+  createBrowserQueueViewLifecycle,
+} from '@/application/queries/browser/BrowserQueueViewLifecycle';
 import type {
-  QueueProjectionIdentity,
-  QueueProjectionLiveIdentityEvent,
-} from '@/types/queue-projection-live-identity';
+  BrowserQueueViewLifecycle,
+  BrowserQueueViewPrepareResult,
+} from '@/application/queries/browser/BrowserQueueViewLifecycle';
+import { measureRuntimePerformance, startRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnostics';
+import type { QueueProjectionLiveIdentityEvent } from '@/types/queue-projection-live-identity';
 
 type MutableRef<T> = {
   value: T;
@@ -63,7 +64,6 @@ export type BrowserLoadDataRuntimeDeps = {
   currentCardType: ReadonlyRef<CardTypeFilter>;
   currentDataSource: MutableRef<ICardDataSource | null>;
   currentPreset: ReadonlyRef<PresetFilter>;
-  currentProjectionIdentity: MutableRef<QueueProjectionIdentity | null>;
   currentQueueType: ReadonlyRef<string>;
   ensureSqlModeConfirmed: () => Promise<boolean>;
   getCurrentDocId: () => string | null;
@@ -76,6 +76,7 @@ export type BrowserLoadDataRuntimeDeps = {
   previewCard: MutableRef<BrowserCard | null>;
   pluginUnifiedDataSourceManager: ReadonlyRef<IUnifiedDataSourceManagerFacade | null | undefined>;
   pushErrMsg: (msg: string, duration?: number) => Promise<void>;
+  queueViewLifecycle?: BrowserQueueViewLifecycle;
   randomSortRows: MutableRef<BrowserCard[] | null>;
   rebuildInfiniteDatasource: (forceRefresh?: boolean) => void;
   refreshNeuralSubviewData: () => Promise<void>;
@@ -91,6 +92,7 @@ export type BrowserLoadDataRuntimeDeps = {
   shouldFocusDocList: ReadonlyRef<boolean>;
   startFocusRowsSnapshot: (delayMs?: number) => void;
   handleQueueProjectionWarmupLiveIdentityEvent?: (event: QueueProjectionLiveIdentityEvent) => void;
+  onQueueViewLifecycleState?: (result: BrowserQueueViewPrepareResult) => void;
   t: BrowserTranslate;
   totalRowCount: MutableRef<number>;
 };
@@ -110,7 +112,22 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
   let loadDataAbortController: AbortController | null = null;
   let liveIdentityReloadTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingHiddenLiveIdentityEvent: QueueProjectionLiveIdentityEvent | null = null;
-  const queueViewModule = createBrowserQueueViewModule({ logger: deps.logger });
+  const queueViewLifecycle = deps.queueViewLifecycle ?? createBrowserQueueViewLifecycle({
+    createDataSource: (request) => createQueueDataSource(
+      request.activeQueueId,
+      request.manager,
+      {
+        docId: request.activeDocId,
+        scopeDocIds: request.activeScopeDocIds,
+        preset: request.currentPreset,
+        queryText: request.searchText,
+        cardType: request.cardType,
+      },
+      request.plugin,
+      request.browserAppService,
+    ),
+    logger: deps.logger,
+  });
 
   function abortLoadData(): void {
     if (loadDataAbortController) {
@@ -130,24 +147,22 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
     }
     const event = pendingHiddenLiveIdentityEvent;
     pendingHiddenLiveIdentityEvent = null;
-    const plan = planQueueProjectionLiveIdentityForBrowserQueueView({
+    const plan = queueViewLifecycle.planLiveIdentityEvent({
       activeQueueId: deps.activeQueueId.value,
       currentQueueType: deps.currentQueueType.value,
-      currentProjectionIdentity: deps.currentProjectionIdentity.value,
       event,
       visible: true,
     });
     if (plan.action === 'reattach') {
-      deps.currentProjectionIdentity.value = plan.identity;
+      queueViewLifecycle.setProjectionIdentity(plan.identity);
     }
   }
 
   function handleQueueProjectionLiveIdentityEvent(event: QueueProjectionLiveIdentityEvent): 'ignored' | 'scheduled' {
     deps.handleQueueProjectionWarmupLiveIdentityEvent?.(event);
-    const plan = planQueueProjectionLiveIdentityForBrowserQueueView({
+    const plan = queueViewLifecycle.planLiveIdentityEvent({
       activeQueueId: deps.activeQueueId.value,
       currentQueueType: deps.currentQueueType.value,
-      currentProjectionIdentity: deps.currentProjectionIdentity.value,
       event,
       visible: Boolean(deps.activeQueueId.value),
     });
@@ -220,12 +235,10 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
           return;
         }
 
-        deps.currentProjectionIdentity.value = null;
         flushPendingHiddenLiveIdentityEvent();
 
         const activeQueueId = deps.activeQueueId.value;
-        const queueView = await measureRuntimePerformance('browser', 'load-data.prepare-queue-view', () => queueViewModule.prepareQueueView(
-          unifiedDataSourceManager,
+        const queueView = await measureRuntimePerformance('browser', 'load-data.prepare-queue-view', () => queueViewLifecycle.prepareQueueView(
           {
             activeDocId: deps.activeDocId.value,
             activeQueueId,
@@ -235,25 +248,33 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
             currentPreset: deps.currentPreset.value,
             currentQueueType: deps.currentQueueType.value,
             forceRefresh,
+            manager: unifiedDataSourceManager,
             plugin: deps.getPlugin(),
             searchText: deps.searchQuery.value,
           },
         ), { queueId: activeQueueId });
 
-        if (queueView.status === 'missing-datasource') {
-          deps.logger.error('[SiYuanMemo][SRSBrowser] Failed to create data source for queue:', queueView.queueId);
-          deps.currentProjectionIdentity.value = null;
+        if (currentController.signal.aborted || queueView.status === 'stale') {
+          deps.logger.info('[SiYuanMemo][SRSBrowser] Ignored stale queue view preparation result', {
+            queueId: queueView.queueId,
+            status: queueView.status,
+          });
+          return;
+        }
+
+        deps.onQueueViewLifecycleState?.(queueView);
+
+        if (queueView.status !== 'ready') {
+          deps.currentDataSource.value = null;
           clearBrowserRows(deps);
+          status = queueView.status;
           return;
         }
 
         deps.currentDataSource.value = queueView.datasource;
-        if (queueView.projectionIdentity) {
-          deps.currentProjectionIdentity.value = queueView.projectionIdentity;
-        }
       } else {
         deps.clearNeuralSubviewData();
-        deps.currentProjectionIdentity.value = null;
+        queueViewLifecycle.resetQueueView();
         pendingHiddenLiveIdentityEvent = null;
         const sqlStmt = deps.resolveActiveSqlStatement(deps.searchQuery.value);
         if (sqlStmt != null) {
@@ -295,7 +316,7 @@ export function createBrowserLoadDataRuntime(deps: BrowserLoadDataRuntimeDeps) {
       }
 
       if (!deps.currentDataSource.value) {
-        deps.currentProjectionIdentity.value = null;
+        queueViewLifecycle.resetQueueView();
         clearBrowserRows(deps);
         return;
       }

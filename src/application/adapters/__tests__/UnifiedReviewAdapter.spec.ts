@@ -514,6 +514,148 @@ describe('UnifiedReviewAdapter', () => {
     })).toThrow(/REVIEW_RENDER_COMMAND_UNAVAILABLE/);
   });
 
+  it('preserves valid progressive render DTO metadata', async () => {
+    const excerptCard = createCard('topic-excerpt-valid-dto', CardType.Topic, {
+      extractedFrom: 'source-block-valid',
+      meta: {
+        progressive: {
+          kind: 'excerpt',
+          sourceLineage: {
+            version: 1,
+            authority: 'siyuan-block',
+            sourceDocId: 'doc-source-valid',
+            rootDocId: 'doc-source-valid',
+            rootKind: 'ordinary-doc',
+            sourceBlockId: 'source-block-valid',
+            sourceBlockIds: ['source-block-valid', 'source-block-valid-2'],
+            logicalParentId: 'doc-source-valid',
+            logicalParentType: 'root-doc',
+            mode: 'linear',
+          },
+          disclosureState: {
+            version: 1,
+            state: 'active',
+            formalSchedulerMutation: false,
+          },
+          payloadIdentity: {
+            version: 1,
+            algorithm: 'fnv1a32',
+            hash: 'payload-valid',
+            sourceBlockIds: ['source-block-valid', 'source-block-valid-2'],
+            textLength: 42,
+            domLength: 84,
+          },
+          sourceAvailability: {
+            status: 'current',
+            expectedPayloadHash: 'payload-valid',
+            currentPayloadHash: 'payload-valid',
+            missingBlockIds: [],
+            detachedBlockIds: [],
+            diagnostics: [],
+          },
+        },
+      },
+    });
+    const adapter = new UnifiedReviewAdapter();
+
+    const ui = await adapter.toUIState(
+      createQueue({ queueType: 'retrieval-practice', liveCards: [excerptCard] }) as never,
+      excerptCard as never,
+      createContext(),
+    );
+
+    expect(ui.meta.renderContext).toEqual(expect.objectContaining({
+      targetKind: 'progressive-excerpt',
+      sourceLineage: expect.objectContaining({
+        sourceBlockId: 'source-block-valid',
+        sourceBlockIds: ['source-block-valid', 'source-block-valid-2'],
+        mode: 'linear',
+      }),
+      progressiveDisclosure: {
+        version: 1,
+        state: 'active',
+        formalSchedulerMutation: false,
+      },
+      sourcePayloadIdentity: {
+        version: 1,
+        algorithm: 'fnv1a32',
+        hash: 'payload-valid',
+        sourceBlockIds: ['source-block-valid', 'source-block-valid-2'],
+        textLength: 42,
+        domLength: 84,
+      },
+      unavailable: expect.objectContaining({
+        source: 'current',
+      }),
+    }));
+  });
+
+  it('rejects malformed progressive render DTO fragments and falls back to legacy lineage metadata', async () => {
+    const excerptCard = createCard('topic-excerpt-malformed-dto', CardType.Topic, {
+      extractedFrom: 'legacy-source-block',
+      meta: {
+        progressive: {
+          kind: 'excerpt',
+          sourceBlockId: 'legacy-source-block',
+          sourceDocId: 'legacy-doc',
+          sourceLineage: {
+            version: 99,
+            authority: 'bad-authority',
+            sourceBlockId: 42,
+          },
+          disclosureState: {
+            version: 1,
+            state: 'not-a-state',
+            formalSchedulerMutation: true,
+          },
+          payloadIdentity: {
+            version: 1,
+            algorithm: 'sha256',
+            hash: 42,
+            sourceBlockIds: 'legacy-source-block',
+            textLength: '42',
+            domLength: [],
+          },
+          sourceAvailability: {
+            status: 'ghost',
+            expectedPayloadHash: 42,
+            missingBlockIds: 'legacy-source-block',
+            detachedBlockIds: [],
+            diagnostics: [],
+          },
+        },
+      },
+    });
+    const adapter = new UnifiedReviewAdapter();
+
+    const ui = await adapter.toUIState(
+      createQueue({ queueType: 'retrieval-practice', liveCards: [excerptCard] }) as never,
+      excerptCard as never,
+      createContext(),
+    );
+
+    expect(ui.meta.renderContext).toEqual(expect.objectContaining({
+      targetKind: 'progressive-excerpt',
+      sourceLineage: expect.objectContaining({
+        version: 1,
+        sourceBlockId: 'legacy-source-block',
+        sourceDocId: 'legacy-doc',
+        rootKind: 'excerpt-doc',
+      }),
+      progressiveDisclosure: {
+        version: 1,
+        state: 'created',
+        formalSchedulerMutation: false,
+      },
+      sourcePayloadIdentity: null,
+      unavailable: expect.objectContaining({
+        source: undefined,
+        reason: undefined,
+      }),
+    }));
+    expect(ui.meta.renderContext?.diagnostics).not.toContain('source-ghost');
+  });
+
   it('keeps split-piece helper actions out of the inline toolbar', async () => {
     const pieceCard = createCard('topic-piece', CardType.Topic, {
       meta: {

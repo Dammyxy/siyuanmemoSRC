@@ -10,6 +10,7 @@ import {
     DataChangeEvent,
     IDataSourceObserver,
     CardFilter,
+    ReviewTabTransferState,
     IDataRouter,
     ContextMenuOption,
     IReviewQueue,
@@ -29,6 +30,18 @@ import {
     getAdvancedModeQueueTypes,
     getAdvancedModeContextMenuOptions,
 } from '../unified-data-source';
+import {
+    QueueType as QueueTypeFromQueueCore,
+    getAdvancedModeQueueTypes as getAdvancedModeQueueTypesFromQueueCore,
+    isDynamicQueueType as isDynamicQueueTypeFromQueueCore,
+} from '../unified-data-source/queue-core';
+import {
+    getAdvancedModeContextMenuOptions as getAdvancedModeContextMenuOptionsFromDataRouter,
+} from '../unified-data-source/data-router';
+import {
+    QueueProjectionNotReadyError as QueueProjectionNotReadyErrorFromErrors,
+} from '../unified-data-source/errors';
+import type { CardFilter as CardFilterFromBrowserContracts, ReviewTabTransferState as ReviewTabTransferStateFromBrowserContracts } from '../unified-data-source/browser-contracts';
 
 describe('Unified Data Source Types', () => {
     describe('Enums', () => {
@@ -131,6 +144,29 @@ describe('Unified Data Source Types', () => {
     });
 
     describe('Interface Compatibility', () => {
+        it('keeps the compatibility barrel aligned with split contract modules', () => {
+            expect(QueueType).toBe(QueueTypeFromQueueCore);
+            expect(isDynamicQueueType).toBe(isDynamicQueueTypeFromQueueCore);
+            expect(getAdvancedModeQueueTypes).toBe(getAdvancedModeQueueTypesFromQueueCore);
+            expect(getAdvancedModeContextMenuOptions).toBe(getAdvancedModeContextMenuOptionsFromDataRouter);
+            expect(QueueProjectionNotReadyError).toBe(QueueProjectionNotReadyErrorFromErrors);
+
+            const filterFromNarrowModule: CardFilterFromBrowserContracts = {
+                cardType: 'item',
+                scopeDocIds: ['doc-1'],
+            };
+            const filterFromBarrel: CardFilter = filterFromNarrowModule;
+            expect(filterFromBarrel.scopeDocIds).toEqual(['doc-1']);
+
+            const transferFromNarrowModule: ReviewTabTransferStateFromBrowserContracts = {
+                kind: 'static-subset-session',
+                queueType: QueueTypeFromQueueCore.FinalDrill,
+                blockIds: ['block-1'],
+            };
+            const transferFromBarrel: ReviewTabTransferState = transferFromNarrowModule;
+            expect(transferFromBarrel.kind).toBe('static-subset-session');
+        });
+
         it('should allow creating DataChangeEvent', () => {
             const event: DataChangeEvent = {
                 type: 'card-updated',

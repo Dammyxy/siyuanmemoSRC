@@ -1,4 +1,4 @@
-import type { NeuralRoamSessionQueue } from '@/types/unified-data-source';
+import type { NeuralRoamSessionQueue } from '@/types/unified-data-source/neural-roam-session';
 
 export type NeuralRoamTemporaryRouteCloseChoice = 'save' | 'discard' | 'cancel';
 

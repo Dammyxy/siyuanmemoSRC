@@ -1,5 +1,5 @@
 import type { FSRSCard } from '@/types/card';
-import type { QueueCounterSnapshot, QueueReviewProjectionAction, QueueReviewResult } from '@/types/unified-data-source';
+import type { QueueCounterSnapshot, QueueReviewProjectionAction, QueueReviewResult } from '@/types/unified-data-source/queue-core';
 
 export type ProjectionPatchOutcome = 'patched' | 'refresh-required' | 'deferred' | 'not-applicable';
 

@@ -560,7 +560,6 @@ import type {
   NeuralEngineMode,
   QueueType,
 } from '@/types/unified-data-source';
-import type { QueueProjectionIdentity } from '@/types/queue-projection-live-identity';
 import { filterService } from './services/FilterService';
 import type { BrowserNeuralWorkspaceMode, NeuralSubview } from './neural/types';
 import {
@@ -581,9 +580,10 @@ import { createBrowserGridFirstRowsLifecycle } from './BrowserGridFirstRowsLifec
 import type { BrowserGridRowsLifecycleStatus } from './BrowserGridFirstRowsLifecycle';
 import { createBrowserGridDatasourceLifecycle } from './BrowserGridDatasourceLifecycle';
 import {
-  isBrowserAsyncReadTokenCurrent,
-  type BrowserAsyncReadToken,
-} from './browserAsyncReadGuard';
+  createBrowserQueueViewLifecycle,
+  type BrowserQueueViewAsyncReadToken,
+  type BrowserQueueViewPrepareResult,
+} from '@/application/queries/browser/BrowserQueueViewLifecycle';
 import { resolveBrowserGridFirstPageState } from './browserGridFirstPageState';
 import {
   fetchAllRowsFromDataSource,
@@ -613,6 +613,7 @@ import {
 import {
   createDeckDataSource,
   createFocusDataSource,
+  createQueueDataSource,
   type DataSourceOptionsWithDoc,
 } from './utils/dataSourceFactory';
 import { useSorting } from './composables/useSorting';
@@ -635,7 +636,6 @@ import type {
   BrowserDocumentCountRow,
   BrowserDocumentCountsScope,
 } from '@/application/queries/browser/browser-deck-query';
-import type { BrowserReadModelSnapshotMetadata } from '@/application/queries/browser/browser-read-model';
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
 import type { SortField, SortOrder } from '@/core/card/domain/services/CardSortService';
@@ -979,8 +979,22 @@ const gridCacheBlockSize = computed(() => gridSizing.value.cacheBlockSize);
 const gridMaxBlocksInCache = computed(() => gridSizing.value.maxBlocksInCache);
 const gridRowBuffer = computed(() => gridSizing.value.rowBuffer);
 const randomSortRows = ref<BrowserCard[] | null>(null);
-const currentProjectionIdentity = ref<QueueProjectionIdentity | null>(null);
-const currentReadModelSnapshotMetadata = ref<BrowserReadModelSnapshotMetadata | null>(null);
+const browserQueueViewLifecycle = createBrowserQueueViewLifecycle({
+  createDataSource: (request) => createQueueDataSource(
+    request.activeQueueId,
+    request.manager,
+    {
+      docId: request.activeDocId,
+      scopeDocIds: request.activeScopeDocIds,
+      preset: request.currentPreset,
+      queryText: request.searchText,
+      cardType: request.cardType,
+    },
+    request.plugin,
+    request.browserAppService,
+  ),
+  logger,
+});
 const SNAPSHOT_HYDRATE_CHUNK_SIZE = 24;
 const SNAPSHOT_FIRST_ROWS_POLL_MS = 50;
 const SOURCE_EXISTENCE_PATCH_DELAY_MS = 32;
@@ -989,7 +1003,6 @@ const SOURCE_EXISTENCE_FIRST_ROWS_MAX_WAIT_MS = 1000;
 const loadedRowsByBlockId = new Map<string, BrowserCard>();
 const pendingSourceExistenceStatuses = new Map<string, BrowserSourceExistenceStatus>();
 const pendingSourceExistenceSources = new Set<BrowserSourceExistenceUpdate['source']>();
-let datasourceVersion = 0;
 let allRowsSnapshotTaskId = 0;
 let allRowsSnapshotPromise: Promise<void> | null = null;
 let focusRowsTaskId = 0;
@@ -997,7 +1010,7 @@ let backgroundSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
 let sourceExistencePatchTimer: ReturnType<typeof setTimeout> | null = null;
 let sourceExistencePatchCoalescedCount = 0;
 let sourceExistencePatchStartedAt = 0;
-let sourceExistencePatchToken: BrowserAsyncReadToken | null = null;
+let sourceExistencePatchToken: BrowserQueueViewAsyncReadToken | null = null;
 let globalStatsAfterFirstRowsTimer: ReturnType<typeof setTimeout> | null = null;
 let resolveGlobalStatsAfterFirstRows: (() => void) | null = null;
 let globalStatsAfterFirstRowsSequence = 0;
@@ -1186,15 +1199,12 @@ function clearHierarchyDocumentCountsAfterFirstRowsTimer(): void {
   }
 }
 
-function captureBrowserAsyncReadToken(): BrowserAsyncReadToken {
-  return {
-    datasourceVersion,
-    readModelSnapshotMetadata: currentReadModelSnapshotMetadata.value,
-  };
+function captureBrowserAsyncReadToken(): BrowserQueueViewAsyncReadToken {
+  return browserQueueViewLifecycle.captureAsyncReadToken();
 }
 
-function isBrowserAsyncReadStillCurrent(token: BrowserAsyncReadToken): boolean {
-  return isBrowserAsyncReadTokenCurrent(token, captureBrowserAsyncReadToken());
+function isBrowserAsyncReadStillCurrent(token: BrowserQueueViewAsyncReadToken): boolean {
+  return browserQueueViewLifecycle.isAsyncReadTokenCurrent(token);
 }
 
 function invalidateHierarchySnapshots(): void {
@@ -1693,7 +1703,7 @@ function flushPendingSourceExistencePatch(): void {
 
 function applySourceExistenceUpdate(
   update: BrowserSourceExistenceUpdate,
-  metadata: { coalescedCount: number; overlappedFirstRows: boolean; readToken: BrowserAsyncReadToken | null; sourceCount: number },
+  metadata: { coalescedCount: number; overlappedFirstRows: boolean; readToken: BrowserQueueViewAsyncReadToken | null; sourceCount: number },
 ): void {
   const result = measureRuntimePerformance('source-existence', 'visible-rows-patch.apply', () => {
     return browserSourceExistenceRuntime.applyUpdate(update, {
@@ -1732,7 +1742,7 @@ function applySourceExistenceUpdate(
 
 function scheduleDatasourceUiUpdate(version: number, update: () => void): void {
   setTimeout(() => {
-    if (version !== datasourceVersion) {
+    if (version !== browserQueueViewLifecycle.getDatasourceVersion()) {
       return;
     }
     update();
@@ -2102,15 +2112,15 @@ const gridFirstRowsLifecycle = createBrowserGridFirstRowsLifecycle({
 const gridDatasourceLifecycle = createBrowserGridDatasourceLifecycle({
   currentSortModel,
   firstRowsLifecycle: gridFirstRowsLifecycle,
-  getCurrentVersion: () => datasourceVersion,
-  getExpectedReadModelSnapshotMetadata: () => currentReadModelSnapshotMetadata.value,
+  getCurrentVersion: () => browserQueueViewLifecycle.getDatasourceVersion(),
+  getExpectedReadModelSnapshotMetadata: () => browserQueueViewLifecycle.getReadModelSnapshotMetadata(),
   getFirstRowsLoaded: () => hasFirstDataBlockLoaded.value,
   getGridApi: () => gridApi.value,
   getSortRevision: () => sortModelRevision.value,
   isGridApiAlive,
   measureRuntimePerformance,
   onReadModelSnapshotMetadata: (metadata) => {
-    currentReadModelSnapshotMetadata.value = metadata;
+    browserQueueViewLifecycle.acceptReadModelSnapshotMetadata(metadata);
   },
   randomSortRows,
   sortModelRevision,
@@ -2119,11 +2129,10 @@ const gridDatasourceLifecycle = createBrowserGridDatasourceLifecycle({
 });
 
 function rebuildInfiniteDatasource(forceRefresh = false): void {
-  const version = ++datasourceVersion;
+  const version = browserQueueViewLifecycle.advanceDatasourceVersion();
   loading.value = true;
   hasFirstDataBlockLoaded.value = false;
   firstRowsStatus.value = 'pending';
-  currentReadModelSnapshotMetadata.value = null;
   clearLoadedRowsCache();
   gridDatasourceLifecycle.rebuildInfiniteDatasource({
     currentDataSource: currentDataSource.value,
@@ -2131,6 +2140,20 @@ function rebuildInfiniteDatasource(forceRefresh = false): void {
     totalRowCount,
     version,
   });
+}
+
+function applyQueueViewLifecycleState(result: BrowserQueueViewPrepareResult): void {
+  if (result.status === 'ready' || result.status === 'stale') {
+    return;
+  }
+  hasFirstDataBlockLoaded.value = false;
+  if (result.status === 'preparing') {
+    firstRowsStatus.value = 'read-model-preparing';
+  } else if (result.status === 'repair-required') {
+    firstRowsStatus.value = 'read-model-repair-required';
+  } else {
+    firstRowsStatus.value = 'read-model-unavailable';
+  }
 }
 
 function startAllRowsSnapshot(): void {
@@ -2668,12 +2691,13 @@ function onModelUpdated(params: { api?: GridApi | null }) {
 
 function onFilterChanged(params: { api?: GridApi | null }) {
   const api = params?.api || gridApi.value;
-  startGridModelUpdate('filter', { version: datasourceVersion });
+  const version = browserQueueViewLifecycle.getDatasourceVersion();
+  startGridModelUpdate('filter', { version });
   recordRuntimePerformanceSpan('browser', 'grid.filter-changed', 0, {
     displayedRowCount: getDisplayedRowCount(api),
     elapsedMs: browserOpenElapsedMs(),
     firstRowsLoaded: hasFirstDataBlockLoaded.value,
-    version: datasourceVersion,
+    version,
   });
 }
 
@@ -2727,11 +2751,12 @@ function onSortChanged(params: SortChangedEvent<BrowserCard>) {
   });
 
   if (api) {
-    startGridModelUpdate('sort', { version: datasourceVersion });
+    const version = browserQueueViewLifecycle.getDatasourceVersion();
+    startGridModelUpdate('sort', { version });
     recordRuntimePerformanceSpan('browser', 'grid.sort-reload-scheduled', 0, {
       revision: sortModelRevision.value,
       sortCount: sortArray.length,
-      version: datasourceVersion,
+      version,
     });
     setTimeout(() => {
       const currentApi = gridApi.value;
@@ -3214,7 +3239,7 @@ onBeforeUnmount(() => {
   destroyBrowserAdapter();
 
   abortLoadData();
-  datasourceVersion += 1;
+  browserQueueViewLifecycle.advanceDatasourceVersion();
   currentDataSource.value = null;
   gridDatasourceLifecycle.clearPendingDatasource();
   clearBackgroundSnapshotTimer();
@@ -3574,7 +3599,6 @@ const browserLoadDataRuntime = createBrowserLoadDataRuntime({
   currentCardType,
   currentDataSource,
   currentPreset,
-  currentProjectionIdentity,
   currentQueueType,
   ensureSqlModeConfirmed,
   getCurrentDocId: () => props.currentDocId || null,
@@ -3587,6 +3611,7 @@ const browserLoadDataRuntime = createBrowserLoadDataRuntime({
   previewCard,
   pluginUnifiedDataSourceManager,
   pushErrMsg,
+  queueViewLifecycle: browserQueueViewLifecycle,
   randomSortRows,
   rebuildInfiniteDatasource,
   refreshNeuralSubviewData,
@@ -3596,6 +3621,7 @@ const browserLoadDataRuntime = createBrowserLoadDataRuntime({
   rowsForFocus,
   abortQueueProjectionWarmup: browserQueueProjectionWarmupRuntime.abort,
   handleQueueProjectionWarmupLiveIdentityEvent: browserQueueProjectionWarmupRuntime.handleLiveIdentityEvent,
+  onQueueViewLifecycleState: applyQueueViewLifecycleState,
   scheduleQueueProjectionWarmup: browserQueueProjectionWarmupRuntime.schedule,
   scheduleAllRowsSnapshot,
   searchQuery,

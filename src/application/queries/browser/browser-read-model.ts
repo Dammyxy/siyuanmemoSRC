@@ -5,7 +5,8 @@ import type { BrowserCard } from '@/types/browser';
 import { resolveBrowserCardStableId } from '@/types/browser';
 import type { BrowserQueueId } from '@/types/browser-queue-identity';
 import type { QueueSnapshotRow } from '@/types/queue-browser';
-import type { QueueProjectionReadPath, QueueProjectionRolloutState, QueueType } from '@/types/unified-data-source';
+import type { QueueType } from '@/types/unified-data-source/queue-core';
+import type { QueueProjectionReadPath, QueueProjectionRolloutState } from '@/types/unified-data-source/queue-projection';
 
 export type BrowserReadOwnerKind =
   | 'sql-card-universe'

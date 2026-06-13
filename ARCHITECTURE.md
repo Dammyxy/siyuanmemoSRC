@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-06-05
+最后更新：2026-06-14
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -31,7 +31,7 @@
 
 1. `src/index.ts`
 2. `src/application/ApplicationContext.ts`
-3. `src/types/unified-data-source.ts`
+3. `src/types/unified-data-source.ts` 与 `src/types/unified-data-source/*`
 4. 活跃调用链对应的 `src/` 代码
 
 如果文档与代码冲突，以代码为准。
@@ -496,10 +496,9 @@ UI surface：
 
 Browser UI runtime helpers：
 
-- `src/ui/browser/BrowserQueueViewModule.ts`：Browser Queue View Lifecycle 深 module；负责 browser queue id 到 `QueueType` 的解析、消费 `QueueProjectionReadiness`、维护 Browser-side bounded retry、把 unavailable cause 映射成用户可见错误、创建 queue datasource，并返回 `ready / refreshing / unavailable / missing-datasource` 生命周期结果。它只消费 application/backend readiness contract，不生成 policy identity、不 materialize projection、不读 SQL、不做 legacy strategy fallback。
 - `src/ui/browser/BrowserGridFirstRowsLifecycle.ts`：Browser grid first-row lifecycle helper；负责 empty datasource、loaded rows、projection-not-ready、hard getRows error 四类首行状态的 UI 应用，更新 `loading / hasFirstDataBlockLoaded / rows / rowsForFocus / totalRowCount`，记录 first-row milestone，并保留 `grid.datasource-ui-update` runtime performance span。
 - `src/ui/browser/BrowserGridDatasourceLifecycle.ts`：Browser grid datasource lifecycle helper；负责 AG Grid `IDatasource` 构造、`getRows` fetch orchestration、random-sort rows 分页、datasource version / sort revision stale 检查、pending datasource 延迟 attach，并把 projection-not-ready / hard error 继续委托给 `BrowserGridFirstRowsLifecycle`。它保留 `grid.get-rows`、`grid.fetch-rows`、`grid.success-callback`、`grid.apply-datasource` performance spans；`SRSBrowser.vue` 只保留 shell state、grid api、load-data 入口和真实 side effects wiring。
-- `src/ui/browser/browserLoadDataRuntime.ts`：Browser load runtime；负责全量 / deck / SQL / queue 模式调度、加载取消、selection/preview 清理、调用 Browser Queue View Module、应用 datasource 到 grid 前的通用 snapshot 调度。
+- `src/ui/browser/browserLoadDataRuntime.ts`：Browser load runtime；负责全量 / deck / SQL / queue 模式调度、加载取消、selection/preview 清理、调用 application-owned Browser Queue View Lifecycle，并在 `preparing / repair-required / unavailable` 时清空当前 datasource/rows、停止 attach，不做 UI-local queue fallback。
 - `src/types/memory-content-payload-seam.ts`：Browser / Queue 共用的 memory/content payload seam；`MemoryItemSnapshot` 只承载调度与学习状态，`SourceContentProjection` 只承载 source block 内容、deck/root、tags、note、blockType 与 existence，`BrowserRowProjection` / `BrowserCard` / `QueueSnapshotRow` 由该 seam 统一组合。`browserService` 的 no-card block virtual rows 与 `QueryDataSource` 的 template-backed SQL rows 都通过这里构造，不在 Browser datasource 内手工混合 schedule/source/display 字段。
 
 适配器、工厂、查询、用例：
@@ -513,7 +512,7 @@ Browser UI runtime helpers：
 - `src/application/commands/writerRelayCommandDispatcher.ts`：writer relay command dispatcher，集中 `review.feedback`、queue projection、NeuralRoam、AutoCard、private API、Semantic 与 AI session relay method 的 typed backend client 调用；unsupported method 显式 `BACKEND_UNAVAILABLE`。
 - `src/application/adapters/UnifiedQueueStrategy.ts`：review session 到 queue domain 的策略适配；`RetrievalPractice` / `IncrementalLearning` active Review 先走 `SrsV2SessionQueueRuntime`，用 session queue 返回 next/pending next/counter snapshot，普通 answer-to-next 不读 projection snapshot、rowsByIds 或 full queue reload。runtime 仍通过 `queue.handleReview()` / `queue.skip()` 完成持久化，再本地 patch main/learning queue、avoid-once visible identity 和 remaining counter；runtime unavailable/conflict 显式抛出，不落回 projection hot path。FilterGroup / FinalDrill / Leech 仍消费 backend `queueImpact`：`patch-applied` 按 removed/updated/inserted projection rows 更新本地 cache 与 counter snapshot，不做完整 reload；`refresh-required` / generation mismatch / `unavailable` 会失效 cache，下一次 `next()` 从 projection-backed queue snapshot 重新加载；`deferred` 只在 queue 明确允许时继续当前 session，否则按 refresh-required 处理，避免把后台 projection freshness 冒充为已同步。完整 reload 时强制刷新 snapshot + rowsByIds，避免 stale snapshot rows 与 active-source hydrate 结果行数错位。NeuralRoam 的 `next()` / `onFeedback()` 不读静态 projection cursor，而是调用 `UnifiedDataSourceManager.neuralRoamAdvance()` 并消费 backend 返回的 next/exhausted/unavailable/mismatch；缺 advance capability 会显式 `NEURAL_ROAM_ADVANCE_UNAVAILABLE`。`next()/goBack()` 之外的 restore/refresh/load-by-block 会复用同一套 `maybeAddNextDues()` 显示态补水逻辑，而不是在 controller 再复制一份预览计算；strategy 直接注册为 `UnifiedDataSourceManager` observer，收到当前队列 `queue-changed` 会失效非 runtime projection cache，收到 `card-deleted` 会从缓存与前进 buffer/runtime state 移除匹配卡；如果评分时确认当前 active item 已不存在，或 pre-review snapshot 捕获到 missing card/block/source，则清理 stale item 并抛 `QueueItemUnavailableError`，让 `ReviewSessionController` 清本地状态并前进；其他 feedback 失败会做不落盘补偿，恢复 queue snapshot、session exclusions、当前卡与评分前 card 内存态
 - `src/application/adapters/UnifiedReviewAdapter.ts`：review UI 状态与动作适配。
-- `src/application/queries/browser/*`：Browser 查询对象与处理器；shared 目录承载 application 可用的 browser row projection / sort / filter helper，并为 SQL page hydrate 复用同一套 Browser row 投影。
+- `src/application/queries/browser/*`：Browser 查询对象与处理器；shared 目录承载 application 可用的 browser row projection / sort / filter helper，并为 SQL page hydrate 复用同一套 Browser row 投影。`BrowserQueueViewLifecycle.ts` 是 Browser queue view 的 application-owned lifecycle owner：负责 browser queue id 解析、Queue Projection Readiness 消费、`ready / preparing / repair-required / unavailable / stale` 结果、projection identity、read-model snapshot metadata、request generation、async token stale checks 与 live identity planning；它通过注入的 datasource factory 创建 queue datasource，但不 materialize/repair projection、不读 SQL、不回退 local queue rows。`SRSBrowser.vue` 只消费 lifecycle state 映射首行状态，`BrowserGridDatasourceLifecycle` 只负责 AG Grid datasource mechanics 和 metadata stale rejection。
 - `src/application/queries/card/*`：卡片查询对象与处理器。
 - `src/application/queries/DataAccessFacade.ts`：查询门面与统一数据访问入口；依赖 `QuerySiyuanPort`，由 `ApplicationContext` 注入 `QuerySiyuanAdapter`。
 - `src/application/queries/CardContentQueryService.ts`：批量块内容查询服务，依赖 `QuerySiyuanPort`，由 `ApplicationContext` 注入 `QuerySiyuanAdapter`。
@@ -698,7 +697,14 @@ Review：
 
 统一队列契约定义于：
 
-- `src/types/unified-data-source.ts`
+- `src/types/unified-data-source.ts`：兼容 barrel，保留旧 `@/types/unified-data-source` import path
+- `src/types/unified-data-source/queue-core.ts`：queue type、queue observer、review result、counter、UI config、persistence/sync DTO 与 queue helpers
+- `src/types/unified-data-source/queue-projection.ts`：Queue Projection Readiness、snapshot、rollout diagnostic、read path/mode contract
+- `src/types/unified-data-source/browser-contracts.ts`：Browser filter、FilterGroup session snapshot、Review tab transfer state
+- `src/types/unified-data-source/neural-roam-session.ts`：NeuralRoam session queue、navigation/history/trace DTO 与 session queue guard
+- `src/types/unified-data-source/manager-facade.ts`：UI / application callers consume 的 unified manager facade
+- `src/types/unified-data-source/data-router.ts`：data router 与 context-menu contract
+- `src/types/unified-data-source/errors.ts`：shared data-source errors
 
 统一队列运行时中心：
 
@@ -721,6 +727,7 @@ Review：
 - 活跃队列语义以 `QUEUE_ARCHITECTURE.md` 为专题事实源；其中固定了 6 个活跃队列的 `membership rule / base order / post-review retention`
 - 浏览器列排序是 view-only 行为，不允许通过 `queue.sort()` 或 `reorder()` 改写真实队列顺序
 - 复习后是否留队由具体队列自己的 active-window 语义决定，而不是统一 today-window 或历史启发式
+- 新增或被触达的调用点应按 caller intent 直接 import 对应 contract family；旧 barrel 只作为迁移期兼容 seam，避免一次性 repo-wide import churn
 
 `UnifiedDataSourceManager` 负责：
 

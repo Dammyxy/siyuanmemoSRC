@@ -1,8 +1,38 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-12 (Round 586)
+Last update: 2026-06-14 (Round 589)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-14 - Browser queue view lifecycle deepening
+
+- Task: Implement OpenSpec change `deepen-browser-queue-view-lifecycle` to move Browser queue readiness, stale-result rejection, projection identity, and datasource attach decisions out of UI-local glue.
+- Touched slice: Browser queue view lifecycle path: `src/application/queries/browser/BrowserQueueViewLifecycle.ts`, `src/ui/browser/browserLoadDataRuntime.ts`, `src/ui/browser/SRSBrowser.vue`, focused Browser lifecycle/load/grid tests, OpenSpec task ledger, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Browser queue selection now crosses an application-owned lifecycle module that consumes Browser read-model readiness and returns explicit `ready / preparing / repair-required / unavailable / stale` states. `SRSBrowser.vue` no longer owns projection identity refs, read-model snapshot metadata, datasource version counters, or queue attach decisions; `browserLoadDataRuntime` fails closed for non-ready queue projections and the old UI-local `BrowserQueueViewModule.ts` pass-through was removed.
+- Debt deferred: Legacy `SRSBrowserQueueView.ts` / `SRSBrowserQueueView.md` remain historical queue-view material outside the active `SRSBrowser.vue -> browserLoadDataRuntime -> BrowserQueueViewLifecycle` path.
+- Why deferred: Those files are not imported by the active Browser queue selection path, and deleting or rewriting the broader historical queue-view surface would be a separate compatibility cleanup with different validation.
+- Next safe step: If Browser cleanup continues, run a narrow active-path check for `SRSBrowserQueueView.*` ownership and remove or archive it only if no dialog/tab/legacy export still depends on it.
+- Validation: Focused Browser lifecycle/load/grid tests; Browser read-model and queue query tests; `openspec validate deepen-browser-queue-view-lifecycle --strict`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check`; `pnpm build`.
+
+### 2026-06-13 - Unified data-source contract split
+
+- Task: Implement OpenSpec change `split-unified-data-source-contracts` to split the broad unified data-source contract surface by caller intent without changing queue/runtime behavior.
+- Touched slice: Queue / Browser / Review contract locality: `src/types/unified-data-source.ts`, `src/types/unified-data-source/*`, selected Browser/Review/Queue import sites, `src/types/__tests__/unified-data-source.test.ts`, `ARCHITECTURE.md`, OpenSpec task ledger, and this backlog.
+- Debt fixed now: `src/types/unified-data-source.ts` is now a compatibility barrel instead of a 1.4k-line mixed Interface. Queue core/review, queue projection/readiness, Browser filter/session transfer, NeuralRoam session queue, manager facade, data router, and shared errors now live in caller-oriented modules. Focused Browser/Review/Queue proof imports use narrower contract modules while unrelated callers stay on the barrel for bounded migration.
+- Debt deferred: Repo-wide import migration, `ApplicationContext` composition-root interface narrowing, Browser Queue View Lifecycle deepening, and compiler-wide `strict: false` / `skipLibCheck: true` remain open.
+- Why deferred: This slice proves the contract-family seams and preserves runtime behavior. Broad import churn or composition-root/interface changes would cross separate seams and make validation noisy.
+- Next safe step: Continue with `audit-application-context-composition-interface` or `deepen-browser-queue-view-lifecycle`, keeping AI/agent work out of this architecture cleanup lane.
+- Validation: Focused `pnpm exec vitest run src/types/__tests__/unified-data-source.test.ts src/application/adapters/__tests__/ReviewSessionProjectionApplier.test.ts src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts src/core/queue/domain/__tests__/DynamicQueue.review-removal.test.ts --reporter=dot`; `openspec validate split-unified-data-source-contracts --strict`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check`; `pnpm build`.
+
+### 2026-06-13 - Review progressive render DTO normalization
+
+- Task: Implement OpenSpec change `tighten-review-progressive-render-dto-types` to retire adapter-local progressive render metadata casts.
+- Touched slice: Review render adapter/context path: `src/application/adapters/UnifiedReviewAdapter.ts`, `src/application/adapters/reviewRenderableContext.ts`, focused `UnifiedReviewAdapter` render DTO tests, OpenSpec task ledger, and this backlog.
+- Debt fixed now: `UnifiedReviewAdapter` no longer owns broad record checks or `unknown as Progressive*` casts for progressive source lineage, disclosure state, payload identity, or source availability. Progressive render metadata now enters Review UI state through a typed normalizer beside `buildReviewRenderableContext`, preserving valid DTOs and legacy excerpt/piece source-lineage synthesis while rejecting malformed DTO fragments.
+- Debt deferred: Broader type debt remains in `ApplicationContext`, Browser queue view lifecycle, repo-wide import migration off the unified data-source compatibility barrel, and repo-wide `strict: false` / `skipLibCheck: true`.
+- Why deferred: This slice only owns the Review adapter/render context seam. Composition-root interfaces, full caller migration, Browser lifecycle extraction, and compiler-wide strictness each need their own bounded OpenSpec change and validation path.
+- Next safe step: Continue with either `audit-application-context-composition-interface` for composition-root interface narrowing or `deepen-browser-queue-view-lifecycle` for Browser lifecycle locality.
+- Validation: Focused `pnpm exec vitest run src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts`; grep confirmed no adapter-local progressive DTO casts remain; `openspec validate tighten-review-progressive-render-dto-types --strict`; `pnpm run check:boundaries`; `git diff --check`; `pnpm build`.
 
 ### 2026-06-12 - Browser datasource row helper convergence
 
