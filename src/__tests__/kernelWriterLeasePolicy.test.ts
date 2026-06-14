@@ -9,6 +9,18 @@ interface KernelHarness {
   handlers: Record<string, RpcHandler>;
   broadcasts: Array<{ method: string; params: unknown }>;
   clientFetch: ReturnType<typeof vi.fn>;
+  registeredMcpTools: Array<{
+    name: string;
+    config: {
+      inputSchema?: {
+        required?: string[];
+        properties?: Record<string, { type?: string; enum?: string[] }>;
+      };
+    };
+    handler: (args: Record<string, unknown>) => Promise<unknown>;
+  }>;
+  unregisteredMcpTools: string[];
+  unload: () => Promise<void>;
 }
 
 const primaryProfile = {
@@ -41,13 +53,28 @@ const browserProfile = {
   sanitizedLocationHref: 'http://127.0.0.1:6806/stage/build/desktop/?r=<redacted>',
 };
 
-async function loadKernelHarness(): Promise<KernelHarness> {
+async function loadKernelHarness(options: { mcp?: boolean } = {}): Promise<KernelHarness> {
   const handlers: Record<string, RpcHandler> = {};
   const broadcasts: Array<{ method: string; params: unknown }> = [];
   const clientFetch = vi.fn();
+  const registeredMcpTools: KernelHarness['registeredMcpTools'] = [];
+  const unregisteredMcpTools: string[] = [];
   const siyuan = {
     client: {
       fetch: clientFetch,
+    },
+    mcp: {
+      registerTool: vi.fn(async (name: string, config: unknown, handler: KernelHarness['registeredMcpTools'][number]['handler']) => {
+        registeredMcpTools.push({
+          name,
+          config: config as KernelHarness['registeredMcpTools'][number]['config'],
+          handler,
+        });
+        return { name: `plugin__siyuanmemo__${name}` };
+      }),
+      unregisterTool: vi.fn(async (name: string) => {
+        unregisteredMcpTools.push(name);
+      }),
     },
     logger: {
       info: vi.fn(async () => undefined),
@@ -74,6 +101,9 @@ async function loadKernelHarness(): Promise<KernelHarness> {
       },
     },
   };
+  if (options.mcp === false) {
+    delete (siyuan as { mcp?: unknown }).mcp;
+  }
   const context = createContext({
     Buffer,
     Date,
@@ -92,7 +122,14 @@ async function loadKernelHarness(): Promise<KernelHarness> {
   const source = readFileSync(resolve(process.cwd(), 'src/kernel.ts'), 'utf8');
   new Script(source, { filename: 'src/kernel.ts' }).runInContext(context);
   await siyuan.plugin.lifecycle.onload();
-  return { handlers, broadcasts, clientFetch };
+  return {
+    handlers,
+    broadcasts,
+    clientFetch,
+    registeredMcpTools,
+    unregisteredMcpTools,
+    unload: siyuan.plugin.lifecycle.onunload,
+  };
 }
 
 describe('kernel writer lease profile policy', () => {
@@ -268,11 +305,127 @@ describe('kernel writer lease profile policy', () => {
     await expect(handlers.capabilities()).resolves.toMatchObject({
       writesSiyuanMemoDb: false,
       riffReadAuditProxy: true,
+      agentMcp: {
+        available: true,
+      },
       methods: expect.arrayContaining(['riff.read', 'riff.audit']),
       writerLease: {
         payloadFields: expect.arrayContaining(['leaseEpoch', 'ownerChangedAt']),
       },
     });
+  });
+
+  it('registers Agent MCP tools with action-required schemas', async () => {
+    const { registeredMcpTools } = await loadKernelHarness();
+
+    expect(registeredMcpTools.map((tool) => tool.name)).toEqual([
+      'memo_query',
+      'memo_card',
+      'memo_review',
+      'memo_ui',
+    ]);
+    for (const tool of registeredMcpTools) {
+      expect(tool.config.inputSchema?.required).toContain('action');
+      expect(tool.config.inputSchema?.properties?.action).toMatchObject({
+        type: 'string',
+      });
+    }
+  });
+
+  it('reports Agent MCP unavailable without installing shims when siyuan.mcp is missing', async () => {
+    const { handlers, registeredMcpTools } = await loadKernelHarness({ mcp: false });
+
+    expect(registeredMcpTools).toEqual([]);
+    await expect(handlers.capabilities()).resolves.toMatchObject({
+      agentMcp: {
+        available: false,
+        reason: 'siyuan.mcp.registerTool missing',
+        registeredTools: [],
+      },
+    });
+  });
+
+  it('rejects empty Agent MCP action before writer relay routing', async () => {
+    const { registeredMcpTools, handlers } = await loadKernelHarness();
+    const memoQuery = registeredMcpTools.find((tool) => tool.name === 'memo_query');
+
+    await expect(memoQuery?.handler({ action: '   ' })).resolves.toMatchObject({
+      ok: false,
+      status: 'validation-error',
+      error: {
+        code: 'VALIDATION_ERROR',
+      },
+    });
+    await expect(handlers['writer.takeCommand']({ instanceId: 'writer-a' })).resolves.toMatchObject({
+      ok: false,
+    });
+  });
+
+  it('routes Agent MCP calls through writer relay and returns relayed results', async () => {
+    const { registeredMcpTools, handlers } = await loadKernelHarness();
+    await handlers['writer.acquireLease']({
+      instanceId: 'writer-a',
+      locationHref: 'http://127.0.0.1:61082/stage/build/app/',
+      visibilityState: 'visible',
+      writerProfile: primaryProfile,
+    });
+    const memoQuery = registeredMcpTools.find((tool) => tool.name === 'memo_query');
+    const toolCall = memoQuery!.handler({ action: 'status' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const command = await handlers['writer.takeCommand']({ instanceId: 'writer-a' }) as {
+      command?: {
+        commandId: string;
+        method: string;
+        params?: unknown;
+      };
+    };
+    expect(command.command).toMatchObject({
+      method: 'agent.tool.execute',
+      params: {
+        tool: 'memo_query',
+        args: {
+          action: 'status',
+        },
+        source: 'mcp',
+      },
+    });
+    await handlers['writer.completeCommand']({
+      instanceId: 'writer-a',
+      commandId: command.command!.commandId,
+      result: {
+        ok: true,
+        status: 'success',
+        data: {
+          overview: {
+            dueCount: 2,
+          },
+        },
+      },
+    });
+
+    await expect(toolCall).resolves.toMatchObject({
+      ok: true,
+      status: 'success',
+      data: {
+        overview: {
+          dueCount: 2,
+        },
+      },
+    });
+  });
+
+  it('unregisters Agent MCP tools on unload when the API exists', async () => {
+    const { unload, unregisteredMcpTools } = await loadKernelHarness();
+
+    await unload();
+
+    expect(unregisteredMcpTools).toEqual([
+      'memo_query',
+      'memo_card',
+      'memo_review',
+      'memo_ui',
+    ]);
   });
 
   it('reads native Riff cards through the kernel API without returning block content', async () => {

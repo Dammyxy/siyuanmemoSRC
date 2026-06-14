@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   addDock: vi.fn(),
   addCommand: vi.fn(),
   addIcons: vi.fn(),
+  addAgentAction: vi.fn(() => 'plugin__test-plugin__memo_ui'),
   openTab: vi.fn(),
   createApp: vi.fn(() => ({
     mount: vi.fn(() => ({})),
@@ -42,6 +43,7 @@ vi.mock('siyuan', () => {
     public addDock = mocks.addDock;
     public addCommand = mocks.addCommand;
     public addIcons = mocks.addIcons;
+    public addAgentAction = mocks.addAgentAction;
     public removeData = vi.fn(async () => undefined);
   }
 
@@ -234,6 +236,13 @@ function createContext(plugin: any) {
         reason: 'unchanged',
       })),
     })),
+    getAgentToolService: vi.fn(() => ({
+      execute: vi.fn(async (request: unknown) => ({
+        ok: true,
+        status: 'success',
+        data: request,
+      })),
+    })),
     getHybridSyncService: vi.fn(() => undefined),
     dispose: vi.fn(async () => undefined),
   };
@@ -401,5 +410,60 @@ describe('FSRSPlugin deferred custom tab bootstrap', () => {
     startReviewCommand?.callback?.();
 
     expect(context.getDialogManager().openReviewDialog).toHaveBeenCalledTimes(1);
+  });
+
+  it('registers memo_ui frontend Agent action after ApplicationContext is ready', async () => {
+    const { default: FSRSPlugin } = await import('./index');
+    const plugin = new FSRSPlugin();
+    const context = createContext(plugin);
+    const agentToolService = {
+      execute: vi.fn(async (request: unknown) => ({
+        ok: true,
+        status: 'success',
+        data: request,
+      })),
+    };
+    context.getAgentToolService = vi.fn(() => agentToolService);
+    mocks.applicationContextCreate.mockResolvedValueOnce(context);
+
+    await plugin.onload();
+
+    expect(mocks.addAgentAction).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'memo_ui',
+      description: expect.stringContaining('SiYuanMemo'),
+    }));
+    const registration = mocks.addAgentAction.mock.calls[0][0];
+    const response = await registration.handler({
+      action: 'status',
+      focusedBlockID: 'block-focused',
+      selectedBlockIDs: ['block-a', 'block-b'],
+    }, {});
+
+    expect(agentToolService.execute).toHaveBeenCalledWith({
+      tool: 'memo_ui',
+      source: 'frontend',
+      args: expect.objectContaining({
+        action: 'status',
+        editorContext: {
+          focusedBlockID: 'block-focused',
+          selectedBlockIDs: ['block-a', 'block-b'],
+        },
+      }),
+    });
+    expect(response).toEqual({
+      result: expect.stringContaining('"status":"success"'),
+    });
+  });
+
+  it('keeps frontend Agent action unavailable explicit when addAgentAction is missing', async () => {
+    const { default: FSRSPlugin } = await import('./index');
+    const plugin = new FSRSPlugin();
+    delete (plugin as unknown as { addAgentAction?: unknown }).addAgentAction;
+    const context = createContext(plugin);
+    mocks.applicationContextCreate.mockResolvedValueOnce(context);
+
+    await plugin.onload();
+
+    expect(mocks.addAgentAction).not.toHaveBeenCalled();
   });
 });

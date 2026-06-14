@@ -25,6 +25,7 @@ describe('kernel relay contract', () => {
       'autocard.decision.resolve',
       'autocard.execute',
       'hotspot.command.submit',
+      'agent.tool.execute',
       'private.command.execute',
       'semantic.command.execute',
     ]));

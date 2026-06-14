@@ -7,6 +7,7 @@ export interface WriterRelayCommand {
 
 export interface WriterRelayDispatchHooks {
   onKernelTransactionIngested?: () => void;
+  executeAgentTool?: (request: Record<string, unknown>) => Promise<unknown>;
 }
 
 export async function executeWriterRelayCommand(
@@ -279,6 +280,15 @@ export async function executeWriterRelayCommand(
       idempotencyKey: string;
       command: Record<string, unknown>;
     });
+  }
+  if (command.method === 'agent.tool.execute') {
+    if (!command.params || typeof command.params !== 'object') {
+      throw new Error('INVALID_REQUEST: agent.tool.execute relay requires params object');
+    }
+    if (!hooks.executeAgentTool) {
+      throw new Error('BACKEND_UNAVAILABLE: agent.tool.execute application hook unavailable');
+    }
+    return hooks.executeAgentTool(command.params as Record<string, unknown>);
   }
   if (command.method === 'hotspot.command.submit') {
     if (!command.params || typeof command.params !== 'object') {

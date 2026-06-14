@@ -8,6 +8,7 @@
 import { Plugin, getFrontend, showMessage, type IProtyle } from 'siyuan';
 import { pushErrMsg, pushMsg } from '@/infrastructure/siyuan/api';
 import { ApplicationContext } from '@/application/ApplicationContext';
+import { hasPluginAgentActionApi } from '@/application/agent/AgentToolContracts';
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import type { TabRuntimeContext } from '@/application/managers/TabManager';
 import { ConfigMigrator } from '@/utils/configMigrator';
@@ -104,6 +105,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   private formulaClozeAssistant: FormulaClozeAssistant | null = null;
   private imageOcclusionHandler: ImageOcclusionHandler | null = null;
   private progressiveExcerptHotkeyHandler: ProgressiveExcerptHotkeyHandler | null = null;
+  private frontendAgentActionsRegistered = false;
   private readonly topBarQuickSlashIds = TOPBAR_QUICK_ENTRY_DEFINITIONS.map((definition) => definition.slashId);
   private readonly coreReviewSlashIds = CORE_REVIEW_ENTRY_DEFINITIONS.map((definition) => definition.slashId);
   private readonly blockToolSlashIds = [
@@ -254,6 +256,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       this.progressiveExcerptHotkeyHandler = new ProgressiveExcerptHotkeyHandler(this.getContext());
       measureRuntimePerformance('startup', 'plugin.register-runtime-handlers', () => {
         this.registerDock();
+        this.registerFrontendAgentActions();
         this.registerEventHandlers();
         this.registerProgressiveExcerptCommand();
         this.registerProgressiveItemCommand();
@@ -311,6 +314,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     this.customTabsRegistered = false;
     const context = this.context;
     this.context = undefined;
+    this.frontendAgentActionsRegistered = false;
     if (this.topBarElement && this.topBarContextMenuHandler) {
       this.topBarElement.removeEventListener('contextmenu', this.topBarContextMenuHandler);
     }
@@ -408,6 +412,65 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
         );
       },
     });
+  }
+
+  private registerFrontendAgentActions(): void {
+    if (this.frontendAgentActionsRegistered) {
+      return;
+    }
+    if (!hasPluginAgentActionApi(this)) {
+      this.logger.info('SiYuan frontend Agent action API unavailable; memo_ui action not registered');
+      return;
+    }
+    this.addAgentAction({
+      name: 'memo_ui',
+      description: 'Open or focus SiYuanMemo Browser, Review, AI workbench, and editor-context-aware plugin surfaces.',
+      handler: async (args) => {
+        try {
+          const context = await this.contextReady.promise;
+          const result = await context.getAgentToolService().execute({
+            tool: 'memo_ui',
+            args: this.normalizeFrontendAgentArgs(args),
+            source: 'frontend',
+          });
+          const text = JSON.stringify(result);
+          return result.ok ? { result: text } : { error: text };
+        } catch (error) {
+          return {
+            error: JSON.stringify({
+              ok: false,
+              status: 'unavailable',
+              error: {
+                code: 'FRONTEND_CONTEXT_UNAVAILABLE',
+                message: error instanceof Error ? error.message : String(error),
+              },
+            }),
+          };
+        }
+      },
+    });
+    this.frontendAgentActionsRegistered = true;
+  }
+
+  private normalizeFrontendAgentArgs(args: Record<string, unknown>): Record<string, unknown> {
+    const normalized = args && typeof args === 'object' ? { ...args } : {};
+    const editorContext = normalized.editorContext && typeof normalized.editorContext === 'object'
+      ? normalized.editorContext as Record<string, unknown>
+      : {};
+    for (const key of ['activeDocID', 'activeDocTitle', 'notebookID', 'focusedBlockID']) {
+      if (normalized[key] !== undefined && editorContext[key] === undefined) {
+        editorContext[key] = normalized[key];
+      }
+    }
+    for (const key of ['selectedBlockIDs', 'visibleBlockIDs']) {
+      if (Array.isArray(normalized[key]) && editorContext[key] === undefined) {
+        editorContext[key] = normalized[key];
+      }
+    }
+    if (Object.keys(editorContext).length > 0) {
+      normalized.editorContext = editorContext;
+    }
+    return normalized;
   }
 
   private registerEventHandlers() {

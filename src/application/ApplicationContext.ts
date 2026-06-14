@@ -132,6 +132,12 @@ import type { ReviewAIWorkbenchRegistry } from '@/application/services/ReviewAIW
 import { PrivateApiAuditService } from '@/application/services/PrivateApiAuditService';
 import { PrivateApiService } from '@/application/services/PrivateApiService';
 import { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
+import { AgentToolService } from '@/application/services/AgentToolService';
+import {
+  buildAgentValidationErrorResult,
+  isAgentToolName,
+  type AgentToolName,
+} from '@/application/agent/AgentToolContracts';
 import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
 import { ProgressiveNativeRiffAdapter } from '@/infrastructure/siyuan/ProgressiveNativeRiffAdapter';
 import { ConfiguredCaptureStorageSiyuanAdapter } from '@/infrastructure/siyuan/ConfiguredCaptureStorageSiyuanAdapter';
@@ -240,6 +246,7 @@ interface ApplicationServiceRegistry {
   arenaKernelService: ArenaKernelService;
   reviewAIWorkbenchRegistry: ReviewAIWorkbenchRegistry;
   sharedReviewSessionRegistry: SharedReviewSessionRegistry;
+  agentToolService: AgentToolService;
   aiWorkbenchService: AIWorkbenchService;
   privateApiAuditService: PrivateApiAuditService;
   privateApiClient: PrivateApiClient;
@@ -805,6 +812,16 @@ export class ApplicationContext {
 
     this.registerServiceFactory('sharedReviewSessionRegistry', () => {
       return new SharedReviewSessionRegistry();
+    });
+
+    this.registerServiceFactory('agentToolService', (context) => {
+      return new AgentToolService({
+        browserService: context.getBrowserService(),
+        cardService: context.getCardService(),
+        dialogManager: context.getDialogManager(),
+        tabManager: context.getTabManager(),
+        reviewSessionRegistry: context.getSharedReviewSessionRegistry(),
+      });
     });
     
     // TODO: Phase 1 Task 2 - 注册 UI 管理器工厂
@@ -1479,6 +1496,26 @@ export class ApplicationContext {
         };
       },
       executeWriterRelayCommand,
+      executeAgentTool: async (request) => {
+        if (!contextRef) {
+          return buildAgentValidationErrorResult('agent.tool.execute unavailable: application context is not ready');
+        }
+        const tool = request.tool;
+        if (!isAgentToolName(tool)) {
+          return buildAgentValidationErrorResult('agent.tool.execute requires supported SiYuanMemo tool');
+        }
+        const args = request.args && typeof request.args === 'object'
+          ? request.args as Record<string, unknown>
+          : {};
+        const source = request.source === 'frontend' || request.source === 'writer-relay' || request.source === 'test'
+          ? request.source
+          : 'mcp';
+        return contextRef.getAgentToolService().execute({
+          tool: tool as AgentToolName,
+          args,
+          source,
+        });
+      },
       notifyKernelTransactionIngested: () => contextRef?.kernelTransactionActionPump?.notifyActivity('relay-ingest'),
       kernelSidecarClient: new KernelSidecarClient(new SiyuanKernelCompanionAdapter()),
       createBlockExistenceSiyuanPort: () => new QuerySiyuanAdapter(),
@@ -2123,6 +2160,10 @@ export class ApplicationContext {
    */
   getReviewService(): ReviewApplicationService {
     return this.getService('reviewService');
+  }
+
+  getAgentToolService(): AgentToolService {
+    return this.getService('agentToolService');
   }
 
   getNeuralRoamEntryActionService(): NeuralRoamEntryActionService {

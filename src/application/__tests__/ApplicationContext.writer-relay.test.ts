@@ -380,6 +380,48 @@ describe('ApplicationContext writer relay command dispatch', () => {
     });
   });
 
+  it('dispatches agent.tool.execute to application hook instead of backend client', async () => {
+    const executeAgentTool = vi.fn(async (request: unknown) => ({
+      ok: true,
+      status: 'success',
+      data: { accepted: true, request },
+    }));
+    const client = {};
+    const params = {
+      tool: 'memo_query',
+      args: {
+        action: 'status',
+      },
+      source: 'mcp',
+    };
+
+    const result = await executeWriterRelayCommand(client, {
+      method: 'agent.tool.execute',
+      params,
+    }, { executeAgentTool });
+
+    expect(executeAgentTool).toHaveBeenCalledWith(params);
+    expect(result).toMatchObject({
+      ok: true,
+      status: 'success',
+      data: {
+        accepted: true,
+      },
+    });
+  });
+
+  it('rejects agent.tool.execute relay without an application hook', async () => {
+    await expect(executeWriterRelayCommand({}, {
+      method: 'agent.tool.execute',
+      params: {
+        tool: 'memo_query',
+        args: {
+          action: 'status',
+        },
+      },
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: agent.tool.execute application hook unavailable');
+  });
+
   it('dispatches hotspot.command.submit to backend client', async () => {
     const submitHotspotCommand = vi.fn(async () => ({
       accepted: true,

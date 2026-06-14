@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-14 (Round 592)
+Last update: 2026-06-14 (Round 593)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-14 - SiYuan Agent tool exposure
+
+- Task: Implement OpenSpec change `expose-siyuanmemo-agent-tools` by exposing SiYuanMemo learning workflows through SiYuan Agent MCP tools and frontend actions.
+- Touched slice: Siyuan Agent integration across `src/kernel.ts`, `src/index.ts`, `src/application/agent/AgentToolContracts.ts`, `src/application/services/AgentToolService.ts`, `src/application/ApplicationContext.ts`, writer relay command dispatch/contracts, focused Agent/kernel/frontend tests, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Kept kernel MCP code as registration/shallow-validation/relay glue only; added typed Agent envelopes and action gates requiring non-empty `action`; routed MCP calls through `agent.tool.execute` writer relay into an application-owned `AgentToolService`; registered `memo_ui` frontend action only after `ApplicationContext` is ready; returned explicit unavailable for missing MCP/frontend/writer/read owners; and corrected kernel handler return shape to match local SiYuan `origin/dev`, where plugin MCP handler values are JSON-stringified into text by upstream.
+- Debt deferred: Real LLM-backed RemNote-quality card generation, richer queue/review-log summaries, broad card-content search, autonomous review grading, bulk workspace card generation, live SiYuan Agent smoke, and independent frontend Agent action unregister support remain outside this first exposure slice.
+- Why deferred: This change establishes safe ownership and confirmation contracts first. Rich AI drafting and live smoke need provider/runtime state and user-facing prompt quality work, while unregister support depends on upstream frontend lifecycle API shape.
+- Next safe step: Add a second Agent change that replaces the placeholder draft heuristic with the existing AI workbench/provider candidate-generation pipeline, keeping preview/save separation and source-bound validation.
+- Validation: `pnpm exec vitest run src/application/agent/__tests__/AgentToolContracts.test.ts src/application/services/__tests__/AgentToolService.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts src/application/__tests__/ApplicationContext.writer-relay.test.ts src/__tests__/kernelWriterLeasePolicy.test.ts src/index.test.ts --reporter=dot`; `pnpm run check:boundaries`; `openspec validate expose-siyuanmemo-agent-tools --strict`; `git diff --check`; `pnpm build` passed with existing non-blocking i18n/Sass warnings.
 
 ### 2026-06-14 - Progressive excerpt materializer extraction
 

@@ -12,6 +12,16 @@ const PRIVATE_COMMAND_WAIT_TIMEOUT_MS = 30_000;
 const PRIVATE_COMMAND_POLL_INTERVAL_MS = 250;
 const AI_STREAM_TTL_MS = 300_000;
 const AI_STREAM_BUFFER_LIMIT = 256;
+const AGENT_MCP_TOOL_NAMES = ['memo_query', 'memo_card', 'memo_review', 'memo_ui'];
+const AGENT_MCP_TOOL_ACTIONS = {
+  memo_query: ['status', 'query'],
+  memo_card: ['get', 'query', 'search', 'draft', 'create', 'save', 'suspend', 'resume'],
+  memo_review: ['get', 'status', 'query', 'search'],
+  memo_ui: ['open', 'get', 'status', 'focus'],
+};
+const AGENT_MCP_BLOCKED_ACTIONS = {
+  memo_review: ['answer', 'grade', 'feedback', 'submit', 'commit'],
+};
 const QUEUE_PROJECTION_IDENTITY_QUEUE_TYPES = new Set([
   'retrieval-practice',
   'incremental-learning',
@@ -25,6 +35,7 @@ let writerLeaseEpoch = 0;
 const writerCommandsPending = new Map();
 const writerCommandResults = new Map();
 const aiStreams = new Map();
+const registeredAgentMcpTools = new Set();
 
 function nowMs() {
   return Date.now();
@@ -809,9 +820,150 @@ function buildHealth() {
   };
 }
 
+function hasAgentMcpRegisterApi() {
+  return typeof siyuan.mcp?.registerTool === 'function';
+}
+
+function hasAgentMcpUnregisterApi() {
+  return typeof siyuan.mcp?.unregisterTool === 'function';
+}
+
+function buildAgentMcpInputSchema(toolName) {
+  return {
+    type: 'object',
+    properties: {
+      action: {
+        type: 'string',
+        enum: AGENT_MCP_TOOL_ACTIONS[toolName] || [],
+        description: `SiYuanMemo ${toolName} action. Must be non-empty so Agent confirmation remains meaningful.`,
+      },
+    },
+    required: ['action'],
+  };
+}
+
+function buildAgentMcpToolConfig(toolName) {
+  const descriptions = {
+    memo_query: 'Read SiYuanMemo learning overview and bounded queue diagnostics.',
+    memo_card: 'Inspect cards, preview AI draft candidates, and perform controlled card writes.',
+    memo_review: 'Assist the active review card without submitting feedback or scheduler decisions.',
+    memo_ui: 'Open or focus SiYuanMemo frontend surfaces through live UI context.',
+  };
+  return {
+    title: toolName,
+    description: descriptions[toolName] || `SiYuanMemo ${toolName}`,
+    inputSchema: buildAgentMcpInputSchema(toolName),
+  };
+}
+
+function buildAgentMcpErrorEnvelope(code, message, status = 'validation-error') {
+  return {
+    ok: false,
+    status,
+    error: {
+      code,
+      message,
+    },
+  };
+}
+
+function validateAgentMcpToolAction(toolName, args) {
+  const action = String(args?.action ?? '').trim();
+  if (!action) {
+    return buildAgentMcpErrorEnvelope('VALIDATION_ERROR', `${toolName} requires non-empty action`);
+  }
+  const blockedActions = AGENT_MCP_BLOCKED_ACTIONS[toolName] || [];
+  if (blockedActions.includes(action)) {
+    return buildAgentMcpErrorEnvelope(
+      'UNSUPPORTED_OPERATION',
+      `${toolName} cannot submit feedback, grade, answer, or commit scheduler decisions`,
+      'unsupported-operation',
+    );
+  }
+  const allowedActions = AGENT_MCP_TOOL_ACTIONS[toolName] || [];
+  if (!allowedActions.includes(action)) {
+    return buildAgentMcpErrorEnvelope(
+      'UNSUPPORTED_OPERATION',
+      `${toolName} action is unsupported: ${action}`,
+      'unsupported-operation',
+    );
+  }
+  return null;
+}
+
+function normalizeAgentMcpArgs(args) {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    return {};
+  }
+  return args;
+}
+
+async function handleAgentMcpToolCall(toolName, rawArgs) {
+  const args = normalizeAgentMcpArgs(rawArgs);
+  const validationError = validateAgentMcpToolAction(toolName, args);
+  if (validationError) {
+    return validationError;
+  }
+
+  const commandId = createCommandId();
+  const submitted = await writerSubmitCommand({
+    instanceId: 'kernel-agent-mcp',
+    commandId,
+    idempotencyKey: `agent-tool:${toolName}:${commandId}`,
+    method: 'agent.tool.execute',
+    params: {
+      tool: toolName,
+      args,
+      source: 'mcp',
+    },
+  });
+  if (submitted.ok !== true) {
+    return {
+      ok: false,
+      status: 'unavailable',
+      error: {
+        code: 'WRITER_RELAY_UNAVAILABLE',
+        message: submitted.error?.message || 'Agent MCP writer relay unavailable',
+      },
+    };
+  }
+
+  const waited = await waitForPrivateCommandResult(commandId);
+  if (waited.statusCode !== 200) {
+    return waited.result;
+  }
+  return waited.result;
+}
+
+async function registerAgentMcpTools() {
+  if (!hasAgentMcpRegisterApi()) {
+    await siyuan.logger.info('[SiYuanMemo kernel] Agent MCP unavailable: siyuan.mcp.registerTool missing');
+    return;
+  }
+  for (const toolName of AGENT_MCP_TOOL_NAMES) {
+    await siyuan.mcp.registerTool(
+      toolName,
+      buildAgentMcpToolConfig(toolName),
+      async (args) => handleAgentMcpToolCall(toolName, args),
+    );
+    registeredAgentMcpTools.add(toolName);
+  }
+}
+
+async function unregisterAgentMcpTools() {
+  if (!hasAgentMcpUnregisterApi()) {
+    registeredAgentMcpTools.clear();
+    return;
+  }
+  for (const toolName of Array.from(registeredAgentMcpTools)) {
+    await siyuan.mcp.unregisterTool(toolName);
+    registeredAgentMcpTools.delete(toolName);
+  }
+}
+
 function buildCapabilities() {
   return {
-    version: 7,
+    version: 8,
     methods: [
       'health',
       'version',
@@ -830,6 +982,10 @@ function buildCapabilities() {
       'network.streamExternal',
       'riff.read',
       'riff.audit',
+      'agent.mcp.memo_query',
+      'agent.mcp.memo_card',
+      'agent.mcp.memo_review',
+      'agent.mcp.memo_ui',
       'private.http.status',
       'private.http.command',
       'private.es.aiStream',
@@ -843,6 +999,11 @@ function buildCapabilities() {
     privateSse: Boolean(siyuan.server?.private?.es),
     riffReadAuditProxy: true,
     aiStreaming: true,
+    agentMcp: {
+      available: hasAgentMcpRegisterApi(),
+      registeredTools: Array.from(registeredAgentMcpTools),
+      reason: hasAgentMcpRegisterApi() ? null : 'siyuan.mcp.registerTool missing',
+    },
     writerLease: {
       defaultTtlMs: WRITER_LEASE_DEFAULT_TTL_MS,
       minTtlMs: WRITER_LEASE_MIN_TTL_MS,
@@ -1729,6 +1890,7 @@ siyuan.plugin.lifecycle.onload = async () => {
   await siyuan.rpc.bind('network.streamExternal', async (params) => networkStreamExternal(params), 'Stream external SSE endpoint through kernel network proxy.');
   await siyuan.rpc.bind('riff.read', async (params) => readRiffCards(params), 'Read native Riff card facts without returning block content.');
   await siyuan.rpc.bind('riff.audit', async (params) => auditRiffCards(params), 'Audit native Riff card facts without returning block content.');
+  await registerAgentMcpTools();
   if (siyuan.server?.private?.http) {
     siyuan.server.private.http.handler = handlePrivateHttp;
   }
@@ -1743,4 +1905,5 @@ siyuan.plugin.lifecycle.onrunning = async () => {
 
 siyuan.plugin.lifecycle.onunload = async () => {
   await siyuan.logger.info('[SiYuanMemo kernel] unloading');
+  await unregisterAgentMcpTools();
 };

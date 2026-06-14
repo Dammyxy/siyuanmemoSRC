@@ -245,6 +245,7 @@ export const KERNEL_RELAY_METHODS = [
   'ai.tool.job.execute',
   'ai.tool.job.approval',
   'hotspot.command.submit',
+  'agent.tool.execute',
   'progressive.command.execute',
   'topic-derived.command.execute',
   'review.riffFeedback.execute',

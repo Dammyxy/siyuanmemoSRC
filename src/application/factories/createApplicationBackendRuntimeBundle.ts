@@ -82,8 +82,10 @@ export interface CreateApplicationBackendRuntimeBundleOptions {
     command: ApplicationBackendWriterRelayCommand,
     hooks?: {
       onKernelTransactionIngested?: () => void;
+      executeAgentTool?: (request: Record<string, unknown>) => Promise<unknown>;
     },
   ) => Promise<unknown>;
+  executeAgentTool?: (request: Record<string, unknown>) => Promise<unknown>;
   notifyKernelTransactionIngested?: () => void;
   kernelSidecarClient?: KernelSidecarClient;
   createBlockExistenceSiyuanPort: () => Pick<QuerySiyuanPort, 'sql'>;
@@ -260,6 +262,7 @@ export async function createApplicationBackendRuntimeBundle(
             command,
             {
               onKernelTransactionIngested: options.notifyKernelTransactionIngested,
+              executeAgentTool: options.executeAgentTool,
             },
           ),
         });
