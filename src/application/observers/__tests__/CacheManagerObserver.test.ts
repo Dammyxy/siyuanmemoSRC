@@ -36,9 +36,29 @@ class MockQueue implements Partial<IReviewQueue> {
     this.lastOperation = { type: 'card-updated', cardId };
     this.notifyObservers();
   }
+
+  simulateCardAdded(cardId: string): void {
+    this.lastOperation = { type: 'card-added', cardId };
+    this.notifyObservers();
+  }
   
   simulateQueueCleared(): void {
     this.lastOperation = { type: 'queue-cleared' };
+    this.notifyObservers();
+  }
+
+  simulateQueueRebuilt(): void {
+    this.lastOperation = { type: 'queue-rebuilt' };
+    this.notifyObservers();
+  }
+
+  simulateUnknownOperation(): void {
+    this.lastOperation = { type: 'unknown' };
+    this.notifyObservers();
+  }
+
+  simulateMalformedOperation(): void {
+    this.lastOperation = { type: 'card-updated', cardId: 123 };
     this.notifyObservers();
   }
 }
@@ -50,7 +70,6 @@ describe('CacheManagerObserver', () => {
   beforeEach(() => {
     cacheManager = new CacheManagerObserver({
       nextDuesCacheSize: 10,
-      cardTypeCacheSize: 5,
       debugMode: false,
     });
     mockQueue = new MockQueue();
@@ -88,20 +107,16 @@ describe('CacheManagerObserver', () => {
     it('should invalidate all cache on queue cleared', () => {
       // 添加缓存
       const nextDuesCache = cacheManager.getNextDuesCache();
-      const cardTypeCache = cacheManager.getCardTypeCache();
       
       nextDuesCache.set('card-1-key', { 1: '1d', 2: '3d', 3: '7d', 4: '14d' });
-      cardTypeCache.set('card-1', 'item');
       
       expect(nextDuesCache.size).toBe(1);
-      expect(cardTypeCache.size).toBe(1);
       
       // 清空队列
       mockQueue.simulateQueueCleared();
       
       // 所有缓存应该被清除
       expect(nextDuesCache.size).toBe(0);
-      expect(cardTypeCache.size).toBe(0);
     });
     
     it('should invalidate cache on card update', () => {
@@ -117,6 +132,43 @@ describe('CacheManagerObserver', () => {
       // 缓存应该被清除
       expect(cache.has('card-1-key')).toBe(false);
     });
+
+    it('should invalidate all cache on queue rebuilt', () => {
+      const cache = cacheManager.getNextDuesCache();
+      cache.set('card-1-key', { 1: '1d', 2: '3d', 3: '7d', 4: '14d' });
+      cache.set('card-2-key', { 1: '1d', 2: '3d', 3: '7d', 4: '14d' });
+
+      mockQueue.simulateQueueRebuilt();
+
+      expect(cache.size).toBe(0);
+    });
+
+    it('should invalidate all cache on unknown operation', () => {
+      const cache = cacheManager.getNextDuesCache();
+      cache.set('card-1-key', { 1: '1d', 2: '3d', 3: '7d', 4: '14d' });
+
+      mockQueue.simulateUnknownOperation();
+
+      expect(cache.size).toBe(0);
+    });
+
+    it('should invalidate all cache on malformed operation', () => {
+      const cache = cacheManager.getNextDuesCache();
+      cache.set('card-1-key', { 1: '1d', 2: '3d', 3: '7d', 4: '14d' });
+
+      mockQueue.simulateMalformedOperation();
+
+      expect(cache.size).toBe(0);
+    });
+
+    it('should not invalidate cache on card add', () => {
+      const cache = cacheManager.getNextDuesCache();
+      cache.set('card-1-key', { 1: '1d', 2: '3d', 3: '7d', 4: '14d' });
+
+      mockQueue.simulateCardAdded('card-2');
+
+      expect(cache.has('card-1-key')).toBe(true);
+    });
   });
   
   describe('缓存管理', () => {
@@ -127,21 +179,22 @@ describe('CacheManagerObserver', () => {
       
       const stats = cacheManager.getStats();
       
-      expect(stats.nextDuesCache.size).toBe(2);
-      expect(stats.nextDuesCache.maxSize).toBe(10);
+      expect(stats).toEqual({
+        nextDuesCache: {
+          size: 2,
+          maxSize: 10,
+        },
+      });
     });
     
     it('should clear all caches', () => {
       const nextDuesCache = cacheManager.getNextDuesCache();
-      const cardTypeCache = cacheManager.getCardTypeCache();
       
       nextDuesCache.set('card-1-key', { 1: '1d', 2: '3d', 3: '7d', 4: '14d' });
-      cardTypeCache.set('card-1', 'item');
       
       cacheManager.clear();
       
       expect(nextDuesCache.size).toBe(0);
-      expect(cardTypeCache.size).toBe(0);
       expect(cacheManager.getLastOperation()).toBeNull();
     });
   });

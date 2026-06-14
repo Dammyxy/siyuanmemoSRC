@@ -14,7 +14,8 @@ Implementation follow-up:
 
 - 2026-06-14: `retire-stale-queue-abstractions` implemented the first candidate. The stale Trait, command, Sequencer, queue Scheduler, provider `SessionManager`, and stale queue observer/type docs/tests were removed after deletion-test evidence.
 - 2026-06-15: `retire-old-card-entity-repository` implemented the second candidate. The old `Card` Entity, `ICardRepository`, unwired `CardRepository`, entity mapper helpers, and repository-preserving tests were removed after deletion-test evidence; active FSRS DTO mapping remains.
-- Next safe OpenSpec candidate is now `shrink-review-next-dues-cache`.
+- 2026-06-15: `shrink-review-next-dues-cache` implemented the cache-surface candidate. The card-type and formatted-data cache fields/getters/options/stats/tests were removed after deletion-test evidence; active Review next-dues cache behavior remains.
+- Next safe OpenSpec candidate is now `deepen-or-inline-ai-cdf-search-runtime`.
 
 Strong candidates:
 
@@ -22,7 +23,7 @@ Strong candidates:
 2. Old Card Entity / Repository path not wired into the active production route. Completed by `retire-old-card-entity-repository`.
 3. Over-wide `ApplicationContext` and backend runtime facades.
 4. Thin UI runtime modules that mostly move `ReviewView` or `SRSBrowser` state sideways.
-5. `CacheManagerObserver` carrying unused cache surfaces.
+5. `CacheManagerObserver` carrying unused cache surfaces. Completed by `shrink-review-next-dues-cache`.
 
 Do not simplify these without new evidence:
 
@@ -244,7 +245,7 @@ Suggested OpenSpec change:
 
 Next safe step:
 
-Remove the unused card type and formatted data cache surfaces first. Keep queue invalidation behavior until the cache ownership is clear.
+Completed by `shrink-review-next-dues-cache` after deletion-test evidence found no active production callers for `getCardTypeCache()`, `getFormattedDataCache()`, `cardTypeCacheSize`, or `formattedDataCacheSize`. Keep the remaining observer seam until a separate change proves a rename or inline move is worth the churn.
 
 ## Keep / Do Not Simplify Without New Evidence
 
@@ -271,7 +272,7 @@ These Modules looked large or abstract but have real Depth:
 
 ## Recommended Refactor Order
 
-1. `shrink-review-next-dues-cache`
+1. `deepen-or-inline-ai-cdf-search-runtime`
 2. `consolidate-review-shell-runtime`
 3. `fold-browser-queue-warmup-into-lifecycle`
 4. `narrow-application-context-service-factories`
@@ -279,7 +280,7 @@ These Modules looked large or abstract but have real Depth:
 
 Reason:
 
-The first three have clearer deletion tests and lower runtime risk. The latter items touch active composition or UI workflows and should be done only after a narrow OpenSpec proposal.
+The first item is the shallowest remaining UI runtime candidate and has a clear one-caller deletion test. Review shell and Browser warmup follow only as bounded UI lifecycle changes. The latter items touch active composition or backend runtime wiring and should be done only after a narrow OpenSpec proposal.
 
 ## Validation Notes
 

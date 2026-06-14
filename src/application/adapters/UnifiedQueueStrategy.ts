@@ -202,8 +202,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         this.cursor = new ReviewSessionCursor(this.queueType);
         this.cacheManager = new CacheManagerObserver({
             nextDuesCacheSize: 100,
-            cardTypeCacheSize: 50,
-            formattedDataCacheSize: 50,
             debugMode: false,
         });
         this.projectionAdvancePolicy = new ReviewSessionProjectionAdvancePolicy({

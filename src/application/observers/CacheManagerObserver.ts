@@ -7,7 +7,6 @@
  * - 监听队列变更事件
  * - 根据操作类型智能失效缓存
  * - 管理 nextDues 计算缓存
- * - 管理卡片类型检测缓存
  * 
  * 设计原则：
  * - 观察者模式：实现 QueueObserver 接口
@@ -23,11 +22,6 @@ import { LRUCache } from '@/utils/performance-helpers';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('CacheManagerObserver');
-
-/**
- * 卡片类型
- */
-export type CardType = 'topic' | 'item' | 'quick' | 'descriptor' | 'concept' | 'unknown';
 
 /**
  * 队列操作类型
@@ -105,22 +99,6 @@ export class CacheManagerObserver implements QueueObserver {
   private nextDuesCache: LRUCache<string, Record<number, string>>;
   
   /**
-   * 卡片类型检测结果缓存
-   * 
-   * key: cardId
-   * value: CardType
-   */
-  private cardTypeCache: LRUCache<string, CardType>;
-  
-  /**
-   * 格式化数据缓存
-   * 
-   * key: cardId
-   * value: 格式化后的数据
-   */
-  private formattedDataCache: LRUCache<string, unknown>;
-  
-  /**
    * 最后一次队列操作
    */
   private lastOperation: QueueOperation | null = null;
@@ -137,13 +115,9 @@ export class CacheManagerObserver implements QueueObserver {
    */
   constructor(options?: {
     nextDuesCacheSize?: number;
-    cardTypeCacheSize?: number;
-    formattedDataCacheSize?: number;
     debugMode?: boolean;
   }) {
     this.nextDuesCache = new LRUCache(options?.nextDuesCacheSize ?? 100);
-    this.cardTypeCache = new LRUCache(options?.cardTypeCacheSize ?? 50);
-    this.formattedDataCache = new LRUCache(options?.formattedDataCacheSize ?? 50);
     this.debugMode = options?.debugMode ?? false;
   }
   
@@ -238,12 +212,6 @@ export class CacheManagerObserver implements QueueObserver {
       this.nextDuesCache.delete(key);
     }
     
-    // 删除卡片类型缓存
-    this.cardTypeCache.delete(cardId);
-    
-    // 删除格式化数据缓存
-    this.formattedDataCache.delete(cardId);
-    
     if (this.debugMode) {
       logger.info('[CacheManagerObserver] Invalidated', keysToDelete.length, 'cache entries');
     }
@@ -273,8 +241,6 @@ export class CacheManagerObserver implements QueueObserver {
     }
     
     this.nextDuesCache.clear();
-    this.cardTypeCache.clear();
-    this.formattedDataCache.clear();
   }
   
   /**
@@ -284,24 +250,6 @@ export class CacheManagerObserver implements QueueObserver {
    */
   getNextDuesCache(): LRUCache<string, Record<number, string>> {
     return this.nextDuesCache;
-  }
-  
-  /**
-   * 获取卡片类型缓存
-   * 
-   * @returns 卡片类型缓存实例
-   */
-  getCardTypeCache(): LRUCache<string, CardType> {
-    return this.cardTypeCache;
-  }
-  
-  /**
-   * 获取格式化数据缓存
-   * 
-   * @returns 格式化数据缓存实例
-   */
-  getFormattedDataCache(): LRUCache<string, unknown> {
-    return this.formattedDataCache;
   }
   
   /**
@@ -323,14 +271,6 @@ export class CacheManagerObserver implements QueueObserver {
       nextDuesCache: {
         size: this.nextDuesCache.size,
         maxSize: this.nextDuesCache.capacity,
-      },
-      cardTypeCache: {
-        size: this.cardTypeCache.size,
-        maxSize: this.cardTypeCache.capacity,
-      },
-      formattedDataCache: {
-        size: this.formattedDataCache.size,
-        maxSize: this.formattedDataCache.capacity,
       },
     };
   }

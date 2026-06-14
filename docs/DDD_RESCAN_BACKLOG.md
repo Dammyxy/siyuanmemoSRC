@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-15 (Round 596)
+Last update: 2026-06-15 (Round 597)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-15 - Review next-dues cache surface shrink
+
+- Task: Implement OpenSpec change `shrink-review-next-dues-cache` by deleting unused `CacheManagerObserver` cache surfaces after deletion-test evidence.
+- Touched slice: Review next-due preview cache path across `src/application/observers/CacheManagerObserver.ts`, `src/application/adapters/UnifiedQueueStrategy.ts`, focused observer tests, `docs/architecture-audits/overdesign-audit-2026-06-14.md`, OpenSpec evidence/tasks, and this backlog.
+- Debt fixed now: Removed the unused card-type and formatted-data LRU fields, getters, constructor options, stats entries, invalidation branches, and tests that only preserved those test-only surfaces; kept `getNextDuesCache()` and queue update invalidation semantics used by `UnifiedQueueStrategy.addNextDues()`.
+- Debt deferred: `CacheManagerObserver` keeps its broad class name and observer seam; deeper rename or inlining into `UnifiedQueueStrategy` remains separate.
+- Why deferred: Current slice safely shrinks the public surface without moving Review cache ownership. Renaming/inlining would touch import identity and cache ownership wording, so it deserves separate evidence after the active next-dues behavior is stable.
+- Next safe step: Create a focused OpenSpec change for `deepen-or-inline-ai-cdf-search-runtime`, starting with reachability and caller-shape evidence for `src/ui/ai/aiWorkbenchPaneCdfSearchRuntime.ts`.
+- Validation: Deletion-test evidence in `openspec/changes/shrink-review-next-dues-cache/evidence.md`; post-removal `git grep` found no `getCardTypeCache`, `getFormattedDataCache`, `cardTypeCacheSize`, `formattedDataCacheSize`, `cardTypeCache`, or `formattedDataCache` references under active `src/`; focused `pnpm exec vitest run src/application/observers/__tests__/CacheManagerObserver.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build` passed with existing non-blocking i18n hard-coded-string hints and Sass legacy warnings; `openspec validate shrink-review-next-dues-cache --strict`.
 
 ### 2026-06-15 - Old Card Entity / Repository retirement
 
