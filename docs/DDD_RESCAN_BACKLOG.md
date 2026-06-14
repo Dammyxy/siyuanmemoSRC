@@ -4,6 +4,16 @@ Last update: 2026-06-14 (Round 590)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-06-14 - Kernel transaction runtime extraction
+
+- Task: Continue OpenSpec change `extract-worker-sqlite-runtime-families` by extracting the kernel transaction queue family out of the broad worker SQLite service.
+- Touched slice: Worker SQLite kernel transaction family in `worker/db/SqliteDatabaseService.ts`, new `worker/kernel-transaction/WorkerKernelTransactionRuntime.ts`, focused `worker/kernel-transaction/__tests__/WorkerKernelTransactionRuntime.test.ts`, trimmed `worker/bootstrap/__tests__/BackendKernelTransactionRpcAdapter.test.ts`, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Moved kernel transaction ingest/dequeue/requeue state, snapshot restore/persist, dedupe TTL handling, native Riff / AutoCard action extraction, dequeue coalescing, and backpressure counters into a dedicated runtime that `WorkerSqliteDatabaseService` now delegates to as a compatibility facade.
+- Debt deferred: Review, queue projection, Xiuyuan sync, Browser, storage diagnostics, and AI/Job/Hotspot worker families remain embedded in `SqliteDatabaseService`; the broader service still owns those slices and they need separate extractions.
+- Why deferred: This change only extracts the low-risk kernel transaction family. The remaining families cross different bounded contexts and deserve separate characterization and validation before extraction.
+- Next safe step: Pick the next non-AI family, likely Xiuyuan sync or queue projection, and repeat the same runtime-extraction loop with focused tests before shrinking more worker DB surface.
+- Validation: Focused `vitest` coverage for `WorkerKernelTransactionRuntime`, RPC adapter smoke, and `WorkerSqliteDatabaseService`; `openspec validate extract-worker-sqlite-runtime-families --strict`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check`; `pnpm build`.
+
 ### 2026-06-14 - Xiuyuan sync ChangeSet planner hardening
 
 - Task: Implement OpenSpec change `harden-xiuyuan-sync-changeset-commit` to make Xiuyuan/Riff sync planning explicit before local storage mutation.
