@@ -4,6 +4,16 @@ Last update: 2026-06-14 (Round 590)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-06-14 - Xiuyuan sync worker runtime extraction
+
+- Task: Continue OpenSpec change `extract-xiuyuan-sync-worker-runtime` by extracting Xiuyuan sync local-facts read/apply SQL behavior out of the broad worker SQLite service.
+- Touched slice: Xiuyuan sync worker runtime in `worker/xiuyuan/WorkerXiuyuanSyncRuntime.ts`, compatibility facade methods in `worker/db/SqliteDatabaseService.ts`, focused runtime tests, trimmed planner/backend RPC tests, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Moved Xiuyuan sync local-facts normalization, apply transaction, create/update/delete row handling, payload/card comparison, schedule merge, local-owned skip protection, tombstone writes, and sync checkpoint decisions into `WorkerXiuyuanSyncRuntime`; `WorkerSqliteDatabaseService` now delegates through stable public methods while supplying SQL runtime, repository, and clock dependencies.
+- Debt deferred: `WorkerSqliteDatabaseService` still owns other non-Xiuyuan runtime families, including Review-adjacent startup helpers, queue projection, Browser/read-model support, storage diagnostics, semantic/private API helpers, and AI/Job/Hotspot diagnostics.
+- Why deferred: This change is intentionally limited to the Xiuyuan sync worker family and avoids AI/Job/Hotspot, AI workbench, agent paths, Review truth policy, queue projection policy, and Browser read-model behavior.
+- Next safe step: Continue extracting the next non-AI worker SQLite family behind the DB facade, or split remaining semantic/domain-sync helpers under their own focused change.
+- Validation: Focused `pnpm vitest run worker/xiuyuan/__tests__/WorkerXiuyuanSyncRuntime.test.ts worker/__tests__/WorkerXiuyuanSyncPlanner.test.ts worker/__tests__/BackendKernel.xiuyuan-sync.test.ts --reporter=dot`; `openspec validate extract-xiuyuan-sync-worker-runtime --strict`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check`; `pnpm build`.
+
 ### 2026-06-14 - Kernel transaction runtime extraction
 
 - Task: Continue OpenSpec change `extract-worker-sqlite-runtime-families` by extracting the kernel transaction queue family out of the broad worker SQLite service.
