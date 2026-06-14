@@ -606,4 +606,58 @@ describe('ReviewView source block refresh', () => {
 
     wrapper.unmount();
   });
+
+  it('renders main Review actions and dispatches grade through the Review session', async () => {
+    const currentCard = buildCard('descriptor-card-1', 'descriptor-block-1', { type: 'descriptor' });
+    const queue = createQueue(currentCard);
+    const adapter = createAdapter();
+    const manager = {
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+      getCard: vi.fn(async () => currentCard),
+    };
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        title: '自定义复习',
+        queue: queue as never,
+        adapter: adapter as never,
+        plugin: {
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => manager,
+            getReviewService: () => createReviewSourceRefreshService(),
+            readDomainSyncDiagnostics: vi.fn(async () => createCleanDomainSyncDiagnostics()),
+            getStorage: () => ({
+              getSettings: () => ({}),
+            }),
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          AiWorkbenchPane: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.find('.review-grade-button').exists()).toBe(true);
+
+    await wrapper.get('.review-grade-button').trigger('click');
+    await flushPromises();
+
+    expect(queue.onFeedback).toHaveBeenCalledWith(currentCard, expect.objectContaining({
+      action: 'rate',
+      rating: 3,
+    }));
+
+    wrapper.unmount();
+  });
 });

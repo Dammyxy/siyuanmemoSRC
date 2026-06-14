@@ -506,10 +506,13 @@ import { startSemanticActivationFromReviewConcept } from './semantic/reviewSeman
 import { resolveReviewConceptRoamFocus, resolveReviewConceptRoamTargets } from './reviewConceptRoam';
 import { buildReviewNeuralEntryMenuItems } from './reviewNeuralEntryMenuItems';
 import {
+  createReviewSourceRefreshHostRuntime,
   createReviewSourceRefreshRuntime,
   getSharedReviewSourceRefreshCoordinator,
   type ReviewTransactionWebSocketServiceLike,
 } from './reviewSourceRefreshRuntime';
+import { createReviewTruthFlushHostRuntime } from './reviewHostRuntime';
+import { createReviewInlineCardEditorBridgeRuntime } from './reviewInlineCardEditorBridgeRuntime';
 import {
   bindReviewGlobalEvents,
   createReviewDuplicateKeyGuard,
@@ -857,22 +860,6 @@ function getPluginContext(plugin: unknown): ReviewPluginContextLike | undefined 
   return (plugin as ReviewPluginLike | undefined)?.getContext?.();
 }
 
-function requestReviewTruthFlush(reason: 'review-exit' | 'queue-complete' | 'manual'): void {
-  const contextFromProps = getPluginContext(props.plugin);
-  const contextFromWindow = getWindowPlugin()?.getContext?.();
-  const client = contextFromProps?.getSrsBackendClient?.()
-    || contextFromWindow?.getSrsBackendClient?.()
-    || null;
-  try {
-    client?.requestReviewTruthFlush?.(reason);
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewView] Failed to request Review truth flush', {
-      reason,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
 function getWindowPlugin(): ReviewPluginLike | null {
   const runtimeWindow = window as WindowWithReviewPlugin;
   if (runtimeWindow.siyuanMemoPlugin) {
@@ -965,6 +952,13 @@ const emit = defineEmits<{
   (e: 'convert-to-tab'): void; // 🆕 转换为 Tab 模式（kebab-case）
 }>();
 
+const reviewTruthFlushRuntime = createReviewTruthFlushHostRuntime({
+  getPlugin: () => props.plugin as ReviewPluginLike | null | undefined,
+  getWindowPlugin,
+  logger,
+});
+const requestReviewTruthFlush = reviewTruthFlushRuntime.requestReviewTruthFlush;
+
 function createReviewSessionId(): string {
   return `review-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -1001,29 +995,11 @@ let initialTabSurfaceRefreshTimer: number | null = null;
 let escRepeatLatch = false;
 
 const duplicateReviewKeyGuard = createReviewDuplicateKeyGuard({ logger });
-function getReviewSourceDependencyBlockIds(): string[] {
-  const dependencyBlockIds = contentRef.value?.getDependencyBlockIds?.() || [];
-  const currentCard = state.value.content.card;
-  const fallbackDependencyBlockIds = [
-    state.value.content.id,
-    state.value.content.answerBlockID,
-    currentCard?.blockId,
-  ];
-  const normalized = new Set<string>();
-  for (const value of [...dependencyBlockIds, ...fallbackDependencyBlockIds]) {
-    const blockId = String(value || '').trim();
-    if (blockId.length > 0) {
-      normalized.add(blockId);
-    }
-  }
-  return Array.from(normalized);
-}
-
 const reviewSourceRefreshRuntime = createReviewSourceRefreshRuntime({
   isEnabled: isReviewSourceBlockRefreshEnabled,
   isAdvancePending: isReviewAdvancePending,
   getCurrentReference: getCurrentReviewCardReference,
-  getDependencyBlockIds: getReviewSourceDependencyBlockIds,
+  getDependencyBlockIds: () => reviewSourceRefreshHostRuntime.getDependencyBlockIds(),
   resolveBackendImpact(request) {
     return getReviewService().executeReviewSourceRefresh(request);
   },
@@ -1037,6 +1013,18 @@ const reviewSourceRefreshRuntime = createReviewSourceRefreshRuntime({
     return contentRef.value?.refreshVisibleContent?.(reason) ?? false;
   },
   logger,
+});
+const reviewSourceRefreshHostRuntime = createReviewSourceRefreshHostRuntime({
+  surfaceId: `review-source:${reviewSessionId.value}`,
+  runtime: reviewSourceRefreshRuntime,
+  coordinator: getSharedReviewSourceRefreshCoordinator(),
+  isEnabled: isReviewSourceBlockRefreshEnabled,
+  getTransactionService: getReviewTransactionWebSocketService,
+  getContentExpose: () => contentRef.value,
+  getContentSnapshot: () => state.value.content,
+  onDependencyChanged: () => {
+    reviewArenaHint.value = null;
+  },
 });
 const reviewArenaRuntime = createReviewArenaRuntime({
   t,
@@ -1056,6 +1044,12 @@ const reviewStructuredConflictResolutionsBySourceTarget = new Map<string, Map<st
   resolution: ReviewEditableTargetConflictResolution;
   latestSource?: string;
 }>>();
+
+function clearReviewStructuredEditorState(): void {
+  reviewStructuredTouchedFieldIdsBySourceTarget.clear();
+  reviewStructuredConflictResolutionsBySourceTarget.clear();
+}
+
 const reviewTextEditorRuntime = createReviewCurrentContentEditorRuntime({
   t,
   showMessage,
@@ -1074,7 +1068,15 @@ const reviewTextEditorTitle = reviewTextEditorRuntime.title;
 const reviewTextEditorReadonly = reviewTextEditorRuntime.readonly;
 const reviewTextEditorConfirmDisabled = reviewTextEditorRuntime.confirmDisabled;
 const reviewTextEditorHint = reviewTextEditorRuntime.hint;
-const reviewInlineCardEditorOpen = ref(false);
+const reviewInlineCardEditorBridgeRuntime = createReviewInlineCardEditorBridgeRuntime({
+  clearStructuredState: clearReviewStructuredEditorState,
+  canOpen: () => resolveCurrentEditableTargets().length > 0,
+  showNotEditable: () => showMessage(t('currentContentNotEditable', '当前内容暂不支持编辑'), 3000, 'info'),
+  openSourceEditor: reviewTextEditorRuntime.openEditor,
+  closeSourceEditor: reviewTextEditorRuntime.close,
+  confirmSourceEditor: reviewTextEditorRuntime.confirm,
+});
+const reviewInlineCardEditorOpen = reviewInlineCardEditorBridgeRuntime.open;
 const reviewCardActionRuntime = createReviewCardActionRuntime({
   t,
   showMessage,
@@ -1819,32 +1821,10 @@ const reviewFilterRuntime = createReviewFilterRuntime({
 const showReviewFilterDialog = reviewFilterRuntime.dialogOpen;
 const appliedReviewFilter = reviewFilterRuntime.appliedFilter;
 const neuralNavigationState = ref<NeuralNavigationState | null>(null);
-let subscribedReviewTransactionService: ReviewTransactionWebSocketServiceLike | null = null;
-let reviewSourceRefreshSubscribed = false;
-const reviewSourceRefreshCoordinator = getSharedReviewSourceRefreshCoordinator();
-const reviewSourceRefreshSurfaceId = `review-source:${reviewSessionId.value}`;
-
-function getReviewSourceRefreshDependencySignature(): string {
-  const currentCard = state.value.content.card as FSRSCard | null;
-  return [
-    currentCard?.id,
-    state.value.content.id,
-    state.value.content.answerBlockID,
-    currentCard?.blockId,
-  ]
-    .map((value) => String(value || '').trim())
-    .join('\u0001');
-}
 
 watch(
-  getReviewSourceRefreshDependencySignature,
-  () => {
-    reviewSourceRefreshRuntime.clearPending();
-    if (reviewSourceRefreshSubscribed) {
-      reviewSourceRefreshCoordinator.refreshSubscription(reviewSourceRefreshSurfaceId);
-    }
-    reviewArenaHint.value = null;
-  },
+  reviewSourceRefreshHostRuntime.getDependencySignature,
+  reviewSourceRefreshHostRuntime.handleDependencyChange,
   { immediate: true },
 );
 
@@ -2567,30 +2547,7 @@ function bindReviewDataObserver(): void {
 }
 
 function bindReviewTransactionService(): void {
-  if (!isReviewSourceBlockRefreshEnabled()) {
-    unbindReviewTransactionService();
-    return;
-  }
-
-  const transactionService = getReviewTransactionWebSocketService();
-  if (!reviewSourceRefreshSubscribed) {
-    reviewSourceRefreshCoordinator.subscribe({
-      surfaceId: reviewSourceRefreshSurfaceId,
-      getDependencyBlockIds: getReviewSourceDependencyBlockIds,
-      queue: (blockIds) => reviewSourceRefreshRuntime.queue(blockIds),
-    });
-    reviewSourceRefreshSubscribed = true;
-  } else {
-    reviewSourceRefreshCoordinator.refreshSubscription(reviewSourceRefreshSurfaceId);
-  }
-
-  if (transactionService === subscribedReviewTransactionService) {
-    reviewSourceRefreshCoordinator.bindTransactionService(transactionService);
-    return;
-  }
-
-  subscribedReviewTransactionService = transactionService;
-  reviewSourceRefreshCoordinator.bindTransactionService(transactionService);
+  reviewSourceRefreshHostRuntime.bindTransactionService();
 }
 
 function unbindReviewDataObserver(): void {
@@ -2598,13 +2555,7 @@ function unbindReviewDataObserver(): void {
 }
 
 function unbindReviewTransactionService(): void {
-  reviewSourceRefreshRuntime.clear();
-  if (reviewSourceRefreshSubscribed) {
-    reviewSourceRefreshCoordinator.unsubscribe(reviewSourceRefreshSurfaceId);
-    reviewSourceRefreshSubscribed = false;
-  }
-
-  subscribedReviewTransactionService = null;
+  reviewSourceRefreshHostRuntime.unbind();
 }
 
 const clearNativeSplitMenuPruneTimer = reviewNativeSplitRuntime.clearMenuPruneTimer;
@@ -3418,10 +3369,6 @@ function shouldExposeHeaderEditButton(): boolean {
   getEditableTargetsProbeKey();
   return canOpenInlineCardEditor();
 }
-
-const closeCurrentContentEditor = reviewTextEditorRuntime.close;
-const openCurrentContentEditor = reviewTextEditorRuntime.openEditor;
-const confirmCurrentContentEditor = reviewTextEditorRuntime.confirm;
 
 function isStructuredEditableFamily(family: ReviewStructuredCardFamily): family is Exclude<ReviewStructuredCardFamily, 'source'> {
   return family === 'item' || family === 'definition' || family === 'descriptor';
@@ -4531,44 +4478,19 @@ function updateCurrentContentEditorTarget(targetId: string, nextValue: string): 
 }
 
 function canOpenInlineCardEditor(): boolean {
-  return resolveCurrentEditableTargets().length > 0;
+  return reviewInlineCardEditorBridgeRuntime.canOpen();
 }
 
 async function openInlineCardEditor(): Promise<void> {
-  if (reviewInlineCardEditorOpen.value) {
-    closeInlineCardEditor();
-    return;
-  }
-
-  reviewStructuredTouchedFieldIdsBySourceTarget.clear();
-  reviewStructuredConflictResolutionsBySourceTarget.clear();
-  const editableTargets = resolveCurrentEditableTargets();
-  if (editableTargets.length === 0) {
-    showMessage(t('currentContentNotEditable', '当前内容暂不支持编辑'), 3000, 'info');
-    return;
-  }
-
-  reviewInlineCardEditorOpen.value = true;
-  const opened = await openCurrentContentEditor();
-  if (!opened) {
-    reviewInlineCardEditorOpen.value = false;
-  }
+  await reviewInlineCardEditorBridgeRuntime.openEditor();
 }
 
 function closeInlineCardEditor(): void {
-  reviewStructuredTouchedFieldIdsBySourceTarget.clear();
-  reviewStructuredConflictResolutionsBySourceTarget.clear();
-  closeCurrentContentEditor();
-  reviewInlineCardEditorOpen.value = false;
+  reviewInlineCardEditorBridgeRuntime.close();
 }
 
 async function confirmInlineCardEditorSource(): Promise<void> {
-  const saved = await confirmCurrentContentEditor();
-  if (saved) {
-    reviewStructuredTouchedFieldIdsBySourceTarget.clear();
-    reviewStructuredConflictResolutionsBySourceTarget.clear();
-    reviewInlineCardEditorOpen.value = false;
-  }
+  await reviewInlineCardEditorBridgeRuntime.confirmSource();
 }
 
 function buildMoreMenuItems(): ReviewMenuItem[] {

@@ -552,26 +552,44 @@ export class ApplicationContext {
     });
 
     const reviewBrowserServiceBundle = createReviewBrowserServiceBundle({
-      getStorage: () => this.getStorage(),
-      getCardService: () => this.getCardService(),
-      getUnifiedStorage: () => this.getUnifiedStorage(),
-      getUnifiedDataSourceManager: () => this.getUnifiedDataSourceManager(),
-      getScheduler: () => this.getScheduler(),
-      getReviewService: () => this.getReviewService(),
-      getArenaKernelService: () => this.getArenaKernelService(),
-      getReviewLogService: () => this.getReviewLogService(),
-      getI18n: () => this.getI18n(),
-      getBrowserDeckReadPort: () => this.sqlPersistence?.unified ?? null,
-      getSrsBackendClient: () => this.srsBackendClient,
-      getFrontendInstanceRuntime: () => this.frontendInstanceRuntime,
-      getFollowerCommandClient: () => this.followerCommandClient,
-      createBrowserAdvancedSqlQuerySource: () => new BrowserAdvancedSqlQuerySourceSiyuanAdapter(new QuerySiyuanAdapter()),
-      createManagerSiyuanPort: () => new ManagerSiyuanAdapter(),
-      createBrowserSiyuanPort: () => new BrowserSiyuanAdapter(),
-      createBrowserQuerySiyuanPort: () => new QuerySiyuanAdapter(),
-      createReviewSiyuanPort: () => new ReviewSiyuanAdapter(),
-      openNeuralRoamDialog: async (options) => {
-        await this.getDialogManager().openNeuralRoamDialog(options);
+      neuralRoam: {
+        getStorage: () => this.getStorage(),
+        getCardService: () => this.getCardService(),
+        getUnifiedDataSourceManager: () => this.getUnifiedDataSourceManager(),
+        getI18n: () => this.getI18n(),
+        createManagerSiyuanPort: () => new ManagerSiyuanAdapter(),
+        openNeuralRoamDialog: async (options) => {
+          await this.getDialogManager().openNeuralRoamDialog(options);
+        },
+      },
+      browser: {
+        getUnifiedStorage: () => this.getUnifiedStorage(),
+        getUnifiedDataSourceManager: () => this.getUnifiedDataSourceManager(),
+        getSrsBackendClient: () => this.srsBackendClient,
+        getFrontendInstanceRuntime: () => this.frontendInstanceRuntime,
+        getFollowerCommandClient: () => this.followerCommandClient,
+        getBrowserDeckReadPort: () => this.sqlPersistence?.unified ?? null,
+        createBrowserAdvancedSqlQuerySource: () => new BrowserAdvancedSqlQuerySourceSiyuanAdapter(new QuerySiyuanAdapter()),
+        createBrowserSiyuanPort: () => new BrowserSiyuanAdapter(),
+        createBrowserQuerySiyuanPort: () => new QuerySiyuanAdapter(),
+      },
+      review: {
+        getUnifiedStorage: () => this.getUnifiedStorage(),
+        getUnifiedDataSourceManager: () => this.getUnifiedDataSourceManager(),
+        getScheduler: () => this.getScheduler(),
+        getSrsBackendClient: () => this.srsBackendClient,
+        getFrontendInstanceRuntime: () => this.frontendInstanceRuntime,
+        getFollowerCommandClient: () => this.followerCommandClient,
+        createReviewSiyuanPort: () => new ReviewSiyuanAdapter(),
+      },
+      cardEditor: {
+        getUnifiedDataSourceManager: () => this.getUnifiedDataSourceManager(),
+        getReviewService: () => this.getReviewService(),
+      },
+      srsTransparency: {
+        getScheduler: () => this.getScheduler(),
+        getArenaKernelService: () => this.getArenaKernelService(),
+        getReviewLogService: () => this.getReviewLogService(),
       },
     });
 

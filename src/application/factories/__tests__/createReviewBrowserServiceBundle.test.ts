@@ -72,28 +72,53 @@ describe('createReviewBrowserServiceBundle', () => {
       sql: vi.fn(async () => []),
     };
     const bundle = createReviewBrowserServiceBundle({
-      getStorage: () => ({ getCardByBlockId: vi.fn() } as never),
-      getCardService: () => ({ updateFSRSCard: vi.fn(), getCard: vi.fn() } as never),
-      getUnifiedStorage: () => ({ getAllCards: vi.fn(() => []) } as never),
-      getUnifiedDataSourceManager: () => unifiedDataSourceManager as never,
-      getScheduler: () => ({ getSchedulerType: vi.fn(), preview: vi.fn() } as never),
-      getReviewService: () => ({ getSiyuanApi: () => reviewSiyuanApi } as never),
-      getArenaKernelService: () => ({ buildSrsRecommendation: vi.fn() } as never),
-      getReviewLogService: () => ({ listReviewLogsForCard: vi.fn(async () => []) } as never),
-      getI18n: () => ({}),
-      getBrowserDeckReadPort: () => null,
-      getSrsBackendClient: () => null,
-      getFrontendInstanceRuntime: () => null,
-      getFollowerCommandClient: () => null,
-      createBrowserAdvancedSqlQuerySource: () => ({ matchedIds: vi.fn(async () => []) }),
-      createManagerSiyuanPort: () => managerSiyuanApi,
-      createBrowserSiyuanPort: () => browserSiyuanApi,
-      createBrowserQuerySiyuanPort: () => browserQuerySiyuanApi,
-      createReviewSiyuanPort: () => reviewSiyuanApi,
-      openNeuralRoamDialog: vi.fn(async () => undefined),
+      neuralRoam: {
+        getStorage: () => ({ getCardByBlockId: vi.fn() } as never),
+        getCardService: () => ({ updateFSRSCard: vi.fn(), getCard: vi.fn() } as never),
+        getUnifiedDataSourceManager: () => unifiedDataSourceManager as never,
+        getI18n: () => ({}),
+        createManagerSiyuanPort: () => managerSiyuanApi,
+        openNeuralRoamDialog: vi.fn(async () => undefined),
+      },
+      browser: {
+        getUnifiedStorage: () => ({ getAllCards: vi.fn(() => []) } as never),
+        getUnifiedDataSourceManager: () => unifiedDataSourceManager as never,
+        getSrsBackendClient: () => null,
+        getFrontendInstanceRuntime: () => null,
+        getFollowerCommandClient: () => null,
+        getBrowserDeckReadPort: () => null,
+        createBrowserAdvancedSqlQuerySource: () => ({ matchedIds: vi.fn(async () => []) }),
+        createBrowserSiyuanPort: () => browserSiyuanApi,
+        createBrowserQuerySiyuanPort: () => browserQuerySiyuanApi,
+      },
+      review: {
+        getUnifiedStorage: () => ({ getAllCards: vi.fn(() => []) } as never),
+        getUnifiedDataSourceManager: () => unifiedDataSourceManager as never,
+        getScheduler: () => ({ getSchedulerType: vi.fn(), preview: vi.fn() } as never),
+        getSrsBackendClient: () => null,
+        getFrontendInstanceRuntime: () => null,
+        getFollowerCommandClient: () => null,
+        createReviewSiyuanPort: () => reviewSiyuanApi,
+      },
+      cardEditor: {
+        getUnifiedDataSourceManager: () => unifiedDataSourceManager as never,
+        getReviewService: () => ({ getSiyuanApi: () => reviewSiyuanApi } as never),
+      },
+      srsTransparency: {
+        getScheduler: () => ({ getSchedulerType: vi.fn(), preview: vi.fn() } as never),
+        getArenaKernelService: () => ({ buildSrsRecommendation: vi.fn() } as never),
+        getReviewLogService: () => ({ listReviewLogsForCard: vi.fn(async () => []) } as never),
+      },
     });
 
     expect(source).toContain('ReviewBrowserServiceBundle');
+    expect(source).toContain('ReviewBrowserCompositionDeps');
+    expect(source).toContain('ReviewBrowserBrowserCompositionDeps');
+    expect(source).toContain('ReviewBrowserReviewCompositionDeps');
+    expect(source).toContain('ReviewBrowserNeuralRoamCompositionDeps');
+    expect(source).toContain('ReviewBrowserCardEditorCompositionDeps');
+    expect(source).toContain('ReviewBrowserSrsTransparencyCompositionDeps');
+    expect(source).not.toContain('interface CreateReviewBrowserServiceBundleDeps');
     expect(source).not.toContain('ApplicationContext');
     expect(source).not.toContain('as unknown as QuerySiyuanPort');
     expect(bundle.createNeuralRoamEntryActionService()).toBeInstanceOf(NeuralRoamEntryActionService);

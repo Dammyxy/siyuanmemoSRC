@@ -80,6 +80,43 @@ export type ReviewSourceRefreshCoordinator = ReviewTransactionHandler & {
   clear(): void;
 };
 
+export type ReviewSourceRefreshHostContentExpose = {
+  getDependencyBlockIds?: () => string[];
+};
+
+export type ReviewSourceRefreshHostContentSnapshot = {
+  id?: unknown;
+  answerBlockID?: unknown;
+  card?: {
+    id?: unknown;
+    blockId?: unknown;
+  } | null;
+};
+
+export type ReviewSourceRefreshDependencyInput = {
+  contentExpose?: ReviewSourceRefreshHostContentExpose | null;
+  content: ReviewSourceRefreshHostContentSnapshot;
+};
+
+export type ReviewSourceRefreshHostRuntimeOptions = {
+  surfaceId: string;
+  runtime: Pick<ReviewSourceRefreshRuntime, 'queue' | 'clearPending' | 'clear'>;
+  coordinator: Pick<ReviewSourceRefreshCoordinator, 'subscribe' | 'unsubscribe' | 'refreshSubscription' | 'bindTransactionService'>;
+  isEnabled: () => boolean;
+  getTransactionService: () => ReviewTransactionWebSocketServiceLike | null;
+  getContentExpose: () => ReviewSourceRefreshHostContentExpose | null;
+  getContentSnapshot: () => ReviewSourceRefreshHostContentSnapshot;
+  onDependencyChanged?: () => void;
+};
+
+export type ReviewSourceRefreshHostRuntime = {
+  getDependencyBlockIds(): string[];
+  getDependencySignature(): string;
+  handleDependencyChange(): void;
+  bindTransactionService(): void;
+  unbind(): void;
+};
+
 const DEFAULT_SOURCE_REFRESH_DEBOUNCE_MS = 200;
 const DEFAULT_SOURCE_REFRESH_SUPPRESSION_MS = 600;
 
@@ -91,6 +128,107 @@ function normalizeReference(reference: ReviewSourceRefreshReference): { cardId: 
   return {
     cardId: normalizeId(reference.cardId),
     blockId: normalizeId(reference.blockId),
+  };
+}
+
+function addNormalizedId(target: Set<string>, value: unknown): void {
+  const blockId = normalizeId(value);
+  if (blockId.length > 0) {
+    target.add(blockId);
+  }
+}
+
+export function collectReviewSourceRefreshDependencyBlockIds(
+  input: ReviewSourceRefreshDependencyInput,
+): string[] {
+  const normalized = new Set<string>();
+  for (const blockId of input.contentExpose?.getDependencyBlockIds?.() || []) {
+    addNormalizedId(normalized, blockId);
+  }
+  addNormalizedId(normalized, input.content.id);
+  addNormalizedId(normalized, input.content.answerBlockID);
+  addNormalizedId(normalized, input.content.card?.blockId);
+  return Array.from(normalized);
+}
+
+export function createReviewSourceRefreshDependencySignature(
+  content: ReviewSourceRefreshHostContentSnapshot,
+): string {
+  return [
+    content.card?.id,
+    content.id,
+    content.answerBlockID,
+    content.card?.blockId,
+  ]
+    .map((value) => normalizeId(value))
+    .join('\u0001');
+}
+
+export function createReviewSourceRefreshHostRuntime(
+  options: ReviewSourceRefreshHostRuntimeOptions,
+): ReviewSourceRefreshHostRuntime {
+  let subscribedTransactionService: ReviewTransactionWebSocketServiceLike | null = null;
+  let subscribed = false;
+
+  const getDependencyBlockIds = (): string[] => collectReviewSourceRefreshDependencyBlockIds({
+    contentExpose: options.getContentExpose(),
+    content: options.getContentSnapshot(),
+  });
+
+  const getDependencySignature = (): string => createReviewSourceRefreshDependencySignature(
+    options.getContentSnapshot(),
+  );
+
+  const handleDependencyChange = (): void => {
+    options.runtime.clearPending();
+    if (subscribed) {
+      options.coordinator.refreshSubscription(options.surfaceId);
+    }
+    options.onDependencyChanged?.();
+  };
+
+  const unbind = (): void => {
+    options.runtime.clear();
+    if (subscribed) {
+      options.coordinator.unsubscribe(options.surfaceId);
+      subscribed = false;
+    }
+    subscribedTransactionService = null;
+  };
+
+  const bindTransactionService = (): void => {
+    if (!options.isEnabled()) {
+      unbind();
+      return;
+    }
+
+    const transactionService = options.getTransactionService();
+    if (!subscribed) {
+      options.coordinator.subscribe({
+        surfaceId: options.surfaceId,
+        getDependencyBlockIds,
+        queue: (blockIds) => options.runtime.queue(blockIds),
+      });
+      subscribed = true;
+    } else {
+      options.coordinator.refreshSubscription(options.surfaceId);
+    }
+
+    if (transactionService === subscribedTransactionService) {
+      options.coordinator.bindTransactionService(transactionService);
+      return;
+    }
+
+    subscribedTransactionService = transactionService;
+    options.coordinator.bindTransactionService(transactionService);
+  };
+
+  return {
+    getDependencyBlockIds,
+    getDependencySignature,
+    handleDependencyChange,
+    bindTransactionService,
+    unbind,
   };
 }
 

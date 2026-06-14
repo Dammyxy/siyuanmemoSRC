@@ -29,26 +29,52 @@ import { threeChoiceDialog } from '@/utils/dialog';
 
 type I18nDictionary = Record<string, string>;
 
-export interface CreateReviewBrowserServiceBundleDeps {
-  getStorage: () => StorageManager;
-  getCardService: () => CardApplicationService;
+export interface ReviewBrowserSharedCompositionDeps {
   getUnifiedStorage: () => UnifiedStorageManager;
   getUnifiedDataSourceManager: () => IUnifiedDataSourceManagerFacade;
-  getScheduler: () => SchedulerRouter;
-  getReviewService: () => ReviewApplicationService;
-  getArenaKernelService: () => ArenaKernelService;
-  getReviewLogService: () => ReviewLogService;
-  getI18n: () => I18nDictionary;
-  getBrowserDeckReadPort: () => BrowserDeckReadPort | null;
   getSrsBackendClient: () => SrsBackendClient | null;
   getFrontendInstanceRuntime: () => FrontendInstanceRuntime | null;
   getFollowerCommandClient: () => FollowerCommandClient | null;
-  createBrowserAdvancedSqlQuerySource: () => BrowserAdvancedSqlQuerySourcePort;
+}
+
+export interface ReviewBrowserNeuralRoamCompositionDeps {
+  getStorage: () => StorageManager;
+  getCardService: () => CardApplicationService;
+  getUnifiedDataSourceManager: () => IUnifiedDataSourceManagerFacade;
+  getI18n: () => I18nDictionary;
   createManagerSiyuanPort: () => ManagerSiyuanPort;
+  openNeuralRoamDialog: (options?: NeuralRoamOpenOptions) => Promise<void>;
+}
+
+export interface ReviewBrowserBrowserCompositionDeps extends ReviewBrowserSharedCompositionDeps {
+  getBrowserDeckReadPort: () => BrowserDeckReadPort | null;
+  createBrowserAdvancedSqlQuerySource: () => BrowserAdvancedSqlQuerySourcePort;
   createBrowserSiyuanPort: () => BrowserSiyuanPort;
   createBrowserQuerySiyuanPort: () => BrowserQuerySiyuanPort;
+}
+
+export interface ReviewBrowserReviewCompositionDeps extends ReviewBrowserSharedCompositionDeps {
+  getScheduler: () => SchedulerRouter;
   createReviewSiyuanPort: () => ReviewSiyuanPort;
-  openNeuralRoamDialog: (options?: NeuralRoamOpenOptions) => Promise<void>;
+}
+
+export interface ReviewBrowserCardEditorCompositionDeps {
+  getUnifiedDataSourceManager: () => IUnifiedDataSourceManagerFacade;
+  getReviewService: () => ReviewApplicationService;
+}
+
+export interface ReviewBrowserSrsTransparencyCompositionDeps {
+  getScheduler: () => SchedulerRouter;
+  getArenaKernelService: () => ArenaKernelService;
+  getReviewLogService: () => ReviewLogService;
+}
+
+export interface ReviewBrowserCompositionDeps {
+  neuralRoam: ReviewBrowserNeuralRoamCompositionDeps;
+  browser: ReviewBrowserBrowserCompositionDeps;
+  review: ReviewBrowserReviewCompositionDeps;
+  cardEditor: ReviewBrowserCardEditorCompositionDeps;
+  srsTransparency: ReviewBrowserSrsTransparencyCompositionDeps;
 }
 
 export interface ReviewBrowserServiceBundle {
@@ -60,22 +86,23 @@ export interface ReviewBrowserServiceBundle {
 }
 
 export function createReviewBrowserServiceBundle(
-  deps: CreateReviewBrowserServiceBundleDeps,
+  deps: ReviewBrowserCompositionDeps,
 ): ReviewBrowserServiceBundle {
   return {
     createNeuralRoamEntryActionService: () => {
-      const siyuanApi = deps.createManagerSiyuanPort();
-      const cardService = deps.getCardService();
+      const neuralRoam = deps.neuralRoam;
+      const siyuanApi = neuralRoam.createManagerSiyuanPort();
+      const cardService = neuralRoam.getCardService();
       return new NeuralRoamEntryActionService({
-        storage: deps.getStorage(),
+        storage: neuralRoam.getStorage(),
         cardCreationHelper: new CardCreationHelper(cardService),
         cardService,
-        dataSourceManager: deps.getUnifiedDataSourceManager(),
+        dataSourceManager: neuralRoam.getUnifiedDataSourceManager(),
         siyuanApi,
-        openNeuralRoamDialog: deps.openNeuralRoamDialog,
+        openNeuralRoamDialog: neuralRoam.openNeuralRoamDialog,
         resolveBlockTitle: async (blockId) => siyuanApi.getBlockText(blockId),
         promptTemporaryRouteClose: async () => {
-          const i18n = deps.getI18n();
+          const i18n = neuralRoam.getI18n();
           const choice = await threeChoiceDialog({
             title: i18n.temporaryRouteDirtyTitle || '临时航线有改动',
             content: i18n.temporaryRouteDirtyClosePrompt || '当前临时航线已有新的概念、空间站或漫游记录。请选择保存为航线、丢弃，或取消当前操作。',
@@ -95,42 +122,52 @@ export function createReviewBrowserServiceBundle(
       });
     },
     createBrowserApplicationService: () => {
-      const browserSiyuanApi = deps.createBrowserSiyuanPort();
-      const browserQuerySiyuanApi = deps.createBrowserQuerySiyuanPort();
+      const browser = deps.browser;
+      const browserSiyuanApi = browser.createBrowserSiyuanPort();
+      const browserQuerySiyuanApi = browser.createBrowserQuerySiyuanPort();
       return new BrowserApplicationService(
-        deps.getUnifiedStorage(),
+        browser.getUnifiedStorage(),
         new CardScheduleService(),
         new CardFilterService(),
         new CardSortService(),
-        deps.getUnifiedDataSourceManager(),
+        browser.getUnifiedDataSourceManager(),
         browserSiyuanApi,
         browserQuerySiyuanApi,
         null,
-        deps.getBrowserDeckReadPort(),
-        deps.getSrsBackendClient(),
-        deps.getFrontendInstanceRuntime(),
-        deps.getFollowerCommandClient(),
-        deps.createBrowserAdvancedSqlQuerySource(),
-        createCdfLiveRelationCardCreatorFromUnifiedStorage(deps.getUnifiedStorage()),
+        browser.getBrowserDeckReadPort(),
+        browser.getSrsBackendClient(),
+        browser.getFrontendInstanceRuntime(),
+        browser.getFollowerCommandClient(),
+        browser.createBrowserAdvancedSqlQuerySource(),
+        createCdfLiveRelationCardCreatorFromUnifiedStorage(browser.getUnifiedStorage()),
       );
     },
-    createReviewApplicationService: () => new ReviewApplicationService(
-      deps.getUnifiedDataSourceManager(),
-      deps.getScheduler(),
-      deps.createReviewSiyuanPort(),
-      deps.getSrsBackendClient(),
-      deps.getFrontendInstanceRuntime(),
-      deps.getFollowerCommandClient(),
-      createCdfLiveRelationCardCreatorFromUnifiedStorage(deps.getUnifiedStorage()),
-    ),
-    createCardEditorApplicationService: () => new CardEditorApplicationService(
-      deps.getUnifiedDataSourceManager(),
-      deps.getReviewService(),
-    ),
-    createSrsTransparencyApplicationService: () => new SrsTransparencyApplicationService(
-      deps.getScheduler(),
-      deps.getArenaKernelService(),
-      new ReviewLogLearningCurveEvidenceReader(deps.getReviewLogService()),
-    ),
+    createReviewApplicationService: () => {
+      const review = deps.review;
+      return new ReviewApplicationService(
+        review.getUnifiedDataSourceManager(),
+        review.getScheduler(),
+        review.createReviewSiyuanPort(),
+        review.getSrsBackendClient(),
+        review.getFrontendInstanceRuntime(),
+        review.getFollowerCommandClient(),
+        createCdfLiveRelationCardCreatorFromUnifiedStorage(review.getUnifiedStorage()),
+      );
+    },
+    createCardEditorApplicationService: () => {
+      const cardEditor = deps.cardEditor;
+      return new CardEditorApplicationService(
+        cardEditor.getUnifiedDataSourceManager(),
+        cardEditor.getReviewService(),
+      );
+    },
+    createSrsTransparencyApplicationService: () => {
+      const srsTransparency = deps.srsTransparency;
+      return new SrsTransparencyApplicationService(
+        srsTransparency.getScheduler(),
+        srsTransparency.getArenaKernelService(),
+        new ReviewLogLearningCurveEvidenceReader(srsTransparency.getReviewLogService()),
+      );
+    },
   };
 }

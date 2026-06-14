@@ -46,6 +46,12 @@ describe('ApplicationContext backend worker runtime boundary', () => {
 
     expect(contextSource).toContain('createApplicationBackendRuntimeBundle');
     expect(contextSource).not.toContain('new BrowserSrsBackendWorkerTransport');
+    expect(factorySource).toContain('export interface CreateApplicationBackendRuntimeBundleOptions');
+    expect(factorySource).toContain('config: {');
+    expect(factorySource).toContain('fileService: FileService');
+    expect(factorySource).toContain('unifiedDataSourceManager: UnifiedDataSourceManager');
+    expect(factorySource).toContain('executeWriterRelayCommand');
+    expect(factorySource).not.toContain("from '@/application/ApplicationContext'");
     expect(factorySource).toContain('BrowserSrsBackendWorkerTransport');
     expect(factorySource).toContain("from '@/application/clients/BrowserSrsBackendWorkerTransport'");
     expect(factorySource).toContain('new BrowserSrsBackendWorkerTransport');
@@ -68,7 +74,7 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     const factorySource = readBackendRuntimeFactorySource();
     const identitySource = readTruthDeviceIdentitySource();
 
-    expect(factorySource).toContain('resolveTruthDeviceId({ localStore: options.fileService })');
+    expect(factorySource).toContain('resolveTruthDeviceIdentity({ localStore: options.fileService })');
     expect(factorySource).toContain('TRUTH_DEVICE_ID_UNAVAILABLE');
     expect(identitySource).toContain("TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.truth.deviceId.v1'");
     expect(identitySource).toContain("LEGACY_REVIEW_TRUTH_DEVICE_ID_STORAGE_KEY = 'siyuanmemo.reviewTruth.deviceId.v1'");

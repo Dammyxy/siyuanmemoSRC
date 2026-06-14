@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  collectReviewSourceRefreshDependencyBlockIds,
   collectChangedBlockIdsFromReviewTransactions,
+  createReviewSourceRefreshHostRuntime,
   createReviewSourceRefreshCoordinator,
   createReviewSourceRefreshRuntime,
 } from '../reviewSourceRefreshRuntime';
@@ -169,5 +171,81 @@ describe('reviewSourceRefreshRuntime', () => {
 
     coordinator.unsubscribe('surface-a');
     expect(unregisterHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it('collects source refresh dependencies from rendered content and current card fallback ids', () => {
+    expect(collectReviewSourceRefreshDependencyBlockIds({
+      contentExpose: {
+        getDependencyBlockIds: () => [' dep-1 ', '', 'dep-2', 'dep-1'],
+      },
+      content: {
+        id: 'content-block',
+        answerBlockID: 'answer-block',
+        card: {
+          id: 'card-1',
+          blockId: 'dep-2',
+        },
+      },
+    })).toEqual(['dep-1', 'dep-2', 'content-block', 'answer-block']);
+  });
+
+  it('host runtime owns source refresh subscription wiring and dependency refresh', () => {
+    const runtime = {
+      queue: vi.fn(),
+      clearPending: vi.fn(),
+      clear: vi.fn(),
+    };
+    const transactionService = {};
+    const coordinator = {
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      refreshSubscription: vi.fn(),
+      bindTransactionService: vi.fn(),
+    };
+    const onDependencyChanged = vi.fn();
+    const hostRuntime = createReviewSourceRefreshHostRuntime({
+      surfaceId: 'review-source:session-1',
+      runtime,
+      coordinator,
+      isEnabled: () => true,
+      getTransactionService: () => transactionService,
+      getContentExpose: () => ({
+        getDependencyBlockIds: () => ['dep-1'],
+      }),
+      getContentSnapshot: () => ({
+        id: 'content-block',
+        answerBlockID: 'answer-block',
+        card: {
+          id: 'card-1',
+          blockId: 'card-block',
+        },
+      }),
+      onDependencyChanged,
+    });
+
+    hostRuntime.bindTransactionService();
+
+    expect(coordinator.subscribe).toHaveBeenCalledTimes(1);
+    expect(coordinator.subscribe).toHaveBeenCalledWith({
+      surfaceId: 'review-source:session-1',
+      getDependencyBlockIds: expect.any(Function),
+      queue: expect.any(Function),
+    });
+    const subscription = coordinator.subscribe.mock.calls[0][0];
+    expect(subscription.getDependencyBlockIds()).toEqual(['dep-1', 'content-block', 'answer-block', 'card-block']);
+    subscription.queue(['dep-1']);
+    expect(runtime.queue).toHaveBeenCalledWith(['dep-1']);
+    expect(coordinator.bindTransactionService).toHaveBeenCalledWith(transactionService);
+
+    hostRuntime.handleDependencyChange();
+
+    expect(runtime.clearPending).toHaveBeenCalledTimes(1);
+    expect(coordinator.refreshSubscription).toHaveBeenCalledWith('review-source:session-1');
+    expect(onDependencyChanged).toHaveBeenCalledTimes(1);
+
+    hostRuntime.unbind();
+
+    expect(runtime.clear).toHaveBeenCalledTimes(1);
+    expect(coordinator.unsubscribe).toHaveBeenCalledWith('review-source:session-1');
   });
 });

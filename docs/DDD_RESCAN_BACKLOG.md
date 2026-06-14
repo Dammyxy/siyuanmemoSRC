@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-14 (Round 590)
+Last update: 2026-06-14 (Round 591)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-14 - Review View host runtime thinning
+
+- Task: Implement OpenSpec change `thin-review-view-host-runtime` by moving non-AI Review View host glue behind focused UI runtime modules.
+- Touched slice: Review UI host runtime path in `src/ui/review/v2/ReviewView.vue`, `reviewHostRuntime.ts`, `reviewSourceRefreshRuntime.ts`, `reviewInlineCardEditorBridgeRuntime.ts`, focused runtime tests, Review View source/action smoke, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Moved Review truth flush plugin/window context lookup into `reviewHostRuntime`; moved source refresh dependency collection, dependency signature, subscription refresh, transaction-service bind/unbind wiring into the source refresh runtime module; moved inline editor open/close/confirm bridge state and structured editor cleanup into `reviewInlineCardEditorBridgeRuntime`; added focused tests plus a Review View main-action smoke.
+- Debt deferred: CDF interruption projection, viewport/dialog layout state, large Review menu/command builders, AI sidecar, AI workbench, Semantic activation, NeuralRoam route semantics, scheduler rules, and queue membership remain outside this slice.
+- Why deferred: This change intentionally thins only low-risk non-rendering host seams without changing Review session transactions, scheduling, queue semantics, or AI/agent-adjacent surfaces.
+- Next safe step: Continue with CDF interruption projection or viewport/dialog layout host runtime only after adding focused characterization tests for that narrower seam.
+- Validation: Focused `pnpm vitest run src/ui/review/v2/__tests__/reviewHostRuntime.test.ts src/ui/review/v2/__tests__/reviewSourceRefreshRuntime.test.ts src/ui/review/v2/__tests__/reviewInlineCardEditorBridgeRuntime.test.ts src/ui/review/v2/__tests__/ReviewView.source-block-refresh.spec.ts --reporter=dot`; `openspec validate thin-review-view-host-runtime --strict`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check`; `pnpm build`.
+
+### 2026-06-14 - ApplicationContext composition interface audit
+
+- Task: Implement OpenSpec change `audit-application-context-composition-interface` by auditing high-traffic composition dependencies and narrowing one low-risk factory seam.
+- Touched slice: Application composition root wiring in `src/application/ApplicationContext.ts`, Review/Browser bundle factory `src/application/factories/createReviewBrowserServiceBundle.ts`, focused factory/backend runtime tests, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Documented ApplicationContext dependency consumers by slice; split the Review/Browser factory dependency surface into `neuralRoam`, `browser`, `review`, `cardEditor`, and `srsTransparency` composition interfaces; removed the previous flat `CreateReviewBrowserServiceBundleDeps` pass-through type; added assertions that backend runtime bundle options remain explicit and do not import `ApplicationContext`.
+- Debt deferred: Public `ApplicationContext` getters, service registry access, UI manager constructor dependencies, Progressive/Topic-derived wiring, private API wiring, and domain-sync helpers remain broad compatibility surfaces.
+- Why deferred: This slice preserves startup order, service lifetime, backend worker ownership, writer relay routing, and SQL ownership; migrating all callers or managers would become a repo-wide composition-root rewrite.
+- Next safe step: Split UI manager `ApplicationContext` constructor dependencies or group Progressive/Topic-derived factory deps by command/read materialization in a separate change.
+- Validation: Focused `pnpm vitest run src/application/factories/__tests__/createReviewBrowserServiceBundle.test.ts src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts --reporter=dot`; `openspec validate audit-application-context-composition-interface --strict`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check`; `pnpm build`.
 
 ### 2026-06-14 - Xiuyuan sync worker runtime extraction
 
