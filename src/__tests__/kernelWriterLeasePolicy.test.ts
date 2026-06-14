@@ -415,6 +415,69 @@ describe('kernel writer lease profile policy', () => {
     });
   });
 
+  it('relays memo_card draft without kernel-side AI prompt, source read, or candidate ownership', async () => {
+    const kernelSource = readFileSync(resolve(process.cwd(), 'src/kernel.ts'), 'utf8');
+    expect(kernelSource).not.toContain('AgentCardDraftService');
+    expect(kernelSource).not.toContain('OpenAICompatibleLLMAdapter');
+    expect(kernelSource).not.toContain('getBlockText');
+    expect(kernelSource).not.toContain('sourceContent missing');
+
+    const { registeredMcpTools, handlers } = await loadKernelHarness();
+    await handlers['writer.acquireLease']({
+      instanceId: 'writer-a',
+      locationHref: 'http://127.0.0.1:61082/stage/build/app/',
+      visibilityState: 'visible',
+      writerProfile: primaryProfile,
+    });
+    const memoCard = registeredMcpTools.find((tool) => tool.name === 'memo_card');
+    const toolCall = memoCard!.handler({
+      action: 'draft',
+      sourceBlockId: 'block-source',
+      count: 3,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const command = await handlers['writer.takeCommand']({ instanceId: 'writer-a' }) as {
+      command?: {
+        commandId: string;
+        method: string;
+        params?: unknown;
+      };
+    };
+    expect(command.command).toMatchObject({
+      method: 'agent.tool.execute',
+      params: {
+        tool: 'memo_card',
+        args: {
+          action: 'draft',
+          sourceBlockId: 'block-source',
+          count: 3,
+        },
+        source: 'mcp',
+      },
+    });
+    await handlers['writer.completeCommand']({
+      instanceId: 'writer-a',
+      commandId: command.command!.commandId,
+      result: {
+        ok: false,
+        status: 'unavailable',
+        error: {
+          code: 'AGENT_API_UNAVAILABLE',
+          message: 'AI draft runtime unavailable',
+        },
+      },
+    });
+
+    await expect(toolCall).resolves.toMatchObject({
+      ok: false,
+      status: 'unavailable',
+      error: {
+        code: 'AGENT_API_UNAVAILABLE',
+      },
+    });
+  });
+
   it('unregisters Agent MCP tools on unload when the API exists', async () => {
     const { unload, unregisteredMcpTools } = await loadKernelHarness();
 

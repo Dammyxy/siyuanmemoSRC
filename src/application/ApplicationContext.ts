@@ -133,6 +133,7 @@ import { PrivateApiAuditService } from '@/application/services/PrivateApiAuditSe
 import { PrivateApiService } from '@/application/services/PrivateApiService';
 import { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import { AgentToolService } from '@/application/services/AgentToolService';
+import { AgentCardDraftService } from '@/application/services/AgentCardDraftService';
 import {
   buildAgentValidationErrorResult,
   isAgentToolName,
@@ -144,6 +145,8 @@ import { ConfiguredCaptureStorageSiyuanAdapter } from '@/infrastructure/siyuan/C
 import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKernelCompanionAdapter';
 import { SiyuanNeuralRoamGraphQueryAdapter } from '@/infrastructure/siyuan/SiyuanNeuralRoamGraphQueryAdapter';
 import { KernelAINetworkProxyAdapter } from '@/infrastructure/ai/KernelAINetworkProxyAdapter';
+import { OpenAICompatibleLLMAdapter } from '@/infrastructure/llm/OpenAICompatibleLLMAdapter';
+import { AISiyuanAdapter } from '@/infrastructure/siyuan/AISiyuanAdapter';
 import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
 import { SiyuanBlockAdapter as QuickCardSiyuanBlockAdapter } from '@/core/card/quick-card/infrastructure/SiyuanBlockAdapter';
 import { SiyuanBlockAdapter as DescriptorCardSiyuanBlockAdapter } from '@/core/card/descriptor-card/infrastructure/SiyuanBlockAdapter';
@@ -821,6 +824,11 @@ export class ApplicationContext {
         dialogManager: context.getDialogManager(),
         tabManager: context.getTabManager(),
         reviewSessionRegistry: context.getSharedReviewSessionRegistry(),
+        cardDraftService: new AgentCardDraftService({
+          getAISettings: () => context.getSettingsService().getSettings().ai,
+          llmPort: new OpenAICompatibleLLMAdapter(),
+          siyuanPort: new AISiyuanAdapter(context.getPlugin()),
+        }),
       });
     });
     

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-14 (Round 593)
+Last update: 2026-06-14 (Round 594)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-14 - Agent AI card draft pipeline
+
+- Task: Implement OpenSpec change `agent-card-drafting-ai-pipeline` by replacing local Agent draft heuristics with bounded AI-backed preview candidates.
+- Touched slice: SiYuan Agent integration and AI workbench/capture boundary across `src/application/services/AgentCardDraftService.ts`, `src/application/services/AgentToolService.ts`, `src/application/ApplicationContext.ts`, Agent/kernel/composition tests, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Moved `memo_card action=draft` source resolution, RemNote-style prompt construction, `LLMPort` execution, JSON parsing, candidate normalization, source bounding, and AI unavailable handling into an application-owned draft service; removed the active-path heuristic candidate generator from `AgentToolService`; kept kernel MCP code as validation/relay glue; and preserved selected-draft save as the only card persistence path.
+- Debt deferred: Live SiYuan Agent/provider smoke, candidate rerank/refine loops, richer CDF descriptor persistence fields, backend AI session routing for this stateless Agent draft service, and quality telemetry remain outside this slice.
+- Why deferred: This change closes the ownership and safety contract first. Live provider smoke depends on local AI credentials/runtime, while refine/rerank/telemetry and descriptor-specific persistence would change product behavior beyond the preview/save pipeline.
+- Next safe step: Run a live Agent draft smoke with configured AI, then decide whether descriptor candidates need a dedicated save payload instead of plain front/back mapping.
+- Validation: Focused `pnpm vitest run src/application/services/__tests__/AgentCardDraftService.test.ts src/application/services/__tests__/AgentToolService.test.ts src/application/agent/__tests__/AgentToolContracts.test.ts src/application/__tests__/ApplicationContext.writer-relay.test.ts src/__tests__/kernelWriterLeasePolicy.test.ts`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate agent-card-drafting-ai-pipeline --strict`.
 
 ### 2026-06-14 - SiYuan Agent tool exposure
 

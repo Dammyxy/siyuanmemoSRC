@@ -57,6 +57,29 @@ function createServiceDeps() {
         }),
       })),
     },
+    cardDraftService: {
+      draft: vi.fn(async () => ({
+        ok: true,
+        status: 'success' as const,
+        data: {
+          candidates: [{
+            draftId: 'draft-ai-0',
+            type: 'qa',
+            front: 'AI front',
+            back: 'AI back',
+            sourceRefs: [{ blockId: 'block-source' }],
+            validationWarnings: [],
+            persisted: false,
+          }],
+          persisted: false,
+        },
+        meta: {
+          returnedItemCount: 1,
+          totalItemCount: 1,
+          followUpAction: 'memo_card action=save selectedDraftIds=[...] drafts=[...]',
+        },
+      })),
+    },
     idFactory: (seed: string, index: number) => `draft-${seed}-${index}`,
     now: () => 10,
   };
@@ -112,7 +135,7 @@ describe('AgentToolService', () => {
     expect(deps.browserService.getQueueCounts).not.toHaveBeenCalled();
   });
 
-  it('drafts bounded preview candidates without card writes', async () => {
+  it('routes draft requests to the card draft service without card writes', async () => {
     const deps = createServiceDeps();
     const service = new AgentToolService(deps);
 
@@ -129,34 +152,40 @@ describe('AgentToolService', () => {
       ok: true,
       data: {
         persisted: false,
+        candidates: [{
+          draftId: 'draft-ai-0',
+          front: 'AI front',
+        }],
       },
     });
-    if (result.ok) {
-      const candidates = (result.data as { candidates: unknown[] }).candidates;
-      expect(candidates).toHaveLength(5);
-      expect(candidates[0]).toMatchObject({
-        draftId: 'draft-block-source-0',
-        type: 'qa',
-        sourceRefs: [{ blockId: 'block-source' }],
-      });
-    }
+    expect(deps.cardDraftService.draft).toHaveBeenCalledWith({
+      action: 'draft',
+      sourceContent: 'Question one? Answer one.\nQuestion two? Answer two.',
+      sourceBlockId: 'block-source',
+    });
     expect(deps.cardService.createCard).not.toHaveBeenCalled();
   });
 
-  it('rejects draft requests above the hard limit', async () => {
-    const service = new AgentToolService(createServiceDeps());
+  it('returns explicit unavailable for draft when the draft service is not wired', async () => {
+    const deps = createServiceDeps();
+    const service = new AgentToolService({
+      ...deps,
+      cardDraftService: null,
+    });
 
     await expect(service.execute({
       tool: 'memo_card',
       args: {
         action: 'draft',
-        sourceContent: 'too many',
-        limit: 21,
+        sourceContent: 'Would have been a heuristic candidate before.',
       },
     })).resolves.toMatchObject({
       ok: false,
-      error: { code: 'VALIDATION_ERROR' },
+      status: 'unavailable',
+      error: { code: 'AGENT_API_UNAVAILABLE' },
     });
+    expect(deps.cardDraftService.draft).not.toHaveBeenCalled();
+    expect(deps.cardService.createCard).not.toHaveBeenCalled();
   });
 
   it('saves only selected draft candidates through CardApplicationService', async () => {
@@ -169,6 +198,7 @@ describe('AgentToolService', () => {
         front: 'front a',
         back: 'back a',
         sourceRefs: [{ blockId: 'block-a' }],
+        persisted: false,
       },
       {
         draftId: 'draft-b',
@@ -176,6 +206,7 @@ describe('AgentToolService', () => {
         front: 'front b',
         back: 'back b',
         sourceRefs: [{ blockId: 'block-b' }],
+        persisted: false,
       },
     ];
 

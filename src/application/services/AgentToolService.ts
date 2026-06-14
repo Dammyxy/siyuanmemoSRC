@@ -40,6 +40,10 @@ type AgentReviewSessionRegistry = {
   getSession?: <TSession = unknown>(sessionId: string) => TSession | null;
 };
 
+type AgentCardDraftServicePort = {
+  draft: (args: Record<string, unknown>) => MaybePromise<AgentToolResult>;
+};
+
 export interface AgentToolExecutionRequest {
   tool: AgentToolName;
   args: Record<string, unknown>;
@@ -57,6 +61,7 @@ export interface AgentDraftCandidate {
     title?: string;
   }>;
   validationWarnings: string[];
+  persisted?: boolean;
 }
 
 export interface AgentToolServiceDeps {
@@ -65,12 +70,10 @@ export interface AgentToolServiceDeps {
   dialogManager?: AgentDialogManager | null;
   tabManager?: AgentTabManager | null;
   reviewSessionRegistry?: AgentReviewSessionRegistry | null;
-  idFactory?: (seed: string, index: number) => string;
+  cardDraftService?: AgentCardDraftServicePort | null;
   now?: () => number;
 }
 
-const DEFAULT_DRAFT_LIMIT = 5;
-const MAX_DRAFT_LIMIT = 20;
 const RESULT_ARRAY_LIMIT = 20;
 const RESULT_TEXT_LIMIT = 2_000;
 
@@ -89,30 +92,9 @@ function normalizeStringArray(value: unknown): string[] {
   return Array.from(new Set(value.map(normalizeString).filter(Boolean)));
 }
 
-function normalizeDraftLimit(value: unknown): number | AgentToolResult {
-  if (value === undefined || value === null || value === '') {
-    return DEFAULT_DRAFT_LIMIT;
-  }
-  const limit = Math.floor(Number(value));
-  if (!Number.isFinite(limit) || limit <= 0) {
-    return buildAgentValidationErrorResult('memo_card draft limit must be a positive number');
-  }
-  if (limit > MAX_DRAFT_LIMIT) {
-    return buildAgentValidationErrorResult(`memo_card draft limit exceeds ${MAX_DRAFT_LIMIT}`);
-  }
-  return limit;
-}
-
 function shortText(value: unknown, fallback: string): string {
   const text = normalizeString(value);
   return text ? text.slice(0, RESULT_TEXT_LIMIT) : fallback;
-}
-
-function stableSeed(args: Record<string, unknown>): string {
-  return normalizeString(args.sourceBlockId)
-    || normalizeString(args.blockId)
-    || normalizeString(args.sourceDocId)
-    || 'agent-source';
 }
 
 function mapDraftTypeToCardType(type: AgentDraftCandidate['type']): string {
@@ -149,7 +131,8 @@ function normalizeDraftCandidate(value: unknown): AgentDraftCandidate | null {
     front: shortText(value.front, 'Untitled prompt'),
     back: shortText(value.back, 'Draft answer pending user refinement.'),
     sourceRefs,
-    validationWarnings: normalizeStringArray(value.validationWarnings),
+  validationWarnings: normalizeStringArray(value.validationWarnings),
+    persisted: value.persisted === true ? true : undefined,
   };
 }
 
@@ -286,7 +269,10 @@ export class AgentToolService {
 
   private async executeMemoCard(action: string, args: Record<string, unknown>): Promise<AgentToolResult> {
     if (action === 'draft') {
-      return this.previewDraftCandidates(args);
+      if (!this.deps.cardDraftService?.draft) {
+        return buildAgentUnavailableResult('AGENT_API_UNAVAILABLE', 'memo_card draft requires AgentCardDraftService');
+      }
+      return await this.deps.cardDraftService.draft(args);
     }
     if (action === 'save') {
       return await this.saveSelectedDrafts(args);
@@ -298,63 +284,6 @@ export class AgentToolService {
       return await this.updateCardSuspension(action, args);
     }
     return await this.inspectCards(args);
-  }
-
-  private previewDraftCandidates(args: Record<string, unknown>): AgentToolResult {
-    const limit = normalizeDraftLimit(args.limit ?? args.count);
-    if (typeof limit !== 'number') {
-      return limit;
-    }
-
-    const sourceContent = normalizeString(args.sourceContent || args.content);
-    const sourceBlockId = normalizeString(args.sourceBlockId || args.blockId);
-    const sourceDocId = normalizeString(args.sourceDocId);
-    const requestedType = normalizeString(args.type);
-    const draftTypes: AgentDraftCandidate['type'][] = ['qa', 'cloze', 'concept', 'descriptor'];
-    const lines = sourceContent
-      .split(/\r?\n+/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const seed = stableSeed(args);
-    const sourceRef = {
-      ...(sourceBlockId ? { blockId: sourceBlockId } : {}),
-      ...(sourceDocId ? { docId: sourceDocId } : {}),
-    };
-
-    const candidates: AgentDraftCandidate[] = Array.from({ length: limit }, (_, index) => {
-      const type = draftTypes.includes(requestedType as AgentDraftCandidate['type'])
-        ? requestedType as AgentDraftCandidate['type']
-        : draftTypes[index % draftTypes.length];
-      const line = lines[index % Math.max(1, lines.length)] || sourceContent || 'No source content supplied';
-      const warnings = sourceContent
-        ? []
-        : ['sourceContent missing; candidate requires user review before save'];
-      return {
-        draftId: (this.deps.idFactory ?? ((value, itemIndex) => `draft-${value}-${itemIndex}`))(seed, index),
-        type,
-        front: type === 'cloze'
-          ? line.replace(/[。.!?].*$/u, ' [...]')
-          : line,
-        back: type === 'concept' || type === 'descriptor'
-          ? `Explain: ${line}`
-          : `Answer: ${line}`,
-        sourceRefs: [sourceRef],
-        validationWarnings: warnings,
-      };
-    });
-
-    return buildAgentSuccessResult({
-      candidates,
-      defaultLimit: DEFAULT_DRAFT_LIMIT,
-      maxLimit: MAX_DRAFT_LIMIT,
-      persisted: false,
-      supportedTypes: draftTypes,
-      checkedAt: this.now(),
-    }, {
-      returnedItemCount: candidates.length,
-      totalItemCount: candidates.length,
-      followUpAction: 'memo_card action=save selectedDraftIds=[...] drafts=[...]',
-    });
   }
 
   private async saveSelectedDrafts(args: Record<string, unknown>): Promise<AgentToolResult> {
