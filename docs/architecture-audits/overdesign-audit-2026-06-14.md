@@ -13,12 +13,13 @@ The strongest overdesign signal is not file size. It is a Module whose Interface
 Implementation follow-up:
 
 - 2026-06-14: `retire-stale-queue-abstractions` implemented the first candidate. The stale Trait, command, Sequencer, queue Scheduler, provider `SessionManager`, and stale queue observer/type docs/tests were removed after deletion-test evidence.
-- Next safe OpenSpec candidate is now `retire-old-card-entity-repository`.
+- 2026-06-15: `retire-old-card-entity-repository` implemented the second candidate. The old `Card` Entity, `ICardRepository`, unwired `CardRepository`, entity mapper helpers, and repository-preserving tests were removed after deletion-test evidence; active FSRS DTO mapping remains.
+- Next safe OpenSpec candidate is now `shrink-review-next-dues-cache`.
 
 Strong candidates:
 
 1. Stale Queue abstraction modules: Traits, old Sequencers, old queue Schedulers, and old Observer contracts.
-2. Old Card Entity / Repository path not wired into the active production route.
+2. Old Card Entity / Repository path not wired into the active production route. Completed by `retire-old-card-entity-repository`.
 3. Over-wide `ApplicationContext` and backend runtime facades.
 4. Thin UI runtime modules that mostly move `ReviewView` or `SRSBrowser` state sideways.
 5. `CacheManagerObserver` carrying unused cache surfaces.
@@ -117,7 +118,7 @@ Suggested OpenSpec change:
 
 Next safe step:
 
-First classify `CardMapper` methods into active DTO mapping versus old entity mapping. Then delete only the old entity side and its repository tests.
+Completed by `retire-old-card-entity-repository` after deletion-test evidence found no active production construction/import of the old Entity / Repository seam. Keep this candidate closed unless a new active production reference appears.
 
 ## Candidate 3: Narrow ApplicationContext and Backend Runtime Facades
 
@@ -270,12 +271,11 @@ These Modules looked large or abstract but have real Depth:
 
 ## Recommended Refactor Order
 
-1. `retire-old-card-entity-repository`
-2. `shrink-review-next-dues-cache`
-3. `consolidate-review-shell-runtime`
-4. `fold-browser-queue-warmup-into-lifecycle`
-5. `narrow-application-context-service-factories`
-6. `split-backend-runtime-host-adapters`
+1. `shrink-review-next-dues-cache`
+2. `consolidate-review-shell-runtime`
+3. `fold-browser-queue-warmup-into-lifecycle`
+4. `narrow-application-context-service-factories`
+5. `split-backend-runtime-host-adapters`
 
 Reason:
 
@@ -305,6 +305,6 @@ Not performed:
 ## Open Questions
 
 - Should stale abstraction docs be deleted outright, archived under a historical docs directory, or referenced from a migration-retirement note?
-- Should `CardMapper` keep entity conversion helpers for external data migration fixtures, or should those tests be rewritten around FSRS DTOs?
+- Resolved 2026-06-15: `CardMapper` should not keep Entity conversion helpers; tests now cover FSRS DTO mapping.
 - Should backend migration policy now be considered stable release policy, with migration ledger moved entirely to docs/checkers?
 - Should Review shell glue be consolidated in UI first, or should tab transfer ownership move toward `TabManager` first?

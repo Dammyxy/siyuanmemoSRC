@@ -1,35 +1,26 @@
 /**
- * CardMapper 单元测试
- * 
- * **验证需求 6.1**：测试 CardMapper 的所有转换方法
- * 
- * 测试覆盖：
- * 1. fromEntity 方法的基本功能
- * 2. toEntity 方法的基本功能
- * 3. 批量转换方法
- * 4. 边界条件（空数组、undefined 字段）
+ * CardMapper active DTO mapping tests.
+ *
+ * The old Card Entity / Repository path is retired. These tests cover the
+ * active FSRSCard <-> CardPersistenceDTO interface used by runtime storage.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { CardMapper } from '../CardMapper';
-import { Card } from '../../../../domain/entities/Card';
 import type { FSRSCard } from '../../../../types/card';
 import { CardState, CardType } from '../../../../types/card';
 import type { CardPersistenceDTO } from '../../dto/CardPersistenceDTO';
-import { isErr } from '../../../../types/result';
 import {
   collectProtectedSemanticPayload,
   diffProtectedSemanticPayload,
 } from '../../../../core/card/semanticPayload';
 
-// ==================== 测试辅助函数 ====================
-
-function createBasicCardProps() {
+function createFSRSCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   return {
     id: 'card-1',
     blockId: 'block-1',
     due: 1234567890,
-    stability: 5.0,
+    stability: 5,
     difficulty: 3.5,
     reps: 10,
     lapses: 2,
@@ -45,15 +36,16 @@ function createBasicCardProps() {
     skipped: false,
     createdAt: 1234567000,
     updatedAt: 1234567890,
+    ...overrides,
   };
 }
 
-function createBasicDTO(): CardPersistenceDTO {
+function createDTO(overrides: Partial<CardPersistenceDTO> = {}): CardPersistenceDTO {
   return {
     id: 'card-1',
     blockId: 'block-1',
     due: 1234567890,
-    stability: 5.0,
+    stability: 5,
     difficulty: 3.5,
     reps: 10,
     lapses: 2,
@@ -69,1144 +61,213 @@ function createBasicDTO(): CardPersistenceDTO {
     skipped: false,
     createdAt: 1234567000,
     updatedAt: 1234567890,
+    ...overrides,
   };
 }
 
-// ==================== fromEntity 测试 ====================
+describe('CardMapper.toPersistence', () => {
+  it('maps FSRSCard fields to persistence DTO', () => {
+    const dto = CardMapper.toPersistence(createFSRSCard());
 
-describe('CardMapper.fromEntity', () => {
-  it('应该正确转换基本 Card Entity', () => {
-    const cardResult = Card.create(createBasicCardProps());
-    expect(isErr(cardResult)).toBe(false);
-    if (isErr(cardResult)) return;
-
-    const dto = CardMapper.fromEntity(cardResult.value);
-
-    expect(dto.id).toBe('card-1');
-    expect(dto.blockId).toBe('block-1');
-    expect(dto.due).toBe(1234567890);
-    expect(dto.stability).toBe(5.0);
-    expect(dto.difficulty).toBe(3.5);
-    expect(dto.reps).toBe(10);
-    expect(dto.lapses).toBe(2);
-    expect(dto.state).toBe(CardState.Review);
-    expect(dto.priority).toBe(50);
-    expect(dto.type).toBe(CardType.Item);
-    expect(dto.tags).toEqual(['test']);
-  });
-
-  it('应该提取 Xiuyuan 元数据到顶层字段', () => {
-    const cardResult = Card.create({
-      ...createBasicCardProps(),
-      type: CardType.Concept,
-      xiuyuanMetadata: {
-        xiuyuanID: 'xy_123',
-        templateID: 'builtin-concept-simple',
-        frontBlockIDs: ['block-1'],
-        backBlockIDs: ['block-2'],
-        fieldMapping: { question: 'block-1', answer: 'block-2' },
-        priority: 80,
-      },
-    });
-
-    expect(isErr(cardResult)).toBe(false);
-    if (isErr(cardResult)) return;
-
-    const dto = CardMapper.fromEntity(cardResult.value);
-
-    expect(dto.xiuyuanID).toBe('xy_123');
-    expect(dto.templateID).toBe('builtin-concept-simple');
-    expect(dto.frontBlockIDs).toEqual(['block-1']);
-    expect(dto.backBlockIDs).toEqual(['block-2']);
-    expect(dto.fieldMapping).toEqual({ question: 'block-1', answer: 'block-2' });
-    expect(dto.xiuyuanPriority).toBe(80);
-  });
-
-  it('应该处理没有 Xiuyuan 元数据的卡片', () => {
-    const cardResult = Card.create(createBasicCardProps());
-    expect(isErr(cardResult)).toBe(false);
-    if (isErr(cardResult)) return;
-
-    const dto = CardMapper.fromEntity(cardResult.value);
-
-    expect(dto.xiuyuanID).toBeUndefined();
-    expect(dto.templateID).toBeUndefined();
-    expect(dto.frontBlockIDs).toBeUndefined();
-    expect(dto.backBlockIDs).toBeUndefined();
-  });
-
-  it('应该处理扩展数据字段', () => {
-    const cardResult = Card.create({
-      ...createBasicCardProps(),
-      extensionData: {
-        customField: 'customValue',
-        anotherField: 123,
-      },
-    });
-
-    expect(isErr(cardResult)).toBe(false);
-    if (isErr(cardResult)) return;
-
-    const dto = CardMapper.fromEntity(cardResult.value);
-
-    expect(dto.meta).toEqual({
-      customField: 'customValue',
-      anotherField: 123,
+    expect(dto).toMatchObject({
+      id: 'card-1',
+      blockId: 'block-1',
+      due: 1234567890,
+      stability: 5,
+      difficulty: 3.5,
+      reps: 10,
+      lapses: 2,
+      state: CardState.Review,
+      priority: 50,
+      type: CardType.Item,
+      schedulerType: 'fsrs-v6',
     });
   });
-});
 
-// ==================== toEntity 测试 ====================
-
-describe('CardMapper.toEntity', () => {
-  it('应该正确转换基本 DTO 为 Card Entity', () => {
-    const dto = createBasicDTO();
-    const result = CardMapper.toEntity(dto);
-
-    expect(isErr(result)).toBe(false);
-    if (isErr(result)) return;
-
-    const card = result.value;
-    expect(card.id.value).toBe('card-1');
-    expect(card.blockId.value).toBe('block-1');
-    expect(card.due).toBe(1234567890);
-    expect(card.stability).toBe(5.0);
-    expect(card.difficulty).toBe(3.5);
-    expect(card.priority.value).toBe(50);
-    expect(card.type).toBe(CardType.Item);
-  });
-
-  it('应该重建 Xiuyuan 元数据', () => {
-    const dto: CardPersistenceDTO = {
-      ...createBasicDTO(),
-      type: CardType.Concept,
+  it('extracts Xiuyuan metadata and keeps unrelated meta', () => {
+    const dto = CardMapper.toPersistence(createFSRSCard({
+      id: 'card-xiuyuan',
       xiuyuanID: 'xy_123',
-      templateID: 'builtin-concept-simple',
-      frontBlockIDs: ['block-1'],
-      backBlockIDs: ['block-2'],
-      fieldMapping: { question: 'block-1', answer: 'block-2' },
-      xiuyuanPriority: 80,
-    };
-
-    const result = CardMapper.toEntity(dto);
-    expect(isErr(result)).toBe(false);
-    if (isErr(result)) return;
-
-    const card = result.value;
-    expect(card.xiuyuanMetadata).toBeDefined();
-    expect(card.xiuyuanMetadata?.xiuyuanID).toBe('xy_123');
-    expect(card.xiuyuanMetadata?.templateID).toBe('builtin-concept-simple');
-    expect(card.xiuyuanMetadata?.frontBlockIDs).toEqual(['block-1']);
-    expect(card.xiuyuanMetadata?.backBlockIDs).toEqual(['block-2']);
-    expect(card.xiuyuanMetadata?.priority).toBe(80);
-  });
-
-  it('应该处理没有 Xiuyuan 字段的 DTO', () => {
-    const dto = createBasicDTO();
-    const result = CardMapper.toEntity(dto);
-
-    expect(isErr(result)).toBe(false);
-    if (isErr(result)) return;
-
-    const card = result.value;
-    expect(card.xiuyuanMetadata).toBeUndefined();
-  });
-
-  it('应该返回错误当 DTO 数据无效时', () => {
-    const dto: CardPersistenceDTO = {
-      ...createBasicDTO(),
-      id: '', // 无效：空 ID
-    };
-
-    const result = CardMapper.toEntity(dto);
-    expect(isErr(result)).toBe(true);
-  });
-
-  it('应该处理扩展数据字段', () => {
-    const dto: CardPersistenceDTO = {
-      ...createBasicDTO(),
+      faceKey: { ruleId: 'concept-forward', faceIndex: 0 },
+      type: CardType.Concept,
       meta: {
-        customField: 'customValue',
-        anotherField: 123,
-      },
-    };
-
-    const result = CardMapper.toEntity(dto);
-    expect(isErr(result)).toBe(false);
-    if (isErr(result)) return;
-
-    const card = result.value;
-    expect(card.extensionData).toEqual({
-      customField: 'customValue',
-      anotherField: 123,
-    });
-  });
-});
-
-// ==================== 批量转换测试 ====================
-
-describe('CardMapper.fromEntityBatch', () => {
-  it('应该正确批量转换 Card Entity 数组', () => {
-    const card1Result = Card.create({ ...createBasicCardProps(), id: 'card-1', blockId: 'block-1' });
-    const card2Result = Card.create({ ...createBasicCardProps(), id: 'card-2', blockId: 'block-2' });
-    const card3Result = Card.create({ ...createBasicCardProps(), id: 'card-3', blockId: 'block-3' });
-
-    expect(isErr(card1Result)).toBe(false);
-    expect(isErr(card2Result)).toBe(false);
-    expect(isErr(card3Result)).toBe(false);
-    if (isErr(card1Result) || isErr(card2Result) || isErr(card3Result)) return;
-
-    const cards = [card1Result.value, card2Result.value, card3Result.value];
-    const dtos = CardMapper.fromEntityBatch(cards);
-
-    expect(dtos).toHaveLength(3);
-    expect(dtos[0].id).toBe('card-1');
-    expect(dtos[1].id).toBe('card-2');
-    expect(dtos[2].id).toBe('card-3');
-  });
-
-  it('应该处理空数组', () => {
-    const dtos = CardMapper.fromEntityBatch([]);
-    expect(dtos).toEqual([]);
-  });
-
-  it('应该保持数组顺序', () => {
-    const card1Result = Card.create({ ...createBasicCardProps(), id: 'card-1', blockId: 'block-1' });
-    const card2Result = Card.create({ ...createBasicCardProps(), id: 'card-2', blockId: 'block-2' });
-
-    expect(isErr(card1Result)).toBe(false);
-    expect(isErr(card2Result)).toBe(false);
-    if (isErr(card1Result) || isErr(card2Result)) return;
-
-    const cards = [card1Result.value, card2Result.value];
-    const dtos = CardMapper.fromEntityBatch(cards);
-
-    expect(dtos[0].id).toBe('card-1');
-    expect(dtos[1].id).toBe('card-2');
-  });
-});
-
-describe('CardMapper.toEntityBatch', () => {
-  it('应该正确批量转换 DTO 数组', () => {
-    const dto1: CardPersistenceDTO = { ...createBasicDTO(), id: 'card-1', blockId: 'block-1' };
-    const dto2: CardPersistenceDTO = { ...createBasicDTO(), id: 'card-2', blockId: 'block-2' };
-    const dto3: CardPersistenceDTO = { ...createBasicDTO(), id: 'card-3', blockId: 'block-3' };
-
-    const result = CardMapper.toEntityBatch([dto1, dto2, dto3]);
-
-    expect(isErr(result)).toBe(false);
-    if (isErr(result)) return;
-
-    const cards = result.value;
-    expect(cards).toHaveLength(3);
-    expect(cards[0].id.value).toBe('card-1');
-    expect(cards[1].id.value).toBe('card-2');
-    expect(cards[2].id.value).toBe('card-3');
-  });
-
-  it('应该处理空数组', () => {
-    const result = CardMapper.toEntityBatch([]);
-
-    expect(isErr(result)).toBe(false);
-    if (isErr(result)) return;
-
-    expect(result.value).toEqual([]);
-  });
-
-  it('应该返回错误当任何 DTO 无效时', () => {
-    const dto1: CardPersistenceDTO = { ...createBasicDTO(), id: 'card-1', blockId: 'block-1' };
-    const dto2: CardPersistenceDTO = { ...createBasicDTO(), id: '', blockId: 'block-2' }; // 无效
-    const dto3: CardPersistenceDTO = { ...createBasicDTO(), id: 'card-3', blockId: 'block-3' };
-
-    const result = CardMapper.toEntityBatch([dto1, dto2, dto3]);
-
-    expect(isErr(result)).toBe(true);
-  });
-
-  it('应该收集所有错误信息', () => {
-    const dto1: CardPersistenceDTO = { ...createBasicDTO(), id: '', blockId: 'block-1' }; // 无效
-    const dto2: CardPersistenceDTO = { ...createBasicDTO(), id: 'card-2', blockId: '' }; // 无效
-
-    const result = CardMapper.toEntityBatch([dto1, dto2]);
-
-    expect(isErr(result)).toBe(true);
-    if (!isErr(result)) return;
-
-    expect(result.error.message).toContain('Failed to convert 2 cards');
-  });
-});
-
-// ==================== 边界条件测试 ====================
-
-describe('CardMapper - 边界条件', () => {
-  it('应该处理 undefined 可选字段', () => {
-    const cardResult = Card.create({
-      ...createBasicCardProps(),
-      learning_step: undefined,
-      skipNote: undefined,
-      skipUntil: undefined,
-      sourceUrl: undefined,
-      extractedFrom: undefined,
-    });
-
-    expect(isErr(cardResult)).toBe(false);
-    if (isErr(cardResult)) return;
-
-    const dto = CardMapper.fromEntity(cardResult.value);
-
-    expect(dto.learning_step).toBeUndefined();
-    expect(dto.skipNote).toBeUndefined();
-    expect(dto.skipUntil).toBeUndefined();
-    expect(dto.sourceUrl).toBeUndefined();
-    expect(dto.extractedFrom).toBeUndefined();
-  });
-
-  it('应该处理空标签数组', () => {
-    const cardResult = Card.create({
-      ...createBasicCardProps(),
-      tags: [],
-    });
-
-    expect(isErr(cardResult)).toBe(false);
-    if (isErr(cardResult)) return;
-
-    const dto = CardMapper.fromEntity(cardResult.value);
-    expect(dto.tags).toEqual([]);
-  });
-
-  it('应该处理 undefined 扩展数据', () => {
-    const cardResult = Card.create({
-      ...createBasicCardProps(),
-      extensionData: undefined,
-    });
-
-    expect(isErr(cardResult)).toBe(false);
-    if (isErr(cardResult)) return;
-
-    const dto = CardMapper.fromEntity(cardResult.value);
-    expect(dto.meta).toBeUndefined();
-  });
-
-  it('应该处理部分 Xiuyuan 元数据', () => {
-    const cardResult = Card.create({
-      ...createBasicCardProps(),
-      xiuyuanMetadata: {
         xiuyuanID: 'xy_123',
-        templateID: 'builtin-quick-card',
-        frontBlockIDs: [],
-        backBlockIDs: [],
-        // fieldMapping 和 priority 未定义
-      },
-    });
-
-    expect(isErr(cardResult)).toBe(false);
-    if (isErr(cardResult)) return;
-
-    const dto = CardMapper.fromEntity(cardResult.value);
-
-    expect(dto.xiuyuanID).toBe('xy_123');
-    expect(dto.templateID).toBe('builtin-quick-card');
-    expect(dto.frontBlockIDs).toEqual([]);
-    expect(dto.backBlockIDs).toEqual([]);
-    expect(dto.fieldMapping).toBeUndefined();
-    expect(dto.xiuyuanPriority).toBeUndefined();
-  });
-});
-
-// ==================== FSRSCard 兼容性测试 ====================
-
-describe('CardMapper - FSRSCard 兼容性', () => {
-  describe('toPersistence', () => {
-    it('应该正确映射基础字段', () => {
-      const card: FSRSCard = {
-        id: 'card-1',
-        blockId: 'block-1',
-        due: 1234567890,
-        stability: 5.0,
-        difficulty: 3.5,
-        reps: 10,
-        lapses: 2,
-        state: CardState.New,
-        lastReview: 1234567800,
-        elapsedDays: 5,
-        scheduledDays: 10,
-        priority: 50,
-        type: CardType.Item,
-        tags: ['test'],
-        leechCount: 0,
-        isLeech: false,
-        skipped: false,
-        createdAt: 1234567000,
-        updatedAt: 1234567890,
-      };
-
-      const dto = CardMapper.toPersistence(card);
-
-      expect(dto.id).toBe('card-1');
-      expect(dto.blockId).toBe('block-1');
-      expect(dto.due).toBe(1234567890);
-      expect(dto.stability).toBe(5.0);
-      expect(dto.difficulty).toBe(3.5);
-      expect(dto.type).toBe(CardType.Item);
-    });
-
-    it('应该提取 Xiuyuan 字段到顶层', () => {
-      const card: FSRSCard = {
-        id: 'card-1',
-        blockId: 'block-1',
-        xiuyuanID: 'xy_123',
-        faceKey: {
-          ruleId: 'concept-forward',
-          faceIndex: 0,
-        },
-        due: 1234567890,
-        stability: 5.0,
-        difficulty: 3.5,
-        reps: 10,
-        lapses: 2,
-        state: CardState.Review,
-        lastReview: 1234567800,
-        elapsedDays: 5,
-        scheduledDays: 10,
-        priority: 50,
-        type: CardType.Concept,
-        tags: [],
-        leechCount: 0,
-        isLeech: false,
-        skipped: false,
-        createdAt: 1234567000,
-        updatedAt: 1234567890,
-        meta: {
-          xiuyuanID: 'xy_123',
-          templateID: 'builtin-concept-simple',
-          frontBlockIDs: ['block-1'],
-          backBlockIDs: ['block-2'],
-          fieldMapping: { question: 'block-1', answer: 'block-2' },
-          priority: 80,
-          customField: 'customValue',
-        },
-      };
-
-      const dto = CardMapper.toPersistence(card);
-
-      expect(dto.xiuyuanID).toBe('xy_123');
-      expect(dto.faceKey).toEqual({
-        ruleId: 'concept-forward',
-        faceIndex: 0,
-      });
-      expect(dto.templateID).toBe('builtin-concept-simple');
-      expect(dto.frontBlockIDs).toEqual(['block-1']);
-      expect(dto.backBlockIDs).toEqual(['block-2']);
-      expect(dto.fieldMapping).toEqual({ question: 'block-1', answer: 'block-2' });
-      expect(dto.xiuyuanPriority).toBe(80);
-      expect(dto.meta).toEqual({ customField: 'customValue' });
-    });
-
-    it('应该清理空的 meta 对象', () => {
-      const card: FSRSCard = {
-        id: 'card-1',
-        blockId: 'block-1',
-        due: 1234567890,
-        stability: 5.0,
-        difficulty: 3.5,
-        reps: 10,
-        lapses: 2,
-        state: CardState.Review,
-        lastReview: 1234567800,
-        elapsedDays: 5,
-        scheduledDays: 10,
-        priority: 50,
-        type: CardType.Item,
-        tags: [],
-        leechCount: 0,
-        isLeech: false,
-        skipped: false,
-        createdAt: 1234567000,
-        updatedAt: 1234567890,
-        meta: {
-          xiuyuanID: 'xy_123',
-          templateID: 'builtin-quick-card',
-        },
-      };
-
-      const dto = CardMapper.toPersistence(card);
-      expect(dto.meta).toBeUndefined();
-    });
-
-    it('应该移除持久 meta 中的调度预览和算法状态', () => {
-      const card = {
-        id: 'card-scheduling-meta',
-        blockId: 'block-scheduling-meta',
-        due: 1234567890,
-        stability: 5,
-        difficulty: 5,
-        reps: 1,
-        lapses: 0,
-        state: CardState.New,
-        lastReview: 1234567800,
-        elapsedDays: 1,
-        scheduledDays: 3,
-        priority: 50,
-        type: CardType.Item,
-        tags: [],
-        leechCount: 0,
-        isLeech: false,
-        skipped: false,
-        createdAt: 1234567000,
-        updatedAt: 1234567890,
-        meta: {
-          nextDues: { again: 1 },
-          stability: 1,
-          difficulty: 1,
-          aFactor: 9,
-          scheduledDays: 1,
-          customField: 'kept',
-        },
-      } as FSRSCard;
-
-      const dto = CardMapper.toPersistence(card);
-
-      expect(dto.meta).toEqual({ customField: 'kept' });
-      expect(dto.schedulerType).toBe('fsrs-v6');
-      expect(dto.aFactor).toBeUndefined();
-      expect(dto.schedulerMeta).toBeUndefined();
-    });
-  });
-
-  describe('toDomain', () => {
-    it('应该正确重建领域模型', () => {
-      const dto: CardPersistenceDTO = {
-        id: 'card-1',
-        blockId: 'block-1',
-        due: 1234567890,
-        stability: 5.0,
-        difficulty: 3.5,
-        reps: 10,
-        lapses: 2,
-        state: CardState.Review,
-        lastReview: 1234567800,
-        elapsedDays: 5,
-        scheduledDays: 10,
-        priority: 50,
-        type: CardType.Item,
-        tags: ['test'],
-        leechCount: 0,
-        isLeech: false,
-        skipped: false,
-        createdAt: 1234567000,
-        updatedAt: 1234567890,
-      };
-
-      const card = CardMapper.toDomain(dto);
-
-      expect(card.id).toBe('card-1');
-      expect(card.blockId).toBe('block-1');
-      expect(card.due).toBe(1234567890);
-      expect(card.stability).toBe(5.0);
-      expect(card.type).toBe(CardType.Item);
-    });
-
-    it('应该重建 meta 字段', () => {
-      const dto: CardPersistenceDTO = {
-        id: 'card-1',
-        blockId: 'block-1',
-        due: 1234567890,
-        stability: 5.0,
-        difficulty: 3.5,
-        reps: 10,
-        lapses: 2,
-        state: CardState.Review,
-        lastReview: 1234567800,
-        elapsedDays: 5,
-        scheduledDays: 10,
-        priority: 50,
-        type: CardType.Concept,
-        tags: [],
-        leechCount: 0,
-        isLeech: false,
-        skipped: false,
-        createdAt: 1234567000,
-        updatedAt: 1234567890,
-        xiuyuanID: 'xy_123',
-        faceKey: {
-          ruleId: 'concept-forward',
-          faceIndex: 0,
-        },
         templateID: 'builtin-concept-simple',
-        frontBlockIDs: ['block-1'],
-        backBlockIDs: ['block-2'],
-        fieldMapping: { question: 'block-1', answer: 'block-2' },
-        xiuyuanPriority: 80,
-        meta: { customField: 'customValue' },
-      };
-
-      const card = CardMapper.toDomain(dto);
-
-      expect(card.meta).toEqual({
-        xiuyuanID: 'xy_123',
-        faceKey: {
-          ruleId: 'concept-forward',
-          faceIndex: 0,
-        },
-        templateID: 'builtin-concept-simple',
-        frontBlockIDs: ['block-1'],
-        backBlockIDs: ['block-2'],
-        fieldMapping: { question: 'block-1', answer: 'block-2' },
+        frontBlockIDs: ['front-block'],
+        backBlockIDs: ['back-block'],
+        fieldMapping: { front: 'front-block', back: 'back-block' },
         priority: 80,
         customField: 'customValue',
-      });
-      expect(card.faceKey).toEqual({
-        ruleId: 'concept-forward',
-        faceIndex: 0,
-      });
+      },
+    }));
+
+    expect(dto.xiuyuanID).toBe('xy_123');
+    expect(dto.faceKey).toEqual({ ruleId: 'concept-forward', faceIndex: 0 });
+    expect(dto.templateID).toBe('builtin-concept-simple');
+    expect(dto.frontBlockIDs).toEqual(['front-block']);
+    expect(dto.backBlockIDs).toEqual(['back-block']);
+    expect(dto.fieldMapping).toEqual({ front: 'front-block', back: 'back-block' });
+    expect(dto.xiuyuanPriority).toBe(80);
+    expect(dto.meta).toEqual({ customField: 'customValue' });
+  });
+
+  it('does not mutate source meta while extracting fields', () => {
+    const card = createFSRSCard({
+      meta: {
+        xiuyuanID: 'xy_safe',
+        templateID: 'template',
+        customField: 'kept',
+      },
     });
 
-    it('应该处理没有 Xiuyuan 字段的卡片', () => {
-      const dto: CardPersistenceDTO = {
-        id: 'card-1',
-        blockId: 'block-1',
-        due: 1234567890,
-        stability: 5.0,
-        difficulty: 3.5,
-        reps: 10,
-        lapses: 2,
-        state: CardState.Review,
-        lastReview: 1234567800,
-        elapsedDays: 5,
-        scheduledDays: 10,
-        priority: 50,
-        type: CardType.Item,
-        tags: [],
-        leechCount: 0,
-        isLeech: false,
-        skipped: false,
-        createdAt: 1234567000,
-        updatedAt: 1234567890,
-      };
+    CardMapper.toPersistence(card);
 
-      const card = CardMapper.toDomain(dto);
-      expect(card.meta).toBeUndefined();
+    expect(card.meta).toEqual({
+      xiuyuanID: 'xy_safe',
+      templateID: 'template',
+      customField: 'kept',
     });
+  });
+});
 
-    it('应该把 Topic/Concept 的历史 fsrs-v6 调度类型规范为 a-factor-v2', () => {
-      const dto: CardPersistenceDTO = {
-        ...createBasicDTO(),
-        id: 'topic-dirty',
-        blockId: 'block-topic-dirty',
-        type: CardType.Topic,
-        schedulerType: 'fsrs-v6',
-        aFactor: 99,
-        schedulerMeta: {
-          staleExternal: {
-            of: 3,
-            optimumInterval: 4,
-            afs: [3],
-          } as unknown,
-        },
-        meta: {
-          aFactor: 9,
-          nextDues: { good: 1 },
-          customField: 'kept',
-        },
-      };
+describe('CardMapper.toDomain', () => {
+  it('maps persistence DTO fields to FSRSCard', () => {
+    const card = CardMapper.toDomain(createDTO());
 
-      const card = CardMapper.toDomain(dto);
-
-      expect(card.schedulerType).toBe('a-factor-v2');
-      expect(card.aFactor).toBe(6);
-      expect(card.schedulerMeta).toEqual({
-        topic: {
-          afs: [6],
-          of: 6,
-          optimalInterval: 10,
-        },
-      });
-      expect(card.meta).toEqual({ customField: 'kept' });
+    expect(card).toMatchObject({
+      id: 'card-1',
+      blockId: 'block-1',
+      due: 1234567890,
+      stability: 5,
+      difficulty: 3.5,
+      reps: 10,
+      lapses: 2,
+      state: CardState.Review,
+      priority: 50,
+      type: CardType.Item,
+      schedulerType: 'fsrs-v6',
     });
   });
 
-  describe('往返转换', () => {
-    it('应该保留自定义语义 payload、正反面/mapping 数据和未知语义 key', () => {
-      const original: FSRSCard = {
-        id: 'custom-semantic-card',
+  it('rebuilds Xiuyuan metadata into FSRSCard meta', () => {
+    const card = CardMapper.toDomain(createDTO({
+      id: 'card-xiuyuan',
+      xiuyuanID: 'xy_123',
+      faceKey: { ruleId: 'concept-forward', faceIndex: 0 },
+      templateID: 'builtin-concept-simple',
+      frontBlockIDs: ['front-block'],
+      backBlockIDs: ['back-block'],
+      fieldMapping: { front: 'front-block', back: 'back-block' },
+      xiuyuanPriority: 80,
+      meta: { customField: 'customValue' },
+    }));
+
+    expect(card.xiuyuanID).toBe('xy_123');
+    expect(card.faceKey).toEqual({ ruleId: 'concept-forward', faceIndex: 0 });
+    expect(card.meta).toEqual({
+      xiuyuanID: 'xy_123',
+      faceKey: { ruleId: 'concept-forward', faceIndex: 0 },
+      templateID: 'builtin-concept-simple',
+      frontBlockIDs: ['front-block'],
+      backBlockIDs: ['back-block'],
+      fieldMapping: { front: 'front-block', back: 'back-block' },
+      priority: 80,
+      customField: 'customValue',
+    });
+  });
+});
+
+describe('CardMapper DTO round trip', () => {
+  it('preserves semantic payload and face identity', () => {
+    const original = createFSRSCard({
+      id: 'custom-semantic-card',
+      xiuyuanID: 'xy_custom_semantic',
+      blockId: 'block-custom-semantic',
+      faceKey: { ruleId: 'custom-owned-rule', faceIndex: 1 },
+      meta: {
         xiuyuanID: 'xy_custom_semantic',
-        blockId: 'block-custom-semantic',
-        faceKey: {
-          ruleId: 'custom-owned-rule',
-          faceIndex: 1,
-        },
-        due: 1234567890,
-        stability: 5,
-        difficulty: 5,
-        reps: 1,
-        lapses: 0,
-        state: CardState.Review,
-        lastReview: 1234567800,
-        elapsedDays: 1,
-        scheduledDays: 3,
-        priority: 50,
-        type: CardType.Item,
-        tags: [],
-        leechCount: 0,
-        isLeech: false,
-        skipped: false,
-        createdAt: 1234567000,
-        updatedAt: 1234567890,
-        meta: {
-          xiuyuanID: 'xy_custom_semantic',
-          templateID: 'custom-owned-template',
-          typeMarker: 'custom-owned-rule',
-          renderProfile: 'custom-render-profile',
-          clozeRenderMode: 'custom-cloze-mode',
-          frontBlockIDs: ['front-block'],
-          backBlockIDs: ['back-block'],
-          fieldMapping: { front: 'front-block', back: 'back-block' },
-          faces: [
-            { front: 'Question 1', back: 'Answer 1' },
-            { front: 'Question 2', back: 'Answer 2' },
-          ],
-          customFront: 'Custom front payload',
-          customBack: { blocks: ['back-block'], html: '<b>Answer</b>' },
-        },
-      };
-
-      const dto = CardMapper.toPersistence(original);
-      const restored = CardMapper.toDomain(dto);
-
-      expect(dto.faceKey).toEqual({ ruleId: 'custom-owned-rule', faceIndex: 1 });
-      expect(dto.templateID).toBe('custom-owned-template');
-      expect(dto.frontBlockIDs).toEqual(['front-block']);
-      expect(dto.backBlockIDs).toEqual(['back-block']);
-      expect(dto.fieldMapping).toEqual({ front: 'front-block', back: 'back-block' });
-      expect(dto.meta).toMatchObject({
+        templateID: 'custom-owned-template',
         typeMarker: 'custom-owned-rule',
         renderProfile: 'custom-render-profile',
         clozeRenderMode: 'custom-cloze-mode',
+        frontBlockIDs: ['front-block'],
+        backBlockIDs: ['back-block'],
+        fieldMapping: { front: 'front-block', back: 'back-block' },
         faces: [
           { front: 'Question 1', back: 'Answer 1' },
           { front: 'Question 2', back: 'Answer 2' },
         ],
         customFront: 'Custom front payload',
         customBack: { blocks: ['back-block'], html: '<b>Answer</b>' },
-      });
-      expect(restored).toMatchObject({
-        id: original.id,
-        xiuyuanID: original.xiuyuanID,
-        blockId: original.blockId,
+      },
+    });
+
+    const restored = CardMapper.toDomain(CardMapper.toPersistence(original));
+
+    expect(restored).toMatchObject({
+      id: original.id,
+      xiuyuanID: original.xiuyuanID,
+      blockId: original.blockId,
+      faceKey: { ruleId: 'custom-owned-rule', faceIndex: 1 },
+      meta: {
+        xiuyuanID: 'xy_custom_semantic',
         faceKey: { ruleId: 'custom-owned-rule', faceIndex: 1 },
-        meta: {
-          xiuyuanID: 'xy_custom_semantic',
-          faceKey: { ruleId: 'custom-owned-rule', faceIndex: 1 },
-          templateID: 'custom-owned-template',
-          typeMarker: 'custom-owned-rule',
-          renderProfile: 'custom-render-profile',
-          clozeRenderMode: 'custom-cloze-mode',
-          frontBlockIDs: ['front-block'],
-          backBlockIDs: ['back-block'],
-          fieldMapping: { front: 'front-block', back: 'back-block' },
-          faces: [
-            { front: 'Question 1', back: 'Answer 1' },
-            { front: 'Question 2', back: 'Answer 2' },
-          ],
-          customFront: 'Custom front payload',
-          customBack: { blocks: ['back-block'], html: '<b>Answer</b>' },
-        },
-      });
-      expect(diffProtectedSemanticPayload(original, restored)).toEqual([]);
-      expect(collectProtectedSemanticPayload(restored).map((entry) => entry.path)).toEqual(expect.arrayContaining([
-        'faceKey',
-        'meta.templateID',
-        'meta.typeMarker',
-        'meta.renderProfile',
-        'meta.clozeRenderMode',
-        'meta.frontBlockIDs',
-        'meta.backBlockIDs',
-        'meta.fieldMapping',
-        'meta.faces',
-        'meta.customFront',
-        'meta.customBack',
-      ]));
+        templateID: 'custom-owned-template',
+        typeMarker: 'custom-owned-rule',
+        renderProfile: 'custom-render-profile',
+        clozeRenderMode: 'custom-cloze-mode',
+        frontBlockIDs: ['front-block'],
+        backBlockIDs: ['back-block'],
+        fieldMapping: { front: 'front-block', back: 'back-block' },
+        faces: [
+          { front: 'Question 1', back: 'Answer 1' },
+          { front: 'Question 2', back: 'Answer 2' },
+        ],
+        customFront: 'Custom front payload',
+        customBack: { blocks: ['back-block'], html: '<b>Answer</b>' },
+      },
     });
+    expect(diffProtectedSemanticPayload(original, restored)).toEqual([]);
+    expect(collectProtectedSemanticPayload(restored).map((entry) => entry.path)).toEqual(expect.arrayContaining([
+      'faceKey',
+      'meta.templateID',
+      'meta.typeMarker',
+      'meta.renderProfile',
+      'meta.clozeRenderMode',
+      'meta.frontBlockIDs',
+      'meta.backBlockIDs',
+      'meta.fieldMapping',
+      'meta.faces',
+      'meta.customFront',
+      'meta.customBack',
+    ]));
+  });
 
-    it('应该把 legacy faceIndex/typeMarker 迁移为 faceKey，但仍保留 legacy meta 用于显示兼容', () => {
-      const original: FSRSCard = {
-        id: 'legacy-face-key',
-        xiuyuanID: 'xy_legacy',
-        blockId: 'block-legacy',
-        due: 1234567890,
-        stability: 5,
-        difficulty: 5,
-        reps: 1,
-        lapses: 0,
-        state: CardState.Review,
-        lastReview: 1234567800,
-        elapsedDays: 1,
-        scheduledDays: 3,
-        priority: 50,
-        type: CardType.Item,
-        tags: [],
-        leechCount: 0,
-        isLeech: false,
-        skipped: false,
-        createdAt: 1234567000,
-        updatedAt: 1234567890,
-        meta: {
-          xiuyuanID: 'xy_legacy',
-          faceIndex: 2,
-          typeMarker: 'reverse',
-          templateID: 'builtin-bidirectional',
-        },
-      };
+  it('batch helpers match single-card conversion', () => {
+    const cards = [
+      createFSRSCard({ id: 'card-a', blockId: 'block-a' }),
+      createFSRSCard({ id: 'card-b', blockId: 'block-b' }),
+    ];
 
-      const dto = CardMapper.toPersistence(original);
-      const restored = CardMapper.toDomain(dto);
+    const batchDtos = CardMapper.toPersistenceBatch(cards);
+    const singleDtos = cards.map((card) => CardMapper.toPersistence(card));
+    const restored = CardMapper.toDomainBatch(batchDtos);
 
-      expect(dto.faceKey).toEqual({
-        ruleId: 'reverse',
-        faceIndex: 2,
-      });
-      expect(restored.faceKey).toEqual({
-        ruleId: 'reverse',
-        faceIndex: 2,
-      });
-      expect(restored.meta).toMatchObject({
-        faceIndex: 2,
-        typeMarker: 'reverse',
-        faceKey: {
-          ruleId: 'reverse',
-          faceIndex: 2,
-        },
-      });
-    });
-
-    it('应该保持数据一致性（无 Xiuyuan）', () => {
-      const original: FSRSCard = {
-        id: 'card-1',
-        blockId: 'block-1',
-        due: 1234567890,
-        stability: 5.0,
-        difficulty: 3.5,
-        reps: 10,
-        lapses: 2,
-        state: CardState.New,
-        lastReview: 1234567800,
-        elapsedDays: 5,
-        scheduledDays: 10,
-        priority: 50,
-        type: CardType.Item,
-        tags: ['test'],
-        leechCount: 0,
-        isLeech: false,
-        skipped: false,
-        createdAt: 1234567000,
-        updatedAt: 1234567890,
-      };
-
-      const dto = CardMapper.toPersistence(original);
-      const restored = CardMapper.toDomain(dto);
-
-      expect(restored).toMatchObject({
-        ...original,
-        schedulerType: 'fsrs-v6',
-      });
-    });
-
-    it('应该保持数据一致性（有 Xiuyuan）', () => {
-      const original: FSRSCard = {
-        id: 'card-1',
-        blockId: 'block-1',
-        due: 1234567890,
-        stability: 5.0,
-        difficulty: 3.5,
-        reps: 10,
-        lapses: 2,
-        state: CardState.Review,
-        lastReview: 1234567800,
-        elapsedDays: 5,
-        scheduledDays: 10,
-        priority: 50,
-        type: CardType.Concept,
-        tags: [],
-        leechCount: 0,
-        isLeech: false,
-        skipped: false,
-        createdAt: 1234567000,
-        updatedAt: 1234567890,
-        meta: {
-          xiuyuanID: 'xy_123',
-          templateID: 'builtin-concept-simple',
-          frontBlockIDs: ['block-1'],
-          backBlockIDs: ['block-2'],
-          priority: 80,
-          customField: 'customValue',
-        },
-      };
-
-      const dto = CardMapper.toPersistence(original);
-      const restored = CardMapper.toDomain(dto);
-
-      expect(restored).toMatchObject({
-        ...original,
-        aFactor: 2.5,
-        schedulerType: 'a-factor-v2',
-        schedulerMeta: {
-          topic: {
-            afs: [2.5],
-            of: 2.5,
-            optimalInterval: 10,
-          },
-        },
-      });
-    });
+    expect(batchDtos).toEqual(singleDtos);
+    expect(restored.map((card) => card.id)).toEqual(['card-a', 'card-b']);
   });
 });
-
-// ==================== Card Entity Result 处理测试 ====================
-
-/**
- * **验证需求 2.1, 2.4**：测试 Card Entity 的 Result 处理
- * 
- * 测试覆盖：
- * 1. 无效输入返回 err
- * 2. 有效输入返回 ok
- * 3. updatePriority 的 Result 处理
- */
-describe('Card Entity Result 处理', () => {
-  describe('Card.create - 无效输入', () => {
-    it('应该返回 err 当 ID 为空时', () => {
-      const result = Card.create({
-        ...createBasicCardProps(),
-        id: '', // 无效：空 ID
-      });
-
-      expect(isErr(result)).toBe(true);
-      if (!isErr(result)) return;
-      expect(result.error.message).toContain('Card ID cannot be empty');
-    });
-
-    it('应该返回 err 当 blockId 为空时', () => {
-      const result = Card.create({
-        ...createBasicCardProps(),
-        blockId: '', // 无效：空 blockId
-      });
-
-      expect(isErr(result)).toBe(true);
-      if (!isErr(result)) return;
-      expect(result.error.message).toContain('Block ID cannot be empty');
-    });
-
-    it('应该返回 err 当 priority 超出范围时', () => {
-      const result = Card.create({
-        ...createBasicCardProps(),
-        priority: 150, // 无效：超出范围 (0-100)
-      });
-
-      expect(isErr(result)).toBe(true);
-      if (!isErr(result)) return;
-      expect(result.error.message).toContain('Priority must be between 0 and 100');
-    });
-
-    it('应该返回 err 当 priority 为负数时', () => {
-      const result = Card.create({
-        ...createBasicCardProps(),
-        priority: -10, // 无效：负数
-      });
-
-      expect(isErr(result)).toBe(true);
-      if (!isErr(result)) return;
-      expect(result.error.message).toContain('Priority must be between 0 and 100');
-    });
-  });
-
-  describe('Card.create - 有效输入', () => {
-    it('应该返回 ok 当所有字段有效时', () => {
-      const result = Card.create(createBasicCardProps());
-
-      expect(isErr(result)).toBe(false);
-      if (isErr(result)) return;
-      expect(result.value).toBeDefined();
-      expect(result.value.id.value).toBe('card-1');
-    });
-
-    it('应该返回 ok 当 priority 为 0 时', () => {
-      const result = Card.create({
-        ...createBasicCardProps(),
-        priority: 0, // 边界值：最小值
-      });
-
-      expect(isErr(result)).toBe(false);
-      if (isErr(result)) return;
-      expect(result.value.priority.value).toBe(0);
-    });
-
-    it('应该返回 ok 当 priority 为 100 时', () => {
-      const result = Card.create({
-        ...createBasicCardProps(),
-        priority: 100, // 边界值：最大值
-      });
-
-      expect(isErr(result)).toBe(false);
-      if (isErr(result)) return;
-      expect(result.value.priority.value).toBe(100);
-    });
-
-    it('应该返回 ok 当包含 Xiuyuan 元数据时', () => {
-      const result = Card.create({
-        ...createBasicCardProps(),
-        type: CardType.Concept,
-        xiuyuanMetadata: {
-          xiuyuanID: 'xy_123',
-          templateID: 'builtin-concept-simple',
-          frontBlockIDs: ['block-1'],
-          backBlockIDs: ['block-2'],
-          fieldMapping: { question: 'block-1', answer: 'block-2' },
-          priority: 80,
-        },
-      });
-
-      expect(isErr(result)).toBe(false);
-      if (isErr(result)) return;
-      expect(result.value.xiuyuanMetadata).toBeDefined();
-      expect(result.value.xiuyuanMetadata?.xiuyuanID).toBe('xy_123');
-    });
-  });
-
-  describe('updatePriority - Result 处理', () => {
-    it('应该返回 err 当新 priority 超出范围时', () => {
-      const cardResult = Card.create(createBasicCardProps());
-      expect(isErr(cardResult)).toBe(false);
-      if (isErr(cardResult)) return;
-
-      const card = cardResult.value;
-      const updateResult = card.updatePriority(150); // 无效：超出范围
-
-      expect(isErr(updateResult)).toBe(true);
-      if (!isErr(updateResult)) return;
-      expect(updateResult.error.message).toContain('Priority must be between 0 and 100');
-    });
-
-    it('应该返回 err 当新 priority 为负数时', () => {
-      const cardResult = Card.create(createBasicCardProps());
-      expect(isErr(cardResult)).toBe(false);
-      if (isErr(cardResult)) return;
-
-      const card = cardResult.value;
-      const updateResult = card.updatePriority(-5); // 无效：负数
-
-      expect(isErr(updateResult)).toBe(true);
-      if (!isErr(updateResult)) return;
-      expect(updateResult.error.message).toContain('Priority must be between 0 and 100');
-    });
-
-    it('应该返回 ok 当新 priority 有效时', () => {
-      const cardResult = Card.create(createBasicCardProps());
-      expect(isErr(cardResult)).toBe(false);
-      if (isErr(cardResult)) return;
-
-      const card = cardResult.value;
-      const updateResult = card.updatePriority(75); // 有效
-
-      expect(isErr(updateResult)).toBe(false);
-      if (isErr(updateResult)) return;
-      expect(card.priority.value).toBe(75);
-    });
-
-    it('应该返回 ok 当新 priority 为边界值 0 时', () => {
-      const cardResult = Card.create(createBasicCardProps());
-      expect(isErr(cardResult)).toBe(false);
-      if (isErr(cardResult)) return;
-
-      const card = cardResult.value;
-      const updateResult = card.updatePriority(0); // 边界值：最小值
-
-      expect(isErr(updateResult)).toBe(false);
-      if (isErr(updateResult)) return;
-      expect(card.priority.value).toBe(0);
-    });
-
-    it('应该返回 ok 当新 priority 为边界值 100 时', () => {
-      const cardResult = Card.create(createBasicCardProps());
-      expect(isErr(cardResult)).toBe(false);
-      if (isErr(cardResult)) return;
-
-      const card = cardResult.value;
-      const updateResult = card.updatePriority(100); // 边界值：最大值
-
-      expect(isErr(updateResult)).toBe(false);
-      if (isErr(updateResult)) return;
-      expect(card.priority.value).toBe(100);
-    });
-
-    it('应该更新 updatedAt 时间戳当 priority 更新成功时', () => {
-      const cardResult = Card.create(createBasicCardProps());
-      expect(isErr(cardResult)).toBe(false);
-      if (isErr(cardResult)) return;
-
-      const card = cardResult.value;
-      const oldUpdatedAt = card.updatedAt;
-      
-      // 等待一小段时间确保时间戳不同
-      const updateResult = card.updatePriority(80);
-      
-      expect(isErr(updateResult)).toBe(false);
-      if (isErr(updateResult)) return;
-      expect(card.updatedAt).toBeGreaterThanOrEqual(oldUpdatedAt);
-    });
-
-    it('应该不修改 priority 当更新失败时', () => {
-      const cardResult = Card.create({
-        ...createBasicCardProps(),
-        priority: 50,
-      });
-      expect(isErr(cardResult)).toBe(false);
-      if (isErr(cardResult)) return;
-
-      const card = cardResult.value;
-      const originalPriority = card.priority.value;
-      
-      const updateResult = card.updatePriority(150); // 无效
-      
-      expect(isErr(updateResult)).toBe(true);
-      expect(card.priority.value).toBe(originalPriority); // 保持原值
-    });
-  });
-});
-
-// ==================== validate 测试 ====================
 
 describe('CardMapper.validate', () => {
-  it('应该验证有效的 DTO', () => {
-    const dto: CardPersistenceDTO = {
-      id: 'card-1',
-      blockId: 'block-1',
-      due: 1234567890,
-      stability: 5.0,
-      difficulty: 3.5,
-      reps: 10,
-      lapses: 2,
-      state: CardState.Review,
-      lastReview: 1234567800,
-      elapsedDays: 5,
-      scheduledDays: 10,
-      priority: 50,
-      type: CardType.Item,
-      tags: [],
-      leechCount: 0,
-      isLeech: false,
-      skipped: false,
-      createdAt: 1234567000,
-      updatedAt: 1234567890,
-    };
-
-    const result = CardMapper.validate(dto);
+  it('accepts valid DTOs', () => {
+    const result = CardMapper.validate(createDTO());
 
     expect(result.valid).toBe(true);
     expect(result.errors).toEqual([]);
   });
 
-  it('allows unreviewed new-card empty FSRS memory without clamping difficulty', () => {
-    const dto: CardPersistenceDTO = {
-      ...createBasicDTO(),
+  it('allows unreviewed new-card empty FSRS memory', () => {
+    const dto = createDTO({
       id: 'card-empty-new',
       state: CardState.New,
       stability: 0,
@@ -1217,7 +278,7 @@ describe('CardMapper.validate', () => {
       elapsedDays: 0,
       scheduledDays: 0,
       learning_step: 0,
-    };
+    });
 
     const validation = CardMapper.validate(dto);
     const roundtripped = CardMapper.toPersistence(CardMapper.toDomain(dto));
@@ -1233,131 +294,26 @@ describe('CardMapper.validate', () => {
     });
   });
 
-  it.each([
-    ['topic', CardType.Topic],
-    ['concept', CardType.Concept],
-  ])('allows review-like %s a-factor cards to keep empty FSRS memory fields', (_label, type) => {
-    const dto: CardPersistenceDTO = {
-      ...createBasicDTO(),
-      id: `card-${type}-empty-fsrs-memory`,
-      type,
-      schedulerType: 'a-factor-v2',
-      state: CardState.Review,
-      stability: 0,
-      difficulty: 0,
-      reps: 4,
-      lastReview: 1234567800,
-      aFactor: 2.5,
-      schedulerMeta: {
-        topic: {
-          afs: [2.5],
-          of: 2.5,
-          optimalInterval: 1,
-        },
-      },
-    };
-
-    const validation = CardMapper.validate(dto);
-    const roundtripped = CardMapper.toPersistence(CardMapper.toDomain(dto));
-
-    expect(validation.valid).toBe(true);
-    expect(validation.errors).toEqual([]);
-    expect(roundtripped).toMatchObject({
-      schedulerType: 'a-factor-v2',
-      state: CardState.Review,
-      stability: 0,
-      difficulty: 0,
-      aFactor: 2.5,
-    });
-  });
-
-  it('rejects empty FSRS memory on reviewed cards', () => {
-    const dto: CardPersistenceDTO = {
-      ...createBasicDTO(),
+  it('rejects invalid FSRS review memory', () => {
+    const result = CardMapper.validate(createDTO({
       id: 'card-empty-review',
       state: CardState.Review,
       stability: 0,
       difficulty: 0,
       reps: 1,
       lastReview: 1234567800,
-    };
-
-    const result = CardMapper.validate(dto);
+    }));
 
     expect(result.valid).toBe(false);
     expect(result.errors).toContain('Invalid stability: review memory must be positive');
     expect(result.errors).toContain('Invalid difficulty: review memory must be between 1 and 10');
   });
 
-  it('应该检测缺失的必需字段', () => {
-    const dto = {
-      blockId: 'block-1',
-      // 缺少 id
-    } as any;
-
-    const result = CardMapper.validate(dto);
-
-    expect(result.valid).toBe(false);
-    expect(result.errors).toContain('Missing required field: id');
-  });
-
-  it('应该检测无效的字段值', () => {
-    const dto: CardPersistenceDTO = {
-      id: 'card-1',
-      blockId: 'block-1',
-      due: 1234567890,
-      stability: -1, // 无效：负数
-      difficulty: 15, // 无效：超出范围
-      reps: 10,
-      lapses: 2,
-      state: CardState.Review,
-      lastReview: 1234567800,
-      elapsedDays: 5,
-      scheduledDays: 10,
-      priority: 150, // 无效：超出范围
-      type: CardType.Item,
-      tags: [],
-      leechCount: 0,
-      isLeech: false,
-      skipped: false,
-      createdAt: 1234567000,
-      updatedAt: 1234567890,
-    };
-
-    const result = CardMapper.validate(dto);
-
-    expect(result.valid).toBe(false);
-    expect(result.errors).toContain('Invalid stability: must be non-negative');
-    expect(result.errors).toContain('Invalid difficulty: must be between 0 and 10');
-    expect(result.errors).toContain('Invalid priority: must be between 0 and 100');
-  });
-
-  it('应该检测 Xiuyuan 卡片的一致性', () => {
-    const dto: CardPersistenceDTO = {
-      id: 'card-1',
-      blockId: 'block-1',
-      due: 1234567890,
-      stability: 5.0,
-      difficulty: 3.5,
-      reps: 10,
-      lapses: 2,
-      state: CardState.Review,
-      lastReview: 1234567800,
-      elapsedDays: 5,
-      scheduledDays: 10,
-      priority: 50,
+  it('requires templateID when xiuyuanID is present', () => {
+    const result = CardMapper.validate(createDTO({
       type: CardType.Concept,
-      tags: [],
-      leechCount: 0,
-      isLeech: false,
-      skipped: false,
-      createdAt: 1234567000,
-      updatedAt: 1234567890,
       xiuyuanID: 'xy_123',
-      // 缺少 templateID
-    };
-
-    const result = CardMapper.validate(dto);
+    }));
 
     expect(result.valid).toBe(false);
     expect(result.errors).toContain('Xiuyuan card missing templateID');

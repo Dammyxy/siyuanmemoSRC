@@ -3,29 +3,25 @@
  * 
  * @module CardMapper
  * @description
- * 负责在领域模型（Card Entity）和持久化模型（CardPersistenceDTO）之间转换。
+ * 负责在 FSRSCard 运行时 DTO 和持久化模型（CardPersistenceDTO）之间转换。
  * 
  * **核心职责**：
- * 1. 领域模型 → 持久化模型：提取 Xiuyuan 字段到顶层
- * 2. 持久化模型 → 领域模型：重建 Card Entity
+ * 1. FSRSCard → 持久化模型：提取 Xiuyuan 字段到顶层
+ * 2. 持久化模型 → FSRSCard：重建运行时卡片 DTO
  * 3. 数据验证和清洗
  * 
  * **设计原则**：
- * - 单向依赖：Mapper 依赖 DTO 和领域模型，反之不依赖
+ * - 单向依赖：Mapper 依赖 FSRSCard DTO 和持久化 DTO，反之不依赖
  * - 纯函数：无副作用，便于测试
  * - 防御性编程：处理 null/undefined
  * - 数据保真度：保持负零、undefined/null 的区分
  * 
  * @see CardPersistenceDTO
- * @see Card - 领域实体
  * @see FSRSCard - 数据传输对象（向后兼容）
  */
 
 import type { CardFaceKey, FSRSCard } from '../../../types/card';
 import type { CardPersistenceDTO } from '../dto/CardPersistenceDTO';
-import { Card } from '../../../domain/entities/Card';
-import type { Result } from '../../../types/result';
-import { ok, err, isErr } from '../../../types/result';
 import { canonicalizeSchedulingState } from '../../../core/scheduler/schedulingStateCleanliness';
 import { resolveEffectiveSchedulerTypeForCard } from '../../../core/scheduler/schedulerPolicy';
 
@@ -157,7 +153,7 @@ function resolveCardFaceKey(card: FSRSCard, meta?: Record<string, unknown>): Car
  */
 export class CardMapper {
   /**
-   * 领域模型 → 持久化模型
+   * FSRSCard 运行时 DTO → 持久化模型
    * 
    * 优化策略：
    * 1. 提取 Xiuyuan 相关字段到顶层（xiuyuanID, templateID, etc.）
@@ -165,7 +161,7 @@ export class CardMapper {
    * 3. 保留其他扩展字段在 meta 中
    * 4. 使用深拷贝确保不修改原始数据
    * 
-   * @param card 领域模型
+   * @param card FSRSCard 运行时 DTO
    * @returns 持久化模型
    */
   static toPersistence(card: FSRSCard): CardPersistenceDTO {
@@ -268,7 +264,7 @@ export class CardMapper {
   }
 
   /**
-   * 持久化模型 → 领域模型
+   * 持久化模型 → FSRSCard 运行时 DTO
    * 
    * 重建策略：
    * 1. 将顶层的 Xiuyuan 字段合并回 meta
@@ -276,7 +272,7 @@ export class CardMapper {
    * 3. 处理向后兼容（旧数据可能没有顶层字段）
    * 
    * @param dto 持久化模型
-   * @returns 领域模型
+   * @returns FSRSCard 运行时 DTO
    */
   static toDomain(dto: CardPersistenceDTO): FSRSCard {
     // 重建 meta 字段
@@ -308,7 +304,7 @@ export class CardMapper {
       meta.priority = dto.xiuyuanPriority;
     }
 
-    // 构建领域模型
+    // 构建 FSRSCard 运行时 DTO
     const card: FSRSCard = {
       // 标识
       id: dto.id,
@@ -377,9 +373,9 @@ export class CardMapper {
   }
 
   /**
-   * 批量转换：领域模型 → 持久化模型
+   * 批量转换：FSRSCard 运行时 DTO → 持久化模型
    * 
-   * @param cards 领域模型数组
+   * @param cards FSRSCard 运行时 DTO 数组
    * @returns 持久化模型数组
    */
   static toPersistenceBatch(cards: FSRSCard[]): CardPersistenceDTO[] {
@@ -387,10 +383,10 @@ export class CardMapper {
   }
 
   /**
-   * 批量转换：持久化模型 → 领域模型
+   * 批量转换：持久化模型 → FSRSCard 运行时 DTO
    * 
    * @param dtos 持久化模型数组
-   * @returns 领域模型数组
+   * @returns FSRSCard 运行时 DTO 数组
    */
   static toDomainBatch(dtos: CardPersistenceDTO[]): FSRSCard[] {
     return dtos.map(dto => this.toDomain(dto));
@@ -443,151 +439,4 @@ export class CardMapper {
     };
   }
 
-  /**
-   * Card Entity → 持久化模型
-   * 
-   * @param card Card Entity
-   * @returns 持久化模型
-   */
-  static fromEntity(card: Card): CardPersistenceDTO {
-    const props = card.toObject();
-    
-    // 提取 Xiuyuan 字段
-    const xiuyuanMetadata = props.xiuyuanMetadata;
-    
-    return {
-      id: props.id,
-      blockId: props.blockId,
-      due: props.due,
-      stability: props.stability,
-      difficulty: props.difficulty,
-      reps: props.reps,
-      lapses: props.lapses,
-      state: props.state,
-      lastReview: props.lastReview,
-      elapsedDays: props.elapsedDays,
-      scheduledDays: props.scheduledDays,
-      learning_step: props.learning_step,
-      priority: props.priority,
-      type: props.type,
-      tags: props.tags || [],
-      cardTypeMarker: props.cardTypeMarker,
-      neuralRoamSeed: props.neuralRoamSeed,
-      leechCount: props.leechCount,
-      isLeech: props.isLeech,
-      skipped: props.skipped,
-      skipNote: props.skipNote,
-      skipUntil: props.skipUntil,
-      sourceUrl: props.sourceUrl,
-      extractedFrom: props.extractedFrom,
-      createdAt: props.createdAt,
-      updatedAt: props.updatedAt,
-      aFactor: props.aFactor,
-      schedulerType: props.schedulerType,
-      syncToRiff: props.syncToRiff,
-      riffCardId: props.riffCardId,
-      schedulerMeta: props.schedulerMeta,
-      postponeCount: props.postponeCount,
-      lastPostponeDate: props.lastPostponeDate,
-      rescheduleHistory: props.rescheduleHistory,
-      
-      // Xiuyuan 字段提取到顶层
-      xiuyuanID: xiuyuanMetadata?.xiuyuanID,
-      templateID: xiuyuanMetadata?.templateID,
-      frontBlockIDs: xiuyuanMetadata?.frontBlockIDs,
-      backBlockIDs: xiuyuanMetadata?.backBlockIDs,
-      fieldMapping: xiuyuanMetadata?.fieldMapping,
-      xiuyuanPriority: xiuyuanMetadata?.priority,
-      
-      // 扩展数据
-      meta: props.extensionData,
-    };
-  }
-
-  /**
-   * 持久化模型 → Card Entity
-   * 
-   * @param dto 持久化模型
-   * @returns Card Entity
-   */
-  static toEntity(dto: CardPersistenceDTO): Result<Card> {
-    // 重建 Xiuyuan 元数据
-    const xiuyuanMetadata = dto.xiuyuanID ? {
-      xiuyuanID: dto.xiuyuanID,
-      templateID: dto.templateID!,
-      frontBlockIDs: dto.frontBlockIDs || [],
-      backBlockIDs: dto.backBlockIDs || [],
-      fieldMapping: dto.fieldMapping,
-      priority: dto.xiuyuanPriority,
-    } : undefined;
-    
-    return Card.create({
-      id: dto.id,
-      blockId: dto.blockId,
-      due: dto.due,
-      stability: dto.stability,
-      difficulty: dto.difficulty,
-      reps: dto.reps,
-      lapses: dto.lapses,
-      state: dto.state,
-      lastReview: dto.lastReview,
-      elapsedDays: dto.elapsedDays,
-      scheduledDays: dto.scheduledDays,
-      learning_step: dto.learning_step,
-      priority: dto.priority,
-      type: dto.type,
-      tags: dto.tags,
-      cardTypeMarker: dto.cardTypeMarker,
-      neuralRoamSeed: dto.neuralRoamSeed,
-      leechCount: dto.leechCount,
-      isLeech: dto.isLeech,
-      skipped: dto.skipped,
-      skipNote: dto.skipNote,
-      skipUntil: dto.skipUntil,
-      sourceUrl: dto.sourceUrl,
-      extractedFrom: dto.extractedFrom,
-      createdAt: dto.createdAt,
-      updatedAt: dto.updatedAt,
-      aFactor: dto.aFactor,
-      schedulerType: dto.schedulerType,
-      syncToRiff: dto.syncToRiff,
-      riffCardId: dto.riffCardId,
-      schedulerMeta: dto.schedulerMeta,
-      postponeCount: dto.postponeCount,
-      lastPostponeDate: dto.lastPostponeDate,
-      rescheduleHistory: dto.rescheduleHistory,
-      xiuyuanMetadata,
-      extensionData: dto.meta,
-    });
-  }
-
-  /**
-   * 批量转换：Card Entity → 持久化模型
-   */
-  static fromEntityBatch(cards: Card[]): CardPersistenceDTO[] {
-    return cards.map(card => this.fromEntity(card));
-  }
-
-  /**
-   * 批量转换：持久化模型 → Card Entity
-   */
-  static toEntityBatch(dtos: CardPersistenceDTO[]): Result<Card[]> {
-    const cards: Card[] = [];
-    const errors: Error[] = [];
-    
-    for (const dto of dtos) {
-      const result = this.toEntity(dto);
-      if (isErr(result)) {
-        errors.push(result.error);
-      } else {
-        cards.push(result.value);
-      }
-    }
-    
-    if (errors.length > 0) {
-      return err(new Error(`Failed to convert ${errors.length} cards: ${errors.map(e => e.message).join(', ')}`));
-    }
-    
-    return ok(cards);
-  }
 }
