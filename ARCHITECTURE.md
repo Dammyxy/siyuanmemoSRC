@@ -330,7 +330,8 @@ Review Attempt Kernel 边界：
 
 主链路分工：
 
-- `ProgressiveReadingService`：渐进阅读、拆分、摘录、来源追踪、文档与卡片编排的核心应用服务；在 backend client 可用时先提交 `progressive.command` facade，再继续当前迁移期编排
+- `ProgressiveReadingService`：渐进阅读、拆分、摘录入口与 backend command facade 的核心应用服务；本地摘录创建委托给 `ProgressiveExcerptMaterializer`，split / child-doc / workbench 编排仍由 service 负责
+- `ProgressiveExcerptMaterializer`：摘录 materialization 接口 owner，集中处理选区归一、source lineage、source-child / daily-note / library 落点、attrs、topic-card linkage、duplicate result 与失败回滚；实际 Siyuan / Riff 写入仍经 application ports 与现有 service helper
 - `SelectionExcerptService`：把选择态 surface 接到 `ProgressiveReadingService` 的轻量门面
 - `SelectionTopicContinuationService`：把选区继续制卡的 topic/excerpt 语境判定、planner 结果适配，以及“普通选区改 source mark + 立刻创建 1 个 Item”的 manual-cloze 分流收敛到 topic-derived 主链，同时负责“从当前块高亮补齐 Item”的块级 fan-out
 - `TopicDerivedItemService`：在 topic / excerpt 语境下创建 topic-derived item；backend client 可用时先提交 `topic-derived.command` facade，再继续当前迁移期编排
@@ -468,6 +469,7 @@ UI surface：
 - `src/application/services/ReviewScopeCardCreationSyncService.ts`：review scope 内的卡片增删事件桥接；监听 `CardCreated / CardDeleted / CardsDeleted`，把新增或删除同步到 `UnifiedDataSourceManager`，让打开中的 Browser / Review 队列通过统一 observer 链路刷新。
 - `src/application/services/ConfiguredCaptureStorageService.ts`：capture 目标存储解析与写入策略。
 - `src/application/services/ExcerptRecordService.ts`：摘录记录与去重相关服务。
+- `src/application/services/ProgressiveExcerptMaterializer.ts`：Progressive 摘录 materialization 接口，集中 storage target、lineage/attrs、topic-card linkage、duplicate result 与回滚策略。
 - `src/application/services/ProgressiveReadingService.ts`：progressive split / excerpt 的主编排服务。
 - `src/application/services/SelectionExcerptService.ts`：选择态摘录门面。
 - `src/application/services/SelectionTopicContinuationService.ts`：选区继续制卡门面，负责同步 menu 预判和异步 progressive source context 解析。
@@ -859,9 +861,13 @@ Review 运行时要点：
 角色划分：
 
 - `ProgressiveReadingService`
-  - 创建 split piece / excerpt / 相关 workbench 文档
-  - 维护来源块、来源文档、摘录记录、去重与回滚
-  - 协调 card service、capture storage、Riff / Siyuan 边界
+  - 创建 split piece / 相关 workbench 文档，并作为 progressive excerpt public facade
+  - 维护 progressive state、piece/session 迁移和 backend command facade
+  - 提供受控的 Siyuan doc/block helper 给 materializer，协调 card service、capture storage、Riff / Siyuan 边界
+- `ProgressiveExcerptMaterializer`
+  - 接收 normalized excerpt input，返回 `created / duplicate` materialization result
+  - 维护摘录 source lineage、selection/payload/source-position/disclosure attrs、parent topic/excerpt lineage 和 topic-card linkage
+  - 在 source-child、daily-note、configured-library 三种 storage mode 间做唯一落点决策，并在实体或 card/Riff 创建失败时回滚已创建 artifact
 - `SelectionExcerptService`
   - 负责把 selection-oriented 输入适配到主 progressive 服务
 - `SelectionTopicContinuationService`

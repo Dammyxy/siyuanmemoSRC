@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-14 (Round 591)
+Last update: 2026-06-14 (Round 592)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-14 - Progressive excerpt materializer extraction
+
+- Task: Implement OpenSpec change `deepen-progressive-excerpt-materialization` by extracting Progressive excerpt creation out of the broad reading service.
+- Touched slice: Progressive / Excerpt application path in `src/application/services/{ProgressiveReadingService,ProgressiveExcerptMaterializer,ExcerptRecordService}.ts`, focused `ProgressiveReadingService` excerpt tests, `ARCHITECTURE.md`, OpenSpec task ledger, and this backlog.
+- Debt fixed now: Moved source lineage, selection/payload/source-position attrs, storage target selection, topic-card linkage, duplicate result handling, and excerpt artifact rollback behind `ProgressiveExcerptMaterializer`; `ProgressiveReadingService.createExcerptFromSelectionLocal()` now stays a facade and delegates materialization through one application-owned interface. Duplicate excerpts now return the existing record without creating another doc/block or topic card, matching the explicit duplicate contract.
+- Debt deferred: Progressive split creation, child-doc/workbench helper internals, Topic-derived item materialization, live two-window command smoke, and broader Progressive/Topic backend ownership remain outside this excerpt-only slice.
+- Why deferred: Those areas cross split/session state, Topic-derived write semantics, backend command routing, or live SiYuan multi-window side effects; this change intentionally preserved public callers and storage behavior while only deepening the excerpt materialization boundary.
+- Next safe step: If Progressive cleanup continues, choose either a split/session module extraction or a Topic-derived materialization interface as a separate OpenSpec change with its own characterization tests.
+- Validation: `pnpm vitest run src/application/services/__tests__/ProgressiveReadingService.test.ts --reporter=dot`; `openspec validate deepen-progressive-excerpt-materialization --strict`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check`; `pnpm build`.
 
 ### 2026-06-14 - Review View host runtime thinning
 

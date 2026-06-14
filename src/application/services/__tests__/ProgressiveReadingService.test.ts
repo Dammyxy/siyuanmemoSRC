@@ -2092,7 +2092,7 @@ describe('ProgressiveReadingService', () => {
     }));
   });
 
-  it('allows repeated excerpts on the same source block and records each created excerpt', async () => {
+  it('returns an explicit duplicate excerpt without creating another entity', async () => {
     const fileService = createFileServiceMock();
     const recordService = new ExcerptRecordService(fileService);
     await recordService.createOrRejectDuplicate({
@@ -2136,28 +2136,98 @@ describe('ProgressiveReadingService', () => {
       origin: 'editor',
     });
 
-    expect(result).toEqual(expect.objectContaining({
-      kind: 'created',
-      excerptEntityId: 'excerpt-created-2',
-      sourceBlockId: 'source-dup-1',
-      recordId: expect.any(String),
-    }));
-    expect(port.createDocWithMarkdown).toHaveBeenCalledTimes(1);
-    expect(cardService.service.createCard).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      kind: 'duplicate',
+      record: expect.objectContaining({
+        excerptEntityId: 'excerpt-existing-1',
+        sourceBlockId: 'source-dup-1',
+        normalizedFingerprint: 'Focus text',
+      }),
+    });
+    expect(port.createDocWithMarkdown).not.toHaveBeenCalled();
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
     expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toEqual(expect.objectContaining({
-      records: expect.arrayContaining([
+      records: [
         expect.objectContaining({
           excerptEntityId: 'excerpt-existing-1',
           sourceBlockId: 'source-dup-1',
           normalizedFingerprint: 'Focus text',
         }),
-        expect.objectContaining({
-          excerptEntityId: 'excerpt-created-2',
-          sourceBlockId: 'source-dup-1',
-          normalizedFingerprint: 'Focus text',
-        }),
-      ]),
+      ],
     }));
+  });
+
+  it('rejects excerpt sources without root or notebook identity before creating artifacts', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'source-missing-root-1'")) {
+          return [
+            { id: 'source-missing-root-1', root_id: '', parent_id: '', box: '', type: 'p', content: 'Focus text', markdown: 'Focus text' },
+          ];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+      createDocWithMarkdown: vi.fn(async () => 'excerpt-should-not-exist'),
+      appendDomBlock: vi.fn(async () => 'block-should-not-exist'),
+    });
+    const cardService = createCardServiceMock();
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+
+    await expect(service.createExcerptFromSelection({
+      sourceBlockId: 'source-missing-root-1',
+      selectedText: 'Focus text',
+      origin: 'editor',
+    })).rejects.toThrow('无法解析摘抄来源块');
+
+    expect(port.createDocWithMarkdown).not.toHaveBeenCalled();
+    expect(port.appendDomBlock).not.toHaveBeenCalled();
+    expect(port.setBlockAttrs).not.toHaveBeenCalled();
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
+    expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toBeUndefined();
+  });
+
+  it('does not persist records or cards when source-child excerpt doc creation cannot be located', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async (docId: string) => ({
+        id: docId,
+        box: 'notebook-a',
+        path: '/reading/ordinary.sy',
+        hpath: '/reading/ordinary',
+        name: 'Ordinary',
+      })),
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'source-create-fail-1'")) {
+          return [
+            { id: 'source-create-fail-1', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 'p', content: 'Focus text', markdown: 'Focus text' },
+          ];
+        }
+        if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
+          return [];
+        }
+        if (stmt.includes("WHERE type = 'd'") && stmt.includes("hpath = '/reading/ordinary/[Topic 001] Focus text'")) {
+          return [];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+      createDocWithMarkdown: vi.fn(async () => ''),
+    });
+    const cardService = createCardServiceMock();
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+
+    await expect(service.createExcerptFromSelection({
+      sourceBlockId: 'source-create-fail-1',
+      selectedText: 'Focus text',
+      origin: 'editor',
+    })).rejects.toThrow('子文档创建后无法定位');
+
+    expect(port.createDocWithMarkdown).toHaveBeenCalledTimes(1);
+    expect(port.appendDomBlock).not.toHaveBeenCalled();
+    expect(port.setBlockAttrs).not.toHaveBeenCalled();
+    expect(port.deleteBlock).not.toHaveBeenCalled();
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
+    expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toBeUndefined();
   });
 
   it('does not write any Daily Notes trace by default while still creating excerpt docs and topic cards', async () => {

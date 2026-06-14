@@ -10,18 +10,15 @@ import type {
 import { ConfiguredCaptureStorageService } from '@/application/services/ConfiguredCaptureStorageService';
 import {
   ExcerptRecordService,
-  PROGRESSIVE_EXCERPT_COLOR_TOKEN,
   normalizeExcerptBlockIds,
   type ExcerptRecord,
 } from '@/application/services/ExcerptRecordService';
-import { resolveProgressiveSourceContext } from '@/application/services/ProgressiveSourceContextResolver';
 import {
-  buildProgressiveContentPayloadIdentity,
-  buildProgressiveDerivedItemIdentity,
+  ProgressiveExcerptMaterializer,
+  type ProgressiveExcerptMaterializerState,
+} from '@/application/services/ProgressiveExcerptMaterializer';
+import {
   buildProgressiveDisclosureState,
-  buildProgressiveSelectionSnapshotIdentity,
-  buildProgressiveSourceLineage,
-  buildProgressiveUnifiedSourcePosition,
   evaluateProgressiveSourceAvailability,
   type ProgressiveContentPayloadIdentity,
   type ProgressiveDisclosureState,
@@ -34,22 +31,14 @@ import { isErr } from '@/types/result';
 import type { PluginSettings } from '@/types/settings';
 import { createLogger } from '@/utils/logger';
 import {
-  ATTR_PROGRESSIVE_DERIVED_ITEM_IDENTITY,
   ATTR_PROGRESSIVE_DISCLOSURE_STATE,
   ATTR_PROGRESSIVE_KIND,
   ATTR_PROGRESSIVE_MODE,
-  ATTR_PROGRESSIVE_PARENT_EXCERPT_ID,
-  ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID,
-  ATTR_PROGRESSIVE_PAYLOAD_IDENTITY,
   ATTR_PROGRESSIVE_PIECE_COUNT,
   ATTR_PROGRESSIVE_PIECE_INDEX,
   ATTR_PROGRESSIVE_PIECE_STATE,
-  ATTR_PROGRESSIVE_SELECTION_SNAPSHOT,
-  ATTR_PROGRESSIVE_SOURCE_LINEAGE,
   ATTR_PROGRESSIVE_SESSION_ID,
-  ATTR_PROGRESSIVE_SOURCE_BLOCK_ID,
   ATTR_PROGRESSIVE_SOURCE_DOC_ID,
-  ATTR_PROGRESSIVE_SOURCE_POSITION,
   ATTR_PROGRESSIVE_WORKBENCH_ID,
   getLegacyProgressiveAttrName,
 } from '@/application/services/ProgressiveAttrContract';
@@ -743,216 +732,28 @@ export class ProgressiveReadingService {
   }
 
   async createExcerptFromSelectionLocal(input: ProgressiveExcerptInput): Promise<ProgressiveExcerptCreationResult> {
-    const sourceBlockId = String(input.sourceBlockId || '').trim();
-    const sourceBlockIds = normalizeExcerptBlockIds(input.sourceBlockIds, input.sourceBlockId);
-    const selectedText = this.toExcerptMarkdown(input.selectedText);
-    const contentDom = this.buildExcerptEntityDom({
-      selectedText,
-      contentDom: input.contentDom,
-      sourceBlockIds,
+    const materializer = new ProgressiveExcerptMaterializer({
+      siyuanApi: this.siyuanApi,
+      cardService: this.cardService,
+      settingsProvider: this.settingsProvider,
+      configuredCaptureStorageService: this.configuredCaptureStorageService,
+      excerptRecordService: this.excerptRecordService,
+      getBlockInfo: (blockId) => this.getBlockInfo(blockId),
+      getBlockRowsByIds: (blockIds) => this.getBlockRowsByIds(blockIds),
+      readState: () => this.readState() as Promise<ProgressiveExcerptMaterializerState>,
+      getSessionByPieceDocId: (state, pieceDocId) => this.getSessionByPieceDocId(state as ProgressiveState, pieceDocId),
+      resolveDocInfo: (docId) => this.resolveDocInfo(docId),
+      buildExcerptEntityDom: (excerptInput) => this.buildExcerptEntityDom(excerptInput),
+      createExcerptDocUnderSource: (excerptInput) => this.createExcerptDocUnderSource(excerptInput),
+      createExcerptDocUnderConfiguredParent: (excerptInput) => this.createExcerptDocUnderConfiguredParent(excerptInput),
+      createDailyNoteExcerptBlock: (excerptInput) => this.createDailyNoteExcerptBlock(excerptInput),
+      ensureExcerptTopicCard: (excerptInput) => this.ensureExcerptTopicCard(excerptInput),
+      setProgressiveAttrs: (blockId, attrs) => this.setProgressiveAttrs(blockId, attrs),
+      rollbackExcerptArtifact: (excerptEntityId, excerptEntityType, error) =>
+        this.rollbackExcerptArtifact(excerptEntityId, excerptEntityType, error),
+      scheduleDocTreeRebuild: () => this.docTreeScopeRefresher?.scheduleRebuild(),
     });
-    if (!sourceBlockId || sourceBlockIds.length === 0 || !selectedText || !contentDom) {
-      throw new Error('摘抄需要有效的选区或块内容');
-    }
-
-    const blockInfo = await this.getBlockInfo(sourceBlockId);
-    if (!blockInfo.root_id || !blockInfo.box) {
-      throw new Error('无法解析摘抄来源块');
-    }
-
-    const sourceContext = await resolveProgressiveSourceContext({
-      blockId: sourceBlockId,
-      rootId: blockInfo.root_id,
-      cardLookup: this.cardService,
-      attrLookup: this.siyuanApi,
-    });
-    const sourceRows = sourceBlockIds.length > 1
-      ? await this.getBlockRowsByIds(sourceBlockIds)
-      : [blockInfo];
-    const sourceLineage = buildProgressiveSourceLineage({
-      sourceContext,
-      sourceBlockIds,
-    });
-    const selectionSnapshot = buildProgressiveSelectionSnapshotIdentity({
-      sourceBlockId,
-      sourceBlockIds,
-      selectedText,
-      selectionMode: input.contentDom ? 'range' : 'full-block',
-    });
-    const payloadIdentity = buildProgressiveContentPayloadIdentity({
-      sourceBlockIds,
-      selectedText,
-      contentDom,
-      sourceBlocks: sourceRows,
-    });
-    const sourcePosition = buildProgressiveUnifiedSourcePosition({
-      sourceDocId: sourceLineage.sourceDocId,
-      rootDocId: sourceLineage.rootDocId,
-      sourceBlockId,
-      sourceBlockIds,
-    });
-    const disclosureState = buildProgressiveDisclosureState('created');
-    const state = await this.readState();
-    let sourceDocId = sourceContext.sourceDocId;
-    let sessionId = sourceContext.sessionId;
-    let mode = sourceContext.mode;
-    let pieceDocId: string | undefined;
-
-    const directPieceSession = this.getSessionByPieceDocId(state, sourceContext.rootDocId);
-    if (directPieceSession) {
-      const piece = directPieceSession.pieces.find((entry) => entry.pieceDocId === sourceContext.rootDocId);
-      if (!piece) {
-        throw new Error('渐进阅读 piece 状态不完整');
-      }
-      sessionId = directPieceSession.id;
-      mode = directPieceSession.mode;
-      pieceDocId = piece.pieceDocId;
-    } else if (sessionId && sourceContext.attrSourceDocId) {
-      const upstreamPieceSession = this.getSessionByPieceDocId(state, sourceContext.attrSourceDocId);
-      if (upstreamPieceSession?.id === sessionId) {
-        mode = mode || upstreamPieceSession.mode;
-        pieceDocId = sourceContext.attrSourceDocId;
-      }
-    }
-
-    const excerptAttempt = await this.excerptRecordService.createAllowingDuplicate({
-      sourceDocId,
-      sourceBlockId,
-      sourceBlockIds,
-      selectedText,
-      origin: input.origin,
-      colorToken: PROGRESSIVE_EXCERPT_COLOR_TOKEN,
-      createExcerpt: async () => {
-        const excerptStorage = this.settingsProvider.getSettings().progressiveReading?.storage;
-        const configuredStorageMode = excerptStorage?.mode;
-        const hasExplicitStorage = this.configuredCaptureStorageService.hasExplicitConfiguration(excerptStorage);
-        const useSourceChildStorage = configuredStorageMode === 'source-child' || !hasExplicitStorage;
-        const excerptAttrs: Record<string, string | number | undefined> = {
-          [ATTR_PROGRESSIVE_KIND]: !useSourceChildStorage && configuredStorageMode === 'daily-note' ? 'excerpt' : 'excerpt-doc',
-          [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: sourceDocId,
-          [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: sourceBlockId,
-          [ATTR_PROGRESSIVE_SOURCE_LINEAGE]: toAttrJsonValue(sourceLineage),
-          [ATTR_PROGRESSIVE_SELECTION_SNAPSHOT]: toAttrJsonValue(selectionSnapshot),
-          [ATTR_PROGRESSIVE_PAYLOAD_IDENTITY]: toAttrJsonValue(payloadIdentity),
-          [ATTR_PROGRESSIVE_SOURCE_POSITION]: toAttrJsonValue(sourcePosition),
-          [ATTR_PROGRESSIVE_DISCLOSURE_STATE]: toAttrJsonValue(disclosureState),
-          ...(sessionId ? { [ATTR_PROGRESSIVE_SESSION_ID]: sessionId } : {}),
-          ...(mode ? { [ATTR_PROGRESSIVE_MODE]: mode } : {}),
-          ...(sourceContext.parentTopicCardId
-            ? { [ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID]: sourceContext.parentTopicCardId }
-            : {}),
-          ...(sourceContext.parentExcerptId
-            ? { [ATTR_PROGRESSIVE_PARENT_EXCERPT_ID]: sourceContext.parentExcerptId }
-            : {}),
-        };
-        let excerptEntityId = '';
-        let excerptEntityType: 'doc' | 'block' = 'doc';
-        let containerDocId = '';
-        try {
-          if (useSourceChildStorage) {
-            const sourceDocInfo = await this.resolveDocInfo(sourceDocId);
-            excerptEntityId = await this.createExcerptDocUnderSource({
-              sourceDocInfo,
-              sourceDocId,
-              selectedText,
-              sourceBlockId,
-              sourceBlockIds,
-              contentDom,
-              attrs: excerptAttrs,
-            });
-            containerDocId = excerptEntityId;
-          } else if (configuredStorageMode === 'daily-note') {
-            const dailyNoteTarget = await this.configuredCaptureStorageService.resolveDailyNoteTarget(excerptStorage);
-            if (!dailyNoteTarget) {
-              throw new Error('未能解析摘录今日日记存放位置。');
-            }
-            containerDocId = dailyNoteTarget.containerDocId;
-            excerptEntityId = await this.createDailyNoteExcerptBlock({
-              dailyNoteDocId: dailyNoteTarget.containerDocId,
-              selectedText,
-              sourceBlockId,
-              sourceBlockIds,
-              contentDom,
-              attrs: excerptAttrs,
-            });
-            excerptEntityType = 'block';
-          } else {
-            const libraryTarget = await this.configuredCaptureStorageService.resolveLibraryTarget(excerptStorage, {
-              feature: 'progressive-excerpt',
-              allowNonDocTarget: false,
-            });
-            if (!libraryTarget) {
-              throw new Error('未能解析摘录固定库存放位置。');
-            }
-            containerDocId = libraryTarget.containerDocId;
-            excerptEntityId = await this.createExcerptDocUnderConfiguredParent({
-              parentDocInfo: libraryTarget.parentDoc,
-              sourceDocId,
-              selectedText,
-              sourceBlockId,
-              sourceBlockIds,
-              contentDom,
-              attrs: excerptAttrs,
-            });
-          }
-
-          const topicCardResult = await this.ensureExcerptTopicCard({
-            excerptEntityId,
-            excerptEntityType,
-            sourceBlockId,
-            sourceBlockIds,
-            sourceLineage,
-            payloadIdentity,
-            disclosureState,
-            sessionId,
-            mode,
-            pieceDocId,
-            sourceDocId,
-            parentTopicCardId: sourceContext.parentTopicCardId,
-            parentExcerptId: sourceContext.parentExcerptId,
-          });
-          await this.setProgressiveAttrs(excerptEntityId, {
-            [ATTR_PROGRESSIVE_DERIVED_ITEM_IDENTITY]: toAttrJsonValue(buildProgressiveDerivedItemIdentity({
-              kind: 'excerpt-topic',
-              itemId: topicCardResult.cardId,
-              sourceBlockId,
-              sourceBlockIds,
-            })),
-          });
-
-          return {
-            excerptEntityId,
-            excerptEntityType,
-            topicCardId: topicCardResult.cardId,
-            sourceBlockId,
-            sourceBlockIds,
-            containerDocId,
-          };
-        } catch (error) {
-          await this.rollbackExcerptArtifact(excerptEntityId, excerptEntityType, error);
-          throw error;
-        }
-      },
-    });
-
-    logger.info('Excerpt created', {
-      sourceBlockId,
-      sourceDocId,
-      excerptEntityId: excerptAttempt.created.excerptEntityId,
-      excerptEntityType: excerptAttempt.created.excerptEntityType,
-      sourceBlockIds: excerptAttempt.created.sourceBlockIds,
-      containerDocId: excerptAttempt.created.containerDocId,
-      recordId: excerptAttempt.record.recordId,
-      origin: input.origin,
-    });
-    this.docTreeScopeRefresher?.scheduleRebuild();
-
-    return {
-      kind: 'created',
-      ...excerptAttempt.created,
-      recordId: excerptAttempt.record.recordId,
-      colorApplied: false,
-    };
+    return materializer.materialize(input);
   }
 
   async updateSourceBlockDom(blockId: string, dom: string): Promise<void> {
