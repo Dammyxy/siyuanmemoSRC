@@ -559,7 +559,7 @@ Handlers / entries / helpers：
 - `src/core/queue/domain/NeuralRoamQueue.ts`：神经漫游队列。
 - `src/core/queue/domain/LeechReviewQueue.ts`：难点攻坚队列。
 - `src/core/queue/domain/SubsetReviewQueue.ts` / `TemporaryDrillQueue.ts`：会话性与辅助队列。
-- `src/core/queue/sequencers/*` / `src/core/queue/schedulers/*`：队列内抽卡与排序策略。
+- Active Review 抽卡、排序与 session queue patch 由 `src/application/adapters/UnifiedQueueStrategy.ts`、`src/application/adapters/review-session/*`、`SrsV2SessionQueueRuntime` 与 `src/core/queue/domain/*` 共同承担；调度写入仍经 `src/core/scheduler/SchedulerRouter.ts`。
 - `src/core/queue/neural/*`：神经漫游引擎、历史、trace、传播相关能力。
 - `src/core/scheduler/SchedulerRouter.ts`：全局调度路由器。
 - `src/core/scheduler/AdvanceEngine.ts` / `PostponeEngine.ts` / `SpreadEngine.ts` / `rescheduleService.ts`：重排与计划引擎；浏览器 Spread 全局默认只收 due/outstanding，勾选“考虑未来复习”才纳入收集期内未来卡，队列模式用 `collectAllCards` 分摊当前队列全集。

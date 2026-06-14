@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-14 (Round 594)
+Last update: 2026-06-14 (Round 595)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-14 - Stale Queue abstraction retirement
+
+- Task: Implement OpenSpec change `retire-stale-queue-abstractions` by deleting stale Queue abstraction Modules after deletion-test evidence.
+- Touched slice: Queue architecture cleanup across `src/core/queue/abstraction/*`, `src/core/queue/commands/*`, `src/core/queue/schedulers/*`, `src/core/queue/sequencers/*`, inactive `src/ui/review/v2/providers/utils/*`, `ARCHITECTURE.md`, `docs/architecture-audits/overdesign-audit-2026-06-14.md`, OpenSpec task notes, and this backlog.
+- Debt fixed now: Removed the public-looking but inactive Trait/command Interface surface, old queue Scheduler Modules, stale Sequencer stack, inactive provider `SessionManager` path, and tests/docs that only preserved those retired Interfaces; kept active `QueueUIConfig.menuCommands`, unified-data-source observer contracts, `UnifiedQueueStrategy`, `BaseReviewQueue`, `SrsV2SessionQueueRuntime`, and `SchedulerRouter` as the live Queue runtime.
+- Debt deferred: Historical docs outside the active architecture map still mention old Sequencer/Trait vocabulary; ADR-001/002/003 remain accepted historical records rather than rewritten decisions; `FinalDrillV2Session` still has local `getMutableTrait` / `getRemovableTrait` queue-like hook names that are not imports from the retired Trait system; old Card Entity / Repository path and cache-observer width are left for separate OpenSpec changes.
+- Why deferred: Those docs are historical reports or diagnostic artifacts, while ADR rewrites would need a superseding decision. FinalDrill hook renaming touches active drill behavior and deserves a small characterization-backed cleanup, and Card repository / cache cleanup touch different Modules needing their own deletion tests.
+- Next safe step: Start `retire-old-card-entity-repository`, first classifying `CardMapper` entity helpers versus active FSRS DTO mapping.
+- Validation: Deletion-test `git grep` found no active production imports/constructions for retired Queue commands, Trait Interfaces, Sequencers, queue Schedulers, stale observer types, or provider `SessionManager`; focused `pnpm exec vitest run src/core/queue/domain/__tests__/BaseReviewQueue.snapshot.test.ts src/core/queue/domain/__tests__/RetrievalPracticeQueue.add-card.test.ts src/core/queue/domain/__tests__/IncrementalLearningQueue.add-card.test.ts src/core/queue/domain/__tests__/SrsV2QueuePolicy.test.ts --reporter=dot`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`; `openspec validate retire-stale-queue-abstractions --strict`; `git diff --check`.
 
 ### 2026-06-14 - Agent AI card draft pipeline
 

@@ -67,9 +67,6 @@ export type QueueFeedback = {
  * **Design Pattern**: Strategy pattern allows different queue behaviors
  * (e.g., retrieval practice, incremental learning) to be swapped at runtime.
  *
- * **Trait Support**: Queues can optionally implement trait interfaces
- * (IMutableTrait, IRemovableTrait, etc.) to provide additional capabilities.
- *
  * **Type Constraint**: TItem must extend QueueItem to ensure all items have
  * the required blockID field for proper identification and tracking. This
  * satisfies Requirement 6.2: "WHEN defining IQueue interface, THE System SHALL
