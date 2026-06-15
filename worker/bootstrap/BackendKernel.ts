@@ -406,6 +406,7 @@ export class BackendKernel {
       },
       storage: {
         sqliteDelta,
+        diagnostics: status.storageDiagnostics,
       },
       ai: status.ai,
       hotspot: this.hotspotRuntime.getDiagnostics(),

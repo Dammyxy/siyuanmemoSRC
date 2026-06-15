@@ -37,48 +37,48 @@
 
 ## 5. Startup Priority And Divergence
 
-- [ ] 5.1 Implement startup source priority as truth, then temp projection DB, then legacy MessagePack only before truth exists.
-- [ ] 5.2 Rebuild projection from truth when truth exists and the temp DB is missing, corrupt, stale, or schema-incompatible.
-- [ ] 5.3 Prevent legacy MessagePack re-import when truth already exists.
-- [ ] 5.4 Detect legacy source hash changes after completed receipt and fail closed with `LEGACY_DIVERGENCE_DETECTED`.
-- [ ] 5.5 Reconcile truth-without-receipt by trusting truth, rebuilding projection, and writing a reconciled receipt.
-- [ ] 5.6 Ignore any petal `siyuanmemo.db` with a diagnostic and no read, migration, deletion, or write.
+- [x] 5.1 Implement startup source priority as truth, then temp projection DB, then legacy MessagePack only before truth exists.
+- [x] 5.2 Rebuild projection from truth when truth exists and the temp DB is missing, corrupt, stale, or schema-incompatible.
+- [x] 5.3 Prevent legacy MessagePack re-import when truth already exists.
+- [x] 5.4 Detect legacy source hash changes after completed receipt and fail closed with `LEGACY_DIVERGENCE_DETECTED`.
+- [x] 5.5 Reconcile truth-without-receipt by trusting truth, rebuilding projection, and writing a reconciled receipt.
+- [x] 5.6 Ignore any petal `siyuanmemo.db` with a diagnostic and no read, migration, deletion, or write.
 
 ## 6. Temp Projection Lifecycle
 
-- [ ] 6.1 Move projection DB persistence out of plugin petal storage and into workspace temp when host APIs allow persistent temp files.
-- [ ] 6.2 Support in-memory sql.js projection rebuild when persistent temp storage is unavailable in P0.
-- [ ] 6.3 Drop or ignore temp DB schema mismatches instead of running long SQL migrations.
-- [ ] 6.4 Rebuild card projection indexes from truth before Review and Browser become usable.
-- [ ] 6.5 Rebuild review-event indexes from truth before Review and Browser become usable.
-- [ ] 6.6 Keep optional queue, arena, semantic, and other projections background-only unless their surfaces explicitly report refreshing or unavailable.
+- [x] 6.1 Move projection DB persistence out of plugin petal storage and into workspace temp when host APIs allow persistent temp files.
+- [x] 6.2 Support in-memory sql.js projection rebuild when persistent temp storage is unavailable in P0.
+- [x] 6.3 Drop or ignore temp DB schema mismatches instead of running long SQL migrations.
+- [x] 6.4 Rebuild card projection indexes from truth before Review and Browser become usable.
+- [x] 6.5 Rebuild review-event indexes from truth before Review and Browser become usable.
+- [x] 6.6 Keep optional queue, arena, semantic, and other projections background-only unless their surfaces explicitly report refreshing or unavailable.
 
 ## 7. Runtime Authority And User-Visible Failures
 
-- [ ] 7.1 Ensure only the active writer runtime appends truth and updates or invalidates projection storage.
-- [ ] 7.2 Ensure follower windows relay storage mutations to the writer and never write truth or projection locally.
-- [ ] 7.3 Return explicit unavailable status when no writer can accept a follower storage mutation.
-- [ ] 7.4 Surface storage unavailable toast/dialog messages for migration failure, divergence, projection rebuild failure, validation failure, and source read failure.
-- [ ] 7.5 Prevent Review, Browser, and storage mutations from opening in half-usable state after storage initialization fails.
+- [x] 7.1 Ensure only the active writer runtime appends truth and updates or invalidates projection storage.
+- [x] 7.2 Ensure follower windows relay storage mutations to the writer and never write truth or projection locally.
+- [x] 7.3 Return explicit unavailable status when no writer can accept a follower storage mutation.
+- [x] 7.4 Surface storage unavailable toast/dialog messages for migration failure, divergence, projection rebuild failure, validation failure, and source read failure.
+- [x] 7.5 Prevent Review, Browser, and storage mutations from opening in half-usable state after storage initialization fails.
 
 ## 8. Tests
 
-- [ ] 8.1 Add migration tests for old `unified-cards.msgpack` first startup creating truth, receipt, and projection.
-- [ ] 8.2 Add restart tests proving deleted temp DB rebuilds from truth without reading legacy MessagePack.
-- [ ] 8.3 Add tests proving truth plus unchanged legacy source ignores legacy import.
-- [ ] 8.4 Add divergence tests proving changed legacy source hash fails with `LEGACY_DIVERGENCE_DETECTED`.
-- [ ] 8.5 Add scheduling tests for unreviewed empty memory preservation and reviewed empty memory repair.
+- [x] 8.1 Add migration tests for old `unified-cards.msgpack` first startup creating truth, receipt, and projection.
+- [x] 8.2 Add restart tests proving deleted temp DB rebuilds from truth without reading legacy MessagePack.
+- [x] 8.3 Add tests proving truth plus unchanged legacy source ignores legacy import.
+- [x] 8.4 Add divergence tests proving changed legacy source hash fails with `LEGACY_DIVERGENCE_DETECTED`.
+- [x] 8.5 Add scheduling tests for unreviewed empty memory preservation and reviewed empty memory repair.
 - [x] 8.6 Add review-log tests for formal-only migration, stable idempotency keys, skipped drill/reschedule logs, and quarantined malformed records.
 - [x] 8.7 Add truth validation tests for bad segment checksum, orphan segment diagnostics, and unsupported generation failure.
-- [ ] 8.8 Add multi-window tests proving follower storage mutation relay and no local truth/projection write.
+- [x] 8.8 Add multi-window tests proving follower storage mutation relay and no local truth/projection write.
 - [x] 8.9 Add storage audit tests proving petal `siyuanmemo.db` is not written and legacy petal DB is ignored.
-- [ ] 8.10 Add startup readiness tests proving Review and Browser wait for card plus review-event projection readiness.
+- [x] 8.10 Add startup readiness tests proving Review and Browser wait for card plus review-event projection readiness.
 
 ## 9. Documentation And Validation
 
-- [ ] 9.1 Update `ARCHITECTURE.md` with truth ownership, temp projection lifecycle, startup gates, and writer-only truth writes.
+- [x] 9.1 Update `ARCHITECTURE.md` with truth ownership, temp projection lifecycle, startup gates, and writer-only truth writes.
 - [x] 9.2 Update `docs/DDD_RESCAN_BACKLOG.md` with debt retired and deferred work for compaction, optional truth families, and browser-only writer policy.
 - [x] 9.3 Run `openspec validate cutover-msgpack-truth-temp-projection-store --strict`.
-- [ ] 9.4 Run focused migration, truth, projection, startup readiness, and multi-window tests.
+- [x] 9.4 Run focused migration, truth, projection, startup readiness, and multi-window tests.
 - [x] 9.5 Run `pnpm run check:boundaries` or `node scripts/check-hidden-fallbacks.cjs`.
 - [x] 9.6 Run `pnpm build`.

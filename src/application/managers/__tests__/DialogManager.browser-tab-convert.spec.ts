@@ -35,7 +35,14 @@ vi.mock('@/ui/review/v2', () => ({
   ReviewView: {},
 }));
 
-function createManager(opened = true) {
+function createManager(
+  opened = true,
+  options?: {
+    backendWorkerAvailable?: boolean;
+    srsBackendClient?: unknown;
+    backendStartupError?: string | null;
+  },
+) {
   const tabManager = {
     openBrowserTab: vi.fn(() => opened),
   };
@@ -52,6 +59,15 @@ function createManager(opened = true) {
       srsBrowser: 'SRS Browser',
       openBrowserTabFailed: 'Failed to open browser tab',
     })),
+    getBackendMigrationRuntimePolicy: vi.fn().mockReturnValue({
+      capabilities: {
+        backendWorkerAvailable: options?.backendWorkerAvailable ?? true,
+      },
+    }),
+    getSrsBackendClient: vi.fn().mockReturnValue(
+      options && 'srsBackendClient' in options ? options.srsBackendClient : {},
+    ),
+    getBackendStartupError: vi.fn().mockReturnValue(options?.backendStartupError ?? null),
   } as any;
 
   const dialogManager = new DialogManager(context, { app: {} } as any, {
@@ -112,6 +128,21 @@ describe('DialogManager browser dialog convert-to-tab', () => {
 
     expect(config.props?.initialOpenState).toEqual(initialOpenState);
     expect(config.props?.initialQueueId).toBe('retrieval');
+  });
+
+  it('blocks the browser dialog when backend storage startup failed', async () => {
+    const { dialogManager, siyuanApi, tabManager } = createManager(true, {
+      srsBackendClient: null,
+      backendStartupError: 'LEGACY_DIVERGENCE_DETECTED: legacy source changed',
+    });
+
+    await dialogManager.openBrowserDialog();
+
+    expect(createVueDialog).not.toHaveBeenCalled();
+    expect(tabManager.openBrowserTab).not.toHaveBeenCalled();
+    expect(siyuanApi.pushErrMsg).toHaveBeenCalledWith(
+      expect.stringContaining('LEGACY_DIVERGENCE_DETECTED'),
+    );
   });
 
   it('keeps the dialog open and reports an error when opening the tab fails', async () => {

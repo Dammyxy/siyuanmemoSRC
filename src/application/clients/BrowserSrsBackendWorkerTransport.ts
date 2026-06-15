@@ -49,6 +49,7 @@ export interface BrowserSrsBackendWorkerHostEffects {
   writeBinary?: (path: string, bytes: Uint8Array) => Promise<void>;
   readJSON?: <T>(path: string) => Promise<T | null>;
   writeJSON?: (path: string, value: unknown) => Promise<void>;
+  hasLegacyPetalSqliteDb?: () => Promise<boolean>;
   readTruthBinary?: (path: string) => Promise<Uint8Array | null>;
   writeTruthBinary?: (path: string, bytes: Uint8Array) => Promise<void>;
   readTruthJSON?: <T>(path: string) => Promise<T | null>;
@@ -460,6 +461,11 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
         }
         await this.options.hostEffects.writeJSON(effect.path, effect.value);
         return null;
+      case 'sqlite.hasLegacyPetalSqliteDb':
+        if (!this.options.hostEffects.hasLegacyPetalSqliteDb) {
+          return false;
+        }
+        return this.options.hostEffects.hasLegacyPetalSqliteDb();
       case 'truth.readBinary':
         if (!this.options.hostEffects.readTruthBinary) {
           throw unavailable('truth.readBinary host effect unavailable');

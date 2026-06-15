@@ -1,8 +1,58 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-15 (Round 598)
+Last update: 2026-06-15 (Round 603)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-15 - Storage startup script-test closure
+
+- Task: Continue OpenSpec change `cutover-msgpack-truth-temp-projection-store` with script-level validation instead of live SiYuan smoke.
+- Touched slice: Backend Worker storage startup migration in `worker/db/SqliteDatabaseService.ts`, startup source-priority tests in `worker/__tests__/WorkerSqliteDatabaseService.test.ts`, OpenSpec task ledger, and this backlog.
+- Debt fixed now: Worker startup migration now passes a complete review-log reader when it also passes the review-events truth writer, so first-run legacy `unified-cards.msgpack` migration no longer fails from a half-configured review-log import path. Added worker startup tests for first-run legacy migration to truth/receipt/projection, deleted temp projection rebuild from truth without legacy bytes, unchanged legacy source avoiding re-import, and changed legacy source failing closed with `LEGACY_DIVERGENCE_DETECTED`.
+- Debt deferred: Live SiYuan startup smoke, real multi-window UI smoke, and user-facing repair workflow for divergent legacy sources remain outside this script-test pass.
+- Why deferred: User requested script testing rather than real-machine/manual smoke; divergence repair UX changes product behavior and needs a separate repair design.
+- Next safe step: Archive `cutover-msgpack-truth-temp-projection-store` after final static/build validation if no new script failure appears.
+- Validation: `pnpm exec vitest run worker/__tests__/WorkerSqliteDatabaseService.test.ts --reporter=dot`; focused 14-file migration/truth/projection/startup/multi-window vitest batch passed 220/221 before one existing SQLite timing-heavy test hit a 5s timeout under combined load; reran `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts --reporter=dot` and all 25 tests passed.
+
+### 2026-06-15 - Storage startup active-surface gate
+
+- Task: Continue OpenSpec change `cutover-msgpack-truth-temp-projection-store` for user-visible storage failures and half-usable surface prevention.
+- Touched slice: Browser/Review active surface gating in `src/application/managers/DialogManager.ts`, backend startup error propagation through `src/application/ApplicationContext.ts` and `src/application/factories/createApplicationBackendRuntimeBundle.ts`, writer-only Review truth flush scheduling in `src/application/clients/SrsBackendClient.ts`, runtime storage docs in `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Backend Worker storage startup failure now leaves `SrsBackendClient` unavailable with a captured startup error; Review and Browser entrypoints refuse to open when backend storage failed, surface storage error codes in a toast, and do not proceed to queue creation, tab handoff, or component mount. Review truth flush scheduling/unload flush no longer lets follower runtimes append truth locally.
+- Debt deferred: Focused migration/readiness/multi-window tests in OpenSpec 8.x and validation task 9.4 remain unchecked by request; broader startup repair UX and automatic legacy divergence repair remain outside this change.
+- Why deferred: User explicitly requested not to run tests; this pass was limited to production/doc closure for 7.4, 7.5, and 9.1 without starting a broader repair workflow.
+- Next safe step: If tests remain skipped, decide whether to park the remaining 8.x/9.4 tasks as intentionally deferred before archiving; otherwise run the focused startup/readiness/multi-window tests and then archive the change.
+- Validation: Manual call-chain grep for all `DialogManager.checkInitialized()` active Browser/Review entries, backend client absence guards, and architecture wording; no tests or build run per user request.
+
+### 2026-06-15 - Temp projection memory fallback
+
+- Task: Continue OpenSpec change `cutover-msgpack-truth-temp-projection-store` for temp projection lifecycle tasks 6.1-6.2.
+- Touched slice: Projection persistence host boundary in `src/infrastructure/services/FileService.ts` plus OpenSpec task ledger.
+- Debt fixed now: SQLite projection persistence is kept on the workspace temp path when host `putFile` works, and host temp persistence failure now falls back to an instance-local in-memory projection byte cache. Startup/runtime can keep using the sql.js projection without writing `storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db`.
+- Debt deferred: Explicit schema-mismatch classification, required card/review-event readiness gates, optional projection background policy, writer/follower authority, UI unavailable states, and focused tests remain open in 6.3-8.x.
+- Why deferred: User requested no tests and continued small-change progress; this slice only covered the projection storage location and P0 no-persistent-temp fallback.
+- Next safe step: Continue with 6.3 to classify corrupt/schema-incompatible temp DB as ignored/rebuilt instead of migrated, then decide whether 6.4/6.5 are already satisfied by startup rebuild or need explicit readiness status.
+- Validation: `git diff --check` only; no tests or build run per user request.
+
+### 2026-06-15 - MessagePack truth receipt reconciliation
+
+- Task: Continue OpenSpec change `cutover-msgpack-truth-temp-projection-store` for startup priority tasks 5.5-5.6.
+- Touched slice: Backend Worker storage startup and host persistence bridge across `worker/db/SqliteDatabaseService.ts`, `worker/db/SqlitePersistenceBridge.ts`, `worker/bootstrap/backend-worker.entry.ts`, `worker/bootstrap/BackendWorkerProtocol.ts`, `worker/bootstrap/BackendKernel.ts`, `src/application/clients/BrowserSrsBackendWorkerTransport.ts`, `src/application/factories/createApplicationBackendRuntimeBundle.ts`, and `src/infrastructure/services/FileService.ts`.
+- Debt fixed now: Truth-without-receipt startup now trusts existing MessagePack truth, requires the truth-wide persistent local device id before writing, writes a reconciled migration receipt from manifest-listed family segments, and still rebuilds the required startup projection from truth. Legacy petal `storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db` is probed by directory listing only, exposed as a `legacy-petal-db-ignored` storage diagnostic, and is not read, migrated, deleted, or written.
+- Debt deferred: Temp projection lifecycle tasks 6.x, writer/follower authority tasks 7.x, Review/Browser unavailable UI, startup source-read enrichment for projection rebuild, and focused test tasks 8.x remain open.
+- Why deferred: User explicitly requested no tests and asked for the next change; this pass stayed inside the startup policy slice and avoided broad readiness/UI/writer authority work.
+- Next safe step: Continue with 6.1/6.2 to finish temp projection lifecycle policy, or do 9.1 docs if code churn should pause before the larger 6.x/7.x work.
+- Validation: `git diff --check` only; no tests or build run per user request.
+
+### 2026-06-15 - MessagePack truth startup source cutover
+
+- Task: Continue OpenSpec change `cutover-msgpack-truth-temp-projection-store` for startup priority and divergence tasks 5.1-5.4.
+- Touched slice: Backend Worker storage startup across `db.load` contracts/clients, `createApplicationBackendRuntimeBundle`, `backend-worker.entry`, `BackendCoreRpcAdapter`, and `worker/db/SqliteDatabaseService.ts`.
+- Debt fixed now: `db.load` now carries truth bootstrap metadata; frontend startup actively invokes Worker DB load; Worker DB sees the same truth file store as BackendKernel; startup trusts MessagePack truth first, rebuilds required SQL projection from truth, avoids legacy re-import after truth exists, and fails closed on changed legacy source hash with `LEGACY_DIVERGENCE_DETECTED`.
+- Debt deferred: Truth-without-receipt reconciliation, legacy petal `siyuanmemo.db` ignored diagnostics, startup source block enrichment for projection rebuild, Review/Browser unavailable UI, multi-window writer-only mutation enforcement, and focused tests remain in later OpenSpec tasks.
+- Why deferred: User explicitly requested no testing and next-change progress; this slice was limited to Worker startup storage policy and left readiness/UI/writer authority work to the existing 5.5-7.x and 8.x task groups.
+- Next safe step: Continue with 5.5/5.6 if staying in startup policy, or move into 6.x to add source-aware projection readiness before Review/Browser surfaces open.
+- Validation: `git diff --check` only; no tests or build run per user request.
 
 ### 2026-06-15 - Browser row helper ownership dedupe
 

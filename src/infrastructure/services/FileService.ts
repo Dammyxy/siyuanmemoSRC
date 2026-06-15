@@ -20,6 +20,7 @@ import { getPluginDataPath, putFile } from '@/infrastructure/siyuan/api';
 import { createLogger } from '@/utils/logger';
 import { recordRuntimePerformanceSpan } from '@/utils/runtimePerformanceDiagnostics';
 import {
+  SIYUANMEMO_FORBIDDEN_PETAL_SQLITE_DB_PATH,
   SIYUANMEMO_TEMP_PROJECTION_DB_PATH,
   SIYUANMEMO_TEMP_PROJECTION_ROOT_PATH,
 } from '../../../packages/contracts/src/backend-rpc';
@@ -80,6 +81,11 @@ export interface IFileService {
   writeTempProjectionBinary?(fileName: string, bytes: Uint8Array, options?: {
     diagnostics?: Record<string, unknown>;
   }): Promise<void>;
+
+  /**
+   * Probe for the forbidden legacy petal SQLite DB without reading its content.
+   */
+  hasLegacyPetalSqliteDb?(): Promise<boolean>;
 
   /**
    * Read local-only temp JSON. This is workspace-local state, not plugin petal storage.
@@ -238,6 +244,8 @@ function normalizeReadDirEntries(value: unknown): ReadDirEntry[] {
  * 文件服务实现
  */
 export class FileService implements IFileService {
+  private readonly tempProjectionMemoryFallback = new Map<string, Uint8Array>();
+
   constructor(private readonly plugin: SiyuanMemoPlugin) {}
 
   private resolvePluginDataPath(fileName: string): string {
@@ -374,7 +382,12 @@ export class FileService implements IFileService {
   }
 
   async readTempProjectionBinary(fileName: string): Promise<Uint8Array | null> {
-    return this.readAbsoluteBinary(this.resolveTempProjectionPath(fileName));
+    const path = this.resolveTempProjectionPath(fileName);
+    const cached = this.tempProjectionMemoryFallback.get(path);
+    if (cached) {
+      return new Uint8Array(cached);
+    }
+    return this.readAbsoluteBinary(path);
   }
 
   async writeTempProjectionBinary(fileName: string, bytes: Uint8Array, options: {
@@ -383,14 +396,16 @@ export class FileService implements IFileService {
     const startedAt = Date.now();
     const byteLength = bytes.byteLength;
     const sqliteDatabase = isSqliteDatabaseBytes(bytes);
+    const path = this.resolveTempProjectionPath(fileName);
+    const payload = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+      ? bytes.buffer
+      : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
     try {
-      const payload = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
-        ? bytes.buffer
-        : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
       await putFile(
-        this.resolveTempProjectionPath(fileName),
+        path,
         new Blob([payload as BlobPart], { type: 'application/x-sqlite3' }),
       );
+      this.tempProjectionMemoryFallback.delete(path);
       recordRuntimePerformanceSpan('file', 'write-binary', Date.now() - startedAt, {
         fileName,
         byteLength,
@@ -411,12 +426,29 @@ export class FileService implements IFileService {
         ok: false,
         errorName: error instanceof Error ? error.name : 'Error',
       });
-      logger.error(`[FileService] Failed to write temp projection binary file "${fileName}":`, error);
-      throw new FileOperationError(
-        'write',
+      this.tempProjectionMemoryFallback.set(path, new Uint8Array(payload as ArrayBuffer));
+      logger.warn(`[FileService] Temp projection persistence unavailable for "${fileName}"; using in-memory projection fallback`, error);
+      recordRuntimePerformanceSpan('file', 'write-binary', Date.now() - startedAt, {
         fileName,
-        error instanceof Error ? error : new Error(String(error))
+        byteLength,
+        sqliteDatabase,
+        storageClass: 'in-memory-sql-projection-db',
+        ...(options.diagnostics || {}),
+        status: 'memory-fallback',
+      });
+    }
+  }
+
+  async hasLegacyPetalSqliteDb(): Promise<boolean> {
+    try {
+      const entries = await this.readDir(getPluginDataPath(this.plugin.name));
+      return entries.some((entry) => !entry.isDir && entry.name === 'siyuanmemo.db');
+    } catch (error) {
+      logger.warn(
+        `[FileService] Failed to probe ignored legacy petal DB "${SIYUANMEMO_FORBIDDEN_PETAL_SQLITE_DB_PATH}":`,
+        error,
       );
+      return false;
     }
   }
 

@@ -1,6 +1,7 @@
 import type {
   BackendAutoCardExecuteRequest,
   BackendAutoCardExecuteResult,
+  BackendDbLoadRequest,
   BackendBrowserAggregateFocusRequest,
   BackendBrowserAggregateFocusResult,
   BackendBrowserAggregatePageRequest,
@@ -101,6 +102,7 @@ import type {
   BackendXiuyuanSyncExecuteRequest,
   BackendXiuyuanSyncExecuteResult,
 } from '../../../packages/contracts/src/backend-rpc';
+import { MESSAGEPACK_TRUTH_SCHEMA_VERSION } from '../../../packages/contracts/src/backend-rpc';
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type { FSRSCard } from '@/types/card';
@@ -145,6 +147,7 @@ export interface SrsBackendReviewTruthFlushSchedulerOptions {
 export interface SrsBackendClientOptions {
   reviewTruthFlush?: SrsBackendReviewTruthFlushSchedulerOptions | null;
   reviewTruthDevice?: BackendReviewTruthDeviceDiagnostics | null;
+  canWriteReviewTruth?: () => boolean;
 }
 
 export class SrsBackendClient {
@@ -158,6 +161,7 @@ export class SrsBackendClient {
   private readonly integrationClient: BackendIntegrationRpcClient;
   private readonly reviewTruthFlushOptions: SrsBackendReviewTruthFlushSchedulerOptions | null;
   private readonly reviewTruthDeviceDiagnostics: BackendReviewTruthDeviceDiagnostics | null;
+  private readonly canWriteReviewTruth: () => boolean;
   private reviewTruthFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private reviewTruthFlushInFlight = false;
   private reviewTruthFlushInFlightPromise: Promise<void> | null = null;
@@ -180,6 +184,7 @@ export class SrsBackendClient {
     this.integrationClient = new BackendIntegrationRpcClient(rpcCaller);
     this.reviewTruthFlushOptions = options.reviewTruthFlush ?? null;
     this.reviewTruthDeviceDiagnostics = options.reviewTruthDevice ?? null;
+    this.canWriteReviewTruth = options.canWriteReviewTruth ?? (() => true);
   }
 
   async systemHealth(): Promise<BackendHealthResult> {
@@ -187,11 +192,25 @@ export class SrsBackendClient {
   }
 
   async loadDatabase(): Promise<{ ok: true; initialized: true; dbFile: string }> {
-    return this.coreClient.loadDatabase();
+    return this.coreClient.loadDatabase(this.createDbLoadRequest());
   }
 
   async persistDatabase(): Promise<{ ok: true; persisted: true; dbFile: string }> {
     return this.coreClient.persistDatabase();
+  }
+
+  private createDbLoadRequest(): BackendDbLoadRequest | undefined {
+    if (!this.reviewTruthFlushOptions) {
+      return undefined;
+    }
+    const truthSchemaVersion = this.reviewTruthFlushOptions.schemaVersion ?? MESSAGEPACK_TRUTH_SCHEMA_VERSION;
+    return {
+      truthDeviceId: this.reviewTruthFlushOptions.deviceId,
+      cardTruthGenerationId: `card-memory-facts-v${truthSchemaVersion}`,
+      reviewTruthGenerationId: this.reviewTruthFlushOptions.generationId,
+      truthSchemaVersion,
+      maxSegmentBytes: this.reviewTruthFlushOptions.maxSegmentBytes ?? null,
+    };
   }
 
   async diagnosticsStatus(): Promise<BackendDiagnosticsStatusResult> {
@@ -213,7 +232,7 @@ export class SrsBackendClient {
   }
 
   async schedulePendingReviewTruthFlush(reason = 'startup'): Promise<boolean> {
-    if (!this.reviewTruthFlushOptions) {
+    if (!this.canRunReviewTruthFlush(reason)) {
       return false;
     }
     try {
@@ -354,6 +373,27 @@ export class SrsBackendClient {
     request: BackendReviewTruthBackfillRequest,
   ): Promise<BackendReviewTruthBackfillResult> {
     return this.reviewClient.reviewTruthBackfill(request);
+  }
+
+  private canRunReviewTruthFlush(reason: string): boolean {
+    if (!this.reviewTruthFlushOptions) {
+      return false;
+    }
+    try {
+      if (this.canWriteReviewTruth()) {
+        return true;
+      }
+    } catch (error) {
+      logger.warn('[SiYuanMemo][SrsBackendClient] skipped Review truth flush because write-authority check failed', {
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+    logger.info('[SiYuanMemo][SrsBackendClient] skipped Review truth flush because current runtime cannot write truth', {
+      reason,
+    });
+    return false;
   }
 
   async mergeSyncConflicts(
@@ -508,7 +548,7 @@ export class SrsBackendClient {
   }
 
   requestReviewTruthFlush(reason: 'review-exit' | 'queue-complete' | 'manual' = 'manual'): boolean {
-    if (!this.reviewTruthFlushOptions) {
+    if (!this.canRunReviewTruthFlush(reason)) {
       return false;
     }
     this.reviewTruthFlushQueued = true;
@@ -517,7 +557,7 @@ export class SrsBackendClient {
   }
 
   async flushReviewTruthNow(reason: 'review-exit' | 'queue-complete' | 'manual' = 'manual'): Promise<boolean> {
-    if (!this.reviewTruthFlushOptions) {
+    if (!this.canRunReviewTruthFlush(reason)) {
       return false;
     }
     this.reviewTruthFlushQueued = true;
@@ -527,7 +567,7 @@ export class SrsBackendClient {
   }
 
   async flushReviewTruthBeforeUnload(timeoutMs = this.resolveReviewTruthFlushUnloadWaitMs()): Promise<boolean> {
-    if (!this.reviewTruthFlushOptions) {
+    if (!this.canRunReviewTruthFlush('before-unload')) {
       return false;
     }
     this.reviewTruthFlushQueued = true;
@@ -599,7 +639,7 @@ export class SrsBackendClient {
   }
 
   private scheduleReviewTruthFlushAfterFeedback(result: BackendReviewFeedbackResult): void {
-    if (!this.reviewTruthFlushOptions || !this.shouldScheduleReviewTruthFlush(result)) {
+    if (!this.canRunReviewTruthFlush('review.feedback') || !this.shouldScheduleReviewTruthFlush(result)) {
       return;
     }
     this.reviewTruthFlushQueued = true;
@@ -650,7 +690,10 @@ export class SrsBackendClient {
   }
 
   private async runQueuedReviewTruthFlush(): Promise<void> {
-    if (!this.reviewTruthFlushOptions) {
+    if (!this.canRunReviewTruthFlush('queued')) {
+      this.reviewTruthFlushQueued = false;
+      this.reviewTruthBackfillQueued = false;
+      this.reviewTruthBackfillPendingRows = 0;
       return;
     }
     if (this.reviewTruthFlushInFlight) {

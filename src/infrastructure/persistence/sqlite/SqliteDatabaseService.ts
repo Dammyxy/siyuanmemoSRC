@@ -39,6 +39,7 @@ type SqliteDatabaseServiceOptions = {
   persistOnInit?: boolean;
   enableDeltaPersistence?: boolean;
   checkpointStorageClass?: SqliteCheckpointStorageClass;
+  dropStoredDatabaseOnSchemaMismatch?: boolean;
 };
 type SqliteFileService = Pick<IFileService, 'readJSON' | 'writeJSON'>
   & Partial<Pick<IFileService, 'readBinary' | 'deleteFile'>>
@@ -215,26 +216,50 @@ export class SqliteDatabaseService {
     this.sqlRuntime = SQL;
     const stored = await this.loadStoredDatabaseBytes();
     const shouldPersistLegacyEnvelope = Boolean(stored.legacyEnvelope);
+    let droppedStoredDatabaseOnSchemaMismatch = false;
     if (stored.legacyEnvelope) {
       await this.backupLegacyEnvelope(stored.legacyEnvelope);
     }
     this.db = stored.bytes ? new SQL.Database(stored.bytes) : new SQL.Database();
     this.schemaDirty = false;
+    if (stored.bytes && this.options.dropStoredDatabaseOnSchemaMismatch === true) {
+      const storedSchemaVersion = this.getUserVersion();
+      if (storedSchemaVersion !== SQLITE_SCHEMA_VERSION) {
+        logger.warn('SQLite projection schema mismatch; dropping persisted projection before schema apply', {
+          dbFile: this.dbFile,
+          storedSchemaVersion,
+          expectedSchemaVersion: SQLITE_SCHEMA_VERSION,
+          storageFormat: stored.legacyEnvelope ? 'json-envelope' : 'binary',
+        });
+        this.db.close();
+        this.db = new SQL.Database();
+        this.lastPersistedFingerprint = null;
+        this.dirtySincePersist = true;
+        this.schemaDirty = true;
+        droppedStoredDatabaseOnSchemaMismatch = true;
+        await this.deltaLayer?.discardPending('sqlite.init.schema-mismatch', {
+          cause: 'sqlite.init',
+          initiator: 'sqlite.init',
+          projectionGeneration: null,
+          hotPath: false,
+        });
+      }
+    }
     if (this.options.applySchemaOnInit !== false) {
       this.applySchema();
       this.detectFts5Support();
       this.seedAlgorithmRegistry();
     }
-    if (this.deltaLayer) {
+    if (this.deltaLayer && !droppedStoredDatabaseOnSchemaMismatch) {
       await this.deltaLayer.replayPending(this.requireDb());
       if (await this.deltaLayer.hasPendingDeltas()) {
         this.dirtySincePersist = true;
       }
     }
     this.initialized = true;
-    if (this.options.persistOnInit !== false && (this.schemaDirty || shouldPersistLegacyEnvelope)) {
+    if (this.options.persistOnInit !== false && (this.schemaDirty || shouldPersistLegacyEnvelope || droppedStoredDatabaseOnSchemaMismatch)) {
       await this.persist({
-        force: shouldPersistLegacyEnvelope,
+        force: shouldPersistLegacyEnvelope || droppedStoredDatabaseOnSchemaMismatch,
         reason: 'sqlite.init',
       });
       this.schemaDirty = false;

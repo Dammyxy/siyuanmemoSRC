@@ -18,6 +18,7 @@ export interface SqlitePersistenceBridge {
   readJSON?<T>(path: string): Promise<T | null>;
   writeJSON?(path: string, value: unknown): Promise<void>;
   deleteFile?(path: string): Promise<void>;
+  hasLegacyPetalSqliteDb?(): Promise<boolean>;
   reviewFeedbackJournalStore?: ReviewFeedbackJournalStore;
   truthFileStore?: MessagePackTruthSegmentFileStore;
   readSyncConflictDatabaseSources?(): Promise<SqliteConflictDatabaseSource[]>;
@@ -51,6 +52,9 @@ export function createUnavailableSqlitePersistenceBridge(reason: string): Sqlite
     },
     async deleteFile(): Promise<void> {
       throw new Error(reason);
+    },
+    async hasLegacyPetalSqliteDb(): Promise<boolean> {
+      return false;
     },
     async readSyncConflictDatabaseSources(): Promise<SqliteConflictDatabaseSource[]> {
       throw new Error(reason);
@@ -115,6 +119,9 @@ export function createInMemorySqlitePersistenceBridge(): SqlitePersistenceBridge
     async deleteFile(path: string): Promise<void> {
       json.delete(path);
       binary.delete(path);
+    },
+    async hasLegacyPetalSqliteDb(): Promise<boolean> {
+      return binary.has('storage/petal/siyuan-plugin-siyuanmemo/siyuanmemo.db');
     },
     async readSyncConflictDatabaseSources(): Promise<SqliteConflictDatabaseSource[]> {
       return [];

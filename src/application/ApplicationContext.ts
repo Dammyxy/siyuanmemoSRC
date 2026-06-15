@@ -345,6 +345,7 @@ export class ApplicationContext {
   private followerCommandClient: FollowerCommandClient | null = null;
   private kernelSidecarClient: KernelSidecarClient;
   private readonly backendMigrationRuntimePolicy: BackendMigrationRuntimePolicy;
+  private readonly backendStartupError: string | null;
   private readonly autoCardKernelXiuyuanServiceBundle: AutoCardKernelXiuyuanServiceBundle;
   
   // ========================================================================
@@ -430,6 +431,7 @@ export class ApplicationContext {
       followerCommandClient?: FollowerCommandClient | null;
       kernelSidecarClient: KernelSidecarClient;
       backendMigrationRuntimePolicy: BackendMigrationRuntimePolicy;
+      backendStartupError?: string | null;
     }
   ) {
     this.config = config;
@@ -449,6 +451,7 @@ export class ApplicationContext {
     this.followerCommandClient = services.followerCommandClient ?? null;
     this.kernelSidecarClient = services.kernelSidecarClient;
     this.backendMigrationRuntimePolicy = services.backendMigrationRuntimePolicy;
+    this.backendStartupError = services.backendStartupError ?? null;
     this.autoCardKernelXiuyuanServiceBundle = createAutoCardKernelXiuyuanServiceBundle({
       plugin: this.config.plugin,
       getUnifiedStorage: () => this.unifiedStorageManager,
@@ -1106,6 +1109,7 @@ export class ApplicationContext {
           persistOnInit: false,
           enableDeltaPersistence: true,
           checkpointStorageClass: 'volatile-projection',
+          dropStoredDatabaseOnSchemaMismatch: true,
         });
         await database.init();
         const unified = new SqlUnifiedStorageRepository(database);
@@ -1505,6 +1509,7 @@ export class ApplicationContext {
       followerCommandClient,
       kernelSidecarClient,
       backendMigrationRuntimePolicy,
+      backendStartupError,
     } = backendRuntimeBundle;
 
     // 创建 CardCreationHelper
@@ -1576,6 +1581,7 @@ export class ApplicationContext {
       followerCommandClient,
       kernelSidecarClient,
       backendMigrationRuntimePolicy,
+      backendStartupError,
     });
     
     // 设置 context 引用（用于 blockMenuHandler 的闭包）
@@ -2292,6 +2298,10 @@ export class ApplicationContext {
     return this.backendMigrationRuntimePolicy;
   }
 
+  getBackendStartupError(): string | null {
+    return this.backendStartupError;
+  }
+
   private createReviewCommitWriterLeaseGuard(): ReviewCommitWriterLeaseGuard {
     return {
       ensureWritable: async () => {
@@ -2671,6 +2681,8 @@ export class ApplicationContext {
         }
       }
 
+      await this.flushReviewTruthBeforeUnloadIfWritable(errors);
+
       if (this.frontendInstanceRuntime) {
         try {
           await this.frontendInstanceRuntime.dispose();
@@ -2688,16 +2700,10 @@ export class ApplicationContext {
 
       if (this.srsBackendClient) {
         try {
-          if (typeof this.srsBackendClient.flushReviewTruthBeforeUnload === 'function') {
-            const completed = await this.srsBackendClient.flushReviewTruthBeforeUnload();
-            if (!completed) {
-              logger.warn('[ApplicationContext] Review truth flush did not finish before unload timeout; startup compensation will retry');
-            }
-          }
           this.srsBackendClient.dispose?.();
         } catch (error) {
-          logger.error('[ApplicationContext] Error flushing Review truth before unload:', error);
-          errors.push({ service: 'srsBackendClient.reviewTruthFlush', error });
+          logger.error('[ApplicationContext] Error disposing SRS backend client:', error);
+          errors.push({ service: 'srsBackendClient', error });
         }
       }
 
@@ -2760,6 +2766,31 @@ export class ApplicationContext {
       
       logger.error('[ApplicationContext] Critical error during disposal:', error);
       throw error;
+    }
+  }
+
+  private async flushReviewTruthBeforeUnloadIfWritable(
+    errors: Array<{ service: string; error: unknown }>,
+  ): Promise<void> {
+    if (!this.srsBackendClient || typeof this.srsBackendClient.flushReviewTruthBeforeUnload !== 'function') {
+      return;
+    }
+    const writerRelayRequired = this.backendMigrationRuntimePolicy.capabilities.writerRelayRequiredForBackendWrites;
+    const frontendMode = this.frontendInstanceRuntime?.getMode() ?? null;
+    if (writerRelayRequired && frontendMode !== 'writer') {
+      logger.info('[ApplicationContext] skipped Review truth flush before unload because current runtime is not writer', {
+        frontendMode,
+      });
+      return;
+    }
+    try {
+      const completed = await this.srsBackendClient.flushReviewTruthBeforeUnload();
+      if (!completed) {
+        logger.warn('[ApplicationContext] Review truth flush did not finish before unload timeout; startup compensation will retry');
+      }
+    } catch (error) {
+      logger.error('[ApplicationContext] Error flushing Review truth before unload:', error);
+      errors.push({ service: 'srsBackendClient.reviewTruthFlush', error });
     }
   }
   

@@ -54,6 +54,7 @@ export interface ApplicationBackendRuntimeBundle {
   followerCommandClient: FollowerCommandClient | null;
   kernelSidecarClient: KernelSidecarClient;
   backendMigrationRuntimePolicy: BackendMigrationRuntimePolicy;
+  backendStartupError: string | null;
 }
 
 type NeuralRoamGraphQueryHost = {
@@ -129,6 +130,7 @@ export async function createApplicationBackendRuntimeBundle(
   let srsBackendTransport: ApplicationBackendRuntimeTransport | null = null;
   let frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
   let followerCommandClient: FollowerCommandClient | null = null;
+  let backendStartupError: string | null = null;
 
   if (backendMigrationRuntimePolicy.capabilities.backendWorkerAvailable) {
     try {
@@ -168,6 +170,7 @@ export async function createApplicationBackendRuntimeBundle(
               return bridge.writeJSON(path, value);
             },
             listTruthFiles: (prefix) => bridge.truthFileStore?.listFiles?.(prefix) ?? Promise.resolve([]),
+            hasLegacyPetalSqliteDb: () => bridge.hasLegacyPetalSqliteDb?.() ?? Promise.resolve(false),
             readSyncConflictDatabaseSources: () => bridge.readSyncConflictDatabaseSources?.() ?? Promise.resolve([]),
             cleanupSyncConflictDatabaseSources: (sourceIds) => bridge.cleanupSyncConflictDatabaseSources?.(sourceIds) ?? Promise.resolve({
               cleaned: [],
@@ -210,8 +213,13 @@ export async function createApplicationBackendRuntimeBundle(
                 schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
               }
             : null,
+          canWriteReviewTruth: () => (
+            !backendMigrationRuntimePolicy.capabilities.writerRelayRequiredForBackendWrites
+            || frontendInstanceRuntime?.getMode() === 'writer'
+          ),
         });
-        if (truthDeviceId) {
+        await srsBackendClient.loadDatabase();
+        if (truthDeviceId && !backendMigrationRuntimePolicy.capabilities.writerRelayRequiredForBackendWrites) {
           void srsBackendClient.schedulePendingReviewTruthFlush('startup');
         }
       });
@@ -219,6 +227,9 @@ export async function createApplicationBackendRuntimeBundle(
     } catch (error) {
       srsBackendTransport?.dispose?.();
       srsBackendTransport = null;
+      srsBackendClient?.dispose?.();
+      srsBackendClient = null;
+      backendStartupError = formatBackendStartupError(error);
       logger.error('[ApplicationContext] Failed to bootstrap SRS backend browser Worker transport; backend runtime remains unavailable:', error);
     }
   }
@@ -259,6 +270,9 @@ export async function createApplicationBackendRuntimeBundle(
         });
         followerCommandClient = new FollowerCommandClient(kernelSidecarClient);
         await frontendInstanceRuntime.start();
+        if (truthDeviceId && frontendInstanceRuntime.getMode() === 'writer') {
+          void backendClient.schedulePendingReviewTruthFlush('startup');
+        }
       });
       logger.info('[ApplicationContext] ✅ Frontend instance runtime started for kernel writer lease', {
         instanceId: frontendInstanceRuntime.getInstanceId(),
@@ -279,7 +293,15 @@ export async function createApplicationBackendRuntimeBundle(
     followerCommandClient,
     kernelSidecarClient,
     backendMigrationRuntimePolicy,
+    backendStartupError,
   };
+}
+
+function formatBackendStartupError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error || 'unknown backend startup error');
 }
 
 function createWorkerPersistenceBridge(fileService: FileService): SqlitePersistenceBridge {
@@ -315,6 +337,7 @@ function createWorkerPersistenceBridge(fileService: FileService): SqlitePersiste
       }
       await fileService.writeBinary(path, bytes);
     },
+    hasLegacyPetalSqliteDb: () => fileService.hasLegacyPetalSqliteDb(),
     readJSON: <T>(path: string) => fileService.readJSON<T>(path),
     writeJSON: (path: string, value: unknown) => fileService.writeJSON(path, value),
     readSyncConflictDatabaseSources: () => fileService.readSyncConflictDatabaseSources(),

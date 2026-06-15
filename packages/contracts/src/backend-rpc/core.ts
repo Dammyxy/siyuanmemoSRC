@@ -1,4 +1,5 @@
 import type {
+  BackendDbLoadRequest,
   BackendDbLoadResult,
   BackendDbPersistResult,
   BackendDiagnosticsStatusResult,
@@ -33,7 +34,7 @@ export interface BackendPrivateDiagnosticsStatusResult {
 
 export type BackendCoreRpcMethodContractMap = {
   readonly 'system.health': BackendRpcMethodContract<'system.health', void, BackendHealthResult>;
-  readonly 'db.load': BackendRpcMethodContract<'db.load', void, BackendDbLoadResult>;
+  readonly 'db.load': BackendRpcMethodContract<'db.load', BackendDbLoadRequest | void, BackendDbLoadResult>;
   readonly 'db.persist': BackendRpcMethodContract<'db.persist', void, BackendDbPersistResult>;
   readonly 'diagnostics.status': BackendRpcMethodContract<'diagnostics.status', void, BackendDiagnosticsStatusResult>;
   readonly 'private.health': BackendRpcMethodContract<'private.health', void, BackendPrivateHealthResult>;

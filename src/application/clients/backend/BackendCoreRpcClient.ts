@@ -1,4 +1,5 @@
 import type {
+  BackendDbLoadRequest,
   BackendDiagnosticsStatusResult,
   BackendHealthResult,
   BackendPrivateDiagnosticsStatusResult,
@@ -8,7 +9,7 @@ import type { BackendRpcCaller } from './BackendRpcCaller';
 
 export interface BackendCoreClientFacet {
   systemHealth(): Promise<BackendHealthResult>;
-  loadDatabase(): Promise<{ ok: true; initialized: true; dbFile: string }>;
+  loadDatabase(request?: BackendDbLoadRequest): Promise<{ ok: true; initialized: true; dbFile: string }>;
   persistDatabase(): Promise<{ ok: true; persisted: true; dbFile: string }>;
   diagnosticsStatus(): Promise<BackendDiagnosticsStatusResult>;
   privateHealth(): Promise<BackendPrivateHealthResult>;
@@ -22,8 +23,8 @@ export class BackendCoreRpcClient implements BackendCoreClientFacet {
     return this.rpcCaller.call<BackendHealthResult>('system.health');
   }
 
-  loadDatabase(): Promise<{ ok: true; initialized: true; dbFile: string }> {
-    return this.rpcCaller.call('db.load');
+  loadDatabase(request?: BackendDbLoadRequest): Promise<{ ok: true; initialized: true; dbFile: string }> {
+    return this.rpcCaller.call('db.load', request);
   }
 
   persistDatabase(): Promise<{ ok: true; persisted: true; dbFile: string }> {

@@ -35,7 +35,7 @@
 - [x] 5.1 Replay SQL checkpoint plus SQLite delta v2 segments before projection-backed Review queues report ready.
 - [x] 5.2 Reconcile Review journal entries after SQL replay and before Review queue count/session reads.
 - [x] 5.3 Schedule startup truth flush compensation for `projection-applied` entries that are not `truth-flushed`.
-- [ ] 5.4 Ensure projection-backed Review surfaces explicit preparing/unavailable state instead of local queue fallback when replay or reconciliation fails.
+- [x] 5.4 Ensure projection-backed Review surfaces explicit preparing/unavailable state instead of local queue fallback when replay or reconciliation fails.
 
 ## 6. Validation And Documentation
 

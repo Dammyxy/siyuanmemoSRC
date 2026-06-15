@@ -97,6 +97,9 @@ vi.mock('@/core/queue/domain/TemporaryDrillQueue', () => ({
 function createDialogManager(options?: {
   reviewOpenInNewTabByDefault?: boolean;
   reviewOpenFullscreenByDefault?: boolean;
+  backendWorkerAvailable?: boolean;
+  srsBackendClient?: unknown;
+  backendStartupError?: string | null;
 }) {
   const filterGroupQueue = {
     getType: () => 'filter-group',
@@ -163,6 +166,20 @@ function createDialogManager(options?: {
     getReviewQueuePreparationService: vi.fn().mockReturnValue(preparationService),
     getTabManager: vi.fn().mockReturnValue(tabManager),
     readDomainSyncDiagnostics: vi.fn().mockResolvedValue(cleanDomainSyncStatus()),
+    getBackendMigrationRuntimePolicy: vi.fn().mockReturnValue({
+      capabilities: {
+        backendWorkerAvailable: options?.backendWorkerAvailable ?? true,
+      },
+    }),
+    getSrsBackendClient: vi.fn().mockReturnValue(
+      options && 'srsBackendClient' in options ? options.srsBackendClient : {},
+    ),
+    getBackendStartupError: vi.fn().mockReturnValue(options?.backendStartupError ?? null),
+  } as any;
+
+  const siyuanApi = {
+    pushMsg: vi.fn().mockResolvedValue(undefined),
+    pushErrMsg: vi.fn().mockResolvedValue(undefined),
   } as any;
 
   const plugin = {
@@ -172,15 +189,13 @@ function createDialogManager(options?: {
 
   return {
     dialogManager: new DialogManager(context, plugin, {
-      siyuanApi: {
-        pushMsg: vi.fn().mockResolvedValue(undefined),
-        pushErrMsg: vi.fn().mockResolvedValue(undefined),
-      } as any,
+      siyuanApi,
       progressiveSiyuanApi: {} as any,
       leechActionEffects: {} as any,
     }),
     filterGroupQueue,
     manager,
+    siyuanApi,
     tabManager,
   };
 }
@@ -212,6 +227,20 @@ describe('DialogManager review header variants', () => {
       'subset-review',
       'temporary-drill',
     ]);
+  });
+
+  it('blocks Review entry when backend storage startup failed', async () => {
+    const { dialogManager, siyuanApi } = createDialogManager({
+      srsBackendClient: null,
+      backendStartupError: 'PROJECTION_REBUILD_FAILED: required projection rebuild failed',
+    });
+
+    await dialogManager.openReviewDialog();
+
+    expect(createUnifiedReviewDialog).not.toHaveBeenCalled();
+    expect(siyuanApi.pushErrMsg).toHaveBeenCalledWith(
+      expect.stringContaining('PROJECTION_REBUILD_FAILED'),
+    );
   });
 
   it('opens NeuralRoam in a new tab when the new-tab default is enabled', async () => {

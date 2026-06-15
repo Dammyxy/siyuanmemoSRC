@@ -15,6 +15,7 @@ import {
 } from '../../packages/contracts/src/backend-rpc';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { createIndexedDbReviewFeedbackJournalStore } from '../db/ReviewFeedbackJournalStore';
+import type { MessagePackTruthSegmentFileStore } from '../truth/MessagePackTruthSegmentStore';
 import { BackendKernel } from './BackendKernel';
 import type {
   BackendWorkerHostEffect,
@@ -213,7 +214,33 @@ function logReviewFeedbackWorkerEntryStepIfSlow(
   });
 }
 
+const truthFileStore: MessagePackTruthSegmentFileStore = {
+  readBinary: (path) => requestHostEffect<Uint8Array | null>({
+    kind: 'truth.readBinary',
+    path,
+  }),
+  writeBinary: (path, bytes) => requestHostEffect<void>({
+    kind: 'truth.writeBinary',
+    path,
+    bytes,
+  }),
+  readJSON: <T>(path: string) => requestHostEffect<T | null>({
+    kind: 'truth.readJSON',
+    path,
+  }),
+  writeJSON: (path, value) => requestHostEffect<void>({
+    kind: 'truth.writeJSON',
+    path,
+    value,
+  }),
+  listFiles: (prefix) => requestHostEffect<string[]>({
+    kind: 'truth.listFiles',
+    prefix,
+  }),
+};
+
 const database = new WorkerSqliteDatabaseService({
+  truthFileStore,
   reviewFeedbackJournalStore: createIndexedDbReviewFeedbackJournalStore(),
   readBinary: (path) => requestHostEffect<Uint8Array | null>({
     kind: 'sqlite.readBinary',
@@ -232,6 +259,9 @@ const database = new WorkerSqliteDatabaseService({
     kind: 'sqlite.writeJSON',
     path,
     value,
+  }),
+  hasLegacyPetalSqliteDb: () => requestHostEffect<boolean>({
+    kind: 'sqlite.hasLegacyPetalSqliteDb',
   }),
   readSyncConflictDatabaseSources: () => requestHostEffect<Array<{
     sourceId: string;
@@ -254,30 +284,7 @@ const database = new WorkerSqliteDatabaseService({
 
 const backendKernel = new BackendKernel({
   database,
-  truthFileStore: {
-    readBinary: (path) => requestHostEffect<Uint8Array | null>({
-      kind: 'truth.readBinary',
-      path,
-    }),
-    writeBinary: (path, bytes) => requestHostEffect<void>({
-      kind: 'truth.writeBinary',
-      path,
-      bytes,
-    }),
-    readJSON: <T>(path: string) => requestHostEffect<T | null>({
-      kind: 'truth.readJSON',
-      path,
-    }),
-    writeJSON: (path, value) => requestHostEffect<void>({
-      kind: 'truth.writeJSON',
-      path,
-      value,
-    }),
-    listFiles: (prefix) => requestHostEffect<string[]>({
-      kind: 'truth.listFiles',
-      prefix,
-    }),
-  },
+  truthFileStore,
   resolveExistingBlockIds: (blockIds) => requestHostEffect<string[]>({
     kind: 'siyuan.resolveExistingBlockIds',
     blockIds,

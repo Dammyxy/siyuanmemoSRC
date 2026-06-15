@@ -14,6 +14,7 @@ export type BackendWorkerHostEffect =
   | { kind: 'sqlite.writeBinary'; path: string; bytes: Uint8Array }
   | { kind: 'sqlite.readJSON'; path: string }
   | { kind: 'sqlite.writeJSON'; path: string; value: unknown }
+  | { kind: 'sqlite.hasLegacyPetalSqliteDb' }
   | { kind: 'truth.readBinary'; path: string }
   | { kind: 'truth.writeBinary'; path: string; bytes: Uint8Array }
   | { kind: 'truth.readJSON'; path: string }

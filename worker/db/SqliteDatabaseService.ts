@@ -6,6 +6,10 @@ import { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite
 import { SqlQueueProjectionRepository } from '@/infrastructure/persistence/sqlite/SqlQueueProjectionRepository';
 import { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite/SqlQueueStateRepository';
 import { SqlSemanticActivationRepository } from '@/infrastructure/persistence/sqlite/SqlSemanticActivationRepository';
+import {
+  MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+  SIYUANMEMO_FORBIDDEN_PETAL_SQLITE_DB_PATH,
+} from '../../packages/contracts/src/backend-rpc';
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
@@ -24,6 +28,7 @@ import type {
   BrowserDeckSnapshotQuery,
 } from '@/application/queries/browser/browser-deck-query';
 import type {
+  BackendDbLoadRequest,
   BackendAutoCardDecisionResolveRequest,
   BackendAutoCardDecisionResolveResult,
   BackendQueueProjectionRowsByIdsRequest,
@@ -78,12 +83,31 @@ import type {
   BackendReviewFeedbackJournalBackpressureDiagnostics,
   BackendReviewFeedbackJournalOperationStatus,
   BackendReviewFeedbackStorageState,
+  BackendStorageErrorCode,
+  BackendStorageDiagnostic,
+  MessagePackTruthFamily,
   MessagePackTruthRecord,
   MessagePackReviewEventTruthRecord,
 } from '../../packages/contracts/src/backend-rpc';
-import type {
-  MessagePackTruthSegmentManifest,
+import {
+  MESSAGEPACK_TRUTH_MANIFEST_VERSION,
+  MessagePackTruthValidationError,
+  createMessagePackTruthSegmentStore,
+  type MessagePackTruthSegmentManifest,
+  type MessagePackTruthSegmentFileStore,
 } from '../truth/MessagePackTruthSegmentStore';
+import {
+  createReconciledLegacyUnifiedCardsMigrationReceipt,
+  readLegacyUnifiedCardsMigrationReceipt,
+  reconcileLegacyUnifiedCardsMigrationReceipt,
+  type LegacyUnifiedCardsMigrationReceiptFamily,
+} from '../truth/LegacyUnifiedCardsMigrationReceipt';
+import {
+  detectLegacyUnifiedCardsSource,
+} from '../truth/LegacyUnifiedCardsSource';
+import {
+  migrateLegacyUnifiedCardsToCardMemoryTruth,
+} from '../truth/LegacyUnifiedCardsTruthMigration';
 import type {
   ReviewSqlTruthBackfillProjectionPatch,
   ReviewSqlTruthBackfillRow,
@@ -161,6 +185,7 @@ type SqliteFileServiceAdapter = {
   readBinary(fileName: string): Promise<Uint8Array | null>;
   writeBinary(fileName: string, bytes: Uint8Array): Promise<void>;
   deleteFile(fileName: string): Promise<void>;
+  hasLegacyPetalSqliteDb(): Promise<boolean>;
   readSyncConflictDatabaseSources(): Promise<SqliteConflictDatabaseSource[]>;
   cleanupSyncConflictDatabaseSources(sourceIds: string[]): Promise<{
     cleaned: Array<{ sourceId: string; path: string | null }>;
@@ -168,6 +193,38 @@ type SqliteFileServiceAdapter = {
     failed: Array<{ sourceId: string; path: string | null; reason: string }>;
   }>;
 };
+
+interface SqliteFileServiceAdapterOptions {
+  shouldSuppressBinaryRead?: (fileName: string) => boolean;
+  shouldSuppressJsonRead?: (fileName: string) => boolean;
+}
+
+interface WorkerStorageBootstrapOptions {
+  truthDeviceId: string | null;
+  cardTruthGenerationId: string;
+  reviewTruthGenerationId: string;
+  maxSegmentBytes?: number;
+}
+
+interface WorkerStorageBootstrapState {
+  truthAvailable: boolean;
+  projectionRebuildRequired: boolean;
+  projectionRebuildReason: string | null;
+  truthProjectionInput: StartupTruthProjectionInput | null;
+}
+
+interface TruthManifestTarget {
+  family: MessagePackTruthFamily;
+  deviceId: string;
+  generationId: string;
+}
+
+interface StartupTruthProjectionInput {
+  truthRecords: MessagePackTruthRecord[];
+  truthManifest: MessagePackTruthSegmentManifest;
+  primaryDeviceId: string;
+  primaryGenerationId: string;
+}
 
 type ExternalDatabaseMergeContext =
   | 'generic'
@@ -397,10 +454,16 @@ interface ReviewCardDivergenceEvidenceWithCardRow {
   source_missing_at: number | null;
 }
 
-function createSqliteFileServiceAdapter(bridge: SqlitePersistenceBridge): SqliteFileServiceAdapter {
+function createSqliteFileServiceAdapter(
+  bridge: SqlitePersistenceBridge,
+  options: SqliteFileServiceAdapterOptions = {},
+): SqliteFileServiceAdapter {
   return {
     readJSON: async <T>(fileName: string): Promise<T | null> => {
       if (!bridge.readJSON) {
+        return null;
+      }
+      if (options.shouldSuppressJsonRead?.(fileName)) {
         return null;
       }
       return bridge.readJSON<T>(fileName);
@@ -411,13 +474,21 @@ function createSqliteFileServiceAdapter(bridge: SqlitePersistenceBridge): Sqlite
       }
       await bridge.writeJSON(fileName, data);
     },
-    readBinary: (fileName: string) => bridge.readBinary(fileName),
+    readBinary: (fileName: string) => options.shouldSuppressBinaryRead?.(fileName)
+      ? Promise.resolve(null)
+      : bridge.readBinary(fileName),
     writeBinary: (fileName: string, bytes: Uint8Array) => bridge.writeBinary(fileName, bytes),
     deleteFile: async (fileName: string): Promise<void> => {
       if (!bridge.deleteFile) {
         return;
       }
       await bridge.deleteFile(fileName);
+    },
+    hasLegacyPetalSqliteDb: async (): Promise<boolean> => {
+      if (!bridge.hasLegacyPetalSqliteDb) {
+        return false;
+      }
+      return bridge.hasLegacyPetalSqliteDb();
     },
     readSyncConflictDatabaseSources: async () => {
       if (!bridge.readSyncConflictDatabaseSources) {
@@ -722,6 +793,7 @@ function errorMessage(error: unknown): string {
 export class WorkerSqliteDatabaseService {
   private readonly fileService: SqliteFileServiceAdapter;
   private readonly runtime: RuntimeSqliteDatabaseService;
+  private readonly truthFileStore: MessagePackTruthSegmentFileStore | null;
   private readonly autoCardDecisionService = new AutoCardDecisionService();
   private readonly kernelTransactionRuntime: WorkerKernelTransactionRuntime;
   private repository: SqlUnifiedStorageRepository | null = null;
@@ -764,6 +836,9 @@ export class WorkerSqliteDatabaseService {
   private aiJobCanceledTotal = 0;
   private aiJobTimeoutTotal = 0;
   private aiJobFailedTotal = 0;
+  private suppressProjectionReadForStartupReset = false;
+  private legacyPetalSqliteDbProbeComplete = false;
+  private readonly storageDiagnostics: BackendStorageDiagnostic[] = [];
   private readonly reviewFeedbackJournalStore: ReviewFeedbackJournalStore | null;
   private readonly reviewFeedbackJournalBackpressure: {
     maxPendingCount: number;
@@ -785,7 +860,17 @@ export class WorkerSqliteDatabaseService {
       };
     },
   ) {
-    this.fileService = createSqliteFileServiceAdapter(bridge);
+    this.truthFileStore = bridge.truthFileStore ?? null;
+    this.fileService = createSqliteFileServiceAdapter(bridge, {
+      shouldSuppressBinaryRead: (fileName) => (
+        this.suppressProjectionReadForStartupReset
+        && fileName === this.dbFile
+      ),
+      shouldSuppressJsonRead: (fileName) => (
+        this.suppressProjectionReadForStartupReset
+        && fileName === this.dbFile
+      ),
+    });
     this.reviewFeedbackJournalStore = bridge.reviewFeedbackJournalStore ?? null;
     this.kernelTransactionRuntime = new WorkerKernelTransactionRuntime({
       fileService: this.fileService,
@@ -798,6 +883,7 @@ export class WorkerSqliteDatabaseService {
       persistOnInit: false,
       enableDeltaPersistence: true,
       checkpointStorageClass: 'volatile-projection',
+      dropStoredDatabaseOnSchemaMismatch: true,
     });
     this.reviewFeedbackJournalBackpressure = {
       maxPendingCount: Math.max(
@@ -824,11 +910,27 @@ export class WorkerSqliteDatabaseService {
     };
   }
 
-  async init(): Promise<void> {
+  async init(request?: BackendDbLoadRequest): Promise<void> {
     if (this.initialized) {
       return;
     }
-    await this.runtime.init();
+    const bootstrapOptions = this.normalizeStorageBootstrapOptions(request);
+    await this.recordIgnoredLegacyPetalSqliteDbDiagnostic();
+    const projectionBytesBeforeStartup = await this.readProjectionBytesForStartupProbe();
+    const storageBootstrap = await this.bootstrapStorageFromMessagePackTruth(
+      bootstrapOptions,
+      projectionBytesBeforeStartup,
+    );
+    let projectionResetDuringStartup = false;
+    try {
+      await this.runtime.init();
+    } catch (error) {
+      if (!storageBootstrap.truthAvailable) {
+        throw error;
+      }
+      projectionResetDuringStartup = true;
+      await this.reinitializeSqlRuntimeIgnoringPersistedProjection(error);
+    }
     this.repository = new SqlUnifiedStorageRepository(this.runtime, {
       domainSyncLedger: new DomainSyncLedger(this.runtime),
       diagnosticRecorder: (step, durationMs, extra = {}) => {
@@ -847,6 +949,21 @@ export class WorkerSqliteDatabaseService {
     this.queueProjection = new SqlQueueProjectionRepository(this.runtime);
     this.queueState = new SqlQueueStateRepository(this.runtime);
     this.semanticActivation = new SqlSemanticActivationRepository(this.runtime);
+    if (
+      storageBootstrap.truthAvailable
+      && (
+        storageBootstrap.projectionRebuildRequired
+        || projectionResetDuringStartup
+        || !projectionBytesBeforeStartup
+      )
+    ) {
+      await this.rebuildRequiredStartupProjectionFromTruth(
+        bootstrapOptions,
+        storageBootstrap.truthProjectionInput,
+        storageBootstrap.projectionRebuildReason
+          ?? (projectionResetDuringStartup ? 'temp-projection-reset' : 'temp-projection-missing'),
+      );
+    }
     const domainSyncLedger = new DomainSyncLedger(this.runtime);
     if (domainSyncLedger.hasMissingBackfillOperations()) {
       await this.runtime.runTransaction('domain-sync.backfill-existing', () => {
@@ -858,6 +975,382 @@ export class WorkerSqliteDatabaseService {
     await this.kernelTransactionRuntime.restoreSnapshots();
     this.initialized = true;
     await this.rememberPersistedHash();
+  }
+
+  private normalizeStorageBootstrapOptions(
+    request?: BackendDbLoadRequest,
+  ): WorkerStorageBootstrapOptions {
+    const schemaVersion = Math.max(
+      1,
+      Math.floor(Number(request?.truthSchemaVersion ?? MESSAGEPACK_TRUTH_SCHEMA_VERSION) || MESSAGEPACK_TRUTH_SCHEMA_VERSION),
+    );
+    const truthDeviceId = normalizeString(request?.truthDeviceId);
+    const requestedMaxSegmentBytes = normalizeOptionalInteger(request?.maxSegmentBytes);
+    return {
+      truthDeviceId: truthDeviceId || null,
+      cardTruthGenerationId: normalizeString(request?.cardTruthGenerationId)
+        || `card-memory-facts-v${schemaVersion}`,
+      reviewTruthGenerationId: normalizeString(request?.reviewTruthGenerationId)
+        || `review-events-v${schemaVersion}`,
+      maxSegmentBytes: requestedMaxSegmentBytes && requestedMaxSegmentBytes >= 256
+        ? requestedMaxSegmentBytes
+        : undefined,
+    };
+  }
+
+  private async readProjectionBytesForStartupProbe(): Promise<Uint8Array | null> {
+    try {
+      return await this.fileService.readBinary(this.dbFile);
+    } catch {
+      return null;
+    }
+  }
+
+  private async recordIgnoredLegacyPetalSqliteDbDiagnostic(): Promise<void> {
+    if (this.legacyPetalSqliteDbProbeComplete) {
+      return;
+    }
+    this.legacyPetalSqliteDbProbeComplete = true;
+    let exists = false;
+    try {
+      exists = await this.fileService.hasLegacyPetalSqliteDb();
+    } catch (error) {
+      logger.warn('[SiYuanMemo][WorkerSqliteDatabaseService] ignored legacy petal DB probe failed', {
+        path: SIYUANMEMO_FORBIDDEN_PETAL_SQLITE_DB_PATH,
+        error: errorMessage(error),
+      });
+      return;
+    }
+    if (!exists) {
+      return;
+    }
+    this.addStorageDiagnostic({
+      kind: 'legacy-petal-db-ignored',
+      severity: 'warning',
+      at: Date.now(),
+      message: 'Legacy petal siyuanmemo.db exists but is ignored; temp projection uses workspace temp and truth remains authoritative.',
+      path: SIYUANMEMO_FORBIDDEN_PETAL_SQLITE_DB_PATH,
+      details: {
+        action: 'ignored',
+        read: false,
+        migrated: false,
+        deleted: false,
+        written: false,
+      },
+    });
+  }
+
+  private async bootstrapStorageFromMessagePackTruth(
+    bootstrapOptions: WorkerStorageBootstrapOptions,
+    projectionBytesBeforeStartup: Uint8Array | null,
+  ): Promise<WorkerStorageBootstrapState> {
+    const truthProjectionInput = await this.readStartupTruthProjectionInput(bootstrapOptions);
+    if (truthProjectionInput) {
+      await this.reconcileTruthWithoutReceipt(bootstrapOptions, truthProjectionInput);
+      await this.assertLegacySourceMatchesCompletedReceipt();
+      return {
+        truthAvailable: true,
+        projectionRebuildRequired: true,
+        projectionRebuildReason: projectionBytesBeforeStartup ? 'sql-stale' : 'temp-projection-missing',
+        truthProjectionInput,
+      };
+    }
+
+    if (!bootstrapOptions.truthDeviceId || !this.truthFileStore) {
+      return {
+        truthAvailable: false,
+        projectionRebuildRequired: false,
+        projectionRebuildReason: null,
+        truthProjectionInput: null,
+      };
+    }
+
+    const cardTruthStore = createMessagePackTruthSegmentStore({
+      fileStore: this.truthFileStore,
+      family: 'card-memory-facts',
+      deviceId: bootstrapOptions.truthDeviceId,
+      generationId: bootstrapOptions.cardTruthGenerationId,
+      schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+      maxSegmentBytes: bootstrapOptions.maxSegmentBytes,
+    });
+    const reviewTruthStore = createMessagePackTruthSegmentStore({
+      fileStore: this.truthFileStore,
+      family: 'review-events',
+      deviceId: bootstrapOptions.truthDeviceId,
+      generationId: bootstrapOptions.reviewTruthGenerationId,
+      schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+      maxSegmentBytes: bootstrapOptions.maxSegmentBytes,
+    });
+    const reviewLogFileStore = this.truthFileStore.listFiles
+      ? {
+          readJSON: <T>(fileName: string) => this.truthFileStore!.readJSON<T>(fileName),
+          listFiles: (prefix: string) => this.truthFileStore!.listFiles!(prefix),
+        }
+      : undefined;
+    const migrationResult = await migrateLegacyUnifiedCardsToCardMemoryTruth({
+      sourceFileStore: this.fileService,
+      receiptFileStore: this.truthFileStore,
+      truthStore: cardTruthStore,
+      reviewTruthStore: reviewLogFileStore ? reviewTruthStore : undefined,
+      reviewLogFileStore,
+      reviewGenerationId: bootstrapOptions.reviewTruthGenerationId,
+      truthExists: false,
+      localDeviceId: bootstrapOptions.truthDeviceId,
+      generationId: bootstrapOptions.cardTruthGenerationId,
+      truthSchemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    });
+    if (migrationResult.status !== 'migrated') {
+      return {
+        truthAvailable: false,
+        projectionRebuildRequired: false,
+        projectionRebuildReason: null,
+        truthProjectionInput: null,
+      };
+    }
+    const migratedTruthProjectionInput = await this.readStartupTruthProjectionInput(bootstrapOptions);
+    if (!migratedTruthProjectionInput) {
+      throw storageError(
+        'LEGACY_MIGRATION_FAILED',
+        'legacy MessagePack migration completed but truth could not be read back for startup projection rebuild',
+      );
+    }
+    return {
+      truthAvailable: true,
+      projectionRebuildRequired: true,
+      projectionRebuildReason: 'legacy-messagepack-migrated',
+      truthProjectionInput: migratedTruthProjectionInput,
+    };
+  }
+
+  private async readStartupTruthProjectionInput(
+    bootstrapOptions: WorkerStorageBootstrapOptions,
+  ): Promise<StartupTruthProjectionInput | null> {
+    if (!this.truthFileStore) {
+      return null;
+    }
+
+    const targets = await this.discoverStartupTruthManifestTargets(bootstrapOptions);
+    const manifests: MessagePackTruthSegmentManifest[] = [];
+    const truthRecords: MessagePackTruthRecord[] = [];
+    let primaryDeviceId = bootstrapOptions.truthDeviceId;
+    let primaryGenerationId = bootstrapOptions.cardTruthGenerationId;
+
+    for (const target of targets) {
+      const truthStore = createMessagePackTruthSegmentStore({
+        fileStore: this.truthFileStore,
+        family: target.family,
+        deviceId: target.deviceId,
+        generationId: target.generationId,
+        schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+        maxSegmentBytes: bootstrapOptions.maxSegmentBytes,
+      });
+      try {
+        const replay = await truthStore.replayRecords({
+          dedupeByIdempotencyKey: target.family === 'review-events',
+        });
+        if (
+          replay.manifest.segments.length === 0
+          && replay.manifest.updatedAt === 0
+          && replay.records.length === 0
+        ) {
+          continue;
+        }
+        manifests.push(replay.manifest);
+        truthRecords.push(...replay.records);
+        primaryDeviceId ||= replay.manifest.deviceId;
+        if (target.family === 'card-memory-facts') {
+          primaryGenerationId = replay.manifest.generationId;
+        }
+      } catch (error) {
+        if (error instanceof MessagePackTruthValidationError) {
+          throw storageError('TRUTH_VALIDATION_FAILED', error.message);
+        }
+        throw error;
+      }
+    }
+
+    if (manifests.length === 0) {
+      return null;
+    }
+
+    const truthManifest = mergeStartupTruthManifests(manifests, {
+      primaryDeviceId: primaryDeviceId ?? manifests[0].deviceId,
+      primaryGenerationId,
+    });
+    return {
+      truthRecords,
+      truthManifest,
+      primaryDeviceId: primaryDeviceId ?? manifests[0].deviceId,
+      primaryGenerationId,
+    };
+  }
+
+  private async discoverStartupTruthManifestTargets(
+    bootstrapOptions: WorkerStorageBootstrapOptions,
+  ): Promise<TruthManifestTarget[]> {
+    const targets: TruthManifestTarget[] = [];
+    const defaultDeviceId = normalizeString(bootstrapOptions.truthDeviceId);
+    if (defaultDeviceId) {
+      targets.push(
+        {
+          family: 'card-memory-facts',
+          deviceId: defaultDeviceId,
+          generationId: bootstrapOptions.cardTruthGenerationId,
+        },
+        {
+          family: 'review-events',
+          deviceId: defaultDeviceId,
+          generationId: bootstrapOptions.reviewTruthGenerationId,
+        },
+      );
+    }
+
+    if (this.truthFileStore?.listFiles) {
+      for (const family of ['card-memory-facts', 'review-events'] as const) {
+        try {
+          const paths = await this.truthFileStore.listFiles(`truth/${family}`);
+          for (const path of paths) {
+            const target = parseTruthManifestTarget(path, family);
+            if (target) {
+              targets.push(target);
+            }
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+
+    return dedupeTruthManifestTargets(targets);
+  }
+
+  private async reconcileTruthWithoutReceipt(
+    bootstrapOptions: WorkerStorageBootstrapOptions,
+    truthProjectionInput: StartupTruthProjectionInput,
+  ): Promise<void> {
+    if (!this.truthFileStore) {
+      return;
+    }
+    const existingReceipt = await readLegacyUnifiedCardsMigrationReceipt(this.truthFileStore);
+    if (existingReceipt) {
+      return;
+    }
+    if (!bootstrapOptions.truthDeviceId) {
+      throw storageError(
+        'TRUTH_DEVICE_ID_UNAVAILABLE',
+        'truth-without-receipt reconciliation requires truth-wide persistent local device id',
+      );
+    }
+    const reconciledReceipt = createReconciledLegacyUnifiedCardsMigrationReceipt({
+      reconciledAt: Date.now(),
+      localDeviceId: bootstrapOptions.truthDeviceId,
+      truthSchemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+      families: buildReconciledMigrationReceiptFamilies(truthProjectionInput.truthManifest),
+      diagnostics: [{
+        kind: 'truth-without-receipt',
+        severity: 'warning',
+        message: 'Truth manifests existed without the legacy migration receipt; startup trusted truth and wrote a reconciled receipt.',
+        details: {
+          projectionDeviceId: truthProjectionInput.primaryDeviceId,
+          projectionGenerationId: truthProjectionInput.primaryGenerationId,
+        },
+      }],
+    });
+    const result = await reconcileLegacyUnifiedCardsMigrationReceipt(this.truthFileStore, {
+      truthExists: true,
+      reconciledReceipt,
+    });
+    if (result.wroteReceipt) {
+      logger.warn('[SiYuanMemo][WorkerSqliteDatabaseService] reconciled MessagePack truth without legacy migration receipt', {
+        receiptStatus: result.receipt.status,
+        families: result.receipt.families.map((family) => ({
+          family: family.family,
+          generationId: family.generationId,
+          recordCount: family.recordCount,
+        })),
+      });
+    }
+  }
+
+  private async assertLegacySourceMatchesCompletedReceipt(): Promise<void> {
+    if (!this.truthFileStore) {
+      return;
+    }
+    const receipt = await readLegacyUnifiedCardsMigrationReceipt(this.truthFileStore);
+    if (!receipt || receipt.status !== 'completed' || !receipt.source.sha256) {
+      return;
+    }
+    const legacySource = await detectLegacyUnifiedCardsSource(this.fileService);
+    if (legacySource.status === 'present' && legacySource.sha256 !== receipt.source.sha256) {
+      throw storageError(
+        'LEGACY_DIVERGENCE_DETECTED',
+        `legacy MessagePack source changed after completed receipt: expected ${receipt.source.sha256}, got ${legacySource.sha256}`,
+      );
+    }
+  }
+
+  private async rebuildRequiredStartupProjectionFromTruth(
+    bootstrapOptions: WorkerStorageBootstrapOptions,
+    truthProjectionInput: StartupTruthProjectionInput | null,
+    reason: string,
+  ): Promise<void> {
+    if (!truthProjectionInput) {
+      throw storageError('PROJECTION_REBUILD_FAILED', `startup projection rebuild unavailable: ${reason}`);
+    }
+    const result = this.rebuildSqlProjectionsFromTruth({
+      rebuildId: `startup:${Date.now()}`,
+      cause: reason,
+      families: ['cards', 'review-event-indexes'],
+      deviceId: truthProjectionInput.primaryDeviceId,
+      generationId: truthProjectionInput.primaryGenerationId,
+      schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+      maxSegmentBytes: bootstrapOptions.maxSegmentBytes,
+      truthRecords: truthProjectionInput.truthRecords,
+      truthManifest: truthProjectionInput.truthManifest,
+      sourceReads: [],
+    });
+    if (result.status !== 'ready') {
+      throw storageError(
+        'PROJECTION_REBUILD_FAILED',
+        result.error ?? `startup projection rebuild ended in ${result.status}`,
+      );
+    }
+    await this.runtime.persist({
+      force: true,
+      reason: 'storage.projection.rebuild.startup',
+      diagnostics: {
+        cause: reason,
+        initiator: 'db.load',
+        projectionGeneration: result.projectionGeneration,
+        hotPath: false,
+      },
+    });
+  }
+
+  private async reinitializeSqlRuntimeIgnoringPersistedProjection(error: unknown): Promise<void> {
+    this.suppressProjectionReadForStartupReset = true;
+    this.runtime.dispose();
+    try {
+      await this.runtime.init();
+    } catch (reinitError) {
+      throw storageError(
+        'PROJECTION_REBUILD_FAILED',
+        `failed to reinitialize temp projection after persisted DB load failure: ${errorMessage(reinitError)}; original failure: ${errorMessage(error)}`,
+      );
+    } finally {
+      this.suppressProjectionReadForStartupReset = false;
+    }
+  }
+
+  private addStorageDiagnostic(diagnostic: BackendStorageDiagnostic): void {
+    const key = `${diagnostic.kind}\n${diagnostic.path ?? ''}\n${diagnostic.message}`;
+    if (this.storageDiagnostics.some((existing) => `${existing.kind}\n${existing.path ?? ''}\n${existing.message}` === key)) {
+      return;
+    }
+    this.storageDiagnostics.unshift(diagnostic);
+    if (this.storageDiagnostics.length > 32) {
+      this.storageDiagnostics.length = 32;
+    }
   }
 
   private async measureDiagnosticDatabaseStep<TResult>(
@@ -899,8 +1392,8 @@ export class WorkerSqliteDatabaseService {
     }
   }
 
-  async load(): Promise<{ ok: true; initialized: true; dbFile: string }> {
-    await this.init();
+  async load(request?: BackendDbLoadRequest): Promise<{ ok: true; initialized: true; dbFile: string }> {
+    await this.init(request);
     return {
       ok: true,
       initialized: true,
@@ -1350,6 +1843,7 @@ export class WorkerSqliteDatabaseService {
       feedbackPreviewTotal: number;
       feedbackUnavailableTotal: number;
     };
+    storageDiagnostics: BackendStorageDiagnostic[];
     ai: {
       sessionCreateTotal: number;
       sessionUpdateTotal: number;
@@ -1386,6 +1880,7 @@ export class WorkerSqliteDatabaseService {
         feedbackPreviewTotal: this.reviewFeedbackPreviewTotal,
         feedbackUnavailableTotal: this.reviewFeedbackUnavailableTotal,
       },
+      storageDiagnostics: [...this.storageDiagnostics],
       ai: {
         sessionCreateTotal: this.aiSessionCreateTotal,
         sessionUpdateTotal: this.aiSessionUpdateTotal,
@@ -6409,6 +6904,106 @@ function uniqueStrings(values: Iterable<unknown>): string[] {
     }
     seen.add(normalized);
     result.push(normalized);
+  }
+  return result;
+}
+
+function storageError(code: BackendStorageErrorCode, message: string): Error & { code: BackendStorageErrorCode } {
+  const error = new Error(`${code}: ${message}`) as Error & { code: BackendStorageErrorCode };
+  error.name = 'BackendStorageError';
+  error.code = code;
+  return error;
+}
+
+function buildReconciledMigrationReceiptFamilies(
+  manifest: MessagePackTruthSegmentManifest,
+): LegacyUnifiedCardsMigrationReceiptFamily[] {
+  const byKey = new Map<string, LegacyUnifiedCardsMigrationReceiptFamily>();
+  for (const segment of manifest.segments) {
+    const family = segment.family;
+    if (family !== 'card-memory-facts' && family !== 'review-events') {
+      continue;
+    }
+    const key = `${family}\n${segment.generationId}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.recordCount += Math.max(0, Number(segment.recordCount) || 0);
+      existing.segmentRefs.push(segment.path);
+      continue;
+    }
+    byKey.set(key, {
+      family,
+      generationId: segment.generationId,
+      recordCount: Math.max(0, Number(segment.recordCount) || 0),
+      segmentRefs: [segment.path],
+    });
+  }
+  const families = [...byKey.values()];
+  if (families.length === 0) {
+    throw storageError(
+      'LEGACY_MIGRATION_FAILED',
+      'truth-without-receipt reconciliation found no supported truth family segments',
+    );
+  }
+  return families;
+}
+
+function mergeStartupTruthManifests(
+  manifests: MessagePackTruthSegmentManifest[],
+  input: {
+    primaryDeviceId: string;
+    primaryGenerationId: string;
+  },
+): MessagePackTruthSegmentManifest {
+  if (manifests.length === 1) {
+    return manifests[0];
+  }
+  const updatedAt = manifests.reduce((max, manifest) => Math.max(max, Number(manifest.updatedAt) || 0), 0);
+  return {
+    version: MESSAGEPACK_TRUTH_MANIFEST_VERSION,
+    path: 'startup-projection-rebuild:merged',
+    family: 'startup-projection-rebuild',
+    deviceId: input.primaryDeviceId,
+    generationId: input.primaryGenerationId,
+    schemaVersion: MESSAGEPACK_TRUTH_SCHEMA_VERSION,
+    segments: manifests.flatMap((manifest) => manifest.segments),
+    updatedAt,
+  };
+}
+
+function parseTruthManifestTarget(
+  path: unknown,
+  expectedFamily?: MessagePackTruthFamily,
+): TruthManifestTarget | null {
+  const normalized = normalizeString(path).replace(/\\/g, '/');
+  const match = /^truth\/([^/]+)\/([^/]+)\/device-([^/]+)\/manifest\.v1\.json$/.exec(normalized);
+  if (!match) {
+    return null;
+  }
+  const family = match[1] as MessagePackTruthFamily;
+  if (expectedFamily && family !== expectedFamily) {
+    return null;
+  }
+  if (family !== 'card-memory-facts' && family !== 'review-events') {
+    return null;
+  }
+  return {
+    family,
+    generationId: match[2],
+    deviceId: match[3],
+  };
+}
+
+function dedupeTruthManifestTargets(targets: TruthManifestTarget[]): TruthManifestTarget[] {
+  const seen = new Set<string>();
+  const result: TruthManifestTarget[] = [];
+  for (const target of targets) {
+    const key = `${target.family}\n${target.generationId}\n${target.deviceId}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(target);
   }
   return result;
 }

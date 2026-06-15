@@ -28,7 +28,10 @@ import {
   type ReviewTabTransferState,
 } from '@/types/unified-data-source';
 import type { ReviewHeaderVariant } from '@/ui/review/v2/types';
-import type { BackendNeuralRoamStartFromFocusRequest } from '../../../packages/contracts/src/backend-rpc';
+import {
+  STORAGE_ERROR_CODES,
+  type BackendNeuralRoamStartFromFocusRequest,
+} from '../../../packages/contracts/src/backend-rpc';
 import { resolveReviewPresentation } from '@/types/review-presentation-semantics';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
@@ -78,6 +81,7 @@ const logger = createLogger('DialogManager');
 type VueDialogHandle = ReturnType<typeof createVueDialog>;
 type PluginWithMobileFlag = Plugin & { isMobile?: boolean };
 type NeuralReviewSurfaceSyncResult = 'synced' | 'missing' | 'failed';
+type ActiveStorageSurface = 'review' | 'browser';
 type MobileLauncherQueueId =
   | 'retrieval'
   | 'incremental-learning'
@@ -142,6 +146,18 @@ interface ProgressiveSplitDialogState {
 }
 
 const HIDDEN_TEMPLATE_IDS_IN_QUICK_CARD_DIALOG = new Set<string>(['builtin-concept-simple']);
+
+function resolveStorageUnavailableMessage(startupError: string | null): string {
+  const code = STORAGE_ERROR_CODES.find((candidate) => startupError?.includes(candidate)) ?? null;
+  if (code) {
+    return `SiYuanMemo 存储不可用：${code}。请修复存储后重启插件。`;
+  }
+  if (startupError) {
+    const summary = startupError.length > 120 ? `${startupError.slice(0, 117)}...` : startupError;
+    return `SiYuanMemo 存储不可用：${summary}`;
+  }
+  return 'SiYuanMemo 存储尚未就绪，请查看控制台日志后重启插件。';
+}
 
 /**
  * DialogManager 类
@@ -424,6 +440,9 @@ export class DialogManager implements IDialogManager {
     queueInstance?: IReviewQueue;
     initialSessionState?: InitialReviewSessionState;
   }): Promise<void> {
+    if (!(await this.checkInitialized('review'))) {
+      return;
+    }
     await this.openStandardReviewEntry({
       ...options,
       allowNewTab: false,
@@ -431,7 +450,7 @@ export class DialogManager implements IDialogManager {
   }
 
   async switchStandardReviewDialogQueue(queueType: QueueType): Promise<void> {
-    if (!(await this.checkInitialized())) {
+    if (!(await this.checkInitialized('review'))) {
       return;
     }
 
@@ -767,6 +786,8 @@ export class DialogManager implements IDialogManager {
     initialQueueId?: string;
     initialNeuralSubview?: 'concept-cards' | 'engine-history' | 'roam-history' | 'worldline-anchors';
   }): Promise<void> {
+    if (!(await this.checkInitialized('browser'))) return;
+
     if (this.srsBrowserDialog) {
       this.srsBrowserDialog.destroy();
     }
@@ -1013,12 +1034,33 @@ export class DialogManager implements IDialogManager {
   /**
    * 检查初始化状态
    */
-  private async checkInitialized(): Promise<boolean> {
+  private async checkInitialized(surface?: ActiveStorageSurface): Promise<boolean> {
     if (!this.context) {
       await this.siyuanApi.pushErrMsg('FSRS 插件初始化失败，请打开控制台查看错误');
       return false;
     }
+    if (surface && !(await this.ensureBackendStorageReadyForActiveSurface(surface))) {
+      return false;
+    }
     return true;
+  }
+
+  private async ensureBackendStorageReadyForActiveSurface(surface: ActiveStorageSurface): Promise<boolean> {
+    const policy = this.context.getBackendMigrationRuntimePolicy();
+    if (!policy.capabilities.backendWorkerAvailable) {
+      return true;
+    }
+    if (this.context.getSrsBackendClient()) {
+      return true;
+    }
+    const startupError = this.context.getBackendStartupError();
+    const message = resolveStorageUnavailableMessage(startupError);
+    logger.warn('[DialogManager] blocked active surface because backend storage is unavailable', {
+      surface,
+      startupError,
+    });
+    await this.siyuanApi.pushErrMsg(message);
+    return false;
   }
 
   private async prepareQueueBeforeReview(queueType: QueueType): Promise<void> {
@@ -1058,7 +1100,7 @@ export class DialogManager implements IDialogManager {
    * 打开提取练习对话框
    */
   async openReviewDialog(): Promise<void> {
-    if (!(await this.checkInitialized())) return;
+    if (!(await this.checkInitialized('review'))) return;
     const title = this.context.getI18n()?.retrievalPractice || '提取练习';
     if (!(await this.ensureDomainSyncSafeForReviewEntry({
       queueType: QueueType.RetrievalPractice,
@@ -1087,7 +1129,7 @@ export class DialogManager implements IDialogManager {
    * 打开渐进学习对话框
    */
   async openIncrementalLearningDialog(): Promise<void> {
-    if (!(await this.checkInitialized())) return;
+    if (!(await this.checkInitialized('review'))) return;
     const title = this.context.getI18n()?.incrementalLearning || '渐进学习';
     if (!(await this.ensureDomainSyncSafeForReviewEntry({
       queueType: QueueType.IncrementalLearning,
@@ -1116,7 +1158,7 @@ export class DialogManager implements IDialogManager {
    * 打开刻意练习对话框
    */
   async openFinalDrillDialog(): Promise<void> {
-    if (!(await this.checkInitialized())) return;
+    if (!(await this.checkInitialized('review'))) return;
     const title = this.context.getI18n()?.finalDrill || '刻意练习';
     if (!(await this.ensureDomainSyncSafeForReviewEntry({
       queueType: QueueType.FinalDrill,
@@ -1144,7 +1186,7 @@ export class DialogManager implements IDialogManager {
    * 打开筛选复习对话框
    */
   async openFilterGroupPracticeDialog(): Promise<void> {
-    if (!(await this.checkInitialized())) return;
+    if (!(await this.checkInitialized('review'))) return;
     const title = this.context.getI18n()?.filterGroupPractice || '分组队列';
     if (!(await this.ensureDomainSyncSafeForReviewEntry({
       queueType: QueueType.FilterGroup,
@@ -1189,7 +1231,7 @@ export class DialogManager implements IDialogManager {
     entrySessionKind?: BackendNeuralRoamStartFromFocusRequest['entrySessionKind'];
     semanticPinnedSessionId?: string;
   }): Promise<void> {
-    if (!(await this.checkInitialized())) return;
+    if (!(await this.checkInitialized('review'))) return;
     const title = this.context.getI18n()?.neuralReviewTitle || '神经漫游';
     if (!(await this.ensureDomainSyncSafeForReviewEntry({
       queueType: QueueType.NeuralRoam,
@@ -1283,7 +1325,7 @@ export class DialogManager implements IDialogManager {
    * 打开难点攻坚对话框
    */
   async openLeechReviewDialog(): Promise<void> {
-    if (!(await this.checkInitialized())) return;
+    if (!(await this.checkInitialized('review'))) return;
     const title = this.context.getI18n()?.startLeechPractice || '难点攻坚';
     if (!(await this.ensureDomainSyncSafeForReviewEntry({
       queueType: QueueType.Leech,
@@ -1335,6 +1377,7 @@ export class DialogManager implements IDialogManager {
       preferredCardId?: string;
     }
   ): Promise<void> {
+    if (!(await this.checkInitialized('review'))) return;
     const ids = normalizeIdList(blockIds);
     const cardIds = normalizeIdList(options?.cardIds);
     if (ids.length === 0 && cardIds.length === 0) {
@@ -1400,7 +1443,7 @@ export class DialogManager implements IDialogManager {
     scopeDocIds?: string[];
     dueOnly: boolean;
   }): Promise<void> {
-    if (!(await this.checkInitialized())) return;
+    if (!(await this.checkInitialized('review'))) return;
 
     try {
       const ids = normalizeIdList(options.blockIds);
@@ -1467,7 +1510,7 @@ export class DialogManager implements IDialogManager {
     scopeDocIds?: string[];
     dueOnly: boolean;
   }): Promise<void> {
-    if (!(await this.checkInitialized())) return;
+    if (!(await this.checkInitialized('review'))) return;
 
     try {
       const ids = normalizeIdList(options.blockIds);
@@ -1531,6 +1574,7 @@ export class DialogManager implements IDialogManager {
       preferredCardId?: string;
     },
   ): Promise<void> {
+    if (!(await this.checkInitialized('review'))) return;
     const ids = normalizeIdList(blockIds);
     const cardIds = normalizeIdList(options?.cardIds);
     if (ids.length === 0 && cardIds.length === 0) {

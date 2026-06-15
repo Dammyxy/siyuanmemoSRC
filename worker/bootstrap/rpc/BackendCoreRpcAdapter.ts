@@ -1,5 +1,6 @@
 import type {
   BackendDbLoadResult,
+  BackendDbLoadRequest,
   BackendDbPersistResult,
   BackendDiagnosticsStatusResult,
   BackendHealthResult,
@@ -13,7 +14,7 @@ import type { BackendRpcHandlerRegistration } from './BackendRpcRegistry';
 
 export interface BackendCoreRpcDatabase {
   getStatus(): { initialized: boolean };
-  load(): Promise<BackendDbLoadResult> | BackendDbLoadResult;
+  load(request?: BackendDbLoadRequest): Promise<BackendDbLoadResult> | BackendDbLoadResult;
   persist(): Promise<BackendDbPersistResult> | BackendDbPersistResult;
 }
 
@@ -33,7 +34,7 @@ export type BackendCoreRpcHandlerRegistration = BackendRpcHandlerRegistration<
 
 const BACKEND_CORE_RPC_HANDLER_ADAPTERS: {
   readonly [Method in BackendCoreRpcMethod]: BackendRpcHandlerAdapter<
-    void,
+    unknown,
     unknown,
     BackendCoreRpcHandlerContext
   >;
@@ -52,8 +53,8 @@ const BACKEND_CORE_RPC_HANDLER_ADAPTERS: {
   'db.load': {
     method: 'db.load',
     family: 'core',
-    handle(_params, context): Promise<BackendDbLoadResult> | BackendDbLoadResult {
-      return context.core.database.load();
+    handle(params, context): Promise<BackendDbLoadResult> | BackendDbLoadResult {
+      return context.core.database.load(readDbLoadRequest(params));
     },
   },
   'db.persist': {
@@ -94,6 +95,13 @@ const BACKEND_CORE_RPC_HANDLER_ADAPTERS: {
     },
   },
 };
+
+function readDbLoadRequest(params: unknown): BackendDbLoadRequest | undefined {
+  if (!params || typeof params !== 'object' || Array.isArray(params)) {
+    return undefined;
+  }
+  return params as BackendDbLoadRequest;
+}
 
 export const BACKEND_CORE_RPC_HANDLER_REGISTRATIONS: readonly BackendCoreRpcHandlerRegistration[] =
   Object.freeze(

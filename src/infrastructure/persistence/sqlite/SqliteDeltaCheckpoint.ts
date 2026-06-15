@@ -1200,6 +1200,51 @@ export class SqliteDeltaCheckpointLayer {
     return this.canClearDeltaAfterCheckpoint() && (await this.readSnapshot()).entries.length > 0;
   }
 
+  async discardPending(
+    reason: string,
+    diagnosticsContext?: SqliteDeltaDiagnosticsContext,
+  ): Promise<void> {
+    let snapshot: SqliteDeltaLogSnapshot | null = null;
+    let snapshotReadError: unknown = null;
+    try {
+      snapshot = await this.readSnapshot();
+    } catch (error) {
+      snapshotReadError = error;
+    }
+    const pendingBytes = snapshot ? estimateJsonByteLength(snapshot) : 0;
+    const coveredSegmentPaths = snapshot
+      ? uniqueStrings([
+        ...snapshot.manifest.sealedSegments.map((segment) => segment.path),
+        ...(snapshot.manifest.openSegment ? [snapshot.manifest.openSegment.path] : []),
+        ...(snapshot.manifest.checkpoint?.coveredSegmentPaths ?? []),
+      ])
+      : [];
+    await this.fileService.writeJSON(this.fileName, emptyManifest(Date.now()));
+    const cleanupError = await this.deleteCoveredSegmentFiles(coveredSegmentPaths);
+    this.checkpointOnlyTotal += 1;
+    const diagnostics = normalizeDiagnosticsContext(diagnosticsContext);
+    this.lastCheckpoint = {
+      ok: true,
+      at: Date.now(),
+      classification: 'checkpoint',
+      cause: reason,
+      initiator: diagnostics.initiator,
+      projectionGeneration: diagnostics.projectionGeneration
+        ?? (snapshot ? maxProjectionGenerationFromEntries(snapshot.entries) : null),
+      hotPath: diagnostics.hotPath || labelLooksHotPath(reason),
+      reason,
+      pendingCount: snapshot?.entries.length ?? 0,
+      pendingBytes,
+      byteLength: null,
+      cleared: true,
+      affectedTables: snapshot ? uniqueStrings(snapshot.entries.flatMap((entry) => entry.tables)) : [],
+      checkpointStorageClass: this.checkpointStorageClass,
+      error: cleanupError ?? (snapshotReadError
+        ? `sqlite-delta-discard-read-failed: ${snapshotReadError instanceof Error ? snapshotReadError.message : String(snapshotReadError)}`
+        : null),
+    };
+  }
+
   async clearAfterCheckpoint(
     reason: string,
     byteLength: number | null,

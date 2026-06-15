@@ -333,6 +333,14 @@ export interface BackendDbLoadResult {
   dbFile: string;
 }
 
+export interface BackendDbLoadRequest {
+  truthDeviceId?: string | null;
+  cardTruthGenerationId?: string | null;
+  reviewTruthGenerationId?: string | null;
+  truthSchemaVersion?: number | null;
+  maxSegmentBytes?: number | null;
+}
+
 export interface BackendDbPersistResult {
   ok: true;
   persisted: true;
