@@ -14,6 +14,7 @@ import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { FSRSCard } from '@/types';
 import { applyDismissState } from '@/core/card/domain/services/dismissState';
+import { applySimpleQueryFilter } from '@/application/queries/browser/shared/BrowserRowUtils';
 import { PerformanceMonitor } from '@/utils/performance';
 import { getCurrentDayEnd } from '@/utils/dateUtils';
 import { getDayStartHour } from '@/utils/configUtils';
@@ -30,7 +31,6 @@ import {
     type BrowserCard,
     CardState,
     checkNumberCondition,
-    matchesParsedQuery,
     parseQuery,
     truncateContent
 } from '@/types/browser';
@@ -967,7 +967,7 @@ async function buildBrowserCardsByBlockIds(
                 let cards = ids.flatMap((id) => cachedByBlockId.get(id) ?? []);
 
                 if (normalizedQueryText) {
-                    cards = applyParsedQuery(cards, parseQuery(normalizedQueryText));
+                    cards = applySimpleQueryFilter(cards, normalizedQueryText);
                 }
                 return cards;
             }
@@ -982,7 +982,6 @@ async function buildBrowserCardsByBlockIds(
         const scopedCards = await loadFsrsCardsByBlockIds(ids, manager);
         const cardMap = groupFsrsCardsByBlockId(scopedCards, new Set(ids));
         const { attrsMap, rootIdMap, tagsMap, contentMap } = await fetchBlockInfoBatched(ids, siyuanApi);
-        const parsed = normalizedQueryText ? parseQuery(normalizedQueryText) : null;
         const cards: BrowserCard[] = [];
 
         for (const id of ids) {
@@ -1007,9 +1006,7 @@ async function buildBrowserCardsByBlockIds(
                     cardType: toBrowserCardType(customAttrs[attrKeys.cardType]) || 'concept',
                 });
 
-                if (!parsed || matchesParsedQuery(virtualCard, parsed)) {
-                    cards.push(virtualCard);
-                }
+                cards.push(virtualCard);
                 continue;
             }
 
@@ -1026,13 +1023,13 @@ async function buildBrowserCardsByBlockIds(
                     browserCard.content = truncateContent(dbContent, 100);
                 }
 
-                if (!parsed || matchesParsedQuery(browserCard, parsed)) {
-                    cards.push(browserCard);
-                }
+                cards.push(browserCard);
             }
         }
 
-        return cards;
+        return normalizedQueryText
+            ? applySimpleQueryFilter(cards, normalizedQueryText)
+            : cards;
     } catch (err) {
         logger.error('[SiYuanMemo][CardBrowser] blockId card load error:', err);
         return [];

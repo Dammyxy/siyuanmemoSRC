@@ -20,9 +20,10 @@ import {
 } from '@/types/browser';
 import { createLogger } from '@/utils/logger';
 import {
+  applyDeckPresetFilter,
   applyDocFilter,
+  applyExplicitCardTypesFilter,
   applySimpleQueryFilter,
-  isMissingBlockCard,
   sortBrowserRows,
 } from './BrowserRowUtils';
 import { BrowserDeckBlockQuerySource } from './BrowserDeckBlockQuerySource';
@@ -87,9 +88,9 @@ export class BrowserDeckQueryKernel {
     }
     rows = applyBrowserCdfDiagnosticVisibility(rows, query.preset);
     rows = applyDocFilter(rows, query.docId, query.scopeDocIds);
-    rows = this.applyPresetFilter(rows, query.preset);
+    rows = applyDeckPresetFilter(rows, query.preset);
     rows = this.applyExplicitStateFilter(rows, query.states);
-    rows = this.applyExplicitCardTypeFilter(rows, query.cardTypes);
+    rows = applyExplicitCardTypesFilter(rows, query.cardTypes);
     rows = applySimpleQueryFilter(rows, query.searchText, { secondaryField: 'fullContent' });
     rows = this.applyDeckAndTagFilter(rows, query);
 
@@ -327,34 +328,6 @@ export class BrowserDeckQueryKernel {
     };
   }
 
-  private applyPresetFilter(rows: BrowserDeckSnapshotRow[], preset?: PresetFilter): BrowserDeckSnapshotRow[] {
-    if (!preset || preset === 'all' || preset === 'current-doc') {
-      return rows;
-    }
-
-    const now = Date.now();
-    return rows.filter((row) => {
-      switch (preset) {
-        case 'due':
-          return row.due.getTime() <= now;
-        case 'overdue':
-          return row.due.getTime() < now && row.state !== CardState.New;
-        case 'new':
-          return row.state === CardState.New;
-        case 'learning':
-          return row.state === CardState.Learning;
-        case 'review':
-          return row.state === CardState.Review;
-        case 'leech':
-          return (row.lapses ?? 0) > 0;
-        case 'suspended':
-          return row.suspended === true;
-        default:
-          return true;
-      }
-    });
-  }
-
   private applyExplicitStateFilter(rows: BrowserDeckSnapshotRow[], states?: CardState[]): BrowserDeckSnapshotRow[] {
     if (!states?.length) {
       return rows;
@@ -362,26 +335,6 @@ export class BrowserDeckQueryKernel {
 
     const stateSet = new Set(states.map((state) => Number(state)));
     return rows.filter((row) => stateSet.has(Number(row.state)));
-  }
-
-  private applyExplicitCardTypeFilter(rows: BrowserDeckSnapshotRow[], cardTypes?: string[]): BrowserDeckSnapshotRow[] {
-    if (!cardTypes?.length) {
-      return rows;
-    }
-
-    const normalized = new Set(cardTypes.map((value) => String(value || '').trim()).filter(Boolean));
-    return rows.filter((row) => {
-      if (normalized.has('missing-block-only') && isMissingBlockCard(row)) {
-        return true;
-      }
-      if (normalized.has('item')) {
-        if (!row.cardType || row.cardType === 'item') {
-          return true;
-        }
-      }
-
-      return normalized.has(String(row.cardType || '').trim());
-    });
   }
 
   private applyDeckAndTagFilter(rows: BrowserDeckSnapshotRow[], query: BrowserDeckSnapshotQuery): BrowserDeckSnapshotRow[] {

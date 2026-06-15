@@ -1,4 +1,4 @@
-import type { BrowserCard } from '@/types/browser';
+import { CardState, type BrowserCard } from '@/types/browser';
 import type { QueueSnapshotRow } from '@/types/queue-browser';
 import type { SortModel } from '@/application/interfaces/ICardDataSource';
 import {
@@ -381,6 +381,35 @@ export function applyLegacyPresetFilter<TRow extends QueueFilterRowLike>(cards: 
   });
 }
 
+export function applyDeckPresetFilter<TRow extends QueueFilterRowLike>(rows: TRow[], preset?: string): TRow[] {
+  if (!preset || preset === 'all' || preset === 'current-doc') {
+    return rows;
+  }
+
+  const now = Date.now();
+  return rows.filter((row) => {
+    const dueTimestamp = toDueTimestamp(row.due);
+    switch (preset) {
+      case 'due':
+        return dueTimestamp != null && dueTimestamp <= now;
+      case 'overdue':
+        return dueTimestamp != null && dueTimestamp < now && Number(row.state) !== CardState.New;
+      case 'new':
+        return Number(row.state) === CardState.New;
+      case 'learning':
+        return Number(row.state) === CardState.Learning;
+      case 'review':
+        return Number(row.state) === CardState.Review;
+      case 'leech':
+        return (Number(row.lapses) || 0) > 0;
+      case 'suspended':
+        return row.suspended === true;
+      default:
+        return true;
+    }
+  });
+}
+
 export function applyCardTypeFilter<TRow extends QueueFilterRowLike>(cards: TRow[], cardType?: string): TRow[] {
   if (!cardType || cardType === 'all') {
     return cards;
@@ -402,6 +431,27 @@ export function applyCardTypeFilter<TRow extends QueueFilterRowLike>(cards: TRow
       default:
         return true;
     }
+  });
+}
+
+export function applyExplicitCardTypesFilter<TRow extends QueueFilterRowLike>(
+  rows: TRow[],
+  cardTypes?: string[],
+): TRow[] {
+  if (!cardTypes?.length) {
+    return rows;
+  }
+
+  const normalized = new Set(cardTypes.map((value) => String(value || '').trim()).filter(Boolean));
+  return rows.filter((row) => {
+    if (normalized.has('missing-block-only') && isMissingBlockCard(row)) {
+      return true;
+    }
+    if (normalized.has('item') && (!row.cardType || row.cardType === 'item')) {
+      return true;
+    }
+
+    return normalized.has(String(row.cardType || '').trim());
   });
 }
 

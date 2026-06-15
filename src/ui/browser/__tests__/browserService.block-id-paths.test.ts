@@ -129,6 +129,27 @@ describe('browserService block-id paths', () => {
     });
   });
 
+  it('loadBrowserCardsByBlockIds applies query text to built block rows', async () => {
+    const siyuanApi = createSiyuanApi();
+    const manager = {
+      getCards: vi.fn().mockResolvedValue([]),
+    };
+
+    const matched = await loadBrowserCardsByBlockIds(['block-a'], {
+      manager: manager as any,
+      siyuanApi: siyuanApi as any,
+      queryText: 'alpha',
+    });
+    const rejected = await loadBrowserCardsByBlockIds(['block-a'], {
+      manager: manager as any,
+      siyuanApi: siyuanApi as any,
+      queryText: 'beta',
+    });
+
+    expect(matched.map((row) => row.blockId)).toEqual(['block-a']);
+    expect(rejected).toEqual([]);
+  });
+
   it('batchDelete builds block card map with scoped manager.getCards', async () => {
     const manager = {
       getCards: vi.fn().mockResolvedValue([

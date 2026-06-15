@@ -6,6 +6,7 @@ import {
   matchesParsedQuery as typedMatchesParsedQuery,
   parseQuery,
 } from '@/types/browser';
+import { applyCardTypeFilter as sharedApplyCardTypeFilter } from '@/application/queries/browser/shared/BrowserRowUtils';
 import {
   applyCardTypeFilter,
   checkNumberCondition,
@@ -50,6 +51,7 @@ describe('cardFilters facade', () => {
   it('delegates parsed-query numeric helpers to the typed Browser helpers', () => {
     expect(checkNumberCondition).toBe(typedCheckNumberCondition);
     expect(matchesParsedQuery).toBe(typedMatchesParsedQuery);
+    expect(applyCardTypeFilter).toBe(sharedApplyCardTypeFilter);
   });
 
   it('matches the typed Browser parsed-query behavior', () => {

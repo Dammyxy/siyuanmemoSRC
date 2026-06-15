@@ -15,6 +15,14 @@ import { CardState, CardType } from '@/types/card';
 import type { FSRSCard } from '@/types/card';
 import type { StructuredCardQuery } from '@/types/card-query';
 import { QueueType } from '@/types/unified-data-source';
+import {
+  applyDeckPresetFilter,
+  applyDocFilter,
+  applyExplicitCardTypesFilter,
+  applySimpleQueryFilter,
+  sortBrowserRows,
+  type QueueFilterRowLike,
+} from '@/application/queries/browser/shared/BrowserRowUtils';
 
 class MemorySqliteFileService implements Pick<IFileService, 'readJSON' | 'writeJSON' | 'readBinary' | 'writeBinary'> {
   readonly json = new Map<string, unknown>();
@@ -160,6 +168,55 @@ async function seedRepositories(): Promise<{
 
 function ids(cards: Array<{ id: string }>): string[] {
   return cards.map((card) => card.id);
+}
+
+type BrowserRowContractFixture = QueueFilterRowLike & {
+  id: string;
+  fsrsCardId: string;
+};
+
+function toBrowserRowContractFixture(card: FSRSCard): BrowserRowContractFixture {
+  const meta = card.meta && typeof card.meta === 'object'
+    ? card.meta as Record<string, unknown>
+    : {};
+  return {
+    id: card.id,
+    fsrsCardId: card.id,
+    blockId: card.blockId,
+    deckId: String(meta.deckId || ''),
+    rootId: String(meta.rootId || ''),
+    content: String(meta.content || ''),
+    fullContent: String(meta.content || ''),
+    state: card.state,
+    due: card.due,
+    priority: card.priority,
+    lapses: card.lapses,
+    reps: card.reps,
+    interval: card.scheduledDays,
+    suspended: card.skipped === true || meta.suspended === true,
+    cardType: card.type,
+    tags: Array.isArray(meta.tags) ? meta.tags.map((tag) => String(tag)) : card.tags,
+  };
+}
+
+function applySharedBrowserRowContract(
+  cards: FSRSCard[],
+  query: {
+    docId?: string;
+    scopeDocIds?: string[];
+    preset?: string;
+    searchText?: string;
+    cardTypes?: string[];
+    sortModel?: Array<{ colId: string; sort: 'asc' | 'desc' }>;
+  },
+): string[] {
+  let rows = cards.map(toBrowserRowContractFixture);
+  rows = applyDocFilter(rows, query.docId, query.scopeDocIds);
+  rows = applyDeckPresetFilter(rows, query.preset);
+  rows = applyExplicitCardTypesFilter(rows, query.cardTypes);
+  rows = applySimpleQueryFilter(rows, query.searchText);
+  rows = sortBrowserRows(rows, query.sortModel || []);
+  return rows.map((row) => row.id);
 }
 
 describe('SqlUnifiedStorageRepository queryCards', () => {
@@ -371,6 +428,36 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
       docId: 'doc-a',
       sortModel: [{ colId: 'priority', sort: 'desc' }],
     })).toEqual(['card-a', 'card-d', 'card-b']);
+  });
+
+  it('keeps Browser deck SQL pushdown equivalent to shared row helper semantics', async () => {
+    const { repository } = await seedRepositories();
+    const universe = repository.queryCards();
+    const queries = [
+      {
+        docId: 'doc-a',
+        cardTypes: ['item'],
+        searchText: 'Delta',
+        sortModel: [{ colId: 'priority', sort: 'asc' }] as const,
+      },
+      {
+        docId: 'doc-a',
+        cardTypes: ['topic'],
+        searchText: 'Beta',
+        sortModel: [] as const,
+      },
+      {
+        scopeDocIds: ['doc-a'],
+        preset: 'review',
+        sortModel: [{ colId: 'priority', sort: 'desc' }] as const,
+      },
+    ];
+
+    for (const query of queries) {
+      expect(repository.queryDeckMatchedIds(query)).toEqual(
+        applySharedBrowserRowContract(universe, query),
+      );
+    }
   });
 
   it('serves deck page rows from skinny SQL projections without parsing card payload JSON', async () => {

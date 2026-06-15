@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-15 (Round 597)
+Last update: 2026-06-15 (Round 598)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-15 - Browser row helper ownership dedupe
+
+- Task: Implement OpenSpec change `dedupe-browser-row-filter-helpers` so Browser datasource/query row semantics stay behind the application-owned `BrowserRowUtils` Module instead of drifting through UI helper copies.
+- Touched slice: Browser row filter/query/sort helpers across `src/application/queries/browser/shared/BrowserRowUtils.ts`, `BrowserDeckQueryKernel.ts`, `src/ui/browser/browserService.ts`, `src/ui/browser/utils/cardFilters.ts`, SQL Browser Read Model parity tests, focused Browser datasource/query tests, OpenSpec task ledger, and this backlog.
+- Debt fixed now: Deck query preset/card-type branches now delegate to shared helper functions; block-id Browser row query filtering now runs after row composition through `applySimpleQueryFilter`; legacy `cardFilters.ts` no longer owns duplicate preset/card-type branches and keeps only SQL/query facade behavior plus a shared card-type re-export; SQL deck pushdown stays adapter-local but has parity coverage against the shared row helper contract.
+- Debt deferred: `DataSourceUtils` remains a thin facade for existing datasource imports; the old exported `browserService.loadCards()` legacy helper path still contains its historical preset/query behavior but has no active Browser caller in `src/**/*.ts`, `src/**/*.tsx`, or `src/**/*.vue` and was not folded into this behavior-preserving change.
+- Why deferred: Removing the facade would be import churn without behavior leverage, while `loadCards()` has different historical Review Day / suspended / leech semantics and no active caller evidence. Changing or deleting it deserves a separate deletion-test cleanup if it becomes worth touching.
+- Next safe step: Archive this change after validation; if Browser cleanup continues, run a deletion-test change for stale `browserService.loadCards()` exports before changing its semantics.
+- Validation: Focused Browser helper/datasource/query/SQL tests passed (10 files / 99 tests); `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm build`; `openspec validate dedupe-browser-row-filter-helpers --strict`.
 
 ### 2026-06-15 - Native Riff delete semantics clarification
 
