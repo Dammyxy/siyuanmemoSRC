@@ -16,11 +16,6 @@ const suites = [
     label: 'Review commit use case',
     command: ['pnpm', ['vitest', 'run', 'src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts']],
   },
-  {
-    id: 'ai',
-    label: 'AI prompt runtime',
-    command: ['pnpm', ['vitest', 'run', 'src/application/services/__tests__/AIWorkbenchPromptRuntime.test.ts']],
-  },
 ];
 
 const modes = [
@@ -30,7 +25,6 @@ const modes = [
     env: {
       VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER: 'false',
       VITE_SIYUANMEMO_ENABLE_KERNEL_WRITER_LEASE_GUARD: 'false',
-      VITE_SIYUANMEMO_ENABLE_AI_BACKEND_RUNTIME: 'false',
       VITE_SIYUANMEMO_ENABLE_PRIVATE_API: 'false',
     },
   },
@@ -40,7 +34,6 @@ const modes = [
     env: {
       VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER: 'true',
       VITE_SIYUANMEMO_ENABLE_KERNEL_WRITER_LEASE_GUARD: 'true',
-      VITE_SIYUANMEMO_ENABLE_AI_BACKEND_RUNTIME: 'true',
       VITE_SIYUANMEMO_ENABLE_PRIVATE_API: 'true',
     },
   },

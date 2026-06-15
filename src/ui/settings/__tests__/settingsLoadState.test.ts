@@ -18,7 +18,7 @@ function clone<T>(value: T): T {
 }
 
 describe('settingsLoadState', () => {
-  it('hydrates form, queue, scheduler, riff, ai, arena, and ui settings from props', () => {
+  it('hydrates form, queue, scheduler, riff, arena, and ui settings from props', () => {
     const loaded = resolveSettingsPanelLoadState({
       fsrsSettings: {
         ...DEFAULT_SETTINGS.fsrs,
@@ -85,10 +85,6 @@ describe('settingsLoadState', () => {
           targetBlockId: 'doc-root',
         },
       },
-      aiSettings: {
-        ...DEFAULT_SETTINGS.ai,
-        enabled: true,
-      },
       arenaSettings: {
         ...DEFAULT_SETTINGS.arena,
         enabled: true,
@@ -134,7 +130,6 @@ describe('settingsLoadState', () => {
       pluginStart: false,
       browserOpen: true,
     });
-    expect(loaded.aiSettings.enabled).toBe(true);
     expect(loaded.arenaSettings.enabled).toBe(true);
     expect(loaded.uiSettings.enableDebugLogs).toBe(true);
   });

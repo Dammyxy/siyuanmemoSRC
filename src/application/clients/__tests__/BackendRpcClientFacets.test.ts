@@ -5,7 +5,6 @@ import {
   type BackendRpcResponse,
 } from '../../../../packages/contracts/src/backend-rpc';
 import {
-  BackendAiJobRpcClient,
   BackendBrowserRpcClient,
   BackendCoreRpcClient,
   BackendIntegrationRpcClient,
@@ -56,15 +55,13 @@ describe('backend RPC client facets', () => {
     ]);
   });
 
-  it('routes Review, NeuralRoam, and AI/Job facets without scheduling facade side effects', async () => {
+  it('routes Review and NeuralRoam facets without scheduling facade side effects', async () => {
     const { caller, requests } = createFacetHarness({
-      'ai.prompt.execute': { ok: true, streamId: 'stream-a', sessionId: 'session-a', jobId: 'job-a' },
       'neural-roam.command': { status: 'ok', queueType: 'neural-roam' },
       'review.feedback': { committed: true, cardId: 'card-a' },
     });
     const review = new BackendReviewRpcClient(caller);
     const neuralRoam = new BackendNeuralRoamRpcClient(caller);
-    const aiJob = new BackendAiJobRpcClient(caller);
 
     await expect(review.reviewFeedback({ cardId: 'card-a', rating: 3 } as never)).resolves.toEqual({
       committed: true,
@@ -74,12 +71,6 @@ describe('backend RPC client facets', () => {
       status: 'ok',
       queueType: 'neural-roam',
     });
-    await expect(aiJob.executeAiPrompt({ prompt: 'hello' } as never)).resolves.toEqual({
-      ok: true,
-      streamId: 'stream-a',
-      sessionId: 'session-a',
-      jobId: 'job-a',
-    });
 
     expect(requests.map((request) => ({
       method: request.method,
@@ -87,7 +78,6 @@ describe('backend RPC client facets', () => {
     }))).toEqual([
       { method: 'review.feedback', params: [{ cardId: 'card-a', rating: 3 }] },
       { method: 'neural-roam.command', params: [{ command: 'reset' }] },
-      { method: 'ai.prompt.execute', params: [{ prompt: 'hello' }] },
     ]);
   });
 

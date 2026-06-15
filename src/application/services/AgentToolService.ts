@@ -27,21 +27,11 @@ type AgentCardService = {
 type AgentDialogManager = {
   openBrowserDialog?: (options?: unknown) => MaybePromise<void>;
   openReviewDialog?: () => MaybePromise<void>;
-  openAiWorkbenchDialog?: (options?: unknown) => MaybePromise<void>;
   openMobileQueueLauncherDialog?: () => MaybePromise<void>;
-};
-
-type AgentTabManager = {
-  focusReviewAICompanionTab?: (reviewSessionId: string) => boolean;
-  openReviewAICompanionTab?: (options: Record<string, unknown> & { sessionId: string; title: string }) => MaybePromise<void>;
 };
 
 type AgentReviewSessionRegistry = {
   getSession?: <TSession = unknown>(sessionId: string) => TSession | null;
-};
-
-type AgentCardDraftServicePort = {
-  draft: (args: Record<string, unknown>) => MaybePromise<AgentToolResult>;
 };
 
 export interface AgentToolExecutionRequest {
@@ -68,9 +58,7 @@ export interface AgentToolServiceDeps {
   browserService?: AgentBrowserService | null;
   cardService?: AgentCardService | null;
   dialogManager?: AgentDialogManager | null;
-  tabManager?: AgentTabManager | null;
   reviewSessionRegistry?: AgentReviewSessionRegistry | null;
-  cardDraftService?: AgentCardDraftServicePort | null;
   now?: () => number;
 }
 
@@ -268,12 +256,6 @@ export class AgentToolService {
   }
 
   private async executeMemoCard(action: string, args: Record<string, unknown>): Promise<AgentToolResult> {
-    if (action === 'draft') {
-      if (!this.deps.cardDraftService?.draft) {
-        return buildAgentUnavailableResult('AGENT_API_UNAVAILABLE', 'memo_card draft requires AgentCardDraftService');
-      }
-      return await this.deps.cardDraftService.draft(args);
-    }
     if (action === 'save') {
       return await this.saveSelectedDrafts(args);
     }
@@ -449,7 +431,7 @@ export class AgentToolService {
     }
     if (action === 'get' || action === 'status') {
       return buildAgentSuccessResult({
-        availableTargets: ['browser', 'review', 'ai', 'ai-companion', 'mobile-review'],
+        availableTargets: ['browser', 'review', 'mobile-review'],
         editorContext: isRecord(args.editorContext) ? boundValue(args.editorContext) : null,
         checkedAt: this.now(),
       });
@@ -473,15 +455,8 @@ export class AgentToolService {
       await dialogManager.openReviewDialog();
       return buildAgentSuccessResult({ target, checkedAt: this.now() });
     }
-    if (target === 'ai') {
-      if (!dialogManager.openAiWorkbenchDialog) {
-        return buildAgentUnavailableResult('FRONTEND_CONTEXT_UNAVAILABLE', 'AI workbench dialog manager unavailable');
-      }
-      await dialogManager.openAiWorkbenchDialog({});
-      return buildAgentSuccessResult({ target, checkedAt: this.now() });
-    }
-    if (target === 'ai-companion') {
-      return await this.openOrFocusReviewAiCompanion(args);
+    if (target === 'ai' || target === 'ai-companion') {
+      return buildAgentUnsupportedResult(`memo_ui target is retired: ${target}`);
     }
     if (target === 'mobile-review') {
       if (!dialogManager.openMobileQueueLauncherDialog) {
@@ -493,31 +468,6 @@ export class AgentToolService {
 
     return buildAgentUnsupportedResult(`memo_ui target is unsupported: ${target}`);
   }
-
-  private async openOrFocusReviewAiCompanion(args: Record<string, unknown>): Promise<AgentToolResult> {
-    const sessionId = normalizeString(args.sessionId || args.reviewSessionId);
-    if (!sessionId) {
-      return buildAgentValidationErrorResult('memo_ui ai-companion requires sessionId');
-    }
-    const tabManager = this.deps.tabManager;
-    if (!tabManager) {
-      return buildAgentUnavailableResult('FRONTEND_CONTEXT_UNAVAILABLE', 'Review AI companion tab manager unavailable');
-    }
-    const focused = tabManager.focusReviewAICompanionTab?.(sessionId) === true;
-    if (!focused && tabManager.openReviewAICompanionTab) {
-      await tabManager.openReviewAICompanionTab({
-        sessionId,
-        title: normalizeString(args.title) || 'AI Workbench',
-      });
-    }
-    return buildAgentSuccessResult({
-      target: 'ai-companion',
-      sessionId,
-      focused,
-      checkedAt: this.now(),
-    });
-  }
-
   private now(): number {
     return (this.deps.now ?? Date.now)();
   }

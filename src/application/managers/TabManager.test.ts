@@ -39,10 +39,6 @@ vi.mock('@/ui/review/v2', () => ({
   ReviewView: {},
 }));
 
-vi.mock('@/ui/ai/AiWorkbenchPane.vue', () => ({
-  default: {},
-}));
-
 vi.mock('@/application/adapters/UnifiedQueueStrategy', () => ({
   UnifiedQueueStrategy: mocks.unifiedQueueStrategy,
 }));
@@ -121,16 +117,15 @@ describe('TabManager browser and review tab wiring', () => {
     delete (window as Window & { require?: unknown }).require;
   });
 
-  it('registers browser, review, and review AI tabs once', () => {
+  it('registers browser and review tabs once', () => {
     const { tabManager, plugin } = createManager();
 
     tabManager.registerAll();
     tabManager.registerAll();
 
-    expect(plugin.addTab).toHaveBeenCalledTimes(3);
+    expect(plugin.addTab).toHaveBeenCalledTimes(2);
     expect((plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[0][0].type).toBe('test-plugin-browser');
     expect((plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[1][0].type).toBe('test-plugin-review');
-    expect((plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[2][0].type).toBe('test-plugin-review-ai');
   });
 
   it('opens a browser tab with an empty initial state by default', () => {

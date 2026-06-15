@@ -72,7 +72,7 @@ describe('DialogManager browser dialog convert-to-tab', () => {
     vi.clearAllMocks();
   });
 
-  it('opens a browser tab with preserved state and closes the dialog on success', () => {
+  it('opens a browser tab with preserved state and closes the dialog on success', async () => {
     const { dialogManager, tabManager } = createManager(true);
     const state: BrowserOpenState = {
       queueId: 'neural-roam',
@@ -81,7 +81,7 @@ describe('DialogManager browser dialog convert-to-tab', () => {
       queryText: 'michael nielsen',
     };
 
-    dialogManager.openBrowserDialog();
+    await dialogManager.openBrowserDialog();
 
     const config = vi.mocked(createVueDialog).mock.calls[0]?.[0] as {
       events?: { convertToTab?: (value: BrowserOpenState) => void };
@@ -94,14 +94,14 @@ describe('DialogManager browser dialog convert-to-tab', () => {
     expect(mocks.dialogDestroy).toHaveBeenCalledTimes(1);
   });
 
-  it('passes initialOpenState into the browser dialog props when provided', () => {
+  it('passes initialOpenState into the browser dialog props when provided', async () => {
     const { dialogManager } = createManager(true);
     const initialOpenState: BrowserOpenState = {
       scopeDocIds: ['doc-1', 'doc-1-child'],
       preset: 'all',
     };
 
-    dialogManager.openBrowserDialog({
+    await dialogManager.openBrowserDialog({
       initialOpenState,
       initialQueueId: 'retrieval',
     });
@@ -117,7 +117,7 @@ describe('DialogManager browser dialog convert-to-tab', () => {
   it('keeps the dialog open and reports an error when opening the tab fails', async () => {
     const { dialogManager, tabManager, siyuanApi } = createManager(false);
 
-    dialogManager.openBrowserDialog();
+    await dialogManager.openBrowserDialog();
 
     const config = vi.mocked(createVueDialog).mock.calls[0]?.[0] as {
       events?: { convertToTab?: (value: BrowserOpenState) => void };

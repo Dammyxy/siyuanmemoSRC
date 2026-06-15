@@ -1,6 +1,4 @@
 import type {
-  KernelCompanionAiStreamHandlers,
-  KernelCompanionAiStreamSubscription,
   KernelCompanionBroadcastDiagnostics,
   KernelCompanionBroadcastHandlers,
   KernelCompanionBroadcastSubscription,
@@ -10,7 +8,6 @@ import type {
   KernelCompanionUnavailableReason,
 } from '@/application/ports/KernelCompanionPort';
 import type {
-  KernelAiStreamEvent,
   KernelBroadcastEvent,
   KernelFastPathCapabilities,
   KernelFastPathUnavailableReason,
@@ -49,9 +46,7 @@ interface KernelCapabilitiesResult {
   kernelNetworkProxy?: boolean;
   privateSse?: boolean;
   privateHttp?: boolean;
-  kernelNetworkSse?: boolean;
   riffReadAuditProxy?: boolean;
-  aiStreaming?: boolean;
 }
 
 interface JsonRpcSuccess<TResult> {
@@ -123,10 +118,6 @@ function buildUnknownFastPathCapabilities(): KernelFastPathCapabilities {
       state: 'unknown',
       reason: 'smoke-required',
     },
-    kernelNetworkSse: {
-      state: 'unknown',
-      reason: 'smoke-required',
-    },
     privateHttp: {
       state: 'unknown',
       reason: 'smoke-required',
@@ -136,10 +127,6 @@ function buildUnknownFastPathCapabilities(): KernelFastPathCapabilities {
       reason: 'smoke-required',
     },
     riffReadAuditProxy: {
-      state: 'unknown',
-      reason: 'smoke-required',
-    },
-    aiKernelStreaming: {
       state: 'unknown',
       reason: 'smoke-required',
     },
@@ -169,12 +156,6 @@ function buildUnavailableFastPathCapabilities(
       message,
       checkedAt,
     },
-    kernelNetworkSse: {
-      state: 'unavailable',
-      reason,
-      message,
-      checkedAt,
-    },
     privateHttp: {
       state: 'unavailable',
       reason,
@@ -193,12 +174,6 @@ function buildUnavailableFastPathCapabilities(
       message,
       checkedAt,
     },
-    aiKernelStreaming: {
-      state: 'unavailable',
-      reason,
-      message,
-      checkedAt,
-    },
   };
 }
 
@@ -207,8 +182,6 @@ function buildAvailableCompanionFastPathCapabilities(
   capabilities?: KernelCapabilitiesResult,
 ): KernelFastPathCapabilities {
   const methods = new Set((capabilities?.methods || []).map((method) => String(method)));
-  const aiStreamingAvailable = capabilities?.aiStreaming === true
-    || (methods.has('network.streamExternal') && capabilities?.privateSse === true);
   const kernelNetworkProxyAvailable = capabilities?.kernelNetworkProxy === true
     || methods.has('network.fetchExternal');
   const privateHttpAvailable = capabilities?.privateHttp === true
@@ -232,11 +205,6 @@ function buildAvailableCompanionFastPathCapabilities(
       reason: kernelNetworkProxyAvailable ? undefined : 'smoke-required',
       checkedAt,
     },
-    kernelNetworkSse: {
-      state: capabilities?.kernelNetworkSse === true || methods.has('network.streamExternal') ? 'available' : 'unknown',
-      reason: capabilities?.kernelNetworkSse === true || methods.has('network.streamExternal') ? undefined : 'smoke-required',
-      checkedAt,
-    },
     privateHttp: {
       state: privateHttpAvailable ? 'available' : 'unknown',
       reason: privateHttpAvailable ? undefined : 'smoke-required',
@@ -254,11 +222,6 @@ function buildAvailableCompanionFastPathCapabilities(
       reason: riffReadAuditProxyAvailable
         ? undefined
         : (riffReadAuditProxyExplicitlyUnavailable ? 'not-configured' : 'smoke-required'),
-      checkedAt,
-    },
-    aiKernelStreaming: {
-      state: aiStreamingAvailable ? 'available' : 'unknown',
-      reason: aiStreamingAvailable ? undefined : 'smoke-required',
       checkedAt,
     },
   };
@@ -298,51 +261,12 @@ function normalizeLocationWsBase(): string | null {
   return `${protocol}://${hostname}${port}/ws`;
 }
 
-function normalizePrivateBase(pluginName: string): string {
-  return `/plugin/private/${encodeURIComponent(pluginName)}`;
-}
-
-function isKernelAiStreamEventType(value: unknown): value is KernelAiStreamEvent['type'] {
-  return value === 'token'
-    || value === 'progress'
-    || value === 'error'
-    || value === 'final'
-    || value === 'canceled'
-    || value === 'timeout'
-    || value === 'close';
-}
-
-function normalizeAiStreamEvent(raw: unknown, fallbackType?: unknown): KernelAiStreamEvent | null {
-  if (!isRecord(raw)) {
-    return null;
-  }
-  const type = isKernelAiStreamEventType(raw.type) ? raw.type : fallbackType;
-  if (!isKernelAiStreamEventType(type) || typeof raw.streamId !== 'string') {
-    return null;
-  }
-  return {
-    ...raw,
-    type,
-    streamId: raw.streamId,
-    emittedAt: typeof raw.emittedAt === 'number' ? raw.emittedAt : Date.now(),
-  } as KernelAiStreamEvent;
-}
-
-function parseAiStreamMessage(event: MessageEvent, fallbackType?: string): KernelAiStreamEvent | null {
-  try {
-    const parsed = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-    return normalizeAiStreamEvent(parsed, fallbackType || event.type);
-  } catch {
-    return null;
-  }
-}
-
 function isKernelBroadcastMethod(value: unknown): value is KernelBroadcastEvent['method'] {
   return value === 'memo.kernel.ready'
     || value === 'memo.writer.leaseChanged'
     || value === 'memo.writer.command'
     || value === 'memo.writer.commandResult'
-    || value === 'memo.ai.stream';
+    || value === 'memo.queueProjection.identityChanged';
 }
 
 function normalizeBroadcastEvent(message: unknown): KernelBroadcastEvent | null {
@@ -635,54 +559,4 @@ export class SiyuanKernelCompanionAdapter implements KernelCompanionPort {
     };
   }
 
-  subscribeAiStream(streamId: string, handlers: KernelCompanionAiStreamHandlers): KernelCompanionAiStreamSubscription {
-    const normalizedStreamId = String(streamId || '').trim();
-    if (!normalizedStreamId || typeof EventSource === 'undefined') {
-      handlers.onError?.(new Error('KERNEL_SIDECAR_UNAVAILABLE: private AI stream SSE is unavailable'));
-      return { close: () => undefined };
-    }
-
-    const source = new EventSource(
-      `${normalizePrivateBase(this.pluginName)}/ai/stream/${encodeURIComponent(normalizedStreamId)}`,
-    );
-    let closed = false;
-
-    const close = () => {
-      if (closed) {
-        return;
-      }
-      closed = true;
-      source.close();
-      handlers.onClose?.();
-    };
-
-    const handleEvent = (event: MessageEvent, fallbackType?: string) => {
-      const parsed = parseAiStreamMessage(event, fallbackType);
-      if (!parsed) {
-        handlers.onError?.(new Error('KERNEL_SIDECAR_UNAVAILABLE: invalid AI stream event payload'));
-        return;
-      }
-      handlers.onEvent(parsed);
-      if (
-        parsed.type === 'final'
-        || parsed.type === 'error'
-        || parsed.type === 'canceled'
-        || parsed.type === 'timeout'
-        || parsed.type === 'close'
-      ) {
-        close();
-      }
-    };
-
-    for (const type of ['token', 'progress', 'error', 'final', 'canceled', 'timeout', 'close']) {
-      source.addEventListener(type, (event) => handleEvent(event as MessageEvent, type));
-    }
-    source.onmessage = (event) => handleEvent(event);
-    source.onerror = () => {
-      handlers.onError?.(new Error('KERNEL_SIDECAR_UNAVAILABLE: private AI stream SSE error'));
-      close();
-    };
-
-    return { close };
-  }
 }

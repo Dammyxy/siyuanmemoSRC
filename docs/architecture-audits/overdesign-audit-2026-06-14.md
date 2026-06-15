@@ -15,7 +15,8 @@ Implementation follow-up:
 - 2026-06-14: `retire-stale-queue-abstractions` implemented the first candidate. The stale Trait, command, Sequencer, queue Scheduler, provider `SessionManager`, and stale queue observer/type docs/tests were removed after deletion-test evidence.
 - 2026-06-15: `retire-old-card-entity-repository` implemented the second candidate. The old `Card` Entity, `ICardRepository`, unwired `CardRepository`, entity mapper helpers, and repository-preserving tests were removed after deletion-test evidence; active FSRS DTO mapping remains.
 - 2026-06-15: `shrink-review-next-dues-cache` implemented the cache-surface candidate. The card-type and formatted-data cache fields/getters/options/stats/tests were removed after deletion-test evidence; active Review next-dues cache behavior remains.
-- Next safe OpenSpec candidate is now `deepen-or-inline-ai-cdf-search-runtime`.
+- 2026-06-15: `retire-plugin-owned-ai-workbench` superseded the earlier AI Workbench deepening direction. Do not deepen plugin-owned AI Workbench, prompt, chat, or CDF search internals; host Agent owns reasoning and SiYuanMemo keeps MCP tools.
+- Next safe OpenSpec candidate should avoid retired AI Workbench internals. Current non-AI candidates: `consolidate-review-shell-runtime`, `fold-browser-queue-warmup-into-lifecycle`, or `narrow-application-context-service-factories`.
 
 Strong candidates:
 
@@ -36,7 +37,7 @@ Do not simplify these without new evidence:
 - `BrowserQueueViewLifecycle`
 - `ReviewSourceRefreshRuntime`
 - `ReviewDataObserverRuntime`
-- AI prompt/context/general-chat runtimes
+- Plugin-owned AI prompt/context/general-chat runtimes are no longer "keep" candidates; they are retired by `retire-plugin-owned-ai-workbench`.
 
 These Modules have real Depth: their Interfaces hide queue membership, scheduling, Review session movement, projection readiness, async state, or tool-loop behavior.
 
@@ -140,7 +141,7 @@ Evidence:
 
 - `ApplicationServiceRegistry` is broad and `ServiceFactory(context: ApplicationContext)` gives every factory full root access.
 - `getService()` adds a generic container Seam while public getters also remain, so callers effectively learn two Interfaces.
-- Backend runtime bundle options mix persistence, writer relay, kernel sidecar, AI, Agent tools, Progressive, Topic, Review, and host-effect wiring.
+- Backend runtime bundle options mix persistence, writer relay, kernel sidecar, Agent tools, Progressive, Topic, Review, and host-effect wiring.
 - `BackendMigrationRuntimePolicy` still carries migration/compat vocabulary such as compatibility-read and rollback behavior.
 - `SrsBackendClient` internally holds many facet clients while external callers can still depend on the broad facade.
 
@@ -172,14 +173,12 @@ Pick one bounded context, probably Review commit or Browser read, and inject a n
 Files:
 
 - `src/ui/review/v2/ReviewView.vue`
-- `src/ui/review/v2/reviewAISideAreaRuntime.ts`
 - `src/ui/review/v2/reviewInlineCardEditorBridgeRuntime.ts`
 - `src/ui/review/v2/reviewHostRuntime.ts`
 - `src/ui/review/v2/reviewTabTransferRuntime.ts`
 - `src/ui/browser/browserActionMenuRuntime.ts`
 - `src/ui/browser/browserLoadDataRuntime.ts`
 - `src/ui/browser/browserQueueProjectionWarmupRuntime.ts`
-- `src/ui/ai/aiWorkbenchPaneCdfSearchRuntime.ts`
 
 Problem:
 
@@ -188,11 +187,11 @@ Some UI runtime Modules are deep and worth keeping, but others mostly move state
 Evidence:
 
 - `ReviewView.vue` still defines many local `*Like` Interfaces and duck-typing helpers after runtime extraction.
-- `reviewAISideAreaRuntime`, `reviewInlineCardEditorBridgeRuntime`, and `reviewHostRuntime` have small Implementations and mostly one Adapter.
+- `reviewInlineCardEditorBridgeRuntime` and `reviewHostRuntime` have small Implementations and mostly one Adapter.
 - `reviewTabTransferRuntime` is a real concept, but its Interface asks for queue, adapter, title, session registry, tab manager, and snapshot sources.
 - `browserActionMenuRuntime` hides a lot of behavior, but its dependency Interface is very wide and mixes target resolution, menu rendering, practice launching, refresh policy, and dialogs.
 - `browserLoadDataRuntime` and `browserQueueProjectionWarmupRuntime` overlap with `BrowserQueueViewLifecycle` ownership of Queue Projection Readiness.
-- `aiWorkbenchPaneCdfSearchRuntime` is very shallow: a small group of refs and getters.
+- Retired AI Workbench UI runtimes should not be deepened; if any stale helper remains, deletion is preferred after reachability evidence.
 
 Deletion test:
 
@@ -209,11 +208,10 @@ Suggested OpenSpec changes:
 - `deepen-review-tab-transfer-runtime`
 - `consolidate-browser-action-runtime`
 - `fold-browser-queue-warmup-into-lifecycle`
-- `deepen-or-inline-ai-cdf-search-runtime`
 
 Next safe step:
 
-Do not start with `ReviewView.vue` as a broad cleanup. Start with `aiWorkbenchPaneCdfSearchRuntime` or Review shell glue, because the shallow shape is obvious and risk is lower.
+Do not start with `ReviewView.vue` as a broad cleanup. Start with Review shell glue or Browser queue warmup, because those are still active non-AI surfaces with bounded callers.
 
 ## Candidate 5: Shrink CacheManagerObserver
 
@@ -267,20 +265,18 @@ These Modules looked large or abstract but have real Depth:
   - Hides Queue Projection Readiness, projection identity, stale planning, and datasource attach timing.
 - `ReviewSourceRefreshRuntime` and `ReviewDataObserverRuntime`
   - Own concrete Review host behavior with async lifecycle and dependency refresh.
-- AI prompt/context/general-chat runtimes
-  - Hide LLM dispatch, context snapshots, tool loops, approval state, and chat flow behavior.
+- Plugin-owned AI prompt/context/general-chat runtimes are intentionally absent here after `retire-plugin-owned-ai-workbench`; do not revive them as architecture-deepening targets.
 
 ## Recommended Refactor Order
 
-1. `deepen-or-inline-ai-cdf-search-runtime`
-2. `consolidate-review-shell-runtime`
-3. `fold-browser-queue-warmup-into-lifecycle`
-4. `narrow-application-context-service-factories`
-5. `split-backend-runtime-host-adapters`
+1. `consolidate-review-shell-runtime`
+2. `fold-browser-queue-warmup-into-lifecycle`
+3. `narrow-application-context-service-factories`
+4. `split-backend-runtime-host-adapters`
 
 Reason:
 
-The first item is the shallowest remaining UI runtime candidate and has a clear one-caller deletion test. Review shell and Browser warmup follow only as bounded UI lifecycle changes. The latter items touch active composition or backend runtime wiring and should be done only after a narrow OpenSpec proposal.
+The first two items are active non-AI UI lifecycle changes with bounded callers. The latter items touch active composition or backend runtime wiring and should be done only after a narrow OpenSpec proposal. Retired AI Workbench internals are no longer recommended refactor targets.
 
 ## Validation Notes
 

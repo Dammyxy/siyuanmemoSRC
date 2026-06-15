@@ -1,8 +1,7 @@
 import { ref } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_SETTINGS, type AISettings, type QueueSettings } from '@/types';
+import { DEFAULT_SETTINGS, type QueueSettings } from '@/types';
 import {
-  createDefaultAISettings,
   createDefaultArenaSettings,
   createDefaultQueueSettings,
   createDefaultSettingsFormState,
@@ -28,7 +27,6 @@ function createCommands(source: SettingsLoadSaveSource = {}) {
   const schedulerConfig = ref(createDefaultSettingsSchedulerConfig());
   const riffIntegrationConfig = ref(createDefaultSettingsRiffIntegrationState());
   const triggers = ref({ pluginStart: true, browserOpen: false });
-  const aiSettings = ref(createDefaultAISettings());
   const arenaSettings = ref(createDefaultArenaSettings());
   const uiSettings = ref(createDefaultUISettings());
   const save = vi.fn();
@@ -40,7 +38,6 @@ function createCommands(source: SettingsLoadSaveSource = {}) {
     schedulerConfig,
     riffIntegrationConfig,
     triggers,
-    aiSettings,
     arenaSettings,
     uiSettings,
     save,
@@ -48,7 +45,6 @@ function createCommands(source: SettingsLoadSaveSource = {}) {
   });
 
   return {
-    aiSettings,
     commands,
     logger,
     queueSettings,
@@ -69,16 +65,13 @@ describe('settingsLoadSaveCommands', () => {
       autoPostpone: { enabled: true, skipTopNElements: 42 },
       addToOutstandingEveryNth: 6,
     } as QueueSettings;
-    const ai = clone(DEFAULT_SETTINGS.ai) as AISettings;
-    ai.enabled = true;
-    const { aiSettings, commands, logger, queueSettings, settings, triggers } = createCommands({
+    const { commands, logger, queueSettings, settings, triggers } = createCommands({
       fsrsSettings: {
         ...clone(DEFAULT_SETTINGS.fsrs),
         dayStartHour: 8,
       },
       queueSettings: queue,
       priorityRandomness: 0.75,
-      aiSettings: ai,
       riffIntegrationSettings: {
         incrementalSync: {
           triggers: ['browser-open'],
@@ -93,7 +86,6 @@ describe('settingsLoadSaveCommands', () => {
     expect(settings.value.addToOutstandingEveryNth).toBe(6);
     expect(settings.value.autoPostponeSkipTopN).toBe(42);
     expect(queueSettings.value.autoSort.enabled).toBe(false);
-    expect(aiSettings.value.enabled).toBe(true);
     expect(triggers.value).toEqual({ pluginStart: false, browserOpen: true });
     expect(logger.debug).toHaveBeenCalledWith('Loading settings with quickCardSettings', {
       quickCardSettings: undefined,

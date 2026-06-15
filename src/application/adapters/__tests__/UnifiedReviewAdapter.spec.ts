@@ -367,11 +367,6 @@ describe('UnifiedReviewAdapter', () => {
     expect(ui.header.stats.queueName).toBe('提取练习');
     expect(ui.header.toolbar).toEqual([
       {
-        icon: '#iconSparkles',
-        type: 'ai-sidebar',
-        ariaLabel: 'AI Sidebar',
-      },
-      {
         icon: '#iconMore',
         type: 'more',
         ariaLabel: 'More',
@@ -400,7 +395,6 @@ describe('UnifiedReviewAdapter', () => {
     );
 
     expect(ui.header.toolbar).toEqual([
-      expect.objectContaining({ type: 'ai-sidebar' }),
       expect.objectContaining({ type: 'more' }),
     ]);
   });
@@ -677,7 +671,6 @@ describe('UnifiedReviewAdapter', () => {
     );
 
     expect(ui.header.toolbar).toEqual([
-      expect.objectContaining({ type: 'ai-sidebar' }),
       expect.objectContaining({ type: 'more' }),
     ]);
   });
@@ -812,7 +805,6 @@ describe('UnifiedReviewAdapter', () => {
     expect(ui.header.title).toBe('筛选复习');
     expect(ui.header.stats.queueName).toBe('筛选复习');
     expect(ui.header.toolbar).toEqual([
-      expect.objectContaining({ type: 'ai-sidebar' }),
       expect.objectContaining({ type: 'more' }),
       expect.objectContaining({ type: 'plan-review-scope' }),
     ]);
@@ -1092,10 +1084,7 @@ describe('UnifiedReviewAdapter', () => {
       createContext(),
     );
 
-    expect(ui.header.toolbar?.find(item => item.type === 'ai-sidebar')).toMatchObject({
-      icon: '#iconSparkles',
-      ariaLabel: 'AI Sidebar',
-    });
+    expect(ui.header.toolbar?.find(item => item.type === 'ai-sidebar')).toBeUndefined();
     expect(ui.header.toolbar?.find(item => item.type === 'more')).toMatchObject({
       icon: '#iconMore',
       ariaLabel: 'More',

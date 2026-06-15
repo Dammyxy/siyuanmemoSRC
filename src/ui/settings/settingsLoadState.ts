@@ -1,6 +1,5 @@
 import {
   DEFAULT_SETTINGS,
-  type AISettings,
   type FSRSParameters,
   type ProgressiveReadingSettings,
   type QueueSettings,
@@ -27,7 +26,6 @@ import {
 } from './settingsSavePayload';
 import {
   cloneSettingsSerializable,
-  mergeAISettings,
   mergeArenaSettings,
   mergeConfiguredCaptureStorageSettings,
   mergeQueueSettings,
@@ -45,7 +43,6 @@ export interface SettingsPanelLoadInput {
   riffIntegrationSettings?: Record<string, unknown>;
   quickCardSettings?: Partial<QuickCardSettings>;
   progressiveReadingSettings?: Partial<ProgressiveReadingSettings>;
-  aiSettings?: Partial<AISettings>;
   arenaSettings?: Partial<ArenaSettings>;
   uiSettings?: Partial<UISettings>;
   currentSettings: SettingsFormState;
@@ -60,7 +57,6 @@ export interface SettingsPanelLoadedState {
   schedulerConfig: SettingsSchedulerConfigWithSrsV2;
   riffIntegrationConfig: SettingsRiffIntegrationState;
   triggers: SettingsRiffTriggerSelection;
-  aiSettings: AISettings;
   arenaSettings: ArenaSettings;
   uiSettings: UISettings;
 }
@@ -288,7 +284,6 @@ export function resolveSettingsPanelLoadState(input: SettingsPanelLoadInput): Se
     schedulerConfig,
     riffIntegrationConfig,
     triggers: resolveSettingsRiffTriggerSelection(riffIntegrationConfig),
-    aiSettings: mergeAISettings(input.aiSettings),
     arenaSettings: mergeArenaSettings(input.arenaSettings),
     uiSettings: mergeUISettings(input.uiSettings),
   };

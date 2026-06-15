@@ -1,10 +1,8 @@
-import { BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/ai';
 import { BACKEND_AUTOCARD_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/autocard';
 import { BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/browser';
 import { BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/core';
 import { BACKEND_GRAPH_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/graph';
 import { BACKEND_HOTSPOT_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/hotspot';
-import { BACKEND_JOB_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/job';
 import { BACKEND_KERNEL_TRANSACTION_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/kernel-transaction';
 import { BACKEND_NEURAL_ROAM_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/neural-roam';
 import { BACKEND_P6_OWNERSHIP_RPC_METHOD_CONTRACT_BY_METHOD } from './backend-rpc/p6-ownership';
@@ -61,17 +59,6 @@ export const BACKEND_RPC_METHODS = [
   'review.feedback',
   'review.truth.flush',
   'review.truth.backfill',
-  'ai.session.create',
-  'ai.session.get',
-  'ai.session.update',
-  'ai.session.cancel',
-  'ai.prompt.execute',
-  'ai.tool.job.execute',
-  'ai.tool.job.approval',
-  'ai.stream.start',
-  'ai.stream.cancel',
-  'job.get',
-  'job.cancel',
   'private.health',
   'private.diagnostics.status',
   'private.audit.query',
@@ -110,8 +97,6 @@ export const BACKEND_RPC_FAMILIES = [
   'kernel-transaction',
   'autocard',
   'review',
-  'ai',
-  'job',
   'private-api',
   'semantic',
   'hotspot',
@@ -199,17 +184,6 @@ export const BACKEND_RPC_METHOD_FAMILY_CATALOG = [
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.feedback'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.truth.flush'],
   BACKEND_REVIEW_RPC_METHOD_CONTRACT_BY_METHOD['review.truth.backfill'],
-  BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD['ai.session.create'],
-  BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD['ai.session.get'],
-  BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD['ai.session.update'],
-  BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD['ai.session.cancel'],
-  BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD['ai.prompt.execute'],
-  BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD['ai.tool.job.execute'],
-  BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD['ai.tool.job.approval'],
-  BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD['ai.stream.start'],
-  BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD['ai.stream.cancel'],
-  BACKEND_JOB_RPC_METHOD_CONTRACT_BY_METHOD['job.get'],
-  BACKEND_JOB_RPC_METHOD_CONTRACT_BY_METHOD['job.cancel'],
   BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['private.health'],
   BACKEND_CORE_RPC_METHOD_CONTRACT_BY_METHOD['private.diagnostics.status'],
   BACKEND_PRIVATE_API_RPC_METHOD_CONTRACT_BY_METHOD['private.audit.query'],
@@ -2309,218 +2283,6 @@ export type BackendGraphQueryResult =
         errorCategory: string;
       };
     };
-
-export type BackendAiSessionState =
-  | 'active'
-  | 'streaming'
-  | 'completed'
-  | 'canceled'
-  | 'expired'
-  | 'unavailable'
-  | 'failed';
-
-export type BackendAiJobState =
-  | 'queued'
-  | 'running'
-  | 'progress'
-  | 'completed'
-  | 'canceled'
-  | 'timeout'
-  | 'unavailable'
-  | 'failed';
-
-export interface BackendAiSessionRecord {
-  sessionId: string;
-  surfaceId: string;
-  reviewSessionId: string | null;
-  owner: 'application' | 'backend';
-  skillId: string | null;
-  providerId: string | null;
-  modelId: string | null;
-  state: BackendAiSessionState;
-  createdAt: number;
-  updatedAt: number;
-  expiresAt: number | null;
-  lastError: string | null;
-  diagnosticEventId: string;
-}
-
-export interface BackendAiSessionCreateRequest {
-  sessionId: string;
-  surfaceId: string;
-  reviewSessionId?: string | null;
-  owner?: 'application' | 'backend';
-  skillId?: string | null;
-  providerId?: string | null;
-  modelId?: string | null;
-  idempotencyKey?: string;
-}
-
-export interface BackendAiSessionGetRequest {
-  sessionId: string;
-}
-
-export interface BackendAiSessionUpdateRequest {
-  sessionId: string;
-  state?: BackendAiSessionState;
-  skillId?: string | null;
-  providerId?: string | null;
-  modelId?: string | null;
-  expiresAt?: number | null;
-  lastError?: string | null;
-}
-
-export interface BackendAiSessionCancelRequest {
-  sessionId: string;
-  reason?: string;
-}
-
-export interface BackendAiSessionResult {
-  ok: true;
-  session: BackendAiSessionRecord;
-}
-
-export interface BackendAiStreamStartRequest {
-  streamId: string;
-  sessionId: string;
-  jobId: string;
-  providerId?: string | null;
-  modelId?: string | null;
-  inputFingerprint?: string;
-  timeoutMs?: number;
-  idempotencyKey?: string;
-}
-
-export interface BackendAiPromptNetworkRequest {
-  url: string;
-  method?: string;
-  headers?: Record<string, string>;
-  body?: string;
-  timeoutMs?: number;
-  redactionKeys?: string[];
-  stream?: boolean;
-}
-
-export interface BackendAiPromptExecuteRequest {
-  sessionId: string;
-  streamId: string;
-  jobId: string;
-  providerId?: string | null;
-  modelId?: string | null;
-  timeoutMs?: number;
-  idempotencyKey?: string;
-  request: BackendAiPromptNetworkRequest;
-}
-
-export interface BackendAiPromptNetworkResponse {
-  status: number;
-  headers: Record<string, string>;
-  body: string;
-}
-
-export interface BackendAiPromptExecuteResult {
-  ok: true;
-  sessionId: string;
-  streamId: string;
-  jobId: string;
-  state: 'completed' | 'timeout' | 'canceled' | 'unavailable' | 'failed';
-  unavailableClass?: BackendUnavailableClass | null;
-  diagnosticEventId: string;
-  response?: BackendAiPromptNetworkResponse;
-}
-
-export interface BackendAiStreamCancelRequest {
-  streamId: string;
-  sessionId: string;
-  jobId: string;
-  reason?: string;
-}
-
-export interface BackendAiStreamResult {
-  ok: true;
-  streamId: string;
-  sessionId: string;
-  jobId: string;
-  state: 'started' | 'canceled' | 'timeout' | 'unavailable' | 'failed' | 'completed';
-  diagnosticEventId: string;
-}
-
-export interface BackendAiJobRecord {
-  jobId: string;
-  kind: 'ai-stream' | 'ai-tool-job';
-  owner: 'application' | 'backend';
-  idempotencyKey: string;
-  state: BackendAiJobState;
-  progress: number;
-  startedAt: number;
-  updatedAt: number;
-  deadlineAt: number | null;
-  retryPolicy: 'none' | 'safe-retry';
-  result: unknown;
-  error: string | null;
-}
-
-export interface BackendAiJobGetRequest {
-  jobId: string;
-}
-
-export interface BackendAiJobCancelRequest {
-  jobId: string;
-  reason?: string;
-}
-
-export interface BackendAiJobResult {
-  ok: true;
-  job: BackendAiJobRecord;
-}
-
-export type BackendAiToolJobPhase =
-  | 'provider-execution'
-  | 'approval-wait'
-  | 'write-preparation'
-  | 'writer-commit'
-  | 'terminal';
-
-export interface BackendAiToolJobExecuteRequest {
-  jobId: string;
-  sessionId: string;
-  commandId: string;
-  idempotencyKey: string;
-  toolName: string;
-  providerId?: string | null;
-  modelId?: string | null;
-  phase?: BackendAiToolJobPhase | null;
-  requiresApproval?: boolean | null;
-  approvalState?: 'not-required' | 'pending' | 'approved' | 'rejected' | 'canceled' | null;
-  writeIntent?: {
-    kind: 'none' | 'progressive' | 'topic-derived' | 'flashcard' | 'markdown-insertion';
-    sourceId?: string | null;
-    targetBlockId?: string | null;
-    cardCount?: number | null;
-  } | null;
-  deadlineAt?: number | null;
-}
-
-export interface BackendAiToolJobApprovalRequest {
-  jobId: string;
-  sessionId: string;
-  commandId: string;
-  idempotencyKey: string;
-  decision: 'approved' | 'rejected' | 'canceled';
-  decidedAt: number;
-}
-
-export interface BackendAiToolJobResult {
-  status: 'queued' | 'waiting-for-user-approval' | 'completed' | 'duplicate' | 'rejected' | 'canceled' | 'unavailable' | 'failed';
-  jobId: string;
-  sessionId: string;
-  commandId: string;
-  phase: BackendAiToolJobPhase;
-  unavailableClass?: BackendUnavailableClass | null;
-  reason?: string | null;
-  progress: BackendHotspotCommandProgress;
-  diagnostics: BackendHotspotCommandDiagnostics;
-}
 
 export interface BackendReviewRiffFeedbackExecuteRequest {
   commandId: string;

@@ -1,11 +1,24 @@
-import type {
-  AIChatToolExecutionPolicy,
-  AIChatToolGroupKey,
-  AIChatToolResultApprovalPolicy,
-  AISkillId,
-  AISkillTabId,
-  AIWorkbenchSurface,
-} from '@/types/ai';
+export type ArenaSkillId = 'general-chat' | 'concept-coach' | string;
+export type ArenaSkillTabId =
+  | 'working-definition'
+  | 'perspectives'
+  | 'integrated-understanding'
+  | 'self-test-cards'
+  | 'cdf-structure'
+  | 'real-world-triggers'
+  | string;
+export type ArenaAISurface = 'standalone-dialog' | 'review-dialog-sidecar' | 'review-tab-companion';
+export type ArenaToolGroupKey =
+  | 'context-read'
+  | 'study-decision'
+  | 'siyuan-read'
+  | 'siyuan-write'
+  | 'review-read'
+  | 'flashcard-write'
+  | 'web'
+  | 'vars';
+export type ArenaToolExecutionPolicy = 'auto' | 'ask-once' | 'ask-always';
+export type ArenaToolResultApprovalPolicy = 'never' | 'on-error' | 'always';
 
 export const AI_ARENA_SCENARIO_IDS = [
   'topic-auto-card',
@@ -85,8 +98,8 @@ export interface AIArenaScenarioDefinition {
   title: string;
   description: string;
   enabled: boolean;
-  preferredSkillId?: AISkillId;
-  preferredTabId?: AISkillTabId | null;
+  preferredSkillId?: ArenaSkillId;
+  preferredTabId?: ArenaSkillTabId | null;
   cardCentric: boolean;
 }
 
@@ -102,9 +115,9 @@ export interface AIStrategyPackPromptOverrides {
 }
 
 export interface AIStrategyPackToolPolicyOverrides {
-  enabledToolGroups?: AIChatToolGroupKey[];
-  executionPolicies?: Partial<Record<string, AIChatToolExecutionPolicy>>;
-  resultApprovalPolicies?: Partial<Record<string, AIChatToolResultApprovalPolicy>>;
+  enabledToolGroups?: ArenaToolGroupKey[];
+  executionPolicies?: Partial<Record<string, ArenaToolExecutionPolicy>>;
+  resultApprovalPolicies?: Partial<Record<string, ArenaToolResultApprovalPolicy>>;
 }
 
 export interface AIStrategyPackDefinition {
@@ -113,8 +126,8 @@ export interface AIStrategyPackDefinition {
   source: AIStrategyPackSource;
   state: AIStrategyPackState;
   eligibleScenarios: AIArenaScenarioId[];
-  skillId?: AISkillId | null;
-  tabId?: AISkillTabId | null;
+  skillId?: ArenaSkillId | null;
+  tabId?: ArenaSkillTabId | null;
   promptOverrides?: AIStrategyPackPromptOverrides;
   toolPolicyOverrides?: AIStrategyPackToolPolicyOverrides;
   createdAt?: number;
@@ -124,11 +137,11 @@ export interface AIStrategyPackDefinition {
 
 export interface ArenaPoolDescriptor {
   key: string;
-  surface: AIWorkbenchSurface;
+  surface: ArenaAISurface;
   scenarioId: AIArenaScenarioId;
   targetKind: ArenaTargetKind;
-  skillId: AISkillId | null;
-  tabId: AISkillTabId | null;
+  skillId: ArenaSkillId | null;
+  tabId: ArenaSkillTabId | null;
 }
 
 export interface ArenaChallengeTrigger {
@@ -173,7 +186,7 @@ export interface ArenaMatchRecord {
   domain: ArenaDomain;
   poolKey: string;
   createdAt: number;
-  surface?: AIWorkbenchSurface | null;
+  surface?: ArenaAISurface | null;
   scenarioId?: AIArenaScenarioId | null;
   targetKind?: ArenaTargetKind | null;
   ai?: {
@@ -181,8 +194,8 @@ export interface ArenaMatchRecord {
     sessionId: string | null;
     packId: string;
     challengerPackIds: string[];
-    skillId: AISkillId | null;
-    tabId: AISkillTabId | null;
+    skillId: ArenaSkillId | null;
+    tabId: ArenaSkillTabId | null;
     eventType: AIArenaEventType;
     scoreDelta: number;
     qualityLabel?: ArenaOutcomeLabel | null;
@@ -204,7 +217,7 @@ export interface ArenaMatchRecord {
 export interface ArenaCardAttributionRecord {
   cardId: string;
   poolKey: string;
-  surface: AIWorkbenchSurface;
+  surface: ArenaAISurface;
   scenarioId: AIArenaScenarioId;
   targetKind: ArenaTargetKind;
   sourcePackId: string;
@@ -302,7 +315,7 @@ export interface ArenaSettings {
   enabled: boolean;
   ai: {
     enabled: boolean;
-    surfaces: AIWorkbenchSurface[];
+    surfaces: ArenaAISurface[];
     scenarios: AIArenaScenarioRegistry;
     strategyPacks: AIStrategyPackDefinition[];
     explorationRate: number;
@@ -548,7 +561,7 @@ function isAIArenaScenarioId(value: unknown): value is AIArenaScenarioId {
   return AI_ARENA_SCENARIO_IDS.includes(value as AIArenaScenarioId);
 }
 
-function isAIWorkbenchSurface(value: unknown): value is AIWorkbenchSurface {
+function isArenaAISurface(value: unknown): value is ArenaAISurface {
   return value === 'standalone-dialog' || value === 'review-dialog-sidecar' || value === 'review-tab-companion';
 }
 
@@ -598,7 +611,7 @@ function normalizeToolPolicyOverrides(value: unknown): AIStrategyPackToolPolicyO
   const source = value as AIStrategyPackToolPolicyOverrides;
   const enabledToolGroups = Array.isArray(source.enabledToolGroups)
     ? Array.from(new Set(
-      source.enabledToolGroups.filter((group): group is AIChatToolGroupKey => (
+      source.enabledToolGroups.filter((group): group is ArenaToolGroupKey => (
         group === 'context-read'
         || group === 'study-decision'
         || group === 'siyuan-read'
@@ -648,8 +661,8 @@ function normalizeScenarioRegistry(value: unknown): AIArenaScenarioRegistry {
       enabled: current.enabled !== false,
       title: normalizeString(current.title) || fallback.title,
       description: normalizeString(current.description) || fallback.description,
-      preferredSkillId: normalizeString(current.preferredSkillId || fallback.preferredSkillId) as AISkillId,
-      preferredTabId: normalizeString(current.preferredTabId || fallback.preferredTabId) as AISkillTabId,
+      preferredSkillId: normalizeString(current.preferredSkillId || fallback.preferredSkillId) as ArenaSkillId,
+      preferredTabId: normalizeString(current.preferredTabId || fallback.preferredTabId) as ArenaSkillTabId,
       cardCentric: current.cardCentric === false ? false : fallback.cardCentric,
     };
     return registry;
@@ -670,8 +683,8 @@ function normalizeStrategyPack(pack: unknown, fallback: AIStrategyPackDefinition
       ? source.state
       : fallback.state,
     eligibleScenarios: eligibleScenarios.length > 0 ? eligibleScenarios : [...fallback.eligibleScenarios],
-    skillId: normalizeString(source.skillId || fallback.skillId) as AISkillId || null,
-    tabId: normalizeString(source.tabId || fallback.tabId) as AISkillTabId || null,
+    skillId: normalizeString(source.skillId || fallback.skillId) as ArenaSkillId || null,
+    tabId: normalizeString(source.tabId || fallback.tabId) as ArenaSkillTabId || null,
     promptOverrides: normalizePromptOverrides(source.promptOverrides) || normalizePromptOverrides(fallback.promptOverrides),
     toolPolicyOverrides: normalizeToolPolicyOverrides(source.toolPolicyOverrides) || normalizeToolPolicyOverrides(fallback.toolPolicyOverrides),
     createdAt: Number(source.createdAt) || fallback.createdAt || Date.now(),
@@ -703,7 +716,7 @@ export function normalizeArenaSettings(value: unknown): ArenaSettings {
   const defaultOffMigrationVersion = Math.max(0, Math.floor(Number(source.defaultOffMigrationVersion) || 0));
   const hasDefaultOffMigration = defaultOffMigrationVersion >= ARENA_DEFAULT_OFF_MIGRATION_VERSION;
   const surfaces = Array.isArray(ai.surfaces)
-    ? Array.from(new Set(ai.surfaces.filter(isAIWorkbenchSurface)))
+    ? Array.from(new Set(ai.surfaces.filter(isArenaAISurface)))
     : DEFAULT_ARENA_SETTINGS.ai.surfaces;
   const rawContestantIds = normalizeSrsArenaContestantIds(srs.contestantIds);
   const contestantSetVersion = Math.max(0, Math.floor(Number(srs.contestantSetVersion) || 0));
@@ -749,11 +762,11 @@ export function normalizeArenaSettings(value: unknown): ArenaSettings {
 }
 
 export function buildArenaPoolKey(input: {
-  surface: AIWorkbenchSurface;
+  surface: ArenaAISurface;
   scenarioId: AIArenaScenarioId;
   targetKind: ArenaTargetKind;
-  skillId?: AISkillId | null;
-  tabId?: AISkillTabId | null;
+  skillId?: ArenaSkillId | null;
+  tabId?: ArenaSkillTabId | null;
 }): string {
   const skillId = normalizeString(input.skillId) || 'none';
   const tabId = normalizeString(input.tabId) || 'none';
@@ -762,7 +775,7 @@ export function buildArenaPoolKey(input: {
 
 export function parseArenaPoolKey(poolKey: string): ArenaPoolDescriptor | null {
   const [domain, surface, scenarioId, targetKind, skillId, tabId] = String(poolKey || '').split('::');
-  if (domain !== 'ai' || !isAIWorkbenchSurface(surface) || !isAIArenaScenarioId(scenarioId)) {
+  if (domain !== 'ai' || !isArenaAISurface(surface) || !isAIArenaScenarioId(scenarioId)) {
     return null;
   }
   if (targetKind !== 'topic' && targetKind !== 'item' && targetKind !== 'concept' && targetKind !== 'descriptor' && targetKind !== 'note') {
@@ -773,14 +786,14 @@ export function parseArenaPoolKey(poolKey: string): ArenaPoolDescriptor | null {
       surface,
       scenarioId,
       targetKind,
-      skillId: skillId === 'none' ? null : skillId as AISkillId,
-      tabId: tabId === 'none' ? null : tabId as AISkillTabId,
+      skillId: skillId === 'none' ? null : skillId as ArenaSkillId,
+      tabId: tabId === 'none' ? null : tabId as ArenaSkillTabId,
     }),
     surface,
     scenarioId,
     targetKind,
-    skillId: skillId === 'none' ? null : skillId as AISkillId,
-    tabId: tabId === 'none' ? null : tabId as AISkillTabId,
+    skillId: skillId === 'none' ? null : skillId as ArenaSkillId,
+    tabId: tabId === 'none' ? null : tabId as ArenaSkillTabId,
   };
 }
 

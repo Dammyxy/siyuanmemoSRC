@@ -482,10 +482,6 @@ const actionButtons = computed<ToolbarButton[]>(() => [
     icon: '#iconHistory',
     ariaLabel: t('neuralHistoryMenu', '查看航线日志'),
   }),
-  resolveButton('ai-sidebar', {
-    icon: '#iconSparkles',
-    ariaLabel: t('aiSidebar', 'AI Sidebar'),
-  }),
   resolveButton('more', {
     icon: '#iconMore',
     ariaLabel: t('moreActions', 'More'),

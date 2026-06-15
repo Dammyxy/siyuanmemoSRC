@@ -1,22 +1,11 @@
 import {
-  getRecommendedPromptTemplateForSetting,
-  type AIPromptSettingKey,
-} from '@/application/services/AIPromptComposer';
-import {
   normalizeArenaSettings,
   type ArenaSettings,
 } from '@/types/arena';
 import {
-  ACTIVE_AI_PROMPT_CONTRACT_VERSION,
-  DEFAULT_AI_SETTINGS,
   DEFAULT_FSRS_WEIGHTS,
   DEFAULT_SETTINGS,
-  normalizeAISettings,
-  normalizeAIPromptContractVersion,
   normalizeConfiguredCaptureStorageSettings,
-  type AIConceptCoachPromptTemplates,
-  type AIGeneralChatPromptTemplate,
-  type AISettings,
   type ConfiguredCaptureStorageSettings,
   type QueueSettings,
   type QuickCardSettings,
@@ -117,39 +106,6 @@ export function mergeQueueSettings(source?: Partial<QueueSettings>): QueueSettin
       ...(source?.filterGroup || {}),
     },
   };
-}
-
-export function createDefaultAISettings(): AISettings {
-  return cloneSettingsSerializable(DEFAULT_AI_SETTINGS) as AISettings;
-}
-
-export function mergeAISettings(source?: Partial<AISettings>): AISettings {
-  const legacyAwareSource = (source || {}) as Partial<AISettings> & {
-    promptProfiles?: unknown;
-    draftStorage?: unknown;
-  };
-  const {
-    promptProfiles: _legacyPromptProfiles,
-    draftStorage: _legacyDraftStorage,
-    ...sourceWithoutLegacy
-  } = legacyAwareSource;
-  return normalizeAISettings({
-    ...sourceWithoutLegacy,
-    promptContractVersion: normalizeAIPromptContractVersion(sourceWithoutLegacy.promptContractVersion)
-      || ACTIVE_AI_PROMPT_CONTRACT_VERSION,
-  });
-}
-
-export function resetAiPromptToRecommended(settingsState: AISettings, settingKey: AIPromptSettingKey): void {
-  switch (settingKey) {
-    case 'generalChat':
-      settingsState.prompts.skills.generalChat = getRecommendedPromptTemplateForSetting(settingKey) as AIGeneralChatPromptTemplate;
-      break;
-    case 'conceptCoach':
-    default:
-      settingsState.prompts.skills.conceptCoach = getRecommendedPromptTemplateForSetting(settingKey) as AIConceptCoachPromptTemplates;
-      break;
-  }
 }
 
 export function createDefaultArenaSettings(): ArenaSettings {

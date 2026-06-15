@@ -1,5 +1,4 @@
 import type {
-  KernelAiStreamEvent,
   KernelBroadcastEvent,
   KernelFastPathCapabilities,
   KernelFastPathUnavailableReason,
@@ -45,16 +44,6 @@ export interface KernelCompanionBroadcastSubscription {
   getDiagnostics(): KernelCompanionBroadcastDiagnostics;
 }
 
-export interface KernelCompanionAiStreamHandlers {
-  onEvent(event: KernelAiStreamEvent): void;
-  onError?(error: Error): void;
-  onClose?(): void;
-}
-
-export interface KernelCompanionAiStreamSubscription {
-  close(): void;
-}
-
 export interface KernelCompanionStatusBase {
   checkedAt: number;
   pluginName: string;
@@ -84,5 +73,4 @@ export interface KernelCompanionPort {
   getStatus(): Promise<KernelCompanionStatus>;
   call<TResult>(method: string, params?: unknown): Promise<TResult>;
   subscribeBroadcast?(handlers: KernelCompanionBroadcastHandlers): KernelCompanionBroadcastSubscription;
-  subscribeAiStream?(streamId: string, handlers: KernelCompanionAiStreamHandlers): KernelCompanionAiStreamSubscription;
 }

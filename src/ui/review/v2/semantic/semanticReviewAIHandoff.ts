@@ -4,7 +4,6 @@ import type {
   BackendSemanticNode,
   BackendSemanticSessionSnapshot,
 } from '../../../../../packages/contracts/src/backend-rpc';
-import type { AIAttachedContextItem } from '@/types/ai';
 
 export interface SemanticPathAnalysisPayload {
   session: BackendSemanticSessionSnapshot;
@@ -12,6 +11,17 @@ export interface SemanticPathAnalysisPayload {
   activePathNodes: BackendSemanticNode[];
   edgeExplanations: BackendSemanticEdgeExplanation[];
   later: BackendSemanticLaterEntry[];
+}
+
+export interface SemanticAttachedContextItem {
+  id: string;
+  providerKey: string;
+  title: string;
+  summary: string;
+  preview: string;
+  content: string;
+  blockIds: string[];
+  createdAt: number;
 }
 
 function nodeTitle(node: BackendSemanticNode | null | undefined): string {
@@ -61,7 +71,7 @@ export function buildSemanticPathAnalysisPrompt(payload: SemanticPathAnalysisPay
   ].join('\n');
 }
 
-export function buildSemanticPathAnalysisContext(payload: SemanticPathAnalysisPayload): AIAttachedContextItem {
+export function buildSemanticPathAnalysisContext(payload: SemanticPathAnalysisPayload): SemanticAttachedContextItem {
   const content = buildSemanticPathAnalysisText(payload);
   const currentBlockId = nodeBlockId(payload.currentNode);
   const pathBlockIds = payload.activePathNodes.map(nodeBlockId).filter(Boolean);

@@ -260,16 +260,14 @@ describe('SiyuanKernelCompanionAdapter', () => {
         rpcWebSocketPush: { state: 'available' },
         backendRealWorkerTransport: { state: 'unknown' },
         kernelNetworkProxy: { state: 'unknown' },
-        kernelNetworkSse: { state: 'unknown' },
         privateHttp: { state: 'unknown' },
         privateSse: { state: 'unknown' },
         riffReadAuditProxy: { state: 'unknown' },
-        aiKernelStreaming: { state: 'unknown' },
       },
     });
   });
 
-  it('marks AI SSE fast paths available when kernel capabilities expose stream support', async () => {
+  it('marks kernel private fast paths available when kernel capabilities expose supported methods', async () => {
     fetchMock
       .mockResolvedValueOnce(mockJsonResponse({
         code: 0,
@@ -291,13 +289,11 @@ describe('SiyuanKernelCompanionAdapter', () => {
       .mockResolvedValueOnce(mockJsonResponse({
         jsonrpc: '2.0',
         result: {
-          methods: ['network.streamExternal'],
+          methods: ['network.fetchExternal'],
           kernelNetworkProxy: true,
-          kernelNetworkSse: true,
           privateHttp: true,
           privateSse: true,
           riffReadAuditProxy: false,
-          aiStreaming: true,
         },
         id: 1,
       }));
@@ -308,72 +304,11 @@ describe('SiyuanKernelCompanionAdapter', () => {
       kind: 'available',
       capabilities: {
         kernelNetworkProxy: { state: 'available' },
-        kernelNetworkSse: { state: 'available' },
         privateHttp: { state: 'available' },
         privateSse: { state: 'available' },
         riffReadAuditProxy: { state: 'unavailable' },
-        aiKernelStreaming: { state: 'available' },
       },
     });
-  });
-
-  it('subscribes to private AI stream SSE and normalizes typed events', () => {
-    const events: unknown[] = [];
-    const errors: Error[] = [];
-    const sources: Array<{
-      url: string;
-      onmessage: ((event: MessageEvent) => void) | null;
-      onerror: (() => void) | null;
-      listeners: Map<string, (event: MessageEvent) => void>;
-      close: ReturnType<typeof vi.fn>;
-    }> = [];
-    class MockEventSource {
-      onmessage: ((event: MessageEvent) => void) | null = null;
-      onerror: (() => void) | null = null;
-      listeners = new Map<string, (event: MessageEvent) => void>();
-      close = vi.fn();
-      constructor(public readonly url: string) {
-        sources.push(this);
-      }
-      addEventListener(type: string, listener: (event: MessageEvent) => void): void {
-        this.listeners.set(type, listener);
-      }
-    }
-    vi.stubGlobal('EventSource', MockEventSource);
-    const adapter = new SiyuanKernelCompanionAdapter();
-
-    const subscription = adapter.subscribeAiStream('stream-1', {
-      onEvent: (event) => events.push(event),
-      onError: (error) => errors.push(error),
-    });
-
-    expect(sources[0]?.url).toBe('/plugin/private/siyuan-plugin-siyuanmemo/ai/stream/stream-1');
-    sources[0].listeners.get('token')?.({
-      type: 'token',
-      data: JSON.stringify({
-        type: 'token',
-        streamId: 'stream-1',
-        text: 'hello',
-        emittedAt: 1,
-      }),
-    } as MessageEvent);
-    sources[0].listeners.get('final')?.({
-      type: 'final',
-      data: JSON.stringify({
-        type: 'final',
-        streamId: 'stream-1',
-        final: { status: 200, body: 'hello' },
-        emittedAt: 2,
-      }),
-    } as MessageEvent);
-
-    expect(events).toEqual([
-      expect.objectContaining({ type: 'token', streamId: 'stream-1', text: 'hello' }),
-      expect.objectContaining({ type: 'final', streamId: 'stream-1' }),
-    ]);
-    expect(errors).toEqual([]);
-    expect(sources[0].close).toHaveBeenCalled();
-    subscription.close();
   });
 
   it('opens RPC WebSocket and emits normalized broadcast notifications', async () => {

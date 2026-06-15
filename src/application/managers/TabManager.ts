@@ -34,14 +34,12 @@ import {
 } from '@/types/review-presentation-semantics';
 import { createLogger } from '@/utils/logger';
 import type { BrowserOpenState } from '@/types/browser';
-import type { AIWorkbenchOpenOptions } from '@/types/ai';
 import type { BackendNeuralRoamStartFromFocusRequest } from '../../../packages/contracts/src/backend-rpc';
 import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
 import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
 import { NOOP_QUEUE_PERSISTENCE } from '@/core/queue/domain/ports';
 import {
-  loadAiWorkbenchPaneComponent,
   loadReviewViewComponent,
   loadSrsBrowserComponent,
 } from './lazySurfaceComponents';
@@ -83,12 +81,6 @@ interface BrowserTabData {
   initialState?: BrowserOpenState | null;
 }
 
-interface ReviewAICompanionTabData {
-  reviewSessionId: string;
-  sourceReviewSessionId: string;
-  title: string;
-}
-
 export type TabRuntimeContext = Custom & {
   id?: string;
   vueApp?: VueApp<Element>;
@@ -111,14 +103,6 @@ interface ReviewTabRuntimeHandle {
   lastActiveAt: number;
   pendingSurfaceRefreshTimer: number | null;
   removeActivityListeners: () => void;
-}
-
-interface ReviewAICompanionRuntimeHandle {
-  customId: string;
-  reviewSessionId: string;
-  sourceReviewSessionId: string;
-  title: string;
-  custom: TabRuntimeContext;
 }
 
 interface ReviewTabSurfaceSnapshot {
@@ -628,12 +612,10 @@ export interface BrowserTabOpenOptions {
 export class TabManager {
   private readonly TAB_TYPE: string;
   private readonly REVIEW_TAB_TYPE: string;
-  private readonly REVIEW_AI_TAB_TYPE: string;
   private readonly siyuanApi: ManagerSiyuanPort;
   private tabsRegistered = false;
   private readonly reviewTabRuntimes = new Map<string, ReviewTabRuntimeHandle>();
   private readonly reviewTabSurfaceSnapshots = new Map<string, ReviewTabSurfaceSnapshot>();
-  private readonly reviewAICompanionRuntimes = new Map<string, ReviewAICompanionRuntimeHandle>();
   private readonly tabMountTokens = new WeakMap<TabRuntimeContext, number>();
 
   constructor(
@@ -644,7 +626,6 @@ export class TabManager {
     this.siyuanApi = ports.siyuanApi;
     this.TAB_TYPE = this.plugin.name + '-browser';
     this.REVIEW_TAB_TYPE = this.plugin.name + '-review';
-    this.REVIEW_AI_TAB_TYPE = this.plugin.name + '-review-ai';
   }
 
   private beginTabMount(runtime: TabRuntimeContext): number {
@@ -685,13 +666,6 @@ export class TabManager {
       }),
       update: withTabRuntimeContext((runtime) => {
         self.refreshReviewTab(runtime);
-      }),
-    });
-    this.plugin.addTab({
-      type: this.REVIEW_AI_TAB_TYPE,
-      init: withTabRuntimeContext((runtime) => self.initReviewAICompanionTab(runtime)),
-      destroy: withTabRuntimeContext((runtime) => {
-        self.destroyReviewAICompanionTab(runtime);
       }),
     });
   }
@@ -790,39 +764,6 @@ export class TabManager {
     this.refreshReviewTabRuntimeSurface(runtime, data);
   }
 
-  async initReviewAICompanionTab(runtime: TabRuntimeContext): Promise<void> {
-    await this.mountReviewAICompanionTab(runtime);
-  }
-
-  private async mountReviewAICompanionTab(runtime: TabRuntimeContext): Promise<void> {
-    const mountToken = this.beginTabMount(runtime);
-    const data = this.normalizeReviewAICompanionTabData(runtime.data);
-    const service = this.context.getReviewAIWorkbenchRegistry().getOrCreateReviewSession(data.reviewSessionId, {
-      surface: 'review-tab-companion',
-      sourceReviewSessionId: data.sourceReviewSessionId,
-    });
-
-    const AiWorkbenchPane = await loadAiWorkbenchPaneComponent();
-    if (!this.isCurrentTabMount(runtime, mountToken)) {
-      return;
-    }
-    const app = createApp(AiWorkbenchPane, {
-      service,
-      i18n: this.getPluginI18n(),
-    });
-
-    app.mount(runtime.element);
-    runtime.vueApp = app;
-    this.registerReviewAICompanionRuntime(runtime, data);
-  }
-
-  destroyReviewAICompanionTab(runtime: TabRuntimeContext): void {
-    this.cancelTabMount(runtime);
-    this.unregisterReviewAICompanionRuntime(runtime);
-    runtime.vueApp?.unmount();
-    runtime.vueApp = undefined;
-  }
-
   openBrowserTab(options?: BrowserTabOpenOptions): boolean {
     try {
       const browserModelType = this.buildCustomModelType(this.TAB_TYPE);
@@ -842,57 +783,6 @@ export class TabManager {
     } catch (error) {
       logger.error('Failed to open browser tab', error);
       return false;
-    }
-  }
-
-  async openReviewAICompanionTab(
-    options: AIWorkbenchOpenOptions & {
-      sessionId: string;
-      title: string;
-    }
-  ): Promise<void> {
-    const reviewSessionId = String(options.sessionId || '').trim();
-    if (!reviewSessionId) {
-      logger.warn('Skip opening review AI companion tab because review session id is empty');
-      return;
-    }
-
-    await this.context.getReviewAIWorkbenchRegistry().openReviewSession({
-      ...options,
-      source: 'review',
-      surface: 'review-tab-companion',
-      sessionId: reviewSessionId,
-      sourceReviewSessionId: options.sourceReviewSessionId ?? reviewSessionId,
-    });
-
-    const existing = this.reviewAICompanionRuntimes.get(reviewSessionId);
-    if (existing) {
-      this.focusReviewAICompanionRuntime(existing);
-      return;
-    }
-
-    const tabData: ReviewAICompanionTabData = {
-      reviewSessionId,
-      sourceReviewSessionId: options.sourceReviewSessionId ?? reviewSessionId,
-      title: String(options.title || this.getPluginI18n()?.aiWorkbench || 'AI Workbench'),
-    };
-
-    try {
-      const reviewAiModelType = this.buildCustomModelType(this.REVIEW_AI_TAB_TYPE);
-      openTab({
-        app: this.plugin.app,
-        custom: {
-          icon: 'iconSparkles',
-          title: tabData.title,
-          id: reviewAiModelType,
-          data: tabData,
-        },
-        position: 'right',
-        keepCursor: false,
-        removeCurrentTab: false,
-      });
-    } catch (error) {
-      logger.error('Failed to open review AI companion tab', error);
     }
   }
 
@@ -1115,18 +1005,6 @@ export class TabManager {
   private normalizeBrowserTabData(data: Partial<BrowserTabData> | undefined): BrowserTabData {
     return {
       initialState: data?.initialState ?? null,
-    };
-  }
-
-  private normalizeReviewAICompanionTabData(data: Partial<ReviewAICompanionTabData> | undefined): ReviewAICompanionTabData {
-    const reviewSessionId = typeof data?.reviewSessionId === 'string' ? data.reviewSessionId.trim() : '';
-    const sourceReviewSessionId = typeof data?.sourceReviewSessionId === 'string' ? data.sourceReviewSessionId.trim() : reviewSessionId;
-    return {
-      reviewSessionId,
-      sourceReviewSessionId,
-      title: typeof data?.title === 'string' && data.title.trim()
-        ? data.title.trim()
-        : this.getPluginI18n()?.aiWorkbench || 'AI Workbench',
     };
   }
 
@@ -1491,25 +1369,6 @@ export class TabManager {
     }, 0);
   }
 
-  private registerReviewAICompanionRuntime(
-    runtime: TabRuntimeContext,
-    data: ReviewAICompanionTabData,
-  ): void {
-    const customId = this.resolveReviewTabRuntimeId(runtime);
-    if (!customId || !data.sourceReviewSessionId) {
-      return;
-    }
-
-    this.unregisterReviewAICompanionRuntime(data.sourceReviewSessionId);
-    this.reviewAICompanionRuntimes.set(data.sourceReviewSessionId, {
-      customId,
-      reviewSessionId: data.reviewSessionId,
-      sourceReviewSessionId: data.sourceReviewSessionId,
-      title: data.title,
-      custom: runtime,
-    });
-  }
-
   private unregisterReviewTabRuntime(customIdOrRuntime: string | TabRuntimeContext | null | undefined): void {
     const normalizedId = typeof customIdOrRuntime === 'string'
       ? String(customIdOrRuntime || '').trim()
@@ -1532,24 +1391,6 @@ export class TabManager {
     this.restoreTemporaryNeuralRoamEngineModeIfNeeded(this.normalizeReviewTabData(existing.custom.data));
     existing.removeActivityListeners();
     this.reviewTabRuntimes.delete(normalizedId);
-    this.closeReviewAICompanionTab(normalizedId);
-    this.context.getReviewAIWorkbenchRegistry().disposeReviewSession(normalizedId);
-  }
-
-  private unregisterReviewAICompanionRuntime(sourceReviewSessionIdOrRuntime: string | TabRuntimeContext | null | undefined): void {
-    const normalizedId = typeof sourceReviewSessionIdOrRuntime === 'string'
-      ? String(sourceReviewSessionIdOrRuntime || '').trim()
-      : sourceReviewSessionIdOrRuntime
-        ? Array.from(this.reviewAICompanionRuntimes.values())
-            .find((runtime) => this.resolveReviewTabRuntimeId(sourceReviewSessionIdOrRuntime) === runtime.customId)
-            ?.sourceReviewSessionId || ''
-        : '';
-
-    if (!normalizedId) {
-      return;
-    }
-
-    this.reviewAICompanionRuntimes.delete(normalizedId);
   }
 
   private getLatestNeuralReviewTabRuntime(): ReviewTabRuntimeHandle | null {
@@ -1578,37 +1419,6 @@ export class TabManager {
       });
       return false;
     }
-  }
-
-  private focusReviewAICompanionRuntime(runtime: ReviewAICompanionRuntimeHandle): boolean {
-    try {
-      runtime.custom.tab?.parent?.switchTab(runtime.custom.tab.headElement);
-      return true;
-    } catch (error) {
-      logger.error('Failed to focus review AI companion tab', {
-        customId: runtime.customId,
-        sourceReviewSessionId: runtime.sourceReviewSessionId,
-        error,
-      });
-      return false;
-    }
-  }
-
-  focusReviewAICompanionTab(reviewSessionId: string): boolean {
-    const normalizedId = String(reviewSessionId || '').trim();
-    if (!normalizedId) {
-      return false;
-    }
-    const runtime = this.reviewAICompanionRuntimes.get(normalizedId);
-    if (!runtime) {
-      return false;
-    }
-    return this.focusReviewAICompanionRuntime(runtime);
-  }
-
-  hasReviewAICompanionTab(reviewSessionId: string): boolean {
-    const normalizedId = String(reviewSessionId || '').trim();
-    return normalizedId.length > 0 && this.reviewAICompanionRuntimes.has(normalizedId);
   }
 
   closeReviewTab(reviewSessionId: string): void {
@@ -1644,33 +1454,6 @@ export class TabManager {
       reviewSessionId: normalizedId,
     });
     this.unregisterReviewTabRuntime(normalizedId);
-  }
-
-  closeReviewAICompanionTab(reviewSessionId: string): void {
-    const normalizedId = String(reviewSessionId || '').trim();
-    if (!normalizedId) {
-      return;
-    }
-
-    const runtime = this.reviewAICompanionRuntimes.get(normalizedId);
-    if (!runtime) {
-      return;
-    }
-
-    try {
-      if (typeof runtime.custom.tab?.close === 'function') {
-        runtime.custom.tab.close();
-      } else if (runtime.custom.tab?.parent && typeof runtime.custom.tab.parent.removeTab === 'function') {
-        runtime.custom.tab.parent.removeTab(runtime.custom.tab.id);
-      }
-    } catch (error) {
-      logger.error('Failed to close review AI companion tab', {
-        sourceReviewSessionId: normalizedId,
-        error,
-      });
-    } finally {
-      this.reviewAICompanionRuntimes.delete(normalizedId);
-    }
   }
 
   private resolveReviewTabData(options: ReviewTabOptions): ReviewTabData {

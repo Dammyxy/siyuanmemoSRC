@@ -1,8 +1,6 @@
 import type { SrsBackendTransport } from '@/application/clients/SrsBackendClient';
 import BackendWorker from '../../../worker/bootstrap/backend-worker.entry.ts?worker&inline';
 import type {
-  BackendAiPromptExecuteRequest,
-  BackendAiPromptNetworkResponse,
   BackendAutoCardExecuteRequest,
   BackendAutoCardExecuteResult,
   BackendProgressiveCommandExecuteRequest,
@@ -85,10 +83,6 @@ export interface BrowserSrsBackendWorkerHostEffects {
   executeReviewRiffFeedback?: (
     request: BackendReviewRiffFeedbackExecuteRequest,
   ) => Promise<BackendReviewRiffFeedbackExecuteResult>;
-  executeAiPrompt?: (
-    request: BackendAiPromptExecuteRequest['request'],
-    context: BackendAiPromptExecuteRequest,
-  ) => Promise<BackendAiPromptNetworkResponse>;
 }
 
 export interface BrowserSrsBackendWorkerTransportOptions {
@@ -542,11 +536,6 @@ export class BrowserSrsBackendWorkerTransport implements SrsBackendTransport {
           throw unavailable('review.riffFeedback.execute host effect unavailable');
         }
         return this.options.hostEffects.executeReviewRiffFeedback(effect.request);
-      case 'ai.prompt.execute':
-        if (!this.options.hostEffects.executeAiPrompt) {
-          throw unavailable('ai.prompt.execute host effect unavailable');
-        }
-        return this.options.hostEffects.executeAiPrompt(effect.request, effect.context);
       default:
         throw unavailable(`unknown host effect ${(effect as { kind?: unknown }).kind}`);
     }

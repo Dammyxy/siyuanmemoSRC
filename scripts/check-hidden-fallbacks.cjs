@@ -356,22 +356,6 @@ function classifyKeywordLine(relativePath, line, lineNumber) {
   }
 
   if (
-    relativePath.endsWith('AIChatToolExecutorService.ts')
-    && /\b(falling back|fall back|fallback to)\b/i.test(line)
-    && /ai|tool|flashcard|write|direct/i.test(line)
-  ) {
-    return createHit({
-      file: relativePath,
-      line: lineNumber,
-      kind: 'ai-tool-direct-write-fallback',
-      symbol: line.trim(),
-      risk: 'P1',
-      inferredClass: 'explicit-unavailable',
-      requiresClassification: true,
-    });
-  }
-
-  if (
     relativePath.endsWith('ReviewApplicationService.ts')
     && /\b(falling back|fall back|fallback to)\b/i.test(line)
     && /review|riff|source refresh|source-refresh/i.test(line)

@@ -15,16 +15,6 @@ export const loadSettingsPanelComponent = cacheComponentLoader(async () => {
   return module.SettingsPanel as Component;
 });
 
-export const loadAiWorkbenchDialogComponent = cacheComponentLoader(async () => {
-  const module = await import('@/ui/ai/AiWorkbenchDialog.vue');
-  return module.default as Component;
-});
-
-export const loadAiWorkbenchPaneComponent = cacheComponentLoader(async () => {
-  const module = await import('@/ui/ai/AiWorkbenchPane.vue');
-  return module.default as Component;
-});
-
 export const loadArenaManagerDialogComponent = cacheComponentLoader(async () => {
   const module = await import('@/ui/arena/ArenaManagerDialog.vue');
   return module.default as Component;

@@ -2,7 +2,6 @@ import { ref } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '@/types';
 import {
-  createDefaultAISettings,
   createDefaultArenaSettings,
   createDefaultQueueSettings,
   createDefaultSettingsFormState,
@@ -28,7 +27,6 @@ function createCommands() {
   const settings = ref(createDefaultSettingsFormState());
   const queueSettings = ref(createDefaultQueueSettings());
   const schedulerConfig = ref(createDefaultSettingsSchedulerConfig());
-  const aiSettings = ref(createDefaultAISettings());
   const arenaSettings = ref(createDefaultArenaSettings());
   const uiSettings = ref(createDefaultUISettings());
   const logger = { debug: vi.fn() };
@@ -36,14 +34,12 @@ function createCommands() {
     settings,
     queueSettings,
     schedulerConfig,
-    aiSettings,
     arenaSettings,
     uiSettings,
     logger,
   });
 
   return {
-    aiSettings,
     arenaSettings,
     commands,
     logger,
@@ -99,7 +95,6 @@ describe('settingsFormCommands', () => {
 
   it('resets footer-owned settings state without changing scheduler selection', () => {
     const {
-      aiSettings,
       arenaSettings,
       commands,
       queueSettings,
@@ -110,7 +105,6 @@ describe('settingsFormCommands', () => {
 
     settings.value.dayStartHour = 18;
     queueSettings.value.autoSort.enabled = false;
-    aiSettings.value.enabled = !createDefaultAISettings().enabled;
     arenaSettings.value.enabled = !createDefaultArenaSettings().enabled;
     uiSettings.value.enableDebugLogs = !createDefaultUISettings().enableDebugLogs;
     schedulerConfig.value.defaultScheduler = 'a-factor-v2';
@@ -119,7 +113,6 @@ describe('settingsFormCommands', () => {
 
     expect(settings.value).toEqual(createDefaultSettingsFormState());
     expect(queueSettings.value).toEqual(createDefaultQueueSettings());
-    expect(aiSettings.value).toEqual(createDefaultAISettings());
     expect(arenaSettings.value).toEqual(createDefaultArenaSettings());
     expect(uiSettings.value).toEqual(createDefaultUISettings());
     expect(schedulerConfig.value.defaultScheduler).toBe('a-factor-v2');

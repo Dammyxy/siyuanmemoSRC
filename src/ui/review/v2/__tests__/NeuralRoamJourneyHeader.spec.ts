@@ -144,7 +144,6 @@ function createHeader(): ReviewUIState['header'] {
     },
     breadcrumbs: [],
     toolbar: [
-      { type: 'ai-sidebar', icon: '#iconSparkles', ariaLabel: 'AI' },
       { type: 'lock-focus', icon: '#iconPin', ariaLabel: '设为空间站' },
       { type: 'neural-focuses', icon: '#iconList', ariaLabel: '来源列表' },
       { type: 'neural-history', icon: '#iconHistory', ariaLabel: '航线日志' },

@@ -41,12 +41,7 @@ function createServiceDeps() {
     dialogManager: {
       openBrowserDialog: vi.fn(async () => undefined),
       openReviewDialog: vi.fn(async () => undefined),
-      openAiWorkbenchDialog: vi.fn(async () => undefined),
       openMobileQueueLauncherDialog: vi.fn(async () => undefined),
-    },
-    tabManager: {
-      focusReviewAICompanionTab: vi.fn(() => false),
-      openReviewAICompanionTab: vi.fn(async () => undefined),
     },
     reviewSessionRegistry: {
       getSession: vi.fn(() => ({
@@ -55,29 +50,6 @@ function createServiceDeps() {
           blockId: 'block-current',
           type: 'item',
         }),
-      })),
-    },
-    cardDraftService: {
-      draft: vi.fn(async () => ({
-        ok: true,
-        status: 'success' as const,
-        data: {
-          candidates: [{
-            draftId: 'draft-ai-0',
-            type: 'qa',
-            front: 'AI front',
-            back: 'AI back',
-            sourceRefs: [{ blockId: 'block-source' }],
-            validationWarnings: [],
-            persisted: false,
-          }],
-          persisted: false,
-        },
-        meta: {
-          returnedItemCount: 1,
-          totalItemCount: 1,
-          followUpAction: 'memo_card action=save selectedDraftIds=[...] drafts=[...]',
-        },
       })),
     },
     idFactory: (seed: string, index: number) => `draft-${seed}-${index}`,
@@ -135,7 +107,7 @@ describe('AgentToolService', () => {
     expect(deps.browserService.getQueueCounts).not.toHaveBeenCalled();
   });
 
-  it('routes draft requests to the card draft service without card writes', async () => {
+  it('rejects plugin-owned draft generation without card writes', async () => {
     const deps = createServiceDeps();
     const service = new AgentToolService(deps);
 
@@ -149,42 +121,10 @@ describe('AgentToolService', () => {
     });
 
     expect(result).toMatchObject({
-      ok: true,
-      data: {
-        persisted: false,
-        candidates: [{
-          draftId: 'draft-ai-0',
-          front: 'AI front',
-        }],
-      },
-    });
-    expect(deps.cardDraftService.draft).toHaveBeenCalledWith({
-      action: 'draft',
-      sourceContent: 'Question one? Answer one.\nQuestion two? Answer two.',
-      sourceBlockId: 'block-source',
-    });
-    expect(deps.cardService.createCard).not.toHaveBeenCalled();
-  });
-
-  it('returns explicit unavailable for draft when the draft service is not wired', async () => {
-    const deps = createServiceDeps();
-    const service = new AgentToolService({
-      ...deps,
-      cardDraftService: null,
-    });
-
-    await expect(service.execute({
-      tool: 'memo_card',
-      args: {
-        action: 'draft',
-        sourceContent: 'Would have been a heuristic candidate before.',
-      },
-    })).resolves.toMatchObject({
       ok: false,
-      status: 'unavailable',
-      error: { code: 'AGENT_API_UNAVAILABLE' },
+      status: 'unsupported-operation',
+      error: { code: 'UNSUPPORTED_OPERATION' },
     });
-    expect(deps.cardDraftService.draft).not.toHaveBeenCalled();
     expect(deps.cardService.createCard).not.toHaveBeenCalled();
   });
 
@@ -282,5 +222,46 @@ describe('AgentToolService', () => {
       },
     });
     expect(deps.dialogManager.openBrowserDialog).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not advertise or open retired AI workbench UI targets', async () => {
+    const deps = createServiceDeps();
+    const service = new AgentToolService(deps);
+
+    await expect(service.execute({
+      tool: 'memo_ui',
+      args: {
+        action: 'status',
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      data: {
+        availableTargets: ['browser', 'review', 'mobile-review'],
+      },
+    });
+
+    await expect(service.execute({
+      tool: 'memo_ui',
+      args: {
+        action: 'open',
+        target: 'ai',
+      },
+    })).resolves.toMatchObject({
+      ok: false,
+      status: 'unsupported-operation',
+      error: { code: 'UNSUPPORTED_OPERATION' },
+    });
+    await expect(service.execute({
+      tool: 'memo_ui',
+      args: {
+        action: 'open',
+        target: 'ai-companion',
+        sessionId: 'review-1',
+      },
+    })).resolves.toMatchObject({
+      ok: false,
+      status: 'unsupported-operation',
+      error: { code: 'UNSUPPORTED_OPERATION' },
+    });
   });
 });

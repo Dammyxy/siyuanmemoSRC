@@ -24,8 +24,7 @@ export const MEMO_UI_MUTATING_ACTIONS = ['focus'] as const;
 export type MemoQueryAction = typeof MEMO_QUERY_SAFE_ACTIONS[number];
 export type MemoCardAction =
   | typeof MEMO_CARD_SAFE_ACTIONS[number]
-  | typeof MEMO_CARD_MUTATING_ACTIONS[number]
-  | 'draft';
+  | typeof MEMO_CARD_MUTATING_ACTIONS[number];
 export type MemoReviewAction = typeof MEMO_REVIEW_SAFE_ACTIONS[number];
 export type MemoUiAction =
   | typeof MEMO_UI_SAFE_ACTIONS[number]
@@ -189,8 +188,8 @@ export function buildMemoQueryInputSchema(): AgentToolSchema {
 
 export function buildMemoCardInputSchema(): AgentToolSchema {
   return actionSchema(
-    [...MEMO_CARD_SAFE_ACTIONS, 'draft', ...MEMO_CARD_MUTATING_ACTIONS],
-    'SiYuanMemo card inspect, draft, or controlled mutation action.',
+    [...MEMO_CARD_SAFE_ACTIONS, ...MEMO_CARD_MUTATING_ACTIONS],
+    'SiYuanMemo card inspect or controlled mutation action.',
   );
 }
 
@@ -259,7 +258,7 @@ export function validateAgentToolAction(tool: AgentToolName, action: unknown): A
 
   const allowedByTool: Record<AgentToolName, readonly string[]> = {
     memo_query: MEMO_QUERY_SAFE_ACTIONS,
-    memo_card: [...MEMO_CARD_SAFE_ACTIONS, 'draft', ...MEMO_CARD_MUTATING_ACTIONS],
+    memo_card: [...MEMO_CARD_SAFE_ACTIONS, ...MEMO_CARD_MUTATING_ACTIONS],
     memo_review: MEMO_REVIEW_SAFE_ACTIONS,
     memo_ui: [...MEMO_UI_SAFE_ACTIONS, ...MEMO_UI_MUTATING_ACTIONS],
   };

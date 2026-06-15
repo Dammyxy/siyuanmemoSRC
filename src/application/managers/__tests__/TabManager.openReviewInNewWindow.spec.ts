@@ -41,10 +41,6 @@ vi.mock('@/ui/review/v2', () => ({
   ReviewView: {},
 }));
 
-vi.mock('@/ui/ai/AiWorkbenchPane.vue', () => ({
-  default: {},
-}));
-
 function createDeferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;

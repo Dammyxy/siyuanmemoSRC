@@ -1,7 +1,6 @@
 import type { Ref } from 'vue';
 import {
   DEFAULT_SETTINGS,
-  type AISettings,
   type QueueSettings,
   type UISettings,
 } from '@/types';
@@ -15,7 +14,6 @@ import {
   type SettingsSchedulerConfigWithSrsV2,
 } from './settingsSavePayload';
 import {
-  createDefaultAISettings,
   createDefaultArenaSettings,
   createDefaultQueueSettings,
   createDefaultSettingsFormState,
@@ -31,7 +29,6 @@ export interface SettingsFormCommandsInput {
   settings: Ref<SettingsFormState>;
   queueSettings: Ref<QueueSettings>;
   schedulerConfig: Ref<SettingsSchedulerConfigWithSrsV2>;
-  aiSettings: Ref<AISettings>;
   arenaSettings: Ref<ArenaSettings>;
   uiSettings: Ref<UISettings>;
   logger?: SettingsFormCommandLogger;
@@ -49,7 +46,6 @@ export function useSettingsFormCommands(input: SettingsFormCommandsInput) {
   function resetSettings(): void {
     input.settings.value = createDefaultSettingsFormState();
     input.queueSettings.value = createDefaultQueueSettings();
-    input.aiSettings.value = createDefaultAISettings();
     input.arenaSettings.value = createDefaultArenaSettings();
     input.uiSettings.value = createDefaultUISettings();
   }

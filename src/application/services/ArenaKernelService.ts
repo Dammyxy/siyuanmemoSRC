@@ -1,7 +1,6 @@
 import type { FSRSParameters } from '@/types/settings';
 import type { SchedulerType } from '@/core/scheduler';
 import { Rating, type FSRSCard } from '@/types/card';
-import type { AIChatRegisteredSkillDescriptor } from '@/application/services/AIChatSkillRegistry';
 import type { SrsTransparencyEvidenceReader } from '@/application/services/SrsTransparencyEvidenceReader';
 import { resolveSchedulerTypeLabel, resolveSrsArenaContestantLabel } from '@/application/helpers/srsDisplayLabels';
 import {
@@ -65,6 +64,11 @@ export interface ArenaSkillRuntimeOverrides {
   challengeTrigger?: ArenaChallengeTrigger | null;
   challengers?: Array<{ id: string; title: string }>;
 }
+
+type ArenaSkillRuntimeDescriptor = {
+  systemPromptTemplate: string;
+  defaultToolGroups: string[];
+};
 
 type ArenaKernelDeps = {
   getArenaSettings: () => ArenaSettings;
@@ -393,7 +397,7 @@ export class ArenaKernelService {
 
   resolveSkillRuntimeOverrides(
     selection: AIArenaSelection | null,
-    skill: AIChatRegisteredSkillDescriptor,
+    skill: ArenaSkillRuntimeDescriptor,
   ): ArenaSkillRuntimeOverrides {
     if (!selection) {
       return {

@@ -28,13 +28,6 @@ const behaviorChecks = [
     reason: 'AutoCard follower path still allows direct backend mutation bypass',
   },
   {
-    file: 'src/application/services/AIWorkbenchPromptRuntime.ts',
-    kind: 'ai-frontend-llm-call',
-    symbolPattern: 'llmPort.chat(',
-    pattern: /llmPort\.chat\s*\(/,
-    reason: 'AI runtime still calls frontend llmPort chat path',
-  },
-  {
     file: 'src/application/ApplicationContext.ts',
     kind: 'ai-backend-raw-fetch-proxy',
     symbolPattern: 'BackendAINetworkProxyAdapter',

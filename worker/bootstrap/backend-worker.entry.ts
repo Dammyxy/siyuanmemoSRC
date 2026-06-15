@@ -1,6 +1,5 @@
 import {
   BACKEND_RPC_VERSION,
-  type BackendAiPromptNetworkResponse,
   type BackendAutoCardExecuteResult,
   type BackendNeuralGraphQueryRequest,
   type BackendNeuralGraphQueryResult,
@@ -302,11 +301,6 @@ const backendKernel = new BackendKernel({
   executeReviewRiffFeedback: (request: BackendReviewRiffFeedbackExecuteRequest) => requestHostEffect<BackendReviewRiffFeedbackExecuteResult>({
     kind: 'review.riffFeedback.execute',
     request,
-  }),
-  executeAiPrompt: (request, context) => requestHostEffect<BackendAiPromptNetworkResponse>({
-    kind: 'ai.prompt.execute',
-    request,
-    context,
   }),
   readXiuyuanRiffFacts: (request: BackendXiuyuanRiffReadAuditRequest) => requestHostEffect<BackendXiuyuanRiffReadAuditResult>({
     kind: 'siyuan.riff.readAudit',

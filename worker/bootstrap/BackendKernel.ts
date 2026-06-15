@@ -1,5 +1,4 @@
 import {
-  type BackendAiPromptExecuteRequest,
   type BackendAutoCardExecuteRequest,
   type BackendAutoCardExecuteResult,
   type BackendNeuralGraphQueryRequest,
@@ -23,7 +22,6 @@ import {
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import type { MessagePackTruthSegmentFileStore } from '../truth/MessagePackTruthSegmentStore';
 import { BackendHotspotCommandRuntime } from './BackendHotspotCommandRuntime';
-import { BackendJobRuntime } from './BackendJobRuntime';
 import { WorkerBrowserAggregateReadService } from './WorkerBrowserAggregateReadService';
 import { WorkerGraphQueryService } from './WorkerGraphQueryService';
 import { WorkerNeuralRoamAdvanceService } from './WorkerNeuralRoamAdvanceService';
@@ -36,7 +34,6 @@ import { createLogger } from '@/utils/logger';
 import {
   type BackendBrowserRpcRuntime,
 } from './rpc/BackendBrowserRpcAdapter';
-import { BackendAiToolJobRuntime } from './rpc/BackendAiJobHotspotRpcAdapter';
 import { BackendP6OwnershipRuntime } from './rpc/BackendP6OwnershipRpcAdapter';
 import { BackendPrivateApiRuntime } from './rpc/BackendPrivateApiRpcAdapter';
 import { BackendProgressiveCommandRuntime } from './rpc/BackendProgressiveRpcAdapter';
@@ -70,14 +67,6 @@ interface BackendKernelDependencies {
     request: BackendNeuralGraphQueryRequest,
   ) => Promise<BackendNeuralGraphQueryResult>;
   executeAutoCard?: (request: BackendAutoCardExecuteRequest) => Promise<BackendAutoCardExecuteResult>;
-  executeAiPrompt?: (
-    request: BackendAiPromptExecuteRequest['request'],
-    context: BackendAiPromptExecuteRequest,
-  ) => Promise<{
-    status: number;
-    headers: Record<string, string>;
-    body: string;
-  }>;
   readXiuyuanRiffFacts?: (
     request: BackendXiuyuanRiffReadAuditRequest,
   ) => Promise<BackendXiuyuanRiffReadAuditResult>;
@@ -130,8 +119,6 @@ const REVIEW_FEEDBACK_MAIN_DB_FAST_SKIP_READ_ONLY_METHODS = new Set<string>([
   'queue.projection.snapshot',
   'queue.projection.rowsByIds',
   'neural-roam.viewState',
-  'ai.session.get',
-  'job.get',
 ]);
 
 const PREFLIGHT_MAIN_DB_SKIP_METHODS = new Set<string>([
@@ -147,8 +134,6 @@ const PREFLIGHT_MAIN_DB_REFRESH_READ_ONLY_METHODS = new Set<string>([
 
 export class BackendKernel {
   private readonly preRequestMergeDiagnostics: BackendPreRequestMergeDiagnostic[] = [];
-  private readonly aiRuntime: BackendJobRuntime;
-  private readonly aiToolJobRuntime: BackendAiToolJobRuntime;
   private readonly hotspotRuntime: BackendHotspotCommandRuntime;
   private readonly browserAggregateReadService: WorkerBrowserAggregateReadService;
   private readonly graphQueryService: WorkerGraphQueryService;
@@ -163,19 +148,6 @@ export class BackendKernel {
   private readonly rpcDispatcher: BackendRpcDispatcher<BackendKernelRpcHandlerContext>;
 
   constructor(private readonly deps: BackendKernelDependencies) {
-    this.aiRuntime = new BackendJobRuntime({
-      onSessionCreate: () => this.deps.database.recordAiSessionOutcome('create'),
-      onSessionUpdate: () => this.deps.database.recordAiSessionOutcome('update'),
-      onSessionCancel: () => this.deps.database.recordAiSessionOutcome('cancel'),
-      onStreamStart: () => this.deps.database.recordAiStreamOutcome('start'),
-      onStreamCancel: () => this.deps.database.recordAiStreamOutcome('cancel'),
-      onJobCreated: () => this.deps.database.recordAiJobOutcome('created'),
-      onJobCompleted: () => this.deps.database.recordAiJobOutcome('completed'),
-      onJobCanceled: () => this.deps.database.recordAiJobOutcome('canceled'),
-      onJobTimeout: () => this.deps.database.recordAiJobOutcome('timeout'),
-      onJobFailed: () => this.deps.database.recordAiJobOutcome('failed'),
-    });
-    this.aiToolJobRuntime = new BackendAiToolJobRuntime();
     this.hotspotRuntime = new BackendHotspotCommandRuntime();
     this.browserAggregateReadService = new WorkerBrowserAggregateReadService(this.deps.database);
     this.graphQueryService = new WorkerGraphQueryService({
@@ -282,19 +254,6 @@ export class BackendKernel {
       xiuyuan: this.xiuyuanSyncRuntime,
       progressive: this.progressiveCommandRuntime,
       topicDerived: this.topicDerivedCommandRuntime,
-      ai: {
-        createSession: (request) => this.aiRuntime.createSession(request),
-        getSession: (request) => this.aiRuntime.getSession(request),
-        updateSession: (request) => this.aiRuntime.updateSession(request),
-        cancelSession: (request) => this.aiRuntime.cancelSession(request),
-        executePrompt: (request) => this.aiRuntime.executePrompt(request, this.deps.executeAiPrompt),
-        executeToolJob: (request) => this.aiToolJobRuntime.execute(request),
-        approveToolJob: (request) => this.aiToolJobRuntime.approve(request),
-        startStream: (request) => this.aiRuntime.startStream(request),
-        cancelStream: (request) => this.aiRuntime.cancelStream(request),
-        getJob: (request) => this.aiRuntime.getJob(request),
-        cancelJob: (request) => this.aiRuntime.cancelJob(request),
-      },
       hotspot: this.hotspotRuntime,
     };
   }

@@ -34,27 +34,17 @@ vi.mock('@/ui/review/v2', () => ({
   ReviewView: {},
 }));
 
-vi.mock('@/ui/ai/AiWorkbenchPane.vue', () => ({
-  default: {},
-}));
-
 function createContext() {
   const queueStub = {
     getType: vi.fn(() => QueueType.RetrievalPractice),
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
   };
-  const reviewAIRegistry = {
-    getOrCreateReviewSession: vi.fn(() => ({ state: { activeView: 'explain' } })),
-    disposeReviewSession: vi.fn(),
-  };
 
   return {
-    reviewAIRegistry,
     context: {
       getI18n: vi.fn(() => ({
         reviewTitle: 'Review',
-        aiWorkbench: 'AI Workbench',
       })),
       getUnifiedDataSourceManager: vi.fn(() => ({
         getQueue: vi.fn(() => queueStub),
@@ -75,7 +65,6 @@ function createContext() {
           reason: 'not-live-cdf',
         })),
       })),
-      getReviewAIWorkbenchRegistry: vi.fn(() => reviewAIRegistry),
     },
   };
 }
@@ -129,7 +118,7 @@ describe('TabManager custom tab runtime bridge', () => {
     mocks.createApp.mockImplementation(() => createMountedApp());
   });
 
-  it('wires Browser, Review, and Review AI lifecycle callbacks through the custom tab runtime', async () => {
+  it('wires Browser and Review lifecycle callbacks through the custom tab runtime', async () => {
     vi.useFakeTimers();
     const refreshTabSurface = vi.fn(async () => true);
     const reviewVm = {
@@ -139,10 +128,9 @@ describe('TabManager custom tab runtime bridge', () => {
     const mountedApps = [
       createMountedApp(),
       createMountedApp(reviewVm),
-      createMountedApp(),
     ];
     mocks.createApp.mockImplementation(() => mountedApps.shift() ?? createMountedApp());
-    const { context, reviewAIRegistry } = createContext();
+    const { context } = createContext();
     const plugin = createPlugin();
     const tabManager = new TabManager(context as never, plugin, {
       siyuanApi: {
@@ -152,7 +140,7 @@ describe('TabManager custom tab runtime bridge', () => {
 
     tabManager.registerAll();
 
-    const [browserRegistration, reviewRegistration, reviewAIRegistration] = (
+    const [browserRegistration, reviewRegistration] = (
       plugin.addTab as ReturnType<typeof vi.fn>
     ).mock.calls.map(([registration]) => registration);
     const browserRuntime = createRuntime('browser-tab', {
@@ -169,23 +157,12 @@ describe('TabManager custom tab runtime bridge', () => {
         currentCardId: 'card-1',
       },
     });
-    const reviewAIRuntime = createRuntime('review-ai-tab', {
-      reviewSessionId: 'review-tab',
-      sourceReviewSessionId: 'review-tab',
-      title: 'AI Explain',
-    });
 
     await browserRegistration.init.call(browserRuntime);
     await reviewRegistration.init.call(reviewRuntime);
-    await reviewAIRegistration.init.call(reviewAIRuntime);
 
     expect(browserRuntime.vueApp).toBeDefined();
     expect(reviewRuntime.vueApp).toBeDefined();
-    expect(reviewAIRuntime.vueApp).toBeDefined();
-    expect(reviewAIRegistry.getOrCreateReviewSession).toHaveBeenCalledWith('review-tab', {
-      surface: 'review-tab-companion',
-      sourceReviewSessionId: 'review-tab',
-    });
 
     reviewRegistration.resize.call(reviewRuntime);
     reviewRegistration.update.call(reviewRuntime);
@@ -196,12 +173,9 @@ describe('TabManager custom tab runtime bridge', () => {
 
     browserRegistration.destroy.call(browserRuntime);
     reviewRegistration.destroy.call(reviewRuntime);
-    reviewAIRegistration.destroy.call(reviewAIRuntime);
 
     expect(browserRuntime.vueApp).toBeUndefined();
     expect(reviewRuntime.vueApp).toBeUndefined();
-    expect(reviewAIRuntime.vueApp).toBeUndefined();
-    expect(reviewAIRegistry.disposeReviewSession).toHaveBeenCalledWith('review-tab');
     vi.useRealTimers();
   });
 

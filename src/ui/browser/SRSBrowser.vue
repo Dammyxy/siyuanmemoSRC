@@ -59,7 +59,6 @@
         :can-select-all-matching="canSelectAllMatching"
         :show-navigator-toggle="showNavigatorToggle"
         :navigator-open="navigatorOpen"
-        :ai-context-active="browserAiContextActive"
         @exitFocus="handleExitFocus"
         @openPracticeMenu="openPracticeMenu"
         @applySortToQueue="handleApplySortToQueue"
@@ -70,7 +69,6 @@
         @convertToTab="convertToTab"
         @openFilterDialog="showFilterDialog = true"
         @openSpreadDialog="handleOpenSpreadDialog"
-        @openAiWorkbench="handleOpenAiWorkbench"
         @rebuildQueue="handleRebuildQueue"
         @selectCurrentPage="handleSelectCurrentPage"
         @selectAllMatching="handleSelectAllMatching"
@@ -402,16 +400,6 @@
         <svg><use xlink:href="#iconPreview"></use></svg>
         <span>{{ t('preview', '预览') }}</span>
       </button>
-      <button
-        type="button"
-        class="card-browser__mobile-tab"
-        :class="{ 'card-browser__mobile-tab--active': browserAiContextActive }"
-        :disabled="loading"
-        @click="handleOpenAiWorkbench"
-      >
-        <svg><use xlink:href="#iconSparkles"></use></svg>
-        <span>{{ t('aiWorkbench', 'AI') }}</span>
-      </button>
     </nav>
 
     <!-- Drag resizer -->
@@ -640,7 +628,6 @@ import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
 import type { SortField, SortOrder } from '@/core/card/domain/services/CardSortService';
 import type { WsSyncEvent } from '@/application/services/XiuyuanSyncService.types';
-import type { AIWorkbenchOpenOptions } from '@/types/ai';
 import type { SemanticActivationCommandClient } from '@/application/clients/SemanticActivationCommandClient';
 import type { SemanticActivationBrowserReadClient } from '@/application/clients/SemanticActivationBrowserReadClient';
 import type { BackendSemanticLens, BackendSemanticStationType } from '../../../packages/contracts/src/backend-rpc';
@@ -693,7 +680,6 @@ type BrowserDialogManagerPort = {
     startNewSession?: boolean;
     semanticPinnedSessionId?: string;
   }) => Promise<void> | void;
-  openAiWorkbenchDialog?: (options?: AIWorkbenchOpenOptions) => Promise<void> | void;
 };
 
 type BrowserTabManagerPort = {
@@ -1080,9 +1066,6 @@ const showNarrowRoamLayout = computed(() =>
   layoutProfile.value === 'tab-narrow' && !isMobileMode.value
 );
 const browserSemanticTargetCard = computed(() => selectedRows.value[0] ?? previewCard.value ?? null);
-const browserAiContextActive = computed(() =>
-  globalSelection.selectedCount.value > 0 || Boolean(previewCard.value)
-);
 const canStartBrowserSemantic = computed(() =>
   Boolean(browserSemanticTargetCard.value) && !loading.value
 );
@@ -3431,42 +3414,6 @@ function getQueueById(id: string) {
   }
   logger.error(`[SiYuanMemo][SRSBrowser] browserService cannot resolve queue: ${id}`);
   return null;
-}
-
-async function handleOpenAiWorkbench(): Promise<void> {
-  const dialogManager = pluginContext.value?.getDialogManager?.();
-  if (!dialogManager?.openAiWorkbenchDialog) {
-    await pushErrMsg(t('pluginNotReady', 'Plugin not ready'));
-    return;
-  }
-
-  const selectedBlockIds = Array.from(new Set(
-    (selectedRows.value || [])
-      .map((row) => String(row?.blockId || '').trim())
-      .filter((blockId) => blockId.length > 0),
-  ));
-  const previewBlockId = String(previewCard.value?.blockId || '').trim();
-  const effectiveBlockIds = selectedBlockIds.length > 0
-    ? selectedBlockIds
-    : previewBlockId
-      ? [previewBlockId]
-      : [];
-
-  if (effectiveBlockIds.length === 0) {
-    await pushMsg(t('browserAiNoSelection', '请先选择卡片或打开一个预览块'), 3000, 'error');
-    return;
-  }
-
-  await dialogManager.openAiWorkbenchDialog({
-    view: 'concept-coach',
-    source: 'browser',
-    selectedBlockIds: effectiveBlockIds,
-    currentBlockId: selectedBlockIds.length === 0 ? previewBlockId || null : null,
-    queueType: currentQueueType.value || null,
-    neuralBatch: getNeuralRoamQueue()?.getCurrentBatchSnapshot() ?? null,
-    arenaScenarioId: 'candidate-card-generation',
-    arenaTargetKind: 'note',
-  });
 }
 
 async function switchToBrowserSemanticWorkspace(): Promise<void> {

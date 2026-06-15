@@ -17,7 +17,6 @@ const labels: Record<string, string> = {
   settingsCardTab: 'Card Creation',
   settingsCaptureSyncTab: 'Excerpt & Sync',
   settingsNeuralTab: 'Neural Roam',
-  settingsAiTab: 'AI Workbench',
   settingsMaintenanceTab: 'Maintenance',
   settingsAboutTab: 'About',
   settingsSubtabFsrsParams: 'FSRS Parameters',
@@ -34,10 +33,6 @@ const labels: Record<string, string> = {
   settingsSubtabHyperspaceChannels: 'Propagation Channels',
   settingsSubtabHyperspaceRange: 'Spread Range',
   settingsSubtabHyperspaceWeights: 'Propagation Weights',
-  settingsSubtabAiProvider: 'Model Access',
-  settingsSubtabAiRuntime: 'Chat & Tools',
-  settingsSubtabAiBuiltInSkill: 'Built-in Skill',
-  settingsSubtabAiUserSkills: 'User Skills',
   blockAttrsCleanupTitle: 'Block Attribute Cleanup',
   settingsSubtabKernelCompanion: 'Kernel Companion',
 };
@@ -46,7 +41,7 @@ const t: SettingsI18nLookup = (key, fallback) => labels[key] || fallback;
 
 describe('settingsPanelViewModel', () => {
   it('normalizes active settings tabs including legacy aliases', () => {
-    expect(normalizeSettingsTabKey('ai')).toBe('ai');
+    expect(normalizeSettingsTabKey('ai')).toBe('learning');
     expect(normalizeSettingsTabKey('capture-sync')).toBe('capture-sync');
     expect(normalizeSettingsTabKey('fsrs')).toBe('learning');
     expect(normalizeSettingsTabKey('params')).toBe('learning');
@@ -67,7 +62,6 @@ describe('settingsPanelViewModel', () => {
       'Card Creation',
       'Excerpt & Sync',
       'Neural Roam',
-      'AI Workbench',
     ]);
     expect(viewModel.secondaryTabs.map((tab) => tab.label)).toEqual(['Maintenance', 'About']);
     expect(viewModel.activeTabLabel).toBe('Learning & Scheduling');
@@ -114,24 +108,24 @@ describe('settingsPanelViewModel', () => {
 
   it('falls back to first enabled subtab and refuses disabled selection', () => {
     const subTabsByTab = buildSettingsSubTabsByTab(t);
-    subTabsByTab.ai = [
-      { key: 'provider', label: 'Model Access', disabled: true },
-      { key: 'runtime', label: 'Chat & Tools' },
+    subTabsByTab.review = [
+      { key: 'surface', label: 'Review Surface', disabled: true },
+      { key: 'automation', label: 'Queue Automation' },
     ];
     const selectedSubTabs = {
       ...DEFAULT_SETTINGS_SUBTAB_SELECTION,
-      ai: 'provider',
+      review: 'surface',
     };
 
     const ensured = ensureActiveSettingsSubTabSelection({
-      tab: 'ai',
+      tab: 'review',
       selectedSubTabs,
       subTabsByTab,
     });
-    expect(ensured.ai).toBe('runtime');
+    expect(ensured.review).toBe('automation');
     expect(selectSettingsSubTab({
-      activeTab: 'ai',
-      requestedSubTab: 'provider',
+      activeTab: 'review',
+      requestedSubTab: 'surface',
       selectedSubTabs,
       subTabsByTab,
     })).toBeNull();

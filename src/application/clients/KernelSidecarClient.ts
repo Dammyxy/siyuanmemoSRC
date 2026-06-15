@@ -1,6 +1,4 @@
 import type {
-  KernelCompanionAiStreamHandlers,
-  KernelCompanionAiStreamSubscription,
   KernelCompanionBroadcastHandlers,
   KernelCompanionBroadcastSubscription,
   KernelCompanionPort,
@@ -23,8 +21,6 @@ import type {
   KernelWriterSubmitCommandRequest,
   KernelNetworkFetchExternalRequest,
   KernelNetworkFetchExternalResult,
-  KernelNetworkStreamExternalRequest,
-  KernelNetworkStreamExternalResult,
   QueueProjectionIdentityBroadcastPayload,
   QueueProjectionIdentityPublishEnvelope,
 } from '../../../packages/contracts/src/kernel-rpc';
@@ -45,13 +41,6 @@ export class KernelSidecarClient {
       return null;
     }
     return this.companionPort.subscribeBroadcast(handlers);
-  }
-
-  subscribeAiStream(streamId: string, handlers: KernelCompanionAiStreamHandlers): KernelCompanionAiStreamSubscription | null {
-    if (typeof this.companionPort.subscribeAiStream !== 'function') {
-      return null;
-    }
-    return this.companionPort.subscribeAiStream(streamId, handlers);
   }
 
   async writerHello(request: KernelWriterHelloRequest): Promise<KernelWriterLeaseSuccessEnvelope> {
@@ -153,21 +142,6 @@ export class KernelSidecarClient {
       headers: candidate.headers && typeof candidate.headers === 'object' ? candidate.headers : {},
       body: candidate.body,
     };
-  }
-
-  async networkStreamExternal(request: KernelNetworkStreamExternalRequest): Promise<KernelNetworkStreamExternalResult> {
-    const result = await this.call<KernelNetworkStreamExternalResult>('network.streamExternal', request);
-    if (!result || typeof result !== 'object') {
-      throw new Error('Kernel companion network.streamExternal returned invalid response envelope');
-    }
-    const candidate = result as KernelNetworkStreamExternalResult;
-    if (typeof candidate.requestId !== 'string' || typeof candidate.streamId !== 'string') {
-      throw new Error('Kernel companion network.streamExternal returned invalid payload');
-    }
-    if (candidate.state !== 'started' && candidate.state !== 'unavailable') {
-      throw new Error('Kernel companion network.streamExternal returned invalid state');
-    }
-    return candidate;
   }
 
   async queueProjectionPublishIdentityChanged(

@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ACTIVE_AI_PROMPT_CONTRACT_VERSION,
   DEFAULT_SETTINGS,
-  type AISettings,
   type QueueSettings,
 } from '@/types';
 import {
@@ -102,11 +100,6 @@ describe('settingsSavePayload', () => {
         filteredReviewDefault: 'reschedule',
       },
     };
-    const aiSettings = clone(DEFAULT_SETTINGS.ai) as AISettings;
-    aiSettings.baseUrl = ' https://example.test/v1 ';
-    aiSettings.apiKey = ' secret-key ';
-    aiSettings.model = ' gpt-test ';
-
     const payload = buildSettingsSavePayload({
       settings: createSettings({
         newCardsPerDay: 12000,
@@ -131,7 +124,6 @@ describe('settingsSavePayload', () => {
         pluginStart: false,
         browserOpen: true,
       },
-      aiSettings,
       arenaSettings: clone(DEFAULT_SETTINGS.arena),
       uiSettings: clone(DEFAULT_SETTINGS.ui),
     });
@@ -159,10 +151,6 @@ describe('settingsSavePayload', () => {
         targetBlockId: 'doc-root-1',
       },
     });
-    expect(payload.ai.baseUrl).toBe('https://example.test/v1');
-    expect(payload.ai.apiKey).toBe('secret-key');
-    expect(payload.ai.model).toBe('gpt-test');
-    expect(payload.ai.defaultModelId).toBe('gpt-test');
-    expect(payload.ai.promptContractVersion).toBe(ACTIVE_AI_PROMPT_CONTRACT_VERSION);
+    expect(payload).not.toHaveProperty('ai');
   });
 });

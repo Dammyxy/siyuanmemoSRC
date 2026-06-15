@@ -39,7 +39,6 @@ import { isErr } from '@/types/result';
 import { DEFAULT_SETTINGS, type PluginSettings, type RiffIntegrationConfig } from '@/types/settings';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
-import type { AIWorkbenchOpenOptions } from '@/types/ai';
 import { findConceptByUpwardSearch } from '@/application/usecases/xiuyuan/shared/ConceptLocator';
 import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/shared/ListChildrenResolver';
 import { resolveListItemAnchorBlockId as resolveListItemAnchorBlockIdHelper } from '@/application/usecases/xiuyuan/shared/ListItemAnchorResolver';
@@ -65,7 +64,6 @@ import type { PracticeQueueFilter } from './PracticeQueueManager';
 import type { BrowserOpenState } from '@/types/browser';
 import type { ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import {
-  loadAiWorkbenchDialogComponent,
   loadArenaManagerDialogComponent,
   loadCreateUnifiedReviewDialog,
   loadMobileReviewLauncherComponent,
@@ -102,7 +100,6 @@ type SettingsPanelSavePayload = {
   incremental?: PluginSettings['incremental'];
   quickCard?: PluginSettings['quickCard'];
   progressiveReading?: PluginSettings['progressiveReading'];
-  ai?: PluginSettings['ai'];
   arena?: PluginSettings['arena'];
   ui?: PluginSettings['ui'];
 };
@@ -173,7 +170,6 @@ export class DialogManager implements IDialogManager {
   private srsBrowserDialog: VueDialogHandle | null = null;
   private mobileQueueLauncherDialog: VueDialogHandle | null = null;
   private templateSelectDialog: VueDialogHandle | null = null;
-  private aiWorkbenchDialog: VueDialogHandle | null = null;
   private arenaManagerDialog: VueDialogHandle | null = null;
   private progressiveSplitDialog: VueDialogHandle | null = null;
   private currentReviewDialog: VueDialogHandle | null = null;
@@ -488,37 +484,6 @@ export class DialogManager implements IDialogManager {
     }
   }
 
-  async openAiWorkbenchDialog(options: AIWorkbenchOpenOptions = {}): Promise<void> {
-    const service = this.context.getAIWorkbenchService();
-    await service.open({
-      ...options,
-      surface: 'standalone-dialog',
-      sessionId: 'standalone',
-      sourceReviewSessionId: null,
-    });
-
-    if (this.aiWorkbenchDialog) {
-      return;
-    }
-
-    const AiWorkbenchDialog = await loadAiWorkbenchDialogComponent();
-    this.aiWorkbenchDialog = createVueDialog({
-      title: this.context.getI18n()?.aiWorkbenchTitle || 'AI 工作台',
-      component: AiWorkbenchDialog,
-      props: {
-        service,
-        i18n: this.context.getI18n() || {},
-      },
-      width: this.isMobileFrontend() ? '100vw' : 'min(1220px, 98vw)',
-      height: this.isMobileFrontend() ? '100vh' : 'min(860px, 94vh)',
-      visualVariant: 'workspace',
-      containerClass: 'siyuanmemo-ai-workbench-shell',
-      onClose: () => {
-        this.aiWorkbenchDialog = null;
-      },
-    });
-  }
-
   async openArenaManagerDialog(): Promise<void> {
     const service = this.context.getArenaKernelService();
     if (!service.isEnabled()) {
@@ -607,7 +572,6 @@ export class DialogManager implements IDialogManager {
         incrementalSettings: currentSettings.incremental,
         quickCardSettings: currentSettings.quickCard,
         progressiveReadingSettings: currentSettings.progressiveReading,
-        aiSettings: currentSettings.ai,
         arenaSettings: currentSettings.arena,
         captureStorageNotebooks,
         uiSettings: {
@@ -653,7 +617,6 @@ export class DialogManager implements IDialogManager {
             incremental: settings.incremental || currentSettings.incremental,
             quickCard: settings.quickCard || currentSettings.quickCard,
             progressiveReading: settings.progressiveReading || currentSettings.progressiveReading,
-            ai: settings.ai || currentSettings.ai,
             arena: settings.arena || currentSettings.arena,
             ui: settings.ui || currentSettings.ui,
           };
@@ -2698,10 +2661,6 @@ export class DialogManager implements IDialogManager {
     this.closeBrowserDialog();
     this.closeProgressiveSplitDialog();
     this.destroyCurrentReviewDialog();
-    if (this.aiWorkbenchDialog) {
-      this.aiWorkbenchDialog.destroy();
-      this.aiWorkbenchDialog = null;
-    }
     if (this.templateSelectDialog) {
       this.templateSelectDialog.destroy();
       this.templateSelectDialog = null;

@@ -410,16 +410,16 @@ describe('ApplicationContext writer relay command dispatch', () => {
     });
   });
 
-  it('wires Agent card drafting through application AI and SiYuan read owners', () => {
+  it('keeps plugin-owned Agent card drafting out of ApplicationContext composition', () => {
     const source = readApplicationContextSource();
 
-    expect(source).toContain("from '@/application/services/AgentCardDraftService'");
-    expect(source).toContain("from '@/infrastructure/llm/OpenAICompatibleLLMAdapter'");
-    expect(source).toContain("from '@/infrastructure/siyuan/AISiyuanAdapter'");
-    expect(source).toContain('cardDraftService: new AgentCardDraftService({');
-    expect(source).toContain('getAISettings: () => context.getSettingsService().getSettings().ai');
-    expect(source).toContain('llmPort: new OpenAICompatibleLLMAdapter()');
-    expect(source).toContain('siyuanPort: new AISiyuanAdapter(context.getPlugin())');
+    expect(source).not.toContain("from '@/application/services/AgentCardDraftService'");
+    expect(source).not.toContain("from '@/infrastructure/llm/OpenAICompatibleLLMAdapter'");
+    expect(source).not.toContain("from '@/infrastructure/siyuan/AISiyuanAdapter'");
+    expect(source).not.toContain('cardDraftService: new AgentCardDraftService({');
+    expect(source).not.toContain('getAISettings: () => context.getSettingsService().getSettings().ai');
+    expect(source).not.toContain('llmPort: new OpenAICompatibleLLMAdapter()');
+    expect(source).not.toContain('siyuanPort: new AISiyuanAdapter(context.getPlugin())');
   });
 
   it('rejects agent.tool.execute relay without an application hook', async () => {

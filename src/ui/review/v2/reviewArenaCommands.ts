@@ -3,7 +3,6 @@ import SrsArenaConflictDialog from './dialogs/SrsArenaConflictDialog.vue';
 import type { SrsArenaRecommendation } from '@/types/arena';
 import type { FSRSCard } from '@/types/card';
 import type { QueueReviewSchedulingContext } from '@/types/unified-data-source';
-import type { ReviewAIRequestedView } from './reviewAICommands';
 
 type ReviewArenaTranslate = (key: string, fallback: string) => string;
 
@@ -90,15 +89,6 @@ export function resolveArenaTargetKindFromCard(card: FSRSCard | null | undefined
     return type;
   }
   return 'note';
-}
-
-export function resolveReviewArenaScenario(view: ReviewAIRequestedView, card: FSRSCard | null | undefined): 'topic-auto-card' | 'candidate-card-generation' | 'card-prompt-rewrite' | 'descriptor-augmentation' | 'concept-expression-coach' | 'note-refinement' {
-  const type = String(card?.type || '').trim();
-  if (type === 'topic') return 'topic-auto-card';
-  if (type === 'descriptor') return 'descriptor-augmentation';
-  if (type === 'concept') return 'concept-expression-coach';
-  if (type === 'item') return 'card-prompt-rewrite';
-  return view === 'general-chat' ? 'note-refinement' : 'candidate-card-generation';
 }
 
 export function createReviewArenaRuntime(options: ReviewArenaRuntimeOptions) {

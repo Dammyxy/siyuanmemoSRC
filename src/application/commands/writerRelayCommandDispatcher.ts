@@ -308,18 +308,6 @@ export async function executeWriterRelayCommand(
     }
     return srsBackendClient.executeTopicDerivedCommand(command.params as Parameters<SrsBackendClient['executeTopicDerivedCommand']>[0]);
   }
-  if (command.method === 'ai.tool.job.execute') {
-    if (!command.params || typeof command.params !== 'object') {
-      throw new Error('INVALID_REQUEST: ai.tool.job.execute relay requires params object');
-    }
-    return srsBackendClient.executeAiToolJob(command.params as Parameters<SrsBackendClient['executeAiToolJob']>[0]);
-  }
-  if (command.method === 'ai.tool.job.approval') {
-    if (!command.params || typeof command.params !== 'object') {
-      throw new Error('INVALID_REQUEST: ai.tool.job.approval relay requires params object');
-    }
-    return srsBackendClient.submitAiToolJobApproval(command.params as Parameters<SrsBackendClient['submitAiToolJobApproval']>[0]);
-  }
   if (command.method === 'review.riffFeedback.execute') {
     if (!command.params || typeof command.params !== 'object') {
       throw new Error('INVALID_REQUEST: review.riffFeedback.execute relay requires params object');
@@ -331,40 +319,6 @@ export async function executeWriterRelayCommand(
       throw new Error('INVALID_REQUEST: review.sourceRefresh.execute relay requires params object');
     }
     return srsBackendClient.executeReviewSourceRefresh(command.params as Parameters<SrsBackendClient['executeReviewSourceRefresh']>[0]);
-  }
-  if (command.method === 'ai.session.create') {
-    if (!command.params || typeof command.params !== 'object') {
-      throw new Error('INVALID_REQUEST: ai.session.create relay requires params object');
-    }
-    return srsBackendClient.createAiSession(command.params as {
-      sessionId: string;
-      surfaceId: string;
-      reviewSessionId?: string | null;
-    });
-  }
-  if (command.method === 'ai.session.get') {
-    if (!command.params || typeof command.params !== 'object') {
-      throw new Error('INVALID_REQUEST: ai.session.get relay requires params object');
-    }
-    return srsBackendClient.getAiSession(command.params as { sessionId: string });
-  }
-  if (command.method === 'ai.session.update') {
-    if (!command.params || typeof command.params !== 'object') {
-      throw new Error('INVALID_REQUEST: ai.session.update relay requires params object');
-    }
-    return srsBackendClient.updateAiSession(command.params as {
-      sessionId: string;
-      state?: 'active' | 'streaming' | 'completed' | 'canceled' | 'expired' | 'unavailable' | 'failed';
-    });
-  }
-  if (command.method === 'ai.session.cancel') {
-    if (!command.params || typeof command.params !== 'object') {
-      throw new Error('INVALID_REQUEST: ai.session.cancel relay requires params object');
-    }
-    return srsBackendClient.cancelAiSession(command.params as {
-      sessionId: string;
-      reason?: string;
-    });
   }
   throw new Error(`BACKEND_UNAVAILABLE: unsupported writer relay method ${String(command.method || '')}`);
 }

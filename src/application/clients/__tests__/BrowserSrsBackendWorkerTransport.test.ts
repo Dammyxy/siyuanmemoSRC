@@ -1398,54 +1398,6 @@ describe('BrowserSrsBackendWorkerTransport', () => {
     transport.dispose();
   });
 
-  it('passes AI prompt host-effect stream context to the renderer network bridge', async () => {
-    const worker = new FakeWorker();
-    const executeAiPrompt = vi.fn(async () => ({
-      status: 200,
-      headers: {},
-      body: 'ok',
-    }));
-    const transport = new BrowserSrsBackendWorkerTransport({
-      workerFactory: () => worker as unknown as Worker,
-      hostEffects: { executeAiPrompt },
-    });
-    const context = {
-      sessionId: 'session-1',
-      streamId: 'stream-1',
-      jobId: 'job-1',
-      request: {
-        url: 'https://provider.test/events',
-        method: 'GET',
-        stream: true,
-      },
-    };
-
-    worker.emit({ kind: 'ready' });
-    worker.emit({
-      kind: 'host-effect',
-      effectId: 'effect-ai-1',
-      effect: {
-        kind: 'ai.prompt.execute',
-        request: context.request,
-        context,
-      },
-    });
-
-    await vi.waitFor(() => expect(worker.posted).toHaveLength(1));
-    expect(executeAiPrompt).toHaveBeenCalledWith(context.request, context);
-    expect(worker.posted[0]).toEqual({
-      kind: 'host-effect-result',
-      effectId: 'effect-ai-1',
-      ok: true,
-      result: {
-        status: 200,
-        headers: {},
-        body: 'ok',
-      },
-    });
-    transport.dispose();
-  });
-
   it('rejects pending requests when disposed', async () => {
     const worker = new FakeWorker();
     const transport = new BrowserSrsBackendWorkerTransport({

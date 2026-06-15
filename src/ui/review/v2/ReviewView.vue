@@ -307,19 +307,8 @@
 
       </div>
 
-      <aside v-if="showReviewSideArea" class="fsrs-review-v2__side-area fsrs-review-v2__ai-sidecar">
+      <aside v-if="showReviewSideArea" class="fsrs-review-v2__side-area">
         <div class="fsrs-review-v2__side-tabs" role="tablist" :aria-label="t('reviewSideAreaTabs', 'Review side area')">
-          <button
-            v-if="showReviewAISidecar && reviewAIService"
-            type="button"
-            class="fsrs-review-v2__side-tab"
-            :class="{ 'fsrs-review-v2__side-tab--active': activeReviewSideAreaTab === 'ai' }"
-            role="tab"
-            :aria-selected="activeReviewSideAreaTab === 'ai'"
-            @click="activeReviewSideAreaTab = 'ai'"
-          >
-            AI
-          </button>
           <button
             v-if="showReviewSemanticSidePanel"
             type="button"
@@ -331,14 +320,6 @@
           >
             语义
           </button>
-        </div>
-        <div
-          v-if="showReviewAISidecar && reviewAIService"
-          v-show="activeReviewSideAreaTab === 'ai'"
-          class="fsrs-review-v2__side-panel"
-          role="tabpanel"
-        >
-          <AiWorkbenchPane :service="reviewAIService" :i18n="i18n" @close="closeReviewAISidebar" />
         </div>
         <div
           v-if="showReviewSemanticSidePanel"
@@ -375,13 +356,8 @@ import ReviewCdfRelationPreviewDialog from './components/ReviewCdfRelationPrevie
 import ReviewInlineCardEditor from './components/ReviewInlineCardEditor.vue';
 import NeuralRoamJourneyHeader from './NeuralRoamJourneyHeader.vue';
 import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
-import AiWorkbenchPane from '@/ui/ai/AiWorkbenchPane.vue';
 import SemanticReviewSidebar from './semantic/SemanticReviewSidebar.vue';
-import {
-  buildSemanticPathAnalysisContext,
-  buildSemanticPathAnalysisPrompt,
-  type SemanticPathAnalysisPayload,
-} from './semantic/semanticReviewAIHandoff';
+import type { SemanticPathAnalysisPayload } from './semantic/semanticReviewAIHandoff';
 import {
   createReviewSessionController,
   useReviewSession,
@@ -426,7 +402,6 @@ import {
   type NeuralRoamBatchSnapshot,
   type NeuralRoamSessionQueue,
   type QueueReviewSchedulingContext,
-  type ReviewQueueProgressSnapshot,
 } from '@/types/unified-data-source';
 import type { NeuralRoamRouteListItem } from '@/core/queue/neural/routes';
 import type { FSRSCard } from '@/types/card';
@@ -435,23 +410,6 @@ import type { ReviewTabRuntimeState } from '@/types/review-tab';
 import { isTopicLikeCard } from './reviewCardSemantics';
 import { resolveReviewDialogEscapeKeydown, shouldResetReviewDialogEscapeLatch } from './reviewDialogEscape';
 import { createReviewEditorState, type ReviewEditorState } from './reviewEditorState';
-import {
-  buildReviewAIChatKey as buildReviewAIChatKeyFromQueue,
-  buildReviewAICompanionTitle,
-  buildReviewAIOpenOptions,
-  openReviewAIAssistantCommand,
-  resolveDefaultReviewAIEntryView as resolveDefaultReviewAIEntryViewFromSettings,
-  resolveReviewAIEntryView as resolveReviewAIEntryViewFromState,
-  type ReviewAIRegistryLike,
-  type ReviewAIRequestedView,
-  type ReviewAISurface,
-} from './reviewAICommands';
-import {
-  resolveReviewSideAreaTabAfterAIClose,
-  resolveReviewSideAreaTabForVisibility,
-  syncReviewAISideAreaContextIfNeeded,
-  type ReviewSideAreaTab,
-} from './reviewAISideAreaRuntime';
 import { createReviewWriterRecoveryRuntime } from './reviewWriterRecoveryRuntime';
 import { createReviewTabTransferRuntime } from './reviewTabTransferRuntime';
 import { resolveReviewKeyAction } from './reviewKeyActionResolver';
@@ -563,17 +521,13 @@ import {
   toggleReviewFullscreen as toggleReviewFullscreenCommand,
 } from './reviewShellCommands';
 import { openReviewSrsEditorDialog } from './reviewSrsEditorCommands';
-import { AI_GENERAL_CHAT_SKILL_ID, type AIWorkbenchOpenOptions, type AIWorkbenchSurface } from '@/types/ai';
 import type { PluginSettings } from '@/types/settings';
-import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import type { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import { prepareReviewPresentation } from './reviewPresentationPreparer';
 import {
   createReviewArenaRuntime,
-  resolveArenaTargetKindFromCard,
-  resolveReviewArenaScenario,
 } from './reviewArenaCommands';
 import { createReviewCardActionRuntime, type ReviewCardPeerInfo } from './reviewCardActionCommands';
 import {
@@ -613,6 +567,7 @@ import { buildReviewDomainSyncSafetyDecision } from '@/application/services/Revi
 import { openManualSyncConflictResolutionDialog } from '@/ui/syncConflict/manualSyncConflictResolutionDialog';
 
 const logger = createLogger('ReviewView');
+type ReviewSideAreaTab = 'semantic';
 
 type ReviewPluginContextLike = {
   getDialogManager?: () =>
@@ -633,13 +588,7 @@ type ReviewPluginContextLike = {
           startNewSession?: boolean;
           entrySessionKind?: 'temporary-current-block' | 'temporary-concept' | 'station-roam' | 'concept-card-roam' | 'direct-focus' | null;
         }) => Promise<void> | void;
-        openAiWorkbenchDialog?: (options?: AIWorkbenchOpenOptions) => Promise<void> | void;
         switchStandardReviewDialogQueue?: (queueType: QueueType) => Promise<void> | void;
-      })
-    | undefined;
-  getReviewAIWorkbenchRegistry?: () =>
-    | (ReviewAIRegistryLike & {
-        disposeReviewSession?: (sessionId: string) => void;
       })
     | undefined;
   getNeuralRoamEntryActionService?: () =>
@@ -669,9 +618,6 @@ type ReviewPluginContextLike = {
     | (ReviewOpenAsTabManager & {
         replaceCurrentReviewTabWithStandardQueue?: (queueType: QueueType) => void;
         closeReviewTab?: (reviewSessionId: string) => void;
-        openReviewAICompanionTab?: (options: AIWorkbenchOpenOptions & { sessionId: string; title: string }) => Promise<void> | void;
-        focusReviewAICompanionTab?: (reviewSessionId: string) => boolean;
-        hasReviewAICompanionTab?: (reviewSessionId: string) => boolean;
       })
     | undefined;
   getHybridSyncService?: () => { incrementalSync: () => Promise<void> } | undefined;
@@ -974,13 +920,11 @@ const reviewRenderServices = computed(() => (
   props.reviewRenderServices
   ?? getPluginContext(props.plugin)?.createReviewRenderServices?.({ i18n: i18n || {} })
 ));
-const reviewAIService = ref<AIWorkbenchService | null>(null);
-const reviewAISidebarOpen = ref(false);
 const reviewSemanticInitialPinnedSessionId = String(props.initialSemanticPinnedSessionId || '').trim();
 const reviewSemanticSidebarOpen = ref(Boolean(reviewSemanticInitialPinnedSessionId));
 const reviewSemanticPinnedSessionId = ref<string | null>(reviewSemanticInitialPinnedSessionId || null);
 const reviewSemanticTemporaryView = ref<ReviewSemanticTemporaryView | null>(null);
-const activeReviewSideAreaTab = ref<ReviewSideAreaTab>('ai');
+const activeReviewSideAreaTab = ref<ReviewSideAreaTab>('semantic');
 const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1440);
 
 const rootRef = ref<HTMLDivElement | null>(null);
@@ -1208,12 +1152,6 @@ function getTabManager() {
   return contextFromProps?.getTabManager?.() || contextFromWindow?.getTabManager?.() || null;
 }
 
-function getReviewAIWorkbenchRegistry() {
-  const contextFromProps = getPluginContext(props.plugin);
-  const contextFromWindow = getWindowPlugin()?.getContext?.();
-  return contextFromProps?.getReviewAIWorkbenchRegistry?.() || contextFromWindow?.getReviewAIWorkbenchRegistry?.() || null;
-}
-
 function getSharedReviewSessionRegistry(): SharedReviewSessionRegistry | null {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
@@ -1265,64 +1203,6 @@ function resolveActiveReviewQueueType(): string | null {
 }
 
 const activeReviewQueueType = computed(() => resolveActiveReviewQueueType() || undefined);
-
-function resolveActiveReviewQueueLabel(): string {
-  const title = String(props.title || '').trim();
-  if (title.length > 0) {
-    return title;
-  }
-
-  const activeQueue = props.queue;
-  if (isRecord(activeQueue)) {
-    const displayName = String(activeQueue.displayName || '').trim();
-    if (displayName.length > 0) {
-      return displayName;
-    }
-    const name = String(activeQueue.name || '').trim();
-    if (name.length > 0) {
-      return name;
-    }
-  }
-
-  return resolveActiveReviewQueueType() || t('reviewTitle', 'Review');
-}
-
-function buildReviewAIChatKey(): string | null {
-  return buildReviewAIChatKeyFromQueue({
-    queueType: resolveActiveReviewQueueType(),
-    queueLabel: resolveActiveReviewQueueLabel(),
-  });
-}
-
-function buildReviewQueueProgress(): ReviewQueueProgressSnapshot | null {
-  const meta = isRecord(state.value.meta) ? state.value.meta as Record<string, unknown> : null;
-  const candidate = meta?.queueProgress;
-  if (isRecord(candidate)) {
-    return {
-      queueType: typeof candidate.queueType === 'string' ? candidate.queueType : resolveActiveReviewQueueType(),
-      queueLabel: resolveActiveReviewQueueLabel(),
-      completed: Math.max(0, Number(candidate.completed) || 0),
-      remaining: Math.max(0, Number(candidate.remaining) || 0),
-      total: Number.isFinite(Number(candidate.total)) && Number(candidate.total) > 0 ? Number(candidate.total) : null,
-    };
-  }
-
-  const rawTotal = Number(meta?.queueSize);
-  const total = Number.isFinite(rawTotal) && rawTotal > 0 ? rawTotal : null;
-  const rawRemaining = Number(meta?.remainingSize);
-  const remaining = Number.isFinite(rawRemaining) && rawRemaining >= 0
-    ? Math.max(0, total !== null ? Math.min(rawRemaining, total) : rawRemaining)
-    : (total ?? 0);
-  const completed = total !== null ? Math.max(0, total - remaining) : 0;
-
-  return {
-    queueType: resolveActiveReviewQueueType(),
-    queueLabel: resolveActiveReviewQueueLabel(),
-    completed,
-    remaining,
-    total,
-  };
-}
 
 function getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null {
   const contextFromProps = getPluginContext(props.plugin);
@@ -1577,9 +1457,6 @@ onUnmounted(() => {
     initialTabSurfaceRefreshTimer = null;
   }
   reviewArenaRuntime.destroyConflictDialog();
-  if (props.mode !== 'tab') {
-    getReviewAIWorkbenchRegistry()?.disposeReviewSession?.(reviewSessionId.value);
-  }
   logger.debug('[SiYuanMemo][ReviewView] Keyboard event listener removed');
 });
 
@@ -1887,19 +1764,11 @@ function notifyReviewMidSessionInserted(input: {
   );
 }
 
-const REVIEW_AI_SIDECAR_MIN_VIEWPORT = 1040;
+const REVIEW_SIDE_AREA_MIN_VIEWPORT = 1040;
 const SEMANTIC_ACTIVATION_USER_ENTRY_ENABLED = false;
 
-const canUseEmbeddedReviewAISidecar = computed(() => (
-  props.mode === 'dialog' && props.isMobile !== true && viewportWidth.value >= REVIEW_AI_SIDECAR_MIN_VIEWPORT
-));
-
 const canUseReviewSideArea = computed(() => (
-  props.isMobile !== true && viewportWidth.value >= REVIEW_AI_SIDECAR_MIN_VIEWPORT
-));
-
-const showReviewAISidecar = computed(() => (
-  canUseEmbeddedReviewAISidecar.value && reviewAISidebarOpen.value && reviewAIService.value !== null
+  props.isMobile !== true && viewportWidth.value >= REVIEW_SIDE_AREA_MIN_VIEWPORT
 ));
 
 const showReviewSemanticSidePanel = computed(() => (
@@ -1909,7 +1778,7 @@ const showReviewSemanticSidePanel = computed(() => (
 ));
 
 const showReviewSideArea = computed(() => (
-  showReviewAISidecar.value || showReviewSemanticSidePanel.value
+  showReviewSemanticSidePanel.value
 ));
 
 const semanticActivationReadClient = computed(() => (
@@ -3151,53 +3020,6 @@ const handleApplyReviewFilter = reviewFilterRuntime.handleApply;
 const handleClearReviewFilter = reviewFilterRuntime.handleClear;
 const handleRebuildReviewFilterQueue = reviewFilterRuntime.handleRebuild;
 
-function buildReviewAIOptions(view: ReviewAIRequestedView, surface?: AIWorkbenchSurface): AIWorkbenchOpenOptions {
-  const neuralQueue = getNeuralRoamQueue();
-  const currentCard = state.value.content.card as FSRSCard | null;
-  return buildReviewAIOpenOptions({
-    view,
-    surface,
-    sessionId: reviewSessionId.value,
-    reviewChatKey: buildReviewAIChatKey(),
-    currentCard,
-    currentBlockId: resolveCurrentReviewBlockId() || null,
-    queueType: resolveActiveReviewQueueType(),
-    queueProgress: buildReviewQueueProgress(),
-    revealed: hook.context.value.showAnswer === true,
-    neuralBatch: neuralQueue?.getCurrentBatchSnapshot() ?? null,
-    arenaScenarioId: resolveReviewArenaScenario(view, currentCard),
-    arenaTargetKind: resolveArenaTargetKindFromCard(currentCard),
-  });
-}
-
-function resolveDefaultReviewAIEntryView() {
-  const context = getPluginContext(props.plugin) || getWindowPlugin()?.getContext?.();
-  const configured = context?.getSettingsService?.().getSettings?.()?.ai?.chatDefaults?.reviewDefaultSkillId;
-  return resolveDefaultReviewAIEntryViewFromSettings(configured);
-}
-
-function resolveReviewAIEntryView(requestedView?: ReviewAIRequestedView): ReviewAIRequestedView {
-  const registry = getReviewAIWorkbenchRegistry();
-  return resolveReviewAIEntryViewFromState({
-    requestedView,
-    activeServiceView: reviewAIService.value?.state.activeView,
-    activeRegistryView: registry?.getReviewSession?.(reviewSessionId.value)?.state.activeView,
-    defaultView: resolveDefaultReviewAIEntryView(),
-  });
-}
-
-function getReviewAICompanionTitle(view: ReviewAIRequestedView): string {
-  return buildReviewAICompanionTitle({
-    view,
-    reviewTitle: String(props.title || t('reviewTitle', 'Review')).trim(),
-    labels: {
-      generalChat: t('generalChat', '通用 AI 聊天'),
-      conceptCoach: t('aiConceptCoachCard', 'AI 理解与制卡'),
-      review: t('reviewTitle', 'Review'),
-    },
-  });
-}
-
 function updateReviewDialogContainerLayout(): void {
   const dialogContainer = rootRef.value?.closest('.b3-dialog__container.siyuanmemo-review-dialog-container') as HTMLElement | null;
   if (!dialogContainer || props.mode !== 'dialog' || props.isMobile) {
@@ -3216,63 +3038,6 @@ function updateReviewDialogContainerLayout(): void {
     dialogContainer.style.width = 'min(860px, 96vw)';
     dialogContainer.style.maxWidth = '1024px';
   }
-}
-
-function closeReviewAISidebar(): void {
-  reviewAISidebarOpen.value = false;
-  activeReviewSideAreaTab.value = resolveReviewSideAreaTabAfterAIClose({
-    currentTab: activeReviewSideAreaTab.value,
-    semanticVisible: showReviewSemanticSidePanel.value,
-  });
-  updateReviewDialogContainerLayout();
-}
-
-async function syncReviewAIContextIfNeeded(surface: ReviewAISurface): Promise<void> {
-  const activeView = resolveReviewAIEntryView();
-  const tabManager = getTabManager();
-  await syncReviewAISideAreaContextIfNeeded({
-    surface,
-    sidecarVisible: showReviewAISidecar.value,
-    hasCompanionTab: tabManager?.hasReviewAICompanionTab
-      ? (sessionId) => tabManager.hasReviewAICompanionTab?.(sessionId)
-      : undefined,
-    registry: getReviewAIWorkbenchRegistry(),
-    sessionId: reviewSessionId.value,
-    activeView,
-    buildOptions: buildReviewAIOptions,
-    onService: (service) => {
-      reviewAIService.value = service;
-    },
-  });
-}
-
-async function openReviewAIAssistant(requestedView?: ReviewAIRequestedView): Promise<void> {
-  const registry = getReviewAIWorkbenchRegistry();
-  await openReviewAIAssistantCommand({
-    requestedView,
-    mode: props.mode,
-    canUseEmbeddedReviewAISidecar: canUseEmbeddedReviewAISidecar.value,
-    sessionId: reviewSessionId.value,
-    activeServiceView: reviewAIService.value?.state.activeView,
-    activeRegistryView: registry?.getReviewSession?.(reviewSessionId.value)?.state.activeView,
-    defaultView: resolveDefaultReviewAIEntryView(),
-    registry,
-    dialogManager: getDialogManager(),
-    tabManager: getTabManager(),
-    buildOptions: buildReviewAIOptions,
-    getCompanionTitle: getReviewAICompanionTitle,
-    onService: (service) => {
-      reviewAIService.value = service;
-    },
-    onOpenSidecar: () => {
-      reviewAISidebarOpen.value = true;
-      activeReviewSideAreaTab.value = 'ai';
-      updateReviewDialogContainerLayout();
-    },
-    onPluginNotReady: () => {
-      showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-    },
-  });
 }
 
 function openCurrentSrsEditor(): void {
@@ -4636,7 +4401,7 @@ async function startSemanticActivationEntry(conceptFocusOverride?: { focusBlockI
     return;
   }
 
-  if (canUseEmbeddedReviewAISidecar.value) {
+  if (canUseReviewSideArea.value) {
     reviewSemanticPinnedSessionId.value = result.entry.model.session.sessionId;
     reviewSemanticSidebarOpen.value = true;
     activeReviewSideAreaTab.value = 'semantic';
@@ -4681,18 +4446,8 @@ function handleSemanticEndedSessionContinue(): void {
 }
 
 async function handleSemanticAnalyzePath(payload: SemanticPathAnalysisPayload): Promise<void> {
-  await openReviewAIAssistant(AI_GENERAL_CHAT_SKILL_ID);
-  const service = reviewAIService.value || getReviewAIWorkbenchRegistry()?.getReviewSession?.(reviewSessionId.value) || null;
-  if (!service) {
-    showMessage(t('semanticAnalyzePathAIUnavailable', 'AI sidebar is unavailable for Semantic path analysis.'), 3000, 'error');
-    return;
-  }
-  await service.submitFollowUp(buildSemanticPathAnalysisPrompt(payload), {
-    attachedContexts: [buildSemanticPathAnalysisContext(payload)],
-  });
-  reviewAISidebarOpen.value = true;
-  activeReviewSideAreaTab.value = 'ai';
-  updateReviewDialogContainerLayout();
+  void payload;
+  showMessage(t('semanticAnalyzePathAIUnavailable', 'AI path analysis moved to host Agent. Use MCP context instead.'), 3000, 'error');
 }
 
 function findSemanticTemporaryCard(blockId: string): FSRSCard | null {
@@ -4821,16 +4576,6 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
 
   if (actionType === 'edit-current-content') {
     void openInlineCardEditor();
-    return;
-  }
-
-  if (actionType === 'ai-sidebar') {
-    void openReviewAIAssistant();
-    return;
-  }
-
-  if (actionType === 'ai-explain') {
-    void openReviewAIAssistant('explain');
     return;
   }
 
@@ -5309,43 +5054,9 @@ watch(
 );
 
 watch(
-  () => [
-    resolveCurrentReviewCardId(),
-    resolveCurrentReviewBlockId(),
-    hook.context.value.showAnswer === true,
-    JSON.stringify(getNeuralRoamQueue()?.getCurrentBatchSnapshot() ?? null),
-  ],
-  () => {
-    const surface = props.mode === 'tab' ? 'review-tab-companion' : 'review-dialog-sidecar';
-    void syncReviewAIContextIfNeeded(surface);
-  },
-);
-
-watch(
   showReviewSideArea,
   () => {
     updateReviewDialogContainerLayout();
-  },
-);
-
-watch(
-  [showReviewAISidecar, showReviewSemanticSidePanel],
-  ([aiVisible, semanticVisible]) => {
-    activeReviewSideAreaTab.value = resolveReviewSideAreaTabForVisibility({
-      currentTab: activeReviewSideAreaTab.value,
-      aiVisible,
-      semanticVisible,
-    });
-  },
-);
-
-watch(
-  canUseEmbeddedReviewAISidecar,
-  (enabled) => {
-    if (!enabled && reviewAISidebarOpen.value) {
-      reviewAISidebarOpen.value = false;
-      updateReviewDialogContainerLayout();
-    }
   },
 );
 

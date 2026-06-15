@@ -21,7 +21,6 @@ import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKern
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import { resolveTruthDeviceIdentity } from '@/application/factories/truthDeviceIdentity';
 import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
-import type { AINetworkProxyPort } from '@/application/ports/AINetworkProxyPort';
 import type { NeuralRoamNodeTypeResolverPort } from '@/core/queue/domain/ports';
 import type { NeuralRoamCardFacts } from '@/core/queue/neural/NeuralRoamCardFacts';
 import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
@@ -90,7 +89,6 @@ export interface CreateApplicationBackendRuntimeBundleOptions {
   kernelSidecarClient?: KernelSidecarClient;
   createBlockExistenceSiyuanPort: () => Pick<QuerySiyuanPort, 'sql'>;
   createNeuralRoamGraphQuery: (deps: NeuralRoamGraphQueryFactoryDeps) => NeuralRoamGraphQueryHost;
-  createAiNetworkProxy: (kernelSidecarClient: KernelSidecarClient) => Pick<AINetworkProxyPort, 'execute'>;
   resolveKernelWriterLeaseInstanceId?: () => string | undefined;
   resolveKernelWriterLeaseTtlMs?: () => number | undefined;
   resolveSiyuanBackendContainer?: () => string;
@@ -146,7 +144,6 @@ export async function createApplicationBackendRuntimeBundle(
             resolvePriority: (blockId) => options.unifiedDataSourceManager.resolveNeuralRoamNodePriority(blockId),
           },
         });
-        const aiNetworkProxy = options.createAiNetworkProxy(kernelSidecarClient);
         srsBackendTransport = new BrowserSrsBackendWorkerTransport({
           hostEffects: {
             readBinary: (path) => bridge.readBinary(path),
@@ -187,12 +184,6 @@ export async function createApplicationBackendRuntimeBundle(
             executeProgressiveCommand: options.executeProgressiveCommand,
             executeTopicDerivedCommand: options.executeTopicDerivedCommand,
             executeReviewRiffFeedback: options.executeReviewRiffFeedback,
-            executeAiPrompt: async (request, context) => aiNetworkProxy.execute({
-              ...request,
-              streamId: context.streamId,
-              sessionId: context.sessionId,
-              jobId: context.jobId,
-            }),
           },
         });
         const truthDeviceIdentity = await resolveTruthDeviceIdentity({ localStore: options.fileService });

@@ -415,7 +415,7 @@ describe('kernel writer lease profile policy', () => {
     });
   });
 
-  it('relays memo_card draft without kernel-side AI prompt, source read, or candidate ownership', async () => {
+  it('rejects memo_card draft before relay so kernel never owns AI prompt or candidates', async () => {
     const kernelSource = readFileSync(resolve(process.cwd(), 'src/kernel.ts'), 'utf8');
     expect(kernelSource).not.toContain('AgentCardDraftService');
     expect(kernelSource).not.toContain('OpenAICompatibleLLMAdapter');
@@ -435,47 +435,15 @@ describe('kernel writer lease profile policy', () => {
       sourceBlockId: 'block-source',
       count: 3,
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    const command = await handlers['writer.takeCommand']({ instanceId: 'writer-a' }) as {
-      command?: {
-        commandId: string;
-        method: string;
-        params?: unknown;
-      };
-    };
-    expect(command.command).toMatchObject({
-      method: 'agent.tool.execute',
-      params: {
-        tool: 'memo_card',
-        args: {
-          action: 'draft',
-          sourceBlockId: 'block-source',
-          count: 3,
-        },
-        source: 'mcp',
-      },
-    });
-    await handlers['writer.completeCommand']({
-      instanceId: 'writer-a',
-      commandId: command.command!.commandId,
-      result: {
-        ok: false,
-        status: 'unavailable',
-        error: {
-          code: 'AGENT_API_UNAVAILABLE',
-          message: 'AI draft runtime unavailable',
-        },
-      },
-    });
-
     await expect(toolCall).resolves.toMatchObject({
       ok: false,
-      status: 'unavailable',
+      status: 'unsupported-operation',
       error: {
-        code: 'AGENT_API_UNAVAILABLE',
+        code: 'UNSUPPORTED_OPERATION',
       },
     });
+    const command = await handlers['writer.takeCommand']({ instanceId: 'writer-a' }) as { command?: unknown };
+    expect(command.command).toBeNull();
   });
 
   it('unregisters Agent MCP tools on unload when the API exists', async () => {

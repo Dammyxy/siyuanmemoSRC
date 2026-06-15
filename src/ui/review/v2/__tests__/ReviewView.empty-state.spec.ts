@@ -147,7 +147,6 @@ function mountReviewView(options: {
         ReviewContent: ReviewContentStub,
         ReviewActions: ReviewActionsStub,
         FilterDialog: true,
-        AiWorkbenchPane: true,
         teleport: true,
       },
     },

@@ -81,7 +81,6 @@ import {
   createReviewRenderServices as createInjectedReviewRenderServices,
   type ReviewRenderServices,
 } from '@/application/factories/createReviewRenderServices';
-import { createAIServiceBundle } from '@/application/factories/createAIServiceBundle';
 import {
   createAutoCardKernelXiuyuanServiceBundle,
   type AutoCardKernelXiuyuanServiceBundle,
@@ -124,16 +123,13 @@ import { SelectionExcerptService } from '@/application/services/SelectionExcerpt
 import { SelectionTopicContinuationService } from '@/application/services/SelectionTopicContinuationService';
 import { TopicDerivedItemService } from '@/application/services/TopicDerivedItemService';
 import { ConfiguredCaptureStorageService } from '@/application/services/ConfiguredCaptureStorageService';
-import type { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
-import type { AIWorkbenchSessionStoreService } from '@/application/services/AIWorkbenchSessionStoreService';
-import type { ArenaKernelService } from '@/application/services/ArenaKernelService';
-import type { ArenaStoreService } from '@/application/services/ArenaStoreService';
-import type { ReviewAIWorkbenchRegistry } from '@/application/services/ReviewAIWorkbenchRegistry';
+import { ArenaKernelService } from '@/application/services/ArenaKernelService';
+import { ArenaStoreService } from '@/application/services/ArenaStoreService';
+import { ReviewLogLearningCurveEvidenceReader } from '@/application/services/SrsTransparencyEvidenceReader';
 import { PrivateApiAuditService } from '@/application/services/PrivateApiAuditService';
 import { PrivateApiService } from '@/application/services/PrivateApiService';
 import { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import { AgentToolService } from '@/application/services/AgentToolService';
-import { AgentCardDraftService } from '@/application/services/AgentCardDraftService';
 import {
   buildAgentValidationErrorResult,
   isAgentToolName,
@@ -144,9 +140,6 @@ import { ProgressiveNativeRiffAdapter } from '@/infrastructure/siyuan/Progressiv
 import { ConfiguredCaptureStorageSiyuanAdapter } from '@/infrastructure/siyuan/ConfiguredCaptureStorageSiyuanAdapter';
 import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKernelCompanionAdapter';
 import { SiyuanNeuralRoamGraphQueryAdapter } from '@/infrastructure/siyuan/SiyuanNeuralRoamGraphQueryAdapter';
-import { KernelAINetworkProxyAdapter } from '@/infrastructure/ai/KernelAINetworkProxyAdapter';
-import { OpenAICompatibleLLMAdapter } from '@/infrastructure/llm/OpenAICompatibleLLMAdapter';
-import { AISiyuanAdapter } from '@/infrastructure/siyuan/AISiyuanAdapter';
 import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
 import { SiyuanBlockAdapter as QuickCardSiyuanBlockAdapter } from '@/core/card/quick-card/infrastructure/SiyuanBlockAdapter';
 import { SiyuanBlockAdapter as DescriptorCardSiyuanBlockAdapter } from '@/core/card/descriptor-card/infrastructure/SiyuanBlockAdapter';
@@ -244,13 +237,10 @@ interface ApplicationServiceRegistry {
   selectionTopicContinuationService: SelectionTopicContinuationService;
   topicDerivedItemService: TopicDerivedItemService;
   cardContentQueryService: CardContentQueryService;
-  aiWorkbenchSessionStoreService: AIWorkbenchSessionStoreService;
   arenaStoreService: ArenaStoreService;
   arenaKernelService: ArenaKernelService;
-  reviewAIWorkbenchRegistry: ReviewAIWorkbenchRegistry;
   sharedReviewSessionRegistry: SharedReviewSessionRegistry;
   agentToolService: AgentToolService;
-  aiWorkbenchService: AIWorkbenchService;
   privateApiAuditService: PrivateApiAuditService;
   privateApiClient: PrivateApiClient;
   semanticActivationCommandClient: SemanticActivationCommandClient | null;
@@ -719,39 +709,26 @@ export class ApplicationContext {
       return new CardContentQueryService(new QuerySiyuanAdapter());
     });
 
-    const aiServiceBundle = createAIServiceBundle({
-      getFileService: () => this.getFileService(),
-      getSqlArenaRepository: () => this.sqlPersistence?.arena ?? null,
-      getSettingsService: () => this.getSettingsService(),
-      getReviewLogService: () => this.getReviewLogService(),
-      getPluginApp: () => this.getPlugin().app,
-      getCardContentQueryService: () => this.getCardContentQueryService(),
-      getXiuyuanApplicationService: () => this.getXiuyuanApplicationService(),
-      getSelectionExcerptService: () => this.getSelectionExcerptService(),
-      getSelectionTopicContinuationService: () => this.getSelectionTopicContinuationService(),
-      getAIWorkbenchSessionStoreService: () => this.getAIWorkbenchSessionStoreService(),
-      getArenaStoreService: () => this.getArenaStoreService(),
-      getArenaKernelService: () => this.getArenaKernelService(),
-      getReviewAIWorkbenchRegistry: () => this.getReviewAIWorkbenchRegistry(),
-      getBackendMigrationRuntimePolicy: () => this.getBackendMigrationRuntimePolicy(),
-      getSrsBackendClient: () => this.srsBackendClient,
-      getKernelSidecarClient: () => this.getKernelSidecarClient(),
-    });
-
-    this.registerServiceFactory('aiWorkbenchSessionStoreService', () => {
-      return aiServiceBundle.createAIWorkbenchSessionStoreService();
-    });
-
     this.registerServiceFactory('arenaStoreService', () => {
-      return aiServiceBundle.createArenaStoreService();
+      return new ArenaStoreService(
+        this.getFileService(),
+        this.sqlPersistence?.arena ?? null,
+      );
     });
 
-    this.registerServiceFactory('arenaKernelService', () => {
-      return aiServiceBundle.createArenaKernelService();
-    });
-
-    this.registerServiceFactory('reviewAIWorkbenchRegistry', () => {
-      return aiServiceBundle.createReviewAIWorkbenchRegistry();
+    this.registerServiceFactory('arenaKernelService', (context) => {
+      return new ArenaKernelService({
+        getArenaSettings: () => context.getSettingsService().getSettings().arena,
+        updateArenaSettings: async (updater) => {
+          const settingsService = context.getSettingsService();
+          await settingsService.updateSettings({
+            arena: updater(settingsService.getSettings().arena),
+          });
+        },
+        getFsrsParams: () => context.getSettingsService().getSettings().fsrs,
+        arenaStore: context.getArenaStoreService(),
+        evidenceReader: new ReviewLogLearningCurveEvidenceReader(context.getReviewLogService()),
+      });
     });
 
     this.registerServiceFactory('privateApiAuditService', () => {
@@ -809,10 +786,6 @@ export class ApplicationContext {
       });
     });
 
-    this.registerServiceFactory('aiWorkbenchService', () => {
-      return aiServiceBundle.createAIWorkbenchService();
-    });
-
     this.registerServiceFactory('sharedReviewSessionRegistry', () => {
       return new SharedReviewSessionRegistry();
     });
@@ -822,13 +795,7 @@ export class ApplicationContext {
         browserService: context.getBrowserService(),
         cardService: context.getCardService(),
         dialogManager: context.getDialogManager(),
-        tabManager: context.getTabManager(),
         reviewSessionRegistry: context.getSharedReviewSessionRegistry(),
-        cardDraftService: new AgentCardDraftService({
-          getAISettings: () => context.getSettingsService().getSettings().ai,
-          llmPort: new OpenAICompatibleLLMAdapter(),
-          siyuanPort: new AISiyuanAdapter(context.getPlugin()),
-        }),
       });
     });
     
@@ -1528,7 +1495,6 @@ export class ApplicationContext {
       kernelSidecarClient: new KernelSidecarClient(new SiyuanKernelCompanionAdapter()),
       createBlockExistenceSiyuanPort: () => new QuerySiyuanAdapter(),
       createNeuralRoamGraphQuery: (deps) => new SiyuanNeuralRoamGraphQueryAdapter(deps),
-      createAiNetworkProxy: (kernelSidecarClient) => new KernelAINetworkProxyAdapter(kernelSidecarClient),
       resolveKernelWriterLeaseInstanceId: () => ApplicationContext.resolveKernelWriterLeaseInstanceId(),
       resolveKernelWriterLeaseTtlMs: () => ApplicationContext.resolveKernelWriterLeaseTtlMs(),
     });
@@ -2560,10 +2526,6 @@ export class ApplicationContext {
     return this.getService('cardContentQueryService');
   }
 
-  getAIWorkbenchSessionStoreService(): AIWorkbenchSessionStoreService {
-    return this.getService('aiWorkbenchSessionStoreService');
-  }
-
   getArenaStoreService(): ArenaStoreService {
     return this.getService('arenaStoreService');
   }
@@ -2572,16 +2534,8 @@ export class ApplicationContext {
     return this.getService('arenaKernelService');
   }
 
-  getReviewAIWorkbenchRegistry(): ReviewAIWorkbenchRegistry {
-    return this.getService('reviewAIWorkbenchRegistry');
-  }
-
   getSharedReviewSessionRegistry(): SharedReviewSessionRegistry {
     return this.getService('sharedReviewSessionRegistry');
-  }
-
-  getAIWorkbenchService(): AIWorkbenchService {
-    return this.getService('aiWorkbenchService');
   }
 
   getPrivateApiService(options: { mutation?: boolean } = {}): PrivateApiService {

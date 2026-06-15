@@ -4,6 +4,16 @@ Last update: 2026-06-15 (Round 597)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-06-15 - Plugin AI Workbench retirement
+
+- Task: Implement OpenSpec change `retire-plugin-owned-ai-workbench` after the product decision that SiYuan core Agent owns AI chat/reasoning and SiYuanMemo only needs MCP tools.
+- Touched slice: Agent/MCP and retired AI Workbench boundary across `src/kernel.ts`, `src/index.ts`, `src/application/agent/AgentToolContracts.ts`, `src/application/services/AgentToolService.ts`, `src/application/ApplicationContext.ts`, Browser/Review/Dialog/Tab/Settings entrypoints, backend AI job/client contracts, AI settings normalization, focused tests, `ARCHITECTURE.md`, `docs/architecture-audits/overdesign-audit-2026-06-14.md`, and OpenSpec task/evidence files.
+- Debt fixed now: Removed plugin-owned AI Workbench/chat/provider/prompt/tool-loop/session runtime from the active path; removed Browser/Review/Dialog/Tab/Settings entrypoints; deleted AI-only service/UI/tests; kept `memo_query` / `memo_card` / `memo_review` / `memo_ui` as the only Agent/MCP contract; changed `memo_card draft` and retired `memo_ui` AI targets to typed unsupported/unavailable behavior instead of hidden plugin generation or fallback UI.
+- Debt deferred: AI Arena remains a separate default-off advisory experiment; old persisted AI session files are inert but not deleted by runtime migration; historical reports may still mention retired AI internals as past context.
+- Why deferred: Arena retirement is a separate product decision and shares SRS advisory scope, while deleting old persisted data needs an explicit maintenance/migration command. Historical reports are not active architecture maps and bulk editing them would create noisy churn.
+- Next safe step: After this change validates, archive it; then choose either Arena scope clarification or a maintenance cleanup for inert AI session/settings artifacts if the product direction needs it.
+- Validation: Focused Agent/MCP tests passed before final handoff; focused UI/manager/settings tests passed in stable batches (`DialogManager.test.ts` 19 tests, plus 22 files / 150 tests); `pnpm exec vitest run src/index.test.ts` passed after guarding the frontend `memo_ui` description against stale AI Workbench wording; `pnpm run check:boundaries` passed; `node scripts/check-hidden-fallbacks.cjs` passed; `pnpm build` passed; `openspec validate retire-plugin-owned-ai-workbench --strict` passed; production stale scan has no retired AI Workbench/chat/prompt/LLM production-path hits outside explicit unsupported handling and negative tests.
+
 ### 2026-06-15 - Review next-dues cache surface shrink
 
 - Task: Implement OpenSpec change `shrink-review-next-dues-cache` by deleting unused `CacheManagerObserver` cache surfaces after deletion-test evidence.

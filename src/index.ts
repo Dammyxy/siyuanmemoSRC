@@ -424,7 +424,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     }
     this.addAgentAction({
       name: 'memo_ui',
-      description: 'Open or focus SiYuanMemo Browser, Review, AI workbench, and editor-context-aware plugin surfaces.',
+      description: 'Open or focus SiYuanMemo Browser, Review, and editor-context-aware learning surfaces.',
       handler: async (args) => {
         try {
           const context = await this.contextReady.promise;
@@ -1233,16 +1233,6 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       },
     });
 
-    this.registerDeferredCustomTab({
-      type: `${this.name}-review-ai`,
-      resolveTitle: (runtime) => this.resolveRuntimeTitle(runtime, this.i18n?.aiWorkbench || 'AI Workbench'),
-      mount: (context, runtime) => {
-        context.getTabManager().initReviewAICompanionTab(runtime);
-      },
-      destroy: (context, runtime) => {
-        context.getTabManager().destroyReviewAICompanionTab(runtime);
-      },
-    });
   }
 
   private registerDeferredCustomTab(config: {

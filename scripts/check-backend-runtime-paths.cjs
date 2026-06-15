@@ -365,57 +365,6 @@ const runtimePaths = [
     ],
   },
   {
-    id: 'ai-backend-session-job',
-    status: 'active',
-    anchors: [
-      {
-        file: 'packages/contracts/src/backend-rpc.ts',
-        tokens: ['ai.session.create', 'ai.prompt.execute', 'job.cancel', 'BackendAiJobRecord'],
-        reason: 'AI session/stream/job RPCs must stay in the shared backend contract',
-      },
-      {
-        file: 'worker/bootstrap/BackendKernel.ts',
-        tokens: ['BackendJobRuntime', 'ai: {', 'createSession: (request) => this.aiRuntime.createSession(request)', 'cancelJob: (request) => this.aiRuntime.cancelJob(request)'],
-        reason: 'backend kernel must wire AI job runtime into the RPC handler context',
-      },
-      {
-        file: 'worker/bootstrap/rpc/BackendAiJobHotspotRpcAdapter.ts',
-        tokens: ['ai.session.create', 'ai.prompt.execute', 'job.cancel', 'context.ai.createSession'],
-        reason: 'AI/job adapter must dispatch AI session, prompt, stream, and job methods',
-      },
-      {
-        file: 'worker/bootstrap/BackendJobRuntime.ts',
-        tokens: ['export class BackendJobRuntime', 'createSession', 'executePrompt', 'cancelJob'],
-        reason: 'backend job runtime must own session/job state transitions',
-      },
-      {
-        file: 'src/application/clients/SrsBackendClient.ts',
-        tokens: ['async createAiSession', 'async executeAiPrompt', 'async cancelAiJob'],
-        reason: 'application must use typed AI backend client methods',
-      },
-      {
-        file: 'src/application/services/AIBackendSessionService.ts',
-        tokens: ['export class AIBackendSessionService', 'createSession', 'executePrompt'],
-        reason: 'AI workbench must enter backend runtime through an application service',
-      },
-      {
-        file: 'src/application/services/AIWorkbenchService.ts',
-        tokens: ['backendSessionService', 'createSession', 'updateSession', 'cancelSession'],
-        reason: 'AI workbench must wire backend session hooks into active session lifecycle',
-      },
-      {
-        file: 'src/application/factories/createAIServiceBundle.ts',
-        tokens: ['new AIBackendSessionService', 'KernelAINetworkProxyAdapter'],
-        reason: 'AI bounded-context factory must wire backend session service',
-      },
-      {
-        file: 'src/application/commands/writerRelayCommandDispatcher.ts',
-        tokens: ['command.method === \'ai.session.create\''],
-        reason: 'writer relay dispatcher must route AI backend session commands',
-      },
-    ],
-  },
-  {
     id: 'external-srs-algorithms',
     status: 'deferred-foundation',
     anchors: [

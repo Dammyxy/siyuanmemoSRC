@@ -27,22 +27,14 @@ vi.mock('@/ui/review/v2', () => ({
   ReviewView: {},
 }));
 
-vi.mock('@/ui/ai/AiWorkbenchPane.vue', () => ({
-  default: {},
-}));
-
 function createContext() {
   const queueStub = {
     getType: vi.fn(() => QueueType.RetrievalPractice),
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
   };
-  const registry = {
-    disposeReviewSession: vi.fn(),
-  };
 
   return {
-    registry,
     context: {
       getI18n: vi.fn(() => ({
         reviewTitle: 'Review',
@@ -60,7 +52,15 @@ function createContext() {
           progressiveReading: {},
         }),
       })),
-      getReviewAIWorkbenchRegistry: vi.fn(() => registry),
+      getReviewService: vi.fn(() => ({
+        refreshCdfLiveRelationOnOpen: vi.fn(async () => ({
+          refreshed: false,
+          reason: 'not-live-cdf',
+        })),
+      })),
+      getSrsBackendClient: vi.fn(() => ({
+        requestReviewTruthFlush: vi.fn(),
+      })),
     },
   };
 }
@@ -113,7 +113,7 @@ describe('TabManager closeReviewTab', () => {
     }));
   });
 
-  it('closes the review tab through tab.close when available', () => {
+  it('closes the review tab through tab.close when available', async () => {
     const { context } = createContext();
     const plugin = createPlugin();
     const tabManager = new TabManager(context as never, plugin, { siyuanApi: createSiyuanApiMock() } as never);
@@ -121,14 +121,14 @@ describe('TabManager closeReviewTab', () => {
 
     const reviewRegistration = (plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[1][0];
     const close = vi.fn();
-    reviewRegistration.init.call(createReviewRuntime('review-tab-1', { close }));
+    await reviewRegistration.init.call(createReviewRuntime('review-tab-1', { close }));
 
     tabManager.closeReviewTab('review-tab-1');
 
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('falls back to parent.removeTab when tab.close is unavailable', () => {
+  it('falls back to parent.removeTab when tab.close is unavailable', async () => {
     const { context } = createContext();
     const plugin = createPlugin();
     const tabManager = new TabManager(context as never, plugin, { siyuanApi: createSiyuanApiMock() } as never);
@@ -136,7 +136,7 @@ describe('TabManager closeReviewTab', () => {
 
     const reviewRegistration = (plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[1][0];
     const removeTab = vi.fn();
-    reviewRegistration.init.call(createReviewRuntime('review-tab-2', { removeTab }));
+    await reviewRegistration.init.call(createReviewRuntime('review-tab-2', { removeTab }));
 
     tabManager.closeReviewTab('review-tab-2');
 

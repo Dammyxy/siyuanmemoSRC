@@ -5,11 +5,11 @@ import {
   type BackendRpcHandlerAdapter,
   type BackendRpcMethod,
 } from '../../../packages/contracts/src/backend-rpc';
-import { BACKEND_AI_JOB_HOTSPOT_RPC_HANDLER_REGISTRATIONS, type BackendAiJobHotspotRpcHandlerContext } from './BackendAiJobHotspotRpcAdapter';
 import { BACKEND_AUTOCARD_RPC_HANDLER_REGISTRATIONS, type BackendAutoCardRpcHandlerContext } from './BackendAutoCardRpcAdapter';
 import { BACKEND_BROWSER_RPC_HANDLER_REGISTRATIONS, type BackendBrowserRpcHandlerContext } from './BackendBrowserRpcAdapter';
 import { BACKEND_CORE_RPC_HANDLER_REGISTRATIONS, type BackendCoreRpcHandlerContext } from './BackendCoreRpcAdapter';
 import { BACKEND_GRAPH_RPC_HANDLER_REGISTRATIONS, type BackendGraphRpcHandlerContext } from './BackendGraphRpcAdapter';
+import { BACKEND_HOTSPOT_RPC_HANDLER_REGISTRATIONS, type BackendHotspotRpcHandlerContext } from './BackendHotspotRpcAdapter';
 import { BACKEND_KERNEL_TRANSACTION_RPC_HANDLER_REGISTRATIONS, type BackendKernelTransactionRpcHandlerContext } from './BackendKernelTransactionRpcAdapter';
 import { BACKEND_NEURAL_ROAM_RPC_HANDLER_REGISTRATIONS, type BackendNeuralRoamRpcHandlerContext } from './BackendNeuralRoamRpcAdapter';
 import { BACKEND_P6_OWNERSHIP_RPC_HANDLER_REGISTRATIONS, type BackendP6OwnershipRpcHandlerContext } from './BackendP6OwnershipRpcAdapter';
@@ -23,10 +23,10 @@ import { BACKEND_TOPIC_DERIVED_RPC_HANDLER_REGISTRATIONS, type BackendTopicDeriv
 import { BACKEND_XIUYUAN_RPC_HANDLER_REGISTRATIONS, type BackendXiuyuanRpcHandlerContext } from './BackendXiuyuanRpcAdapter';
 
 export interface BackendKernelRpcHandlerContext
-  extends BackendAiJobHotspotRpcHandlerContext,
-    BackendAutoCardRpcHandlerContext,
+  extends BackendAutoCardRpcHandlerContext,
     BackendCoreRpcHandlerContext,
     BackendBrowserRpcHandlerContext,
+    BackendHotspotRpcHandlerContext,
     BackendKernelTransactionRpcHandlerContext,
     BackendNeuralRoamRpcHandlerContext,
     BackendQueueProjectionRpcHandlerContext,
@@ -67,7 +67,7 @@ export const BACKEND_KERNEL_RPC_HANDLER_REGISTRATIONS = Object.freeze([
   ...BACKEND_KERNEL_TRANSACTION_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_AUTOCARD_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_REVIEW_RPC_HANDLER_REGISTRATIONS,
-  ...BACKEND_AI_JOB_HOTSPOT_RPC_HANDLER_REGISTRATIONS,
+  ...BACKEND_HOTSPOT_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_GRAPH_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_PRIVATE_API_RPC_HANDLER_REGISTRATIONS,
   ...BACKEND_SEMANTIC_RPC_HANDLER_REGISTRATIONS,

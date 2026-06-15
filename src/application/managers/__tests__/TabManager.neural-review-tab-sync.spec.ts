@@ -48,6 +48,7 @@ function createManager() {
   };
   const unifiedDataSourceManager = {
     getQueue: vi.fn(() => queueStub),
+    neuralRoamCommand: vi.fn(async () => ({ ok: true })),
   };
   const context = {
     getI18n: vi.fn(() => ({
@@ -61,8 +62,11 @@ function createManager() {
       }),
     })),
     getUnifiedDataSourceManager: vi.fn(() => unifiedDataSourceManager),
-    getReviewAIWorkbenchRegistry: vi.fn(() => ({
-      disposeReviewSession: vi.fn(),
+    getReviewService: vi.fn(() => ({
+      refreshCdfLiveRelationOnOpen: vi.fn(async () => ({
+        refreshed: false,
+        reason: 'not-live-cdf',
+      })),
     })),
     getEventBus: vi.fn(() => ({
       subscribe: vi.fn(),
@@ -84,6 +88,7 @@ function createManager() {
     tabManager,
     reviewRegistration,
     queueStub,
+    unifiedDataSourceManager,
   };
 }
 
@@ -275,7 +280,7 @@ describe('TabManager neural review tab sync', () => {
   });
 
   it('restores temporary NeuralRoam engine mode when the tab closes without manual mode change', async () => {
-    const { reviewRegistration, queueStub } = createManager();
+    const { reviewRegistration, unifiedDataSourceManager } = createManager();
     const runtime = createRuntime('review-neural-temp', QueueType.NeuralRoam);
     runtime.data = {
       ...runtime.data,
@@ -292,11 +297,18 @@ describe('TabManager neural review tab sync', () => {
     await reviewRegistration.init.call(runtime);
     reviewRegistration.destroy.call(runtime);
 
-    expect(queueStub.setEngineMode).toHaveBeenCalledWith('hyperspace', { carryCurrentNode: true });
+    expect(unifiedDataSourceManager.neuralRoamCommand).toHaveBeenCalledWith({
+      queueType: 'neural-roam',
+      command: {
+        type: 'switch-engine-mode',
+        mode: 'hyperspace',
+        carryCurrentNode: true,
+      },
+    });
   });
 
   it('does not restore temporary NeuralRoam engine mode after manual mode change in the tab', async () => {
-    const { reviewRegistration, queueStub } = createManager();
+    const { reviewRegistration, unifiedDataSourceManager } = createManager();
     const runtime = createRuntime('review-neural-temp-touched', QueueType.NeuralRoam);
     runtime.data = {
       ...runtime.data,
@@ -317,6 +329,6 @@ describe('TabManager neural review tab sync', () => {
     reviewProps.onNeuralRoamEngineModeTouched?.();
     reviewRegistration.destroy.call(runtime);
 
-    expect(queueStub.setEngineMode).not.toHaveBeenCalled();
+    expect(unifiedDataSourceManager.neuralRoamCommand).not.toHaveBeenCalled();
   });
 });

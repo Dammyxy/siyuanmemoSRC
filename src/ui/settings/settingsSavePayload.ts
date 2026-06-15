@@ -3,13 +3,8 @@ import {
   type ArenaSettings,
 } from '@/types/arena';
 import {
-  ACTIVE_AI_PROMPT_CONTRACT_VERSION,
   DEFAULT_SETTINGS,
-  normalizeAISettings,
-  normalizeAIUserSkills,
-  normalizeAIPromptTemplates,
   normalizeConfiguredCaptureStorageSettings,
-  type AISettings,
   type ConfiguredCaptureStorageSettings,
   type PluginSettings,
   type QueueSettings,
@@ -83,7 +78,6 @@ export interface SettingsPanelSavePayload {
   scheduler: SchedulerConfig;
   riffIntegration: NonNullable<PluginSettings['riffIntegration']>;
   progressiveReading: NonNullable<PluginSettings['progressiveReading']>;
-  ai: AISettings;
   arena: ArenaSettings;
   ui: UISettings;
 }
@@ -182,31 +176,9 @@ export function buildSettingsSavePayload(input: {
   schedulerConfig: SettingsSchedulerConfigWithSrsV2;
   riffIntegrationConfig: SettingsRiffIntegrationState;
   triggers: SettingsRiffTriggerSelection;
-  aiSettings: AISettings;
   arenaSettings: ArenaSettings;
   uiSettings: UISettings;
 }): SettingsPanelSavePayload {
-  const prompts = normalizeAIPromptTemplates(input.aiSettings.prompts);
-  const primaryProvider = {
-    ...input.aiSettings.providers[0],
-    baseUrl: String(input.aiSettings.baseUrl || '').trim(),
-    apiKey: String(input.aiSettings.apiKey || '').trim(),
-    models: [{
-      ...(input.aiSettings.providers[0]?.models?.[0] || {}),
-      id: String(input.aiSettings.model || '').trim(),
-    }],
-  };
-  const normalizedAI = normalizeAISettings({
-    ...input.aiSettings,
-    userSkills: normalizeAIUserSkills(input.aiSettings.userSkills),
-    providers: [
-      primaryProvider,
-      ...input.aiSettings.providers.slice(1),
-    ],
-    defaultModelId: String(input.aiSettings.model || input.aiSettings.defaultModelId || '').trim(),
-    promptContractVersion: ACTIVE_AI_PROMPT_CONTRACT_VERSION,
-    prompts,
-  });
   const queueInput = input.queueSettings as QueueSettings & {
     outstandingEveryNth?: number;
     outstandingSpacing?: number;
@@ -291,11 +263,6 @@ export function buildSettingsSavePayload(input: {
           fallback: DEFAULT_SETTINGS.progressiveReading.storage,
         },
       ),
-    },
-    ai: {
-      ...normalizedAI,
-      promptContractVersion: ACTIVE_AI_PROMPT_CONTRACT_VERSION,
-      prompts,
     },
     arena: normalizeArenaSettings(input.arenaSettings),
     ui: {

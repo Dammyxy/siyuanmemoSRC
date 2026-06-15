@@ -31,7 +31,6 @@ vi.mock('siyuan', () => {
       initFailed: 'FSRS 插件初始化失败',
       reviewTitle: 'Review',
       srsBrowser: 'SRS Browser',
-      aiWorkbench: 'AI Workbench',
       topbarTitle: '间隔重复系统',
     };
     public eventBus = {
@@ -73,10 +72,6 @@ vi.mock('@/ui/browser/SRSBrowser.vue', () => ({
 
 vi.mock('@/ui/review/v2', () => ({
   ReviewView: {},
-}));
-
-vi.mock('@/ui/ai/AiWorkbenchPane.vue', () => ({
-  default: {},
 }));
 
 vi.mock('@/application/ApplicationContext', () => ({
@@ -158,19 +153,6 @@ function createContext(plugin: any) {
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
   };
-  const reviewRegistry = {
-    openReviewSession: vi.fn(async () => ({
-      state: {
-        activeView: 'explain',
-      },
-    })),
-    getOrCreateReviewSession: vi.fn(() => ({
-      state: {
-        activeView: 'explain',
-      },
-    })),
-    disposeReviewSession: vi.fn(),
-  };
   const settingsService = {
     getSettings: vi.fn(() => ({
       progressiveReading: {},
@@ -217,7 +199,6 @@ function createContext(plugin: any) {
       unsubscribe: vi.fn(),
     })),
     getSchedulerRouter: vi.fn(() => ({})),
-    getReviewAIWorkbenchRegistry: vi.fn(() => reviewRegistry),
     getDialogManager: vi.fn(() => dialogManager),
     getMenuManager: vi.fn(() => menuManager),
     getDockManager: vi.fn(() => dockManager),
@@ -269,9 +250,9 @@ describe('FSRSPlugin deferred custom tab bootstrap', () => {
     const plugin = new FSRSPlugin();
     const onloadPromise = plugin.onload();
 
-    expect(mocks.addTab).toHaveBeenCalledTimes(3);
+    expect(mocks.addTab).toHaveBeenCalledTimes(2);
 
-    const [browserRegistration, reviewRegistration, reviewAiRegistration] = mocks.addTab.mock.calls.map(([config]) => config);
+    const [browserRegistration, reviewRegistration] = mocks.addTab.mock.calls.map(([config]) => config);
     const browserRuntime = {
       element: document.createElement('div'),
       data: {
@@ -297,39 +278,19 @@ describe('FSRSPlugin deferred custom tab bootstrap', () => {
         },
       },
     };
-    const reviewAiRuntime = {
-      id: 'review-runtime-1-ai',
-      element: document.createElement('div'),
-      data: {
-        reviewSessionId: 'review-runtime-1',
-        sourceReviewSessionId: 'review-runtime-1',
-        title: 'AI Workbench',
-      },
-      tab: {
-        id: 'review-runtime-1-ai',
-        headElement: document.createElement('button'),
-        parent: {
-          switchTab: vi.fn(),
-        },
-        close: vi.fn(),
-      },
-    };
-
     browserRegistration.init.call(browserRuntime);
     reviewRegistration.init.call(reviewRuntime);
-    reviewAiRegistration.init.call(reviewAiRuntime);
     await flushMicrotasks();
 
     expect(mocks.createApp).not.toHaveBeenCalled();
     expect(browserRuntime.element.textContent).toContain('插件初始化中');
     expect(reviewRuntime.element.textContent).toContain('插件初始化中');
-    expect(reviewAiRuntime.element.textContent).toContain('插件初始化中');
 
     deferred.resolve(createContext(plugin));
     await onloadPromise;
     await flushMicrotasks();
 
-    expect(mocks.createApp).toHaveBeenCalledTimes(3);
+    expect(mocks.createApp).toHaveBeenCalledTimes(2);
     expect(mocks.createApp.mock.calls[0][1]).toEqual(expect.objectContaining({
       mode: 'tab',
       initialOpenState: {
@@ -340,11 +301,6 @@ describe('FSRSPlugin deferred custom tab bootstrap', () => {
       mode: 'tab',
       title: 'Review',
       reviewSessionId: 'review-runtime-1',
-    }));
-    expect(mocks.createApp.mock.calls[2][1]).toEqual(expect.objectContaining({
-      i18n: expect.objectContaining({
-        aiWorkbench: 'AI Workbench',
-      }),
     }));
   });
 
@@ -433,6 +389,9 @@ describe('FSRSPlugin deferred custom tab bootstrap', () => {
       description: expect.stringContaining('SiYuanMemo'),
     }));
     const registration = mocks.addAgentAction.mock.calls[0][0];
+    expect(registration.description).toContain('Browser');
+    expect(registration.description).toContain('Review');
+    expect(registration.description).not.toMatch(/AI workbench/i);
     const response = await registration.handler({
       action: 'status',
       focusedBlockID: 'block-focused',

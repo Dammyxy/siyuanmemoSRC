@@ -917,417 +917,6 @@
             </section>
           </div>
 
-          <div v-show="activeTab === 'ai'" class="settings-section">
-            <section class="settings-card">
-        <div v-show="isActiveSubTab('ai', 'provider')" class="settings-subtab-panel">
-        <h3>{{ t('aiSettingsTitle', 'AI 工作台') }}</h3>
-        <p class="form-hint form-hint--section">
-          {{ t('aiSettingsIntro', '统一配置 AI 理解与制卡面板使用的模型、API 与 Prompt。结构化结果默认停留在工作台，不会自动写回原文。') }}
-        </p>
-
-        <div class="form-item">
-          <label>{{ t('aiEnabled', '启用 AI 功能') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="aiSettings.enabled">
-          </div>
-          <p class="form-hint">
-            {{ t('aiEnabledHint', '关闭后入口仍保留，但执行前会提示先启用 AI。') }}
-          </p>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('aiBaseUrl', 'Base URL') }}</label>
-          <div class="form-control">
-            <input type="text" v-model="aiSettings.baseUrl">
-          </div>
-          <p class="form-hint">
-            {{ t('aiBaseUrlHint', '使用 OpenAI 兼容 Chat Completions 服务地址，例如 https://api.openai.com/v1。') }}
-          </p>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('aiApiKey', 'API Key') }}</label>
-          <div class="form-control">
-            <input type="password" v-model="aiSettings.apiKey">
-          </div>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('aiModel', '模型名') }}</label>
-          <div class="form-control">
-            <input type="text" v-model="aiSettings.model">
-          </div>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('aiProviderProtocol', 'Provider 协议') }}</label>
-          <div class="form-control">
-            <select v-model="aiSettings.providers[0].protocol" class="scheduler-select">
-              <option value="openai-compatible">OpenAI Compatible</option>
-              <option value="openai">OpenAI</option>
-              <option value="claude">Claude Messages</option>
-              <option value="gemini">Gemini GenerateContent</option>
-            </select>
-          </div>
-          <p class="form-hint">
-            {{ t('aiProviderProtocolHint', '内部会按协议适配消息、工具调用和结构化输出；DeepSeek 等兼容服务可继续使用 OpenAI Compatible。') }}
-          </p>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('aiTimeoutMs', '超时时间（毫秒）') }}</label>
-          <div class="form-control">
-            <input type="number" min="1000" max="300000" step="1000" v-model.number="aiSettings.timeoutMs">
-          </div>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('aiTemperature', 'Temperature') }}</label>
-          <div class="form-control">
-            <input type="range" min="0" max="2" step="0.05" v-model.number="aiSettings.temperature">
-            <span class="form-value">{{ aiSettings.temperature.toFixed(2) }}</span>
-          </div>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('aiDefaultOutputLanguage', '默认输出语言') }}</label>
-          <div class="form-control">
-            <input type="text" v-model="aiSettings.defaultOutputLanguage">
-          </div>
-        </div>
-        </div>
-
-        <div v-show="isActiveSubTab('ai', 'runtime')" class="settings-subtab-panel">
-        <h4>{{ t('aiChatRuntimeSettings', '聊天与工具 Runtime') }}</h4>
-
-        <div class="form-item">
-          <label>{{ t('aiDefaultSkill', 'Standalone 默认 Skill') }}</label>
-          <div class="form-control">
-            <select v-model="aiSettings.chatDefaults.defaultSkillId" class="scheduler-select">
-              <option value="general-chat">{{ t('generalChat', '通用 AI 聊天') }}</option>
-              <option value="concept-coach">{{ t('conceptCoach', 'AI 理解与制卡') }}</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('aiReviewDefaultSkill', 'Review 默认 Skill') }}</label>
-          <div class="form-control">
-            <select v-model="aiSettings.chatDefaults.reviewDefaultSkillId" class="scheduler-select">
-              <option value="general-chat">{{ t('generalChat', '通用 AI 聊天') }}</option>
-              <option value="concept-coach">{{ t('conceptCoach', 'AI 理解与制卡') }}</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('aiMaxToolRounds', '最大工具轮数') }}</label>
-          <div class="form-control">
-            <input type="number" min="1" max="8" step="1" v-model.number="aiSettings.chatDefaults.maxToolRounds">
-          </div>
-          <p class="form-hint">
-            {{ t('aiMaxToolRoundsHint', '避免模型无限循环调用工具；达到上限后会暂停并展示已有结果。') }}
-          </p>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('aiToolManager', '工具默认启用与审批') }}</label>
-          <section class="ai-settings-manager">
-            <div class="ai-settings-manager__head">
-              <div>
-                <strong>{{ t('aiToolManagerSummaryTitle', '工具组管理器') }}</strong>
-                <p class="form-hint form-hint--section">
-                  {{ t('aiToolManagerHint', '组开关决定是否把整组工具注入模型；单工具开关控制默认可用性；审批策略可按工具覆盖。写入型工具即使启用，也会在运行时单独请求确认。') }}
-                </p>
-              </div>
-              <button
-                class="btn-small ai-settings-manager__action"
-                type="button"
-                @click="openToolPermissionManager()"
-              >
-                {{ t('aiManageToolPermissions', '管理工具执行权限') }}
-              </button>
-            </div>
-
-            <div class="ai-tool-group-list">
-              <article
-                v-for="group in aiToolGroupsForSettings"
-                :key="group.key"
-                class="ai-tool-group-card"
-              >
-                <div class="ai-tool-group-card__head">
-                  <label class="ai-tool-group-card__toggle">
-                    <input type="checkbox" v-model="aiSettings.toolPolicies.groupDefaults[group.key]">
-                    <div>
-                      <strong>{{ group.title }}</strong>
-                      <span>{{ group.description }}</span>
-                    </div>
-                  </label>
-
-                  <div class="ai-tool-group-card__actions">
-                    <div class="ai-tool-group-card__meta" :aria-label="t('aiToolGroupMetadata', '工具组状态')">
-                      <span class="ai-meta-chip ai-meta-chip--count">{{ group.tools.length }} {{ t('tools', '工具') }}</span>
-                      <span v-if="group.isWriteRisk" class="ai-meta-chip ai-meta-chip--warn">
-                        {{ t('aiWriteRisk', '写入风险') }}
-                      </span>
-                      <span v-if="group.overrideCount > 0" class="ai-meta-chip ai-meta-chip--accent">
-                        {{ t('aiToolOverridesCount', '{count} 个审批覆盖').replace('{count}', String(group.overrideCount)) }}
-                      </span>
-                    </div>
-                    <button
-                      class="btn-small ai-tool-group-card__manage"
-                      type="button"
-                      @click.stop="openToolPermissionManager(group.key)"
-                    >
-                      {{ t('aiManageToolPermissions', '管理工具执行权限') }}
-                    </button>
-                    <button
-                      class="btn-small ai-tool-group-card__expand"
-                      type="button"
-                      @click="toggleAiToolGroupExpand(group.key)"
-                    >
-                      {{ isAiToolGroupExpanded(group.key)
-                        ? t('aiCollapseGroup', '收起工具')
-                        : t('aiExpandGroup', '展开工具') }}
-                    </button>
-                  </div>
-                </div>
-
-                <div v-if="isAiToolGroupExpanded(group.key)" class="ai-tool-group-card__body">
-                  <article
-                    v-for="tool in group.tools"
-                    :key="tool.name"
-                    class="ai-tool-row"
-                  >
-                    <label class="ai-tool-row__toggle">
-                      <input
-                        type="checkbox"
-                        :checked="isAiToolEnabled(tool.name, tool.enabledByDefault)"
-                        @change="setAiToolEnabled(tool.name, ($event.target as HTMLInputElement).checked)"
-                      >
-                      <div>
-                        <strong>{{ tool.title }}</strong>
-                        <span>{{ tool.description }}</span>
-                      </div>
-                    </label>
-
-                    <div class="ai-tool-row__meta">
-                      <code>{{ tool.name }}</code>
-                      <span v-if="hasToolPermissionOverride(tool.name)" class="ai-meta-chip ai-meta-chip--accent">
-                        {{ t('aiToolOverrideBadge', '已覆盖审批') }}
-                      </span>
-                    </div>
-                  </article>
-                </div>
-              </article>
-            </div>
-          </section>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('aiWebSearchBackend', '网页搜索后端') }}</label>
-          <div class="form-control">
-            <select v-model="aiSettings.webSearch.backend" class="scheduler-select">
-              <option value="none">{{ t('disabled', '不启用') }}</option>
-              <option value="tavily">Tavily</option>
-              <option value="bocha">Bocha</option>
-              <option value="google-cse">Google CSE</option>
-            </select>
-          </div>
-          <p class="form-hint">
-            {{ t('aiWebSearchBackendHint', '未配置搜索后端时，只开放 URL 抓取 FetchWebPage，不伪装成可搜索网页。') }}
-          </p>
-        </div>
-
-        <div v-if="aiSettings.webSearch.backend !== 'none'" class="form-item">
-          <label>{{ t('aiWebSearchApiKey', '网页搜索 API Key') }}</label>
-          <div class="form-control">
-            <input type="password" v-model="aiSettings.webSearch.apiKey">
-          </div>
-        </div>
-
-        <div v-if="aiSettings.webSearch.backend === 'google-cse'" class="form-item">
-          <label>{{ t('aiGoogleCseId', 'Google CSE ID') }}</label>
-          <div class="form-control">
-            <input type="text" v-model="aiSettings.webSearch.googleCseId">
-          </div>
-        </div>
-        </div>
-
-        <div v-show="isActiveSubTab('ai', 'built-in-skill')" class="settings-subtab-panel">
-        <h4>{{ t('aiPromptTemplates', 'Skill 管理') }}</h4>
-
-        <div class="form-item">
-          <label>{{ t('selfTestDefaultCreationMode', '自测卡片默认制卡模式') }}</label>
-          <div class="form-control">
-            <select v-model="aiSettings.conceptCoach.selfTest.defaultCreationMode" class="scheduler-select">
-              <option v-for="mode in selfTestModeDescriptors" :key="mode.mode" :value="mode.mode">
-                {{ mode.label }}
-              </option>
-            </select>
-          </div>
-          <p class="form-hint">
-            {{ t('selfTestDefaultCreationModeHint', '工作台切换模式后会记住到这里，并据此约束“自测卡片”tab 的结构化回复格式与制卡工具。') }}
-          </p>
-          <div class="form-example">
-            <div class="example-label">{{ t('selfTestModeFormats', '各模式格式约定') }}</div>
-            <div class="example-value">
-              <ul class="ai-self-test-mode-list">
-                <li v-for="mode in selfTestModeDescriptors" :key="mode.mode">
-                  <strong>{{ mode.label }}</strong>
-                  <span>{{ mode.summary }}</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        <div class="ai-prompt-card-list">
-          <article
-            v-for="preset in aiPromptPresetCards"
-            :key="preset.settingKey"
-            class="ai-prompt-preset-card ai-prompt-preset-card--compact"
-          >
-            <div class="ai-prompt-preset-card__head">
-              <div>
-                <div class="ai-prompt-preset-card__title-row">
-                  <div class="ai-prompt-preset-card__title">{{ preset.title }}</div>
-                  <span
-                    class="ai-prompt-preset-card__status-badge"
-                    :class="`ai-prompt-preset-card__status-badge--${preset.usageState}`"
-                  >
-                    {{ preset.usageLabel }}
-                  </span>
-                </div>
-                <p class="ai-prompt-preset-card__summary">{{ preset.audience }}</p>
-              </div>
-              <div class="ai-prompt-preset-card__actions">
-                <button class="btn-small" type="button" @click="resetAiPromptTemplate(preset.settingKey)">
-                  {{ t('aiRestoreRecommendedPrompt', '恢复推荐模板') }}
-                </button>
-                <button
-                  class="btn-small ai-prompt-preset-card__edit-action"
-                  type="button"
-                  @click="openBuiltInPromptEditor(preset.settingKey)"
-                >
-                  {{ t('aiEditPrompt', '编辑 Prompt') }}
-                </button>
-              </div>
-            </div>
-
-            <div class="ai-prompt-preset-card__grid">
-              <div class="ai-prompt-preset-card__row ai-prompt-preset-card__row--status">
-                <span>{{ t('aiPromptCurrentStatus', '当前状态') }}</span>
-                <p class="ai-prompt-preset-card__status-hint">{{ preset.usageHint }}</p>
-              </div>
-              <div class="ai-prompt-preset-card__row">
-                <span>{{ t('aiPromptBehavior', '默认行为') }}</span>
-                <p>{{ preset.behavior }}</p>
-              </div>
-              <div class="ai-prompt-preset-card__row">
-                <span>{{ t('aiPromptOutput', '输出特点') }}</span>
-                <p>{{ preset.output }}</p>
-              </div>
-            </div>
-          </article>
-        </div>
-        </div>
-
-        <div v-show="isActiveSubTab('ai', 'user-skills')" class="settings-subtab-panel">
-        <div class="ai-user-skill-toolbar">
-          <div>
-            <strong>{{ t('aiUserSkills', '用户自定义 Skill') }}</strong>
-            <p class="form-hint form-hint--section">
-              {{ t('aiUserSkillsHint', '第一版只支持声明式 Skill：Prompt、工具组、结构化 sections 和通用 renderer，不支持 JS/HTML/自定义写工具。') }}
-            </p>
-          </div>
-          <div class="ai-user-skill-toolbar__actions">
-            <button class="btn-small" type="button" @click="addUserSkill('chat')">
-              {{ t('aiAddChatSkill', '新增聊天 Skill') }}
-            </button>
-            <button class="btn-small" type="button" @click="addUserSkill('structured')">
-              {{ t('aiAddStructuredSkill', '新增结构化 Skill') }}
-            </button>
-          </div>
-        </div>
-
-        <div v-if="aiSettings.userSkills.length === 0" class="form-example">
-          <div class="example-label">{{ t('aiNoUserSkills', '还没有用户 Skill') }}</div>
-          <div class="example-value">
-            {{ t('aiNoUserSkillsHint', '可以先加一个聊天 Skill 做专用助手，或加一个结构化 Skill 生成你自己的 section 结果。') }}
-          </div>
-        </div>
-
-        <AiSettingsDraggableList
-          v-if="aiSettings.userSkills.length > 0"
-          :items="aiSettings.userSkills"
-          @reorder="handleUserSkillReorder"
-        >
-          <template #item="{ item: skill, index: skillIndex, isDragOver }">
-            <article
-              class="ai-user-skill-card ai-user-skill-card--summary"
-              :class="{ 'ai-user-skill-card--drag-over': isDragOver }"
-            >
-              <div class="ai-user-skill-card__head">
-                <div>
-                  <div class="ai-user-skill-card__title-row">
-                    <strong>{{ skill.title || t('untitledSkill', '未命名 Skill') }}</strong>
-                    <span class="ai-meta-chip ai-meta-chip--code">{{ skill.mode }}</span>
-                    <span
-                      class="ai-meta-chip"
-                      :class="skill.enabled ? 'ai-meta-chip--accent' : 'ai-meta-chip--muted'"
-                    >
-                      {{ skill.enabled ? t('enabled', '启用') : t('disabled', '关闭') }}
-                    </span>
-                  </div>
-                  <p class="form-hint form-hint--section">
-                    {{ skill.brief || (skill.mode === 'structured'
-                      ? t('structuredSkillHint', '按 section 返回结构化 JSON，并使用通用 renderer 展示。')
-                      : t('chatSkillHint', '复用统一聊天 runtime，可调用已授权工具组。')) }}
-                  </p>
-                </div>
-                <div class="ai-user-skill-card__actions">
-                  <label class="ai-user-skill-card__toggle">
-                    <input type="checkbox" v-model="skill.enabled">
-                    <span>{{ t('enabled', '启用') }}</span>
-                  </label>
-                  <button class="btn-small" type="button" @click="openUserSkillEditor(skill, { index: skillIndex })">
-                    {{ t('edit', '编辑') }}
-                  </button>
-                  <button class="btn-small" type="button" @click="duplicateUserSkill(skillIndex)">{{ t('duplicate', '复制') }}</button>
-                  <button class="btn-small btn-danger" type="button" @click="removeUserSkill(skillIndex)">{{ t('delete', '删除') }}</button>
-                </div>
-              </div>
-
-              <div class="ai-user-skill-card__meta">
-                <span class="ai-meta-chip ai-meta-chip--code">{{ skill.id }}</span>
-                <span class="ai-meta-chip">
-                  {{ t('primaryAction', '主按钮文案') }}: {{ skill.primaryActionLabel || t('create', '创建') }}
-                </span>
-                <span class="ai-meta-chip">
-                  {{ t('sections', 'Sections') }}: {{ skill.sections.length }}
-                </span>
-                <span v-if="skill.surfaceHints?.compactTitle" class="ai-meta-chip">
-                  {{ skill.surfaceHints.compactTitle }}
-                </span>
-              </div>
-
-              <div class="ai-user-skill-card__chips">
-                <span
-                  v-for="groupKey in skill.defaultToolGroups"
-                  :key="`${skill.id}-${groupKey}`"
-                  class="ai-meta-chip"
-                >
-                  {{ userSkillToolGroupLabelMap[groupKey] || groupKey }}
-                </span>
-              </div>
-            </article>
-          </template>
-        </AiSettingsDraggableList>
-        </div>
-            </section>
-          </div>
-
           <div v-show="activeTab === 'about'" class="settings-section about-section">
             <section class="settings-card guide-section">
           <div v-show="isActiveSubTab('about', 'about')" class="settings-subtab-panel">
@@ -1352,33 +941,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue';
-import {
-  AI_CHAT_TOOL_DESCRIPTORS,
-  AI_CHAT_TOOL_GROUPS,
-} from '@/application/services/AIChatToolRegistry';
+import { ref, computed, nextTick, onMounted, watch } from 'vue';
 import {
   type ArenaSettings,
 } from '@/types/arena';
 import {
-  listSelfTestModeDescriptors,
-} from '@/application/services/AIPromptContractRegistry';
-import { getAIWorkbenchSkillTabs } from '@/application/services/AIWorkbenchSkillRegistry';
-import {
   DEFAULT_SETTINGS,
   FSRS_WEIGHT_COUNT,
-  type AISettings,
   type FSRSParameters,
   type QueueSettings,
   type SchedulerConfig,
   type QuickCardSettings,
   type UISettings,
 } from '../../types';
-import type {
-  AIChatToolGroupKey,
-} from '@/types/ai';
 import { createLogger } from '@/utils/logger';
-import AiSettingsDraggableList from '@/ui/settings/ai/AiSettingsDraggableList.vue';
 import {
   DEFAULT_SETTINGS_SUBTAB_SELECTION,
   buildSettingsSubTabsByTab,
@@ -1392,11 +968,6 @@ import {
   type SettingsSubTabSelection,
   type SettingsTabKey,
 } from './settingsPanelViewModel';
-import {
-  SETTINGS_AI_USER_SKILL_TOOL_GROUP_OPTIONS,
-  buildSettingsAIPromptPresetCards,
-  buildSettingsAIUserSkillToolGroupLabelMap,
-} from './settingsAIViewModel';
 import type { KernelCompanionStatus } from '@/application/ports/KernelCompanionPort';
 import {
   type SettingsFormState as Settings,
@@ -1408,7 +979,6 @@ import type {
   SettingsBlockAttrsCleanupScanResult as CleanupScanResult,
 } from './settingsMaintenanceViewModel';
 import {
-  createDefaultAISettings,
   createDefaultArenaSettings,
   createDefaultQueueSettings,
   createDefaultSettingsFormState,
@@ -1425,7 +995,6 @@ import {
   isSettingsLibraryStorage,
   isSettingsSourceChildStorage,
 } from './settingsFormViewModel';
-import { useSettingsAIDialogs } from './settingsAIDialogs';
 import { useSettingsMaintenanceCommands } from './settingsMaintenanceCommands';
 import { useSettingsFormCommands } from './settingsFormCommands';
 import { useSettingsLoadSaveCommands } from './settingsLoadSaveCommands';
@@ -1451,7 +1020,6 @@ const props = defineProps<{
   incrementalSettings?: { autoCardEnabled: boolean };
   quickCardSettings?: Partial<QuickCardSettings>;  // 🆕 快速制卡配置
   progressiveReadingSettings?: Partial<typeof DEFAULT_SETTINGS.progressiveReading>;
-  aiSettings?: Partial<AISettings>;
   arenaSettings?: Partial<ArenaSettings>;
   uiSettings?: Partial<UISettings>;
   captureStorageNotebooks?: Array<{ id: string; name: string; icon?: string }>;
@@ -1492,81 +1060,8 @@ const showSettingsFooter = computed(() => navigationViewModel.value.showSettings
 const settingsContentRef = ref<HTMLElement | null>(null);
 
 const queueSettings = ref<QueueSettings>(createDefaultQueueSettings());
-const aiSettings = ref<AISettings>(createDefaultAISettings());
 const arenaSettings = ref<ArenaSettings>(createDefaultArenaSettings());
 const uiSettings = ref<UISettings>(createDefaultUISettings());
-const aiPromptTabs = getAIWorkbenchSkillTabs('concept-coach');
-const selfTestModeDescriptors = listSelfTestModeDescriptors();
-const expandedAiToolGroups = ref<Record<string, boolean>>({});
-const userSkillToolGroupOptions = SETTINGS_AI_USER_SKILL_TOOL_GROUP_OPTIONS;
-const userSkillToolGroupLabelMap = computed<Record<string, string>>(
-  () => buildSettingsAIUserSkillToolGroupLabelMap(userSkillToolGroupOptions),
-);
-const aiToolGroupsForSettings = computed(() => AI_CHAT_TOOL_GROUPS.map((group) => {
-  const tools = AI_CHAT_TOOL_DESCRIPTORS.filter((tool) => tool.group === group.key);
-  const overrideCount = tools.filter((tool) => hasToolPermissionOverride(tool.name)).length;
-  return {
-    ...group,
-    tools,
-    overrideCount,
-    isWriteRisk: group.key === 'siyuan-write' || group.key === 'flashcard-write',
-  };
-}));
-
-function isAiToolEnabled(toolName: string, fallback: boolean): boolean {
-  const override = aiSettings.value.toolPolicies.toolDefaults[toolName];
-  return override !== false && (override === true || fallback);
-}
-
-function setAiToolEnabled(toolName: string, enabled: boolean): void {
-  aiSettings.value.toolPolicies.toolDefaults = {
-    ...aiSettings.value.toolPolicies.toolDefaults,
-    [toolName]: enabled,
-  };
-}
-
-function hasToolPermissionOverride(toolName: string): boolean {
-  return Boolean(
-    aiSettings.value.toolPolicies.executionPolicies[toolName]
-    || aiSettings.value.toolPolicies.resultApprovalPolicies[toolName],
-  );
-}
-
-function toggleAiToolGroupExpand(groupKey: AIChatToolGroupKey): void {
-  expandedAiToolGroups.value = {
-    ...expandedAiToolGroups.value,
-    [groupKey]: !expandedAiToolGroups.value[groupKey],
-  };
-}
-
-function isAiToolGroupExpanded(groupKey: AIChatToolGroupKey): boolean {
-  return expandedAiToolGroups.value[groupKey] === true;
-}
-
-const aiPromptPresetCards = computed(() => buildSettingsAIPromptPresetCards({
-  aiSettings: aiSettings.value,
-  aiPromptTabs,
-  t,
-}));
-
-const {
-  openToolPermissionManager,
-  openBuiltInPromptEditor,
-  openUserSkillEditor,
-  handleUserSkillReorder,
-  resetAiPromptTemplate,
-  addUserSkill,
-  duplicateUserSkill,
-  removeUserSkill,
-  destroySettingsAIDialogs,
-} = useSettingsAIDialogs({
-  aiSettings,
-  aiPromptTabs,
-  aiPromptPresetCards,
-  t,
-  getI18n: () => props.i18n || {},
-});
-
 const settings = ref<Settings>(createDefaultSettingsFormState());
 const kernelCompanionStatus = ref<KernelCompanionStatus | null>(null);
 const kernelCompanionBusy = ref(false);
@@ -1704,7 +1199,6 @@ const {
   settings,
   queueSettings,
   schedulerConfig,
-  aiSettings,
   arenaSettings,
   uiSettings,
   logger,
@@ -1757,7 +1251,6 @@ const {
     riffIntegrationSettings: props.riffIntegrationSettings,
     quickCardSettings: props.quickCardSettings,
     progressiveReadingSettings: props.progressiveReadingSettings,
-    aiSettings: props.aiSettings,
     arenaSettings: props.arenaSettings,
     uiSettings: props.uiSettings,
   }),
@@ -1766,7 +1259,6 @@ const {
   schedulerConfig,
   riffIntegrationConfig,
   triggers,
-  aiSettings,
   arenaSettings,
   uiSettings,
   save: (settingsToSave) => emit('save', settingsToSave),
@@ -1775,10 +1267,6 @@ const {
 
 onMounted(() => {
   loadSettings();
-});
-
-onBeforeUnmount(() => {
-  destroySettingsAIDialogs();
 });
 </script>
 

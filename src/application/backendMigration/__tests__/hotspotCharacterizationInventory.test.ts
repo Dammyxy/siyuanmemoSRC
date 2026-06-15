@@ -50,23 +50,6 @@ const HOTSPOT_COVERAGE: Record<string, CoveragePattern[]> = {
       pattern: /rolls back the new child doc and local card when native Riff sync fails/,
     },
   ],
-  'ai tool write': [
-    {
-      label: 'happy path creates topic items through continuation service',
-      file: 'src/application/services/__tests__/AIFlashcardToolService.test.ts',
-      pattern: /creates topic items through the continuation service and exposes preparation metadata/,
-    },
-    {
-      label: 'network proxy unavailable is explicit',
-      file: 'src/application/services/__tests__/AIBackendSessionService.test.ts',
-      pattern: /rejects network proxy when adapter is unavailable/,
-    },
-    {
-      label: 'backend session unavailable is explicit',
-      file: 'src/application/services/__tests__/AIBackendSessionService.test.ts',
-      pattern: /surfaces backend unavailable when backend session client fails/,
-    },
-  ],
   'browser aggregate': [
     {
       label: 'happy path returns backend deck page before source refresh',
@@ -79,38 +62,33 @@ const HOTSPOT_COVERAGE: Record<string, CoveragePattern[]> = {
       pattern: /suppresses stale source refresh results when a newer page refresh starts/,
     },
     {
-      label: 'aggregate placeholders fail closed',
+      label: 'empty aggregate snapshots do not fall back to renderer data',
       file: 'worker/__tests__/BackendKernel.hotspot-command.test.ts',
-      pattern: /returns typed unavailable placeholders for aggregate and graph reads/,
+      pattern: /returns ready-empty Browser aggregate snapshots without renderer fallback/,
     },
   ],
   'neural/semantic graph': [
     {
-      label: 'happy path advances NeuralRoam through backend graph query',
-      file: 'worker/__tests__/BackendKernel.test.ts',
-      pattern: /advances neural-roam through backend graph query and persisted session state/,
+      label: 'graph query returns presentation models',
+      file: 'worker/__tests__/BackendKernel.hotspot-command.test.ts',
+      pattern: /serves backend graph query presentation models with limit and content-safe diagnostics/,
     },
     {
       label: 'graph authority unavailable is explicit',
-      file: 'worker/__tests__/BackendKernel.test.ts',
-      pattern: /returns explicit unavailable when neural-roam graph query authority is absent/,
-    },
-    {
-      label: 'Semantic read models avoid bare ids',
-      file: 'worker/__tests__/BackendKernel.test.ts',
-      pattern: /serves presentation-ready Semantic session read models without bare ids as primary labels/,
+      file: 'worker/__tests__/BackendKernel.hotspot-command.test.ts',
+      pattern: /classifies graph query unavailable, missing, and unreadable historical nodes explicitly/,
     },
   ],
   'finaldrill riff': [
     {
-      label: 'happy path rates through ReviewSiyuanPort',
+      label: 'happy path rates through backend ReviewApplicationService command',
       file: 'src/ui/review/v2/__tests__/FinalDrillV2Session.characterization.test.ts',
-      pattern: /rates native Riff cards through the current ReviewSiyuanPort path/,
+      pattern: /rates native Riff cards through the ReviewApplicationService backend command path/,
     },
     {
-      label: 'Riff failure pushes current explicit UI error',
+      label: 'Riff failure pushes explicit UI error',
       file: 'src/ui/review/v2/__tests__/FinalDrillV2Session.characterization.test.ts',
-      pattern: /pushes the current explicit error when native Riff rating fails/,
+      pattern: /pushes explicit error and does not advance when backend Riff rating fails/,
     },
   ],
   'review source refresh': [

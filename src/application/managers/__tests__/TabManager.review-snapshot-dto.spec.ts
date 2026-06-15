@@ -31,10 +31,6 @@ vi.mock('@/ui/review/v2', () => ({
   ReviewView: {},
 }));
 
-vi.mock('@/ui/ai/AiWorkbenchPane.vue', () => ({
-  default: {},
-}));
-
 function createCard(id: string, blockId: string): FSRSCard {
   const now = Date.UTC(2026, 5, 11);
   return {
@@ -107,9 +103,6 @@ function createContext() {
         refreshed: false,
         reason: 'not-live-cdf',
       })),
-    })),
-    getReviewAIWorkbenchRegistry: vi.fn(() => ({
-      disposeReviewSession: vi.fn(),
     })),
   };
 }

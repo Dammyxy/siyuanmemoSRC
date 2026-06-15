@@ -544,9 +544,6 @@ function overrideReviewToolbarButton(btn: ReviewToolbarButton, navState: NeuralN
 }
 
 function getToolbarSortWeight(btn: ReviewToolbarButton): number {
-  if (btn.type === 'ai-sidebar') {
-    return 20;
-  }
   if (btn.type === 'more') {
     return 30;
   }

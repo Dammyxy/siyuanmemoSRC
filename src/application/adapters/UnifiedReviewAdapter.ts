@@ -619,7 +619,6 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     const priorityBadge = this.buildPriorityBadge(item, queueType);
 
     let toolbar: NonNullable<ReviewUIState['header']['toolbar']> = [
-      { icon: '#iconSparkles', type: 'ai-sidebar', ariaLabel: t(this.i18n, 'aiSidebar', 'AI Sidebar') },
       { icon: '#iconMore', type: 'more', ariaLabel: t(this.i18n, 'moreActions', 'More') },
     ];
 

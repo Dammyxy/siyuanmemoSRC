@@ -1,6 +1,4 @@
 import type {
-  BackendAiPromptExecuteRequest,
-  BackendAiPromptNetworkRequest,
   BackendAutoCardExecuteRequest,
   BackendReviewRiffFeedbackExecuteRequest,
   BackendProgressiveCommandExecuteRequest,
@@ -29,8 +27,7 @@ export type BackendWorkerHostEffect =
   | { kind: 'autocard.execute'; request: BackendAutoCardExecuteRequest }
   | { kind: 'progressive.command.execute'; request: BackendProgressiveCommandExecuteRequest }
   | { kind: 'topic-derived.command.execute'; request: BackendTopicDerivedCommandExecuteRequest }
-  | { kind: 'review.riffFeedback.execute'; request: BackendReviewRiffFeedbackExecuteRequest }
-  | { kind: 'ai.prompt.execute'; request: BackendAiPromptNetworkRequest; context: BackendAiPromptExecuteRequest };
+  | { kind: 'review.riffFeedback.execute'; request: BackendReviewRiffFeedbackExecuteRequest };
 
 export type BackendWorkerRequestMessage = {
   kind: 'request';

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  KERNEL_AI_STREAM_EVENT_TYPES,
   KERNEL_FAST_PATH_CAPABILITY_KEYS,
   KERNEL_RELAY_METHODS,
   type KernelBroadcastEvent,
@@ -36,23 +35,9 @@ describe('kernel relay contract', () => {
       'rpcWebSocketPush',
       'backendRealWorkerTransport',
       'kernelNetworkProxy',
-      'kernelNetworkSse',
       'privateHttp',
       'privateSse',
       'riffReadAuditProxy',
-      'aiKernelStreaming',
-    ]);
-  });
-
-  it('declares normalized AI stream event types without exposing raw SSE payloads', () => {
-    expect(KERNEL_AI_STREAM_EVENT_TYPES).toEqual([
-      'token',
-      'progress',
-      'error',
-      'final',
-      'canceled',
-      'timeout',
-      'close',
     ]);
   });
 

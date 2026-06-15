@@ -830,48 +830,12 @@ describe('SrsBackendClient', () => {
     ]);
   });
 
-  it('routes AI tool jobs and Review backend commands through typed RPC methods', async () => {
+  it('routes Review backend commands through typed RPC methods', async () => {
     const requests: Array<{ method: string; params: unknown }> = [];
     const transport: SrsBackendTransport = {
       request: vi.fn(async (request) => {
         requests.push({ method: request.method, params: request.params });
         switch (request.method) {
-          case 'ai.tool.job.execute':
-            return {
-              jsonrpc: '2.0',
-              id: request.id,
-              result: {
-                status: 'waiting-for-user-approval',
-                jobId: 'job-1',
-                sessionId: 'session-1',
-                commandId: 'command-1',
-                phase: 'approval-wait',
-                progress: { state: 'waiting-for-user-approval', updatedAt: 1 },
-                diagnostics: {
-                  diagnosticEventId: 'diag-ai-tool-1',
-                  family: 'ai.tool-job',
-                  commandId: 'command-1',
-                },
-              },
-            };
-          case 'ai.tool.job.approval':
-            return {
-              jsonrpc: '2.0',
-              id: request.id,
-              result: {
-                status: 'completed',
-                jobId: 'job-1',
-                sessionId: 'session-1',
-                commandId: 'command-1',
-                phase: 'terminal',
-                progress: { state: 'succeeded', updatedAt: 2 },
-                diagnostics: {
-                  diagnosticEventId: 'diag-ai-tool-2',
-                  family: 'ai.tool-job',
-                  commandId: 'command-1',
-                },
-              },
-            };
           case 'review.riffFeedback.execute':
             return {
               jsonrpc: '2.0',
@@ -922,22 +886,6 @@ describe('SrsBackendClient', () => {
     };
     const client = new SrsBackendClient(transport);
 
-    await expect(client.executeAiToolJob({
-      jobId: 'job-1',
-      sessionId: 'session-1',
-      commandId: 'command-1',
-      idempotencyKey: 'ai-key-1',
-      toolName: 'flashcard.create',
-      requiresApproval: true,
-    })).resolves.toMatchObject({ status: 'waiting-for-user-approval' });
-    await expect(client.submitAiToolJobApproval({
-      jobId: 'job-1',
-      sessionId: 'session-1',
-      commandId: 'command-1',
-      idempotencyKey: 'ai-key-1',
-      decision: 'approved',
-      decidedAt: 2,
-    })).resolves.toMatchObject({ status: 'completed' });
     await expect(client.executeReviewRiffFeedback({
       commandId: 'riff-1',
       idempotencyKey: 'riff-key-1',
@@ -954,8 +902,6 @@ describe('SrsBackendClient', () => {
     })).resolves.toMatchObject({ status: 'refresh-required', matchedBlockIds: ['block-1'] });
 
     expect(requests.map((request) => request.method)).toEqual([
-      'ai.tool.job.execute',
-      'ai.tool.job.approval',
       'review.riffFeedback.execute',
       'review.sourceRefresh.execute',
     ]);
@@ -1338,67 +1284,7 @@ describe('SrsBackendClient', () => {
                 message: null,
               },
             };
-          case 'ai.session.create':
-          case 'ai.session.get':
-          case 'ai.session.update':
-          case 'ai.session.cancel':
-            return {
-              jsonrpc: '2.0',
-              id: request.id,
-              result: {
-                ok: true,
-                session: {
-                  sessionId: 'ai-session-1',
-                  surfaceId: 'standalone-dialog',
-                  reviewSessionId: null,
-                  owner: 'backend',
-                  skillId: 'general-chat',
-                  providerId: 'openai',
-                  modelId: 'gpt-test',
-                  state: request.method === 'ai.session.cancel' ? 'canceled' : 'active',
-                  createdAt: 1,
-                  updatedAt: 2,
-                  expiresAt: null,
-                  lastError: null,
-                  diagnosticEventId: 'diag-ai-session-1',
-                },
-              },
-            };
-          case 'ai.stream.start':
-          case 'ai.stream.cancel':
-            return {
-              jsonrpc: '2.0',
-              id: request.id,
-              result: {
-                ok: true,
-                streamId: 'stream-1',
-                sessionId: 'ai-session-1',
-                jobId: 'job-1',
-                state: request.method === 'ai.stream.cancel' ? 'canceled' : 'started',
-                diagnosticEventId: 'diag-ai-stream-1',
-              },
-            };
-          case 'ai.prompt.execute':
-            return {
-              jsonrpc: '2.0',
-              id: request.id,
-              result: {
-                ok: true,
-                sessionId: 'ai-session-1',
-                streamId: 'stream-1',
-                jobId: 'job-1',
-                state: 'completed',
-                unavailableClass: null,
-                diagnosticEventId: 'diag-ai-prompt-1',
-                response: {
-                  status: 200,
-                  headers: {},
-                  body: '{"choices":[{"message":{"content":"ok"}}]}',
-                },
-              },
-            };
-          case 'job.get':
-          case 'job.cancel':
+          case 'hotspot.job.get':
             return {
               jsonrpc: '2.0',
               id: request.id,
@@ -1406,10 +1292,10 @@ describe('SrsBackendClient', () => {
                 ok: true,
                 job: {
                   jobId: 'job-1',
-                  kind: 'ai-stream',
+                  kind: 'hotspot-command',
                   owner: 'backend',
                   idempotencyKey: 'job-key-1',
-                  state: request.method === 'job.cancel' ? 'canceled' : 'running',
+                  state: 'running',
                   progress: 40,
                   startedAt: 1,
                   updatedAt: 2,
@@ -1622,85 +1508,12 @@ describe('SrsBackendClient', () => {
         policyHash: 'policy-deferred',
       },
     });
-    await expect(client.createAiSession({
-      sessionId: 'ai-session-1',
-      surfaceId: 'standalone-dialog',
-    })).resolves.toMatchObject({
-      ok: true,
-      session: {
-        sessionId: 'ai-session-1',
-      },
-    });
-    await expect(client.getAiSession({
-      sessionId: 'ai-session-1',
-    })).resolves.toMatchObject({
-      ok: true,
-      session: {
-        sessionId: 'ai-session-1',
-      },
-    });
-    await expect(client.updateAiSession({
-      sessionId: 'ai-session-1',
-      state: 'streaming',
-    })).resolves.toMatchObject({
-      ok: true,
-      session: {
-        state: 'active',
-      },
-    });
-    await expect(client.cancelAiSession({
-      sessionId: 'ai-session-1',
-      reason: 'cancel-test',
-    })).resolves.toMatchObject({
-      ok: true,
-      session: {
-        state: 'canceled',
-      },
-    });
-    await expect(client.startAiStream({
-      streamId: 'stream-1',
-      sessionId: 'ai-session-1',
-      jobId: 'job-1',
-    })).resolves.toMatchObject({
-      ok: true,
-      state: 'started',
-    });
-    await expect(client.cancelAiStream({
-      streamId: 'stream-1',
-      sessionId: 'ai-session-1',
-      jobId: 'job-1',
-    })).resolves.toMatchObject({
-      ok: true,
-      state: 'canceled',
-    });
-    await expect(client.executeAiPrompt({
-      sessionId: 'ai-session-1',
-      streamId: 'stream-1',
-      jobId: 'job-1',
-      request: {
-        url: 'https://example.com/chat/completions',
-        method: 'POST',
-        body: '{}',
-      },
-    })).resolves.toMatchObject({
-      ok: true,
-      state: 'completed',
-    });
-    await expect(client.getAiJob({
+    await expect(client.getHotspotJob({
       jobId: 'job-1',
     })).resolves.toMatchObject({
       ok: true,
       job: {
         jobId: 'job-1',
-      },
-    });
-    await expect(client.cancelAiJob({
-      jobId: 'job-1',
-      reason: 'cancel-job',
-    })).resolves.toMatchObject({
-      ok: true,
-      job: {
-        state: 'canceled',
       },
     });
 
@@ -1730,15 +1543,7 @@ describe('SrsBackendClient', () => {
       'queue.projection.rowsByIds',
       'storage.projection.rebuild',
       'neural-roam.advance',
-      'ai.session.create',
-      'ai.session.get',
-      'ai.session.update',
-      'ai.session.cancel',
-      'ai.stream.start',
-      'ai.stream.cancel',
-      'ai.prompt.execute',
-      'job.get',
-      'job.cancel',
+      'hotspot.job.get',
     ]);
     expect(requests[0].params).toEqual([{ query: { preset: 'all' }, page: { startRow: 0, endRow: 10 } }]);
     expect(requests[1].params).toEqual([{ query: { preset: 'all' } }]);
@@ -1838,60 +1643,6 @@ describe('SrsBackendClient', () => {
       content: 'Q <> A',
       source: 'symbol-listener',
     })).rejects.toThrow('autocard.decision.resolve returned invalid payload');
-  });
-
-  it('rejects ai stream/job payloads when required fields are missing', async () => {
-    const transport: SrsBackendTransport = {
-      request: vi.fn(async (request) => {
-        if (request.method === 'ai.stream.start') {
-          return {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              ok: true,
-              streamId: '',
-            },
-          };
-        }
-        if (request.method === 'ai.prompt.execute') {
-          return {
-            jsonrpc: '2.0',
-            id: request.id,
-            result: {
-              ok: true,
-              streamId: '',
-            },
-          };
-        }
-        return {
-          jsonrpc: '2.0',
-          id: request.id,
-          result: {
-            ok: true,
-          },
-        };
-      }),
-    };
-    const client = new SrsBackendClient(transport);
-
-    await expect(client.startAiStream({
-      streamId: 'stream-1',
-      sessionId: 'session-1',
-      jobId: 'job-1',
-    })).rejects.toThrow('ai.stream.start returned invalid payload');
-
-    await expect(client.getAiJob({
-      jobId: 'job-1',
-    })).rejects.toThrow('job.get returned invalid payload');
-
-    await expect(client.executeAiPrompt({
-      sessionId: 'session-1',
-      streamId: 'stream-1',
-      jobId: 'job-1',
-      request: {
-        url: 'https://example.com/chat/completions',
-      },
-    })).rejects.toThrow('ai.prompt.execute returned invalid payload');
   });
 
   it('rejects neural-roam.advance payload when semantic fields are missing', async () => {

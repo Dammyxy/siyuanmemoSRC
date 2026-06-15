@@ -32,7 +32,6 @@ describe('check-backend-migration-cutover', () => {
     writeFile(rootDir, 'src/application/usecases/review/ReviewCommitUseCase.ts', 'export const ok = true;\n');
     writeFile(rootDir, 'src/application/services/BrowserApplicationService.ts', 'export const ok = true;\n');
     writeFile(rootDir, 'src/application/handlers/AutoCardHandler.ts', 'export const ok = true;\n');
-    writeFile(rootDir, 'src/application/services/AIWorkbenchPromptRuntime.ts', 'export const ok = true;\n');
     writeFile(rootDir, 'src/application/clients/PrivateApiClient.ts', 'export const ok = true;\n');
     writeFile(rootDir, 'src/application/backendMigration/ownershipMap.ts', `
       export const BACKEND_MIGRATION_FEATURE_GATES = {
@@ -61,7 +60,6 @@ describe('check-backend-migration-cutover', () => {
         return backendClient.executeAutoCard(request);
       }
     `);
-    writeFile(rootDir, 'src/application/services/AIWorkbenchPromptRuntime.ts', 'return this.deps.llmPort.chat({});\n');
     writeFile(rootDir, 'src/application/clients/PrivateApiClient.ts', `
       if (runtime.getMode() === 'follower') {
         return backendClient.privateCommand(request);
@@ -80,7 +78,6 @@ describe('check-backend-migration-cutover', () => {
       expect.stringContaining('ReviewCommitUseCase.ts'),
       expect.stringContaining('BrowserApplicationService.ts'),
       expect.stringContaining('AutoCardHandler.ts'),
-      expect.stringContaining('AIWorkbenchPromptRuntime.ts'),
       expect.stringContaining('renderer/raw fetch adapter'),
       expect.stringContaining('PrivateApiClient.ts'),
       expect.stringContaining('feature gate autocardDecisionRelay'),
@@ -97,7 +94,6 @@ describe('check-backend-migration-cutover', () => {
         return backendClient.executeAutoCard(request);
       }
     `);
-    writeFile(rootDir, 'src/application/services/AIWorkbenchPromptRuntime.ts', 'return this.deps.llmPort.chat({});\n');
     writeFile(rootDir, 'src/application/clients/PrivateApiClient.ts', 'export const ok = true;\n');
     writeFile(rootDir, 'src/application/backendMigration/ownershipMap.ts', `
       export const BACKEND_MIGRATION_FEATURE_GATES = {
@@ -125,17 +121,6 @@ describe('check-backend-migration-cutover', () => {
         trackingTask: 'RM019',
       },
       {
-        id: 'allow-ai-foundation',
-        checker: 'check-backend-migration-cutover',
-        file: 'src/application/services/AIWorkbenchPromptRuntime.ts',
-        kind: 'ai-frontend-llm-call',
-        symbolPattern: 'llmPort.chat(',
-        owner: 'foundation-only',
-        reason: 'temporary foundation status',
-        removalCondition: 'remove later',
-        trackingTask: 'RM031',
-      },
-      {
         id: 'allow-private-unwired',
         checker: 'check-backend-migration-cutover',
         file: 'src/application/ApplicationContext.ts',
@@ -154,7 +139,6 @@ describe('check-backend-migration-cutover', () => {
     ]));
     expect(failures).not.toEqual(expect.arrayContaining([
       expect.stringContaining('BrowserApplicationService.ts'),
-      expect.stringContaining('AIWorkbenchPromptRuntime.ts'),
       expect.stringContaining('Private API runtime service/client wiring is missing'),
     ]));
   });
@@ -164,7 +148,6 @@ describe('check-backend-migration-cutover', () => {
     writeFile(rootDir, 'src/application/usecases/review/ReviewCommitUseCase.ts', 'export const ok = true;\n');
     writeFile(rootDir, 'src/application/services/BrowserApplicationService.ts', 'return this.browserDeckReadPort.queryDeckPage(query, page);\n');
     writeFile(rootDir, 'src/application/handlers/AutoCardHandler.ts', 'export const ok = true;\n');
-    writeFile(rootDir, 'src/application/services/AIWorkbenchPromptRuntime.ts', 'export const ok = true;\n');
     writeFile(rootDir, 'src/application/clients/PrivateApiClient.ts', 'export const ok = true;\n');
     writeFile(rootDir, 'src/application/backendMigration/ownershipMap.ts', `export const BACKEND_MIGRATION_FEATURE_GATES = {};\n`);
     writeFile(rootDir, 'src/application/backendMigration/featureGateMatrix.ts', 'export const BACKEND_FEATURE_GATE_MATRIX = [];\n');
@@ -202,7 +185,6 @@ describe('check-backend-migration-cutover', () => {
       }
     `);
     writeFile(rootDir, 'src/application/handlers/AutoCardHandler.ts', 'export const ok = true;\n');
-    writeFile(rootDir, 'src/application/services/AIWorkbenchPromptRuntime.ts', 'export const ok = true;\n');
     writeFile(rootDir, 'src/application/clients/PrivateApiClient.ts', 'export const ok = true;\n');
     writeFile(rootDir, 'src/application/backendMigration/ownershipMap.ts', `export const BACKEND_MIGRATION_FEATURE_GATES = {};\n`);
     writeFile(rootDir, 'src/application/backendMigration/featureGateMatrix.ts', 'export const BACKEND_FEATURE_GATE_MATRIX = [];\n');

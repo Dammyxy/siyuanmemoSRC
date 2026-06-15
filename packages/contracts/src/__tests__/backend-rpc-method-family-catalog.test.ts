@@ -6,11 +6,6 @@ import {
   BACKEND_RPC_METHOD_FAMILY_CATALOG,
 } from '../backend-rpc';
 import {
-  BACKEND_AI_RPC_METHODS,
-  BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD,
-  type BackendAiRpcMethod,
-} from '../backend-rpc/ai';
-import {
   BACKEND_BROWSER_RPC_METHODS,
   BACKEND_BROWSER_RPC_METHOD_CONTRACT_BY_METHOD,
   type BackendBrowserDeckMatchedIdsResult,
@@ -32,11 +27,6 @@ import {
   BACKEND_HOTSPOT_RPC_METHOD_CONTRACT_BY_METHOD,
   type BackendHotspotRpcMethod,
 } from '../backend-rpc/hotspot';
-import {
-  BACKEND_JOB_RPC_METHODS,
-  BACKEND_JOB_RPC_METHOD_CONTRACT_BY_METHOD,
-  type BackendJobRpcMethod,
-} from '../backend-rpc/job';
 import {
   BACKEND_KERNEL_TRANSACTION_RPC_METHODS,
   BACKEND_KERNEL_TRANSACTION_RPC_METHOD_CONTRACT_BY_METHOD,
@@ -285,41 +275,6 @@ describe('backend RPC method-family contract catalog', () => {
     });
     expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['kernel.transaction.requeue']).toBe(
       BACKEND_KERNEL_TRANSACTION_RPC_METHOD_CONTRACT_BY_METHOD['kernel.transaction.requeue'],
-    );
-  });
-
-  it('exports AI session, prompt, tool-job, and stream contracts from the AI family module', () => {
-    expect(BACKEND_AI_RPC_METHODS).toEqual([
-      'ai.session.create',
-      'ai.session.get',
-      'ai.session.update',
-      'ai.session.cancel',
-      'ai.prompt.execute',
-      'ai.tool.job.execute',
-      'ai.tool.job.approval',
-      'ai.stream.start',
-      'ai.stream.cancel',
-    ] satisfies BackendAiRpcMethod[]);
-    expect(BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD['ai.session.create']).toMatchObject({
-      method: 'ai.session.create',
-      family: 'ai',
-    });
-    expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['ai.tool.job.approval']).toBe(
-      BACKEND_AI_RPC_METHOD_CONTRACT_BY_METHOD['ai.tool.job.approval'],
-    );
-  });
-
-  it('exports backend job contracts from the Job family module', () => {
-    expect(BACKEND_JOB_RPC_METHODS).toEqual([
-      'job.get',
-      'job.cancel',
-    ] satisfies BackendJobRpcMethod[]);
-    expect(BACKEND_JOB_RPC_METHOD_CONTRACT_BY_METHOD['job.get']).toMatchObject({
-      method: 'job.get',
-      family: 'job',
-    });
-    expect(BACKEND_RPC_METHOD_CONTRACT_BY_METHOD['job.cancel']).toBe(
-      BACKEND_JOB_RPC_METHOD_CONTRACT_BY_METHOD['job.cancel'],
     );
   });
 

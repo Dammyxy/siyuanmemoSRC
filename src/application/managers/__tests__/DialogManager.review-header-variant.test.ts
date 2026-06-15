@@ -114,6 +114,7 @@ function createDialogManager(options?: {
 
   const manager = {
     materializeQueueProjection: vi.fn().mockResolvedValue(undefined),
+    neuralRoamCommand: vi.fn(async () => ({ ok: true })),
     getQueue: vi.fn((queueType: string) => {
       if (queueType === 'filter-group') {
         return filterGroupQueue;

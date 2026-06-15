@@ -38,10 +38,10 @@ describe('Agent tool contracts', () => {
       expect(['get', 'list', 'read', 'search', 'status', 'query', 'open', 'close']).not.toContain(action);
     }
 
+    expect(buildMemoCardInputSchema().properties.action.enum).not.toContain('draft');
     expect(validateAgentToolAction('memo_card', 'draft')).toMatchObject({
-      ok: true,
-      safe: false,
-      mutating: false,
+      ok: false,
+      error: { code: 'UNSUPPORTED_OPERATION' },
     });
     expect(validateAgentToolAction('memo_card', 'save')).toMatchObject({
       ok: true,

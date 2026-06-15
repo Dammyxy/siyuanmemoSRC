@@ -1,4 +1,4 @@
-export type SettingsTabKey = 'learning' | 'review' | 'card' | 'capture-sync' | 'neural' | 'ai' | 'maintenance' | 'about';
+export type SettingsTabKey = 'learning' | 'review' | 'card' | 'capture-sync' | 'neural' | 'maintenance' | 'about';
 export type SettingsSubTabKey = string;
 export type SettingsTabSection = 'primary' | 'secondary';
 export type SettingsI18nLookup = (key: string, fallback: string) => string;
@@ -33,7 +33,6 @@ export const DEFAULT_SETTINGS_SUBTAB_SELECTION: SettingsSubTabSelection = {
   card: 'quick-card',
   'capture-sync': 'entry',
   neural: 'history',
-  ai: 'provider',
   maintenance: 'block-attrs',
   about: 'about',
 };
@@ -45,7 +44,6 @@ export function normalizeSettingsTabKey(tab?: string): SettingsTabKey {
     case 'card':
     case 'capture-sync':
     case 'neural':
-    case 'ai':
     case 'maintenance':
     case 'about':
       return tab;
@@ -65,7 +63,6 @@ export function buildSettingsTabs(t: SettingsI18nLookup): SettingsTabDefinition[
     { key: 'card', label: t('settingsCardTab', '制卡'), icon: '#iconSettings', section: 'primary' },
     { key: 'capture-sync', label: t('settingsCaptureSyncTab', '摘录与同步'), icon: '#iconSettings', section: 'primary' },
     { key: 'neural', label: t('settingsNeuralTab', '神经漫游'), icon: '#iconSettings', section: 'primary' },
-    { key: 'ai', label: t('settingsAiTab', 'AI 工作台'), icon: '#iconSparkles', section: 'primary' },
     { key: 'maintenance', label: t('settingsMaintenanceTab', '维护'), icon: '#iconSettings', section: 'secondary' },
     { key: 'about', label: t('settingsAboutTab', '关于'), icon: '#iconInfo', section: 'secondary' },
   ];
@@ -98,12 +95,6 @@ export function buildSettingsSubTabsByTab(
       { key: 'channels', label: t('settingsSubtabHyperspaceChannels', '传播通道') },
       { key: 'range', label: t('settingsSubtabHyperspaceRange', '扩散范围') },
       { key: 'weights', label: t('settingsSubtabHyperspaceWeights', '传播权重') },
-    ],
-    ai: [
-      { key: 'provider', label: t('settingsSubtabAiProvider', '模型接入') },
-      { key: 'runtime', label: t('settingsSubtabAiRuntime', '聊天与工具') },
-      { key: 'built-in-skill', label: t('settingsSubtabAiBuiltInSkill', '内置 Skill') },
-      { key: 'user-skills', label: t('settingsSubtabAiUserSkills', '用户 Skill') },
     ],
     maintenance: [
       { key: 'block-attrs', label: t('blockAttrsCleanupTitle', '块属性清理') },

@@ -35,13 +35,25 @@ vi.mock('@/ui/review/v2', () => ({
   ReviewView: {},
 }));
 
-vi.mock('@/ui/ai/AiWorkbenchPane.vue', () => ({
-  default: {},
-}));
-
 function createSiyuanApiMock() {
   return {
     pushErrMsg: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createReviewServiceContextSlice() {
+  return {
+    getReviewService: vi.fn(() => ({
+      refreshCdfLiveRelationOnOpen: vi.fn(async (card: FSRSCard | string) => ({
+        attempted: false,
+        card: typeof card === 'string' ? null : card,
+        updatedCard: null,
+        actions: [],
+        derivedRelationCount: 0,
+        currentReviewDuplicateOutcome: null,
+        reason: 'non-cdf-card',
+      })),
+    })),
   };
 }
 
@@ -69,6 +81,7 @@ describe('TabManager filter-group review transfer restore', () => {
       getUnifiedDataSourceManager: vi.fn(() => manager),
       getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
       getSchedulerRouter: vi.fn(() => ({})),
+      ...createReviewServiceContextSlice(),
       getSettingsService: vi.fn(() => ({
         getSettings: () => ({
           progressiveReading: {},
@@ -168,6 +181,7 @@ describe('TabManager filter-group review transfer restore', () => {
       getUnifiedDataSourceManager: vi.fn(() => manager),
       getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
       getSchedulerRouter: vi.fn(() => ({})),
+      ...createReviewServiceContextSlice(),
       getSettingsService: vi.fn(() => ({
         getSettings: () => ({
           progressiveReading: {},
@@ -245,6 +259,7 @@ describe('TabManager filter-group review transfer restore', () => {
       getUnifiedDataSourceManager: vi.fn(() => manager),
       getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
       getSchedulerRouter: vi.fn(() => ({})),
+      ...createReviewServiceContextSlice(),
       getSettingsService: vi.fn(() => ({
         getSettings: () => ({
           progressiveReading: {},
@@ -372,6 +387,7 @@ describe('TabManager filter-group review transfer restore', () => {
       getUnifiedDataSourceManager: vi.fn(() => manager),
       getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
       getSchedulerRouter: vi.fn(() => ({})),
+      ...createReviewServiceContextSlice(),
       getSettingsService: vi.fn(() => ({
         getSettings: () => ({
           progressiveReading: {},
@@ -472,6 +488,7 @@ describe('TabManager filter-group review transfer restore', () => {
       getUnifiedDataSourceManager: vi.fn(() => manager),
       getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
       getSchedulerRouter: vi.fn(() => ({})),
+      ...createReviewServiceContextSlice(),
       getSettingsService: vi.fn(() => ({
         getSettings: () => ({
           progressiveReading: {},
@@ -546,6 +563,7 @@ describe('TabManager filter-group review transfer restore', () => {
     const now = Date.now();
     const currentCard = {
       id: 'card-special',
+      xiuyuanID: 'xiuyuan-special',
       blockId: 'block-special',
       due: now,
       stability: 1,
@@ -598,6 +616,7 @@ describe('TabManager filter-group review transfer restore', () => {
       getUnifiedDataSourceManager: vi.fn(() => manager),
       getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
       getSchedulerRouter: vi.fn(() => ({})),
+      ...createReviewServiceContextSlice(),
       getSettingsService: vi.fn(() => ({
         getSettings: () => ({
           progressiveReading: {},
@@ -758,6 +777,7 @@ describe('TabManager filter-group review transfer restore', () => {
       })),
       getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
       getSchedulerRouter: vi.fn(() => ({})),
+      ...createReviewServiceContextSlice(),
       getSettingsService: vi.fn(() => ({
         getSettings: () => ({
           progressiveReading: {},
@@ -828,6 +848,7 @@ describe('TabManager filter-group review transfer restore', () => {
       getUnifiedDataSourceManager: vi.fn(() => manager),
       getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
       getSchedulerRouter: vi.fn(() => ({})),
+      ...createReviewServiceContextSlice(),
       getSettingsService: vi.fn(() => ({
         getSettings: () => ({
           progressiveReading: {},
@@ -885,6 +906,7 @@ describe('TabManager filter-group review transfer restore', () => {
     const now = Date.now();
     const currentCard = {
       id: 'card-special',
+      xiuyuanID: 'xiuyuan-special',
       blockId: 'block-special',
       due: now,
       stability: 1,
@@ -922,6 +944,7 @@ describe('TabManager filter-group review transfer restore', () => {
       getUnifiedDataSourceManager: vi.fn(() => manager),
       getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
       getSchedulerRouter: vi.fn(() => ({})),
+      ...createReviewServiceContextSlice(),
       getSettingsService: vi.fn(() => ({
         getSettings: () => ({
           progressiveReading: {},
@@ -1100,6 +1123,7 @@ describe('TabManager filter-group review transfer restore', () => {
       getUnifiedDataSourceManager: vi.fn(() => manager),
       getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
       getSchedulerRouter: vi.fn(() => ({})),
+      ...createReviewServiceContextSlice(),
       getSettingsService: vi.fn(() => ({
         getSettings: () => ({
           progressiveReading: {},

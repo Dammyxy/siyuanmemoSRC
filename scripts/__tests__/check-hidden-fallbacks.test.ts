@@ -278,9 +278,6 @@ describe('check-hidden-fallbacks', () => {
     writeFile(rootDir, 'worker/graph/WorkerGraphQueryService.ts', `
       logger.warn('backend graph query failed; fallback to renderer SQL host effect');
     `);
-    writeFile(rootDir, 'src/application/services/AIChatToolExecutorService.ts', `
-      logger.warn('ai tool backend job failed; fallback to direct flashcard write');
-    `);
     writeFile(rootDir, 'src/application/services/ReviewApplicationService.ts', `
       logger.warn('review riff/source refresh backend command failed; fallback to local review source refresh');
     `);
@@ -291,7 +288,6 @@ describe('check-hidden-fallbacks', () => {
       expect.stringContaining('xiuyuan-sync-local-fallback'),
       expect.stringContaining('browser-aggregate-local-fallback'),
       expect.stringContaining('graph-query-renderer-fallback'),
-      expect.stringContaining('ai-tool-direct-write-fallback'),
       expect.stringContaining('review-hotspot-local-fallback'),
     ]));
   });

@@ -24,7 +24,6 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
       priorityRandomness: DEFAULT_SETTINGS.priorityRandomness,
       quickCardSettings: DEFAULT_SETTINGS.quickCard,
       progressiveReadingSettings: DEFAULT_SETTINGS.progressiveReading,
-      aiSettings: DEFAULT_SETTINGS.ai,
       captureStorageNotebooks: [
         { id: 'notebook-a', name: 'Notebook A' },
         { id: 'notebook-b', name: 'Notebook B' },
@@ -35,7 +34,6 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         settingsCardTab: 'Card Creation',
         settingsCaptureSyncTab: 'Excerpt & Sync',
         settingsNeuralTab: 'Neural Roam',
-        settingsAiTab: 'AI Workbench',
         settingsMaintenanceTab: 'Maintenance',
         settingsAboutTab: 'About',
         settingsSubtabFsrsParams: 'FSRS Parameters',
@@ -53,14 +51,9 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         settingsSubtabHyperspaceChannels: 'Propagation Channels',
         settingsSubtabHyperspaceRange: 'Spread Range',
         settingsSubtabHyperspaceWeights: 'Propagation Weights',
-        settingsSubtabAiProvider: 'Model Access',
-        settingsSubtabAiRuntime: 'Chat & Tools',
-        settingsSubtabAiBuiltInSkill: 'Built-in Skill',
-        settingsSubtabAiUserSkills: 'User Skills',
         reviewWindowSectionTitle: 'Review Surface',
         queueAutomationSectionTitle: 'Queue Automation',
         queueOrderingSectionTitle: 'Queue Ordering & Insertions',
-        aiDraftStorageSectionTitle: 'AI Draft Storage',
         neuralHistorySettingsTitle: 'Path History',
         neuralHistorySettingsIntro: 'Path history settings live here.',
         neuralHistoryMaxEntries: 'Path history limit',
@@ -106,52 +99,6 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         topicDerivationStorageWorkbench: 'Workbench document (default)',
         topicDerivationStorageSourceChild: 'Direct child under source document',
         topicDerivationStorageModeHint: 'Applies to Item derivation inside existing Topics, including ⌥⇧Z and symbol continuation.',
-        aiDraftStorageModeLabel: 'AI draft storage mode',
-        aiDraftStorageModeHint: 'Choose where AI drafts should be saved.',
-        aiDraftStorageTargetBlockHint: 'Library mode accepts a target document or block ID.',
-        aiSettingsTitle: 'AI Workbench',
-        aiBaseUrl: 'Base URL',
-        aiApiKey: 'API Key',
-        aiModel: 'Model',
-        aiEnabled: 'Enable AI',
-        aiPromptTemplates: 'Prompt Templates',
-        aiToolManagerSummaryTitle: 'Tool Group Manager',
-        aiManageToolPermissions: 'Manage Tool Permissions',
-        aiEditPrompt: 'Edit Prompt',
-        aiWriteRisk: 'Write Risk',
-        aiToolOverridesCount: '{count} overrides',
-        aiExpandGroup: 'Expand Tools',
-        aiCollapseGroup: 'Collapse Tools',
-        aiToolOverrideBadge: 'Approval Override',
-        aiGeneralChatPromptPresetTitle: 'General Chat Preset',
-        aiTutorPrompt: 'Tutor Prompt',
-        aiExplainPrompt: 'Explain Prompt',
-        aiCardCandidatePrompt: 'Card Prompt',
-        aiCardCandidateCdfPrompt: 'CDF Card Prompt',
-        aiTutorPromptPresetTitle: 'Tutor Preset',
-        aiExplainPromptPresetTitle: 'Explain Preset',
-        aiCardPromptPresetTitle: 'Card Preset',
-        aiCdfPromptPresetTitle: 'CDF Preset',
-        aiRestoreRecommendedPrompt: 'Restore Recommended Template',
-        aiBehaviorPrompt: 'Behavior Prompt',
-        aiBehaviorPromptHint: 'The system appends structured output rules automatically; use this area for role, goal, tone, and preferences.',
-        aiPromptShowSystemContract: 'Show the system-appended structured contract',
-        aiRunPrompt: 'Run Prompt',
-        aiFollowUpPrompt: 'Follow-up Prompt',
-        aiPromptAudience: 'Audience',
-        aiPromptBehavior: 'Default Behavior',
-        aiPromptOutput: 'Output Shape',
-        aiPromptCurrentStatus: 'Current Status',
-        aiPromptStatusRecommended: 'Using Recommended Template',
-        aiPromptStatusRecommendedHint: 'The recommended behavior and follow-up prompts are shown below; the system appends structured rules automatically.',
-        aiPromptStatusCustom: 'Using Custom Override',
-        aiPromptStatusCustomHint: 'The saved behavior and follow-up prompts below are custom; the system appends structured rules automatically.',
-        aiPromptStatusEmpty: 'Editor Is Empty',
-        aiPromptStatusEmptyHint: 'This prompt pair is empty right now.',
-        aiNoUserSkills: 'No user skills yet',
-        aiNoUserSkillsHint: 'Create one to customize your workflows.',
-        aiAddChatSkill: 'Add Chat Skill',
-        aiAddStructuredSkill: 'Add Structured Skill',
         edit: 'Edit',
         duplicate: 'Duplicate',
         delete: 'Delete',
@@ -203,7 +150,6 @@ describe('SettingsPanel', () => {
       'Card Creation',
       'Excerpt & Sync',
       'Neural Roam',
-      'AI Workbench',
       'Maintenance',
       'About',
     ]);
@@ -560,170 +506,29 @@ describe('SettingsPanel', () => {
     });
   });
 
-  it('renders AI settings managers and saves runtime tool defaults without changing schema', async () => {
+  it('does not expose retired AI Workbench settings from navigation or legacy defaultTab', async () => {
     const wrapper = mountPanel('ai');
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.text()).toContain('AI Workbench');
-    expect(wrapper.text()).toContain('Prompt Templates');
-
-    const formItems = wrapper.findAll('.form-item');
-    const enableItem = formItems.find((item) => item.text().includes('Enable AI'));
-    const enableToggle = enableItem?.find('input[type="checkbox"]');
-    expect(enableToggle).toBeDefined();
-
-    const baseUrlItem = formItems.find((item) => item.text().includes('Base URL'));
-    const baseUrlInput = baseUrlItem?.find('input[type="text"]');
-    const modelItem = formItems.find((item) => item.text().includes('Model'));
-    const modelInput = modelItem?.find('input[type="text"]');
-    const apiKeyItem = formItems.find((item) => item.text().includes('API Key'));
-    const passwordInput = apiKeyItem?.find('input[type="password"]');
-    expect(baseUrlInput).toBeDefined();
-    expect(modelInput).toBeDefined();
-    expect(passwordInput).toBeDefined();
-
-    await baseUrlInput!.setValue('https://example.test/v1');
-    await modelInput!.setValue('gpt-test');
-    await passwordInput!.setValue('secret-key');
-    await enableToggle!.setValue(false);
-
-    await clickSubtab(wrapper, 'Chat & Tools');
-    expect(wrapper.find('.settings-panel').classes()).toContain('siyuanmemo-settings-theme');
-    expect(wrapper.text()).toContain('学习决策');
-    expect(wrapper.text()).toContain('思源写入');
-    expect(wrapper.text()).toContain('Tool Group Manager');
-    expect(wrapper.findAll('.ai-tool-group-card').length).toBeGreaterThan(0);
-    expect(wrapper.find('.ai-tool-group-card select').exists()).toBe(false);
-    expect(wrapper.find('.ai-tool-group-card__head .ai-tool-group-card__meta').exists()).toBe(true);
-    expect(wrapper.find('.ai-tool-group-card > .ai-tool-group-card__meta').exists()).toBe(false);
-
-    const toolPermissionButton = wrapper.find('.ai-settings-manager__action');
-    expect(toolPermissionButton.exists()).toBe(true);
-    await toolPermissionButton.trigger('click');
-    expect(createVueDialogMock).toHaveBeenCalledTimes(1);
-    expect(createVueDialogMock.mock.calls[0]?.[0]?.props?.groupKey).toBeNull();
-    expect(createVueDialogMock.mock.calls[0]?.[0]?.visualVariant).toBe('manager');
-    expect(createVueDialogMock.mock.calls[0]?.[0]?.containerClass).toBe('siyuanmemo-ai-tool-permission-dialog');
-
-    const expandButton = wrapper.find('.ai-tool-group-card__expand');
-    expect(expandButton.exists()).toBe(true);
-    await expandButton.trigger('click');
-    await wrapper.vm.$nextTick();
-
-    const firstToolToggle = wrapper.find('.ai-tool-row input[type="checkbox"]');
-    expect(firstToolToggle.exists()).toBe(true);
-    await firstToolToggle.setValue(false);
-
-    await clickSubtab(wrapper, 'Built-in Skill');
-    expect(wrapper.findAll('.ai-prompt-preset-card')).toHaveLength(2);
-    expect(wrapper.findAll('.ai-prompt-preset-card textarea')).toHaveLength(0);
-    expect(wrapper.findAll('.ai-prompt-preset-card__row')).toHaveLength(6);
-    expect(wrapper.text()).toContain('General Chat Preset');
-    expect(wrapper.text()).toContain('Using Recommended Template');
-
-    const promptEditButtons = wrapper.findAll('.ai-prompt-preset-card__edit-action');
-    expect(promptEditButtons).toHaveLength(2);
-    await promptEditButtons[0].trigger('click');
-    expect(createVueDialogMock).toHaveBeenCalledTimes(2);
-    expect(createVueDialogMock.mock.calls[1]?.[0]?.props?.mode).toBe('generalChat');
-    expect(createVueDialogMock.mock.calls[1]?.[0]?.visualVariant).toBe('manager');
-
-    const restoreButtons = wrapper.findAll('button').filter((btn) => btn.text().includes('Restore Recommended Template'));
-    expect(restoreButtons).toHaveLength(2);
-    await restoreButtons[0].trigger('click');
-    await restoreButtons[1].trigger('click');
-    expect(wrapper.text()).toContain('Using Recommended Template');
-
-    await clickSubtab(wrapper, 'User Skills');
-    expect(wrapper.text()).toContain('No user skills yet');
-
-    const addChatSkillButton = wrapper.findAll('button').find((btn) => btn.text().includes('Add Chat Skill'));
-    expect(addChatSkillButton).toBeDefined();
-    await addChatSkillButton!.trigger('click');
-    expect(createVueDialogMock).toHaveBeenCalledTimes(3);
-    expect(createVueDialogMock.mock.calls[2]?.[0]?.props?.isNew).toBe(true);
-    expect(createVueDialogMock.mock.calls[2]?.[0]?.visualVariant).toBe('manager');
-    expect(wrapper.text()).toContain('No user skills yet');
-
-    const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
-    expect(saveButton).toBeDefined();
-    await saveButton!.trigger('click');
-
-    const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
-    expect(payload.ai.enabled).toBe(false);
-    expect(payload.ai.baseUrl).toBe('https://example.test/v1');
-    expect(payload.ai.apiKey).toBe('secret-key');
-    expect(payload.ai.model).toBe('gpt-test');
-    expect(payload.ai.promptContractVersion).toBe(6);
-    expect(payload.ai.toolPolicies.toolDefaults.GetCurrentContext).toBe(false);
-    expect(payload.ai.prompts.skills.generalChat).toEqual(DEFAULT_SETTINGS.ai.prompts.skills.generalChat);
-    expect(payload.ai.prompts.skills.conceptCoach).toEqual(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach);
-    expect(payload.ai).not.toHaveProperty('draftStorage');
-    expect(payload.ai).not.toHaveProperty('promptProfiles');
+    expect(wrapper.findAll('.settings-tab').map((tab) => tab.text())).toEqual([
+      'Learning & Scheduling',
+      'Review & Queue',
+      'Card Creation',
+      'Excerpt & Sync',
+      'Neural Roam',
+      'Maintenance',
+      'About',
+    ]);
+    expect(wrapper.findAll('.settings-subtab').map((tab) => tab.text())).toEqual([
+      'FSRS Parameters',
+      'Scheduler',
+      'Daily Refresh',
+    ]);
+    expect(wrapper.text()).not.toContain('AI Workbench');
+    expect(wrapper.text()).not.toContain('Prompt Templates');
+    expect(wrapper.find('.ai-settings-manager').exists()).toBe(false);
+    expect(createVueDialogMock).not.toHaveBeenCalled();
   });
-
-  it('renders user skill summary cards and keeps edit flows inside dialogs', async () => {
-    const wrapper = mountPanel('ai', {
-      aiSettings: {
-        ...DEFAULT_SETTINGS.ai,
-        userSkills: [{
-          id: 'user:test-skill',
-          title: 'My Skill',
-          brief: 'Summarize the selected material.',
-          enabled: true,
-          mode: 'structured',
-          systemPromptTemplate: 'You are a study helper.',
-          composerPreset: 'Use the current material.',
-          primaryActionLabel: 'Run Skill',
-          defaultToolGroups: ['context-read', 'study-decision'],
-          sections: [{
-            id: 'section-1',
-            title: 'Summary',
-            emptyHint: 'No summary',
-            runPrompt: 'Write a summary',
-            followUpPrompt: 'Answer follow-up questions',
-            responseKey: 'summary',
-            renderer: 'markdown',
-            required: true,
-          }],
-          surfaceHints: {
-            compactTitle: 'Skill',
-            hideTabs: false,
-            composerRows: 4,
-          },
-          version: 1,
-        }],
-      },
-    });
-    await wrapper.vm.$nextTick();
-
-    await clickSubtab(wrapper, 'User Skills');
-    expect(wrapper.findAll('.ai-user-skill-card--summary')).toHaveLength(1);
-    expect(wrapper.text()).toContain('My Skill');
-    expect(wrapper.text()).toContain('Run Skill');
-    expect(wrapper.text()).toContain('context-read');
-    expect(wrapper.text()).toContain('study-decision');
-
-    const editButton = wrapper.findAll('button').find((btn) => btn.text() === 'Edit');
-    expect(editButton).toBeDefined();
-    await editButton!.trigger('click');
-    expect(createVueDialogMock).toHaveBeenCalledTimes(1);
-    expect(createVueDialogMock.mock.calls[0]?.[0]?.props?.skill?.title).toBe('My Skill');
-
-    const duplicateButton = wrapper.findAll('button').find((btn) => btn.text() === 'Duplicate');
-    expect(duplicateButton).toBeDefined();
-    await duplicateButton!.trigger('click');
-    expect(wrapper.findAll('.ai-user-skill-card--summary')).toHaveLength(2);
-
-    const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
-    expect(saveButton).toBeDefined();
-    await saveButton!.trigger('click');
-
-    const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
-    expect(payload.ai.userSkills).toHaveLength(2);
-    expect(payload.ai.userSkills[1]?.id).toContain('copy');
-  });
-
   it('saves the default review open-mode UI toggles from the review tab', async () => {
     const wrapper = mountPanel('review');
     await wrapper.vm.$nextTick();

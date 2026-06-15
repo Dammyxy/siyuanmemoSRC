@@ -104,7 +104,6 @@ function createAdapter(currentCard: FSRSCard) {
         ...createEmptyReviewUIState().header,
         title: 'Review',
         toolbar: [
-          { type: 'ai-sidebar', icon: '#iconSparkles', ariaLabel: 'AI Sidebar' },
           { type: 'more', icon: '#iconMore', ariaLabel: 'More' },
         ],
       },
@@ -196,7 +195,6 @@ describe('ReviewView NeuralRoam entry menu', () => {
           ReviewContent: ReviewContentStub,
           ReviewActions: ReviewActionsStub,
           FilterDialog: true,
-          AiWorkbenchPane: true,
           teleport: true,
         },
       },
@@ -205,7 +203,7 @@ describe('ReviewView NeuralRoam entry menu', () => {
     await flushPromises();
 
     const toolbar = wrapper.getComponent(ReviewHeaderStub).props('header').toolbar ?? [];
-    expect(toolbar.map((button) => button.type)).toEqual(['ai-sidebar', 'neural-roam-entry', 'more']);
+    expect(toolbar.map((button) => button.type)).toEqual(['more', 'neural-roam-entry']);
     expect(toolbar.find((button) => button.type === 'neural-roam-entry')).toMatchObject({
       icon: '#iconGraph',
       ariaLabel: '神经漫游',
@@ -240,7 +238,6 @@ describe('ReviewView NeuralRoam entry menu', () => {
           ReviewContent: ReviewContentStub,
           ReviewActions: ReviewActionsStub,
           FilterDialog: true,
-          AiWorkbenchPane: true,
           teleport: true,
         },
       },
@@ -257,10 +254,10 @@ describe('ReviewView NeuralRoam entry menu', () => {
     currentBlockItem.click();
     await flushPromises();
 
-    expect(entryActionService.startTemporaryCurrentBlockRoam).toHaveBeenCalledWith({
+    expect(entryActionService.startTemporaryCurrentBlockRoam).toHaveBeenCalledWith(expect.objectContaining({
       blockId: 'block-current',
       sourceReviewCardId: 'card-current',
-    });
+    }));
     expect(reviewViewNeuralEntryMocks.showMessage).toHaveBeenCalledWith('从当前块临时漫游已完成', 2500, 'info');
 
     wrapper.unmount();

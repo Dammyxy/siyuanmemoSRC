@@ -9,22 +9,6 @@ import type {
   BackendBrowserAggregateSnapshotResult,
   BackendBrowserDocumentCountsResult,
   BackendBrowserDocumentCountsScope,
-  BackendAiJobCancelRequest,
-  BackendAiJobGetRequest,
-  BackendAiJobResult,
-  BackendAiSessionCancelRequest,
-  BackendAiSessionCreateRequest,
-  BackendAiPromptExecuteRequest,
-  BackendAiPromptExecuteResult,
-  BackendAiToolJobApprovalRequest,
-  BackendAiToolJobExecuteRequest,
-  BackendAiToolJobResult,
-  BackendAiSessionGetRequest,
-  BackendAiSessionResult,
-  BackendAiSessionUpdateRequest,
-  BackendAiStreamCancelRequest,
-  BackendAiStreamResult,
-  BackendAiStreamStartRequest,
   BackendAutoCardDecisionResolveRequest,
   BackendAutoCardDecisionResolveResult,
   BackendBrowserDeckPageRequest,
@@ -122,7 +106,6 @@ import type { BrowserStats } from '@/application/queries/browser/GetBrowserCards
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 import {
-  BackendAiJobRpcClient,
   BackendBrowserRpcClient,
   BackendCoreRpcClient,
   BackendIntegrationRpcClient,
@@ -170,7 +153,6 @@ export class SrsBackendClient {
   private readonly queueProjectionClient: BackendQueueProjectionRpcClient;
   private readonly reviewClient: BackendReviewRpcClient;
   private readonly neuralRoamClient: BackendNeuralRoamRpcClient;
-  private readonly aiJobClient: BackendAiJobRpcClient;
   private readonly semanticClient: BackendSemanticRpcClient;
   private readonly privateApiClient: BackendPrivateApiRpcClient;
   private readonly integrationClient: BackendIntegrationRpcClient;
@@ -193,7 +175,6 @@ export class SrsBackendClient {
     this.queueProjectionClient = new BackendQueueProjectionRpcClient(rpcCaller);
     this.reviewClient = new BackendReviewRpcClient(rpcCaller);
     this.neuralRoamClient = new BackendNeuralRoamRpcClient(rpcCaller);
-    this.aiJobClient = new BackendAiJobRpcClient(rpcCaller);
     this.semanticClient = new BackendSemanticRpcClient(rpcCaller);
     this.privateApiClient = new BackendPrivateApiRpcClient(rpcCaller);
     this.integrationClient = new BackendIntegrationRpcClient(rpcCaller);
@@ -440,55 +421,6 @@ export class SrsBackendClient {
   ): Promise<BackendNeuralRoamCommandResult> {
     const result = await this.neuralRoamClient.neuralRoamCommand(request);
     return this.validateNeuralRoamCommandResult(result);
-  }
-
-  async createAiSession(request: BackendAiSessionCreateRequest): Promise<BackendAiSessionResult> {
-    return this.aiJobClient.createAiSession(request);
-  }
-
-  async getAiSession(request: BackendAiSessionGetRequest): Promise<BackendAiSessionResult> {
-    return this.aiJobClient.getAiSession(request);
-  }
-
-  async updateAiSession(request: BackendAiSessionUpdateRequest): Promise<BackendAiSessionResult> {
-    return this.aiJobClient.updateAiSession(request);
-  }
-
-  async cancelAiSession(request: BackendAiSessionCancelRequest): Promise<BackendAiSessionResult> {
-    return this.aiJobClient.cancelAiSession(request);
-  }
-
-  async executeAiPrompt(request: BackendAiPromptExecuteRequest): Promise<BackendAiPromptExecuteResult> {
-    const result = await this.aiJobClient.executeAiPrompt(request);
-    return this.validateAiPromptExecuteResult(result, 'ai.prompt.execute');
-  }
-
-  async executeAiToolJob(request: BackendAiToolJobExecuteRequest): Promise<BackendAiToolJobResult> {
-    return this.aiJobClient.executeAiToolJob(request);
-  }
-
-  async submitAiToolJobApproval(request: BackendAiToolJobApprovalRequest): Promise<BackendAiToolJobResult> {
-    return this.aiJobClient.submitAiToolJobApproval(request);
-  }
-
-  async startAiStream(request: BackendAiStreamStartRequest): Promise<BackendAiStreamResult> {
-    const result = await this.aiJobClient.startAiStream(request);
-    return this.validateAiStreamResult(result, 'ai.stream.start');
-  }
-
-  async cancelAiStream(request: BackendAiStreamCancelRequest): Promise<BackendAiStreamResult> {
-    const result = await this.aiJobClient.cancelAiStream(request);
-    return this.validateAiStreamResult(result, 'ai.stream.cancel');
-  }
-
-  async getAiJob(request: BackendAiJobGetRequest): Promise<BackendAiJobResult> {
-    const result = await this.aiJobClient.getAiJob(request);
-    return this.validateAiJobResult(result, 'job.get');
-  }
-
-  async cancelAiJob(request: BackendAiJobCancelRequest): Promise<BackendAiJobResult> {
-    const result = await this.aiJobClient.cancelAiJob(request);
-    return this.validateAiJobResult(result, 'job.cancel');
   }
 
   async privateHealth(): Promise<BackendPrivateHealthResult> {
@@ -938,20 +870,6 @@ export class SrsBackendClient {
       || value === 'failed';
   }
 
-  private validateAiStreamResult(payload: unknown, method: string): BackendAiStreamResult {
-    const candidate = this.assertObjectResult<Record<string, unknown>>(method, payload);
-    if (candidate.ok !== true) {
-      throw new Error(`${method} returned invalid payload`);
-    }
-    const streamId = String(candidate.streamId || '').trim();
-    const sessionId = String(candidate.sessionId || '').trim();
-    const jobId = String(candidate.jobId || '').trim();
-    if (!streamId || !sessionId || !jobId) {
-      throw new Error(`${method} returned invalid payload`);
-    }
-    return candidate as BackendAiStreamResult;
-  }
-
   private validateNeuralRoamAdvanceResult(payload: unknown): BackendNeuralRoamAdvanceResult {
     const candidate = this.assertObjectResult<Record<string, unknown>>('neural-roam.advance', payload);
     const status = String(candidate.status || '').trim();
@@ -1048,25 +966,4 @@ export class SrsBackendClient {
     return true;
   }
 
-  private validateAiJobResult(payload: unknown, method: string): BackendAiJobResult {
-    const candidate = this.assertObjectResult<Record<string, unknown>>(method, payload);
-    if (candidate.ok !== true || !candidate.job || typeof candidate.job !== 'object') {
-      throw new Error(`${method} returned invalid payload`);
-    }
-    return candidate as BackendAiJobResult;
-  }
-
-  private validateAiPromptExecuteResult(payload: unknown, method: string): BackendAiPromptExecuteResult {
-    const candidate = this.assertObjectResult<Record<string, unknown>>(method, payload);
-    if (candidate.ok !== true) {
-      throw new Error(`${method} returned invalid payload`);
-    }
-    const streamId = String(candidate.streamId || '').trim();
-    const sessionId = String(candidate.sessionId || '').trim();
-    const jobId = String(candidate.jobId || '').trim();
-    if (!streamId || !sessionId || !jobId) {
-      throw new Error(`${method} returned invalid payload`);
-    }
-    return candidate as BackendAiPromptExecuteResult;
-  }
 }
