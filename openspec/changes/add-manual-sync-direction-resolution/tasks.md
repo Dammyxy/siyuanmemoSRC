@@ -31,4 +31,4 @@
 - [x] 4.3 Run `pnpm build` and note any existing non-blocking build warnings separately from new failures.
 - [x] 4.4 Update `docs/DDD_RESCAN_BACKLOG.md` with fixed and deferred debt for the manual direction flow.
 - [x] 4.5 Deploy rebuilt `dist/` to `H:\闪卡同步测试\data\plugins\siyuan-plugin-siyuanmemo` for smoke testing.
-- [ ] 4.6 Smoke test with existing conflict DB copies: preview sources, smart merge, keep current local no-op, and replacement into a disposable test workspace backup.
+- [x] 4.6 Smoke test with existing conflict DB copies: preview sources, smart merge, keep current local no-op, and replacement into a disposable test workspace backup.
