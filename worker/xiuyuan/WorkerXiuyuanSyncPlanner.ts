@@ -9,6 +9,7 @@ import type {
   BackendXiuyuanSyncExecuteResult,
   BackendXiuyuanSyncLocalCardFact,
   BackendXiuyuanSyncLocalFacts,
+  BackendXiuyuanSyncLocalTombstoneFact,
   BackendXiuyuanSyncLocalXiuyuanFact,
   BackendXiuyuanSyncMode,
   BackendXiuyuanSyncPlan,
@@ -40,12 +41,23 @@ type NormalizedNativeRiffFacts = {
   duplicateCount: number;
 };
 
+type LocalTombstoneIndexes = {
+  blockIds: Set<string>;
+  riffCardIds: Set<string>;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
 function normalizeString(value: unknown): string {
   return String(value ?? '').trim();
+}
+
+function nativeRiffCardId(block: BackendXiuyuanNativeRiffBlockFacts): string {
+  return normalizeString(block.riffCardID)
+    || normalizeString(block.riffCardId)
+    || normalizeString(block.riffCard?.id);
 }
 
 function uniqueSorted(values: Iterable<string>): string[] {
@@ -149,6 +161,38 @@ function isManagedRiffFact(
   return hasManagedRiffEvidence(card)
     || hasManagedRiffEvidence(xiuyuan)
     || riffCardId.length > 0;
+}
+
+function buildLocalTombstoneIndexes(
+  tombstones: readonly BackendXiuyuanSyncLocalTombstoneFact[] | undefined,
+): LocalTombstoneIndexes {
+  const blockIds = new Set<string>();
+  const riffCardIds = new Set<string>();
+  for (const tombstone of tombstones ?? []) {
+    const blockId = normalizeString(tombstone.blockId);
+    if (blockId) {
+      blockIds.add(blockId);
+    }
+    const riffCardId = normalizeString(tombstone.riffCardId);
+    if (riffCardId) {
+      riffCardIds.add(riffCardId);
+    }
+  }
+  return {
+    blockIds,
+    riffCardIds,
+  };
+}
+
+function matchesLocalTombstone(
+  block: BackendXiuyuanNativeRiffBlockFacts,
+  tombstones: LocalTombstoneIndexes,
+): boolean {
+  if (tombstones.blockIds.has(block.id)) {
+    return true;
+  }
+  const riffCardId = nativeRiffCardId(block);
+  return Boolean(riffCardId && tombstones.riffCardIds.has(riffCardId));
 }
 
 function normalizeNativeRiffBlocks(
@@ -497,12 +541,18 @@ export class WorkerXiuyuanSyncPlanner {
     nativeRiffCount: number,
   ): BackendXiuyuanSyncPlan {
     const indexes = buildLocalIndexes(localFacts);
+    const tombstones = buildLocalTombstoneIndexes(localFacts.tombstones);
     const nativeBlockIds = new Set(native.blocks.map((block) => block.id));
     const create = new Set<string>();
     const update = new Set<string>();
     const skippedLocalOwned = new Set<string>();
+    const skippedTombstoned = new Set<string>();
 
     for (const block of native.blocks) {
+      if (matchesLocalTombstone(block, tombstones)) {
+        skippedTombstoned.add(block.id);
+        continue;
+      }
       if (indexes.managedRiffBlockIds.has(block.id)) {
         update.add(block.id);
         continue;
@@ -525,6 +575,7 @@ export class WorkerXiuyuanSyncPlanner {
     const createBlockIds = uniqueSorted(create);
     const updateBlockIds = uniqueSorted(update);
     const skippedLocalOwnedBlockIds = uniqueSorted(skippedLocalOwned);
+    const skippedTombstonedBlockIds = uniqueSorted(skippedTombstoned);
     const shadowAudit = buildShadowAudit(localFacts);
 
     return {
@@ -539,11 +590,13 @@ export class WorkerXiuyuanSyncPlanner {
       updateCount: updateBlockIds.length,
       deleteCount: deleteBlockIds.length,
       skippedLocalOwnedCount: skippedLocalOwnedBlockIds.length,
+      skippedTombstonedCount: skippedTombstonedBlockIds.length,
       candidateBlockIds: {
         create: createBlockIds,
         update: updateBlockIds,
         delete: deleteBlockIds,
         skippedLocalOwned: skippedLocalOwnedBlockIds,
+        skippedTombstoned: skippedTombstonedBlockIds,
       },
       shadowAudit,
     };

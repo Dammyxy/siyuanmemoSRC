@@ -1915,10 +1915,21 @@ export interface BackendXiuyuanSyncLocalCardFact {
   updatedAt?: number | null;
 }
 
+export interface BackendXiuyuanSyncLocalTombstoneFact {
+  kind: 'card' | 'xiuyuan';
+  id: string;
+  blockId?: string | null;
+  xiuyuanId?: string | null;
+  riffCardId?: string | null;
+  deletedAt?: number | null;
+  deletedBy?: string | null;
+}
+
 export interface BackendXiuyuanSyncLocalFacts {
   loadedAt: number;
   xiuyuans: BackendXiuyuanSyncLocalXiuyuanFact[];
   cards: BackendXiuyuanSyncLocalCardFact[];
+  tombstones?: BackendXiuyuanSyncLocalTombstoneFact[];
 }
 
 export interface BackendXiuyuanShadowAuditOwnershipEvidence {
@@ -1976,11 +1987,13 @@ export interface BackendXiuyuanSyncPlan {
   updateCount: number;
   deleteCount: number;
   skippedLocalOwnedCount: number;
+  skippedTombstonedCount?: number;
   candidateBlockIds: {
     create: string[];
     update: string[];
     delete: string[];
     skippedLocalOwned: string[];
+    skippedTombstoned?: string[];
   };
   shadowAudit?: BackendXiuyuanShadowAudit;
 }

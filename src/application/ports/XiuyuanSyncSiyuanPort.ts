@@ -1,4 +1,5 @@
 export type XiuyuanSyncRiffCard = {
+  id?: string;
   due?: string;
   reps?: number;
   lapses?: number;
@@ -14,6 +15,8 @@ export type XiuyuanSyncRiffBlock = {
   id: string;
   content: string;
   ial?: Record<string, string>;
+  riffCardID?: string;
+  riffCardId?: string;
   riffCard?: XiuyuanSyncRiffCard;
 };
 

@@ -84,6 +84,12 @@ function createService(): XiuyuanSyncService {
   return createHarness().service;
 }
 
+const confirmedNativeHardDelete = {
+  deleteIntent: 'native-hard-delete',
+  confirmDangerousNativeDelete: true,
+  requestedBy: 'test',
+} as const;
+
 describe('XiuyuanSyncService native riff semantic routing', () => {
   it('routes concept-definition symbols to concept-definition template', () => {
     const service = createService();
@@ -113,11 +119,26 @@ describe('XiuyuanSyncService native riff semantic routing', () => {
     expect(plan.cardType).toBe('descriptor');
   });
 
-  it('routes single delete sync by blockId to removeRiffCards', async () => {
+  it('rejects delete sync without explicit native hard-delete authorization', async () => {
     const { service, siyuanApi } = createHarness();
     (service as any).config.deleteSync.enabled = true;
 
-    const result = await service.deleteSync('20260101010101-abc1234');
+    await expect(service.deleteSync('20260101010101-abc1234')).resolves.toBe(false);
+    await expect(service.deleteSync('20260101010101-abc1234', {
+      deleteIntent: 'native-hard-delete',
+    })).resolves.toBe(false);
+
+    expect(siyuanApi.removeRiffCards).not.toHaveBeenCalled();
+  });
+
+  it('routes confirmed native hard-delete sync by blockId to removeRiffCards', async () => {
+    const { service, siyuanApi } = createHarness();
+    (service as any).config.deleteSync.enabled = true;
+
+    const result = await service.deleteSync(
+      '20260101010101-abc1234',
+      confirmedNativeHardDelete,
+    );
 
     expect(result).toBe(true);
     expect(siyuanApi.removeRiffCards).toHaveBeenCalledWith(
@@ -131,23 +152,29 @@ describe('XiuyuanSyncService native riff semantic routing', () => {
     (service as any).config.deleteSync.enabled = true;
     siyuanApi.removeRiffCards.mockRejectedValue(new Error('network down'));
 
-    const result = await service.deleteSync('20260101010101-def5678');
+    const result = await service.deleteSync(
+      '20260101010101-def5678',
+      confirmedNativeHardDelete,
+    );
 
     expect(result).toBe(false);
     expect(blacklistService.addToBlacklist).toHaveBeenCalledWith('20260101010101-def5678');
   });
 
-  it('batch delete sync counts successful block removals', async () => {
+  it('batch delete sync counts confirmed native hard-delete block removals', async () => {
     const { service, siyuanApi } = createHarness();
     (service as any).config.deleteSync.enabled = true;
     siyuanApi.removeRiffCards
       .mockResolvedValueOnce({ name: 'deck', size: 1 })
       .mockResolvedValueOnce({ name: 'deck', size: 1 });
 
-    const successCount = await service.deleteSyncBatch([
-      '20260101010101-ghi9012',
-      '20260101010101-jkl3456',
-    ]);
+    const successCount = await service.deleteSyncBatch(
+      [
+        '20260101010101-ghi9012',
+        '20260101010101-jkl3456',
+      ],
+      confirmedNativeHardDelete,
+    );
 
     expect(successCount).toBe(2);
     expect(siyuanApi.removeRiffCards).toHaveBeenNthCalledWith(

@@ -16,6 +16,7 @@ type LocalOwnedSkipSummary = {
 export interface XiuyuanSyncChangeSetPlannerDeps {
   isManagedRiffXiuyuan: (xiuyuan: Xiuyuan) => boolean;
   isRecentlyDeleted: (blockId: string) => boolean;
+  isTombstonedNativeRiffCard?: (riffCard: RiffBlock) => boolean;
   findExistingXiuyuanForBlock: (blockId: string) => Promise<Xiuyuan | null>;
   cloneXiuyuanForSyncPlanning: (xiuyuan: Xiuyuan) => Xiuyuan;
   planManagedXiuyuanMetadataUpdate: (xiuyuan: Xiuyuan, riffCard: RiffBlock) => Promise<boolean>;
@@ -64,6 +65,12 @@ export class XiuyuanSyncChangeSetPlanner {
 
       if (this.deps.isRecentlyDeleted(riffCard.id)) {
         logger.info(`Skipping recently deleted card during ${input.stage} sync: ${riffCard.id}`);
+        input.changeSet.stats.skippedCount++;
+        continue;
+      }
+
+      if (this.deps.isTombstonedNativeRiffCard?.(riffCard)) {
+        logger.info(`Skipping tombstoned native Riff card during ${input.stage} sync: ${riffCard.id}`);
         input.changeSet.stats.skippedCount++;
         continue;
       }

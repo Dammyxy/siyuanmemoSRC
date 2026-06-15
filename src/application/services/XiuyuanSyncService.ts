@@ -55,6 +55,10 @@ import { hasFormulaClozeMarkerTargets } from '@/utils/formula-cloze-parser';
 import { ClozeCardGenerator } from '@/core/xiuyuan/domain/services/ClozeCardGenerator';
 import { normalizeBlockId } from '@/core/siyuan/riff/normalizers';
 import {
+    hasNativeHardDeleteAuthorization,
+    type CardDeleteIntentOptions,
+} from '@/core/xiuyuan/domain/events/CardDeleteIntent';
+import {
     QuickCardPostCreationPlanner,
     type PostCreationPlan,
 } from '@/core/card/post-creation/QuickCardPostCreationPlanner';
@@ -71,6 +75,19 @@ import { XiuyuanSyncChangeSetPlanner } from './XiuyuanSyncChangeSetPlanner';
 import type { BackendIntegrationClientFacet } from '@/application/clients/backend';
 
 export type XiuyuanSyncBackendClient = Pick<BackendIntegrationClientFacet, 'executeXiuyuanSync'>;
+export type NativeRiffHardDeleteOptions = CardDeleteIntentOptions;
+
+type NativeRiffDeletionTombstoneCandidate = {
+    cardId?: string;
+    blockId?: string;
+    blockIds?: string[];
+    xiuyuanId?: string;
+    riffCardId?: string;
+};
+
+type NativeRiffDeletionTombstoneStore = {
+    hasNativeRiffDeletionTombstone: (candidate: NativeRiffDeletionTombstoneCandidate) => boolean;
+};
 
 // ==================== Xiuyuan 同步服务 ====================
 const logger = createLogger('XiuyuanSyncService');
@@ -212,6 +229,7 @@ export class XiuyuanSyncService {
         this.changeSetPlanner = new XiuyuanSyncChangeSetPlanner({
             isManagedRiffXiuyuan: (xiuyuan) => this.isManagedRiffXiuyuan(xiuyuan),
             isRecentlyDeleted: (blockId) => this.deletionTracker.isRecentlyDeleted(blockId),
+            isTombstonedNativeRiffCard: (riffCard) => this.isTombstonedNativeRiffCard(riffCard),
             findExistingXiuyuanForBlock: (blockId) => this.findExistingXiuyuanForBlock(blockId),
             cloneXiuyuanForSyncPlanning: (xiuyuan) => this.cloneXiuyuanForSyncPlanning(xiuyuan),
             planManagedXiuyuanMetadataUpdate: (xiuyuan, riffCard) => this.planManagedXiuyuanMetadataUpdate(xiuyuan, riffCard),
@@ -231,6 +249,51 @@ export class XiuyuanSyncService {
             && typeof candidate.updateRiffSyncState === 'function'
             ? candidate as RiffSyncStateStore
             : undefined;
+    }
+
+    private resolveNativeRiffTombstoneStore(): NativeRiffDeletionTombstoneStore | undefined {
+        const storage = this.config.storage;
+        if (!storage || typeof storage !== 'object') {
+            return undefined;
+        }
+
+        const candidate = storage as Partial<NativeRiffDeletionTombstoneStore>;
+        return typeof candidate.hasNativeRiffDeletionTombstone === 'function'
+            ? candidate as NativeRiffDeletionTombstoneStore
+            : undefined;
+    }
+
+    private isTombstonedNativeRiffCard(riffCard: RiffBlock): boolean {
+        const store = this.resolveNativeRiffTombstoneStore();
+        if (!store) {
+            return false;
+        }
+
+        return store.hasNativeRiffDeletionTombstone(this.buildNativeRiffTombstoneCandidate(riffCard));
+    }
+
+    private buildNativeRiffTombstoneCandidate(riffCard: RiffBlock): NativeRiffDeletionTombstoneCandidate {
+        const blockId = this.normalizeOptionalIdentifier(riffCard.id);
+        const attrs = riffCard.ial || {};
+        const riffCardId = this.normalizeOptionalIdentifier(riffCard.riffCardID)
+            || this.normalizeOptionalIdentifier(riffCard.riffCardId)
+            || this.normalizeOptionalIdentifier(riffCard.riffCard?.id)
+            || this.normalizeOptionalIdentifier(attrs['custom-riff-card-id'])
+            || this.normalizeOptionalIdentifier(attrs['custom-riff-card-id'.toLowerCase()]);
+        const xiuyuanId = this.normalizeOptionalIdentifier(attrs['custom-xiuyuan-id'])
+            || this.normalizeOptionalIdentifier(attrs['custom-fsrs-xiuyuan-id'])
+            || (blockId ? `xy_${blockId}` : undefined);
+
+        return {
+            ...(blockId ? { cardId: blockId, blockId, blockIds: [blockId] } : {}),
+            ...(xiuyuanId ? { xiuyuanId } : {}),
+            ...(riffCardId ? { riffCardId } : {}),
+        };
+    }
+
+    private normalizeOptionalIdentifier(value: unknown): string | undefined {
+        const normalized = String(value || '').trim();
+        return normalized || undefined;
     }
 
     private getPersistentSyncState(): RiffSyncState {
@@ -1392,7 +1455,8 @@ export class XiuyuanSyncService {
             0,
             (result.plan.skippedLocalOwnedCount || 0)
             + (result.plan.malformedNativeRiffCount || 0)
-            + (result.plan.duplicateNativeRiffCount || 0),
+            + (result.plan.duplicateNativeRiffCount || 0)
+            + (result.plan.skippedTombstonedCount || 0),
         );
         if (type === 'full') {
             this.lastFullSyncTime = startTime;
@@ -1423,7 +1487,7 @@ export class XiuyuanSyncService {
      *
      * 尝试从 Riff 删除卡片，失败时由调用方决定后续处理。
      */
-        async deleteSync(blockID: string): Promise<boolean> {
+        async deleteSync(blockID: string, options: NativeRiffHardDeleteOptions = {}): Promise<boolean> {
             if (!this.config.deleteSync.enabled) {
                 logger.info('Delete sync disabled');
                 return true;
@@ -1437,6 +1501,17 @@ export class XiuyuanSyncService {
                 return false;
             }
 
+            const authorization = this.resolveNativeHardDeleteAuthorization(options);
+            if (!authorization) {
+                logger.warn('[XiuyuanSyncService] Reject native Riff hard-delete without confirmation or ownership proof', {
+                    blockID: normalizedBlockId,
+                    deleteIntent: options.deleteIntent,
+                    requestedBy: options.requestedBy,
+                });
+                return false;
+            }
+
+            this.recordNativeHardDeleteOperation([normalizedBlockId], options, authorization);
             logger.info(`Syncing delete for block: ${normalizedBlockId}`);
 
             return this.deleteSyncSingle(normalizedBlockId);
@@ -1451,7 +1526,7 @@ export class XiuyuanSyncService {
      * @param blockIDs - 块 ID 列表
      * @returns 成功删除的数量
      */
-    async deleteSyncBatch(blockIDs: string[]): Promise<number> {
+    async deleteSyncBatch(blockIDs: string[], options: NativeRiffHardDeleteOptions = {}): Promise<number> {
         if (!this.config.deleteSync.enabled) {
             logger.info('Delete sync disabled');
             return 0;
@@ -1467,6 +1542,17 @@ export class XiuyuanSyncService {
             return 0;
         }
 
+        const authorization = this.resolveNativeHardDeleteAuthorization(options);
+        if (!authorization) {
+            logger.warn('[XiuyuanSyncService] Reject native Riff batch hard-delete without confirmation or ownership proof', {
+                blockIDs: normalizedBlockIds,
+                deleteIntent: options.deleteIntent,
+                requestedBy: options.requestedBy,
+            });
+            return 0;
+        }
+
+        this.recordNativeHardDeleteOperation(normalizedBlockIds, options, authorization);
         logger.info(`Batch syncing delete for ${normalizedBlockIds.length} blocks`);
 
         // 使用 Promise.allSettled 并发处理，避免单个失败影响整体
@@ -1495,6 +1581,31 @@ export class XiuyuanSyncService {
         }
 
         return successCount;
+    }
+
+    private resolveNativeHardDeleteAuthorization(
+        options: NativeRiffHardDeleteOptions | undefined
+    ): 'dangerous-confirmation' | 'ownership-proof' | null {
+        if (!hasNativeHardDeleteAuthorization(options)) {
+            return null;
+        }
+
+        return options?.ownershipProof === 'siyuanmemo-owned'
+            ? 'ownership-proof'
+            : 'dangerous-confirmation';
+    }
+
+    private recordNativeHardDeleteOperation(
+        blockIDs: string[],
+        options: NativeRiffHardDeleteOptions,
+        authorization: 'dangerous-confirmation' | 'ownership-proof'
+    ): void {
+        logger.warn('[XiuyuanSyncService] Native Riff hard-delete authorized', {
+            operation: 'native-hard-delete',
+            authorization,
+            requestedBy: options.requestedBy,
+            blockIDs,
+        });
     }
 
     /**

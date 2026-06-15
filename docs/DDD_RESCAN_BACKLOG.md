@@ -4,6 +4,16 @@ Last update: 2026-06-15 (Round 597)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-06-15 - Native Riff delete semantics clarification
+
+- Task: Implement OpenSpec change `clarify-native-riff-delete-semantics` so default SiYuanMemo deletes cannot hard-delete user-owned native Riff cards.
+- Touched slice: Card CRUD / Xiuyuan sync / native Riff integration across delete intent events, `RiffSyncEventHandler`, `XiuyuanSyncService`, `XiuyuanSyncChangeSetPlanner`, `UnifiedStorageManager`, legacy `StorageManager.deleteCards`, worker Xiuyuan tombstone planning, focused tests, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Split default `local-tombstone` from explicit `native-hard-delete`; default Browser/Review/Card deletes now stay local and persist tombstones; native hard-delete requires dangerous confirmation or `siyuanmemo-owned` proof before `removeRiffCards()`; full and incremental native Riff sync now skip tombstoned identities before create/update; legacy `StorageManager.deleteCards()` no longer performs naked native Riff removal.
+- Debt deferred: No recoverable hidden-card/trash UI, no broad historical-doc rewrite, and no MCP hard-delete action exposure. MCP currently has no delete action, so future Agent callers must add delete through the same intent contract before exposing it.
+- Why deferred: Recovery UI and MCP destructive actions are product surfaces needing separate confirmation design. Historical docs are not active runtime maps and bulk editing them would create noisy churn.
+- Next safe step: Archive this change after validation, then decide whether a user-visible hidden/tombstone management view is needed.
+- Validation: Focused delete/sync/storage/worker tests passed; boundary/fallback/build/OpenSpec validation are tracked in this change closeout.
+
 ### 2026-06-15 - Plugin AI Workbench retirement
 
 - Task: Implement OpenSpec change `retire-plugin-owned-ai-workbench` after the product decision that SiYuan core Agent owns AI chat/reasoning and SiYuanMemo only needs MCP tools.
@@ -119,9 +129,9 @@ Last update: 2026-06-15 (Round 597)
 - Task: Implement OpenSpec change `harden-xiuyuan-sync-changeset-commit` to make Xiuyuan/Riff sync planning explicit before local storage mutation.
 - Touched slice: Xiuyuan / Riff sync path in `src/application/services/{XiuyuanSyncService.ts,XiuyuanSyncChangeSetPlanner.ts,XiuyuanSyncApplyRuntime.ts}`, Xiuyuan ownership policy in `src/core/xiuyuan/domain/services/XiuyuanOwnershipPolicy.ts`, storage ownership barrel `src/core/storage/stability/logicalKeys.ts`, focused sync/storage/worker tests, `ARCHITECTURE.md`, `QUEUE_ARCHITECTURE.md`, and this backlog.
 - Debt fixed now: Extracted Riff upsert/full-delete planning from the broad sync service into `XiuyuanSyncChangeSetPlanner`; moved canonical ownership selection to a Xiuyuan domain policy with direct tests for `local-owned > riff-managed > updatedAt > createdAt > id`; routed app-side full/incremental/native-remove sync through the existing single `applySyncChangeSet()` commit seam; and changed metadata update planning to mutate a cloned Xiuyuan entity so planning failures do not alter local storage objects before commit.
-- Debt deferred: Browser-open/manual sync lifecycle coverage, repeated incremental/full sync matrix, duplicate logical-face merge cleanup, native Riff hard-delete vs local hide/tombstone semantics, and `CardRepository.save()` logical-key CRUD promotion remain outside this bounded Xiuyuan sync slice.
+- Debt deferred: Browser-open/manual sync lifecycle coverage, repeated incremental/full sync matrix, duplicate logical-face merge cleanup, and `CardRepository.save()` logical-key CRUD promotion remain outside this bounded Xiuyuan sync slice. Native Riff hard-delete vs local hide/tombstone semantics were later closed by `clarify-native-riff-delete-semantics`.
 - Why deferred: This change only owns Xiuyuan/Riff sync planning and commit locality. Lifecycle trigger matrices, native deletion product semantics, and generic card CRUD boundaries cross different runtime seams and need their own acceptance tests.
-- Next safe step: Add browser-open/manual sync lifecycle tests around checkpoint retry and repeated native Riff transaction bursts, then decide separately whether native hard-delete should split from local tombstone/hide behavior.
+- Next safe step: Add browser-open/manual sync lifecycle tests around checkpoint retry and repeated native Riff transaction bursts, or choose a hidden/tombstone management UI if users need recovery/visibility for locally hidden native Riff cards.
 - Validation: Focused Xiuyuan sync/storage/worker planner tests passed; final OpenSpec, boundary, fallback, whitespace, and build checks are tracked by this change's task ledger.
 
 ### 2026-06-14 - Browser queue view lifecycle deepening

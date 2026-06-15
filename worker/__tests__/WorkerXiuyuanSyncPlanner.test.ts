@@ -170,6 +170,65 @@ describe('WorkerXiuyuanSyncPlanner', () => {
     expect(result.plan.candidateBlockIds.delete).toEqual([]);
   });
 
+  it('skips native Riff cards that match local tombstones during full sync', async () => {
+    const facts: BackendXiuyuanSyncLocalFacts = {
+      loadedAt: 1_700_000_000_000,
+      xiuyuans: [],
+      cards: [],
+      tombstones: [
+        {
+          kind: 'card',
+          id: 'card-hidden',
+          blockId: 'block-hidden',
+          xiuyuanId: 'xy-hidden',
+          riffCardId: 'riff-hidden',
+          deletedAt: 1_700_000_000_050,
+          deletedBy: 'local-device',
+        },
+      ],
+    };
+    const planner = new WorkerXiuyuanSyncPlanner({
+      loadLocalFacts: vi.fn(async () => facts),
+      readNativeRiffFacts: vi.fn(async () => ({
+        ...nativeReady(),
+        blocks: [
+          { id: 'block-hidden', content: 'Native card hidden locally', riffCardID: 'riff-hidden' },
+        ],
+        diagnostics: {
+          ...nativeReady().diagnostics,
+          blockCount: 1,
+          normalizedBlockCount: 1,
+          malformedBlockCount: 0,
+        },
+      })),
+    });
+
+    const result = await planner.execute({
+      requestId: 'sync-request-tombstone',
+      commandId: 'sync-command-tombstone',
+      idempotencyKey: 'sync-key-tombstone',
+      mode: 'full',
+      dryRun: true,
+      deckId: 'deck-a',
+      requestedAt: 1_700_000_000_000,
+    });
+
+    expect(result.status).toBe('planned');
+    if (result.status !== 'planned') {
+      throw new Error('expected planned result');
+    }
+    expect(result.plan).toMatchObject({
+      createCount: 0,
+      updateCount: 0,
+      deleteCount: 0,
+      skippedTombstonedCount: 1,
+      candidateBlockIds: {
+        create: [],
+        skippedTombstoned: ['block-hidden'],
+      },
+    });
+  });
+
   it('treats source=riff-sync on plugin-owned templates as origin metadata, not Riff ownership', async () => {
     const pluginOwnedFacts: BackendXiuyuanSyncLocalFacts = {
       loadedAt: 1_700_000_000_000,

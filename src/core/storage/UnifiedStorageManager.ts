@@ -78,6 +78,19 @@ export interface RiffSyncState {
 export interface StorageDeletionTombstone {
   deletedAt: number;
   deletedBy?: string;
+  blockId?: string;
+  blockIds?: string[];
+  xiuyuanId?: string;
+  riffCardId?: string;
+}
+
+type StorageDeletionTombstoneMetadata = Omit<Partial<StorageDeletionTombstone>, 'deletedAt' | 'deletedBy'>;
+export interface NativeRiffDeletionTombstoneCandidate {
+  cardId?: string;
+  blockId?: string;
+  blockIds?: string[];
+  xiuyuanId?: string;
+  riffCardId?: string;
 }
 
 export type RiffSyncStatePatch = Partial<RiffSyncState>;
@@ -356,16 +369,104 @@ export class UnifiedStorageManager {
         ...(typeof rawTombstone.deletedBy === 'string' && rawTombstone.deletedBy.trim().length > 0
           ? { deletedBy: rawTombstone.deletedBy.trim() }
           : {}),
+        ...this.normalizeDeletionTombstoneMetadata(rawTombstone),
       };
     }
 
     return sanitized;
   }
 
+  private normalizeDeletionTombstoneMetadata(value: unknown): StorageDeletionTombstoneMetadata {
+    if (!isObjectRecord(value)) {
+      return {};
+    }
+
+    const blockId = this.normalizeOptionalString(value.blockId);
+    const blockIds = this.uniqueNormalizedStrings(value.blockIds);
+    const xiuyuanId = this.normalizeOptionalString(value.xiuyuanId);
+    const riffCardId = this.normalizeOptionalString(value.riffCardId);
+
+    return {
+      ...(blockId ? { blockId } : {}),
+      ...(blockIds.length > 0 ? { blockIds } : {}),
+      ...(xiuyuanId ? { xiuyuanId } : {}),
+      ...(riffCardId ? { riffCardId } : {}),
+    };
+  }
+
+  public hasNativeRiffDeletionTombstone(candidate: NativeRiffDeletionTombstoneCandidate): boolean {
+    const normalizedCardId = this.normalizeOptionalString(candidate.cardId);
+    if (normalizedCardId && this.deletedCardDTOs.has(normalizedCardId)) {
+      return true;
+    }
+
+    const normalizedXiuyuanId = this.normalizeOptionalString(candidate.xiuyuanId);
+    if (normalizedXiuyuanId && this.deletedXiuyuans.has(normalizedXiuyuanId)) {
+      return true;
+    }
+
+    const normalizedBlockIds = this.uniqueNormalizedStrings([
+      candidate.blockId,
+      ...(candidate.blockIds || []),
+    ]);
+    const normalizedRiffCardId = this.normalizeOptionalString(candidate.riffCardId);
+
+    const tombstoneMatches = (tombstone: StorageDeletionTombstone): boolean => {
+      if (normalizedBlockIds.length > 0) {
+        const tombstoneBlockIds = this.uniqueNormalizedStrings([
+          tombstone.blockId,
+          ...(tombstone.blockIds || []),
+        ]);
+        if (tombstoneBlockIds.some((blockId) => normalizedBlockIds.includes(blockId))) {
+          return true;
+        }
+      }
+
+      if (normalizedXiuyuanId && this.normalizeOptionalString(tombstone.xiuyuanId) === normalizedXiuyuanId) {
+        return true;
+      }
+
+      if (normalizedRiffCardId && this.normalizeOptionalString(tombstone.riffCardId) === normalizedRiffCardId) {
+        return true;
+      }
+
+      return false;
+    };
+
+    for (const tombstone of this.deletedCardDTOs.values()) {
+      if (tombstoneMatches(tombstone)) {
+        return true;
+      }
+    }
+
+    for (const tombstone of this.deletedXiuyuans.values()) {
+      if (tombstoneMatches(tombstone)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private normalizeOptionalString(value: unknown): string | undefined {
+    const normalized = String(value || '').trim();
+    return normalized || undefined;
+  }
+
+  private uniqueNormalizedStrings(value: unknown): string[] {
+    const values = Array.isArray(value) ? value : [value];
+    return Array.from(new Set(
+      values
+        .map((entry) => this.normalizeOptionalString(entry))
+        .filter((entry): entry is string => Boolean(entry)),
+    ));
+  }
+
   private recordDeletionTombstone(
     tombstones: Map<string, StorageDeletionTombstone>,
     id: string,
     deletedAt: number = Date.now(),
+    metadata: StorageDeletionTombstoneMetadata = {},
   ): void {
     const normalizedId = String(id || '').trim();
     if (!normalizedId) {
@@ -375,6 +476,8 @@ export class UnifiedStorageManager {
     const existing = tombstones.get(normalizedId);
     const nextDeletedAt = existing ? Math.max(existing.deletedAt, deletedAt) : deletedAt;
     tombstones.set(normalizedId, {
+      ...(existing || {}),
+      ...this.normalizeDeletionTombstoneMetadata(metadata),
       deletedAt: nextDeletedAt,
       deletedBy: this.instanceId,
     });
@@ -530,9 +633,16 @@ export class UnifiedStorageManager {
 
       const existingCardTombstone = mergedCardTombstones[cardId];
       if (!existingCardTombstone || xiuyuanTombstone.deletedAt >= existingCardTombstone.deletedAt) {
+        const dtoBlockId = this.normalizeOptionalString(dto.blockId);
+        const dtoXiuyuanId = this.readXiuyuanIdFromDTO(dto);
+        const dtoRiffCardId = this.readRiffCardIdFromDTO(dto);
         mergedCardTombstones[cardId] = {
           deletedAt: xiuyuanTombstone.deletedAt,
           ...(xiuyuanTombstone.deletedBy ? { deletedBy: xiuyuanTombstone.deletedBy } : {}),
+          ...this.normalizeDeletionTombstoneMetadata(xiuyuanTombstone),
+          ...(dtoBlockId ? { blockId: dtoBlockId } : {}),
+          ...(dtoXiuyuanId ? { xiuyuanId: dtoXiuyuanId } : {}),
+          ...(dtoRiffCardId ? { riffCardId: dtoRiffCardId } : {}),
         };
       }
 
@@ -1531,6 +1641,41 @@ export class UnifiedStorageManager {
     return typeof xiuyuan.meta?.riffCardId === 'string' ? xiuyuan.meta.riffCardId.trim() : '';
   }
 
+  private buildCardDeletionTombstoneMetadata(
+    dto: CardPersistenceDTO,
+    card?: FSRSCard,
+  ): StorageDeletionTombstoneMetadata {
+    const blockId = this.normalizeOptionalString(dto.blockId) || this.normalizeOptionalString(card?.blockId);
+    const xiuyuanId = this.readXiuyuanIdFromDTO(dto) || this.normalizeOptionalString(card?.xiuyuanID);
+    const riffCardId = this.readRiffCardIdFromDTO(dto) || this.normalizeOptionalString(card?.riffCardId);
+
+    return {
+      ...(blockId ? { blockId } : {}),
+      ...(xiuyuanId ? { xiuyuanId } : {}),
+      ...(riffCardId ? { riffCardId } : {}),
+    };
+  }
+
+  private buildXiuyuanDeletionTombstoneMetadata(
+    xiuyuan: IXiuyuan,
+    fallback: StorageDeletionTombstoneMetadata = {},
+  ): StorageDeletionTombstoneMetadata {
+    const blockIds = this.uniqueNormalizedStrings([
+      ...this.normalizeStringArray(xiuyuan.blockIDs),
+      ...this.uniqueNormalizedStrings(fallback.blockIds),
+      fallback.blockId,
+    ]);
+    const blockId = this.normalizeOptionalString(fallback.blockId) || blockIds[0];
+    const riffCardId = this.readRiffCardIdFromXiuyuan(xiuyuan)
+      || this.normalizeOptionalString(fallback.riffCardId);
+
+    return {
+      ...(blockId ? { blockId } : {}),
+      ...(blockIds.length > 0 ? { blockIds } : {}),
+      ...(riffCardId ? { riffCardId } : {}),
+    };
+  }
+
   private matchesXiuyuanBinding(dto: CardPersistenceDTO, xiuyuan: IXiuyuan): boolean {
     const blockId = typeof dto.blockId === 'string' ? dto.blockId.trim() : '';
     if (blockId && Array.isArray(xiuyuan.blockIDs) && xiuyuan.blockIDs.includes(blockId)) {
@@ -2485,9 +2630,9 @@ export class UnifiedStorageManager {
         return err(new Error(`Card not found: ${cardId}`));
       }
       const deletedAt = Date.now();
-      this.recordDeletionTombstone(this.deletedCardDTOs, cardId, deletedAt);
-
       const card = this.toDomainCard(dto);
+      const cardTombstoneMetadata = this.buildCardDeletionTombstoneMetadata(dto, card);
+      this.recordDeletionTombstone(this.deletedCardDTOs, cardId, deletedAt, cardTombstoneMetadata);
 
       // 绉婚櫎绱㈠紩
       this.updateIndexesForCard(card, 'remove');
@@ -2501,7 +2646,19 @@ export class UnifiedStorageManager {
         const xiuyuanCards = this.indexByXiuyuanID.get(xiuyuanID);
         if (!xiuyuanCards || xiuyuanCards.length === 0) {
           // 娌℃湁鍏朵粬鍗＄墖寮曠敤姝?XiuYuan锛屽垹闄ゅ畠
-          this.recordDeletionTombstone(this.deletedXiuyuans, xiuyuanID, deletedAt);
+          const xiuyuan = this.xiuyuans.get(xiuyuanID);
+          const xiuyuanTombstoneMetadata = xiuyuan
+            ? this.buildXiuyuanDeletionTombstoneMetadata(xiuyuan, cardTombstoneMetadata)
+            : {
+                ...cardTombstoneMetadata,
+                ...(cardTombstoneMetadata.blockId ? { blockIds: [cardTombstoneMetadata.blockId] } : {}),
+              };
+          this.recordDeletionTombstone(
+            this.deletedXiuyuans,
+            xiuyuanID,
+            deletedAt,
+            xiuyuanTombstoneMetadata,
+          );
           this.xiuyuans.delete(xiuyuanID);
         }
       }
@@ -2528,7 +2685,12 @@ export class UnifiedStorageManager {
         return err(new Error(`XiuYuan not found: ${xiuyuanId}`));
       }
       const deletedAt = Date.now();
-      this.recordDeletionTombstone(this.deletedXiuyuans, xiuyuanId, deletedAt);
+      this.recordDeletionTombstone(
+        this.deletedXiuyuans,
+        xiuyuanId,
+        deletedAt,
+        this.buildXiuyuanDeletionTombstoneMetadata(xiuyuan),
+      );
 
       // 鑾峰彇鎵€鏈夊叧鑱斿崱鐗?
       const cardIds = this.indexByXiuyuanID.get(xiuyuanId) || [];
@@ -2537,8 +2699,13 @@ export class UnifiedStorageManager {
       for (const cardId of [...cardIds]) {
         const dto = this.cardDTOs.get(cardId);
         if (dto) {
-          this.recordDeletionTombstone(this.deletedCardDTOs, cardId, deletedAt);
           const card = this.toDomainCard(dto);
+          this.recordDeletionTombstone(
+            this.deletedCardDTOs,
+            cardId,
+            deletedAt,
+            this.buildCardDeletionTombstoneMetadata(dto, card),
+          );
           this.updateIndexesForCard(card, 'remove');
           this.cardDTOs.delete(cardId);
         }

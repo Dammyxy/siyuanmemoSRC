@@ -19,6 +19,11 @@
 import { EventBus } from '@/core/shared/domain/events/EventBus';
 import { CardDeletedEvent } from '@/core/xiuyuan/domain/events/CardDeletedEvent';
 import { CardsDeletedEvent } from '@/core/xiuyuan/domain/events/CardsDeletedEvent';
+import {
+  hasNativeHardDeleteAuthorization,
+  isNativeHardDeleteIntent,
+  type CardDeleteIntentOptions,
+} from '@/core/xiuyuan/domain/events/CardDeleteIntent';
 import type { XiuyuanSyncService } from '@/application/services/XiuyuanSyncService';
 import { createLogger } from '@/utils/logger';
 
@@ -73,8 +78,32 @@ export class RiffSyncEventHandler {
         return;
       }
 
+      if (!isNativeHardDeleteIntent(event.deleteIntent)) {
+        logger.info('[RiffSyncEventHandler] Skip native Riff hard-delete for local tombstone delete', {
+          cardId: event.cardId,
+          blockId: event.blockId,
+          deleteIntent: event.deleteIntent,
+        });
+        return;
+      }
+
+      const hardDeleteOptions: CardDeleteIntentOptions = {
+        deleteIntent: event.deleteIntent,
+        confirmDangerousNativeDelete: event.confirmDangerousNativeDelete,
+        ownershipProof: event.ownershipProof,
+        requestedBy: event.requestedBy || 'CardDeletedEvent',
+      };
+      if (!hasNativeHardDeleteAuthorization(hardDeleteOptions)) {
+        logger.warn('[RiffSyncEventHandler] Reject native Riff hard-delete without confirmation or ownership proof', {
+          cardId: event.cardId,
+          blockId: event.blockId,
+          deleteIntent: event.deleteIntent,
+        });
+        return;
+      }
+
       // 调用同步服务删除 Riff 卡片
-      await this.syncService.deleteSync(event.blockId);
+      await this.syncService.deleteSync(event.blockId, hardDeleteOptions);
       
       logger.info(`[RiffSyncEventHandler] Successfully synced card deletion to Riff: ${event.blockId}`);
     } catch (error) {
@@ -101,8 +130,32 @@ export class RiffSyncEventHandler {
         return;
       }
 
+      if (!isNativeHardDeleteIntent(event.deleteIntent)) {
+        logger.info('[RiffSyncEventHandler] Skip native Riff hard-delete for local tombstone batch delete', {
+          cardIds: event.cardIds,
+          blockIds: event.blockIds,
+          deleteIntent: event.deleteIntent,
+        });
+        return;
+      }
+
+      const hardDeleteOptions: CardDeleteIntentOptions = {
+        deleteIntent: event.deleteIntent,
+        confirmDangerousNativeDelete: event.confirmDangerousNativeDelete,
+        ownershipProof: event.ownershipProof,
+        requestedBy: event.requestedBy || 'CardsDeletedEvent',
+      };
+      if (!hasNativeHardDeleteAuthorization(hardDeleteOptions)) {
+        logger.warn('[RiffSyncEventHandler] Reject native Riff batch hard-delete without confirmation or ownership proof', {
+          cardIds: event.cardIds,
+          blockIds: event.blockIds,
+          deleteIntent: event.deleteIntent,
+        });
+        return;
+      }
+
       // ✅ 使用批量删除 API，并发处理提升性能
-      const successCount = await this.syncService.deleteSyncBatch(event.blockIds);
+      const successCount = await this.syncService.deleteSyncBatch(event.blockIds, hardDeleteOptions);
       const failCount = event.blockIds.length - successCount;
       
       logger.info(`[RiffSyncEventHandler] Batch sync completed: ${successCount} success, ${failCount} failed`);

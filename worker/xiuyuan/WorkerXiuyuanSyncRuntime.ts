@@ -5,6 +5,7 @@ import type { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/s
 import type {
   BackendXiuyuanNativeRiffBlockFacts,
   BackendXiuyuanSyncLocalFacts,
+  BackendXiuyuanSyncLocalTombstoneFact,
   BackendXiuyuanSyncMode,
 } from '../../packages/contracts/src/backend-rpc';
 import type { WorkerXiuyuanSyncApplyInput } from './WorkerXiuyuanSyncPlanner';
@@ -57,6 +58,18 @@ export class WorkerXiuyuanSyncRuntime {
          WHERE t.kind = 'card' AND t.id = cards.id
        )
        ORDER BY id ASC`,
+    );
+    const tombstoneRows = this.deps.runtime.getAll<{
+      kind: string;
+      id: string;
+      deleted_at: number | null;
+      deleted_by: string | null;
+      payload_json: string | null;
+    }>(
+      `SELECT kind, id, deleted_at, deleted_by, payload_json
+       FROM tombstones
+       WHERE kind IN ('card', 'xiuyuan')
+       ORDER BY kind ASC, id ASC`,
     );
 
     return {
@@ -113,6 +126,25 @@ export class WorkerXiuyuanSyncRuntime {
           };
         })
         .filter((fact): fact is BackendXiuyuanSyncLocalFacts['cards'][number] => Boolean(fact)),
+      tombstones: tombstoneRows
+        .map<BackendXiuyuanSyncLocalTombstoneFact | null>((row) => {
+          const kind = normalizeString(row.kind);
+          const id = normalizeString(row.id);
+          if ((kind !== 'card' && kind !== 'xiuyuan') || !id) {
+            return null;
+          }
+          const payload = parseSqlJsonRecord(row.payload_json);
+          return {
+            kind,
+            id,
+            blockId: readRecordString(payload, ['blockId', 'blockID']),
+            xiuyuanId: readRecordString(payload, ['xiuyuanId', 'xiuyuanID']),
+            riffCardId: readRecordString(payload, ['riffCardId', 'riffCardID', 'riffPrimaryCardId']),
+            deletedAt: readRecordNumber(payload, ['deletedAt', 'deleted_at'], row.deleted_at),
+            deletedBy: normalizeString(row.deleted_by) || readRecordString(payload, ['deletedBy', 'deleted_by']),
+          };
+        })
+        .filter((fact): fact is BackendXiuyuanSyncLocalTombstoneFact => Boolean(fact)),
     };
   }
 

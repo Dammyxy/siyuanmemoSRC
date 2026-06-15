@@ -19,10 +19,10 @@ function must<T>(result: { ok: true; value: T } | { ok: false; error: unknown })
   return result.value;
 }
 
-function createConfig(): HybridSyncConfig {
+function createConfig(storage: unknown = null): HybridSyncConfig {
   return {
     deckId: 'deck-1',
-    storage: null,
+    storage,
     incrementalSync: {
       enabled: false,
       triggers: ['plugin-start'],
@@ -46,7 +46,9 @@ function createRiffBlock(blockId: string, cardType?: 'topic' | 'item'): XiuyuanS
     id: blockId,
     content: `Question for ${blockId}`,
     ial: cardType ? { 'custom-fsrs-card-type': cardType } : undefined,
+    riffCardID: `riff-${blockId}`,
     riffCard: {
+      id: `riff-${blockId}`,
       due: '2026-03-01T00:00:00.000Z',
       lastReview: '2026-03-01T00:00:00.000Z',
       reps: 0,
@@ -121,9 +123,10 @@ function createSiyuanApiMock(): XiuyuanSyncSiyuanPort {
 function createService(input: {
   repository: IXiuyuanRepository;
   siyuanApi: XiuyuanSyncSiyuanPort;
+  storage?: unknown;
 }): XiuyuanSyncService {
   return new XiuyuanSyncService(
-    createConfig(),
+    createConfig(input.storage),
     new EventBus(),
     input.repository,
     {
@@ -229,5 +232,72 @@ describe('XiuyuanSyncService ChangeSet commit path', () => {
 
     expect(repository.applySyncChangeSet).not.toHaveBeenCalled();
     expect(existingUpdate.getMeta().cardType).toBe('topic');
+  });
+
+  it('skips full sync create when a native Riff card matches a persistent local tombstone', async () => {
+    const repository = createXiuyuanRepositoryMock();
+    const siyuanApi = createSiyuanApiMock();
+    const hiddenBlockId = '20260301190000-hidden1';
+    const storage = {
+      hasNativeRiffDeletionTombstone: vi.fn(() => true),
+    };
+    const service = createService({ repository, siyuanApi, storage });
+
+    vi.mocked(siyuanApi.getRiffCards).mockResolvedValue([
+      createRiffBlock(hiddenBlockId, 'topic'),
+    ]);
+
+    const result = await service.fullSync();
+
+    expect(result).toMatchObject({
+      success: true,
+      addedCount: 0,
+      updatedCount: 0,
+      deletedCount: 0,
+      skippedCount: 1,
+    });
+    expect(repository.findByBlockId).not.toHaveBeenCalled();
+    expect(repository.applySyncChangeSet).toHaveBeenCalledTimes(1);
+    const changeSet = vi.mocked(repository.applySyncChangeSet).mock.calls[0]?.[0];
+    expect(changeSet?.creates).toEqual([]);
+    expect(storage.hasNativeRiffDeletionTombstone).toHaveBeenCalledWith(expect.objectContaining({
+      cardId: hiddenBlockId,
+      blockId: hiddenBlockId,
+      blockIds: [hiddenBlockId],
+      xiuyuanId: `xy_${hiddenBlockId}`,
+      riffCardId: `riff-${hiddenBlockId}`,
+    }));
+  });
+
+  it('skips incremental sync create when a native Riff add/update matches a persistent local tombstone', async () => {
+    const repository = createXiuyuanRepositoryMock();
+    const siyuanApi = createSiyuanApiMock();
+    const hiddenBlockId = '20260301190000-hidden2';
+    const storage = {
+      hasNativeRiffDeletionTombstone: vi.fn((candidate: { riffCardId?: string }) => candidate.riffCardId === `riff-${hiddenBlockId}`),
+    };
+    const service = createService({ repository, siyuanApi, storage });
+
+    vi.mocked(siyuanApi.getRiffNewCards).mockResolvedValue([
+      createRiffBlock(hiddenBlockId, 'item'),
+    ]);
+
+    const result = await service.incrementalSync();
+
+    expect(result).toMatchObject({
+      success: true,
+      addedCount: 0,
+      updatedCount: 0,
+      deletedCount: 0,
+      skippedCount: 1,
+    });
+    expect(repository.findByBlockId).not.toHaveBeenCalled();
+    expect(repository.applySyncChangeSet).toHaveBeenCalledTimes(1);
+    const changeSet = vi.mocked(repository.applySyncChangeSet).mock.calls[0]?.[0];
+    expect(changeSet?.creates).toEqual([]);
+    expect(storage.hasNativeRiffDeletionTombstone).toHaveBeenCalledWith(expect.objectContaining({
+      blockId: hiddenBlockId,
+      riffCardId: `riff-${hiddenBlockId}`,
+    }));
   });
 });

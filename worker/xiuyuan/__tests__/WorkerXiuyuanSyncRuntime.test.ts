@@ -178,6 +178,39 @@ describe('WorkerXiuyuanSyncRuntime', () => {
     ]);
   });
 
+  it('reads local tombstone sync facts from SQLite', async () => {
+    const { runtime, database } = await createRuntime();
+    database.run(
+      `INSERT OR REPLACE INTO tombstones (kind, id, deleted_at, deleted_by, payload_json)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        'card',
+        'card-hidden',
+        NOW,
+        'local-device',
+        JSON.stringify({
+          blockId: 'block-hidden',
+          xiuyuanId: 'xy-hidden',
+          riffCardId: 'riff-hidden',
+        }),
+      ],
+    );
+
+    const facts = await runtime.readXiuyuanSyncLocalFacts();
+
+    expect(facts.tombstones).toEqual([
+      {
+        kind: 'card',
+        id: 'card-hidden',
+        blockId: 'block-hidden',
+        xiuyuanId: 'xy-hidden',
+        riffCardId: 'riff-hidden',
+        deletedAt: NOW,
+        deletedBy: 'local-device',
+      },
+    ]);
+  });
+
   it('applies create, update, delete rows and advances full-sync checkpoint', async () => {
     const { runtime, database, repository } = await createRuntime();
     insertXiuyuan(database, 'xy-existing', 'block-existing', { content: 'Old content' });

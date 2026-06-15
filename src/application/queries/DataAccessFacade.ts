@@ -480,24 +480,16 @@ export class DataAccessFacade implements IDataRouter {
     /**
      * 删除卡片
      * 
-     * 通过卡片应用服务删除卡片，并尝试从 Riff 删除（如果启用）。
+     * 通过卡片应用服务删除卡片。默认只做本地 tombstone，不删除 native Riff。
      * 
      * @param cardId 要删除的卡片 ID
      * @see 需求 3.4
      */
     async deleteCard(cardId: string): Promise<void> {
-        // 检查是否需要从 Riff 删除
-        let deleteFromRiff = false;
-        const context = this.applicationContext || this.plugin?.getContext?.();
-        if (context?.getHybridSyncService?.()) {
-            const riffConfig = this.settingsService?.getSettings?.()?.riffIntegration || this.storage.getSettings().riffIntegration;
-            deleteFromRiff = riffConfig?.deleteSync?.enabled || false;
-        }
-        
         // 通过 CardApplicationService 删除卡片
         const result = await this.cardService.deleteFSRSCard({
             cardId,
-            deleteFromRiff
+            deleteFromRiff: false
         });
         
         if (isErr(result)) {

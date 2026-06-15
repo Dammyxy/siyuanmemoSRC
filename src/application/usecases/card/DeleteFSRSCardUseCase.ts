@@ -41,6 +41,11 @@ import type { DeleteFSRSCardStoragePort } from '@/core/storage/ports';
 import { ok, err, type Result } from '@/types/result';
 import type { DeleteFSRSCardCommand, DeleteFSRSCardCommandResult } from '@/application/commands/card/DeleteFSRSCardCommand';
 import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
+import {
+  hasNativeHardDeleteAuthorization,
+  isNativeHardDeleteIntent,
+  type CardDeleteIntentOptions,
+} from '@/core/xiuyuan/domain/events/CardDeleteIntent';
 import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
 import { isIgnorableMissingBlockError } from './shared/SiyuanBlockErrorClassifier';
 import { throwOnFailedStorageOperation } from './shared/StorageOperationResult';
@@ -91,11 +96,39 @@ export class DeleteFSRSCardUseCase {
       
       // 4. 可选：从 Riff 删除（会删除 custom-riff-* 属性）
       let deletedFromRiff: boolean | undefined;
-      if (command.deleteFromRiff && card.blockId) {
+      const nativeHardDeleteRequested = command.deleteFromRiff === true
+        || isNativeHardDeleteIntent(command.deleteIntent);
+      const hardDeleteOptions: CardDeleteIntentOptions = {
+        deleteIntent: command.deleteIntent,
+        confirmDangerousNativeDelete: command.confirmDangerousNativeDelete,
+        ownershipProof: command.ownershipProof,
+        requestedBy: 'DeleteFSRSCardUseCase',
+      };
+      if (nativeHardDeleteRequested && card.blockId) {
+        if (!hasNativeHardDeleteAuthorization(hardDeleteOptions)) {
+          deletedFromRiff = false;
+          logger.warn('Rejected native Riff hard-delete without confirmation or ownership proof:', {
+            cardId: command.cardId,
+            blockId: card.blockId,
+            deleteIntent: command.deleteIntent,
+          });
+          return ok({
+            deleted: true,
+            deletedFromRiff,
+          });
+        }
+
         try {
           await this.siyuanApi.removeRiffCards(this.siyuanApi.BUILTIN_DECK_ID, [card.blockId]);
           deletedFromRiff = true;
-          logger.info('Card deleted from Riff:', card.blockId);
+          logger.warn('Native Riff hard-delete authorized:', {
+            operation: 'native-hard-delete',
+            cardId: command.cardId,
+            blockId: card.blockId,
+            authorization: command.ownershipProof === 'siyuanmemo-owned'
+              ? 'ownership-proof'
+              : 'dangerous-confirmation',
+          });
         } catch (error) {
           logger.warn('Failed to delete from Riff:', error);
           deletedFromRiff = false;

@@ -364,7 +364,7 @@ export class StorageManager {
     }
 
     /**
-     * 批量删除卡片（同时从本地和 Riff 删除）
+     * 批量删除卡片（本地删除并取消旧块属性标记）
      * 
      * @param blockIds 块 ID 列表
      */
@@ -389,17 +389,7 @@ export class StorageManager {
             logger.info('Deleted from local storage:', deletedCount);
         }
 
-        // 3. 从 Riff 卡组删除
-        try {
-            const { removeRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
-            await removeRiffCards(BUILTIN_DECK_ID, blockIds);
-            logger.info('Deleted from Riff deck:', blockIds.length);
-        } catch (error) {
-            logger.error('Failed to delete from Riff:', error);
-            // 不抛出错误，因为本地已经删除成功
-        }
-
-        // 4. 取消块的卡片标记
+        // 3. 取消块的卡片标记
         try {
             const { unmarkBlockAsCard } = await import('@/core/siyuan/block');
             for (const blockId of blockIds) {
