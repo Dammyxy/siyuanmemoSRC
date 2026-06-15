@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-15 (Round 603)
+Last update: 2026-06-15 (Round 605)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-15 - Review dialog focus scrim
+
+- Task: Restore the native SiYuan flashcard-style focused backdrop for SiYuanMemo review dialogs.
+- Touched slice: Review/Dialog UI chrome in `src/application/factories/createUnifiedReviewDialog.ts`, `src/utils/dialog.ts`, `src/ui/shared/siyuanmemo-admin-skin.scss`, and focused dialog chrome tests.
+- Debt fixed now: Review dialogs no longer reuse the generic transparent scrim path that made the editor remain visually exposed; dialog chrome now has an explicit `review-focus` scrim variant and the review factory requests it directly, matching native `openCard.ts` surface masking without affecting generic transparent dialogs.
+- Debt deferred: Review Tab mode still has no dialog scrim.
+- Why deferred: Tab mode does not create a SiYuan Dialog, so adding a fake page-level mask would be a separate product behavior change rather than restoring the missing dialog backdrop.
+- Next safe step: Do a live SiYuan plugin smoke opening standard review in Dialog mode and confirm the editor is covered by `var(--b3-theme-surface)` while settings/mobile launcher dialogs keep their existing lighter scrim.
+- Validation: Red/green `pnpm exec vitest run src/application/factories/__tests__/createUnifiedReviewDialog.mode.test.ts src/utils/__tests__/dialog.chrome.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
+
+### 2026-06-15 - Backend writer runtime truth id scope
+
+- Task: Fix plugin startup `ReferenceError: truthDeviceId is not defined` after backend Worker bootstrap.
+- Touched slice: Application wiring / backend migration runtime in `src/application/factories/createApplicationBackendRuntimeBundle.ts` and its focused factory regression test.
+- Debt fixed now: The backend runtime factory now keeps the resolved truth device id in the outer startup scope shared by backend Worker bootstrap and frontend writer runtime bootstrap, so writer relay startup no longer fail-closes from a block-scoped variable. Added a behavior-level factory test that reproduces the broken startup shape and verifies frontend writer runtime stays available after truth device identity resolution.
+- Debt deferred: Live SiYuan restart smoke and multi-window writer/follower runtime smoke were not run in this pass.
+- Why deferred: The user provided a startup console trace and the deterministic factory seam reproduced the bug directly; live smoke needs a running SiYuan session and is better kept as a follow-up manual/runtime check.
+- Next safe step: Restart SiYuan or reload the plugin once with backend Worker and kernel writer lease flags enabled, then confirm the startup log no longer contains `truthDeviceId is not defined` and frontend writer runtime reports started.
+- Validation: Red/green `pnpm exec vitest run src/application/factories/__tests__/createApplicationBackendRuntimeBundle.test.ts`; focused `pnpm exec vitest run src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts src/application/factories/__tests__/createApplicationBackendRuntimeBundle.test.ts`; focused `pnpm exec vitest run src/application/clients/__tests__/SrsBackendClient.test.ts`; `pnpm run check:boundaries`; `pnpm build`.
 
 ### 2026-06-15 - Storage startup script-test closure
 

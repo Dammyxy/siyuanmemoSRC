@@ -25,6 +25,10 @@
   background: rgba(0, 0, 0, 0.08) !important;
 }
 
+.b3-dialog__scrim.siyuanmemo-dialog-scrim.siyuanmemo-dialog-scrim--review-focus {
+  background: var(--b3-theme-surface) !important;
+}
+
 .b3-dialog__container.siyuanmemo-dialog-shell {
   border: 1px solid var(--siyuanmemo-ui-border);
   border-radius: var(--siyuanmemo-ui-radius-lg) !important;

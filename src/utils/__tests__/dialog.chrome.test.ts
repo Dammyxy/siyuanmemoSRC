@@ -108,4 +108,21 @@ describe('dialog chrome helpers', () => {
     await expect(inputPromise).resolves.toBe('Custom preset');
     expect(inputDialogInstance.destroyed).toBe(true);
   });
+
+  it('marks review dialogs with a focused scrim variant', async () => {
+    const { applyDialogChrome } = await import('../dialog');
+    const dialog = new FakeDialog({
+      content: '<div class="siyuanmemo-dialog-root"></div>',
+    });
+
+    applyDialogChrome(dialog as never, {
+      scrimVariant: 'review-focus',
+    });
+
+    const scrim = dialog.element.querySelector('.b3-dialog__scrim') as HTMLElement;
+
+    expect(scrim.classList.contains('siyuanmemo-dialog-scrim')).toBe(true);
+    expect(scrim.classList.contains('siyuanmemo-dialog-scrim--review-focus')).toBe(true);
+    expect(scrim.classList.contains('siyuanmemo-dialog-scrim--transparent')).toBe(false);
+  });
 });

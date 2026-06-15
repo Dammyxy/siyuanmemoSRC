@@ -75,6 +75,7 @@ describe('createUnifiedReviewDialog', () => {
       hideTitle: false,
       isReview: true,
       disableClose: false,
+      scrimVariant: 'review-focus',
       props: expect.objectContaining({
         mode: 'dialog',
         title: '提取练习',
@@ -84,6 +85,7 @@ describe('createUnifiedReviewDialog', () => {
         nativeDialogTitlebar: true,
       }),
     }));
+    expect(createVueDialogMock.mock.calls[0]?.[0]?.transparent).not.toBe(true);
   });
 
   it('keeps the native titlebar hidden on mobile review dialogs', () => {

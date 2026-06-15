@@ -189,7 +189,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
             hideTitle: isMobile,
             component: ReviewView,
             dataKey: 'dialog-opencard',
-            transparent: true,
+            scrimVariant: 'review-focus',
             isReview: true,
             isMobile,
             visualVariant: 'workspace',

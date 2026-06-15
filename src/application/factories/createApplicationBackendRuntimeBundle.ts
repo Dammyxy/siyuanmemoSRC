@@ -131,6 +131,7 @@ export async function createApplicationBackendRuntimeBundle(
   let frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
   let followerCommandClient: FollowerCommandClient | null = null;
   let backendStartupError: string | null = null;
+  let truthDeviceId: string | null = null;
 
   if (backendMigrationRuntimePolicy.capabilities.backendWorkerAvailable) {
     try {
@@ -190,7 +191,7 @@ export async function createApplicationBackendRuntimeBundle(
           },
         });
         const truthDeviceIdentity = await resolveTruthDeviceIdentity({ localStore: options.fileService });
-        const truthDeviceId = truthDeviceIdentity.deviceId;
+        truthDeviceId = truthDeviceIdentity.deviceId;
         if (!truthDeviceId) {
           logger.warn('[ApplicationContext] TRUTH_DEVICE_ID_UNAVAILABLE: MessagePack truth writes are unavailable because local device identity is not persistent', {
             source: truthDeviceIdentity.source,

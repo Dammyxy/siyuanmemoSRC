@@ -9,10 +9,12 @@ import { createLogger } from '@/utils/logger';
 
 type DialogEventHandler = (...args: unknown[]) => void;
 export type DialogVisualVariant = 'form' | 'manager' | 'workspace';
+export type DialogScrimVariant = 'default' | 'transparent' | 'review-focus';
 
 type DialogClassInput = string | string[] | undefined;
 type DialogChromeOptions = {
     visualVariant?: DialogVisualVariant;
+    scrimVariant?: DialogScrimVariant;
     containerClass?: DialogClassInput;
     contentClass?: DialogClassInput;
     dataKey?: string;
@@ -52,8 +54,13 @@ function escapeHtml(value: string): string {
         .replace(/'/g, '&#39;');
 }
 
+function resolveDialogScrimVariant(options: Pick<DialogChromeOptions, 'scrimVariant' | 'transparent'>): DialogScrimVariant {
+    return options.scrimVariant || (options.transparent ? 'transparent' : 'default');
+}
+
 export function applyDialogChrome(dialog: Dialog, options: DialogChromeOptions = {}): void {
     const variant = options.visualVariant || 'form';
+    const scrimVariant = resolveDialogScrimVariant(options);
     const dialogContainer = dialog.element.querySelector('.b3-dialog__container') as HTMLElement | null;
     const scrim = dialog.element.querySelector('.b3-dialog__scrim') as HTMLElement | null;
     const contentRoot = dialog.element.querySelector('.siyuanmemo-dialog-root') as HTMLElement | null;
@@ -93,8 +100,8 @@ export function applyDialogChrome(dialog: Dialog, options: DialogChromeOptions =
 
     if (scrim) {
         scrim.classList.add('siyuanmemo-dialog-scrim');
-        if (options.transparent) {
-            scrim.classList.add('siyuanmemo-dialog-scrim--transparent');
+        if (scrimVariant !== 'default') {
+            scrim.classList.add(`siyuanmemo-dialog-scrim--${scrimVariant}`);
         }
     }
 
@@ -124,6 +131,7 @@ export function createVueDialog<T extends Component>(options: {
     responsive?: boolean;  // 🆕 添加响应式选项
     disableClose?: boolean;
     visualVariant?: DialogVisualVariant;
+    scrimVariant?: DialogScrimVariant;
     containerClass?: DialogClassInput;
     contentClass?: DialogClassInput;
 }): { dialog: Dialog; destroy: () => void } {
@@ -179,12 +187,14 @@ export function createVueDialog<T extends Component>(options: {
         }
     }
 
+    const scrimVariant = resolveDialogScrimVariant(options);
+
     const dialog = new Dialog({
         title: options.hideTitle ? undefined : options.title,  // 如果 hideTitle，不传 title
         content: `<div id="${containerId}" class="fn__flex-column siyuanmemo-dialog-root siyuanmemo-dialog-root--${options.visualVariant || 'form'}" style="height: 100%; width: 100%; overflow: hidden;"></div>`,
         width: dialogWidth,
         height: dialogHeight,
-        transparent: options.transparent,  // 传递 transparent 选项
+        transparent: scrimVariant === 'transparent',  // 传递 transparent 选项
         disableClose: options.disableClose === true,
         destroyCallback: () => {
             // 销毁 Vue 应用
@@ -199,10 +209,11 @@ export function createVueDialog<T extends Component>(options: {
 
     applyDialogChrome(dialog, {
         visualVariant: options.visualVariant,
+        scrimVariant,
         containerClass: options.containerClass,
         contentClass: options.contentClass,
         dataKey: options.dataKey,
-        transparent: options.transparent,
+        transparent: scrimVariant === 'transparent',
         isReview: options.isReview,
         isMobile: options.isMobile,
         dialogWidth,
