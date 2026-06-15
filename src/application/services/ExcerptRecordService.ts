@@ -7,6 +7,14 @@ export type ExcerptRecordEntityType = 'doc' | 'block';
 export type ExcerptRecordOrigin = 'editor' | 'review';
 export type ExcerptRecordStatus = 'active' | 'stale' | 'archived';
 
+export interface ExcerptRecordSourceSemantics {
+  sourceLineage?: Record<string, unknown>;
+  selectionSnapshot?: Record<string, unknown>;
+  payloadIdentity?: Record<string, unknown>;
+  sourcePosition?: Record<string, unknown>;
+  disclosureState?: Record<string, unknown>;
+}
+
 export interface ExcerptRecord {
   recordId: string;
   excerptEntityId: string;
@@ -20,6 +28,7 @@ export interface ExcerptRecord {
   origin: ExcerptRecordOrigin;
   createdAt: number;
   status: ExcerptRecordStatus;
+  sourceSemantics?: ExcerptRecordSourceSemantics;
 }
 
 interface ExcerptRecordState {
@@ -46,6 +55,7 @@ export interface CreateExcerptRecordAttemptInput<TCreated extends CreateExcerptR
   selectedText: string;
   origin: ExcerptRecordOrigin;
   colorToken?: string;
+  sourceSemantics?: ExcerptRecordSourceSemantics;
   createExcerpt: () => Promise<TCreated>;
 }
 
@@ -119,6 +129,50 @@ function sanitizeTimestamp(value: unknown): number {
   return Number.isFinite(value) ? Number(value) : Date.now();
 }
 
+function cloneRecordObject(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeSourceSemantics(value: unknown): ExcerptRecordSourceSemantics | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const candidate = value as ExcerptRecordSourceSemantics;
+  const sourceSemantics: ExcerptRecordSourceSemantics = {};
+  const sourceLineage = cloneRecordObject(candidate.sourceLineage);
+  const selectionSnapshot = cloneRecordObject(candidate.selectionSnapshot);
+  const payloadIdentity = cloneRecordObject(candidate.payloadIdentity);
+  const sourcePosition = cloneRecordObject(candidate.sourcePosition);
+  const disclosureState = cloneRecordObject(candidate.disclosureState);
+
+  if (sourceLineage) {
+    sourceSemantics.sourceLineage = sourceLineage;
+  }
+  if (selectionSnapshot) {
+    sourceSemantics.selectionSnapshot = selectionSnapshot;
+  }
+  if (payloadIdentity) {
+    sourceSemantics.payloadIdentity = payloadIdentity;
+  }
+  if (sourcePosition) {
+    sourceSemantics.sourcePosition = sourcePosition;
+  }
+  if (disclosureState) {
+    sourceSemantics.disclosureState = disclosureState;
+  }
+
+  return Object.keys(sourceSemantics).length > 0 ? sourceSemantics : undefined;
+}
+
 function sanitizeRecord(value: unknown): ExcerptRecord | null {
   if (!value || typeof value !== 'object') {
     return null;
@@ -132,6 +186,7 @@ function sanitizeRecord(value: unknown): ExcerptRecord | null {
   const sourceBlockIds = normalizeExcerptBlockIds(candidate.sourceBlockIds, candidate.sourceBlockId);
   const selectedText = normalizeString(candidate.selectedText);
   const normalizedFingerprint = normalizeExcerptFingerprint(candidate.normalizedFingerprint || candidate.selectedText || '');
+  const sourceSemantics = normalizeSourceSemantics(candidate.sourceSemantics);
 
   if (!recordId || !excerptEntityId || !sourceDocId || !sourceBlockId || sourceBlockIds.length === 0 || !selectedText || !normalizedFingerprint) {
     return null;
@@ -150,6 +205,7 @@ function sanitizeRecord(value: unknown): ExcerptRecord | null {
     origin: normalizeOrigin(candidate.origin),
     createdAt: sanitizeTimestamp(candidate.createdAt),
     status: normalizeStatus(candidate.status),
+    ...(sourceSemantics ? { sourceSemantics } : {}),
   };
 }
 
@@ -197,6 +253,7 @@ export class ExcerptRecordService {
     const sourceBlockIds = normalizeExcerptBlockIds(input.sourceBlockIds, input.sourceBlockId);
     const selectedText = normalizeString(input.selectedText);
     const normalizedFingerprint = normalizeExcerptFingerprint(selectedText);
+    const sourceSemantics = normalizeSourceSemantics(input.sourceSemantics);
     if (!sourceDocId || !sourceBlockId || sourceBlockIds.length === 0 || !selectedText || !normalizedFingerprint) {
       throw new Error('摘录记录需要有效的来源与文本');
     }
@@ -236,6 +293,7 @@ export class ExcerptRecordService {
       origin: normalizeOrigin(input.origin),
       createdAt: Date.now(),
       status: 'active',
+      ...(sourceSemantics ? { sourceSemantics } : {}),
     };
 
     state.records.unshift(record);

@@ -11,21 +11,14 @@ import {
   ExcerptRecordService,
   PROGRESSIVE_EXCERPT_COLOR_TOKEN,
   normalizeExcerptBlockIds,
+  type ExcerptRecordSourceSemantics,
 } from '@/application/services/ExcerptRecordService';
 import {
-  ATTR_PROGRESSIVE_DERIVED_ITEM_IDENTITY,
-  ATTR_PROGRESSIVE_DISCLOSURE_STATE,
   ATTR_PROGRESSIVE_KIND,
-  ATTR_PROGRESSIVE_MODE,
   ATTR_PROGRESSIVE_PARENT_EXCERPT_ID,
   ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID,
-  ATTR_PROGRESSIVE_PAYLOAD_IDENTITY,
-  ATTR_PROGRESSIVE_SELECTION_SNAPSHOT,
-  ATTR_PROGRESSIVE_SESSION_ID,
   ATTR_PROGRESSIVE_SOURCE_BLOCK_ID,
   ATTR_PROGRESSIVE_SOURCE_DOC_ID,
-  ATTR_PROGRESSIVE_SOURCE_LINEAGE,
-  ATTR_PROGRESSIVE_SOURCE_POSITION,
 } from '@/application/services/ProgressiveAttrContract';
 import {
   resolveProgressiveSourceContext,
@@ -33,7 +26,6 @@ import {
 } from '@/application/services/ProgressiveSourceContextResolver';
 import {
   buildProgressiveContentPayloadIdentity,
-  buildProgressiveDerivedItemIdentity,
   buildProgressiveDisclosureState,
   buildProgressiveSelectionSnapshotIdentity,
   buildProgressiveSourceLineage,
@@ -212,6 +204,11 @@ export class ProgressiveExcerptMaterializer {
     });
     const disclosureState = buildProgressiveDisclosureState('created');
     const sessionContext = await this.resolveSessionContext(sourceContext);
+    const sourceLineageWithSession: ProgressiveSourceLineage = {
+      ...sourceLineage,
+      ...(sessionContext.sessionId ? { sessionId: sessionContext.sessionId } : {}),
+      ...(sessionContext.mode ? { mode: sessionContext.mode } : {}),
+    };
     const sourceDocId = sourceContext.sourceDocId;
 
     const excerptAttempt = await this.deps.excerptRecordService.createOrRejectDuplicate<ProgressiveExcerptResult>({
@@ -221,6 +218,13 @@ export class ProgressiveExcerptMaterializer {
       selectedText,
       origin: input.origin,
       colorToken: PROGRESSIVE_EXCERPT_COLOR_TOKEN,
+      sourceSemantics: {
+        sourceLineage: sourceLineageWithSession,
+        selectionSnapshot,
+        payloadIdentity,
+        sourcePosition,
+        disclosureState,
+      } satisfies ExcerptRecordSourceSemantics,
       createExcerpt: async () => this.materializeCreatedExcerpt({
         sourceBlockId,
         sourceBlockIds,
@@ -228,7 +232,7 @@ export class ProgressiveExcerptMaterializer {
         contentDom,
         sourceDocId,
         sourceContext,
-        sourceLineage,
+        sourceLineage: sourceLineageWithSession,
         payloadIdentity,
         selectionSnapshot,
         sourcePosition,
@@ -308,13 +312,6 @@ export class ProgressiveExcerptMaterializer {
       [ATTR_PROGRESSIVE_KIND]: !useSourceChildStorage && configuredStorageMode === 'daily-note' ? 'excerpt' : 'excerpt-doc',
       [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: input.sourceDocId,
       [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: input.sourceBlockId,
-      [ATTR_PROGRESSIVE_SOURCE_LINEAGE]: toAttrJsonValue(input.sourceLineage),
-      [ATTR_PROGRESSIVE_SELECTION_SNAPSHOT]: toAttrJsonValue(input.selectionSnapshot),
-      [ATTR_PROGRESSIVE_PAYLOAD_IDENTITY]: toAttrJsonValue(input.payloadIdentity),
-      [ATTR_PROGRESSIVE_SOURCE_POSITION]: toAttrJsonValue(input.sourcePosition),
-      [ATTR_PROGRESSIVE_DISCLOSURE_STATE]: toAttrJsonValue(input.disclosureState),
-      ...(input.sessionId ? { [ATTR_PROGRESSIVE_SESSION_ID]: input.sessionId } : {}),
-      ...(input.mode ? { [ATTR_PROGRESSIVE_MODE]: input.mode } : {}),
       ...(input.sourceContext.parentTopicCardId
         ? { [ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID]: input.sourceContext.parentTopicCardId }
         : {}),
@@ -388,14 +385,6 @@ export class ProgressiveExcerptMaterializer {
         parentTopicCardId: input.sourceContext.parentTopicCardId,
         parentExcerptId: input.sourceContext.parentExcerptId,
       });
-      await this.deps.setProgressiveAttrs(excerptEntityId, {
-        [ATTR_PROGRESSIVE_DERIVED_ITEM_IDENTITY]: toAttrJsonValue(buildProgressiveDerivedItemIdentity({
-          kind: 'excerpt-topic',
-          itemId: topicCardResult.cardId,
-          sourceBlockId: input.sourceBlockId,
-          sourceBlockIds: input.sourceBlockIds,
-        })),
-      });
 
       return {
         excerptEntityId,
@@ -418,8 +407,4 @@ function toExcerptMarkdown(value: string): string {
     .map((line) => line.trimEnd())
     .join('\n')
     .trim();
-}
-
-function toAttrJsonValue(value: unknown): string {
-  return JSON.stringify(value);
 }

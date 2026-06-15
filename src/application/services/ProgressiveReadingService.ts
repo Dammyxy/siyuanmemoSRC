@@ -2195,21 +2195,17 @@ export class ProgressiveReadingService {
   }): string {
     const sourceBlockIds = normalizeExcerptBlockIds(input.sourceBlockIds);
     const trackingSourceBlockId = sourceBlockIds[0] || '';
-    const providedContentDom = String(input.contentDom || '').trim();
+    const providedContentDom = this.normalizeExcerptContentDom(input.contentDom);
     if (!providedContentDom) {
       return this.ensureDomBlockNodeIds(this.buildCanonicalExcerptDom(input.selectedText, sourceBlockIds));
     }
 
-    if (sourceBlockIds.length <= 1) {
-      const withInlineAlias = this.appendInlineSourceAliasToExcerptDom(providedContentDom, sourceBlockIds[0] || '');
-      if (withInlineAlias) {
-        return this.ensureDomBlockNodeIds(withInlineAlias);
-      }
+    const withInlineAlias = this.appendInlineSourceAliasToExcerptDom(providedContentDom, trackingSourceBlockId);
+    if (withInlineAlias) {
+      return this.ensureDomBlockNodeIds(withInlineAlias);
     }
 
-    return this.ensureDomBlockNodeIds(
-      `${providedContentDom}${this.buildSourceRefsParagraphDom(trackingSourceBlockId ? [trackingSourceBlockId] : [])}`,
-    );
+    return this.ensureDomBlockNodeIds(providedContentDom);
   }
 
   private buildDailyNoteExcerptDom(input: {
@@ -2225,14 +2221,7 @@ export class ProgressiveReadingService {
     const trackingSourceBlockId = normalizedSourceBlockIds[0] || '';
     const excerptText = this.escapeHtml(this.toExcerptMarkdown(selectedText))
       .replace(/\n/g, '<br />');
-    if (normalizedSourceBlockIds.length > 1) {
-      return [
-        this.buildParagraphDom(excerptText),
-        this.buildSourceRefsParagraphDom(trackingSourceBlockId ? [trackingSourceBlockId] : []),
-      ].join('');
-    }
-
-    const sourceRef = this.buildSourceAliasDom(normalizedSourceBlockIds[0] || '');
+    const sourceRef = this.buildSourceAliasDom(trackingSourceBlockId);
     const separator = excerptText ? ' ' : '';
     return this.buildParagraphDom(`${excerptText}${separator}${sourceRef}`);
   }
@@ -2247,36 +2236,17 @@ export class ProgressiveReadingService {
     template.innerHTML = contentDom.trim();
     const topLevelBlocks = Array.from(template.content.children)
       .filter((element): element is HTMLElement => element instanceof HTMLElement);
-    if (topLevelBlocks.length !== 1) {
-      return null;
-    }
-
-    if (topLevelBlocks[0].getAttribute('data-type') === 'NodeSuperBlock') {
-      const attr = Array.from(topLevelBlocks[0].children)
-        .find((element): element is HTMLElement => element instanceof HTMLElement && element.classList.contains('protyle-attr'));
-      if (!(attr instanceof HTMLElement)) {
-        return null;
+    for (const blockElement of topLevelBlocks) {
+      const editable = this.resolveExcerptContentEditable(blockElement);
+      if (!editable) {
+        continue;
       }
-      attr.insertAdjacentHTML('beforebegin', this.buildSourceRefsParagraphDom([normalizedSourceBlockId]));
-      return topLevelBlocks[0].outerHTML;
+
+      const separator = String(editable.textContent || '').trim().length > 0 ? ' ' : '';
+      editable.insertAdjacentHTML('beforeend', `${separator}${this.buildSourceAliasDom(normalizedSourceBlockId)}`);
+      return template.innerHTML.trim();
     }
-
-    const editable = topLevelBlocks[0].querySelector<HTMLElement>('[contenteditable="true"]');
-    if (!editable) {
-      return null;
-    }
-
-    const separator = String(editable.textContent || '').trim().length > 0 ? ' ' : '';
-    editable.insertAdjacentHTML('beforeend', `${separator}${this.buildSourceAliasDom(normalizedSourceBlockId)}`);
-    return topLevelBlocks[0].outerHTML;
-  }
-
-  private buildSourceRefsParagraphDom(sourceBlockIds: string[]): string {
-    const normalizedSourceBlockIds = normalizeExcerptBlockIds(sourceBlockIds);
-    const refs = normalizedSourceBlockIds
-      .map((sourceBlockId) => this.buildSourceAliasDom(sourceBlockId))
-      .join(' ');
-    return this.buildParagraphDom(refs);
+    return null;
   }
 
   private buildParagraphDom(innerHtml: string): string {
@@ -2290,6 +2260,63 @@ export class ProgressiveReadingService {
 
   private buildSourceAliasDom(sourceBlockId: string): string {
     return `<span data-type="block-ref" data-id="${this.escapeHtmlAttribute(sourceBlockId)}" data-subtype="s">*</span>`;
+  }
+
+  private normalizeExcerptContentDom(contentDom?: string): string {
+    const normalizedDom = String(contentDom || '').trim();
+    if (!normalizedDom) {
+      return '';
+    }
+
+    const template = document.createElement('template');
+    template.innerHTML = normalizedDom;
+    this.trimLeadingEmptyExcerptBlocks(template.content);
+    template.content
+      .querySelectorAll<HTMLElement>('[data-type="NodeSuperBlock"]')
+      .forEach((superBlock) => this.trimLeadingEmptyExcerptBlocks(superBlock));
+    return template.innerHTML.trim();
+  }
+
+  private trimLeadingEmptyExcerptBlocks(parent: ParentNode): void {
+    const childElements = Array.from(parent.children)
+      .filter((element): element is HTMLElement => element instanceof HTMLElement);
+
+    for (const child of childElements) {
+      if (!this.isBlockDomElement(child)) {
+        continue;
+      }
+      if (this.isMeaningfulExcerptBlockElement(child)) {
+        return;
+      }
+      child.remove();
+    }
+  }
+
+  private isMeaningfulExcerptBlockElement(element: HTMLElement): boolean {
+    if (!this.isBlockDomElement(element)) {
+      return false;
+    }
+
+    const dataType = String(element.getAttribute('data-type') || '').trim();
+    if (dataType === 'NodeSuperBlock') {
+      return true;
+    }
+
+    const clone = element.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('.protyle-attr,.protyle-action').forEach((child) => child.remove());
+    const text = String(clone.textContent || '')
+      .replace(/\u200B/g, '')
+      .replace(/\u00A0/g, ' ')
+      .trim();
+    if (text.length > 0) {
+      return true;
+    }
+
+    return Boolean(clone.querySelector('img, video, audio, iframe, canvas, table, [data-type="block-ref"], [data-type="a"], [data-href], [data-type="tag"]'));
+  }
+
+  private resolveExcerptContentEditable(element: HTMLElement): HTMLElement | null {
+    return element.querySelector<HTMLElement>('[contenteditable="true"]');
   }
 
   private ensureDomBlockNodeIds(dom: string): string {

@@ -8,6 +8,7 @@ import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveN
 import type { ProgressiveBlockRow, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import type { PluginSettings } from '@/types/settings';
+import { classifyBlockAttrWrite } from '@/types/block-attr-policy';
 import {
   buildProgressiveContentPayloadIdentity,
   type ProgressiveSourceLineage,
@@ -681,7 +682,7 @@ describe('ProgressiveReadingService', () => {
     ]);
   });
 
-  it('stamps valid block ids onto multi-block excerpt entity DOM and appends only the first source ref', () => {
+  it('stamps valid block ids onto multi-block excerpt entity DOM and appends the first source ref inline', () => {
     const fileService = createFileServiceMock();
     const port = createProgressiveSiyuanPortMock();
     const { service: cardService } = createCardServiceMock();
@@ -712,11 +713,54 @@ describe('ProgressiveReadingService', () => {
     const blockElements = Array.from(template.content.querySelectorAll<HTMLElement>('[data-type]'))
       .filter((element) => String(element.getAttribute('data-type') || '').startsWith('Node'));
 
-    expect(blockElements.length).toBeGreaterThanOrEqual(3);
+    expect(blockElements).toHaveLength(2);
     expect(blockElements.every((element) => NODE_ID_PATTERN.test(String(element.getAttribute('data-node-id') || '').trim()))).toBe(true);
     expect(excerptEntityDom).toContain('data-id="source-1"');
     expect(excerptEntityDom).not.toContain('data-id="source-2"');
     expect((excerptEntityDom.match(/data-type="block-ref"/g) || [])).toHaveLength(1);
+    expect(blockElements[0].querySelector('[contenteditable="true"]')?.innerHTML).toContain('Alpha');
+    expect(blockElements[0].querySelector('[contenteditable="true"]')?.innerHTML).toContain('data-id="source-1"');
+    expect(blockElements[1].querySelector('[contenteditable="true"]')?.innerHTML).not.toContain('data-id=');
+  });
+
+  it('removes accidental leading blank excerpt blocks before adding the source ref', () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock();
+    const { service: cardService } = createCardServiceMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService,
+      createSettingsProviderMock(),
+    );
+
+    const excerptEntityDom = (service as unknown as {
+      buildExcerptEntityDom: (input: {
+        selectedText: string;
+        contentDom?: string;
+        sourceBlockIds: string[];
+      }) => string;
+    }).buildExcerptEntityDom({
+      selectedText: 'Alpha\nBeta',
+      sourceBlockIds: ['source-1'],
+      contentDom: [
+        '<div data-type="NodeParagraph" class="p"><div contenteditable="true"><br /></div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+        '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+        '<div data-type="NodeParagraph" class="p"><div contenteditable="true">\u200b</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+        '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Beta</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      ].join(''),
+    });
+
+    const template = document.createElement('template');
+    template.innerHTML = excerptEntityDom;
+    const blockElements = Array.from(template.content.querySelectorAll<HTMLElement>('[data-type]'))
+      .filter((element) => String(element.getAttribute('data-type') || '').startsWith('Node'));
+
+    expect(blockElements).toHaveLength(3);
+    expect(blockElements[0].textContent?.replace(/\u200b/g, '').trim()).toContain('Alpha');
+    expect(blockElements[0].querySelector('[contenteditable="true"]')?.innerHTML).toContain('data-id="source-1"');
+    expect(blockElements[1].textContent?.replace(/\u200b/g, '').trim()).toBe('');
+    expect(blockElements[2].textContent?.replace(/\u200b/g, '').trim()).toBe('Beta');
   });
 
   it('splits nested H1-H3 sections into a real document tree and keeps linear preorder session order', async () => {
@@ -1753,7 +1797,7 @@ describe('ProgressiveReadingService', () => {
     }));
   });
 
-  it('records progressive source lineage, selection, payload identity, source position, disclosure, and derived item identity for excerpts', async () => {
+  it('records progressive source semantics for excerpts without writing high-churn block attrs', async () => {
     const fileService = createFileServiceMock();
     const port = createProgressiveSiyuanPortMock({
       getDocInfo: vi.fn(async (docId: string) => ({
@@ -1787,53 +1831,73 @@ describe('ProgressiveReadingService', () => {
     });
 
     const excerptAttrsCall = vi.mocked(port.setBlockAttrs).mock.calls.find(([blockId, attrs]) =>
-      blockId === 'excerpt-lineage-1' && Object.prototype.hasOwnProperty.call(attrs, ATTR_PROGRESSIVE_SOURCE_LINEAGE)
+      blockId === 'excerpt-lineage-1' && attrs['custom-fsrs-reading-kind'] === 'excerpt-doc'
     );
-    expect(excerptAttrsCall).toBeTruthy();
-    const attrs = excerptAttrsCall?.[1] ?? {};
-    const lineage = JSON.parse(attrs[ATTR_PROGRESSIVE_SOURCE_LINEAGE]);
-    const selection = JSON.parse(attrs[ATTR_PROGRESSIVE_SELECTION_SNAPSHOT]);
-    const payload = JSON.parse(attrs[ATTR_PROGRESSIVE_PAYLOAD_IDENTITY]);
-    const position = JSON.parse(attrs[ATTR_PROGRESSIVE_SOURCE_POSITION]);
-    const disclosure = JSON.parse(attrs[ATTR_PROGRESSIVE_DISCLOSURE_STATE]);
+    expect(excerptAttrsCall?.[1]).toEqual(expect.objectContaining({
+      'custom-fsrs-reading-kind': 'excerpt-doc',
+      'custom-fsrs-reading-source-doc-id': 'doc-lineage',
+      'custom-fsrs-reading-source-block-id': 'source-lineage-1',
+    }));
+    expect(excerptAttrsCall?.[1]).not.toHaveProperty(ATTR_PROGRESSIVE_SOURCE_LINEAGE);
+    expect(excerptAttrsCall?.[1]).not.toHaveProperty(ATTR_PROGRESSIVE_SELECTION_SNAPSHOT);
+    expect(excerptAttrsCall?.[1]).not.toHaveProperty(ATTR_PROGRESSIVE_PAYLOAD_IDENTITY);
+    expect(excerptAttrsCall?.[1]).not.toHaveProperty(ATTR_PROGRESSIVE_SOURCE_POSITION);
+    expect(excerptAttrsCall?.[1]).not.toHaveProperty(ATTR_PROGRESSIVE_DISCLOSURE_STATE);
 
-    expect(lineage).toEqual(expect.objectContaining({
-      version: 1,
-      authority: 'siyuan-block',
-      sourceDocId: 'doc-lineage',
-      rootDocId: 'doc-lineage',
-      sourceBlockId: 'source-lineage-1',
-      sourceBlockIds: ['source-lineage-1'],
-    }));
-    expect(selection).toEqual(expect.objectContaining({
-      kind: 'block-selection',
-      sourceBlockId: 'source-lineage-1',
-      selectionMode: 'range',
-    }));
-    expect(payload).toEqual(expect.objectContaining({
-      algorithm: 'fnv1a32',
-      sourceBlockIds: ['source-lineage-1'],
-      textLength: 10,
-    }));
-    expect(position).toEqual(expect.objectContaining({
-      kind: 'siyuan-block',
-      blockId: 'source-lineage-1',
-      rootDocId: 'doc-lineage',
-    }));
-    expect(disclosure).toEqual({
-      version: 1,
-      state: 'created',
-      formalSchedulerMutation: false,
-    });
+    const highChurnAttrs = [
+      ATTR_PROGRESSIVE_SOURCE_LINEAGE,
+      ATTR_PROGRESSIVE_SELECTION_SNAPSHOT,
+      ATTR_PROGRESSIVE_PAYLOAD_IDENTITY,
+      ATTR_PROGRESSIVE_SOURCE_POSITION,
+      ATTR_PROGRESSIVE_DISCLOSURE_STATE,
+      ATTR_PROGRESSIVE_DERIVED_ITEM_IDENTITY,
+    ];
+    for (const [, attrs] of vi.mocked(port.setBlockAttrs).mock.calls) {
+      for (const attrName of highChurnAttrs) {
+        expect(attrs).not.toHaveProperty(attrName);
+      }
+    }
 
-    const derivedAttrsCall = vi.mocked(port.setBlockAttrs).mock.calls.find(([blockId, attrs]) =>
-      blockId === 'excerpt-lineage-1' && Object.prototype.hasOwnProperty.call(attrs, ATTR_PROGRESSIVE_DERIVED_ITEM_IDENTITY)
-    );
-    const derivedIdentity = JSON.parse(derivedAttrsCall?.[1][ATTR_PROGRESSIVE_DERIVED_ITEM_IDENTITY] ?? '{}');
-    expect(derivedIdentity).toEqual(expect.objectContaining({
-      kind: 'excerpt-topic',
-      itemId: 'card-1',
-      sourceBlockId: 'source-lineage-1',
+    expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toEqual(expect.objectContaining({
+      version: 1,
+      records: [
+        expect.objectContaining({
+          excerptEntityId: 'excerpt-lineage-1',
+          sourceDocId: 'doc-lineage',
+          sourceBlockId: 'source-lineage-1',
+          sourceBlockIds: ['source-lineage-1'],
+          sourceSemantics: expect.objectContaining({
+            sourceLineage: expect.objectContaining({
+              version: 1,
+              authority: 'siyuan-block',
+              sourceDocId: 'doc-lineage',
+              rootDocId: 'doc-lineage',
+              sourceBlockId: 'source-lineage-1',
+              sourceBlockIds: ['source-lineage-1'],
+            }),
+            selectionSnapshot: expect.objectContaining({
+              kind: 'block-selection',
+              sourceBlockId: 'source-lineage-1',
+              selectionMode: 'range',
+            }),
+            payloadIdentity: expect.objectContaining({
+              algorithm: 'fnv1a32',
+              sourceBlockIds: ['source-lineage-1'],
+              textLength: 10,
+            }),
+            sourcePosition: expect.objectContaining({
+              kind: 'siyuan-block',
+              blockId: 'source-lineage-1',
+              rootDocId: 'doc-lineage',
+            }),
+            disclosureState: {
+              version: 1,
+              state: 'created',
+              formalSchedulerMutation: false,
+            },
+          }),
+        }),
+      ],
     }));
     expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
       progressiveLineage: expect.objectContaining({
@@ -1847,6 +1911,52 @@ describe('ProgressiveReadingService', () => {
           formalSchedulerMutation: false,
         }),
       }),
+    }));
+  });
+
+  it('creates excerpts when the Siyuan attr writer rejects forbidden source-lineage attrs', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async (docId: string) => ({
+        id: docId,
+        box: 'notebook-a',
+        path: '/reading/ordinary.sy',
+        hpath: '/reading/ordinary',
+        name: 'Ordinary',
+      })),
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'source-policy-1'")) {
+          return [
+            { id: 'source-policy-1', root_id: 'doc-policy', parent_id: 'doc-policy', box: 'notebook-a', type: 'p', content: 'Policy guarded source', markdown: 'Policy guarded source' },
+          ];
+        }
+        if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-policy'")) {
+          return [];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+      createDocWithMarkdown: vi.fn(async () => 'excerpt-policy-1'),
+      setBlockAttrs: vi.fn(async (_blockId: string, attrs: Record<string, string>) => {
+        for (const [attrName, value] of Object.entries(attrs)) {
+          const classification = classifyBlockAttrWrite(attrName, String(value));
+          if (!classification.allowed) {
+            throw new Error(`BLOCK_ATTR_WRITE_FORBIDDEN: ${attrName} (${classification.reason})`);
+          }
+        }
+      }),
+    });
+    const cardService = createCardServiceMock();
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+
+    await expect(service.createExcerptFromSelection({
+      sourceBlockId: 'source-policy-1',
+      selectedText: 'Policy guarded source',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Policy guarded source</div></div>',
+      origin: 'editor',
+    })).resolves.toEqual(expect.objectContaining({
+      kind: 'created',
+      excerptEntityId: 'excerpt-policy-1',
+      sourceBlockId: 'source-policy-1',
     }));
   });
 
@@ -2052,11 +2162,12 @@ describe('ProgressiveReadingService', () => {
     expect(port.appendMarkdownBlock).not.toHaveBeenCalled();
     expect(port.setBlockAttrs).toHaveBeenCalledWith('excerpt-doc-2', expect.objectContaining({
       'custom-fsrs-reading-kind': 'excerpt-doc',
-      'custom-fsrs-reading-session-id': 'session-1',
-      'custom-fsrs-reading-mode': 'linear',
       'custom-fsrs-reading-source-doc-id': 'piece-1',
       'custom-fsrs-reading-source-block-id': 'piece-block-1',
     }));
+    const excerptAttrsCall = vi.mocked(port.setBlockAttrs).mock.calls.find(([blockId]) => blockId === 'excerpt-doc-2');
+    expect(excerptAttrsCall?.[1]).not.toHaveProperty('custom-fsrs-reading-session-id');
+    expect(excerptAttrsCall?.[1]).not.toHaveProperty('custom-fsrs-reading-mode');
     expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
       blockIds: ['excerpt-doc-2'],
       extractedFrom: 'piece-block-1',
@@ -2071,6 +2182,21 @@ describe('ProgressiveReadingService', () => {
         sourceDocId: 'piece-1',
         sourceBlockId: 'piece-block-1',
       }),
+    }));
+    expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toEqual(expect.objectContaining({
+      records: [
+        expect.objectContaining({
+          excerptEntityId: 'excerpt-doc-2',
+          sourceSemantics: expect.objectContaining({
+            sourceLineage: expect.objectContaining({
+              sessionId: 'session-1',
+              mode: 'linear',
+              sourceDocId: 'piece-1',
+              sourceBlockId: 'piece-block-1',
+            }),
+          }),
+        }),
+      ],
     }));
     expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['excerpt-doc-2']);
 

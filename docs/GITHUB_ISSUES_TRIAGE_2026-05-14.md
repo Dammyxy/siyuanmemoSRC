@@ -4,6 +4,60 @@ Source repo: https://github.com/Dammyxy/siyuan-plugin-siyuanmemo
 
 This document is a discussion queue for GitHub issues. It is not an implementation spec yet.
 
+## Live Refresh - 2026-06-15
+
+Source: GitHub REST API `Dammyxy/siyuan-plugin-siyuanmemo/issues?state=open&per_page=100` and `state=closed`.
+
+Observed open issues: 51.
+
+Observed closed issues: 22.
+
+GitHub CLI was unavailable in this environment, so the refresh used the GitHub REST API.
+
+### Completion Snapshot
+
+- GitHub closed issues: 22.
+- Open GitHub issues with local completion evidence: 19 issue numbers, consisting of 18 implemented numbers (#71, #72, #73, #65, #60, #56, #64, #63, #61, #57, #55, #54, #52, #20, #19, #16, #59, #46) plus #58 as validation-only coverage.
+- If #58 is counted only as verification rather than implementation, local implemented still-open issue count is 18; total issue numbers covered is 40 implemented/closed plus one validation-only.
+- OpenSpec status confirms these issue-backed changes are complete: `polish-progressive-excerpt-doc-and-source-marks`, `add-review-command-hotkeys-and-doc-scope-review`, `fix-topic-container-shortcut-item-creation`, `fix-multicloze-review-rendering`, `fix-formula-cloze-katex-marker-rendering`, `show-suspended-card-badge-in-browser`, `render-custom-review-surface-links`, `add-concept-review-roam-entry`, `scope-srs-browser-sql-filter-to-card-universe`, `harden-symbol-listener-business-idempotency`, `explain-srs-browser-count-differences`, `add-relative-priority-actions-in-browser`, and `preserve-progressive-excerpt-source-links-and-marks`.
+
+### Newly Observed Since 2026-05-18
+
+| Issue | Title | Created | URL |
+|---|---|---|---|
+| #66 | 不同设备间的复习进度同步需求 | 2026-05-20T01:55:43Z | https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/66 |
+| #67 | 建议item制卡使用其他容器块 | 2026-05-22T06:28:08Z | https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/67 |
+| #68 | 取消闪卡，在设置中，增加一个 取消二次确认的弹窗 开关！ | 2026-05-22T09:03:37Z | https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/68 |
+| #69 | 申请放出一个删除卡片的API，可被其他插件引用。 | 2026-05-22T09:04:25Z | https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/69 |
+| #70 | 所摘录的TOPIC，随文档所在笔记本而具有不同的存放位置。 | 2026-05-22T09:06:44Z | https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/70 |
+| #71 | 对于摘录，其生成的文档需要优化：星号引用导致反链面板空白，无法判断其内容。 | 2026-05-23T03:38:04Z | https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/71 |
+| #72 | 对于摘录，其生成的文档需要优化：首行会默认多出一处空行 | 2026-05-23T03:38:42Z | https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/72 |
+| #73 | 对于摘录，如果原文在同一个段落块下，原文可以改变样式，多块摘录则没有变 | 2026-06-12T02:03:52Z | https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/issues/73 |
+
+### Proposed Order
+
+1. #71 / #72 / #73 - Implemented by `polish-progressive-excerpt-doc-and-source-marks`. Progressive excerpt document/source-mark polish stayed in the same bounded slice as the completed #59/#46 work.
+2. #70 - Excerpt Topic storage location by notebook. Same product area, but needs storage policy and settings/design discussion.
+3. #68 - Optional delete-card confirmation bypass. Small UX/settings change, but it touches Card CRUD confirmation safety and should stay separate.
+4. #67 - Item card backing container. Potentially valuable, but changes Item creation shape and editor/editability semantics.
+5. #66 - Cross-device review progress sync. Important but broad; overlaps recent review durability/backend truth work and should wait until durability segments stabilize.
+6. #69 - Public delete-card API for other plugins. Cross-plugin API contract; do not start without API/permission design.
+
+### Decision Notes
+
+- Do not treat GitHub-open status as not implemented. Several implemented local changes still correspond to open GitHub issues.
+- Prefer closing or commenting GitHub issues after user/live smoke confirmation, especially for #71/#72/#73, #65/#60/#56, #64, #63, #61, #57, #55, #54, #52, #20, #19, #16, #59, and #46.
+- #71/#72/#73 were implemented together by OpenSpec change `polish-progressive-excerpt-doc-and-source-marks`: generated excerpt document formatting, first visible source reference placement, and multi-block source mark coverage share Progressive / Excerpt ownership.
+- The live excerpt blocker `BLOCK_ATTR_WRITE_FORBIDDEN: custom-fsrs-reading-source-lineage (large-or-high-churn-payload)` was fixed in the same slice by moving rich source semantics into plugin-owned excerpt records and keeping block attrs compact.
+- #58 stays validation-only but now has active regression coverage for first-source-reference placement at the end of the first meaningful excerpt content block.
+
+### Later-Batch Grouping
+
+- Progressive / Excerpt polish: #71, #72, and #73 implemented by `polish-progressive-excerpt-doc-and-source-marks`; #70 remains the next broader storage-policy follow-up.
+- Card CRUD / deletion UX/API: #68, #69.
+- Item creation model: #67.
+- Review durability / sync: #66.
+
 ## Live Refresh - 2026-05-15
 
 Source: GitHub API `Dammyxy/siyuan-plugin-siyuanmemo/issues?state=open&per_page=100`

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-15 (Round 605)
+Last update: 2026-06-15 (Round 606)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-15 - Progressive excerpt source semantics polish
+
+- Task: Combine GitHub issues #71/#72/#73 into OpenSpec change `polish-progressive-excerpt-doc-and-source-marks`, keep #58 as regression coverage, and fix live `BLOCK_ATTR_WRITE_FORBIDDEN: custom-fsrs-reading-source-lineage (large-or-high-churn-payload)` during excerpt creation.
+- Touched slice: Progressive / Excerpt application path in `src/application/services/{ExcerptRecordService,ProgressiveExcerptMaterializer,ProgressiveReadingService}.ts`, focused Progressive/Excerpt tests, issue triage doc, OpenSpec task ledger, and this backlog.
+- Debt fixed now: Rich excerpt lineage, selection snapshot, payload identity, source position, disclosure state, and split session/mode semantics now persist through plugin-owned excerpt records and card `progressiveLineage` instead of large/high-churn block attrs. Generated excerpt DOM trims accidental leading empty blocks before materialization, appends the first source reference inline at the end of the first meaningful excerpt content block, and keeps the existing multi-block source-mark path on per-block SiYuanMemo-owned mutations.
+- Debt deferred: No migration of historical lineage attrs or old excerpt records, no notebook-dependent Topic storage routing (#70), no new source-mark setting/i18n wording, and no live SiYuan block-menu/editor smoke in this pass.
+- Why deferred: Historical migration and #70 would widen storage policy beyond this bug/polish slice; settings copy did not change; live smoke needs a running SiYuan session while the deterministic service/handler seams cover the reported failure.
+- Next safe step: Smoke one editor-command excerpt and one block-menu multi-block excerpt in SiYuan, then comment/close #71/#72/#73 if the generated document, backlink context, and source marks match expectations.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/ProgressiveReadingService.test.ts`; `pnpm exec vitest run src/application/services/__tests__/ExcerptRecordService.test.ts`; `pnpm exec vitest run src/application/entries/__tests__/ProgressiveExcerptHighlight.test.ts`; `pnpm exec vitest run src/application/handlers/__tests__/ProgressiveExcerptHotkeyHandler.test.ts -t "selected Siyuan blocks|source marks|highlight"`; `pnpm exec vitest run src/application/managers/__tests__/BlockMenuHandler.progressive-excerpt.test.ts`; `pnpm run check:boundaries`; `pnpm build`; `openspec validate "polish-progressive-excerpt-doc-and-source-marks" --strict`.
 
 ### 2026-06-15 - Review dialog focus scrim
 
