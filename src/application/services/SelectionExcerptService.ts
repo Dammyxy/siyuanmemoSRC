@@ -51,7 +51,7 @@ export interface CreatedSelectionExcerptActionResult extends SelectionExcerptAct
   kind: 'created';
   excerptEntityId: string;
   excerptEntityType: 'doc' | 'block';
-  topicCardId: string;
+  topicCardId?: string;
   sourceBlockId: string;
   sourceBlockIds: string[];
   containerDocId: string;
@@ -142,7 +142,7 @@ export class SelectionExcerptService {
       kind: 'created',
       excerptEntityId: result.excerptEntityId,
       excerptEntityType: result.excerptEntityType,
-      topicCardId: result.topicCardId,
+      ...(result.topicCardId ? { topicCardId: result.topicCardId } : {}),
       sourceBlockId: result.sourceBlockId,
       sourceBlockIds: result.sourceBlockIds,
       containerDocId: result.containerDocId,

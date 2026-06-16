@@ -118,6 +118,7 @@ import { ReviewSiyuanAdapter } from '@/infrastructure/siyuan/ReviewSiyuanAdapter
 import { HostBlockQuerySiyuanAdapter } from '@/infrastructure/siyuan/HostBlockQuerySiyuanAdapter';
 import { DocTreeReviewScopeService } from '@/application/services/DocTreeReviewScopeService';
 import { ExcerptRecordService } from '@/application/services/ExcerptRecordService';
+import { ProgressiveExcerptCompletionService } from '@/application/services/ProgressiveExcerptCompletionService';
 import { ProgressiveReadingService } from '@/application/services/ProgressiveReadingService';
 import { ReviewScopeCardCreationSyncService } from '@/application/services/ReviewScopeCardCreationSyncService';
 import { SelectionExcerptService } from '@/application/services/SelectionExcerptService';
@@ -213,6 +214,10 @@ function createSqlProjectionFileService(fileService: FileService) {
   };
 }
 
+function escapeSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
 interface ApplicationServiceRegistry {
   storage: StorageManager;
   unifiedStorage: UnifiedStorageManager;
@@ -232,6 +237,7 @@ interface ApplicationServiceRegistry {
   configuredCaptureStorageService: ConfiguredCaptureStorageService;
   kernelCompanion: KernelCompanionPort;
   excerptRecordService: ExcerptRecordService;
+  progressiveExcerptCompletionService: ProgressiveExcerptCompletionService;
   progressiveReadingService: ProgressiveReadingService;
   reviewScopeCardCreationSyncService: ReviewScopeCardCreationSyncService;
   selectionExcerptService: SelectionExcerptService;
@@ -340,6 +346,7 @@ export class ApplicationContext {
   private kernelTransactionActionPump?: KernelTransactionActionPump;
   private nativeRiffSyncTriggerHandler?: NativeRiffSyncTriggerHandler;
   private fullSyncTimer?: NodeJS.Timeout;
+  private progressiveExcerptCompletionRepairTimer?: ReturnType<typeof setTimeout>;
   private sqlPersistence?: SqlPersistenceBundle;
   private srsBackendClient: SrsBackendClient | null = null;
   private srsBackendTransport: DisposableSrsBackendTransport | null = null;
@@ -602,6 +609,27 @@ export class ApplicationContext {
       return new ExcerptRecordService(context.getFileService());
     });
 
+    this.registerServiceFactory('progressiveExcerptCompletionService', (context) => {
+      const siyuanApi = new ProgressiveSiyuanAdapter();
+      return new ProgressiveExcerptCompletionService({
+        cardService: context.getCardService(),
+        excerptRecordService: context.getExcerptRecordService(),
+        blockExists: async (blockId) => {
+          const normalizedBlockId = String(blockId || '').trim();
+          if (!normalizedBlockId) {
+            return false;
+          }
+          const rows = await siyuanApi.sql<{ id: string }>(`
+            SELECT id
+            FROM blocks
+            WHERE id = '${escapeSqlLiteral(normalizedBlockId)}'
+            LIMIT 1
+          `);
+          return rows.length > 0;
+        },
+      });
+    });
+
     this.registerServiceFactory('progressiveReadingService', (context) => {
       return new ProgressiveReadingService(
         new ProgressiveSiyuanAdapter(),
@@ -617,6 +645,7 @@ export class ApplicationContext {
         context.frontendInstanceRuntime,
         context.followerCommandClient,
         context.transactionProvenanceRegistry,
+        context.getProgressiveExcerptCompletionService(),
       );
     });
 
@@ -1695,8 +1724,40 @@ export class ApplicationContext {
     );
     
     logger.info('[ApplicationContext] ✅ ApplicationContext created successfully');
+    context.scheduleProgressiveExcerptCompletionStartupRepair();
     
     return context;
+  }
+
+  private scheduleProgressiveExcerptCompletionStartupRepair(delayMs = 1500): void {
+    if (this.progressiveExcerptCompletionRepairTimer) {
+      clearTimeout(this.progressiveExcerptCompletionRepairTimer);
+    }
+    this.progressiveExcerptCompletionRepairTimer = setTimeout(() => {
+      this.progressiveExcerptCompletionRepairTimer = undefined;
+      void this.runProgressiveExcerptCompletionStartupRepair();
+    }, delayMs);
+  }
+
+  private async runProgressiveExcerptCompletionStartupRepair(): Promise<void> {
+    if (this.disposed) {
+      return;
+    }
+    try {
+      const results = await this.getProgressiveExcerptCompletionService().repairBatch({ limit: 20 });
+      if (results.length === 0) {
+        return;
+      }
+      const completed = results.filter((result) => result.status === 'completed').length;
+      const failed = results.filter((result) => result.status === 'failed').length;
+      logger.info('[ApplicationContext] Progressive excerpt completion startup repair finished', {
+        total: results.length,
+        completed,
+        failed,
+      });
+    } catch (error) {
+      logger.warn('[ApplicationContext] Progressive excerpt completion startup repair failed:', error);
+    }
   }
 
   private static resolveKernelWriterLeaseInstanceId(): string | undefined {
@@ -2484,6 +2545,10 @@ export class ApplicationContext {
     return this.getService('excerptRecordService');
   }
 
+  getProgressiveExcerptCompletionService(): ProgressiveExcerptCompletionService {
+    return this.getService('progressiveExcerptCompletionService');
+  }
+
   getReviewScopeCardCreationSyncService(): ReviewScopeCardCreationSyncService {
     return this.getService('reviewScopeCardCreationSyncService');
   }
@@ -2634,6 +2699,17 @@ export class ApplicationContext {
     
     try {
       logger.info('[ApplicationContext] Starting disposal...');
+
+      if (this.progressiveExcerptCompletionRepairTimer) {
+        try {
+          clearTimeout(this.progressiveExcerptCompletionRepairTimer);
+          this.progressiveExcerptCompletionRepairTimer = undefined;
+          logger.info('[ApplicationContext] ✅ Progressive excerpt completion startup repair timer cleared');
+        } catch (error) {
+          logger.error('[ApplicationContext] Error clearing progressive excerpt completion startup repair timer:', error);
+          errors.push({ service: 'progressiveExcerptCompletionRepairTimer', error });
+        }
+      }
       
       // 0. 立即保存 SettingsService (优先级最高)
       if (this.isServiceCreated('settingsService')) {

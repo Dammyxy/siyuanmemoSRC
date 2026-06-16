@@ -9,6 +9,7 @@ import type {
 } from '../../../packages/contracts/src/backend-rpc';
 import { ConfiguredCaptureStorageService } from '@/application/services/ConfiguredCaptureStorageService';
 import {
+  type ExcerptRecord,
   ExcerptRecordService,
   normalizeExcerptBlockIds,
 } from '@/application/services/ExcerptRecordService';
@@ -16,6 +17,7 @@ import {
   ProgressiveExcerptMaterializer,
   type ProgressiveExcerptMaterializerState,
 } from '@/application/services/ProgressiveExcerptMaterializer';
+import type { ProgressiveExcerptCompletionResult } from '@/application/services/ProgressiveExcerptCompletionService';
 import {
   buildProgressiveDisclosureState,
   evaluateProgressiveSourceAvailability,
@@ -49,6 +51,7 @@ const STORAGE_KEY = 'progressive-reading.json';
 const WORKBENCH_DOC_TITLE = 'Topic 工作台';
 const DAILY_EXCERPT_ROOT_TITLE = 'SiYuanMemo Topic';
 const CHILD_DOC_TITLE_MAX_COLLISION_ATTEMPTS = 100;
+const EXCERPT_COMPLETION_FAILED_MESSAGE = '摘录已创建，但制卡未完成，可稍后重试';
 
 type ProgressiveKind =
   | 'piece'
@@ -206,6 +209,9 @@ type ProgressiveCommandFollowerClient = {
 
 type ProgressiveBackendCommandClient = Pick<BackendIntegrationClientFacet, 'executeProgressiveCommand'>;
 type ProgressiveTransactionProvenanceRecorder = Pick<TransactionProvenanceRegistry, 'recordBlockIds'>;
+type ProgressiveExcerptCompletionCoordinator = {
+  enqueue(record: ExcerptRecord): Promise<ProgressiveExcerptCompletionResult>;
+};
 
 export interface ProgressiveSplitResult {
   sessionId: string;
@@ -224,7 +230,7 @@ export interface ProgressiveExcerptInput {
 export interface ProgressiveExcerptResult {
   excerptEntityId: string;
   excerptEntityType: 'doc' | 'block';
-  topicCardId: string;
+  topicCardId?: string;
   sourceBlockId: string;
   sourceBlockIds: string[];
   containerDocId: string;
@@ -403,12 +409,13 @@ export class ProgressiveReadingService {
     private readonly settingsProvider: ProgressiveReadingSettingsProvider,
     private readonly configuredCaptureStorageService: ConfiguredCaptureStorageService,
     private readonly excerptRecordService: ExcerptRecordService,
-    private readonly docTreeScopeRefresher?: ProgressiveDocTreeScopeRefresher,
-    private readonly ownershipBoundaryClient?: ProgressiveOwnershipBoundaryClient,
-    private readonly backendClient?: ProgressiveBackendCommandClient,
-    private readonly commandRelayRuntime?: ProgressiveCommandRelayRuntime | null,
-    private readonly followerCommandClient?: ProgressiveCommandFollowerClient | null,
-    private readonly transactionProvenanceRegistry?: ProgressiveTransactionProvenanceRecorder,
+    private readonly docTreeScopeRefresher: ProgressiveDocTreeScopeRefresher | undefined,
+    private readonly ownershipBoundaryClient: ProgressiveOwnershipBoundaryClient | undefined,
+    private readonly backendClient: ProgressiveBackendCommandClient | undefined,
+    private readonly commandRelayRuntime: ProgressiveCommandRelayRuntime | null | undefined,
+    private readonly followerCommandClient: ProgressiveCommandFollowerClient | null | undefined,
+    private readonly transactionProvenanceRegistry: ProgressiveTransactionProvenanceRecorder | undefined,
+    private readonly excerptCompletionService: ProgressiveExcerptCompletionCoordinator,
   ) {}
 
   async splitDocument(
@@ -751,7 +758,7 @@ export class ProgressiveReadingService {
       createExcerptDocUnderSource: (excerptInput) => this.createExcerptDocUnderSource(excerptInput),
       createExcerptDocUnderConfiguredParent: (excerptInput) => this.createExcerptDocUnderConfiguredParent(excerptInput),
       createDailyNoteExcerptBlock: (excerptInput) => this.createDailyNoteExcerptBlock(excerptInput),
-      ensureExcerptTopicCard: (excerptInput) => this.ensureExcerptTopicCard(excerptInput),
+      enqueueExcerptCompletion: (record) => this.enqueueExcerptCompletion(record),
       setProgressiveAttrs: (blockId, attrs) => this.setProgressiveAttrs(blockId, attrs),
       rollbackExcerptArtifact: (excerptEntityId, excerptEntityType, error) =>
         this.rollbackExcerptArtifact(excerptEntityId, excerptEntityType, error),
@@ -759,6 +766,44 @@ export class ProgressiveReadingService {
       recordTransactionProvenance: (blockIds, reason) => this.recordProgressiveExcerptProvenance(blockIds, reason),
     });
     return materializer.materialize(input);
+  }
+
+  private enqueueExcerptCompletion(record: ExcerptRecord): void {
+    try {
+      void this.excerptCompletionService.enqueue(record)
+        .then((result) => {
+          if (result.status !== 'failed') {
+            return;
+          }
+          logger.warn('Excerpt completion failed after foreground creation', {
+            recordId: result.recordId,
+            error: result.error,
+          });
+          this.notifyExcerptCompletionFailed();
+        })
+        .catch((error) => {
+          logger.warn('Excerpt completion enqueue failed after foreground creation', {
+            recordId: record.recordId,
+            excerptEntityId: record.excerptEntityId,
+            error,
+          });
+          this.notifyExcerptCompletionFailed();
+        });
+    } catch (error) {
+      logger.warn('Excerpt completion enqueue threw after foreground creation', {
+        recordId: record.recordId,
+        excerptEntityId: record.excerptEntityId,
+        error,
+      });
+      this.notifyExcerptCompletionFailed();
+    }
+  }
+
+  private notifyExcerptCompletionFailed(): void {
+    void this.siyuanApi.pushErrMsg(EXCERPT_COMPLETION_FAILED_MESSAGE)
+      .catch((error) => {
+        logger.warn('Failed to show excerpt completion failure message', error);
+      });
   }
 
   recordProgressiveExcerptSourceMarkProvenance(blockIds: string[]): void {
@@ -1967,77 +2012,6 @@ export class ProgressiveReadingService {
     }
 
     return workbenchDocId;
-  }
-
-  private async ensureExcerptTopicCard(input: {
-    excerptEntityId: string;
-    excerptEntityType: 'doc' | 'block';
-    sourceBlockId: string;
-    sourceBlockIds: string[];
-    sourceLineage?: ProgressiveSourceLineage;
-    payloadIdentity?: ProgressiveContentPayloadIdentity;
-    disclosureState?: ProgressiveDisclosureState;
-    sessionId?: string;
-    mode?: ProgressiveSplitMode;
-    pieceDocId?: string;
-    sourceDocId: string;
-    parentTopicCardId?: string;
-    parentExcerptId?: string;
-  }): Promise<EnsureTopicCardResult> {
-    const existing = this.cardService.getCardByBlockId(input.excerptEntityId);
-    if (existing) {
-      await this.ensureNativeRiffRegistration(input.excerptEntityId);
-      return {
-        cardId: existing.id,
-        created: false,
-      };
-    }
-
-    const result = await this.cardService.createCard({
-      blockIds: [input.excerptEntityId],
-      cardType: 'topic',
-      extractedFrom: input.sourceBlockId,
-      progressiveLineage: {
-        kind: 'excerpt',
-        sessionId: input.sessionId,
-        mode: input.mode,
-        pieceDocId: input.pieceDocId,
-        sourceDocId: input.sourceDocId,
-        sourceBlockId: input.sourceBlockId,
-        sourceBlockIds: input.sourceBlockIds,
-        parentTopicCardId: input.parentTopicCardId,
-        parentExcerptId: input.parentExcerptId,
-        sourceLineage: input.sourceLineage,
-        payloadIdentity: input.payloadIdentity,
-        disclosureState: input.disclosureState,
-      },
-      metadata: {
-        source: 'manual',
-        isDocument: input.excerptEntityType === 'doc',
-      },
-    });
-
-    if (isErr(result)) {
-      throw result.error;
-    }
-
-    const created = this.cardService.getCardByBlockId(input.excerptEntityId);
-    if (!created) {
-      throw new Error('Excerpt topic card created but could not be reloaded from storage');
-    }
-    try {
-      await this.ensureNativeRiffRegistration(input.excerptEntityId);
-    } catch (error) {
-      await this.rollbackLocalCard(created.id, {
-        blockId: input.excerptEntityId,
-        kind: 'excerpt-topic',
-      });
-      throw error;
-    }
-    return {
-      cardId: created.id,
-      created: true,
-    };
   }
 
   private async getBlockInfo(blockId: string): Promise<ProgressiveBlockRow> {

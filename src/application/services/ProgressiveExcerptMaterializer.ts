@@ -9,6 +9,7 @@ import type { CardApplicationService } from '@/application/services/CardApplicat
 import type { ConfiguredCaptureStorageService } from '@/application/services/ConfiguredCaptureStorageService';
 import {
   ExcerptRecordService,
+  type ExcerptRecord,
   PROGRESSIVE_EXCERPT_COLOR_TOKEN,
   normalizeExcerptBlockIds,
   type ExcerptRecordSourceSemantics,
@@ -61,22 +62,6 @@ export interface ProgressiveExcerptMaterializerSession {
 export interface ProgressiveExcerptMaterializerState {
   sessions: Record<string, ProgressiveExcerptMaterializerSession>;
   pieceToSession: Record<string, string>;
-}
-
-interface EnsureExcerptTopicCardInput {
-  excerptEntityId: string;
-  excerptEntityType: 'doc' | 'block';
-  sourceBlockId: string;
-  sourceBlockIds: string[];
-  sourceLineage?: ProgressiveSourceLineage;
-  payloadIdentity?: ProgressiveContentPayloadIdentity;
-  disclosureState?: ProgressiveDisclosureState;
-  sessionId?: string;
-  mode?: ProgressiveSplitMode;
-  pieceDocId?: string;
-  sourceDocId: string;
-  parentTopicCardId?: string;
-  parentExcerptId?: string;
 }
 
 interface MaterializeCreatedExcerptInput {
@@ -141,7 +126,7 @@ export interface ProgressiveExcerptMaterializerDependencies {
     contentDom: string;
     attrs: ProgressiveExcerptAttrs;
   }): Promise<string>;
-  ensureExcerptTopicCard(input: EnsureExcerptTopicCardInput): Promise<{ cardId: string }>;
+  enqueueExcerptCompletion?(record: ExcerptRecord): void;
   setProgressiveAttrs(blockId: string, attrs: ProgressiveExcerptAttrs): Promise<void>;
   rollbackExcerptArtifact(
     excerptEntityId: string,
@@ -212,6 +197,10 @@ export class ProgressiveExcerptMaterializer {
       ...(sessionContext.sessionId ? { sessionId: sessionContext.sessionId } : {}),
       ...(sessionContext.mode ? { mode: sessionContext.mode } : {}),
     };
+    const sourceLineageForRecord = {
+      ...sourceLineageWithSession,
+      ...(sessionContext.pieceDocId ? { pieceDocId: sessionContext.pieceDocId } : {}),
+    };
     const sourceDocId = sourceContext.sourceDocId;
 
     const excerptAttempt = await this.deps.excerptRecordService.createAllowingDuplicate<ProgressiveExcerptResult>({
@@ -222,7 +211,7 @@ export class ProgressiveExcerptMaterializer {
       origin: input.origin,
       colorToken: PROGRESSIVE_EXCERPT_COLOR_TOKEN,
       sourceSemantics: {
-        sourceLineage: sourceLineageWithSession,
+        sourceLineage: sourceLineageForRecord,
         selectionSnapshot,
         payloadIdentity,
         sourcePosition,
@@ -256,6 +245,7 @@ export class ProgressiveExcerptMaterializer {
       recordId: excerptAttempt.record.recordId,
       origin: input.origin,
     });
+    this.deps.enqueueExcerptCompletion?.(excerptAttempt.record);
     this.deps.scheduleDocTreeRebuild?.();
 
     return {
@@ -370,27 +360,9 @@ export class ProgressiveExcerptMaterializer {
         this.deps.recordTransactionProvenance?.([excerptEntityId], 'progressive-excerpt-artifact');
       }
 
-      const topicCardResult = await this.deps.ensureExcerptTopicCard({
-        excerptEntityId,
-        excerptEntityType,
-        sourceBlockId: input.sourceBlockId,
-        sourceBlockIds: input.sourceBlockIds,
-        sourceLineage: input.sourceLineage,
-        payloadIdentity: input.payloadIdentity,
-        disclosureState: input.disclosureState,
-        sessionId: input.sessionId,
-        mode: input.mode,
-        pieceDocId: input.pieceDocId,
-        sourceDocId: input.sourceDocId,
-        parentTopicCardId: input.sourceContext.parentTopicCardId,
-        parentExcerptId: input.sourceContext.parentExcerptId,
-      });
-      this.deps.recordTransactionProvenance?.([topicCardResult.cardId], 'progressive-excerpt-topic-card');
-
       return {
         excerptEntityId,
         excerptEntityType,
-        topicCardId: topicCardResult.cardId,
         sourceBlockId: input.sourceBlockId,
         sourceBlockIds: input.sourceBlockIds,
         containerDocId,

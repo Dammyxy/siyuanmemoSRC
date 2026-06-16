@@ -6,6 +6,12 @@ export const PROGRESSIVE_EXCERPT_COLOR_TOKEN = 'var(--b3-font-background4)';
 export type ExcerptRecordEntityType = 'doc' | 'block';
 export type ExcerptRecordOrigin = 'editor' | 'review';
 export type ExcerptRecordStatus = 'active' | 'stale' | 'archived';
+export type ExcerptRecordCompletionStatus = 'pending' | 'completed' | 'failed';
+
+export interface ExcerptRecordCompletionError {
+  message: string;
+  occurredAt: number;
+}
 
 export interface ExcerptRecordSourceSemantics {
   sourceLineage?: Record<string, unknown>;
@@ -28,6 +34,9 @@ export interface ExcerptRecord {
   origin: ExcerptRecordOrigin;
   createdAt: number;
   status: ExcerptRecordStatus;
+  completionStatus: ExcerptRecordCompletionStatus;
+  topicCardId?: string;
+  completionError?: ExcerptRecordCompletionError;
   sourceSemantics?: ExcerptRecordSourceSemantics;
 }
 
@@ -117,6 +126,10 @@ function normalizeStatus(value: unknown): ExcerptRecordStatus {
   return value === 'stale' || value === 'archived' ? value : 'active';
 }
 
+function normalizeCompletionStatus(value: unknown): ExcerptRecordCompletionStatus {
+  return value === 'pending' || value === 'failed' || value === 'completed' ? value : 'completed';
+}
+
 function normalizeOrigin(value: unknown): ExcerptRecordOrigin {
   return value === 'review' ? 'review' : 'editor';
 }
@@ -127,6 +140,24 @@ function normalizeEntityType(value: unknown): ExcerptRecordEntityType {
 
 function sanitizeTimestamp(value: unknown): number {
   return Number.isFinite(value) ? Number(value) : Date.now();
+}
+
+function normalizeCompletionError(value: unknown): ExcerptRecordCompletionError | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const candidate = value as Partial<ExcerptRecordCompletionError>;
+  const message = normalizeString(candidate.message);
+  const occurredAt = sanitizeTimestamp(candidate.occurredAt);
+  return message ? { message, occurredAt } : undefined;
+}
+
+function errorToMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message || error.name || 'Unknown error';
+  }
+  const message = normalizeString(error);
+  return message || 'Unknown error';
 }
 
 function cloneRecordObject(value: unknown): Record<string, unknown> | undefined {
@@ -187,6 +218,9 @@ function sanitizeRecord(value: unknown): ExcerptRecord | null {
   const selectedText = normalizeString(candidate.selectedText);
   const normalizedFingerprint = normalizeExcerptFingerprint(candidate.normalizedFingerprint || candidate.selectedText || '');
   const sourceSemantics = normalizeSourceSemantics(candidate.sourceSemantics);
+  const completionStatus = normalizeCompletionStatus(candidate.completionStatus);
+  const topicCardId = normalizeString(candidate.topicCardId);
+  const completionError = normalizeCompletionError(candidate.completionError);
 
   if (!recordId || !excerptEntityId || !sourceDocId || !sourceBlockId || sourceBlockIds.length === 0 || !selectedText || !normalizedFingerprint) {
     return null;
@@ -205,6 +239,9 @@ function sanitizeRecord(value: unknown): ExcerptRecord | null {
     origin: normalizeOrigin(candidate.origin),
     createdAt: sanitizeTimestamp(candidate.createdAt),
     status: normalizeStatus(candidate.status),
+    completionStatus,
+    ...(topicCardId ? { topicCardId } : {}),
+    ...(completionStatus === 'failed' && completionError ? { completionError } : {}),
     ...(sourceSemantics ? { sourceSemantics } : {}),
   };
 }
@@ -293,6 +330,7 @@ export class ExcerptRecordService {
       origin: normalizeOrigin(input.origin),
       createdAt: Date.now(),
       status: 'active',
+      completionStatus: 'pending',
       ...(sourceSemantics ? { sourceSemantics } : {}),
     };
 
@@ -361,6 +399,28 @@ export class ExcerptRecordService {
     return this.updateStatus(recordId, 'stale');
   }
 
+  async markCompletionCompleted(recordId: string, topicCardId: string): Promise<ExcerptRecord | null> {
+    const normalizedTopicCardId = normalizeString(topicCardId);
+    if (!normalizedTopicCardId) {
+      throw new Error('摘录完成状态需要有效的 Topic 卡 ID');
+    }
+    return this.updateCompletion(recordId, (record) => {
+      record.completionStatus = 'completed';
+      record.topicCardId = normalizedTopicCardId;
+      delete record.completionError;
+    });
+  }
+
+  async markCompletionFailed(recordId: string, error: unknown, occurredAt = Date.now()): Promise<ExcerptRecord | null> {
+    return this.updateCompletion(recordId, (record) => {
+      record.completionStatus = 'failed';
+      record.completionError = {
+        message: errorToMessage(error),
+        occurredAt: sanitizeTimestamp(occurredAt),
+      };
+    });
+  }
+
   async delete(recordId: string): Promise<void> {
     const normalizedRecordId = normalizeString(recordId);
     if (!normalizedRecordId) {
@@ -394,6 +454,26 @@ export class ExcerptRecordService {
     }
 
     record.status = status;
+    await this.writeState(state);
+    return record;
+  }
+
+  private async updateCompletion(
+    recordId: string,
+    mutate: (record: ExcerptRecord) => void,
+  ): Promise<ExcerptRecord | null> {
+    const normalizedRecordId = normalizeString(recordId);
+    if (!normalizedRecordId) {
+      return null;
+    }
+
+    const state = await this.readState();
+    const record = state.records.find((entry) => entry.recordId === normalizedRecordId);
+    if (!record) {
+      return null;
+    }
+
+    mutate(record);
     await this.writeState(state);
     return record;
   }

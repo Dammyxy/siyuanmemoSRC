@@ -218,4 +218,101 @@ describe('ExcerptRecordService', () => {
   it('normalizes whitespace and zero-width characters when building fingerprints', () => {
     expect(normalizeExcerptFingerprint('Alpha\u200B  \nBeta')).toBe('Alpha Beta');
   });
+
+  it('creates new records with pending completion state', async () => {
+    const fileService = createFileServiceMock();
+    const service = new ExcerptRecordService(fileService);
+
+    const created = await service.createAllowingDuplicate({
+      sourceDocId: 'doc-1',
+      sourceBlockId: 'block-1',
+      selectedText: 'Alpha Beta',
+      origin: 'editor',
+      createExcerpt: async () => ({
+        excerptEntityId: 'excerpt-1',
+        excerptEntityType: 'doc' as const,
+      }),
+    });
+
+    expect(created.record).toEqual(expect.objectContaining({
+      excerptEntityId: 'excerpt-1',
+      completionStatus: 'pending',
+    }));
+    expect(fileService.getStored()).toEqual(expect.objectContaining({
+      records: [
+        expect.objectContaining({
+          excerptEntityId: 'excerpt-1',
+          completionStatus: 'pending',
+        }),
+      ],
+    }));
+  });
+
+  it('treats historical records without completion state as completed', async () => {
+    const fileService = createFileServiceMock({
+      version: 1,
+      records: [
+        {
+          recordId: 'record-old-1',
+          excerptEntityId: 'excerpt-old-1',
+          excerptEntityType: 'doc',
+          sourceDocId: 'doc-1',
+          sourceBlockId: 'block-1',
+          sourceBlockIds: ['block-1'],
+          selectedText: 'Alpha Beta',
+          normalizedFingerprint: 'Alpha Beta',
+          colorToken: 'var(--b3-font-background4)',
+          origin: 'editor',
+          createdAt: 100,
+          status: 'active',
+        },
+      ],
+    });
+    const service = new ExcerptRecordService(fileService);
+
+    await expect(service.get('record-old-1')).resolves.toEqual(expect.objectContaining({
+      recordId: 'record-old-1',
+      completionStatus: 'completed',
+    }));
+  });
+
+  it('updates completion failure and clears the error after completion succeeds', async () => {
+    const fileService = createFileServiceMock();
+    const service = new ExcerptRecordService(fileService);
+    const created = await service.createAllowingDuplicate({
+      sourceDocId: 'doc-1',
+      sourceBlockId: 'block-1',
+      selectedText: 'Alpha Beta',
+      origin: 'editor',
+      createExcerpt: async () => ({
+        excerptEntityId: 'excerpt-1',
+        excerptEntityType: 'doc' as const,
+      }),
+    });
+
+    const failed = await service.markCompletionFailed(created.record.recordId, new Error('card write failed'), 123);
+    expect(failed).toEqual(expect.objectContaining({
+      completionStatus: 'failed',
+      completionError: {
+        message: 'card write failed',
+        occurredAt: 123,
+      },
+    }));
+
+    const completed = await service.markCompletionCompleted(created.record.recordId, 'topic-card-1');
+    expect(completed).toEqual(expect.objectContaining({
+      completionStatus: 'completed',
+      topicCardId: 'topic-card-1',
+    }));
+    expect(completed).not.toHaveProperty('completionError');
+    expect(fileService.getStored()).toEqual(expect.objectContaining({
+      records: [
+        expect.objectContaining({
+          recordId: created.record.recordId,
+          completionStatus: 'completed',
+          topicCardId: 'topic-card-1',
+        }),
+      ],
+    }));
+  });
 });

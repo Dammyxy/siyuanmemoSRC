@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProgressiveExcerptSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
 import { ok } from '@/types/result';
 import type { CardApplicationService } from '../CardApplicationService';
-import { EXCERPT_RECORD_STORAGE_KEY, ExcerptRecordService } from '../ExcerptRecordService';
+import { EXCERPT_RECORD_STORAGE_KEY, type ExcerptRecord, ExcerptRecordService } from '../ExcerptRecordService';
 import { ProgressiveReadingService, ProgressiveSplitCancelledError } from '../ProgressiveReadingService';
 import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
 import type { ProgressiveBlockRow, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
@@ -131,6 +131,17 @@ function createConfiguredCaptureStorageServiceMock(overrides: Record<string, unk
   };
 }
 
+function createExcerptCompletionServiceMock() {
+  return {
+    enqueue: vi.fn(async (record: ExcerptRecord) => ({
+      status: 'completed' as const,
+      recordId: record.recordId,
+      topicCardId: `topic-card-${record.excerptEntityId}`,
+      created: true,
+    })),
+  };
+}
+
 function createServiceUnderTest(
   port: ProgressiveSiyuanPort,
   fileService: IFileService,
@@ -158,6 +169,18 @@ function createServiceUnderTest(
   transactionProvenanceRegistry?: {
     recordBlockIds: ReturnType<typeof vi.fn>;
   },
+  excerptCompletionService?: {
+    enqueue: (record: ExcerptRecord) => Promise<{
+      status: 'completed';
+      recordId: string;
+      topicCardId: string;
+      created: boolean;
+    } | {
+      status: 'failed';
+      recordId: string;
+      error: string;
+    }>;
+  },
 ) {
   const excerptRecordService = new ExcerptRecordService(fileService);
   return new ProgressiveReadingService(
@@ -174,6 +197,7 @@ function createServiceUnderTest(
     commandRelayRuntime as never,
     followerCommandClient as never,
     transactionProvenanceRegistry as never,
+    excerptCompletionService ?? createExcerptCompletionServiceMock(),
   );
 }
 
@@ -1823,13 +1847,13 @@ describe('ProgressiveReadingService', () => {
       kind: 'created',
       excerptEntityId: 'excerpt-doc-1',
       excerptEntityType: 'doc',
-      topicCardId: 'card-1',
       sourceBlockId: 'source-1',
       sourceBlockIds: ['source-1'],
       containerDocId: 'excerpt-doc-1',
       recordId: expect.any(String),
       colorApplied: false,
     }));
+    expect(result).not.toHaveProperty('topicCardId');
     expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
       1,
       'notebook-a',
@@ -1864,22 +1888,8 @@ describe('ProgressiveReadingService', () => {
     expect(port.createDocWithMarkdown).toHaveBeenCalledTimes(1);
     expect(port.appendDomBlock).not.toHaveBeenCalled();
     expect(port.appendMarkdownBlock).not.toHaveBeenCalled();
-    expect(cardService.service.createCard).toHaveBeenCalledTimes(1);
-    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
-      blockIds: ['excerpt-doc-1'],
-      cardType: 'topic',
-      extractedFrom: 'source-1',
-      metadata: expect.objectContaining({
-        source: 'manual',
-        isDocument: true,
-      }),
-      progressiveLineage: expect.objectContaining({
-        kind: 'excerpt',
-        sourceDocId: 'doc-ordinary',
-        sourceBlockId: 'source-1',
-      }),
-    }));
-    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['excerpt-doc-1']);
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
+    expect(nativeRiffApi.addRiffCards).not.toHaveBeenCalled();
     expect(transactionProvenanceRegistry.recordBlockIds).toHaveBeenNthCalledWith(1, ['source-1'], {
       reason: 'progressive-excerpt-source-mark',
       source: 'progressive-excerpt',
@@ -1895,11 +1905,6 @@ describe('ProgressiveReadingService', () => {
       source: 'progressive-excerpt',
       suppressAutoCard: true,
     });
-    expect(transactionProvenanceRegistry.recordBlockIds).toHaveBeenNthCalledWith(4, ['card-1'], {
-      reason: 'progressive-excerpt-topic-card',
-      source: 'progressive-excerpt',
-      suppressAutoCard: true,
-    });
     expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toEqual(expect.objectContaining({
       version: 1,
       records: [
@@ -1910,6 +1915,7 @@ describe('ProgressiveReadingService', () => {
           selectedText: 'Focus text',
           normalizedFingerprint: 'Focus text',
           status: 'active',
+          completionStatus: 'pending',
         }),
       ],
     }));
@@ -2078,19 +2084,7 @@ describe('ProgressiveReadingService', () => {
         }),
       ],
     }));
-    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
-      progressiveLineage: expect.objectContaining({
-        sourceLineage: expect.objectContaining({
-          sourceBlockId: 'source-lineage-1',
-        }),
-        payloadIdentity: expect.objectContaining({
-          algorithm: 'fnv1a32',
-        }),
-        disclosureState: expect.objectContaining({
-          formalSchedulerMutation: false,
-        }),
-      }),
-    }));
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
   });
 
   it('creates excerpts when the Siyuan attr writer rejects forbidden source-lineage attrs', async () => {
@@ -2327,13 +2321,13 @@ describe('ProgressiveReadingService', () => {
       kind: 'created',
       excerptEntityId: 'excerpt-doc-2',
       excerptEntityType: 'doc',
-      topicCardId: 'card-1',
       sourceBlockId: 'piece-block-1',
       sourceBlockIds: ['piece-block-1'],
       containerDocId: 'excerpt-doc-2',
       recordId: expect.any(String),
       colorApplied: false,
     }));
+    expect(result).not.toHaveProperty('topicCardId');
     expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
       1,
       'notebook-a',
@@ -2366,21 +2360,7 @@ describe('ProgressiveReadingService', () => {
     const excerptAttrsCall = vi.mocked(port.setBlockAttrs).mock.calls.find(([blockId]) => blockId === 'excerpt-doc-2');
     expect(excerptAttrsCall?.[1]).not.toHaveProperty('custom-fsrs-reading-session-id');
     expect(excerptAttrsCall?.[1]).not.toHaveProperty('custom-fsrs-reading-mode');
-    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
-      blockIds: ['excerpt-doc-2'],
-      extractedFrom: 'piece-block-1',
-      metadata: expect.objectContaining({
-        isDocument: true,
-      }),
-      progressiveLineage: expect.objectContaining({
-        kind: 'excerpt',
-        sessionId: 'session-1',
-        mode: 'linear',
-        pieceDocId: 'piece-1',
-        sourceDocId: 'piece-1',
-        sourceBlockId: 'piece-block-1',
-      }),
-    }));
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
     expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toEqual(expect.objectContaining({
       records: [
         expect.objectContaining({
@@ -2389,6 +2369,7 @@ describe('ProgressiveReadingService', () => {
             sourceLineage: expect.objectContaining({
               sessionId: 'session-1',
               mode: 'linear',
+              pieceDocId: 'piece-1',
               sourceDocId: 'piece-1',
               sourceBlockId: 'piece-block-1',
             }),
@@ -2396,7 +2377,7 @@ describe('ProgressiveReadingService', () => {
         }),
       ],
     }));
-    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['excerpt-doc-2']);
+    expect(nativeRiffApi.addRiffCards).not.toHaveBeenCalled();
 
     const stored = fileService.getStored() as typeof initialState;
     expect(stored.sessions['session-1'].pieces[0]).toEqual(expect.objectContaining({
@@ -2411,6 +2392,7 @@ describe('ProgressiveReadingService', () => {
           excerptEntityId: 'excerpt-doc-2',
           sourceDocId: 'piece-1',
           sourceBlockId: 'piece-block-1',
+          completionStatus: 'pending',
         }),
       ],
     }));
@@ -2475,13 +2457,14 @@ describe('ProgressiveReadingService', () => {
       'excerpt-created-2',
       expect.stringContaining('Focus text'),
     );
-    expect(cardService.service.createCard).toHaveBeenCalledTimes(1);
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
     expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toEqual(expect.objectContaining({
       records: [
         expect.objectContaining({
           excerptEntityId: 'excerpt-created-2',
           sourceBlockId: 'source-dup-1',
           normalizedFingerprint: 'Focus text',
+          completionStatus: 'pending',
         }),
         expect.objectContaining({
           excerptEntityId: 'excerpt-existing-1',
@@ -2571,7 +2554,7 @@ describe('ProgressiveReadingService', () => {
     expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toBeUndefined();
   });
 
-  it('does not write any Daily Notes trace by default while still creating excerpt docs and topic cards', async () => {
+  it('does not write any Daily Notes trace by default while still creating excerpt docs', async () => {
     const fileService = createFileServiceMock();
     const port = createProgressiveSiyuanPortMock({
       getDocInfo: vi.fn(async (docId: string) => ({
@@ -2613,13 +2596,13 @@ describe('ProgressiveReadingService', () => {
       kind: 'created',
       excerptEntityId: 'excerpt-doc-plain-1',
       excerptEntityType: 'doc',
-      topicCardId: 'card-1',
       sourceBlockId: 'source-plain-1',
       sourceBlockIds: ['source-plain-1'],
       containerDocId: 'excerpt-doc-plain-1',
       recordId: expect.any(String),
       colorApplied: false,
     }));
+    expect(result).not.toHaveProperty('topicCardId');
     expect(port.createDocWithMarkdown).toHaveBeenCalledTimes(1);
     expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
       'notebook-a',
@@ -2632,6 +2615,154 @@ describe('ProgressiveReadingService', () => {
     );
     expect(port.appendDomBlock).not.toHaveBeenCalled();
     expect(port.appendMarkdownBlock).not.toHaveBeenCalled();
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
+  });
+
+  it('returns created excerpt before Topic card completion', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async (docId: string) => ({
+        id: docId,
+        box: 'notebook-a',
+        path: '/reading/ordinary.sy',
+        hpath: '/reading/ordinary',
+        name: 'Ordinary',
+      })),
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'source-fast-1'")) {
+          return [
+            { id: 'source-fast-1', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 'p', content: 'Alpha Fast beta', markdown: 'Alpha Fast beta' },
+          ];
+        }
+        if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
+          return [];
+        }
+        if (isDirectChildCleanupSql(stmt, 'excerpt-doc-fast-1')) {
+          return [];
+        }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+      createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-fast-1'),
+    });
+    const cardService = createCardServiceMock();
+    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    vi.mocked(cardService.service.createCard).mockImplementation(async () => {
+      throw new Error('foreground card completion should not run');
+    });
+    const excerptCompletionService = {
+      enqueue: vi.fn(async (record: ExcerptRecord) => ({
+        status: 'completed' as const,
+        recordId: record.recordId,
+        topicCardId: 'card-bg-1',
+        created: true,
+      })),
+    };
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      nativeRiffApi,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      excerptCompletionService,
+    );
+
+    const result = await service.createExcerptFromSelection({
+      sourceBlockId: 'source-fast-1',
+      selectedText: 'Fast',
+      origin: 'editor',
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      kind: 'created',
+      excerptEntityId: 'excerpt-doc-fast-1',
+      excerptEntityType: 'doc',
+      sourceBlockId: 'source-fast-1',
+      sourceBlockIds: ['source-fast-1'],
+      containerDocId: 'excerpt-doc-fast-1',
+      recordId: expect.any(String),
+    }));
+    expect(result).not.toHaveProperty('topicCardId');
+    expect(excerptCompletionService.enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      excerptEntityId: 'excerpt-doc-fast-1',
+      completionStatus: 'pending',
+    }));
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
+    expect(nativeRiffApi.addRiffCards).not.toHaveBeenCalled();
+  });
+
+  it('shows a failure message when background excerpt completion fails immediately', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async (docId: string) => ({
+        id: docId,
+        box: 'notebook-a',
+        path: '/reading/ordinary.sy',
+        hpath: '/reading/ordinary',
+        name: 'Ordinary',
+      })),
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'source-completion-fail-1'")) {
+          return [
+            { id: 'source-completion-fail-1', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 'p', content: 'Alpha Fail beta', markdown: 'Alpha Fail beta' },
+          ];
+        }
+        if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
+          return [];
+        }
+        if (isDirectChildCleanupSql(stmt, 'excerpt-doc-completion-fail-1')) {
+          return [];
+        }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+      createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-completion-fail-1'),
+    });
+    const cardService = createCardServiceMock();
+    const excerptCompletionService = {
+      enqueue: vi.fn(async (record: ExcerptRecord) => ({
+        status: 'failed' as const,
+        recordId: record.recordId,
+        error: 'card write failed',
+      })),
+    };
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      excerptCompletionService,
+    );
+
+    await expect(service.createExcerptFromSelection({
+      sourceBlockId: 'source-completion-fail-1',
+      selectedText: 'Fail',
+      origin: 'editor',
+    })).resolves.toEqual(expect.objectContaining({
+      kind: 'created',
+      excerptEntityId: 'excerpt-doc-completion-fail-1',
+    }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(port.pushErrMsg).toHaveBeenCalledWith('摘录已创建，但制卡未完成，可稍后重试');
   });
 
   it('treats explicit source-child excerpt storage as source-adjacent even when notebook fields are present', async () => {
@@ -2824,12 +2955,7 @@ describe('ProgressiveReadingService', () => {
       'excerpt-doc-rich-1',
       expect.stringContaining('data-id="source-rich-2"'),
     );
-    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
-      blockIds: ['excerpt-doc-rich-1'],
-      progressiveLineage: expect.objectContaining({
-        sourceBlockIds: ['source-rich-1', 'source-rich-2'],
-      }),
-    }));
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
   });
 
   it('creates multi-block daily-note excerpts as ordinary blocks with only the first visible source ref', async () => {
@@ -2932,15 +3058,7 @@ describe('ProgressiveReadingService', () => {
       'daily-root-1',
       expect.stringContaining('data-id="source-daily-2"'),
     );
-    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
-      blockIds: ['excerpt-block-1'],
-      metadata: expect.objectContaining({
-        isDocument: false,
-      }),
-      progressiveLineage: expect.objectContaining({
-        sourceBlockIds: ['source-daily-1', 'source-daily-2'],
-      }),
-    }));
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
   });
 
   it('keeps a single-source super block without adding a second daily-note wrapper', async () => {
@@ -3059,13 +3177,13 @@ describe('ProgressiveReadingService', () => {
       kind: 'created',
       excerptEntityId: 'excerpt-doc-long-1',
       excerptEntityType: 'doc',
-      topicCardId: 'card-1',
       sourceBlockId: 'source-long-1',
       sourceBlockIds: ['source-long-1'],
       containerDocId: 'excerpt-doc-long-1',
       recordId: expect.any(String),
       colorApplied: false,
     }));
+    expect(result).not.toHaveProperty('topicCardId');
     expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
       'notebook-a',
       '/reading/ordinary/人的思考并不只发生在大…',
@@ -3155,10 +3273,10 @@ describe('ProgressiveReadingService', () => {
       kind: 'created',
       excerptEntityId: 'excerpt-doc-child-1',
       excerptEntityType: 'doc',
-      topicCardId: 'card-2',
       sourceBlockId: 'excerpt-child-source-1',
       containerDocId: 'excerpt-doc-child-1',
     }));
+    expect(result).not.toHaveProperty('topicCardId');
     expect(port.setBlockAttrs).toHaveBeenCalledWith('excerpt-doc-child-1', expect.objectContaining({
       'custom-fsrs-reading-kind': 'excerpt-doc',
       'custom-fsrs-reading-source-doc-id': 'excerpt-doc-root-1',
@@ -3166,17 +3284,8 @@ describe('ProgressiveReadingService', () => {
       'custom-fsrs-reading-parent-topic-card-id': 'topic-card-excerpt-root-1',
       'custom-fsrs-reading-parent-excerpt-id': 'excerpt-doc-root-1',
     }));
-    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
-      blockIds: ['excerpt-doc-child-1'],
-      progressiveLineage: expect.objectContaining({
-        kind: 'excerpt',
-        sourceDocId: 'excerpt-doc-root-1',
-        sourceBlockId: 'excerpt-child-source-1',
-        parentTopicCardId: 'topic-card-excerpt-root-1',
-        parentExcerptId: 'excerpt-doc-root-1',
-      }),
-    }));
-    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['excerpt-doc-child-1']);
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
+    expect(nativeRiffApi.addRiffCards).not.toHaveBeenCalled();
   });
 
   it('creates nested excerpt topics inside topic docs without inventing parent excerpt lineage', async () => {
@@ -3247,7 +3356,7 @@ describe('ProgressiveReadingService', () => {
       'custom-fsrs-reading-parent-topic-card-id': 'topic-card-root-1',
     }));
     expect(setAttrsCall?.[1]).not.toHaveProperty('custom-fsrs-reading-parent-excerpt-id');
-    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['topic-doc-excerpt-1']);
+    expect(nativeRiffApi.addRiffCards).not.toHaveBeenCalled();
   });
 
   it('rolls back split piece documents when native Riff sync fails for a new piece topic', async () => {
@@ -3303,7 +3412,7 @@ describe('ProgressiveReadingService', () => {
     expect(fileService.writeJSON).not.toHaveBeenCalled();
   });
 
-  it('rolls back new excerpt artifacts when native Riff registration fails', async () => {
+  it('does not put native Riff registration on the excerpt foreground path', async () => {
     const fileService = createFileServiceMock();
     const port = createProgressiveSiyuanPortMock({
       getDocInfo: vi.fn(async (docId: string) => ({
@@ -3351,10 +3460,22 @@ describe('ProgressiveReadingService', () => {
       sourceBlockId: 'source-riff-fail-1',
       selectedText: 'Focus text',
       origin: 'editor',
-    })).rejects.toThrow('native riff failed');
+    })).resolves.toEqual(expect.objectContaining({
+      kind: 'created',
+      excerptEntityId: 'excerpt-doc-riff-fail-1',
+    }));
 
-    expect(cardService.service.deleteCard).toHaveBeenCalledWith({ cardId: 'card-1' });
-    expect(port.deleteBlock).toHaveBeenCalledWith('excerpt-doc-riff-fail-1');
-    expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toBeUndefined();
+    expect(nativeRiffApi.addRiffCards).not.toHaveBeenCalled();
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
+    expect(cardService.service.deleteCard).not.toHaveBeenCalled();
+    expect(port.deleteBlock).not.toHaveBeenCalledWith('excerpt-doc-riff-fail-1');
+    expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toEqual(expect.objectContaining({
+      records: [
+        expect.objectContaining({
+          excerptEntityId: 'excerpt-doc-riff-fail-1',
+          completionStatus: 'pending',
+        }),
+      ],
+    }));
   });
 });

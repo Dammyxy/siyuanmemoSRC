@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-16 (Round 613)
+Last update: 2026-06-16 (Round 614)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-16 - Async progressive excerpt completion
+
+- Task: Move progressive excerpt Topic card completion off the foreground excerpt path while keeping completion durable and recoverable.
+- Touched slice: Progressive / Excerpt completion across `src/application/services/{ProgressiveReadingService,ProgressiveExcerptMaterializer,ProgressiveExcerptCompletionService,ExcerptRecordService,SelectionExcerptService}.ts`, `src/application/ApplicationContext.ts`, focused Progressive/Excerpt and ApplicationContext tests, OpenSpec task ledger, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Foreground excerpt success now ends at durable SiYuan excerpt entity + `ExcerptRecord`; `topicCardId` is optional until background completion finishes. `ProgressiveExcerptCompletionService` owns idempotent Topic card completion, in-flight dedupe, existing-card backfill, failed state persistence, and capped repair ordering. `ExcerptRecord` now carries minimal completion state (`pending/completed/failed`, `topicCardId`, `completionError`) with old missing-status records treated as completed. Startup repair runs delayed after `ApplicationContext` ready and is capped at 20; scoped repair defaults to 5; transactions do not trigger completion repair. `ProgressiveReadingService` now requires a completion coordinator at construction time, so a missing completion wire is caught at the composition boundary instead of silently leaving records pending.
+- Debt deferred: No Browser/Review retry button, no new pending-job database, no transaction-triggered repair, and no live SiYuan wall-clock smoke in this CLI pass.
+- Why deferred: The agreed root fix was to remove card creation from the user-visible excerpt action and make recovery durable from records. Retry UI, job storage, and live host timing are separate product/runtime surfaces and would widen this bounded completion change.
+- Next safe step: Live-smoke one editor/block-menu/Review excerpt; confirm the success toast appears before Topic card completion work, background failure (if forced) shows the retry-later message, and startup repair handles a small pending record set without delaying plugin ready.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/ProgressiveReadingService.test.ts src/application/services/__tests__/ExcerptRecordService.test.ts src/application/services/__tests__/ProgressiveExcerptCompletionService.test.ts src/application/services/__tests__/SelectionExcerptService.test.ts src/application/__tests__/ApplicationContext.backend-worker-runtime.test.ts`; `pnpm exec vitest run src/application/handlers/__tests__/ProgressiveExcerptHotkeyHandler.test.ts src/ui/review/v2/__tests__/reviewProgressiveExcerptCommands.test.ts src/application/managers/__tests__/BlockMenuHandler.progressive-excerpt.test.ts`; `openspec validate async-progressive-excerpt-completion --strict`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check` (only existing Windows line-ending notices); `pnpm build` (passed with existing non-blocking i18n hard-coded-string hints and Sass legacy warnings).
 
 ### 2026-06-16 - Excerpt title cleanup and post-create no-op suppression
 

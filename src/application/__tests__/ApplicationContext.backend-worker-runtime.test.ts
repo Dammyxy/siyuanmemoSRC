@@ -107,6 +107,21 @@ describe('ApplicationContext backend worker runtime boundary', () => {
     expect(workerSource).toContain("checkpointStorageClass: 'volatile-projection'");
   });
 
+  it('runs progressive excerpt completion startup repair after ready without transaction fanout repair', () => {
+    const contextSource = readApplicationContextSource();
+    const readyIndex = contextSource.indexOf('[ApplicationContext] ✅ ApplicationContext created successfully');
+    const scheduleIndex = contextSource.indexOf('context.scheduleProgressiveExcerptCompletionStartupRepair();');
+    const transactionStart = contextSource.indexOf('async updateTransactionWebSocketService(): Promise<void>');
+    const nextMethodStart = contextSource.indexOf('\n  async ', transactionStart + 1);
+    const transactionMethodSource = contextSource.slice(transactionStart, nextMethodStart);
+
+    expect(scheduleIndex).toBeGreaterThan(readyIndex);
+    expect(contextSource).toContain('this.progressiveExcerptCompletionRepairTimer = setTimeout(() =>');
+    expect(contextSource).toContain('this.getProgressiveExcerptCompletionService().repairBatch({ limit: 20 })');
+    expect(transactionMethodSource).not.toContain('ProgressiveExcerptCompletion');
+    expect(transactionMethodSource).not.toContain('repairBatch');
+  });
+
   it('does not write siyuanmemo.db during renderer sqlite startup fixture initialization', async () => {
     const fileService = new MemorySqliteFileService();
     const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {

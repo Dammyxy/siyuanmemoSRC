@@ -192,6 +192,35 @@ describe('SelectionExcerptService.executeSelectionExcerptAction', () => {
     expect(applyHighlight).not.toHaveBeenCalled();
   });
 
+  it('returns created excerpt results without topicCardId when background completion has not finished', async () => {
+    const { service } = createService({
+      creationResult: {
+        kind: 'created' as const,
+        excerptEntityId: 'excerpt-doc-1',
+        excerptEntityType: 'doc' as const,
+        sourceBlockId: 'source-block-1',
+        sourceBlockIds: ['source-block-1'],
+        containerDocId: 'excerpt-doc-1',
+        recordId: 'record-1',
+        colorApplied: false,
+        ...createSourceSemantics(),
+      },
+    });
+
+    const result = await service.executeSelectionExcerptAction({
+      selection: createSelection(),
+      origin: 'editor',
+      sourceMarkingEnabled: false,
+    });
+
+    expect(result).toMatchObject({
+      kind: 'created',
+      excerptEntityId: 'excerpt-doc-1',
+      colorApplied: false,
+    });
+    expect(result).not.toHaveProperty('topicCardId');
+  });
+
   it('throws progressive command failures without applying local source-mark fallback', async () => {
     const createExcerptFromSelection = vi.fn(async () => {
       throw new Error('writer relay unavailable');
