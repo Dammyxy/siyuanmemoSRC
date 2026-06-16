@@ -36,6 +36,7 @@ import {
 } from '@/core/progressive/progressiveSourceModel';
 import type { PluginSettings } from '@/types/settings';
 import { createLogger } from '@/utils/logger';
+import type { TransactionProvenanceReason } from '@/core/infrastructure/websocket/transaction-fanout-coordinator';
 
 const logger = createLogger('ProgressiveExcerptMaterializer');
 
@@ -148,6 +149,7 @@ export interface ProgressiveExcerptMaterializerDependencies {
     error: unknown,
   ): Promise<void>;
   scheduleDocTreeRebuild?(): void;
+  recordTransactionProvenance?(blockIds: string[], reason: TransactionProvenanceReason): void;
 }
 
 export class ProgressiveExcerptMaterializer {
@@ -165,6 +167,7 @@ export class ProgressiveExcerptMaterializer {
     if (!sourceBlockId || sourceBlockIds.length === 0 || !selectedText || !contentDom) {
       throw new Error('摘抄需要有效的选区或块内容');
     }
+    this.deps.recordTransactionProvenance?.(sourceBlockIds, 'progressive-excerpt-source-mark');
 
     const blockInfo = await this.deps.getBlockInfo(sourceBlockId);
     if (!blockInfo.root_id || !blockInfo.box) {
@@ -335,6 +338,7 @@ export class ProgressiveExcerptMaterializer {
           attrs: excerptAttrs,
         });
         containerDocId = excerptEntityId;
+        this.deps.recordTransactionProvenance?.([excerptEntityId], 'progressive-excerpt-artifact');
       } else if (configuredStorageMode === 'daily-note') {
         const dailyNoteTarget = await this.deps.configuredCaptureStorageService.resolveDailyNoteTarget(excerptStorage);
         if (!dailyNoteTarget) {
@@ -350,6 +354,7 @@ export class ProgressiveExcerptMaterializer {
           attrs: excerptAttrs,
         });
         excerptEntityType = 'block';
+        this.deps.recordTransactionProvenance?.([excerptEntityId], 'progressive-excerpt-artifact');
       } else {
         const libraryTarget = await this.deps.configuredCaptureStorageService.resolveLibraryTarget(excerptStorage, {
           feature: 'progressive-excerpt',
@@ -368,6 +373,7 @@ export class ProgressiveExcerptMaterializer {
           contentDom: input.contentDom,
           attrs: excerptAttrs,
         });
+        this.deps.recordTransactionProvenance?.([excerptEntityId], 'progressive-excerpt-artifact');
       }
 
       const topicCardResult = await this.deps.ensureExcerptTopicCard({
@@ -385,6 +391,7 @@ export class ProgressiveExcerptMaterializer {
         parentTopicCardId: input.sourceContext.parentTopicCardId,
         parentExcerptId: input.sourceContext.parentExcerptId,
       });
+      this.deps.recordTransactionProvenance?.([topicCardResult.cardId], 'progressive-excerpt-topic-card');
 
       return {
         excerptEntityId,

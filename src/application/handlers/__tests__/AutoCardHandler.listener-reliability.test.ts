@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AutoCardHandler } from '../AutoCardHandler';
+import { buildTransactionFanoutPlan } from '@/core/infrastructure/websocket/transaction-fanout-coordinator';
 
 const basicDecision = {
   id: 'BasicDirectionRule',
@@ -202,6 +203,39 @@ describe('AutoCardHandler listener reliability', () => {
     expect(latestDiagnostic(handler, 'block-marker-edit')).toEqual(expect.objectContaining({
       status: 'created',
     }));
+  });
+
+  it('suppresses provenance-matched listener candidates without reading block content', async () => {
+    const { handler, executeAutoCard, getBlockKramdown } = createFixture();
+    const transactions = [{
+      doOperations: [{
+        action: 'update',
+        id: 'excerpt-topic',
+        data: { new: { content: 'Prompt >> Answer' } },
+      }],
+      undoOperations: null,
+    } as never];
+    const plan = buildTransactionFanoutPlan({
+      transactions,
+      now: 1_000,
+      provenance: {
+        entries: [{
+          blockId: 'excerpt-topic',
+          expiresAt: 2_000,
+          reason: 'progressive-excerpt-topic-card',
+          source: 'progressive-excerpt',
+        }],
+      },
+    });
+
+    handler.handle(transactions, plan.classification, plan);
+
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(plan.autoCard.suppressedOperations).toHaveLength(1);
+    expect(getBlockKramdown).not.toHaveBeenCalled();
+    expect(executeAutoCard).not.toHaveBeenCalled();
+    expect(latestDiagnostic(handler, 'excerpt-topic')).toBeUndefined();
   });
 
   it('surfaces card type detection failure instead of creating an implicit item card', async () => {

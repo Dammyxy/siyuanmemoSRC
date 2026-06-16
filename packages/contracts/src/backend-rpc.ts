@@ -3749,6 +3749,16 @@ export interface BackendKernelTransactionIngestRequest {
   transactions?: unknown[];
   receivedAt?: number;
   idempotencyKey?: string;
+  provenanceSnapshot?: {
+    capturedAt?: number;
+    entries?: Array<{
+      blockId?: string;
+      expiresAt?: number;
+      reason?: string;
+      source?: string;
+      suppressAutoCard?: boolean;
+    }>;
+  };
 }
 
 export interface BackendKernelTransactionIngestResult {

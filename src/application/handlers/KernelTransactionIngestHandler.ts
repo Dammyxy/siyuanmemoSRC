@@ -3,9 +3,13 @@ import { createLogger } from '@/utils/logger';
 import type { ITransactionHandler, Transaction } from '@/core/infrastructure/websocket/TransactionWebSocketService';
 import {
   classifyTransactionBatch,
-  shouldDispatchKernelTransactionIngest,
   type TransactionClassification,
 } from '@/core/infrastructure/websocket/transaction-classifier';
+import {
+  shouldDispatchKernelTransactionIngestFromFanoutPlan,
+  type TransactionFanoutPlan,
+  type TransactionProvenanceSnapshot,
+} from '@/core/infrastructure/websocket/transaction-fanout-coordinator';
 import { incrementRuntimePerformanceCounter } from '@/utils/runtimePerformanceDiagnostics';
 
 const logger = createLogger('KernelTransactionIngestHandler');
@@ -30,6 +34,9 @@ interface KernelTransactionIngestHandlerOptions {
   maxAttempts?: number;
   writerRelayRequired?: boolean;
   onIngested?: () => void;
+  provenanceRegistry?: {
+    createSnapshot(now?: number): TransactionProvenanceSnapshot;
+  };
 }
 
 type PendingBatch = {
@@ -69,6 +76,7 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
   private readonly maxAttempts: number;
   private readonly writerRelayRequired: boolean;
   private readonly onIngested: (() => void) | undefined;
+  private readonly provenanceRegistry: KernelTransactionIngestHandlerOptions['provenanceRegistry'];
   private readonly pendingTransactions: Transaction[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private flushInFlight = false;
@@ -85,21 +93,33 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
     this.maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 3));
     this.writerRelayRequired = options.writerRelayRequired === true;
     this.onIngested = options.onIngested;
+    this.provenanceRegistry = options.provenanceRegistry;
   }
 
   getTransactionConsumerId(): string {
     return 'kernel-transaction-ingest';
   }
 
-  shouldHandleTransactionBatch(classification: TransactionClassification): boolean {
-    return shouldDispatchKernelTransactionIngest(classification);
+  shouldHandleTransactionBatch(classification: TransactionClassification, fanoutPlan?: TransactionFanoutPlan): boolean {
+    return fanoutPlan
+      ? shouldDispatchKernelTransactionIngestFromFanoutPlan(fanoutPlan)
+      : (
+        classification.autoCard.candidateOperations.length > 0
+        || classification.autoCard.cancelBlockIds.length > 0
+        || classification.nativeRiff.hasSignal
+        || classification.documentTree.hasHint
+      );
   }
 
-  handle(transactions: Transaction[], classification: TransactionClassification = classifyTransactionBatch(transactions)): void {
+  handle(
+    transactions: Transaction[],
+    classification: TransactionClassification = classifyTransactionBatch(transactions),
+    fanoutPlan?: TransactionFanoutPlan,
+  ): void {
     if (!Array.isArray(transactions) || transactions.length === 0) {
       return;
     }
-    if (!this.shouldHandleTransactionBatch(classification)) {
+    if (!this.shouldHandleTransactionBatch(classification, fanoutPlan)) {
       incrementRuntimePerformanceCounter('daily-editing', 'kernel-transaction-ingest-skipped');
       return;
     }
@@ -183,6 +203,7 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
       transactions: batch.transactions,
       receivedAt: batch.receivedAt,
       idempotencyKey: batch.idempotencyKey,
+      provenanceSnapshot: this.provenanceRegistry?.createSnapshot(batch.receivedAt),
     };
 
     if (this.runtime && this.runtime.getMode() !== 'writer') {

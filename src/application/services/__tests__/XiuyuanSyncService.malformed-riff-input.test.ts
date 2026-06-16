@@ -82,6 +82,7 @@ function createSiyuanApiMock(): XiuyuanSyncSiyuanPort {
     ATTR_CARD_TYPE: 'custom-fsrs-card-type',
     getRiffCards: vi.fn(async () => []),
     getRiffNewCards: vi.fn(async () => []),
+    getRiffCardsByBlockIDs: vi.fn(async () => []),
     removeRiffCards: vi.fn(async () => undefined),
     setBlockAttrs: vi.fn(async () => undefined),
     getBlockAttrs: vi.fn(async () => ({})),
@@ -433,6 +434,33 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
     const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
     expect(changeSet?.creates).toHaveLength(0);
     expect(changeSet?.checkpointAdvance?.lastSuccessfulIncrementalAt).toBeTypeOf('number');
+  });
+
+  it('uses direct Riff block reads for scoped local incremental sync calls', async () => {
+    const { service, xiuyuanRepository, siyuanApi } = createHarness();
+    const blockId = '20260302183000-abc1234';
+    const getRiffCardsByBlockIDs = vi.mocked(siyuanApi.getRiffCardsByBlockIDs!);
+
+    getRiffCardsByBlockIDs.mockResolvedValue([
+      createRiffBlock({
+        id: blockId,
+        content: 'scoped native riff card',
+      }),
+    ]);
+
+    const result = await service.incrementalSync(undefined, {
+      source: 'native-riff-transaction',
+      persistIdleCheckpoint: false,
+      blockIds: [' ', blockId, blockId],
+    });
+
+    expectSyncSuccess(result);
+    expect(getRiffCardsByBlockIDs).toHaveBeenCalledWith([blockId]);
+    expect(vi.mocked(siyuanApi.getRiffNewCards)).not.toHaveBeenCalled();
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet)).toHaveBeenCalledTimes(1);
+    const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
+    expect(changeSet?.creates).toHaveLength(1);
+    expect(changeSet?.creates[0]?.blockId).toBe(blockId);
   });
 
   it('routes native riff remove to managed-only local deletions', async () => {

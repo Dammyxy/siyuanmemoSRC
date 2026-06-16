@@ -22,7 +22,12 @@ import {
 } from '@/utils/runtimePerformanceDiagnostics';
 import { resolveWorkspaceDir } from './runtime';
 import { parseTransactionsPayload, parseWSMessage, type Transaction } from './transaction-types';
-import { classifyTransactionBatch, type TransactionClassification } from './transaction-classifier';
+import type { TransactionClassification } from './transaction-classifier';
+import {
+    buildTransactionFanoutPlan,
+    type TransactionFanoutPlan,
+    type TransactionProvenanceSnapshot,
+} from './transaction-fanout-coordinator';
 
 const logger = createLogger('TransactionWebSocketService');
 
@@ -38,9 +43,22 @@ export interface ITransactionHandler {
      * 处理 transactions
      * @param transactions 事务列表
      */
-    handle(transactions: Transaction[], classification?: TransactionClassification): void;
-    shouldHandleTransactionBatch?(classification: TransactionClassification): boolean;
+    handle(
+        transactions: Transaction[],
+        classification?: TransactionClassification,
+        fanoutPlan?: TransactionFanoutPlan,
+    ): void;
+    shouldHandleTransactionBatch?(
+        classification: TransactionClassification,
+        fanoutPlan?: TransactionFanoutPlan,
+    ): boolean;
     getTransactionConsumerId?(): string;
+}
+
+export interface TransactionWebSocketServiceOptions {
+    provenanceRegistry?: {
+        createSnapshot(now?: number): TransactionProvenanceSnapshot;
+    };
 }
 
 /**
@@ -64,7 +82,10 @@ export class TransactionWebSocketService {
     private readonly HEALTH_CHECK_INTERVAL = 60000; // 60秒检查一次
     private readonly MESSAGE_TIMEOUT = 300000; // 5分钟没有消息认为连接异常
     
-    constructor(plugin: FSRSPlugin) {
+    constructor(
+        plugin: FSRSPlugin,
+        private readonly options: TransactionWebSocketServiceOptions = {},
+    ) {
         this.plugin = plugin;
     }
     
@@ -242,7 +263,13 @@ export class TransactionWebSocketService {
         
         logger.info('Transaction received, count:', data.length);
         incrementRuntimePerformanceCounter('daily-editing', 'transactions', data.length);
-        const classification = classifyTransactionBatch(data);
+        const now = Date.now();
+        const fanoutPlan = buildTransactionFanoutPlan({
+            transactions: data,
+            now,
+            provenance: this.options.provenanceRegistry?.createSnapshot(now),
+        });
+        const classification = fanoutPlan.classification;
         incrementRuntimePerformanceCounter('daily-editing', 'transaction-batches-classified');
         incrementRuntimePerformanceCounter('daily-editing', 'transaction-operations-classified', classification.operationCount);
         
@@ -253,7 +280,7 @@ export class TransactionWebSocketService {
             for (const handler of this.handlers) {
                 const consumerId = handler.getTransactionConsumerId?.() || handler.constructor.name;
                 try {
-                    const shouldDispatch = handler.shouldHandleTransactionBatch?.(classification) ?? true;
+                    const shouldDispatch = handler.shouldHandleTransactionBatch?.(classification, fanoutPlan) ?? true;
                     if (!shouldDispatch) {
                         skippedHandlerCount += 1;
                         incrementRuntimePerformanceCounter('daily-editing', `transaction-consumer-skipped.${consumerId}`);
@@ -264,7 +291,7 @@ export class TransactionWebSocketService {
                     measureRuntimePerformance(
                         'daily-editing',
                         'transactions.handler',
-                        () => handler.handle(data, classification),
+                        () => handler.handle(data, classification, fanoutPlan),
                         {
                             handlerName: consumerId,
                             transactionCount: data.length,
@@ -290,6 +317,7 @@ export class TransactionWebSocketService {
                 nativeRiffSignal: classification.nativeRiff.hasSignal,
                 operationCount: classification.operationCount,
                 prefilteredNoOpCount: classification.autoCard.prefilteredNoOpCount,
+                suppressedAutoCardCount: fanoutPlan.autoCard.suppressedOperations.length,
                 skippedHandlerCount,
                 transactionCount: data.length,
             });

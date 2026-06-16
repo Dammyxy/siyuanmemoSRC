@@ -118,6 +118,54 @@ describe('KernelTransactionIngestHandler', () => {
     handler.dispose();
   });
 
+  it('sends provenance snapshots with raw transactions without trusting renderer plans', async () => {
+    const provenanceRegistry = {
+      createSnapshot: vi.fn(() => ({
+        capturedAt: 42,
+        entries: [{
+          blockId: 'excerpt-topic',
+          expiresAt: 1_000,
+          reason: 'progressive-excerpt-topic-card',
+          source: 'progressive-excerpt',
+        }],
+      })),
+    };
+    const ingestKernelTransactions = vi.fn(async () => ({
+      accepted: 1,
+      queued: 1,
+      receivedAt: Date.now(),
+      duplicate: false,
+      queueLength: 1,
+      maxQueueLength: 256,
+    }));
+    const handler = new KernelTransactionIngestHandler(
+      { ingestKernelTransactions },
+      null,
+      null,
+      { batchDebounceMs: 20, provenanceRegistry },
+    );
+
+    handler.handle([createTransaction('excerpt-topic')]);
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+
+    expect(provenanceRegistry.createSnapshot).toHaveBeenCalledTimes(1);
+    expect(ingestKernelTransactions).toHaveBeenCalledWith(expect.objectContaining({
+      provenanceSnapshot: {
+        capturedAt: 42,
+        entries: [{
+          blockId: 'excerpt-topic',
+          expiresAt: 1_000,
+          reason: 'progressive-excerpt-topic-card',
+          source: 'progressive-excerpt',
+        }],
+      },
+      transactions: expect.any(Array),
+    }));
+
+    handler.dispose();
+  });
+
   it('relays ingest command through writer relay when runtime is follower', async () => {
     const ingestKernelTransactions = vi.fn();
     const submitAndWait = vi.fn(async () => ({

@@ -1,4 +1,8 @@
-import type { DoOperation } from '@/core/infrastructure/websocket/transaction-types';
+import {
+  buildTransactionFanoutPlan,
+  type TransactionProvenanceSnapshot,
+} from '@/core/infrastructure/websocket/transaction-fanout-coordinator';
+import type { Transaction } from '@/core/infrastructure/websocket/transaction-types';
 import { createLogger } from '@/utils/logger';
 import type {
   BackendKernelTransactionAction,
@@ -13,6 +17,7 @@ type KernelTransactionSource = 'kernel-sidecar' | 'ws-main';
 type KernelTransactionIngestEntry = {
   source: KernelTransactionSource;
   transactions: unknown[];
+  provenanceSnapshot?: TransactionProvenanceSnapshot;
   receivedAt: number;
   idempotencyKey: string;
   acceptedAt: number;
@@ -86,52 +91,6 @@ const KERNEL_INGEST_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-ingest.snapshot.js
 const KERNEL_INGEST_QUEUE_SNAPSHOT_VERSION = 1;
 const KERNEL_ACTION_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-actions.snapshot.json';
 const KERNEL_ACTION_QUEUE_SNAPSHOT_VERSION = 1;
-const RELEVANT_UPSERT_ACTIONS = new Set(['insert', 'update', 'delete', 'setAttrs', 'updateAttrs']);
-const REMOVE_FLASHCARDS_ACTION = 'removeFlashcards';
-const ADD_FLASHCARDS_ACTION = 'addFlashcards';
-const AUTO_CARD_RELEVANT_ACTIONS = new Set(['insert', 'update', 'delete']);
-const QUICK_CARD_MARKERS = [
-  '>>',
-  '》》',
-  '<<',
-  '《《',
-  '<>',
-  '《》',
-  '>>>',
-  '》》》',
-  '::',
-  '：：',
-  ';;',
-  '；；',
-  ';<',
-  '；<',
-  '；《',
-  ';<>',
-  '；<>',
-  '；《》',
-  '{{',
-  '}}',
-  '==',
-  '\\cloze',
-  'data-type="mark"',
-];
-const QUICK_CARD_CONTENT_KEYS = new Set([
-  'content',
-  'markdown',
-  'kramdown',
-  'text',
-  'html',
-  'data',
-]);
-const NATIVE_RIFF_MARKERS = [
-  'custom-riff-decks',
-  'custom-is-flashcard',
-  'flashcard',
-  'riffCardID',
-  'riffCardId',
-  'riffCard',
-  'custom-card-type',
-];
 
 export class WorkerKernelTransactionRuntime {
   private readonly now: () => number;
@@ -222,6 +181,7 @@ export class WorkerKernelTransactionRuntime {
       : now;
     const transactions = (Array.isArray(request.transactions) ? request.transactions : [])
       .filter((transaction) => transaction != null && typeof transaction === 'object');
+    const provenanceSnapshot = normalizeTransactionProvenanceSnapshot(request.provenanceSnapshot);
     const idempotencyKey = this.resolveKernelTransactionIdempotencyKey({
       source,
       transactions,
@@ -271,6 +231,7 @@ export class WorkerKernelTransactionRuntime {
     const actions = collectKernelTransactionActions({
       source,
       transactions,
+      provenanceSnapshot,
       receivedAt,
       idempotencyKey,
     });
@@ -288,6 +249,7 @@ export class WorkerKernelTransactionRuntime {
     this.kernelTransactionQueue.push({
       source,
       transactions,
+      ...(provenanceSnapshot ? { provenanceSnapshot } : {}),
       receivedAt,
       idempotencyKey,
       acceptedAt: now,
@@ -661,9 +623,11 @@ export class WorkerKernelTransactionRuntime {
       const acceptedAt = Number.isFinite(Number(record.acceptedAt))
         ? Math.max(0, Math.floor(Number(record.acceptedAt)))
         : receivedAt;
+      const provenanceSnapshot = normalizeTransactionProvenanceSnapshot(record.provenanceSnapshot);
       normalized.push({
         source,
         transactions,
+        ...(provenanceSnapshot ? { provenanceSnapshot } : {}),
         receivedAt,
         idempotencyKey,
         acceptedAt,
@@ -703,31 +667,44 @@ export class WorkerKernelTransactionRuntime {
 function collectKernelTransactionActions(input: {
   source: KernelTransactionSource;
   transactions: unknown[];
+  provenanceSnapshot?: TransactionProvenanceSnapshot;
   receivedAt: number;
   idempotencyKey: string;
 }): BackendKernelTransactionAction[] {
   const actions: BackendKernelTransactionAction[] = [];
-  const nativeRiffRemoveBlockIds = collectNativeRiffRemoveBlockIds(input.transactions);
-  if (nativeRiffRemoveBlockIds.length > 0) {
+  const plan = buildTransactionFanoutPlan({
+    transactions: input.transactions as Transaction[],
+    provenance: input.provenanceSnapshot,
+    now: input.receivedAt,
+  });
+  if (plan.nativeRiff.removeBlockIds.length > 0) {
     actions.push({
       type: 'native-riff-remove',
-      blockIds: nativeRiffRemoveBlockIds,
+      blockIds: plan.nativeRiff.removeBlockIds,
       source: input.source,
       receivedAt: input.receivedAt,
       idempotencyKey: input.idempotencyKey,
     });
   }
-  const nativeRiffUpsertBlockIds = collectNativeRiffUpsertBlockIds(input.transactions);
-  if (nativeRiffUpsertBlockIds.length > 0) {
+  if (plan.nativeRiff.upsertBlockIds.length > 0) {
     actions.push({
       type: 'native-riff-upsert',
-      blockIds: nativeRiffUpsertBlockIds,
+      blockIds: plan.nativeRiff.upsertBlockIds,
       source: input.source,
       receivedAt: input.receivedAt,
       idempotencyKey: input.idempotencyKey,
     });
   }
-  const autoCardOperations = collectAutoCardCandidateOperations(input.transactions);
+  const autoCardOperations = coalesceAutoCardOperationList([
+    ...plan.autoCard.candidateOperations.map((operation) => ({
+      action: operation.action,
+      blockId: operation.blockId,
+    })),
+    ...plan.autoCard.cancelBlockIds.map((blockId) => ({
+      action: 'delete' as const,
+      blockId,
+    })),
+  ]);
   if (autoCardOperations.length > 0) {
     actions.push({
       type: 'auto-card-candidates',
@@ -740,76 +717,37 @@ function collectKernelTransactionActions(input: {
   return actions;
 }
 
-function collectNativeRiffRemoveBlockIds(transactions: unknown[]): string[] {
-  const ids: unknown[] = [];
-  for (const transaction of transactions) {
-    if (!isRecord(transaction) || !Array.isArray(transaction.doOperations)) {
-      continue;
-    }
-    for (const operation of transaction.doOperations) {
-      if (!isRecord(operation)) {
-        continue;
-      }
-      if (normalizeString(operation.action) !== REMOVE_FLASHCARDS_ACTION) {
-        continue;
-      }
-      ids.push(...extractOperationBlockIds(operation as DoOperation));
-    }
+function normalizeTransactionProvenanceSnapshot(value: unknown): TransactionProvenanceSnapshot | undefined {
+  if (!isRecord(value)) {
+    return undefined;
   }
-  return uniqueStrings(ids);
-}
-
-function collectNativeRiffUpsertBlockIds(transactions: unknown[]): string[] {
-  const ids: unknown[] = [];
-  for (const transaction of transactions) {
-    if (!isRecord(transaction) || !Array.isArray(transaction.doOperations)) {
-      continue;
-    }
-    for (const operation of transaction.doOperations) {
-      if (!isRecord(operation)) {
-        continue;
-      }
-      const typed = operation as DoOperation;
-      if (!looksLikeNativeRiffUpsert(typed)) {
-        continue;
-      }
-      ids.push(...extractOperationBlockIds(typed));
-    }
+  const entries = Array.isArray(value.entries)
+    ? value.entries
+      .filter(isRecord)
+      .map((entry) => {
+        const blockId = normalizeString(entry.blockId);
+        const expiresAt = Number(entry.expiresAt);
+        if (!blockId || !Number.isFinite(expiresAt)) {
+          return null;
+        }
+        return {
+          blockId,
+          expiresAt: Math.floor(expiresAt),
+          reason: normalizeString(entry.reason),
+          source: normalizeString(entry.source),
+          suppressAutoCard: entry.suppressAutoCard !== false,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    : [];
+  if (entries.length === 0) {
+    return undefined;
   }
-  return uniqueStrings(ids);
-}
-
-function collectAutoCardCandidateOperations(
-  transactions: unknown[],
-): Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }> {
-  const operations: Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }> = [];
-  for (const transaction of transactions) {
-    if (!isRecord(transaction) || !Array.isArray(transaction.doOperations)) {
-      continue;
-    }
-    for (const operation of transaction.doOperations) {
-      if (!isRecord(operation)) {
-        continue;
-      }
-      const typed = operation as DoOperation;
-      const action = normalizeString(typed.action);
-      if (!AUTO_CARD_RELEVANT_ACTIONS.has(action)) {
-        continue;
-      }
-      if (!shouldCollectAutoCardOperation(typed)) {
-        continue;
-      }
-      const blockId = normalizeString(typed.id);
-      if (!blockId) {
-        continue;
-      }
-      operations.push({
-        action: action as 'insert' | 'update' | 'delete',
-        blockId,
-      });
-    }
-  }
-  return coalesceAutoCardOperationList(operations);
+  const capturedAt = Number(value.capturedAt);
+  return {
+    ...(Number.isFinite(capturedAt) ? { capturedAt: Math.floor(capturedAt) } : {}),
+    entries,
+  };
 }
 
 function coalesceAutoCardOperationList(
@@ -910,120 +848,6 @@ function coalesceDequeuedKernelActions(
     }
   }
   return merged;
-}
-
-function containsNativeRiffMarker(value: unknown): boolean {
-  if (typeof value === 'string') {
-    const normalized = value.trim();
-    if (!normalized) {
-      return false;
-    }
-    return NATIVE_RIFF_MARKERS.some((marker) => normalized.includes(marker));
-  }
-  if (Array.isArray(value)) {
-    return value.some((entry) => containsNativeRiffMarker(entry));
-  }
-  if (!isRecord(value)) {
-    return false;
-  }
-  return Object.entries(value).some(([key, nested]) => (
-    NATIVE_RIFF_MARKERS.includes(key)
-    || containsNativeRiffMarker(nested)
-  ));
-}
-
-function containsQuickCardMarkerText(value: string): boolean {
-  const normalized = value.trim();
-  return normalized.length > 0 && QUICK_CARD_MARKERS.some((marker) => normalized.includes(marker));
-}
-
-function inspectQuickCardPayload(value: unknown, key = ''): { inspected: boolean; hasMarker: boolean } {
-  if (typeof value === 'string') {
-    const inspectString = key === '' || QUICK_CARD_CONTENT_KEYS.has(key.toLowerCase());
-    return {
-      inspected: inspectString,
-      hasMarker: inspectString && containsQuickCardMarkerText(value),
-    };
-  }
-  if (Array.isArray(value)) {
-    return value.reduce(
-      (summary, entry) => {
-        const next = inspectQuickCardPayload(entry, key);
-        return {
-          inspected: summary.inspected || next.inspected,
-          hasMarker: summary.hasMarker || next.hasMarker,
-        };
-      },
-      { inspected: false, hasMarker: false },
-    );
-  }
-  if (!isRecord(value)) {
-    return { inspected: false, hasMarker: false };
-  }
-  return Object.entries(value).reduce(
-    (summary, [childKey, childValue]) => {
-      const next = inspectQuickCardPayload(childValue, childKey);
-      return {
-        inspected: summary.inspected || next.inspected,
-        hasMarker: summary.hasMarker || next.hasMarker,
-      };
-    },
-    { inspected: false, hasMarker: false },
-  );
-}
-
-function shouldCollectAutoCardOperation(operation: DoOperation): boolean {
-  const action = normalizeString(operation.action);
-  if (action === 'delete') {
-    return true;
-  }
-  if (action !== 'insert' && action !== 'update') {
-    return false;
-  }
-
-  const newPayload = inspectQuickCardPayload(operation.data?.new);
-  const oldPayload = inspectQuickCardPayload(operation.data?.old);
-  if (newPayload.hasMarker || oldPayload.hasMarker) {
-    return true;
-  }
-  if (newPayload.inspected || oldPayload.inspected) {
-    return false;
-  }
-  return true;
-}
-
-function extractOperationBlockIds(operation: DoOperation): string[] {
-  const data = isRecord(operation.data) ? operation.data : undefined;
-  return uniqueStrings([
-    ...(operation.blockIDs || []),
-    ...(operation.ids || []),
-    ...(Array.isArray(data?.blockIDs) ? data.blockIDs : []),
-    ...(Array.isArray(data?.ids) ? data.ids : []),
-    operation.id,
-  ]);
-}
-
-function looksLikeNativeRiffAttrRemoval(operation: DoOperation): boolean {
-  if (operation.action !== 'setAttrs' && operation.action !== 'updateAttrs') {
-    return false;
-  }
-  const oldHasMarker = containsNativeRiffMarker(operation.data?.old);
-  const newHasMarker = containsNativeRiffMarker(operation.data?.new);
-  return oldHasMarker && !newHasMarker;
-}
-
-function looksLikeNativeRiffUpsert(operation: DoOperation): boolean {
-  if (operation.action === ADD_FLASHCARDS_ACTION) {
-    return extractOperationBlockIds(operation).length > 0;
-  }
-  if (looksLikeNativeRiffAttrRemoval(operation)) {
-    return false;
-  }
-  if (!RELEVANT_UPSERT_ACTIONS.has(operation.action)) {
-    return false;
-  }
-  return containsNativeRiffMarker(operation.data?.new)
-    || containsNativeRiffMarker(operation.data?.old);
 }
 
 function normalizeString(value: unknown): string {

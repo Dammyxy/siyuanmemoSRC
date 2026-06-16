@@ -129,6 +129,23 @@ type RiffSyncStateStore = {
 
 const INCREMENTAL_SYNC_OVERLAP_MS = 5_000;
 
+function normalizeSyncBlockIds(values: unknown): string[] {
+    if (!Array.isArray(values)) {
+        return [];
+    }
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+    for (const value of values) {
+        const blockId = String(value || '').trim();
+        if (!blockId || seen.has(blockId)) {
+            continue;
+        }
+        seen.add(blockId);
+        normalized.push(blockId);
+    }
+    return normalized;
+}
+
 class XiuyuanSyncBridgeEvent<TPayload extends object> extends DomainEvent {
     constructor(
         private readonly eventName: string,
@@ -1094,14 +1111,23 @@ export class XiuyuanSyncService {
 
     private async buildIncrementalChangeSet(
         onProgress: ProgressCallback | undefined,
-        startTime: number
+        startTime: number,
+        options?: IncrementalSyncOptions
     ): Promise<SyncChangeSet> {
         const changeSet = this.changeSetPlanner.createEmptyChangeSet('incremental');
 
         this.reportProgress(onProgress, 'incremental', 'fetching', 1, 7, '正在获取 Riff 新卡片...');
-        const since = this.getIncrementalSinceFromCheckpoint();
-        const riffCards = await this.siyuanApi.getRiffNewCards(this.config.deckId, since);
-        logger.info(`Fetched ${riffCards.length} new Riff cards`, { since });
+        const scopedBlockIds = normalizeSyncBlockIds(options?.blockIds);
+        const since = scopedBlockIds.length > 0 ? undefined : this.getIncrementalSinceFromCheckpoint();
+        const riffCards = scopedBlockIds.length > 0
+            ? await this.readScopedRiffCards(scopedBlockIds)
+            : await this.siyuanApi.getRiffNewCards(this.config.deckId, since);
+        logger.info(scopedBlockIds.length > 0
+            ? `Fetched ${riffCards.length} scoped Riff cards`
+            : `Fetched ${riffCards.length} new Riff cards`, {
+            since,
+            scopedBlockCount: scopedBlockIds.length,
+        });
 
         const preparedRiffCards = this.prepareRiffBlocks('incremental', riffCards);
         changeSet.stats.skippedCount += preparedRiffCards.skippedCount;
@@ -1256,7 +1282,7 @@ export class XiuyuanSyncService {
                 const startTime = this.beginSync('incremental');
 
                 try {
-                    const changeSet = await this.buildIncrementalChangeSet(onProgress, startTime);
+                    const changeSet = await this.buildIncrementalChangeSet(onProgress, startTime, options);
                     if (this.shouldSkipIdleIncrementalPersist(changeSet, options)) {
                         this.rememberVolatileSyncState(changeSet.checkpointAdvance);
                         const result: SyncResult = {
@@ -1291,11 +1317,26 @@ export class XiuyuanSyncService {
         });
     }
 
-    async handleNativeRiffUpsert(): Promise<SyncResult> {
-        logger.info('[XiuyuanSyncService] Handling native riff add/update via incremental sync route');
+    async handleNativeRiffUpsert(blockIds: string[] = []): Promise<SyncResult> {
+        const scopedBlockIds = normalizeSyncBlockIds(blockIds);
+        if (scopedBlockIds.length === 0) {
+            logger.warn('[XiuyuanSyncService] Skip native riff add/update because no block IDs were provided');
+            return {
+                success: true,
+                addedCount: 0,
+                updatedCount: 0,
+                deletedCount: 0,
+                skippedCount: 0,
+                detectedCount: 0,
+            };
+        }
+        logger.info('[XiuyuanSyncService] Handling native riff add/update via scoped incremental sync route', {
+            blockCount: scopedBlockIds.length,
+        });
         return this.incrementalSync(undefined, {
             source: 'native-riff-transaction',
             persistIdleCheckpoint: false,
+            blockIds: scopedBlockIds,
         });
     }
 
@@ -1401,6 +1442,7 @@ export class XiuyuanSyncService {
         startTime: number,
         options?: IncrementalSyncOptions,
     ): BackendXiuyuanSyncExecuteRequest {
+        const scopedBlockIds = normalizeSyncBlockIds(options?.blockIds);
         const caller: BackendHotspotCallerIdentity = {
             instanceId: 'application-context',
             runtimeRole: 'worker',
@@ -1421,18 +1463,28 @@ export class XiuyuanSyncService {
                     dueOnly: false,
                     notebook: null,
                     rootId: null,
-                    blockIds: null,
+                    blockIds: scopedBlockIds.length > 0 ? scopedBlockIds : null,
                 }
                 : {
                     includeNew: true,
                     dueOnly: false,
                     notebook: null,
                     rootId: null,
-                    blockIds: null,
+                    blockIds: scopedBlockIds.length > 0 ? scopedBlockIds : null,
                 },
             caller,
             persistIdleCheckpoint: options?.persistIdleCheckpoint,
         };
+    }
+
+    private async readScopedRiffCards(blockIds: string[]): Promise<RiffBlock[]> {
+        if (blockIds.length === 0) {
+            return [];
+        }
+        if (typeof this.siyuanApi.getRiffCardsByBlockIDs !== 'function') {
+            throw new Error('XIUYUAN_RIFF_SCOPED_READ_UNAVAILABLE: getRiffCardsByBlockIDs port is unavailable');
+        }
+        return this.siyuanApi.getRiffCardsByBlockIDs(blockIds);
     }
 
     private mapBackendSyncResult(

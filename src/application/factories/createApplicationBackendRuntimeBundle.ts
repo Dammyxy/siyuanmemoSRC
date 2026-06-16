@@ -387,6 +387,23 @@ function normalizeOptionalBackendString(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
+function normalizeBackendStringArray(values: unknown): string[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    const item = normalizeBackendString(value);
+    if (!item || seen.has(item)) {
+      continue;
+    }
+    seen.add(item);
+    normalized.push(item);
+  }
+  return normalized;
+}
+
 function normalizeRiffFactBlock(block: {
   id?: unknown;
   content?: unknown;
@@ -416,7 +433,10 @@ async function readXiuyuanRiffFactsViaApprovedAdapter(
   const adapter = new XiuyuanSyncSiyuanAdapter();
   try {
     const scope = request.scope ?? {};
-    const rawBlocks = mode === 'incremental'
+    const blockIds = normalizeBackendStringArray(scope.blockIds);
+    const rawBlocks = blockIds.length > 0
+      ? await adapter.getRiffCardsByBlockIDs(blockIds)
+      : mode === 'incremental'
       ? await adapter.getRiffNewCards(deckId, Number.isFinite(Number(request.since)) ? Number(request.since) : undefined)
       : await adapter.getRiffCards(deckId, {
         dueOnly: scope.dueOnly === true,
@@ -424,11 +444,7 @@ async function readXiuyuanRiffFactsViaApprovedAdapter(
         rootID: normalizeOptionalBackendString(scope.rootId),
         includeNew: scope.includeNew !== false,
       });
-    const blockIdScope = new Set(
-      (Array.isArray(scope.blockIds) ? scope.blockIds : [])
-        .map(normalizeBackendString)
-        .filter(Boolean),
-    );
+    const blockIdScope = new Set(blockIds);
     const scopedBlocks = blockIdScope.size > 0
       ? rawBlocks.filter((block) => blockIdScope.has(normalizeBackendString(block.id)))
       : rawBlocks;

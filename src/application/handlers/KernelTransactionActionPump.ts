@@ -24,8 +24,8 @@ type FollowerCommandClientLike = {
 };
 
 type HybridSyncServiceLike = {
-  handleNativeRiffUpsert?: () => Promise<unknown>;
-  incrementalSync?: (_onProgress?: unknown, _options?: { source?: string; persistIdleCheckpoint?: boolean }) => Promise<unknown>;
+  handleNativeRiffUpsert?: (blockIds: string[]) => Promise<unknown>;
+  incrementalSync?: (_onProgress?: unknown, _options?: { source?: string; persistIdleCheckpoint?: boolean; blockIds?: string[] }) => Promise<unknown>;
   handleNativeRiffRemove?: (blockIds: string[]) => Promise<unknown>;
 };
 
@@ -102,7 +102,7 @@ export class KernelTransactionActionPump {
   private nextNoWriterUnavailablePollAllowedAt = 0;
   private backendHealthUnavailableStreak = 0;
   private nextBackendHealthUnavailablePollAllowedAt = 0;
-  private pendingUpsert = false;
+  private readonly pendingUpsertBlockIds = new Set<string>();
   private upsertInFlight = false;
   private upsertTimer: ReturnType<typeof setTimeout> | null = null;
   private nextUpsertAt = 0;
@@ -210,11 +210,16 @@ export class KernelTransactionActionPump {
       this.resetEmptyPollBackoff();
       const hybridSyncService = this.getHybridSyncService();
       const removeBlockIds = new Set<string>();
+      const upsertBlockIds = new Set<string>();
       const autoCardOperations: Array<{ action: AutoCardActionType; blockId: string }> = [];
-      let sawUpsertAction = false;
       for (const action of actions) {
         if (action.type === 'native-riff-upsert') {
-          sawUpsertAction = true;
+          for (const blockId of action.blockIds || []) {
+            const normalized = String(blockId || '').trim();
+            if (normalized) {
+              upsertBlockIds.add(normalized);
+            }
+          }
         } else if (action.type === 'native-riff-remove') {
           for (const blockId of action.blockIds || []) {
             const normalized = String(blockId || '').trim();
@@ -239,8 +244,8 @@ export class KernelTransactionActionPump {
         }
       }
       try {
-        if (sawUpsertAction) {
-          this.pendingUpsert = true;
+        if (upsertBlockIds.size > 0) {
+          this.bufferNativeRiffUpsert(Array.from(upsertBlockIds));
           incrementRuntimePerformanceCounter('daily-editing', 'kernel-action-pump-native-riff-upsert-scheduled');
         }
 
@@ -291,7 +296,7 @@ export class KernelTransactionActionPump {
       finishPollSpan({
         actionCount,
         pendingAutoCardBlocks: this.pendingAutoCardOpsByBlock.size,
-        pendingUpsert: this.pendingUpsert,
+        pendingUpsertBlockCount: this.pendingUpsertBlockIds.size,
         upsertInFlight: this.upsertInFlight,
         emptyPollStreak: this.emptyPollStreak,
       });
@@ -370,10 +375,19 @@ export class KernelTransactionActionPump {
   }
 
   private hasPendingFollowUpWork(): boolean {
-    return this.pendingUpsert
+    return this.pendingUpsertBlockIds.size > 0
       || this.upsertInFlight
       || !!this.upsertTimer
       || this.pendingAutoCardOpsByBlock.size > 0;
+  }
+
+  private bufferNativeRiffUpsert(blockIds: string[]): void {
+    for (const blockId of blockIds) {
+      const normalized = String(blockId || '').trim();
+      if (normalized) {
+        this.pendingUpsertBlockIds.add(normalized);
+      }
+    }
   }
 
   private bufferAutoCardOperations(
@@ -579,7 +593,7 @@ export class KernelTransactionActionPump {
   }
 
   private scheduleDeferredUpsert(): void {
-    if (!this.pendingUpsert || this.upsertInFlight || this.upsertTimer) {
+    if (this.pendingUpsertBlockIds.size === 0 || this.upsertInFlight || this.upsertTimer) {
       return;
     }
     const now = Date.now();
@@ -591,7 +605,7 @@ export class KernelTransactionActionPump {
   }
 
   private async runDeferredUpsert(): Promise<void> {
-    if (!this.pendingUpsert || this.upsertInFlight) {
+    if (this.pendingUpsertBlockIds.size === 0 || this.upsertInFlight) {
       return;
     }
     const now = Date.now();
@@ -603,15 +617,18 @@ export class KernelTransactionActionPump {
     let status = 'started';
     const finishScheduleSpan = startRuntimePerformanceSpan('daily-editing', 'kernel-action-pump.native-riff-upsert-background');
     const hybridSyncService = this.getHybridSyncService();
+    const blockIds = Array.from(this.pendingUpsertBlockIds);
+    this.pendingUpsertBlockIds.clear();
     try {
       if (typeof hybridSyncService?.handleNativeRiffUpsert === 'function') {
         await measureRuntimePerformance(
           'daily-editing',
           'kernel-action-pump.native-riff-upsert',
-          () => hybridSyncService.handleNativeRiffUpsert!(),
+          () => hybridSyncService.handleNativeRiffUpsert!(blockIds),
         );
       } else if (typeof hybridSyncService?.incrementalSync === 'function') {
         await measureRuntimePerformance('daily-editing', 'kernel-action-pump.native-riff-incremental-sync', () => hybridSyncService.incrementalSync!(undefined, {
+          blockIds,
           source: 'native-riff-transaction',
           persistIdleCheckpoint: false,
         }));
@@ -621,11 +638,11 @@ export class KernelTransactionActionPump {
         this.nextUpsertAt = Date.now() + this.upsertCooldownMs;
         return;
       }
-      this.pendingUpsert = false;
       this.nextUpsertAt = Date.now() + this.upsertCooldownMs;
       status = 'completed';
     } catch (error) {
       status = 'error';
+      this.bufferNativeRiffUpsert(blockIds);
       logger.warn('Native Riff upsert background sync failed; will retry after cooldown', {
         message: error instanceof Error ? error.message : String(error || ''),
       });
@@ -633,13 +650,13 @@ export class KernelTransactionActionPump {
     } finally {
       this.upsertInFlight = false;
       finishScheduleSpan({
-        pendingUpsert: this.pendingUpsert,
+        pendingUpsertBlockCount: this.pendingUpsertBlockIds.size,
         status,
       }, {
         ok: status === 'completed' || status === 'unavailable',
         errorName: status === 'error' ? 'NativeRiffUpsertError' : undefined,
       });
-      if (this.pendingUpsert) {
+      if (this.pendingUpsertBlockIds.size > 0) {
         this.scheduleDeferredUpsert();
       }
     }

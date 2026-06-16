@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { BackendKernelTransactionAction } from '../../../packages/contracts/src/backend-rpc';
+import { buildTransactionFanoutPlan } from '@/core/infrastructure/websocket/transaction-fanout-coordinator';
 import { WorkerKernelTransactionRuntime } from '../WorkerKernelTransactionRuntime';
 
 type MemoryKernelTransactionFileService = {
@@ -237,6 +238,71 @@ describe('WorkerKernelTransactionRuntime', () => {
           source: 'ws-main',
           receivedAt: expect.any(Number),
           idempotencyKey: 'collect-actions-key',
+        },
+      ],
+      remaining: 0,
+    });
+  });
+
+  it('recomputes the shared fan-out plan from raw transactions and provenance snapshots', async () => {
+    const { runtime } = createRuntime();
+    const transactions = [{
+      doOperations: [
+        {
+          action: 'update',
+          id: 'excerpt-topic',
+          data: { new: { content: 'Prompt >> Answer' } },
+        },
+        {
+          action: 'update',
+          id: 'user-topic',
+          data: { new: { content: 'User >> Answer' } },
+        },
+        { action: 'addFlashcards', blockIDs: ['riff-topic'] },
+      ],
+    }];
+    const provenanceSnapshot = {
+      capturedAt: 1_000,
+      entries: [{
+        blockId: 'excerpt-topic',
+        expiresAt: 2_000,
+        reason: 'progressive-excerpt-topic-card',
+        source: 'progressive-excerpt',
+      }],
+    };
+    const rendererPlan = buildTransactionFanoutPlan({
+      transactions: transactions as never,
+      provenance: provenanceSnapshot,
+      now: 1_000,
+    });
+
+    await runtime.ingestKernelTransactions({
+      source: 'ws-main',
+      idempotencyKey: 'shared-plan-key',
+      receivedAt: 1_000,
+      transactions,
+      provenanceSnapshot,
+    });
+
+    expect(rendererPlan.autoCard.candidateOperations.map((operation) => operation.blockId)).toEqual(['user-topic']);
+    expect(rendererPlan.autoCard.suppressedOperations.map((operation) => operation.blockId)).toEqual(['excerpt-topic']);
+    await expect(runtime.dequeueKernelTransactionActions(8)).resolves.toMatchObject({
+      actions: [
+        {
+          type: 'native-riff-upsert',
+          blockIds: ['riff-topic'],
+          source: 'ws-main',
+          receivedAt: 1_000,
+          idempotencyKey: 'shared-plan-key',
+        },
+        {
+          type: 'auto-card-candidates',
+          operations: [
+            { action: 'update', blockId: 'user-topic' },
+          ],
+          source: 'ws-main',
+          receivedAt: 1_000,
+          idempotencyKey: 'shared-plan-key',
         },
       ],
       remaining: 0,

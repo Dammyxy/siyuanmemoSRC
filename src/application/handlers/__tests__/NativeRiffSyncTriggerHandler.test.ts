@@ -98,6 +98,7 @@ describe('NativeRiffSyncTriggerHandler', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(incrementalSync).toHaveBeenCalledTimes(1);
     expect(incrementalSync).toHaveBeenCalledWith(undefined, {
+      blockIds: ['block-1'],
       source: 'native-riff-transaction',
       persistIdleCheckpoint: false,
     });
@@ -158,6 +159,7 @@ describe('NativeRiffSyncTriggerHandler', () => {
     await vi.advanceTimersByTimeAsync(200);
     expect(incrementalSync).toHaveBeenCalledTimes(1);
     expect(incrementalSync).toHaveBeenLastCalledWith(undefined, {
+      blockIds: ['block-1'],
       source: 'native-riff-transaction',
       persistIdleCheckpoint: false,
     });
@@ -172,6 +174,7 @@ describe('NativeRiffSyncTriggerHandler', () => {
 
     expect(incrementalSync).toHaveBeenCalledTimes(2);
     expect(incrementalSync).toHaveBeenLastCalledWith(undefined, {
+      blockIds: ['block-1'],
       source: 'native-riff-transaction',
       persistIdleCheckpoint: false,
     });
@@ -188,6 +191,22 @@ describe('NativeRiffSyncTriggerHandler', () => {
     expect(handleNativeRiffRemove).toHaveBeenCalledWith(['block-1', 'block-2']);
 
     await vi.advanceTimersByTimeAsync(250);
+    expect(incrementalSync).not.toHaveBeenCalled();
+  });
+
+  it('routes native riff upsert through scoped block ids when available', async () => {
+    const handleNativeRiffUpsert = vi.fn(async () => ({ success: true }));
+    const incrementalSync = vi.fn(async () => ({ ok: true }));
+    const { handler } = createHandler({
+      upsertImpl: handleNativeRiffUpsert,
+      syncImpl: incrementalSync,
+    });
+
+    handler.handle(nativeRiffTransactions() as never);
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
+    expect(handleNativeRiffUpsert).toHaveBeenCalledWith(['block-1']);
     expect(incrementalSync).not.toHaveBeenCalled();
   });
 

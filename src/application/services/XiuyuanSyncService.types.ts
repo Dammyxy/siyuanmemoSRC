@@ -116,6 +116,7 @@ export type IncrementalSyncSource =
 export interface IncrementalSyncOptions {
     source?: IncrementalSyncSource;
     persistIdleCheckpoint?: boolean;
+    blockIds?: string[];
 }
 
 /**

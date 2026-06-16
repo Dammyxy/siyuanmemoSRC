@@ -94,6 +94,7 @@ describe('KernelTransactionActionPump', () => {
     await flushDeferredUpsertTimer();
 
     expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
+    expect(handleNativeRiffUpsert).toHaveBeenCalledWith(['block-3']);
     expect(incrementalSync).not.toHaveBeenCalled();
 
     await pump.dispose();
@@ -196,8 +197,79 @@ describe('KernelTransactionActionPump', () => {
     await flushDeferredUpsertTimer();
 
     expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
+    expect(handleNativeRiffUpsert).toHaveBeenCalledWith(['block-a', 'block-b']);
     expect(handleNativeRiffRemove).toHaveBeenCalledTimes(1);
     expect(handleNativeRiffRemove).toHaveBeenCalledWith(['block-1', 'block-2', 'block-3']);
+
+    await pump.dispose();
+  });
+
+  it('falls back to scoped incremental sync when native-riff-upsert handler is unavailable', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [{
+        type: 'native-riff-upsert' as const,
+        blockIds: ['block-fallback-a', 'block-fallback-b'],
+        source: 'ws-main' as const,
+        receivedAt: 2,
+        idempotencyKey: 'upsert-fallback',
+      }],
+      remaining: 0,
+    }));
+    const incrementalSync = vi.fn(async () => ({ success: true }));
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      null,
+      null,
+      () => ({ incrementalSync }),
+      () => undefined,
+      { pollIntervalMs: 250, maxActionsPerPoll: 4 },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    await flushDeferredUpsertTimer();
+
+    expect(incrementalSync).toHaveBeenCalledWith(undefined, {
+      blockIds: ['block-fallback-a', 'block-fallback-b'],
+      source: 'native-riff-transaction',
+      persistIdleCheckpoint: false,
+    });
+
+    await pump.dispose();
+  });
+
+  it('skips native-riff-upsert actions without block IDs instead of running a broad sync', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [{
+        type: 'native-riff-upsert' as const,
+        blockIds: [],
+        source: 'ws-main' as const,
+        receivedAt: 2,
+        idempotencyKey: 'upsert-empty',
+      }],
+      remaining: 0,
+    }));
+    const handleNativeRiffUpsert = vi.fn(async () => ({ success: true }));
+    const incrementalSync = vi.fn(async () => ({ success: true }));
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      null,
+      null,
+      () => ({ handleNativeRiffUpsert, incrementalSync }),
+      () => undefined,
+      { pollIntervalMs: 250, maxActionsPerPoll: 4 },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    await flushDeferredUpsertTimer();
+
+    expect(handleNativeRiffUpsert).not.toHaveBeenCalled();
+    expect(incrementalSync).not.toHaveBeenCalled();
 
     await pump.dispose();
   });

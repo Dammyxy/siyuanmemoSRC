@@ -4,6 +4,10 @@ import {
     shouldDispatchAutoCard,
     type TransactionClassification,
 } from '@/core/infrastructure/websocket/transaction-classifier';
+import {
+    shouldDispatchAutoCardFromFanoutPlan,
+    type TransactionFanoutPlan,
+} from '@/core/infrastructure/websocket/transaction-fanout-coordinator';
 import type FSRSPlugin from '@/index';
 import type { AutoCardSiyuanPort } from '../ports/AutoCardSiyuanPort';
 import type { AutoCardRiffPort } from '../ports/AutoCardRiffPort';
@@ -1210,11 +1214,17 @@ export class AutoCardHandler implements ITransactionHandler {
         return 'autocard';
     }
 
-    shouldHandleTransactionBatch(classification: TransactionClassification): boolean {
-        return shouldDispatchAutoCard(classification);
+    shouldHandleTransactionBatch(classification: TransactionClassification, fanoutPlan?: TransactionFanoutPlan): boolean {
+        return fanoutPlan
+            ? shouldDispatchAutoCardFromFanoutPlan(fanoutPlan)
+            : shouldDispatchAutoCard(classification);
     }
 
-    handle(transactions: Transaction[], classification: TransactionClassification = classifyTransactionBatch(transactions)): void {
+    handle(
+        transactions: Transaction[],
+        classification: TransactionClassification = classifyTransactionBatch(transactions),
+        fanoutPlan?: TransactionFanoutPlan,
+    ): void {
         const finishHandleSpan = startRuntimePerformanceSpan('autocard', 'handler.handle', {
             transactionCount: transactions.length,
         });
@@ -1227,7 +1237,7 @@ export class AutoCardHandler implements ITransactionHandler {
             return;
         }
 
-        if (!this.shouldHandleTransactionBatch(classification)) {
+        if (!this.shouldHandleTransactionBatch(classification, fanoutPlan)) {
             incrementRuntimePerformanceCounter('autocard', 'candidate-batches-skipped');
             finishHandleSpan({
                 changedBlockCount: classification.changedBlockIds.length,
@@ -1245,9 +1255,11 @@ export class AutoCardHandler implements ITransactionHandler {
         const relevantOperations: Array<Record<string, unknown>> = [];
         let scheduledCount = 0;
         let cancelledCount = 0;
-        const prefilteredCount = classification.autoCard.prefilteredNoOpCount;
+        const autoCardPlan = fanoutPlan?.autoCard ?? classification.autoCard;
+        const prefilteredCount = autoCardPlan.prefilteredNoOpCount;
+        const suppressedCount = fanoutPlan?.autoCard.suppressedOperations.length ?? 0;
 
-        for (const operation of classification.autoCard.candidateOperations) {
+        for (const operation of autoCardPlan.candidateOperations) {
             this.listenerCandidateRuntime.enqueueCandidateBlock(operation.blockId, txBatchId, operation.action, operation.opId);
             scheduledCount++;
             relevantOperations.push({
@@ -1259,7 +1271,19 @@ export class AutoCardHandler implements ITransactionHandler {
             });
         }
 
-        for (const blockId of classification.autoCard.cancelBlockIds) {
+        for (const operation of fanoutPlan?.autoCard.suppressedOperations ?? []) {
+            relevantOperations.push({
+                action: operation.action,
+                blockId: operation.blockId,
+                evidence: operation.evidence,
+                opId: operation.opId,
+                provenanceReason: operation.provenanceReason,
+                scheduled: false,
+                suppressed: true,
+            });
+        }
+
+        for (const blockId of autoCardPlan.cancelBlockIds) {
             this.listenerCandidateRuntime.cancelPendingCandidate(blockId, txBatchId, 'delete');
             cancelledCount++;
             relevantOperations.push({
@@ -1285,12 +1309,14 @@ export class AutoCardHandler implements ITransactionHandler {
         incrementRuntimePerformanceCounter('autocard', 'candidate-operations-scheduled', scheduledCount);
         incrementRuntimePerformanceCounter('autocard', 'candidate-operations-cancelled', cancelledCount);
         incrementRuntimePerformanceCounter('autocard', 'candidate-operations-prefiltered', prefilteredCount);
+        incrementRuntimePerformanceCounter('autocard', 'candidate-operations-suppressed', suppressedCount);
         finishHandleSpan({
             cancelledCount,
             pendingCandidateCount: this.listenerCandidateRuntime.getPendingCandidateCount(),
             prefilteredCount,
             quickCardEnabled: true,
             scheduledCount,
+            suppressedCount,
             txBatchId,
         });
     }

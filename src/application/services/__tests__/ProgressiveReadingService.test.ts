@@ -148,6 +148,9 @@ function createServiceUnderTest(
   followerCommandClient?: {
     submitAndWait?: ReturnType<typeof vi.fn>;
   },
+  transactionProvenanceRegistry?: {
+    recordBlockIds: ReturnType<typeof vi.fn>;
+  },
 ) {
   const excerptRecordService = new ExcerptRecordService(fileService);
   return new ProgressiveReadingService(
@@ -163,6 +166,7 @@ function createServiceUnderTest(
     backendClient as never,
     commandRelayRuntime as never,
     followerCommandClient as never,
+    transactionProvenanceRegistry as never,
   );
 }
 
@@ -1701,6 +1705,9 @@ describe('ProgressiveReadingService', () => {
     });
     const cardService = createCardServiceMock();
     const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const transactionProvenanceRegistry = {
+      recordBlockIds: vi.fn(),
+    };
     const legacySettingsProvider = {
       getSettings: () => ({
         progressiveReading: {
@@ -1721,6 +1728,11 @@ describe('ProgressiveReadingService', () => {
       legacySettingsProvider,
       undefined,
       nativeRiffApi,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      transactionProvenanceRegistry,
     );
 
     const result = await service.createExcerptFromSelection({
@@ -1789,6 +1801,21 @@ describe('ProgressiveReadingService', () => {
       }),
     }));
     expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['excerpt-doc-1']);
+    expect(transactionProvenanceRegistry.recordBlockIds).toHaveBeenNthCalledWith(1, ['source-1'], {
+      reason: 'progressive-excerpt-source-mark',
+      source: 'progressive-excerpt',
+      suppressAutoCard: true,
+    });
+    expect(transactionProvenanceRegistry.recordBlockIds).toHaveBeenNthCalledWith(2, ['excerpt-doc-1'], {
+      reason: 'progressive-excerpt-artifact',
+      source: 'progressive-excerpt',
+      suppressAutoCard: true,
+    });
+    expect(transactionProvenanceRegistry.recordBlockIds).toHaveBeenNthCalledWith(3, ['card-1'], {
+      reason: 'progressive-excerpt-topic-card',
+      source: 'progressive-excerpt',
+      suppressAutoCard: true,
+    });
     expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toEqual(expect.objectContaining({
       version: 1,
       records: [

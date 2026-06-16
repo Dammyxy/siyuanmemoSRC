@@ -28,6 +28,7 @@ import { XiuyuanApplicationService } from '@/application/services/XiuyuanApplica
 import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 import { XiuyuanSyncService } from '@/application/services/XiuyuanSyncService';
 import { TransactionWebSocketService } from '@/core/infrastructure/websocket/TransactionWebSocketService';
+import { TransactionProvenanceRegistry } from '@/core/infrastructure/websocket/transaction-provenance-registry';
 import type { AutoCardHandler } from '@/application/handlers/AutoCardHandler';
 import type { KernelTransactionActionPump } from '@/application/handlers/KernelTransactionActionPump';
 import { dispatchKernelTransactionWriterUnavailableEvent } from '@/application/handlers/KernelTransactionWriterUnavailableEvent';
@@ -333,6 +334,7 @@ export class ApplicationContext {
   // 基础设施服务
   private hybridSyncService?: XiuyuanSyncService;
   private transactionWebSocketService?: TransactionWebSocketService;
+  private readonly transactionProvenanceRegistry = new TransactionProvenanceRegistry();
   private autoCardHandler?: AutoCardHandler;
   private kernelTransactionIngestHandler?: KernelTransactionIngestHandler;
   private kernelTransactionActionPump?: KernelTransactionActionPump;
@@ -614,6 +616,7 @@ export class ApplicationContext {
         context.srsBackendClient || undefined,
         context.frontendInstanceRuntime,
         context.followerCommandClient,
+        context.transactionProvenanceRegistry,
       );
     });
 
@@ -1978,7 +1981,10 @@ export class ApplicationContext {
     });
 
     const { TransactionWebSocketService } = await import('@/core/infrastructure/websocket/TransactionWebSocketService');
-    const transactionWebSocketService = new TransactionWebSocketService(this.config.plugin as unknown as SiyuanMemoPlugin);
+    const transactionWebSocketService = new TransactionWebSocketService(
+      this.config.plugin as unknown as SiyuanMemoPlugin,
+      { provenanceRegistry: this.transactionProvenanceRegistry },
+    );
     if (quickCardEnabled || nativeRiffSyncEnabled || kernelTransactionIngestEnabled) {
       await measureRuntimePerformance(
         'startup',
@@ -2031,6 +2037,7 @@ export class ApplicationContext {
         {
           writerRelayRequired: runtimePolicy.capabilities.writerRelayRequiredForBackendWrites,
           onIngested: () => this.kernelTransactionActionPump?.notifyActivity('ws-ingest'),
+          provenanceRegistry: this.transactionProvenanceRegistry,
         },
       );
       transactionWebSocketService.registerHandler(kernelTransactionIngestHandler);

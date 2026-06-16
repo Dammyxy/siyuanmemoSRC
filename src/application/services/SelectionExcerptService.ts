@@ -80,6 +80,7 @@ interface ProgressiveExcerptFacade {
   materializeExcerptSource(snapshot: ProgressiveExcerptSelectionSnapshot): Promise<ProgressiveExcerptSourceMaterializationResult>;
   createExcerptFromSelection(input: ProgressiveExcerptInput): Promise<ProgressiveExcerptCreationResult>;
   updateSourceBlockDom(blockId: string, dom: string): Promise<void>;
+  recordProgressiveExcerptSourceMarkProvenance?(blockIds: string[]): void;
 }
 
 interface SelectionExcerptHighlightAdapter {
@@ -169,6 +170,9 @@ export class SelectionExcerptService {
     const preparedHighlight = input.sourceMarkingEnabled
       ? this.prepareSourceMark(materialized.highlightSnapshot)
       : null;
+    if (input.sourceMarkingEnabled) {
+      this.progressiveService.recordProgressiveExcerptSourceMarkProvenance?.(materialized.sourceBlockIds);
+    }
 
     const result = await this.progressiveService.createExcerptFromSelection({
       sourceBlockId: materialized.sourceBlockId,

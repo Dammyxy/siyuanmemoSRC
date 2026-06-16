@@ -8,6 +8,7 @@ import { normalizeBlockId } from '@/core/siyuan/riff/normalizers';
 import {
   BUILTIN_DECK_ID,
   getRiffCards,
+  getRiffCardsByBlockIDs,
   getRiffNewCards,
   removeRiffCards,
 } from '@/core/siyuan/riff';
@@ -38,6 +39,11 @@ export class XiuyuanSyncSiyuanAdapter implements XiuyuanSyncSiyuanPort {
 
   async getRiffNewCards(deckID: string, since?: number): Promise<XiuyuanSyncRiffBlock[]> {
     const blocks = await getRiffNewCards(deckID, since);
+    return (blocks as XiuyuanSyncRiffBlock[]).map(normalizeXiuyuanSyncRiffBlock);
+  }
+
+  async getRiffCardsByBlockIDs(blockIDs: string[]): Promise<XiuyuanSyncRiffBlock[]> {
+    const blocks = await getRiffCardsByBlockIDs(blockIDs);
     return (blocks as XiuyuanSyncRiffBlock[]).map(normalizeXiuyuanSyncRiffBlock);
   }
 

@@ -42,6 +42,8 @@ import {
   ATTR_PROGRESSIVE_WORKBENCH_ID,
   getLegacyProgressiveAttrName,
 } from '@/application/services/ProgressiveAttrContract';
+import type { TransactionProvenanceReason } from '@/core/infrastructure/websocket/transaction-fanout-coordinator';
+import type { TransactionProvenanceRegistry } from '@/core/infrastructure/websocket/transaction-provenance-registry';
 
 const logger = createLogger('ProgressiveReadingService');
 const STORAGE_KEY = 'progressive-reading.json';
@@ -203,6 +205,7 @@ type ProgressiveCommandFollowerClient = {
 };
 
 type ProgressiveBackendCommandClient = Pick<BackendIntegrationClientFacet, 'executeProgressiveCommand'>;
+type ProgressiveTransactionProvenanceRecorder = Pick<TransactionProvenanceRegistry, 'recordBlockIds'>;
 
 export interface ProgressiveSplitResult {
   sessionId: string;
@@ -408,6 +411,7 @@ export class ProgressiveReadingService {
     private readonly backendClient?: ProgressiveBackendCommandClient,
     private readonly commandRelayRuntime?: ProgressiveCommandRelayRuntime | null,
     private readonly followerCommandClient?: ProgressiveCommandFollowerClient | null,
+    private readonly transactionProvenanceRegistry?: ProgressiveTransactionProvenanceRecorder,
   ) {}
 
   async splitDocument(
@@ -755,8 +759,25 @@ export class ProgressiveReadingService {
       rollbackExcerptArtifact: (excerptEntityId, excerptEntityType, error) =>
         this.rollbackExcerptArtifact(excerptEntityId, excerptEntityType, error),
       scheduleDocTreeRebuild: () => this.docTreeScopeRefresher?.scheduleRebuild(),
+      recordTransactionProvenance: (blockIds, reason) => this.recordProgressiveExcerptProvenance(blockIds, reason),
     });
     return materializer.materialize(input);
+  }
+
+  recordProgressiveExcerptSourceMarkProvenance(blockIds: string[]): void {
+    this.recordProgressiveExcerptProvenance(blockIds, 'progressive-excerpt-source-mark');
+  }
+
+  private recordProgressiveExcerptProvenance(blockIds: string[], reason: TransactionProvenanceReason): void {
+    const normalizedBlockIds = normalizeExcerptBlockIds(blockIds);
+    if (normalizedBlockIds.length === 0) {
+      return;
+    }
+    this.transactionProvenanceRegistry?.recordBlockIds(normalizedBlockIds, {
+      reason,
+      source: 'progressive-excerpt',
+      suppressAutoCard: true,
+    });
   }
 
   async updateSourceBlockDom(blockId: string, dom: string): Promise<void> {

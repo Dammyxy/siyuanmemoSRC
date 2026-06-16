@@ -15,6 +15,16 @@ const runtimeBundleMocks = vi.hoisted(() => ({
     getRuntimeScopeId: ReturnType<typeof vi.fn>;
     dispose: ReturnType<typeof vi.fn>;
   }>,
+  transports: [] as Array<{
+    options: Record<string, unknown>;
+    dispose: ReturnType<typeof vi.fn>;
+    getDiagnostics: ReturnType<typeof vi.fn>;
+  }>,
+  riffAdapter: {
+    getRiffCardsByBlockIDs: vi.fn(async () => []),
+    getRiffNewCards: vi.fn(async () => []),
+    getRiffCards: vi.fn(async () => []),
+  },
   logger: {
     info: vi.fn(),
     warn: vi.fn(),
@@ -75,6 +85,17 @@ vi.mock('@/application/clients/BrowserSrsBackendWorkerTransport', () => ({
     this.options = options;
     this.dispose = vi.fn();
     this.getDiagnostics = vi.fn(() => ({ health: 'healthy' }));
+    runtimeBundleMocks.transports.push(this as never);
+  }),
+}));
+
+vi.mock('@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter', () => ({
+  XiuyuanSyncSiyuanAdapter: vi.fn().mockImplementation(function XiuyuanSyncSiyuanAdapter(
+    this: Record<string, unknown>,
+  ) {
+    this.getRiffCardsByBlockIDs = runtimeBundleMocks.riffAdapter.getRiffCardsByBlockIDs;
+    this.getRiffNewCards = runtimeBundleMocks.riffAdapter.getRiffNewCards;
+    this.getRiffCards = runtimeBundleMocks.riffAdapter.getRiffCards;
   }),
 }));
 
@@ -154,6 +175,7 @@ describe('createApplicationBackendRuntimeBundle', () => {
   it('keeps frontend writer runtime available after truth device identity resolves', async () => {
     runtimeBundleMocks.backendClients.length = 0;
     runtimeBundleMocks.frontendRuntimes.length = 0;
+    runtimeBundleMocks.transports.length = 0;
     Object.values(runtimeBundleMocks.logger).forEach((fn) => fn.mockClear());
 
     const bundle = await createApplicationBackendRuntimeBundle(createRuntimeBundleOptions());
@@ -173,5 +195,45 @@ describe('createApplicationBackendRuntimeBundle', () => {
       '[ApplicationContext] Frontend instance runtime unavailable; backend write families fail closed with explicit unavailable',
       expect.anything(),
     );
+  });
+
+  it('uses direct Riff block reads for scoped Xiuyuan backend host requests', async () => {
+    runtimeBundleMocks.backendClients.length = 0;
+    runtimeBundleMocks.frontendRuntimes.length = 0;
+    runtimeBundleMocks.transports.length = 0;
+    runtimeBundleMocks.riffAdapter.getRiffCardsByBlockIDs.mockReset();
+    runtimeBundleMocks.riffAdapter.getRiffNewCards.mockReset();
+    runtimeBundleMocks.riffAdapter.getRiffCards.mockReset();
+    runtimeBundleMocks.riffAdapter.getRiffCardsByBlockIDs.mockResolvedValue([
+      { id: 'block-a', content: 'A' },
+      { id: 'block-b', content: 'B' },
+    ]);
+
+    await createApplicationBackendRuntimeBundle(createRuntimeBundleOptions());
+    const transportOptions = runtimeBundleMocks.transports[0].options as {
+      hostEffects: {
+        readXiuyuanRiffFacts: (request: unknown) => Promise<unknown>;
+      };
+    };
+
+    const result = await transportOptions.hostEffects.readXiuyuanRiffFacts({
+      requestId: 'riff-read-scoped',
+      mode: 'incremental',
+      deckId: 'deck-a',
+      scope: {
+        blockIds: [' block-a ', 'block-a', 'block-b'],
+      },
+    });
+
+    expect(runtimeBundleMocks.riffAdapter.getRiffCardsByBlockIDs).toHaveBeenCalledWith(['block-a', 'block-b']);
+    expect(runtimeBundleMocks.riffAdapter.getRiffNewCards).not.toHaveBeenCalled();
+    expect(runtimeBundleMocks.riffAdapter.getRiffCards).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: 'ready',
+      blocks: [
+        { id: 'block-a', content: 'A' },
+        { id: 'block-b', content: 'B' },
+      ],
+    });
   });
 });

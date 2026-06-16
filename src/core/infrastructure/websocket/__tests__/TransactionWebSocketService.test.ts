@@ -89,11 +89,11 @@ describe('TransactionWebSocketService', () => {
     expect(handler1.handle).toHaveBeenCalledWith(transactions, expect.objectContaining({
       transactionCount: 1,
       changedBlockIds: ['block-1'],
-    }));
+    }), expect.anything());
     expect(handler2.handle).toHaveBeenCalledWith(transactions, expect.objectContaining({
       transactionCount: 1,
       changedBlockIds: ['block-1'],
-    }));
+    }), expect.anything());
   });
 
   it('classifies once and skips handlers whose predicate does not match', () => {
@@ -120,7 +120,66 @@ describe('TransactionWebSocketService', () => {
     expect(matchedHandler.handle).toHaveBeenCalledWith(transactions, expect.objectContaining({
       transactionCount: 1,
       changedBlockIds: ['block-ordinary'],
+    }), expect.objectContaining({
+      autoCard: expect.objectContaining({
+        candidateOperations: expect.arrayContaining([
+          expect.objectContaining({ blockId: 'block-ordinary' }),
+        ]),
+      }),
     }));
+  });
+
+  it('passes provenance-aware fan-out plans to handlers', () => {
+    service.stop();
+    service = new TransactionWebSocketService(
+      { eventBus } as unknown as FSRSPlugin,
+      {
+        provenanceRegistry: {
+          createSnapshot: () => ({
+            capturedAt: Date.now(),
+            entries: [{
+              blockId: 'block-4',
+              expiresAt: Date.now() + 1_000,
+              reason: 'progressive-excerpt-topic-card',
+              source: 'progressive-excerpt',
+            }],
+          }),
+        },
+      },
+    );
+    const handler: ITransactionHandler = {
+      shouldHandleTransactionBatch: vi.fn(() => true),
+      handle: vi.fn(),
+    };
+
+    service.registerHandler(handler);
+    service.start();
+    emitTransactions([{
+      doOperations: [{
+        action: 'update',
+        id: 'block-4',
+        data: { new: { content: 'Prompt >> Answer' } },
+      }],
+      undoOperations: null,
+    }]);
+
+    expect(handler.handle).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        transactionCount: 1,
+      }),
+      expect.objectContaining({
+        autoCard: expect.objectContaining({
+          candidateOperations: [],
+          suppressedOperations: [
+            expect.objectContaining({
+              blockId: 'block-4',
+              provenanceReason: 'progressive-excerpt-topic-card',
+            }),
+          ],
+        }),
+      }),
+    );
   });
 
   it('keeps distributing when one handler throws', () => {
@@ -139,10 +198,10 @@ describe('TransactionWebSocketService', () => {
 
     expect(handler1.handle).toHaveBeenCalledWith(transactions, expect.objectContaining({
       transactionCount: 1,
-    }));
+    }), expect.anything());
     expect(handler2.handle).toHaveBeenCalledWith(transactions, expect.objectContaining({
       transactionCount: 1,
-    }));
+    }), expect.anything());
   });
 
   it('does not call handlers after unregister', () => {
@@ -174,7 +233,7 @@ describe('TransactionWebSocketService', () => {
     expect(handler.handle).toHaveBeenCalledWith(transactions, expect.objectContaining({
       transactionCount: 1,
       changedBlockIds: ['block-4'],
-    }));
+    }), expect.anything());
   });
 
   it('does not start without plugin.eventBus.on', () => {

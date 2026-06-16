@@ -356,4 +356,67 @@ describe('XiuyuanSyncService backend command facade', () => {
     })));
     expect(repository.applySyncChangeSet).not.toHaveBeenCalled();
   });
+
+  it('passes scoped block IDs through native Riff upsert backend sync requests', async () => {
+    const repository = createRepository();
+    const executeXiuyuanSync = vi.fn(async () => ({
+      status: 'applied',
+      commandId: 'cmd-scoped-upsert',
+      idempotencyKey: 'key-scoped-upsert',
+      mode: 'incremental',
+      dryRun: false,
+      progress: {
+        state: 'succeeded',
+        currentStep: 'applied',
+        completedUnits: 4,
+        totalUnits: 4,
+        updatedAt: 1_700_000_000_000,
+      },
+      plan: {
+        localXiuyuanCount: 0,
+        localCardCount: 0,
+        localManagedRiffCount: 0,
+        nativeRiffCount: 2,
+        normalizedNativeRiffCount: 2,
+        malformedNativeRiffCount: 0,
+        duplicateNativeRiffCount: 0,
+        createCount: 2,
+        updateCount: 0,
+        deleteCount: 0,
+        skippedLocalOwnedCount: 0,
+        candidateBlockIds: {
+          create: ['block-a', 'block-b'],
+          update: [],
+          delete: [],
+          skippedLocalOwned: [],
+        },
+      },
+      applyImpact: {
+        requested: true,
+        applied: true,
+        reason: 'applied',
+        changed: {
+          blockIds: ['block-a', 'block-b'],
+          cardIds: ['card-a', 'card-b'],
+        },
+      },
+      diagnostics: {
+        diagnosticEventId: 'xiuyuan-sync:cmd-scoped-upsert',
+        readSource: 'renderer-host-effect',
+        timingMs: 1,
+        errorCategory: null,
+      },
+    }));
+    const service = createService({ executeXiuyuanSync, repository });
+
+    await service.handleNativeRiffUpsert([' block-a ', 'block-a', 'block-b']);
+
+    expect(executeXiuyuanSync).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'incremental',
+      scope: expect.objectContaining({
+        blockIds: ['block-a', 'block-b'],
+      }),
+      persistIdleCheckpoint: false,
+    }));
+  });
 });
