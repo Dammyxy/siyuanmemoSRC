@@ -100,6 +100,7 @@ function toBrowserGridReadModelSnapshotMetadata(
 }
 
 export function isBrowserGridReadModelResponseCurrent(input: {
+  allowQueryFingerprintChange?: boolean;
   expected?: BrowserReadModelSnapshotMetadata | null;
   result: BrowserGridReadModelResponseMetadata;
 }): boolean {
@@ -109,7 +110,7 @@ export function isBrowserGridReadModelResponseCurrent(input: {
   if (!hasReadModelMetadata(input.result)) {
     return false;
   }
-  return input.result.queryFingerprint === input.expected.queryFingerprint
+  return (input.allowQueryFingerprintChange || input.result.queryFingerprint === input.expected.queryFingerprint)
     && (input.result.generation ?? null) === (input.expected.generation ?? null)
     && stableMetadataString(input.result.readOwner ?? null) === stableMetadataString(input.expected.readOwner ?? null);
 }
@@ -119,6 +120,7 @@ export function createBrowserGridDatasourceLifecycle(deps: BrowserGridDatasource
   const resolveSort = deps.resolveEffectiveSortModel ?? resolveEffectiveSortModel;
   let pendingGridDatasource: IDatasource | null = null;
   let gridDatasourceApplyTimer: ReturnType<typeof setTimeout> | null = null;
+  let acceptedReadModelSortRevision: number | null = null;
 
   function isCurrentVersion(version: number): boolean {
     return version === deps.getCurrentVersion();
@@ -191,8 +193,12 @@ export function createBrowserGridDatasourceLifecycle(deps: BrowserGridDatasource
               rowsForBlock = result.rows;
               totalCount = result.totalCount;
               readModelSnapshotMetadata = toBrowserGridReadModelSnapshotMetadata(result);
-              if (!isBrowserGridReadModelResponseCurrent({
-                expected: deps.getExpectedReadModelSnapshotMetadata?.() ?? null,
+              const expectedReadModelSnapshotMetadata = deps.getExpectedReadModelSnapshotMetadata?.() ?? null;
+              const didSortRevisionChange = acceptedReadModelSortRevision !== null
+                && acceptedReadModelSortRevision !== requestSortRevision;
+              if (expectedReadModelSnapshotMetadata && !isBrowserGridReadModelResponseCurrent({
+                allowQueryFingerprintChange: didSortRevisionChange,
+                expected: expectedReadModelSnapshotMetadata,
                 result,
               })) {
                 params.failCallback();
@@ -215,6 +221,7 @@ export function createBrowserGridDatasourceLifecycle(deps: BrowserGridDatasource
             }
 
             if (readModelSnapshotMetadata) {
+              acceptedReadModelSortRevision = requestSortRevision;
               deps.onReadModelSnapshotMetadata?.(readModelSnapshotMetadata);
             }
 

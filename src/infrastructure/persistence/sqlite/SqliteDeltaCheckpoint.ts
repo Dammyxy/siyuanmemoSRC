@@ -211,6 +211,10 @@ function checksumBytes(bytes: Uint8Array): string {
   return hash.toString(16).padStart(8, '0');
 }
 
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function emptyManifest(updatedAt = 0): SqliteDeltaSegmentManifest {
   return {
     version: SQLITE_DELTA_LOG_VERSION,
@@ -781,6 +785,10 @@ export class SqliteDeltaCheckpointLayer {
     return this.checkpointStorageClass === 'durable-checkpoint';
   }
 
+  canClearPendingAfterCheckpoint(): boolean {
+    return this.canClearDeltaAfterCheckpoint();
+  }
+
   private canUseCheckpointForThreshold(): boolean {
     return this.checkpointStorageClass === 'durable-checkpoint';
   }
@@ -898,7 +906,48 @@ export class SqliteDeltaCheckpointLayer {
     schemaChanged: boolean;
     diagnostics?: SqliteDeltaDiagnosticsContext;
   }): Promise<SqliteDeltaPersistResult> {
-    const snapshot = await this.readSnapshot();
+    let snapshot: SqliteDeltaLogSnapshot;
+    try {
+      snapshot = await this.readSnapshot();
+    } catch (error) {
+      if (!this.canClearDeltaAfterCheckpoint()) {
+        throw error;
+      }
+      const diagnostics = normalizeDiagnosticsContext(input.diagnostics);
+      const hotPath = diagnostics.hotPath || labelLooksHotPath(input.label);
+      const repairReason = 'pending-delta-unreadable';
+      this.checkpointOnlyTotal += 1;
+      this.lastWrite = {
+        ok: true,
+        at: Date.now(),
+        classification: 'checkpoint',
+        label: input.label,
+        cause: input.label,
+        initiator: diagnostics.initiator,
+        projectionGeneration: diagnostics.projectionGeneration
+          ?? maxProjectionGenerationFromChanges(input.capture?.changes ?? []),
+        hotPath,
+        reason: repairReason,
+        pendingCount: 0,
+        pendingBytes: 0,
+        affectedTables: input.capture?.touchedTables ?? [],
+        skippedDerivedTables: input.capture?.skippedDerivedTables ?? [],
+        skippedDerivedChangeCount: input.capture?.skippedDerivedChangeCount ?? 0,
+        checkpointStorageClass: this.checkpointStorageClass,
+        error: error instanceof Error ? error.message : String(error),
+      };
+      return {
+        mode: 'checkpoint',
+        reason: repairReason,
+        diagnostics: {
+          cause: input.label,
+          initiator: diagnostics.initiator,
+          projectionGeneration: diagnostics.projectionGeneration
+            ?? maxProjectionGenerationFromChanges(input.capture?.changes ?? []),
+          hotPath,
+        },
+      };
+    }
     const pendingBytes = estimateJsonByteLength(snapshot);
     const rawCheckpointReason = this.classifyCheckpointReason(input, snapshot, pendingBytes);
     const checkpointReason = rawCheckpointReason === 'delta-threshold-exceeded' && !this.canUseCheckpointForThreshold()
@@ -1250,7 +1299,16 @@ export class SqliteDeltaCheckpointLayer {
     byteLength: number | null,
     diagnosticsContext?: SqliteDeltaDiagnosticsContext,
   ): Promise<void> {
-    const snapshot = await this.readSnapshot();
+    const snapshot = await this.readSnapshot().catch(async (snapshotReadError) => {
+      if (!this.canClearDeltaAfterCheckpoint()) {
+        throw snapshotReadError;
+      }
+      await this.clearUnreadablePendingAfterCheckpoint(reason, byteLength, diagnosticsContext, snapshotReadError);
+      return null;
+    });
+    if (!snapshot) {
+      return;
+    }
     const pendingBytes = estimateJsonByteLength(snapshot);
     const clearCoveredDeltas = this.canClearDeltaAfterCheckpoint();
     let cleanupError: string | null = null;
@@ -1287,6 +1345,55 @@ export class SqliteDeltaCheckpointLayer {
       affectedTables: uniqueStrings(snapshot.entries.flatMap((entry) => entry.tables)),
       checkpointStorageClass: this.checkpointStorageClass,
       error: cleanupError,
+    };
+  }
+
+  private async clearUnreadablePendingAfterCheckpoint(
+    reason: string,
+    byteLength: number | null,
+    diagnosticsContext: SqliteDeltaDiagnosticsContext | undefined,
+    snapshotReadError: unknown,
+  ): Promise<void> {
+    const manifest = await this.readManifest().catch(() => emptyManifest(Date.now()));
+    const coveredSegmentPaths = uniqueStrings([
+      ...manifest.sealedSegments.map((segment) => segment.path),
+      ...(manifest.openSegment ? [manifest.openSegment.path] : []),
+      ...(manifest.checkpoint?.coveredSegmentPaths ?? []),
+    ]);
+    const pendingCount = manifest.sealedSegments.reduce((total, segment) => total + segment.entryCount, 0)
+      + (manifest.openSegment?.entryCount ?? 0);
+    const pendingBytes = manifest.sealedSegments.reduce((total, segment) => total + segment.byteSize, 0)
+      + (manifest.openSegment?.byteSize ?? 0);
+    await this.fileService.writeJSON(this.fileName, {
+      ...emptyManifest(Date.now()),
+      checkpoint: {
+        clearedAt: Date.now(),
+        coveredSegmentPaths,
+        reason,
+      },
+    } satisfies SqliteDeltaSegmentManifest);
+    const cleanupError = await this.deleteCoveredSegmentFiles(coveredSegmentPaths);
+    this.checkpointWritesTotal += 1;
+    const diagnostics = normalizeDiagnosticsContext(diagnosticsContext);
+    this.lastCheckpoint = {
+      ok: true,
+      at: Date.now(),
+      classification: 'checkpoint',
+      cause: reason,
+      initiator: diagnostics.initiator,
+      projectionGeneration: diagnostics.projectionGeneration,
+      hotPath: diagnostics.hotPath || labelLooksHotPath(reason),
+      reason,
+      pendingCount,
+      pendingBytes,
+      byteLength,
+      cleared: true,
+      affectedTables: [],
+      checkpointStorageClass: this.checkpointStorageClass,
+      error: [
+        `sqlite-delta-clear-after-checkpoint-read-failed: ${describeError(snapshotReadError)}`,
+        cleanupError,
+      ].filter((entry): entry is string => Boolean(entry)).join('; ') || null,
     };
   }
 

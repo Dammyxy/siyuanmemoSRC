@@ -292,8 +292,8 @@ export function createBrowserQueueViewLifecycle(deps: BrowserQueueViewLifecycleD
 
     let readiness: QueueProjectionReadiness | null = null;
     if (!shouldBypassProjectionReadiness(queueType)) {
-      const readinessService = request.browserAppService?.ensureQueueReadModelReady;
-      if (!readinessService) {
+      const browserAppService = request.browserAppService;
+      if (!browserAppService?.ensureQueueReadModelReady) {
         return {
           status: 'unavailable',
           queueId: canonicalQueueId,
@@ -303,7 +303,7 @@ export function createBrowserQueueViewLifecycle(deps: BrowserQueueViewLifecycleD
           retryAfterMs: 300,
         };
       }
-      readiness = await readinessService(buildReadinessRequest(request, queueType));
+      readiness = await browserAppService.ensureQueueReadModelReady(buildReadinessRequest(request, queueType));
       if (!isCurrentPrepareGeneration(requestGeneration)) {
         return {
           status: 'stale',

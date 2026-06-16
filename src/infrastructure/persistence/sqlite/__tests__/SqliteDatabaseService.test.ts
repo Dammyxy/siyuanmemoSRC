@@ -1100,6 +1100,130 @@ describe('SqliteDatabaseService', () => {
     });
   });
 
+  it('clears corrupted pending sqlite delta segments after a durable checkpoint writes the full database', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    await database.runTransaction('delta-corrupt-open', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-corrupt-open',
+          'card-corrupt-open',
+          'attempt-corrupt-open',
+          3,
+          1_700_000_000_100,
+          'commit-corrupt-open',
+          2026,
+          5,
+          'review-v2',
+          '{}',
+        ],
+      );
+    });
+
+    expect(fileService.binary.get(SQLITE_DELTA_V2_OPEN_SEGMENT)).toBeTruthy();
+    fileService.binary.set(SQLITE_DELTA_V2_OPEN_SEGMENT, new Uint8Array([1, 2, 3, 4]));
+
+    await database.persist('durable-checkpoint-corrupt-open');
+
+    expect(database.getOne<{ id: string }>(
+      'SELECT id FROM review_events WHERE id = ?',
+      ['event-corrupt-open'],
+    )).toEqual({ id: 'event-corrupt-open' });
+    expect(fileService.binary.get(SQLITE_DELTA_V2_OPEN_SEGMENT)).toBeUndefined();
+    expect(fileService.deletedFiles).toContain(SQLITE_DELTA_V2_OPEN_SEGMENT);
+    await expect(database.getSqliteDeltaDiagnostics()).resolves.toMatchObject({
+      pendingCount: 0,
+      lastCheckpoint: {
+        ok: true,
+        cleared: true,
+        reason: 'durable-checkpoint-corrupt-open',
+      },
+    });
+  });
+
+  it('checkpoints instead of failing when a transaction finds a corrupted pending sqlite delta segment', async () => {
+    const fileService = new MemorySqliteFileService();
+    const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await database.init();
+    await database.persist('seed-schema');
+
+    await database.runTransaction('delta-corrupt-before-transaction', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-corrupt-before-transaction',
+          'card-corrupt-before-transaction',
+          'attempt-corrupt-before-transaction',
+          3,
+          1_700_000_000_101,
+          'commit-corrupt-before-transaction',
+          2026,
+          5,
+          'review-v2',
+          '{}',
+        ],
+      );
+    });
+
+    fileService.binary.set(SQLITE_DELTA_V2_OPEN_SEGMENT, new Uint8Array([5, 6, 7, 8]));
+
+    await database.runTransaction('queue.projection.replace', (db) => {
+      db.run(
+        `INSERT INTO review_events
+          (id, card_id, attempt_id, rating, reviewed_at, commit_idempotency_key, year, month, event_type, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'event-after-corrupt-delta',
+          'card-after-corrupt-delta',
+          'attempt-after-corrupt-delta',
+          3,
+          1_700_000_000_102,
+          'commit-after-corrupt-delta',
+          2026,
+          5,
+          'review-v2',
+          '{}',
+        ],
+      );
+    });
+
+    expect(fileService.binary.get(SQLITE_DELTA_V2_OPEN_SEGMENT)).toBeUndefined();
+    expect(fileService.deletedFiles).toContain(SQLITE_DELTA_V2_OPEN_SEGMENT);
+    expect(database.getAll<{ id: string }>(
+      "SELECT id FROM review_events WHERE id IN ('event-corrupt-before-transaction', 'event-after-corrupt-delta') ORDER BY id",
+    )).toEqual([
+      { id: 'event-after-corrupt-delta' },
+      { id: 'event-corrupt-before-transaction' },
+    ]);
+
+    const reloaded = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {
+      persistOnInit: false,
+      enableDeltaPersistence: true,
+    });
+    await reloaded.init();
+
+    expect(reloaded.getAll<{ id: string }>(
+      "SELECT id FROM review_events WHERE id IN ('event-corrupt-before-transaction', 'event-after-corrupt-delta') ORDER BY id",
+    )).toEqual([
+      { id: 'event-after-corrupt-delta' },
+      { id: 'event-corrupt-before-transaction' },
+    ]);
+  });
+
   it('seals sqlite delta v2 open segments when the entry threshold is reached', async () => {
     const fileService = new MemorySqliteFileService();
     const database = new SqliteDatabaseService(fileService, SQLITE_DB_FILE, {

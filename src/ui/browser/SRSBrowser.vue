@@ -3622,13 +3622,7 @@ const cardTypeDetection = useCardTypeDetection(() => rows.value, {
 
 
 async function refreshQueueCounts(request: BrowserQueueCountsRequest = {}) {
-  const readToken = captureBrowserAsyncReadToken();
-  const guardedQueueCounts = ref({ ...queueCounts.value });
-  await refreshQueueCountsBridge(guardedQueueCounts, request);
-  if (!isBrowserAsyncReadStillCurrent(readToken)) {
-    return;
-  }
-  queueCounts.value = guardedQueueCounts.value;
+  await refreshQueueCountsBridge(queueCounts, request);
 }
 
 async function handleSelectQueue(queueId: string) {

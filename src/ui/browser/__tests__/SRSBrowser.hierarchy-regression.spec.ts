@@ -164,6 +164,10 @@ vi.mock('../BrowserHierarchy.vue', () => ({
         type: Object,
         default: () => ({ total: 0, dismissed: 0, lost: 0 }),
       },
+      queues: {
+        type: Object,
+        default: () => ({ active: '', counts: {} }),
+      },
       activeDocId: {
         type: String,
         default: null,
@@ -171,6 +175,16 @@ vi.mock('../BrowserHierarchy.vue', () => ({
     },
     emits: ['selectGlobal', 'selectDoc'],
     setup(props, { emit }) {
+      const queueSummaries = computed(() => {
+        const queues = props.queues as { counts?: Record<string, number> };
+        return [
+          'retrieval',
+          'incremental-learning',
+          'final-drill',
+          'neural-roam',
+          'filter-group',
+        ].map((id) => `${id}:${queues.counts?.[id] ?? 0}`);
+      });
       const docSummaries = computed(() => {
         const counts = new Map<string, number>();
         if (Array.isArray(props.documentCounts)) {
@@ -204,6 +218,7 @@ vi.mock('../BrowserHierarchy.vue', () => ({
           class: 'select-global-suspended',
           onClick: () => emit('selectGlobal', '__dismissed__'),
         }, `Suspended ${String((props.globalStats as { dismissed: number }).dismissed ?? 0)}`),
+        ...queueSummaries.value.map((summary) => h('div', { class: 'queue-entry' }, summary)),
         ...docSummaries.value.map((summary) => h('div', { class: 'doc-entry' }, summary)),
       ]);
     },
@@ -637,6 +652,66 @@ describe('SRSBrowser hierarchy regressions', () => {
     await advance(250);
 
     expect(refreshQueueCountsBridgeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps queue count refreshes alive across datasource version changes', async () => {
+    let releaseQueueCounts!: () => void;
+    refreshQueueCountsBridgeMock.mockImplementation(async (queueCountsRef: { value: Record<string, number> }) => {
+      await new Promise<void>((resolve) => {
+        releaseQueueCounts = () => {
+          queueCountsRef.value = {
+            retrieval: 3,
+            'incremental-learning': 1,
+            'final-drill': 2,
+            'neural-roam': 0,
+            'filter-group': 4,
+          };
+          resolve();
+        };
+      });
+    });
+    createQueueDataSourceMock.mockReturnValue({
+      id: 'retrieval',
+      label: 'retrieval',
+      fetchRows: vi.fn(async () => ({
+        rows: [buildBrowserCard('retrieval-row', 'doc-1')],
+        totalCount: 1,
+      })),
+      getQueryFingerprint: vi.fn(() => 'retrieval-first-rows'),
+      getAllMatchedIds: vi.fn(async () => []),
+      getRowsByIds: vi.fn(async () => []),
+      getActionTargetsByIds: vi.fn(async () => []),
+      getSupportedActions: vi.fn(() => []),
+    });
+    createDeckDataSourceMock.mockReturnValue({
+      id: 'deck',
+      label: 'deck',
+      fetchRows: vi.fn(async () => ({
+        rows: [buildBrowserCard('global-row', 'doc-1')],
+        totalCount: 1,
+      })),
+      getQueryFingerprint: vi.fn(() => 'global-first-rows'),
+      getAllMatchedIds: vi.fn(async () => []),
+      getRowsByIds: vi.fn(async () => []),
+      getActionTargetsByIds: vi.fn(async () => []),
+      getSupportedActions: vi.fn(() => []),
+    });
+
+    const wrapper = mountBrowser({ initialQueueId: 'retrieval' });
+    await advance(0);
+    await advance(250);
+    expect(refreshQueueCountsBridgeMock).toHaveBeenCalled();
+
+    await wrapper.find('.select-global-all').trigger('click');
+    await advance(0);
+    releaseQueueCounts();
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.text()).toContain('retrieval:3');
+    expect(wrapper.text()).toContain('incremental-learning:1');
+
+    wrapper.unmount();
   });
 
   it('runs browser-open Riff incremental sync without persisting idle checkpoints', async () => {

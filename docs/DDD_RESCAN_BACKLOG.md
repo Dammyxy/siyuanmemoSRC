@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-16 (Round 614)
+Last update: 2026-06-16 (Round 617)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-16 - All flashcards sort keeps deck rows
+
+- Task: Fix the Browser "All flashcards" view going blank after clicking a field header sort while queue views keep working.
+- Touched slice: Browser grid datasource lifecycle in `src/ui/browser/BrowserGridDatasourceLifecycle.ts`, focused grid lifecycle regression tests, and this backlog.
+- Debt fixed now: Accepted read-model metadata is now bound to the sort revision that produced it. When a user changes field sort, the grid accepts the new deck read-model `queryFingerprint` instead of comparing it against the previous unsorted fingerprint and falsely marking the sorted result as `stale-read-model`. Read-model generation/read-owner drift is still rejected, including across sort changes, preserving the active read-model safety check.
+- Debt deferred: No live SiYuan Browser click-smoke was run in this CLI pass.
+- Why deferred: The grid lifecycle seam reproduces the exact stale-fingerprint path deterministically, while live click-smoke needs the running SiYuan UI.
+- Next safe step: In live Browser, open `全部闪卡`, click priority/due/reps column sorting, and confirm rows remain visible while order changes.
+- Validation: Red/green `pnpm exec vitest run src/ui/browser/__tests__/BrowserGridDatasourceLifecycle.test.ts -t "rejects read model generation drift after a user sort changes the sort revision"`; `pnpm exec vitest run src/ui/browser/__tests__/BrowserGridDatasourceLifecycle.test.ts`; focused Browser batch `pnpm exec vitest run src/ui/browser/__tests__/BrowserGridDatasourceLifecycle.test.ts src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts src/ui/browser/datasource/__tests__/DeckDataSource.query-snapshot.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check` (only existing Windows line-ending notices); `pnpm build` (passed with existing non-blocking i18n hard-coded-string hints and Sass legacy warnings).
+
+### 2026-06-16 - Browser queue readiness and count recovery
+
+- Task: Fix the Browser opening path where projection readiness could hang or queue counts stayed refreshing, and address the pasted `unifiedDataSourceManager` / sqlite delta checksum failures.
+- Touched slice: Browser + Queue projection readiness/counts in `src/application/queries/browser/BrowserQueueViewLifecycle.ts`, `src/ui/browser/SRSBrowser.vue`, hierarchy/queue bridge regression tests, and SQLite delta checkpoint cleanup in `src/infrastructure/persistence/sqlite/{SqliteDatabaseService,SqliteDeltaCheckpoint}.ts`.
+- Debt fixed now: Browser readiness now calls `ensureQueueReadModelReady()` through the `BrowserApplicationService` instance, preserving method `this` and stopping `Cannot read properties of undefined (reading 'unifiedDataSourceManager')`. Queue count refreshes now update the shared count ref directly and rely on `useQueueBridge` per-queue request sequencing, so harmless datasource/read-model version changes no longer drop valid count patches. Durable SQLite checkpoints now clear unreadable pending delta segments after the full database has been written, and committed transactions that encounter an unreadable pending delta snapshot now choose a full checkpoint repair instead of failing first. This prevents a corrupt covered open segment from repeatedly breaking `queue.projection.replace` cleanup.
+- Debt deferred: No live SiYuan Browser smoke was run in this CLI pass, and corrupted sqlite delta replay during startup remains fail-fast unless a full durable checkpoint has already covered the segment.
+- Why deferred: The deterministic Browser and SQLite seams reproduce the pasted failure modes. Startup replay corruption cannot be safely discarded because those deltas may be the only durable copy; live Browser timing still needs a running SiYuan surface.
+- Next safe step: Open Browser in live SiYuan, switch between retrieval/global/all queues, and confirm all queue counts settle without repeated projection-ready waiting or sqlite delta checksum loops.
+- Validation: `pnpm exec vitest run src/application/queries/browser/__tests__/BrowserQueueViewLifecycle.test.ts`; `pnpm exec vitest run src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts`; `pnpm exec vitest run src/ui/browser/composables/__tests__/useQueueBridge.test.ts`; `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts`; `pnpm run check:boundaries`; `node scripts/check-hidden-fallbacks.cjs`; `git diff --check` (only existing Windows line-ending notices); `pnpm build` (passed with existing non-blocking i18n hard-coded-string hints and Sass legacy warnings).
 
 ### 2026-06-16 - Async progressive excerpt completion
 

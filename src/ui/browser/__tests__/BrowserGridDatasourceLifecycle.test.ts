@@ -264,6 +264,106 @@ describe('BrowserGridDatasourceLifecycle', () => {
     expect(firstRowsLifecycle.applyLoadedRows).toHaveBeenCalledTimes(1);
   });
 
+  it('accepts a new read model fingerprint after a user sort changes the sort revision', async () => {
+    const expectedMetadata = ref<any>(null);
+    const sortRevision = ref(0);
+    const dataSource = {
+      fetchRows: vi.fn()
+        .mockResolvedValueOnce({
+          rows: [{ id: 'a', blockId: 'a' }] as BrowserCard[],
+          totalCount: 2,
+          queryFingerprint: 'deck:unsorted',
+          generation: 7,
+          readOwner: { kind: 'sql-card-universe' },
+        })
+        .mockResolvedValueOnce({
+          rows: [{ id: 'b', blockId: 'b' }] as BrowserCard[],
+          totalCount: 2,
+          queryFingerprint: 'deck:sort-priority-desc',
+          generation: 7,
+          readOwner: { kind: 'sql-card-universe' },
+        }),
+    } as unknown as ICardDataSource;
+    const { firstRowsLifecycle, lifecycle } = createHarness({
+      getExpectedReadModelSnapshotMetadata: () => expectedMetadata.value,
+      onReadModelSnapshotMetadata: (metadata: any) => {
+        expectedMetadata.value = metadata;
+      },
+      sortRevision,
+    });
+    const datasource = lifecycle.createInfiniteDatasource(1, dataSource);
+    const unsortedParams = createParams();
+    const sortedParams = createParams({
+      sortModel: [{ colId: 'priority', sort: 'desc' }],
+    });
+
+    datasource.getRows!(unsortedParams);
+    await flush();
+    sortRevision.value += 1;
+    datasource.getRows!(sortedParams);
+    await flush();
+
+    expect(unsortedParams.successCallback).toHaveBeenCalledTimes(1);
+    expect(sortedParams.successCallback).toHaveBeenCalledWith([{ id: 'b', blockId: 'b' }], 2);
+    expect(sortedParams.failCallback).not.toHaveBeenCalled();
+    expect(expectedMetadata.value).toEqual({
+      queryFingerprint: 'deck:sort-priority-desc',
+      generation: 7,
+      readOwner: { kind: 'sql-card-universe' },
+    });
+    expect(firstRowsLifecycle.applyLoadedRows).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects read model generation drift after a user sort changes the sort revision', async () => {
+    const expectedMetadata = ref<any>(null);
+    const sortRevision = ref(0);
+    const dataSource = {
+      fetchRows: vi.fn()
+        .mockResolvedValueOnce({
+          rows: [{ id: 'a', blockId: 'a' }] as BrowserCard[],
+          totalCount: 2,
+          queryFingerprint: 'deck:unsorted',
+          generation: 7,
+          readOwner: { kind: 'sql-card-universe' },
+        })
+        .mockResolvedValueOnce({
+          rows: [{ id: 'b', blockId: 'b' }] as BrowserCard[],
+          totalCount: 2,
+          queryFingerprint: 'deck:sort-priority-desc',
+          generation: 8,
+          readOwner: { kind: 'sql-card-universe' },
+        }),
+    } as unknown as ICardDataSource;
+    const { firstRowsLifecycle, lifecycle } = createHarness({
+      getExpectedReadModelSnapshotMetadata: () => expectedMetadata.value,
+      onReadModelSnapshotMetadata: (metadata: any) => {
+        expectedMetadata.value = metadata;
+      },
+      sortRevision,
+    });
+    const datasource = lifecycle.createInfiniteDatasource(1, dataSource);
+    const unsortedParams = createParams();
+    const sortedParams = createParams({
+      sortModel: [{ colId: 'priority', sort: 'desc' }],
+    });
+
+    datasource.getRows!(unsortedParams);
+    await flush();
+    sortRevision.value += 1;
+    datasource.getRows!(sortedParams);
+    await flush();
+
+    expect(unsortedParams.successCallback).toHaveBeenCalledTimes(1);
+    expect(sortedParams.failCallback).toHaveBeenCalledTimes(1);
+    expect(sortedParams.successCallback).not.toHaveBeenCalled();
+    expect(expectedMetadata.value).toEqual({
+      queryFingerprint: 'deck:unsorted',
+      generation: 7,
+      readOwner: { kind: 'sql-card-universe' },
+    });
+    expect(firstRowsLifecycle.applyLoadedRows).toHaveBeenCalledTimes(1);
+  });
+
   it('routes projection-not-ready and hard errors through first-row lifecycle', async () => {
     const projectionError = new QueueProjectionNotReadyError('refreshing');
     const hardError = new Error('boom');

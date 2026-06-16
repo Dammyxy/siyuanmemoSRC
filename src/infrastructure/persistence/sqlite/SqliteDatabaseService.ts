@@ -485,7 +485,15 @@ export class SqliteDatabaseService {
     const force = typeof options === 'object' && options.force === true;
     const diagnostics = normalizePersistDiagnostics(reason, options);
     const startedAt = Date.now();
-    const checkpointablePendingDelta = await this.deltaLayer?.hasCheckpointablePendingDeltas() ?? false;
+    let checkpointablePendingDelta = false;
+    try {
+      checkpointablePendingDelta = await this.deltaLayer?.hasCheckpointablePendingDeltas() ?? false;
+    } catch (error) {
+      if (!this.deltaLayer?.canClearPendingAfterCheckpoint()) {
+        throw error;
+      }
+      checkpointablePendingDelta = true;
+    }
     if (!force && !this.dirtySincePersist && !this.schemaDirty && !checkpointablePendingDelta) {
       recordRuntimePerformanceSpan('sqlite', 'persist', Date.now() - startedAt, {
         dbFile: this.dbFile,

@@ -86,6 +86,39 @@ describe('BrowserQueueViewLifecycle', () => {
     });
   });
 
+  it('calls readiness through the BrowserApplicationService instance so method context is preserved', async () => {
+    const createDataSource = vi.fn(() => createDatasource());
+    const lifecycle = createBrowserQueueViewLifecycle({
+      createDataSource,
+      logger: { info: vi.fn(), debug: vi.fn(), warn: vi.fn() },
+    });
+    const service = {
+      unifiedDataSourceManager: { ready: true },
+      async ensureQueueReadModelReady(request: { queueType: QueueType }) {
+        if (!this.unifiedDataSourceManager.ready) {
+          throw new Error('lost browser application service context');
+        }
+        return {
+          status: 'ready' as const,
+          queueId: request.queueType,
+          policyId: 'policy-bound-service',
+          generation: 9,
+        };
+      },
+    };
+
+    const result = await lifecycle.prepareQueueView(createRequest({ browserAppService: service }));
+
+    expect(result.status).toBe('ready');
+    expect(createDataSource).toHaveBeenCalledTimes(1);
+    expect(result.status === 'ready' ? result.projectionIdentity : null).toEqual({
+      queueId: QueueType.RetrievalPractice,
+      queueType: QueueType.RetrievalPractice,
+      policyId: 'policy-bound-service',
+      generation: 9,
+    });
+  });
+
   it.each([
     ['preparing', { status: 'refreshing', cause: 'materialization_in_progress', retryAfterMs: 111 }],
     ['repair-required', { status: 'refreshing', cause: 'projection_stale', retryAfterMs: 222 }],
