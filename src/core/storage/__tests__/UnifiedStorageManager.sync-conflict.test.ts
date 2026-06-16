@@ -307,6 +307,46 @@ describe('UnifiedStorageManager sync conflict resolution', () => {
     expect(savedStores).toHaveLength(0);
   });
 
+  it('persists missing Xiuyuan binding repairs once instead of repairing every save', async () => {
+    remoteStore = {
+      ...createEmptyStore(),
+      xiuyuans: {
+        'xy-old': {
+          ...createXiuyuan('xy-old'),
+          blockIDs: ['block-shared'],
+          fields: [{ name: 'content', blockID: 'block-shared' }],
+        },
+      },
+      cardDTOs: {
+        'card-a': createDTO('card-a', 'xy-target', {
+          blockId: 'block-shared',
+          frontBlockIDs: ['block-shared'],
+          meta: {
+            xiuyuanID: 'xy-target',
+          },
+        }),
+      },
+    };
+    const manager = createManager('merge');
+    await manager.load();
+    savedStores = [];
+
+    const saveResult = await manager.save();
+
+    expect(saveResult.ok).toBe(true);
+    expect(savedStores).toHaveLength(1);
+    expect(remoteStore.xiuyuans['xy-target']).toBeDefined();
+    expect(remoteStore.xiuyuans['xy-old']).toBeUndefined();
+    expect(remoteStore.cardDTOs?.['card-a']?.xiuyuanID).toBe('xy-target');
+    expect(remoteStore.cards?.['card-a']?.meta?.xiuyuanID).toBe('xy-target');
+
+    savedStores = [];
+    const secondSaveResult = await manager.save();
+
+    expect(secondSaveResult.ok).toBe(true);
+    expect(savedStores).toHaveLength(0);
+  });
+
   it('canonicalizes the same persisted snapshot deterministically across loads', async () => {
     vi.useFakeTimers();
     try {

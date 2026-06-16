@@ -28,6 +28,12 @@ function isDirectChildCleanupSql(stmt: string, docId: string): boolean {
   return stmt.includes(`WHERE b.parent_id = '${docId}'`) && stmt.includes('LIMIT 2');
 }
 
+function isDocHPathLookupSql(stmt: string): boolean {
+  return stmt.includes('WHERE type = \'d\'')
+    && stmt.includes('AND hpath = \'')
+    && stmt.includes('LIMIT 1');
+}
+
 function createFileServiceMock(initialData: unknown = null): IFileService & { getStored: (fileName?: string) => unknown } {
   const store = new Map<string, unknown>();
   if (initialData !== null) {
@@ -303,6 +309,9 @@ describe('ProgressiveReadingService', () => {
             { id: 'source-boundary-1', root_id: 'doc-1', parent_id: 'doc-1', box: 'nb', type: 'p', content: 'text', markdown: 'text' },
           ];
         }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
     });
@@ -349,6 +358,9 @@ describe('ProgressiveReadingService', () => {
         if (stmt.includes("WHERE type = 'd'") || stmt.includes("WHERE b.type = 'd'")) {
           return [];
         }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
     });
@@ -393,7 +405,7 @@ describe('ProgressiveReadingService', () => {
     const result = await service.createChildDocFromSource({
       sourceDocId: 'doc-1',
       kind: 'derived-item-doc',
-      titlePrefix: 'Item',
+      fallbackTitle: '挖空',
       previewText: 'preview',
       contentMarkdown: 'content',
       attrs: {},
@@ -406,9 +418,61 @@ describe('ProgressiveReadingService', () => {
       input: expect.objectContaining({
         sourceDocId: 'doc-1',
         kind: 'derived-item-doc',
-        titlePrefix: 'Item',
+        fallbackTitle: '挖空',
       }),
     }));
+  });
+
+  it('creates child docs with clean preview titles and numeric collision suffixes', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async (docId: string) => ({
+        id: docId,
+        box: 'notebook-a',
+        path: '/reading/source.sy',
+        hpath: '/reading/source',
+        name: 'Source',
+      })),
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE type = 'd'") && stmt.includes("hpath = '/reading/source/Focus text'")) {
+          return [{ id: 'existing-focus-doc' }];
+        }
+        if (stmt.includes("WHERE type = 'd'") && stmt.includes("hpath = '/reading/source/Focus text 2'")) {
+          return [];
+        }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+      createDocWithMarkdown: vi.fn(async () => 'created-focus-doc'),
+      updateMarkdownBlock: vi.fn(async () => 'created-focus-content'),
+    });
+    const { service: cardService } = createCardServiceMock();
+    const service = createServiceUnderTest(port, fileService, cardService, createSettingsProviderMock());
+
+    const result = await service.createChildDocFromSource({
+      sourceDocId: 'doc-1',
+      kind: 'derived-item-doc',
+      fallbackTitle: '挖空',
+      previewText: 'Focus/text',
+      previewMax: 20,
+      storageMode: 'source-child',
+      contentMarkdown: 'content',
+      attrs: {},
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      docId: 'created-focus-doc',
+      parentDocId: 'doc-1',
+      sequence: 2,
+      contentBlockId: 'created-focus-content',
+    }));
+    expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
+      'notebook-a',
+      '/reading/source/Focus text 2',
+      '',
+    );
   });
 
   it('relays backend progressive commands when current window is follower', async () => {
@@ -500,6 +564,9 @@ describe('ProgressiveReadingService', () => {
             { id: 'block-3', root_id: 'doc-1', parent_id: 'doc-1', type: 'p', sort: '003' },
           ];
         }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
     });
@@ -578,6 +645,9 @@ describe('ProgressiveReadingService', () => {
             { id: 'child-2', root_id: 'doc-1', parent_id: 'super-block-1', type: 'p', sort: '002' },
           ];
         }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
     });
@@ -636,6 +706,9 @@ describe('ProgressiveReadingService', () => {
           return [
             { id: 'list-1', root_id: 'doc-1', parent_id: 'doc-1', type: 'l', sort: '000' },
           ];
+        }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
@@ -1519,6 +1592,9 @@ describe('ProgressiveReadingService', () => {
         if (stmt.includes('WHERE id IN')) {
           return [{ id: 'piece-old-1' }];
         }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
     });
@@ -1694,6 +1770,9 @@ describe('ProgressiveReadingService', () => {
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
           return [];
         }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       getBlockKramdown: vi.fn(async () => ({
@@ -1754,7 +1833,7 @@ describe('ProgressiveReadingService', () => {
     expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
       1,
       'notebook-a',
-      '/reading/ordinary/[Topic 001] Focus text',
+      '/reading/ordinary/Focus text',
       '',
     );
     expect(port.updateDomBlock).toHaveBeenCalledWith(
@@ -1863,6 +1942,9 @@ describe('ProgressiveReadingService', () => {
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-cleanup'")) {
           return [];
         }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-cleanup-1'),
@@ -1908,6 +1990,9 @@ describe('ProgressiveReadingService', () => {
           return [];
         }
         if (isDirectChildCleanupSql(stmt, 'excerpt-lineage-1')) {
+          return [];
+        }
+        if (isDocHPathLookupSql(stmt)) {
           return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
@@ -2030,6 +2115,9 @@ describe('ProgressiveReadingService', () => {
         if (isDirectChildCleanupSql(stmt, 'excerpt-policy-1')) {
           return [];
         }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       createDocWithMarkdown: vi.fn(async () => 'excerpt-policy-1'),
@@ -2065,6 +2153,9 @@ describe('ProgressiveReadingService', () => {
       sql: vi.fn(async (stmt: string) => {
         if (stmt.includes('WHERE id IN')) {
           return rows;
+        }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
@@ -2193,12 +2284,18 @@ describe('ProgressiveReadingService', () => {
             { id: 'piece-block-1', root_id: 'piece-1', parent_id: 'piece-1', box: 'notebook-a', type: 'p', content: 'Before Piece text after', markdown: 'Before Piece text after' },
           ];
         }
-        if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'piece-1'")) {
+        if (stmt.includes("WHERE type = 'd'") && stmt.includes("hpath = '/reading/article/01 Intro/Piece text'")) {
           return [
-            { id: 'excerpt-doc-old-1', content: '[摘录 001] Earlier' },
+            { id: 'excerpt-doc-old-1', content: 'Piece text' },
           ];
         }
+        if (stmt.includes("WHERE type = 'd'") && stmt.includes("hpath = '/reading/article/01 Intro/Piece text 2'")) {
+          return [];
+        }
         if (isDirectChildCleanupSql(stmt, 'excerpt-doc-2')) {
+          return [];
+        }
+        if (isDocHPathLookupSql(stmt)) {
           return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
@@ -2240,7 +2337,7 @@ describe('ProgressiveReadingService', () => {
     expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
       1,
       'notebook-a',
-      '/reading/article/01 Intro/[Topic 002] Piece text',
+      '/reading/article/01 Intro/Piece text 2',
       '',
     );
     expect(port.updateDomBlock).toHaveBeenCalledWith(
@@ -2350,6 +2447,9 @@ describe('ProgressiveReadingService', () => {
         if (stmt.includes("a1.value = 'doc-ordinary'")) {
           return [];
         }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       createDocWithMarkdown: vi.fn(async () => 'excerpt-created-2'),
@@ -2401,6 +2501,9 @@ describe('ProgressiveReadingService', () => {
             { id: 'source-missing-root-1', root_id: '', parent_id: '', box: '', type: 'p', content: 'Focus text', markdown: 'Focus text' },
           ];
         }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       createDocWithMarkdown: vi.fn(async () => 'excerpt-should-not-exist'),
@@ -2441,7 +2544,10 @@ describe('ProgressiveReadingService', () => {
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
           return [];
         }
-        if (stmt.includes("WHERE type = 'd'") && stmt.includes("hpath = '/reading/ordinary/[Topic 001] Focus text'")) {
+        if (stmt.includes("WHERE type = 'd'") && stmt.includes("hpath = '/reading/ordinary/Focus text'")) {
+          return [];
+        }
+        if (isDocHPathLookupSql(stmt)) {
           return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
@@ -2487,6 +2593,9 @@ describe('ProgressiveReadingService', () => {
         if (isDirectChildCleanupSql(stmt, 'excerpt-doc-plain-1')) {
           return [];
         }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-plain-1'),
@@ -2514,7 +2623,7 @@ describe('ProgressiveReadingService', () => {
     expect(port.createDocWithMarkdown).toHaveBeenCalledTimes(1);
     expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
       'notebook-a',
-      '/reading/ordinary/[Topic 001] Focus',
+      '/reading/ordinary/Focus',
       '',
     );
     expect(port.updateDomBlock).toHaveBeenCalledWith(
@@ -2545,6 +2654,9 @@ describe('ProgressiveReadingService', () => {
           return [];
         }
         if (isDirectChildCleanupSql(stmt, 'excerpt-doc-source-child-1')) {
+          return [];
+        }
+        if (isDocHPathLookupSql(stmt)) {
           return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
@@ -2578,7 +2690,7 @@ describe('ProgressiveReadingService', () => {
     expect(result.kind).toBe('created');
     expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
       'notebook-a',
-      '/reading/ordinary/[Topic 001] Focus',
+      '/reading/ordinary/Focus',
       '',
     );
     expect(configuredCaptureStorageService.resolveLibraryTarget).not.toHaveBeenCalled();
@@ -2622,6 +2734,9 @@ describe('ProgressiveReadingService', () => {
           return [];
         }
         if (isDirectChildCleanupSql(stmt, 'excerpt-doc-rich-1')) {
+          return [];
+        }
+        if (isDocHPathLookupSql(stmt)) {
           return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
@@ -2745,6 +2860,9 @@ describe('ProgressiveReadingService', () => {
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
           return [];
         }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       appendMarkdownBlock: vi.fn(async () => 'daily-root-1'),
@@ -2847,6 +2965,9 @@ describe('ProgressiveReadingService', () => {
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
           return [];
         }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       appendMarkdownBlock: vi.fn(async () => 'daily-root-1'),
@@ -2918,6 +3039,9 @@ describe('ProgressiveReadingService', () => {
         if (isDirectChildCleanupSql(stmt, 'excerpt-doc-long-1')) {
           return [];
         }
+        if (isDocHPathLookupSql(stmt)) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-long-1'),
@@ -2944,7 +3068,7 @@ describe('ProgressiveReadingService', () => {
     }));
     expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
       'notebook-a',
-      '/reading/ordinary/[Topic 001] 人的思考并不只发生在大…',
+      '/reading/ordinary/人的思考并不只发生在大…',
       '',
     );
     expect(port.updateDomBlock).toHaveBeenCalledWith(
@@ -2989,6 +3113,9 @@ describe('ProgressiveReadingService', () => {
           return [];
         }
         if (isDirectChildCleanupSql(stmt, 'excerpt-doc-child-1')) {
+          return [];
+        }
+        if (isDocHPathLookupSql(stmt)) {
           return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
@@ -3083,6 +3210,9 @@ describe('ProgressiveReadingService', () => {
           return [];
         }
         if (isDirectChildCleanupSql(stmt, 'topic-doc-excerpt-1')) {
+          return [];
+        }
+        if (isDocHPathLookupSql(stmt)) {
           return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
@@ -3193,6 +3323,9 @@ describe('ProgressiveReadingService', () => {
           return [];
         }
         if (isDirectChildCleanupSql(stmt, 'excerpt-doc-riff-fail-1')) {
+          return [];
+        }
+        if (isDocHPathLookupSql(stmt)) {
           return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);

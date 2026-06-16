@@ -48,6 +48,7 @@ const logger = createLogger('ProgressiveReadingService');
 const STORAGE_KEY = 'progressive-reading.json';
 const WORKBENCH_DOC_TITLE = 'Topic 工作台';
 const DAILY_EXCERPT_ROOT_TITLE = 'SiYuanMemo Topic';
+const CHILD_DOC_TITLE_MAX_COLLISION_ATTEMPTS = 100;
 
 type ProgressiveKind =
   | 'piece'
@@ -253,7 +254,7 @@ export type ProgressiveChildDocStorageMode = 'workbench' | 'source-child';
 export interface ProgressiveChildDocInput {
   sourceDocId: string;
   kind: Extract<ProgressiveKind, 'excerpt-doc' | 'derived-item-doc'>;
-  titlePrefix: string;
+  fallbackTitle: string;
   previewText: string;
   previewMax?: number;
   storageMode?: ProgressiveChildDocStorageMode;
@@ -353,11 +354,15 @@ function toStringRecord(value: unknown): Record<string, string> {
 }
 
 function sanitizeDocTitle(value: string): string {
+  return sanitizeDocTitleCandidate(value) || 'Piece';
+}
+
+function sanitizeDocTitleCandidate(value: string): string {
   return value
     .replace(/[\\/:*?"<>|]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 80) || 'Piece';
+    .slice(0, 80);
 }
 
 function truncateText(value: string, max = 40): string {
@@ -869,11 +874,6 @@ export class ProgressiveReadingService {
     const storageMode: ProgressiveChildDocStorageMode = input.storageMode === 'source-child'
       ? 'source-child'
       : 'workbench';
-    const sequence = await this.resolveNextChildDocSequence({
-      sourceDocId,
-      kind: input.kind,
-      titlePrefix: input.titlePrefix,
-    });
 
     let parentDocId = sourceDocId;
     let parentHPath = sourceDocInfo.hpath;
@@ -882,13 +882,14 @@ export class ProgressiveReadingService {
       parentHPath = `${sourceDocInfo.hpath}/${WORKBENCH_DOC_TITLE}`;
     }
 
-    const childTitle = this.buildNumberedChildDocTitle(
-      input.titlePrefix,
-      sequence,
-      input.previewText,
-      input.previewMax,
-    );
-    const childPath = `${parentHPath}/${childTitle}`;
+    const resolvedTitle = await this.resolveAvailableChildDocTitle({
+      notebook: sourceDocInfo.box,
+      parentHPath,
+      fallbackTitle: input.fallbackTitle,
+      previewText: input.previewText,
+      previewMax: input.previewMax,
+    });
+    const childPath = resolvedTitle.hpath;
     const created = await this.siyuanApi.createDocWithMarkdown(sourceDocInfo.box, childPath, '');
     const docId = created || await this.findDocIdByHPath(sourceDocInfo.box, childPath);
     if (!docId) {
@@ -908,7 +909,7 @@ export class ProgressiveReadingService {
       docId,
       parentDocId,
       storageMode,
-      sequence,
+      sequence: resolvedTitle.sequence,
       contentBlockId: asString(contentBlockId),
     };
   }
@@ -1800,7 +1801,7 @@ export class ProgressiveReadingService {
     const result = await this.createChildDocFromSource({
       sourceDocId: input.sourceDocId,
       kind: 'excerpt-doc',
-      titlePrefix: 'Topic',
+      fallbackTitle: '摘录',
       previewText: input.selectedText,
       previewMax: 12,
       storageMode: 'source-child',
@@ -1823,18 +1824,14 @@ export class ProgressiveReadingService {
       throw new Error('无法解析固定库摘录目标路径');
     }
 
-    const sequence = await this.resolveNextChildDocSequence({
-      sourceDocId: input.sourceDocId,
-      kind: 'excerpt-doc',
-      titlePrefix: 'Topic',
+    const resolvedTitle = await this.resolveAvailableChildDocTitle({
+      notebook: input.parentDocInfo.box,
+      parentHPath: input.parentDocInfo.hpath,
+      fallbackTitle: '摘录',
+      previewText: input.selectedText,
+      previewMax: 12,
     });
-    const childTitle = this.buildNumberedChildDocTitle(
-      '摘录',
-      sequence,
-      input.selectedText,
-      12,
-    );
-    const childPath = `${input.parentDocInfo.hpath}/${childTitle}`;
+    const childPath = resolvedTitle.hpath;
     const created = await this.siyuanApi.createDocWithMarkdown(input.parentDocInfo.box, childPath, '');
     const docId = created || await this.findDocIdByHPath(input.parentDocInfo.box, childPath);
     if (!docId) {
@@ -2400,60 +2397,49 @@ export class ProgressiveReadingService {
     return `${timestamp}-${suffix}`;
   }
 
-  private async resolveNextChildDocSequence(input: {
-    sourceDocId: string;
-    kind: Extract<ProgressiveKind, 'excerpt-doc' | 'derived-item-doc'>;
-    titlePrefix: string;
-  }): Promise<number> {
-    void this.reportOwnershipBoundaryQuery('scan-candidates', {
-      sourceDocId: input.sourceDocId,
-      kind: input.kind,
-      titlePrefix: input.titlePrefix,
-    });
-    const rows = await this.siyuanApi.sql<ProgressiveBlockRow>(`
-      SELECT b.id, b.content
-      FROM blocks b
-      ${this.buildCompatAttrJoin('a0', 'b.id', ATTR_PROGRESSIVE_KIND, input.kind)}
-      ${this.buildCompatAttrJoin('a1', 'b.id', ATTR_PROGRESSIVE_SOURCE_DOC_ID, input.sourceDocId)}
-      WHERE b.type = 'd'
-      ORDER BY b.id ASC
-    `);
+  private async resolveAvailableChildDocTitle(input: {
+    notebook: string;
+    parentHPath: string;
+    fallbackTitle: string;
+    previewText: string;
+    previewMax?: number;
+  }): Promise<{ title: string; hpath: string; sequence: number }> {
+    const baseTitle = this.buildCleanChildDocBaseTitle(
+      input.previewText,
+      input.previewMax,
+      input.fallbackTitle,
+    );
 
-    let maxSequence = 0;
-    let hasExplicitSequence = false;
-    for (const row of rows) {
-      const sequence = this.parseNumberedChildDocSequence(asString(row.content) || '', input.titlePrefix);
-      if (sequence > 0) {
-        hasExplicitSequence = true;
-        maxSequence = Math.max(maxSequence, sequence);
+    for (let sequence = 1; sequence <= CHILD_DOC_TITLE_MAX_COLLISION_ATTEMPTS; sequence += 1) {
+      const title = this.buildChildDocCollisionTitle(baseTitle, sequence);
+      const hpath = `${input.parentHPath}/${title}`;
+      const existing = await this.findDocIdByHPath(input.notebook, hpath);
+      if (!existing) {
+        return { title, hpath, sequence };
       }
     }
 
-    if (hasExplicitSequence) {
-      return maxSequence + 1;
-    }
-
-    return rows.length + 1;
+    throw new Error(`无法为子文档生成可用标题：${baseTitle}`);
   }
 
-  private parseNumberedChildDocSequence(title: string, titlePrefix: string): number {
-    const escapedPrefix = titlePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const matched = title.match(new RegExp(`^\\[${escapedPrefix}\\s*(\\d+)\\]`, 'u'));
-    return matched ? Math.max(0, Number(matched[1]) || 0) : 0;
-  }
-
-  private buildNumberedChildDocTitle(
-    titlePrefix: string,
-    sequence: number,
+  private buildCleanChildDocBaseTitle(
     previewText: string,
-    previewMax = 12,
+    previewMax: number | undefined,
+    fallbackTitle: string,
   ): string {
-    const prefix = String(Math.max(1, sequence)).padStart(3, '0');
-    const preview = buildExcerptTitlePreview(previewText, previewMax);
-    if (!preview) {
-      return sanitizeDocTitle(`[${titlePrefix} ${prefix}]`);
+    const preview = buildExcerptTitlePreview(previewText, previewMax ?? 12);
+    return sanitizeDocTitleCandidate(preview)
+      || sanitizeDocTitleCandidate(fallbackTitle)
+      || 'Piece';
+  }
+
+  private buildChildDocCollisionTitle(baseTitle: string, sequence: number): string {
+    if (sequence <= 1) {
+      return baseTitle;
     }
-    return sanitizeDocTitle(`[${titlePrefix} ${prefix}] ${preview}`);
+    const suffix = ` ${sequence}`;
+    const baseMaxLength = Math.max(1, 80 - suffix.length);
+    return `${baseTitle.slice(0, baseMaxLength).trimEnd()}${suffix}`;
   }
 
   private escapeHtml(value: string): string {

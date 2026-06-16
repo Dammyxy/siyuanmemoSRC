@@ -136,6 +136,14 @@ type DeferredRepositorySideEffects = {
   eventXiuyuans: Xiuyuan[];
 };
 
+type TraceAttrsSnapshot = {
+  hasXiuyuanBinding: boolean;
+  xiuyuanId: string | null;
+  legacyXiuyuanId: string | null;
+  cardType: string | null;
+  attrKeys: string[];
+};
+
 function isListTemplateChild(value: unknown): value is ListTemplateChild {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<ListTemplateChild>;
@@ -402,7 +410,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     logger.info('[AutoCardTrace]', { event, ...payload });
   }
 
-  private summarizeTraceAttrs(attrs: Record<string, string> | null | undefined): Record<string, unknown> {
+  private summarizeTraceAttrs(attrs: Record<string, string> | null | undefined): TraceAttrsSnapshot {
     const normalized = attrs ?? {};
     const xiuyuanId = String(normalized['custom-xiuyuan-id'] || '').trim();
     const legacyXiuyuanId = String(normalized['custom-fsrs-xiuyuan-id'] || '').trim();
@@ -416,11 +424,36 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     };
   }
 
+  private isBindingAttrWriteNeeded(
+    attrsBeforeWrite: TraceAttrsSnapshot | null,
+    bindingAttrs: Record<string, string>,
+  ): boolean {
+    if (!attrsBeforeWrite) {
+      return true;
+    }
+
+    const targetXiuyuanId = String(bindingAttrs['custom-xiuyuan-id'] || '').trim();
+    if (targetXiuyuanId && attrsBeforeWrite.xiuyuanId !== targetXiuyuanId) {
+      return true;
+    }
+
+    const targetCardType = String(bindingAttrs[ATTR_CARD_TYPE] || '').trim();
+    if (targetCardType.length > 0) {
+      return attrsBeforeWrite.cardType !== targetCardType;
+    }
+
+    if (ATTR_CARD_TYPE in bindingAttrs) {
+      return attrsBeforeWrite.cardType !== null && attrsBeforeWrite.cardType.length > 0;
+    }
+
+    return false;
+  }
+
   private sampleCardIds(cardIds: string[]): string[] {
     return cardIds.slice(0, CARD_ID_DEBUG_SAMPLE_LIMIT);
   }
 
-  private async readTraceAttrs(blockId: string): Promise<Record<string, unknown> | null> {
+  private async readTraceAttrs(blockId: string): Promise<TraceAttrsSnapshot | null> {
     try {
       return this.summarizeTraceAttrs(await getBlockAttrs(blockId));
     } catch (error) {
@@ -873,6 +906,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       const descriptorBlockId = blockIDs[1]!.getValue();
       sideEffects.afterPersist.push(async () => {
         const attrsBeforeWrite = await this.readTraceAttrs(descriptorBlockId);
+        if (!this.isBindingAttrWriteNeeded(attrsBeforeWrite, bindingAttrs)) {
+          logger.debug(`Skip unchanged descriptor attributes: descriptor=${descriptorBlockId}`);
+          return;
+        }
         this.traceAutoCard('XiuyuanRepository.save.attrWrite.begin', {
           xiuyuanId,
           targetKind: 'descriptor',
@@ -923,6 +960,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     const representativeBlockId = blockIDs[0]!.getValue();
     sideEffects.afterPersist.push(async () => {
       const attrsBeforeWrite = await this.readTraceAttrs(representativeBlockId);
+      if (!this.isBindingAttrWriteNeeded(attrsBeforeWrite, bindingAttrs)) {
+        logger.debug(`Skip unchanged block attributes: block=${representativeBlockId}`);
+        return;
+      }
       this.traceAutoCard('XiuyuanRepository.save.attrWrite.begin', {
         xiuyuanId,
         targetKind: 'representative',

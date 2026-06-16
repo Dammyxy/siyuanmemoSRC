@@ -93,6 +93,34 @@ function createManagedRiffXiuyuan(meta: Record<string, unknown> = {}): Xiuyuan {
   );
 }
 
+function createProgressiveTopicXiuyuan(): Xiuyuan {
+  const xiuyuan = must(
+    Xiuyuan.create({
+      blockIDs: [must(BlockId.create('20260102000002-topic01'))],
+      templateID: must(TemplateId.create('builtin-topic')),
+      faces: [
+        must(
+          CardFace.create({
+            question: '20260102000002-topic01',
+            answer: '',
+            questionBlockId: '20260102000002-topic01',
+          })
+        ),
+      ],
+      meta: {
+        cardType: 'topic',
+        progressive: {
+          kind: 'excerpt',
+          sourceDocId: '20260102000000-source1',
+          sourceBlockId: '20260102000000-block01',
+        },
+      },
+    })
+  );
+  must(xiuyuan.createCard(0));
+  return xiuyuan;
+}
+
 describe('XiuyuanRepository managed riff binding attrs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -120,6 +148,40 @@ describe('XiuyuanRepository managed riff binding attrs', () => {
     expect(setBlockAttrsMock).toHaveBeenCalledWith(
       '20260102000001-riff001',
       { 'custom-fsrs-card-type': 'topic' }
+    );
+  });
+
+  it('skips representative attr writes when persisted binding attrs are already current', async () => {
+    const repository = new XiuyuanRepository(createStorageMock() as any);
+    const xiuyuan = createProgressiveTopicXiuyuan();
+    getBlockAttrsMock.mockResolvedValue({
+      'custom-xiuyuan-id': xiuyuan.getId().getValue(),
+    });
+
+    const result = await repository.save(xiuyuan);
+
+    expect(result.ok).toBe(true);
+    expect(getBlockAttrsMock).toHaveBeenCalledWith('20260102000002-topic01');
+    expect(setBlockAttrsMock).not.toHaveBeenCalled();
+  });
+
+  it('still writes representative attrs when persisted binding attrs are stale', async () => {
+    const repository = new XiuyuanRepository(createStorageMock() as any);
+    const xiuyuan = createProgressiveTopicXiuyuan();
+    getBlockAttrsMock.mockResolvedValue({
+      'custom-xiuyuan-id': 'xiuyuan-stale',
+      'custom-fsrs-card-type': 'topic',
+    });
+
+    const result = await repository.save(xiuyuan);
+
+    expect(result.ok).toBe(true);
+    expect(setBlockAttrsMock).toHaveBeenCalledWith(
+      '20260102000002-topic01',
+      {
+        'custom-xiuyuan-id': xiuyuan.getId().getValue(),
+        'custom-fsrs-card-type': '',
+      }
     );
   });
 

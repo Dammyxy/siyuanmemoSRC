@@ -1011,9 +1011,9 @@ export class UnifiedStorageManager {
         if (!skipPersist) {
           const storeData = this.prepareStoreForPersist(storeToPersist, remoteStore);
           await this.saveCallback(storeData);
-          this.applyStoreSnapshot(storeData);
-        } else if (remoteStore) {
-          this.applyStoreSnapshot(remoteStore);
+          this.applyCanonicalStoreSnapshot(storeData);
+        } else {
+          this.applyCanonicalStoreSnapshot(storeToPersist);
         }
 
         this.dirty = false;
@@ -1043,7 +1043,10 @@ export class UnifiedStorageManager {
    */
   private applyStoreSnapshot(store: UnifiedCardStore): void {
     const canonicalStore = this.prepareCanonicalStore(store);
+    this.applyCanonicalStoreSnapshot(canonicalStore);
+  }
 
+  private applyCanonicalStoreSnapshot(canonicalStore: UnifiedCardStore): void {
     this.xiuyuans.clear();
     this.cardDTOs.clear();
     this.deletedCardDTOs.clear();
@@ -1107,7 +1110,6 @@ export class UnifiedStorageManager {
     const remoteHash = this.calculateCanonicalContentHash(canonicalRemote);
 
     if (localHash === remoteHash) {
-      this.captureSnapshotFromCanonicalStore(canonicalRemote);
       const shapeOnlyRepair = localPreparation.changed || remotePreparation.changed;
       return { storeToPersist: canonicalRemote, skipPersist: !shapeOnlyRepair };
     }
@@ -1129,7 +1131,6 @@ export class UnifiedStorageManager {
     });
 
     if (this.conflictResolutionStrategy === 'prefer-remote') {
-      this.applyStoreSnapshot(canonicalRemote);
       logger.warn('[UnifiedStorageManager] Conflict resolved with remote snapshot');
       return { storeToPersist: canonicalRemote, skipPersist: true };
     }
@@ -1140,7 +1141,6 @@ export class UnifiedStorageManager {
     }
 
     const mergedStore = this.mergeStores(canonicalLocal, canonicalRemote, { inputsAreCanonical: true });
-    this.applyStoreSnapshot(mergedStore);
     logger.warn('[UnifiedStorageManager] Conflict resolved by merge');
     return { storeToPersist: mergedStore, skipPersist: false };
   }

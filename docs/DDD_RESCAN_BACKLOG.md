@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-16 (Round 612)
+Last update: 2026-06-16 (Round 613)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-16 - Excerpt title cleanup and post-create no-op suppression
+
+- Task: Clean generated excerpt/derived child document titles and reduce the slow/noisy post-excerpt save path shown in the pasted live log.
+- Touched slice: Progressive / Excerpt and Topic-derived item child-doc creation in `src/application/services/{ProgressiveReadingService,TopicDerivedItemService}.ts`, Core Storage canonical snapshot application in `src/core/storage/UnifiedStorageManager.ts`, Xiuyuan binding attr writes in `src/core/xiuyuan/infrastructure/XiuyuanRepository.ts`, focused service/storage/Xiuyuan tests, and this backlog.
+- Debt fixed now: Generated child document titles now use the source/content preview directly and only append ` 2`, ` 3`, etc. on real hpath collisions, removing machine-facing `[Topic 001]` / `[Item 001]` prefixes while preserving repeated excerpt creation. Storage save now applies already-canonical snapshots without re-running canonical preparation, and equal/prefer-remote/merge conflict paths no longer mutate in-memory state before the final save decision. Xiuyuan representative/descriptor binding attr writes now read current attrs and skip `setBlockAttrs()` when the stored binding already matches the desired card binding.
+- Debt deferred: `ensureExcerptTopicCard()` still waits for card creation and native Riff registration before the excerpt action can fully settle, and no live SiYuan wall-clock smoke was run in this CLI pass.
+- Why deferred: Moving card/Riff registration fully async changes user-visible completion semantics and needs a separate product decision; this pass only removes provable no-op writes/re-normalization and title noise inside the active excerpt path.
+- Next safe step: Live-smoke one source-child excerpt and one cloze-derived item; confirm clean titles, repeated same-text excerpts produce suffixed fresh docs, and the console no longer shows repeated Xiuyuan normalization or unchanged `XiuyuanRepository.save.attrWrite` spans after the first repair.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/ProgressiveReadingService.test.ts src/application/services/__tests__/TopicDerivedItemService.test.ts`; `pnpm exec vitest run src/core/storage/__tests__/UnifiedStorageManager.sync-conflict.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.riff-sync-binding.test.ts`; `pnpm run check:boundaries`; `pnpm build` (passed with existing non-blocking i18n hard-coded-string hints and Sass legacy warnings).
 
 ### 2026-06-16 - Excerpt repeat creation semantics
 

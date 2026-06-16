@@ -336,7 +336,7 @@ describe('TopicDerivedItemService', () => {
 
     expect(firstChildInput).toEqual(expect.objectContaining({
       kind: 'derived-item-doc',
-      titlePrefix: 'Item',
+      fallbackTitle: '挖空',
       storageMode: 'workbench',
       attrs: expect.objectContaining({
         [ATTR_PROGRESSIVE_KIND]: 'derived-item-doc',
@@ -689,7 +689,7 @@ describe('TopicDerivedItemService', () => {
     const firstChildInput = vi.mocked(progressiveReadingService.service.createChildDocFromSource).mock.calls[0]?.[0];
     expect(firstChildInput).toEqual(expect.objectContaining({
       kind: 'derived-item-doc',
-      titlePrefix: 'Item',
+      fallbackTitle: '挖空',
       previewText: '*',
       contentDom: expect.stringContaining('data-type="block-ref"'),
       attrs: expect.objectContaining({

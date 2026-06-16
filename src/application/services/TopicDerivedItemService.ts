@@ -204,7 +204,7 @@ export class TopicDerivedItemService {
         const childDoc = await this.progressiveReadingService.createChildDocFromSource({
           sourceDocId,
           kind: 'derived-item-doc',
-          titlePrefix: 'Item',
+          fallbackTitle: '挖空',
           previewText: candidate.previewText,
           previewMax: 16,
           storageMode,
