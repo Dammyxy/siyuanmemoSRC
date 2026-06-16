@@ -116,6 +116,14 @@ export interface StorageSaveOptions extends StorageMutationOptions {}
 export type StorageLoadReason = 'startup-load' | 'pre-save-conflict-check' | 'unspecified';
 type XiuyuanLookup = ReadonlyMap<string, IXiuyuan> | Record<string, IXiuyuan>;
 type TombstoneLookup = ReadonlyMap<string, StorageDeletionTombstone> | Record<string, StorageDeletionTombstone>;
+interface CanonicalStorePreparationOptions {
+  readonly logNormalizations?: boolean;
+}
+
+interface CanonicalStorePreparationResult {
+  readonly store: UnifiedCardStore;
+  readonly changed: boolean;
+}
 
 const STABLE_QUICK_META_STRING_KEYS = ['source', 'cardSource', 'symbolType', 'clozeRenderMode'] as const;
 const STABLE_QUICK_META_BOOLEAN_KEYS = ['symbolDetected'] as const;
@@ -1065,7 +1073,7 @@ export class UnifiedStorageManager {
 
     this.rebuildIndexes();
     this.dirty = false;
-    this.captureSnapshotFromStore(canonicalStore);
+    this.captureSnapshotFromCanonicalStore(canonicalStore);
   }
 
   private async loadRemoteSnapshotForSave(): Promise<UnifiedCardStore | null> {
@@ -1085,26 +1093,32 @@ export class UnifiedStorageManager {
     localStore: UnifiedCardStore,
     remoteStore: UnifiedCardStore | null
   ): { storeToPersist: UnifiedCardStore; skipPersist: boolean } {
+    const localPreparation = this.prepareCanonicalStoreWithResult(localStore, {
+      logNormalizations: false,
+    });
+    const canonicalLocal = localPreparation.store;
     if (!remoteStore) {
-      return { storeToPersist: localStore, skipPersist: false };
+      return { storeToPersist: canonicalLocal, skipPersist: false };
     }
 
-    const canonicalRemote = this.prepareCanonicalStore(remoteStore);
-    const localHash = this.calculateContentHash(localStore);
-    const remoteHash = this.calculateContentHash(canonicalRemote);
+    const remotePreparation = this.prepareCanonicalStoreWithResult(remoteStore);
+    const canonicalRemote = remotePreparation.store;
+    const localHash = this.calculateCanonicalContentHash(canonicalLocal);
+    const remoteHash = this.calculateCanonicalContentHash(canonicalRemote);
 
     if (localHash === remoteHash) {
-      this.captureSnapshotFromStore(canonicalRemote);
-      return { storeToPersist: canonicalRemote, skipPersist: true };
+      this.captureSnapshotFromCanonicalStore(canonicalRemote);
+      const shapeOnlyRepair = localPreparation.changed || remotePreparation.changed;
+      return { storeToPersist: canonicalRemote, skipPersist: !shapeOnlyRepair };
     }
 
     const hasConflict = this.lastKnownContentHash !== null && remoteHash !== this.lastKnownContentHash;
     if (!hasConflict) {
-      return { storeToPersist: localStore, skipPersist: false };
+      return { storeToPersist: canonicalLocal, skipPersist: false };
     }
 
     if (canonicalRemote.syncMetadata?.lastModifiedBy === this.instanceId) {
-      return { storeToPersist: localStore, skipPersist: false };
+      return { storeToPersist: canonicalLocal, skipPersist: false };
     }
 
     logger.warn('[UnifiedStorageManager] Storage conflict detected', {
@@ -1122,25 +1136,24 @@ export class UnifiedStorageManager {
 
     if (this.conflictResolutionStrategy === 'prefer-local') {
       logger.warn('[UnifiedStorageManager] Conflict resolved by forcing local snapshot');
-      return { storeToPersist: localStore, skipPersist: false };
+      return { storeToPersist: canonicalLocal, skipPersist: false };
     }
 
-    const mergedStore = this.mergeStores(localStore, canonicalRemote);
+    const mergedStore = this.mergeStores(canonicalLocal, canonicalRemote, { inputsAreCanonical: true });
     this.applyStoreSnapshot(mergedStore);
     logger.warn('[UnifiedStorageManager] Conflict resolved by merge');
     return { storeToPersist: mergedStore, skipPersist: false };
   }
 
   private prepareStoreForPersist(
-    store: UnifiedCardStore,
+    canonicalStore: UnifiedCardStore,
     remoteStore: UnifiedCardStore | null
   ): UnifiedCardStore {
-    const canonicalStore = this.prepareCanonicalStore(store);
     const remoteRevision = this.toNumber(remoteStore?.syncMetadata?.revision);
     const localRevision = this.toNumber(canonicalStore.syncMetadata?.revision);
     const baseRevision = Math.max(this.lastKnownRevision, remoteRevision, localRevision);
     const nextRevision = baseRevision + 1;
-    const nextContentHash = this.calculateContentHash(canonicalStore);
+    const nextContentHash = this.calculateCanonicalContentHash(canonicalStore);
 
     return {
       ...canonicalStore,
@@ -1153,9 +1166,17 @@ export class UnifiedStorageManager {
     };
   }
 
-  private mergeStores(localStore: UnifiedCardStore, remoteStore: UnifiedCardStore): UnifiedCardStore {
-    const canonicalLocal = this.prepareCanonicalStore(localStore);
-    const canonicalRemote = this.prepareCanonicalStore(remoteStore);
+  private mergeStores(
+    localStore: UnifiedCardStore,
+    remoteStore: UnifiedCardStore,
+    options: { inputsAreCanonical?: boolean } = {},
+  ): UnifiedCardStore {
+    const canonicalLocal = options.inputsAreCanonical
+      ? localStore
+      : this.prepareCanonicalStore(localStore, { logNormalizations: false });
+    const canonicalRemote = options.inputsAreCanonical
+      ? remoteStore
+      : this.prepareCanonicalStore(remoteStore, { logNormalizations: false });
     const mergedDeletedXiuyuans = this.mergeDeletionTombstones(
       canonicalLocal.deletedXiuyuans || {},
       canonicalRemote.deletedXiuyuans || {},
@@ -1550,10 +1571,21 @@ export class UnifiedStorageManager {
           xiuyuan: {
             ...xiuyuan,
             meta,
-            updatedAt: Date.now(),
+            updatedAt: this.resolveRepairedXiuyuanUpdatedAt(xiuyuan, boundCards),
           },
         }
       : { changed: false, xiuyuan };
+  }
+
+  private resolveRepairedXiuyuanUpdatedAt(xiuyuan: IXiuyuan, boundCards: CardPersistenceDTO[]): number {
+    const timestamps = [
+      this.toNumber(xiuyuan.updatedAt),
+      this.toNumber(xiuyuan.createdAt),
+    ];
+    for (const dto of boundCards) {
+      timestamps.push(this.toNumber(dto.updatedAt), this.toNumber(dto.createdAt));
+    }
+    return Math.max(...timestamps.filter((timestamp) => timestamp > 0), 0);
   }
 
   private resolveXiuyuanFacesFromBoundCards(boundCards: CardPersistenceDTO[]): Array<{
@@ -1740,13 +1772,27 @@ export class UnifiedStorageManager {
       .filter(Boolean);
   }
 
-  private prepareCanonicalStore(store: UnifiedCardStore): UnifiedCardStore {
+  private prepareCanonicalStore(
+    store: UnifiedCardStore,
+    options: CanonicalStorePreparationOptions = {},
+  ): UnifiedCardStore {
+    return this.prepareCanonicalStoreWithResult(store, options).store;
+  }
+
+  private prepareCanonicalStoreWithResult(
+    store: UnifiedCardStore,
+    options: CanonicalStorePreparationOptions = {},
+  ): CanonicalStorePreparationResult {
+    const logNormalizations = options.logNormalizations !== false;
     const sourceXiuyuans = store.xiuyuans ?? {};
-    const sourceCardDTOs = this.extractCardDTOs(store);
+    const hasSourceCardDTOs = Boolean(store.cardDTOs && Object.keys(store.cardDTOs).length > 0);
+    const migratedLegacyCards = !hasSourceCardDTOs && Object.keys(store.cards ?? {}).length > 0;
+    const sourceCardDTOs = this.extractCardDTOs(store, options);
     const xiuyuans: Record<string, IXiuyuan> = {};
     const cardDTOs: Record<string, CardPersistenceDTO> = {};
     const deletedCardDTOs = this.sanitizeDeletionTombstones(store.deletedCardDTOs);
     const deletedXiuyuans = this.sanitizeDeletionTombstones(store.deletedXiuyuans);
+    let changed = migratedLegacyCards;
 
     for (const [id, xiuyuan] of Object.entries(sourceXiuyuans)) {
       xiuyuans[id] = normalizeXiuyuanOwnership(JSON.parse(JSON.stringify(xiuyuan)) as IXiuyuan);
@@ -1758,40 +1804,52 @@ export class UnifiedStorageManager {
 
     const bindingNormalization = this.normalizeMissingXiuyuanBindings(cardDTOs, xiuyuans);
     if (bindingNormalization.repairedCardIds.length > 0) {
-      logger.info('[UnifiedStorageManager] Normalized cards with missing Xiuyuan bindings', {
-        repairedCardCount: bindingNormalization.repairedCardIds.length,
-        renamedXiuyuanCount: bindingNormalization.renamedXiuyuanIds.length,
-        createdXiuyuanCount: bindingNormalization.createdXiuyuanIds.length,
-        repairedCardIdsSample: bindingNormalization.repairedCardIds.slice(0, 10),
-        renamedXiuyuanIdsSample: bindingNormalization.renamedXiuyuanIds.slice(0, 10),
-        createdXiuyuanIdsSample: bindingNormalization.createdXiuyuanIds.slice(0, 10),
-      });
+      changed = true;
+      if (logNormalizations) {
+        logger.info('[UnifiedStorageManager] Normalized cards with missing Xiuyuan bindings', {
+          repairedCardCount: bindingNormalization.repairedCardIds.length,
+          renamedXiuyuanCount: bindingNormalization.renamedXiuyuanIds.length,
+          createdXiuyuanCount: bindingNormalization.createdXiuyuanIds.length,
+          repairedCardIdsSample: bindingNormalization.repairedCardIds.slice(0, 10),
+          renamedXiuyuanIdsSample: bindingNormalization.renamedXiuyuanIds.slice(0, 10),
+          createdXiuyuanIdsSample: bindingNormalization.createdXiuyuanIds.slice(0, 10),
+        });
+      }
     }
 
     const xiuyuanPayloadNormalization = this.normalizeXiuyuanPayloadsFromBoundCards(cardDTOs, xiuyuans);
     if (xiuyuanPayloadNormalization.repairedXiuyuanIds.length > 0) {
-      logger.info('[UnifiedStorageManager] Normalized Xiuyuan payloads from bound card DTOs', {
-        repairedXiuyuanCount: xiuyuanPayloadNormalization.repairedXiuyuanIds.length,
-        repairedXiuyuanIdsSample: xiuyuanPayloadNormalization.repairedXiuyuanIds.slice(0, 10),
-      });
+      changed = true;
+      if (logNormalizations) {
+        logger.info('[UnifiedStorageManager] Normalized Xiuyuan payloads from bound card DTOs', {
+          repairedXiuyuanCount: xiuyuanPayloadNormalization.repairedXiuyuanIds.length,
+          repairedXiuyuanIdsSample: xiuyuanPayloadNormalization.repairedXiuyuanIds.slice(0, 10),
+        });
+      }
     }
 
     const xiuyuanNormalization = this.normalizeDuplicateXiuyuans(cardDTOs, xiuyuans);
     if (xiuyuanNormalization.mergedXiuyuanIds.length > 0) {
-      logger.info('[UnifiedStorageManager] Normalized duplicate Xiuyuan block bindings', {
-        duplicateGroupCount: xiuyuanNormalization.duplicateGroupCount,
-        mergedXiuyuanCount: xiuyuanNormalization.mergedXiuyuanIds.length,
-        mergedXiuyuanIdsSample: xiuyuanNormalization.mergedXiuyuanIds.slice(0, 10),
-      });
+      changed = true;
+      if (logNormalizations) {
+        logger.info('[UnifiedStorageManager] Normalized duplicate Xiuyuan block bindings', {
+          duplicateGroupCount: xiuyuanNormalization.duplicateGroupCount,
+          mergedXiuyuanCount: xiuyuanNormalization.mergedXiuyuanIds.length,
+          mergedXiuyuanIdsSample: xiuyuanNormalization.mergedXiuyuanIds.slice(0, 10),
+        });
+      }
     }
 
     const normalization = this.normalizeXiuyuanDuplicateCards(cardDTOs, xiuyuans);
     if (normalization.removedCardIds.length > 0) {
-      logger.info('[UnifiedStorageManager] Normalized duplicate Xiuyuan logical cards', {
-        duplicateGroupCount: normalization.duplicateGroupCount,
-        removedCardCount: normalization.removedCardIds.length,
-        removedCardIdsSample: normalization.removedCardIds.slice(0, 10),
-      });
+      changed = true;
+      if (logNormalizations) {
+        logger.info('[UnifiedStorageManager] Normalized duplicate Xiuyuan logical cards', {
+          duplicateGroupCount: normalization.duplicateGroupCount,
+          removedCardCount: normalization.removedCardIds.length,
+          removedCardIdsSample: normalization.removedCardIds.slice(0, 10),
+        });
+      }
     }
 
     const activeDeletedXiuyuans = this.applyXiuyuanDeletionTombstones(xiuyuans, deletedXiuyuans);
@@ -1821,20 +1879,29 @@ export class UnifiedStorageManager {
         }
       : undefined;
 
+    const version = Math.max(this.toNumber(store.version), CURRENT_UNIFIED_CARD_STORE_VERSION);
+    changed = changed || version !== this.toNumber(store.version);
+
     return {
-      version: Math.max(this.toNumber(store.version), CURRENT_UNIFIED_CARD_STORE_VERSION),
-      xiuyuans,
-      cards,
-      cardDTOs,
-      deletedCardDTOs: activeDeletedCardDTOs,
-      deletedXiuyuans: activeDeletedXiuyuans,
-      riffBlacklist: this.sanitizeRiffBlacklist(store.riffBlacklist),
-      riffSyncState: this.sanitizeRiffSyncState(store.riffSyncState),
-      syncMetadata,
+      store: {
+        version,
+        xiuyuans,
+        cards,
+        cardDTOs,
+        deletedCardDTOs: activeDeletedCardDTOs,
+        deletedXiuyuans: activeDeletedXiuyuans,
+        riffBlacklist: this.sanitizeRiffBlacklist(store.riffBlacklist),
+        riffSyncState: this.sanitizeRiffSyncState(store.riffSyncState),
+        syncMetadata,
+      },
+      changed,
     };
   }
 
-  private extractCardDTOs(store: UnifiedCardStore): Record<string, CardPersistenceDTO> {
+  private extractCardDTOs(
+    store: UnifiedCardStore,
+    options: CanonicalStorePreparationOptions = {},
+  ): Record<string, CardPersistenceDTO> {
     if (store.cardDTOs && Object.keys(store.cardDTOs).length > 0) {
       return store.cardDTOs;
     }
@@ -1844,7 +1911,7 @@ export class UnifiedStorageManager {
       migrated[id] = CardMapper.toPersistence(card);
     }
 
-    if (Object.keys(migrated).length > 0) {
+    if (Object.keys(migrated).length > 0 && options.logNormalizations !== false) {
       logger.info('[UnifiedStorageManager] Migrated legacy cards payload to cardDTOs');
     }
     return migrated;
@@ -1863,7 +1930,13 @@ export class UnifiedStorageManager {
   }
 
   private calculateContentHash(store: UnifiedCardStore): string {
-    const canonicalStore = this.prepareCanonicalStore(store);
+    const canonicalStore = this.prepareCanonicalStore(store, {
+      logNormalizations: false,
+    });
+    return this.calculateCanonicalContentHash(canonicalStore);
+  }
+
+  private calculateCanonicalContentHash(canonicalStore: UnifiedCardStore): string {
     const hashInput = stableStringify({
       version: canonicalStore.version,
       xiuyuans: canonicalStore.xiuyuans,
@@ -1877,8 +1950,14 @@ export class UnifiedStorageManager {
   }
 
   private captureSnapshotFromStore(store: UnifiedCardStore): void {
-    const canonicalStore = this.prepareCanonicalStore(store);
-    const snapshotHash = this.calculateContentHash(canonicalStore);
+    const canonicalStore = this.prepareCanonicalStore(store, {
+      logNormalizations: false,
+    });
+    this.captureSnapshotFromCanonicalStore(canonicalStore);
+  }
+
+  private captureSnapshotFromCanonicalStore(canonicalStore: UnifiedCardStore): void {
+    const snapshotHash = this.calculateCanonicalContentHash(canonicalStore);
     const snapshotRevision = canonicalStore.syncMetadata
       ? this.toNumber(canonicalStore.syncMetadata.revision)
       : this.lastKnownRevision;

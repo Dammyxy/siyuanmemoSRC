@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-06-16 (Round 608)
+Last update: 2026-06-16 (Round 609)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-06-16 - Storage canonical repair determinism
+
+- Task: Optimize the slow/noisy post-excerpt storage normalization path by fixing the root repeated canonicalization/hash drift found in the pasted excerpt log.
+- Touched slice: Core Storage / Xiuyuan canonicalization in `src/core/storage/UnifiedStorageManager.ts`, sync-conflict regression tests, and this backlog.
+- Debt fixed now: Xiuyuan payload repair no longer stamps `updatedAt` with `Date.now()` while canonicalizing persisted snapshots; it now derives a deterministic timestamp from the Xiuyuan/card DTO timestamps. Canonical store preparation now reports whether it changed payload shape and can suppress normalization logs for hash/snapshot-only paths. Save conflict resolution canonicalizes local/remote snapshots once, hashes already-canonical inputs directly, persists shape-only repairs exactly once, and skips a second save after the repaired snapshot is already canonical.
+- Debt deferred: The broader post-excerpt fan-out remains: transaction websocket events, incremental Xiuyuan sync, native Riff sync policy, and AutoCard settled evaluation can still run after excerpt creation.
+- Why deferred: This pass fixed the storage/hash root cause behind repeated repair/log churn without changing product policy for transaction listeners. Coalescing or narrowing AutoCard/Riff fan-out changes when side effects run and needs a separate design/grill-me decision.
+- Next safe step: Add a focused performance change around transaction-driven fan-out instrumentation and coalescing, starting from `TransactionWebSocketService`, `XiuyuanSyncService`, `AutoCardHandler`, and the storage save trigger they share after excerpt materialization.
+- Validation: Red/green `pnpm exec vitest run src/core/storage/__tests__/UnifiedStorageManager.sync-conflict.test.ts -t "canonicalizes the same persisted snapshot deterministically"`; focused `pnpm exec vitest run src/core/storage/__tests__/UnifiedStorageManager.sync-conflict.test.ts -t "persists a canonical remote snapshot|canonicalizes the same persisted snapshot"`; storage regression `pnpm exec vitest run src/core/storage/__tests__/UnifiedStorageManager.sync-conflict.test.ts src/core/storage/__tests__/UnifiedStorageManager.migration.test.ts` (26 tests passed); `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `pnpm build` (passed with existing non-blocking hard-coded-string/i18n-content hints and Sass legacy warnings).
 
 ### 2026-06-16 - Excerpt child doc placeholder cleanup
 

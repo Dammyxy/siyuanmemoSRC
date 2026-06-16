@@ -278,6 +278,76 @@ describe('UnifiedStorageManager sync conflict resolution', () => {
     expect(loadReasons).toEqual(['startup-load', 'pre-save-conflict-check']);
   });
 
+  it('persists a canonical remote snapshot when conflict check repairs payload shape only', async () => {
+    remoteStore = {
+      ...createEmptyStore(),
+      xiuyuans: {
+        'xy-a': createXiuyuan('xy-a'),
+      },
+      cardDTOs: {
+        'card-a': createDTO('card-a', 'xy-a'),
+      },
+    };
+    const manager = createManager('merge');
+    await manager.load();
+    savedStores = [];
+
+    const saveResult = await manager.save();
+
+    expect(saveResult.ok).toBe(true);
+    expect(savedStores).toHaveLength(1);
+    expect(remoteStore.xiuyuans['xy-a']?.meta).toMatchObject({
+      cardIds: ['card-a'],
+    });
+
+    savedStores = [];
+    const secondSaveResult = await manager.save();
+
+    expect(secondSaveResult.ok).toBe(true);
+    expect(savedStores).toHaveLength(0);
+  });
+
+  it('canonicalizes the same persisted snapshot deterministically across loads', async () => {
+    vi.useFakeTimers();
+    try {
+      const rawRemoteStore: UnifiedCardStore = {
+        ...createEmptyStore(),
+        xiuyuans: {
+          'xy-a': {
+            ...createXiuyuan('xy-a'),
+            createdAt: 1_700_000_000_000,
+            updatedAt: 1_700_000_000_000,
+          },
+        },
+        cardDTOs: {
+          'card-a': createDTO('card-a', 'xy-a', {
+            createdAt: 1_700_000_001_000,
+            updatedAt: 1_700_000_001_000,
+          }),
+        },
+      };
+      const loadRawSnapshot = async () => deepClone(rawRemoteStore);
+
+      vi.setSystemTime(1_780_000_000_000);
+      const firstManager = new UnifiedStorageManager();
+      firstManager.setPersistenceCallbacks(async () => {}, loadRawSnapshot);
+      expect((await firstManager.load()).ok).toBe(true);
+      const firstStore = firstManager.getStoreData();
+
+      vi.setSystemTime(1_790_000_000_000);
+      const secondManager = new UnifiedStorageManager();
+      secondManager.setPersistenceCallbacks(async () => {}, loadRawSnapshot);
+      expect((await secondManager.load()).ok).toBe(true);
+      const secondStore = secondManager.getStoreData();
+
+      expect(firstStore.xiuyuans['xy-a']?.updatedAt).toBe(secondStore.xiuyuans['xy-a']?.updatedAt);
+      expect(firstStore.xiuyuans['xy-a']?.updatedAt).toBe(1_700_000_001_000);
+      expect(firstStore.syncMetadata?.contentHash).toBe(secondStore.syncMetadata?.contentHash);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('migrates legacy version 1 metadata to version 2 with 64-bit hash on save', async () => {
     remoteStore = {
       ...createEmptyStore(),
