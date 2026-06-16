@@ -7,10 +7,6 @@ import {
   resolveProgressiveExcerptSnapshotFromSelectedBlocks,
 } from '@/application/entries/ProgressiveSelectionResolver';
 import {
-  applyProgressiveExcerptHighlight,
-  prepareProgressiveExcerptHighlight,
-} from '@/application/entries/ProgressiveExcerptHighlight';
-import {
   applyPreparedSelectionClozeMark,
   type PreparedSelectionClozeMark,
   type PreparedSelectionClozeMarkApplyResult,
@@ -43,18 +39,6 @@ function getProtyleRoot(protyle: unknown): HTMLElement | null {
   }
 
   return null;
-}
-
-function hasLikelyInlineReferenceEvidence(value: string): boolean {
-  return /\[[^\]]+\]\([^)]+\)/u.test(value)
-    || /\(\([0-9]{14}-[0-9a-z]{7}\)\)/u.test(value)
-    || /\bassets\/\S+/u.test(value)
-    || /\bsiyuan:\/\/\S+/u.test(value)
-    || /data-type\s*=/u.test(value);
-}
-
-function hasMissingDomPreservationEvidence(contentDom: string | undefined, selectedText: string): boolean {
-  return !String(contentDom || '').trim() && hasLikelyInlineReferenceEvidence(selectedText);
 }
 
 type ProgressiveExcerptSelectionOptions = {
@@ -222,37 +206,30 @@ export class ProgressiveExcerptHotkeyHandler {
 
   private async runExcerptFromSnapshot(selection: ProgressiveExcerptSelectionSnapshot): Promise<void> {
     try {
-      const materialized = await this.context.getSelectionExcerptService().materializeExcerptSource(selection);
-      const degradedPreservation = hasMissingDomPreservationEvidence(materialized.contentDom, selection.text);
-      if (degradedPreservation) {
+      const result = await this.context.getSelectionExcerptService().executeSelectionExcerptAction({
+        selection,
+        origin: 'editor',
+        sourceMarkingEnabled: this.isSourceMarkingEnabled(),
+      });
+      if (result.preservation.incomplete) {
         logger.warn('Progressive excerpt created without DOM preservation evidence for likely inline references', {
-          sourceBlockId: materialized.sourceBlockId,
-          sourceBlockIds: materialized.sourceBlockIds,
+          sourceBlockId: result.sourceBlockId,
+          sourceBlockIds: result.sourceBlockIds,
         });
       }
-      const preparedHighlight = this.isSourceMarkingEnabled()
-        ? this.tryPrepareExcerptHighlight(materialized.highlightSnapshot)
-        : null;
-      const result = await this.context.getSelectionExcerptService().createFromSelection({
-        sourceBlockId: materialized.sourceBlockId,
-        sourceBlockIds: materialized.sourceBlockIds,
-        selectedText: selection.text,
-        contentDom: materialized.contentDom,
-        origin: 'editor',
-      });
       if (result.kind === 'duplicate') {
-        await this.tryApplyExcerptHighlight(preparedHighlight);
         await this.tryOpenExistingExcerpt(result.record);
         showMessage(
-          this.translate('progressiveExcerptDuplicateJumped', '这段原文已摘录过，已跳到现有摘录'),
+          result.sourceMark.diagnostic
+            ? this.translate('progressiveExcerptDuplicateSourceMarkFailed', '已找到已有摘录，但原文标记未写入')
+            : this.translate('progressiveExcerptDuplicateJumped', '这段原文已摘录过，已跳到现有摘录'),
           3000,
           'info',
         );
         return;
       }
 
-      result.colorApplied = await this.tryApplyExcerptHighlight(preparedHighlight);
-      if (degradedPreservation) {
+      if (result.preservation.incomplete) {
         showMessage(
           this.translate('progressiveExcerptPreservationDegraded', '已创建 Topic，但原文链接或块引用可能未完整保留'),
           5000,
@@ -260,7 +237,9 @@ export class ProgressiveExcerptHotkeyHandler {
         );
       }
       showMessage(
-        this.translate('progressiveExcerptCreatedHotkey', '已创建 Topic，已进入今日渐进学习'),
+        result.sourceMark.diagnostic
+          ? this.translate('progressiveExcerptCreatedSourceMarkFailed', '已创建 Topic，但原文标记未写入')
+          : this.translate('progressiveExcerptCreatedHotkey', '已创建 Topic，已进入今日渐进学习'),
         3000,
         'info',
       );
@@ -463,29 +442,6 @@ export class ProgressiveExcerptHotkeyHandler {
     }
   }
 
-  private async tryApplyExcerptHighlight(selection: Parameters<typeof applyProgressiveExcerptHighlight>[0]): Promise<boolean> {
-    if (!selection) {
-      return false;
-    }
-    try {
-      return await applyProgressiveExcerptHighlight(selection, {
-        persistDomBlock: (blockId, dom) => this.context.getSelectionExcerptService().updateSourceBlockDom(blockId, dom),
-      });
-    } catch (error) {
-      logger.warn('Failed to apply progressive excerpt highlight after excerpt creation', error);
-      return false;
-    }
-  }
-
-  private tryPrepareExcerptHighlight(selection: ProgressiveExcerptSelectionSnapshot): ReturnType<typeof prepareProgressiveExcerptHighlight> {
-    try {
-      return prepareProgressiveExcerptHighlight(selection);
-    } catch (error) {
-      logger.warn('Failed to prepare progressive excerpt highlight before excerpt creation', error);
-      throw new Error(`PROGRESSIVE_EXCERPT_HIGHLIGHT_UNAVAILABLE: failed to prepare progressive excerpt highlight: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
   private async tryApplySelectionClozeMark(
     selection: ReturnType<typeof prepareSelectionClozeMark>,
     context?: {
@@ -495,7 +451,7 @@ export class ProgressiveExcerptHotkeyHandler {
   ): Promise<PreparedSelectionClozeMarkApplyResult> {
     try {
       return await applyPreparedSelectionClozeMark(selection, {
-        persistDomBlock: (blockId, dom) => this.context.getSelectionExcerptService().updateSourceBlockDom(blockId, dom),
+        persistDomBlock: (blockId, dom) => this.context.getProgressiveReadingService().updateSourceBlockDom(blockId, dom),
       });
     } catch (error) {
       logger.warn('Failed to apply selection cloze mark before item creation', {
@@ -591,7 +547,7 @@ export class ProgressiveExcerptHotkeyHandler {
 
     try {
       for (const mutation of mutations) {
-        await this.context.getSelectionExcerptService().updateSourceBlockDom(
+        await this.context.getProgressiveReadingService().updateSourceBlockDom(
           mutation.blockId,
           mutation.previousBlockHtml,
         );

@@ -785,6 +785,8 @@
   "progressiveExcerptCreatedInserted": "已创建 Topic，并插入当前渐进复习",
   "progressiveExcerptCreatedMergedHyperspace": "已创建 Topic，并并入当前超空间神经漫游",
   "progressiveExcerptPreservationDegraded": "已创建 Topic，但原文链接或块引用可能未完整保留",
+  "progressiveExcerptCreatedSourceMarkFailed": "已创建 Topic，但原文标记未写入",
+  "progressiveExcerptDuplicateSourceMarkFailed": "已找到已有摘录，但原文标记未写入",
   "progressiveExcerptDuplicateJumped": "这段原文已摘录过，已跳到现有摘录",
   "progressiveExcerptDisabled": "摘抄快捷键已关闭，请先在设置中开启",
   "progressiveExcerptFailed": "摘抄失败：{message}",

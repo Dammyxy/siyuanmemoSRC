@@ -115,7 +115,7 @@ flowchart TD
 - Kernel transaction queue：`kernel.transaction.ingest/dequeue/requeue` 的 queue state、dedupe key、snapshot restore/persist、native Riff / AutoCard action extraction、dequeue coalescing、backpressure counters 与 diagnostics 由 `worker/kernel-transaction/WorkerKernelTransactionRuntime.ts` owns。`WorkerSqliteDatabaseService` 只创建 runtime、传入 `SqliteFileServiceAdapter` 与 queue limit options，并保留原 RPC facade method / diagnostics shape；snapshot 文件名与 public backend RPC method string 不变。这个 runtime 不接管 scheduler、Review truth、queue projection、AI/Job/Hotspot 或 agent 行为。
 - SiYuan Agent tools：上游 `H:/project-F/flashcard/siyuan` 的 `origin/dev` 暴露 `Plugin.addAgentAction({ name, description, handler })` 与 kernel `siyuan.mcp.registerTool(name, config, handler)` / `unregisterTool(name)`；Go 侧会把插件 MCP handler 的返回值 `JSON.stringify` 后包成 text content，因此 `src/kernel.ts` 的 handler 直接返回 SiYuanMemo typed envelope，不自行返回 `{ content, isError }`。Kernel 只注册 `memo_query` / `memo_card` / `memo_review` / `memo_ui`、要求非空 `action`、拒绝 unknown/blocked action，并通过 `writer.submitCommand(method='agent.tool.execute')` 转发到 active writer；它不读写 `siyuanmemo.db`，不拥有卡片、队列、Review、CDF、scheduler、AI chat、模型选择或 prompt/tool-loop 编排。`ApplicationContext` 装配 `AgentToolService` 作为唯一 plugin Agent/MCP application facade：`memo_query` 只读 learning overview；`memo_card create/save/suspend/resume` 只接受 caller 显式 payload 或既有 card id，并走 Card CRUD writer path；`memo_card draft` 不再调用插件 LLM/prompt/settings 或本地 heuristic，缺少 host-provided explicit candidate content 时返回 typed unsupported/unavailable；`memo_review` 只提供 explanation/hint/source/score suggestion，拒绝 feedback/grade/commit；`memo_ui` 通过 frontend `addAgentAction` 在 `ApplicationContext` ready 后注册，只打开/聚焦支持的非 AI learning surfaces。`memo_ui` 的 `ai` / `ai-companion` retired target 显式返回 unsupported，不打开插件 AI dialog、sidecar 或 companion tab。缺 MCP/API/frontend/writer/read owner 时返回 typed unavailable，不安装 shim，不做 hidden fallback。
 - Processing scheduler / priority：`src/core/processing/processingScheduler.ts` owns processing work contracts、processing queue read ordering、effective priority source identity、priority-source invalidation plan；`QueueProjectionBuilder.planPrioritySourceQueueProjectionInvalidation()` bridges priority-source changes into review projection invalidation metadata while processing projection refresh remains a separate processing-family contract. Follower windows still relay projection materialization through `queue.projection.replace` writer relay and do not repair priority/projection rows locally。
-- Progressive / Excerpt / Topic-derived：`ProgressiveReadingService`、`SelectionExcerptService`、`TopicDerivedItemService` 是 application owner；backend command facade owns idempotency / unavailable shape，writer window owns bounded SiYuan/Riff side effects。
+- Progressive / Excerpt / Topic-derived：`ProgressiveReadingService`、`SelectionExcerptService`、`TopicDerivedItemService` 是 application owner；`SelectionExcerptService.executeSelectionExcerptAction()` owns selection excerpt action runtime（selection materialization orchestration、source mark prepare/apply、created/duplicate outcome mapping、preservation/source-mark diagnostics），editor / block-menu / Review surfaces 只保留 duplicate-open、Review routing / hyperspace injection 和消息映射；backend command facade owns idempotency / unavailable shape，writer window owns bounded SiYuan/Riff side effects。
 - Review render surface：`UnifiedReviewAdapter`、`ReviewView.vue` helper modules、`ReviewContent.vue`、review special render services 共同构成当前 render path。特殊 renderer 路由权威是 `UnifiedReviewAdapter -> ReviewRenderableContext.renderPolicy`；`ReviewContent.vue` 与 `reviewPresentationPreparer.ts` 不再从 raw legacy `card.meta.templateID/typeMarker/faceIndex/renderProfile` 重新推断特殊 renderer。无 `renderPolicy` 的 compatibility/test/restored state 只能走 main Protyle 或显式 unsupported，不允许隐藏 UI-local semantic routing fallback。answer/edit/advance/defer/convert 仍走 typed application commands。
 
 ---
@@ -236,7 +236,7 @@ Storage startup gate：所有 Review 打开入口（标准 review、queue switch
    - filter/scope、doc-scope enqueue 与 progressive excerpt 注入 FilterGroup 时只调用 `BrowserApplicationService` 暴露给 Review 的 `setFilterGroupFilter()` / `rebuildFilterGroupQueue()` 命令 client；`ReviewView.vue` 与 Review runtime helper 不直接执行 `FilterGroupQueue.setFilter()`
    - `更多` 菜单中的暂停动作走 `CardEditorApplicationService`
    - `更多` 菜单中的删除动作走 `CardApplicationService`
-   - progressive excerpt 仍复用 `SelectionExcerptService` / `ProgressiveReadingService` 主链，Review helper 只负责 selection/materialize/highlight/duplicate-open/review-route/hyperspace-inject 的命令编排
+   - progressive excerpt 仍复用 `SelectionExcerptService.executeSelectionExcerptAction()` / `ProgressiveReadingService` 主链，Review helper 只负责 selection/current-card 输入、duplicate-open、review-route / hyperspace-inject 和消息映射，不再本地编排 materialize/highlight/create 分支
    - fullscreen / queue switch / native titlebar 仍只在 Review shell helper 内做 DOM/runtime 编排，真实 dialog / tab manager 由 `ReviewView.vue` 注入
    - SRS editor 继续复用既有 application / dialog 主链，Review helper 只集中 card lookup、deck/scheduling context 和 scheduled/dismissed event glue
 7. `ReviewContent.vue` 继续在 `主 Protyle / special renderer` 之间路由；special renderer 所需的 quick / descriptor render services 由 `ApplicationContext.createReviewRenderServices()` 在 composition root 创建 Siyuan block adapters 后，经 `ReviewView.vue` 注入 `ReviewContent.vue`；`createReviewRenderServices()` 只接收已注入 adapter，不再默认 new block adapter，`ReviewContent.vue` 也不再自建 fallback render services；Image Occlusion 与 Xiuyuan list-template 读取块属性 / Markdown / breadcrumb 时只接收 `ReviewSiyuanPort` 投影，不直连 `@/infrastructure/siyuan/api`；其中普通 `builtin-multi-cloze` Item 已回到主 Protyle / 原生编辑路径，历史 `quick-default` 标记也会被普通 multi-cloze 契约压回 native path，只有 `inline-formula-cloze` 继续走专用 `MultiClozeCardRenderer`；`UnifiedReviewAdapter` 会把普通 multi-cloze 与 topic-derived Item 标记为 native inline hidden 候选，最终由 `ReviewContent` 的 DOM 检测按思源 flashcard 配置给 `mark/list/heading/superBlock` 加隐藏 class；special renderer 仍通过 `getEditableSource()` 向 `ReviewView.vue` 暴露当前可编辑块，同块编辑保存或经 `TransactionWebSocketService` 共享 transaction stream 命中的源块刷新由 `reviewSourceRefreshRuntime.ts` 做 debounce、suppression 和依赖块匹配，命中后走 `refreshVisibleContent()`：主 Protyle 调 `reload(false)`，special renderer 只重挂自身子组件，外层 review content key 只表达卡片身份
@@ -338,7 +338,7 @@ Review Attempt Kernel 边界：
 
 - `ProgressiveReadingService`：渐进阅读、拆分、摘录入口与 backend command facade 的核心应用服务；本地摘录创建委托给 `ProgressiveExcerptMaterializer`，split / child-doc / workbench 编排仍由 service 负责
 - `ProgressiveExcerptMaterializer`：摘录 materialization 接口 owner，集中处理选区归一、source lineage、source-child / daily-note / library 落点、attrs、topic-card linkage、duplicate result 与失败回滚；实际 Siyuan / Riff 写入仍经 application ports 与现有 service helper
-- `SelectionExcerptService`：把选择态 surface 接到 `ProgressiveReadingService` 的轻量门面
+- `SelectionExcerptService`：selection excerpt action runtime；统一 `executeSelectionExcerptAction()`，负责 selection materialization orchestration、source mark prepare/apply、create/duplicate 结果映射、preservation diagnostics 与 source-mark diagnostics；duplicate-open、Review queue/hyperspace routing 和 toast/message 仍由 caller surface 持有
 - `SelectionTopicContinuationService`：把选区继续制卡的 topic/excerpt 语境判定、planner 结果适配，以及“普通选区改 source mark + 立刻创建 1 个 Item”的 manual-cloze 分流收敛到 topic-derived 主链，同时负责“从当前块高亮补齐 Item”的块级 fan-out
 - `TopicDerivedItemService`：在 topic / excerpt 语境下创建 topic-derived item；backend client 可用时先提交 `topic-derived.command` facade，再继续当前迁移期编排
 
@@ -443,7 +443,7 @@ Retired active surfaces：
 - `src/application/services/ExcerptRecordService.ts`：摘录记录与去重相关服务。
 - `src/application/services/ProgressiveExcerptMaterializer.ts`：Progressive 摘录 materialization 接口，集中 storage target、lineage/attrs、topic-card linkage、duplicate result 与回滚策略。
 - `src/application/services/ProgressiveReadingService.ts`：progressive split / excerpt 的主编排服务。
-- `src/application/services/SelectionExcerptService.ts`：选择态摘录门面。
+- `src/application/services/SelectionExcerptService.ts`：选择态摘录 action runtime；统一 editor / block-menu / Review 的 `executeSelectionExcerptAction()`，不暴露 materialize/create/updateSourceBlockDom public pass-through。
 - `src/application/services/SelectionTopicContinuationService.ts`：选区继续制卡门面，负责同步 menu 预判和异步 progressive source context 解析。
 - `src/application/services/TopicDerivedItemService.ts`：topic continuation / derived item 创建编排。
 - 插件 AI Workbench session/chat/prompt/tool-loop runtime 已退役；active application services 不再包含 AI session store、plugin LLM prompt runtime、AI chat runtime 或 AI flashcard write tool owner。
@@ -804,7 +804,7 @@ Review 运行时要点：
 当前 progressive 相关能力已经汇聚到一条主路径：
 
 - progressive split：`DialogManager` -> `ProgressiveSplitDialog.vue` -> `ProgressiveReadingService`
-- progressive excerpt：热键 / block menu / review surface -> `reviewProgressiveExcerptCommands.ts`（review surface command runtime）或 `ProgressiveExcerptHotkeyHandler` -> `SelectionExcerptService` -> `ProgressiveReadingService`
+- progressive excerpt：热键 / block menu / review surface -> `ProgressiveExcerptHotkeyHandler` / `BlockMenuHandler` / `reviewProgressiveExcerptCommands.ts`（review surface command runtime）-> `SelectionExcerptService.executeSelectionExcerptAction()` -> `ProgressiveReadingService`
 - editor manual continuation：`ProgressiveExcerptHotkeyHandler` -> `SelectionTopicContinuationService` -> `TopicDerivedItemService` -> `ProgressiveReadingService`
 - topic continuation：`AutoCardHandler` -> `TopicDerivedItemService` -> `ProgressiveReadingService`
 
@@ -819,7 +819,8 @@ Review 运行时要点：
   - 维护摘录 source lineage、selection/payload/source-position/disclosure attrs、parent topic/excerpt lineage 和 topic-card linkage
   - 在 source-child、daily-note、configured-library 三种 storage mode 间做唯一落点决策，并在实体或 card/Riff 创建失败时回滚已创建 artifact
 - `SelectionExcerptService`
-  - 负责把 selection-oriented 输入适配到主 progressive 服务
+  - 负责 selection excerpt action runtime：materialize source facts、prepare/apply source mark、调用 `ProgressiveReadingService.createExcerptFromSelection()`、把 progressive created/duplicate 结果映射为 typed action outcome
+  - 只返回 identity/source semantics、preservation diagnostics 与 source-mark diagnostics，不返回完整 source DOM / excerpt content，也不拥有 duplicate-open、Review queue/hyperspace routing 或 surface toast
 - `SelectionTopicContinuationService`
   - 负责在菜单打开时同步判断当前选区是否位于 topic / excerpt 语境
   - 负责把选区 DOM/文本拆成 `plannerContent` 与 `artifactContentDom` 两份载荷：前者保留 block-ref 等 planner 语义，后者保留 `[*]` 锚文本、高亮和内联结构供 Item 子文档直接落地

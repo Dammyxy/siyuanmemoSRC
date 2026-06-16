@@ -1,3 +1,9 @@
+import type {
+  ProgressiveContentPayloadIdentity,
+  ProgressiveDisclosureState,
+  ProgressiveSourceLineage,
+} from '@/core/progressive/progressiveSourceModel';
+
 /**
  * CreateCardCommand - 创建卡片命令
  * 
@@ -45,9 +51,9 @@ export interface ProgressiveLineage {
   storageMode?: 'workbench' | 'source-child';
   creationRuleId?: string;
   answerFingerprint?: string;
-  sourceLineage?: unknown;
-  payloadIdentity?: unknown;
-  disclosureState?: unknown;
+  sourceLineage?: ProgressiveSourceLineage;
+  payloadIdentity?: ProgressiveContentPayloadIdentity;
+  disclosureState?: ProgressiveDisclosureState;
 }
 
 /**

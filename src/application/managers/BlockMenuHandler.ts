@@ -29,12 +29,7 @@ import { CoreReviewEntryService, type CoreReviewScopeOptions } from '@/applicati
 import type { CoreReviewEntryActionId } from '@/application/entries/CoreReviewEntryRegistry';
 import type { NeuralRoamEntryActionService } from '@/application/services/NeuralRoamEntryActionService';
 import {
-  applyProgressiveExcerptHighlight,
-  prepareProgressiveExcerptHighlight,
-} from '@/application/entries/ProgressiveExcerptHighlight';
-import {
   resolveProgressiveExcerptSnapshotFromBlocks,
-  type ProgressiveExcerptSelectionSnapshot,
 } from '@/application/entries/ProgressiveSelectionResolver';
 import type { ExcerptRecord } from '@/application/services/ExcerptRecordService';
 import type { CurrentBlockTopicContinuationPreparation } from '@/application/services/SelectionTopicContinuationService';
@@ -842,33 +837,6 @@ export class BlockMenuHandler {
     return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
   }
 
-  private tryPrepareProgressiveExcerptHighlight(
-    selection: ProgressiveExcerptSelectionSnapshot,
-  ): ReturnType<typeof prepareProgressiveExcerptHighlight> {
-    try {
-      return prepareProgressiveExcerptHighlight(selection);
-    } catch (error) {
-      logger.warn('[BlockMenuHandler] Failed to prepare progressive excerpt highlight:', error);
-      throw new Error(`PROGRESSIVE_EXCERPT_HIGHLIGHT_UNAVAILABLE: failed to prepare progressive excerpt highlight: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  private async tryApplyPreparedProgressiveExcerptHighlight(
-    preparedHighlight: ReturnType<typeof prepareProgressiveExcerptHighlight>,
-  ): Promise<boolean> {
-    if (!preparedHighlight) {
-      return false;
-    }
-    try {
-      return await applyProgressiveExcerptHighlight(preparedHighlight, {
-        persistDomBlock: (blockId, dom) => this.deps.applicationContext.getSelectionExcerptService().updateSourceBlockDom(blockId, dom),
-      });
-    } catch (error) {
-      logger.warn('[BlockMenuHandler] Failed to apply progressive excerpt highlight:', error);
-      return false;
-    }
-  }
-
   private async tryOpenExistingExcerpt(record: ExcerptRecord): Promise<void> {
     try {
       const tabApplicationService = this.deps.applicationContext.getTabApplicationService();
@@ -889,28 +857,38 @@ export class BlockMenuHandler {
       return;
     }
 
-    const selectionService = this.deps.applicationContext.getSelectionExcerptService();
     try {
-      const materialized = await selectionService.materializeExcerptSource(selection);
-      const preparedHighlight = this.isProgressiveExcerptSourceMarkingEnabled()
-        ? this.tryPrepareProgressiveExcerptHighlight(materialized.highlightSnapshot)
-        : null;
-      const result = await selectionService.createFromSelection({
-        sourceBlockId: materialized.sourceBlockId,
-        sourceBlockIds: materialized.sourceBlockIds,
-        selectedText: selection.text,
-        contentDom: materialized.contentDom,
-        origin: 'editor',
+      const result = await this.deps.applicationContext.getSelectionExcerptService().executeSelectionExcerptAction({
+        selection,
+        origin: 'block-menu',
+        sourceMarkingEnabled: this.isProgressiveExcerptSourceMarkingEnabled(),
       });
+      if (result.preservation.incomplete) {
+        logger.warn('[BlockMenuHandler] Progressive excerpt created without DOM preservation evidence for likely inline references', {
+          sourceBlockId: result.sourceBlockId,
+          sourceBlockIds: result.sourceBlockIds,
+        });
+      }
       if (result.kind === 'duplicate') {
-        await this.tryApplyPreparedProgressiveExcerptHighlight(preparedHighlight);
         await this.tryOpenExistingExcerpt(result.record);
-        await this.siyuanApi.pushMsg(this.text('progressiveExcerptDuplicateJumped', '这段原文已摘录过，已跳到现有摘录'));
+        await this.siyuanApi.pushMsg(
+          result.sourceMark.diagnostic
+            ? this.text('progressiveExcerptDuplicateSourceMarkFailed', '已找到已有摘录，但原文标记未写入')
+            : this.text('progressiveExcerptDuplicateJumped', '这段原文已摘录过，已跳到现有摘录'),
+        );
         return;
       }
 
-      result.colorApplied = await this.tryApplyPreparedProgressiveExcerptHighlight(preparedHighlight);
-      await this.siyuanApi.pushMsg(this.text('progressiveExcerptCreated', '已创建 Topic，已进入今日渐进学习'));
+      if (result.preservation.incomplete) {
+        await this.siyuanApi.pushMsg(
+          this.text('progressiveExcerptPreservationDegraded', '已创建 Topic，但原文链接或块引用可能未完整保留'),
+        );
+      }
+      await this.siyuanApi.pushMsg(
+        result.sourceMark.diagnostic
+          ? this.text('progressiveExcerptCreatedSourceMarkFailed', '已创建 Topic，但原文标记未写入')
+          : this.text('progressiveExcerptCreated', '已创建 Topic，已进入今日渐进学习'),
+      );
     } catch (error) {
       logger.error('[BlockMenuHandler] Failed to create progressive excerpt from block menu:', error);
       await this.siyuanApi.pushErrMsg(

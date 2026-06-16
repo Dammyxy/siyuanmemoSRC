@@ -779,6 +779,8 @@
   "progressiveExcerptCreatedInserted": "Topic created and inserted into the current progressive review",
   "progressiveExcerptCreatedMergedHyperspace": "Topic created and merged into the current hyperspace roam",
   "progressiveExcerptPreservationDegraded": "Topic created, but source links or block references may not be fully preserved",
+  "progressiveExcerptCreatedSourceMarkFailed": "Topic created, but the source mark was not written",
+  "progressiveExcerptDuplicateSourceMarkFailed": "Existing excerpt found, but the source mark was not written",
   "progressiveExcerptDuplicateJumped": "This passage was already excerpted. Jumped to the existing excerpt.",
   "progressiveExcerptDisabled": "Excerpt shortcut is disabled. Enable it in settings first.",
   "progressiveExcerptFailed": "Excerpt failed: {message}",

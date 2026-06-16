@@ -73,8 +73,7 @@ function createSelectionSnapshot(root: HTMLElement | null, overrides: Record<str
 function createHandler(options?: {
   enabled?: boolean;
   sourceMarkingEnabled?: boolean;
-  createFromSelection?: ReturnType<typeof vi.fn>;
-  materializeExcerptSource?: ReturnType<typeof vi.fn>;
+  executeSelectionExcerptAction?: ReturnType<typeof vi.fn>;
   prepareTopicContinuation?: ReturnType<typeof vi.fn>;
   createTopicContinuation?: ReturnType<typeof vi.fn>;
   autoCardHandler?: {
@@ -82,23 +81,27 @@ function createHandler(options?: {
   };
   i18n?: Record<string, string>;
 }) {
-  const createFromSelection = options?.createFromSelection ?? vi.fn(async () => ({
+  const executeSelectionExcerptAction = options?.executeSelectionExcerptAction ?? vi.fn(async (input: {
+    selection: ReturnType<typeof createSelectionSnapshot>;
+    sourceMarkingEnabled: boolean;
+  }) => ({
     kind: 'created' as const,
     excerptEntityId: 'excerpt-doc-1',
     excerptEntityType: 'doc',
     topicCardId: 'card-1',
-    sourceBlockId: 'block-1',
-    sourceBlockIds: ['block-1'],
+    sourceBlockId: input.selection.sourceBlockId,
+    sourceBlockIds: input.selection.sourceBlockIds,
     containerDocId: '',
     recordId: 'record-1',
     colorApplied: false,
-  }));
-  const materializeExcerptSource = options?.materializeExcerptSource ?? vi.fn(async (selection: ReturnType<typeof createSelectionSnapshot>) => ({
-    sourceBlockId: selection.sourceBlockId,
-    sourceBlockIds: selection.sourceBlockIds,
-    contentDom: selection.contentDom,
-    highlightSnapshot: selection,
-    reused: false,
+    sourceMark: {
+      enabled: input.sourceMarkingEnabled,
+      colorApplied: false,
+    },
+    preservation: {
+      incomplete: false,
+      diagnostics: [],
+    },
   }));
   const prepareTopicContinuation = options?.prepareTopicContinuation ?? vi.fn(() => ({
     rootId: 'doc-root-1',
@@ -150,8 +153,9 @@ function createHandler(options?: {
         ...(options?.i18n || {}),
       }),
       getSelectionExcerptService: () => ({
-        materializeExcerptSource,
-        createFromSelection,
+        executeSelectionExcerptAction,
+      }),
+      getProgressiveReadingService: () => ({
         updateSourceBlockDom,
       }),
       getSelectionTopicContinuationService: () => ({
@@ -161,11 +165,10 @@ function createHandler(options?: {
       getAutoCardHandler: () => autoCardHandler,
       getTabApplicationService: () => tabApplicationService,
     } as any),
-    createFromSelection,
+    executeSelectionExcerptAction,
     prepareTopicContinuation,
     createTopicContinuation,
     autoCardHandler,
-    materializeExcerptSource,
     updateSourceBlockDom,
     tabApplicationService,
   };
@@ -234,7 +237,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
     resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(root));
 
-    const { handler, createFromSelection } = createHandler();
+    const { handler, executeSelectionExcerptAction } = createHandler();
     await handler.runFromEditor({
       wysiwyg: {
         element: root,
@@ -251,15 +254,16 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       },
     });
     expect(resolveProgressiveExcerptSnapshotFromSelectedBlocks).not.toHaveBeenCalled();
-    expect(createFromSelection).toHaveBeenCalledWith({
-      sourceBlockId: 'block-1',
-      sourceBlockIds: ['block-1'],
-      selectedText: 'Hello',
-      contentDom: HELLO_CONTENT_DOM,
+    expect(executeSelectionExcerptAction).toHaveBeenCalledWith({
+      selection: expect.objectContaining({
+        sourceBlockId: 'block-1',
+        sourceBlockIds: ['block-1'],
+        text: 'Hello',
+        contentDom: HELLO_CONTENT_DOM,
+      }),
       origin: 'editor',
+      sourceMarkingEnabled: true,
     });
-    expect(prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
-    expect(applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(showMessage).toHaveBeenCalledWith('Topic created and added to today', 3000, 'info');
   });
 
@@ -273,14 +277,14 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
     resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(null);
 
-    const { handler, createFromSelection } = createHandler();
+    const { handler, executeSelectionExcerptAction } = createHandler();
     await handler.runFromEditor({
       wysiwyg: {
         element: root,
       },
     } as any);
 
-    expect(createFromSelection).not.toHaveBeenCalled();
+    expect(executeSelectionExcerptAction).not.toHaveBeenCalled();
     expect(showMessage).toHaveBeenCalledWith('Select text before excerpting', 3000, 'error');
   });
 
@@ -307,7 +311,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       ],
     }));
 
-    const { handler, createFromSelection } = createHandler();
+    const { handler, executeSelectionExcerptAction } = createHandler();
     await handler.runFromEditor({
       wysiwyg: {
         element: root,
@@ -323,12 +327,15 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
         },
       },
     });
-    expect(createFromSelection).toHaveBeenCalledWith({
-      sourceBlockId: 'block-1',
-      sourceBlockIds: ['block-1', 'block-2'],
-      selectedText: 'Alpha\nBeta',
-      contentDom: HELLO_CONTENT_DOM,
+    expect(executeSelectionExcerptAction).toHaveBeenCalledWith({
+      selection: expect.objectContaining({
+        sourceBlockId: 'block-1',
+        sourceBlockIds: ['block-1', 'block-2'],
+        text: 'Alpha\nBeta',
+        contentDom: HELLO_CONTENT_DOM,
+      }),
       origin: 'editor',
+      sourceMarkingEnabled: true,
     });
   });
 
@@ -338,14 +345,14 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     });
     window.addEventListener(PROGRESSIVE_EXCERPT_REQUEST_EVENT, reviewRequestListener as EventListener);
 
-    const { handler, createFromSelection } = createHandler();
+    const { handler, executeSelectionExcerptAction } = createHandler();
     handler.runFromCommand();
 
     expect(reviewRequestListener).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(0);
 
     expect(reviewRequestListener).toHaveBeenCalledTimes(1);
-    expect(createFromSelection).not.toHaveBeenCalled();
+    expect(executeSelectionExcerptAction).not.toHaveBeenCalled();
 
     window.removeEventListener(PROGRESSIVE_EXCERPT_REQUEST_EVENT, reviewRequestListener as EventListener);
   });
@@ -357,26 +364,27 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       protyle: { wysiwyg: { element: document.body } },
     }));
 
-    const { handler, createFromSelection } = createHandler();
+    const { handler, executeSelectionExcerptAction } = createHandler();
     handler.runFromCommand();
     await vi.advanceTimersByTimeAsync(0);
 
     expect(resolveProgressiveExcerptSelectionSnapshot).toHaveBeenCalledWith({
       protyle: undefined,
     });
-    expect(createFromSelection).toHaveBeenCalledWith({
-      sourceBlockId: 'block-1',
-      sourceBlockIds: ['block-1'],
-      selectedText: 'Hello',
-      contentDom: HELLO_CONTENT_DOM,
+    expect(executeSelectionExcerptAction).toHaveBeenCalledWith({
+      selection: expect.objectContaining({
+        sourceBlockId: 'block-1',
+        sourceBlockIds: ['block-1'],
+        text: 'Hello',
+        contentDom: HELLO_CONTENT_DOM,
+      }),
       origin: 'editor',
+      sourceMarkingEnabled: true,
     });
-    expect(prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
-    expect(applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(showMessage).toHaveBeenCalledWith('Topic created and added to today', 3000, 'info');
   });
 
-  it('keeps excerpt creation successful when highlight replay throws', async () => {
+  it('shows a source-mark diagnostic when the shared action reports mark persistence failure', async () => {
     document.body.innerHTML = `
       <div class="protyle" id="editor-root">
         <div data-node-id="block-1">
@@ -392,19 +400,40 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
 
     isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
     resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(root));
-    applyProgressiveExcerptHighlight.mockImplementation(async () => {
-      throw new Error('highlight failed');
-    });
 
-    const { handler, createFromSelection } = createHandler();
+    const executeSelectionExcerptAction = vi.fn(async (input: { selection: ReturnType<typeof createSelectionSnapshot> }) => ({
+      kind: 'created' as const,
+      excerptEntityId: 'excerpt-doc-1',
+      excerptEntityType: 'doc' as const,
+      topicCardId: 'card-1',
+      sourceBlockId: input.selection.sourceBlockId,
+      sourceBlockIds: input.selection.sourceBlockIds,
+      containerDocId: 'excerpt-doc-1',
+      recordId: 'record-1',
+      colorApplied: false,
+      sourceMark: {
+        enabled: true,
+        colorApplied: false,
+        diagnostic: {
+          code: 'source-mark-persist-failed' as const,
+          message: '原文标记未写入',
+        },
+      },
+      preservation: {
+        incomplete: false,
+        diagnostics: [],
+      },
+    }));
+
+    const { handler } = createHandler({ executeSelectionExcerptAction });
     await handler.runFromEditor({
       wysiwyg: {
         element: root,
       },
     } as any);
 
-    expect(createFromSelection).toHaveBeenCalledTimes(1);
-    expect(showMessage).toHaveBeenCalledWith('Topic created and added to today', 3000, 'info');
+    expect(executeSelectionExcerptAction).toHaveBeenCalledTimes(1);
+    expect(showMessage).toHaveBeenCalledWith('已创建 Topic，但原文标记未写入', 3000, 'info');
   });
 
   it('creates excerpts without preparing or applying source marks when source marking is disabled', async () => {
@@ -424,16 +453,23 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
     resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(root));
 
-    const { handler, createFromSelection } = createHandler({ sourceMarkingEnabled: false });
+    const { handler, executeSelectionExcerptAction } = createHandler({ sourceMarkingEnabled: false });
     await handler.runFromEditor({
       wysiwyg: {
         element: root,
       },
     } as any);
 
-    expect(createFromSelection).toHaveBeenCalledTimes(1);
-    expect(prepareProgressiveExcerptHighlight).not.toHaveBeenCalled();
-    expect(applyProgressiveExcerptHighlight).not.toHaveBeenCalled();
+    expect(executeSelectionExcerptAction).toHaveBeenCalledTimes(1);
+    expect(executeSelectionExcerptAction).toHaveBeenCalledWith({
+      selection: expect.objectContaining({
+        sourceBlockId: 'block-1',
+        sourceBlockIds: ['block-1'],
+        text: 'Hello',
+      }),
+      origin: 'editor',
+      sourceMarkingEnabled: false,
+    });
     expect(showMessage).toHaveBeenCalledWith('Topic created and added to today', 3000, 'info');
   });
 
@@ -457,15 +493,27 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       contentDom: '',
     }));
 
-    const materializeExcerptSource = vi.fn(async (selection: ReturnType<typeof createSelectionSnapshot>) => ({
-      sourceBlockId: selection.sourceBlockId,
-      sourceBlockIds: selection.sourceBlockIds,
-      contentDom: '',
-      highlightSnapshot: selection,
-      reused: false,
+    const executeSelectionExcerptAction = vi.fn(async (input: { selection: ReturnType<typeof createSelectionSnapshot> }) => ({
+      kind: 'created' as const,
+      excerptEntityId: 'excerpt-doc-1',
+      excerptEntityType: 'doc' as const,
+      topicCardId: 'card-1',
+      sourceBlockId: input.selection.sourceBlockId,
+      sourceBlockIds: input.selection.sourceBlockIds,
+      containerDocId: 'excerpt-doc-1',
+      recordId: 'record-1',
+      colorApplied: true,
+      sourceMark: {
+        enabled: true,
+        colorApplied: true,
+      },
+      preservation: {
+        incomplete: true,
+        diagnostics: ['missing-dom-preservation-evidence'],
+      },
     }));
 
-    const { handler } = createHandler({ materializeExcerptSource });
+    const { handler } = createHandler({ executeSelectionExcerptAction });
     await handler.runFromEditor({
       wysiwyg: {
         element: root,
@@ -496,19 +544,19 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
 
     isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
     resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(root));
-    prepareProgressiveExcerptHighlight.mockImplementationOnce(() => {
-      throw new Error('highlight planner down');
+
+    const executeSelectionExcerptAction = vi.fn(async () => {
+      throw new Error('PROGRESSIVE_EXCERPT_HIGHLIGHT_UNAVAILABLE: failed to prepare progressive excerpt highlight: highlight planner down');
     });
 
-    const { handler, createFromSelection } = createHandler();
+    const { handler } = createHandler({ executeSelectionExcerptAction });
     await handler.runFromEditor({
       wysiwyg: {
         element: root,
       },
     } as any);
 
-    expect(createFromSelection).not.toHaveBeenCalled();
-    expect(applyProgressiveExcerptHighlight).not.toHaveBeenCalled();
+    expect(executeSelectionExcerptAction).toHaveBeenCalledTimes(1);
     expect(showMessage).toHaveBeenCalledWith(
       expect.stringContaining('PROGRESSIVE_EXCERPT_HIGHLIGHT_UNAVAILABLE: failed to prepare progressive excerpt highlight: highlight planner down'),
       5000,
@@ -534,7 +582,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(root));
 
     const menu = { addItem: vi.fn() };
-    const { handler, createFromSelection } = createHandler({ enabled: false });
+    const { handler, executeSelectionExcerptAction } = createHandler({ enabled: false });
     handler.handleContentMenu({
       detail: {
         menu,
@@ -553,15 +601,16 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
 
     await item.click();
 
-    expect(createFromSelection).toHaveBeenCalledWith({
-      sourceBlockId: 'block-1',
-      sourceBlockIds: ['block-1'],
-      selectedText: 'Hello',
-      contentDom: HELLO_CONTENT_DOM,
+    expect(executeSelectionExcerptAction).toHaveBeenCalledWith({
+      selection: expect.objectContaining({
+        sourceBlockId: 'block-1',
+        sourceBlockIds: ['block-1'],
+        text: 'Hello',
+        contentDom: HELLO_CONTENT_DOM,
+      }),
       origin: 'editor',
+      sourceMarkingEnabled: true,
     });
-    expect(prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
-    expect(applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(showMessage).toHaveBeenCalledWith('Topic created and added to today', 3000, 'info');
   });
 
@@ -1297,7 +1346,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
     resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(root));
 
-    const createFromSelection = vi.fn(async () => ({
+    const executeSelectionExcerptAction = vi.fn(async () => ({
       kind: 'duplicate' as const,
       record: {
         recordId: 'record-1',
@@ -1313,17 +1362,26 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
         createdAt: Date.now(),
         status: 'active' as const,
       },
+      sourceBlockId: 'block-1',
+      sourceBlockIds: ['block-1'],
+      colorApplied: true,
+      sourceMark: {
+        enabled: true,
+        colorApplied: true,
+      },
+      preservation: {
+        incomplete: false,
+        diagnostics: [],
+      },
     }));
 
-    const { handler, tabApplicationService } = createHandler({ createFromSelection });
+    const { handler, tabApplicationService } = createHandler({ executeSelectionExcerptAction });
     await handler.runFromEditor({
       wysiwyg: {
         element: root,
       },
     } as any);
 
-    expect(applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
-    expect(prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(tabApplicationService.openDocumentTab).toHaveBeenCalledWith({ docId: 'excerpt-doc-1' });
     expect(showMessage).toHaveBeenCalledWith('This passage was already excerpted.', 3000, 'info');
   });

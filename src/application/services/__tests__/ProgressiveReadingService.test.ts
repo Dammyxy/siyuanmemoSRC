@@ -24,6 +24,10 @@ import {
 
 const NODE_ID_PATTERN = /^\d{14}-[0-9a-z]{7}$/u;
 
+function isDirectChildCleanupSql(stmt: string, docId: string): boolean {
+  return stmt.includes(`WHERE b.parent_id = '${docId}'`) && stmt.includes('LIMIT 2');
+}
+
 function createFileServiceMock(initialData: unknown = null): IFileService & { getStored: (fileName?: string) => unknown } {
   const store = new Map<string, unknown>();
   if (initialData !== null) {
@@ -1685,6 +1689,9 @@ describe('ProgressiveReadingService', () => {
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
           return [];
         }
+        if (isDirectChildCleanupSql(stmt, 'excerpt-doc-1')) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       getBlockKramdown: vi.fn(async () => ({
@@ -1722,7 +1729,7 @@ describe('ProgressiveReadingService', () => {
       origin: 'editor',
     });
 
-    expect(result).toEqual({
+    expect(result).toEqual(expect.objectContaining({
       kind: 'created',
       excerptEntityId: 'excerpt-doc-1',
       excerptEntityType: 'doc',
@@ -1732,7 +1739,7 @@ describe('ProgressiveReadingService', () => {
       containerDocId: 'excerpt-doc-1',
       recordId: expect.any(String),
       colorApplied: false,
-    });
+    }));
     expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
       1,
       'notebook-a',
@@ -1797,6 +1804,76 @@ describe('ProgressiveReadingService', () => {
     }));
   });
 
+  it('removes the empty paragraph that SiYuan creates before appended excerpt doc content', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async (docId: string) => ({
+        id: docId,
+        box: 'notebook-a',
+        path: '/reading/ordinary.sy',
+        hpath: '/reading/ordinary',
+        name: 'Ordinary',
+      })),
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'source-cleanup-1'")) {
+          return [
+            {
+              id: 'source-cleanup-1',
+              root_id: 'doc-cleanup',
+              parent_id: 'doc-cleanup',
+              box: 'notebook-a',
+              type: 'p',
+              content: 'Focus text',
+              markdown: 'Focus text',
+            },
+          ];
+        }
+        if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-cleanup'")) {
+          return [];
+        }
+        if (stmt.includes("WHERE b.parent_id = 'excerpt-doc-cleanup-1'")) {
+          return [
+            {
+              id: 'empty-placeholder-1',
+              parent_id: 'excerpt-doc-cleanup-1',
+              root_id: 'excerpt-doc-cleanup-1',
+              type: 'p',
+              content: '',
+              markdown: '',
+              sort: '0',
+            },
+            {
+              id: 'excerpt-content-cleanup-1',
+              parent_id: 'excerpt-doc-cleanup-1',
+              root_id: 'excerpt-doc-cleanup-1',
+              type: 'p',
+              content: 'Focus text *',
+              markdown: 'Focus text *',
+              sort: '1',
+            },
+          ];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+      createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-cleanup-1'),
+      appendDomBlock: vi.fn(async () => 'excerpt-content-cleanup-1'),
+    });
+    const cardService = createCardServiceMock();
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+
+    await service.createExcerptFromSelection({
+      sourceBlockId: 'source-cleanup-1',
+      selectedText: 'Focus text',
+      origin: 'editor',
+    });
+
+    expect(port.deleteBlock).toHaveBeenCalledWith('empty-placeholder-1');
+    expect(port.deleteBlock).not.toHaveBeenCalledWith('excerpt-content-cleanup-1');
+    expect(port.setBlockAttrs).toHaveBeenCalledWith('excerpt-doc-cleanup-1', expect.objectContaining({
+      'custom-fsrs-reading-kind': 'excerpt-doc',
+    }));
+  });
+
   it('records progressive source semantics for excerpts without writing high-churn block attrs', async () => {
     const fileService = createFileServiceMock();
     const port = createProgressiveSiyuanPortMock({
@@ -1814,6 +1891,9 @@ describe('ProgressiveReadingService', () => {
           ];
         }
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-lineage'")) {
+          return [];
+        }
+        if (isDirectChildCleanupSql(stmt, 'excerpt-lineage-1')) {
           return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
@@ -1931,6 +2011,9 @@ describe('ProgressiveReadingService', () => {
           ];
         }
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-policy'")) {
+          return [];
+        }
+        if (isDirectChildCleanupSql(stmt, 'excerpt-policy-1')) {
           return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
@@ -2101,6 +2184,9 @@ describe('ProgressiveReadingService', () => {
             { id: 'excerpt-doc-old-1', content: '[摘录 001] Earlier' },
           ];
         }
+        if (isDirectChildCleanupSql(stmt, 'excerpt-doc-2')) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       getBlockKramdown: vi.fn(async () => ({
@@ -2126,7 +2212,7 @@ describe('ProgressiveReadingService', () => {
       currentCardId: 'card-piece-1',
     });
 
-    expect(result).toEqual({
+    expect(result).toEqual(expect.objectContaining({
       kind: 'created',
       excerptEntityId: 'excerpt-doc-2',
       excerptEntityType: 'doc',
@@ -2136,7 +2222,7 @@ describe('ProgressiveReadingService', () => {
       containerDocId: 'excerpt-doc-2',
       recordId: expect.any(String),
       colorApplied: false,
-    });
+    }));
     expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
       1,
       'notebook-a',
@@ -2375,6 +2461,9 @@ describe('ProgressiveReadingService', () => {
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
           return [];
         }
+        if (isDirectChildCleanupSql(stmt, 'excerpt-doc-plain-1')) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-plain-1'),
@@ -2388,7 +2477,7 @@ describe('ProgressiveReadingService', () => {
       origin: 'editor',
     });
 
-    expect(result).toEqual({
+    expect(result).toEqual(expect.objectContaining({
       kind: 'created',
       excerptEntityId: 'excerpt-doc-plain-1',
       excerptEntityType: 'doc',
@@ -2398,7 +2487,7 @@ describe('ProgressiveReadingService', () => {
       containerDocId: 'excerpt-doc-plain-1',
       recordId: expect.any(String),
       colorApplied: false,
-    });
+    }));
     expect(port.createDocWithMarkdown).toHaveBeenCalledTimes(1);
     expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
       'notebook-a',
@@ -2429,6 +2518,9 @@ describe('ProgressiveReadingService', () => {
           ];
         }
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
+          return [];
+        }
+        if (isDirectChildCleanupSql(stmt, 'excerpt-doc-source-child-1')) {
           return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
@@ -2503,6 +2595,9 @@ describe('ProgressiveReadingService', () => {
           ];
         }
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
+          return [];
+        }
+        if (isDirectChildCleanupSql(stmt, 'excerpt-doc-rich-1')) {
           return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
@@ -2796,6 +2891,9 @@ describe('ProgressiveReadingService', () => {
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
           return [];
         }
+        if (isDirectChildCleanupSql(stmt, 'excerpt-doc-long-1')) {
+          return [];
+        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-long-1'),
@@ -2809,7 +2907,7 @@ describe('ProgressiveReadingService', () => {
       origin: 'editor',
     });
 
-    expect(result).toEqual({
+    expect(result).toEqual(expect.objectContaining({
       kind: 'created',
       excerptEntityId: 'excerpt-doc-long-1',
       excerptEntityType: 'doc',
@@ -2819,7 +2917,7 @@ describe('ProgressiveReadingService', () => {
       containerDocId: 'excerpt-doc-long-1',
       recordId: expect.any(String),
       colorApplied: false,
-    });
+    }));
     expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
       'notebook-a',
       '/reading/ordinary/[Topic 001] 人的思考并不只发生在大…',
@@ -2863,6 +2961,9 @@ describe('ProgressiveReadingService', () => {
           ];
         }
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'excerpt-doc-root-1'")) {
+          return [];
+        }
+        if (isDirectChildCleanupSql(stmt, 'excerpt-doc-child-1')) {
           return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
@@ -2954,6 +3055,9 @@ describe('ProgressiveReadingService', () => {
           ];
         }
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'topic-doc-root-1'")) {
+          return [];
+        }
+        if (isDirectChildCleanupSql(stmt, 'topic-doc-excerpt-1')) {
           return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
@@ -3061,6 +3165,9 @@ describe('ProgressiveReadingService', () => {
           ];
         }
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
+          return [];
+        }
+        if (isDirectChildCleanupSql(stmt, 'excerpt-doc-riff-fail-1')) {
           return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);

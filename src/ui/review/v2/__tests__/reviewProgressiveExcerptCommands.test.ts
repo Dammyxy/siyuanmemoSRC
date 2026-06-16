@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createProgressiveExcerptFromReviewSelection,
   routeProgressiveExcerptIntoCurrentReview,
@@ -8,16 +8,6 @@ import {
 import type { ProgressiveExcerptSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
 import type { FSRSCard } from '@/types/card';
 import type { CardFilter, NeuralRoamSessionQueue } from '@/types/unified-data-source';
-
-const highlightMocks = vi.hoisted(() => ({
-  prepareProgressiveExcerptHighlight: vi.fn(),
-  applyProgressiveExcerptHighlight: vi.fn(),
-}));
-
-vi.mock('@/application/entries/ProgressiveExcerptHighlight', () => ({
-  prepareProgressiveExcerptHighlight: highlightMocks.prepareProgressiveExcerptHighlight,
-  applyProgressiveExcerptHighlight: highlightMocks.applyProgressiveExcerptHighlight,
-}));
 
 const t = (_key: string, fallback: string) => fallback;
 
@@ -90,37 +80,13 @@ function createSelection(): ProgressiveExcerptSelectionSnapshot {
   };
 }
 
-function createSelectionService(result: Awaited<ReturnType<Parameters<typeof createProgressiveExcerptFromReviewSelection>[0]['selectionService']['createFromSelection']>>) {
+function createSelectionService(result: Awaited<ReturnType<Parameters<typeof createProgressiveExcerptFromReviewSelection>[0]['selectionService']['executeSelectionExcerptAction']>>) {
   return {
-    materializeExcerptSource: vi.fn(async (selection: ProgressiveExcerptSelectionSnapshot) => ({
-      sourceBlockId: selection.sourceBlockId,
-      sourceBlockIds: selection.sourceBlockIds,
-      contentDom: selection.contentDom,
-      highlightSnapshot: selection,
-      reused: false,
-    })),
-    createFromSelection: vi.fn(async () => result),
-    updateSourceBlockDom: vi.fn(async () => undefined),
+    executeSelectionExcerptAction: vi.fn(async () => result),
   };
 }
 
 describe('reviewProgressiveExcerptCommands', () => {
-  beforeEach(() => {
-    highlightMocks.prepareProgressiveExcerptHighlight.mockReset();
-    highlightMocks.prepareProgressiveExcerptHighlight.mockReturnValue({
-      blockId: 'source-block-1',
-      blockIds: ['source-block-1'],
-      previousBlockHtml: '<div data-node-id="source-block-1">Selected excerpt text</div>',
-      nextBlockHtml: '<div data-node-id="source-block-1"><span data-type="text">Selected excerpt text</span></div>',
-      blockMutations: [],
-      root: document.body,
-      protyle: null,
-      alreadyApplied: false,
-    });
-    highlightMocks.applyProgressiveExcerptHighlight.mockReset();
-    highlightMocks.applyProgressiveExcerptHighlight.mockResolvedValue(true);
-  });
-
   it('routes new excerpts into the current progressive piece before hyperspace', async () => {
     const filter: CardFilter = { blockIds: ['piece-doc-1'] };
     const filterQueue = {
@@ -178,7 +144,7 @@ describe('reviewProgressiveExcerptCommands', () => {
     });
   });
 
-  it('creates review excerpts, applies prepared highlight, then shows routed success', async () => {
+  it('creates review excerpts through the shared action, then shows routed success', async () => {
     const createdResult = {
       kind: 'created' as const,
       excerptEntityId: 'excerpt-doc-1',
@@ -188,7 +154,15 @@ describe('reviewProgressiveExcerptCommands', () => {
       sourceBlockIds: ['source-block-1'],
       containerDocId: 'daily-note-1',
       recordId: 'record-1',
-      colorApplied: false,
+      colorApplied: true,
+      sourceMark: {
+        enabled: true,
+        colorApplied: true,
+      },
+      preservation: {
+        incomplete: false,
+        diagnostics: [],
+      },
     };
     const selectionService = createSelectionService(createdResult);
     const routeExcerpt = vi.fn(async () => 'hyperspace' as const);
@@ -203,20 +177,21 @@ describe('reviewProgressiveExcerptCommands', () => {
       routeExcerpt,
       t,
       showMessage,
+      sourceMarkingEnabled: true,
       logger: {},
     });
 
-    expect(selectionService.createFromSelection).toHaveBeenCalledWith({
-      sourceBlockId: 'source-block-1',
-      sourceBlockIds: ['source-block-1'],
-      selectedText: 'Selected excerpt text',
-      contentDom: '<div data-node-id="source-block-1">Selected excerpt text</div>',
+    expect(selectionService.executeSelectionExcerptAction).toHaveBeenCalledWith({
+      selection: expect.objectContaining({
+        sourceBlockId: 'source-block-1',
+        sourceBlockIds: ['source-block-1'],
+        text: 'Selected excerpt text',
+        contentDom: '<div data-node-id="source-block-1">Selected excerpt text</div>',
+      }),
       origin: 'review',
       currentCardId: 'card-topic-1',
+      sourceMarkingEnabled: true,
     });
-    expect(highlightMocks.prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
-    expect(highlightMocks.applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
-    expect(createdResult.colorApplied).toBe(true);
     expect(routeExcerpt).toHaveBeenCalledWith('excerpt-doc-1');
     expect(showMessage).toHaveBeenLastCalledWith('已创建 Topic，并并入当前超空间神经漫游', 3000, 'info');
   });
@@ -231,7 +206,15 @@ describe('reviewProgressiveExcerptCommands', () => {
       sourceBlockIds: ['source-block-1'],
       containerDocId: 'daily-note-1',
       recordId: 'record-1',
-      colorApplied: false,
+      colorApplied: true,
+      sourceMark: {
+        enabled: true,
+        colorApplied: true,
+      },
+      preservation: {
+        incomplete: true,
+        diagnostics: ['missing-dom-preservation-evidence'],
+      },
     };
     const selection = createSelection();
     selection.text = 'See [link](https://example.com)';
@@ -250,6 +233,7 @@ describe('reviewProgressiveExcerptCommands', () => {
       routeExcerpt,
       t,
       showMessage,
+      sourceMarkingEnabled: true,
       logger,
     });
 
@@ -278,6 +262,17 @@ describe('reviewProgressiveExcerptCommands', () => {
         createdAt: Date.now(),
         status: 'active' as const,
       },
+      sourceBlockId: 'source-block-1',
+      sourceBlockIds: ['source-block-1'],
+      colorApplied: true,
+      sourceMark: {
+        enabled: true,
+        colorApplied: true,
+      },
+      preservation: {
+        incomplete: false,
+        diagnostics: [],
+      },
     };
     const selectionService = createSelectionService(duplicateResult);
     const tabApplicationService = {
@@ -296,10 +291,10 @@ describe('reviewProgressiveExcerptCommands', () => {
       routeExcerpt,
       t,
       showMessage,
+      sourceMarkingEnabled: true,
       logger: {},
     });
 
-    expect(highlightMocks.applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(tabApplicationService.openDocumentTab).toHaveBeenCalledWith({ docId: 'excerpt-doc-1' });
     expect(tabApplicationService.openBlockTab).not.toHaveBeenCalled();
     expect(routeExcerpt).not.toHaveBeenCalled();

@@ -393,6 +393,9 @@ export class ProgressiveExcerptMaterializer {
         sourceBlockId: input.sourceBlockId,
         sourceBlockIds: input.sourceBlockIds,
         containerDocId,
+        sourceLineage: input.sourceLineage,
+        payloadIdentity: input.payloadIdentity,
+        disclosureState: input.disclosureState,
       };
     } catch (error) {
       await this.deps.rollbackExcerptArtifact(excerptEntityId, excerptEntityType, error);

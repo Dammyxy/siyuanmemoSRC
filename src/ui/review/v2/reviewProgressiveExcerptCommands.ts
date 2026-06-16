@@ -2,12 +2,8 @@ import type { App } from 'siyuan';
 import type {
   ProgressiveExcerptSelectionSnapshot,
 } from '@/application/entries/ProgressiveSelectionResolver';
-import {
-  applyProgressiveExcerptHighlight,
-  prepareProgressiveExcerptHighlight,
-} from '@/application/entries/ProgressiveExcerptHighlight';
 import type { ExcerptRecord } from '@/application/services/ExcerptRecordService';
-import type { ProgressiveExcerptCreationResult } from '@/application/services/ProgressiveReadingService';
+import type { SelectionExcerptActionResult } from '@/application/services/SelectionExcerptService';
 import type { FSRSCard } from '@/types/card';
 import type { CardFilter, NeuralRoamSessionQueue } from '@/types/unified-data-source';
 import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
@@ -37,39 +33,17 @@ type ReviewProgressiveRuntimeSettingsLike = {
   };
 };
 
-function hasLikelyInlineReferenceEvidence(value: string): boolean {
-  return /\[[^\]]+\]\([^)]+\)/u.test(value)
-    || /\(\([0-9]{14}-[0-9a-z]{7}\)\)/u.test(value)
-    || /\bassets\/\S+/u.test(value)
-    || /\bsiyuan:\/\/\S+/u.test(value)
-    || /data-type\s*=/u.test(value);
-}
-
-function hasMissingDomPreservationEvidence(contentDom: string | undefined, selectedText: string): boolean {
-  return !String(contentDom || '').trim() && hasLikelyInlineReferenceEvidence(selectedText);
-}
-
 export type ReviewProgressiveReadingServiceLike = {
   completeCurrentPiece: (pieceDocId: string) => Promise<{ nextPieceDocId?: string }>;
 };
 
 export type ReviewSelectionExcerptServiceLike = {
-  materializeExcerptSource: (snapshot: ProgressiveExcerptSelectionSnapshot) => Promise<{
-    sourceBlockId: string;
-    sourceBlockIds: string[];
-    contentDom: string;
-    highlightSnapshot: ProgressiveExcerptSelectionSnapshot;
-    reused: boolean;
-  }>;
-  createFromSelection: (input: {
-    sourceBlockId: string;
-    sourceBlockIds?: string[];
-    selectedText: string;
-    contentDom?: string;
-    origin: 'editor' | 'review';
+  executeSelectionExcerptAction: (input: {
+    selection: ProgressiveExcerptSelectionSnapshot;
+    origin: 'review';
     currentCardId?: string;
-  }) => Promise<ProgressiveExcerptCreationResult>;
-  updateSourceBlockDom: (blockId: string, dom: string) => Promise<void>;
+    sourceMarkingEnabled: boolean;
+  }) => Promise<SelectionExcerptActionResult>;
 };
 
 export type ReviewTabApplicationServiceLike = {
@@ -129,6 +103,7 @@ type CreateReviewProgressiveExcerptInput = {
   routeExcerpt: (excerptEntityId: string) => Promise<ReviewProgressiveRouteTarget | null>;
   t: ReviewProgressiveTranslate;
   showMessage: ReviewProgressiveShowMessage;
+  sourceMarkingEnabled: boolean;
   logger?: ReviewProgressiveLogger;
 };
 
@@ -377,36 +352,6 @@ export async function routeProgressiveExcerptIntoCurrentReview(
   }
 }
 
-function tryPrepareProgressiveExcerptHighlight(
-  selection: ProgressiveExcerptSelectionSnapshot,
-  logger?: ReviewProgressiveLogger,
-) {
-  try {
-    return prepareProgressiveExcerptHighlight(selection);
-  } catch (error) {
-    logger?.warn?.('[SiYuanMemo][ReviewView] Failed to prepare progressive excerpt highlight:', error);
-    return null;
-  }
-}
-
-async function tryApplyPreparedProgressiveExcerptHighlight(
-  preparedHighlight: ReturnType<typeof prepareProgressiveExcerptHighlight>,
-  selectionService: ReviewSelectionExcerptServiceLike,
-  logger?: ReviewProgressiveLogger,
-): Promise<boolean> {
-  if (!preparedHighlight) {
-    return false;
-  }
-  try {
-    return await applyProgressiveExcerptHighlight(preparedHighlight, {
-      persistDomBlock: (blockId, dom) => selectionService.updateSourceBlockDom(blockId, dom),
-    });
-  } catch (highlightError) {
-    logger?.warn?.('[SiYuanMemo][ReviewView] Failed to apply progressive excerpt highlight:', highlightError);
-    return false;
-  }
-}
-
 async function tryOpenExistingExcerptFromReview(
   record: ExcerptRecord,
   tabApplicationService: ReviewTabApplicationServiceLike | null,
@@ -460,46 +405,45 @@ export async function createProgressiveExcerptFromReviewSelection(
   } = input;
 
   try {
-    const materialized = await selectionService.materializeExcerptSource(selection);
-    const degradedPreservation = hasMissingDomPreservationEvidence(materialized.contentDom, selection.text);
-    if (degradedPreservation) {
-      logger?.warn?.('[SiYuanMemo][ReviewView] Progressive excerpt created without DOM preservation evidence for likely inline references', {
-        sourceBlockId: materialized.sourceBlockId,
-        sourceBlockIds: materialized.sourceBlockIds,
-      });
-    }
-    const preparedHighlight = input.sourceMarkingEnabled === false
-      ? null
-      : tryPrepareProgressiveExcerptHighlight(materialized.highlightSnapshot, logger);
-    const result = await selectionService.createFromSelection({
-      sourceBlockId: materialized.sourceBlockId,
-      sourceBlockIds: materialized.sourceBlockIds,
-      selectedText: selection.text,
-      contentDom: materialized.contentDom,
+    const result = await selectionService.executeSelectionExcerptAction({
+      selection,
       origin: 'review',
       currentCardId,
+      sourceMarkingEnabled: input.sourceMarkingEnabled,
     });
+    if (result.preservation.incomplete) {
+      logger?.warn?.('[SiYuanMemo][ReviewView] Progressive excerpt created without DOM preservation evidence for likely inline references', {
+        sourceBlockId: result.sourceBlockId,
+        sourceBlockIds: result.sourceBlockIds,
+      });
+    }
     if (result.kind === 'duplicate') {
-      await tryApplyPreparedProgressiveExcerptHighlight(preparedHighlight, selectionService, logger);
       await tryOpenExistingExcerptFromReview(result.record, tabApplicationService, logger);
       showMessage(
-        t('progressiveExcerptDuplicateJumped', '这段原文已摘录过，已跳到现有摘录'),
+        result.sourceMark.diagnostic
+          ? t('progressiveExcerptDuplicateSourceMarkFailed', '已找到已有摘录，但原文标记未写入')
+          : t('progressiveExcerptDuplicateJumped', '这段原文已摘录过，已跳到现有摘录'),
         3000,
         'info',
       );
       return;
     }
 
-    result.colorApplied = await tryApplyPreparedProgressiveExcerptHighlight(preparedHighlight, selectionService, logger);
     const routedExcerptTarget = await routeExcerpt(result.excerptEntityId);
-    if (degradedPreservation) {
+    if (result.preservation.incomplete) {
       showMessage(
         t('progressiveExcerptPreservationDegraded', '已创建 Topic，但原文链接或块引用可能未完整保留'),
         5000,
         'info',
       );
     }
-    showMessage(getCreatedExcerptMessage(trigger, routedExcerptTarget, t), 3000, 'info');
+    showMessage(
+      result.sourceMark.diagnostic
+        ? t('progressiveExcerptCreatedSourceMarkFailed', '已创建 Topic，但原文标记未写入')
+        : getCreatedExcerptMessage(trigger, routedExcerptTarget, t),
+      3000,
+      'info',
+    );
   } catch (error) {
     logger?.error?.('[SiYuanMemo][ReviewView] Failed to create excerpt from review:', error);
     showMessage(
