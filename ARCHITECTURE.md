@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-06-15
+最后更新：2026-06-17
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -340,14 +340,15 @@ Review Attempt Kernel 边界：
 - `ProgressiveReadingService`：渐进阅读、拆分、摘录入口与 backend command facade 的核心应用服务；本地摘录创建委托给 `ProgressiveExcerptMaterializer`，split / child-doc / workbench 编排仍由 service 负责
 - `ProgressiveExcerptMaterializer`：摘录 materialization 接口 owner，集中处理选区归一、source lineage、source-child / daily-note / library 落点、attrs、topic-card linkage、duplicate result 与失败回滚；实际 Siyuan / Riff 写入仍经 application ports 与现有 service helper
 - `SelectionExcerptService`：selection excerpt action runtime；统一 `executeSelectionExcerptAction()`，负责 selection materialization orchestration、source mark prepare/apply、create/duplicate 结果映射、preservation diagnostics 与 source-mark diagnostics；duplicate-open、Review queue/hyperspace routing 和 toast/message 仍由 caller surface 持有
-- `SelectionTopicContinuationService`：把选区继续制卡的 topic/excerpt 语境判定、planner 结果适配，以及“普通选区改 source mark + 立刻创建 1 个 Item”的 manual-cloze 分流收敛到 topic-derived 主链，同时负责“从当前块高亮补齐 Item”的块级 fan-out
-- `TopicDerivedItemService`：在 topic / excerpt 语境下创建 topic-derived item；backend client 可用时先提交 `topic-derived.command` facade，再继续当前迁移期编排
+- `TopicDerivedSourceEligibility`：Topic-derived Item 的 source eligibility owner；先读取当前块本地卡角色，允许 Topic 卡或 Topic 语境下普通块，默认拒绝已有 Item / Descriptor / Concept / cloze / 未知非 Topic 闪卡，即使该块位于 Topic 文档或 Topic Container 内
+- `SelectionTopicContinuationService`：把选区继续制卡的 topic/excerpt 语境判定、role-aware source eligibility、planner 结果适配，以及“普通选区改 source mark + 立刻创建 1 个 Item”的 manual-cloze 分流收敛到 topic-derived 主链，同时负责把“从当前块高亮补齐 Item”的多个 mark candidate 合并成一次 batched Topic-derived request
+- `TopicDerivedItemService`：在 topic / excerpt 语境下创建 topic-derived item；backend client 可用时先提交 `topic-derived.command` facade；backend-owned execution 用本地 child-doc 操作，不再嵌套 Progressive command facade；creation rule / answer fingerprint 只写 card `progressiveLineage` / metadata，不写 high-churn block attrs
 
 当前 manual-cloze 的 DOM / 错误契约补充：
 
 - Topic / 摘录语境里的 `⌥⇧Z` 与右键 `在 Topic 下创建 Item` 会先把 source 选区写成 tokenized `mark`：默认是 `data-type="text mark"`，如果选区本身就是单个内联 `span[data-type]`，则保留原 token（例如 `block-ref`）并追加 `mark`
 - `SelectionTopicContinuationService` 生成的 manual-cloze `artifactContentDom` 与 source 写回共用同一套 tokenized mark helper，因此 block-ref 这类选区不会因为高亮而丢掉原有内联语义
-- `applyPreparedSelectionClozeMark()` 成功时返回显式 `applied / already-applied`，失败时直接抛底层 Siyuan kernel 错误；`ProgressiveExcerptHotkeyHandler` 只负责记录上下文日志并把原始错误消息透传到 toast，而不是再把保存失败折叠成泛化布尔值
+- `applyPreparedSelectionClozeMark()` 成功时返回显式 `applied / already-applied`；失败时 `ProgressiveExcerptHotkeyHandler` 记录 source-mark diagnostic，但仍继续调用 Topic-derived Item 创建链。Item 创建成功但 source mark 未写入时显示 success-with-warning；只有新 mark 已成功写入且后续 Item 创建失败时才回滚 source DOM，预先存在的 mark 不回滚
 - mark 识别主链按 `data-type` token 列表是否包含 `mark` 判定，不再要求精确字符串 `data-type="mark"`
 - Siyuan 3.6.5 的 `/block/updateBlock` 返回会先在 `infrastructure/siyuan/api.ts` 归一化成统一 mutation result；如果 update 成功但响应里没有新的 op id，则回退返回请求 block id，避免 active path 再碰到 `result.doOperations is not iterable`
 - `⌥⇧Z` 固定只处理当前这 1 个空；如果选区里已经覆盖多个高亮，则直接提示改走块菜单的 `从当前块高亮补齐 Item`
@@ -806,8 +807,8 @@ Review 运行时要点：
 
 - progressive split：`DialogManager` -> `ProgressiveSplitDialog.vue` -> `ProgressiveReadingService`
 - progressive excerpt：热键 / block menu / review surface -> `ProgressiveExcerptHotkeyHandler` / `BlockMenuHandler` / `reviewProgressiveExcerptCommands.ts`（review surface command runtime）-> `SelectionExcerptService.executeSelectionExcerptAction()` -> `ProgressiveReadingService`
-- editor manual continuation：`ProgressiveExcerptHotkeyHandler` -> `SelectionTopicContinuationService` -> `TopicDerivedItemService` -> `ProgressiveReadingService`
-- topic continuation：`AutoCardHandler` -> `TopicDerivedItemService` -> `ProgressiveReadingService`
+- editor manual continuation：`ProgressiveExcerptHotkeyHandler` -> `SelectionTopicContinuationService` -> `TopicDerivedSourceEligibility` -> `TopicDerivedItemService` -> `ProgressiveReadingService`
+- topic continuation：`AutoCardHandler` -> `TopicDerivedSourceEligibility` -> `TopicDerivedItemService` -> `ProgressiveReadingService`
 
 角色划分：
 
@@ -824,12 +825,15 @@ Review 运行时要点：
   - 只返回 identity/source semantics、preservation diagnostics 与 source-mark diagnostics，不返回完整 source DOM / excerpt content，也不拥有 duplicate-open、Review queue/hyperspace routing 或 surface toast
 - `SelectionTopicContinuationService`
   - 负责在菜单打开时同步判断当前选区是否位于 topic / excerpt 语境
+  - 通过 `TopicDerivedSourceEligibility` 执行 role-aware source eligibility：Topic 卡与 Topic 语境下普通块可继续派生 Item；已有 Item / Descriptor / Concept / cloze / 未知非 Topic 闪卡默认拒绝
   - 负责把选区 DOM/文本拆成 `plannerContent` 与 `artifactContentDom` 两份载荷：前者保留 block-ref 等 planner 语义，后者保留 `[*]` 锚文本、高亮和内联结构供 Item 子文档直接落地
-  - 负责当前块 native `mark` 的批量扫描与 fan-out，把每个高亮拆成 1 个 `manual-cloze` candidate，并在 artifact DOM 里只保留当前目标高亮、展平其它高亮
+  - 负责当前块 native `mark` 的批量扫描与 batch，把每个高亮拆成 1 个 `manual-cloze` candidate，并在 artifact DOM 里只保留当前目标高亮、展平其它高亮，再提交一次 Topic-derived request
 - `TopicDerivedItemService`
   - 在 topic / excerpt 语境中派生 item，并保持 lineage
   - excerpt-doc 下强制直挂 `Item` 子文档；excerpt-block 下保留 daily-note 文档容器并写回 `parentExcerptId`
   - 手动 Topic cloze 优先使用 `contentDom` 创建 Item 子文档，而不是把 `[*]` / `mark` 退化成纯 `((id))` / `==...==` 文本
+  - child document attrs 只写稳定 source/doc/storage 元数据；`creationRuleId` 与 `answerFingerprint` 留在 card `progressiveLineage` / metadata 里用于 dedupe 和诊断
+  - `executeFromBackend()` 作为 Topic-derived command owner 时直接调用 Progressive local child-doc operation，不再反向进入 unavailable Progressive command facade
 
 块级入口补充：
 
@@ -848,8 +852,8 @@ Progressive 制卡契约：
 - 术语约定：自动生成的摘录统一视为 `Topic`，在 Topic / 摘录语境里自动或手动生成的练习统一视为 `Item`。
 - 新创建的 excerpt / derived child doc 标题使用来源或内容预览，只有真实 hpath 碰撞时追加 ` 2`、` 3` 等后缀；内建容器标题保持 `Topic 工作台`、`SiYuanMemo Topic`、`SiYuanMemo Topic 库`；历史已生成文档不做批量重命名。
 - 摘录即 Topic：摘录文档、全局摘录库摘录和 Daily Note 摘录块上的后续符号/选区制卡，都会落到本地 derived Item 卡 + 原生 Riff 注册，而不是把块级 card-type 属性当作事实源。
-- `⌥⇧Z` 与右键 `在 Topic 下创建 Item` 的 active path 一致：在 Topic / 摘录语境里，只要有非空单块选区就允许继续创建 Item；结构化 quick 语法沿用 planner-derived，普通选区则先把 source 选区包成原生 `data-type="mark"`，再立刻创建 1 个 manual-cloze Item。离开 Topic / 摘录语境后，`⌥⇧Z` 会退回普通文档选区包裹挖空并沿用现有普通制卡链路。
-- Topic / excerpt 中的 `mark` 型 cloze 归手动 continuation 所有：程序性加亮会注册一次性 suppression，避免 `AutoCardHandler` 再按 topic-derived 自动生成第二张；手打 `==...==` / `{{...}}` / `>>` / `::` / `;;` 仍保留现有 auto symbol 链。
+- `⌥⇧Z` 与右键 `在 Topic 下创建 Item` 的 active path 一致：在 Topic / 摘录语境里，非空单块选区先经过 role-aware source eligibility；Topic 卡与 Topic 语境下普通块可继续创建 Item，已有 Item / Descriptor / Concept / cloze / 未知非 Topic 闪卡默认拒绝。结构化 quick 语法沿用 planner-derived，普通选区则准备原生 `data-type="mark"` evidence，再立刻创建 1 个 manual-cloze Item。离开 Topic / 摘录语境后，`⌥⇧Z` 会退回普通文档选区包裹挖空并沿用现有普通制卡链路。
+- Topic / excerpt 中的 `mark` 型 cloze 归手动 continuation 所有：mark 是视觉 evidence，不是 Item 创建 authority；source mark 写失败不阻断 Item 创建，成功创建后显示 source-mark warning。程序性加亮成功后会注册一次性 suppression，避免 `AutoCardHandler` 再按 topic-derived 自动生成第二张；手打 `==...==` / `{{...}}` / `>>` / `::` / `;;` 仍保留现有 auto symbol 链。
 - `Alt+X` / Review / block-menu 摘录成功后可按 `progressiveReading.sourceMarkingEnabled` 写回原文可见标记。该标记使用 SiYuan 原生 `text mark`/背景色表现，但带 `data-siyuanmemo-excerpt-mark="source"` 与 `siyuanmemo-progressive-excerpt-mark` 身份；普通用户 mark 不视为插件摘录标记，标记只作视觉证据，不参与重复摘录拦截，也不会根据历史摘录记录自动修复被用户删改的标记。
 - `ExcerptRecord` 是 progressive excerpt completion 的恢复真相源：新 record 从 `pending` 开始，旧 record 缺字段时视为 `completed`，后台完成后写 `completed + topicCardId`，失败后写 `failed + completionError`。启动 repair 延迟且限 20 条，scoped repair 默认 5 条，不从 transaction fan-out 自动触发。
 - Progressive source model（2026-05-26）：摘录创建时写入 JSON-safe `custom-fsrs-reading-source-lineage`、`reading-selection-snapshot`、`reading-payload-identity`、`reading-source-position`、`reading-disclosure-state`、`reading-derived-item-identity`。这些字段只记录 source lineage / selection / payload hash / unified position / disclosure / derived item 身份；SiYuan block 与 Xiuyuan aggregate 仍是内容权威，不复制 Incrementum 式 `learning_items.question/answer` 内容主表。`ProgressiveReadingService.inspectProgressiveSource()` 只报告 `current | stale | missing | detached`，不自动重写摘录 payload；`advance/defer/split/convert-to-card` 通过 explicit progressive processing command 边界执行，advance/defer 只更新 progressive state/attrs，不写 formal FSRS due/stability/difficulty 或 review facts。

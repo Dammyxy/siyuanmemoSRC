@@ -7,14 +7,13 @@ import type {
   BackendUnavailableClass,
 } from '../../../packages/contracts/src/backend-rpc';
 import {
+  type ProgressiveChildDocInput,
   type ProgressiveChildDocStorageMode,
   ProgressiveReadingService,
 } from '@/application/services/ProgressiveReadingService';
 import type { CreationDecision } from '@/core/card/post-creation/contracts';
 import { ClozeDetector, type ClozeInfo } from '@/utils/cloze-detector';
 import {
-  ATTR_PROGRESSIVE_ANSWER_FINGERPRINT,
-  ATTR_PROGRESSIVE_CREATION_RULE_ID,
   ATTR_PROGRESSIVE_KIND,
   ATTR_PROGRESSIVE_PARENT_EXCERPT_ID,
   ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID,
@@ -86,6 +85,13 @@ type DerivedCandidate = {
   answer?: string;
 };
 
+export interface TopicDerivedManualClozeCandidateInput {
+  plannerContent: string;
+  artifactContentDom: string;
+  answerFingerprint: string;
+  previewText: string;
+}
+
 export interface TopicDerivedItemInput {
   sourceBlockId: string;
   sourceDocId: string;
@@ -99,6 +105,7 @@ export interface TopicDerivedItemInput {
   previewText?: string;
   decisions: CreationDecision[];
   storageMode?: ProgressiveChildDocStorageMode;
+  manualClozeCandidates?: TopicDerivedManualClozeCandidateInput[];
 }
 
 export interface TopicDerivedItemArtifact {
@@ -116,6 +123,10 @@ export interface TopicDerivedItemResult {
   skipped: number;
   items: TopicDerivedItemArtifact[];
 }
+
+type TopicDerivedItemCreationOptions = {
+  useLocalChildDoc?: boolean;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -144,15 +155,22 @@ export class TopicDerivedItemService {
     return this.createFromTopicSourceLocal(input);
   }
 
-  async createFromTopicSourceLocal(input: TopicDerivedItemInput): Promise<TopicDerivedItemResult> {
+  async createFromTopicSourceLocal(
+    input: TopicDerivedItemInput,
+    options?: TopicDerivedItemCreationOptions,
+  ): Promise<TopicDerivedItemResult> {
     const sourceBlockId = String(input.sourceBlockId || '').trim();
     const sourceDocId = String(input.sourceDocId || '').trim();
     const parentTopicCardId = String(input.parentTopicCardId || '').trim();
     const parentExcerptId = String(input.parentExcerptId || '').trim() || undefined;
     const plannerContent = String(input.plannerContent || '');
     const artifactContentDom = String(input.artifactContentDom || '').trim();
+    const manualClozeCandidates = Array.isArray(input.manualClozeCandidates)
+      ? input.manualClozeCandidates
+      : [];
+    const hasManualClozeCandidatePayload = input.mode === 'manual-cloze' && manualClozeCandidates.length > 0;
 
-    if (!sourceBlockId || !sourceDocId || !parentTopicCardId || !plannerContent) {
+    if (!sourceBlockId || !sourceDocId || !parentTopicCardId || (!plannerContent && !hasManualClozeCandidatePayload)) {
       return {
         created: 0,
         skipped: 0,
@@ -164,6 +182,7 @@ export class TopicDerivedItemService {
       sourceDocId,
       parentTopicCardId,
       mode: input.mode || 'planner-derived',
+      manualCandidateCount: manualClozeCandidates.length,
     });
 
     const storageMode = this.resolveStorageMode(input.storageMode, input.sourceRootKind);
@@ -175,6 +194,7 @@ export class TopicDerivedItemService {
         answerFingerprint: input.answerFingerprint,
         previewText: input.previewText,
         decisions: input.decisions,
+        manualClozeCandidates,
       })
       : this.buildCandidates({
         sourceBlockId,
@@ -201,7 +221,7 @@ export class TopicDerivedItemService {
 
       let derivedDocId = '';
       try {
-        const childDoc = await this.progressiveReadingService.createChildDocFromSource({
+        const childDoc = await this.createChildDocFromTopicSource({
           sourceDocId,
           kind: 'derived-item-doc',
           fallbackTitle: '挖空',
@@ -217,13 +237,11 @@ export class TopicDerivedItemService {
               ? { [ATTR_PROGRESSIVE_PARENT_EXCERPT_ID]: parentExcerptId }
               : {}),
             [ATTR_PROGRESSIVE_STORAGE_MODE]: storageMode,
-            [ATTR_PROGRESSIVE_CREATION_RULE_ID]: candidate.creationRuleId,
-            [ATTR_PROGRESSIVE_ANSWER_FINGERPRINT]: candidate.answerFingerprint,
           },
           ...(candidate.contentDom
             ? { contentDom: candidate.contentDom }
             : { contentMarkdown: candidate.contentMarkdown || '' }),
-        });
+        }, options);
         derivedDocId = childDoc.docId;
 
         const derivedBlockId = String(childDoc.contentBlockId || '').trim();
@@ -404,23 +422,54 @@ export class TopicDerivedItemService {
     answerFingerprint?: string;
     previewText?: string;
     decisions: CreationDecision[];
+    manualClozeCandidates?: TopicDerivedManualClozeCandidateInput[];
   }): DerivedCandidate[] {
     const decision = input.decisions.find((candidate) => candidate.family === 'cloze');
-    const answerFingerprint = String(input.answerFingerprint || '').trim();
-    const artifactContentDom = String(input.artifactContentDom || '').trim();
-    const previewText = normalizeWhitespace(String(input.previewText || ''));
-    if (!decision || !answerFingerprint || !artifactContentDom || !previewText) {
+    if (!decision) {
       return [];
     }
 
-    return [{
-      creationRuleId: decision.id,
-      answerFingerprint,
-      contentMarkdown: input.plannerContent,
-      contentDom: artifactContentDom,
-      previewText,
-      metadataSource: 'topic-derived',
-    }];
+    const rawCandidates = Array.isArray(input.manualClozeCandidates) && input.manualClozeCandidates.length > 0
+      ? input.manualClozeCandidates
+      : [{
+          plannerContent: input.plannerContent,
+          artifactContentDom: input.artifactContentDom,
+          answerFingerprint: input.answerFingerprint || '',
+          previewText: input.previewText || '',
+        }];
+    const candidates: DerivedCandidate[] = [];
+    const seenFingerprints = new Set<string>();
+    for (const rawCandidate of rawCandidates) {
+      const answerFingerprint = String(rawCandidate.answerFingerprint || '').trim();
+      const artifactContentDom = String(rawCandidate.artifactContentDom || '').trim();
+      const previewText = normalizeWhitespace(String(rawCandidate.previewText || ''));
+      const plannerContent = String(rawCandidate.plannerContent || '');
+      if (!answerFingerprint || !artifactContentDom || !previewText || !plannerContent) {
+        continue;
+      }
+      if (seenFingerprints.has(answerFingerprint)) {
+        continue;
+      }
+      seenFingerprints.add(answerFingerprint);
+      candidates.push({
+        creationRuleId: decision.id,
+        answerFingerprint,
+        contentMarkdown: plannerContent,
+        contentDom: artifactContentDom,
+        previewText,
+        metadataSource: 'topic-derived',
+      });
+    }
+    return candidates;
+  }
+
+  private async createChildDocFromTopicSource(
+    input: ProgressiveChildDocInput,
+    options?: TopicDerivedItemCreationOptions,
+  ) {
+    return options?.useLocalChildDoc
+      ? this.progressiveReadingService.createChildDocFromSourceLocal(input)
+      : this.progressiveReadingService.createChildDocFromSource(input);
   }
 
   private buildSingleClozeMarkdown(content: string, target: ClozeInfo): string {
@@ -632,7 +681,10 @@ export class TopicDerivedItemService {
   ): Promise<BackendTopicDerivedCommandExecuteResult<TopicDerivedItemResult>> {
     const now = Date.now();
     try {
-      const result = await this.createFromTopicSourceLocal(request.input as TopicDerivedItemInput);
+      const result = await this.createFromTopicSourceLocal(
+        request.input as TopicDerivedItemInput,
+        { useLocalChildDoc: true },
+      );
       return {
         status: 'completed',
         commandId: request.commandId,
@@ -676,7 +728,12 @@ export class TopicDerivedItemService {
       input.parentTopicCardId,
       input.parentExcerptId || '',
       input.mode || 'planner-derived',
-      input.answerFingerprint || '',
+      Array.isArray(input.manualClozeCandidates)
+        ? input.manualClozeCandidates
+          .map((candidate) => String(candidate.answerFingerprint || '').trim())
+          .filter(Boolean)
+          .join('|')
+        : input.answerFingerprint || '',
     ].join(':');
     const request: BackendTopicDerivedCommandExecuteRequest = {
       requestId: commandId,

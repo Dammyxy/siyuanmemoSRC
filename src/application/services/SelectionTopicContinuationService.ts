@@ -1,10 +1,13 @@
 import type { ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import {
   resolveProgressiveSourceContext,
-  resolveProgressiveTopicContext,
   type ProgressiveSourceRootKind,
   type ProgressiveTopicContext,
 } from '@/application/services/ProgressiveSourceContextResolver';
+import {
+  resolveTopicDerivedSourceEligibility,
+  type TopicDerivedSourceEligibility,
+} from '@/application/services/TopicDerivedSourceEligibility';
 import type { ProgressiveExcerptBlockSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type {
@@ -48,6 +51,7 @@ export interface SelectionTopicContinuationPreparation {
   mode: SelectionTopicContinuationMode | null;
   highlightTargetCount: number;
   available: boolean;
+  sourceEligibility?: TopicDerivedSourceEligibility;
 }
 
 export interface CurrentBlockTopicContinuationInput {
@@ -61,6 +65,7 @@ export interface CurrentBlockTopicContinuationPreparation {
   topicContext: ProgressiveTopicContext | null;
   markCount: number;
   available: boolean;
+  sourceEligibility?: TopicDerivedSourceEligibility;
 }
 
 export interface SelectionTopicContinuationResult {
@@ -560,13 +565,14 @@ export class SelectionTopicContinuationService {
       };
     }
 
-    const topicContext = resolveProgressiveTopicContext({
+    const sourceEligibility = resolveTopicDerivedSourceEligibility({
       blockId: sourceBlockId,
       rootId,
       topicContainerId: input.topicContainerId,
       topicContainerIds: input.topicContainerIds,
       cardLookup: this.cardService,
     });
+    const topicContext = sourceEligibility.topicContext;
     if (!topicContext) {
       this.logRejectedTopicContainerCandidates(input, rootId, sourceBlockId);
       return {
@@ -579,6 +585,22 @@ export class SelectionTopicContinuationService {
         mode: null,
         highlightTargetCount,
         available: false,
+        sourceEligibility,
+      };
+    }
+
+    if (!sourceEligibility.eligible) {
+      return {
+        rootId,
+        topicContext,
+        normalizedContent,
+        plannerContent: '',
+        artifactContentDom: '',
+        decisions: [],
+        mode: null,
+        highlightTargetCount,
+        available: false,
+        sourceEligibility,
       };
     }
 
@@ -601,6 +623,7 @@ export class SelectionTopicContinuationService {
         mode: 'planner-derived',
         highlightTargetCount,
         available: true,
+        sourceEligibility,
       };
     }
 
@@ -615,6 +638,7 @@ export class SelectionTopicContinuationService {
         mode: null,
         highlightTargetCount,
         available: false,
+        sourceEligibility,
       };
     }
 
@@ -640,6 +664,7 @@ export class SelectionTopicContinuationService {
         mode: null,
         highlightTargetCount,
         available: false,
+        sourceEligibility,
       };
     }
 
@@ -654,6 +679,7 @@ export class SelectionTopicContinuationService {
       mode: 'manual-cloze',
       highlightTargetCount,
       available: true,
+      sourceEligibility,
     };
   }
 
@@ -671,7 +697,7 @@ export class SelectionTopicContinuationService {
       };
     }
 
-    const topicContext = resolveProgressiveTopicContext({
+    const sourceEligibility = resolveTopicDerivedSourceEligibility({
       blockId: sourceBlockId,
       rootId,
       cardLookup: this.cardService,
@@ -679,9 +705,10 @@ export class SelectionTopicContinuationService {
 
     return {
       rootId,
-      topicContext,
+      topicContext: sourceEligibility.topicContext,
       markCount,
-      available: Boolean(topicContext && markCount > 0),
+      available: Boolean(sourceEligibility.eligible && markCount > 0),
+      sourceEligibility,
     };
   }
 
@@ -774,34 +801,18 @@ export class SelectionTopicContinuationService {
       };
     }
 
-    const items: TopicDerivedItemArtifact[] = [];
-    let created = 0;
-    let skipped = 0;
-
-    for (const candidate of candidates) {
-      const result = await this.topicDerivedItemService.createFromTopicSource({
-        sourceBlockId,
-        sourceDocId: sourceContext.sourceDocId || prepared.topicContext.sourceDocId,
-        parentTopicCardId,
-        parentExcerptId: sourceContext.parentExcerptId,
-        sourceRootKind: sourceContext.rootKind as ProgressiveSourceRootKind,
-        plannerContent: candidate.plannerContent,
-        artifactContentDom: candidate.artifactContentDom,
-        mode: 'manual-cloze',
-        answerFingerprint: candidate.answerFingerprint,
-        previewText: candidate.previewText,
-        decisions: [DIRECT_CLOZE_DECISION],
-      });
-      created += result.created;
-      skipped += result.skipped;
-      items.push(...result.items);
-    }
-
-    return {
-      created,
-      skipped,
-      items,
-    };
+    return this.topicDerivedItemService.createFromTopicSource({
+      sourceBlockId,
+      sourceDocId: sourceContext.sourceDocId || prepared.topicContext.sourceDocId,
+      parentTopicCardId,
+      parentExcerptId: sourceContext.parentExcerptId,
+      sourceRootKind: sourceContext.rootKind as ProgressiveSourceRootKind,
+      plannerContent: candidates[0]?.plannerContent || '',
+      artifactContentDom: candidates[0]?.artifactContentDom,
+      mode: 'manual-cloze',
+      decisions: [DIRECT_CLOZE_DECISION],
+      manualClozeCandidates: candidates,
+    });
   }
 
   private async resolveBlockInfo(blockId: string): Promise<{ rootId: string; blockType: string }> {

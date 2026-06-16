@@ -335,6 +335,53 @@ describe('SelectionTopicContinuationService', () => {
     }));
   });
 
+  it.each([
+    ['item', 'item'],
+    ['descriptor', 'descriptor'],
+    ['concept', 'concept'],
+    ['cloze', 'cloze'],
+    ['unknown-card', 'custom-review-kind'],
+  ])('rejects %s source cards even inside a Topic context', (_label, type) => {
+    const service = new SelectionTopicContinuationService(
+      createSiyuanPortMock(),
+      createCardServiceMock({
+        sourceBlockId: 'source-block-rejected-1',
+        rootId: 'topic-doc-root-rejected-1',
+        currentBlockCards: [{ id: 'rejected-card-1', type }],
+        rootBlockCards: [{ id: 'topic-card-topic-root-rejected-1', type: 'topic' }],
+      }),
+      {
+        createFromTopicSource: vi.fn(async () => ({
+          created: 0,
+          skipped: 0,
+          items: [],
+        })),
+      } as any,
+    );
+
+    const preparation = service.prepareSelection({
+      sourceBlockId: 'source-block-rejected-1',
+      rootId: 'topic-doc-root-rejected-1',
+      selectedText: 'Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+      blockSelections: [{
+        blockId: 'source-block-rejected-1',
+        mode: 'range',
+        excerptHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+        beforeHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha </div></div>',
+        afterHtml: '<div data-type="NodeParagraph"><div contenteditable="true"> Gamma</div></div>',
+      }],
+    });
+
+    expect(preparation.topicContext).toEqual(expect.objectContaining({
+      topicCardId: 'topic-card-topic-root-rejected-1',
+    }));
+    expect(preparation.available).toBe(false);
+    expect(preparation.sourceEligibility).toEqual(expect.objectContaining({
+      eligible: false,
+    }));
+  });
+
   it('preserves block-ref anchor text in manual cloze artifact DOM', () => {
     const service = new SelectionTopicContinuationService(
       createSiyuanPortMock(),
@@ -483,20 +530,20 @@ describe('SelectionTopicContinuationService', () => {
     }));
   });
 
-  it('fans out current-block marks into one Topic continuation per highlight while flattening non-target marks', async () => {
+  it('batches current-block marks into one Topic continuation request while flattening non-target marks', async () => {
     const topicDerivedItemService = {
       createFromTopicSource: vi.fn(async (input: Record<string, unknown>) => ({
-        created: 1,
+        created: Array.isArray(input.manualClozeCandidates) ? input.manualClozeCandidates.length : 1,
         skipped: 0,
-        items: [{
-          derivedDocId: `doc-${String(input.answerFingerprint || '')}`,
-          derivedBlockId: `block-${String(input.answerFingerprint || '')}`,
-          derivedCardId: `card-${String(input.answerFingerprint || '')}`,
+        items: (Array.isArray(input.manualClozeCandidates) ? input.manualClozeCandidates : [input]).map((candidate, index) => ({
+          derivedDocId: `doc-${index}`,
+          derivedBlockId: `block-${index}`,
+          derivedCardId: `card-${index}`,
           sourceBlockId: 'source-block-batch-2',
           storageMode: 'workbench',
           creationRuleId: 'ManualSelectionClozeRule',
-          answerFingerprint: String(input.answerFingerprint || ''),
-        }],
+          answerFingerprint: String((candidate as Record<string, unknown>).answerFingerprint || ''),
+        })),
       })),
     };
     const service = new SelectionTopicContinuationService(
@@ -519,31 +566,34 @@ describe('SelectionTopicContinuationService', () => {
 
     expect(result.created).toBe(2);
     expect(result.skipped).toBe(0);
-    expect(topicDerivedItemService.createFromTopicSource).toHaveBeenCalledTimes(2);
+    expect(topicDerivedItemService.createFromTopicSource).toHaveBeenCalledTimes(1);
 
-    const firstCall = vi.mocked(topicDerivedItemService.createFromTopicSource).mock.calls[0]?.[0] as Record<string, unknown>;
-    const secondCall = vi.mocked(topicDerivedItemService.createFromTopicSource).mock.calls[1]?.[0] as Record<string, unknown>;
+    const call = vi.mocked(topicDerivedItemService.createFromTopicSource).mock.calls[0]?.[0] as Record<string, unknown>;
+    const candidates = call.manualClozeCandidates as Array<Record<string, unknown>>;
 
-    expect(firstCall).toEqual(expect.objectContaining({
+    expect(call).toEqual(expect.objectContaining({
       sourceBlockId: 'source-block-batch-2',
       sourceDocId: 'topic-doc-root-batch-2',
       parentTopicCardId: 'topic-card-topic-root-batch-2',
       mode: 'manual-cloze',
+      decisions: [expect.objectContaining({ id: 'ManualSelectionClozeRule', family: 'cloze' })],
+    }));
+    expect(candidates).toHaveLength(2);
+    expect(candidates[0]).toEqual(expect.objectContaining({
       previewText: 'Beta',
       plannerContent: 'Alpha ==Beta== Gamma ((20240101010101-abcdefg))',
       answerFingerprint: 'source-block-batch-2::ManualSelectionClozeRule::Alpha::Beta::Gamma ((20240101010101-abcdefg))',
-      decisions: [expect.objectContaining({ id: 'ManualSelectionClozeRule', family: 'cloze' })],
     }));
-    expect(String(firstCall.artifactContentDom || '')).toContain('<span data-type="text mark">Beta</span>');
-    expect(String(firstCall.artifactContentDom || '')).not.toContain('block-ref mark');
+    expect(String(candidates[0].artifactContentDom || '')).toContain('<span data-type="text mark">Beta</span>');
+    expect(String(candidates[0].artifactContentDom || '')).not.toContain('block-ref mark');
 
-    expect(secondCall).toEqual(expect.objectContaining({
+    expect(candidates[1]).toEqual(expect.objectContaining({
       previewText: '*',
       plannerContent: 'Alpha Beta Gamma ==((20240101010101-abcdefg))==',
       answerFingerprint: 'source-block-batch-2::ManualSelectionClozeRule::Alpha Beta Gamma::((20240101010101-abcdefg))::',
     }));
-    expect(String(secondCall.artifactContentDom || '')).toContain('data-type="block-ref mark"');
-    expect(String(secondCall.artifactContentDom || '')).toContain('>*</span>');
-    expect(String(secondCall.artifactContentDom || '')).not.toContain('<span data-type="text mark">Beta</span>');
+    expect(String(candidates[1].artifactContentDom || '')).toContain('data-type="block-ref mark"');
+    expect(String(candidates[1].artifactContentDom || '')).toContain('>*</span>');
+    expect(String(candidates[1].artifactContentDom || '')).not.toContain('<span data-type="text mark">Beta</span>');
   });
 });

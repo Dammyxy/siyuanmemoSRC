@@ -36,6 +36,7 @@ import {
     resolveProgressiveSourceContext,
     type ProgressiveSourceContext,
 } from '@/application/services/ProgressiveSourceContextResolver';
+import { resolveTopicDerivedSourceEligibility } from '@/application/services/TopicDerivedSourceEligibility';
 import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/shared/ListChildrenResolver';
 import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase';
 import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
@@ -1553,6 +1554,14 @@ export class AutoCardHandler implements ITransactionHandler {
                     getBlockAttrs: async (candidateBlockId: string) => this.siyuanApi.getBlockAttrs(candidateBlockId),
                 },
             }), { rootKind: rootId ? 'document' : 'unknown' });
+            const topicDerivedSourceEligibility = resolveTopicDerivedSourceEligibility({
+                blockId,
+                rootId,
+                cardLookup: {
+                    getCardByBlockId: (candidateBlockId: string) => this.getLocalCardByBlockId(candidateBlockId),
+                    getCardsByBlockId: (candidateBlockId: string) => this.getLocalCardsByBlockId(candidateBlockId),
+                },
+            });
             const decisionCoreResult = await measureRuntimePerformance('autocard', 'decision.resolve-core', () => this.resolveAutoCardDecisionCore({
                 blockId,
                 content: kramdown,
@@ -1603,6 +1612,12 @@ export class AutoCardHandler implements ITransactionHandler {
                 localCardCount: existingCards.length,
                 matchedRuleIds: decisionCoreResult.matchedRuleIds,
                 enabledDecisions: enabledDecisions.map((decision) => this.summarizeDecision(decision)),
+                topicDerivedSourceEligibility: {
+                    eligible: topicDerivedSourceEligibility.eligible,
+                    reason: topicDerivedSourceEligibility.reason,
+                    sourceRole: topicDerivedSourceEligibility.sourceRole,
+                    rejectedRole: topicDerivedSourceEligibility.rejectedRole ?? null,
+                },
                 businessIdentityKey: businessIdentity.key,
                 businessIdentity: {
                     sourceBlockId: businessIdentity.sourceBlockId,
@@ -1674,6 +1689,17 @@ export class AutoCardHandler implements ITransactionHandler {
                 const executionOwnership = this.resolveExecutionOwnership({
                     kind: 'topic-derived',
                 });
+                if (!topicDerivedSourceEligibility.eligible) {
+                    logger.debug('[SiYuanMemo][AutoCard] Skip topic derivation: source role is not eligible for Topic-derived Item creation', {
+                        blockId,
+                        rootId,
+                        reason: topicDerivedSourceEligibility.reason,
+                        sourceRole: topicDerivedSourceEligibility.sourceRole,
+                        rejectedRole: topicDerivedSourceEligibility.rejectedRole ?? null,
+                    });
+                    status = 'skip-topic-derived-ineligible-source';
+                    return status;
+                }
                 if (this.hasXiuyuanBinding(attrs) && progressiveSourceContext?.topicContext?.scope !== 'block') {
                     logger.debug('[SiYuanMemo][AutoCard] Skip topic derivation: current block already has a non-topic Xiuyuan binding', {
                         blockId,

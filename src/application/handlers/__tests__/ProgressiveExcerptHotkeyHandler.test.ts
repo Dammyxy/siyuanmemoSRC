@@ -145,6 +145,7 @@ function createHandler(options?: {
         progressiveExcerptMenuLabel: 'Excerpt',
         progressiveExcerptContinuationMenuLabel: '在 Topic 下创建 Item',
         progressiveExcerptContinuationCreated: '已在当前 Topic 下新增 {created} 个 Item',
+        progressiveExcerptContinuationCreatedSourceMarkFailed: '已在当前 Topic 下新增 {created} 个 Item，但原文标记未写入',
         progressiveExcerptContinuationCreatedSkipped: '已在当前 Topic 下新增 {created} 个 Item，跳过 {skipped} 个重复项',
         progressiveExcerptContinuationSkipped: '当前 Topic 下已存在相同 Item，已跳过 {skipped} 个重复项',
         progressiveExcerptContinuationFailed: '在 Topic 下创建 Item 失败：{message}',
@@ -903,7 +904,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     expect(showMessage).toHaveBeenCalledWith('已在当前 Topic 下新增 1 个 Item', 3000, 'info');
   });
 
-  it('surfaces the original Siyuan API error when topic manual cloze persistence fails', async () => {
+  it('continues creating the Topic Item and reports source mark failure when topic manual cloze persistence fails', async () => {
     isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
     resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(document.body, {
       protyle: {
@@ -959,8 +960,12 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       },
     } as any);
 
-    expect(createTopicContinuation).not.toHaveBeenCalled();
-    expect(showMessage).toHaveBeenCalledWith('在 Topic 下创建 Item 失败：Siyuan API Error: invalid DOM', 5000, 'error');
+    expect(createTopicContinuation).toHaveBeenCalledWith(expect.objectContaining({
+      sourceBlockId: 'block-1',
+      selectedText: 'Beta',
+      rootId: 'topic-doc-root-1',
+    }), preparation);
+    expect(showMessage).toHaveBeenCalledWith('已在当前 Topic 下新增 1 个 Item，但原文标记未写入', 3000, 'info');
   });
 
   it('falls back to wrapping the plain selection as a standard cloze outside topic context', async () => {
@@ -1142,6 +1147,78 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     );
     expect(showMessage).toHaveBeenCalledWith('在 Topic 下创建 Item 失败：writer unavailable', 5000, 'error');
     expect(showMessage).not.toHaveBeenCalledWith('已将选区标记为挖空，普通卡片会按现有规则生成', 3000, 'info');
+  });
+
+  it('does not roll back a pre-existing manual Topic cloze mark when Item creation fails', async () => {
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(document.body, {
+      protyle: {
+        wysiwyg: { element: document.body },
+        block: { rootID: 'topic-doc-root-1' },
+      },
+      text: 'Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span> Gamma</div></div>',
+      blockSelections: [{
+        blockId: 'block-1',
+        mode: 'range',
+        excerptHtml: '<div data-type="NodeParagraph"><div contenteditable="true"><span data-type="text mark">Beta</span></div></div>',
+        beforeHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha </div></div>',
+        afterHtml: '<div data-type="NodeParagraph"><div contenteditable="true"> Gamma</div></div>',
+      }],
+    }));
+    prepareSelectionClozeMark.mockReturnValueOnce({
+      blockId: 'block-1',
+      blockIds: ['block-1'],
+      previousBlockHtml: '<div data-node-id="block-1">Alpha <span data-type="text mark">Beta</span> Gamma</div>',
+      nextBlockHtml: '<div data-node-id="block-1">Alpha <span data-type="text mark">Beta</span> Gamma</div>',
+      blockMutations: [{
+        blockId: 'block-1',
+        previousBlockHtml: '<div data-node-id="block-1">Alpha <span data-type="text mark">Beta</span> Gamma</div>',
+        nextBlockHtml: '<div data-node-id="block-1">Alpha <span data-type="text mark">Beta</span> Gamma</div>',
+        alreadyApplied: true,
+      }],
+      root: document.body,
+      protyle: { getInstance: () => ({ reload: vi.fn() }) },
+      alreadyApplied: true,
+    });
+
+    const preparation = {
+      rootId: 'topic-doc-root-1',
+      topicContext: {
+        topicCardId: 'topic-card-1',
+        topicBlockId: 'topic-doc-root-1',
+        sourceDocId: 'topic-doc-root-1',
+        scope: 'doc-root' as const,
+      },
+      normalizedContent: 'Beta',
+      plannerContent: 'Alpha ==Beta== Gamma',
+      artifactContentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span> Gamma</div></div>',
+      answerFingerprint: 'block-1::ManualSelectionClozeRule::Alpha::Beta::Gamma',
+      decisions: [{ id: 'ManualSelectionClozeRule', family: 'cloze' }],
+      mode: 'manual-cloze' as const,
+      highlightTargetCount: 0,
+      available: true,
+    };
+    const createTopicContinuation = vi.fn(async () => {
+      throw new Error('writer unavailable');
+    });
+    const { handler, updateSourceBlockDom } = createHandler({
+      prepareTopicContinuation: vi.fn(() => preparation),
+      createTopicContinuation,
+    });
+
+    await handler.runItemFromEditor({
+      wysiwyg: {
+        element: document.body,
+      },
+      block: {
+        rootID: 'topic-doc-root-1',
+      },
+    } as any);
+
+    expect(applyPreparedSelectionClozeMark).toHaveBeenCalledTimes(1);
+    expect(updateSourceBlockDom).not.toHaveBeenCalled();
+    expect(showMessage).toHaveBeenCalledWith('在 Topic 下创建 Item 失败：writer unavailable', 5000, 'error');
   });
 
   it('fails closed when plain cloze preparation throws', async () => {

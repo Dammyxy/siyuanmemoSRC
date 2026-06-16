@@ -46,17 +46,19 @@ function createCardServiceMock(existingCards: Array<Record<string, unknown>> = [
 
 function createProgressiveReadingServiceMock() {
   let createdCount = 0;
+  const createChildDocFromSourceLocal = vi.fn(async (input: {
+    storageMode?: 'workbench' | 'source-child';
+  }) => ({
+    docId: `derived-doc-${++createdCount}`,
+    parentDocId: input.storageMode === 'source-child' ? 'doc-root' : 'workbench-root',
+    storageMode: input.storageMode === 'source-child' ? 'source-child' : 'workbench',
+    sequence: createdCount,
+    contentBlockId: `derived-block-${createdCount}`,
+  }));
   return {
     service: {
-      createChildDocFromSource: vi.fn(async (input: {
-        storageMode?: 'workbench' | 'source-child';
-      }) => ({
-        docId: `derived-doc-${++createdCount}`,
-        parentDocId: input.storageMode === 'source-child' ? 'doc-root' : 'workbench-root',
-        storageMode: input.storageMode === 'source-child' ? 'source-child' : 'workbench',
-        sequence: createdCount,
-        contentBlockId: `derived-block-${createdCount}`,
-      })),
+      createChildDocFromSource: vi.fn(createChildDocFromSourceLocal),
+      createChildDocFromSourceLocal,
       deleteProgressiveArtifact: vi.fn(async () => undefined),
     } as unknown as ProgressiveReadingService,
   };
@@ -344,15 +346,16 @@ describe('TopicDerivedItemService', () => {
         [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: 'source-block-1',
         [ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID]: 'topic-card-1',
         [ATTR_PROGRESSIVE_STORAGE_MODE]: 'workbench',
-        [ATTR_PROGRESSIVE_CREATION_RULE_ID]: 'InlineClozeRule',
       }),
     }));
-    expect(firstChildInput?.attrs?.[ATTR_PROGRESSIVE_ANSWER_FINGERPRINT]).toBe('source-block-1::InlineClozeRule::6:14');
+    expect(firstChildInput?.attrs).not.toHaveProperty(ATTR_PROGRESSIVE_CREATION_RULE_ID);
+    expect(firstChildInput?.attrs).not.toHaveProperty(ATTR_PROGRESSIVE_ANSWER_FINGERPRINT);
     expect(firstChildInput?.contentMarkdown).toContain('==Beta==');
     expect(firstChildInput?.contentMarkdown).toContain('Delta');
     expect(firstChildInput?.contentMarkdown).not.toContain('==Delta==');
 
-    expect(secondChildInput?.attrs?.[ATTR_PROGRESSIVE_ANSWER_FINGERPRINT]).toBe('source-block-1::InlineClozeRule::21:30');
+    expect(secondChildInput?.attrs).not.toHaveProperty(ATTR_PROGRESSIVE_CREATION_RULE_ID);
+    expect(secondChildInput?.attrs).not.toHaveProperty(ATTR_PROGRESSIVE_ANSWER_FINGERPRINT);
     expect(secondChildInput?.contentMarkdown).toContain('Beta');
     expect(secondChildInput?.contentMarkdown).not.toContain('==Beta==');
     expect(secondChildInput?.contentMarkdown).toContain('==Delta==');
@@ -527,6 +530,46 @@ describe('TopicDerivedItemService', () => {
     expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['derived-block-1']);
   });
 
+  it('executes backend topic-derived child-doc creation through the local progressive operation', async () => {
+    const cardService = createCardServiceMock();
+    const progressiveReadingService = createProgressiveReadingServiceMock();
+    vi.mocked(progressiveReadingService.service.createChildDocFromSource).mockRejectedValueOnce(
+      new Error('PROGRESSIVE_COMMAND_UNAVAILABLE: nested facade unavailable'),
+    );
+    const nativeRiffApi = createNativeRiffPortMock();
+    const service = new TopicDerivedItemService(
+      cardService.service,
+      progressiveReadingService.service,
+      nativeRiffApi,
+      createSettingsProvider(),
+    );
+
+    const result = await service.executeFromBackend({
+      requestId: 'topic-derived:test',
+      commandId: 'topic-derived:test',
+      idempotencyKey: 'topic-derived:test-key',
+      operation: 'create-from-topic-source',
+      requestedAt: 1,
+      deadlineAt: 60_001,
+      input: {
+        sourceBlockId: 'source-backend-local-1',
+        sourceDocId: 'doc-backend-local-1',
+        parentTopicCardId: 'topic-backend-local-1',
+        plannerContent: 'Alpha ==Beta==',
+        decisions: [CLOZE_DECISION],
+      },
+      caller: {
+        instanceId: 'backend-test',
+        runtimeRole: 'single-window',
+        surface: 'review',
+      },
+    });
+
+    expect(result.status).toBe('completed');
+    expect(progressiveReadingService.service.createChildDocFromSource).not.toHaveBeenCalled();
+    expect(progressiveReadingService.service.createChildDocFromSourceLocal).toHaveBeenCalledTimes(1);
+  });
+
   it('fails explicitly when topic derivation storage mode settings cannot be read', async () => {
     const cardService = createCardServiceMock();
     const progressiveReadingService = createProgressiveReadingServiceMock();
@@ -692,11 +735,10 @@ describe('TopicDerivedItemService', () => {
       fallbackTitle: '挖空',
       previewText: '*',
       contentDom: expect.stringContaining('data-type="block-ref"'),
-      attrs: expect.objectContaining({
-        [ATTR_PROGRESSIVE_CREATION_RULE_ID]: 'InlineClozeRule',
-        [ATTR_PROGRESSIVE_ANSWER_FINGERPRINT]: 'source-block-manual-1::ManualSelectionClozeRule::Alpha::((20240101010101-abcdefg))::Gamma',
-      }),
+      attrs: expect.any(Object),
     }));
+    expect(firstChildInput?.attrs).not.toHaveProperty(ATTR_PROGRESSIVE_CREATION_RULE_ID);
+    expect(firstChildInput?.attrs).not.toHaveProperty(ATTR_PROGRESSIVE_ANSWER_FINGERPRINT);
     expect(firstChildInput?.contentDom).toContain('>*</span>');
     expect(firstChildInput?.contentDom).toContain('<span data-type="mark"><span data-type="block-ref"');
     expect(firstChildInput?.contentDom).toContain('data-href="https://example.com"');

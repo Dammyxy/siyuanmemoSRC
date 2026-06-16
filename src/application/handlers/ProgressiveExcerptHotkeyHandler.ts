@@ -181,12 +181,13 @@ export class ProgressiveExcerptHotkeyHandler {
       origin: 'editor',
     });
 
+    const rejectionMessage = this.getTopicContinuationRejectionMessage(selection, topicContinuationPreparation);
+    if (rejectionMessage) {
+      showMessage(rejectionMessage, 3000, 'error');
+      return;
+    }
+
     if (topicContinuationPreparation.available) {
-      const rejectionMessage = this.getTopicContinuationRejectionMessage(selection, topicContinuationPreparation);
-      if (rejectionMessage) {
-        showMessage(rejectionMessage, 3000, 'error');
-        return;
-      }
       await this.runTopicContinuationFromSnapshot(selection, topicContinuationPreparation);
       return;
     }
@@ -246,6 +247,7 @@ export class ProgressiveExcerptHotkeyHandler {
     preparation?: SelectionTopicContinuationPreparation,
   ): Promise<void> {
     let appliedManualMark: PreparedSelectionClozeMark | null = null;
+    let sourceMarkFailed = false;
     try {
       const rejectionMessage = this.getTopicContinuationRejectionMessage(selection, preparation);
       if (rejectionMessage) {
@@ -262,15 +264,18 @@ export class ProgressiveExcerptHotkeyHandler {
           throw new Error(this.translate('progressiveItemSingleBlockOnly', '请在单个块内连续选区后再创建 Item'));
         }
 
-        if (!preparedMark.alreadyApplied) {
-          this.context.getAutoCardHandler()?.suppressNextTopicDerivedMarkMutation(preparedMark.blockId);
+        try {
+          await this.tryApplySelectionClozeMark(preparedMark, {
+            stage: 'topic-manual-cloze',
+            sourceBlockId: selection.sourceBlockId,
+          });
+          if (!preparedMark.alreadyApplied) {
+            this.context.getAutoCardHandler()?.suppressNextTopicDerivedMarkMutation(preparedMark.blockId);
+          }
+          appliedManualMark = preparedMark;
+        } catch {
+          sourceMarkFailed = true;
         }
-
-        await this.tryApplySelectionClozeMark(preparedMark, {
-          stage: 'topic-manual-cloze',
-          sourceBlockId: selection.sourceBlockId,
-        });
-        appliedManualMark = preparedMark;
       }
 
       const result = await this.context.getSelectionTopicContinuationService().createFromSelection({
@@ -285,7 +290,7 @@ export class ProgressiveExcerptHotkeyHandler {
         origin: 'editor',
       }, preparation);
       showMessage(
-        this.formatTopicContinuationMessage(result),
+        this.formatTopicContinuationMessage(result, { sourceMarkFailed }),
         3000,
         'info',
       );
@@ -564,7 +569,14 @@ export class ProgressiveExcerptHotkeyHandler {
     }
   }
 
-  private formatTopicContinuationMessage(result: SelectionTopicContinuationResult): string {
+  private formatTopicContinuationMessage(
+    result: SelectionTopicContinuationResult,
+    options?: { sourceMarkFailed?: boolean },
+  ): string {
+    if (options?.sourceMarkFailed && result.created > 0) {
+      return this.translate('progressiveExcerptContinuationCreatedSourceMarkFailed', '已在当前 Topic 下新增 {created} 个 Item，但原文标记未写入')
+        .replace('{created}', String(result.created));
+    }
     if (result.created > 0 && result.skipped > 0) {
       return this.translate('progressiveExcerptContinuationCreatedSkipped', '已在当前 Topic 下新增 {created} 个 Item，跳过 {skipped} 个重复项')
         .replace('{created}', String(result.created))
@@ -582,6 +594,15 @@ export class ProgressiveExcerptHotkeyHandler {
     selection: ProgressiveExcerptSelectionSnapshot,
     preparation?: SelectionTopicContinuationPreparation,
   ): string | null {
+    if (preparation?.sourceEligibility && !preparation.sourceEligibility.eligible) {
+      if (preparation.sourceEligibility.reason === 'non-topic-flashcard-source') {
+        return preparation.sourceEligibility.message || this.translate(
+          'progressiveItemSourceRoleRejected',
+          '当前块已经是闪卡，不能继续派生 Item',
+        );
+      }
+    }
+
     if (!preparation?.topicContext) {
       return null;
     }

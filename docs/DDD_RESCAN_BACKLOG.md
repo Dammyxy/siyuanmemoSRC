@@ -4,6 +4,16 @@ Last update: 2026-06-16 (Round 617)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-06-17 - Topic-derived Item creation stabilization
+
+- Task: Implement OpenSpec change `stabilize-topic-derived-item-creation` so Topic reading material keeps its source card while selection/right-click/current-block marks create child document-block Item cards through one stable chain.
+- Touched slice: Progressive / Excerpt + Topic-derived item across `src/application/services/{TopicDerivedSourceEligibility,SelectionTopicContinuationService,TopicDerivedItemService}.ts`, `src/application/handlers/{ProgressiveExcerptHotkeyHandler,AutoCardHandler}.ts`, focused Topic-derived/handler/AutoCard tests, OpenSpec task ledger, and `ARCHITECTURE.md`.
+- Debt fixed now: Added one role-aware eligibility helper so Topic cards and plain blocks under Topic context can derive Items, while existing Item / Descriptor / Concept / cloze / unknown flashcard source blocks default-reject even under a Topic root. Selection/right-click/manual mark and current-block mark backfill now share the Topic-derived Item service; current-block marks submit one batched request. Child docs no longer receive high-churn `creationRuleId` / `answerFingerprint` attrs; those identities stay in card `progressiveLineage` / metadata. Backend-owned Topic-derived execution uses local Progressive child-doc behavior instead of nesting the Progressive command facade. Source mark persistence is visual evidence only: mark write failure no longer aborts Item creation, new marks roll back only when later Item creation fails, and pre-existing marks are preserved.
+- Debt deferred: No live SiYuan editor/right-click/current-block smoke was run in this terminal pass, and historical derived child docs with old high-churn attrs were not migrated or scrubbed.
+- Why deferred: Deterministic service/handler/AutoCard seams cover the reported failure and agreed product policy; live smoke needs a running SiYuan UI, and historical attr migration would widen this stabilization into data cleanup.
+- Next safe step: Live-smoke one Topic card source selection, one plain child block under Topic root, one rejected existing Item block, and one current-block multi-mark backfill in SiYuan; confirm child Items appear under the Topic and source mark failures only show warning.
+- Validation: Focused `pnpm exec vitest run src/application/services/__tests__/TopicDerivedItemService.test.ts src/application/services/__tests__/SelectionTopicContinuationService.test.ts src/application/handlers/__tests__/ProgressiveExcerptHotkeyHandler.test.ts src/application/managers/__tests__/BlockMenuHandler.progressive-excerpt.test.ts src/application/handlers/__tests__/AutoCardHandler.topic-derivation.test.ts --reporter=dot`; `openspec validate stabilize-topic-derived-item-creation --strict`; `node scripts/check-hidden-fallbacks.cjs`; `pnpm run check:boundaries`; `git diff --check`; `pnpm build` (passed; build kept existing non-blocking i18n hard-coded-string hints and Sass legacy warnings).
+
 ### 2026-06-16 - All flashcards sort keeps deck rows
 
 - Task: Fix the Browser "All flashcards" view going blank after clicking a field header sort while queue views keep working.

@@ -220,6 +220,26 @@ describe('AutoCardHandler topic derivation routing', () => {
     expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 个 Item');
   });
 
+  it.each([
+    ['item', 'item'],
+    ['descriptor', 'descriptor'],
+    ['concept', 'concept'],
+    ['cloze', 'cloze'],
+    ['unknown-card', 'custom-review-kind'],
+  ])('rejects %s current block cards even when the root document is a Topic card', async (_label, type) => {
+    const { handler, topicDerivedItemService, siyuanApi } = createHandler({
+      blockId: 'existing-local-card-block-1',
+      rootId: 'topic-doc-local-reject-1',
+      currentBlockCards: [{ id: 'existing-local-card-1', type }],
+      rootBlockCards: [{ id: 'topic-card-root-local-reject-1', type: 'topic' }],
+    });
+
+    await (handler as any).checkQuickSymbols('existing-local-card-block-1');
+
+    expect(topicDerivedItemService.createFromTopicSource).not.toHaveBeenCalled();
+    expect(siyuanApi.pushMsg).not.toHaveBeenCalled();
+  });
+
   it('passes excerpt-doc lineage through the topic-derived path when editing inside an excerpt document', async () => {
     const { handler, topicDerivedItemService, siyuanApi } = createHandler({
       blockId: 'excerpt-child-1',
