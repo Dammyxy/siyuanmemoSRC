@@ -142,7 +142,6 @@ function createHandler(options?: {
         progressiveExcerptCreatedHotkey: 'Topic created and added to today',
         progressiveExcerptNoSelection: 'Select text before excerpting',
         progressiveExcerptDisabled: 'Excerpt shortcut is disabled. Enable it in settings first.',
-        progressiveExcerptDuplicateJumped: 'This passage was already excerpted.',
         progressiveExcerptMenuLabel: 'Excerpt',
         progressiveExcerptContinuationMenuLabel: '在 Topic 下创建 Item',
         progressiveExcerptContinuationCreated: '已在当前 Topic 下新增 {created} 个 Item',
@@ -1329,7 +1328,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     expect(showMessage).toHaveBeenCalledWith('当前选区包含多个高亮，请改用“从当前块高亮补齐 Item”', 3000, 'error');
   });
 
-  it('jumps to the existing excerpt instead of recreating it when the same source text is excerpted twice', async () => {
+  it('recreates a fresh excerpt when the same source text is excerpted twice', async () => {
     document.body.innerHTML = `
       <div class="protyle" id="editor-root">
         <div data-node-id="block-1">
@@ -1347,23 +1346,14 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(root));
 
     const executeSelectionExcerptAction = vi.fn(async () => ({
-      kind: 'duplicate' as const,
-      record: {
-        recordId: 'record-1',
-        excerptEntityId: 'excerpt-doc-1',
-        excerptEntityType: 'doc' as const,
-        sourceDocId: 'doc-1',
-        sourceBlockId: 'block-1',
-        sourceBlockIds: ['block-1'],
-        selectedText: 'Hello',
-        normalizedFingerprint: 'Hello',
-        colorToken: 'var(--b3-font-background4)',
-        origin: 'editor' as const,
-        createdAt: Date.now(),
-        status: 'active' as const,
-      },
+      kind: 'created' as const,
+      excerptEntityId: 'excerpt-doc-2',
+      excerptEntityType: 'doc' as const,
+      topicCardId: 'topic-card-2',
       sourceBlockId: 'block-1',
       sourceBlockIds: ['block-1'],
+      containerDocId: 'excerpt-doc-2',
+      recordId: 'record-2',
       colorApplied: true,
       sourceMark: {
         enabled: true,
@@ -1375,14 +1365,14 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       },
     }));
 
-    const { handler, tabApplicationService } = createHandler({ executeSelectionExcerptAction });
+    const { handler } = createHandler({ executeSelectionExcerptAction });
     await handler.runFromEditor({
       wysiwyg: {
         element: root,
       },
     } as any);
 
-    expect(tabApplicationService.openDocumentTab).toHaveBeenCalledWith({ docId: 'excerpt-doc-1' });
-    expect(showMessage).toHaveBeenCalledWith('This passage was already excerpted.', 3000, 'info');
+    expect(executeSelectionExcerptAction).toHaveBeenCalledTimes(1);
+    expect(showMessage).toHaveBeenCalledWith('Topic created and added to today', 3000, 'info');
   });
 });

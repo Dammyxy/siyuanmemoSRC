@@ -33,6 +33,21 @@ describe('siyuan api block mutation normalization', () => {
     })).resolves.toBe('block-1');
   });
 
+  it('returns the inserted content block id when document update deletes the empty placeholder first', async () => {
+    mockApiResponse([{
+      doOperations: [
+        { action: 'delete', id: 'empty-placeholder-1' },
+        { action: 'insert', id: 'excerpt-content-1', parentID: 'excerpt-doc-1' },
+      ],
+    }]);
+
+    await expect(updateBlock({
+      dataType: 'dom',
+      data: '<div data-type="NodeParagraph" data-node-id="excerpt-content-1"></div>',
+      id: 'excerpt-doc-1',
+    })).resolves.toBe('excerpt-content-1');
+  });
+
   it('preserves the original Siyuan API error when updateBlock fails', async () => {
     mockApiResponse(null, {
       code: -1,

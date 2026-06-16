@@ -79,38 +79,6 @@ function createdExcerptActionResult(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function duplicateExcerptActionResult(overrides: Record<string, unknown> = {}) {
-  return {
-    kind: 'duplicate' as const,
-    record: {
-      recordId: 'record-1',
-      excerptEntityId: 'excerpt-doc-1',
-      excerptEntityType: 'doc' as const,
-      sourceDocId: 'doc-1',
-      sourceBlockId: 'source-block-1',
-      sourceBlockIds: ['source-block-1'],
-      selectedText: 'Selected excerpt text',
-      normalizedFingerprint: 'Selected excerpt text',
-      colorToken: 'var(--b3-font-background4)',
-      origin: 'review' as const,
-      createdAt: Date.now(),
-      status: 'active' as const,
-    },
-    sourceBlockId: 'source-block-1',
-    sourceBlockIds: ['source-block-1'],
-    colorApplied: true,
-    sourceMark: {
-      enabled: true,
-      colorApplied: true,
-    },
-    preservation: {
-      incomplete: false,
-      diagnostics: [],
-    },
-    ...overrides,
-  };
-}
-
 function buildCard() {
   const now = Date.now();
   return {
@@ -492,29 +460,4 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
     wrapper.unmount();
   });
 
-  it('opens the existing excerpt instead of reinserting it when review excerpting hits a duplicate', async () => {
-    const tabApplicationService = {
-      openDocumentTab: vi.fn(async () => undefined),
-      openBlockTab: vi.fn(async () => undefined),
-    };
-    const executeSelectionExcerptAction = vi.fn(async () => duplicateExcerptActionResult());
-    const wrapper = mountReviewView({
-      neuralQueue: createNeuralQueue(),
-      executeSelectionExcerptAction,
-      tabApplicationService,
-    });
-
-    await flushPromises();
-
-    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'progressive-excerpt', new MouseEvent('click'));
-    await flushPromises();
-
-    expect(tabApplicationService.openDocumentTab).toHaveBeenCalledWith({ docId: 'excerpt-doc-1' });
-    expect(reviewViewExcerptMocks.showMessage).toHaveBeenLastCalledWith(
-      '这段原文已摘录过，已跳到现有摘录',
-      3000,
-      'info',
-    );
-    wrapper.unmount();
-  });
 });

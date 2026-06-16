@@ -68,6 +68,7 @@ function createProgressiveSiyuanPortMock(
     appendMarkdownBlock: vi.fn(async () => 'appended-block'),
     appendDomBlock: vi.fn(async () => 'appended-dom-block'),
     updateDomBlock: vi.fn(async () => 'updated-dom-block'),
+    updateMarkdownBlock: vi.fn(async () => 'updated-markdown-block'),
     moveBlockAsChild: vi.fn(async () => undefined),
     deleteBlock: vi.fn(async () => undefined),
     renderTemplate: vi.fn(async (template: string) => template),
@@ -1693,15 +1694,13 @@ describe('ProgressiveReadingService', () => {
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
           return [];
         }
-        if (isDirectChildCleanupSql(stmt, 'excerpt-doc-1')) {
-          return [];
-        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       getBlockKramdown: vi.fn(async () => ({
         kramdown: 'Before Focus text after',
       })),
       createDocWithMarkdown: vi.fn().mockResolvedValueOnce('excerpt-doc-1'),
+      updateDomBlock: vi.fn(async () => 'excerpt-content-1'),
     });
     const cardService = createCardServiceMock();
     const nativeRiffApi = createProgressiveNativeRiffPortMock();
@@ -1758,23 +1757,23 @@ describe('ProgressiveReadingService', () => {
       '/reading/ordinary/[Topic 001] Focus text',
       '',
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-1',
       expect.stringContaining('Focus text'),
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-1',
       expect.stringContaining('data-type="block-ref"'),
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-1',
       expect.stringContaining('data-id="source-1"'),
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-1',
       expect.stringContaining('>*</span>'),
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-1',
       expect.stringContaining('data-subtype="s"'),
     );
@@ -1784,6 +1783,7 @@ describe('ProgressiveReadingService', () => {
       'custom-fsrs-reading-source-block-id': 'source-1',
     }));
     expect(port.createDocWithMarkdown).toHaveBeenCalledTimes(1);
+    expect(port.appendDomBlock).not.toHaveBeenCalled();
     expect(port.appendMarkdownBlock).not.toHaveBeenCalled();
     expect(cardService.service.createCard).toHaveBeenCalledTimes(1);
     expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
@@ -1806,12 +1806,17 @@ describe('ProgressiveReadingService', () => {
       source: 'progressive-excerpt',
       suppressAutoCard: true,
     });
-    expect(transactionProvenanceRegistry.recordBlockIds).toHaveBeenNthCalledWith(2, ['excerpt-doc-1'], {
+    expect(transactionProvenanceRegistry.recordBlockIds).toHaveBeenNthCalledWith(2, ['excerpt-content-1'], {
       reason: 'progressive-excerpt-artifact',
       source: 'progressive-excerpt',
       suppressAutoCard: true,
     });
-    expect(transactionProvenanceRegistry.recordBlockIds).toHaveBeenNthCalledWith(3, ['card-1'], {
+    expect(transactionProvenanceRegistry.recordBlockIds).toHaveBeenNthCalledWith(3, ['excerpt-doc-1'], {
+      reason: 'progressive-excerpt-artifact',
+      source: 'progressive-excerpt',
+      suppressAutoCard: true,
+    });
+    expect(transactionProvenanceRegistry.recordBlockIds).toHaveBeenNthCalledWith(4, ['card-1'], {
       reason: 'progressive-excerpt-topic-card',
       source: 'progressive-excerpt',
       suppressAutoCard: true,
@@ -1831,7 +1836,7 @@ describe('ProgressiveReadingService', () => {
     }));
   });
 
-  it('removes the empty paragraph that SiYuan creates before appended excerpt doc content', async () => {
+  it('replaces the empty doc body through document update without deleting placeholder blocks', async () => {
     const fileService = createFileServiceMock();
     const port = createProgressiveSiyuanPortMock({
       getDocInfo: vi.fn(async (docId: string) => ({
@@ -1858,32 +1863,10 @@ describe('ProgressiveReadingService', () => {
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-cleanup'")) {
           return [];
         }
-        if (stmt.includes("WHERE b.parent_id = 'excerpt-doc-cleanup-1'")) {
-          return [
-            {
-              id: 'empty-placeholder-1',
-              parent_id: 'excerpt-doc-cleanup-1',
-              root_id: 'excerpt-doc-cleanup-1',
-              type: 'p',
-              content: '',
-              markdown: '',
-              sort: '0',
-            },
-            {
-              id: 'excerpt-content-cleanup-1',
-              parent_id: 'excerpt-doc-cleanup-1',
-              root_id: 'excerpt-doc-cleanup-1',
-              type: 'p',
-              content: 'Focus text *',
-              markdown: 'Focus text *',
-              sort: '1',
-            },
-          ];
-        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-cleanup-1'),
-      appendDomBlock: vi.fn(async () => 'excerpt-content-cleanup-1'),
+      updateDomBlock: vi.fn(async () => 'excerpt-content-cleanup-1'),
     });
     const cardService = createCardServiceMock();
     const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
@@ -1894,8 +1877,12 @@ describe('ProgressiveReadingService', () => {
       origin: 'editor',
     });
 
-    expect(port.deleteBlock).toHaveBeenCalledWith('empty-placeholder-1');
-    expect(port.deleteBlock).not.toHaveBeenCalledWith('excerpt-content-cleanup-1');
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
+      'excerpt-doc-cleanup-1',
+      expect.stringContaining('Focus text'),
+    );
+    expect(port.appendDomBlock).not.toHaveBeenCalled();
+    expect(port.deleteBlock).not.toHaveBeenCalled();
     expect(port.setBlockAttrs).toHaveBeenCalledWith('excerpt-doc-cleanup-1', expect.objectContaining({
       'custom-fsrs-reading-kind': 'excerpt-doc',
     }));
@@ -2256,22 +2243,23 @@ describe('ProgressiveReadingService', () => {
       '/reading/article/01 Intro/[Topic 002] Piece text',
       '',
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-2',
       expect.stringContaining('Piece text'),
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-2',
       expect.stringContaining('data-type="block-ref"'),
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-2',
       expect.stringContaining('data-id="piece-block-1"'),
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-2',
       expect.stringContaining('>*</span>'),
     );
+    expect(port.appendDomBlock).not.toHaveBeenCalled();
     expect(port.appendMarkdownBlock).not.toHaveBeenCalled();
     expect(port.setBlockAttrs).toHaveBeenCalledWith('excerpt-doc-2', expect.objectContaining({
       'custom-fsrs-reading-kind': 'excerpt-doc',
@@ -2331,7 +2319,7 @@ describe('ProgressiveReadingService', () => {
     }));
   });
 
-  it('returns an explicit duplicate excerpt without creating another entity', async () => {
+  it('allows repeated excerpts from the same normalized source text', async () => {
     const fileService = createFileServiceMock();
     const recordService = new ExcerptRecordService(fileService);
     await recordService.createOrRejectDuplicate({
@@ -2365,6 +2353,7 @@ describe('ProgressiveReadingService', () => {
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       createDocWithMarkdown: vi.fn(async () => 'excerpt-created-2'),
+      updateDomBlock: vi.fn(async () => 'excerpt-content-created-2'),
     });
     const cardService = createCardServiceMock();
     const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
@@ -2375,18 +2364,25 @@ describe('ProgressiveReadingService', () => {
       origin: 'editor',
     });
 
-    expect(result).toEqual({
-      kind: 'duplicate',
-      record: expect.objectContaining({
-        excerptEntityId: 'excerpt-existing-1',
-        sourceBlockId: 'source-dup-1',
-        normalizedFingerprint: 'Focus text',
-      }),
-    });
-    expect(port.createDocWithMarkdown).not.toHaveBeenCalled();
-    expect(cardService.service.createCard).not.toHaveBeenCalled();
+    expect(result).toEqual(expect.objectContaining({
+      kind: 'created',
+      excerptEntityId: 'excerpt-created-2',
+      sourceBlockId: 'source-dup-1',
+      sourceBlockIds: ['source-dup-1'],
+    }));
+    expect(port.createDocWithMarkdown).toHaveBeenCalledTimes(1);
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
+      'excerpt-created-2',
+      expect.stringContaining('Focus text'),
+    );
+    expect(cardService.service.createCard).toHaveBeenCalledTimes(1);
     expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toEqual(expect.objectContaining({
       records: [
+        expect.objectContaining({
+          excerptEntityId: 'excerpt-created-2',
+          sourceBlockId: 'source-dup-1',
+          normalizedFingerprint: 'Focus text',
+        }),
         expect.objectContaining({
           excerptEntityId: 'excerpt-existing-1',
           sourceBlockId: 'source-dup-1',
@@ -2521,10 +2517,11 @@ describe('ProgressiveReadingService', () => {
       '/reading/ordinary/[Topic 001] Focus',
       '',
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-plain-1',
       expect.stringContaining('data-id="source-plain-1"'),
     );
+    expect(port.appendDomBlock).not.toHaveBeenCalled();
     expect(port.appendMarkdownBlock).not.toHaveBeenCalled();
   });
 
@@ -2684,27 +2681,27 @@ describe('ProgressiveReadingService', () => {
       containerDocId: 'library-root-1',
     }));
     expect(configuredCaptureStorageService.resolveLibraryTarget).toHaveBeenCalledTimes(1);
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-rich-1',
       expect.stringContaining('data-type="a"'),
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-rich-1',
       expect.stringContaining('data-type="block-ref"'),
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-rich-1',
       expect.stringContaining('data-href="assets/paper.pdf"'),
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-rich-1',
       expect.stringContaining('data-href="siyuan://blocks/20240101010101-abcdefg"'),
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-rich-1',
       expect.stringContaining('data-type="tag"'),
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-rich-1',
       expect.stringContaining('data-id="source-rich-1"'),
     );
@@ -2950,14 +2947,15 @@ describe('ProgressiveReadingService', () => {
       '/reading/ordinary/[Topic 001] 人的思考并不只发生在大…',
       '',
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-long-1',
       expect.stringContaining('人的思考并不只发生在大脑里'),
     );
-    expect(port.appendDomBlock).toHaveBeenCalledWith(
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
       'excerpt-doc-long-1',
       expect.stringContaining('而是分布在工具、符号与制度之间'),
     );
+    expect(port.appendDomBlock).not.toHaveBeenCalled();
   });
 
   it('creates nested excerpt topics inside excerpt docs with parent lineage and native Riff sync', async () => {

@@ -377,25 +377,45 @@ function normalizeMutationResult(result: BlockMutationResponse): BlockMutationRe
     };
 }
 
-function extractFirstMutationId(result: BlockMutationResult): string {
+function findFirstMutationId(
+    result: BlockMutationResult,
+    predicate: (operation: BlockMutationOperation) => boolean = () => true,
+): string | null {
     for (const operation of result.doOperations) {
-        if (typeof operation.id === 'string' && operation.id.length > 0) {
+        if (predicate(operation) && typeof operation.id === 'string' && operation.id.length > 0) {
             return operation.id;
         }
+    }
+    return null;
+}
+
+function extractFirstMutationId(result: BlockMutationResult): string {
+    const nonDeleteId = findFirstMutationId(result, (operation) => operation.action !== 'delete');
+    if (nonDeleteId) {
+        return nonDeleteId;
+    }
+
+    const anyId = findFirstMutationId(result);
+    if (anyId) {
+        return anyId;
     }
     throw new Error('Failed to resolve block mutation id from Siyuan response');
 }
 
 function extractFirstMutationIdOrFallback(result: BlockMutationResult, fallbackId: string): string {
-    for (const operation of result.doOperations) {
-        if (typeof operation.id === 'string' && operation.id.length > 0) {
-            return operation.id;
-        }
+    const nonDeleteId = findFirstMutationId(result, (operation) => operation.action !== 'delete');
+    if (nonDeleteId) {
+        return nonDeleteId;
     }
 
     const normalizedFallbackId = String(fallbackId || '').trim();
     if (normalizedFallbackId) {
         return normalizedFallbackId;
+    }
+
+    const anyId = findFirstMutationId(result);
+    if (anyId) {
+        return anyId;
     }
 
     throw new Error('Failed to resolve block mutation id from Siyuan response');

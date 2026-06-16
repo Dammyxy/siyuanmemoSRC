@@ -10,7 +10,6 @@ import type {
   ProgressiveExcerptSourceMaterializationResult,
 } from '@/application/services/ProgressiveReadingService';
 import { ProgressiveReadingService } from '@/application/services/ProgressiveReadingService';
-import type { ExcerptRecord } from '@/application/services/ExcerptRecordService';
 import type {
   ProgressiveContentPayloadIdentity,
   ProgressiveDisclosureState,
@@ -62,19 +61,7 @@ export interface CreatedSelectionExcerptActionResult extends SelectionExcerptAct
   preservation: SelectionExcerptPreservationResult;
 }
 
-export interface DuplicateSelectionExcerptActionResult extends SelectionExcerptActionSourceSemantics {
-  kind: 'duplicate';
-  record: ExcerptRecord;
-  sourceBlockId: string;
-  sourceBlockIds: string[];
-  colorApplied: boolean;
-  sourceMark: SelectionExcerptSourceMarkResult;
-  preservation: SelectionExcerptPreservationResult;
-}
-
-export type SelectionExcerptActionResult =
-  | CreatedSelectionExcerptActionResult
-  | DuplicateSelectionExcerptActionResult;
+export type SelectionExcerptActionResult = CreatedSelectionExcerptActionResult;
 
 interface ProgressiveExcerptFacade {
   materializeExcerptSource(snapshot: ProgressiveExcerptSelectionSnapshot): Promise<ProgressiveExcerptSourceMaterializationResult>;
@@ -116,45 +103,11 @@ function buildPreservationDiagnostics(contentDom: string | undefined, selectedTe
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function asSourceLineage(value: unknown): ProgressiveSourceLineage | undefined {
-  if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.sourceBlockIds)) {
-    return undefined;
-  }
-  return value as unknown as ProgressiveSourceLineage;
-}
-
-function asPayloadIdentity(value: unknown): ProgressiveContentPayloadIdentity | undefined {
-  if (!isRecord(value) || value.version !== 1 || value.algorithm !== 'fnv1a32') {
-    return undefined;
-  }
-  return value as unknown as ProgressiveContentPayloadIdentity;
-}
-
-function asDisclosureState(value: unknown): ProgressiveDisclosureState | undefined {
-  if (!isRecord(value) || value.version !== 1 || typeof value.state !== 'string') {
-    return undefined;
-  }
-  return value as unknown as ProgressiveDisclosureState;
-}
-
 function extractSourceSemantics(result: ProgressiveExcerptCreationResult): SelectionExcerptActionSourceSemantics {
-  if (result.kind === 'created') {
-    return {
-      sourceLineage: result.sourceLineage,
-      payloadIdentity: result.payloadIdentity,
-      disclosureState: result.disclosureState,
-    };
-  }
-
-  const semantics = result.record.sourceSemantics;
   return {
-    sourceLineage: asSourceLineage(semantics?.sourceLineage),
-    payloadIdentity: asPayloadIdentity(semantics?.payloadIdentity),
-    disclosureState: asDisclosureState(semantics?.disclosureState),
+    sourceLineage: result.sourceLineage,
+    payloadIdentity: result.payloadIdentity,
+    disclosureState: result.disclosureState,
   };
 }
 
@@ -184,19 +137,6 @@ export class SelectionExcerptService {
     });
     const sourceMark = await this.applySourceMark(preparedHighlight, input.sourceMarkingEnabled);
     const sourceSemantics = extractSourceSemantics(result);
-
-    if (result.kind === 'duplicate') {
-      return {
-        kind: 'duplicate',
-        record: result.record,
-        sourceBlockId: result.record.sourceBlockId || materialized.sourceBlockId,
-        sourceBlockIds: result.record.sourceBlockIds?.length ? result.record.sourceBlockIds : materialized.sourceBlockIds,
-        colorApplied: sourceMark.colorApplied,
-        sourceMark,
-        preservation,
-        ...sourceSemantics,
-      };
-    }
 
     return {
       kind: 'created',

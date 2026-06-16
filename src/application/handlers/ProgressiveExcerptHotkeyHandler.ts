@@ -12,7 +12,6 @@ import {
   type PreparedSelectionClozeMarkApplyResult,
   prepareSelectionClozeMark,
 } from '@/application/entries/SelectionClozeMarker';
-import type { ExcerptRecord } from '@/application/services/ExcerptRecordService';
 import type {
   SelectionTopicContinuationPreparation,
   SelectionTopicContinuationResult,
@@ -217,18 +216,6 @@ export class ProgressiveExcerptHotkeyHandler {
           sourceBlockIds: result.sourceBlockIds,
         });
       }
-      if (result.kind === 'duplicate') {
-        await this.tryOpenExistingExcerpt(result.record);
-        showMessage(
-          result.sourceMark.diagnostic
-            ? this.translate('progressiveExcerptDuplicateSourceMarkFailed', '已找到已有摘录，但原文标记未写入')
-            : this.translate('progressiveExcerptDuplicateJumped', '这段原文已摘录过，已跳到现有摘录'),
-          3000,
-          'info',
-        );
-        return;
-      }
-
       if (result.preservation.incomplete) {
         showMessage(
           this.translate('progressiveExcerptPreservationDegraded', '已创建 Topic，但原文链接或块引用可能未完整保留'),
@@ -427,19 +414,6 @@ export class ProgressiveExcerptHotkeyHandler {
       3000,
       'info',
     );
-  }
-
-  private async tryOpenExistingExcerpt(record: ExcerptRecord): Promise<void> {
-    try {
-      const tabApplicationService = this.context.getTabApplicationService();
-      if (record.excerptEntityType === 'doc') {
-        await tabApplicationService.openDocumentTab({ docId: record.excerptEntityId });
-        return;
-      }
-      await tabApplicationService.openBlockTab({ blockId: record.excerptEntityId });
-    } catch (error) {
-      logger.warn('Failed to jump to existing excerpt record after duplicate detection', error);
-    }
   }
 
   private async tryApplySelectionClozeMark(

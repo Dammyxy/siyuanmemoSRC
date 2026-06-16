@@ -172,7 +172,6 @@ describe('reviewProgressiveExcerptCommands', () => {
       selection: createSelection(),
       trigger: 'toolbar',
       selectionService,
-      tabApplicationService: null,
       currentCardId: 'card-topic-1',
       routeExcerpt,
       t,
@@ -228,7 +227,6 @@ describe('reviewProgressiveExcerptCommands', () => {
       selection,
       trigger: 'toolbar',
       selectionService,
-      tabApplicationService: null,
       currentCardId: 'card-topic-1',
       routeExcerpt,
       t,
@@ -245,59 +243,4 @@ describe('reviewProgressiveExcerptCommands', () => {
     expect(showMessage).toHaveBeenLastCalledWith('已创建 Topic', 3000, 'info');
   });
 
-  it('opens duplicate excerpts without routing them again', async () => {
-    const duplicateResult = {
-      kind: 'duplicate' as const,
-      record: {
-        recordId: 'record-1',
-        excerptEntityId: 'excerpt-doc-1',
-        excerptEntityType: 'doc' as const,
-        sourceDocId: 'source-doc-1',
-        sourceBlockId: 'source-block-1',
-        sourceBlockIds: ['source-block-1'],
-        selectedText: 'Selected excerpt text',
-        normalizedFingerprint: 'selected excerpt text',
-        colorToken: 'var(--b3-font-background4)',
-        origin: 'review' as const,
-        createdAt: Date.now(),
-        status: 'active' as const,
-      },
-      sourceBlockId: 'source-block-1',
-      sourceBlockIds: ['source-block-1'],
-      colorApplied: true,
-      sourceMark: {
-        enabled: true,
-        colorApplied: true,
-      },
-      preservation: {
-        incomplete: false,
-        diagnostics: [],
-      },
-    };
-    const selectionService = createSelectionService(duplicateResult);
-    const tabApplicationService = {
-      openDocumentTab: vi.fn(async () => undefined),
-      openBlockTab: vi.fn(async () => undefined),
-    };
-    const routeExcerpt = vi.fn(async () => 'hyperspace' as const);
-    const showMessage = vi.fn();
-
-    await createProgressiveExcerptFromReviewSelection({
-      selection: createSelection(),
-      trigger: 'toolbar',
-      selectionService,
-      tabApplicationService,
-      currentCardId: 'card-topic-1',
-      routeExcerpt,
-      t,
-      showMessage,
-      sourceMarkingEnabled: true,
-      logger: {},
-    });
-
-    expect(tabApplicationService.openDocumentTab).toHaveBeenCalledWith({ docId: 'excerpt-doc-1' });
-    expect(tabApplicationService.openBlockTab).not.toHaveBeenCalled();
-    expect(routeExcerpt).not.toHaveBeenCalled();
-    expect(showMessage).toHaveBeenLastCalledWith('这段原文已摘录过，已跳到现有摘录', 3000, 'info');
-  });
 });

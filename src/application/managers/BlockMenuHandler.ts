@@ -31,7 +31,6 @@ import type { NeuralRoamEntryActionService } from '@/application/services/Neural
 import {
   resolveProgressiveExcerptSnapshotFromBlocks,
 } from '@/application/entries/ProgressiveSelectionResolver';
-import type { ExcerptRecord } from '@/application/services/ExcerptRecordService';
 import type { CurrentBlockTopicContinuationPreparation } from '@/application/services/SelectionTopicContinuationService';
 import { isErr } from '@/types/result';
 
@@ -837,19 +836,6 @@ export class BlockMenuHandler {
     return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
   }
 
-  private async tryOpenExistingExcerpt(record: ExcerptRecord): Promise<void> {
-    try {
-      const tabApplicationService = this.deps.applicationContext.getTabApplicationService();
-      if (record.excerptEntityType === 'doc') {
-        await tabApplicationService.openDocumentTab({ docId: record.excerptEntityId });
-        return;
-      }
-      await tabApplicationService.openBlockTab({ blockId: record.excerptEntityId });
-    } catch (error) {
-      logger.warn('[BlockMenuHandler] Failed to open existing duplicate excerpt:', error);
-    }
-  }
-
   private async runProgressiveExcerptAction(blockElements: HTMLElement[]): Promise<void> {
     const selection = resolveProgressiveExcerptSnapshotFromBlocks(blockElements);
     if (!selection) {
@@ -869,16 +855,6 @@ export class BlockMenuHandler {
           sourceBlockIds: result.sourceBlockIds,
         });
       }
-      if (result.kind === 'duplicate') {
-        await this.tryOpenExistingExcerpt(result.record);
-        await this.siyuanApi.pushMsg(
-          result.sourceMark.diagnostic
-            ? this.text('progressiveExcerptDuplicateSourceMarkFailed', '已找到已有摘录，但原文标记未写入')
-            : this.text('progressiveExcerptDuplicateJumped', '这段原文已摘录过，已跳到现有摘录'),
-        );
-        return;
-      }
-
       if (result.preservation.incomplete) {
         await this.siyuanApi.pushMsg(
           this.text('progressiveExcerptPreservationDegraded', '已创建 Topic，但原文链接或块引用可能未完整保留'),

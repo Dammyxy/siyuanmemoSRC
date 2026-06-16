@@ -40,6 +40,7 @@ export interface ProgressiveSiyuanPort {
   appendMarkdownBlock(parentID: string, markdown: string): Promise<string>;
   appendDomBlock(parentID: string, dom: string): Promise<string>;
   updateDomBlock(blockId: string, dom: string): Promise<string>;
+  updateMarkdownBlock(blockId: string, markdown: string): Promise<string>;
   moveBlockAsChild(blockId: string, parentID: string): Promise<void>;
   deleteBlock(blockId: string): Promise<void>;
   renderTemplate(template: string): Promise<string>;

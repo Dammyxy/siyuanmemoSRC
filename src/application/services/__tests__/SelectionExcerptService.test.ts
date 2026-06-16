@@ -223,47 +223,6 @@ describe('SelectionExcerptService.executeSelectionExcerptAction', () => {
     expect(applyHighlight).not.toHaveBeenCalled();
   });
 
-  it('returns a duplicate outcome with source-mark diagnostics and leaves opening to callers', async () => {
-    const record = {
-      recordId: 'record-1',
-      excerptEntityId: 'excerpt-doc-1',
-      excerptEntityType: 'doc' as const,
-      sourceDocId: 'source-doc-1',
-      sourceBlockId: 'source-block-1',
-      sourceBlockIds: ['source-block-1'],
-      selectedText: 'Selected [link](https://example.com)',
-      normalizedFingerprint: 'selected link',
-      colorToken: 'var(--b3-font-background4)',
-      origin: 'editor' as const,
-      createdAt: Date.now(),
-      status: 'active' as const,
-    };
-    const { service } = createService({
-      creationResult: { kind: 'duplicate', record },
-      applyHighlight: vi.fn(async () => false),
-    });
-
-    const result = await service.executeSelectionExcerptAction({
-      selection: createSelection(),
-      origin: 'block-menu',
-      sourceMarkingEnabled: true,
-    });
-
-    expect(result).toMatchObject({
-      kind: 'duplicate',
-      record,
-      colorApplied: false,
-      sourceMark: {
-        enabled: true,
-        colorApplied: false,
-        diagnostic: {
-          code: 'source-mark-persist-failed',
-        },
-      },
-    });
-    expect(result).not.toHaveProperty('navigationTarget');
-  });
-
   it('keeps source-mark persistence failure separate from content preservation degradation', async () => {
     const { service } = createService({
       contentDom: '',

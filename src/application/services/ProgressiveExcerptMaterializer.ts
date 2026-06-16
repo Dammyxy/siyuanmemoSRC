@@ -214,7 +214,7 @@ export class ProgressiveExcerptMaterializer {
     };
     const sourceDocId = sourceContext.sourceDocId;
 
-    const excerptAttempt = await this.deps.excerptRecordService.createOrRejectDuplicate<ProgressiveExcerptResult>({
+    const excerptAttempt = await this.deps.excerptRecordService.createAllowingDuplicate<ProgressiveExcerptResult>({
       sourceDocId,
       sourceBlockId,
       sourceBlockIds,
@@ -245,12 +245,6 @@ export class ProgressiveExcerptMaterializer {
         pieceDocId: sessionContext.pieceDocId,
       }),
     });
-    if (excerptAttempt.kind === 'duplicate') {
-      return {
-        kind: 'duplicate',
-        record: excerptAttempt.record,
-      };
-    }
 
     logger.info('Excerpt created', {
       sourceBlockId,

@@ -53,6 +53,7 @@ function createSiyuanPortMock(overrides: Partial<ProgressiveSiyuanPort> = {}): P
     appendMarkdownBlock: vi.fn(async () => 'block-1'),
     appendDomBlock: vi.fn(async () => 'block-1'),
     updateDomBlock: vi.fn(async () => 'block-1'),
+    updateMarkdownBlock: vi.fn(async () => 'block-1'),
     moveBlockAsChild: vi.fn(async () => undefined),
     deleteBlock: vi.fn(async () => undefined),
     renderTemplate: vi.fn(async () => ''),

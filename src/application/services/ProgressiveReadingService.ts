@@ -11,7 +11,6 @@ import { ConfiguredCaptureStorageService } from '@/application/services/Configur
 import {
   ExcerptRecordService,
   normalizeExcerptBlockIds,
-  type ExcerptRecord,
 } from '@/application/services/ExcerptRecordService';
 import {
   ProgressiveExcerptMaterializer,
@@ -239,14 +238,7 @@ export interface ProgressiveCreatedExcerptResult extends ProgressiveExcerptResul
   colorApplied: boolean;
 }
 
-export interface ProgressiveDuplicateExcerptResult {
-  kind: 'duplicate';
-  record: ExcerptRecord;
-}
-
-export type ProgressiveExcerptCreationResult =
-  | ProgressiveCreatedExcerptResult
-  | ProgressiveDuplicateExcerptResult;
+export type ProgressiveExcerptCreationResult = ProgressiveCreatedExcerptResult;
 
 export interface ProgressiveExcerptSourceMaterializationResult {
   sourceBlockId: string;
@@ -904,13 +896,11 @@ export class ProgressiveReadingService {
     }
 
     const contentBlockId = input.contentDom
-      ? await this.siyuanApi.appendDomBlock(docId, input.contentDom)
-      : await this.siyuanApi.appendMarkdownBlock(docId, input.contentMarkdown || '');
-
-    await this.removeLeadingEmptyDocParagraphAfterAppend({
-      docId,
-      appendedBlockId: asString(contentBlockId),
-    });
+      ? await this.siyuanApi.updateDomBlock(docId, input.contentDom)
+      : await this.siyuanApi.updateMarkdownBlock(docId, input.contentMarkdown || '');
+    if (input.kind === 'excerpt-doc') {
+      this.recordProgressiveExcerptProvenance([contentBlockId], 'progressive-excerpt-artifact');
+    }
     await this.setProgressiveAttrs(docId, input.attrs);
     this.docTreeScopeRefresher?.scheduleRebuild();
 
@@ -1851,68 +1841,11 @@ export class ProgressiveReadingService {
       throw new Error('固定库摘录创建后无法定位');
     }
 
-    const contentBlockId = await this.siyuanApi.appendDomBlock(docId, input.contentDom);
-    await this.removeLeadingEmptyDocParagraphAfterAppend({
-      docId,
-      appendedBlockId: asString(contentBlockId),
-    });
+    const contentBlockId = await this.siyuanApi.updateDomBlock(docId, input.contentDom);
+    this.recordProgressiveExcerptProvenance([contentBlockId], 'progressive-excerpt-artifact');
     await this.setProgressiveAttrs(docId, input.attrs);
     this.docTreeScopeRefresher?.scheduleRebuild();
     return docId;
-  }
-
-  private async removeLeadingEmptyDocParagraphAfterAppend(input: {
-    docId: string;
-    appendedBlockId?: string;
-  }): Promise<void> {
-    const docId = asString(input.docId);
-    const appendedBlockId = asString(input.appendedBlockId);
-    if (!docId || !appendedBlockId) {
-      return;
-    }
-
-    const directChildren = await this.siyuanApi.sql<ProgressiveBlockRow>(`
-      SELECT b.id, b.root_id, b.parent_id, b.type, b.subtype, b.content, b.markdown, b.sort
-      FROM blocks b
-      WHERE b.parent_id = '${this.escapeSql(docId)}'
-      ORDER BY b.sort ASC, b.id ASC
-      LIMIT 2
-    `);
-    if (directChildren.length < 2) {
-      return;
-    }
-
-    const firstChild = directChildren[0];
-    const firstChildId = asString(firstChild?.id);
-    if (!firstChildId || firstChildId === appendedBlockId) {
-      return;
-    }
-    if (!directChildren.some((row) => asString(row.id) === appendedBlockId)) {
-      return;
-    }
-    if (!this.isEmptyParagraphRow(firstChild)) {
-      return;
-    }
-
-    await this.siyuanApi.deleteBlock(firstChildId);
-  }
-
-  private isEmptyParagraphRow(row: ProgressiveBlockRow): boolean {
-    if (asString(row.type) !== 'p') {
-      return false;
-    }
-
-    const text = [
-      asString(row.content) || '',
-      asString(row.markdown) || '',
-    ].join('\n')
-      .replace(/\u200B/g, '')
-      .replace(/\u00A0/g, ' ')
-      .replace(/&nbsp;/giu, ' ')
-      .replace(/<br\s*\/?>/giu, '')
-      .trim();
-
-    return text.length === 0;
   }
 
   private async createDailyNoteExcerptBlock(input: {

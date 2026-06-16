@@ -112,8 +112,6 @@ function createHandler(options?: {
       progressiveExcerptMenuLabel: '摘录',
       progressiveExcerptCreated: '已创建 Topic，已进入今日渐进学习',
       progressiveExcerptCreatedSourceMarkFailed: '已创建 Topic，但原文标记未写入',
-      progressiveExcerptDuplicateJumped: '这段原文已摘录过，已跳到现有摘录',
-      progressiveExcerptDuplicateSourceMarkFailed: '已找到已有摘录，但原文标记未写入',
       progressiveExcerptPreservationDegraded: '已创建 Topic，但原文链接或块引用可能未完整保留',
       progressiveExcerptBatchMenuLabel: '从当前块高亮补齐 Item',
       progressiveExcerptBatchCreated: '已从当前块高亮补齐 {created} 个 Item',
@@ -281,75 +279,6 @@ describe('BlockMenuHandler progressive excerpt block-menu flow', () => {
     await excerptItem?.click?.();
 
     expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已创建 Topic，但原文标记未写入');
-  });
-
-  it('opens duplicate excerpts and reports source-mark diagnostics from the shared action', async () => {
-    const executeSelectionExcerptAction = vi.fn(async () => ({
-      kind: 'duplicate' as const,
-      record: {
-        recordId: 'record-1',
-        excerptEntityId: 'excerpt-doc-1',
-        excerptEntityType: 'doc' as const,
-        sourceDocId: 'doc-1',
-        sourceBlockId: 'block-1',
-        sourceBlockIds: ['block-1'],
-        selectedText: 'Alpha',
-        normalizedFingerprint: 'alpha',
-        colorToken: 'var(--b3-font-background4)',
-        origin: 'block-menu' as const,
-        createdAt: Date.now(),
-        status: 'active' as const,
-      },
-      sourceBlockId: 'block-1',
-      sourceBlockIds: ['block-1'],
-      colorApplied: false,
-      sourceMark: {
-        enabled: true,
-        colorApplied: false,
-        diagnostic: {
-          code: 'source-mark-persist-failed' as const,
-          message: '原文标记未写入',
-        },
-      },
-      preservation: {
-        incomplete: false,
-        diagnostics: [],
-      },
-    }));
-    const { handler, siyuanApi, tabApplicationService } = createHandler({ executeSelectionExcerptAction });
-    const blockOne = document.createElement('div');
-    blockOne.setAttribute('data-node-id', 'block-1');
-    progressiveExcerptMocks.resolveProgressiveExcerptSnapshotFromBlocks.mockReturnValue({
-      blockId: 'block-1',
-      sourceBlockId: 'block-1',
-      sourceBlockIds: ['block-1'],
-      text: 'Alpha',
-      contentDom: '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
-      range: document.createRange(),
-      blockSelections: [
-        { blockId: 'block-1', mode: 'full-block', excerptHtml: '<div></div>' },
-      ],
-      commonElement: blockOne,
-      root: null,
-      protyle: null,
-    });
-
-    const menu = { addItem: vi.fn() };
-    handler.handleBlockIconClick({
-      detail: {
-        menu,
-        blockElements: [blockOne],
-      },
-    });
-
-    const topLevelItem = menu.addItem.mock.calls[0][0];
-    const submenu = topLevelItem.submenu as Array<{ label?: string; icon?: string; click?: () => Promise<void> }>;
-    const excerptItem = submenu.find((item) => item.label === '摘录');
-
-    await excerptItem?.click?.();
-
-    expect(tabApplicationService.openDocumentTab).toHaveBeenCalledWith({ docId: 'excerpt-doc-1' });
-    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已找到已有摘录，但原文标记未写入');
   });
 
   it('fails closed when the shared block-menu excerpt action throws', async () => {

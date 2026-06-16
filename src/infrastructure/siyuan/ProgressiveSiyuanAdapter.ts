@@ -93,6 +93,14 @@ export class ProgressiveSiyuanAdapter implements ProgressiveSiyuanPort {
     });
   }
 
+  async updateMarkdownBlock(blockId: string, markdown: string): Promise<string> {
+    return updateBlock({
+      dataType: 'markdown',
+      data: markdown,
+      id: blockId,
+    });
+  }
+
   async moveBlockAsChild(blockId: string, parentID: string): Promise<void> {
     await moveBlock({ id: blockId, parentID });
   }

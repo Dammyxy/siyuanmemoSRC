@@ -2,7 +2,6 @@ import type { App } from 'siyuan';
 import type {
   ProgressiveExcerptSelectionSnapshot,
 } from '@/application/entries/ProgressiveSelectionResolver';
-import type { ExcerptRecord } from '@/application/services/ExcerptRecordService';
 import type { SelectionExcerptActionResult } from '@/application/services/SelectionExcerptService';
 import type { FSRSCard } from '@/types/card';
 import type { CardFilter, NeuralRoamSessionQueue } from '@/types/unified-data-source';
@@ -98,7 +97,6 @@ type CreateReviewProgressiveExcerptInput = {
   selection: ProgressiveExcerptSelectionSnapshot;
   trigger: ReviewProgressiveExcerptTrigger;
   selectionService: ReviewSelectionExcerptServiceLike;
-  tabApplicationService: ReviewTabApplicationServiceLike | null;
   currentCardId: string;
   routeExcerpt: (excerptEntityId: string) => Promise<ReviewProgressiveRouteTarget | null>;
   t: ReviewProgressiveTranslate;
@@ -169,12 +167,6 @@ export function getReviewSelectionExcerptService(
   contexts: Array<ReviewProgressiveContextLike | null | undefined>,
 ): ReviewSelectionExcerptServiceLike | null {
   return getFirstService(contexts, (context) => context.getSelectionExcerptService?.());
-}
-
-export function getReviewTabApplicationService(
-  contexts: Array<ReviewProgressiveContextLike | null | undefined>,
-): ReviewTabApplicationServiceLike | null {
-  return getFirstService(contexts, (context) => context.getTabApplicationService?.());
 }
 
 export function isReviewProgressiveExcerptEnabled(input: {
@@ -352,27 +344,6 @@ export async function routeProgressiveExcerptIntoCurrentReview(
   }
 }
 
-async function tryOpenExistingExcerptFromReview(
-  record: ExcerptRecord,
-  tabApplicationService: ReviewTabApplicationServiceLike | null,
-  logger?: ReviewProgressiveLogger,
-): Promise<void> {
-  try {
-    if (!tabApplicationService) {
-      return;
-    }
-
-    if (record.excerptEntityType === 'doc') {
-      await tabApplicationService.openDocumentTab({ docId: record.excerptEntityId });
-      return;
-    }
-
-    await tabApplicationService.openBlockTab({ blockId: record.excerptEntityId });
-  } catch (error) {
-    logger?.warn?.('[SiYuanMemo][ReviewView] Failed to open existing duplicate excerpt:', error);
-  }
-}
-
 function getCreatedExcerptMessage(
   trigger: ReviewProgressiveExcerptTrigger,
   routedExcerptTarget: ReviewProgressiveRouteTarget | null,
@@ -396,7 +367,6 @@ export async function createProgressiveExcerptFromReviewSelection(
     selection,
     trigger,
     selectionService,
-    tabApplicationService,
     currentCardId,
     routeExcerpt,
     t,
@@ -417,18 +387,6 @@ export async function createProgressiveExcerptFromReviewSelection(
         sourceBlockIds: result.sourceBlockIds,
       });
     }
-    if (result.kind === 'duplicate') {
-      await tryOpenExistingExcerptFromReview(result.record, tabApplicationService, logger);
-      showMessage(
-        result.sourceMark.diagnostic
-          ? t('progressiveExcerptDuplicateSourceMarkFailed', '已找到已有摘录，但原文标记未写入')
-          : t('progressiveExcerptDuplicateJumped', '这段原文已摘录过，已跳到现有摘录'),
-        3000,
-        'info',
-      );
-      return;
-    }
-
     const routedExcerptTarget = await routeExcerpt(result.excerptEntityId);
     if (result.preservation.incomplete) {
       showMessage(
@@ -488,7 +446,6 @@ export async function runReviewProgressiveExcerptCommand(
     selection,
     trigger: input.trigger,
     selectionService,
-    tabApplicationService: getReviewTabApplicationService(contexts),
     currentCardId: input.currentCardId,
     routeExcerpt: (excerptEntityId) => routeProgressiveExcerptIntoCurrentReview({
       excerptEntityId,
